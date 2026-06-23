@@ -10,6 +10,10 @@
 use tracing_subscriber::EnvFilter;
 
 pub mod claude;
+pub mod server;
+pub mod state;
+
+use state::{Inner, ServerConfig};
 
 /// First-run check: can the app read `~/.claude/projects`? On packaged macOS
 /// builds this requires Full Disk Access (a separate TCC grant from the dev
@@ -19,6 +23,16 @@ fn check_full_disk_access() -> bool {
     claude::ClaudeHome::resolve()
         .map(|h| h.has_full_disk_access())
         .unwrap_or(false)
+}
+
+/// Desktop-only: where the embedded dashboard server is listening, so the
+/// webview can point its API client at it.
+#[tauri::command]
+fn server_info(state: tauri::State<'_, state::AppState>) -> serde_json::Value {
+    serde_json::json!({
+        "host": state.config.host,
+        "port": state.config.port,
+    })
 }
 
 /// Open the macOS Privacy & Security → Full Disk Access settings pane.
@@ -50,10 +64,36 @@ fn init_tracing() {
 pub fn run() {
     init_tracing();
 
+    let home = match claude::ClaudeHome::resolve() {
+        Ok(h) => h,
+        Err(e) => {
+            tracing::error!(error = %e, "could not resolve Claude config dir");
+            claude::ClaudeHome::with_base(
+                std::env::var_os("HOME")
+                    .map(std::path::PathBuf::from)
+                    .unwrap_or_default()
+                    .join(".claude"),
+            )
+        }
+    };
+    let app_state = Inner::new(home, ServerConfig::from_env());
+
     tauri::Builder::default()
+        .manage(app_state.clone())
+        .setup(move |_app| {
+            // The dashboard server shares the Tokio runtime so its broadcast bus
+            // can feed both the webview and LAN clients over one path.
+            tauri::async_runtime::spawn(async move {
+                if let Err(e) = server::serve(app_state).await {
+                    tracing::error!(error = %e, "embedded server stopped");
+                }
+            });
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             check_full_disk_access,
-            open_privacy_settings
+            open_privacy_settings,
+            server_info
         ])
         .run(tauri::generate_context!())
         .expect("error while running Mother Claude");
