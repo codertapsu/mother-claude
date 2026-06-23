@@ -12,6 +12,7 @@
 //! remote-approval commit and is preferred for rich permission gating.
 
 use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::{Arc, Mutex};
 
@@ -63,10 +64,12 @@ impl ControlRegistry {
 
     /// Launch a new owned session and return its id.
     ///
-    /// Path A (preferred, when `MOTHER_CLAUDE_SIDECAR=1` and the Node sidecar is
-    /// built): drive the session via the Agent SDK bridge, which gates tools with
-    /// `canUseTool` and surfaces questions via `ask_user` to the dashboard.
-    /// Path B (default): a headless `claude -p` stream-json subprocess.
+    /// Path A (the default when the Node sidecar is built/bundled): drive the
+    /// session via the Agent SDK bridge, which gates tools with `canUseTool` and
+    /// surfaces questions via `ask_user` to the dashboard. If the sidecar is
+    /// absent, can't start (e.g. `node` missing), or is disabled with
+    /// `MOTHER_CLAUDE_SIDECAR=0`, fall back to Path B: a headless `claude -p`
+    /// stream-json subprocess.
     pub async fn spawn(&self, state: &AppState, opts: SpawnOptions) -> Result<String> {
         let id = Uuid::new_v4().to_string();
         let permission_mode = opts
@@ -74,57 +77,26 @@ impl ControlRegistry {
             .as_deref()
             .unwrap_or("default")
             .to_string();
+        let token = state.auth.token.clone();
 
-        let mut cmd = match sidecar_entry() {
+        let mut child = match sidecar_entry() {
             Some(entry) => {
                 tracing::info!(session = %id, "spawning owned session via sidecar (Path A)");
-                let mut c = tokio::process::Command::new("node");
-                c.arg(entry)
-                    .env("MC_SESSION_ID", &id)
-                    .env("MC_CWD", &opts.cwd)
-                    .env("MC_PROMPT", &opts.prompt)
-                    .env("MC_PERMISSION_MODE", &permission_mode)
-                    .env("MOTHER_CLAUDE_URL", server_url(state))
-                    // Self-signed loopback TLS: trust it for the local sidecar.
-                    .env("NODE_TLS_REJECT_UNAUTHORIZED", "0");
-                if let Some(model) = &opts.model {
-                    c.env("MC_MODEL", model);
+                let url = server_url(state);
+                match sidecar_command(&entry, &id, &opts, &permission_mode, &token, &url).spawn() {
+                    Ok(child) => child,
+                    Err(e) => {
+                        tracing::warn!(error = %e, "sidecar failed to start; falling back to headless (Path B)");
+                        headless_command(&id, &opts, &permission_mode, &token)
+                            .spawn()
+                            .context("failed to spawn claude (Path B fallback)")?
+                    }
                 }
-                c
             }
-            None => {
-                let mut c = tokio::process::Command::new(crate::claude::claude_bin());
-                c.arg("-p")
-                    .arg("--output-format")
-                    .arg("stream-json")
-                    .arg("--input-format")
-                    .arg("stream-json")
-                    .arg("--verbose")
-                    .arg("--include-partial-messages")
-                    .arg("--session-id")
-                    .arg(&id)
-                    .arg("--permission-mode")
-                    .arg(&permission_mode);
-                if let Some(model) = &opts.model {
-                    c.arg("--model").arg(model);
-                }
-                if !opts.prompt.trim().is_empty() {
-                    c.arg(&opts.prompt);
-                }
-                c
-            }
+            None => headless_command(&id, &opts, &permission_mode, &token)
+                .spawn()
+                .with_context(|| format!("failed to spawn `{}`", crate::claude::claude_bin()))?,
         };
-
-        cmd.current_dir(&opts.cwd)
-            // Hooks fired by this session authenticate back to us with the token.
-            .env("MOTHER_CLAUDE_TOKEN", &state.auth.token)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
-
-        let mut child = cmd
-            .spawn()
-            .with_context(|| format!("failed to spawn `{}`", crate::claude::claude_bin()))?;
 
         let stdin = child.stdin.take();
         let stdout = child.stdout.take();
@@ -236,16 +208,18 @@ impl ControlRegistry {
     }
 }
 
-/// Resolve the built sidecar entry point if Path A is enabled and present.
-fn sidecar_entry() -> Option<std::path::PathBuf> {
-    let enabled = std::env::var("MOTHER_CLAUDE_SIDECAR")
-        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
-        .unwrap_or(false);
-    if !enabled {
-        return None;
+/// Resolve the built sidecar entry point. Path A is used by default whenever the
+/// sidecar is present; set `MOTHER_CLAUDE_SIDECAR=0` to force the headless path.
+/// `MOTHER_CLAUDE_SIDECAR_PATH` (set at startup for packaged builds) wins.
+fn sidecar_entry() -> Option<PathBuf> {
+    if let Ok(v) = std::env::var("MOTHER_CLAUDE_SIDECAR") {
+        let v = v.trim().to_ascii_lowercase();
+        if v == "0" || v == "false" || v == "off" || v == "no" {
+            return None;
+        }
     }
     if let Ok(custom) = std::env::var("MOTHER_CLAUDE_SIDECAR_PATH") {
-        let p = std::path::PathBuf::from(custom);
+        let p = PathBuf::from(custom);
         if p.is_file() {
             return Some(p);
         }
@@ -254,10 +228,7 @@ fn sidecar_entry() -> Option<std::path::PathBuf> {
         std::env::current_dir()
             .ok()
             .map(|d| d.join("sidecar/dist/agent-bridge.js")),
-        Some(
-            std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-                .join("../sidecar/dist/agent-bridge.js"),
-        ),
+        Some(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../sidecar/dist/agent-bridge.js")),
     ];
     candidates.into_iter().flatten().find(|p| p.is_file())
 }
@@ -270,6 +241,70 @@ fn server_url(state: &AppState) -> String {
         "http"
     };
     format!("{scheme}://127.0.0.1:{}", state.config.port)
+}
+
+/// Shared stdio/env configuration for both spawn paths.
+fn configure_common(cmd: &mut tokio::process::Command, cwd: &str, token: &str) {
+    cmd.current_dir(cwd)
+        // Hooks fired by this session authenticate back to us with the token.
+        .env("MOTHER_CLAUDE_TOKEN", token)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+}
+
+/// Path B: headless `claude -p` stream-json subprocess.
+fn headless_command(
+    id: &str,
+    opts: &SpawnOptions,
+    permission_mode: &str,
+    token: &str,
+) -> tokio::process::Command {
+    let mut c = tokio::process::Command::new(crate::claude::claude_bin());
+    c.arg("-p")
+        .arg("--output-format")
+        .arg("stream-json")
+        .arg("--input-format")
+        .arg("stream-json")
+        .arg("--verbose")
+        .arg("--include-partial-messages")
+        .arg("--session-id")
+        .arg(id)
+        .arg("--permission-mode")
+        .arg(permission_mode);
+    if let Some(model) = &opts.model {
+        c.arg("--model").arg(model);
+    }
+    if !opts.prompt.trim().is_empty() {
+        c.arg(&opts.prompt);
+    }
+    configure_common(&mut c, &opts.cwd, token);
+    c
+}
+
+/// Path A: the Node Agent SDK sidecar (canUseTool + ask_user).
+fn sidecar_command(
+    entry: &Path,
+    id: &str,
+    opts: &SpawnOptions,
+    permission_mode: &str,
+    token: &str,
+    server_url: &str,
+) -> tokio::process::Command {
+    let mut c = tokio::process::Command::new("node");
+    c.arg(entry)
+        .env("MC_SESSION_ID", id)
+        .env("MC_CWD", &opts.cwd)
+        .env("MC_PROMPT", &opts.prompt)
+        .env("MC_PERMISSION_MODE", permission_mode)
+        .env("MOTHER_CLAUDE_URL", server_url)
+        // Self-signed loopback TLS: trust it for the local sidecar.
+        .env("NODE_TLS_REJECT_UNAUTHORIZED", "0");
+    if let Some(model) = &opts.model {
+        c.env("MC_MODEL", model);
+    }
+    configure_common(&mut c, &opts.cwd, token);
+    c
 }
 
 /// Run a documented lifecycle subcommand (`stop` / `respawn` / `rm`) against any

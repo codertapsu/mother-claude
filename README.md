@@ -101,18 +101,25 @@ You can skip and revisit anytime under **Settings → Permissions**.
 | `MOTHER_CLAUDE_PORT` | `6725` | Port. |
 | `CLAUDE_CONFIG_DIR` | `~/.claude` | Claude config dir to read. |
 | `MOTHER_CLAUDE_CLI` | `claude` | Path to the Claude binary. |
-| `MOTHER_CLAUDE_SIDECAR` | unset | `1` ⇒ use the Node Agent SDK sidecar (Path A) for owned sessions. |
+| `MOTHER_CLAUDE_SIDECAR` | on | `0` ⇒ disable the Path A sidecar and use the headless path. |
 | `MOTHER_CLAUDE_ALLOW_REMOTE_DANGEROUS` | unset | `1` ⇒ allow remote clients to approve dangerous actions / `rm`. |
 | `MOTHER_CLAUDE_WEB_DIR` | autodetect | Override the built SPA directory. |
 
-## Optional: Path A sidecar (rich permission gating)
+## The Path A sidecar (built & run automatically)
 
-```bash
-cd sidecar && npm install && npm run build
-MOTHER_CLAUDE_SIDECAR=1 npm run tauri:dev
-```
+The Node Agent SDK sidecar — which drives owned sessions through `canUseTool` and
+a custom `ask_user` MCP tool so every tool and question routes to the dashboard —
+is now a first-class component:
 
-This drives owned sessions through the Claude Agent SDK with `canUseTool` and a
-custom `ask_user` MCP tool, so every tool and question routes to the dashboard.
+- `npm run tauri:dev` and `npm run tauri:build` **build it for you** (their
+  `beforeDev`/`beforeBuild` hooks run `npm run sidecar:build`); `tauri:build`
+  also bundles it into the `.app` so the packaged app ships it.
+- The Rust core uses the sidecar **automatically** whenever it's present, and
+  falls back to the headless `claude -p` path if it isn't built, `node` is
+  missing, or you set `MOTHER_CLAUDE_SIDECAR=0`.
+
+So there is no manual step — a single `npm run tauri:dev` starts the embedded
+server, builds the sidecar, and runs the desktop app. (The SDK is large, so the
+sidecar adds ~275&nbsp;MB to a packaged build.)
 
 > Never expose port 6725 to the public internet. See [SECURITY.md](SECURITY.md).

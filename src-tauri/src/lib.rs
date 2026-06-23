@@ -7,6 +7,7 @@
 //! desktop webview and phone browsers share one code path. Tauri `invoke` is
 //! reserved for desktop-only OS concerns (e.g. the Full Disk Access check below).
 
+use tauri::Manager;
 use tracing_subscriber::EnvFilter;
 
 pub mod claude;
@@ -92,7 +93,18 @@ pub fn run() {
 
     tauri::Builder::default()
         .manage(app_state.clone())
-        .setup(move |_app| {
+        .setup(move |app| {
+            // In a packaged build the Path A sidecar is bundled under the app's
+            // resource dir; point the control layer at it so owned sessions use
+            // it automatically. In dev, control.rs falls back to the repo copy.
+            if let Ok(resource_dir) = app.path().resource_dir() {
+                let bundled = resource_dir.join("sidecar/dist/agent-bridge.js");
+                if bundled.is_file() {
+                    std::env::set_var("MOTHER_CLAUDE_SIDECAR_PATH", &bundled);
+                    tracing::info!(path = %bundled.display(), "using bundled Path A sidecar");
+                }
+            }
+
             // The dashboard server shares the Tokio runtime so its broadcast bus
             // can feed both the webview and LAN clients over one path.
             tauri::async_runtime::spawn(async move {

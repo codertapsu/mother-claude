@@ -13,6 +13,9 @@
     "lint": "ng lint",
     "format": "prettier --write \"src/**/*.{ts,html,scss}\"",
     "format:check": "prettier --check \"src/**/*.{ts,html,scss}\"",
+    "sidecar:install": "npm --prefix sidecar install",
+    "sidecar:build": "npm --prefix sidecar install && npm --prefix sidecar run build",
+    "sidecar:bundle": "npm --prefix sidecar install && npm --prefix sidecar run build && npm --prefix sidecar prune --omit=dev",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build"

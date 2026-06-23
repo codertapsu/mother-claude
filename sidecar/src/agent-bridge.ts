@@ -11,9 +11,10 @@
  * without a TTY under the SDK (we set `disallowedTools: ["AskUserQuestion"]`),
  * and for remote permission approval of owned sessions.
  *
- * Enabled by the Rust core only when MOTHER_CLAUDE_SIDECAR=1 and this package is
- * built (`cd sidecar && npm install && npm run build`). Runtime correctness
- * depends on the installed SDK version; treat as Path A / preferred-but-optional.
+ * Built automatically by `npm run tauri:dev` / `tauri:build` (and bundled into
+ * the packaged app), and used by the Rust core by default whenever present.
+ * Disable with MOTHER_CLAUDE_SIDECAR=0 to force the headless path. Runtime
+ * correctness depends on the installed SDK version.
  *
  * Env in: MOTHER_CLAUDE_URL, MOTHER_CLAUDE_TOKEN, MC_SESSION_ID, MC_CWD,
  * MC_PROMPT, MC_MODEL (optional), MC_PERMISSION_MODE (optional).
@@ -75,10 +76,24 @@ const askUserServer = createSdkMcpServer({
   ],
 });
 
+// A streaming-input user message. `parent_tool_use_id` is required by the SDK's
+// SDKUserMessage; it is null for top-level (non-subagent) turns.
+interface UserTurn {
+  type: 'user';
+  message: { role: 'user'; content: string };
+  parent_tool_use_id: string | null;
+}
+
+const userTurn = (content: string): UserTurn => ({
+  type: 'user',
+  message: { role: 'user', content },
+  parent_tool_use_id: null,
+});
+
 /** Async generator: initial prompt, then follow-up user messages from stdin. */
-async function* prompts(): AsyncGenerator<{ type: 'user'; message: { role: 'user'; content: string } }> {
+async function* prompts(): AsyncGenerator<UserTurn> {
   if (PROMPT.trim()) {
-    yield { type: 'user', message: { role: 'user', content: PROMPT } };
+    yield userTurn(PROMPT);
   }
   const rl = readline.createInterface({ input: process.stdin });
   for await (const line of rl) {
@@ -91,9 +106,9 @@ async function* prompts(): AsyncGenerator<{ type: 'user'; message: { role: 'user
           : Array.isArray(parsed?.message?.content)
             ? parsed.message.content.map((b: { text?: string }) => b.text ?? '').join('')
             : line;
-      yield { type: 'user', message: { role: 'user', content } };
+      yield userTurn(content);
     } catch {
-      yield { type: 'user', message: { role: 'user', content: line } };
+      yield userTurn(line);
     }
   }
 }
