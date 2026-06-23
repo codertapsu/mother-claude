@@ -80,6 +80,7 @@ async fn refresh(state: &AppState, tailers: &mut HashMap<String, TranscriptTaile
 
     let owned = state.owned.read().await.clone();
     let pending = state.pending.read().await.clone();
+    let owned_live = state.control.live();
 
     let sessions = build_registry(RegistryInputs {
         agents: &agents,
@@ -88,6 +89,8 @@ async fn refresh(state: &AppState, tailers: &mut HashMap<String, TranscriptTaile
         pending: &pending,
         states: &states,
         now_ms: now_ms(),
+        foreign_injection: crate::claude::foreign_injection_enabled(),
+        owned_live: &owned_live,
     });
 
     *state.sessions.write().await = sessions.clone();

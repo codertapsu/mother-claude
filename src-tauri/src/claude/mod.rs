@@ -22,7 +22,7 @@ pub fn claude_bin() -> String {
         .unwrap_or_else(|| "claude".to_string())
 }
 
-pub use control::{ControlRegistry, SpawnOptions};
+pub use control::{foreign_injection_enabled, ControlRegistry, OwnedSessionMeta, SpawnOptions};
 pub use git::{
     file_patch, overview as git_overview, CommitInfo, FileChange, GitOverview, WorktreeInfo,
 };

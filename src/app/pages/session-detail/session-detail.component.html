@@ -19,9 +19,25 @@
       }
       <span>· {{ s.usage.totalTokens }} tokens</span>
       <span class="spacer"></span>
-      <button class="btn" [disabled]="busy()" (click)="lifecycle('stop')">Stop</button>
-      <button class="btn" [disabled]="busy()" (click)="lifecycle('respawn')">Respawn</button>
-      <button class="btn danger" [disabled]="busy()" (click)="lifecycle('rm')">Remove</button>
+      @if (!s.owned) {
+        <button
+          class="btn"
+          [disabled]="busy()"
+          title="Fork this conversation into an owned session you can drive from anywhere"
+          (click)="continueSession()"
+        >
+          Continue here
+        </button>
+      }
+      @if (manageable(s)) {
+        <button class="btn" [disabled]="busy()" (click)="lifecycle('stop')">Stop</button>
+        <button class="btn" [disabled]="busy()" (click)="lifecycle('respawn')">Respawn</button>
+        <button class="btn danger" [disabled]="busy()" (click)="lifecycle('rm')">Remove</button>
+      } @else {
+        <span class="muted lifecycle-na" title="stop/respawn/rm only apply to background or app-owned sessions">
+          lifecycle n/a
+        </span>
+      }
     </div>
   </div>
 
@@ -53,13 +69,15 @@
         @if (p.dangerous) {
           <p class="warn">⚠ Dangerous action — may be restricted to the local desktop.</p>
         }
-        @if (!p.answerable) {
+        @if (!p.answerable && !s.canInject) {
           <p class="muted">
-            Live answer injection is unavailable for this foreign session — monitor &amp; lifecycle
-            only.
+            Live answer injection is unavailable for this session — monitor &amp; lifecycle only.
           </p>
         }
-        @if (p.answerable && p.kind === 'permission') {
+        @if (!p.answerable && s.canInject && !s.owned) {
+          <p class="muted">Foreign session — answered best-effort via experimental PTY.</p>
+        }
+        @if ((p.answerable || s.canInject) && p.kind === 'permission') {
           <div class="row">
             <button class="btn primary" [disabled]="busy()" (click)="respond('allow')">
               Allow
@@ -67,7 +85,7 @@
             <button class="btn danger" [disabled]="busy()" (click)="respond('deny')">Deny</button>
           </div>
         }
-        @if (p.answerable && p.kind === 'question') {
+        @if ((p.answerable || s.canInject) && p.kind === 'question') {
           <div class="row answer">
             @if (p.options?.length) {
               @for (opt of p.options; track opt) {
@@ -79,6 +97,7 @@
               <input
                 [ngModel]="answer()"
                 (ngModelChange)="answer.set($event)"
+                (keyup.enter)="submitAnswer()"
                 placeholder="Your answer…"
               />
               <button class="btn primary" [disabled]="busy()" (click)="submitAnswer()">Send</button>
@@ -108,19 +127,33 @@
       }
     </div>
 
-    <div class="composer">
-      <textarea
-        [ngModel]="instruction()"
-        (ngModelChange)="instruction.set($event)"
-        [disabled]="!s.canInject"
-        [placeholder]="
-          s.canInject
-            ? 'Send an instruction…'
-            : 'Read-only — foreign sessions cannot be driven live'
-        "
-      ></textarea>
-      <button class="btn primary" [disabled]="!s.canInject || busy()" (click)="send()">Send</button>
-    </div>
+    @if (s.canInject) {
+      <div class="composer">
+        <textarea
+          [ngModel]="instruction()"
+          (ngModelChange)="instruction.set($event)"
+          (keydown)="onComposerKeydown($event)"
+          placeholder="Send an instruction… (Enter to send, Shift+Enter for newline)"
+        ></textarea>
+        <button class="btn primary" [disabled]="busy()" (click)="send()">Send</button>
+      </div>
+      @if (!s.owned) {
+        <p class="muted composer-hint">
+          Foreign background job — instructions are injected via experimental PTY (best-effort).
+        </p>
+      }
+    } @else {
+      <div class="card cant-drive">
+        <p>This session runs elsewhere (e.g. VS&nbsp;Code) and isn't owned yet.</p>
+        <p class="muted">
+          <strong>Continue here</strong> resumes it in place — same conversation and context —
+          so you can keep giving commands from this device or your phone.
+        </p>
+        <button class="btn primary" [disabled]="busy()" (click)="continueSession()">
+          Continue here →
+        </button>
+      </div>
+    }
   }
 
   @if (tab() === 'changes') {

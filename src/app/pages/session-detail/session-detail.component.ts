@@ -1,10 +1,10 @@
 import { Component, ElementRef, computed, effect, inject, signal, viewChild } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { ActivatedRoute, RouterLink } from '@angular/router';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 
 import { ApiService } from '../../core/api.service';
 import { RealtimeService } from '../../core/realtime.service';
-import { ContentBlock, GitOverview, TranscriptEvent } from '../../core/models';
+import { ContentBlock, GitOverview, Session, TranscriptEvent } from '../../core/models';
 import { relativeTime, stateLabel, surfaceLabel } from '../../shared/util';
 
 interface RenderedEvent {
@@ -27,6 +27,7 @@ export class SessionDetailComponent {
   private route = inject(ActivatedRoute);
   private api = inject(ApiService);
   private realtime = inject(RealtimeService);
+  private router = inject(Router);
 
   protected readonly id = this.route.snapshot.paramMap.get('id') ?? '';
   protected readonly session = computed(() =>
@@ -112,6 +113,32 @@ export class SessionDetailComponent {
     this.instruction.set('');
   }
 
+  /** Enter sends; Shift+Enter inserts a newline. */
+  onComposerKeydown(event: KeyboardEvent): void {
+    if (event.key === 'Enter' && !event.shiftKey) {
+      event.preventDefault();
+      void this.send();
+    }
+  }
+
+  /** Take over this session (resume in place) so it becomes owned and drivable. */
+  async continueSession(): Promise<void> {
+    this.busy.set(true);
+    this.notice.set('Taking over session…');
+    try {
+      const res = await this.api.continueSession(this.id);
+      if (res?.id && res.id !== this.id) {
+        this.router.navigate(['/session', res.id]);
+      } else {
+        this.notice.set('You can now drive this session — type an instruction below.');
+      }
+    } catch (e) {
+      this.notice.set(`Continue failed: ${(e as Error).message}`);
+    } finally {
+      this.busy.set(false);
+    }
+  }
+
   async respond(decision: 'allow' | 'deny'): Promise<void> {
     const req = this.session()?.pending?.requestId;
     await this.guard(
@@ -131,6 +158,12 @@ export class SessionDetailComponent {
   async lifecycle(action: 'stop' | 'respawn' | 'rm'): Promise<void> {
     if (action === 'rm' && !confirm('Delete this session and its worktree?')) return;
     await this.guard(() => this.api.lifecycle(this.id, action), `${action} requested.`);
+  }
+
+  /** stop/respawn/rm only apply to app-owned sessions or daemon background jobs;
+   * foreign interactive/CLI sessions can't be driven by `claude stop|respawn|rm`. */
+  manageable(s: Session): boolean {
+    return s.owned || s.kind === 'background';
   }
 
   private async guard(fn: () => Promise<unknown>, ok: string): Promise<void> {

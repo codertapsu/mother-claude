@@ -49,19 +49,16 @@
   <mc-permissions-list />
 }
 
-<h2>Experimental</h2>
+<h2>Foreign-session control</h2>
 <div class="card">
-  <label class="row toggle">
-    <input
-      type="checkbox"
-      class="chk"
-      [checked]="experimental()"
-      (change)="toggleExperimental($any($event.target).checked)"
-    />
-    <span>Enable experimental foreign-session injection (PTY / CCR&nbsp;v1)</span>
-  </label>
+  <div class="row">
+    <span class="badge working">enabled</span>
+    <span>Running foreign sessions can be driven from the dashboard.</span>
+  </div>
   <p class="muted small">
-    Uses unstable, unsupported internals. Requires a build with the <code>experimental</code> Cargo
-    feature; this toggle only opts the UI in. Off by default.
+    Instructions and answers are injected by PTY-driving <code>claude attach</code> — unstable,
+    unsupported internals, so it's best-effort. Disable by launching with
+    <code>MOTHER_CLAUDE_FOREIGN_INJECTION=0</code> (or building with
+    <code>--no-default-features</code>).
   </p>
 </div>

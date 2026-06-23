@@ -18,7 +18,12 @@ export class ApiService {
     if (init?.body) headers.set('Content-Type', 'application/json');
     const res = await fetch(`${cfg.baseUrl}/api${path}`, { ...init, headers });
     if (res.status === 401) throw new ApiError('unauthorized', 401);
-    if (!res.ok) throw new ApiError(`${res.status} ${res.statusText}`, res.status);
+    if (!res.ok) {
+      // Surface the server's message (e.g. "No job matching …") rather than a
+      // bare status line, so the UI can explain *why* an action failed.
+      const body = (await res.text().catch(() => '')).trim();
+      throw new ApiError(body || `${res.status} ${res.statusText}`, res.status);
+    }
     const text = await res.text();
     return (text ? JSON.parse(text) : null) as T;
   }
@@ -69,6 +74,14 @@ export class ApiService {
     return this.req(`/sessions/${encodeURIComponent(id)}/message`, {
       method: 'POST',
       body: JSON.stringify({ text }),
+    });
+  }
+
+  /** Fork a session's conversation into a new owned session we can drive. */
+  continueSession(id: string, prompt?: string): Promise<{ id: string }> {
+    return this.req(`/sessions/${encodeURIComponent(id)}/continue`, {
+      method: 'POST',
+      body: JSON.stringify({ prompt: prompt ?? '' }),
     });
   }
 

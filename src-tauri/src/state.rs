@@ -13,7 +13,9 @@ use serde::Serialize;
 use tokio::sync::{broadcast, oneshot, RwLock};
 
 use crate::claude::control::ControlRegistry;
-use crate::claude::{ClaudeHome, PendingInput, Session, SessionState, TranscriptEvent};
+use crate::claude::{
+    ClaudeHome, PendingInput, Session, SessionState, Surface, TranscriptEvent, UsageSummary,
+};
 use crate::server::auth::Auth;
 
 /// How a pending prompt was resolved by a human.
@@ -175,6 +177,52 @@ impl Inner {
             session_id: id.to_string(),
             pending,
         });
+        self.broadcast(ServerEvent::Sessions(snapshot));
+    }
+
+    /// Mark a session owned and reflect it in the cached snapshot immediately
+    /// (flip an existing row, or insert a synthetic one for a brand-new id), then
+    /// broadcast — so spawn/continue show up without waiting for the next sweep.
+    pub async fn mark_owned(&self, id: &str, cwd: &str, started_at: i64) {
+        self.owned.write().await.insert(id.to_string());
+        let snapshot = {
+            let mut sessions = self.sessions.write().await;
+            match sessions.iter_mut().find(|s| s.id == id) {
+                Some(s) => {
+                    s.owned = true;
+                    s.can_inject = true;
+                    s.running = true;
+                }
+                None => {
+                    let project_name = std::path::Path::new(cwd)
+                        .file_name()
+                        .and_then(|s| s.to_str())
+                        .unwrap_or(cwd)
+                        .to_string();
+                    sessions.push(Session {
+                        id: id.to_string(),
+                        cwd: cwd.to_string(),
+                        project_name,
+                        surface: Surface::Unknown,
+                        owned: true,
+                        state: SessionState::Working,
+                        model: None,
+                        title: None,
+                        started_at: Some(started_at),
+                        last_activity: Some(started_at),
+                        pid: None,
+                        kind: None,
+                        git_branch: None,
+                        running: true,
+                        message_count: 0,
+                        usage: UsageSummary::default(),
+                        pending: None,
+                        can_inject: true,
+                    });
+                }
+            }
+            sessions.clone()
+        };
         self.broadcast(ServerEvent::Sessions(snapshot));
     }
 

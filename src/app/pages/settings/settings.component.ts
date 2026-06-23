@@ -8,8 +8,6 @@ import { PermissionsService } from '../../core/permissions.service';
 import { Pairing } from '../../core/models';
 import { PermissionsListComponent } from '../../shared/permissions-list.component';
 
-const EXPERIMENTAL_KEY = 'mc_experimental';
-
 @Component({
   selector: 'mc-settings',
   imports: [FormsModule, PermissionsListComponent],
@@ -28,7 +26,6 @@ export class SettingsComponent {
   protected readonly qr = signal<SafeHtml | null>(null);
   protected readonly tokenInput = signal('');
   protected readonly error = signal('');
-  protected readonly experimental = signal(localStorage.getItem(EXPERIMENTAL_KEY) === '1');
 
   constructor() {
     this.loadPairing();
@@ -52,10 +49,5 @@ export class SettingsComponent {
     this.tokenInput.set('');
     // Reload so the new token takes effect everywhere (WS reconnects).
     location.reload();
-  }
-
-  toggleExperimental(value: boolean): void {
-    this.experimental.set(value);
-    localStorage.setItem(EXPERIMENTAL_KEY, value ? '1' : '0');
   }
 }

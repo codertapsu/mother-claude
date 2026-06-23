@@ -159,9 +159,42 @@ pub async fn post_spawn(
         prompt: body.prompt,
         model: body.model,
         permission_mode: None,
+        resume: None,
     };
     match state.control.spawn(&state, opts).await {
         Ok(id) => (StatusCode::CREATED, Json(json!({ "id": id }))).into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+    }
+}
+
+#[derive(Deserialize)]
+pub struct ContinueBody {
+    #[serde(default)]
+    pub prompt: Option<String>,
+    #[serde(default)]
+    pub model: Option<String>,
+}
+
+/// Continue (fork) a session's conversation into a new **owned** session that
+/// can be driven from anywhere — the supported way to take over a foreign
+/// (e.g. VS Code) session from your phone. The original session is untouched.
+pub async fn post_continue(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Json(body): Json<ContinueBody>,
+) -> impl IntoResponse {
+    let Some(cwd) = state.find_session(&id).await.map(|s| s.cwd) else {
+        return (StatusCode::NOT_FOUND, "no such session").into_response();
+    };
+    let opts = SpawnOptions {
+        cwd,
+        prompt: body.prompt.unwrap_or_default(),
+        model: body.model,
+        permission_mode: None,
+        resume: Some(id),
+    };
+    match state.control.spawn(&state, opts).await {
+        Ok(new_id) => (StatusCode::CREATED, Json(json!({ "id": new_id }))).into_response(),
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
     }
 }
@@ -171,24 +204,58 @@ pub struct MessageBody {
     pub text: String,
 }
 
-/// Send an instruction to an owned session. Foreign sessions are rejected — they
-/// cannot be driven live (the §1 invariant).
+/// Send an instruction to a session. Owned sessions are driven over stdin;
+/// running foreign sessions are driven via PTY injection when it is enabled.
 pub async fn post_message(
     State(state): State<AppState>,
     Path(id): Path<String>,
     Json(body): Json<MessageBody>,
 ) -> impl IntoResponse {
-    if !state.is_owned(&id).await {
-        return (
-            StatusCode::FORBIDDEN,
-            "foreign sessions cannot be driven live; lifecycle only",
-        )
-            .into_response();
+    if state.is_owned(&id).await {
+        return match state.control.send_message(&id, &body.text).await {
+            Ok(()) => StatusCode::NO_CONTENT.into_response(),
+            Err(e) => (StatusCode::BAD_REQUEST, e.to_string()).into_response(),
+        };
     }
-    match state.control.send_message(&id, &body.text).await {
-        Ok(()) => StatusCode::NO_CONTENT.into_response(),
-        Err(e) => (StatusCode::BAD_REQUEST, e.to_string()).into_response(),
+    if claude::foreign_injection_enabled() {
+        return match foreign_inject(&state, &id, &body.text).await {
+            Ok(()) => StatusCode::NO_CONTENT.into_response(),
+            Err(e) => (StatusCode::BAD_REQUEST, e).into_response(),
+        };
     }
+    (
+        StatusCode::FORBIDDEN,
+        "foreign session injection is disabled; lifecycle only",
+    )
+        .into_response()
+}
+
+/// Inject text (plus Enter) into a foreign session by PTY-driving
+/// `claude attach`. Attaches on first use; subsequent calls reuse the PTY.
+/// Only known, running, non-owned sessions are eligible — never attach to an
+/// unknown id (it would spawn a stray `claude attach`).
+#[cfg(feature = "experimental")]
+async fn foreign_inject(state: &AppState, id: &str, text: &str) -> Result<(), String> {
+    let session = state
+        .find_session(id)
+        .await
+        .ok_or_else(|| format!("unknown session {id}"))?;
+    if session.owned {
+        return Err("owned session is driven over stdin, not PTY".into());
+    }
+    if !session.running {
+        return Err(format!("session {id} is not running; cannot attach"));
+    }
+    state
+        .pty
+        .attach(state, id, &session.cwd)
+        .map_err(|e| e.to_string())?;
+    state.pty.inject(id, text).map_err(|e| e.to_string())
+}
+
+#[cfg(not(feature = "experimental"))]
+async fn foreign_inject(_state: &AppState, _id: &str, _text: &str) -> Result<(), String> {
+    Err("foreign-session injection is not compiled into this build".into())
 }
 
 #[derive(Deserialize)]
@@ -289,15 +356,26 @@ pub async fn post_permission(
             .into_response();
     }
 
-    resolve(
-        &state,
-        request_id,
-        if allow {
-            Resolution::Allow
-        } else {
-            Resolution::Deny
-        },
-    )
+    // If a request is blocked on a resolver (owned/sidecar), answer it.
+    let resolution = if allow {
+        Resolution::Allow
+    } else {
+        Resolution::Deny
+    };
+    if try_resolve(&state, request_id.as_deref(), resolution) {
+        return StatusCode::NO_CONTENT.into_response();
+    }
+
+    // Otherwise it's a foreign TUI prompt — best-effort select the option
+    // (1 ≈ allow, 2 ≈ deny). Selection layouts vary, so this is a hint.
+    if claude::foreign_injection_enabled() {
+        let key = if allow { "1" } else { "2" };
+        return match foreign_inject(&state, &id, key).await {
+            Ok(()) => StatusCode::NO_CONTENT.into_response(),
+            Err(e) => (StatusCode::BAD_REQUEST, e).into_response(),
+        };
+    }
+    (StatusCode::NOT_FOUND, "no pending request to resolve").into_response()
 }
 
 #[derive(Deserialize)]
@@ -307,13 +385,14 @@ pub struct AnswerBody {
     pub request_id: Option<String>,
 }
 
-/// Dashboard: answer a pending question.
+/// Dashboard: answer a pending question — resolve a blocked owned/sidecar
+/// request if one exists, otherwise inject into the foreign session's TUI.
 pub async fn post_answer(
     State(state): State<AppState>,
     Path(id): Path<String>,
     Json(body): Json<AnswerBody>,
 ) -> impl IntoResponse {
-    let request_id = match body.request_id {
+    let request_id = match body.request_id.clone() {
         Some(r) => Some(r),
         None => state
             .pending
@@ -322,43 +401,61 @@ pub async fn post_answer(
             .get(&id)
             .and_then(|p| p.request_id.clone()),
     };
-    resolve(&state, request_id, Resolution::Answer(body.answer))
+    if try_resolve(
+        &state,
+        request_id.as_deref(),
+        Resolution::Answer(body.answer.clone()),
+    ) {
+        return StatusCode::NO_CONTENT.into_response();
+    }
+    if claude::foreign_injection_enabled() {
+        return match foreign_inject(&state, &id, &body.answer).await {
+            Ok(()) => StatusCode::NO_CONTENT.into_response(),
+            Err(e) => (StatusCode::BAD_REQUEST, e).into_response(),
+        };
+    }
+    (StatusCode::NOT_FOUND, "no pending question to answer").into_response()
 }
 
-fn resolve(
-    state: &AppState,
-    request_id: Option<String>,
-    resolution: Resolution,
-) -> axum::response::Response {
+/// Send a resolution to a blocked request if one is registered for `request_id`.
+/// Returns true if it resolved one.
+fn try_resolve(state: &AppState, request_id: Option<&str>, resolution: Resolution) -> bool {
     let Some(req) = request_id else {
-        return (StatusCode::BAD_REQUEST, "no pending request").into_response();
+        return false;
     };
-    match state.take_resolver(&req) {
+    match state.take_resolver(req) {
         Some(tx) => {
             let _ = tx.send(resolution);
-            StatusCode::NO_CONTENT.into_response()
+            true
         }
-        None => (
-            StatusCode::NOT_FOUND,
-            "no pending resolver for that request",
-        )
-            .into_response(),
+        None => false,
     }
 }
 
-/// Stop an owned or foreign session (conversation kept; resume later).
+/// Stop a session. Owned sessions are our own subprocesses (killed directly);
+/// foreign sessions go through `claude stop` (background jobs only).
 pub async fn post_stop(State(state): State<AppState>, Path(id): Path<String>) -> impl IntoResponse {
     if state.is_owned(&id).await {
         let _ = state.control.kill(&id).await;
+        state.broadcast(crate::state::ServerEvent::Notice(format!("stopped {id}")));
+        return (StatusCode::OK, Json(json!({ "ok": true }))).into_response();
     }
     run_lifecycle(&state, "stop", &id).await
 }
 
-/// Respawn (restart) an owned or foreign session.
+/// Respawn (restart) a foreign background session. Owned sessions have no
+/// persisted prompt to restart, so this is not supported for them.
 pub async fn post_respawn(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> impl IntoResponse {
+    if state.is_owned(&id).await {
+        return (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "respawn isn't supported for app-owned sessions — stop it and start a new one",
+        )
+            .into_response();
+    }
     run_lifecycle(&state, "respawn", &id).await
 }
 
@@ -382,12 +479,20 @@ pub async fn post_rm(
     }
     if state.is_owned(&id).await {
         let _ = state.control.kill(&id).await;
+        state.owned.write().await.remove(&id);
+        state.set_pending(&id, None).await;
+        // Best-effort daemon cleanup; ignore "no job" for our own subprocesses.
+        let _ = claude::control::run_lifecycle("rm", &id).await;
+        state.broadcast(crate::state::ServerEvent::Notice(format!("removed {id}")));
+        return (StatusCode::OK, Json(json!({ "ok": true }))).into_response();
     }
-    state.owned.write().await.remove(&id);
     state.set_pending(&id, None).await;
     run_lifecycle(&state, "rm", &id).await
 }
 
+/// Run a `claude` lifecycle subcommand and translate the result. A non-zero CLI
+/// exit (e.g. "No job matching …" for a non-background session) is a 422 with the
+/// CLI's message — not a 500 — so the dashboard can show *why* it failed.
 async fn run_lifecycle(state: &AppState, action: &str, id: &str) -> axum::response::Response {
     match claude::control::run_lifecycle(action, id).await {
         Ok(output) => {
@@ -400,11 +505,7 @@ async fn run_lifecycle(state: &AppState, action: &str, id: &str) -> axum::respon
             )
                 .into_response()
         }
-        Err(e) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({ "ok": false, "error": e.to_string() })),
-        )
-            .into_response(),
+        Err(e) => (StatusCode::UNPROCESSABLE_ENTITY, e.to_string()).into_response(),
     }
 }
 

@@ -27,11 +27,13 @@ a rotating key and an undocumented protocol).
   stream-json --input-format stream-json` (Path B) or the Agent SDK sidecar
   (Path A, `canUseTool` + `ask_user` MCP tool).
 - **Foreign sessions** → monitoring (read transcripts + receive hook events) and
-  lifecycle only (`stop`/`respawn`/`rm`). **No live answer injection** outside the
-  experimental tier. The UI must clearly mark this and disable injection controls.
-- The PTY-`attach` and "CCR v1" hijacking paths are **experimental**, gated behind
-  the `experimental` Cargo feature (off by default) and a loud UI confirmation.
-  Never speak the cc-daemon control socket directly.
+  lifecycle (`stop`/`respawn`/`rm`). Live control is also enabled **by default**
+  via PTY-driving `claude attach` (the `experimental` Cargo feature is now
+  `default`), but it is **best-effort/unstable** — the UI labels foreign control
+  as experimental. Runtime opt-out: `MOTHER_CLAUDE_FOREIGN_INJECTION=0`.
+- Only PTY-`attach` foreign injection is implemented; the "CCR v1" transport is a
+  status probe only. Never speak the cc-daemon control socket directly. Owned
+  sessions remain the path to *reliable* control.
 
 **Design the product around owning sessions.** Do not block on foreign injection.
 

@@ -49,13 +49,23 @@ a single module absorbs version churn.
   for *events* and *deny* gating, not as a remote-approve bus for foreign TUI
   sessions.
 
-## Experimental tier (`--features experimental`, off by default)
+## Foreign-session injection (`experimental` tier — now ON by default)
+
+The brief shipped PTY/CCR foreign control off-by-default; it is now **enabled by
+default** at the project owner's request (`default = ["experimental"]`, runtime
+opt-out `MOTHER_CLAUDE_FOREIGN_INJECTION=0`, or `--no-default-features`).
 
 - PTY-driving `claude attach <id>` (Ink discards piped `\n`, so a real PTY is
-  required) and the reverse-engineered "CCR v1" transport are **unsanctioned and
-  unstable across versions**. The "no authentication" claim for CCR v1 is
-  unverified — verify independently before relying on it. Gated behind a UI
-  "uses unstable, unsupported internals" confirmation.
+  required) is **unsanctioned and unstable across versions**. It types into the
+  session's TUI, so it is **best-effort**: free-text instructions and question
+  answers are reliable; permission-prompt selection (allow≈"1", deny≈"2") is a
+  guess that depends on the prompt's option layout, and `claude attach` only
+  works for sessions the daemon can attach to (background sessions; attaching to
+  some live interactive surfaces may fail).
+- The reverse-engineered "CCR v1" transport remains **not implemented** (status
+  probe only); its "no authentication" claim is unverified.
+- Foreign injection only targets sessions that are present and **running** in the
+  registry; unknown ids are rejected (never spawns a stray `claude attach`).
 
 ## Build-time decisions & deviations from the brief
 

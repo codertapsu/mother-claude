@@ -32,13 +32,25 @@ pub struct SpawnOptions {
     pub prompt: String,
     pub model: Option<String>,
     pub permission_mode: Option<String>,
+    /// Resume (fork) an existing conversation by id — used to "continue" a
+    /// foreign session (e.g. a VS Code one) as a fully-controllable owned session.
+    pub resume: Option<String>,
 }
 
 struct OwnedHandle {
     stdin: AsyncMutex<Option<ChildStdin>>,
     child: AsyncMutex<Child>,
-    #[allow(dead_code)]
     cwd: String,
+    started_at: i64,
+}
+
+/// Lightweight metadata for a live owned session, so the registry can list it
+/// even before its transcript file exists.
+#[derive(Debug, Clone)]
+pub struct OwnedSessionMeta {
+    pub id: String,
+    pub cwd: String,
+    pub started_at: i64,
 }
 
 type HandleMap = Arc<Mutex<HashMap<String, Arc<OwnedHandle>>>>;
@@ -62,6 +74,22 @@ impl ControlRegistry {
             .unwrap_or(false)
     }
 
+    /// Metadata for every live owned session (for registry inclusion).
+    pub fn live(&self) -> Vec<OwnedSessionMeta> {
+        self.handles
+            .lock()
+            .map(|m| {
+                m.iter()
+                    .map(|(id, h)| OwnedSessionMeta {
+                        id: id.clone(),
+                        cwd: h.cwd.clone(),
+                        started_at: h.started_at,
+                    })
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
     /// Launch a new owned session and return its id.
     ///
     /// Path A (the default when the Node sidecar is built/bundled): drive the
@@ -71,7 +99,13 @@ impl ControlRegistry {
     /// `MOTHER_CLAUDE_SIDECAR=0`, fall back to Path B: a headless `claude -p`
     /// stream-json subprocess.
     pub async fn spawn(&self, state: &AppState, opts: SpawnOptions) -> Result<String> {
-        let id = Uuid::new_v4().to_string();
+        // Continuing a session resumes it *in place* (same id), so the existing
+        // dashboard row becomes owned and drivable and the same transcript keeps
+        // growing. Fresh sessions get a brand-new id.
+        let id = opts
+            .resume
+            .clone()
+            .unwrap_or_else(|| Uuid::new_v4().to_string());
         let permission_mode = opts
             .permission_mode
             .as_deref()
@@ -79,7 +113,14 @@ impl ControlRegistry {
             .to_string();
         let token = state.auth.token.clone();
 
-        let mut child = match sidecar_entry() {
+        // Resuming an existing conversation uses the headless path, whose
+        // --resume semantics are well-defined.
+        let entry = if opts.resume.is_some() {
+            None
+        } else {
+            sidecar_entry()
+        };
+        let mut child = match entry {
             Some(entry) => {
                 tracing::info!(session = %id, "spawning owned session via sidecar (Path A)");
                 let url = server_url(state);
@@ -106,13 +147,20 @@ impl ControlRegistry {
             stdin: AsyncMutex::new(stdin),
             child: AsyncMutex::new(child),
             cwd: opts.cwd.clone(),
+            started_at: crate::claude::registry::now_ms(),
         });
 
         if let Ok(mut map) = self.handles.lock() {
             map.insert(id.clone(), handle.clone());
         }
-        state.owned.write().await.insert(id.clone());
-        state.broadcast(ServerEvent::Notice(format!("Spawned owned session {id}")));
+        // Register ownership + surface the session in the dashboard immediately.
+        state.mark_owned(&id, &opts.cwd, handle.started_at).await;
+        let verb = if opts.resume.is_some() {
+            "Continuing"
+        } else {
+            "Spawned"
+        };
+        state.broadcast(ServerEvent::Notice(format!("{verb} owned session {id}")));
 
         // Drain stdout/stderr so the child never blocks; the transcript file tail
         // handles the live view, so here we mostly watch for completion.
@@ -208,6 +256,22 @@ impl ControlRegistry {
     }
 }
 
+/// Whether foreign-session injection (PTY-driving `claude attach`) is available.
+/// Requires the `experimental` capability to be compiled in (on by default) and
+/// is enabled at runtime unless `MOTHER_CLAUDE_FOREIGN_INJECTION` is `0`/off.
+pub fn foreign_injection_enabled() -> bool {
+    if !cfg!(feature = "experimental") {
+        return false;
+    }
+    match std::env::var("MOTHER_CLAUDE_FOREIGN_INJECTION") {
+        Ok(v) => {
+            let v = v.trim().to_ascii_lowercase();
+            !(v == "0" || v == "false" || v == "off" || v == "no")
+        }
+        Err(_) => true,
+    }
+}
+
 /// Resolve the built sidecar entry point. Path A is used by default whenever the
 /// sidecar is present; set `MOTHER_CLAUDE_SIDECAR=0` to force the headless path.
 /// `MOTHER_CLAUDE_SIDECAR_PATH` (set at startup for packaged builds) wins.
@@ -268,10 +332,18 @@ fn headless_command(
         .arg("stream-json")
         .arg("--verbose")
         .arg("--include-partial-messages")
-        .arg("--session-id")
-        .arg(id)
         .arg("--permission-mode")
         .arg(permission_mode);
+    match &opts.resume {
+        // Continue the existing conversation in place (same id, same transcript).
+        Some(resume) => {
+            c.arg("--resume").arg(resume);
+        }
+        // Fresh session: pin our chosen id.
+        None => {
+            c.arg("--session-id").arg(id);
+        }
+    }
     if let Some(model) = &opts.model {
         c.arg("--model").arg(model);
     }

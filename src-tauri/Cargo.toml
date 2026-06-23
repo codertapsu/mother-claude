@@ -46,8 +46,11 @@ tokio-tungstenite = "0.29"
 futures-util = "0.3"
 
 [features]
-# Stage 3 — PTY/CCR hijacking of foreign live sessions. Unsanctioned, unstable,
-# OFF by default. Enable with `--features experimental`.
+# Foreign-session injection via PTY-driving `claude attach` (Stage 3). Uses
+# unsanctioned, unstable internals but is ON by default so the dashboard can
+# drive foreign sessions. Build with `--no-default-features` to compile it out;
+# disable at runtime with MOTHER_CLAUDE_FOREIGN_INJECTION=0.
+default = ["experimental"]
 experimental = ["dep:portable-pty"]
 
 [profile.release]

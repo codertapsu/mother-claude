@@ -56,6 +56,7 @@ pub fn router(state: AppState) -> Router {
         .route("/sessions/{id}/diff", get(http::get_diff))
         .route("/sessions/{id}/file-patch", get(http::get_file_patch))
         .route("/sessions/{id}/message", post(http::post_message))
+        .route("/sessions/{id}/continue", post(http::post_continue))
         .route(
             "/sessions/{id}/permission-request",
             post(http::post_permission_request),

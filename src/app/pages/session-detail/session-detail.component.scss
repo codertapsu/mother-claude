@@ -126,6 +126,16 @@
 .composer textarea {
   flex: 1;
 }
+.composer-hint {
+  margin: 0.35rem 0 0;
+  font-size: 0.78rem;
+}
+.cant-drive {
+  margin-top: 0.5rem;
+}
+.cant-drive p {
+  margin: 0 0 0.5rem;
+}
 
 .file {
   display: flex;

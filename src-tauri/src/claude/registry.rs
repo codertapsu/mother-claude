@@ -17,6 +17,7 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
+use super::control::OwnedSessionMeta;
 use super::home::ClaudeHome;
 use super::schema::{AgentEntry, StateJson, TranscriptEvent};
 use super::transcript::read_all;
@@ -323,6 +324,11 @@ pub struct RegistryInputs<'a> {
     pub pending: &'a HashMap<String, PendingInput>,
     pub states: &'a HashMap<String, StateJson>,
     pub now_ms: i64,
+    /// Whether running foreign sessions can be driven via PTY injection.
+    pub foreign_injection: bool,
+    /// Live owned sessions, so freshly-spawned/resumed ones are listed even
+    /// before their transcript file exists.
+    pub owned_live: &'a [OwnedSessionMeta],
 }
 
 fn project_name(cwd: &str) -> String {
@@ -360,6 +366,8 @@ pub fn build_registry(inputs: RegistryInputs) -> Vec<Session> {
         pending,
         states,
         now_ms,
+        foreign_injection,
+        owned_live,
     } = inputs;
 
     let agent_by_id: HashMap<&str, &AgentEntry> = agents
@@ -381,6 +389,9 @@ pub fn build_registry(inputs: RegistryInputs) -> Vec<Session> {
             let transcript = transcript_by_id.get(id.as_str()).copied();
             let running = agent.is_some();
             let owned_flag = owned.contains(&id);
+            // Only daemon *background* jobs can be PTY-attached (`claude attach`);
+            // interactive foreign sessions (VS Code, CLI) cannot be injected.
+            let is_background = agent.and_then(|a| a.kind.as_deref()) == Some("background");
 
             let cwd = agent
                 .and_then(|a| a.cwd.clone())
@@ -426,10 +437,46 @@ pub fn build_registry(inputs: RegistryInputs) -> Vec<Session> {
                 message_count: transcript.map(|t| t.message_count).unwrap_or(0),
                 usage: transcript.map(|t| t.usage.clone()).unwrap_or_default(),
                 pending: pending_input,
-                can_inject: owned_flag,
+                // Owned sessions are driven over stdin; running foreign *background*
+                // jobs can be driven via PTY injection when it is enabled.
+                can_inject: owned_flag || (foreign_injection && running && is_background),
             }
         })
         .collect();
+
+    // Include freshly-spawned/resumed owned sessions that have no agent entry or
+    // transcript yet, so they appear in the dashboard immediately.
+    let present: HashSet<String> = sessions.iter().map(|s| s.id.clone()).collect();
+    for meta in owned_live {
+        if present.contains(&meta.id) {
+            continue;
+        }
+        let pending_input = pending.get(&meta.id).cloned();
+        sessions.push(Session {
+            id: meta.id.clone(),
+            project_name: project_name(&meta.cwd),
+            cwd: meta.cwd.clone(),
+            surface: Surface::Unknown,
+            owned: true,
+            state: if pending_input.is_some() {
+                SessionState::NeedsInput
+            } else {
+                SessionState::Working
+            },
+            model: None,
+            title: None,
+            started_at: Some(meta.started_at),
+            last_activity: Some(meta.started_at),
+            pid: None,
+            kind: None,
+            git_branch: None,
+            running: true,
+            message_count: 0,
+            usage: UsageSummary::default(),
+            pending: pending_input,
+            can_inject: true,
+        });
+    }
 
     // Most recently active first; ties broken by id for determinism.
     sessions.sort_by(|a, b| {
@@ -446,10 +493,14 @@ mod tests {
     use crate::claude::schema::parse_transcript;
 
     fn agent(id: &str, pid: u32, cwd: &str) -> AgentEntry {
+        agent_kind(id, pid, cwd, "interactive")
+    }
+
+    fn agent_kind(id: &str, pid: u32, cwd: &str, kind: &str) -> AgentEntry {
         AgentEntry {
             pid: Some(pid),
             cwd: Some(cwd.to_string()),
-            kind: Some("interactive".into()),
+            kind: Some(kind.to_string()),
             started_at: Some(1000),
             session_id: Some(id.to_string()),
             ..Default::default()
@@ -471,6 +522,8 @@ mod tests {
             pending,
             states,
             now_ms: now,
+            foreign_injection: false,
+            owned_live: &[],
         }
     }
 
@@ -604,13 +657,83 @@ mod tests {
     }
 
     #[test]
-    fn foreign_sessions_cannot_inject() {
+    fn foreign_sessions_cannot_inject_by_default() {
         let now = 1_000_000;
         let agents = vec![agent("foreign", 9, "/x/app")];
         let (owned, pending, states) = (HashSet::new(), HashMap::new(), HashMap::new());
         let r = build_registry(inputs(&agents, &[], &owned, &pending, &states, now));
         assert!(!r[0].owned);
         assert!(!r[0].can_inject);
+    }
+
+    #[test]
+    fn running_background_foreign_can_inject_when_enabled() {
+        let now = 1_000_000;
+        let agents = vec![agent_kind("foreign", 9, "/x/app", "background")];
+        let (owned, pending, states) = (HashSet::new(), HashMap::new(), HashMap::new());
+        let mut input = inputs(&agents, &[], &owned, &pending, &states, now);
+        input.foreign_injection = true;
+        let r = build_registry(input);
+        assert!(!r[0].owned);
+        assert!(r[0].running);
+        assert!(
+            r[0].can_inject,
+            "running foreign background job should be injectable"
+        );
+    }
+
+    #[test]
+    fn owned_live_session_is_listed_before_any_transcript() {
+        let now = 1_000_000;
+        let (owned, pending, states) = (HashSet::new(), HashMap::new(), HashMap::new());
+        let live = [OwnedSessionMeta {
+            id: "fresh-owned".into(),
+            cwd: "/x/app".into(),
+            started_at: now - 500,
+        }];
+        let mut input = inputs(&[], &[], &owned, &pending, &states, now);
+        input.owned_live = &live;
+        let r = build_registry(input);
+        assert_eq!(r.len(), 1);
+        assert_eq!(r[0].id, "fresh-owned");
+        assert!(r[0].owned);
+        assert!(r[0].running);
+        assert!(r[0].can_inject);
+        assert_eq!(r[0].project_name, "app");
+    }
+
+    #[test]
+    fn interactive_foreign_cannot_inject_even_when_enabled() {
+        let now = 1_000_000;
+        // Interactive (e.g. VS Code) sessions can't be PTY-attached.
+        let agents = vec![agent_kind("vscode", 9, "/x/app", "interactive")];
+        let (owned, pending, states) = (HashSet::new(), HashMap::new(), HashMap::new());
+        let mut input = inputs(&agents, &[], &owned, &pending, &states, now);
+        input.foreign_injection = true;
+        let r = build_registry(input);
+        assert!(r[0].running);
+        assert!(
+            !r[0].can_inject,
+            "interactive foreign session is not injectable"
+        );
+    }
+
+    #[test]
+    fn completed_foreign_cannot_inject_even_when_enabled() {
+        let now = 1_000_000;
+        // No agent entry => not running; only a transcript.
+        let t = TranscriptSummary {
+            id: "gone".into(),
+            last_activity: Some(now - 5_000),
+            ..Default::default()
+        };
+        let (owned, pending, states) = (HashSet::new(), HashMap::new(), HashMap::new());
+        let transcripts = [t];
+        let mut input = inputs(&[], &transcripts, &owned, &pending, &states, now);
+        input.foreign_injection = true;
+        let r = build_registry(input);
+        assert!(!r[0].running);
+        assert!(!r[0].can_inject, "a non-running session can't be attached");
     }
 
     #[test]

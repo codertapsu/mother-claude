@@ -21,11 +21,19 @@ permission decision into a *foreign* live session (started elsewhere and held by
 the Claude Code supervisor — its control socket uses a rotating key over an
 undocumented protocol). So:
 
-- **Owned sessions** → full control (spawn, message, approve/deny, answer).
-- **Foreign sessions** → full **monitoring** (transcripts + hook events) and
-  **lifecycle** (stop / respawn / rm), but **no live answer injection** — except
-  the experimental tier (off by default). The UI clearly marks foreign sessions
-  as read-only for injection.
+- **Owned sessions** → full, reliable control (spawn, message, approve/deny,
+  answer) over the Agent SDK / headless stdin. Press **Enter** to send (Shift+Enter
+  for a newline).
+- **Foreign sessions** → full **monitoring** (transcripts + hook events). Driving
+  them depends on the kind:
+  - **background jobs** → lifecycle (stop / respawn / rm) and live PTY injection
+    (best-effort; `MOTHER_CLAUDE_FOREIGN_INJECTION=0` to disable).
+  - **interactive (VS Code / CLI)** → can't be injected directly (no supported
+    mechanism). Use **“Continue here”** to *take over* the session — it resumes
+    the conversation **in place** (`claude --resume <id>`, same id, same context,
+    same transcript), turning that session into an owned one you fully control.
+    This is the supported way to leave your laptop and keep giving commands from
+    your phone. (Switch devices — don't drive both at once.)
 
 Design intent: make the dashboard the *launcher* so "full control" is the norm.
 See [ARCHITECTURE.md](ARCHITECTURE.md) and [KNOWN_ISSUES.md](KNOWN_ISSUES.md).
@@ -102,6 +110,7 @@ You can skip and revisit anytime under **Settings → Permissions**.
 | `CLAUDE_CONFIG_DIR` | `~/.claude` | Claude config dir to read. |
 | `MOTHER_CLAUDE_CLI` | `claude` | Path to the Claude binary. |
 | `MOTHER_CLAUDE_SIDECAR` | on | `0` ⇒ disable the Path A sidecar and use the headless path. |
+| `MOTHER_CLAUDE_FOREIGN_INJECTION` | on | `0` ⇒ disable driving foreign sessions via PTY (monitor + lifecycle only). |
 | `MOTHER_CLAUDE_ALLOW_REMOTE_DANGEROUS` | unset | `1` ⇒ allow remote clients to approve dangerous actions / `rm`. |
 | `MOTHER_CLAUDE_WEB_DIR` | autodetect | Override the built SPA directory. |
 
