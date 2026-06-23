@@ -6,9 +6,13 @@
 
 pub mod home;
 pub mod schema;
+pub mod transcript;
+pub mod watcher;
 
 pub use home::{best_effort_decode, encode_cwd, ClaudeHome};
 pub use schema::{
     parse_transcript, parse_transcript_line, AgentEntry, ContentBlock, Message, MessageContent,
     Roster, StateJson, TranscriptEvent, Usage,
 };
+pub use transcript::{read_all as read_transcript, TranscriptTailer};
+pub use watcher::{FsWatcher, WatchSender};
