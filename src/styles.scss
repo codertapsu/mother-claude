@@ -1,5 +1,16 @@
 :root {
   color-scheme: dark light;
+  --bg: #0e0f13;
+  --panel: #15161c;
+  --panel-2: #1b1d26;
+  --border: #262833;
+  --text: #e6e7ea;
+  --muted: #9aa0ad;
+  --accent: #7c5cc9;
+  --green: #4ade80;
+  --amber: #fbbf24;
+  --red: #f87171;
+  --blue: #60a5fa;
 }
 
 * {
@@ -17,6 +28,128 @@ body {
     'Segoe UI',
     Roboto,
     sans-serif;
-  background: #0e0f13;
-  color: #e6e7ea;
+  background: var(--bg);
+  color: var(--text);
+  -webkit-font-smoothing: antialiased;
+}
+
+h1 {
+  font-size: 1.3rem;
+  margin: 0 0 0.75rem;
+}
+h2 {
+  font-size: 1rem;
+  margin: 1.25rem 0 0.5rem;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+a {
+  color: var(--blue);
+}
+
+.card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 0.7rem;
+  padding: 0.85rem 1rem;
+}
+
+.btn {
+  appearance: none;
+  border: 1px solid var(--border);
+  background: var(--panel-2);
+  color: var(--text);
+  border-radius: 0.5rem;
+  padding: 0.45rem 0.8rem;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+.btn:hover {
+  border-color: var(--accent);
+}
+.btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.btn.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+.btn.danger {
+  border-color: #6b2f2f;
+  color: var(--red);
+}
+
+input,
+textarea,
+select {
+  width: 100%;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  padding: 0.5rem 0.6rem;
+  font: inherit;
+}
+textarea {
+  resize: vertical;
+  min-height: 3rem;
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.7rem;
+  padding: 0.15rem 0.5rem;
+  border-radius: 1rem;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  text-transform: capitalize;
+  white-space: nowrap;
+}
+.badge.working {
+  color: var(--green);
+  border-color: #2f6b46;
+}
+.badge.needs-input {
+  color: var(--amber);
+  border-color: #6b5a2f;
+}
+.badge.failed {
+  color: var(--red);
+  border-color: #6b2f2f;
+}
+.badge.idle,
+.badge.completed,
+.badge.stopped,
+.badge.unknown {
+  color: var(--muted);
+}
+.badge.owned {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.badge.foreign {
+  color: var(--muted);
+}
+
+.muted {
+  color: var(--muted);
+}
+.row {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.spacer {
+  flex: 1;
+}
+.mono {
+  font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+  font-size: 0.8rem;
 }

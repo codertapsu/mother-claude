@@ -1,0 +1,87 @@
+<div class="head row">
+  <h1>Sessions</h1>
+  <span class="spacer"></span>
+  <button class="btn primary" (click)="showSpawn.set(!showSpawn())">
+    {{ showSpawn() ? 'Cancel' : '+ New session' }}
+  </button>
+</div>
+
+@if (showSpawn()) {
+  <div class="card spawn">
+    <span class="lbl">Working directory</span>
+    <input
+      [ngModel]="spawnCwd()"
+      (ngModelChange)="spawnCwd.set($event)"
+      placeholder="/Users/you/project"
+    />
+    <span class="lbl">Initial instruction</span>
+    <textarea
+      [ngModel]="spawnPrompt()"
+      (ngModelChange)="spawnPrompt.set($event)"
+      placeholder="Describe what Claude should do…"
+    ></textarea>
+    @if (error()) {
+      <p class="err">{{ error() }}</p>
+    }
+    <div class="row">
+      <span class="spacer"></span>
+      <button class="btn primary" [disabled]="spawning()" (click)="spawn()">
+        {{ spawning() ? 'Starting…' : 'Launch (owned)' }}
+      </button>
+    </div>
+  </div>
+}
+
+@if (sessions().length === 0) {
+  <div class="card empty muted">
+    No sessions found yet. Start one above, or launch Claude Code in a terminal / editor.
+  </div>
+}
+
+@if (needsInput().length) {
+  <h2>Needs input</h2>
+  @for (s of needsInput(); track s.id) {
+    <ng-container [ngTemplateOutlet]="rowTpl" [ngTemplateOutletContext]="{ $implicit: s }" />
+  }
+}
+@if (working().length) {
+  <h2>Working</h2>
+  @for (s of working(); track s.id) {
+    <ng-container [ngTemplateOutlet]="rowTpl" [ngTemplateOutletContext]="{ $implicit: s }" />
+  }
+}
+@if (other().length) {
+  <h2>Idle &amp; completed</h2>
+  @for (s of other(); track s.id) {
+    <ng-container [ngTemplateOutlet]="rowTpl" [ngTemplateOutletContext]="{ $implicit: s }" />
+  }
+}
+
+<ng-template #rowTpl let-s>
+  <a class="card session" [routerLink]="['/session', s.id]">
+    <div class="line1">
+      <span class="name">{{ s.title || s.projectName || s.id }}</span>
+      <span class="spacer"></span>
+      <span class="badge {{ s.state }}">{{ label(s.state) }}</span>
+      <span class="badge" [class.owned]="s.owned" [class.foreign]="!s.owned">{{
+        s.owned ? 'owned' : 'foreign'
+      }}</span>
+    </div>
+    <div class="line2 muted mono">{{ s.cwd }}</div>
+    <div class="line3 muted">
+      <span>{{ surface(s.surface) }}</span>
+      @if (s.model) {
+        <span>· {{ s.model }}</span>
+      }
+      @if (s.gitBranch) {
+        <span>· {{ s.gitBranch }}</span>
+      }
+      <span>· {{ s.messageCount }} msgs</span>
+      <span>· {{ tokens(s.usage.totalTokens) }} tok</span>
+      <span>· {{ rel(s.lastActivity) }}</span>
+      @if (!s.canInject) {
+        <span class="ro" title="Live answer injection unavailable">read-only</span>
+      }
+    </div>
+  </a>
+</ng-template>

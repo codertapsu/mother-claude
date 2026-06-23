@@ -1,0 +1,74 @@
+<h1>Settings</h1>
+
+<h2>Connection</h2>
+<div class="card">
+  @if (cfg(); as c) {
+    <div class="mono">Server: {{ c.baseUrl || '(same origin)' }}</div>
+    <div class="mono">Mode: {{ c.desktop ? 'desktop webview' : 'browser' }}</div>
+    <div class="mono">Token: {{ c.token ? 'set' : 'missing' }}</div>
+  }
+</div>
+
+<h2>Pair a phone</h2>
+<div class="card pair">
+  @if (qr(); as svg) {
+    <div class="qr" [innerHTML]="svg"></div>
+  }
+  @if (pairing(); as p) {
+    <div class="info">
+      <div class="mono url">{{ p.url }}</div>
+      <div class="muted">Addresses: {{ p.addresses.join(', ') || 'localhost' }}</div>
+      <div class="muted">TLS: {{ p.tls ? 'on' : 'off (loopback)' }}</div>
+      @if (p.tls) {
+        <div class="muted fp">Fingerprint: {{ p.fingerprint }}</div>
+      }
+      <p class="muted small">
+        Scan on the same Wi-Fi. With a self-signed cert your phone will warn once — verify the
+        fingerprint, then trust it.
+      </p>
+    </div>
+  } @else if (error()) {
+    <p class="muted">{{ error() }}</p>
+  }
+</div>
+
+<h2>Enter a token manually</h2>
+<div class="card">
+  <div class="row">
+    <input
+      [ngModel]="tokenInput()"
+      (ngModelChange)="tokenInput.set($event)"
+      placeholder="Paste API token"
+    />
+    <button class="btn primary" (click)="applyToken()">Save &amp; reload</button>
+  </div>
+</div>
+
+@if (cfg()?.desktop) {
+  <h2>Full Disk Access</h2>
+  <div class="card row">
+    <span class="badge" [class.working]="fda() === true" [class.failed]="fda() === false">{{
+      fda() === null ? 'unknown' : fda() ? 'granted' : 'not granted'
+    }}</span>
+    <span class="muted">Required to read ~/.claude/projects on packaged builds.</span>
+    <span class="spacer"></span>
+    <button class="btn" (click)="openPrivacy()">Open Privacy settings</button>
+  </div>
+}
+
+<h2>Experimental</h2>
+<div class="card">
+  <label class="row toggle">
+    <input
+      type="checkbox"
+      class="chk"
+      [checked]="experimental()"
+      (change)="toggleExperimental($any($event.target).checked)"
+    />
+    <span>Enable experimental foreign-session injection (PTY / CCR&nbsp;v1)</span>
+  </label>
+  <p class="muted small">
+    Uses unstable, unsupported internals. Requires a build with the <code>experimental</code> Cargo
+    feature; this toggle only opts the UI in. Off by default.
+  </p>
+</div>

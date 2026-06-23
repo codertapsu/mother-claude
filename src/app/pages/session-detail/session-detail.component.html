@@ -1,0 +1,188 @@
+@if (session(); as s) {
+  <div class="head">
+    <div class="row">
+      <a class="btn" routerLink="/">‹ Back</a>
+      <span class="title">{{ s.title || s.projectName || s.id }}</span>
+      <span class="badge {{ s.state }}">{{ label(s.state) }}</span>
+      <span class="badge" [class.owned]="s.owned" [class.foreign]="!s.owned">{{
+        s.owned ? 'owned' : 'foreign'
+      }}</span>
+    </div>
+    <div class="sub muted mono">{{ s.cwd }}</div>
+    <div class="row sub2 muted">
+      <span>{{ surface(s.surface) }}</span>
+      @if (s.model) {
+        <span>· {{ s.model }}</span>
+      }
+      @if (s.gitBranch) {
+        <span>· {{ s.gitBranch }}</span>
+      }
+      <span>· {{ s.usage.totalTokens }} tokens</span>
+      <span class="spacer"></span>
+      <button class="btn" [disabled]="busy()" (click)="lifecycle('stop')">Stop</button>
+      <button class="btn" [disabled]="busy()" (click)="lifecycle('respawn')">Respawn</button>
+      <button class="btn danger" [disabled]="busy()" (click)="lifecycle('rm')">Remove</button>
+    </div>
+  </div>
+
+  <div class="tabs">
+    <button class="tab" [class.active]="tab() === 'transcript'" (click)="tab.set('transcript')">
+      Transcript
+    </button>
+    <button class="tab" [class.active]="tab() === 'changes'" (click)="openChanges()">
+      Changes
+    </button>
+  </div>
+
+  @if (notice()) {
+    <div class="notice">{{ notice() }}</div>
+  }
+
+  @if (tab() === 'transcript') {
+    @if (s.pending; as p) {
+      <div class="card pending" [class.dangerous]="p.dangerous">
+        <div class="row">
+          <strong>{{ p.kind === 'permission' ? 'Permission requested' : 'Question' }}</strong>
+          @if (p.tool) {
+            <span class="badge mono">{{ p.tool }}</span>
+          }
+        </div>
+        @if (p.prompt) {
+          <p class="prompt">{{ p.prompt }}</p>
+        }
+        @if (p.dangerous) {
+          <p class="warn">⚠ Dangerous action — may be restricted to the local desktop.</p>
+        }
+        @if (!p.answerable) {
+          <p class="muted">
+            Live answer injection is unavailable for this foreign session — monitor &amp; lifecycle
+            only.
+          </p>
+        }
+        @if (p.answerable && p.kind === 'permission') {
+          <div class="row">
+            <button class="btn primary" [disabled]="busy()" (click)="respond('allow')">
+              Allow
+            </button>
+            <button class="btn danger" [disabled]="busy()" (click)="respond('deny')">Deny</button>
+          </div>
+        }
+        @if (p.answerable && p.kind === 'question') {
+          <div class="row answer">
+            @if (p.options?.length) {
+              @for (opt of p.options; track opt) {
+                <button class="btn" [disabled]="busy()" (click)="answer.set(opt); submitAnswer()">
+                  {{ opt }}
+                </button>
+              }
+            } @else {
+              <input
+                [ngModel]="answer()"
+                (ngModelChange)="answer.set($event)"
+                placeholder="Your answer…"
+              />
+              <button class="btn primary" [disabled]="busy()" (click)="submitAnswer()">Send</button>
+            }
+          </div>
+        }
+      </div>
+    }
+
+    <div #log class="log">
+      @for (r of rendered(); track $index) {
+        <div class="msg {{ r.cls }}" [class.err]="r.error">
+          <div class="who">{{ r.who }}</div>
+          @if (r.tools.length) {
+            <div class="tools">
+              @for (t of r.tools; track t) {
+                <span class="badge mono">⚙ {{ t }}</span>
+              }
+            </div>
+          }
+          @if (r.text.trim()) {
+            <pre class="body">{{ r.text.trim() }}</pre>
+          }
+        </div>
+      } @empty {
+        <p class="muted">No transcript yet.</p>
+      }
+    </div>
+
+    <div class="composer">
+      <textarea
+        [ngModel]="instruction()"
+        (ngModelChange)="instruction.set($event)"
+        [disabled]="!s.canInject"
+        [placeholder]="
+          s.canInject
+            ? 'Send an instruction…'
+            : 'Read-only — foreign sessions cannot be driven live'
+        "
+      ></textarea>
+      <button class="btn primary" [disabled]="!s.canInject || busy()" (click)="send()">Send</button>
+    </div>
+  }
+
+  @if (tab() === 'changes') {
+    @if (diff(); as d) {
+      @if (!d.isRepo) {
+        <div class="card muted">Not a Git repository.</div>
+      } @else {
+        <div class="card">
+          <div class="row">
+            <span class="badge">{{ d.branch || 'detached' }}</span>
+            @if (d.head) {
+              <span class="mono muted">{{ d.head }}</span>
+            }
+            <span class="spacer"></span>
+            <span class="add">+{{ d.additions }}</span>
+            <span class="del">−{{ d.deletions }}</span>
+          </div>
+        </div>
+
+        <h2>Changed files</h2>
+        @for (f of d.files; track f.path) {
+          <button class="card file" (click)="showPatch(f.path)">
+            <span class="badge {{ f.status }}">{{ f.status }}</span>
+            <span class="fpath mono">{{ f.path }}</span>
+            <span class="spacer"></span>
+            <span class="add">+{{ f.additions }}</span>
+            <span class="del">−{{ f.deletions }}</span>
+          </button>
+        } @empty {
+          <p class="muted">No working-tree changes.</p>
+        }
+
+        @if (patch(); as p) {
+          <h2>{{ p.path }}</h2>
+          <pre class="card patch mono">{{ p.text }}</pre>
+        }
+
+        <h2>Recent commits</h2>
+        @for (c of d.commits; track c.id) {
+          <div class="card commit">
+            <span class="mono muted">{{ c.id }}</span> {{ c.summary }}
+            <span class="muted">— {{ c.author }}</span>
+          </div>
+        } @empty {
+          <p class="muted">No commits.</p>
+        }
+
+        @if (d.worktrees.length) {
+          <h2>Worktrees</h2>
+          @for (w of d.worktrees; track w.name) {
+            <div class="card mono">
+              {{ w.name }} → {{ w.path }} {{ w.locked ? '(locked)' : '' }}
+            </div>
+          }
+        }
+      }
+    } @else {
+      <p class="muted">Loading diff…</p>
+    }
+  }
+} @else {
+  <p class="muted">
+    Session not found (it may have ended). <a routerLink="/">Back to sessions</a>.
+  </p>
+}

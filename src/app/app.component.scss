@@ -2,3 +2,108 @@
   display: block;
   min-height: 100vh;
 }
+
+.shell {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.6rem 1rem;
+  padding-top: max(0.6rem, env(safe-area-inset-top));
+  background: #15161c;
+  border-bottom: 1px solid #262833;
+}
+
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-weight: 700;
+  color: #e6e7ea;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.brand .dot {
+  width: 0.7rem;
+  height: 0.7rem;
+  border-radius: 50%;
+  background: #7c5cc9;
+  box-shadow: 0 0 0.6rem #7c5cc9;
+}
+
+.tabs {
+  display: flex;
+  gap: 0.25rem;
+  margin-left: auto;
+  flex-wrap: wrap;
+}
+.tabs a {
+  padding: 0.4rem 0.7rem;
+  border-radius: 0.5rem;
+  color: #9aa0ad;
+  text-decoration: none;
+  font-size: 0.9rem;
+}
+.tabs a.active {
+  background: #262a38;
+  color: #fff;
+}
+
+.conn {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 0.2rem 0.5rem;
+  border-radius: 1rem;
+  border: 1px solid #333;
+  color: #9aa0ad;
+}
+.conn.open {
+  color: #4ade80;
+  border-color: #2f6b46;
+}
+.conn.connecting {
+  color: #fbbf24;
+  border-color: #6b5a2f;
+}
+.conn.closed {
+  color: #f87171;
+  border-color: #6b2f2f;
+}
+
+.banner {
+  background: #2a2410;
+  color: #f4d77b;
+  padding: 0.5rem 1rem;
+  font-size: 0.85rem;
+  border-bottom: 1px solid #4a3f17;
+}
+.banner a {
+  color: #ffd970;
+}
+
+.content {
+  flex: 1;
+  padding: 1rem;
+  padding-bottom: max(1rem, env(safe-area-inset-bottom));
+  max-width: 1100px;
+  width: 100%;
+  margin: 0 auto;
+}
+
+@media (max-width: 520px) {
+  .brand {
+    font-size: 0.95rem;
+  }
+  .conn {
+    display: none;
+  }
+}

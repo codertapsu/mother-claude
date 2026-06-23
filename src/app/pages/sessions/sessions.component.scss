@@ -1,0 +1,58 @@
+:host {
+  display: block;
+}
+
+.spawn {
+  margin-bottom: 1rem;
+}
+.spawn .lbl {
+  display: block;
+  font-size: 0.8rem;
+  color: var(--muted);
+  margin: 0.5rem 0 0.25rem;
+}
+.spawn .err {
+  color: var(--red);
+  font-size: 0.85rem;
+}
+
+.empty {
+  margin-top: 1rem;
+}
+
+.session {
+  display: block;
+  text-decoration: none;
+  color: var(--text);
+  margin-bottom: 0.5rem;
+}
+.session:hover {
+  border-color: var(--accent);
+}
+.line1 {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.line1 .name {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.line2 {
+  margin-top: 0.2rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.line3 {
+  margin-top: 0.35rem;
+  font-size: 0.78rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+.line3 .ro {
+  color: var(--amber);
+}

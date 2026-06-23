@@ -1,0 +1,137 @@
+// TypeScript mirrors of the Rust DTOs (src-tauri/src/claude/registry.rs &
+// server). Kept in sync by hand; the server emits camelCase.
+
+export type Surface = 'cli' | 'vs-code' | 'jet-brains' | 'desktop' | 'unknown';
+
+export type SessionState =
+  | 'working'
+  | 'needs-input'
+  | 'idle'
+  | 'completed'
+  | 'failed'
+  | 'stopped'
+  | 'unknown';
+
+export type PendingKind = 'permission' | 'question';
+
+export interface PendingInput {
+  kind: PendingKind;
+  tool?: string;
+  prompt?: string;
+  options?: string[];
+  requestId?: string;
+  answerable: boolean;
+  dangerous: boolean;
+}
+
+export interface UsageSummary {
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheCreationTokens: number;
+  totalTokens: number;
+}
+
+export interface Session {
+  id: string;
+  cwd: string;
+  projectName: string;
+  surface: Surface;
+  owned: boolean;
+  state: SessionState;
+  model?: string;
+  title?: string;
+  startedAt?: number;
+  lastActivity?: number;
+  pid?: number;
+  kind?: string;
+  gitBranch?: string;
+  running: boolean;
+  messageCount: number;
+  usage: UsageSummary;
+  pending?: PendingInput;
+  canInject: boolean;
+}
+
+export interface ContentBlock {
+  type: string;
+  text?: string;
+  name?: string;
+  id?: string;
+  tool_use_id?: string;
+  input?: unknown;
+  content?: unknown;
+  is_error?: boolean;
+}
+
+export interface TranscriptMessage {
+  role?: string;
+  model?: string;
+  content?: string | ContentBlock[];
+  stop_reason?: string;
+  usage?: Record<string, unknown>;
+}
+
+export interface TranscriptEvent {
+  type: string;
+  uuid?: string;
+  parentUuid?: string;
+  timestamp?: string;
+  sessionId?: string;
+  cwd?: string;
+  gitBranch?: string;
+  subtype?: string;
+  message?: TranscriptMessage;
+  content?: unknown;
+  [key: string]: unknown;
+}
+
+export interface FileChange {
+  path: string;
+  status: string;
+  additions: number;
+  deletions: number;
+}
+
+export interface CommitInfo {
+  id: string;
+  summary: string;
+  author: string;
+  time: number;
+}
+
+export interface WorktreeInfo {
+  name: string;
+  path: string;
+  locked: boolean;
+}
+
+export interface GitOverview {
+  isRepo: boolean;
+  repoRoot?: string;
+  branch?: string;
+  head?: string;
+  files: FileChange[];
+  additions: number;
+  deletions: number;
+  commits: CommitInfo[];
+  worktrees: WorktreeInfo[];
+}
+
+export interface Pairing {
+  url: string;
+  token: string;
+  svg: string;
+  fingerprint: string;
+  addresses: string[];
+  port: number;
+  tls: boolean;
+}
+
+// Adjacently-tagged ServerEvent: { kind, data }.
+export type ServerEvent =
+  | { kind: 'sessions'; data: Session[] }
+  | { kind: 'transcript'; data: { sessionId: string; events: TranscriptEvent[] } }
+  | { kind: 'hook'; data: unknown }
+  | { kind: 'pending'; data: { sessionId: string; pending?: PendingInput } }
+  | { kind: 'notice'; data: string };
