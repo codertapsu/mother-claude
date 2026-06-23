@@ -70,6 +70,12 @@ pub fn router(state: AppState) -> Router {
         .route("/pairing", get(http::get_pairing))
         .route("/hooks/install", post(http::post_install_hooks));
 
+    // Experimental, unsanctioned foreign-session injection (off by default).
+    #[cfg(feature = "experimental")]
+    let api = api
+        .route("/sessions/:id/pty-attach", post(http::post_pty_attach))
+        .route("/sessions/:id/pty-inject", post(http::post_pty_inject));
+
     let secured = Router::new()
         .route("/ws", get(ws::ws_handler))
         .route("/hooks/event", post(http::post_hook_event))

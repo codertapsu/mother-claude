@@ -91,6 +91,9 @@ pub struct Inner {
     pub config: ServerConfig,
     pub auth: Auth,
     pub control: ControlRegistry,
+    /// Experimental PTY-attach registry (Stage 3, feature-gated).
+    #[cfg(feature = "experimental")]
+    pub pty: crate::claude::experimental::PtyRegistry,
     pub bus: broadcast::Sender<ServerEvent>,
     /// TLS certificate fingerprint, set once the server binds (None for http).
     pub fingerprint: RwLock<Option<String>>,
@@ -113,6 +116,8 @@ impl Inner {
             config,
             auth,
             control: ControlRegistry::new(),
+            #[cfg(feature = "experimental")]
+            pty: crate::claude::experimental::PtyRegistry::new(),
             bus,
             fingerprint: RwLock::new(None),
             owned: RwLock::new(HashSet::new()),

@@ -5,6 +5,8 @@
 //! tolerant types defined here, so a single module absorbs version churn.
 
 pub mod control;
+#[cfg(feature = "experimental")]
+pub mod experimental;
 pub mod git;
 pub mod home;
 pub mod registry;

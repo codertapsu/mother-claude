@@ -408,6 +408,61 @@ async fn run_lifecycle(state: &AppState, action: &str, id: &str) -> axum::respon
     }
 }
 
+/// EXPERIMENTAL: attach to a foreign session via PTY (Stage 3, feature-gated).
+/// Local-desktop only — this uses unsanctioned internals.
+#[cfg(feature = "experimental")]
+pub async fn post_pty_attach(
+    State(state): State<AppState>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    Path(id): Path<String>,
+) -> impl IntoResponse {
+    if auth::dangerous_blocked(
+        true,
+        auth::is_loopback(&peer),
+        state.auth.allow_remote_dangerous,
+    ) {
+        return (
+            StatusCode::FORBIDDEN,
+            "experimental PTY is local-desktop only",
+        )
+            .into_response();
+    }
+    let cwd = state
+        .find_session(&id)
+        .await
+        .map(|s| s.cwd)
+        .unwrap_or_default();
+    match state.pty.attach(&state, &id, &cwd) {
+        Ok(()) => StatusCode::NO_CONTENT.into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+    }
+}
+
+/// EXPERIMENTAL: inject keystrokes into a PTY-attached foreign session.
+#[cfg(feature = "experimental")]
+pub async fn post_pty_inject(
+    State(state): State<AppState>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    Path(id): Path<String>,
+    Json(body): Json<MessageBody>,
+) -> impl IntoResponse {
+    if auth::dangerous_blocked(
+        true,
+        auth::is_loopback(&peer),
+        state.auth.allow_remote_dangerous,
+    ) {
+        return (
+            StatusCode::FORBIDDEN,
+            "experimental PTY is local-desktop only",
+        )
+            .into_response();
+    }
+    match state.pty.inject(&id, &body.text) {
+        Ok(()) => StatusCode::NO_CONTENT.into_response(),
+        Err(e) => (StatusCode::BAD_REQUEST, e.to_string()).into_response(),
+    }
+}
+
 /// Hook ingestion: foreign (and owned) sessions POST tool/notification/stop
 /// events here. We fan them out on the bus as a `hook` event. We do NOT block or
 /// auto-approve here (the documented `allow`-suppression bug makes that

@@ -37,6 +37,7 @@ uuid = { version = "1", features = ["v4"] }
 qrcode = { version = "0.14", default-features = false, features = ["svg"] }
 directories = "5"
 sha2 = "0.10"
+portable-pty = { version = "0.8", optional = true }
 
 [dev-dependencies]
 tempfile = "3"
@@ -47,7 +48,7 @@ futures-util = "0.3"
 [features]
 # Stage 3 — PTY/CCR hijacking of foreign live sessions. Unsanctioned, unstable,
 # OFF by default. Enable with `--features experimental`.
-experimental = []
+experimental = ["dep:portable-pty"]
 
 [profile.release]
 strip = true
