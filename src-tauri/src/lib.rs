@@ -7,29 +7,18 @@
 //! desktop webview and phone browsers share one code path. Tauri `invoke` is
 //! reserved for desktop-only OS concerns (e.g. the Full Disk Access check below).
 
-use std::path::PathBuf;
-
 use tracing_subscriber::EnvFilter;
 
-/// Resolve the Claude config directory, honoring `CLAUDE_CONFIG_DIR`.
-fn claude_home() -> Option<PathBuf> {
-    if let Ok(dir) = std::env::var("CLAUDE_CONFIG_DIR") {
-        if !dir.is_empty() {
-            return Some(PathBuf::from(dir));
-        }
-    }
-    std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".claude"))
-}
+pub mod claude;
 
 /// First-run check: can the app read `~/.claude/projects`? On packaged macOS
 /// builds this requires Full Disk Access (a separate TCC grant from the dev
 /// terminal). Exposed over `invoke` because it is a desktop-only OS concern.
 #[tauri::command]
 fn check_full_disk_access() -> bool {
-    match claude_home() {
-        Some(home) => std::fs::read_dir(home.join("projects")).is_ok(),
-        None => false,
-    }
+    claude::ClaudeHome::resolve()
+        .map(|h| h.has_full_disk_access())
+        .unwrap_or(false)
 }
 
 /// Open the macOS Privacy & Security → Full Disk Access settings pane.
