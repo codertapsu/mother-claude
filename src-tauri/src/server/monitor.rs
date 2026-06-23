@@ -60,6 +60,13 @@ pub async fn run(state: AppState) {
     }
 }
 
+/// Run a single refresh cycle with a throwaway tailer set. Exposed for
+/// integration tests that drive the pipeline deterministically.
+pub async fn refresh_once(state: &AppState) {
+    let mut tailers = HashMap::new();
+    refresh(state, &mut tailers).await;
+}
+
 /// One refresh cycle: rebuild the registry, broadcast it, then tail each live
 /// session's transcript and broadcast any new lines.
 async fn refresh(state: &AppState, tailers: &mut HashMap<String, TranscriptTailer>) {

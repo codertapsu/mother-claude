@@ -1,0 +1,16 @@
+[
+  {
+    "pid": 4011,
+    "cwd": "/Users/dev/fixture",
+    "kind": "interactive",
+    "startedAt": 1782182119394,
+    "sessionId": "fixture-1"
+  },
+  {
+    "pid": 41676,
+    "cwd": "/Users/dev/other",
+    "kind": "background",
+    "startedAt": 1782202210199,
+    "sessionId": "fixture-2"
+  }
+]

@@ -1,0 +1,9 @@
+{"type":"last-prompt","leafUuid":"5e26d934","sessionId":"fixture-1"}
+{"type":"permission-mode","permissionMode":"auto","sessionId":"fixture-1"}
+{"parentUuid":null,"isSidechain":false,"type":"system","subtype":"informational","content":"Auto mode lets Claude handle permission prompts.","sessionId":"fixture-1"}
+{"type":"ai-title","aiTitle":"Fixture session","sessionId":"fixture-1"}
+{"parentUuid":null,"type":"user","timestamp":"2026-06-23T08:00:00.000Z","cwd":"/Users/dev/fixture","gitBranch":"main","entrypoint":"claude-vscode","sessionId":"fixture-1","message":{"role":"user","content":[{"type":"text","text":"List files then read README"}]}}
+{"parentUuid":"u1","type":"assistant","timestamp":"2026-06-23T08:00:03.000Z","cwd":"/Users/dev/fixture","gitBranch":"main","entrypoint":"claude-vscode","sessionId":"fixture-1","message":{"role":"assistant","model":"claude-opus-4-8","stop_reason":"tool_use","content":[{"type":"text","text":"I'll list the files."},{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"ls"},"caller":"assistant"}],"usage":{"input_tokens":120,"output_tokens":35,"cache_read_input_tokens":2000,"cache_creation_input_tokens":500}}}
+{"parentUuid":"a1","type":"user","timestamp":"2026-06-23T08:00:04.000Z","sessionId":"fixture-1","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":"README.md\nsrc","is_error":false}]}}
+{"type":"file-history-snapshot","sessionId":"fixture-1","snapshot":{"files":["README.md"]}}
+{"parentUuid":"a1","type":"assistant","timestamp":"2026-06-23T08:00:08.000Z","sessionId":"fixture-1","message":{"role":"assistant","model":"claude-opus-4-8","stop_reason":"end_turn","content":[{"type":"text","text":"Done — there is a README.md and a src directory."}],"usage":{"input_tokens":80,"output_tokens":20}}}
