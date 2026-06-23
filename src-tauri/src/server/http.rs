@@ -1,17 +1,24 @@
 //! REST handlers. All dashboard data is served here (never via Tauri `invoke`).
 
 use std::collections::HashMap;
+use std::net::SocketAddr;
+use std::time::Duration;
 
-use axum::extract::{Path, Query, State};
+use axum::extract::{ConnectInfo, Path, Query, State};
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use axum::Json;
 use serde::Deserialize;
 use serde_json::{json, Value};
+use tokio::sync::oneshot;
+use uuid::Uuid;
 
-use crate::claude::{self, SpawnOptions};
+use crate::claude::{self, PendingInput, PendingKind, SpawnOptions};
 use crate::server::auth;
-use crate::state::AppState;
+use crate::state::{AppState, Resolution};
+
+/// How long a blocked permission/question request waits before defaulting to deny.
+const PENDING_TIMEOUT: Duration = Duration::from_secs(600);
 
 /// Liveness + version probe.
 pub async fn health() -> impl IntoResponse {
@@ -181,6 +188,161 @@ pub async fn post_message(
     match state.control.send_message(&id, &body.text).await {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
         Err(e) => (StatusCode::BAD_REQUEST, e.to_string()).into_response(),
+    }
+}
+
+#[derive(Deserialize)]
+pub struct PermissionRequestBody {
+    #[serde(default)]
+    pub request_id: Option<String>,
+    /// "permission" or "question".
+    pub kind: String,
+    #[serde(default)]
+    pub tool: Option<String>,
+    #[serde(default)]
+    pub prompt: Option<String>,
+    #[serde(default)]
+    pub options: Vec<String>,
+    #[serde(default)]
+    pub dangerous: bool,
+}
+
+/// Sidecar-facing: raise a permission/question prompt and **block** until the
+/// dashboard resolves it (or it times out → deny). This is the canUseTool /
+/// ask_user bridge for owned (Path A) sessions.
+pub async fn post_permission_request(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Json(body): Json<PermissionRequestBody>,
+) -> impl IntoResponse {
+    let request_id = body
+        .request_id
+        .unwrap_or_else(|| Uuid::new_v4().to_string());
+    let kind = if body.kind == "question" {
+        PendingKind::Question
+    } else {
+        PendingKind::Permission
+    };
+    let pending = PendingInput {
+        kind,
+        tool: body.tool,
+        prompt: body.prompt,
+        options: body.options,
+        request_id: Some(request_id.clone()),
+        answerable: true,
+        dangerous: body.dangerous,
+    };
+
+    let (tx, rx) = oneshot::channel();
+    state.register_resolver(request_id.clone(), tx);
+    state.set_pending(&id, Some(pending)).await;
+
+    let resolution = match tokio::time::timeout(PENDING_TIMEOUT, rx).await {
+        Ok(Ok(r)) => r,
+        _ => Resolution::Deny,
+    };
+    let _ = state.take_resolver(&request_id);
+    state.set_pending(&id, None).await;
+
+    let payload = match resolution {
+        Resolution::Allow => json!({ "behavior": "allow" }),
+        Resolution::Deny => json!({ "behavior": "deny" }),
+        Resolution::Answer(answer) => json!({ "behavior": "answer", "answer": answer }),
+    };
+    Json(payload).into_response()
+}
+
+#[derive(Deserialize)]
+pub struct PermissionBody {
+    /// "allow" or "deny".
+    pub decision: String,
+    #[serde(default)]
+    pub request_id: Option<String>,
+}
+
+/// Dashboard: approve or deny a pending permission. Dangerous approvals are
+/// gated to the local desktop unless remote-dangerous is explicitly enabled.
+pub async fn post_permission(
+    State(state): State<AppState>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    Path(id): Path<String>,
+    Json(body): Json<PermissionBody>,
+) -> impl IntoResponse {
+    let pending = state.pending.read().await.get(&id).cloned();
+    let dangerous = pending.as_ref().map(|p| p.dangerous).unwrap_or(false);
+    let request_id = body
+        .request_id
+        .or_else(|| pending.and_then(|p| p.request_id));
+    let allow = body.decision == "allow";
+
+    if allow
+        && auth::dangerous_blocked(
+            dangerous,
+            auth::is_loopback(&peer),
+            state.auth.allow_remote_dangerous,
+        )
+    {
+        return (
+            StatusCode::FORBIDDEN,
+            "dangerous approvals are restricted to the local desktop",
+        )
+            .into_response();
+    }
+
+    resolve(
+        &state,
+        request_id,
+        if allow {
+            Resolution::Allow
+        } else {
+            Resolution::Deny
+        },
+    )
+}
+
+#[derive(Deserialize)]
+pub struct AnswerBody {
+    pub answer: String,
+    #[serde(default)]
+    pub request_id: Option<String>,
+}
+
+/// Dashboard: answer a pending question.
+pub async fn post_answer(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Json(body): Json<AnswerBody>,
+) -> impl IntoResponse {
+    let request_id = match body.request_id {
+        Some(r) => Some(r),
+        None => state
+            .pending
+            .read()
+            .await
+            .get(&id)
+            .and_then(|p| p.request_id.clone()),
+    };
+    resolve(&state, request_id, Resolution::Answer(body.answer))
+}
+
+fn resolve(
+    state: &AppState,
+    request_id: Option<String>,
+    resolution: Resolution,
+) -> axum::response::Response {
+    let Some(req) = request_id else {
+        return (StatusCode::BAD_REQUEST, "no pending request").into_response();
+    };
+    match state.take_resolver(&req) {
+        Some(tx) => {
+            let _ = tx.send(resolution);
+            StatusCode::NO_CONTENT.into_response()
+        }
+        None => (
+            StatusCode::NOT_FOUND,
+            "no pending resolver for that request",
+        )
+            .into_response(),
     }
 }
 

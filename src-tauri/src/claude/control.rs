@@ -62,26 +62,59 @@ impl ControlRegistry {
     }
 
     /// Launch a new owned session and return its id.
+    ///
+    /// Path A (preferred, when `MOTHER_CLAUDE_SIDECAR=1` and the Node sidecar is
+    /// built): drive the session via the Agent SDK bridge, which gates tools with
+    /// `canUseTool` and surfaces questions via `ask_user` to the dashboard.
+    /// Path B (default): a headless `claude -p` stream-json subprocess.
     pub async fn spawn(&self, state: &AppState, opts: SpawnOptions) -> Result<String> {
         let id = Uuid::new_v4().to_string();
-        let mut cmd = tokio::process::Command::new(crate::claude::claude_bin());
-        cmd.arg("-p")
-            .arg("--output-format")
-            .arg("stream-json")
-            .arg("--input-format")
-            .arg("stream-json")
-            .arg("--verbose")
-            .arg("--include-partial-messages")
-            .arg("--session-id")
-            .arg(&id)
-            .arg("--permission-mode")
-            .arg(opts.permission_mode.as_deref().unwrap_or("default"));
-        if let Some(model) = &opts.model {
-            cmd.arg("--model").arg(model);
-        }
-        if !opts.prompt.trim().is_empty() {
-            cmd.arg(&opts.prompt);
-        }
+        let permission_mode = opts
+            .permission_mode
+            .as_deref()
+            .unwrap_or("default")
+            .to_string();
+
+        let mut cmd = match sidecar_entry() {
+            Some(entry) => {
+                tracing::info!(session = %id, "spawning owned session via sidecar (Path A)");
+                let mut c = tokio::process::Command::new("node");
+                c.arg(entry)
+                    .env("MC_SESSION_ID", &id)
+                    .env("MC_CWD", &opts.cwd)
+                    .env("MC_PROMPT", &opts.prompt)
+                    .env("MC_PERMISSION_MODE", &permission_mode)
+                    .env("MOTHER_CLAUDE_URL", server_url(state))
+                    // Self-signed loopback TLS: trust it for the local sidecar.
+                    .env("NODE_TLS_REJECT_UNAUTHORIZED", "0");
+                if let Some(model) = &opts.model {
+                    c.env("MC_MODEL", model);
+                }
+                c
+            }
+            None => {
+                let mut c = tokio::process::Command::new(crate::claude::claude_bin());
+                c.arg("-p")
+                    .arg("--output-format")
+                    .arg("stream-json")
+                    .arg("--input-format")
+                    .arg("stream-json")
+                    .arg("--verbose")
+                    .arg("--include-partial-messages")
+                    .arg("--session-id")
+                    .arg(&id)
+                    .arg("--permission-mode")
+                    .arg(&permission_mode);
+                if let Some(model) = &opts.model {
+                    c.arg("--model").arg(model);
+                }
+                if !opts.prompt.trim().is_empty() {
+                    c.arg(&opts.prompt);
+                }
+                c
+            }
+        };
+
         cmd.current_dir(&opts.cwd)
             // Hooks fired by this session authenticate back to us with the token.
             .env("MOTHER_CLAUDE_TOKEN", &state.auth.token)
@@ -201,6 +234,42 @@ impl ControlRegistry {
     fn get(&self, id: &str) -> Option<Arc<OwnedHandle>> {
         self.handles.lock().ok().and_then(|m| m.get(id).cloned())
     }
+}
+
+/// Resolve the built sidecar entry point if Path A is enabled and present.
+fn sidecar_entry() -> Option<std::path::PathBuf> {
+    let enabled = std::env::var("MOTHER_CLAUDE_SIDECAR")
+        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+        .unwrap_or(false);
+    if !enabled {
+        return None;
+    }
+    if let Ok(custom) = std::env::var("MOTHER_CLAUDE_SIDECAR_PATH") {
+        let p = std::path::PathBuf::from(custom);
+        if p.is_file() {
+            return Some(p);
+        }
+    }
+    let candidates = [
+        std::env::current_dir()
+            .ok()
+            .map(|d| d.join("sidecar/dist/agent-bridge.js")),
+        Some(
+            std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("../sidecar/dist/agent-bridge.js"),
+        ),
+    ];
+    candidates.into_iter().flatten().find(|p| p.is_file())
+}
+
+/// Loopback URL the sidecar uses to reach this server.
+fn server_url(state: &AppState) -> String {
+    let scheme = if state.config.is_non_loopback() {
+        "https"
+    } else {
+        "http"
+    };
+    format!("{scheme}://127.0.0.1:{}", state.config.port)
 }
 
 /// Serialize a user message line for `--input-format stream-json`.

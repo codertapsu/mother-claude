@@ -56,6 +56,12 @@ pub fn router(state: AppState) -> Router {
         .route("/sessions/:id/diff", get(http::get_diff))
         .route("/sessions/:id/file-patch", get(http::get_file_patch))
         .route("/sessions/:id/message", post(http::post_message))
+        .route(
+            "/sessions/:id/permission-request",
+            post(http::post_permission_request),
+        )
+        .route("/sessions/:id/permission", post(http::post_permission))
+        .route("/sessions/:id/answer", post(http::post_answer))
         .route("/services", get(http::get_services))
         .route("/daemon", get(http::get_daemon))
         .route("/pairing", get(http::get_pairing));
@@ -229,5 +235,71 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(resp.status(), reqwest::StatusCode::NOT_FOUND);
+    }
+
+    /// End-to-end approval loop: a (simulated) sidecar raises a permission
+    /// request that blocks; the dashboard approves it; the request unblocks with
+    /// `allow`.
+    #[tokio::test]
+    async fn permission_request_resolves_via_dashboard() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = Inner::new(
+            ClaudeHome::with_base(dir.path()),
+            ServerConfig {
+                host: "127.0.0.1".into(),
+                port: 0,
+            },
+            auth::Auth::ephemeral(),
+        );
+        let token = state.auth.token.clone();
+        let app = router(state);
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            axum::serve(
+                listener,
+                app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+            )
+            .await
+            .unwrap();
+        });
+
+        let base = format!("http://{addr}");
+        let client = reqwest::Client::new();
+
+        // Sidecar side: raise a permission request and block for the answer.
+        let (c2, b2, t2) = (client.clone(), base.clone(), token.clone());
+        let blocked = tokio::spawn(async move {
+            c2.post(format!("{b2}/api/sessions/sess1/permission-request"))
+                .bearer_auth(&t2)
+                .json(&serde_json::json!({ "kind": "permission", "tool": "Bash" }))
+                .send()
+                .await
+                .unwrap()
+                .json::<serde_json::Value>()
+                .await
+                .unwrap()
+        });
+
+        // Dashboard side: approve (retry until the pending request is registered).
+        let mut approved = false;
+        for _ in 0..50 {
+            let r = client
+                .post(format!("{base}/api/sessions/sess1/permission"))
+                .bearer_auth(&token)
+                .json(&serde_json::json!({ "decision": "allow" }))
+                .send()
+                .await
+                .unwrap();
+            if r.status() == reqwest::StatusCode::NO_CONTENT {
+                approved = true;
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(40)).await;
+        }
+        assert!(approved, "dashboard approval never landed");
+
+        let decision = blocked.await.unwrap();
+        assert_eq!(decision["behavior"], "allow");
     }
 }

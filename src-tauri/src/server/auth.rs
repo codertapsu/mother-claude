@@ -96,6 +96,12 @@ pub fn is_loopback(addr: &SocketAddr) -> bool {
     addr.ip().is_loopback()
 }
 
+/// The dangerous-action gate: block a dangerous approval when it comes from a
+/// non-loopback peer and remote-dangerous is not explicitly enabled.
+pub fn dangerous_blocked(dangerous: bool, loopback: bool, allow_remote: bool) -> bool {
+    dangerous && !loopback && !allow_remote
+}
+
 /// Extract the presented token from header / query / cookie.
 fn presented_token(req: &Request<Body>) -> Option<String> {
     if let Some(value) = req.headers().get(axum::http::header::AUTHORIZATION) {
@@ -257,5 +263,17 @@ mod tests {
     fn loopback_detection() {
         assert!(is_loopback(&"127.0.0.1:1".parse().unwrap()));
         assert!(!is_loopback(&"192.168.1.5:1".parse().unwrap()));
+    }
+
+    #[test]
+    fn dangerous_gate() {
+        // Safe actions are never blocked.
+        assert!(!dangerous_blocked(false, false, false));
+        // Dangerous + loopback (desktop) -> allowed.
+        assert!(!dangerous_blocked(true, true, false));
+        // Dangerous + remote + not allowed -> blocked.
+        assert!(dangerous_blocked(true, false, false));
+        // Dangerous + remote + explicitly allowed -> permitted.
+        assert!(!dangerous_blocked(true, false, true));
     }
 }

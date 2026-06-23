@@ -10,11 +10,19 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 
 use serde::Serialize;
-use tokio::sync::{broadcast, RwLock};
+use tokio::sync::{broadcast, oneshot, RwLock};
 
 use crate::claude::control::ControlRegistry;
-use crate::claude::{ClaudeHome, PendingInput, Session, TranscriptEvent};
+use crate::claude::{ClaudeHome, PendingInput, Session, SessionState, TranscriptEvent};
 use crate::server::auth::Auth;
+
+/// How a pending prompt was resolved by a human.
+#[derive(Debug)]
+pub enum Resolution {
+    Allow,
+    Deny,
+    Answer(String),
+}
 
 /// Cloneable shared state handle.
 pub type AppState = Arc<Inner>;
@@ -90,6 +98,9 @@ pub struct Inner {
     pub owned: RwLock<HashSet<String>>,
     /// Live pending prompts keyed by session id.
     pub pending: RwLock<HashMap<String, PendingInput>>,
+    /// Oneshot resolvers keyed by request id; a blocked permission/question
+    /// request awaits its sender. std Mutex — held only for insert/remove.
+    pub resolvers: std::sync::Mutex<HashMap<String, oneshot::Sender<Resolution>>>,
     /// Last computed session list (served by REST without recomputation).
     pub sessions: RwLock<Vec<Session>>,
 }
@@ -106,6 +117,7 @@ impl Inner {
             fingerprint: RwLock::new(None),
             owned: RwLock::new(HashSet::new()),
             pending: RwLock::new(HashMap::new()),
+            resolvers: std::sync::Mutex::new(HashMap::new()),
             sessions: RwLock::new(Vec::new()),
         })
     }
@@ -127,5 +139,50 @@ impl Inner {
             .iter()
             .find(|s| s.id == id)
             .cloned()
+    }
+
+    /// Set or clear a session's pending prompt, updating the cached snapshot and
+    /// broadcasting both a `pending` and a fresh `sessions` event so the UI
+    /// reacts immediately (without waiting for the next monitor sweep).
+    pub async fn set_pending(&self, id: &str, pending: Option<PendingInput>) {
+        {
+            let mut map = self.pending.write().await;
+            match &pending {
+                Some(p) => {
+                    map.insert(id.to_string(), p.clone());
+                }
+                None => {
+                    map.remove(id);
+                }
+            }
+        }
+        let snapshot = {
+            let mut sessions = self.sessions.write().await;
+            if let Some(s) = sessions.iter_mut().find(|s| s.id == id) {
+                s.pending = pending.clone();
+                if pending.is_some() {
+                    s.state = SessionState::NeedsInput;
+                }
+            }
+            sessions.clone()
+        };
+        self.broadcast(ServerEvent::Pending {
+            session_id: id.to_string(),
+            pending,
+        });
+        self.broadcast(ServerEvent::Sessions(snapshot));
+    }
+
+    pub fn register_resolver(&self, request_id: String, tx: oneshot::Sender<Resolution>) {
+        if let Ok(mut r) = self.resolvers.lock() {
+            r.insert(request_id, tx);
+        }
+    }
+
+    pub fn take_resolver(&self, request_id: &str) -> Option<oneshot::Sender<Resolution>> {
+        self.resolvers
+            .lock()
+            .ok()
+            .and_then(|mut r| r.remove(request_id))
     }
 }
