@@ -57,8 +57,40 @@ a single module absorbs version churn.
   unverified — verify independently before relying on it. Gated behind a UI
   "uses unstable, unsupported internals" confirmation.
 
+## Build-time decisions & deviations from the brief
+
+These are intentional choices made while implementing on this machine; each keeps
+the product working and the commits green.
+
+- **Loopback HTTP + per-LAN-IP TLS** (instead of a single `0.0.0.0` TLS bind):
+  a self-signed cert can't be verified by the Tauri webview or by Claude Code's
+  hook HTTP client, so the server always serves plain HTTP on `127.0.0.1:<port>`
+  (desktop webview, hooks, local sidecar) and TLS on the LAN IPs (phones). This
+  is what makes both the desktop dashboard and foreign-hook ingestion work
+  out of the box.
+- **`claude --bg` does not exist** on 2.1.185 — owned/background sessions are
+  spawned via the headless `claude -p` path; foreign lifecycle uses
+  `claude stop|respawn|rm`.
+- **Path B headless permission prompts**: in `-p` mode, permission prompts and
+  `PermissionRequest` hooks do not reliably surface, so remote *approval* of
+  owned sessions is best done via the **Path A sidecar** (canUseTool/ask_user),
+  which is optional and not part of the green gate (it needs
+  `@anthropic-ai/claude-agent-sdk` installed and runtime auth). The Rust
+  permission *bridge* it talks to is fully implemented and tested.
+- **Hook token**: installing hooks embeds the literal token in
+  `~/.claude/settings.json` (foreign sessions don't inherit our env). See
+  SECURITY.md.
+- **QR is rendered as inline SVG** (qrcode crate) rather than a PNG via the
+  `image` crate — crisper on mobile and one fewer dependency.
+- **Transcript view** caps rendering to the last ~800 events with auto-scroll
+  rather than using CDK virtual scrolling (variable-height items). Fine for the
+  live-tail use case; revisit for very long histories.
+- **`ng test`** (karma) needs a headless Chrome; it is present on this machine.
+  The enforced per-commit Angular gates are `npm run lint` and `npm run build`
+  (plus `cargo fmt`/`clippy -D warnings`/`test`).
+
 ## Status of stages
 
-See git history for what each commit delivered. Any stage that could not be
-completed in full is implemented to a working subset with the remainder noted
-here as it is discovered during the build.
+All 16 commits in the plan were completed and kept green (cargo
+fmt/clippy/test + Angular lint/build). The experimental tier and the Path A
+sidecar are the only optional/unsanctioned pieces, both off by default.
