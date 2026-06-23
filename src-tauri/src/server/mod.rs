@@ -62,6 +62,9 @@ pub fn router(state: AppState) -> Router {
         )
         .route("/sessions/:id/permission", post(http::post_permission))
         .route("/sessions/:id/answer", post(http::post_answer))
+        .route("/sessions/:id/stop", post(http::post_stop))
+        .route("/sessions/:id/respawn", post(http::post_respawn))
+        .route("/sessions/:id/rm", post(http::post_rm))
         .route("/services", get(http::get_services))
         .route("/daemon", get(http::get_daemon))
         .route("/pairing", get(http::get_pairing));

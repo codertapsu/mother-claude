@@ -272,6 +272,24 @@ fn server_url(state: &AppState) -> String {
     format!("{scheme}://127.0.0.1:{}", state.config.port)
 }
 
+/// Run a documented lifecycle subcommand (`stop` / `respawn` / `rm`) against any
+/// session — owned or foreign. Returns combined stdout on success.
+pub async fn run_lifecycle(action: &str, id: &str) -> Result<String> {
+    let out = tokio::process::Command::new(crate::claude::claude_bin())
+        .arg(action)
+        .arg(id)
+        .output()
+        .await
+        .with_context(|| format!("failed to run `claude {action} {id}`"))?;
+    let stdout = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    let stderr = String::from_utf8_lossy(&out.stderr).trim().to_string();
+    if out.status.success() {
+        Ok(stdout)
+    } else {
+        Err(anyhow!("`claude {action} {id}` failed: {stderr}"))
+    }
+}
+
 /// Serialize a user message line for `--input-format stream-json`.
 pub fn user_message_json(text: &str) -> String {
     json!({
@@ -302,5 +320,16 @@ mod tests {
     fn registry_starts_empty() {
         let r = ControlRegistry::new();
         assert!(!r.controls("anything"));
+    }
+
+    #[tokio::test]
+    async fn run_lifecycle_invokes_cli() {
+        // Stand in for `claude` with `echo` so we exercise the shell-out path
+        // without touching real sessions.
+        std::env::set_var("MOTHER_CLAUDE_CLI", "echo");
+        let out = run_lifecycle("stop", "abc-123").await.unwrap();
+        std::env::remove_var("MOTHER_CLAUDE_CLI");
+        assert!(out.contains("stop"));
+        assert!(out.contains("abc-123"));
     }
 }

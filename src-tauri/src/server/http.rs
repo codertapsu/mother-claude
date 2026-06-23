@@ -346,6 +346,68 @@ fn resolve(
     }
 }
 
+/// Stop an owned or foreign session (conversation kept; resume later).
+pub async fn post_stop(State(state): State<AppState>, Path(id): Path<String>) -> impl IntoResponse {
+    if state.is_owned(&id).await {
+        let _ = state.control.kill(&id).await;
+    }
+    run_lifecycle(&state, "stop", &id).await
+}
+
+/// Respawn (restart) an owned or foreign session.
+pub async fn post_respawn(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> impl IntoResponse {
+    run_lifecycle(&state, "respawn", &id).await
+}
+
+/// Remove a session and its worktree. Irreversible → gated to the local desktop
+/// unless remote-dangerous is explicitly enabled.
+pub async fn post_rm(
+    State(state): State<AppState>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    Path(id): Path<String>,
+) -> impl IntoResponse {
+    if auth::dangerous_blocked(
+        true,
+        auth::is_loopback(&peer),
+        state.auth.allow_remote_dangerous,
+    ) {
+        return (
+            StatusCode::FORBIDDEN,
+            "removing a session is irreversible and restricted to the local desktop",
+        )
+            .into_response();
+    }
+    if state.is_owned(&id).await {
+        let _ = state.control.kill(&id).await;
+    }
+    state.owned.write().await.remove(&id);
+    state.set_pending(&id, None).await;
+    run_lifecycle(&state, "rm", &id).await
+}
+
+async fn run_lifecycle(state: &AppState, action: &str, id: &str) -> axum::response::Response {
+    match claude::control::run_lifecycle(action, id).await {
+        Ok(output) => {
+            state.broadcast(crate::state::ServerEvent::Notice(format!(
+                "{action} {id}: ok"
+            )));
+            (
+                StatusCode::OK,
+                Json(json!({ "ok": true, "output": output })),
+            )
+                .into_response()
+        }
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "ok": false, "error": e.to_string() })),
+        )
+            .into_response(),
+    }
+}
+
 /// Device pairing payload: QR (SVG), URL, token, and TLS fingerprint.
 pub async fn get_pairing(State(state): State<AppState>) -> impl IntoResponse {
     let fingerprint = state
