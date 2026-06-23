@@ -1,0 +1,23 @@
+# Optional: `pip install pre-commit && pre-commit install` to enable.
+# These run the same gates CI enforces. Each commit must stay green.
+repos:
+  - repo: local
+    hooks:
+      - id: cargo-fmt
+        name: cargo fmt --check
+        entry: cargo fmt --manifest-path src-tauri/Cargo.toml --check
+        language: system
+        pass_filenames: false
+        files: \.rs$
+      - id: cargo-clippy
+        name: cargo clippy -D warnings
+        entry: cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
+        language: system
+        pass_filenames: false
+        files: \.rs$
+      - id: angular-lint
+        name: angular eslint
+        entry: npm run lint
+        language: system
+        pass_filenames: false
+        files: \.(ts|html)$

@@ -1,0 +1,39 @@
+# Dependencies
+node_modules/
+sidecar/node_modules/
+
+# Build output
+dist/
+/.angular/
+src-tauri/target/
+sidecar/dist/
+
+# Rust
+**/*.rs.bk
+Cargo.lock.orig
+
+# Generated secrets / runtime state — NEVER commit these
+*.pem
+*.key
+*.crt
+*.cert
+**/certs/
+**/.mother-claude/
+mother-claude.token
+*.token
+
+# OS / editor
+.DS_Store
+*.swp
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+# Logs
+*.log
+npm-debug.log*
+
+# Env
+.env
+.env.*
+!.env.example
