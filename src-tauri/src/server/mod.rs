@@ -5,8 +5,10 @@
 //! snapshot fresh (polling `claude agents --json` + filesystem watch) and streams
 //! live transcript deltas over the broadcast bus.
 
+pub mod auth;
 pub mod http;
 pub mod monitor;
+pub mod tls;
 pub mod ws;
 
 use std::path::PathBuf;
@@ -42,6 +44,9 @@ pub fn resolve_web_dir() -> Option<PathBuf> {
 }
 
 /// Build the axum router (without binding). Exposed for integration tests.
+///
+/// `/api/*`, `/ws`, and `/hooks/*` require the API token; the static SPA is
+/// served without auth so a phone can load the app and then authenticate.
 pub fn router(state: AppState) -> Router {
     let api = Router::new()
         .route("/health", get(http::health))
@@ -51,18 +56,23 @@ pub fn router(state: AppState) -> Router {
         .route("/sessions/:id/diff", get(http::get_diff))
         .route("/sessions/:id/file-patch", get(http::get_file_patch))
         .route("/services", get(http::get_services))
-        .route("/daemon", get(http::get_daemon));
+        .route("/daemon", get(http::get_daemon))
+        .route("/pairing", get(http::get_pairing));
 
-    let mut app = Router::new()
+    let secured = Router::new()
         .route("/ws", get(ws::ws_handler))
-        .nest("/api", api);
+        .nest("/api", api)
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            auth::require_token,
+        ));
 
-    app = match resolve_web_dir() {
+    let app = match resolve_web_dir() {
         Some(dir) => {
             let index = dir.join("index.html");
-            app.fallback_service(ServeDir::new(dir).fallback(ServeFile::new(index)))
+            secured.fallback_service(ServeDir::new(dir).fallback(ServeFile::new(index)))
         }
-        None => app.fallback(http::no_frontend),
+        None => secured.fallback(http::no_frontend),
     };
 
     app.layer(CorsLayer::permissive())
@@ -70,8 +80,8 @@ pub fn router(state: AppState) -> Router {
         .with_state(state)
 }
 
-/// Bind and serve (plain HTTP). TLS is layered on in the auth commit. Also spawns
-/// the background monitor.
+/// Bind and serve. TLS (self-signed) is used for any non-loopback bind; plain
+/// HTTP for loopback. Also spawns the background monitor.
 pub async fn serve(state: AppState) -> anyhow::Result<()> {
     let addr = state.config.bind_addr().with_context(|| {
         format!(
@@ -82,19 +92,58 @@ pub async fn serve(state: AppState) -> anyhow::Result<()> {
 
     tokio::spawn(monitor::run(state.clone()));
 
-    let listener = tokio::net::TcpListener::bind(addr)
-        .await
-        .with_context(|| format!("could not bind {addr}"))?;
-    tracing::info!(%addr, "Mother Claude server listening (http)");
+    let make = router(state.clone()).into_make_service_with_connect_info::<std::net::SocketAddr>();
 
-    let app = router(state);
-    axum::serve(
-        listener,
-        app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
-    )
-    .await
-    .context("server error")?;
+    if state.config.is_non_loopback() {
+        let _ = rustls::crypto::ring::default_provider().install_default();
+        let cert_dir = state
+            .auth
+            .config_dir
+            .clone()
+            .unwrap_or_else(|| std::env::temp_dir().join("mother-claude"))
+            .join("certs");
+        let bundle = tls::ensure_cert(&cert_dir).context("ensure TLS cert")?;
+        *state.fingerprint.write().await = Some(bundle.fingerprint.clone());
+
+        let tls_config = axum_server::tls_rustls::RustlsConfig::from_pem(
+            bundle.cert_pem.into_bytes(),
+            bundle.key_pem.into_bytes(),
+        )
+        .await
+        .context("build rustls config")?;
+
+        announce(&state, true, &bundle.fingerprint);
+        axum_server::bind_rustls(addr, tls_config)
+            .serve(make)
+            .await
+            .context("tls server error")?;
+    } else {
+        let listener = tokio::net::TcpListener::bind(addr)
+            .await
+            .with_context(|| format!("could not bind {addr}"))?;
+        announce(&state, false, "n/a (http)");
+        axum::serve(listener, make).await.context("server error")?;
+    }
     Ok(())
+}
+
+/// Log the token, URL, and fingerprint to the console at startup.
+fn announce(state: &AppState, tls: bool, fingerprint: &str) {
+    let pairing = auth::build_pairing(state, fingerprint);
+    let scheme = if tls { "https" } else { "http" };
+    tracing::info!(
+        url = %pairing.url,
+        token = %state.auth.token,
+        fingerprint = %fingerprint,
+        "Mother Claude server listening ({scheme})"
+    );
+    println!("\n  Mother Claude dashboard");
+    println!("  URL:   {}", pairing.url);
+    println!("  Token: {}", state.auth.token);
+    if tls {
+        println!("  TLS fingerprint (SHA-256): {fingerprint}");
+    }
+    println!();
 }
 
 #[cfg(test)]
@@ -104,9 +153,9 @@ mod tests {
     use crate::state::{Inner, ServerConfig};
 
     /// Boot the router on an ephemeral port (no monitor, no `claude` calls) and
-    /// hit the REST API over real HTTP.
+    /// hit the REST API over real HTTP, exercising token auth.
     #[tokio::test]
-    async fn serves_health_and_sessions_over_http() {
+    async fn serves_api_with_token_auth() {
         let dir = tempfile::tempdir().unwrap();
         let state = Inner::new(
             ClaudeHome::with_base(dir.path()),
@@ -114,7 +163,9 @@ mod tests {
                 host: "127.0.0.1".into(),
                 port: 0,
             },
+            auth::Auth::ephemeral(),
         );
+        let token = state.auth.token.clone();
         let app = router(state);
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
@@ -125,8 +176,18 @@ mod tests {
         let base = format!("http://{addr}");
         let client = reqwest::Client::new();
 
+        // Missing token -> 401.
+        let resp = client
+            .get(format!("{base}/api/sessions"))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), reqwest::StatusCode::UNAUTHORIZED);
+
+        // With bearer token -> ok.
         let health: serde_json::Value = client
             .get(format!("{base}/api/health"))
+            .bearer_auth(&token)
             .send()
             .await
             .unwrap()
@@ -135,8 +196,9 @@ mod tests {
             .unwrap();
         assert_eq!(health["status"], "ok");
 
+        // Token via query string (the WebSocket path) also works.
         let sessions: serde_json::Value = client
-            .get(format!("{base}/api/sessions"))
+            .get(format!("{base}/api/sessions?token={token}"))
             .send()
             .await
             .unwrap()
@@ -146,9 +208,22 @@ mod tests {
         assert!(sessions.is_array());
         assert_eq!(sessions.as_array().unwrap().len(), 0);
 
-        // Unknown session -> 404.
+        // Pairing payload includes a QR SVG.
+        let pairing: serde_json::Value = client
+            .get(format!("{base}/api/pairing"))
+            .bearer_auth(&token)
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        assert!(pairing["svg"].as_str().unwrap().contains("<svg"));
+
+        // Unknown session -> 404 (authorized).
         let resp = client
             .get(format!("{base}/api/sessions/does-not-exist"))
+            .bearer_auth(&token)
             .send()
             .await
             .unwrap();

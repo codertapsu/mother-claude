@@ -13,6 +13,7 @@ pub mod claude;
 pub mod server;
 pub mod state;
 
+use server::auth::Auth;
 use state::{Inner, ServerConfig};
 
 /// First-run check: can the app read `~/.claude/projects`? On packaged macOS
@@ -25,13 +26,17 @@ fn check_full_disk_access() -> bool {
         .unwrap_or(false)
 }
 
-/// Desktop-only: where the embedded dashboard server is listening, so the
-/// webview can point its API client at it.
+/// Desktop-only: how the webview should reach the embedded dashboard server
+/// (host, port, scheme, and the API token). This is the one piece of bootstrap
+/// data the webview needs before it can talk to the server over HTTP/WS.
 #[tauri::command]
 fn server_info(state: tauri::State<'_, state::AppState>) -> serde_json::Value {
+    let tls = state.config.is_non_loopback();
     serde_json::json!({
         "host": state.config.host,
         "port": state.config.port,
+        "scheme": if tls { "https" } else { "http" },
+        "token": state.auth.token,
     })
 }
 
@@ -76,7 +81,7 @@ pub fn run() {
             )
         }
     };
-    let app_state = Inner::new(home, ServerConfig::from_env());
+    let app_state = Inner::new(home, ServerConfig::from_env(), Auth::load_or_create());
 
     tauri::Builder::default()
         .manage(app_state.clone())

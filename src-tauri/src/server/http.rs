@@ -9,6 +9,7 @@ use axum::Json;
 use serde_json::{json, Value};
 
 use crate::claude;
+use crate::server::auth;
 use crate::state::AppState;
 
 /// Liveness + version probe.
@@ -130,6 +131,17 @@ pub async fn get_services(State(state): State<AppState>) -> impl IntoResponse {
 /// Raw `claude daemon status` output.
 pub async fn get_daemon() -> impl IntoResponse {
     Json(daemon_status().await)
+}
+
+/// Device pairing payload: QR (SVG), URL, token, and TLS fingerprint.
+pub async fn get_pairing(State(state): State<AppState>) -> impl IntoResponse {
+    let fingerprint = state
+        .fingerprint
+        .read()
+        .await
+        .clone()
+        .unwrap_or_else(|| "n/a (http)".to_string());
+    Json(auth::build_pairing(&state, &fingerprint))
 }
 
 async fn daemon_status() -> Value {

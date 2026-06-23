@@ -13,6 +13,7 @@ use serde::Serialize;
 use tokio::sync::{broadcast, RwLock};
 
 use crate::claude::{ClaudeHome, PendingInput, Session, TranscriptEvent};
+use crate::server::auth::Auth;
 
 /// Cloneable shared state handle.
 pub type AppState = Arc<Inner>;
@@ -79,7 +80,10 @@ pub enum ServerEvent {
 pub struct Inner {
     pub home: ClaudeHome,
     pub config: ServerConfig,
+    pub auth: Auth,
     pub bus: broadcast::Sender<ServerEvent>,
+    /// TLS certificate fingerprint, set once the server binds (None for http).
+    pub fingerprint: RwLock<Option<String>>,
     /// Session ids spawned by Mother Claude (full control / injection allowed).
     pub owned: RwLock<HashSet<String>>,
     /// Live pending prompts keyed by session id.
@@ -89,12 +93,14 @@ pub struct Inner {
 }
 
 impl Inner {
-    pub fn new(home: ClaudeHome, config: ServerConfig) -> AppState {
+    pub fn new(home: ClaudeHome, config: ServerConfig, auth: Auth) -> AppState {
         let (bus, _rx) = broadcast::channel(1024);
         Arc::new(Inner {
             home,
             config,
+            auth,
             bus,
+            fingerprint: RwLock::new(None),
             owned: RwLock::new(HashSet::new()),
             pending: RwLock::new(HashMap::new()),
             sessions: RwLock::new(Vec::new()),
