@@ -12,6 +12,9 @@ sidecar/dist/
 **/*.rs.bk
 Cargo.lock.orig
 
+# Tauri generated
+src-tauri/gen/
+
 # Generated secrets / runtime state — NEVER commit these
 *.pem
 *.key
