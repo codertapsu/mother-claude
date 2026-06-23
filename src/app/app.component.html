@@ -22,6 +22,13 @@
     </div>
   }
 
+  @if (needsPermission()) {
+    <div class="banner warn">
+      A required macOS permission is missing —
+      <a routerLink="/onboarding">finish setup</a> so Mother Claude can read your sessions.
+    </div>
+  }
+
   <main class="content">
     <router-outlet />
   </main>

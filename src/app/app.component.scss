@@ -89,6 +89,14 @@
 .banner a {
   color: #ffd970;
 }
+.banner.warn {
+  background: #2a1414;
+  color: #f6b0b0;
+  border-bottom-color: #5a2727;
+}
+.banner.warn a {
+  color: #ffb3b3;
+}
 
 .content {
   flex: 1;

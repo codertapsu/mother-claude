@@ -80,11 +80,18 @@ cargo test  --manifest-path src-tauri/Cargo.toml
 `just ci` runs them all. The experimental tier:
 `cargo clippy --manifest-path src-tauri/Cargo.toml --features experimental -- -D warnings`.
 
-## Full Disk Access (macOS)
+## Permissions (macOS)
 
-The packaged GUI app needs **Full Disk Access** to read `~/.claude/projects`
-(a TCC grant separate from your terminal). Settings shows the status and a button
-to open the right pane: System Settings → Privacy & Security → Full Disk Access.
+On first run the app shows a short **onboarding** screen that detects any missing
+OS permission and walks you through granting it:
+
+- **Full Disk Access** (required) — to read `~/.claude/projects` (a TCC grant
+  separate from your terminal). The guide deep-links to the right System Settings
+  pane and offers "Reveal app in Finder" so you can add it, then "Re-check".
+- **Local Network** (optional) — so your phone can reach the dashboard; macOS
+  prompts the first time a device connects, just click Allow.
+
+You can skip and revisit anytime under **Settings → Permissions**.
 
 ## Configuration (env)
 

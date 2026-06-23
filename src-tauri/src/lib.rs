@@ -10,6 +10,7 @@
 use tracing_subscriber::EnvFilter;
 
 pub mod claude;
+pub mod permissions;
 pub mod server;
 pub mod state;
 
@@ -21,9 +22,31 @@ use state::{Inner, ServerConfig};
 /// terminal). Exposed over `invoke` because it is a desktop-only OS concern.
 #[tauri::command]
 fn check_full_disk_access() -> bool {
-    claude::ClaudeHome::resolve()
-        .map(|h| h.has_full_disk_access())
-        .unwrap_or(false)
+    permissions::full_disk_access_granted()
+}
+
+/// The list of OS permissions and their current state (for the onboarding UI).
+#[tauri::command]
+fn permissions_status() -> Vec<permissions::PermissionInfo> {
+    permissions::status()
+}
+
+/// Open a System Settings privacy pane by id (e.g. `full-disk-access`).
+#[tauri::command]
+fn open_settings_pane(pane_id: String) -> Result<(), String> {
+    permissions::open_settings_pane(&pane_id)
+}
+
+/// Reveal the app bundle in Finder so the user can add it to a permission list.
+#[tauri::command]
+fn reveal_app_in_finder() -> Result<(), String> {
+    permissions::reveal_in_finder()
+}
+
+/// The app bundle path, shown in the onboarding guide.
+#[tauri::command]
+fn app_location() -> String {
+    permissions::app_location()
 }
 
 /// Desktop-only: how the webview should reach the embedded dashboard server
@@ -39,23 +62,6 @@ fn server_info(state: tauri::State<'_, state::AppState>) -> serde_json::Value {
         "scheme": "http",
         "token": state.auth.token,
     })
-}
-
-/// Open the macOS Privacy & Security → Full Disk Access settings pane.
-#[tauri::command]
-fn open_privacy_settings() -> Result<(), String> {
-    #[cfg(target_os = "macos")]
-    {
-        std::process::Command::new("open")
-            .arg("x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles")
-            .spawn()
-            .map(|_| ())
-            .map_err(|e| e.to_string())
-    }
-    #[cfg(not(target_os = "macos"))]
-    {
-        Err("Full Disk Access settings are macOS-only".to_string())
-    }
 }
 
 fn init_tracing() {
@@ -98,7 +104,10 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             check_full_disk_access,
-            open_privacy_settings,
+            permissions_status,
+            open_settings_pane,
+            reveal_app_in_finder,
+            app_location,
             server_info
         ])
         .run(tauri::generate_context!())

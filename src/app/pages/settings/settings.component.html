@@ -44,16 +44,9 @@
   </div>
 </div>
 
-@if (cfg()?.desktop) {
-  <h2>Full Disk Access</h2>
-  <div class="card row">
-    <span class="badge" [class.working]="fda() === true" [class.failed]="fda() === false">{{
-      fda() === null ? 'unknown' : fda() ? 'granted' : 'not granted'
-    }}</span>
-    <span class="muted">Required to read ~/.claude/projects on packaged builds.</span>
-    <span class="spacer"></span>
-    <button class="btn" (click)="openPrivacy()">Open Privacy settings</button>
-  </div>
+@if (desktop()) {
+  <h2>Permissions</h2>
+  <mc-permissions-list />
 }
 
 <h2>Experimental</h2>

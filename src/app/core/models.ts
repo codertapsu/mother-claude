@@ -118,6 +118,17 @@ export interface GitOverview {
   worktrees: WorktreeInfo[];
 }
 
+export interface PermissionInfo {
+  id: string;
+  label: string;
+  description: string;
+  /** true / false when detectable; null when it can't be checked. */
+  granted: boolean | null;
+  required: boolean;
+  settingsUrl?: string;
+  steps: string[];
+}
+
 export interface Pairing {
   url: string;
   token: string;

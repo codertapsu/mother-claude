@@ -4,32 +4,35 @@ import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
 
 import { ApiService } from '../../core/api.service';
 import { ConfigService } from '../../core/config.service';
+import { PermissionsService } from '../../core/permissions.service';
 import { Pairing } from '../../core/models';
+import { PermissionsListComponent } from '../../shared/permissions-list.component';
 
 const EXPERIMENTAL_KEY = 'mc_experimental';
 
 @Component({
   selector: 'mc-settings',
-  imports: [FormsModule],
+  imports: [FormsModule, PermissionsListComponent],
   templateUrl: './settings.component.html',
   styleUrl: './settings.component.scss',
 })
 export class SettingsComponent {
   private api = inject(ApiService);
   private config = inject(ConfigService);
+  private permissions = inject(PermissionsService);
   private sanitizer = inject(DomSanitizer);
 
   protected readonly cfg = this.config.config;
+  protected readonly desktop = this.permissions.desktop;
   protected readonly pairing = signal<Pairing | null>(null);
   protected readonly qr = signal<SafeHtml | null>(null);
   protected readonly tokenInput = signal('');
   protected readonly error = signal('');
   protected readonly experimental = signal(localStorage.getItem(EXPERIMENTAL_KEY) === '1');
-  protected readonly fda = signal<boolean | null>(null);
 
   constructor() {
     this.loadPairing();
-    this.checkFda();
+    void this.permissions.refresh();
   }
 
   private async loadPairing(): Promise<void> {
@@ -54,24 +57,5 @@ export class SettingsComponent {
   toggleExperimental(value: boolean): void {
     this.experimental.set(value);
     localStorage.setItem(EXPERIMENTAL_KEY, value ? '1' : '0');
-  }
-
-  private async checkFda(): Promise<void> {
-    if (!this.config.config()?.desktop) return;
-    try {
-      const { invoke } = await import('@tauri-apps/api/core');
-      this.fda.set(await invoke<boolean>('check_full_disk_access'));
-    } catch {
-      this.fda.set(null);
-    }
-  }
-
-  async openPrivacy(): Promise<void> {
-    try {
-      const { invoke } = await import('@tauri-apps/api/core');
-      await invoke('open_privacy_settings');
-    } catch {
-      /* not in desktop */
-    }
   }
 }

@@ -23,6 +23,11 @@ export const routes: Routes = [
     loadComponent: () =>
       import('./pages/settings/settings.component').then((m) => m.SettingsComponent),
   },
+  {
+    path: 'onboarding',
+    loadComponent: () =>
+      import('./pages/onboarding/onboarding.component').then((m) => m.OnboardingComponent),
+  },
   // Pairing links (.../#/pair?token=…) — token is captured by ConfigService on
   // load; land the user on Settings to confirm.
   {
