@@ -72,7 +72,7 @@ pub fn ensure_cert(dir: &Path) -> Result<CertBundle> {
     let certified =
         rcgen::generate_simple_self_signed(sans).context("generate self-signed cert")?;
     let cert_pem = certified.cert.pem();
-    let key_pem = certified.key_pair.serialize_pem();
+    let key_pem = certified.signing_key.serialize_pem();
     let fingerprint = sha256_fingerprint(certified.cert.der());
 
     std::fs::write(&cert_path, &cert_pem)?;

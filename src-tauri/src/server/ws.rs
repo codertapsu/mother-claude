@@ -15,7 +15,7 @@ async fn handle(mut socket: WebSocket, state: AppState) {
     // Send an immediate snapshot so a freshly connected client renders at once.
     let snapshot = ServerEvent::Sessions(state.sessions.read().await.clone());
     if let Ok(text) = serde_json::to_string(&snapshot) {
-        if socket.send(Message::Text(text)).await.is_err() {
+        if socket.send(Message::Text(text.into())).await.is_err() {
             return;
         }
     }
@@ -26,7 +26,7 @@ async fn handle(mut socket: WebSocket, state: AppState) {
             received = rx.recv() => match received {
                 Ok(event) => {
                     if let Ok(text) = serde_json::to_string(&event) {
-                        if socket.send(Message::Text(text)).await.is_err() {
+                        if socket.send(Message::Text(text.into())).await.is_err() {
                             break;
                         }
                     }

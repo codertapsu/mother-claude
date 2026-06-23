@@ -85,7 +85,7 @@ fn open(cwd: &Path) -> Option<Repository> {
 fn current_branch(repo: &Repository) -> Option<String> {
     let head = repo.head().ok()?;
     if head.is_branch() {
-        head.shorthand().map(String::from)
+        head.shorthand().ok().map(String::from)
     } else {
         // Detached HEAD — report the short commit id.
         head.target().map(|oid| {
@@ -157,7 +157,7 @@ fn recent_log(repo: &Repository, limit: usize) -> Vec<CommitInfo> {
         if let Ok(commit) = repo.find_commit(oid) {
             commits.push(CommitInfo {
                 id: oid.to_string().chars().take(8).collect(),
-                summary: commit.summary().unwrap_or("").to_string(),
+                summary: commit.summary().ok().flatten().unwrap_or("").to_string(),
                 author: commit.author().name().unwrap_or("").to_string(),
                 time: commit.time().seconds(),
             });
@@ -171,7 +171,7 @@ fn list_worktrees(repo: &Repository) -> Vec<WorktreeInfo> {
     let Ok(names) = repo.worktrees() else {
         return out;
     };
-    for name in names.iter().flatten() {
+    for name in names.iter().filter_map(|r| r.ok().flatten()) {
         if let Ok(wt) = repo.find_worktree(name) {
             out.push(WorktreeInfo {
                 name: name.to_string(),

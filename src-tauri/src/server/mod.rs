@@ -51,20 +51,20 @@ pub fn router(state: AppState) -> Router {
     let api = Router::new()
         .route("/health", get(http::health))
         .route("/sessions", get(http::list_sessions).post(http::post_spawn))
-        .route("/sessions/:id", get(http::get_session))
-        .route("/sessions/:id/transcript", get(http::get_transcript))
-        .route("/sessions/:id/diff", get(http::get_diff))
-        .route("/sessions/:id/file-patch", get(http::get_file_patch))
-        .route("/sessions/:id/message", post(http::post_message))
+        .route("/sessions/{id}", get(http::get_session))
+        .route("/sessions/{id}/transcript", get(http::get_transcript))
+        .route("/sessions/{id}/diff", get(http::get_diff))
+        .route("/sessions/{id}/file-patch", get(http::get_file_patch))
+        .route("/sessions/{id}/message", post(http::post_message))
         .route(
-            "/sessions/:id/permission-request",
+            "/sessions/{id}/permission-request",
             post(http::post_permission_request),
         )
-        .route("/sessions/:id/permission", post(http::post_permission))
-        .route("/sessions/:id/answer", post(http::post_answer))
-        .route("/sessions/:id/stop", post(http::post_stop))
-        .route("/sessions/:id/respawn", post(http::post_respawn))
-        .route("/sessions/:id/rm", post(http::post_rm))
+        .route("/sessions/{id}/permission", post(http::post_permission))
+        .route("/sessions/{id}/answer", post(http::post_answer))
+        .route("/sessions/{id}/stop", post(http::post_stop))
+        .route("/sessions/{id}/respawn", post(http::post_respawn))
+        .route("/sessions/{id}/rm", post(http::post_rm))
         .route("/services", get(http::get_services))
         .route("/daemon", get(http::get_daemon))
         .route("/pairing", get(http::get_pairing))
@@ -73,8 +73,8 @@ pub fn router(state: AppState) -> Router {
     // Experimental, unsanctioned foreign-session injection (off by default).
     #[cfg(feature = "experimental")]
     let api = api
-        .route("/sessions/:id/pty-attach", post(http::post_pty_attach))
-        .route("/sessions/:id/pty-inject", post(http::post_pty_inject));
+        .route("/sessions/{id}/pty-attach", post(http::post_pty_attach))
+        .route("/sessions/{id}/pty-inject", post(http::post_pty_inject));
 
     let secured = Router::new()
         .route("/ws", get(ws::ws_handler))

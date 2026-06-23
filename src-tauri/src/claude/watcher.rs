@@ -9,8 +9,8 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use anyhow::Result;
-use notify::{RecommendedWatcher, RecursiveMode, Watcher};
-use notify_debouncer_full::{new_debouncer, DebounceEventResult, Debouncer, FileIdMap};
+use notify::{RecommendedWatcher, RecursiveMode};
+use notify_debouncer_full::{new_debouncer, DebounceEventResult, Debouncer, RecommendedCache};
 use tokio::sync::mpsc::UnboundedSender;
 
 /// Channel of debounced batches of changed paths.
@@ -18,7 +18,7 @@ pub type WatchSender = UnboundedSender<Vec<PathBuf>>;
 
 /// Owns the live debouncer; dropping it stops watching.
 pub struct FsWatcher {
-    _debouncer: Debouncer<RecommendedWatcher, FileIdMap>,
+    _debouncer: Debouncer<RecommendedWatcher, RecommendedCache>,
 }
 
 impl FsWatcher {
@@ -32,7 +32,7 @@ impl FsWatcher {
                 Ok(events) => {
                     let mut changed: Vec<PathBuf> = Vec::new();
                     for ev in events {
-                        for path in &ev.event.paths {
+                        for path in &ev.paths {
                             changed.push(path.clone());
                         }
                     }
@@ -51,8 +51,9 @@ impl FsWatcher {
 
         for path in paths {
             if path.exists() {
-                debouncer.watcher().watch(path, RecursiveMode::Recursive)?;
-                debouncer.cache().add_root(path, RecursiveMode::Recursive);
+                // notify-debouncer-full 0.5: Debouncer implements Watcher itself
+                // and manages its file-id cache internally.
+                debouncer.watch(path, RecursiveMode::Recursive)?;
                 tracing::debug!(path = %path.display(), "watching");
             } else {
                 tracing::debug!(path = %path.display(), "skip watching (missing)");
