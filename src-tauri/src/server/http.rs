@@ -6,9 +6,10 @@ use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use axum::Json;
+use serde::Deserialize;
 use serde_json::{json, Value};
 
-use crate::claude;
+use crate::claude::{self, SpawnOptions};
 use crate::server::auth;
 use crate::state::AppState;
 
@@ -131,6 +132,56 @@ pub async fn get_services(State(state): State<AppState>) -> impl IntoResponse {
 /// Raw `claude daemon status` output.
 pub async fn get_daemon() -> impl IntoResponse {
     Json(daemon_status().await)
+}
+
+#[derive(Deserialize)]
+pub struct SpawnBody {
+    pub cwd: String,
+    pub prompt: String,
+    #[serde(default)]
+    pub model: Option<String>,
+}
+
+/// Spawn a new **owned** session (full two-way control).
+pub async fn post_spawn(
+    State(state): State<AppState>,
+    Json(body): Json<SpawnBody>,
+) -> impl IntoResponse {
+    let opts = SpawnOptions {
+        cwd: body.cwd,
+        prompt: body.prompt,
+        model: body.model,
+        permission_mode: None,
+    };
+    match state.control.spawn(&state, opts).await {
+        Ok(id) => (StatusCode::CREATED, Json(json!({ "id": id }))).into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+    }
+}
+
+#[derive(Deserialize)]
+pub struct MessageBody {
+    pub text: String,
+}
+
+/// Send an instruction to an owned session. Foreign sessions are rejected — they
+/// cannot be driven live (the §1 invariant).
+pub async fn post_message(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Json(body): Json<MessageBody>,
+) -> impl IntoResponse {
+    if !state.is_owned(&id).await {
+        return (
+            StatusCode::FORBIDDEN,
+            "foreign sessions cannot be driven live; lifecycle only",
+        )
+            .into_response();
+    }
+    match state.control.send_message(&id, &body.text).await {
+        Ok(()) => StatusCode::NO_CONTENT.into_response(),
+        Err(e) => (StatusCode::BAD_REQUEST, e.to_string()).into_response(),
+    }
 }
 
 /// Device pairing payload: QR (SVG), URL, token, and TLS fingerprint.

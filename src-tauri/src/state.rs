@@ -12,6 +12,7 @@ use std::sync::Arc;
 use serde::Serialize;
 use tokio::sync::{broadcast, RwLock};
 
+use crate::claude::control::ControlRegistry;
 use crate::claude::{ClaudeHome, PendingInput, Session, TranscriptEvent};
 use crate::server::auth::Auth;
 
@@ -81,6 +82,7 @@ pub struct Inner {
     pub home: ClaudeHome,
     pub config: ServerConfig,
     pub auth: Auth,
+    pub control: ControlRegistry,
     pub bus: broadcast::Sender<ServerEvent>,
     /// TLS certificate fingerprint, set once the server binds (None for http).
     pub fingerprint: RwLock<Option<String>>,
@@ -99,6 +101,7 @@ impl Inner {
             home,
             config,
             auth,
+            control: ControlRegistry::new(),
             bus,
             fingerprint: RwLock::new(None),
             owned: RwLock::new(HashSet::new()),

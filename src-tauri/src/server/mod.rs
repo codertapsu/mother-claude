@@ -14,7 +14,7 @@ pub mod ws;
 use std::path::PathBuf;
 
 use anyhow::Context;
-use axum::routing::get;
+use axum::routing::{get, post};
 use axum::Router;
 use tower_http::cors::CorsLayer;
 use tower_http::services::{ServeDir, ServeFile};
@@ -50,11 +50,12 @@ pub fn resolve_web_dir() -> Option<PathBuf> {
 pub fn router(state: AppState) -> Router {
     let api = Router::new()
         .route("/health", get(http::health))
-        .route("/sessions", get(http::list_sessions))
+        .route("/sessions", get(http::list_sessions).post(http::post_spawn))
         .route("/sessions/:id", get(http::get_session))
         .route("/sessions/:id/transcript", get(http::get_transcript))
         .route("/sessions/:id/diff", get(http::get_diff))
         .route("/sessions/:id/file-patch", get(http::get_file_patch))
+        .route("/sessions/:id/message", post(http::post_message))
         .route("/services", get(http::get_services))
         .route("/daemon", get(http::get_daemon))
         .route("/pairing", get(http::get_pairing));

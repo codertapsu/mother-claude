@@ -4,6 +4,7 @@
 //! Claude Code's research-preview internals. Everything above it works with the
 //! tolerant types defined here, so a single module absorbs version churn.
 
+pub mod control;
 pub mod git;
 pub mod home;
 pub mod registry;
@@ -19,6 +20,7 @@ pub fn claude_bin() -> String {
         .unwrap_or_else(|| "claude".to_string())
 }
 
+pub use control::{ControlRegistry, SpawnOptions};
 pub use git::{
     file_patch, overview as git_overview, CommitInfo, FileChange, GitOverview, WorktreeInfo,
 };
