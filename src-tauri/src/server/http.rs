@@ -408,6 +408,89 @@ async fn run_lifecycle(state: &AppState, action: &str, id: &str) -> axum::respon
     }
 }
 
+/// Hook ingestion: foreign (and owned) sessions POST tool/notification/stop
+/// events here. We fan them out on the bus as a `hook` event. We do NOT block or
+/// auto-approve here (the documented `allow`-suppression bug makes that
+/// unreliable); hooks are for *events* and explicit *deny* gating only.
+pub async fn post_hook_event(
+    State(state): State<AppState>,
+    Json(payload): Json<Value>,
+) -> impl IntoResponse {
+    tracing::debug!(?payload, "hook event");
+    state.broadcast(crate::state::ServerEvent::Hook(payload));
+    // Empty object = "no decision", let Claude proceed as normal.
+    Json(json!({}))
+}
+
+/// Install Mother Claude's hook block into the user's `~/.claude/settings.json`
+/// so *foreign* sessions across all projects emit events to us. Writes a backup
+/// first and embeds the literal token (the user's own machine; see SECURITY.md).
+/// Restricted to the local desktop unless remote-dangerous is enabled.
+pub async fn post_install_hooks(
+    State(state): State<AppState>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+) -> impl IntoResponse {
+    if auth::dangerous_blocked(
+        true,
+        auth::is_loopback(&peer),
+        state.auth.allow_remote_dangerous,
+    ) {
+        return (
+            StatusCode::FORBIDDEN,
+            "installing hooks edits your settings and is restricted to the local desktop",
+        )
+            .into_response();
+    }
+
+    let path = state.home.user_settings();
+    let url = format!("http://127.0.0.1:{}/hooks/event", state.config.port);
+    let entry = json!([{
+        "hooks": [{
+            "type": "http",
+            "url": url,
+            "headers": { "Authorization": format!("Bearer {}", state.auth.token) }
+        }]
+    }]);
+
+    let mut root: Value = std::fs::read_to_string(&path)
+        .ok()
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_else(|| json!({}));
+    if !root.is_object() {
+        root = json!({});
+    }
+
+    // Back up before mutating the user's settings.
+    if path.exists() {
+        let _ = std::fs::copy(&path, path.with_extension("json.mc-backup"));
+    }
+
+    let hooks = root
+        .as_object_mut()
+        .unwrap()
+        .entry("hooks")
+        .or_insert_with(|| json!({}));
+    if let Some(hooks_obj) = hooks.as_object_mut() {
+        for event in ["PreToolUse", "PostToolUse", "Notification", "Stop"] {
+            hooks_obj.insert(event.to_string(), entry.clone());
+        }
+    }
+
+    match std::fs::write(
+        &path,
+        serde_json::to_string_pretty(&root).unwrap_or_default(),
+    ) {
+        Ok(()) => {
+            Json(json!({ "installed": true, "path": path.to_string_lossy() })).into_response()
+        }
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("could not write {}: {e}", path.display()),
+        )
+            .into_response(),
+    }
+}
+
 /// Device pairing payload: QR (SVG), URL, token, and TLS fingerprint.
 pub async fn get_pairing(State(state): State<AppState>) -> impl IntoResponse {
     let fingerprint = state

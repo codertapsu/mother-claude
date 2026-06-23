@@ -67,10 +67,12 @@ pub fn router(state: AppState) -> Router {
         .route("/sessions/:id/rm", post(http::post_rm))
         .route("/services", get(http::get_services))
         .route("/daemon", get(http::get_daemon))
-        .route("/pairing", get(http::get_pairing));
+        .route("/pairing", get(http::get_pairing))
+        .route("/hooks/install", post(http::post_install_hooks));
 
     let secured = Router::new()
         .route("/ws", get(ws::ws_handler))
+        .route("/hooks/event", post(http::post_hook_event))
         .nest("/api", api)
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),
@@ -90,20 +92,22 @@ pub fn router(state: AppState) -> Router {
         .with_state(state)
 }
 
-/// Bind and serve. TLS (self-signed) is used for any non-loopback bind; plain
-/// HTTP for loopback. Also spawns the background monitor.
+/// Bind and serve.
+///
+/// Always serves plain HTTP on `127.0.0.1:<port>` — this loopback endpoint is
+/// what the desktop webview, foreign-session hooks, and the local sidecar use,
+/// avoiding self-signed-cert friction. When the configured host is non-loopback,
+/// it additionally serves **TLS** on each detected LAN IP (same port) for phones.
+/// Also spawns the background monitor.
 pub async fn serve(state: AppState) -> anyhow::Result<()> {
-    let addr = state.config.bind_addr().with_context(|| {
-        format!(
-            "invalid bind address {}:{}",
-            state.config.host, state.config.port
-        )
-    })?;
+    use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
     tokio::spawn(monitor::run(state.clone()));
 
-    let make = router(state.clone()).into_make_service_with_connect_info::<std::net::SocketAddr>();
+    let port = state.config.port;
 
+    // LAN TLS servers (bound to specific IPs so they don't collide with the
+    // loopback HTTP bind on the same port).
     if state.config.is_non_loopback() {
         let _ = rustls::crypto::ring::default_provider().install_default();
         let cert_dir = state
@@ -112,47 +116,73 @@ pub async fn serve(state: AppState) -> anyhow::Result<()> {
             .clone()
             .unwrap_or_else(|| std::env::temp_dir().join("mother-claude"))
             .join("certs");
-        let bundle = tls::ensure_cert(&cert_dir).context("ensure TLS cert")?;
-        *state.fingerprint.write().await = Some(bundle.fingerprint.clone());
-
-        let tls_config = axum_server::tls_rustls::RustlsConfig::from_pem(
-            bundle.cert_pem.into_bytes(),
-            bundle.key_pem.into_bytes(),
-        )
-        .await
-        .context("build rustls config")?;
-
-        announce(&state, true, &bundle.fingerprint);
-        axum_server::bind_rustls(addr, tls_config)
-            .serve(make)
-            .await
-            .context("tls server error")?;
-    } else {
-        let listener = tokio::net::TcpListener::bind(addr)
-            .await
-            .with_context(|| format!("could not bind {addr}"))?;
-        announce(&state, false, "n/a (http)");
-        axum::serve(listener, make).await.context("server error")?;
+        match tls::ensure_cert(&cert_dir) {
+            Ok(bundle) => {
+                *state.fingerprint.write().await = Some(bundle.fingerprint.clone());
+                match axum_server::tls_rustls::RustlsConfig::from_pem(
+                    bundle.cert_pem.into_bytes(),
+                    bundle.key_pem.into_bytes(),
+                )
+                .await
+                {
+                    Ok(tls_config) => {
+                        for ip in tls::local_ips() {
+                            let addr = SocketAddr::new(ip, port);
+                            let app = router(state.clone());
+                            let cfg = tls_config.clone();
+                            tokio::spawn(async move {
+                                if let Err(e) = axum_server::bind_rustls(addr, cfg)
+                                    .serve(app.into_make_service_with_connect_info::<SocketAddr>())
+                                    .await
+                                {
+                                    tracing::error!(%addr, error = %e, "TLS server stopped");
+                                }
+                            });
+                        }
+                    }
+                    Err(e) => tracing::error!(error = %e, "could not build TLS config"),
+                }
+            }
+            Err(e) => tracing::error!(error = %e, "could not prepare TLS cert"),
+        }
     }
+
+    announce(&state).await;
+
+    // Primary: loopback HTTP. Keeps serve() alive for the app's lifetime.
+    let loopback = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), port);
+    let listener = tokio::net::TcpListener::bind(loopback)
+        .await
+        .with_context(|| format!("could not bind {loopback}"))?;
+    let app = router(state.clone());
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .await
+    .context("loopback server error")?;
     Ok(())
 }
 
-/// Log the token, URL, and fingerprint to the console at startup.
-fn announce(state: &AppState, tls: bool, fingerprint: &str) {
-    let pairing = auth::build_pairing(state, fingerprint);
-    let scheme = if tls { "https" } else { "http" };
-    tracing::info!(
-        url = %pairing.url,
-        token = %state.auth.token,
-        fingerprint = %fingerprint,
-        "Mother Claude server listening ({scheme})"
-    );
+/// Log the token and URLs to the console at startup.
+async fn announce(state: &AppState) {
+    let fingerprint = state
+        .fingerprint
+        .read()
+        .await
+        .clone()
+        .unwrap_or_else(|| "n/a (http)".to_string());
+    let port = state.config.port;
+    tracing::info!(token = %state.auth.token, "Mother Claude server listening");
     println!("\n  Mother Claude dashboard");
-    println!("  URL:   {}", pairing.url);
-    println!("  Token: {}", state.auth.token);
-    if tls {
+    println!("  Local:  http://127.0.0.1:{port}");
+    if state.config.is_non_loopback() {
+        for ip in tls::local_ips() {
+            println!("  LAN:    https://{ip}:{port}  (scan the QR in Settings)");
+        }
         println!("  TLS fingerprint (SHA-256): {fingerprint}");
     }
+    println!("  Token:  {}", state.auth.token);
     println!();
 }
 
@@ -304,5 +334,65 @@ mod tests {
 
         let decision = blocked.await.unwrap();
         assert_eq!(decision["behavior"], "allow");
+    }
+
+    /// Hook events require the token and are fanned out on the bus.
+    #[tokio::test]
+    async fn hook_event_authenticated_and_broadcast() {
+        use crate::state::ServerEvent;
+
+        let dir = tempfile::tempdir().unwrap();
+        let state = Inner::new(
+            ClaudeHome::with_base(dir.path()),
+            ServerConfig {
+                host: "127.0.0.1".into(),
+                port: 0,
+            },
+            auth::Auth::ephemeral(),
+        );
+        let token = state.auth.token.clone();
+        let mut rx = state.bus.subscribe();
+        let app = router(state.clone());
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            axum::serve(
+                listener,
+                app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+            )
+            .await
+            .unwrap();
+        });
+
+        let base = format!("http://{addr}");
+        let client = reqwest::Client::new();
+
+        // No token -> 401.
+        let resp = client
+            .post(format!("{base}/hooks/event"))
+            .json(&serde_json::json!({ "hook_event_name": "PreToolUse" }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), reqwest::StatusCode::UNAUTHORIZED);
+
+        // With token -> 200 and a Hook event on the bus.
+        let resp = client
+            .post(format!("{base}/hooks/event"))
+            .bearer_auth(&token)
+            .json(&serde_json::json!({ "hook_event_name": "PreToolUse", "tool_name": "Bash" }))
+            .send()
+            .await
+            .unwrap();
+        assert!(resp.status().is_success());
+
+        let event = tokio::time::timeout(std::time::Duration::from_secs(2), rx.recv())
+            .await
+            .expect("no event")
+            .unwrap();
+        match event {
+            ServerEvent::Hook(v) => assert_eq!(v["tool_name"], "Bash"),
+            other => panic!("expected Hook event, got {other:?}"),
+        }
     }
 }

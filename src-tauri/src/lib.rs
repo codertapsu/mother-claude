@@ -31,11 +31,12 @@ fn check_full_disk_access() -> bool {
 /// data the webview needs before it can talk to the server over HTTP/WS.
 #[tauri::command]
 fn server_info(state: tauri::State<'_, state::AppState>) -> serde_json::Value {
-    let tls = state.config.is_non_loopback();
+    // The desktop webview always talks to the loopback HTTP endpoint (served
+    // regardless of LAN TLS), so there is no self-signed-cert friction.
     serde_json::json!({
-        "host": state.config.host,
+        "host": "127.0.0.1",
         "port": state.config.port,
-        "scheme": if tls { "https" } else { "http" },
+        "scheme": "http",
         "token": state.auth.token,
     })
 }
