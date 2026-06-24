@@ -72,10 +72,118 @@ fn init_tracing() {
     let _ = tracing_subscriber::fmt().with_env_filter(filter).try_init();
 }
 
+/// True if `bin` is an executable file in one of the current `PATH` directories.
+#[cfg(unix)]
+fn on_path(bin: &str) -> bool {
+    std::env::var_os("PATH")
+        .map(|p| {
+            std::env::split_paths(&p)
+                .any(|dir| !dir.as_os_str().is_empty() && dir.join(bin).is_file())
+        })
+        .unwrap_or(false)
+}
+
+/// The `PATH` from the user's interactive login shell, or `None`.
+///
+/// We need *interactive* + *login* (`-ilc`) because version managers like nvm /
+/// fnm / volta inject their bin dir from `.zshrc`/`.bashrc` (interactive), not
+/// just the login profile. The value is wrapped in unique markers so shell-init
+/// banners or terminal-integration escape sequences printed by the rc files
+/// don't corrupt it, and the query runs on a worker thread with a timeout so a
+/// misbehaving rc file can't hang startup.
+#[cfg(unix)]
+fn login_shell_path() -> Option<String> {
+    use std::sync::mpsc;
+    use std::time::Duration;
+
+    const MARK: &str = "@@MCPATH@@";
+    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string());
+    let (tx, rx) = mpsc::channel();
+    std::thread::spawn(move || {
+        let out = std::process::Command::new(&shell)
+            .args(["-ilc", &format!("printf '{MARK}%s{MARK}' \"$PATH\"")])
+            .stdin(std::process::Stdio::null())
+            .output();
+        let _ = tx.send(out);
+    });
+    let out = rx.recv_timeout(Duration::from_secs(4)).ok()?.ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    extract_marked(&String::from_utf8_lossy(&out.stdout), MARK)
+}
+
+/// Pull the value printed between two `mark` delimiters, ignoring any
+/// shell-init banner or terminal-integration escape codes printed around it.
+#[cfg(unix)]
+fn extract_marked(s: &str, mark: &str) -> Option<String> {
+    s.split(mark)
+        .nth(1)
+        .filter(|p| !p.is_empty())
+        .map(str::to_string)
+}
+
+/// Recover a usable `PATH` for a GUI launch.
+///
+/// macOS/Linux apps launched from Finder/Dock inherit a minimal `PATH`
+/// (`/usr/bin:/bin:/usr/sbin:/sbin`), not the user's shell `PATH` — so spawning
+/// `claude` or `node` fails with "failed to spawn". When they aren't already
+/// resolvable (the packaged case; in `tauri dev` they are, so this is a no-op),
+/// merge the login-shell `PATH` plus common install dirs into this process's
+/// `PATH`. Call before any subprocess is spawned.
+#[cfg(unix)]
+fn recover_path_for_gui() {
+    use std::collections::HashSet;
+
+    // Fast path: in dev the inherited PATH already resolves both, so skip the
+    // (slowish) interactive-shell query entirely.
+    if on_path("claude") && on_path("node") {
+        return;
+    }
+
+    let mut dirs: Vec<String> = Vec::new();
+    if let Some(p) = login_shell_path() {
+        dirs.extend(p.split(':').filter(|s| !s.is_empty()).map(str::to_string));
+    }
+    // Fallback common locations (covers claude/node even if the shell query fails).
+    if let Some(home) = claude::user_home_dir() {
+        for rel in [".local/bin", ".claude/local", ".bun/bin", ".cargo/bin"] {
+            dirs.push(home.join(rel).to_string_lossy().into_owned());
+        }
+    }
+    for d in ["/opt/homebrew/bin", "/opt/homebrew/sbin", "/usr/local/bin"] {
+        dirs.push(d.to_string());
+    }
+    if let Ok(existing) = std::env::var("PATH") {
+        dirs.extend(
+            existing
+                .split(':')
+                .filter(|s| !s.is_empty())
+                .map(str::to_string),
+        );
+    }
+
+    let mut seen = HashSet::new();
+    let merged: Vec<String> = dirs
+        .into_iter()
+        .filter(|d| seen.insert(d.clone()))
+        .collect();
+    if !merged.is_empty() {
+        // Safe: run() is still single-threaded here (before the server starts).
+        std::env::set_var("PATH", merged.join(":"));
+        tracing::info!(
+            resolved_claude = on_path("claude"),
+            "recovered PATH for GUI launch"
+        );
+    }
+}
+
 /// Build and run the Tauri application.
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     init_tracing();
+    #[cfg(unix)]
+    recover_path_for_gui();
 
     let home = match claude::ClaudeHome::resolve() {
         Ok(h) => h,
@@ -129,4 +237,31 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running Mother Claude");
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::extract_marked;
+
+    const MARK: &str = "@@MCPATH@@";
+
+    #[test]
+    fn extracts_path_through_shell_init_noise() {
+        // Real zsh/iTerm output prints shell-integration escape codes and banners
+        // around the value; the markers must still isolate the PATH exactly.
+        let noisy = "\x1b]1337;ShellIntegrationVersion=14\x07banner line\n\
+                     @@MCPATH@@/Users/me/.local/bin:/Users/me/.nvm/versions/node/v24.15.0/bin:/opt/homebrew/bin@@MCPATH@@";
+        assert_eq!(
+            extract_marked(noisy, MARK).as_deref(),
+            Some(
+                "/Users/me/.local/bin:/Users/me/.nvm/versions/node/v24.15.0/bin:/opt/homebrew/bin"
+            ),
+        );
+    }
+
+    #[test]
+    fn returns_none_when_absent_or_empty() {
+        assert_eq!(extract_marked("no markers at all", MARK), None);
+        assert_eq!(extract_marked("@@MCPATH@@@@MCPATH@@", MARK), None);
+    }
 }
