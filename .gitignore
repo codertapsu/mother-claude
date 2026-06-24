@@ -25,6 +25,13 @@ src-tauri/gen/
 mother-claude.token
 *.token
 
+# Code-signing material + release artifacts — NEVER commit these
+*.p12
+*.pfx
+*.cer
+certificate*.p12
+latest.json
+
 # OS / editor
 .DS_Store
 *.swp
