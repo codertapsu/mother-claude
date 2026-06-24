@@ -13,6 +13,22 @@ your LAN so you can drive Claude from your phone while you step away.
 - **Control** sessions: spawn new ones, send instructions, approve/deny
   permission prompts, answer questions, and stop / respawn / remove.
 
+## Download
+
+Prebuilt installers for **macOS** (Apple Silicon + Intel) and **Windows** (x64)
+are on the [Releases page](https://github.com/codertapsu/mother-claude/releases).
+
+- **macOS** — open the `.dmg` and drag the app to Applications. If a build is
+  unsigned, right-click the app → **Open** the first time. Grant **Full Disk
+  Access** when prompted (see [Permissions](#permissions-macos)).
+- **Windows** — run the `…-setup.exe`. The installer is currently unsigned, so
+  SmartScreen shows a warning → **More info → Run anyway**.
+
+**Requires the [Claude Code CLI](https://claude.com/claude-code)** (`claude`)
+installed and signed in on the same machine — Mother Claude reads `~/.claude` and
+drives the CLI. To build from source or cut a release yourself, see
+[Build & quality gates](#build--quality-gates) and [docs/RELEASING.md](docs/RELEASING.md).
+
 ## The one hard constraint (read this)
 
 Full two-way control is reliable only for sessions **Mother Claude launches
@@ -56,7 +72,7 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) and [KNOWN_ISSUES.md](KNOWN_ISSUES.md).
 ## Prerequisites (macOS, Apple Silicon)
 
 - Xcode Command Line Tools — `xcode-select --install`
-- Node 20+ — `node --version`
+- Node 24+ (Angular 22 needs ≥ 22.22.3) — `node --version`
 - Rust + the native target — `rustup target add aarch64-apple-darwin`
   (and `rustup component add rustfmt clippy`)
 - Claude Code CLI on `PATH` — `claude --version` (built against `2.1.185`)
