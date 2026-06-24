@@ -82,10 +82,7 @@ pub fn run() {
         Err(e) => {
             tracing::error!(error = %e, "could not resolve Claude config dir");
             claude::ClaudeHome::with_base(
-                std::env::var_os("HOME")
-                    .map(std::path::PathBuf::from)
-                    .unwrap_or_default()
-                    .join(".claude"),
+                claude::user_home_dir().unwrap_or_default().join(".claude"),
             )
         }
     };

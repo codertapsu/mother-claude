@@ -26,7 +26,7 @@ pub use control::{foreign_injection_enabled, ControlRegistry, OwnedSessionMeta, 
 pub use git::{
     file_patch, overview as git_overview, CommitInfo, FileChange, GitOverview, WorktreeInfo,
 };
-pub use home::{best_effort_decode, encode_cwd, ClaudeHome};
+pub use home::{best_effort_decode, encode_cwd, user_home_dir, ClaudeHome};
 pub use registry::{
     build_registry, query_agents, read_state_jsons, scan_transcripts, summarize_transcript,
     PendingInput, PendingKind, RegistryInputs, Session, SessionState, Surface, TranscriptSummary,

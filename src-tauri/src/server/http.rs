@@ -674,12 +674,12 @@ async fn daemon_status() -> Value {
     }
 }
 
-/// Parse `$HOME/.claude.json` for configured MCP servers (tolerant).
+/// Parse `<home>/.claude.json` for configured MCP servers (tolerant).
 fn read_user_mcp_servers() -> Value {
-    let Some(home) = std::env::var_os("HOME") else {
+    let Some(home) = crate::claude::user_home_dir() else {
         return json!({});
     };
-    let path = std::path::PathBuf::from(home).join(".claude.json");
+    let path = home.join(".claude.json");
     let Ok(text) = std::fs::read_to_string(path) else {
         return json!({});
     };

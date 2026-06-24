@@ -14,9 +14,22 @@ pub struct ClaudeHome {
     base: PathBuf,
 }
 
+/// The current user's home directory: `$HOME` (Unix) or, when that is unset,
+/// `%USERPROFILE%` (Windows). Returns `None` if neither is set.
+///
+/// Claude Code keeps its config under the home dir on every platform, but
+/// Windows does not normally export `HOME`, so the `USERPROFILE` fallback is
+/// what makes the packaged Windows build find `~/.claude` at runtime.
+pub fn user_home_dir() -> Option<PathBuf> {
+    std::env::var_os("HOME")
+        .filter(|v| !v.is_empty())
+        .or_else(|| std::env::var_os("USERPROFILE").filter(|v| !v.is_empty()))
+        .map(PathBuf::from)
+}
+
 impl ClaudeHome {
     /// Resolve the base dir from `CLAUDE_CONFIG_DIR`, falling back to
-    /// `$HOME/.claude`. Does not require the directory to exist.
+    /// `<home>/.claude`. Does not require the directory to exist.
     pub fn resolve() -> Result<Self> {
         if let Ok(dir) = std::env::var("CLAUDE_CONFIG_DIR") {
             if !dir.trim().is_empty() {
@@ -25,9 +38,8 @@ impl ClaudeHome {
                 });
             }
         }
-        let home = std::env::var_os("HOME")
-            .map(PathBuf::from)
-            .ok_or_else(|| anyhow!("neither CLAUDE_CONFIG_DIR nor HOME is set"))?;
+        let home = user_home_dir()
+            .ok_or_else(|| anyhow!("none of CLAUDE_CONFIG_DIR, HOME, or USERPROFILE is set"))?;
         Ok(Self {
             base: home.join(".claude"),
         })
