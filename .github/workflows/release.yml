@@ -1,0 +1,191 @@
+# Mother Claude — Release workflow
+# ==============================================================================
+# Builds the desktop installers (.dmg/.app on macOS, .exe/.msi on Windows) with
+# the embedded axum server + bundled Path A Node sidecar, code-signs/notarizes
+# the macOS build, and publishes a DRAFT GitHub Release.
+#
+# Trigger: push a tag like `v0.1.0` (see docs/RELEASING.md). Manual re-runs are
+# possible via workflow_dispatch (which builds every OS).
+#
+# ------------------------------------------------------------------------------
+# GitHub SECRETS (Settings -> Secrets and variables -> Actions -> Secrets)
+# ------------------------------------------------------------------------------
+# macOS code signing + notarization (REQUIRED for a distributable .dmg —
+# see docs/APPLE_SIGNING.md):
+#   APPLE_CERTIFICATE             base64 of your Developer ID Application .p12
+#   APPLE_CERTIFICATE_PASSWORD    password for that .p12
+#   APPLE_SIGNING_IDENTITY        e.g. "Developer ID Application: Your Name (TEAMID)"
+#   APPLE_ID                      Apple ID email used for notarization
+#   APPLE_PASSWORD                app-specific password for that Apple ID
+#   APPLE_TEAM_ID                 your 10-char Apple Team ID
+#   (If APPLE_CERTIFICATE is unset, macOS builds UNSIGNED — users right-click → Open.)
+#
+# Tauri auto-updater signing (only once auto-update is enabled — docs/AUTOUPDATE.md):
+#   TAURI_SIGNING_PRIVATE_KEY            contents of the generated updater key
+#   TAURI_SIGNING_PRIVATE_KEY_PASSWORD   its password ('' if none)
+#
+# Windows Authenticode is NOT wired here yet (optional; docs/APPLE_SIGNING.md has
+# the recipe). Windows installers ship UNSIGNED → SmartScreen → More info → Run anyway.
+#
+# GITHUB_TOKEN is provided automatically; the workflow needs `contents: write`.
+# ==============================================================================
+
+name: Release
+
+on:
+  # A `v*` tag push triggers this workflow; the `setup` job resolves which OSes
+  # actually build from per-OS repo variables (Settings → Secrets and variables
+  # → Actions → Variables), so a disabled OS provisions NO runner (10x-billed
+  # macOS minutes stay unspent). A manual `workflow_dispatch` run builds
+  # everything. Every OS defaults to a LOCAL build (CI is opt-in per OS); set a
+  # variable to "true" to build that OS in CI:
+  #   RELEASE_CI_MACOS    default false → macOS built locally
+  #   RELEASE_CI_WINDOWS  default false → Windows built locally
+  # Local-release runbook + how to toggle: docs/RELEASING.md.
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag/version to build (e.g. v0.1.0). Used only for manual runs."
+        required: false
+
+permissions:
+  contents: write
+
+jobs:
+  # Resolve which OSes build in CI from the per-OS RELEASE_CI_* flags. A tiny
+  # ubuntu job so a disabled OS never reaches the build matrix and provisions no
+  # runner. scripts/ci/resolve-release-matrix.py owns the entries + default policy.
+  setup:
+    name: Resolve CI build matrix
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.m.outputs.matrix }}
+      any: ${{ steps.m.outputs.any }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: m
+        shell: bash
+        env:
+          MANUAL: ${{ github.event_name == 'workflow_dispatch' }}
+          CI_MACOS: ${{ vars.RELEASE_CI_MACOS }}
+          CI_WINDOWS: ${{ vars.RELEASE_CI_WINDOWS }}
+        run: python3 scripts/ci/resolve-release-matrix.py >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: setup
+    # Skipped (no runners) when every OS is built locally; the matrix is whatever
+    # `setup` selected.
+    if: ${{ needs.setup.outputs.any == 'true' }}
+    name: Build (${{ matrix.label }})
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.setup.outputs.matrix) }}
+
+    runs-on: ${{ matrix.os }}
+
+    # Job-level env so step `if:` conditions can test whether the optional Apple
+    # signing secret is set (secrets cannot be referenced directly in `if:`).
+    env:
+      HAS_APPLE_CERT: ${{ secrets.APPLE_CERTIFICATE != '' }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # --- Toolchains -------------------------------------------------------
+      - name: Setup Node 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Setup Rust (stable, ${{ matrix.rust-target }})
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust-target }}
+
+      - name: Cache cargo registry + target
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      # --- JS deps (root) ---------------------------------------------------
+      # tauri-action's beforeBuildCommand builds the Angular SPA + the Node
+      # sidecar (npm run sidecar:bundle && npm run build), but it does NOT install
+      # the root deps — do that here.
+      - name: npm ci
+        run: npm ci
+
+      # --- macOS signing env (sign + notarize via tauri-action) -------------
+      # Export the Apple vars to $GITHUB_ENV ONLY when a certificate is actually
+      # configured. If APPLE_CERTIFICATE is passed as a present-but-EMPTY string
+      # (secret unset), Tauri's macOS bundler treats it as "present" and tries to
+      # `security import` an empty cert → "SecKeychainItemImport ... not valid".
+      # Behind the HAS_APPLE_CERT gate the vars stay genuinely ABSENT for unsigned
+      # builds, so macOS produces an unsigned .app/.dmg (release notes tell users
+      # to right-click → Open). When present, tauri-action imports the cert into a
+      # temporary keychain, signs, notarizes (APPLE_ID/PASSWORD/TEAM_ID), staples.
+      - name: Provide Apple signing env (macOS)
+        if: startsWith(matrix.os, 'macos') && env.HAS_APPLE_CERT == 'true'
+        shell: bash
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          {
+            echo "APPLE_CERTIFICATE<<__MC_CERT_EOF__"
+            echo "$APPLE_CERTIFICATE"
+            echo "__MC_CERT_EOF__"
+            echo "APPLE_CERTIFICATE_PASSWORD=$APPLE_CERTIFICATE_PASSWORD"
+            echo "APPLE_SIGNING_IDENTITY=$APPLE_SIGNING_IDENTITY"
+            echo "APPLE_ID=$APPLE_ID"
+            echo "APPLE_PASSWORD=$APPLE_PASSWORD"
+            echo "APPLE_TEAM_ID=$APPLE_TEAM_ID"
+          } >> "$GITHUB_ENV"
+
+      # --- Build + publish the Tauri app (draft Release) -------------------
+      # tauri-action runs the beforeBuildCommand (sidecar:bundle + ng build),
+      # `tauri build`, signs + notarizes (only when the Apple env above exists),
+      # and uploads the bundles to a DRAFT release.
+      - name: Build & release (tauri-action)
+        id: tauri
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Updater signing (empty unless auto-update is enabled; harmless while
+          # createUpdaterArtifacts is false).
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          # The Tauri project (src-tauri/) is at the repo root.
+          projectPath: "."
+          # Use the pushed tag (refs/tags/vX) or the manual input.
+          tagName: ${{ github.ref_type == 'tag' && github.ref_name || (github.event.inputs.tag || 'v__VERSION__') }}
+          releaseName: "Mother Claude ${{ github.ref_type == 'tag' && github.ref_name || github.event.inputs.tag }}"
+          releaseBody: |
+            Download the installer for your OS from the assets below.
+
+            **Requires the Claude Code CLI** (`claude`) installed and signed in on
+            the same machine — Mother Claude reads `~/.claude` and drives the CLI.
+
+            macOS: the .dmg is Developer-ID signed + notarized — just open it.
+            Windows: the installer is unsigned for now → SmartScreen → More info →
+            Run anyway.
+          # Keep as DRAFT so a human reviews + publishes (see docs/RELEASING.md).
+          releaseDraft: true
+          prerelease: false
+          # Auto-update is enabled in a later release: set createUpdaterArtifacts
+          # true in tauri.conf.json + add the TAURI_SIGNING_PRIVATE_KEY secret.
+          includeUpdaterJson: false
+          args: ${{ matrix.tauri-args }}
