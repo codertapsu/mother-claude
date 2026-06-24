@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!--
+    Hardened-runtime entitlements for the notarized macOS build.
+
+    Mother Claude bundles the Path A Node sidecar (the Agent SDK runs on V8,
+    which JITs, and its node_modules may include native addons). These
+    exceptions keep the bundled runtime from being killed with a CODESIGNING
+    error under the hardened runtime that notarization mandates. The app is not
+    sandboxed, so no sandbox/network entitlements are required. See
+    docs/APPLE_SIGNING.md.
+  -->
+
+  <!-- V8 allocates executable memory for the JIT. -->
+  <key>com.apple.security.cs.allow-jit</key>
+  <true/>
+
+  <!-- Without this, a process that maps writable+executable memory (V8, ffi)
+       is killed on launch. -->
+  <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+  <true/>
+
+  <!-- The bundled Node may dlopen() native addons that do not carry our Team
+       ID; Library Validation would otherwise block them. -->
+  <key>com.apple.security.cs.disable-library-validation</key>
+  <true/>
+</dict>
+</plist>

@@ -2,7 +2,7 @@
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Mother Claude",
   "version": "0.1.0",
-  "identifier": "dev.motherclaude.app",
+  "identifier": "dev.motherclaude.desktop",
   "build": {
     "frontendDist": "../dist/mother-claude/browser",
     "devUrl": "http://localhost:4200",
@@ -29,6 +29,11 @@
     "active": true,
     "targets": "all",
     "category": "DeveloperTool",
+    "publisher": "Mother Claude",
+    "copyright": "© 2026 Mother Claude",
+    "shortDescription": "Monitor and control every local Claude Code session.",
+    "longDescription": "Mother Claude is a desktop dashboard that monitors and controls every local Claude Code session, agent, and service from one place, and serves the same dashboard over your LAN so you can drive Claude Code from your phone.",
+    "createUpdaterArtifacts": false,
     "resources": {
       "../sidecar/dist": "sidecar/dist",
       "../sidecar/node_modules": "sidecar/node_modules",
@@ -40,6 +45,15 @@
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "macOS": {
+      "entitlements": "./entitlements.plist",
+      "minimumSystemVersion": "10.15"
+    },
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser"
+      }
+    }
   }
 }
