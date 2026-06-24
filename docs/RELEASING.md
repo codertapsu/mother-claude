@@ -44,8 +44,10 @@ The Git tag (`v0.2.0`) is what triggers a CI release and names the GitHub Releas
    built **locally** (CI provisions no runner for it — no surprise 10×-billed
    macOS minutes).
 
-3. **Auto-update** is **off** for now. Enabling it is a separate, documented step:
-   [AUTOUPDATE.md](AUTOUPDATE.md).
+3. **Auto-updater secret** — add the repo secret `TAURI_SIGNING_PRIVATE_KEY`
+   (contents of `~/.tauri/mother-claude-updater.key`), used to sign update
+   artifacts. Leave `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` unset (the key has no
+   password). Details: [AUTOUPDATE.md](AUTOUPDATE.md).
 
 ---
 
@@ -59,22 +61,29 @@ doesn't matter.
 
 ```bash
 # --- macOS (local, on your Mac) ---
+# --- Windows (CI) — do this FIRST so the macOS step can assemble latest.json ---
+# one-time: set repo Variable RELEASE_CI_WINDOWS=true (leave RELEASE_CI_MACOS unset)
+#           and the secret TAURI_SIGNING_PRIVATE_KEY (the updater key; see AUTOUPDATE.md)
+git tag v0.1.0 && git push origin main --tags              # CI builds Windows → same draft
+
+# --- macOS (local, on your Mac), AFTER the Windows CI build finishes ---
 export APPLE_SIGNING_IDENTITY="Developer ID Application: Khanh Hoang (4XVYLW8RXS)"
 export APPLE_ID="hoangduykhanh.dn@gmail.com"
 export APPLE_PASSWORD="<app-specific password>"
 export APPLE_TEAM_ID="4XVYLW8RXS"
-RELEASE_TAG=v0.1.0 bash scripts/release/macos-release.sh   # build + notarize + upload
-
-# --- Windows (CI) ---
-# one-time: set repo Variable RELEASE_CI_WINDOWS=true (leave RELEASE_CI_MACOS unset)
-git tag v0.1.0 && git push origin main --tags              # CI builds Windows only → same draft
+export TAURI_SIGNING_PRIVATE_KEY="$(cat ~/.tauri/mother-claude-updater.key)"
+export TAURI_SIGNING_PRIVATE_KEY_PASSWORD=""
+RELEASE_TAG=v0.1.0 bash scripts/release/macos-release.sh   # build + notarize + upload + latest.json
 ```
 
-`macos-release.sh` runs `npm run tauri:build` (which builds the sidecar + Angular,
-signs with the keychain identity, notarizes, and staples the `.dmg`), verifies the
-signature, and uploads to the draft. `APPLE_CERTIFICATE` is **not** needed locally
-— the cert comes from your keychain; it's only a CI secret. Then review + publish
-the draft.
+`macos-release.sh` runs `npm run tauri:build` (builds the sidecar + Angular, signs
+with the keychain identity, notarizes, staples the `.dmg`, and emits the
+`.app.tar.gz` updater artifact), verifies the signature, uploads to the draft, and
+assembles the combined `latest.json` (macOS entry from this build + Windows entry
+from CI — see [AUTOUPDATE.md](AUTOUPDATE.md)). `APPLE_CERTIFICATE` is **not** needed
+locally — the cert comes from your keychain; it's only a CI secret. Run the macOS
+step **after** the Windows CI build so both updater artifacts are present; then
+review + publish the draft.
 
 ## Cut a release — locally (manual steps)
 

@@ -20,6 +20,15 @@
       <a routerLink="/pair" routerLinkActive="active" (click)="menuOpen.set(false)">Pair a Phone</a>
     </nav>
     <span class="spacer"></span>
+    @if (updateAvailable()) {
+      <a
+        class="update-badge"
+        routerLink="/settings"
+        (click)="menuOpen.set(false)"
+        title="An app update is available"
+        >⬆ Update</a
+      >
+    }
     <span class="conn" [class]="connection()" [title]="'WebSocket: ' + connection()">
       {{ connection() }}
     </span>

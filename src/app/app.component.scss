@@ -94,6 +94,21 @@
   border-color: #6b2f2f;
 }
 
+.update-badge {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 0.2rem 0.55rem;
+  border-radius: 1rem;
+  text-decoration: none;
+  color: var(--accent, #7c9cff);
+  border: 1px solid var(--accent, #7c9cff);
+  white-space: nowrap;
+}
+.update-badge:hover {
+  filter: brightness(1.15);
+}
+
 .banner {
   background: #2a2410;
   color: #f4d77b;

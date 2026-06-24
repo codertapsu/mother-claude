@@ -3,5 +3,5 @@
   "identifier": "default",
   "description": "Core capabilities for the main Mother Claude window.",
   "windows": ["main"],
-  "permissions": ["core:default"]
+  "permissions": ["core:default", "updater:default", "process:allow-restart"]
 }

@@ -90,7 +90,15 @@ pub fn run() {
 
     tauri::Builder::default()
         .manage(app_state.clone())
+        .plugin(tauri_plugin_process::init())
         .setup(move |app| {
+            // In-app auto-updater (desktop-only). It checks the GitHub Release
+            // `latest.json` against this build's version; the UI drives
+            // download/install/relaunch. See docs/AUTOUPDATE.md.
+            #[cfg(desktop)]
+            app.handle()
+                .plugin(tauri_plugin_updater::Builder::new().build())?;
+
             // In a packaged build the Path A sidecar is bundled under the app's
             // resource dir; point the control layer at it so owned sessions use
             // it automatically. In dev, control.rs falls back to the repo copy.

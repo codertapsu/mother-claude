@@ -16,6 +16,14 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 tauri = { version = "2", features = [] }
+# In-app auto-updater (desktop-only; registered behind cfg(desktop) in lib.rs)
+# and process control for relaunching into the new version after an update.
+# Use native-tls (OS trust store) for the updater's downloads so its reqwest does
+# not pull rustls-no-provider into the graph — that would otherwise unify onto our
+# server/test reqwest and panic for want of a process-default rustls CryptoProvider
+# (our server uses its own rustls+ring stack independently).
+tauri-plugin-updater = { version = "2", default-features = false, features = ["native-tls", "zip"] }
+tauri-plugin-process = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tracing = "0.1"

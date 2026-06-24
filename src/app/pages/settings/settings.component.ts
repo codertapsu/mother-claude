@@ -5,10 +5,11 @@ import { PermissionsService } from '../../core/permissions.service';
 import { PermissionsListComponent } from '../../shared/permissions-list.component';
 import { LimitationsComponent } from '../../shared/limitations.component';
 import { PairingComponent } from '../../shared/pairing.component';
+import { UpdaterComponent } from '../../shared/updater.component';
 
 @Component({
   selector: 'mc-settings',
-  imports: [PermissionsListComponent, LimitationsComponent, PairingComponent],
+  imports: [PermissionsListComponent, LimitationsComponent, PairingComponent, UpdaterComponent],
   templateUrl: './settings.component.html',
   styleUrl: './settings.component.scss',
 })

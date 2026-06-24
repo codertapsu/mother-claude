@@ -29,6 +29,10 @@ installed and signed in on the same machine — Mother Claude reads `~/.claude` 
 drives the CLI. To build from source or cut a release yourself, see
 [Build & quality gates](#build--quality-gates) and [docs/RELEASING.md](docs/RELEASING.md).
 
+The desktop app **updates itself** — it checks for new versions on launch and you
+can install one from **Settings → Software updates**. See
+[docs/AUTOUPDATE.md](docs/AUTOUPDATE.md).
+
 ## The one hard constraint (read this)
 
 Full two-way control is reliable only for sessions **Mother Claude launches

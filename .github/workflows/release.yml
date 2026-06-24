@@ -185,7 +185,10 @@ jobs:
           # Keep as DRAFT so a human reviews + publishes (see docs/RELEASING.md).
           releaseDraft: true
           prerelease: false
-          # Auto-update is enabled in a later release: set createUpdaterArtifacts
-          # true in tauri.conf.json + add the TAURI_SIGNING_PRIVATE_KEY secret.
-          includeUpdaterJson: false
+          # Auto-updater: createUpdaterArtifacts is true (tauri.conf.json), so the
+          # build emits signed update artifacts (Windows -setup.exe + .sig). This
+          # uploads them and a per-OS latest.json; the local macOS step merges the
+          # macOS entry into the final manifest (see scripts/release/make-latest-json.sh
+          # and docs/AUTOUPDATE.md). Requires the TAURI_SIGNING_PRIVATE_KEY secret.
+          includeUpdaterJson: true
           args: ${{ matrix.tauri-args }}

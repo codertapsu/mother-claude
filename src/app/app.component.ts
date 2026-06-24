@@ -4,6 +4,7 @@ import { Router, RouterLink, RouterLinkActive, RouterOutlet } from '@angular/rou
 import { ConfigService } from './core/config.service';
 import { PermissionsService } from './core/permissions.service';
 import { RealtimeService } from './core/realtime.service';
+import { UpdaterService } from './core/updater.service';
 import { LimitationsComponent } from './shared/limitations.component';
 import { ModalComponent } from './shared/modal.component';
 
@@ -20,11 +21,13 @@ export class AppComponent implements OnInit {
   private realtime = inject(RealtimeService);
   private config = inject(ConfigService);
   private permissions = inject(PermissionsService);
+  private updater = inject(UpdaterService);
   private router = inject(Router);
 
   protected readonly connection = this.realtime.connection;
   protected readonly needsToken = computed(() => !this.config.config()?.token);
   protected readonly needsPermission = computed(() => this.permissions.missingRequired());
+  protected readonly updateAvailable = this.updater.attentionNeeded;
   protected readonly showWelcome = signal(false);
   protected readonly menuOpen = signal(false);
 
@@ -32,6 +35,9 @@ export class AppComponent implements OnInit {
     await this.config.ensure();
     await this.realtime.start();
     await this.permissions.refresh();
+
+    // Desktop only: silently check for an app update in the background.
+    void this.updater.init();
 
     // First-run: if a required OS permission is missing on desktop and the user
     // hasn't skipped this session, guide them through it.

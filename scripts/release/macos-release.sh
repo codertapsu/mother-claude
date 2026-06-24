@@ -9,14 +9,20 @@
 # Gatekeeper on download ("Apple cannot check it"). So this script adds an
 # explicit notarize + staple pass on the dmg. See docs/APPLE_SIGNING.md.
 #
+# It also produces the macOS auto-updater artifact (.app.tar.gz + .sig, because
+# createUpdaterArtifacts is on) and, once the Windows CI build has uploaded its
+# updater artifacts, assembles the combined latest.json (make-latest-json.sh).
+#
 # Prereqs:
 #   - Your "Developer ID Application" cert is in the login keychain
 #     (check: security find-identity -v -p codesigning).
-#   - Export the signing + notarization env first:
+#   - Export the signing + notarization + updater-signing env first:
 #       export APPLE_SIGNING_IDENTITY="Developer ID Application: Khanh Hoang (4XVYLW8RXS)"
 #       export APPLE_ID="hoangduykhanh.dn@gmail.com"
 #       export APPLE_PASSWORD="<app-specific password>"   # appleid.apple.com → App-Specific Passwords
 #       export APPLE_TEAM_ID="4XVYLW8RXS"
+#       export TAURI_SIGNING_PRIVATE_KEY="$(cat ~/.tauri/mother-claude-updater.key)"   # or the file path
+#       export TAURI_SIGNING_PRIVATE_KEY_PASSWORD=""        # empty if the key has no password
 #
 # Usage:
 #   RELEASE_TAG=v0.1.0 bash scripts/release/macos-release.sh                 # build → notarize → upload
@@ -28,6 +34,8 @@ set -euo pipefail
 : "${APPLE_ID:?export APPLE_ID first}"
 : "${APPLE_PASSWORD:?export APPLE_PASSWORD (app-specific) first}"
 : "${APPLE_TEAM_ID:?export APPLE_TEAM_ID first}"
+# createUpdaterArtifacts is on, so the build signs the updater artifact too.
+: "${TAURI_SIGNING_PRIVATE_KEY:?export TAURI_SIGNING_PRIVATE_KEY (updater private key) first}"
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$root"
@@ -67,3 +75,12 @@ fi
 
 echo "==> Uploading the .dmg to the draft release (${RELEASE_TAG:-v0.1.0})…"
 bash "$root/scripts/release/release-upload.sh" upload "$dmg"
+
+# Assemble the combined auto-updater manifest (macOS entry from this build +
+# Windows entry from the CI build). Best-effort: if the Windows CI build hasn't
+# uploaded its updater artifacts yet, this prints how to finish it later.
+echo "==> Assembling latest.json (auto-updater manifest)…"
+if ! RELEASE_TAG="${RELEASE_TAG:-v0.1.0}" bash "$root/scripts/release/make-latest-json.sh"; then
+  echo "    latest.json not assembled yet — once the Windows CI build finishes, run:"
+  echo "      RELEASE_TAG=${RELEASE_TAG:-v0.1.0} bash scripts/release/make-latest-json.sh"
+fi
