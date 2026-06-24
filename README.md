@@ -38,6 +38,21 @@ undocumented protocol). So:
 Design intent: make the dashboard the *launcher* so "full control" is the norm.
 See [ARCHITECTURE.md](ARCHITECTURE.md) and [KNOWN_ISSUES.md](KNOWN_ISSUES.md).
 
+## Good to know (also shown in the app → Settings)
+
+- **Your laptop is the brain.** Mother Claude runs on your laptop and bridges it
+  to your phone — it isn't a cloud. Keep the laptop **awake** (plugged in, sleep
+  disabled); if it sleeps, your phone loses the connection.
+- **VS Code isn't synced live.** The dashboard reads the transcript files Claude
+  writes. A live VS Code session may not save its newest messages until it's idle
+  or closed, so they might not appear in the app yet — and *"Continue here"* picks
+  up from the **last saved point**. To capture the very latest, **close and reopen
+  VS Code (or its Claude panel)** before continuing.
+- **One driver at a time.** After taking a session over, drive it from one place;
+  typing in both the original editor/terminal *and* the app can split the
+  conversation into two branches.
+- **Local network.** Designed for your own trusted Wi-Fi; pair via the QR code.
+
 ## Prerequisites (macOS, Apple Silicon)
 
 - Xcode Command Line Tools — `xcode-select --install`
@@ -65,10 +80,11 @@ On start, the console prints the dashboard URLs and the API token:
 ### Open it on your phone
 
 1. Connect the phone to the **same Wi-Fi**.
-2. On the desktop, open **Settings** → scan the pairing **QR** (it encodes
+2. On the desktop, open **Pair a Phone** in the header (also under **Settings →
+   Pair a phone**) and scan the **QR** (it encodes
    `https://<lan-ip>:6725/#/pair?token=…`).
 3. The cert is self-signed: your phone warns once — verify the **fingerprint**
-   shown in Settings, then trust it.
+   shown there, then trust it.
 
 From the phone you can monitor everything and, for **owned** sessions, spawn,
 send instructions, and approve/deny prompts.

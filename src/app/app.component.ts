@@ -1,15 +1,18 @@
-import { Component, OnInit, computed, inject } from '@angular/core';
+import { Component, OnInit, computed, inject, signal } from '@angular/core';
 import { Router, RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
 
 import { ConfigService } from './core/config.service';
 import { PermissionsService } from './core/permissions.service';
 import { RealtimeService } from './core/realtime.service';
+import { LimitationsComponent } from './shared/limitations.component';
+import { ModalComponent } from './shared/modal.component';
 
 const ONBOARDING_SKIP_KEY = 'mc_onboarding_skipped';
+const WELCOME_SEEN_KEY = 'mc_welcome_seen';
 
 @Component({
   selector: 'mc-root',
-  imports: [RouterOutlet, RouterLink, RouterLinkActive],
+  imports: [RouterOutlet, RouterLink, RouterLinkActive, LimitationsComponent, ModalComponent],
   templateUrl: './app.component.html',
   styleUrl: './app.component.scss',
 })
@@ -22,6 +25,8 @@ export class AppComponent implements OnInit {
   protected readonly connection = this.realtime.connection;
   protected readonly needsToken = computed(() => !this.config.config()?.token);
   protected readonly needsPermission = computed(() => this.permissions.missingRequired());
+  protected readonly showWelcome = signal(false);
+  protected readonly menuOpen = signal(false);
 
   async ngOnInit(): Promise<void> {
     await this.config.ensure();
@@ -31,8 +36,20 @@ export class AppComponent implements OnInit {
     // First-run: if a required OS permission is missing on desktop and the user
     // hasn't skipped this session, guide them through it.
     const skipped = sessionStorage.getItem(ONBOARDING_SKIP_KEY) === '1';
-    if (this.permissions.desktop() && this.permissions.missingRequired() && !skipped) {
+    const needsOnboarding =
+      this.permissions.desktop() && this.permissions.missingRequired() && !skipped;
+    if (needsOnboarding) {
       this.router.navigate(['/onboarding']);
     }
+
+    // Otherwise, show the one-time "good to know" welcome on first launch.
+    if (!needsOnboarding && localStorage.getItem(WELCOME_SEEN_KEY) !== '1') {
+      this.showWelcome.set(true);
+    }
+  }
+
+  dismissWelcome(): void {
+    localStorage.setItem(WELCOME_SEEN_KEY, '1');
+    this.showWelcome.set(false);
   }
 }

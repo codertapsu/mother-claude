@@ -33,6 +33,23 @@ a single module absorbs version churn.
   `type`s also include `last-prompt`, `ai-title`, `attachment`,
   `queue-operation`, `permission-mode`, `mode` beyond the documented set.
 
+## Live-session synchronization (surfaced in the UI)
+
+- **VS Code (and other live editor) sessions are not synced in real time.** The
+  dashboard reads the append-only transcript files Claude writes under
+  `~/.claude/projects`. A live VS Code session may buffer and not flush its newest
+  messages until it goes idle or is closed, so the app can lag behind the editor.
+  To pick up the very latest before taking a session over, **close and reopen
+  VS Code (or its Claude panel)** so the transcript is flushed; "Continue here"
+  then resumes (`claude --resume <id>`) from that saved point.
+- The desktop app is a **local bridge, not a cloud**: the embedded server and any
+  owned/resumed `claude` processes run on the laptop, which must stay awake.
+- After "Continue here", driving the session from both the original editor and the
+  app can fork the conversation; use one driver at a time.
+
+These are presented to end users in-app under **Settings → Good to know** and on
+each foreign session's detail view.
+
 ## Fundamental limitations (by design)
 
 - **Foreign live-session answer injection is unavailable.** The cc-daemon control

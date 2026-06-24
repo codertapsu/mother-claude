@@ -6,43 +6,6 @@
   margin-bottom: 0.5rem;
 }
 
-.pair {
-  display: flex;
-  gap: 1rem;
-  align-items: flex-start;
-  flex-wrap: wrap;
-}
-.qr {
-  width: 220px;
-  height: 220px;
-  background: #fff;
-  border-radius: 0.5rem;
-  padding: 0.4rem;
-  flex: 0 0 auto;
-}
-.qr ::ng-deep svg {
-  width: 100%;
-  height: 100%;
-  display: block;
-}
-.info {
-  flex: 1;
-  min-width: 12rem;
-}
-.info .url {
-  word-break: break-all;
-}
-.info .fp {
-  word-break: break-all;
-  font-size: 0.78rem;
-}
 .small {
   font-size: 0.8rem;
-}
-
-.toggle {
-  align-items: center;
-}
-.toggle .chk {
-  width: auto;
 }

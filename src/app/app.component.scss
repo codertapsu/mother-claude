@@ -12,14 +12,30 @@
 .topbar {
   position: sticky;
   top: 0;
-  z-index: 10;
+  z-index: 20;
   display: flex;
   align-items: center;
-  gap: 1rem;
+  gap: 0.75rem;
   padding: 0.6rem 1rem;
   padding-top: max(0.6rem, env(safe-area-inset-top));
   background: #15161c;
   border-bottom: 1px solid #262833;
+}
+.spacer {
+  flex: 1;
+}
+.hamburger {
+  display: none;
+  appearance: none;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  color: var(--text);
+  width: 2.2rem;
+  height: 2.2rem;
+  font-size: 1.1rem;
+  line-height: 1;
+  cursor: pointer;
 }
 
 .brand {
@@ -42,7 +58,6 @@
 .tabs {
   display: flex;
   gap: 0.25rem;
-  margin-left: auto;
   flex-wrap: wrap;
 }
 .tabs a {
@@ -105,6 +120,41 @@
   max-width: 1100px;
   width: 100%;
   margin: 0 auto;
+}
+
+.welcome-intro {
+  margin: 0 0 0.75rem;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+/* Collapse the nav into a hamburger dropdown on narrow screens. */
+@media (max-width: 760px) {
+  .hamburger {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .tabs {
+    display: none;
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    flex-direction: column;
+    gap: 0.15rem;
+    padding: 0.5rem;
+    background: #15161c;
+    border-bottom: 1px solid #262833;
+    box-shadow: 0 10px 18px rgba(0, 0, 0, 0.35);
+  }
+  .tabs.open {
+    display: flex;
+  }
+  .tabs a {
+    padding: 0.65rem 0.7rem;
+    font-size: 1rem;
+  }
 }
 
 @media (max-width: 520px) {

@@ -24,16 +24,20 @@ export const routes: Routes = [
       import('./pages/settings/settings.component').then((m) => m.SettingsComponent),
   },
   {
+    path: 'good-to-know',
+    loadComponent: () =>
+      import('./pages/good-to-know/good-to-know.component').then((m) => m.GoodToKnowComponent),
+  },
+  {
     path: 'onboarding',
     loadComponent: () =>
       import('./pages/onboarding/onboarding.component').then((m) => m.OnboardingComponent),
   },
   // Pairing links (.../#/pair?token=…) — token is captured by ConfigService on
-  // load; land the user on Settings to confirm.
+  // load; this dedicated screen shows the QR + manual token entry.
   {
     path: 'pair',
-    loadComponent: () =>
-      import('./pages/settings/settings.component').then((m) => m.SettingsComponent),
+    loadComponent: () => import('./pages/pair/pair.component').then((m) => m.PairComponent),
   },
   { path: '**', redirectTo: '' },
 ];

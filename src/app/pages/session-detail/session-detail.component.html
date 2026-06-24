@@ -23,7 +23,7 @@
         <button
           class="btn"
           [disabled]="busy()"
-          title="Fork this conversation into an owned session you can drive from anywhere"
+          title="Take this session over (resume in place) so you can drive it from here or your phone"
           (click)="continueSession()"
         >
           Continue here
@@ -144,11 +144,23 @@
       }
     } @else {
       <div class="card cant-drive">
-        <p>This session runs elsewhere (e.g. VS&nbsp;Code) and isn't owned yet.</p>
+        <p>This session runs elsewhere ({{ surface(s.surface) }}) and isn't owned yet.</p>
         <p class="muted">
           <strong>Continue here</strong> resumes it in place — same conversation and context —
           so you can keep giving commands from this device or your phone.
         </p>
+        @if (s.surface === 'vs-code') {
+          <p class="warn sync-note">
+            ⚠ VS&nbsp;Code isn't synced live. If you were just working in it, <strong>close and
+            reopen VS&nbsp;Code (or its Claude panel)</strong> so its latest messages are saved —
+            otherwise “Continue here” picks up from the last saved point.
+          </p>
+        } @else {
+          <p class="muted sync-note">
+            A still-running session may not have saved its newest messages yet; “Continue here”
+            resumes from the last saved point.
+          </p>
+        }
         <button class="btn primary" [disabled]="busy()" (click)="continueSession()">
           Continue here →
         </button>

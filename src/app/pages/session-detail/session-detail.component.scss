@@ -136,6 +136,12 @@
 .cant-drive p {
   margin: 0 0 0.5rem;
 }
+.cant-drive .warn {
+  color: var(--amber);
+}
+.sync-note {
+  font-size: 0.85rem;
+}
 
 .file {
   display: flex;

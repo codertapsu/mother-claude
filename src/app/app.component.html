@@ -1,24 +1,42 @@
 <div class="shell">
   <header class="topbar">
-    <a class="brand" routerLink="/">
+    <a class="brand" routerLink="/" (click)="menuOpen.set(false)">
       <span class="dot"></span>
       Mother&nbsp;Claude
     </a>
-    <nav class="tabs">
-      <a routerLink="/" routerLinkActive="active" [routerLinkActiveOptions]="{ exact: true }"
+    <nav class="tabs" [class.open]="menuOpen()">
+      <a
+        routerLink="/"
+        routerLinkActive="active"
+        [routerLinkActiveOptions]="{ exact: true }"
+        (click)="menuOpen.set(false)"
         >Sessions</a
       >
-      <a routerLink="/services" routerLinkActive="active">Services</a>
-      <a routerLink="/settings" routerLinkActive="active">Settings</a>
+      <a routerLink="/services" routerLinkActive="active" (click)="menuOpen.set(false)">Services</a>
+      <a routerLink="/settings" routerLinkActive="active" (click)="menuOpen.set(false)">Settings</a>
+      <a routerLink="/good-to-know" routerLinkActive="active" (click)="menuOpen.set(false)"
+        >Good to Know</a
+      >
+      <a routerLink="/pair" routerLinkActive="active" (click)="menuOpen.set(false)">Pair a Phone</a>
     </nav>
+    <span class="spacer"></span>
     <span class="conn" [class]="connection()" [title]="'WebSocket: ' + connection()">
       {{ connection() }}
     </span>
+    <button
+      class="hamburger"
+      type="button"
+      aria-label="Menu"
+      [attr.aria-expanded]="menuOpen()"
+      (click)="menuOpen.set(!menuOpen())"
+    >
+      ☰
+    </button>
   </header>
 
   @if (needsToken()) {
     <div class="banner">
-      Not paired — open <a routerLink="/settings">Settings</a> to enter a token or scan the QR.
+      Not paired — open <a routerLink="/pair">Pair a phone</a> to scan the QR or enter a token.
     </div>
   }
 
@@ -33,3 +51,11 @@
     <router-outlet />
   </main>
 </div>
+
+<mc-modal [open]="showWelcome()" title="Welcome to Mother Claude" (closed)="dismissWelcome()">
+  <p class="welcome-intro">
+    Monitor and control every local Claude Code session from one place — and from your phone. A few
+    things worth knowing:
+  </p>
+  <mc-limitations />
+</mc-modal>
