@@ -14,11 +14,34 @@ import {
   TranscriptEvent,
 } from '../../core/models';
 import { renderMarkdown } from '../../shared/markdown';
-import { relativeTime, stateLabel, surfaceLabel, toolSummary } from '../../shared/util';
+import {
+  PatchLineClass,
+  classifyPatchLine,
+  groupByDir,
+  baseName,
+  stateLabel,
+  surfaceLabel,
+  toolSummary,
+} from '../../shared/util';
 
 interface RenderedTool {
   name: string;
   summary: string;
+}
+
+/** A file-modifying tool call, rendered as a chip that jumps to its diff. */
+interface RenderedEdit {
+  tool: string;
+  file: string;
+}
+
+/** One tool_result payload; long ones render collapsed. */
+interface RenderedResult {
+  text: string;
+  preview: string;
+  lines: number;
+  long: boolean;
+  error: boolean;
 }
 
 interface RenderedQuestion {
@@ -31,12 +54,16 @@ interface RenderedQuestion {
 }
 
 interface RenderedEvent {
+  /** Stable identity for @for tracking — uuid, or type:absolute-index. */
+  key: string;
   who: string;
   cls: string;
   text: string;
   /** Markdown-rendered HTML (assistant prose only); bound via [innerHTML]. */
   html: string;
   tools: RenderedTool[];
+  edits: RenderedEdit[];
+  results: RenderedResult[];
   questions: RenderedQuestion[];
   /** Markdown-rendered plan proposals (ExitPlanMode). */
   plans: string[];
@@ -44,6 +71,16 @@ interface RenderedEvent {
 }
 
 const MAX_RENDER = 800;
+/** Results at most this long (and ≤ RESULT_MAX_LINES) stay inline. */
+const RESULT_MAX_CHARS = 400;
+const RESULT_MAX_LINES = 6;
+
+/** Tools that modify a file (rendered as edit chips linking to the diff). */
+const EDIT_TOOLS: Record<string, string> = {
+  Edit: 'file_path',
+  Write: 'file_path',
+  NotebookEdit: 'notebook_path',
+};
 
 /** Tools that pose a question to the human (rendered as question cards). */
 function isQuestionTool(name: string | undefined): boolean {
@@ -74,16 +111,29 @@ export class SessionDetailComponent {
 
   protected readonly transcript = signal<TranscriptEvent[]>([]);
   protected readonly rendered = computed(() => {
-    const events = this.transcript().slice(-MAX_RENDER);
-    const { questionIds, answers } = this.correlateAnswers(events);
-    return events
-      .map((e) => this.render(e, questionIds, answers))
+    // Correlate over the FULL transcript (cheap single pass) so tool_use ids
+    // that scrolled out of the render window still pair with their results;
+    // only the render itself is windowed.
+    const all = this.transcript();
+    const { questionIds, answers, editIds } = this.correlateAnswers(all);
+    const start = Math.max(0, all.length - MAX_RENDER);
+    return all
+      .slice(start)
+      .map((e, i) => this.render(e, start + i, questionIds, answers, editIds))
       .filter((r): r is RenderedEvent => r !== null);
   });
 
   protected readonly tab = signal<'transcript' | 'changes'>('transcript');
   protected readonly diff = signal<GitOverview | null>(null);
-  protected readonly patch = signal<{ path: string; text: string } | null>(null);
+  protected readonly patch = signal<{
+    path: string;
+    lines: { text: string; cls: PatchLineClass }[];
+  } | null>(null);
+  /** Changed-file organization: flat list or grouped by folder. */
+  protected readonly view = signal<'list' | 'tree'>('list');
+  protected readonly grouped = computed(() => groupByDir(this.diff()?.files ?? []));
+  protected readonly changeCount = computed(() => this.diff()?.files.length ?? 0);
+  protected readonly base = baseName;
 
   protected readonly instruction = signal('');
   protected readonly answer = signal('');
@@ -104,7 +154,6 @@ export class SessionDetailComponent {
   private buffered: TranscriptEvent[] = [];
   private historyLoaded = false;
 
-  protected readonly rel = relativeTime;
   protected readonly label = stateLabel;
   protected readonly surface = surfaceLabel;
 
@@ -124,6 +173,7 @@ export class SessionDetailComponent {
       this.buffered = [];
       this.historyLoaded = false;
       void this.loadHistory(id);
+      void this.loadDiff(id, true); // eager: the Changes tab shows a count
     });
 
     // Append live deltas for this session (buffer until history has landed).
@@ -179,10 +229,15 @@ export class SessionDetailComponent {
 
   async openChanges(): Promise<void> {
     this.tab.set('changes');
-    if (!this.diff()) {
-      try {
-        this.diff.set(await this.api.getDiff(this.id()));
-      } catch (e) {
+    if (!this.diff()) await this.loadDiff(this.id(), false);
+  }
+
+  private async loadDiff(id: string, silent: boolean): Promise<void> {
+    try {
+      const overview = await this.api.getDiff(id);
+      if (id === this.id()) this.diff.set(overview);
+    } catch (e) {
+      if (!silent && id === this.id()) {
         this.notice.set(`Could not load diff: ${(e as Error).message}`);
       }
     }
@@ -191,9 +246,46 @@ export class SessionDetailComponent {
   async showPatch(path: string): Promise<void> {
     try {
       const res = await this.api.getFilePatch(this.id(), path);
-      this.patch.set({ path, text: res.patch ?? '(no diff)' });
+      const lines = (res.patch ?? '(no diff)')
+        .split('\n')
+        .map((text) => ({ text, cls: classifyPatchLine(text) }));
+      this.patch.set({ path, lines });
     } catch (e) {
       this.notice.set(`Could not load patch: ${(e as Error).message}`);
+    }
+  }
+
+  /** Jump from an edit chip in the conversation to that file's diff. */
+  async openChangesFor(file: string): Promise<void> {
+    this.tab.set('changes');
+    // Refresh: the eagerly-loaded overview may predate this edit.
+    await this.loadDiff(this.id(), false);
+    const d = this.diff();
+    if (!d?.isRepo) {
+      this.notice.set('This session\u2019s directory is not a Git repository.');
+      return;
+    }
+    // Tool inputs carry absolute (possibly backslashed) paths; the diff uses
+    // forward-slashed repo-relative ones.
+    const norm = file.replaceAll('\\', '/');
+    let rel = norm;
+    if (d.repoRoot) {
+      const root = d.repoRoot.replaceAll('\\', '/').replace(/\/$/, '');
+      if (norm.startsWith(`${root}/`)) rel = norm.slice(root.length + 1);
+    }
+    // Exact match, else the LONGEST suffix match (sub/util.ts beats util.ts).
+    const match =
+      d.files.find((f) => f.path === rel) ??
+      d.files
+        .filter((f) => norm.endsWith(`/${f.path}`))
+        .sort((a, b) => b.path.length - a.path.length)[0];
+    if (match) {
+      await this.showPatch(match.path);
+    } else {
+      this.patch.set(null);
+      this.notice.set(
+        `No uncommitted changes for ${baseName(norm)} \u2014 they may already be committed.`,
+      );
     }
   }
 
@@ -321,20 +413,24 @@ export class SessionDetailComponent {
     }
   }
 
-  /** Pre-pass: which tool_use ids are questions, and the answer text their
-   * later tool_result carried (so question cards can show what was chosen). */
+  /** Pre-pass over the window: question tool_use ids + their answers (for the
+   * cards), and edit tool_use ids (so successful edit confirmations — pure
+   * noise next to the edit chip — can be suppressed). */
   private correlateAnswers(events: TranscriptEvent[]): {
     questionIds: Set<string>;
     answers: Map<string, string>;
+    editIds: Set<string>;
   } {
     const questionIds = new Set<string>();
     const answers = new Map<string, string>();
+    const editIds = new Set<string>();
     for (const ev of events) {
       const content = ev.message?.content;
       if (!Array.isArray(content)) continue;
       for (const block of content as ContentBlock[]) {
-        if (block.type === 'tool_use' && block.id && isQuestionTool(block.name)) {
-          questionIds.add(block.id);
+        if (block.type === 'tool_use' && block.id) {
+          if (isQuestionTool(block.name)) questionIds.add(block.id);
+          else if (block.name && block.name in EDIT_TOOLS) editIds.add(block.id);
         } else if (block.type === 'tool_result' && block.tool_use_id) {
           if (questionIds.has(block.tool_use_id)) {
             answers.set(block.tool_use_id, this.stringify(block.content).trim());
@@ -342,15 +438,19 @@ export class SessionDetailComponent {
         }
       }
     }
-    return { questionIds, answers };
+    return { questionIds, answers, editIds };
   }
 
   private render(
     ev: TranscriptEvent,
+    absIndex: number,
     questionIds: Set<string>,
     answers: Map<string, string>,
+    editIds: Set<string>,
   ): RenderedEvent | null {
     const tools: RenderedTool[] = [];
+    const edits: RenderedEdit[] = [];
+    const results: RenderedResult[] = [];
     const questions: RenderedQuestion[] = [];
     const plans: string[] = [];
     let text = '';
@@ -370,14 +470,35 @@ export class SessionDetailComponent {
             const plan = (block.input as { plan?: unknown } | undefined)?.plan;
             if (typeof plan === 'string' && plan.trim()) plans.push(renderMarkdown(plan));
             else tools.push({ name, summary: '' });
+          } else if (name in EDIT_TOOLS) {
+            const file = (block.input as Record<string, unknown> | undefined)?.[
+              EDIT_TOOLS[name]
+            ];
+            if (typeof file === 'string' && file) edits.push({ tool: name, file });
+            else tools.push({ name, summary: toolSummary(name, block.input) });
           } else {
             tools.push({ name, summary: toolSummary(name, block.input) });
           }
         } else if (block.type === 'tool_result') {
           // Question results surface as the answer chip on their card.
           if (block.tool_use_id && questionIds.has(block.tool_use_id)) continue;
-          error = error || !!block.is_error;
-          text += this.stringify(block.content) + '\n';
+          const body = this.stringify(block.content).trim();
+          // is_error is undocumented and may drift — also treat error-shaped
+          // bodies as failures so they are never suppressed or unstyled.
+          const isError = !!block.is_error || /^(error|\[request interrupted)/i.test(body);
+          // Successful edit confirmations are noise — the edit chip (and the
+          // Changes tab) already carry the information. Suppress only what
+          // affirmatively reads as success; anything unexpected stays visible.
+          if (
+            !isError &&
+            block.tool_use_id &&
+            editIds.has(block.tool_use_id) &&
+            (!body || /has been (updated|created|written)|updated successfully/i.test(body))
+          ) {
+            continue;
+          }
+          error = error || isError;
+          if (body) results.push(this.toResult(body, isError));
         }
       }
     } else if (typeof ev.content === 'string') {
@@ -386,16 +507,36 @@ export class SessionDetailComponent {
 
     // Nothing visible (e.g. a user event holding only a question's
     // tool_result, which shows as the answer chip) → no empty bubble.
-    if (!text.trim() && !tools.length && !questions.length && !plans.length) return null;
+    if (
+      !text.trim() &&
+      !tools.length &&
+      !edits.length &&
+      !results.length &&
+      !questions.length &&
+      !plans.length
+    ) {
+      return null;
+    }
 
     const role = ev.message?.role ?? ev.type;
     const isAssistant = ev.type === 'assistant';
     const html = isAssistant && text.trim() ? renderMarkdown(text.trim()) : '';
-    const base = { text, html, tools, questions, plans, error };
+    const key = ev.uuid ?? `${ev.type}:${absIndex}`;
+    const base = { key, text, html, tools, edits, results, questions, plans, error };
     if (ev.type === 'user') return { who: 'You', cls: 'user', ...base };
     if (isAssistant) return { who: 'Claude', cls: 'assistant', ...base };
     if (ev.type === 'system') return { who: 'System', cls: 'system', ...base };
     return { who: role, cls: 'system', ...base };
+  }
+
+  /** Wrap a tool_result body: short stays inline, long collapses to a
+   * one-line preview with the full text behind a native disclosure. */
+  private toResult(body: string, isError: boolean): RenderedResult {
+    const lines = body.split('\n');
+    const long = body.length > RESULT_MAX_CHARS || lines.length > RESULT_MAX_LINES;
+    const firstLine = lines[0] ?? '';
+    const preview = firstLine.length > 100 ? `${firstLine.slice(0, 100)}…` : firstLine;
+    return { text: body, preview: preview || '(output)', lines: lines.length, long, error: isError };
   }
 
   /** Parse AskUserQuestion (`{questions: [...]}`) or ask_user (flat) input. */

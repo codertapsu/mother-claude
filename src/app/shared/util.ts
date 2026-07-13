@@ -1,4 +1,4 @@
-import { SessionState, Surface } from '../core/models';
+import { FileChange, SessionState, Surface } from '../core/models';
 
 export function relativeTime(ms?: number): string {
   if (!ms) return '—';
@@ -54,6 +54,53 @@ const SALIENT_ARGS: Record<string, string[]> = {
   TodoWrite: [],
   NotebookEdit: ['notebook_path'],
 };
+
+/** Changed files grouped by folder for the tree view, folders sorted, root
+ * (`.`) first, files keeping their original (git) order within each group. */
+export function groupByDir(files: FileChange[]): { dir: string; files: FileChange[] }[] {
+  const groups = new Map<string, FileChange[]>();
+  for (const f of files) {
+    const i = f.path.lastIndexOf('/');
+    const dir = i === -1 ? '.' : f.path.slice(0, i);
+    const list = groups.get(dir) ?? [];
+    list.push(f);
+    groups.set(dir, list);
+  }
+  return [...groups.entries()]
+    .sort(([a], [b]) => (a === '.' ? -1 : b === '.' ? 1 : a.localeCompare(b)))
+    .map(([dir, list]) => ({ dir, files: list }));
+}
+
+/** Basename of a repo path (what the tree view shows next to its folder). */
+export function baseName(path: string): string {
+  const i = path.lastIndexOf('/');
+  return i === -1 ? path : path.slice(i + 1);
+}
+
+export type PatchLineClass = 'add' | 'del' | 'hunk' | 'meta' | 'ctx';
+
+/** Classify one unified-diff line for coloring. */
+export function classifyPatchLine(line: string): PatchLineClass {
+  // Header lines are exactly "+++ <path>" / "--- <path>"; a content line like
+  // "+++i;" (added "++i;") must fall through to add/del.
+  if (line.startsWith('+++ ') || line.startsWith('--- ') || line === '+++' || line === '---') {
+    return 'meta';
+  }
+  if (line.startsWith('@@')) return 'hunk';
+  if (line.startsWith('+')) return 'add';
+  if (line.startsWith('-')) return 'del';
+  if (
+    line.startsWith('diff ') ||
+    line.startsWith('index ') ||
+    line.startsWith('new file') ||
+    line.startsWith('deleted file') ||
+    line.startsWith('similarity') ||
+    line.startsWith('rename ')
+  ) {
+    return 'meta';
+  }
+  return 'ctx';
+}
 
 /** One-line, human-readable summary of a tool call's input. */
 export function toolSummary(name: string, input: unknown, max = 160): string {

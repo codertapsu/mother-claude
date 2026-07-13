@@ -46,7 +46,7 @@
       Transcript
     </button>
     <button class="tab" [class.active]="tab() === 'changes'" (click)="openChanges()">
-      Changes
+      Changes{{ changeCount() ? ' (' + changeCount() + ')' : '' }}
     </button>
   </div>
 
@@ -184,7 +184,7 @@
     }
 
     <div #log class="log">
-      @for (r of rendered(); track $index) {
+      @for (r of rendered(); track r.key) {
         <div class="msg {{ r.cls }}" [class.err]="r.error">
           <div class="who">{{ r.who }}</div>
           @if (r.tools.length) {
@@ -196,6 +196,20 @@
                     <span class="tsum mono">{{ t.summary }}</span>
                   }
                 </div>
+              }
+            </div>
+          }
+          @if (r.edits.length) {
+            <div class="edits">
+              @for (e of r.edits; track $index) {
+                <button
+                  class="editchip"
+                  title="View this file's changes"
+                  (click)="openChangesFor(e.file)"
+                >
+                  ✎ <span class="mono">{{ base(e.file) }}</span>
+                  <span class="muted etool">{{ e.tool }}</span>
+                </button>
               }
             </div>
           }
@@ -238,6 +252,19 @@
             <div class="body md" [innerHTML]="r.html"></div>
           } @else if (r.text.trim()) {
             <pre class="body">{{ r.text.trim() }}</pre>
+          }
+          @for (res of r.results; track $index) {
+            @if (res.long) {
+              <details class="result" [class.err]="res.error">
+                <summary>
+                  <span class="mono rprev">{{ res.preview }}</span>
+                  <span class="muted rcount">{{ res.lines }} lines</span>
+                </summary>
+                <pre class="body">{{ res.text }}</pre>
+              </details>
+            } @else {
+              <pre class="body result-inline" [class.err]="res.error">{{ res.text }}</pre>
+            }
           }
         </div>
       } @empty {
@@ -304,22 +331,62 @@
           </div>
         </div>
 
-        <h2>Changed files</h2>
-        @for (f of d.files; track f.path) {
-          <button class="card file" (click)="showPatch(f.path)">
-            <span class="badge {{ f.status }}">{{ f.status }}</span>
-            <span class="fpath mono">{{ f.path }}</span>
-            <span class="spacer"></span>
-            <span class="add">+{{ f.additions }}</span>
-            <span class="del">−{{ f.deletions }}</span>
-          </button>
-        } @empty {
-          <p class="muted">No working-tree changes.</p>
+        <div class="row files-head">
+          <h2>Changed files</h2>
+          <span class="spacer"></span>
+          <div class="viewtoggle">
+            <button class="tgl" [class.active]="view() === 'list'" (click)="view.set('list')">
+              List
+            </button>
+            <button class="tgl" [class.active]="view() === 'tree'" (click)="view.set('tree')">
+              Tree
+            </button>
+          </div>
+        </div>
+        @if (view() === 'list') {
+          @for (f of d.files; track f.path) {
+            <button
+              class="card file"
+              [class.selected]="patch()?.path === f.path"
+              (click)="showPatch(f.path)"
+            >
+              <span class="badge {{ f.status }}">{{ f.status }}</span>
+              <span class="fpath mono">{{ f.path }}</span>
+              <span class="spacer"></span>
+              <span class="add">+{{ f.additions }}</span>
+              <span class="del">−{{ f.deletions }}</span>
+            </button>
+          } @empty {
+            <p class="muted">No working-tree changes.</p>
+          }
+        } @else {
+          @for (g of grouped(); track g.dir) {
+            <div class="dirhead mono muted">{{ g.dir === '.' ? '(root)' : g.dir + '/' }}</div>
+            @for (f of g.files; track f.path) {
+              <button
+                class="card file treefile"
+                [class.selected]="patch()?.path === f.path"
+                (click)="showPatch(f.path)"
+              >
+                <span class="badge {{ f.status }}">{{ f.status }}</span>
+                <span class="fpath mono">{{ base(f.path) }}</span>
+                <span class="spacer"></span>
+                <span class="add">+{{ f.additions }}</span>
+                <span class="del">−{{ f.deletions }}</span>
+              </button>
+            }
+          } @empty {
+            <p class="muted">No working-tree changes.</p>
+          }
         }
 
         @if (patch(); as p) {
-          <h2>{{ p.path }}</h2>
-          <pre class="card patch mono">{{ p.text }}</pre>
+          <h2 class="mono patch-title">{{ p.path }}</h2>
+          <div class="card patch mono">
+            @for (l of p.lines; track $index) {
+              <div class="pline {{ l.cls }}">{{ l.text || ' ' }}</div>
+            }
+          </div>
         }
 
         <h2>Recent commits</h2>

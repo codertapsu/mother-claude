@@ -248,6 +248,90 @@ button.opt:disabled {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* File-edit chips: click → that file's diff on the Changes tab */
+.edits {
+  display: flex;
+  gap: 0.3rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.3rem;
+}
+.editchip {
+  appearance: none;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.35rem;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 1rem;
+  padding: 0.15rem 0.6rem;
+  color: var(--text);
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+.editchip:hover {
+  border-color: var(--accent);
+}
+.editchip .etool {
+  font-size: 0.7rem;
+}
+
+/* Tool results: long ones collapse behind a native disclosure */
+.result {
+  margin: 0.25rem 0;
+  border: 1px solid var(--border);
+  border-radius: 0.4rem;
+  background: var(--panel-2);
+}
+.result.err {
+  border-color: #6b2f2f;
+}
+.result-inline.err {
+  border: 1px solid #6b2f2f;
+  border-radius: 0.4rem;
+  padding: 0.3rem 0.55rem;
+}
+.result summary {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  padding: 0.3rem 0.55rem;
+  cursor: pointer;
+  min-width: 0;
+}
+/* display:flex removes the native disclosure triangle — restore one */
+.result summary::before {
+  content: '\25B8';
+  color: var(--muted);
+  flex: 0 0 auto;
+}
+.result[open] summary::before {
+  content: '\25BE';
+}
+.result summary .rprev {
+  font-size: 0.75rem;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  flex: 1;
+}
+.result summary .rcount {
+  font-size: 0.7rem;
+  white-space: nowrap;
+}
+.result[open] summary .rprev {
+  white-space: normal;
+}
+.result .body {
+  padding: 0 0.55rem 0.45rem;
+  max-height: 22rem;
+  overflow-y: auto;
+}
+.result-inline {
+  margin: 0.25rem 0;
+}
 .msg .body {
   margin: 0;
   white-space: pre-wrap;
@@ -367,10 +451,74 @@ button.opt:disabled {
   color: var(--red);
 }
 .patch {
-  white-space: pre;
   overflow-x: auto;
-  max-height: 24rem;
+  max-height: 28rem;
+  overflow-y: auto;
   font-size: 0.78rem;
+  padding: 0.4rem 0;
+}
+.pline {
+  white-space: pre;
+  padding: 0 0.6rem;
+  line-height: 1.45;
+  /* span the horizontal scroll width so add/del tints don't cut off */
+  width: max-content;
+  min-width: 100%;
+  box-sizing: border-box;
+}
+.pline.add {
+  color: var(--green);
+  background: rgba(74, 222, 128, 0.07);
+}
+.pline.del {
+  color: var(--red);
+  background: rgba(248, 113, 113, 0.07);
+}
+.pline.hunk {
+  color: var(--accent);
+  margin-top: 0.35rem;
+}
+.pline.meta {
+  color: var(--muted);
+}
+.patch-title {
+  word-break: break-all;
+}
+
+.files-head {
+  align-items: center;
+}
+.files-head h2 {
+  margin: 0;
+}
+.viewtoggle {
+  display: flex;
+  border: 1px solid var(--border);
+  border-radius: 0.4rem;
+  overflow: hidden;
+}
+.viewtoggle .tgl {
+  appearance: none;
+  background: none;
+  border: none;
+  color: var(--muted);
+  padding: 0.25rem 0.7rem;
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+.viewtoggle .tgl.active {
+  background: var(--panel-2);
+  color: var(--text);
+}
+.dirhead {
+  font-size: 0.75rem;
+  margin: 0.5rem 0 0.25rem;
+}
+.file.treefile {
+  margin-left: 0.9rem;
+}
+.file.selected {
+  border-color: var(--accent);
 }
 .commit {
   margin-bottom: 0.35rem;
