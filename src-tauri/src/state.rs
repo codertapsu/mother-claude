@@ -26,6 +26,14 @@ pub enum Resolution {
     Answer(String),
 }
 
+/// A blocked permission/question request: the channel that resumes it plus the
+/// facts needed to gate its resolution (dangerousness must come from the
+/// request being resolved, not whatever currently occupies the session's slot).
+pub struct PendingResolver {
+    pub tx: oneshot::Sender<Resolution>,
+    pub dangerous: bool,
+}
+
 /// Cloneable shared state handle.
 pub type AppState = Arc<Inner>;
 
@@ -105,7 +113,7 @@ pub struct Inner {
     pub pending: RwLock<HashMap<String, PendingInput>>,
     /// Oneshot resolvers keyed by request id; a blocked permission/question
     /// request awaits its sender. std Mutex — held only for insert/remove.
-    pub resolvers: std::sync::Mutex<HashMap<String, oneshot::Sender<Resolution>>>,
+    pub resolvers: std::sync::Mutex<HashMap<String, PendingResolver>>,
     /// Last computed session list (served by REST without recomputation).
     pub sessions: RwLock<Vec<Session>>,
 }
@@ -226,16 +234,42 @@ impl Inner {
         self.broadcast(ServerEvent::Sessions(snapshot));
     }
 
-    pub fn register_resolver(&self, request_id: String, tx: oneshot::Sender<Resolution>) {
+    pub fn register_resolver(
+        &self,
+        request_id: String,
+        tx: oneshot::Sender<Resolution>,
+        dangerous: bool,
+    ) {
         if let Ok(mut r) = self.resolvers.lock() {
-            r.insert(request_id, tx);
+            r.insert(request_id, PendingResolver { tx, dangerous });
         }
     }
 
-    pub fn take_resolver(&self, request_id: &str) -> Option<oneshot::Sender<Resolution>> {
+    pub fn take_resolver(&self, request_id: &str) -> Option<PendingResolver> {
         self.resolvers
             .lock()
             .ok()
             .and_then(|mut r| r.remove(request_id))
+    }
+
+    /// Whether the blocked request behind `request_id` is dangerous, if it is
+    /// still registered (peek without taking).
+    pub fn resolver_dangerous(&self, request_id: &str) -> Option<bool> {
+        self.resolvers
+            .lock()
+            .ok()
+            .and_then(|r| r.get(request_id).map(|p| p.dangerous))
+    }
+
+    /// Clear the session's pending card only if it still belongs to
+    /// `request_id` — a newer prompt may have replaced it and must survive.
+    pub async fn clear_pending_if(&self, id: &str, request_id: &str) {
+        let matches = {
+            let map = self.pending.read().await;
+            map.get(id).and_then(|p| p.request_id.as_deref()) == Some(request_id)
+        };
+        if matches {
+            self.set_pending(id, None).await;
+        }
     }
 }

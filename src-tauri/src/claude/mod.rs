@@ -29,8 +29,8 @@ pub use git::{
 pub use home::{best_effort_decode, encode_cwd, user_home_dir, ClaudeHome};
 pub use registry::{
     build_registry, query_agents, read_state_jsons, scan_transcripts, summarize_transcript,
-    PendingInput, PendingKind, RegistryInputs, Session, SessionState, Surface, TranscriptSummary,
-    UsageSummary,
+    PendingInput, PendingKind, QuestionOption, RegistryInputs, Session, SessionState, Surface,
+    TranscriptSummary, UsageSummary,
 };
 pub use schema::{
     parse_transcript, parse_transcript_line, AgentEntry, ContentBlock, Message, MessageContent,

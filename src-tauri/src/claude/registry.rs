@@ -19,7 +19,7 @@ use serde::{Deserialize, Serialize};
 
 use super::control::OwnedSessionMeta;
 use super::home::ClaudeHome;
-use super::schema::{AgentEntry, StateJson, TranscriptEvent};
+use super::schema::{AgentEntry, ContentBlock, MessageContent, StateJson, TranscriptEvent};
 use super::transcript::read_all;
 
 /// Window (ms) within which recent transcript activity counts as "working".
@@ -68,6 +68,42 @@ pub enum SessionState {
     Unknown,
 }
 
+/// One selectable option of a pending question.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QuestionOption {
+    pub label: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+}
+
+// Tolerant input: options arrive either as plain strings (legacy sidecar /
+// simple askers) or as `{label, description}` objects (AskUserQuestion-shaped).
+impl<'de> serde::Deserialize<'de> for QuestionOption {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum Repr {
+            Text(String),
+            Full {
+                label: String,
+                #[serde(default)]
+                description: Option<String>,
+            },
+        }
+        Ok(match Repr::deserialize(deserializer)? {
+            Repr::Text(label) => QuestionOption {
+                label,
+                description: None,
+            },
+            Repr::Full { label, description } => QuestionOption { label, description },
+        })
+    }
+}
+
 /// A pending question or permission prompt awaiting a human answer.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -77,8 +113,18 @@ pub struct PendingInput {
     pub tool: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub prompt: Option<String>,
+    /// Very short topic chip (AskUserQuestion `header`), e.g. "Auth method".
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub header: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub options: Vec<String>,
+    pub options: Vec<QuestionOption>,
+    /// Whether several options may be selected together.
+    #[serde(default)]
+    pub multi_select: bool,
+    /// Salient context: the Bash command / file path for permissions, or the
+    /// plan text for plan approval. Pre-summarized, display-ready.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub detail: Option<String>,
     /// Correlates an answer back to the blocked request (owned sessions).
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub request_id: Option<String>,
@@ -156,6 +202,9 @@ pub struct TranscriptSummary {
     pub last_activity: Option<i64>,
     pub message_count: u64,
     pub usage: UsageSummary,
+    /// A question / plan approval the transcript ends on, still unanswered —
+    /// how foreign sessions' AskUserQuestion prompts become visible.
+    pub pending: Option<PendingInput>,
 }
 
 /// Parse an RFC3339 timestamp (e.g. `2026-06-23T08:59:08.494Z`) to epoch millis.
@@ -182,6 +231,12 @@ pub fn summarize_transcript(id: &str, events: &[TranscriptEvent]) -> TranscriptS
             summary.started_at = Some(summary.started_at.map_or(ts, |s| s.min(ts)));
             summary.last_activity = Some(summary.last_activity.map_or(ts, |l| l.max(ts)));
         }
+        // Subagent (sidechain) traffic shares the file but is not the main
+        // conversation: it must not clear a pending main-chain question, nor
+        // skew model/count. (Its timestamps above still count as activity.)
+        if ev.is_sidechain == Some(true) {
+            continue;
+        }
         if let Some(cwd) = &ev.cwd {
             summary.cwd = Some(cwd.clone());
         }
@@ -199,10 +254,34 @@ pub fn summarize_transcript(id: &str, events: &[TranscriptEvent]) -> TranscriptS
         if ev.event_type == "user" || ev.event_type == "assistant" {
             summary.message_count += 1;
         }
+        // A user event answers the open question only when it actually
+        // addresses it: a tool_result for that question's tool_use id, or the
+        // user typing a message. A parallel tool's result must not clear it.
+        if ev.event_type == "user"
+            && summary.pending.is_some()
+            && user_event_answers(
+                ev,
+                summary
+                    .pending
+                    .as_ref()
+                    .and_then(|p| p.request_id.as_deref()),
+            )
+        {
+            summary.pending = None;
+        }
         if let Some(msg) = &ev.message {
             if ev.event_type == "assistant" {
                 if let Some(model) = &msg.model {
                     summary.model = Some(model.clone());
+                }
+                if let Some(MessageContent::Blocks(blocks)) = &msg.content {
+                    for block in blocks {
+                        if block.block_type == "tool_use" {
+                            if let Some(p) = pending_from_tool_use(block) {
+                                summary.pending = Some(p);
+                            }
+                        }
+                    }
                 }
             }
             if let Some(usage) = &msg.usage {
@@ -221,8 +300,122 @@ pub fn summarize_transcript(id: &str, events: &[TranscriptEvent]) -> TranscriptS
     summary
 }
 
-/// Scan every transcript under `projects/` into summaries. I/O errors per file
-/// are logged and skipped.
+/// Whether a `user` event resolves the open transcript-derived prompt: it
+/// carries a `tool_result` for the prompt's tool_use id (stored in
+/// `request_id`), or the user typed actual text (the conversation moved on).
+/// Without an id to correlate, any user event clears (conservative).
+fn user_event_answers(ev: &TranscriptEvent, tool_use_id: Option<&str>) -> bool {
+    let Some(tuid) = tool_use_id else {
+        return true;
+    };
+    match ev.message.as_ref().and_then(|m| m.content.as_ref()) {
+        Some(MessageContent::Text(t)) => !t.trim().is_empty(),
+        Some(MessageContent::Blocks(blocks)) => blocks.iter().any(|b| {
+            (b.block_type == "tool_result" && b.tool_use_id.as_deref() == Some(tuid))
+                || (b.block_type == "text"
+                    && b.text.as_deref().is_some_and(|t| !t.trim().is_empty()))
+        }),
+        None => true,
+    }
+}
+
+/// If this `tool_use` block is a question or plan approval the user must act
+/// on, describe it as a [`PendingInput`] (not answerable — transcript-derived
+/// prompts belong to sessions we don't own; `request_id` carries the tool_use
+/// id so the answer can be correlated).
+///
+/// Recognized: the native `AskUserQuestion` (`{questions: [{question, header,
+/// multiSelect, options: [{label, description}]}]}`), our sidecar's
+/// `mcp__mother-claude__ask_user` (`{question, header?, options?,
+/// multiSelect?}`), and `ExitPlanMode` (plan approval).
+fn pending_from_tool_use(block: &ContentBlock) -> Option<PendingInput> {
+    const DETAIL_MAX: usize = 2_000;
+    let name = block.name.as_deref()?;
+    let input = block.input.as_ref()?;
+
+    if name == "ExitPlanMode" {
+        let plan = input.get("plan").and_then(|v| v.as_str()).unwrap_or("");
+        return Some(PendingInput {
+            kind: PendingKind::Permission,
+            tool: Some(name.to_string()),
+            prompt: Some(
+                "Claude finished planning and asks approval to start implementing.".into(),
+            ),
+            header: Some("Plan ready".into()),
+            options: Vec::new(),
+            multi_select: false,
+            detail: (!plan.is_empty()).then(|| truncate_chars(plan, DETAIL_MAX)),
+            request_id: block.id.clone(),
+            answerable: false,
+            dangerous: false,
+        });
+    }
+
+    if name != "AskUserQuestion" && !name.ends_with("__ask_user") {
+        return None;
+    }
+    // AskUserQuestion nests under `questions[]`; ask_user is the object itself.
+    let all = input.get("questions").and_then(|v| v.as_array());
+    let extra_questions = all.map(|a| a.len().saturating_sub(1)).unwrap_or(0);
+    let q = all.and_then(|a| a.first()).unwrap_or(input);
+    let mut prompt = q.get("question").and_then(|v| v.as_str())?.to_string();
+    if extra_questions > 0 {
+        prompt.push_str(&format!(
+            " (+{extra_questions} more question{} in the session)",
+            if extra_questions == 1 { "" } else { "s" }
+        ));
+    }
+    let options = q
+        .get("options")
+        .and_then(|v| v.as_array())
+        .map(|opts| {
+            opts.iter()
+                .filter_map(|o| {
+                    if let Some(s) = o.as_str() {
+                        return Some(QuestionOption {
+                            label: s.to_string(),
+                            description: None,
+                        });
+                    }
+                    Some(QuestionOption {
+                        label: o.get("label")?.as_str()?.to_string(),
+                        description: o
+                            .get("description")
+                            .and_then(|d| d.as_str())
+                            .map(String::from),
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    Some(PendingInput {
+        kind: PendingKind::Question,
+        tool: Some(name.to_string()),
+        prompt: Some(prompt),
+        header: q.get("header").and_then(|v| v.as_str()).map(String::from),
+        options,
+        multi_select: q
+            .get("multiSelect")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false),
+        detail: None,
+        request_id: block.id.clone(),
+        answerable: false,
+        dangerous: false,
+    })
+}
+
+/// Truncate to at most `max` characters on a char boundary, appending `…`.
+fn truncate_chars(s: &str, max: usize) -> String {
+    if s.chars().count() <= max {
+        return s.to_string();
+    }
+    let cut: String = s.chars().take(max).collect();
+    format!("{cut}…")
+}
+
+/// Scan every transcript under `projects/` into summaries. I/O errors per
+/// file are logged and skipped.
 pub fn scan_transcripts(home: &ClaudeHome) -> Vec<TranscriptSummary> {
     let mut out = Vec::new();
     let projects = home.projects_dir();
@@ -399,7 +592,25 @@ pub fn build_registry(inputs: RegistryInputs) -> Vec<Session> {
                 .unwrap_or_default();
 
             let last_activity = transcript.and_then(|t| t.last_activity);
-            let pending_input = pending.get(&id).cloned();
+            // Live (owned/sidecar) pending wins, but only while the session
+            // can still consume an answer (running, or owned — our own
+            // headless children may be absent from the agents roster).
+            // Otherwise a running FOREIGN session whose transcript ends on an
+            // unanswered question surfaces that; owned transcripts are skipped
+            // (their prompts are only trustworthy from the live map — the
+            // trailing tool_use looks unanswered until the SDK appends the
+            // result and would flap the just-answered card back open).
+            let pending_input = pending
+                .get(&id)
+                .cloned()
+                .filter(|_| running || owned_flag)
+                .or_else(|| {
+                    if running && !owned_flag {
+                        transcript.and_then(|t| t.pending.clone())
+                    } else {
+                        None
+                    }
+                });
 
             // Derive state: explicit state.json > pending > running+recency > rest.
             let state = if let Some(s) = states.get(&id).and_then(map_explicit_state) {
@@ -620,7 +831,10 @@ mod tests {
                 kind: PendingKind::Permission,
                 tool: Some("Bash".into()),
                 prompt: Some("run ls?".into()),
-                options: vec!["allow".into(), "deny".into()],
+                header: None,
+                options: Vec::new(),
+                multi_select: false,
+                detail: Some("ls -la".into()),
                 request_id: Some("req1".into()),
                 answerable: true,
                 dangerous: false,
@@ -753,5 +967,109 @@ mod tests {
         let r = build_registry(inputs(&[], &[t1, t2], &owned, &pending, &states, now));
         assert_eq!(r[0].id, "new");
         assert_eq!(r[1].id, "old");
+    }
+
+    #[test]
+    fn trailing_ask_user_question_becomes_pending() {
+        let blob = r#"{"type":"user","timestamp":"2026-06-23T08:00:00.000Z","message":{"role":"user","content":"hi"}}
+{"type":"assistant","timestamp":"2026-06-23T08:00:05.000Z","message":{"role":"assistant","content":[{"type":"text","text":"Before I start:"},{"type":"tool_use","id":"tu1","name":"AskUserQuestion","input":{"questions":[{"question":"Which auth method?","header":"Auth","multiSelect":true,"options":[{"label":"OAuth","description":"Standards-based"},{"label":"API key"}]}]}}]}}"#;
+        let s = summarize_transcript("q", &parse_transcript(blob));
+        let p = s.pending.expect("question should be pending");
+        assert_eq!(p.kind, PendingKind::Question);
+        assert_eq!(p.prompt.as_deref(), Some("Which auth method?"));
+        assert_eq!(p.header.as_deref(), Some("Auth"));
+        assert!(p.multi_select);
+        assert!(!p.answerable);
+        assert_eq!(p.options.len(), 2);
+        assert_eq!(p.options[0].label, "OAuth");
+        assert_eq!(p.options[0].description.as_deref(), Some("Standards-based"));
+        assert_eq!(p.options[1].description, None);
+    }
+
+    #[test]
+    fn answered_question_clears_pending() {
+        let blob = r#"{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"tu1","name":"AskUserQuestion","input":{"questions":[{"question":"Pick one","options":["a","b"]}]}}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"tu1","content":"a"}]}}"#;
+        let s = summarize_transcript("q", &parse_transcript(blob));
+        assert!(s.pending.is_none());
+    }
+
+    #[test]
+    fn sidecar_ask_user_and_plan_approval_detected() {
+        let ask = r#"{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"t1","name":"mcp__mother-claude__ask_user","input":{"question":"Deploy now?","options":["Yes","No"]}}]}}"#;
+        let s = summarize_transcript("q", &parse_transcript(ask));
+        let p = s.pending.expect("ask_user should be pending");
+        assert_eq!(p.kind, PendingKind::Question);
+        assert_eq!(p.prompt.as_deref(), Some("Deploy now?"));
+        assert_eq!(p.options.len(), 2);
+
+        let plan = r#"{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"t2","name":"ExitPlanMode","input":{"plan":"1. Do X\n2. Do Y"}}]}}"#;
+        let s = summarize_transcript("q", &parse_transcript(plan));
+        let p = s.pending.expect("plan approval should be pending");
+        assert_eq!(p.kind, PendingKind::Permission);
+        assert_eq!(p.tool.as_deref(), Some("ExitPlanMode"));
+        assert_eq!(p.detail.as_deref(), Some("1. Do X\n2. Do Y"));
+    }
+
+    #[test]
+    fn question_options_accept_strings_and_objects() {
+        let p: PendingInput = serde_json::from_value(serde_json::json!({
+            "kind": "question",
+            "prompt": "Pick",
+            "options": ["plain", {"label": "rich", "description": "with text"}],
+        }))
+        .unwrap();
+        assert_eq!(p.options[0].label, "plain");
+        assert_eq!(p.options[1].label, "rich");
+        assert_eq!(p.options[1].description.as_deref(), Some("with text"));
+    }
+
+    #[test]
+    fn running_foreign_question_surfaces_needs_input_but_dead_session_does_not() {
+        let now = 1_000_000;
+        let t = TranscriptSummary {
+            id: "f".into(),
+            cwd: Some("/x/app".into()),
+            last_activity: Some(now - 1_000),
+            pending: Some(PendingInput {
+                kind: PendingKind::Question,
+                tool: Some("AskUserQuestion".into()),
+                prompt: Some("Which one?".into()),
+                header: None,
+                options: Vec::new(),
+                multi_select: false,
+                detail: None,
+                request_id: None,
+                answerable: false,
+                dangerous: false,
+            }),
+            ..Default::default()
+        };
+        let (owned, pending, states) = (HashSet::new(), HashMap::new(), HashMap::new());
+
+        // Running foreign session → the transcript question surfaces.
+        let agents = vec![agent("f", 7, "/x/app")];
+        let r = build_registry(inputs(
+            &agents,
+            std::slice::from_ref(&t),
+            &owned,
+            &pending,
+            &states,
+            now,
+        ));
+        assert_eq!(r[0].state, SessionState::NeedsInput);
+        assert!(r[0].pending.is_some());
+
+        // Same transcript, process gone → no pending, completed.
+        let r = build_registry(inputs(
+            &[],
+            std::slice::from_ref(&t),
+            &owned,
+            &pending,
+            &states,
+            now,
+        ));
+        assert_eq!(r[0].state, SessionState::Completed);
+        assert!(r[0].pending.is_none());
     }
 }

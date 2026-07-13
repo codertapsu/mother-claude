@@ -13,7 +13,7 @@ use serde_json::{json, Value};
 use tokio::sync::oneshot;
 use uuid::Uuid;
 
-use crate::claude::{self, PendingInput, PendingKind, SpawnOptions};
+use crate::claude::{self, PendingInput, PendingKind, QuestionOption, SpawnOptions};
 use crate::server::auth;
 use crate::state::{AppState, Resolution};
 
@@ -260,7 +260,7 @@ async fn foreign_inject(_state: &AppState, _id: &str, _text: &str) -> Result<(),
 
 #[derive(Deserialize)]
 pub struct PermissionRequestBody {
-    #[serde(default)]
+    #[serde(default, alias = "requestId")]
     pub request_id: Option<String>,
     /// "permission" or "question".
     pub kind: String,
@@ -268,10 +268,40 @@ pub struct PermissionRequestBody {
     pub tool: Option<String>,
     #[serde(default)]
     pub prompt: Option<String>,
+    /// Very short topic chip for questions (AskUserQuestion `header`).
     #[serde(default)]
-    pub options: Vec<String>,
+    pub header: Option<String>,
+    /// Strings or `{label, description}` objects (QuestionOption is tolerant).
+    #[serde(default)]
+    pub options: Vec<QuestionOption>,
+    #[serde(default, alias = "multiSelect")]
+    pub multi_select: bool,
+    /// Salient tool input (the Bash command, the file path, …), display-ready.
+    #[serde(default)]
+    pub detail: Option<String>,
     #[serde(default)]
     pub dangerous: bool,
+}
+
+/// Cleanup for a blocked prompt that also runs when the request future is
+/// CANCELLED (sidecar crash / connection drop / stop): removes the resolver
+/// and clears the session's pending card — but only if the card still belongs
+/// to this request, so a newer prompt that replaced it survives.
+struct PromptGuard {
+    state: AppState,
+    id: String,
+    request_id: String,
+}
+
+impl Drop for PromptGuard {
+    fn drop(&mut self) {
+        let _ = self.state.take_resolver(&self.request_id);
+        let (state, id, request_id) =
+            (self.state.clone(), self.id.clone(), self.request_id.clone());
+        if let Ok(handle) = tokio::runtime::Handle::try_current() {
+            handle.spawn(async move { state.clear_pending_if(&id, &request_id).await });
+        }
+    }
 }
 
 /// Sidecar-facing: raise a permission/question prompt and **block** until the
@@ -294,22 +324,30 @@ pub async fn post_permission_request(
         kind,
         tool: body.tool,
         prompt: body.prompt,
+        header: body.header,
         options: body.options,
+        multi_select: body.multi_select,
+        detail: body.detail,
         request_id: Some(request_id.clone()),
         answerable: true,
         dangerous: body.dangerous,
     };
 
     let (tx, rx) = oneshot::channel();
-    state.register_resolver(request_id.clone(), tx);
+    state.register_resolver(request_id.clone(), tx, pending.dangerous);
     state.set_pending(&id, Some(pending)).await;
+    let _guard = PromptGuard {
+        state: state.clone(),
+        id: id.clone(),
+        request_id: request_id.clone(),
+    };
 
     let resolution = match tokio::time::timeout(PENDING_TIMEOUT, rx).await {
         Ok(Ok(r)) => r,
         _ => Resolution::Deny,
     };
-    let _ = state.take_resolver(&request_id);
-    state.set_pending(&id, None).await;
+    // _guard's Drop removes the resolver + conditionally clears the card
+    // (here on the normal path, and equally if this future is cancelled).
 
     let payload = match resolution {
         Resolution::Allow => json!({ "behavior": "allow" }),
@@ -323,7 +361,7 @@ pub async fn post_permission_request(
 pub struct PermissionBody {
     /// "allow" or "deny".
     pub decision: String,
-    #[serde(default)]
+    #[serde(default, alias = "requestId")]
     pub request_id: Option<String>,
 }
 
@@ -336,10 +374,16 @@ pub async fn post_permission(
     Json(body): Json<PermissionBody>,
 ) -> impl IntoResponse {
     let pending = state.pending.read().await.get(&id).cloned();
-    let dangerous = pending.as_ref().map(|p| p.dangerous).unwrap_or(false);
     let request_id = body
         .request_id
-        .or_else(|| pending.and_then(|p| p.request_id));
+        .or_else(|| pending.as_ref().and_then(|p| p.request_id.clone()));
+    // Dangerousness must describe the request actually being resolved — prefer
+    // the blocked resolver's own flag over whatever occupies the session slot.
+    let dangerous = request_id
+        .as_deref()
+        .and_then(|r| state.resolver_dangerous(r))
+        .or_else(|| pending.as_ref().map(|p| p.dangerous))
+        .unwrap_or(false);
     let allow = body.decision == "allow";
 
     if allow
@@ -366,10 +410,24 @@ pub async fn post_permission(
         return StatusCode::NO_CONTENT.into_response();
     }
 
-    // Otherwise it's a foreign TUI prompt — best-effort select the option
-    // (1 ≈ allow, 2 ≈ deny). Selection layouts vary, so this is a hint.
+    // Otherwise it's a foreign TUI prompt — best-effort select the option.
+    // Selection layouts vary, so this is a hint. The plan-approval prompt has
+    // THREE options (1 = yes + auto-accept, 2 = yes + manual approve, 3 = no),
+    // so map it specially — and never remotely pick auto-accept.
     if claude::foreign_injection_enabled() {
-        let key = if allow { "1" } else { "2" };
+        let is_plan = state
+            .pending
+            .read()
+            .await
+            .get(&id)
+            .map(|p| p.tool.as_deref() == Some("ExitPlanMode"))
+            .unwrap_or(false);
+        let key = match (is_plan, allow) {
+            (true, true) => "2",
+            (true, false) => "3",
+            (false, true) => "1",
+            (false, false) => "2",
+        };
         return match foreign_inject(&state, &id, key).await {
             Ok(()) => StatusCode::NO_CONTENT.into_response(),
             Err(e) => (StatusCode::BAD_REQUEST, e).into_response(),
@@ -381,7 +439,7 @@ pub async fn post_permission(
 #[derive(Deserialize)]
 pub struct AnswerBody {
     pub answer: String,
-    #[serde(default)]
+    #[serde(default, alias = "requestId")]
     pub request_id: Option<String>,
 }
 
@@ -424,8 +482,8 @@ fn try_resolve(state: &AppState, request_id: Option<&str>, resolution: Resolutio
         return false;
     };
     match state.take_resolver(req) {
-        Some(tx) => {
-            let _ = tx.send(resolution);
+        Some(resolver) => {
+            let _ = resolver.tx.send(resolution);
             true
         }
         None => false,
@@ -437,6 +495,8 @@ fn try_resolve(state: &AppState, request_id: Option<&str>, resolution: Resolutio
 pub async fn post_stop(State(state): State<AppState>, Path(id): Path<String>) -> impl IntoResponse {
     if state.is_owned(&id).await {
         let _ = state.control.kill(&id).await;
+        // A killed session can't consume an answer — drop its stale prompt.
+        state.set_pending(&id, None).await;
         state.broadcast(crate::state::ServerEvent::Notice(format!("stopped {id}")));
         return (StatusCode::OK, Json(json!({ "ok": true }))).into_response();
     }
