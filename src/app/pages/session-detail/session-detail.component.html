@@ -381,12 +381,59 @@
         }
 
         @if (patch(); as p) {
-          <h2 class="mono patch-title">{{ p.path }}</h2>
-          <div class="card patch mono">
-            @for (l of p.lines; track $index) {
-              <div class="pline {{ l.cls }}">{{ l.text || ' ' }}</div>
-            }
+          <div class="row patch-head">
+            <h2 class="mono patch-title">{{ p.path }}</h2>
+            <span class="spacer"></span>
+            <div class="viewtoggle">
+              <button
+                class="tgl"
+                [class.active]="diffView() === 'unified'"
+                (click)="setDiffView('unified')"
+              >
+                Unified
+              </button>
+              <button
+                class="tgl"
+                [class.active]="diffView() === 'split'"
+                (click)="setDiffView('split')"
+              >
+                Split
+              </button>
+            </div>
           </div>
+          @if (!p.raw) {
+            <div class="card muted">No diff for this file.</div>
+          } @else if (diffView() === 'unified') {
+            <div class="card patch mono">
+              @for (l of unifiedRows(); track $index) {
+                @if (l.kind === 'hunk' || l.kind === 'meta') {
+                  <div class="pline {{ l.kind }} full">{{ l.text || ' ' }}</div>
+                } @else {
+                  <div class="pline {{ l.kind }}">
+                    <span class="gut">{{ l.oldNo ?? '' }}</span>
+                    <span class="gut">{{ l.newNo ?? '' }}</span>
+                    <span class="sign">{{ l.kind === 'add' ? '+' : l.kind === 'del' ? '−' : '' }}</span>
+                    <span class="ptext">{{ l.text || ' ' }}</span>
+                  </div>
+                }
+              }
+            </div>
+          } @else {
+            <div class="card patch split mono">
+              @for (r of splitRows(); track $index) {
+                @if (r.header) {
+                  <div class="pline {{ r.headerKind }} full">{{ r.header }}</div>
+                } @else {
+                  <div class="srow">
+                    <span class="gut">{{ r.left?.no ?? '' }}</span>
+                    <span class="scell {{ r.left?.kind }}">{{ r.left?.text || ' ' }}</span>
+                    <span class="gut gr">{{ r.right?.no ?? '' }}</span>
+                    <span class="scell {{ r.right?.kind }}">{{ r.right?.text || ' ' }}</span>
+                  </div>
+                }
+              }
+            </div>
+          }
         }
 
         <h2>Recent commits</h2>

@@ -458,13 +458,36 @@ button.opt:disabled {
   padding: 0.4rem 0;
 }
 .pline {
-  white-space: pre;
-  padding: 0 0.6rem;
+  display: flex;
   line-height: 1.45;
   /* span the horizontal scroll width so add/del tints don't cut off */
   width: max-content;
   min-width: 100%;
   box-sizing: border-box;
+}
+.pline.full {
+  white-space: pre;
+  padding: 0 0.6rem;
+}
+.pline .gut,
+.srow .gut {
+  flex: 0 0 3.2rem; /* fits 6-digit line numbers at the gutter font size */
+  text-align: right;
+  padding-right: 0.45rem;
+  color: var(--muted);
+  font-size: 0.72rem;
+  line-height: 1.6;
+  user-select: none;
+  overflow: hidden;
+}
+.pline .sign {
+  flex: 0 0 1rem;
+  text-align: center;
+  user-select: none;
+}
+.pline .ptext {
+  white-space: pre;
+  padding-right: 0.6rem;
 }
 .pline.add {
   color: var(--green);
@@ -483,6 +506,44 @@ button.opt:disabled {
 }
 .patch-title {
   word-break: break-all;
+}
+.patch-head {
+  align-items: center;
+}
+.patch-head h2 {
+  margin: 0.75rem 0 0.25rem;
+}
+
+/* Side-by-side: old file left, new file right; long lines wrap per cell */
+.srow {
+  display: grid;
+  grid-template-columns: 3.2rem minmax(0, 1fr) 3.2rem minmax(0, 1fr);
+}
+/* split view never scrolls horizontally — wrap its full-width headers too */
+.patch.split .pline.full {
+  white-space: pre-wrap;
+  word-break: break-all;
+  width: auto;
+  min-width: 0;
+}
+.srow .gut.gr {
+  border-left: 1px solid var(--border);
+}
+.scell {
+  white-space: pre-wrap;
+  word-break: break-all;
+  padding: 0 0.5rem;
+}
+.scell.add {
+  color: var(--green);
+  background: rgba(74, 222, 128, 0.07);
+}
+.scell.del {
+  color: var(--red);
+  background: rgba(248, 113, 113, 0.07);
+}
+.scell.empty {
+  background: rgba(127, 127, 127, 0.05);
 }
 
 .files-head {

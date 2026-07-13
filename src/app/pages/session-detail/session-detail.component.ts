@@ -14,9 +14,8 @@ import {
   TranscriptEvent,
 } from '../../core/models';
 import { renderMarkdown } from '../../shared/markdown';
+import { parseUnifiedDiff, toSplitRows } from '../../shared/diff';
 import {
-  PatchLineClass,
-  classifyPatchLine,
   groupByDir,
   baseName,
   stateLabel,
@@ -71,6 +70,7 @@ interface RenderedEvent {
 }
 
 const MAX_RENDER = 800;
+const DIFF_VIEW_KEY = 'mc_diff_view';
 /** Results at most this long (and ≤ RESULT_MAX_LINES) stay inline. */
 const RESULT_MAX_CHARS = 400;
 const RESULT_MAX_LINES = 6;
@@ -81,6 +81,24 @@ const EDIT_TOOLS: Record<string, string> = {
   Write: 'file_path',
   NotebookEdit: 'notebook_path',
 };
+
+/** localStorage can throw on locked-down phone browsers (blocked site data,
+ * private-mode quotas) — the diff-view preference must degrade, not crash. */
+function readDiffViewPref(): 'unified' | 'split' {
+  try {
+    return localStorage.getItem(DIFF_VIEW_KEY) === 'split' ? 'split' : 'unified';
+  } catch {
+    return 'unified';
+  }
+}
+
+function writeDiffViewPref(mode: 'unified' | 'split'): void {
+  try {
+    localStorage.setItem(DIFF_VIEW_KEY, mode);
+  } catch {
+    /* in-memory only */
+  }
+}
 
 /** Tools that pose a question to the human (rendered as question cards). */
 function isQuestionTool(name: string | undefined): boolean {
@@ -125,10 +143,14 @@ export class SessionDetailComponent {
 
   protected readonly tab = signal<'transcript' | 'changes'>('transcript');
   protected readonly diff = signal<GitOverview | null>(null);
-  protected readonly patch = signal<{
-    path: string;
-    lines: { text: string; cls: PatchLineClass }[];
-  } | null>(null);
+  protected readonly patch = signal<{ path: string; raw: string } | null>(null);
+  /** Diff presentation: GitHub-style line-by-line or side-by-side. */
+  protected readonly diffView = signal<'unified' | 'split'>(readDiffViewPref());
+  protected readonly unifiedRows = computed(() => {
+    const p = this.patch();
+    return p ? parseUnifiedDiff(p.raw) : [];
+  });
+  protected readonly splitRows = computed(() => toSplitRows(this.unifiedRows()));
   /** Changed-file organization: flat list or grouped by folder. */
   protected readonly view = signal<'list' | 'tree'>('list');
   protected readonly grouped = computed(() => groupByDir(this.diff()?.files ?? []));
@@ -153,6 +175,8 @@ export class SessionDetailComponent {
   private readonly seen = new Set<string>();
   private buffered: TranscriptEvent[] = [];
   private historyLoaded = false;
+  /** Monotonic token: only the newest showPatch request may write `patch`. */
+  private patchReq = 0;
 
   protected readonly label = stateLabel;
   protected readonly surface = surfaceLabel;
@@ -244,15 +268,24 @@ export class SessionDetailComponent {
   }
 
   async showPatch(path: string): Promise<void> {
+    const id = this.id();
+    const req = ++this.patchReq;
     try {
-      const res = await this.api.getFilePatch(this.id(), path);
-      const lines = (res.patch ?? '(no diff)')
-        .split('\n')
-        .map((text) => ({ text, cls: classifyPatchLine(text) }));
-      this.patch.set({ path, lines });
+      const res = await this.api.getFilePatch(id, path);
+      // Latest request wins; a response for a previous file or session
+      // (navigated away, or two quick clicks) must not clobber the panel.
+      if (id !== this.id() || req !== this.patchReq) return;
+      this.patch.set({ path, raw: res.patch ?? '' });
     } catch (e) {
-      this.notice.set(`Could not load patch: ${(e as Error).message}`);
+      if (id === this.id() && req === this.patchReq) {
+        this.notice.set(`Could not load patch: ${(e as Error).message}`);
+      }
     }
+  }
+
+  setDiffView(mode: 'unified' | 'split'): void {
+    this.diffView.set(mode);
+    writeDiffViewPref(mode);
   }
 
   /** Jump from an edit chip in the conversation to that file's diff. */

@@ -77,31 +77,6 @@ export function baseName(path: string): string {
   return i === -1 ? path : path.slice(i + 1);
 }
 
-export type PatchLineClass = 'add' | 'del' | 'hunk' | 'meta' | 'ctx';
-
-/** Classify one unified-diff line for coloring. */
-export function classifyPatchLine(line: string): PatchLineClass {
-  // Header lines are exactly "+++ <path>" / "--- <path>"; a content line like
-  // "+++i;" (added "++i;") must fall through to add/del.
-  if (line.startsWith('+++ ') || line.startsWith('--- ') || line === '+++' || line === '---') {
-    return 'meta';
-  }
-  if (line.startsWith('@@')) return 'hunk';
-  if (line.startsWith('+')) return 'add';
-  if (line.startsWith('-')) return 'del';
-  if (
-    line.startsWith('diff ') ||
-    line.startsWith('index ') ||
-    line.startsWith('new file') ||
-    line.startsWith('deleted file') ||
-    line.startsWith('similarity') ||
-    line.startsWith('rename ')
-  ) {
-    return 'meta';
-  }
-  return 'ctx';
-}
-
 /** One-line, human-readable summary of a tool call's input. */
 export function toolSummary(name: string, input: unknown, max = 160): string {
   if (input == null || typeof input !== 'object') return '';

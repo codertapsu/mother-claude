@@ -1,6 +1,5 @@
 import {
   baseName,
-  classifyPatchLine,
   formatTokens,
   groupByDir,
   relativeTime,
@@ -53,17 +52,4 @@ describe('shared/util', () => {
     expect(baseName('README.md')).toBe('README.md');
   });
 
-  it('classifies unified-diff lines', () => {
-    expect(classifyPatchLine('+added')).toBe('add');
-    expect(classifyPatchLine('-removed')).toBe('del');
-    expect(classifyPatchLine('+++ b/file')).toBe('meta');
-    expect(classifyPatchLine('--- a/file')).toBe('meta');
-    expect(classifyPatchLine('@@ -1,3 +1,4 @@')).toBe('hunk');
-    expect(classifyPatchLine('diff --git a/x b/x')).toBe('meta');
-    expect(classifyPatchLine(' context')).toBe('ctx');
-    // content lines that merely start with the header characters
-    expect(classifyPatchLine('+++i;')).toBe('add');
-    expect(classifyPatchLine('--- foo')).toBe('meta');
-    expect(classifyPatchLine('---foo')).toBe('del');
-  });
 });
