@@ -56,52 +56,128 @@
 
   @if (tab() === 'transcript') {
     @if (s.pending; as p) {
-      <div class="card pending" [class.dangerous]="p.dangerous">
-        <div class="row">
-          <strong>{{ p.kind === 'permission' ? 'Permission requested' : 'Question' }}</strong>
-          @if (p.tool) {
+      <div
+        class="card pending"
+        [class.dangerous]="p.dangerous"
+        [class.question]="p.kind === 'question'"
+      >
+        <div class="row phead">
+          <span class="picon">{{ p.kind === 'permission' ? '🔐' : '❓' }}</span>
+          <strong>{{
+            p.kind === 'question'
+              ? 'Claude asks you'
+              : p.tool === 'ExitPlanMode'
+                ? 'Plan ready for approval'
+                : 'Permission requested'
+          }}</strong>
+          @if (p.header) {
+            <span class="badge chip">{{ p.header }}</span>
+          }
+          @if (p.multiSelect) {
+            <span class="badge chip">select all that apply</span>
+          }
+          @if (p.tool && p.kind === 'permission' && p.tool !== 'ExitPlanMode') {
             <span class="badge mono">{{ p.tool }}</span>
           }
         </div>
         @if (p.prompt) {
           <p class="prompt">{{ p.prompt }}</p>
         }
+        @if (p.detail) {
+          <pre class="detail mono">{{ p.detail }}</pre>
+        }
         @if (p.dangerous) {
           <p class="warn">⚠ Dangerous action — may be restricted to the local desktop.</p>
         }
-        @if (!p.answerable && !s.canInject) {
-          <p class="muted">
-            Live answer injection is unavailable for this session — monitor &amp; lifecycle only.
-          </p>
-        }
-        @if (!p.answerable && s.canInject && !s.owned) {
-          <p class="muted">Foreign session — answered best-effort via experimental PTY.</p>
-        }
-        @if ((p.answerable || s.canInject) && p.kind === 'permission') {
-          <div class="row">
-            <button class="btn primary" [disabled]="busy()" (click)="respond('allow')">
-              Allow
-            </button>
-            <button class="btn danger" [disabled]="busy()" (click)="respond('deny')">Deny</button>
-          </div>
-        }
-        @if ((p.answerable || s.canInject) && p.kind === 'question') {
-          <div class="row answer">
+
+        @if (p.answerable || s.canInject) {
+          @if (p.kind === 'permission') {
+            <div class="row actions">
+              <button class="btn primary big" [disabled]="busy()" (click)="respond('allow')">
+                ✓ Allow
+              </button>
+              <button class="btn danger big" [disabled]="busy()" (click)="respond('deny')">
+                ✕ Deny
+              </button>
+            </div>
+          } @else {
             @if (p.options?.length) {
-              @for (opt of p.options; track opt) {
-                <button class="btn" [disabled]="busy()" (click)="answer.set(opt); submitAnswer()">
-                  {{ opt }}
-                </button>
+              <div class="opts">
+                @for (o of p.options; track o.label) {
+                  <button
+                    class="opt"
+                    [class.sel]="selected().has(o.label)"
+                    [disabled]="busy()"
+                    (click)="p.multiSelect ? toggleOption(o.label) : chooseOption(o.label)"
+                  >
+                    <span class="olabel">
+                      @if (p.multiSelect) {
+                        <span class="checkbox">{{ selected().has(o.label) ? '☑' : '☐' }}</span>
+                      }
+                      {{ o.label }}
+                    </span>
+                    @if (o.description) {
+                      <span class="odesc">{{ o.description }}</span>
+                    }
+                  </button>
+                }
+              </div>
+              @if (p.multiSelect) {
+                <div class="row">
+                  <button
+                    class="btn primary"
+                    [disabled]="busy() || !selected().size"
+                    (click)="submitSelected()"
+                  >
+                    Send {{ selected().size || '' }} selected
+                  </button>
+                </div>
               }
-            } @else {
+            }
+            <div class="row answer">
               <input
                 [ngModel]="answer()"
                 (ngModelChange)="answer.set($event)"
                 (keyup.enter)="submitAnswer()"
-                placeholder="Your answer…"
+                [disabled]="busy()"
+                [placeholder]="p.options?.length ? 'Or type your own answer…' : 'Your answer…'"
               />
-              <button class="btn primary" [disabled]="busy()" (click)="submitAnswer()">Send</button>
-            }
+              <button
+                class="btn"
+                [class.primary]="!p.options?.length"
+                [disabled]="busy()"
+                (click)="submitAnswer()"
+              >
+                Send
+              </button>
+            </div>
+          }
+          @if (!p.answerable && s.canInject && !s.owned) {
+            <p class="muted small">
+              Foreign session — sent best-effort via experimental PTY injection.
+            </p>
+          }
+        } @else {
+          @if (p.options?.length) {
+            <div class="opts readonly">
+              @for (o of p.options; track o.label) {
+                <div class="opt">
+                  <span class="olabel">{{ o.label }}</span>
+                  @if (o.description) {
+                    <span class="odesc">{{ o.description }}</span>
+                  }
+                </div>
+              }
+            </div>
+          }
+          <p class="muted">
+            This session is waiting for input in {{ surface(s.surface) }} — take it over to
+            answer from here or your phone.
+          </p>
+          <div class="row">
+            <button class="btn primary" [disabled]="busy()" (click)="continueSession()">
+              Continue here to answer →
+            </button>
           </div>
         }
       </div>
@@ -113,12 +189,54 @@
           <div class="who">{{ r.who }}</div>
           @if (r.tools.length) {
             <div class="tools">
-              @for (t of r.tools; track t) {
-                <span class="badge mono">⚙ {{ t }}</span>
+              @for (t of r.tools; track $index) {
+                <div class="toolrow">
+                  <span class="badge mono">⚙ {{ t.name }}</span>
+                  @if (t.summary) {
+                    <span class="tsum mono">{{ t.summary }}</span>
+                  }
+                </div>
               }
             </div>
           }
-          @if (r.text.trim()) {
+          @for (q of r.questions; track $index) {
+            <div class="qcard">
+              <div class="row qhead">
+                <span class="picon">❓</span>
+                @if (q.header) {
+                  <span class="badge chip">{{ q.header }}</span>
+                }
+                <strong class="qtext">{{ q.question }}</strong>
+              </div>
+              @if (q.options.length) {
+                <div class="opts readonly">
+                  @for (o of q.options; track o.label) {
+                    <div class="opt" [class.chosen]="q.answer && answerMatches(q.answer, o.label)">
+                      <span class="olabel">{{ o.label }}</span>
+                      @if (o.description) {
+                        <span class="odesc">{{ o.description }}</span>
+                      }
+                    </div>
+                  }
+                </div>
+              }
+              @if (q.answer) {
+                <div class="ans">↳ {{ q.answer }}</div>
+              }
+            </div>
+          }
+          @for (pl of r.plans; track $index) {
+            <div class="plancard">
+              <div class="row qhead">
+                <span class="picon">🗺</span>
+                <strong>Proposed plan</strong>
+              </div>
+              <div class="body md" [innerHTML]="pl"></div>
+            </div>
+          }
+          @if (r.html) {
+            <div class="body md" [innerHTML]="r.html"></div>
+          } @else if (r.text.trim()) {
             <pre class="body">{{ r.text.trim() }}</pre>
           }
         </div>
@@ -133,6 +251,7 @@
           [ngModel]="instruction()"
           (ngModelChange)="instruction.set($event)"
           (keydown)="onComposerKeydown($event)"
+          [disabled]="busy()"
           placeholder="Send an instruction… (Enter to send, Shift+Enter for newline)"
         ></textarea>
         <button class="btn primary" [disabled]="busy()" (click)="send()">Send</button>

@@ -68,6 +68,17 @@
       }}</span>
     </div>
     <div class="line2 muted mono">{{ s.cwd }}</div>
+    @if (s.pending; as p) {
+      <div class="pending-preview" [class.perm]="p.kind === 'permission'">
+        <span class="picon">{{ p.kind === 'question' ? '❓' : '🔐' }}</span>
+        <span class="ptext">{{
+          p.prompt || (p.tool ? p.tool + ' permission' : 'Waiting for your input')
+        }}</span>
+        @if (p.options?.length) {
+          <span class="pcount">{{ p.options!.length }} options</span>
+        }
+      </div>
+    }
     <div class="line3 muted">
       <span>{{ surface(s.surface) }}</span>
       @if (s.model) {

@@ -14,11 +14,21 @@ export type SessionState =
 
 export type PendingKind = 'permission' | 'question';
 
+export interface QuestionOption {
+  label: string;
+  description?: string;
+}
+
 export interface PendingInput {
   kind: PendingKind;
   tool?: string;
   prompt?: string;
-  options?: string[];
+  /** Very short topic chip (AskUserQuestion `header`), e.g. "Auth method". */
+  header?: string;
+  options?: QuestionOption[];
+  multiSelect?: boolean;
+  /** Salient context: the Bash command / file path / plan text, display-ready. */
+  detail?: string;
   requestId?: string;
   answerable: boolean;
   dangerous: boolean;

@@ -38,3 +38,34 @@ export function surfaceLabel(surface: Surface): string {
       return 'Unknown';
   }
 }
+
+/** The argument of a tool call that tells a human what it actually does
+ * (the Bash command, the file path, …). Mirrors the sidecar's SALIENT_ARGS. */
+const SALIENT_ARGS: Record<string, string[]> = {
+  Bash: ['command'],
+  Edit: ['file_path'],
+  Write: ['file_path'],
+  Read: ['file_path'],
+  Grep: ['pattern', 'path'],
+  Glob: ['pattern'],
+  WebFetch: ['url'],
+  WebSearch: ['query'],
+  Task: ['description'],
+  TodoWrite: [],
+  NotebookEdit: ['notebook_path'],
+};
+
+/** One-line, human-readable summary of a tool call's input. */
+export function toolSummary(name: string, input: unknown, max = 160): string {
+  if (input == null || typeof input !== 'object') return '';
+  const rec = input as Record<string, unknown>;
+  const keys = SALIENT_ARGS[name];
+  if (keys?.length === 0) return '';
+  const parts = keys
+    ?.map((k) => rec[k])
+    .filter((v) => v != null)
+    .map((v) => (typeof v === 'string' ? v : JSON.stringify(v)));
+  const text = (parts?.length ? parts.join(' · ') : JSON.stringify(rec)) ?? '';
+  const oneLine = text.replace(/\s+/g, ' ').trim();
+  return oneLine.length > max ? `${oneLine.slice(0, max)}…` : oneLine;
+}
