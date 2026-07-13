@@ -36,10 +36,20 @@ interface Resolution {
   answer?: string;
 }
 
+type OptionInput = string | { label: string; description?: string };
+
 /** Block on the dashboard for a decision/answer. */
 async function ask(
   kind: 'permission' | 'question',
-  payload: { tool?: string; prompt?: string; options?: string[]; dangerous?: boolean },
+  payload: {
+    tool?: string;
+    prompt?: string;
+    header?: string;
+    options?: OptionInput[];
+    multiSelect?: boolean;
+    detail?: string;
+    dangerous?: boolean;
+  },
 ): Promise<Resolution> {
   const res = await fetch(`${URL}/api/sessions/${encodeURIComponent(SESSION_ID)}/permission-request`, {
     method: 'POST',
@@ -59,17 +69,72 @@ const isDangerous = (toolName: string, input: unknown): boolean => {
   );
 };
 
-/** Custom ask_user tool so questions surface remotely instead of via the TUI. */
+/** The argument of `input` that tells a human what the tool will actually do
+ * (the Bash command, the file path, …) — shown on the permission card. */
+const SALIENT_ARGS: Record<string, string[]> = {
+  Bash: ['command'],
+  Edit: ['file_path'],
+  Write: ['file_path'],
+  Read: ['file_path'],
+  Grep: ['pattern', 'path'],
+  Glob: ['pattern'],
+  WebFetch: ['url'],
+  WebSearch: ['query'],
+  Task: ['description'],
+  NotebookEdit: ['notebook_path'],
+};
+
+function describeInput(toolName: string, input: unknown): string {
+  if (input == null || typeof input !== 'object') return '';
+  const rec = input as Record<string, unknown>;
+  const keys = SALIENT_ARGS[toolName];
+  const parts = keys
+    ?.map((k) => rec[k])
+    .filter((v) => v != null)
+    .map((v) => (typeof v === 'string' ? v : JSON.stringify(v)));
+  const text = parts?.length ? parts.join(' · ') : JSON.stringify(rec);
+  return text.length > 700 ? `${text.slice(0, 700)}…` : text;
+}
+
+const optionSchema = z.union([
+  z.string(),
+  z.object({ label: z.string(), description: z.string().optional() }),
+]);
+
+/** Custom ask_user tool so questions surface remotely instead of via the TUI.
+ * Mirrors the native AskUserQuestion shape so the dashboard can render option
+ * cards with descriptions and multi-select. */
 const askUserServer = createSdkMcpServer({
   name: 'mother-claude',
   version: '0.1.0',
   tools: [
     tool(
       'ask_user',
-      'Ask the human operator a question and wait for their answer.',
-      { question: z.string(), options: z.array(z.string()).optional() },
-      async (args: { question: string; options?: string[] }) => {
-        const r = await ask('question', { prompt: args.question, options: args.options });
+      'Ask the human operator a question and wait for their answer. When the question has ' +
+        'natural choices, give 2-4 options, each with a short label and a one-line description ' +
+        'of what it means or implies; set multiSelect true when several options can apply ' +
+        'together. The user can always type a free-text answer instead of picking an option.',
+      {
+        question: z.string(),
+        header: z
+          .string()
+          .optional()
+          .describe('Very short topic chip (max ~12 chars), e.g. "Auth method"'),
+        options: z.array(optionSchema).optional(),
+        multiSelect: z.boolean().optional(),
+      },
+      async (args: {
+        question: string;
+        header?: string;
+        options?: OptionInput[];
+        multiSelect?: boolean;
+      }) => {
+        const r = await ask('question', {
+          prompt: args.question,
+          header: args.header,
+          options: args.options,
+          multiSelect: args.multiSelect,
+        });
         return { content: [{ type: 'text', text: r.answer ?? '' }] };
       },
     ),
@@ -128,7 +193,8 @@ async function main(): Promise<void> {
       canUseTool: async (toolName: string, input: unknown) => {
         const r = await ask('permission', {
           tool: toolName,
-          prompt: `Allow ${toolName}?`,
+          prompt: `Claude wants to use ${toolName}.`,
+          detail: describeInput(toolName, input),
           dangerous: isDangerous(toolName, input),
         });
         return r.behavior === 'allow'
