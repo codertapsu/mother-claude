@@ -30,6 +30,10 @@ const CWD = process.env.MC_CWD ?? process.cwd();
 const PROMPT = process.env.MC_PROMPT ?? '';
 const MODEL = process.env.MC_MODEL || undefined;
 const PERMISSION_MODE = process.env.MC_PERMISSION_MODE || 'default';
+/** Reasoning effort: low | medium | high | xhigh | max (unset = user default). */
+const EFFORT = process.env.MC_EFFORT || undefined;
+/** Thinking override: 'on' | 'off' (unset = model/settings default). */
+const THINKING = process.env.MC_THINKING || undefined;
 
 interface Resolution {
   behavior: 'allow' | 'deny' | 'answer';
@@ -184,6 +188,13 @@ async function main(): Promise<void> {
     options: {
       cwd: CWD,
       model: MODEL,
+      effort: EFFORT as 'low' | 'medium' | 'high' | 'xhigh' | 'max' | undefined,
+      thinking:
+        THINKING === 'off'
+          ? { type: 'disabled' as const }
+          : THINKING === 'on'
+            ? { type: 'adaptive' as const }
+            : undefined,
       resume: SESSION_ID,
       permissionMode: PERMISSION_MODE as 'default',
       mcpServers: { 'mother-claude': askUserServer },
