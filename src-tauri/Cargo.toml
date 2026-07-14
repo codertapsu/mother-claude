@@ -1,6 +1,6 @@
 [package]
 name = "mother-claude"
-version = "0.1.0"
+version = "0.2.0"
 description = "Monitor and control every local Claude Code session from one dashboard."
 authors = ["Mother Claude"]
 edition = "2021"
