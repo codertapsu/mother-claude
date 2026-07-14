@@ -30,6 +30,15 @@ TOKEN="${GH_TOKEN:-$(printf 'protocol=https\nhost=github.com\n\n' | git credenti
 [ -n "$TOKEN" ] || { echo "error: no GitHub token (set GH_TOKEN or log in so 'git credential' has one)" >&2; exit 1; }
 api() { curl -fsSL -H "Authorization: Bearer $TOKEN" -H "Accept: application/vnd.github+json" "$@"; }
 
+# The by-tag endpoint 404s for DRAFT releases — look the release up from the
+# list (same approach as release-upload.sh) so this works pre-publish.
+fetch_release() {
+  api "https://api.github.com/repos/$REPO/releases?per_page=100" | TAG="$TAG" python3 -c "
+import sys, json, os
+rel = next((r for r in json.load(sys.stdin) if r['tag_name'] == os.environ['TAG']), None)
+print(json.dumps(rel) if rel else '')"
+}
+
 # Download a release asset by name to stdout. Draft assets are NOT served at
 # github.com/releases/download/<tag>/<name> (404 until published), so resolve the
 # asset id from the release JSON ($1) and GET it with Accept: octet-stream.
@@ -55,7 +64,8 @@ echo "==> Uploading macOS updater artifact ($mac_asset)…"
 bash "$ROOT/scripts/release/release-upload.sh" upload "$mac_targz" >/dev/null
 
 # --- 2. Fetch the CI-produced latest.json (carries the windows entries) -----
-rel="$(api "https://api.github.com/repos/$REPO/releases/tags/$TAG")"
+rel="$(fetch_release)"
+[ -n "$rel" ] || { echo "error: no release (draft or published) for tag $TAG" >&2; exit 1; }
 has_lj="$(printf '%s' "$rel" | python3 -c "import sys,json;print('yes' if any(a['name']=='latest.json' for a in json.load(sys.stdin).get('assets',[])) else '')")"
 [ -n "$has_lj" ] || { echo "error: no latest.json on release $TAG yet — let the Windows CI build finish (it uploads it), then re-run." >&2; exit 1; }
 ci_manifest="$(download_asset "$rel" "latest.json")"
@@ -82,7 +92,7 @@ bash "$ROOT/scripts/release/release-upload.sh" upload "$out" >/dev/null
 
 # --- 4. Verify (draft-safe: manifest shape + referenced assets exist) -------
 echo "==> Verifying…"
-rel="$(api "https://api.github.com/repos/$REPO/releases/tags/$TAG")"
+rel="$(fetch_release)"
 NAMES="$(printf '%s' "$rel" | python3 -c "import sys,json;print('\n'.join(a['name'] for a in json.load(sys.stdin).get('assets',[])))")"
 OUT="$out" MAC_ASSET="$mac_asset" NAMES="$NAMES" EXPECT_VERSION="$VERSION" python3 - <<'PY'
 import json, os, sys
