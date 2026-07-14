@@ -141,12 +141,52 @@ pub async fn get_daemon() -> impl IntoResponse {
     Json(daemon_status().await)
 }
 
+/// Launch defaults + available choices for the spawn/continue forms. The
+/// "default" for each knob is whatever the user last selected in VS Code or
+/// the CLI (persisted in ~/.claude/settings.json) — passing no override keeps
+/// exactly those settings.
+pub async fn get_defaults(State(state): State<AppState>) -> impl IntoResponse {
+    let d = claude::read_launch_defaults(&state.home);
+    Json(json!({
+        "model": d.model,
+        "effort": d.effort,
+        "models": d.models,
+        "efforts": EFFORT_LEVELS,
+    }))
+}
+
+/// Validate optional launch knobs: unknown efforts/thinking values are
+/// rejected rather than silently passed to the CLI.
+fn validate_launch(effort: &Option<String>, thinking: &Option<String>) -> Result<(), String> {
+    if let Some(e) = effort {
+        if !EFFORT_LEVELS.contains(&e.as_str()) {
+            return Err(format!(
+                "unknown effort level {e:?} (expected one of {EFFORT_LEVELS:?})"
+            ));
+        }
+    }
+    if let Some(t) = thinking {
+        if t != "on" && t != "off" {
+            return Err(format!(
+                "unknown thinking value {t:?} (expected \"on\" or \"off\")"
+            ));
+        }
+    }
+    Ok(())
+}
+
+const EFFORT_LEVELS: [&str; 5] = ["low", "medium", "high", "xhigh", "max"];
+
 #[derive(Deserialize)]
 pub struct SpawnBody {
     pub cwd: String,
     pub prompt: String,
     #[serde(default)]
     pub model: Option<String>,
+    #[serde(default)]
+    pub effort: Option<String>,
+    #[serde(default)]
+    pub thinking: Option<String>,
 }
 
 /// Spawn a new **owned** session (full two-way control).
@@ -154,10 +194,15 @@ pub async fn post_spawn(
     State(state): State<AppState>,
     Json(body): Json<SpawnBody>,
 ) -> impl IntoResponse {
+    if let Err(e) = validate_launch(&body.effort, &body.thinking) {
+        return (StatusCode::UNPROCESSABLE_ENTITY, e).into_response();
+    }
     let opts = SpawnOptions {
         cwd: body.cwd,
         prompt: body.prompt,
         model: body.model,
+        effort: body.effort,
+        thinking: body.thinking,
         permission_mode: None,
         resume: None,
     };
@@ -173,11 +218,15 @@ pub struct ContinueBody {
     pub prompt: Option<String>,
     #[serde(default)]
     pub model: Option<String>,
+    #[serde(default)]
+    pub effort: Option<String>,
+    #[serde(default)]
+    pub thinking: Option<String>,
 }
 
-/// Continue (fork) a session's conversation into a new **owned** session that
-/// can be driven from anywhere — the supported way to take over a foreign
-/// (e.g. VS Code) session from your phone. The original session is untouched.
+/// Continue a session's conversation **in place** (same id, same transcript)
+/// as an **owned** session that can be driven from anywhere — the supported
+/// way to take over a foreign (e.g. VS Code) session from your phone.
 pub async fn post_continue(
     State(state): State<AppState>,
     Path(id): Path<String>,
@@ -186,15 +235,20 @@ pub async fn post_continue(
     let Some(cwd) = state.find_session(&id).await.map(|s| s.cwd) else {
         return (StatusCode::NOT_FOUND, "no such session").into_response();
     };
+    if let Err(e) = validate_launch(&body.effort, &body.thinking) {
+        return (StatusCode::UNPROCESSABLE_ENTITY, e).into_response();
+    }
     let opts = SpawnOptions {
         cwd,
         prompt: body.prompt.unwrap_or_default(),
         model: body.model,
+        effort: body.effort,
+        thinking: body.thinking,
         permission_mode: None,
         resume: Some(id),
     };
     match state.control.spawn(&state, opts).await {
-        Ok(new_id) => (StatusCode::CREATED, Json(json!({ "id": new_id }))).into_response(),
+        Ok(sid) => (StatusCode::CREATED, Json(json!({ "id": sid }))).into_response(),
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
     }
 }

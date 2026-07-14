@@ -11,6 +11,7 @@ pub mod git;
 pub mod home;
 pub mod registry;
 pub mod schema;
+pub mod settings;
 pub mod transcript;
 pub mod watcher;
 
@@ -36,5 +37,6 @@ pub use schema::{
     parse_transcript, parse_transcript_line, AgentEntry, ContentBlock, Message, MessageContent,
     Roster, StateJson, TranscriptEvent, Usage,
 };
+pub use settings::{read_launch_defaults, LaunchDefaults, ModelOption};
 pub use transcript::{read_all as read_transcript, TranscriptTailer};
 pub use watcher::{FsWatcher, WatchSender};

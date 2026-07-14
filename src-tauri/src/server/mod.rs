@@ -67,6 +67,7 @@ pub fn router(state: AppState) -> Router {
         .route("/sessions/{id}/respawn", post(http::post_respawn))
         .route("/sessions/{id}/rm", post(http::post_rm))
         .route("/services", get(http::get_services))
+        .route("/defaults", get(http::get_defaults))
         .route("/daemon", get(http::get_daemon))
         .route("/pairing", get(http::get_pairing))
         .route("/hooks/install", post(http::post_install_hooks));

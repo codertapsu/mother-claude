@@ -82,6 +82,19 @@ impl ClaudeHome {
         self.base.join("settings.json")
     }
 
+    /// The global `~/.claude.json` — relocated into `$CLAUDE_CONFIG_DIR` when
+    /// that override is active, like every other config file.
+    pub fn claude_json(&self) -> PathBuf {
+        let overridden = std::env::var("CLAUDE_CONFIG_DIR")
+            .map(|v| !v.trim().is_empty())
+            .unwrap_or(false);
+        if overridden {
+            self.base.join(".claude.json")
+        } else {
+            user_home_dir().unwrap_or_default().join(".claude.json")
+        }
+    }
+
     /// `jobs/<id>/state.json` (may not exist).
     pub fn job_state_path(&self, session_id: &str) -> PathBuf {
         self.jobs_dir().join(session_id).join("state.json")

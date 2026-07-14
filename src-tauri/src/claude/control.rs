@@ -25,12 +25,18 @@ use uuid::Uuid;
 
 use crate::state::{AppState, ServerEvent};
 
-/// Options for launching an owned session.
+/// Options for launching an owned session. `None` for model/effort/thinking
+/// inherits the user's own Claude settings (~/.claude/settings.json) — i.e.
+/// whatever they last picked in VS Code or the CLI.
 #[derive(Debug, Clone)]
 pub struct SpawnOptions {
     pub cwd: String,
     pub prompt: String,
     pub model: Option<String>,
+    /// Reasoning effort: low | medium | high | xhigh | max.
+    pub effort: Option<String>,
+    /// Thinking override: "on" | "off" (None = model/settings default).
+    pub thinking: Option<String>,
     pub permission_mode: Option<String>,
     /// Resume (fork) an existing conversation by id — used to "continue" a
     /// foreign session (e.g. a VS Code one) as a fully-controllable owned session.
@@ -113,6 +119,17 @@ impl ControlRegistry {
             .to_string();
         let token = state.auth.token.clone();
 
+        // One controller per session: a second spawn/continue would clobber
+        // this handle and its reaper would then orphan the original child.
+        if self
+            .handles
+            .lock()
+            .ok()
+            .is_some_and(|m| m.contains_key(&id))
+        {
+            anyhow::bail!("session {id} is already controlled by Mother Claude");
+        }
+
         // Resuming an existing conversation uses the headless path, whose
         // --resume semantics are well-defined.
         let entry = if opts.resume.is_some() {
@@ -120,12 +137,27 @@ impl ControlRegistry {
         } else {
             sidecar_entry()
         };
+        let mut used_sidecar = false;
         let mut child = match entry {
             Some(entry) => {
                 tracing::info!(session = %id, "spawning owned session via sidecar (Path A)");
                 let url = server_url(state);
-                match sidecar_command(&entry, &id, &opts, &permission_mode, &token, &url).spawn() {
-                    Ok(child) => child,
+                let ca_cert = server_ca_cert(state, &url);
+                match sidecar_command(
+                    &entry,
+                    &id,
+                    &opts,
+                    &permission_mode,
+                    &token,
+                    &url,
+                    ca_cert.as_deref(),
+                )
+                .spawn()
+                {
+                    Ok(child) => {
+                        used_sidecar = true;
+                        child
+                    }
                     Err(e) => {
                         tracing::warn!(error = %e, "sidecar failed to start; falling back to headless (Path B)");
                         headless_command(&id, &opts, &permission_mode, &token)
@@ -153,6 +185,22 @@ impl ControlRegistry {
         if let Ok(mut map) = self.handles.lock() {
             map.insert(id.clone(), handle.clone());
         }
+
+        // Headless path: send the initial prompt over stdin (stream-json), the
+        // same way follow-ups go. Passing it as a positional argv token would
+        // let a prompt starting with '-' be parsed as a CLI flag — including
+        // permission-bypassing ones — by a remote (token-holding) client.
+        if !used_sidecar && !opts.prompt.trim().is_empty() {
+            let line = user_message_json(&opts.prompt);
+            let mut guard = handle.stdin.lock().await;
+            if let Some(stdin) = guard.as_mut() {
+                let _ = stdin.write_all(line.as_bytes()).await;
+                let _ = stdin.write_all(b"\n").await;
+                let _ = stdin.flush().await;
+            }
+            drop(guard);
+        }
+
         // Register ownership + surface the session in the dashboard immediately.
         state.mark_owned(&id, &opts.cwd, handle.started_at).await;
         let verb = if opts.resume.is_some() {
@@ -200,7 +248,13 @@ impl ControlRegistry {
                 let status = registry_handle.child.lock().await.wait().await;
                 tracing::info!(session = %sid, ?status, "owned session exited");
                 if let Ok(mut m) = map.lock() {
-                    m.remove(&sid);
+                    // Only drop the entry if it is still OUR handle — a newer
+                    // controller for the same id must not be orphaned.
+                    if m.get(&sid)
+                        .is_some_and(|h| Arc::ptr_eq(h, &registry_handle))
+                    {
+                        m.remove(&sid);
+                    }
                 }
                 st.broadcast(ServerEvent::Notice(format!("Session {sid} exited")));
             });
@@ -347,14 +401,44 @@ fn headless_command(
     if let Some(model) = &opts.model {
         c.arg("--model").arg(model);
     }
-    if !opts.prompt.trim().is_empty() {
-        c.arg(&opts.prompt);
+    if let Some(effort) = &opts.effort {
+        c.arg("--effort").arg(effort);
     }
+    // Thinking has no documented CLI flag; the MAX_THINKING_TOKENS env is what
+    // the CLI reads (0 disables, a positive budget enables).
+    match opts.thinking.as_deref() {
+        Some("off") => {
+            c.env("MAX_THINKING_TOKENS", "0");
+        }
+        Some("on") => {
+            c.env("MAX_THINKING_TOKENS", "16000");
+        }
+        _ => {}
+    }
+    // NOTE: the initial prompt is deliberately NOT passed as argv — it goes
+    // over stdin as the first stream-json user message (see spawn()).
     configure_common(&mut c, &opts.cwd, token);
     c
 }
 
+/// Resolve the CA cert Node should trust for the sidecar's https loopback
+/// connection (our own generated self-signed cert), if the URL is https.
+fn server_ca_cert(state: &AppState, server_url: &str) -> Option<std::path::PathBuf> {
+    if !server_url.starts_with("https://") {
+        return None;
+    }
+    let cert = state
+        .auth
+        .config_dir
+        .clone()
+        .unwrap_or_else(|| std::env::temp_dir().join("mother-claude"))
+        .join("certs")
+        .join("cert.pem");
+    cert.is_file().then_some(cert)
+}
+
 /// Path A: the Node Agent SDK sidecar (canUseTool + ask_user).
+#[allow(clippy::too_many_arguments)]
 fn sidecar_command(
     entry: &Path,
     id: &str,
@@ -362,6 +446,7 @@ fn sidecar_command(
     permission_mode: &str,
     token: &str,
     server_url: &str,
+    ca_cert: Option<&Path>,
 ) -> tokio::process::Command {
     let mut c = tokio::process::Command::new("node");
     c.arg(entry)
@@ -369,11 +454,21 @@ fn sidecar_command(
         .env("MC_CWD", &opts.cwd)
         .env("MC_PROMPT", &opts.prompt)
         .env("MC_PERMISSION_MODE", permission_mode)
-        .env("MOTHER_CLAUDE_URL", server_url)
-        // Self-signed loopback TLS: trust it for the local sidecar.
-        .env("NODE_TLS_REJECT_UNAUTHORIZED", "0");
+        .env("MOTHER_CLAUDE_URL", server_url);
+    // Self-signed loopback TLS: trust OUR cert specifically. (Never
+    // NODE_TLS_REJECT_UNAUTHORIZED=0 — that would disable verification for the
+    // whole process tree, including the CLI's api.anthropic.com traffic.)
+    if let Some(ca) = ca_cert {
+        c.env("NODE_EXTRA_CA_CERTS", ca);
+    }
     if let Some(model) = &opts.model {
         c.env("MC_MODEL", model);
+    }
+    if let Some(effort) = &opts.effort {
+        c.env("MC_EFFORT", effort);
+    }
+    if let Some(thinking) = &opts.thinking {
+        c.env("MC_THINKING", thinking);
     }
     configure_common(&mut c, &opts.cwd, token);
     c

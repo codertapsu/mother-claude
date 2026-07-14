@@ -183,9 +183,32 @@ pub struct Session {
     pub usage: UsageSummary,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub pending: Option<PendingInput>,
+    /// Background tasks (bash / agents / workflows) this session launched.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tasks: Vec<BackgroundTask>,
     /// Whether live answer/permission injection is possible for this session.
     /// True only for owned sessions (foreign sessions are monitor + lifecycle).
     pub can_inject: bool,
+}
+
+/// A background task/agent/workflow a session launched, with its lifecycle
+/// derived from the transcript (launch tool_use → async-launch result →
+/// `task-notification` completion event).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BackgroundTask {
+    /// Task id as notifications reference it (b* bash, w* workflow, a* agent).
+    pub id: String,
+    /// "bash" | "agent" | "workflow".
+    pub kind: String,
+    /// Human label: the command description, agent description, or workflow name.
+    pub label: String,
+    /// "running" | "completed" | "failed" | "killed".
+    pub status: String,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub started_at: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub ended_at: Option<i64>,
 }
 
 /// Per-transcript summary derived from one `<id>.jsonl` file.
@@ -205,6 +228,8 @@ pub struct TranscriptSummary {
     /// A question / plan approval the transcript ends on, still unanswered —
     /// how foreign sessions' AskUserQuestion prompts become visible.
     pub pending: Option<PendingInput>,
+    /// Background tasks the session launched (most recent last, capped).
+    pub tasks: Vec<BackgroundTask>,
 }
 
 /// Parse an RFC3339 timestamp (e.g. `2026-06-23T08:59:08.494Z`) to epoch millis.
@@ -225,6 +250,10 @@ pub fn summarize_transcript(id: &str, events: &[TranscriptEvent]) -> TranscriptS
         id: id.to_string(),
         ..Default::default()
     };
+
+    // Background-task launches awaiting their async-launch confirmation,
+    // keyed by the launching tool_use id.
+    let mut launches: HashMap<String, (String, String)> = HashMap::new();
 
     for ev in events {
         if let Some(ts) = ev.timestamp.as_deref().and_then(parse_ts_ms) {
@@ -256,18 +285,25 @@ pub fn summarize_transcript(id: &str, events: &[TranscriptEvent]) -> TranscriptS
         }
         // A user event answers the open question only when it actually
         // addresses it: a tool_result for that question's tool_use id, or the
-        // user typing a message. A parallel tool's result must not clear it.
-        if ev.event_type == "user"
-            && summary.pending.is_some()
-            && user_event_answers(
-                ev,
-                summary
-                    .pending
-                    .as_ref()
-                    .and_then(|p| p.request_id.as_deref()),
-            )
-        {
-            summary.pending = None;
+        // user typing a message. A parallel tool's result must not clear it —
+        // and neither must an injected task-notification (not the user).
+        if ev.event_type == "user" {
+            if is_task_notification(ev) {
+                apply_task_notification(ev, &mut summary.tasks);
+            } else {
+                record_task_launch_result(ev, &mut launches, &mut summary.tasks);
+                if summary.pending.is_some()
+                    && user_event_answers(
+                        ev,
+                        summary
+                            .pending
+                            .as_ref()
+                            .and_then(|p| p.request_id.as_deref()),
+                    )
+                {
+                    summary.pending = None;
+                }
+            }
         }
         if let Some(msg) = &ev.message {
             if ev.event_type == "assistant" {
@@ -279,6 +315,11 @@ pub fn summarize_transcript(id: &str, events: &[TranscriptEvent]) -> TranscriptS
                         if block.block_type == "tool_use" {
                             if let Some(p) = pending_from_tool_use(block) {
                                 summary.pending = Some(p);
+                            }
+                            if let (Some(id), Some(launch)) =
+                                (&block.id, task_launch_from_tool_use(block))
+                            {
+                                launches.insert(id.clone(), launch);
                             }
                         }
                     }
@@ -298,6 +339,177 @@ pub fn summarize_transcript(id: &str, events: &[TranscriptEvent]) -> TranscriptS
         + summary.usage.cache_read_tokens
         + summary.usage.cache_creation_tokens;
     summary
+}
+
+/// How many background tasks to remember per session.
+const TASKS_CAP: usize = 20;
+
+/// True for the SDK-injected `task-notification` user events that report a
+/// background task finishing.
+fn is_task_notification(ev: &TranscriptEvent) -> bool {
+    ev.extra
+        .get("origin")
+        .and_then(|o| o.get("kind"))
+        .and_then(|k| k.as_str())
+        == Some("task-notification")
+}
+
+/// Extract `<tag>…</tag>` from a notification's text (no regex needed).
+fn tag_value<'a>(text: &'a str, tag: &str) -> Option<&'a str> {
+    let open = format!("<{tag}>");
+    let close = format!("</{tag}>");
+    let start = text.find(&open)? + open.len();
+    let end = text[start..].find(&close)? + start;
+    Some(text[start..end].trim())
+}
+
+/// If this tool_use launches background work, describe it as (kind, label).
+fn task_launch_from_tool_use(block: &ContentBlock) -> Option<(String, String)> {
+    const LABEL_MAX: usize = 120;
+    let name = block.name.as_deref()?;
+    let input = block.input.as_ref();
+    let field = |key: &str| {
+        input
+            .and_then(|i| i.get(key))
+            .and_then(|v| v.as_str())
+            .map(|v| truncate_chars(v, LABEL_MAX))
+    };
+    match name {
+        "Bash" => {
+            let background = input
+                .and_then(|i| i.get("run_in_background"))
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+            background.then(|| {
+                (
+                    "bash".to_string(),
+                    field("description")
+                        .or_else(|| field("command"))
+                        .unwrap_or_else(|| "background command".into()),
+                )
+            })
+        }
+        "Agent" => Some((
+            "agent".to_string(),
+            field("description")
+                .or_else(|| field("name"))
+                .unwrap_or_else(|| "subagent".into()),
+        )),
+        "Workflow" => Some((
+            "workflow".to_string(),
+            field("name").unwrap_or_else(|| "workflow".into()),
+        )),
+        _ => None,
+    }
+}
+
+/// A user event carrying the async-launch confirmation: its wrapper
+/// `toolUseResult` holds the task id the later notification will reference.
+fn record_task_launch_result(
+    ev: &TranscriptEvent,
+    launches: &mut HashMap<String, (String, String)>,
+    tasks: &mut Vec<BackgroundTask>,
+) {
+    let Some(result) = ev.extra.get("toolUseResult").and_then(|v| v.as_object()) else {
+        return;
+    };
+    // Only ASYNC launches become background tasks. Synchronous Agent runs also
+    // carry an agentId in their result (status: "completed") — recording those
+    // as "running" would pin a false badge forever, since no task-notification
+    // will ever arrive for them.
+    let is_async = result.get("status").and_then(|v| v.as_str()) == Some("async_launched")
+        || result.get("isAsync").and_then(|v| v.as_bool()) == Some(true)
+        || result.contains_key("backgroundTaskId");
+    if !is_async {
+        return;
+    }
+    // Which launch does this confirm? Match the tool_result block that belongs
+    // to a pending launch (defensive against multi-result events).
+    let tool_use_id = ev
+        .message
+        .as_ref()
+        .and_then(|m| m.content.as_ref())
+        .and_then(|c| match c {
+            MessageContent::Blocks(blocks) => blocks
+                .iter()
+                .filter(|b| b.block_type == "tool_result")
+                .find_map(|b| b.tool_use_id.clone().filter(|id| launches.contains_key(id))),
+            MessageContent::Text(_) => None,
+        });
+    let Some(tool_use_id) = tool_use_id else {
+        return;
+    };
+    let Some((kind, label)) = launches.remove(&tool_use_id) else {
+        return;
+    };
+    let id = ["backgroundTaskId", "taskId", "agentId"]
+        .iter()
+        .find_map(|k| result.get(*k).and_then(|v| v.as_str()));
+    let Some(id) = id else {
+        return;
+    };
+    // Richer labels arrive with the confirmation (workflow name, description).
+    let label = ["workflowName", "description"]
+        .iter()
+        .find_map(|k| result.get(*k).and_then(|v| v.as_str()))
+        .map(|v| truncate_chars(v, 120))
+        .unwrap_or(label);
+    push_task(
+        tasks,
+        BackgroundTask {
+            id: id.to_string(),
+            kind,
+            label,
+            status: "running".into(),
+            started_at: ev.timestamp.as_deref().and_then(parse_ts_ms),
+            ended_at: None,
+        },
+    );
+}
+
+/// Apply a `task-notification` to the task list (or record an unseen task).
+fn apply_task_notification(ev: &TranscriptEvent, tasks: &mut Vec<BackgroundTask>) {
+    let Some(MessageContent::Text(content)) = ev.message.as_ref().and_then(|m| m.content.as_ref())
+    else {
+        return;
+    };
+    let (Some(id), Some(status)) = (tag_value(content, "task-id"), tag_value(content, "status"))
+    else {
+        return;
+    };
+    let ended_at = ev.timestamp.as_deref().and_then(parse_ts_ms);
+    if let Some(task) = tasks.iter_mut().find(|t| t.id == id) {
+        task.status = status.to_string();
+        task.ended_at = ended_at;
+        return;
+    }
+    // Completion for a launch outside what we saw (e.g. old transcript form).
+    let kind = match id.chars().next() {
+        Some('w') => "workflow",
+        Some('a') => "agent",
+        _ => "bash",
+    };
+    push_task(
+        tasks,
+        BackgroundTask {
+            id: id.to_string(),
+            kind: kind.into(),
+            label: tag_value(content, "summary")
+                .map(|v| truncate_chars(v, 120))
+                .unwrap_or_default(),
+            status: status.to_string(),
+            started_at: None,
+            ended_at,
+        },
+    );
+}
+
+fn push_task(tasks: &mut Vec<BackgroundTask>, task: BackgroundTask) {
+    tasks.push(task);
+    if tasks.len() > TASKS_CAP {
+        let excess = tasks.len() - TASKS_CAP;
+        tasks.drain(..excess);
+    }
 }
 
 /// Whether a `user` event resolves the open transcript-derived prompt: it
@@ -648,6 +860,7 @@ pub fn build_registry(inputs: RegistryInputs) -> Vec<Session> {
                 message_count: transcript.map(|t| t.message_count).unwrap_or(0),
                 usage: transcript.map(|t| t.usage.clone()).unwrap_or_default(),
                 pending: pending_input,
+                tasks: transcript.map(|t| t.tasks.clone()).unwrap_or_default(),
                 // Owned sessions are driven over stdin; running foreign *background*
                 // jobs can be driven via PTY injection when it is enabled.
                 can_inject: owned_flag || (foreign_injection && running && is_background),
@@ -685,6 +898,7 @@ pub fn build_registry(inputs: RegistryInputs) -> Vec<Session> {
             message_count: 0,
             usage: UsageSummary::default(),
             pending: pending_input,
+            tasks: Vec::new(),
             can_inject: true,
         });
     }
@@ -967,6 +1181,69 @@ mod tests {
         let r = build_registry(inputs(&[], &[t1, t2], &owned, &pending, &states, now));
         assert_eq!(r[0].id, "new");
         assert_eq!(r[1].id, "old");
+    }
+
+    #[test]
+    fn background_task_lifecycle_from_transcript() {
+        // launch (assistant tool_use) → async-launch result (user event with
+        // toolUseResult) → completion notification (origin task-notification).
+        let blob = r#"{"type":"assistant","timestamp":"2026-07-13T08:00:00.000Z","message":{"role":"assistant","content":[{"type":"tool_use","id":"tu1","name":"Bash","input":{"command":"watch.sh","description":"Watch the CI run","run_in_background":true}}]}}
+{"type":"user","timestamp":"2026-07-13T08:00:01.000Z","toolUseResult":{"stdout":"","backgroundTaskId":"bjrfky"},"message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"tu1","content":"Command running in background with ID: bjrfky."}]}}
+{"type":"assistant","timestamp":"2026-07-13T08:00:02.000Z","message":{"role":"assistant","content":[{"type":"tool_use","id":"tu2","name":"Workflow","input":{"script":"export const meta = {}"}}]}}
+{"type":"user","timestamp":"2026-07-13T08:00:03.000Z","toolUseResult":{"status":"async_launched","taskId":"wky2ru","workflowName":"review-changes"},"message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"tu2","content":"Workflow launched. Task ID: wky2ru"}]}}
+{"type":"user","timestamp":"2026-07-13T08:05:00.000Z","origin":{"kind":"task-notification"},"message":{"role":"user","content":"<task-notification>\n<task-id>bjrfky</task-id>\n<status>completed</status>\n<summary>Background command finished</summary>\n</task-notification>"}}"#;
+        let s = summarize_transcript("t", &parse_transcript(blob));
+        assert_eq!(s.tasks.len(), 2);
+        let bash = s.tasks.iter().find(|t| t.id == "bjrfky").unwrap();
+        assert_eq!(bash.kind, "bash");
+        assert_eq!(bash.label, "Watch the CI run");
+        assert_eq!(bash.status, "completed");
+        assert!(bash.ended_at.is_some());
+        let wf = s.tasks.iter().find(|t| t.id == "wky2ru").unwrap();
+        assert_eq!(wf.kind, "workflow");
+        assert_eq!(wf.label, "review-changes");
+        assert_eq!(wf.status, "running");
+        assert!(wf.ended_at.is_none());
+    }
+
+    #[test]
+    fn notification_does_not_clear_pending_question_and_orphan_is_recorded() {
+        let blob = r#"{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"q1","name":"AskUserQuestion","input":{"questions":[{"question":"Pick?","options":["a"]}]}}]}}
+{"type":"user","origin":{"kind":"task-notification"},"timestamp":"2026-07-13T08:06:00.000Z","message":{"role":"user","content":"<task-notification>\n<task-id>a12345</task-id>\n<status>failed</status>\n<summary>Agent \"x\" failed</summary>\n</task-notification>"}}"#;
+        let s = summarize_transcript("t", &parse_transcript(blob));
+        assert!(
+            s.pending.is_some(),
+            "notification must not answer the question"
+        );
+        let orphan = s.tasks.iter().find(|t| t.id == "a12345").unwrap();
+        assert_eq!(orphan.kind, "agent");
+        assert_eq!(orphan.status, "failed");
+    }
+
+    #[test]
+    fn synchronous_agent_run_is_not_a_background_task() {
+        // Sync Agent results also carry an agentId — without async gating the
+        // task would be pinned "running" forever (no notification ever comes).
+        let blob = r#"{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"tu1","name":"Agent","input":{"description":"Explore code","prompt":"look around"}}]}}
+{"type":"user","toolUseResult":{"status":"completed","agentId":"a9f0","content":"found it","usage":{}},"message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"tu1","content":"found it"}]}}"#;
+        let s = summarize_transcript("t", &parse_transcript(blob));
+        assert!(s.tasks.is_empty(), "sync agent must not be a task");
+
+        // The async form (isAsync/async_launched) IS a task.
+        let blob = r#"{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"tu2","name":"Agent","input":{"description":"Map sources"}}]}}
+{"type":"user","timestamp":"2026-07-14T08:00:00.000Z","toolUseResult":{"status":"async_launched","isAsync":true,"agentId":"a2e5"},"message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"tu2","content":"Async agent launched"}]}}"#;
+        let s = summarize_transcript("t", &parse_transcript(blob));
+        assert_eq!(s.tasks.len(), 1);
+        assert_eq!(s.tasks[0].id, "a2e5");
+        assert_eq!(s.tasks[0].status, "running");
+    }
+
+    #[test]
+    fn foreground_bash_is_not_a_task() {
+        let blob = r#"{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"tu1","name":"Bash","input":{"command":"ls"}}]}}
+{"type":"user","toolUseResult":{"stdout":"ok"},"message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"tu1","content":"ok"}]}}"#;
+        let s = summarize_transcript("t", &parse_transcript(blob));
+        assert!(s.tasks.is_empty());
     }
 
     #[test]

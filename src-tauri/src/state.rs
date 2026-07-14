@@ -225,6 +225,7 @@ impl Inner {
                         message_count: 0,
                         usage: UsageSummary::default(),
                         pending: None,
+                        tasks: Vec::new(),
                         can_inject: true,
                     });
                 }
