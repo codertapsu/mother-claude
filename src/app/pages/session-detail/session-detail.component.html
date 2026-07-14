@@ -307,6 +307,10 @@
             resumes from the last saved point.
           </p>
         }
+        <details class="copts">
+          <summary>Launch options (model · effort · thinking)</summary>
+          <mc-launch-options (changed)="onLaunchOverrides($event)" />
+        </details>
         <button class="btn primary" [disabled]="busy()" (click)="continueSession()">
           Continue here →
         </button>

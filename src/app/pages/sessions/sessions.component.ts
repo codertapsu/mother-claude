@@ -1,15 +1,16 @@
 import { NgTemplateOutlet } from '@angular/common';
-import { Component, computed, inject, signal } from '@angular/core';
+import { Component, computed, inject, signal, viewChild } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
 
 import { ApiService } from '../../core/api.service';
 import { RealtimeService } from '../../core/realtime.service';
+import { LaunchOptionsComponent } from '../../shared/launch-options.component';
 import { relativeTime, formatTokens, stateLabel, surfaceLabel } from '../../shared/util';
 
 @Component({
   selector: 'mc-sessions',
-  imports: [RouterLink, FormsModule, NgTemplateOutlet],
+  imports: [RouterLink, FormsModule, NgTemplateOutlet, LaunchOptionsComponent],
   templateUrl: './sessions.component.html',
   styleUrl: './sessions.component.scss',
 })
@@ -29,10 +30,17 @@ export class SessionsComponent {
   );
 
   protected readonly showSpawn = signal(false);
+  private readonly launchOpts = viewChild(LaunchOptionsComponent);
   protected readonly spawnCwd = signal('');
   protected readonly spawnPrompt = signal('');
   protected readonly spawning = signal(false);
   protected readonly error = signal('');
+
+  /** Count of still-running background tasks (only meaningful while live). */
+  runningTasks(s: { running: boolean; tasks?: { status: string }[] }): number {
+    if (!s.running || !s.tasks) return 0;
+    return s.tasks.filter((t) => t.status === 'running').length;
+  }
 
   protected readonly rel = relativeTime;
   protected readonly tokens = formatTokens;
@@ -45,11 +53,16 @@ export class SessionsComponent {
       this.error.set('Working directory and prompt are required.');
       return;
     }
+    if (this.launchOpts()?.invalid()) {
+      this.error.set('Enter a custom model id, or pick a model from the list.');
+      return;
+    }
     this.spawning.set(true);
     try {
       const res = await this.api.spawnSession({
         cwd: this.spawnCwd().trim(),
         prompt: this.spawnPrompt().trim(),
+        ...(this.launchOpts()?.value() ?? {}),
       });
       this.showSpawn.set(false);
       this.spawnPrompt.set('');

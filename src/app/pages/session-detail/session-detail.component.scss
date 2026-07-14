@@ -426,6 +426,17 @@ button.opt:disabled {
 .cant-drive .warn {
   color: var(--amber);
 }
+.copts {
+  margin: 0.4rem 0 0.6rem;
+}
+.copts summary {
+  cursor: pointer;
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+.copts[open] {
+  padding: 0.4rem 0 0;
+}
 .sync-note {
   font-size: 0.85rem;
 }

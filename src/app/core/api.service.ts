@@ -1,7 +1,14 @@
 import { Injectable, inject } from '@angular/core';
 
 import { ConfigService } from './config.service';
-import { GitOverview, Pairing, Session, TranscriptEvent } from './models';
+import {
+  GitOverview,
+  LaunchDefaults,
+  LaunchOverrides,
+  Pairing,
+  Session,
+  TranscriptEvent,
+} from './models';
 
 /**
  * Thin REST client over the embedded axum server. Used identically by the
@@ -56,6 +63,11 @@ export class ApiService {
     return this.req('/services');
   }
 
+  /** Launch defaults + available models/efforts (from the user's own settings). */
+  getDefaults(): Promise<LaunchDefaults> {
+    return this.req<LaunchDefaults>('/defaults');
+  }
+
   getDaemon(): Promise<unknown> {
     return this.req('/daemon');
   }
@@ -66,7 +78,9 @@ export class ApiService {
 
   // --- Control (endpoints land in the control commits) ---
 
-  spawnSession(body: { cwd: string; prompt: string; model?: string }): Promise<{ id: string }> {
+  spawnSession(
+    body: { cwd: string; prompt: string } & LaunchOverrides,
+  ): Promise<{ id: string }> {
     return this.req('/sessions', { method: 'POST', body: JSON.stringify(body) });
   }
 
@@ -78,10 +92,14 @@ export class ApiService {
   }
 
   /** Fork a session's conversation into a new owned session we can drive. */
-  continueSession(id: string, prompt?: string): Promise<{ id: string }> {
+  continueSession(
+    id: string,
+    prompt?: string,
+    overrides?: LaunchOverrides,
+  ): Promise<{ id: string }> {
     return this.req(`/sessions/${encodeURIComponent(id)}/continue`, {
       method: 'POST',
-      body: JSON.stringify({ prompt: prompt ?? '' }),
+      body: JSON.stringify({ prompt: prompt ?? '', ...(overrides ?? {}) }),
     });
   }
 

@@ -14,6 +14,7 @@
       (ngModelChange)="spawnCwd.set($event)"
       placeholder="/Users/you/project"
     />
+    <mc-launch-options />
     <span class="lbl">Initial instruction</span>
     <textarea
       [ngModel]="spawnPrompt()"
@@ -92,6 +93,9 @@
       <span>· {{ rel(s.lastActivity) }}</span>
       @if (!s.canInject) {
         <span class="ro" title="Live answer injection unavailable">read-only</span>
+      }
+      @if (runningTasks(s); as n) {
+        <span class="bg" title="Background tasks still running">⏳ {{ n }} background</span>
       }
     </div>
   </a>

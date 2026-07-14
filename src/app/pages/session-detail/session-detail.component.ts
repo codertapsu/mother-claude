@@ -9,10 +9,12 @@ import { RealtimeService } from '../../core/realtime.service';
 import {
   ContentBlock,
   GitOverview,
+  LaunchOverrides,
   QuestionOption,
   Session,
   TranscriptEvent,
 } from '../../core/models';
+import { LaunchOptionsComponent } from '../../shared/launch-options.component';
 import { renderMarkdown } from '../../shared/markdown';
 import { parseUnifiedDiff, toSplitRows } from '../../shared/diff';
 import {
@@ -107,7 +109,7 @@ function isQuestionTool(name: string | undefined): boolean {
 
 @Component({
   selector: 'mc-session-detail',
-  imports: [RouterLink, FormsModule],
+  imports: [RouterLink, FormsModule, LaunchOptionsComponent],
   templateUrl: './session-detail.component.html',
   styleUrl: './session-detail.component.scss',
 })
@@ -165,6 +167,10 @@ export class SessionDetailComponent {
   protected readonly notice = signal('');
 
   private readonly log = viewChild<ElementRef<HTMLElement>>('log');
+  private readonly launchOpts = viewChild(LaunchOptionsComponent);
+  /** Last overrides chosen in the launch-options panel — kept here so they
+   * survive the panel being destroyed (tab switches unrender its card). */
+  private continueOverrides: LaunchOverrides = {};
   /** Identity of the current pending prompt (changes ⇒ reset the selection). */
   private readonly pendingKey = computed(
     () => this.session()?.pending?.requestId ?? this.session()?.pending?.prompt ?? '',
@@ -196,6 +202,7 @@ export class SessionDetailComponent {
       this.seen.clear();
       this.buffered = [];
       this.historyLoaded = false;
+      this.continueOverrides = {};
       void this.loadHistory(id);
       void this.loadDiff(id, true); // eager: the Changes tab shows a count
     });
@@ -338,13 +345,22 @@ export class SessionDetailComponent {
     }
   }
 
+  onLaunchOverrides(overrides: LaunchOverrides): void {
+    this.continueOverrides = overrides;
+  }
+
   /** Take over this session (resume in place) so it becomes owned and drivable. */
   async continueSession(): Promise<void> {
     this.busy.set(true);
     this.notice.set('Taking over session…');
     try {
+      if (this.launchOpts()?.invalid()) {
+        this.notice.set('Enter a custom model id, or pick a model from the list.');
+        this.busy.set(false);
+        return;
+      }
       const id = this.id();
-      const res = await this.api.continueSession(id);
+      const res = await this.api.continueSession(id, undefined, this.continueOverrides);
       if (res?.id && res.id !== id) {
         this.router.navigate(['/session', res.id]);
       } else {

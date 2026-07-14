@@ -42,6 +42,39 @@ export interface UsageSummary {
   totalTokens: number;
 }
 
+/** A background task/agent/workflow a session launched. */
+export interface BackgroundTask {
+  id: string;
+  kind: 'bash' | 'agent' | 'workflow' | string;
+  label: string;
+  status: 'running' | 'completed' | 'failed' | 'killed' | string;
+  startedAt?: number;
+  endedAt?: number;
+}
+
+export interface ModelOption {
+  value: string;
+  label: string;
+  description?: string;
+}
+
+/** What the spawn/continue forms should offer and pre-select (server-read
+ * from the user's own Claude settings). */
+export interface LaunchDefaults {
+  model?: string;
+  effort?: string;
+  models: ModelOption[];
+  efforts: string[];
+}
+
+/** Overrides for launching/continuing a session; unset = the user's own
+ * Claude settings (exactly what VS Code / the CLI would use). */
+export interface LaunchOverrides {
+  model?: string;
+  effort?: string;
+  thinking?: 'on' | 'off';
+}
+
 export interface Session {
   id: string;
   cwd: string;
@@ -60,6 +93,7 @@ export interface Session {
   messageCount: number;
   usage: UsageSummary;
   pending?: PendingInput;
+  tasks?: BackgroundTask[];
   canInject: boolean;
 }
 
