@@ -17,7 +17,8 @@
  * correctness depends on the installed SDK version.
  *
  * Env in: MOTHER_CLAUDE_URL, MOTHER_CLAUDE_TOKEN, MC_SESSION_ID, MC_CWD,
- * MC_PROMPT, MC_MODEL (optional), MC_PERMISSION_MODE (optional).
+ * MC_PROMPT, MC_MODEL (optional), MC_PERMISSION_MODE (optional),
+ * MC_RESUME (set only when continuing an existing conversation).
  */
 import { query, createSdkMcpServer, tool } from '@anthropic-ai/claude-agent-sdk';
 import { z } from 'zod';
@@ -30,6 +31,8 @@ const CWD = process.env.MC_CWD ?? process.cwd();
 const PROMPT = process.env.MC_PROMPT ?? '';
 const MODEL = process.env.MC_MODEL || undefined;
 const PERMISSION_MODE = process.env.MC_PERMISSION_MODE || 'default';
+/** Set only when continuing an existing conversation (see the resume note below). */
+const RESUME = process.env.MC_RESUME || undefined;
 /** Reasoning effort: low | medium | high | xhigh | max (unset = user default). */
 const EFFORT = process.env.MC_EFFORT || undefined;
 /** Thinking override: 'on' | 'off' (unset = model/settings default). */
@@ -195,7 +198,12 @@ async function main(): Promise<void> {
           : THINKING === 'on'
             ? { type: 'adaptive' as const }
             : undefined,
-      resume: SESSION_ID,
+      // A brand-new session must PRE-ASSIGN its id, not resume it: `resume`
+      // for an id with no transcript fails the whole query with "No
+      // conversation found with session ID". The Rust core mints the id before
+      // spawning us, and only ever routes a genuine continuation here with
+      // MC_RESUME set.
+      ...(RESUME ? { resume: RESUME } : { sessionId: SESSION_ID }),
       permissionMode: PERMISSION_MODE as 'default',
       mcpServers: { 'mother-claude': askUserServer },
       // Force questions through ask_user instead of the (TTY-only) native tool.

@@ -470,6 +470,11 @@ fn sidecar_command(
     if let Some(thinking) = &opts.thinking {
         c.env("MC_THINKING", thinking);
     }
+    // Only a genuine continuation sets this: the sidecar pre-assigns the id for
+    // a fresh session and resumes only when told to.
+    if let Some(resume) = &opts.resume {
+        c.env("MC_RESUME", resume);
+    }
     configure_common(&mut c, &opts.cwd, token);
     c
 }
