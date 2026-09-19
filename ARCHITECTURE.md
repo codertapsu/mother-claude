@@ -63,6 +63,37 @@ don't collide with the loopback bind).
 - **Foreign**: monitor + lifecycle only (`claude stop|respawn|rm`). Live
   injection is experimental-only and off by default.
 
+## The Claude HTTP bridge
+
+`src-tauri/src/bridge/` adds a programmatic HTTP surface — conversations, turns,
+SSE event streams, steering, interruption, tool approvals, image input — modelled
+on the Codex HTTP bridge so a client can be repointed between the two.
+
+```
+ HTTP client ──▶ bridge routes (axum)  ──▶ RuntimeHost ──NDJSON──▶ bridge-host.js
+                      │                        │                   (N Agent SDK
+                      │                        │                    conversations)
+                      ├─ OperationRegistry ────┤
+                      │   (per-turn EventLog)  │
+                      └─ pending requests ─────┴──▶ state.resolvers + set_pending
+                                                    (the dashboard's own cards)
+```
+
+Modules: `error` (one `{"error":{code,message,…}}` envelope), `events` (bounded
+replay logs — 2048 events / 8 MiB, with the 410-expired / 422-beyond-head cursor
+contract), `ops` (background operations, caps, retention), `host` (the Node
+supervisor), `inputs` (content-block normalization plus image validation),
+`messages` (the direct `api.anthropic.com` client), `openapi`, `assets`, `routes`.
+
+Two things are worth calling out:
+
+- **One approval, two surfaces.** A blocked tool call registers a resolver in
+  `state.resolvers` *and* a record in the bridge's `/requests` table. The
+  dashboard card and the HTTP endpoint race; whichever answers first wins.
+- **Mounted twice.** `/v1` on the main server (always token-required, TLS on LAN
+  binds) and a dedicated loopback port whose token requirement is configurable.
+  The Node host starts lazily on first use.
+
 ## Permission bridge
 
 `POST /api/sessions/:id/permission-request` (sidecar-facing) registers a oneshot

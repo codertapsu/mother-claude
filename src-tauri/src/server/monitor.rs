@@ -80,7 +80,11 @@ async fn refresh(state: &AppState, tailers: &mut HashMap<String, TranscriptTaile
 
     let owned = state.owned.read().await.clone();
     let pending = state.pending.read().await.clone();
-    let owned_live = state.control.live();
+    // Bridge conversations are owned too; without them a conversation created
+    // over HTTP vanishes from the dashboard until its first turn writes a
+    // transcript.
+    let mut owned_live = state.control.live();
+    owned_live.extend(state.bridge.live_sessions().await);
 
     let sessions = build_registry(RegistryInputs {
         agents: &agents,

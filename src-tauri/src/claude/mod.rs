@@ -4,6 +4,7 @@
 //! Claude Code's research-preview internals. Everything above it works with the
 //! tolerant types defined here, so a single module absorbs version churn.
 
+pub mod auth;
 pub mod control;
 #[cfg(feature = "experimental")]
 pub mod experimental;
@@ -23,6 +24,7 @@ pub fn claude_bin() -> String {
         .unwrap_or_else(|| "claude".to_string())
 }
 
+pub use auth::{status as auth_status, AuthStatus};
 pub use control::{foreign_injection_enabled, ControlRegistry, OwnedSessionMeta, SpawnOptions};
 pub use git::{
     file_patch, overview as git_overview, CommitInfo, FileChange, GitOverview, WorktreeInfo,

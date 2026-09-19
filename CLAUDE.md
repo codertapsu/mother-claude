@@ -7,13 +7,23 @@
 **Mother Claude** is a Tauri v2 (Rust) + Angular desktop app that monitors and
 controls every local Claude Code session/agent/service from one dashboard, and
 serves that *same* dashboard over the LAN (default `0.0.0.0:6725`) so it can be
-driven from a phone. Three layers:
+driven from a phone. Four layers:
 
 1. **Rust core** (`src-tauri/src/claude/`) — an adapter over `~/.claude` plus
    session control.
 2. **Embedded axum server** (`src-tauri/src/server/`) — REST + WebSocket on the
    Tokio runtime. **All** dashboard data flows through here.
 3. **Angular SPA** (`src/`) — desktop webview *and* phone browser, one code path.
+4. **Claude HTTP bridge** (`src-tauri/src/bridge/` + `sidecar/src/bridge-host.ts`)
+   — a programmatic HTTP API over Claude on this machine (conversations, turns,
+   SSE, tool approvals, images) plus a direct Messages API path. Mounted at `/v1`
+   on the main server and on its own loopback port (default `5612`).
+   **It does not listen until started** from the app's API screen
+   (`bridge::control`, `/api/bridge/*`); until then the routes that drive Claude
+   answer `503 bridge_not_started` while discovery stays open. Start-time
+   choices are *defaults* — every request may override them — and one of them is
+   which conversation an unaddressed `/chat` message joins.
+   See [docs/BRIDGE.md](docs/BRIDGE.md).
 
 ## The one hard invariant: owned vs foreign sessions
 
@@ -64,14 +74,40 @@ Desktop — reading it captures all surfaces for free. Transcript `tool_use`/
 types. Token usage is in `message.usage`. Tail with a byte offset, split on `\n`,
 buffer the trailing partial line. Transcripts are pruned after 30 days.
 
-This Claude Code (`2.1.185`) returns **no `state` field** from `agents --json` —
-state is *derived* from transcript activity + `state.json` + hook events.
+`agents --json` output drifts between versions. On `2.1.185` it returned
+`{pid, cwd, kind, startedAt, sessionId}` with **no** state field, so
+`registry::build_registry` *derives* state from transcript activity +
+`state.json` + hook events. On `2.1.276` it also returns `name` and `status`
+(`idle`/`busy`), which currently land unused in the tolerant `extra` map —
+deriving state is still correct, but that field is now available if you want it.
+Verify against the installed CLI before relying on either shape.
+
+Claude's own Anthropic sign-in is read via `claude auth status --json` in
+`claude/auth.rs` and checked once at startup (`state.refresh_claude_auth`), so a
+signed-out account is one line in the banner rather than every turn returning the
+string "Not logged in · Please run /login".
+
+**Never export `CLAUDE_CONFIG_DIR` onto a child process you spawn.** Setting it
+breaks the CLI's credential resolution *even when it points at the default
+`~/.claude`*: every turn then answers "Not logged in · Please run /login".
+Children inherit it when the user set one themselves, which is the only case
+where an override is wanted. (Verified against SDK 0.3.186 / CLI 2.1.186.)
 
 ## Architecture rules (enforced)
 
 - **All data for both desktop and mobile flows through the axum server, never
   Tauri `invoke`.** Tauri `invoke` is allowed only for desktop-only OS concerns
   (e.g. opening System Settings for Full Disk Access). Dashboard data: HTTP/WS.
+- **The bridge is a second consumer of the same server, not a second server.**
+  `bridge::router` nests into the same axum app and reuses `auth::require_token`,
+  `auth::dangerous_blocked`, `state.resolvers` and `state.set_pending` — a bridge
+  tool approval shows up as a dashboard card and either surface may answer it.
+  Its extra listener binds **loopback only** and is **tokenless and
+  origin-open by default**, so local tools can call it without setup; that
+  never applies to the LAN-reachable `/v1` mount, which always requires the
+  token. Dangerous actions (`bypassPermissions`, transcript deletion, starting
+  a sign-in flow, approving a dangerous tool call or attaching a standing
+  permission grant to an approval) stay local-client-only on both.
 - Single broadcast bus (`tokio::sync::broadcast`) fans events to webview + all
   WS clients. Backpressure-aware.
 - TLS + token auth are **mandatory** whenever the bind address is non-loopback.
@@ -89,6 +125,12 @@ npm run tauri:build         # package the app
 cargo fmt --manifest-path src-tauri/Cargo.toml --check
 cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
 cargo test  --manifest-path src-tauri/Cargo.toml
+
+npm run sidecar:build      # builds BOTH agent-bridge.js and bridge-host.js
+
+# The bridge's live tests spend tokens and need `claude` signed in; they are
+# #[ignore]d so `cargo test` never touches the network or starts the Node host.
+cargo test --manifest-path src-tauri/Cargo.toml --test bridge -- --ignored
 ```
 
 `just` targets mirror these (`just lint`, `just test`, `just build`, `just dev`).

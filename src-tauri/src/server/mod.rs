@@ -70,7 +70,17 @@ pub fn router(state: AppState) -> Router {
         .route("/defaults", get(http::get_defaults))
         .route("/daemon", get(http::get_daemon))
         .route("/pairing", get(http::get_pairing))
-        .route("/hooks/install", post(http::post_install_hooks));
+        .route("/hooks/install", post(http::post_install_hooks))
+        // Starting and configuring the Claude HTTP bridge. These live on the
+        // dashboard API because you have to be able to start something that is
+        // not running.
+        .route("/bridge", get(crate::bridge::control::get_status))
+        .route("/bridge/start", post(crate::bridge::control::post_start))
+        .route("/bridge/stop", post(crate::bridge::control::post_stop))
+        .route(
+            "/bridge/active-thread",
+            post(crate::bridge::control::post_active_thread),
+        );
 
     // Experimental, unsanctioned foreign-session injection (off by default).
     #[cfg(feature = "experimental")]
@@ -86,6 +96,12 @@ pub fn router(state: AppState) -> Router {
             state.clone(),
             auth::require_token,
         ));
+
+    // The Claude HTTP bridge. Mounted outside `secured` because it carries its
+    // own auth layer — but always token-required here, since this listener is
+    // reachable from the LAN. Its tokenless mode exists only on the dedicated
+    // loopback port (see `bridge::serve`).
+    let secured = secured.nest("/v1", crate::bridge::router(state.clone(), true));
 
     let app = match resolve_web_dir() {
         Some(dir) => {
@@ -110,7 +126,17 @@ pub fn router(state: AppState) -> Router {
 pub async fn serve(state: AppState) -> anyhow::Result<()> {
     use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
+    // Establish Claude's own sign-in before anything can depend on it. Without
+    // this, a signed-out account shows up as every turn returning the sentence
+    // "Not logged in · Please run /login" — a per-request mystery instead of one
+    // statement at the moment the app opens.
+    let auth = state.refresh_claude_auth().await;
+    if !auth.logged_in {
+        tracing::warn!(status = %auth.summary(), "Claude is not signed in");
+    }
+
     tokio::spawn(monitor::run(state.clone()));
+    tokio::spawn(crate::bridge::autostart(state.clone()));
 
     let port = state.config.port;
 
@@ -191,6 +217,24 @@ async fn announce(state: &AppState) {
         println!("  TLS fingerprint (SHA-256): {fingerprint}");
     }
     println!("  Token:  {}", state.auth.token);
+    let auth = state.claude_auth.read().await.clone();
+    if auth.logged_in {
+        println!("  Claude: {}", auth.summary());
+    } else {
+        println!("  Claude: {}", auth.summary());
+        println!("          until then every turn will answer \"Not logged in\"");
+    }
+    if state.bridge.config.enabled {
+        let running = state.bridge.is_running().await;
+        println!(
+            "  API:    http://127.0.0.1:{port}/v1  ({})",
+            if running {
+                "running".to_string()
+            } else {
+                "not started — start it on the API screen".to_string()
+            }
+        );
+    }
     println!();
 }
 

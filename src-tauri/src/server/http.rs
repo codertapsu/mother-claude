@@ -265,6 +265,15 @@ pub async fn post_message(
     Path(id): Path<String>,
     Json(body): Json<MessageBody>,
 ) -> impl IntoResponse {
+    // A conversation the HTTP bridge owns is driven through its runtime host,
+    // not through a ControlRegistry stdin pipe — it is marked owned so it shows
+    // up in the dashboard, but there is nothing here to write to.
+    if state.bridge.thread(&id).await.is_some() {
+        return match crate::bridge::send_message(&state, &id, &body.text).await {
+            Ok(()) => StatusCode::NO_CONTENT.into_response(),
+            Err(e) => e.into_response(),
+        };
+    }
     if state.is_owned(&id).await {
         return match state.control.send_message(&id, &body.text).await {
             Ok(()) => StatusCode::NO_CONTENT.into_response(),
@@ -547,6 +556,14 @@ fn try_resolve(state: &AppState, request_id: Option<&str>, resolution: Resolutio
 /// Stop a session. Owned sessions are our own subprocesses (killed directly);
 /// foreign sessions go through `claude stop` (background jobs only).
 pub async fn post_stop(State(state): State<AppState>, Path(id): Path<String>) -> impl IntoResponse {
+    // Bridge conversations have no ControlRegistry handle, so the kill below
+    // would succeed vacuously and report a session stopped that is still
+    // running. Close it through the bridge instead.
+    if crate::bridge::close_thread(&state, &id).await {
+        state.set_pending(&id, None).await;
+        state.broadcast(crate::state::ServerEvent::Notice(format!("stopped {id}")));
+        return (StatusCode::OK, Json(json!({ "ok": true }))).into_response();
+    }
     if state.is_owned(&id).await {
         let _ = state.control.kill(&id).await;
         // A killed session can't consume an answer — drop its stale prompt.

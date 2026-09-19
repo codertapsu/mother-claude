@@ -149,6 +149,13 @@ You can skip and revisit anytime under **Settings → Permissions**.
 | `MOTHER_CLAUDE_FOREIGN_INJECTION` | on | `0` ⇒ disable driving foreign sessions via PTY (monitor + lifecycle only). |
 | `MOTHER_CLAUDE_ALLOW_REMOTE_DANGEROUS` | unset | `1` ⇒ allow remote clients to approve dangerous actions / `rm`. |
 | `MOTHER_CLAUDE_WEB_DIR` | autodetect | Override the built SPA directory. |
+| `MOTHER_CLAUDE_BRIDGE` | on | `0` ⇒ disable the HTTP bridge entirely. |
+| `MOTHER_CLAUDE_BRIDGE_AUTOSTART` | off | `1` ⇒ start the API at launch (headless/CI) instead of from the app. |
+| `MOTHER_CLAUDE_BRIDGE_PORT` | `5612` | Dedicated loopback API port; `0` ⇒ serve only `/v1`. |
+| `MOTHER_CLAUDE_BRIDGE_REQUIRE_TOKEN` | **off** | `1` ⇒ require the token on the loopback bridge port too. |
+| `MOTHER_CLAUDE_BRIDGE_CWD` | home dir | Default working directory for API conversations. |
+| `MOTHER_CLAUDE_BRIDGE_ORIGINS` | unset | Unset ⇒ any browser origin may call the bridge; set ⇒ strict allowlist. |
+| `ANTHROPIC_API_KEY` | unset | Enables the bridge's direct Messages API routes. |
 
 ## The Path A sidecar (built & run automatically)
 
@@ -167,4 +174,39 @@ So there is no manual step — a single `npm run tauri:dev` starts the embedded
 server, builds the sidecar, and runs the desktop app. (The SDK is large, so the
 sidecar adds ~275&nbsp;MB to a packaged build.)
 
-> Never expose port 6725 to the public internet. See [SECURITY.md](SECURITY.md).
+## Drive Claude over HTTP
+
+Mother Claude also exposes Claude on this machine as a **local HTTP API** —
+conversations, turns, live event streams, steering, interruption, tool-approval
+callbacks, image and document input, plus a direct Messages API path for vision,
+the Files API and programmatic tool calling.
+
+```bash
+curl -sS http://127.0.0.1:5612/chat -H 'Content-Type: application/json' \
+  -d '{"message":"What does this project do?","cwd":"/path/to/repo"}'
+```
+
+Open the app's **API** screen, pick the defaults you want (working directory,
+model, effort, permissions, and which conversation messages join), and press
+**Start**. Nothing listens until you do. After that there is no token and no
+setup — curl, Postman, Swagger and a web app you are building all just work.
+It is loopback-only, and the LAN mount still requires the token.
+
+A message with no `thread_id` joins the current conversation, so a client that
+only sends `{"message": "…"}` keeps one continuous thread; pass
+`createNewChat: true` to branch off a new one.
+
+With the app running, open the **[API reference](http://127.0.0.1:5612/docs/)**
+(Swagger, vendored — no CDN) or the **[console](http://127.0.0.1:5612/example/)**,
+a runnable page that starts a conversation, streams it, and lets you approve tool
+calls. There is a JS client at `/client.mjs` and an OpenAPI 3.1 document at
+`/openapi.json`.
+
+The same routes are served at `/v1` on the main app port, so a phone on your LAN
+can use them over TLS. A conversation created through the API shows up in the
+dashboard like any other session, and its approval prompts appear on both.
+
+Full reference: **[docs/BRIDGE.md](docs/BRIDGE.md)**.
+
+> Never expose port 6725 to the public internet. The bridge port (5612) binds
+> loopback only. See [SECURITY.md](SECURITY.md).

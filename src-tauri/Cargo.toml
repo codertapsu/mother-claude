@@ -35,12 +35,18 @@ notify = "8"
 notify-debouncer-full = "0.5"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 git2 = { version = "0.21", default-features = false }
-axum = { version = "0.8", features = ["ws"] }
+axum = { version = "0.8", features = ["ws", "multipart"] }
 axum-server = { version = "0.8", default-features = false, features = ["tls-rustls-no-provider"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
 rcgen = "0.14"
 tower = "0.5"
 tower-http = { version = "0.7", features = ["cors", "trace", "fs"] }
+# The HTTP bridge: SSE streams (futures-util) and the direct Messages API
+# path (reqwest). reqwest must use native-tls here for the same reason the
+# updater does — a rustls-no-provider reqwest would unify with our own
+# rustls+ring server stack and panic for want of a process-default provider.
+futures-util = { version = "0.3", default-features = false, features = ["std"] }
+reqwest = { version = "0.13", default-features = false, features = ["json", "native-tls", "multipart", "stream"] }
 uuid = { version = "1", features = ["v4"] }
 qrcode = { version = "0.14", default-features = false, features = ["svg"] }
 directories = "6"

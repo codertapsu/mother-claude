@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Mother Claude — Claude HTTP bridge</title>
+    <link rel="stylesheet" href="swagger-ui.css" />
+    <link rel="stylesheet" href="docs.css" />
+  </head>
+  <body>
+    <header class="mc-header">
+      <h1>Claude HTTP bridge</h1>
+      <p>
+        Drive Claude on this machine over HTTP. Conversations, turns, live event streams,
+        steering, interruption, tool approvals, images and documents — plus a direct
+        Messages API path. Also available as a
+        <a href="../client.mjs">JavaScript client</a> and a
+        <a href="../example/">runnable console</a>.
+      </p>
+      <p class="mc-note" id="mc-auth"></p>
+    </header>
+    <div id="swagger-ui"></div>
+    <script src="swagger-ui-bundle.js" crossorigin="anonymous"></script>
+    <script src="init.js"></script>
+  </body>
+</html>

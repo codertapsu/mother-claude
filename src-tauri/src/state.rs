@@ -12,9 +12,11 @@ use std::sync::Arc;
 use serde::Serialize;
 use tokio::sync::{broadcast, oneshot, RwLock};
 
+use crate::bridge::{BridgeConfig, BridgeState};
 use crate::claude::control::ControlRegistry;
 use crate::claude::{
-    ClaudeHome, PendingInput, Session, SessionState, Surface, TranscriptEvent, UsageSummary,
+    AuthStatus, ClaudeHome, PendingInput, Session, SessionState, Surface, TranscriptEvent,
+    UsageSummary,
 };
 use crate::server::auth::Auth;
 
@@ -116,10 +118,30 @@ pub struct Inner {
     pub resolvers: std::sync::Mutex<HashMap<String, PendingResolver>>,
     /// Last computed session list (served by REST without recomputation).
     pub sessions: RwLock<Vec<Session>>,
+    /// The Claude HTTP bridge: conversations, turns, operations and their
+    /// event logs. Lazily started — nothing runs until something calls it.
+    pub bridge: BridgeState,
+    /// Claude's own Anthropic sign-in, checked once at startup. Cached because
+    /// the check is a subprocess and callers ask on every health probe.
+    pub claude_auth: RwLock<AuthStatus>,
 }
 
 impl Inner {
     pub fn new(home: ClaudeHome, config: ServerConfig, auth: Auth) -> AppState {
+        Self::with_bridge_config(home, config, auth, BridgeConfig::from_env())
+    }
+
+    /// Build the state with an explicit bridge configuration.
+    ///
+    /// Tests use this to get a bridge that never binds a real port
+    /// (`port: None`), which the environment-driven constructor cannot express
+    /// without mutating process-global state that parallel tests would race on.
+    pub fn with_bridge_config(
+        home: ClaudeHome,
+        config: ServerConfig,
+        auth: Auth,
+        bridge: BridgeConfig,
+    ) -> AppState {
         let (bus, _rx) = broadcast::channel(1024);
         Arc::new(Inner {
             home,
@@ -134,6 +156,8 @@ impl Inner {
             pending: RwLock::new(HashMap::new()),
             resolvers: std::sync::Mutex::new(HashMap::new()),
             sessions: RwLock::new(Vec::new()),
+            bridge: BridgeState::new(bridge),
+            claude_auth: RwLock::new(AuthStatus::default()),
         })
     }
 
@@ -233,6 +257,30 @@ impl Inner {
             sessions.clone()
         };
         self.broadcast(ServerEvent::Sessions(snapshot));
+    }
+
+    /// Forget a session we no longer control, so `owned` does not grow for the
+    /// life of the process and a dead conversation stops claiming it can be
+    /// driven.
+    pub async fn unmark_owned(&self, id: &str) {
+        self.owned.write().await.remove(id);
+        let snapshot = {
+            let mut sessions = self.sessions.write().await;
+            if let Some(s) = sessions.iter_mut().find(|s| s.id == id) {
+                s.owned = false;
+                s.can_inject = false;
+                s.running = false;
+            }
+            sessions.clone()
+        };
+        self.broadcast(ServerEvent::Sessions(snapshot));
+    }
+
+    /// Re-check Claude's sign-in and cache the answer.
+    pub async fn refresh_claude_auth(&self) -> AuthStatus {
+        let status = crate::claude::auth_status().await;
+        *self.claude_auth.write().await = status.clone();
+        status
     }
 
     pub fn register_resolver(

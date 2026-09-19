@@ -163,6 +163,14 @@ fn token_matches(expected: &str, presented: &str) -> bool {
     diff == 0
 }
 
+/// Whether a request presents the API token.
+///
+/// Shared by the dashboard's middleware below and the bridge's, which needs the
+/// same decision but answers with its own JSON error envelope.
+pub fn request_is_authorized(state: &AppState, req: &Request<Body>) -> bool {
+    presented_token(req).is_some_and(|tok| token_matches(&state.auth.token, &tok))
+}
+
 /// Auth middleware applied to `/api`, `/ws`, and `/hooks`.
 pub async fn require_token(
     State(state): State<AppState>,

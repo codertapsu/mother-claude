@@ -6,8 +6,37 @@ a single module absorbs version churn.
 
 ## Environment this was built against
 
-- Claude Code `2.1.185` on macOS (Apple M4 Pro, `aarch64-apple-darwin`).
+- Claude Code `2.1.185` originally; re-verified against `2.1.276` on macOS
+  (Apple M4 Pro, `aarch64-apple-darwin`). On `2.1.276`, `agents --json` also
+  returns `name` and `status` (`idle`/`busy`).
 - Node v24.15.0, Rust 1.96.0, git 2.50.1, Xcode CLT present.
+
+## Agent SDK / CLI gotchas found while building the HTTP bridge
+
+- **Exporting `CLAUDE_CONFIG_DIR` breaks authentication**, even when it points at
+  the default `~/.claude`. A child spawned with it set answers every turn with
+  `Not logged in · Please run /login`, while the identical child without it works.
+  Credentials appear to resolve differently once the override is present (the
+  CLI also relocates `~/.claude.json` into the config dir in that mode). So
+  `bridge/host.rs` never sets it and lets the child inherit whatever the user
+  set. Verified against SDK `0.3.186` (bundled CLI `2.1.186`).
+- **`resume` for a session id with no transcript fails the whole query** with
+  `No conversation found with session ID: …` — it does *not* start a fresh
+  session. A brand-new conversation must use `Options.sessionId` to pre-assign
+  its id; `resume` is only for a genuine continuation. The Path A sidecar passed
+  `resume` unconditionally and so failed on every fresh session until this was
+  fixed (`sidecar/src/agent-bridge.ts`, `MC_RESUME`).
+- **An unusable account is reported as a *successful* turn.** The SDK emits
+  `subtype: "success"` with `is_error: true` and the failure text in `result`.
+  Checking `subtype` alone reports a completed turn containing a sentence where
+  the answer should be; check `is_error` too.
+- **The SDK ships its own CLI.** `@anthropic-ai/claude-agent-sdk@0.3.186` bundles
+  Claude Code `2.1.186` (~216 MB) and runs *that*, not whatever `claude` is on
+  `PATH` (here, `2.1.276`), unless `Options.pathToClaudeCodeExecutable` says
+  otherwise. Two versions are live in one app; expect small behavioural drift.
+- **Images must not be tiny.** A 2×2 PNG is rejected upstream with an untyped
+  "an image in the conversation could not be processed"; 200×200 works. The
+  bridge validates dimensions itself so the caller gets a typed error.
 
 ## Schema / CLI differences from the implementation brief
 

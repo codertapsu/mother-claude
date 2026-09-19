@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Claude bridge console</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <header>
+      <h1>Claude bridge console</h1>
+      <p>
+        A runnable client for this bridge — no build step, one
+        <a href="../client.mjs">ES module</a>. See the
+        <a href="../docs">API reference</a>.
+      </p>
+    </header>
+
+    <main>
+      <section class="panel">
+        <h2>Connection</h2>
+        <div class="row">
+          <label>
+            Base URL
+            <input id="base-url" type="text" placeholder="leave blank to use this origin" />
+          </label>
+          <label>
+            Token
+            <input id="token" type="password" placeholder="blank if not required" />
+          </label>
+          <button id="connect" type="button">Check</button>
+        </div>
+        <p id="health" class="status"></p>
+      </section>
+
+      <section class="panel">
+        <h2>Conversation</h2>
+        <div class="row">
+          <label>
+            Working directory
+            <input id="cwd" type="text" placeholder="server default" />
+          </label>
+          <label>
+            Model
+            <select id="model"><option value="">default</option></select>
+          </label>
+          <label>
+            Permissions
+            <select id="permission-mode">
+              <option value="default">ask (default)</option>
+              <option value="plan">plan only</option>
+              <option value="acceptEdits">accept edits</option>
+              <option value="dontAsk">don't ask</option>
+            </select>
+          </label>
+          <button id="create" type="button">Start</button>
+        </div>
+        <div class="row">
+          <label class="grow">
+            Conversation id
+            <input id="thread-id" type="text" placeholder="created or pasted" />
+          </label>
+          <button id="interrupt" type="button" disabled>Interrupt</button>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2>Message</h2>
+        <textarea id="message" rows="4" placeholder="Ask Claude something…"></textarea>
+        <div class="row">
+          <label class="grow">
+            Images
+            <input id="images" type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple />
+          </label>
+          <button id="send" type="button">Send</button>
+        </div>
+        <p id="send-status" class="status"></p>
+      </section>
+
+      <section class="panel" id="requests-panel" hidden>
+        <h2>Waiting on you</h2>
+        <div id="requests"></div>
+      </section>
+
+      <section class="panel">
+        <h2>Stream</h2>
+        <div id="stream" class="stream"></div>
+      </section>
+    </main>
+
+    <script type="module" src="app.js"></script>
+  </body>
+</html>
