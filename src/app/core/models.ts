@@ -75,6 +75,54 @@ export interface LaunchOverrides {
   thinking?: 'on' | 'off';
 }
 
+/** Defaults every conversation the bridge creates inherits, chosen when the
+ * API is started. Every one is overridable per request. */
+export interface BridgeDefaults {
+  cwd?: string;
+  model?: string;
+  effort?: string;
+  thinking?: 'on' | 'off';
+  permissionMode?: string;
+  settingSources?: string[];
+  systemPromptAppend?: string;
+  /** The conversation unaddressed messages join. */
+  defaultThread?: string;
+}
+
+/** A conversation the bridge is running. */
+export interface BridgeThread {
+  threadId: string;
+  cwd: string;
+  createdAt: number;
+  model?: string;
+  effort?: string;
+  permissionMode: string;
+  title?: string;
+  persisted: boolean;
+  activeTurn?: string;
+}
+
+/** Everything the API screen needs: `GET /api/bridge`. */
+export interface BridgeStatus {
+  enabled: boolean;
+  running: boolean;
+  port?: number;
+  url?: string;
+  startedAt?: number;
+  requireToken: boolean;
+  hostBuilt: boolean;
+  hostRunning: boolean;
+  messagesApi: boolean;
+  claudeAuthenticated: boolean;
+  claudeAccount: string;
+  activeOperations: number;
+  defaults: BridgeDefaults;
+  activeThread?: string;
+  threads: BridgeThread[];
+  docsUrl?: string;
+  consoleUrl?: string;
+}
+
 export interface Session {
   id: string;
   cwd: string;

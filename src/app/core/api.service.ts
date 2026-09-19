@@ -2,6 +2,8 @@ import { Injectable, inject } from '@angular/core';
 
 import { ConfigService } from './config.service';
 import {
+  BridgeDefaults,
+  BridgeStatus,
   GitOverview,
   LaunchDefaults,
   LaunchOverrides,
@@ -123,6 +125,32 @@ export class ApiService {
 
   installHooks(): Promise<unknown> {
     return this.req('/hooks/install', { method: 'POST' });
+  }
+
+  // --- The Claude HTTP bridge (docs/BRIDGE.md) ---
+
+  getBridge(): Promise<BridgeStatus> {
+    return this.req<BridgeStatus>('/bridge');
+  }
+
+  /** Start the API with these defaults. Returns the new status. */
+  startBridge(defaults: BridgeDefaults): Promise<BridgeStatus> {
+    return this.req<BridgeStatus>('/bridge/start', {
+      method: 'POST',
+      body: JSON.stringify({ defaults }),
+    });
+  }
+
+  stopBridge(): Promise<BridgeStatus> {
+    return this.req<BridgeStatus>('/bridge/stop', { method: 'POST', body: '{}' });
+  }
+
+  /** Change which conversation unaddressed messages join. */
+  setBridgeThread(threadId: string | null): Promise<BridgeStatus> {
+    return this.req<BridgeStatus>('/bridge/active-thread', {
+      method: 'POST',
+      body: JSON.stringify({ threadId }),
+    });
   }
 }
 

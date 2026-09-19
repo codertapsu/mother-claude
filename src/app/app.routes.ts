@@ -19,6 +19,10 @@ export const routes: Routes = [
       import('./pages/services/services.component').then((m) => m.ServicesComponent),
   },
   {
+    path: 'api',
+    loadComponent: () => import('./pages/bridge/bridge.component').then((m) => m.BridgeComponent),
+  },
+  {
     path: 'settings',
     loadComponent: () =>
       import('./pages/settings/settings.component').then((m) => m.SettingsComponent),
