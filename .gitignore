@@ -31,6 +31,10 @@ mother-claude.token
 *.cer
 certificate*.p12
 latest.json
+# Apple notarization credentials, sourced before a local macOS release
+# (see docs/RELEASING.md). Contains an app-specific password.
+scripts/apple-credentials.env
+*credentials*.env
 
 # OS / editor
 .DS_Store
