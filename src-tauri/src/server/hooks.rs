@@ -48,7 +48,9 @@ use serde_json::Value;
 use tokio::sync::oneshot;
 
 pub use self::binding::{verify as verify_binding, Binding};
-pub use self::machine::{Arm, CancelError, WaitSignal, QUEUE_CAP};
+pub use self::machine::{
+    Arm, CancelError, DropReason, EnqueueError, WaitSignal, QUEUE_CAP, RELAY_TTL_MS,
+};
 pub use self::payload::{input_key, is_safe_id, is_uuid, HookPayload};
 pub use self::relay::{MARKER_PREFIX, TEXT_MAX_BYTES as RELAY_TEXT_MAX};
 
@@ -358,18 +360,19 @@ pub fn permission_mode(state: &AppState, session_id: &str) -> Option<String> {
         .and_then(|s| s.permission_mode.clone())
 }
 
-/// Whether the session runs in bypassPermissions: the latest hook report,
-/// else the data layer's effective permission mode (hook / owned notes,
-/// transcript records, pidfile argv), else the summary's mode, else the
-/// process argv (`--dangerously-skip-permissions`,
-/// `--permission-mode bypassPermissions`).
+/// Whether the session runs in bypassPermissions. Fails closed across the
+/// live sources: the latest hook report *or* the data layer's effective
+/// permission mode (the newest of hook / owned notes and transcript
+/// permission-mode records — a switch at the desk while idle shows up there
+/// first) saying bypass is enough. With neither, the summary's mode, else the
+/// process argv (`--dangerously-skip-permissions`, `--permission-mode
+/// bypassPermissions`).
 pub async fn effective_bypass(state: &AppState, session: &SessionSummary) -> bool {
     const BYPASS: &str = crate::claude::caps::BYPASS_MODE;
-    if let Some(mode) = permission_mode(state, &session.id) {
-        return mode == BYPASS;
-    }
-    if let Some(mode) = crate::claude::summaries::effective_permission_mode(state, &session.id) {
-        return mode == BYPASS;
+    let hook = permission_mode(state, &session.id);
+    let latest = crate::claude::summaries::effective_permission_mode(state, &session.id);
+    if hook.is_some() || latest.is_some() {
+        return hook.as_deref() == Some(BYPASS) || latest.as_deref() == Some(BYPASS);
     }
     if let Some(mode) = &session.permission_mode {
         return mode == BYPASS;
@@ -428,8 +431,40 @@ fn record_delivered(session: &str, msgs: &[QueuedMessage]) {
     }
 }
 
+/// Tell the senders about queued relays the state machine dropped (expired,
+/// session ended, session now in bypassPermissions) and refresh those
+/// sessions' queue counts.
+async fn publish_dropped(state: &AppState) {
+    let dropped = state.hooks.lock().take_dropped();
+    let mut sessions: Vec<String> = Vec::new();
+    for (session, msg, reason) in dropped {
+        tracing::info!(session = %session, message = %msg.id, ?reason, "relay dropped");
+        let text = match reason {
+            DropReason::Expired => format!(
+                "A queued message was not delivered: nothing picked it up within {} minutes.",
+                RELAY_TTL_MS / 60_000
+            ),
+            DropReason::SessionEnded => {
+                "A queued message was not delivered: the session ended first.".to_string()
+            }
+            DropReason::Bypass => "A queued message was withdrawn: the session switched to \
+                 bypassPermissions, where messages need this computer or a device allowed \
+                 dangerous actions."
+                .to_string(),
+        };
+        super::ws::publish_notice(state, NoticeLevel::Warning, text, Some(&session));
+        if !sessions.contains(&session) {
+            sessions.push(session);
+        }
+    }
+    for session in sessions {
+        crate::claude::caps::refresh(state, &session).await;
+    }
+}
+
 /// Carry out what the state machine decided; returns the hook response.
 async fn apply(state: &AppState, session: &str, out: machine::Outcome) -> Value {
+    publish_dropped(state).await;
     for (id, reason) in &out.withdraw {
         pending::withdraw(state, id, reason).await;
     }
@@ -885,6 +920,7 @@ pub async fn wait(
 ) -> Response {
     let p = HookPayload::parse(&body).unwrap_or_default();
     drop(body);
+    let mode = p.permission_mode.clone();
     let session = if p.session_id.is_empty() {
         q.get("session").cloned().unwrap_or_default()
     } else {
@@ -926,7 +962,16 @@ pub async fn wait(
     if !bound(&state, &session, Some(ctx.peer), "wait").await {
         return gone("not the session's process");
     }
-    let arm = state.hooks.lock().arm_waiter(&session, Some(pid), now_ms());
+    let arm = {
+        let mut hub = state.hooks.lock();
+        // The Stop payload's mode is the freshest word on what a wake may
+        // hand over.
+        if let Some(mode) = mode.as_deref() {
+            hub.note_mode(&session, mode);
+        }
+        hub.arm_waiter(&session, Some(pid), now_ms())
+    };
+    publish_dropped(&state).await;
     match arm {
         Arm::Immediate(text, msgs) => {
             record_delivered(&session, &msgs);
@@ -969,7 +1014,11 @@ pub async fn enqueue_relay(
     session_id: &str,
     text: &str,
 ) -> ApiResult<QueuedMessage> {
-    enqueue_inner(state, session_id, text, None).await
+    let bypass = match state.find_session(session_id).await {
+        Some(s) => effective_bypass(state, &s).await,
+        None => false,
+    };
+    enqueue_inner(state, session_id, text, None, true, bypass).await
 }
 
 /// [`enqueue_relay`] for a dashboard caller: a session running without
@@ -981,29 +1030,33 @@ pub async fn enqueue_relay_as(
     session_id: &str,
     text: &str,
 ) -> ApiResult<QueuedMessage> {
-    if !ctx.may_dangerous() {
-        if let Some(s) = state.find_session(session_id).await {
-            if effective_bypass(state, &s).await {
-                return Err(ApiError::dangerous_blocked(
-                    "This session runs without permission prompts (bypassPermissions); \
-                     messages to it are restricted to this computer or a device allowed \
-                     dangerous actions.",
-                ));
-            }
-        }
+    let may_dangerous = ctx.may_dangerous();
+    let bypass = match state.find_session(session_id).await {
+        Some(s) => effective_bypass(state, &s).await,
+        None => false,
+    };
+    if bypass && !may_dangerous {
+        return Err(ApiError::dangerous_blocked(
+            "This session runs without permission prompts (bypassPermissions); messages to it \
+             are restricted to this computer or a device allowed dangerous actions.",
+        ));
     }
     let from = ctx
         .device_id()
         .map(str::to_string)
         .unwrap_or_else(|| ctx.principal.label().to_string());
-    enqueue_inner(state, session_id, text, Some(from)).await
+    enqueue_inner(state, session_id, text, Some(from), may_dangerous, bypass).await
 }
 
+/// Queue `text`; `sender_may_dangerous` keeps it deliverable should the
+/// session be in (or switch to) bypassPermissions when it goes out.
 async fn enqueue_inner(
     state: &AppState,
     session_id: &str,
     text: &str,
     from: Option<String>,
+    sender_may_dangerous: bool,
+    bypass_now: bool,
 ) -> ApiResult<QueuedMessage> {
     if !is_uuid(session_id) {
         return Err(ApiError::no_such_session(session_id));
@@ -1011,15 +1064,28 @@ async fn enqueue_inner(
     let text = relay::sanitize(text)?;
     let digest = crate::server::auth::sha256_hex(&text);
     let now = now_ms();
-    let res = state.hooks.lock().enqueue(session_id, text, now);
-    let (msg, delivered) = res.map_err(|_| {
-        ApiError::conflict(
+    let res = {
+        let mut hub = state.hooks.lock();
+        if bypass_now {
+            // What the dashboard knows (a switch at the desk while idle
+            // reaches no hook): hand-overs check it too.
+            hub.note_mode(session_id, crate::claude::caps::BYPASS_MODE);
+        }
+        hub.enqueue_from(session_id, text, now, sender_may_dangerous)
+    };
+    publish_dropped(state).await;
+    let (msg, delivered) = res.map_err(|e| match e {
+        EnqueueError::Full => ApiError::conflict(
             "queue_full",
             format!(
                 "{QUEUE_CAP} messages are already waiting for this session; wait for them to \
                  be delivered or cancel some."
             ),
-        )
+        ),
+        EnqueueError::Ended => ApiError::conflict(
+            "session_ended",
+            "This session has ended; continue it here to send it a message.",
+        ),
     })?;
     // Audit: who relayed what (by hash; never the text).
     tracing::info!(
@@ -1139,6 +1205,7 @@ async fn watch_loop(state: AppState) {
             if dropped > 0 {
                 tracing::debug!(dropped, "forgot idle hook sessions");
             }
+            publish_dropped(&state).await;
         }
     }
 }

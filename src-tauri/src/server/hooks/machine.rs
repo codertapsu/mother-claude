@@ -61,6 +61,12 @@ const IDLE_CONFIRM_MS: i64 = 1_000;
 const HISTORY_CAP: usize = 64;
 /// Queued messages per session.
 pub const QUEUE_CAP: usize = 20;
+/// A relay not handed over within this long is dropped (failed), never
+/// delivered into a context the user has long forgotten (a resume days
+/// later).
+pub const RELAY_TTL_MS: i64 = 30 * 60 * 1000;
+/// The mode in which nobody approves tool calls.
+const BYPASS: &str = "bypassPermissions";
 
 /// What a parked `/hooks/wait` waiter is told.
 #[derive(Debug, PartialEq, Eq)]
@@ -108,6 +114,28 @@ pub struct Subagent {
 #[derive(Debug, Clone)]
 struct Queued {
     msg: QueuedMessage,
+    /// The sender may cause unapproved execution (it could have messaged a
+    /// bypassPermissions session directly).
+    sender_may_dangerous: bool,
+}
+
+/// Why a queued relay was dropped instead of delivered.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DropReason {
+    /// Not handed over within [`RELAY_TTL_MS`].
+    Expired,
+    /// The session ended with it still queued.
+    SessionEnded,
+    /// The session switched to bypassPermissions and the sender may not
+    /// cause unapproved execution.
+    Bypass,
+}
+
+/// Why a message could not be queued.
+#[derive(Debug, PartialEq, Eq)]
+pub enum EnqueueError {
+    Full,
+    Ended,
 }
 
 /// One session's hook state.
@@ -142,6 +170,8 @@ pub struct SessionHooks {
     left_waiting_at: Option<i64>,
     /// Relays whose delivery a later UserPromptSubmit confirmed.
     pub confirmed_relays: u64,
+    /// Queued relays dropped since the glue last looked (for a notice).
+    dropped: Vec<(QueuedMessage, DropReason)>,
 }
 
 impl SessionHooks {
@@ -196,39 +226,78 @@ impl SessionHooks {
         }
     }
 
+    /// Drop the queued messages `which` selects, as `reason` (never
+    /// delivered, no longer cancellable, reported to the glue).
+    fn drop_queued(&mut self, reason: DropReason, which: impl Fn(&Queued) -> bool) {
+        let (gone, keep): (Vec<Queued>, Vec<Queued>) =
+            std::mem::take(&mut self.queue).into_iter().partition(which);
+        self.queue = keep;
+        for q in gone {
+            let mut m = q.msg;
+            m.status = match reason {
+                DropReason::Bypass => QueueStatus::Cancelled,
+                DropReason::Expired | DropReason::SessionEnded => QueueStatus::Failed,
+            };
+            m.cancellable = false;
+            self.remember(&m.id, m.status);
+            self.dropped.push((m, reason));
+        }
+    }
+
+    /// What may never be handed over now: messages past their TTL, and —
+    /// the session being in bypassPermissions *now* — messages whose sender
+    /// may not cause unapproved execution (they were queued before the
+    /// switch; the gate at enqueue time no longer covers them).
+    fn prune_queue(&mut self, now: i64) {
+        self.drop_queued(DropReason::Expired, |q| {
+            now - q.msg.created_at > RELAY_TTL_MS
+        });
+        if self.permission_mode.as_deref() == Some(BYPASS) {
+            self.drop_queued(DropReason::Bypass, |q| !q.sender_may_dangerous);
+        }
+    }
+
     /// Hand the queued messages over, oldest first, as many whole ones as
     /// fit in one `additionalContext` (the rest stay queued and cancellable
     /// for the next hand-over): marks them delivered and returns the relay
-    /// text plus the messages.
-    fn claim(&mut self) -> Option<(String, Vec<QueuedMessage>)> {
+    /// text plus the messages. Expired messages, and those a session now in
+    /// bypassPermissions may not take, are dropped first.
+    fn claim_raw(&mut self, now: i64) -> Option<(String, Vec<Queued>)> {
+        self.prune_queue(now);
         if self.queue.is_empty() {
             return None;
         }
         let queued: Vec<QueuedMessage> = self.queue.iter().map(|q| q.msg.clone()).collect();
         let take = relay::fitting(&self.marker, &queued, !self.marker_announced);
-        let mut msgs: Vec<QueuedMessage> = self.queue.drain(..take).map(|q| q.msg).collect();
-        for m in &mut msgs {
-            m.status = QueueStatus::Delivered;
-            m.cancellable = false;
+        let mut taken: Vec<Queued> = self.queue.drain(..take).collect();
+        for q in &mut taken {
+            q.msg.status = QueueStatus::Delivered;
+            q.msg.cancellable = false;
         }
-        for m in &msgs {
-            self.remember(&m.id, QueueStatus::Delivered);
+        for q in &taken {
+            self.remember(&q.msg.id, QueueStatus::Delivered);
         }
+        let msgs: Vec<QueuedMessage> = taken.iter().map(|q| q.msg.clone()).collect();
         let text = relay::build(&self.marker, &msgs, !self.marker_announced);
         self.marker_announced = true;
-        Some((text, msgs))
+        Some((text, taken))
+    }
+
+    fn claim(&mut self, now: i64) -> Option<(String, Vec<QueuedMessage>)> {
+        self.claim_raw(now)
+            .map(|(text, taken)| (text, taken.into_iter().map(|q| q.msg).collect()))
     }
 
     /// Undo a claim whose delivery failed (the waiter vanished).
-    fn unclaim(&mut self, msgs: Vec<QueuedMessage>, announced_before: bool) {
-        let ids: Vec<String> = msgs.iter().map(|m| m.id.clone()).collect();
+    fn unclaim(&mut self, taken: Vec<Queued>, announced_before: bool) {
+        let ids: Vec<String> = taken.iter().map(|q| q.msg.id.clone()).collect();
         self.history.retain(|(id, _)| !ids.contains(id));
-        let mut back: Vec<Queued> = msgs
+        let mut back: Vec<Queued> = taken
             .into_iter()
-            .map(|mut m| {
-                m.status = QueueStatus::Queued;
-                m.cancellable = true;
-                Queued { msg: m }
+            .map(|mut q| {
+                q.msg.status = QueueStatus::Queued;
+                q.msg.cancellable = true;
+                q
             })
             .collect();
         back.append(&mut self.queue);
@@ -242,11 +311,11 @@ impl SessionHooks {
             return Vec::new();
         }
         let announced_before = self.marker_announced;
-        let Some((text, msgs)) = self.claim() else {
+        let Some((text, taken)) = self.claim_raw(now) else {
             return Vec::new();
         };
         let Some(w) = self.waiter.take() else {
-            self.unclaim(msgs, announced_before);
+            self.unclaim(taken, announced_before);
             return Vec::new();
         };
         match w.tx.send(WaitSignal::Release(text)) {
@@ -256,10 +325,10 @@ impl SessionHooks {
                 // until it ends.
                 self.turn_active = true;
                 self.turn_started_ms = now;
-                msgs
+                taken.into_iter().map(|q| q.msg).collect()
             }
             Err(_) => {
-                self.unclaim(msgs, announced_before);
+                self.unclaim(taken, announced_before);
                 Vec::new()
             }
         }
@@ -549,7 +618,7 @@ impl Hub {
                     s.start_turn(now);
                     if s.interrupt {
                         out.response = relay::interrupt_output();
-                    } else if let Some((text, msgs)) = s.claim() {
+                    } else if let Some((text, msgs)) = s.claim(now) {
                         out.response = relay::additional_context("PostToolUse", &text);
                         out.delivered = msgs;
                     }
@@ -563,7 +632,7 @@ impl Hub {
                         .map(|id| (id, "the turn ended")),
                 );
                 if ev.name == "Stop" {
-                    if let Some((text, msgs)) = s.claim() {
+                    if let Some((text, msgs)) = s.claim(now) {
                         // The turn goes on with the relayed message.
                         out.response = relay::additional_context("Stop", &text);
                         out.delivered = msgs;
@@ -622,6 +691,8 @@ impl Hub {
                 s.turn_active = false;
                 s.interrupt = false;
                 s.in_flight.clear();
+                // Never carried into a resume, possibly days later.
+                s.drop_queued(DropReason::SessionEnded, |_| true);
                 if let Some(w) = s.waiter.take() {
                     let _ = w.tx.send(WaitSignal::Gone);
                 }
@@ -752,16 +823,34 @@ impl Hub {
             .collect()
     }
 
-    /// Queue a relay message; delivered at once when the session is idle and
-    /// a waiter is parked. Returns the message (status `delivered` when it
-    /// went out) and everything delivered with it.
+    /// [`Self::enqueue_from`] for a sender with the dangerous right.
+    #[cfg(test)]
     pub fn enqueue(
         &mut self,
         session: &str,
         text: String,
         now: i64,
-    ) -> Result<(QueuedMessage, Vec<QueuedMessage>), QueuedMessage> {
+    ) -> Result<(QueuedMessage, Vec<QueuedMessage>), EnqueueError> {
+        self.enqueue_from(session, text, now, true)
+    }
+
+    /// Queue a relay message; delivered at once when the session is idle and
+    /// a waiter is parked. Returns the message (status `delivered` when it
+    /// went out) and everything delivered with it. `sender_may_dangerous`:
+    /// whether it may still be delivered should the session switch to
+    /// bypassPermissions before it goes out.
+    pub fn enqueue_from(
+        &mut self,
+        session: &str,
+        text: String,
+        now: i64,
+        sender_may_dangerous: bool,
+    ) -> Result<(QueuedMessage, Vec<QueuedMessage>), EnqueueError> {
         let s = session_mut(&mut self.sessions, &self.secret, session);
+        if s.ended {
+            return Err(EnqueueError::Ended);
+        }
+        s.prune_queue(now);
         let msg = QueuedMessage {
             id: uuid::Uuid::new_v4().to_string(),
             text,
@@ -776,9 +865,12 @@ impl Hub {
             cancellable: true,
         };
         if s.queue.len() >= QUEUE_CAP {
-            return Err(msg);
+            return Err(EnqueueError::Full);
         }
-        s.queue.push(Queued { msg: msg.clone() });
+        s.queue.push(Queued {
+            msg: msg.clone(),
+            sender_may_dangerous,
+        });
         let delivered = s.try_release(now);
         let msg = delivered
             .iter()
@@ -786,6 +878,26 @@ impl Hub {
             .cloned()
             .unwrap_or(msg);
         Ok((msg, delivered))
+    }
+
+    /// A fresher permission mode for the session than its last hook event
+    /// carried (the wake poll's Stop payload, the dashboard's effective
+    /// mode): it decides what a later hand-over may deliver.
+    pub fn note_mode(&mut self, session: &str, mode: &str) {
+        if let Some(s) = self.sessions.get_mut(session) {
+            if !mode.is_empty() {
+                s.permission_mode = Some(mode.to_string());
+            }
+        }
+    }
+
+    /// Queued relays dropped since the last call, per session (for notices).
+    pub fn take_dropped(&mut self) -> Vec<(String, QueuedMessage, DropReason)> {
+        let mut out = Vec::new();
+        for (id, s) in &mut self.sessions {
+            out.extend(s.dropped.drain(..).map(|(m, r)| (id.clone(), m, r)));
+        }
+        out
     }
 
     /// Take a still-queued message back.
@@ -824,7 +936,7 @@ impl Hub {
             let _ = old.tx.send(WaitSignal::Superseded);
         }
         if !s.turn_active {
-            if let Some((text, msgs)) = s.claim() {
+            if let Some((text, msgs)) = s.claim(now) {
                 s.last_waiter_end_ms = now;
                 s.turn_active = true;
                 s.turn_started_ms = now;
@@ -906,11 +1018,15 @@ impl Hub {
     /// nothing queued or held.
     pub fn gc(&mut self, now: i64) -> usize {
         const HOUR: i64 = 60 * 60 * 1000;
+        for s in self.sessions.values_mut() {
+            s.prune_queue(now);
+        }
         let held = &self.held;
         let before = self.sessions.len();
         self.sessions.retain(|id, s| {
             let idle_for = now - s.last_event_ms;
             let busy = !s.queue.is_empty()
+                || !s.dropped.is_empty()
                 || s.waiter.is_some()
                 || held.values().any(|h| &h.session == id);
             busy || !((s.ended && idle_for > HOUR) || idle_for > 24 * HOUR)
@@ -1582,17 +1698,105 @@ mod tests {
     }
 
     #[test]
+    fn messages_queued_before_a_switch_to_bypass_need_a_dangerous_sender() {
+        let mut hub = Hub::new();
+        hub.on_event(
+            &Event {
+                prompt_id: Some("p1"),
+                permission_mode: Some("default"),
+                ..ev("UserPromptSubmit")
+            },
+            1,
+        );
+        let (phone, _) = hub
+            .enqueue_from(S, "from the phone".into(), 2, false)
+            .unwrap();
+        let (mac, _) = hub.enqueue_from(S, "from the Mac".into(), 3, true).unwrap();
+        // Shift+Tab at the desk: the next hook reports bypassPermissions.
+        let out = hub.on_event(
+            &Event {
+                tool_use_id: Some("t1"),
+                permission_mode: Some(BYPASS),
+                ..ev("PostToolUse")
+            },
+            4,
+        );
+        let ctx = out.response["hookSpecificOutput"]["additionalContext"]
+            .as_str()
+            .unwrap();
+        assert!(ctx.contains("from the Mac") && !ctx.contains("from the phone"));
+        assert_eq!(out.delivered.len(), 1);
+        assert_eq!(out.delivered[0].id, mac.id);
+        let dropped = hub.take_dropped();
+        assert_eq!(dropped.len(), 1);
+        assert_eq!(dropped[0].1.id, phone.id);
+        assert_eq!(dropped[0].1.status, QueueStatus::Cancelled);
+        assert_eq!(dropped[0].2, DropReason::Bypass);
+        assert!(hub.take_dropped().is_empty(), "reported once");
+        assert_eq!(hub.cancel(S, &phone.id).unwrap_err(), CancelError::NotFound);
+
+        // The wake path checks too: the Stop payload's mode is noted first.
+        hub.on_event(&ev("Stop"), 5);
+        hub.enqueue_from(S, "idle, from the phone".into(), 6, false)
+            .unwrap();
+        hub.note_mode(S, BYPASS);
+        match hub.arm_waiter(S, Some(42), 7) {
+            Arm::Parked(..) => {}
+            Arm::Immediate(t, _) => panic!("delivered into bypass: {t}"),
+        }
+        assert_eq!(hub.take_dropped()[0].2, DropReason::Bypass);
+    }
+
+    #[test]
+    fn stale_relays_expire_and_never_outlive_their_session() {
+        let mut hub = Hub::new();
+        hub.mark_seen(S, 1);
+        let (old, _) = hub.enqueue(S, "deploy to staging".into(), 1).unwrap();
+        // Handed over only within the TTL.
+        let out = hub.on_event(&ev("Stop"), 2 + RELAY_TTL_MS);
+        assert_eq!(out.response, json!({}));
+        let dropped = hub.take_dropped();
+        assert_eq!(dropped[0].1.id, old.id);
+        assert_eq!(dropped[0].1.status, QueueStatus::Failed);
+        assert_eq!(dropped[0].2, DropReason::Expired);
+        // SessionEnd drops what is still queued, and takes nothing new.
+        hub.enqueue(S, "later".into(), 3 + RELAY_TTL_MS).unwrap();
+        hub.on_event(&ev("SessionEnd"), 4 + RELAY_TTL_MS);
+        assert!(hub.session(S).unwrap().queued().is_empty());
+        assert_eq!(hub.take_dropped()[0].2, DropReason::SessionEnded);
+        assert_eq!(
+            hub.enqueue(S, "too late".into(), 5 + RELAY_TTL_MS)
+                .unwrap_err(),
+            EnqueueError::Ended
+        );
+        // A resumed process speaks again: messages are welcome.
+        hub.on_event(
+            &Event {
+                pid: Some(7),
+                ..ev("SessionStart")
+            },
+            6 + RELAY_TTL_MS,
+        );
+        assert!(hub
+            .enqueue(S, "hello again".into(), 7 + RELAY_TTL_MS)
+            .is_ok());
+        // gc expires forgotten queues too.
+        hub.gc(8 + 2 * RELAY_TTL_MS);
+        assert!(hub.session(S).unwrap().queued().is_empty());
+        assert_eq!(hub.take_dropped()[0].2, DropReason::Expired);
+    }
+
+    #[test]
     fn the_queue_is_bounded_and_gc_keeps_busy_sessions() {
         let mut hub = Hub::new();
         for i in 0..QUEUE_CAP {
             hub.enqueue(S, format!("m{i}"), 1).unwrap();
         }
-        assert!(hub.enqueue(S, "one too many".into(), 1).is_err());
         assert_eq!(
-            hub.gc(100 * 24 * 60 * 60 * 1000),
-            0,
-            "queued messages keep it"
+            hub.enqueue(S, "one too many".into(), 1).unwrap_err(),
+            EnqueueError::Full
         );
+        assert_eq!(hub.gc(RELAY_TTL_MS), 0, "queued messages keep it");
         let other = "1a1b2c3d-0000-4000-8000-000000000000";
         hub.on_event(
             &Event {
