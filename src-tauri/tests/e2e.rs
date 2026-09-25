@@ -522,3 +522,32 @@ async fn a_phone_pairs_watches_answers_and_is_locked_out_after_revocation() {
         .unwrap();
     assert_eq!(r.status(), StatusCode::UNAUTHORIZED);
 }
+
+#[tokio::test]
+async fn api_bodies_are_capped_except_where_a_route_needs_more() {
+    let home = tempfile::tempdir().unwrap();
+    let data = tempfile::tempdir().unwrap();
+    fixture(home.path());
+    let st = state(home.path(), data.path());
+    monitor::refresh_once(&st).await;
+    let local = serve(server::router_for(st.clone(), Ingress::Loopback)).await;
+    let big = "x".repeat(100 * 1024);
+    // A command route keeps the small default.
+    let r = desk()
+        .post(format!("{local}/api/sessions/{SID}/rename"))
+        .bearer_auth(&st.auth.token)
+        .json(&json!({ "name": big }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), StatusCode::PAYLOAD_TOO_LARGE);
+    // A message may carry much more (images); it gets past the limit.
+    let r = desk()
+        .post(format!("{local}/api/sessions/{SID}/message"))
+        .bearer_auth(&st.auth.token)
+        .json(&json!({ "text": big }))
+        .send()
+        .await
+        .unwrap();
+    assert_ne!(r.status(), StatusCode::PAYLOAD_TOO_LARGE);
+}

@@ -43,7 +43,17 @@ where
     async fn from_request(req: Request, state: &S) -> Result<Self, Self::Rejection> {
         let bytes = axum::body::Bytes::from_request(req, state)
             .await
-            .map_err(|e| ApiError::bad_request(format!("Could not read the body: {e}")))?;
+            .map_err(|e| {
+                if e.status() == axum::http::StatusCode::PAYLOAD_TOO_LARGE {
+                    ApiError::new(
+                        e.status(),
+                        "payload_too_large",
+                        "The request body is too large for this endpoint.",
+                    )
+                } else {
+                    ApiError::bad_request(format!("Could not read the body: {e}"))
+                }
+            })?;
         let slice: &[u8] = if bytes.iter().all(u8::is_ascii_whitespace) {
             b"{}"
         } else {
@@ -63,6 +73,13 @@ pub async fn me(Authed(ctx): Authed, State(state): State<AppState>) -> impl Into
 /// Largest body for routes that carry images (up to 10 × 5 MB, base64) and
 /// for hook payloads (a PostToolUse carries the whole tool output).
 pub const IMAGE_BODY_MAX: usize = 64 * 1024 * 1024;
+
+/// Default body limit of every other `/api` route (JSON commands are small;
+/// routes that carry images, files or tool inputs raise it explicitly).
+pub const API_BODY_MAX: usize = 64 * 1024;
+
+/// `/bridge/start` defaults may carry a long appended system prompt.
+pub const BRIDGE_START_BODY_MAX: usize = 1024 * 1024;
 
 /// Build the `/api` router (nested at `/api` by `server::router_for`).
 pub fn api_router() -> Router<AppState> {
@@ -125,7 +142,11 @@ pub fn api_router() -> Router<AppState> {
         .route("/sessions/{id}/stop", post(control::stop))
         .route("/sessions/{id}/respawn", post(control::respawn))
         .route("/sessions/{id}/rm", post(control::rm))
-        .route("/sessions/{id}/permission-request", post(control::permission_request))
+        .route(
+            "/sessions/{id}/permission-request",
+            // The sidecar forwards whole tool inputs (a Write's content).
+            post(control::permission_request).layer(DefaultBodyLimit::max(IMAGE_BODY_MAX)),
+        )
         .route("/sessions/{id}/permission", post(control::legacy_permission))
         .route("/sessions/{id}/answer", post(control::legacy_answer))
         .route("/sessions/{id}/context", get(control::context_usage))
@@ -158,13 +179,20 @@ pub fn api_router() -> Router<AppState> {
         .route("/push/prefs", get(push::get_prefs).put(push::put_prefs))
         // ── HTTP bridge control (existing) ──
         .route("/bridge", get(crate::bridge::control::get_status))
-        .route("/bridge/start", post(crate::bridge::control::post_start))
+        .route(
+            "/bridge/start",
+            post(crate::bridge::control::post_start)
+                .layer(DefaultBodyLimit::max(BRIDGE_START_BODY_MAX)),
+        )
         .route("/bridge/stop", post(crate::bridge::control::post_stop))
         .route(
             "/bridge/active-thread",
             post(crate::bridge::control::post_active_thread),
         )
-        .route_layer(axum::middleware::from_fn(auth::require_api_principal));
+        .route_layer(axum::middleware::from_fn(auth::require_api_principal))
+        // Outermost, so a route's own limit (set closer to its handler)
+        // overrides it.
+        .layer(DefaultBodyLimit::max(API_BODY_MAX));
 
     public
         .merge(protected)
