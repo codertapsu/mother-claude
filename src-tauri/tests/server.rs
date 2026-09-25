@@ -440,6 +440,26 @@ async fn websocket_auth_and_pending_diffs() {
     assert_eq!(closed["t"], "close");
     assert_eq!(closed["code"], 4401);
 
+    // A first frame that is not an auth frame is not a rejected credential:
+    // 4408, so the client retries instead of forgetting its token.
+    let mut ws = ws_connect(&base, "").await;
+    ws.send(Message::Text(json!({ "t": "ping" }).to_string().into()))
+        .await
+        .unwrap();
+    let closed = next_json(&mut ws).await.unwrap();
+    assert_eq!(closed["t"], "close");
+    assert_eq!(closed["code"], 4408);
+
+    // An empty token is one.
+    let mut ws = ws_connect(&base, "").await;
+    ws.send(Message::Text(
+        json!({ "t": "auth", "token": "" }).to_string().into(),
+    ))
+    .await
+    .unwrap();
+    let closed = next_json(&mut ws).await.unwrap();
+    assert_eq!(closed["code"], 4401);
+
     // A local client may still use ?token=.
     let mut ws = ws_connect(&base, &format!("?token={master}")).await;
     let hello = next_json(&mut ws).await.unwrap();
