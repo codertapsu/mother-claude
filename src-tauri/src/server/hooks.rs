@@ -277,6 +277,28 @@ pub fn wake_armed(state: &AppState, session_id: &str) -> bool {
         .is_some_and(|s| s.wake(now))
 }
 
+/// A main-thread tool call younger than this may still open its permission
+/// dialog.
+const RECENT_TOOL_MS: i64 = 5_000;
+
+/// Whether a main-thread prompt is, or may be about to be, on the session's
+/// screen, so typed keystrokes would answer it: an answerable main-thread
+/// card, a held PermissionRequest, or (`strict`, for callers without the
+/// dangerous right) a main-thread tool call that started in the last few
+/// seconds and has not finished.
+pub fn main_prompt_may_be_open(state: &AppState, session_id: &str, strict: bool) -> bool {
+    let recent = strict.then_some(RECENT_TOOL_MS);
+    state
+        .hooks
+        .lock()
+        .main_prompt_open(session_id, now_ms(), recent)
+        || state
+            .pending
+            .list(session_id)
+            .iter()
+            .any(|p| p.answerable && p.agent_id.is_none())
+}
+
 /// The permission mode the session's hooks last reported.
 pub fn permission_mode(state: &AppState, session_id: &str) -> Option<String> {
     state

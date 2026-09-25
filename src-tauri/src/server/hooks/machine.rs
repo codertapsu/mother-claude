@@ -649,6 +649,28 @@ impl Hub {
         Some(hit.tool_use_id.clone())
     }
 
+    /// Whether a main-thread prompt is (or may be about to be) on the
+    /// session's screen: a held main-thread PermissionRequest, or — with
+    /// `recent_tool_ms` — an unfinished main-thread tool call that started
+    /// that recently (its permission dialog may be opening right now).
+    pub fn main_prompt_open(&self, session: &str, now: i64, recent_tool_ms: Option<i64>) -> bool {
+        if self
+            .held
+            .values()
+            .any(|h| h.session == session && h.agent_id.is_none())
+        {
+            return true;
+        }
+        let Some(window) = recent_tool_ms else {
+            return false;
+        };
+        self.sessions.get(session).is_some_and(|s| {
+            s.in_flight
+                .values()
+                .any(|f| f.agent_id.is_none() && now - f.since_ms <= window)
+        })
+    }
+
     /// Whether an interrupt is pending for the session's main thread.
     pub fn interrupt_pending(&self, session: &str) -> bool {
         self.sessions.get(session).is_some_and(|s| s.interrupt)
@@ -1450,6 +1472,28 @@ mod tests {
         );
         assert_eq!(hub.gc(2 * 60 * 60 * 1000), 1);
         assert!(hub.session(other).is_none());
+    }
+
+    #[test]
+    fn open_main_thread_prompts_are_reported() {
+        let mut hub = Hub::new();
+        assert!(!hub.main_prompt_open(S, 0, Some(5_000)));
+        pre(&mut hub, "t1", None, 1, 100);
+        pre(&mut hub, "s1", Some("agent"), 1, 100);
+        // A main-thread tool that just started may be opening a dialog.
+        assert!(hub.main_prompt_open(S, 1_000, Some(5_000)));
+        assert!(!hub.main_prompt_open(S, 1_000, None));
+        assert!(
+            !hub.main_prompt_open(S, 10_000, Some(5_000)),
+            "long-running"
+        );
+        held(&mut hub, "sub", Some("agent"), None, 200);
+        assert!(
+            !hub.main_prompt_open(S, 10_000, None),
+            "a subagent's prompt"
+        );
+        held(&mut hub, "main", None, None, 300);
+        assert!(hub.main_prompt_open(S, 10_000, None));
     }
 
     #[test]

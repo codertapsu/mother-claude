@@ -259,7 +259,7 @@ pub struct ModelBody {
 
 /// `POST /api/sessions/{id}/model {model}`.
 pub async fn set_model(
-    Authed(_ctx): Authed,
+    Authed(ctx): Authed,
     State(state): State<AppState>,
     Path(id): Path<String>,
     Body(body): Body<ModelBody>,
@@ -285,7 +285,7 @@ pub async fn set_model(
                 .update_thread(&id, move |r| r.model = Some(m))
                 .await;
         }
-        Route::Tmux(s) => tmux::send_text(&state, &s, &format!("/model {model}")).await?,
+        Route::Tmux(s) => tmux::send_text_as(&state, &ctx, &s, &format!("/model {model}")).await?,
         other => return Err(unsupported("Changing the model", &other)),
     }
     Ok(ok())
@@ -340,7 +340,7 @@ pub struct EffortBody {
 
 /// `POST /api/sessions/{id}/effort {effort}`.
 pub async fn set_effort(
-    Authed(_ctx): Authed,
+    Authed(ctx): Authed,
     State(state): State<AppState>,
     Path(id): Path<String>,
     Body(body): Body<EffortBody>,
@@ -348,11 +348,16 @@ pub async fn set_effort(
     owned::validate_launch(Some(&body.effort), None, None)?;
     match route_for(&state, &id).await? {
         Route::Owned => owned::set_effort(&state, &id, &body.effort).await?,
-        Route::Tmux(s) => tmux::send_text(&state, &s, &format!("/effort {}", body.effort)).await?,
+        Route::Tmux(s) => {
+            tmux::send_text_as(&state, &ctx, &s, &format!("/effort {}", body.effort)).await?
+        }
         other => return Err(unsupported("Changing the effort", &other)),
     }
     Ok(ok())
 }
+
+/// Characters a name typed into a terminal (`/rename <name>`) may not carry.
+const SHELL_METACHARACTERS: [char; 8] = [';', '|', '&', '$', '`', '<', '>', '\\'];
 
 #[derive(Debug, Default, Deserialize)]
 #[serde(default)]
@@ -362,7 +367,7 @@ pub struct RenameBody {
 
 /// `POST /api/sessions/{id}/rename {name}`.
 pub async fn rename(
-    Authed(_ctx): Authed,
+    Authed(ctx): Authed,
     State(state): State<AppState>,
     Path(id): Path<String>,
     Body(body): Body<RenameBody>,
@@ -378,7 +383,15 @@ pub async fn rename(
         Route::Owned => owned::rename(&state, &id, name).await?,
         Route::Tmux(s) => {
             let one_line: String = name.split_whitespace().collect::<Vec<_>>().join(" ");
-            tmux::send_text(&state, &s, &format!("/rename {one_line}")).await?
+            // Defence in depth: typed into a terminal, a name must never be
+            // able to act as a shell command line.
+            if one_line.contains(SHELL_METACHARACTERS) {
+                return Err(ApiError::unprocessable(
+                    "invalid_name",
+                    "A session name typed into its terminal may not contain ; | & $ ` < > \\.",
+                ));
+            }
+            tmux::send_text_as(&state, &ctx, &s, &format!("/rename {one_line}")).await?
         }
         other => return Err(unsupported("Renaming", &other)),
     }
