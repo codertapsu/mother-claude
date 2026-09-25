@@ -103,6 +103,14 @@ export class LiveStream {
 
   private apply(f: StreamFrame): void {
     const key = f.messageId || 'current';
+    // A status on its own (no text yet) is not worth a bubble.
+    if (
+      f.kind === 'status' &&
+      !this.pending.has(key) &&
+      !this.bubblesS().some((b) => b.messageId === key)
+    ) {
+      return;
+    }
     const current =
       this.pending.get(key) ??
       structuredCloneBubble(this.bubblesS().find((b) => b.messageId === key)) ??
