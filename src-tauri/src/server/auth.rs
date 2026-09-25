@@ -320,13 +320,13 @@ fn reject_credential(
         return Ok(());
     }
     ctx.credential_rejected = true;
-    if let Some(retry) = state.limits.blocked(ctx.client_ip) {
+    if let Some(retry) = state.limits.blocked(ctx.rate_key) {
         return Err(ApiError::too_many_requests(
             retry,
             "Too many failed authentication attempts. Try again later.",
         ));
     }
-    state.limits.record_failure(ctx.client_ip);
+    state.limits.record_failure(ctx.rate_key);
     Ok(())
 }
 
@@ -803,7 +803,7 @@ mod tests {
             &good,
             false,
         );
-        assert!(st.limits.blocked(c.client_ip).is_some());
+        assert!(st.limits.blocked(c.rate_key).is_some());
         let (id, token) = st.devices.issue_for_test("phone");
         assert!(authenticate_token(&st, &mut c, &token).is_ok());
         assert_eq!(c.principal.device_id(), Some(id.as_str()));
