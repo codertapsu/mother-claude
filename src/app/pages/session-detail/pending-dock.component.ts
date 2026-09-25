@@ -1,4 +1,12 @@
-import { ChangeDetectionStrategy, Component, computed, inject, linkedSignal } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  computed,
+  effect,
+  inject,
+  linkedSignal,
+  untracked,
+} from '@angular/core';
 
 import { PendingRef } from '../../core/models';
 import { ViewportService } from '../../core/viewport.service';
@@ -133,6 +141,22 @@ export class PendingDockComponent {
   protected readonly collapsed = computed(
     () => this.ctx.composerFocused() && this.viewport.phone(),
   );
+
+  constructor() {
+    // A notification named a request: show that one, not the oldest. It may
+    // arrive after the list (a cold start); an unknown id (already answered)
+    // leaves the dock as it is.
+    effect(() => {
+      const id = this.ctx.focusPending();
+      if (!id) return;
+      const i = this.list().findIndex((p) => p.item.id === id);
+      if (i < 0) return;
+      untracked(() => {
+        this.index.set(i);
+        this.ctx.focusPending.set(null);
+      });
+    });
+  }
 
   protected step(delta: number): void {
     const len = this.list().length;

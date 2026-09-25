@@ -1,5 +1,5 @@
 import { Component, DestroyRef, computed, inject } from '@angular/core';
-import { ActivatedRoute, Router, RouterLink } from '@angular/router';
+import { ActivatedRoute, ParamMap, Router, RouterLink } from '@angular/router';
 
 import { ViewportService } from '../../core/viewport.service';
 import { IconComponent } from '../../shared/icon.component';
@@ -35,7 +35,8 @@ const TABS: TabDef[] = [
  * above the on-screen keyboard.
  *
  * `?view=terminal` opens the terminal view; `?tab=agents|changes|info`
- * selects a tab.
+ * selects a tab; `?pending=<id>` (a notification tap) opens Chat with that
+ * request in front.
  */
 @Component({
   selector: 'mc-session-detail',
@@ -90,26 +91,42 @@ export class SessionDetailComponent {
 
   constructor() {
     const subs = [
-      this.route.paramMap.subscribe((p) => this.ctx.open(p.get('id') ?? '')),
-      this.route.queryParamMap.subscribe((q) => {
-        const tab = q.get('tab') as SessionTab | null;
-        if (tab && TABS.some((t) => t.id === tab)) this.ctx.tab.set(tab);
-        if (q.get('view') === 'terminal') {
-          this.ctx.terminalOpen.set(true);
-          // Consume it, so closing the sheet and reloading doesn't reopen it.
-          void this.router.navigate([], {
-            relativeTo: this.route,
-            queryParams: { view: null },
-            queryParamsHandling: 'merge',
-            replaceUrl: true,
-          });
-        }
+      this.route.paramMap.subscribe((p) => {
+        const id = p.get('id') ?? '';
+        if (id === this.ctx.id()) return;
+        this.ctx.open(id);
+        // The router emits query params before params: re-apply them to the
+        // session just opened (open() resets the tab).
+        this.applyQuery(this.route.snapshot.queryParamMap);
       }),
+      this.route.queryParamMap.subscribe((q) => this.applyQuery(q)),
     ];
     inject(DestroyRef).onDestroy(() => {
       subs.forEach((s) => s.unsubscribe());
       this.ctx.destroy();
     });
+  }
+
+  private applyQuery(q: ParamMap): void {
+    const tab = q.get('tab') as SessionTab | null;
+    if (tab && TABS.some((t) => t.id === tab)) this.ctx.tab.set(tab);
+    const pending = q.get('pending');
+    if (pending) {
+      // The request is answered on Chat, whatever tab was open before.
+      this.ctx.tab.set('chat');
+      this.ctx.focusPending.set(pending);
+    }
+    const terminal = q.get('view') === 'terminal';
+    if (terminal) this.ctx.terminalOpen.set(true);
+    if (terminal || pending) {
+      // Consume them, so a reload doesn't reopen the sheet or jump back.
+      void this.router.navigate([], {
+        relativeTo: this.route,
+        queryParams: { view: null, pending: null },
+        queryParamsHandling: 'merge',
+        replaceUrl: true,
+      });
+    }
   }
 
   protected select(tab: SessionTab): void {

@@ -89,6 +89,9 @@ export class SessionContext {
   readonly isDesktop = this.auth.isDesktop;
 
   readonly tab = signal<SessionTab>('chat');
+  /** A pending request to bring forward in the dock (`?pending=<id>`, e.g.
+   * from a notification). Cleared once the dock showed it. */
+  readonly focusPending = signal<string | null>(null);
   /** The composer asked the header to open a picker (`/model` etc.). */
   readonly openPicker = signal<PickerKind | null>(null);
   readonly terminalOpen = signal(false);
@@ -139,11 +142,14 @@ export class SessionContext {
     });
   }
 
-  /** Switch to another session (the route reuses the page for /session/B). */
+  /** Switch to another session (the route reuses the page for /session/B).
+   * Every session opens on Chat, where its requests and the composer are. */
   open(id: string): void {
     if (id === this.id()) return;
     this.close();
     this.id.set(id);
+    this.tab.set('chat');
+    this.focusPending.set(null);
     this.detail.set(null);
     this.loading.set(true);
     this.loadError.set('');
