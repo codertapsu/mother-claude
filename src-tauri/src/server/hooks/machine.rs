@@ -364,20 +364,29 @@ pub enum CancelError {
 }
 
 /// Every session's hook state plus the held prompts.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct Hub {
     sessions: HashMap<String, SessionHooks>,
     held: HashMap<String, Held>,
     next_waiter: u64,
+    /// Key of the per-session relay markers ([`relay::marker_for`]).
+    secret: Vec<u8>,
+}
+
+impl Default for Hub {
+    fn default() -> Self {
+        Self::with_secret(crate::server::auth::random_bytes(32))
+    }
 }
 
 fn session_mut<'a>(
     sessions: &'a mut HashMap<String, SessionHooks>,
+    secret: &[u8],
     id: &str,
 ) -> &'a mut SessionHooks {
     sessions
         .entry(id.to_string())
-        .or_insert_with(|| SessionHooks::new(relay::new_marker()))
+        .or_insert_with(|| SessionHooks::new(relay::marker_for(secret, id)))
 }
 
 fn held_where(
@@ -395,8 +404,20 @@ fn held_where(
 }
 
 impl Hub {
+    /// A hub with a random marker key (markers change with the process).
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// A hub whose relay markers derive from `secret` (persisted, so a
+    /// session keeps its marker across restarts).
+    pub fn with_secret(secret: Vec<u8>) -> Self {
+        Self {
+            sessions: HashMap::new(),
+            held: HashMap::new(),
+            next_waiter: 0,
+            secret,
+        }
     }
 
     pub fn session(&self, id: &str) -> Option<&SessionHooks> {
@@ -436,7 +457,7 @@ impl Hub {
     /// Note that `session` sent something (an event or a wake poll) from
     /// `pid`. Returns the session.
     fn touch(&mut self, session: &str, pid: Option<u32>, now: i64) -> &mut SessionHooks {
-        let s = session_mut(&mut self.sessions, session);
+        let s = session_mut(&mut self.sessions, &self.secret, session);
         if let Some(pid) = pid {
             if s.pid.is_some_and(|old| old != pid) {
                 s.reset_process();
@@ -460,8 +481,13 @@ impl Hub {
         let mut out = Outcome::default();
         let main = ev.agent_id.is_none();
         self.touch(ev.session, ev.pid, now);
-        let Hub { sessions, held, .. } = self;
-        let s = session_mut(sessions, ev.session);
+        let Hub {
+            sessions,
+            held,
+            secret,
+            ..
+        } = self;
+        let s = session_mut(sessions, secret, ev.session);
         if let Some(m) = ev.permission_mode.filter(|m| !m.is_empty()) {
             s.permission_mode = Some(m.to_string());
         }
@@ -714,7 +740,7 @@ impl Hub {
     /// Flag an interrupt; returns the senders of the held main-thread prompts
     /// to answer with deny + interrupt.
     pub fn interrupt(&mut self, session: &str, now: i64) -> Vec<oneshot::Sender<()>> {
-        let s = session_mut(&mut self.sessions, session);
+        let s = session_mut(&mut self.sessions, &self.secret, session);
         s.interrupt = true;
         if s.last_event_ms == 0 {
             s.last_event_ms = now;
@@ -735,7 +761,7 @@ impl Hub {
         text: String,
         now: i64,
     ) -> Result<(QueuedMessage, Vec<QueuedMessage>), QueuedMessage> {
-        let s = session_mut(&mut self.sessions, session);
+        let s = session_mut(&mut self.sessions, &self.secret, session);
         let msg = QueuedMessage {
             id: uuid::Uuid::new_v4().to_string(),
             text,
@@ -1599,6 +1625,23 @@ mod tests {
         );
         held(&mut hub, "main", None, None, 300);
         assert!(hub.main_prompt_open(S, 10_000, None));
+    }
+
+    #[test]
+    fn markers_survive_a_restart_with_the_same_secret() {
+        let secret = b"persisted".to_vec();
+        let mut before = Hub::with_secret(secret.clone());
+        before.on_event(&ev("SessionStart"), 1);
+        let mut after = Hub::with_secret(secret);
+        after.mark_seen(S, 2);
+        assert_eq!(
+            before.session(S).unwrap().marker,
+            after.session(S).unwrap().marker
+        );
+        assert_ne!(
+            Hub::new().session(S).map(|s| s.marker.clone()),
+            Some(before.session(S).unwrap().marker.clone())
+        );
     }
 
     #[test]

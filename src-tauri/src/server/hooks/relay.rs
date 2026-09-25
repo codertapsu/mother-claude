@@ -5,10 +5,13 @@
 //! `mc-wake` listener (an `asyncRewake` exit 2) when it is idle. The plugin is
 //! installed user-wide, so a fixed "this is the user" sentence would be a
 //! claim of authority any web page or file could copy. Instead every session
-//! gets a random per-session marker in its SessionStart context, and every
-//! relay begins `[[MC-RELAY <marker>]]`; text claiming to be a relay without
-//! the marker is to be treated as untrusted. A session that started before the
-//! plugin was installed never saw that context, so its first relay carries the
+//! gets an unguessable per-session marker in its SessionStart context, and
+//! every relay begins `[[MC-RELAY <marker>]]`; text claiming to be a relay
+//! without the marker is to be treated as untrusted. The marker is an HMAC of
+//! the session id under a key kept in the app data dir, so it survives a
+//! Mother Claude restart (a new random one would contradict the context the
+//! session already has). A session that started before the plugin was
+//! installed never saw that context, so its first relay carries the
 //! explanation itself.
 
 use serde_json::{json, Value};
@@ -31,9 +34,39 @@ pub const CLAIM_BUDGET_CHARS: usize = 9_500;
 /// What an interrupt answers at the next hook boundary.
 pub const INTERRUPT_REASON: &str = "Interrupted from Mother Claude";
 
-/// A fresh random marker (96 bits, hex).
-pub fn new_marker() -> String {
-    crate::server::auth::random_bytes(12)
+/// HMAC-SHA256 (RFC 2104).
+pub fn hmac_sha256(key: &[u8], data: &[u8]) -> [u8; 32] {
+    use sha2::{Digest, Sha256};
+    const BLOCK: usize = 64;
+    let mut k = [0u8; BLOCK];
+    if key.len() > BLOCK {
+        k[..32].copy_from_slice(&Sha256::digest(key));
+    } else {
+        k[..key.len()].copy_from_slice(key);
+    }
+    let mut ipad = [0x36u8; BLOCK];
+    let mut opad = [0x5cu8; BLOCK];
+    for i in 0..BLOCK {
+        ipad[i] ^= k[i];
+        opad[i] ^= k[i];
+    }
+    let inner = Sha256::new()
+        .chain_update(ipad)
+        .chain_update(data)
+        .finalize();
+    Sha256::new()
+        .chain_update(opad)
+        .chain_update(inner)
+        .finalize()
+        .into()
+}
+
+/// A session's marker (96 bits, hex): HMAC(secret, session id). The secret
+/// is kept in the app data dir, so a session keeps its marker across Mother
+/// Claude restarts — its SessionStart context stays true — while nobody
+/// without the secret can predict it.
+pub fn marker_for(secret: &[u8], session_id: &str) -> String {
+    hmac_sha256(secret, session_id.as_bytes())[..12]
         .iter()
         .map(|b| format!("{b:02x}"))
         .collect()
@@ -194,12 +227,26 @@ mod tests {
     }
 
     #[test]
-    fn markers_are_random_and_long() {
-        let a = new_marker();
-        let b = new_marker();
+    fn markers_are_keyed_per_session_and_stable() {
+        // RFC 4231 test case 2.
+        let mac = hmac_sha256(b"Jefe", b"what do ya want for nothing?");
+        let hex: String = mac.iter().map(|b| format!("{b:02x}")).collect();
+        assert_eq!(
+            hex,
+            "5bdcc146bf60754e6a042426089575c75a003f089d2739839dec58b964ec3843"
+        );
+        // RFC 4231 test case 6: a key longer than the block is hashed first.
+        let mac = hmac_sha256(
+            &[0xaa; 131],
+            b"Test Using Larger Than Block-Size Key - Hash Key First",
+        );
+        assert_eq!(mac[..4], [0x60, 0xe4, 0x31, 0x59]);
+        let a = marker_for(b"secret", "s1");
         assert_eq!(a.len(), 24);
         assert!(a.bytes().all(|c| c.is_ascii_hexdigit()));
-        assert_ne!(a, b);
+        assert_eq!(a, marker_for(b"secret", "s1"), "stable across restarts");
+        assert_ne!(a, marker_for(b"secret", "s2"));
+        assert_ne!(a, marker_for(b"other", "s1"));
     }
 
     #[test]

@@ -109,6 +109,56 @@ pub struct HookHub {
 
 impl Default for HookHub {
     fn default() -> Self {
+        Self::with_hub(machine::Hub::new())
+    }
+}
+
+/// File (in the app data dir, 0600) holding the key of the relay markers.
+const RELAY_SECRET_FILE: &str = "relay-marker.key";
+
+/// The persisted relay-marker key, created on first use. `None` without a
+/// data dir, or when it can be neither read nor written (markers then change
+/// with the process, as before).
+fn load_relay_secret(data_dir: &std::path::Path) -> Option<Vec<u8>> {
+    let path = data_dir.join(RELAY_SECRET_FILE);
+    let parse = |t: &str| -> Option<Vec<u8>> {
+        let t = t.trim();
+        (t.len() == 64 && t.bytes().all(|b| b.is_ascii_hexdigit())).then(|| {
+            (0..32)
+                .filter_map(|i| u8::from_str_radix(&t[2 * i..2 * i + 2], 16).ok())
+                .collect()
+        })
+    };
+    if let Ok(text) = std::fs::read_to_string(&path) {
+        if let Some(secret) = parse(&text) {
+            return Some(secret);
+        }
+        tracing::warn!("relay marker key unreadable; replacing it");
+    }
+    let secret = crate::server::auth::random_bytes(32);
+    let hex: String = secret.iter().map(|b| format!("{b:02x}")).collect();
+    match crate::persist::write_private(&path, hex.as_bytes()) {
+        Ok(()) => Some(secret),
+        Err(e) => {
+            tracing::warn!(error = %e, "could not persist the relay marker key");
+            None
+        }
+    }
+}
+
+impl HookHub {
+    /// The hub for the app: relay markers keyed by a secret persisted in
+    /// `data_dir`, so a running session keeps its marker when Mother Claude
+    /// restarts (its SessionStart context named it). Without a data dir the
+    /// key is random per process.
+    pub fn load(data_dir: Option<&std::path::Path>) -> Self {
+        match data_dir.and_then(load_relay_secret) {
+            Some(secret) => Self::with_hub(machine::Hub::with_secret(secret)),
+            None => Self::default(),
+        }
+    }
+
+    fn with_hub(hub: machine::Hub) -> Self {
         let headless = std::env::var("MOTHER_CLAUDE_HEADLESS_HOLD_SECS")
             .ok()
             .and_then(|v| v.trim().parse::<u64>().ok())
@@ -117,7 +167,7 @@ impl Default for HookHub {
             .unwrap_or(HEADLESS_HOLD_DEFAULT)
             .min(HOLD_MAX);
         Self {
-            inner: Mutex::new(machine::Hub::new()),
+            inner: Mutex::new(hub),
             wait_hold_ms: AtomicU64::new(WAIT_HOLD.as_millis() as u64),
             headless_hold_ms: AtomicU64::new(headless.as_millis() as u64),
             last_any: AtomicI64::new(0),
@@ -1160,6 +1210,33 @@ mod tests {
         ));
         assert!(!argv_is_print("-p"));
         assert!(!argv_is_print(""));
+    }
+
+    #[test]
+    fn the_relay_marker_key_is_persisted_privately() {
+        let dir = tempfile::tempdir().unwrap();
+        let s = "0a1b2c3d-0000-4000-8000-000000000000";
+        let a = HookHub::load(Some(dir.path()));
+        a.touch(s, 1);
+        let b = HookHub::load(Some(dir.path()));
+        b.touch(s, 2);
+        assert_eq!(a.marker(s), b.marker(s), "same marker after a restart");
+        let path = dir.path().join(RELAY_SECRET_FILE);
+        assert_eq!(std::fs::read_to_string(&path).unwrap().len(), 64);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+            assert_eq!(mode, 0o600);
+        }
+        // A corrupt key is replaced; no data dir means a per-process key.
+        std::fs::write(&path, "junk").unwrap();
+        let c = HookHub::load(Some(dir.path()));
+        c.touch(s, 3);
+        assert_ne!(c.marker(s), a.marker(s));
+        let d = HookHub::load(None);
+        d.touch(s, 4);
+        assert!(d.marker(s).is_some());
     }
 
     #[test]

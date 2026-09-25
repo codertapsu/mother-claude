@@ -193,7 +193,7 @@ impl Inner {
             agents: AgentTracker::new(),
             activity: ActivityTracker::new(),
             timeline: Timeline::new(),
-            hooks: HookHub::new(),
+            hooks: HookHub::load(data_dir),
             plugin: PluginManager::new(),
             tmux: TmuxState::new(),
             push: PushService::new(data_dir),
