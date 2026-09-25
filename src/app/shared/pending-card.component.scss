@@ -23,6 +23,13 @@
   padding: 0.6rem 0.75rem;
   background: var(--panel-2);
 }
+:host(.settled) {
+  border-left-color: var(--green);
+}
+:host(:focus-visible) {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
 
 .head {
   display: flex;
@@ -236,34 +243,94 @@ p.qtext {
 }
 
 .plan {
-  margin-top: 0.55rem;
   padding: 0.65rem 0.8rem;
   background: var(--panel-2);
   border-radius: var(--radius-sm);
-  max-height: 18rem;
-  overflow: hidden;
-  position: relative;
-}
-.plan.open {
-  max-height: none;
 }
 
 .done {
   display: flex;
   align-items: center;
   gap: 0.4rem;
-  margin: 0.6rem 0 0;
+  margin: 0.6rem 0 0.4rem;
   color: var(--green);
   font-weight: 500;
 }
+.done.elsewhere {
+  color: var(--text);
+}
+.body {
+  min-width: 0;
+  margin-top: 0.55rem;
+}
+.body.capped {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.body > .detail:first-child {
+  margin-top: 0;
+}
+.reason {
+  display: flex;
+  gap: 0.4rem;
+  align-items: flex-start;
+  margin: 0.55rem 0 0;
+  font-size: 0.8rem;
+  color: var(--red);
+}
+.reason mc-icon {
+  margin-top: 0.1rem;
+}
+.sdest {
+  text-align: right;
+  white-space: normal;
+}
+.kbd {
+  font-size: 0.65rem;
+  color: var(--faint);
+  font-family: var(--mono);
+}
+.plan-full {
+  padding: 0.25rem 0 1rem;
+}
+.skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  margin: 0.55rem 0 0;
+}
+.skeleton span {
+  display: block;
+  height: 0.8rem;
+  border-radius: 0.3rem;
+  background: var(--panel-3);
+  animation: mc-shimmer 1.2s ease-in-out infinite alternate;
+}
+.skeleton span:last-child {
+  width: 60%;
+}
+.spin {
+  width: 0.85rem;
+  height: 0.85rem;
+  border-radius: 50%;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  animation: mc-spin 0.7s linear infinite;
+}
 .guidance {
   display: flex;
-  gap: 0.45rem;
+  flex-direction: column;
+  gap: 0.5rem;
   margin: 0.65rem 0 0;
   font-size: 0.85rem;
   color: var(--muted);
 }
-.guidance mc-icon {
+.guidance p {
+  display: flex;
+  gap: 0.45rem;
+  margin: 0;
+}
+.guidance p mc-icon {
   margin-top: 0.15rem;
 }
 .error-text {

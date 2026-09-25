@@ -122,3 +122,74 @@ export function toSplitRows(rows: UnifiedRow[]): SplitRow[] {
   }
   return out;
 }
+
+/**
+ * Rows from Claude's `structuredPatch` hunks (`{oldStart, oldLines, newStart,
+ * newLines, lines: ['+x', '-y', ' z']}`), as carried by an Edit/Write
+ * tool_result. Anything unrecognised is skipped.
+ */
+export function hunksToRows(hunks: readonly unknown[] | undefined): UnifiedRow[] {
+  const rows: UnifiedRow[] = [];
+  for (const h of hunks ?? []) {
+    if (!h || typeof h !== 'object') continue;
+    const hunk = h as { oldStart?: unknown; newStart?: unknown; lines?: unknown };
+    let oldNo = Number(hunk.oldStart) || 1;
+    let newNo = Number(hunk.newStart) || 1;
+    const lines = Array.isArray(hunk.lines) ? hunk.lines : [];
+    rows.push({
+      kind: 'hunk',
+      oldNo: null,
+      newNo: null,
+      text: `@@ -${oldNo} +${newNo} @@`,
+    });
+    for (const raw of lines) {
+      if (typeof raw !== 'string') continue;
+      const line = raw.endsWith('\r') ? raw.slice(0, -1) : raw;
+      if (line.startsWith('+'))
+        rows.push({ kind: 'add', oldNo: null, newNo: newNo++, text: line.slice(1) });
+      else if (line.startsWith('-'))
+        rows.push({ kind: 'del', oldNo: oldNo++, newNo: null, text: line.slice(1) });
+      else if (line.startsWith('\\'))
+        rows.push({ kind: 'meta', oldNo: null, newNo: null, text: line });
+      else rows.push({ kind: 'ctx', oldNo: oldNo++, newNo: newNo++, text: line.slice(1) });
+    }
+  }
+  return rows;
+}
+
+/**
+ * A readable diff of an Edit's `old_string` → `new_string`: shared leading
+ * and trailing lines become context (at most `context` of each), the rest
+ * deletions then additions. Line numbers are relative to the snippet.
+ */
+export function editToRows(oldText: string, newText: string, context = 3): UnifiedRow[] {
+  const a = oldText.replace(/\r\n/g, '\n').split('\n');
+  const b = newText.replace(/\r\n/g, '\n').split('\n');
+  let pre = 0;
+  while (pre < a.length && pre < b.length && a[pre] === b[pre]) pre++;
+  let suf = 0;
+  while (
+    suf < a.length - pre &&
+    suf < b.length - pre &&
+    a[a.length - 1 - suf] === b[b.length - 1 - suf]
+  ) {
+    suf++;
+  }
+  const rows: UnifiedRow[] = [];
+  const preStart = Math.max(0, pre - context);
+  let oldNo = preStart + 1;
+  let newNo = preStart + 1;
+  for (let i = preStart; i < pre; i++) {
+    rows.push({ kind: 'ctx', oldNo: oldNo++, newNo: newNo++, text: a[i] });
+  }
+  for (let i = pre; i < a.length - suf; i++)
+    rows.push({ kind: 'del', oldNo: oldNo++, newNo: null, text: a[i] });
+  for (let i = pre; i < b.length - suf; i++)
+    rows.push({ kind: 'add', oldNo: null, newNo: newNo++, text: b[i] });
+  const sufEnd = Math.min(suf, context);
+  for (let i = 0; i < sufEnd; i++) {
+    const text = a[a.length - suf + i];
+    rows.push({ kind: 'ctx', oldNo: oldNo++, newNo: newNo++, text });
+  }
+  return rows;
+}

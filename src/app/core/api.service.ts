@@ -19,6 +19,7 @@ import {
   KeyName,
   LaunchDefaults,
   LifecycleAction,
+  McpServerStatus,
   MeInfo,
   MessageBody,
   MessageResult,
@@ -37,11 +38,14 @@ import {
   ServicesInfo,
   SessionAgents,
   SessionDetail,
+  SessionPushPref,
   SessionsPage,
   SessionsQuery,
   SpawnBody,
+  TerminalText,
   TranscriptPage,
   TranscriptQuery,
+  UploadResult,
 } from './models';
 
 /**
@@ -64,13 +68,13 @@ import {
  * - In dev mock mode (`?mock=1`) requests go to the fixture backend instead.
  *
  * Methods:
- *   Data      listSessions(q) · getSession(id) · getTranscript(id, q) ·
- *             fetchMedia(ref) · getSessionAgents(id) · getFleet() ·
- *             getTaskOutput(id, taskId) · getDiff(id, base?) ·
+ *   Data      listSessions(q) · pollSessions(etag) · getSession(id) ·
+ *             getTranscript(id, q) · fetchMedia(ref) · getSessionAgents(id) ·
+ *             getFleet() · getTaskOutput(id, taskId) · getDiff(id, base?) ·
  *             getFilePatch(id, path, base?) · getFiles(id, q) ·
- *             getCommands(id) · getTerminal(id) · getProjects() ·
+ *             getCommands(id) · getTerminal(id) · getMcp(id) · getProjects() ·
  *             getDefaults() · getInbox() · getServices()
- *   Control   spawnSession(body) · sendMessage(id, body) ·
+ *   Control   spawnSession(body) · sendMessage(id, body) · uploadFile(id, f) ·
  *             cancelQueued(id, messageId) · interrupt(id) · setModel(id, m) ·
  *             setMode(id, mode) · setEffort(id, e) · rename(id, name) ·
  *             stopTask(id, taskId) · respond(id, body) ·
@@ -78,13 +82,17 @@ import {
  *             lifecycle(id, action)
  *   Pairing   createPairCode(req) · exchangePairCode(body) ·
  *             pollPairPending(pendingId, secret) · getMe()
- *   Devices   listDevices() · approvePair(id) · denyPair(id) ·
+ *   Devices   listDevices() · approvePair(id, fingerprint) · denyPair(id) ·
  *             revokeDevice(id) · updateDevice(id, patch)
  *   Remote    getRemote() · updateRemote(patch)
  *   Foreign   getForeignControl() · installForeignControl() ·
  *             uninstallForeignControl()
  *   Push      getVapidKey() · pushSubscribe(sub) · pushUnsubscribe(endpoint) ·
- *             pushTest() · getPushPrefs() · setPushPrefs(prefs)
+ *             pushTest() · getPushPrefs() · setPushPrefs(prefs) ·
+ *             setSessionPush(id, pref)
+ *
+ * `describeError(e)` turns any failure into one user-facing sentence (plus
+ * a retry hint), so every page reports errors the same way.
  *   Bridge    getBridge() · startBridge(defaults) · stopBridge() ·
  *             setBridgeThread(threadId)
  */
@@ -100,6 +108,19 @@ export class ApiService {
 
   listSessions(q: SessionsQuery = {}): Promise<SessionsPage> {
     return this.req<SessionsPage>(`/sessions${query({ ...q })}`);
+  }
+
+  /** Polling fallback: the active list with a conditional GET. Resolves to
+   * null when the server answered 304 (nothing changed). */
+  async pollSessions(etag?: string): Promise<{ page: SessionsPage; etag?: string } | null> {
+    const res = await this.send(
+      '/sessions?scope=active',
+      { method: 'GET', headers: etag ? { 'If-None-Match': etag } : {} },
+      { allowNotModified: true },
+    );
+    if (res.status === 304) return null;
+    const page = ((await readJson(res)) as SessionsPage | null) ?? { sessions: [] };
+    return { page, etag: res.headers.get('etag') ?? undefined };
   }
 
   getSession(id: string): Promise<SessionDetail> {
@@ -165,8 +186,23 @@ export class ApiService {
   }
 
   /** tmux pane capture / background job log. */
-  getTerminal(id: string): Promise<{ text: string }> {
-    return this.req(`/sessions/${enc(id)}/terminal`);
+  async getTerminal(id: string): Promise<TerminalText> {
+    const res = await this.send(`/sessions/${enc(id)}/terminal`, { method: 'GET' });
+    const text = await res.text();
+    if ((res.headers.get('content-type') ?? '').includes('json')) {
+      try {
+        const body = JSON.parse(text) as Partial<TerminalText>;
+        return { text: typeof body.text === 'string' ? body.text : '', rows: body.rows };
+      } catch {
+        /* plain text after all */
+      }
+    }
+    return { text };
+  }
+
+  /** MCP servers of an owned session. */
+  getMcp(id: string): Promise<{ servers: McpServerStatus[] }> {
+    return this.req(`/sessions/${enc(id)}/mcp`);
   }
 
   /** Projects for the New session picker. */
@@ -198,6 +234,16 @@ export class ApiService {
 
   sendMessage(id: string, body: MessageBody): Promise<MessageResult> {
     return this.post(`/sessions/${enc(id)}/message`, body);
+  }
+
+  /** Store a file next to the session (`<app data>/uploads/<session>/`) so
+   * it can be referenced as `@<path>` — attachments for sessions that only
+   * take text (relay, tmux) and for non-image files. */
+  uploadFile(
+    id: string,
+    file: { name: string; mediaType: string; data: string },
+  ): Promise<UploadResult> {
+    return this.post(`/sessions/${enc(id)}/uploads`, file);
   }
 
   cancelQueued(id: string, messageId: string): Promise<void> {
@@ -300,8 +346,10 @@ export class ApiService {
     return this.req<DevicesList>('/devices');
   }
 
-  approvePair(pendingId: string): Promise<void> {
-    return this.post(`/devices/pending/${enc(pendingId)}/approve`, {});
+  /** Approve a pending pairing; `fingerprint` is the 4 digits the user
+   * typed after reading them on the device. */
+  approvePair(pendingId: string, fingerprint: string): Promise<void> {
+    return this.post(`/devices/pending/${enc(pendingId)}/approve`, { fingerprint });
   }
 
   denyPair(pendingId: string): Promise<void> {
@@ -344,7 +392,7 @@ export class ApiService {
 
   // ───────────────────────────────────────────────────────────────── Push
 
-  getVapidKey(): Promise<{ publicKey: string }> {
+  getVapidKey(): Promise<{ publicKey: string; secureContextHint?: string }> {
     return this.req('/push/vapid');
   }
 
@@ -364,8 +412,13 @@ export class ApiService {
     return this.req<PushPrefs>('/push/prefs');
   }
 
-  setPushPrefs(prefs: PushPrefs): Promise<PushPrefs | null> {
+  setPushPrefs(prefs: Partial<PushPrefs>): Promise<PushPrefs | null> {
     return this.req('/push/prefs', { method: 'PUT', body: JSON.stringify(prefs) });
+  }
+
+  /** Follow / mute one session's notifications (`null` = back to default). */
+  setSessionPush(id: string, pref: SessionPushPref | null): Promise<PushPrefs | null> {
+    return this.setPushPrefs({ sessions: { [id]: pref } as Record<string, SessionPushPref> });
   }
 
   // ─────────────────────────────────────── The Claude HTTP bridge (/bridge)
@@ -407,7 +460,7 @@ export class ApiService {
   private async send(
     path: string,
     init: RequestInit & { headers?: Record<string, string> },
-    opts: { auth?: boolean; accept?: string } = {},
+    opts: { auth?: boolean; accept?: string; allowNotModified?: boolean } = {},
   ): Promise<Response> {
     const cfg = await this.config.ensure();
     const headers = new Headers(init.headers);
@@ -446,6 +499,7 @@ export class ApiService {
     }
     this.interstitial.set(false);
 
+    if (res.status === 304 && opts.allowNotModified) return res;
     if (res.status === 401) {
       if (opts.auth !== false) this.auth.handleUnauthorized();
       const env = parseEnvelope(await res.text().catch(() => ''));
@@ -492,6 +546,78 @@ export function errorMessage(e: unknown): string {
   if (e instanceof ApiError) return e.field ? `${e.message} (${e.field})` : e.message;
   if (e instanceof Error) return e.message;
   return String(e);
+}
+
+/** What the UI should say (and offer) for a failure. */
+export interface DescribedError {
+  text: string;
+  /** Offer a Retry button. */
+  retry?: boolean;
+  /** Seconds before retrying makes sense (429). */
+  retryAfter?: number;
+  /** The session can't be reached this way: show its caps.limits. */
+  noChannel?: boolean;
+  /** Someone else already answered (409 already_decided). */
+  alreadyDecided?: boolean;
+  /** A dangerous action this client may not take. */
+  dangerous?: boolean;
+  /** Link to the API page (bridge not started). */
+  bridge?: boolean;
+}
+
+/**
+ * The one error → sentence mapper every page uses (design review,
+ * "loading/empty/error states"). CLI refusals (422) are shown verbatim.
+ */
+export function describeError(e: unknown): DescribedError {
+  if (!(e instanceof ApiError)) return { text: errorMessage(e) };
+  switch (e.kind) {
+    case 'network':
+      return {
+        text:
+          navigator.onLine === false
+            ? "You're offline."
+            : "Can't reach your Mac (asleep, offline or the tunnel is down).",
+        retry: true,
+      };
+    case 'interstitial':
+      return {
+        text: "The tunnel's warning page is in the way: open this page once in the browser, accept it, then reload.",
+      };
+    case 'unauthorized':
+      return { text: 'This device is no longer paired.' };
+    case 'parse':
+      return { text: e.message, retry: true };
+    default:
+      break;
+  }
+  const code = e.code ?? '';
+  if (e.status === 403 && (code === 'dangerous_blocked' || /dangerous/i.test(e.message))) {
+    return {
+      text: 'Only allowed from the Mac, or allow dangerous actions for this device in Remote › Devices.',
+      dangerous: true,
+    };
+  }
+  if (e.status === 403 && code === 'desktop_only') {
+    return { text: 'Only the desktop app can do this.' };
+  }
+  if ((e.status === 409 || e.status === 410) && code === 'already_decided') {
+    return { text: e.message || 'Already answered elsewhere.', alreadyDecided: true };
+  }
+  if (e.status === 409 && code === 'no_channel') {
+    return { text: e.message || "This session can't take that from here.", noChannel: true };
+  }
+  if (e.status === 422) return { text: e.message };
+  if (e.status === 429) {
+    const secs = e.retryAfter ?? 30;
+    return { text: `Too many requests. Try again in ${secs}s.`, retry: true, retryAfter: secs };
+  }
+  if (e.status === 503 && code === 'bridge_not_started') {
+    return { text: 'The API is not started. Start it on the API page.', bridge: true };
+  }
+  if (e.status === 501) return { text: 'This server does not support that yet.' };
+  if (e.status >= 500) return { text: `The server failed: ${e.message}`, retry: true };
+  return { text: errorMessage(e) };
 }
 
 function enc(v: string): string {

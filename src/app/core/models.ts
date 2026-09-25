@@ -82,7 +82,27 @@ export interface AgentCounts {
 
 export type ControlChannel = 'owned' | 'hooks' | 'tmux' | 'pty' | 'none';
 
-/** What this dashboard can do with a session (§4.1, computed by §5.5). */
+/** A button the UI can offer next to a limitation (design §10 B2). */
+export type LimitAction =
+  | 'install-foreign-control'
+  | 'reload-plugins'
+  | 'continue-owned'
+  | 'fork'
+  | 'open-terminal'
+  | 'open-on-desktop';
+
+/** One thing a session can't do from here, why, and what would fix it. */
+export interface CapLimit {
+  /** Machine code, e.g. `no_hooks`, `foreign_model`. */
+  code: string;
+  /** One human sentence. */
+  text: string;
+  action?: LimitAction;
+}
+
+/** What this dashboard can do with a session (§4.1, computed by §5.5; shape
+ * per the §10 amendments). New fields are read defensively: an older server
+ * may omit them (see shared/caps.ts). */
 export interface ControlCaps {
   channel: ControlChannel;
   /** relay = delivered through hooks or tmux, not straight into the CLI. */
@@ -99,10 +119,25 @@ export interface ControlCaps {
   fork: boolean;
   continueOwned: boolean;
   lifecycle: { stop: boolean; respawn: boolean; rm: boolean };
-  /** Hook events were seen from this session recently. */
+  /** Hook events arrived from this session's current process. */
   hooksActive: boolean;
-  /** Human-readable reasons/limits for the UI. */
-  notes: string[];
+  /** `sync` renames everywhere; `alias` only inside Mother Claude. */
+  rename: 'sync' | 'alias' | 'none';
+  /** A terminal view (tmux capture / background log) exists. */
+  terminal: boolean;
+  /** Raw keys can be sent (tmux only). */
+  keys: boolean;
+  /** `inline` = images as content blocks; `path` = files as @ paths. */
+  attach: 'inline' | 'path' | 'none';
+  /** How approvals reach the CLI. */
+  approveVia: 'control' | 'hook' | 'keys' | 'none';
+  /** An idle session can be woken to take a message now (else it waits
+   * for its next stopping point). */
+  wake: boolean;
+  /** What doesn't work, why, and the fix. */
+  limits: CapLimit[];
+  /** @deprecated pre-amendment free-text notes; read via capLimits(). */
+  notes?: string[];
 }
 
 export interface ModelRef {
@@ -161,7 +196,10 @@ export interface SessionSummary {
   todos?: TodoSummary;
   agents: AgentCounts;
   queued: number;
-  pending: PendingItem[];
+  /** Just enough to render list rows and quick actions; the full items come
+   * from `GET /inbox`, `GET /sessions/{id}` (`pendingDetail`) and `pending`
+   * frames (see PendingService). */
+  pending: PendingPreview[];
   lastError?: SessionError;
   remoteControl?: boolean;
   control: ControlCaps;
@@ -215,6 +253,46 @@ export interface PendingItem {
   dangerous: boolean;
   answerable: boolean;
   createdAt: number;
+  /** `input` was capped (4 KB) in this copy; `GET /sessions/{id}` has it all. */
+  inputTruncated?: boolean;
+}
+
+/** The light copy of a PendingItem carried by every `sessions` frame. */
+export interface PendingPreview {
+  id: string;
+  kind: PendingKind;
+  title: string;
+  /** ≤ 240 chars: the command, path, question or plan summary. */
+  detail?: string;
+  toolName?: string;
+  agentId?: string;
+  dangerous: boolean;
+  answerable: boolean;
+  createdAt: number;
+  questionCount?: number;
+  /** Options of a single single-select question (list quick actions). */
+  quick?: { options: string[] };
+  /** Tolerated: older servers embed full items (these then carry it). */
+  sessionId?: string;
+  source?: PendingSource;
+}
+
+/** A preview with its session filled in (the realtime store adds it). */
+export type PendingRef = PendingPreview & { sessionId: string };
+
+/** Why a pending item went away (`pendingResolved` frame). */
+export type PendingOutcome =
+  | 'allowed'
+  | 'denied'
+  | 'answered'
+  | 'withdrawn'
+  | 'expired'
+  | 'cancelled';
+
+export interface PendingResolvedBy {
+  kind: 'device' | 'desktop' | 'host' | 'timeout';
+  /** Device name, or e.g. "Mac". */
+  name?: string;
 }
 
 export type PermissionMode =
@@ -239,6 +317,8 @@ export interface RespondBody {
   mode?: 'default' | 'acceptEdits' | 'plan' | 'auto' | 'bypassPermissions';
   /** Deny + stop the turn. */
   interrupt?: boolean;
+  /** Elicitation: the form content (allow = accept, deny = decline). */
+  content?: Record<string, unknown>;
 }
 
 // ──────────────────────────────────────────────────────────────── 4.3 Agents
@@ -305,6 +385,8 @@ export interface QueuedMessage {
   createdAt: number;
   via: 'owned' | 'hook-busy' | 'hook-idle' | 'tmux';
   status: 'queued' | 'delivered' | 'cancelled' | 'failed';
+  /** Can still be taken back (✕). */
+  cancellable?: boolean;
 }
 
 export interface ChangedFile {
@@ -321,6 +403,8 @@ export interface SessionDetail extends SessionSummary {
   todosDetail: Todo[];
   queuedMessages: QueuedMessage[];
   filesChanged: ChangedFile[];
+  /** Full pending items (with complete `input`). */
+  pendingDetail?: PendingItem[];
 }
 
 // ─────────────────────────────────────────────────────────────── 4.4 UiEvent
@@ -339,10 +423,15 @@ export type UiEventKind =
   | 'relayed'
   | 'todos'
   | 'question'
-  | 'plan';
+  | 'plan'
+  | 'decision';
 
 export interface UiEvent {
+  /** `<record uuid>:<blockIndex>`: stable across REST pages, WS appends and
+   * replays, so the client dedupes on it. */
   id: string;
+  /** The assistant `message.id` (matches `stream` frames). */
+  messageId?: string;
   ts?: number;
   role: 'user' | 'assistant' | 'system';
   kind: UiEventKind;
@@ -384,6 +473,8 @@ export interface SessionsPage {
 export interface TranscriptQuery {
   /** Opaque cursor (a byte offset) from a previous page's `before`. */
   before?: string;
+  /** Only events after this `tail` cursor (the polling fallback). */
+  after?: string;
   /** ≤ 300 */
   limit?: number;
   agent?: string;
@@ -406,10 +497,34 @@ export interface FleetSession {
   name: string;
   /** Running agents only. */
   agents: AgentInfo[];
+  workflows?: WorkflowRun[];
+  /** Background shells and monitors. */
+  tasks?: BackgroundTask[];
+}
+
+/** "3 working · 7 agents running · 2 need you · $4.12 today". */
+export interface FleetSummary {
+  working: number;
+  agentsRunning: number;
+  needYou: number;
+  costToday?: number;
 }
 
 export interface Fleet {
   sessions: FleetSession[];
+  summary?: FleetSummary;
+}
+
+/** `GET /sessions/{id}/mcp` (owned sessions). */
+export interface McpServerStatus {
+  name: string;
+  status: string;
+  error?: string;
+}
+
+/** `POST /sessions/{id}/uploads` answer: where the file was stored. */
+export interface UploadResult {
+  path: string;
 }
 
 export type DiffBase = 'working' | 'branch';
@@ -480,6 +595,12 @@ export type KeyName =
   | '9';
 
 export type LifecycleAction = 'stop' | 'respawn' | 'rm';
+
+/** `GET /sessions/{id}/terminal` (`rows` when rendered from a log). */
+export interface TerminalText {
+  text: string;
+  rows?: number;
+}
 
 /** `GET /api/control/foreign` (desktop only). */
 export interface ForeignControlStatus {
@@ -638,12 +759,18 @@ export interface RemoteUpdate {
 
 // ──────────────────────────────────────────────────────────────── 6 Push
 
+export type SessionPushPref = 'follow' | 'mute';
+
 export interface PushPrefs {
   permission: boolean;
   question: boolean;
   plan: boolean;
   finished: boolean;
   failed: boolean;
+  /** Claude asked to notify you (PushNotification tool, Notification hooks). */
+  claude?: boolean;
+  /** Per-session follow/mute; absent = the event prefs above. */
+  sessions?: Record<string, SessionPushPref>;
 }
 
 export interface PushSubscriptionBody {
@@ -679,22 +806,51 @@ export interface SessionsDiffFrame {
 
 export type SessionsFrame = SessionsFullFrame | SessionsDiffFrame;
 
-/** Appends for a subscribed session. Clients dedupe by event id. */
+/** Appends for a subscribed session (or one of its agents). Clients dedupe
+ * by event id. */
 export interface TranscriptFrame {
   t: 'transcript';
   session: string;
+  agent?: string;
   events: UiEvent[];
   tail: string;
 }
 
-/** Owned sessions' live token-by-token deltas. */
+/** The replay from `since` was too big: refetch the transcript over REST. */
+export interface TranscriptResetFrame {
+  t: 'transcriptReset';
+  session: string;
+  agent?: string;
+}
+
+/** Owned sessions' live token-by-token deltas, keyed by the assistant
+ * message id and content-block index. A UiEvent with the same `messageId`
+ * replaces the bubble. */
 export interface StreamFrame {
   t: 'stream';
   session: string;
+  messageId?: string;
+  index?: number;
   kind: StreamKind;
   delta?: string;
   tool?: { id?: string; name?: string; summary?: string; input?: unknown; phase?: string };
   status?: string;
+}
+
+/** A full pending item (for session and inbox subscribers). */
+export interface PendingFrame {
+  t: 'pending';
+  item: PendingItem;
+}
+
+/** A pending item went away, and who or what settled it. */
+export interface PendingResolvedFrame {
+  t: 'pendingResolved';
+  id: string;
+  session: string;
+  outcome: PendingOutcome;
+  by?: PendingResolvedBy;
+  at: number;
 }
 
 export interface AgentsFrame {
@@ -707,6 +863,7 @@ export interface AgentsFrame {
 export interface FleetFrame {
   t: 'fleet';
   sessions: FleetSession[];
+  summary?: FleetSummary;
 }
 
 export interface NoticeFrame {
@@ -744,7 +901,10 @@ export type ServerFrame =
   | HelloFrame
   | SessionsFrame
   | TranscriptFrame
+  | TranscriptResetFrame
   | StreamFrame
+  | PendingFrame
+  | PendingResolvedFrame
   | AgentsFrame
   | FleetFrame
   | NoticeFrame
@@ -756,10 +916,12 @@ export type ServerFrame =
 
 export type ClientFrame =
   | { t: 'auth'; token: string }
-  | { t: 'sub'; session: string; since?: string }
-  | { t: 'unsub'; session: string }
+  | { t: 'sub'; session: string; agent?: string; since?: string }
+  | { t: 'unsub'; session: string; agent?: string }
   | { t: 'subFleet' }
   | { t: 'unsubFleet' }
+  | { t: 'subInbox' }
+  | { t: 'unsubInbox' }
   | { t: 'ping' }
   | { t: 'pong' }
   | { t: 'visible'; v: boolean };

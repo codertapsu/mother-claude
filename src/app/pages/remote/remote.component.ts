@@ -26,6 +26,7 @@ import { NowService } from '../../core/now.service';
 import { RealtimeService } from '../../core/realtime.service';
 import { CopyButtonComponent } from '../../shared/copy-button.component';
 import { IconComponent } from '../../shared/icon.component';
+import { PairApprovalDialogComponent } from '../../shared/pair-approval-dialog.component';
 import { RelativeTimePipe } from '../../shared/time.pipes';
 
 const POLL_MS = 10_000;
@@ -51,7 +52,14 @@ const PROVIDER_LABELS: Record<string, string> = {
  */
 @Component({
   selector: 'mc-remote',
-  imports: [FormsModule, RouterLink, CopyButtonComponent, IconComponent, RelativeTimePipe],
+  imports: [
+    FormsModule,
+    RouterLink,
+    CopyButtonComponent,
+    IconComponent,
+    PairApprovalDialogComponent,
+    RelativeTimePipe,
+  ],
   templateUrl: './remote.component.html',
   styleUrl: './remote.component.scss',
 })
@@ -67,6 +75,8 @@ export class RemoteComponent {
   protected readonly remote = signal<RemoteInfo | null>(null);
   protected readonly devices = signal<DeviceInfo[]>([]);
   protected readonly pendingPairs = signal<PendingPair[]>([]);
+  /** The pairing request whose typed-number dialog is open. */
+  protected readonly approving = signal<PendingPair | null>(null);
   protected readonly foreign = signal<ForeignControlStatus | null>(null);
   protected readonly error = signal('');
   protected readonly notice = signal('');
@@ -185,13 +195,9 @@ export class RemoteComponent {
     }
   }
 
-  protected async approve(p: PendingPair): Promise<void> {
-    await this.withBusy(p.id, async () => {
-      await this.api.approvePair(p.id);
-      this.pendingPairs.update((prev) => prev.filter((x) => x.id !== p.id));
-      this.notice.set(`Approved ${this.pairName(p)}.`);
-      await this.loadDevices();
-    });
+  protected onSettled(p: PendingPair, approved: boolean): void {
+    this.pendingPairs.update((prev) => prev.filter((x) => x.id !== p.id));
+    if (approved) void this.loadDevices();
   }
 
   protected async deny(p: PendingPair): Promise<void> {

@@ -13,15 +13,26 @@ import {
   SessionSummary,
   UiEvent,
 } from '../models';
-import { Fixtures, buildFixtures, ev, ownedCaps } from './fixtures';
+import { Fixtures, buildFixtures, ev, ownedCaps, toPreview } from './fixtures';
 import { MockBackend, MockRole, WebSocketLike, mockRole } from './mock-api';
+import { urlParam } from '../platform';
 
 const TOKEN = 'mock-token';
 const TICK_MS = 2500;
 
 export function createMockBackend(): MockBackend {
-  return new FixtureBackend(mockRole());
+  const backend = new FixtureBackend(mockRole());
+  // Dev-only hook for screenshots and manual testing (e.g. from DevTools:
+  // `__mcMock.resolveElsewhere('req-db-1')`).
+  (window as unknown as { __mcMock?: FixtureBackend }).__mcMock = backend;
+  return backend;
 }
+
+/** `?mockws=fail`: the socket never connects (exercise the polling mode). */
+const WS_FAILS = urlParam('mockws') === 'fail';
+
+const STREAM_TEXT =
+  "I cached the compiled pattern in a module-level constant and switched the tokenizer to a single pass. On the 40k-document fixture the build drops from **38.2 s** to **14.9 s** (2.6x). Next I'll check memory, since the cache keeps one regex per language.";
 
 class FixtureBackend implements MockBackend {
   readonly token: string;
@@ -32,6 +43,10 @@ class FixtureBackend implements MockBackend {
   private timer?: ReturnType<typeof setInterval>;
   private pairPolls = new Map<string, number>();
   private eventCounter = 0;
+  private streamTimer?: ReturnType<typeof setInterval>;
+  private streamPos = 0;
+  private streamMsg = 0;
+  private streamPause = 0;
 
   constructor(readonly role: MockRole) {
     this.fx = buildFixtures(Date.now());
@@ -74,7 +89,9 @@ class FixtureBackend implements MockBackend {
         const next = start + limit < all.length ? String(start + limit) : undefined;
         return json({ sessions: page, ...(next ? { nextBefore: next } : {}) });
       }
-      return json({ sessions: this.fx.sessions });
+      const etag = `"${this.seq}"`;
+      if (headers.get('If-None-Match') === etag) return new Response(null, { status: 304 });
+      return json({ sessions: this.fx.sessions }, 200, { etag });
     }
     if (path === '/sessions' && method === 'POST') return json(this.spawn(body), 201);
     if (path === '/agents') return json({ sessions: this.fleet() });
@@ -98,6 +115,22 @@ class FixtureBackend implements MockBackend {
       }
       if (!sub && s) return json(this.detail(s));
       if (sub === 'transcript') return json(this.transcript(id, q.get('agent') ?? undefined, q));
+      if (sub === 'uploads' && method === 'POST') {
+        const name = String((body as { name?: string }).name ?? 'file');
+        return json(
+          { path: `/Users/marcus/Library/Application Support/Mother Claude/uploads/${id}/${name}` },
+          201,
+        );
+      }
+      if (sub === 'mcp') {
+        return json({
+          servers: [
+            { name: 'github', status: 'connected' },
+            { name: 'linear', status: 'connected' },
+            { name: 'playwright', status: 'failed', error: 'npx exited with code 1' },
+          ],
+        });
+      }
       if (sub.startsWith('media/')) return svgImage();
       if (sub === 'agents') {
         return json({ agents: this.fx.agents[id] ?? [], workflows: this.fx.workflows[id] ?? [] });
@@ -120,14 +153,17 @@ class FixtureBackend implements MockBackend {
           ],
         });
       }
-      if (sub === 'terminal') return json({ text: '$ claude\n> Working on it…\n' });
+      if (sub === 'terminal') {
+        return json({ text: this.fx.terminals[id] ?? '$ claude\n> Working on it…\n' });
+      }
       if (sub.startsWith('tasks/') && sub.endsWith('/output')) {
+        const lines = Array.from(
+          { length: 18 + (this.tick % 6) },
+          (_, i) => `  ✓ test ${String(i + 1).padStart(3, '0')} passed (${(i * 7) % 90} ms)`,
+        );
         return new Response(
-          'added 12 packages, audited 1204 packages in 3s\n\n2 moderate severity vulnerabilities\n',
-          {
-            status: 200,
-            headers: { 'content-type': 'text/plain' },
-          },
+          ` RUN  v3.2.4 /Users/marcus/dev/api-server\n\n${lines.join('\n')}\n\n Test Files  24 passed (24)\n      Tests  142 passed (142)\n`,
+          { status: 200, headers: { 'content-type': 'text/plain' } },
         );
       }
       if (method === 'POST' && sub === 'respond' && s) return this.respond(s, body as RespondBody);
@@ -156,7 +192,12 @@ class FixtureBackend implements MockBackend {
         this.stopAgent(id, taskId);
         return empty();
       }
-      if (method === 'DELETE' && sub.startsWith('queue/')) return empty();
+      if (method === 'DELETE' && sub.startsWith('queue/')) {
+        const mid = decodeURIComponent(seg[3] ?? '');
+        this.fx.queued[id] = (this.fx.queued[id] ?? []).filter((m) => m.id !== mid);
+        this.patch(id, { queued: this.fx.queued[id].length });
+        return empty();
+      }
       if (method === 'POST' && ['stop', 'respawn', 'rm', 'keys'].includes(sub)) return empty();
       return json({ error: { code: 'not_found', message: `No mock for ${method} ${path}` } }, 404);
     }
@@ -307,7 +348,7 @@ class FixtureBackend implements MockBackend {
   // ─────────────────────────────────────────────────────────── Socket
 
   openSocket(): WebSocketLike {
-    const socket = new FakeSocket(this);
+    const socket = new FakeSocket(this, WS_FAILS);
     this.sockets.add(socket);
     return socket;
   }
@@ -323,13 +364,21 @@ class FixtureBackend implements MockBackend {
     this.ensureTicker();
   }
 
-  onSub(socket: FakeSocket, session: string): void {
+  onSub(socket: FakeSocket, session: string, agent?: string): void {
+    if (agent) return;
     socket.emit({
       t: 'agents',
       session,
       agents: this.fx.agents[session] ?? [],
       workflows: this.fx.workflows[session] ?? [],
     });
+    for (const item of this.fx.pendingItems.filter((p) => p.sessionId === session)) {
+      socket.emit({ t: 'pending', item });
+    }
+  }
+
+  onSubInbox(socket: FakeSocket): void {
+    for (const item of this.fx.pendingItems) socket.emit({ t: 'pending', item });
   }
 
   onSubFleet(socket: FakeSocket): void {
@@ -340,13 +389,61 @@ class FixtureBackend implements MockBackend {
     this.sockets.delete(socket);
     if (!this.sockets.size) {
       clearInterval(this.timer);
+      clearInterval(this.streamTimer);
       this.timer = undefined;
+      this.streamTimer = undefined;
     }
   }
 
   private ensureTicker(): void {
     if (this.timer) return;
     this.timer = setInterval(() => this.onTick(), TICK_MS);
+    this.streamTimer = setInterval(() => this.streamStep(), 140);
+  }
+
+  /** s-stream writes a message token by token (owned `stream` frames),
+   * then flushes it to the transcript under the same messageId. */
+  private streamStep(): void {
+    const subs = [...this.sockets].filter((x) => x.authed && x.subs.has('s-stream'));
+    if (!subs.length) return;
+    if (this.streamPause > 0) {
+      this.streamPause -= 1;
+      return;
+    }
+    const messageId = `msg_live_${this.streamMsg}`;
+    const words = STREAM_TEXT.split(/(?<= )/);
+    const emit = (f: ServerFrame) => subs.forEach((x) => x.emit(f));
+    if (this.streamPos === 0) {
+      emit({ t: 'stream', session: 's-stream', messageId, kind: 'status', status: 'thinking' });
+      emit({
+        t: 'stream',
+        session: 's-stream',
+        messageId,
+        index: 0,
+        kind: 'thinking',
+        delta: 'The regex is compiled per document; hoisting it should remove most of the cost.',
+      });
+    }
+    if (this.streamPos < words.length) {
+      emit({
+        t: 'stream',
+        session: 's-stream',
+        messageId,
+        index: 1,
+        kind: 'text',
+        delta: words[this.streamPos],
+      });
+      this.streamPos += 1;
+      return;
+    }
+    emit({ t: 'stream', session: 's-stream', messageId, kind: 'status', status: 'message_stop' });
+    const now = Date.now();
+    this.append('s-stream', [
+      ev(`${messageId}:1`, now, 'assistant', 'text', { messageId, text: STREAM_TEXT }),
+    ]);
+    this.streamPos = 0;
+    this.streamMsg += 1;
+    this.streamPause = 45;
   }
 
   private broadcast(frame: ServerFrame): void {
@@ -416,6 +513,33 @@ class FixtureBackend implements MockBackend {
       ]);
     }
 
+    // Live subagent transcripts for `sub{session, agent}`.
+    if (this.tick % 2 === 0) {
+      const agentEvents: UiEvent[] = [
+        ev(`agx-${this.tick}:0`, now, 'assistant', 'tool', {
+          agentId: 'ag-explore',
+          tool: {
+            id: `toolu_agx_${this.tick}`,
+            name: 'Read',
+            summary: `src/legacy/handler-${this.tick}.ts`,
+          },
+        }),
+      ];
+      const list = (this.fx.agentTranscripts['ag-explore'] ??= []);
+      list.push(...agentEvents);
+      for (const sock of this.sockets) {
+        if (sock.authed && sock.agentSubs.has('s-auth/ag-explore')) {
+          sock.emit({
+            t: 'transcript',
+            session: 's-auth',
+            agent: 'ag-explore',
+            events: agentEvents,
+            tail: String(list.length),
+          });
+        }
+      }
+    }
+
     if (this.tick % 10 === 0) this.broadcast({ t: 'ping' });
   }
 
@@ -444,7 +568,38 @@ class FixtureBackend implements MockBackend {
   }
 
   private pending(): PendingItem[] {
-    return this.fx.sessions.flatMap((s) => s.pending);
+    return this.fx.pendingItems;
+  }
+
+  /** Dev hook: someone answers `id` at the Mac (or on another device). */
+  resolveElsewhere(id: string, byName = 'VS Code'): void {
+    const item = this.fx.pendingItems.find((p) => p.id === id);
+    if (!item) return;
+    this.dropPending(item);
+    this.broadcast({
+      t: 'pendingResolved',
+      id,
+      session: item.sessionId,
+      outcome: 'withdrawn',
+      by: { kind: 'host', name: byName },
+      at: Date.now(),
+    });
+  }
+
+  private dropPending(item: PendingItem): void {
+    this.fx.pendingItems = this.fx.pendingItems.filter((p) => p.id !== item.id);
+    const s = this.find(item.sessionId);
+    if (!s) return;
+    const rest = this.fx.pendingItems.filter((p) => p.sessionId === s.id).map(toPreview);
+    this.patch(s.id, {
+      pending: rest,
+      ...(rest.length
+        ? {}
+        : {
+            status: 'working',
+            activity: { kind: 'thinking', label: 'Thinking', since: Date.now() },
+          }),
+    });
   }
 
   private fleet(): FleetSession[] {
@@ -463,9 +618,10 @@ class FixtureBackend implements MockBackend {
       ...s,
       agentsDetail: this.fx.agents[s.id] ?? [],
       workflows: this.fx.workflows[s.id] ?? [],
-      tasks: [],
+      tasks: this.fx.tasks[s.id] ?? [],
       todosDetail: todos,
-      queuedMessages: [],
+      queuedMessages: this.fx.queued[s.id] ?? [],
+      pendingDetail: this.fx.pendingItems.filter((p) => p.sessionId === s.id),
       filesChanged: this.fx.diff.files.map((f) => ({
         path: f.path,
         added: f.additions,
@@ -486,6 +642,10 @@ class FixtureBackend implements MockBackend {
           ev(`${id}-1`, Date.now() - 3_600_000, 'user', 'prompt', { text: 'Take a look at this.' }),
           ev(`${id}-2`, Date.now() - 3_500_000, 'assistant', 'text', { text: 'On it.' }),
         ]);
+    if (q.get('after')) {
+      const from = Math.min(all.length, Number(q.get('after')) || 0);
+      return { events: all.slice(from), tail: String(all.length) };
+    }
     const end = q.get('before') ? Number(q.get('before')) : all.length;
     const limit = Number(q.get('limit') ?? 150) || 150;
     const start = Math.max(0, end - limit);
@@ -515,7 +675,7 @@ class FixtureBackend implements MockBackend {
   }
 
   private respond(s: SessionSummary, body: RespondBody): Response {
-    const item = s.pending.find((p) => p.id === body?.requestId);
+    const item = this.fx.pendingItems.find((p) => p.id === body?.requestId);
     if (!item) {
       return json(
         { error: { code: 'already_decided', message: 'That request was already answered.' } },
@@ -529,22 +689,31 @@ class FixtureBackend implements MockBackend {
       );
     }
     const now = Date.now();
-    const rest = s.pending.filter((p) => p.id !== item.id);
-    this.patch(s.id, {
-      pending: rest,
-      status: body.decision === 'allow' ? 'working' : 'idle',
-      activity:
-        body.decision === 'allow'
-          ? { kind: 'thinking', label: 'Thinking', since: now }
-          : { kind: 'idle', label: 'Idle' },
-      ...(body.mode ? { permissionMode: body.mode } : {}),
+    this.dropPending(item);
+    if (body.mode) this.patch(s.id, { permissionMode: body.mode });
+    const who = this.role === 'desktop' ? 'the Mac' : "Marcus's iPhone";
+    const outcome = body.answers ? 'answered' : body.decision === 'allow' ? 'allowed' : 'denied';
+    this.broadcast({
+      t: 'pendingResolved',
+      id: item.id,
+      session: s.id,
+      outcome,
+      by:
+        this.role === 'desktop' ? { kind: 'desktop', name: 'Mac' } : { kind: 'device', name: who },
+      at: now,
     });
+    const suggestion =
+      body.suggestion !== undefined
+        ? item.suggestions.find((x) => x.index === body.suggestion)
+        : null;
     this.append(s.id, [
-      ev(`resp-${now}`, now, 'system', 'notice', {
+      ev(`resp-${now}:0`, now, 'system', 'decision', {
         text:
-          body.decision === 'allow'
-            ? `Approved from Mother Claude${body.answers ? ': ' + Object.values(body.answers).join(' · ') : ''}`
-            : `Denied from Mother Claude${body.message ? ': ' + body.message : ''}`,
+          outcome === 'answered'
+            ? `Answered by ${who}: ${Object.values(body.answers ?? {}).join(' · ')}`
+            : outcome === 'allowed'
+              ? `Allowed by ${who}${suggestion ? ` · ${suggestion.label}` : ''}`
+              : `Denied by ${who}${body.message ? `: ${body.message}` : ''}`,
       }),
     ]);
     return empty();
@@ -553,6 +722,19 @@ class FixtureBackend implements MockBackend {
   private message(s: SessionSummary, body: unknown) {
     const text = String((body as { text?: string })?.text ?? '');
     const now = Date.now();
+    if (s.status === 'working' && s.control.message === 'direct') {
+      const q = (this.fx.queued[s.id] ??= []);
+      q.push({
+        id: `q-${now}`,
+        text,
+        createdAt: now,
+        via: 'owned',
+        status: 'queued',
+        cancellable: true,
+      });
+      this.patch(s.id, { queued: q.length });
+      return { delivery: 'queued', messageId: `q-${now}` };
+    }
     this.append(s.id, [
       ev(`msg-${now}`, now, 'user', s.control.message === 'relay' ? 'relayed' : 'prompt', { text }),
     ]);
@@ -632,18 +814,27 @@ class FakeSocket implements WebSocketLike {
   onerror: ((ev: Event) => void) | null = null;
   authed = false;
   fleet = false;
+  inbox = false;
   readonly subs = new Set<string>();
+  readonly agentSubs = new Set<string>();
 
-  constructor(private readonly backend: FixtureBackend) {
+  constructor(
+    private readonly backend: FixtureBackend,
+    fail = false,
+  ) {
     setTimeout(() => {
       if (this.readyState !== 0) return;
+      if (fail) {
+        this.finish(1006, 'unreachable');
+        return;
+      }
       this.readyState = 1;
       this.onopen?.(new Event('open'));
     }, 60);
   }
 
   send(data: string): void {
-    let frame: { t?: string; token?: string; session?: string };
+    let frame: { t?: string; token?: string; session?: string; agent?: string };
     try {
       frame = JSON.parse(data);
     } catch {
@@ -655,13 +846,23 @@ class FakeSocket implements WebSocketLike {
         this.backend.onAuthed(this, frame.token ?? '');
         break;
       case 'sub':
-        if (frame.session) {
+        if (frame.session && frame.agent) {
+          this.agentSubs.add(`${frame.session}/${frame.agent}`);
+        } else if (frame.session) {
           this.subs.add(frame.session);
           this.backend.onSub(this, frame.session);
         }
         break;
       case 'unsub':
-        if (frame.session) this.subs.delete(frame.session);
+        if (frame.session && frame.agent) this.agentSubs.delete(`${frame.session}/${frame.agent}`);
+        else if (frame.session) this.subs.delete(frame.session);
+        break;
+      case 'subInbox':
+        this.inbox = true;
+        this.backend.onSubInbox(this);
+        break;
+      case 'unsubInbox':
+        this.inbox = false;
         break;
       case 'subFleet':
         this.fleet = true;
@@ -708,10 +909,10 @@ function delay(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
 }
 
-function json(body: unknown, status = 200): Response {
+function json(body: unknown, status = 200, extra: Record<string, string> = {}): Response {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', ...extra },
   });
 }
 

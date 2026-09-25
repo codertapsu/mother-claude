@@ -95,22 +95,34 @@ export function surfaceLabel(surface: Surface | string | undefined): string {
 
 const CHANNELS: Record<ControlChannel, { label: string; tone: Tone; hint: string }> = {
   owned: {
-    label: 'Owned',
+    label: 'Full control',
     tone: 'accent',
-    hint: 'Started by Mother Claude: full, reliable control.',
+    hint: 'Started by Mother Claude: full, reliable control from here.',
   },
   hooks: {
-    label: 'Hooks',
+    label: 'Via hooks',
     tone: 'blue',
-    hint: 'Controlled through the Mother Claude hooks plugin.',
+    hint: 'Reached through the Mother Claude hooks plugin: approvals work, messages arrive at the next stopping point.',
   },
-  tmux: { label: 'tmux', tone: 'blue', hint: 'Driven by typing into its tmux pane.' },
-  pty: { label: 'PTY', tone: 'amber', hint: 'Experimental terminal injection.' },
-  none: { label: 'Read-only', tone: 'muted', hint: 'Monitoring only from here.' },
+  tmux: {
+    label: 'Via tmux',
+    tone: 'blue',
+    hint: 'Driven by typing into its tmux pane.',
+  },
+  pty: {
+    label: 'Experimental',
+    tone: 'amber',
+    hint: 'Experimental terminal injection: may not work reliably.',
+  },
+  none: {
+    label: 'Watch only',
+    tone: 'muted',
+    hint: 'You can watch this session from here, not drive it.',
+  },
 };
 
 export function channelLabel(channel: ControlChannel | string | undefined): string {
-  return CHANNELS[channel as ControlChannel]?.label ?? 'Read-only';
+  return CHANNELS[channel as ControlChannel]?.label ?? 'Watch only';
 }
 
 export function channelTone(channel: ControlChannel | string | undefined): Tone {

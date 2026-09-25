@@ -120,7 +120,7 @@
     </div>
 
     <div class="bottom">
-      @for (p of s.pending; track p.id) {
+      @for (p of pending(); track p.id) {
         <mc-pending-card [item]="p" [session]="s" />
       }
 
@@ -173,7 +173,7 @@
         <div class="card cant-drive">
           <p>
             This session can't take messages from here.
-            @for (n of s.control.notes; track $index) {
+            @for (n of s.control.notes ?? []; track $index) {
               <span class="muted"> {{ n }}</span>
             }
           </p>

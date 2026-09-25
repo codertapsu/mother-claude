@@ -39,18 +39,17 @@
                 }
               </span>
             </div>
-            <div class="fp" [attr.aria-label]="'Fingerprint ' + p.fingerprint">
-              {{ p.fingerprint }}
-            </div>
-            <p class="muted small fp-hint">Approve only if the phone shows the same number.</p>
+            <p class="muted small fp-hint">
+              The device shows a 4-digit number: you'll type it to approve.
+            </p>
             <div class="row">
               <button
                 class="btn primary"
                 type="button"
                 [disabled]="busy().has(p.id)"
-                (click)="approve(p)"
+                (click)="approving.set(p)"
               >
-                <mc-icon name="check" [size]="15" /> Approve
+                <mc-icon name="check" [size]="15" /> Approve…
               </button>
               <button
                 class="btn danger"
@@ -344,7 +343,7 @@
     </section>
 
     <!-- ─────────────── Foreign-session control ─────────────── -->
-    <section class="card foreign" aria-label="Foreign-session control">
+    <section id="foreign" class="card foreign" aria-label="Foreign-session control">
       <h2 class="first"><mc-icon name="plug" [size]="15" /> Foreign-session control</h2>
       <p>
         Sessions you start in a terminal, VS Code or JetBrains are <em>foreign</em>: by default you
@@ -422,3 +421,9 @@
     </section>
   }
 </div>
+
+<mc-pair-approval-dialog
+  [pending]="approving()"
+  (closed)="approving.set(null)"
+  (settled)="onSettled($event.pending, $event.approved)"
+/>

@@ -11,9 +11,8 @@ export interface TranscriptStoreOptions {
   agentId?: string;
   /** Events per REST page (server max 300). Default 150. */
   limit?: number;
-  /** Also refetch the tail on this interval while the page is visible
-   * (agent transcripts, which the server may not push over the socket).
-   * Change it later with `setPoll()`. */
+  /** Also refetch the tail on this interval while the page is visible (a
+   * safety net for running agents). Change it later with `setPoll()`. */
   pollMs?: number;
 }
 
@@ -24,13 +23,18 @@ const DEFAULT_LIMIT = 150;
  * reconnects. Create it with `RealtimeService.openTranscript()`.
  *
  * - Loads the newest page over REST, then appends live `transcript` frames
- *   (buffering frames that race the first fetch). Everything is deduped by
- *   `UiEvent.id`; an event re-sent with a known id replaces the old copy.
+ *   for `sub{session, agent?}` (buffering frames that race the first fetch).
+ *   Everything is deduped by `UiEvent.id`; an event re-sent with a known id
+ *   replaces the old copy.
  * - Main-conversation stores take events WITHOUT `agentId`; agent stores take
- *   only events whose `agentId` matches.
+ *   only events whose `agentId` matches (frames for another agent are
+ *   ignored).
  * - On `refetch$` (reconnect / resync / resume / online) it refetches the
- *   tail over REST and merges it; if the gap is bigger than one page it
- *   replaces the list (older history is then paged in with `loadEarlier()`).
+ *   tail and merges it; if the gap is bigger than one page it replaces the
+ *   list (older history pages back in with `loadEarlier()`). A
+ *   `transcriptReset` frame does the same.
+ * - While the realtime service is polling (Limited), every `pollTick$`
+ *   fetches only what follows the last cursor (`after=<tail>`).
  * - `destroy()` releases the socket subscription and timers.
  */
 export class TranscriptStore {
@@ -54,6 +58,8 @@ export class TranscriptStore {
   private poll?: ReturnType<typeof setInterval>;
   private destroyed = false;
   private refreshing = false;
+  private polling = false;
+  private tail?: string;
   private readonly limit: number;
 
   constructor(
@@ -63,17 +69,26 @@ export class TranscriptStore {
     private readonly opts: TranscriptStoreOptions = {},
   ) {
     this.limit = Math.min(300, opts.limit ?? DEFAULT_LIMIT);
-    this.release = realtime.subscribe(sessionId);
+    this.release = realtime.subscribe(sessionId, opts.agentId);
     this.subs.add(
       realtime.transcript$.subscribe((f) => {
         if (f.session !== sessionId) return;
+        if (f.agent && f.agent !== opts.agentId) return;
+        if (f.tail) this.tail = f.tail;
         const mine = (f.events ?? []).filter((e) => this.accepts(e));
         if (!mine.length) return;
         if (this.buffer) this.buffer.push(...mine);
         else this.merge(mine);
       }),
     );
+    this.subs.add(
+      realtime.transcriptReset$.subscribe((f) => {
+        if (f.session !== sessionId || (f.agent ?? undefined) !== opts.agentId) return;
+        void this.refresh(true);
+      }),
+    );
     this.subs.add(realtime.refetch$.subscribe(() => void this.refresh()));
+    this.subs.add(realtime.pollTick$.subscribe(() => void this.pollAfter()));
     this.setPoll(opts.pollMs ?? 0);
     void this.initialLoad();
   }
@@ -111,8 +126,9 @@ export class TranscriptStore {
     }
   }
 
-  /** Refetch the newest page and merge it (also runs on reconnects). */
-  async refresh(): Promise<void> {
+  /** Refetch the newest page and merge it (also runs on reconnects).
+   * `reset` replaces the list outright. */
+  async refresh(reset = false): Promise<void> {
     if (this.destroyed || this.refreshing || this.buffer) return;
     this.refreshing = true;
     try {
@@ -123,13 +139,13 @@ export class TranscriptStore {
       if (this.destroyed) return;
       const fresh = dedupe((page.events ?? []).filter((e) => this.accepts(e)));
       const prev = this.eventsS();
-      if (!fresh.length && prev.length) return; // nothing new to trust
-      const overlaps = fresh.some((e) => this.ids.has(e.id));
+      if (!reset && !fresh.length && prev.length) return; // nothing new to trust
+      const overlaps = !reset && fresh.some((e) => this.ids.has(e.id));
       if (overlaps) {
         this.eventsS.set(spliceTail(prev, fresh));
       } else {
-        // Empty so far, or we missed more than a page: start over from the
-        // newest page (older history pages back in with loadEarlier()).
+        // Empty so far, reset, or we missed more than a page: start over
+        // from the newest page (older history pages back in on demand).
         this.eventsS.set(fresh);
         this.beforeS.set(page.before);
       }
@@ -150,6 +166,30 @@ export class TranscriptStore {
     this.subs.unsubscribe();
     this.release();
     clearInterval(this.poll);
+  }
+
+  /** Limited mode: fetch what follows our cursor. */
+  private async pollAfter(): Promise<void> {
+    if (this.destroyed || this.polling || this.buffer || this.refreshing) return;
+    if (!this.tail) {
+      void this.refresh();
+      return;
+    }
+    this.polling = true;
+    try {
+      const page = await this.api.getTranscript(this.sessionId, {
+        after: this.tail,
+        limit: this.limit,
+        agent: this.opts.agentId,
+      });
+      if (this.destroyed) return;
+      this.merge((page.events ?? []).filter((e) => this.accepts(e)));
+      this.noteTail(page.tail);
+    } catch {
+      // The next tick tries again; the connection indicator tells the user.
+    } finally {
+      this.polling = false;
+    }
   }
 
   private async initialLoad(): Promise<void> {
@@ -177,7 +217,9 @@ export class TranscriptStore {
   }
 
   private noteTail(tail: string | undefined): void {
-    if (!this.opts.agentId) this.realtime.noteTail(this.sessionId, tail);
+    if (!tail) return;
+    this.tail = tail;
+    this.realtime.noteTail(this.sessionId, tail, this.opts.agentId);
   }
 
   private accepts(e: UiEvent): boolean {

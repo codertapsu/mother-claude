@@ -1,6 +1,8 @@
 import { ChangeDetectionStrategy, Component, computed, input, signal } from '@angular/core';
 
-import { ControlCaps, Surface } from '../core/models';
+import { ControlCaps, SessionSummary, Surface } from '../core/models';
+import { CapLimitsComponent } from './cap-limits.component';
+import { capAttach, capKeys, capLimits, capRename, capTerminal, capWake } from './caps';
 import { IconComponent } from './icon.component';
 import { SheetComponent } from './sheet.component';
 import { channelHint, channelLabel, channelTone, surfaceLabel } from './util';
@@ -12,20 +14,21 @@ interface CapRow {
 }
 
 /**
- * "VS Code · Hooks" — where the session runs and how this dashboard can reach
- * it. Tapping opens a sheet with the full capability matrix and the server's
- * notes, so the UI is honest about what each session supports.
+ * "VS Code · Via hooks" — where the session runs and how much this dashboard
+ * can do with it ("Full control", "Via hooks", "Via tmux", "Experimental",
+ * "Watch only"). Tapping opens a sheet with the full capability matrix and
+ * the session's limits, each with the action that fixes it.
  */
 @Component({
   selector: 'mc-channel-badge',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [IconComponent, SheetComponent],
+  imports: [CapLimitsComponent, IconComponent, SheetComponent],
   template: `
     <button
       type="button"
       class="badge-btn"
       [attr.data-tone]="tone()"
-      [attr.aria-label]="surfaceText() + ', control: ' + channelText() + '. Show what works'"
+      [attr.aria-label]="surfaceText() + ', ' + channelText() + '. Show what works from here'"
       (click)="open.set(true); $event.stopPropagation()"
     >
       @if (!compact() && surfaceText() !== channelText()) {
@@ -47,14 +50,8 @@ interface CapRow {
           </li>
         }
       </ul>
-      @if (control().notes.length) {
-        <h2>Notes</h2>
-        <ul class="notes">
-          @for (n of control().notes; track $index) {
-            <li>{{ n }}</li>
-          }
-        </ul>
-      }
+      <h2>Limits</h2>
+      <mc-cap-limits [session]="session()" [limits]="limits()" (done)="open.set(false)" />
     </mc-sheet>
   `,
   styles: [
@@ -91,8 +88,7 @@ interface CapRow {
         margin: 0 0 0.75rem;
         color: var(--muted);
       }
-      .caps,
-      .notes {
+      .caps {
         list-style: none;
         margin: 0;
         padding: 0;
@@ -118,12 +114,7 @@ interface CapRow {
       .val {
         color: var(--muted);
         font-size: 0.8rem;
-      }
-      .notes li {
-        padding: 0.3rem 0;
-        font-size: 0.85rem;
-        color: var(--muted);
-        line-height: 1.45;
+        text-align: right;
       }
     `,
   ],
@@ -131,7 +122,9 @@ interface CapRow {
 export class ChannelBadgeComponent {
   readonly surface = input.required<Surface | string>();
   readonly control = input.required<ControlCaps>();
-  /** Show only the channel ("Hooks"), not the surface. */
+  /** The session (enables the limit actions: continue, fork, terminal). */
+  readonly session = input<SessionSummary | undefined>(undefined);
+  /** Show only the channel ("Via hooks"), not the surface. */
   readonly compact = input(false);
 
   protected readonly open = signal(false);
@@ -139,6 +132,7 @@ export class ChannelBadgeComponent {
   protected readonly channelText = computed(() => channelLabel(this.control().channel));
   protected readonly tone = computed(() => channelTone(this.control().channel));
   protected readonly hint = computed(() => channelHint(this.control().channel));
+  protected readonly limits = computed(() => capLimits(this.control()));
   protected readonly sheetTitle = computed(() =>
     this.surfaceText() === this.channelText()
       ? this.surfaceText()
@@ -147,15 +141,28 @@ export class ChannelBadgeComponent {
 
   protected readonly rows = computed<CapRow[]>(() => {
     const c = this.control();
+    const s = this.session();
     const yes = (b: boolean) => (b ? 'yes' : 'no');
+    const attach = capAttach(c);
+    const rename = capRename(c, s?.owned);
     return [
       {
         label: 'Send messages',
         ok: c.message !== 'none',
         value:
-          c.message === 'direct' ? 'direct' : c.message === 'relay' ? 'relayed' : 'not available',
+          c.message === 'direct'
+            ? 'straight in'
+            : c.message === 'relay'
+              ? capWake(c)
+                ? 'relayed'
+                : 'at the next stopping point'
+              : 'not available',
       },
-      { label: 'Approve permissions', ok: c.approve, value: yes(c.approve) },
+      {
+        label: 'Approve permissions',
+        ok: c.approve,
+        value: c.approve ? (c.approveVia === 'keys' ? 'by keys' : 'yes') : 'no',
+      },
       { label: 'Answer questions', ok: c.answer, value: yes(c.answer) },
       {
         label: 'Interrupt',
@@ -176,12 +183,24 @@ export class ChannelBadgeComponent {
       },
       { label: 'Change effort', ok: c.setEffort, value: yes(c.setEffort) },
       { label: 'Slash commands', ok: c.slashCommands, value: yes(c.slashCommands) },
-      { label: 'Attach images', ok: c.attachImages, value: yes(c.attachImages) },
+      {
+        label: 'Attachments',
+        ok: attach !== 'none',
+        value: attach === 'inline' ? 'images' : attach === 'path' ? 'as file paths' : 'no',
+      },
+      {
+        label: 'Rename',
+        ok: rename !== 'none',
+        value:
+          rename === 'sync' ? 'everywhere' : rename === 'alias' ? 'only in Mother Claude' : 'no',
+      },
+      { label: 'Terminal view', ok: capTerminal(c, s), value: yes(capTerminal(c, s)) },
+      { label: 'Send keys', ok: capKeys(c, s), value: yes(capKeys(c, s)) },
       { label: 'Stop background tasks', ok: c.stopTask, value: yes(c.stopTask) },
       {
-        label: 'Continue here (fork)',
+        label: 'Continue here',
         ok: c.fork || c.continueOwned,
-        value: yes(c.fork || c.continueOwned),
+        value: c.fork || c.continueOwned ? (s?.live ? 'as a fork' : 'yes') : 'no',
       },
       {
         label: 'Stop / respawn / remove',
@@ -191,7 +210,7 @@ export class ChannelBadgeComponent {
             .filter(Boolean)
             .join(' · ') || 'no',
       },
-      { label: 'Hooks active', ok: c.hooksActive, value: yes(c.hooksActive) },
+      { label: 'Hooks connected', ok: c.hooksActive, value: yes(c.hooksActive) },
     ];
   });
 }

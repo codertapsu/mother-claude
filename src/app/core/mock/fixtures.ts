@@ -3,15 +3,19 @@
 
 import {
   AgentInfo,
+  BackgroundTask,
   BridgeStatus,
   ControlCaps,
   DeviceInfo,
   ForeignControlStatus,
   GitOverview,
   LaunchDefaults,
+  PendingItem,
   PendingPair,
+  PendingPreview,
   ProjectInfo,
   PushPrefs,
+  QueuedMessage,
   RemoteInfo,
   SessionSummary,
   UiEvent,
@@ -20,6 +24,11 @@ import {
 
 export interface Fixtures {
   sessions: SessionSummary[];
+  /** Full pending items (sessions carry previews). */
+  pendingItems: PendingItem[];
+  tasks: Record<string, BackgroundTask[]>;
+  queued: Record<string, QueuedMessage[]>;
+  terminals: Record<string, string>;
   history: SessionSummary[];
   agents: Record<string, AgentInfo[]>;
   workflows: Record<string, WorkflowRun[]>;
@@ -62,7 +71,13 @@ export function ownedCaps(): ControlCaps {
     continueOwned: false,
     lifecycle: { stop: true, respawn: false, rm: false },
     hooksActive: false,
-    notes: ['Started by Mother Claude: everything works from here.'],
+    rename: 'sync',
+    terminal: false,
+    keys: false,
+    attach: 'inline',
+    approveVia: 'control',
+    wake: true,
+    limits: [],
   };
 }
 
@@ -83,10 +98,23 @@ function hookCaps(): ControlCaps {
     continueOwned: true,
     lifecycle: { stop: false, respawn: false, rm: false },
     hooksActive: true,
-    notes: [
-      'Messages are delivered at the next tool call, or when the session goes idle.',
-      'Interrupts take effect at the next tool call.',
-      'Change the model or effort in VS Code itself.',
+    rename: 'alias',
+    terminal: false,
+    keys: false,
+    attach: 'path',
+    approveVia: 'hook',
+    wake: true,
+    limits: [
+      {
+        code: 'relay_delivery',
+        text: "Messages arrive at Claude's next stopping point and don't show in the VS Code panel.",
+      },
+      { code: 'interrupt_next_tool', text: 'Interrupts take effect at the next tool call.' },
+      {
+        code: 'foreign_model',
+        text: 'Change the model or effort in VS Code itself, or continue here for full control.',
+        action: 'fork',
+      },
     ],
   };
 }
@@ -108,14 +136,31 @@ function tmuxCaps(): ControlCaps {
     continueOwned: true,
     lifecycle: { stop: false, respawn: false, rm: false },
     hooksActive: true,
-    notes: [
-      'Typed into its tmux pane (session “work”, pane %3).',
-      '/model and /effort sent this way also change your saved Claude settings.',
+    rename: 'alias',
+    terminal: true,
+    keys: true,
+    attach: 'path',
+    approveVia: 'hook',
+    wake: true,
+    limits: [
+      {
+        code: 'tmux_typed',
+        text: 'Messages are typed into its tmux pane (session “work”, pane %3).',
+      },
+      {
+        code: 'tmux_settings',
+        text: '/model and /effort sent this way also change your saved Claude settings.',
+      },
+      {
+        code: 'terminal_dialogs',
+        text: 'Dialogs open in the terminal can be answered with keys.',
+        action: 'open-terminal',
+      },
     ],
   };
 }
 
-function noneCaps(extra: Partial<ControlCaps> = {}, notes: string[] = []): ControlCaps {
+function noneCaps(extra: Partial<ControlCaps> = {}, limits?: ControlCaps['limits']): ControlCaps {
   return {
     channel: 'none',
     message: 'none',
@@ -132,12 +177,24 @@ function noneCaps(extra: Partial<ControlCaps> = {}, notes: string[] = []): Contr
     continueOwned: true,
     lifecycle: { stop: false, respawn: false, rm: false },
     hooksActive: false,
-    notes: notes.length
-      ? notes
-      : [
-          'Install foreign-session control (desktop → Remote) to answer prompts and send messages.',
-          'Or use “Continue here” to fork it into an owned session.',
-        ],
+    rename: 'alias',
+    terminal: false,
+    keys: false,
+    attach: 'none',
+    approveVia: 'none',
+    wake: false,
+    limits: limits ?? [
+      {
+        code: 'no_hooks',
+        text: 'Install foreign-session control to answer prompts and send messages from here.',
+        action: 'install-foreign-control',
+      },
+      {
+        code: 'continue_owned',
+        text: 'Or continue it here as a session Mother Claude controls fully.',
+        action: 'fork',
+      },
+    ],
     ...extra,
   };
 }
@@ -183,7 +240,31 @@ export const MIGRATION_PLAN = `## Plan: migrate billing to Stripe API v3
 ### Out of scope
 - Tax (Stripe Tax) — separate project.`;
 
+/** The list copy of a pending item (what `sessions` frames carry). */
+export function toPreview(p: PendingItem): PendingPreview {
+  const q = p.questions ?? [];
+  const single = q.length === 1 && !q[0].multiSelect && q[0].options.length <= 4;
+  return {
+    id: p.id,
+    kind: p.kind,
+    title: p.title,
+    detail: (p.detail ?? q[0]?.question ?? p.plan?.split('\n')[0] ?? '').slice(0, 240) || undefined,
+    toolName: p.toolName,
+    agentId: p.agentId,
+    dangerous: p.dangerous,
+    answerable: p.answerable,
+    createdAt: p.createdAt,
+    ...(q.length ? { questionCount: q.length } : {}),
+    ...(single ? { quick: { options: q[0].options.map((o) => o.label) } } : {}),
+  };
+}
+
 export function buildFixtures(now: number): Fixtures {
+  const pendingItems: PendingItem[] = [];
+  const P = (items: PendingItem[]): PendingPreview[] => {
+    pendingItems.push(...items);
+    return items.map(toPreview);
+  };
   const sessions: SessionSummary[] = [
     base(now, {
       id: 's-auth',
@@ -222,7 +303,7 @@ export function buildFixtures(now: number): Fixtures {
       lastPrompt: 'Move session validation into middleware and add token rotation',
       todos: { total: 7, done: 4, inProgress: 1, activeForm: 'Running the database migration' },
       agents: { running: 2, total: 5, workflowsRunning: 0, backgroundRunning: 1 },
-      pending: [
+      pending: P([
         {
           id: 'req-auth-1',
           sessionId: 's-auth',
@@ -258,7 +339,62 @@ export function buildFixtures(now: number): Fixtures {
           answerable: true,
           createdAt: now - 45 * S,
         },
-      ],
+        {
+          id: 'req-auth-2',
+          sessionId: 's-auth',
+          kind: 'permission',
+          source: 'owned',
+          toolName: 'Edit',
+          toolUseId: 'toolu_auth_2',
+          agentId: 'ag-explore',
+          agentType: 'Explore',
+          title: 'Edit src/routes/users.ts',
+          detail: 'src/routes/users.ts',
+          input: {
+            file_path: '/Users/marcus/dev/api-server/src/routes/users.ts',
+            old_string:
+              'import { validateSession } from "../auth";\n\nrouter.get("/me", (req, res) => {\n  if (!validateSession(req)) return res.sendStatus(401);\n  res.json(req.user);\n});',
+            new_string:
+              'import { requireSession } from "../middleware/session";\n\nrouter.use(requireSession());\nrouter.get("/me", (req, res) => {\n  res.json(req.user);\n});',
+          },
+          suggestions: [
+            {
+              index: 0,
+              label: 'Allow all edits in this session',
+              kind: 'setMode',
+              destination: 'session',
+              standing: false,
+              raw: {},
+            },
+          ],
+          dangerous: false,
+          answerable: true,
+          createdAt: now - 30 * S,
+        },
+        {
+          id: 'req-auth-3',
+          sessionId: 's-auth',
+          kind: 'elicitation',
+          source: 'owned',
+          title: 'GitHub needs a repository',
+          input: {
+            message: 'Which repository should the pull request be opened in?',
+            requestedSchema: {
+              type: 'object',
+              properties: {
+                repo: { type: 'string', title: 'Repository (owner/name)' },
+                draft: { type: 'boolean', title: 'Open as a draft' },
+                base: { type: 'string', title: 'Base branch', enum: ['main', 'develop'] },
+              },
+              required: ['repo'],
+            },
+          },
+          suggestions: [],
+          dangerous: false,
+          answerable: true,
+          createdAt: now - 12 * S,
+        },
+      ]),
       control: ownedCaps(),
     }),
     base(now, {
@@ -283,7 +419,7 @@ export function buildFixtures(now: number): Fixtures {
       context: { used: 128_000, window: 1_000_000, pct: 13 },
       messageCount: 31,
       lastPrompt: 'We need an analytics backend. Compare options and set up the schema.',
-      pending: [
+      pending: P([
         {
           id: 'req-db-1',
           sessionId: 's-db',
@@ -325,7 +461,7 @@ export function buildFixtures(now: number): Fixtures {
           answerable: true,
           createdAt: now - 2 * M,
         },
-      ],
+      ]),
       control: hookCaps(),
     }),
     base(now, {
@@ -349,7 +485,7 @@ export function buildFixtures(now: number): Fixtures {
       costUsd: 2.41,
       context: { used: 780_000, window: 1_000_000, pct: 78 },
       messageCount: 44,
-      pending: [
+      pending: P([
         {
           id: 'req-billing-1',
           sessionId: 's-billing',
@@ -364,7 +500,7 @@ export function buildFixtures(now: number): Fixtures {
           answerable: true,
           createdAt: now - 6 * M,
         },
-      ],
+      ]),
       control: tmuxCaps(),
     }),
     base(now, {
@@ -395,9 +531,17 @@ export function buildFixtures(now: number): Fixtures {
       messageCount: 18,
       todos: { total: 5, done: 2, inProgress: 1, activeForm: 'Scanning workspaces' },
       agents: { running: 3, total: 3, workflowsRunning: 1, backgroundRunning: 0 },
-      control: noneCaps({ lifecycle: { stop: true, respawn: true, rm: true } }, [
-        'Background session: stop, respawn and remove work from here.',
-        'Install foreign-session control (desktop → Remote) to send it messages.',
+      control: noneCaps({ lifecycle: { stop: true, respawn: true, rm: true }, terminal: true }, [
+        {
+          code: 'background',
+          text: 'Background session: stop, respawn and remove work from here; its log is in the terminal view.',
+          action: 'open-terminal',
+        },
+        {
+          code: 'no_hooks',
+          text: 'Install foreign-session control to send it messages.',
+          action: 'install-foreign-control',
+        },
       ]),
     }),
     base(now, {
@@ -442,7 +586,7 @@ export function buildFixtures(now: number): Fixtures {
       usage: { input: 30_000, output: 6_000, cacheRead: 200_000, cacheWrite: 30_000 },
       costUsd: 0.64,
       messageCount: 17,
-      pending: [
+      pending: P([
         {
           id: 'obs-flaky-1',
           sessionId: 's-flaky',
@@ -456,7 +600,7 @@ export function buildFixtures(now: number): Fixtures {
           answerable: false,
           createdAt: now - 4 * M,
         },
-      ],
+      ]),
       control: noneCaps(),
     }),
     base(now, {
@@ -499,6 +643,86 @@ export function buildFixtures(now: number): Fixtures {
       messageCount: 9,
       lastMessage: 'Release notes are in CHANGELOG.md under 0.3.0.',
       control: noneCaps(),
+    }),
+    base(now, {
+      id: 's-stream',
+      name: 'search-index',
+      title: 'Speed up the search index build',
+      projectName: 'monorepo',
+      cwd: '/Users/marcus/dev/monorepo',
+      surface: 'mother-claude',
+      entrypoint: 'sdk-cli',
+      owned: true,
+      status: 'working',
+      activity: { kind: 'thinking', label: 'Writing', since: now - 8 * S },
+      model: OPUS,
+      effort: 'medium',
+      permissionMode: 'acceptEdits',
+      gitBranch: 'perf/search-index',
+      startedAt: now - 6 * M,
+      lastActivityAt: now - 2 * S,
+      pid: 51002,
+      usage: { input: 42_000, output: 9_000, cacheRead: 380_000, cacheWrite: 41_000 },
+      costUsd: 0.74,
+      context: { used: 96_000, window: 1_000_000, pct: 10 },
+      messageCount: 14,
+      lastPrompt: 'Profile the index build and make it at least 2x faster',
+      queued: 1,
+      control: ownedCaps(),
+    }),
+    base(now, {
+      id: 's-deploy',
+      name: 'release-cli',
+      title: 'Publish the CLI to npm',
+      projectName: 'cli',
+      cwd: '/Users/marcus/dev/cli',
+      surface: 'terminal',
+      status: 'waiting',
+      waitingFor: 'permission prompt',
+      activity: {
+        kind: 'waiting',
+        label: 'Waiting for approval',
+        tool: 'Bash',
+        since: now - 70 * S,
+      },
+      model: SONNET,
+      permissionMode: 'default',
+      gitBranch: 'main',
+      startedAt: now - 11 * M,
+      lastActivityAt: now - 70 * S,
+      usage: { input: 18_000, output: 4_000, cacheRead: 90_000, cacheWrite: 12_000 },
+      costUsd: 0.19,
+      messageCount: 9,
+      pending: P([
+        {
+          id: 'req-deploy-1',
+          sessionId: 's-deploy',
+          kind: 'permission',
+          source: 'hook',
+          toolName: 'Bash',
+          toolUseId: 'toolu_deploy_1',
+          title: 'Publish to npm',
+          detail: 'rm -rf dist && npm run build && npm publish --access public',
+          input: {
+            command: 'rm -rf dist && npm run build && npm publish --access public',
+            description: 'Rebuild and publish version 2.4.0',
+          },
+          suggestions: [
+            {
+              index: 0,
+              label: 'Always allow “npm publish:*” in every project',
+              kind: 'addRules',
+              destination: 'userSettings',
+              standing: true,
+              raw: {},
+            },
+          ],
+          dangerous: true,
+          answerable: true,
+          createdAt: now - 70 * S,
+        },
+      ]),
+      control: hookCaps(),
     }),
   ];
 
@@ -738,26 +962,135 @@ export function buildFixtures(now: number): Fixtures {
 
   const transcripts: Record<string, UiEvent[]> = {
     's-auth': [
-      ev('a1', now - 50 * M, 'user', 'prompt', {
+      ev('a0:0', now - 52 * M, 'system', 'compact', {
+        text: 'Conversation compacted · 212k → 38k tokens',
+      }),
+      ev('a1:0', now - 50 * M, 'user', 'prompt', {
         text: 'Move session validation into middleware and add token rotation. Keep the public API unchanged.',
       }),
-      ev('a2', now - 50 * M, 'assistant', 'thinking', {
+      ev('a1:1', now - 50 * M, 'user', 'image', {
+        image: { mediaType: 'image/png', ref: '/api/sessions/s-auth/media/0/a1/1' },
+      }),
+      ev('a2:0', now - 50 * M, 'assistant', 'thinking', {
+        messageId: 'msg_a2',
         text: 'The validation is duplicated in 11 handlers. A middleware keeps it in one place; rotation needs a refresh-token table.',
       }),
-      ev('a3', now - 49 * M, 'assistant', 'text', {
+      ev('a3:0', now - 49 * M, 'assistant', 'text', {
+        messageId: 'msg_a3',
         text: "I'll start by finding every place that validates sessions, then introduce `requireSession()` middleware.",
       }),
-      ev('a4', now - 49 * M, 'assistant', 'tool', {
-        tool: { id: 'toolu_g1', name: 'Grep', summary: 'validateSession\\(' },
+      ev('a4:0', now - 49 * M, 'assistant', 'tool', {
+        tool: {
+          id: 'toolu_g1',
+          name: 'Grep',
+          summary: 'validateSession\\(',
+          input: { pattern: 'validateSession\\(', path: 'src' },
+        },
       }),
-      ev('a5', now - 49 * M, 'user', 'result', {
+      ev('a5:0', now - 49 * M, 'user', 'result', {
         result: {
           toolUseId: 'toolu_g1',
           isError: false,
           text: 'src/routes/users.ts:14\nsrc/routes/orders.ts:9\n… 9 more',
         },
       }),
-      ev('a6', now - 30 * M, 'assistant', 'todos', {
+      ev('a5b:0', now - 48 * M, 'assistant', 'tool', {
+        tool: {
+          id: 'toolu_r1',
+          name: 'Read',
+          summary: 'src/auth/index.ts',
+          input: { file_path: '/Users/marcus/dev/api-server/src/auth/index.ts' },
+        },
+      }),
+      ev('a5c:0', now - 48 * M, 'user', 'result', {
+        result: {
+          toolUseId: 'toolu_r1',
+          isError: false,
+          text: 'export function validateSession(req) { … }',
+        },
+      }),
+      ev('a5d:0', now - 47 * M, 'assistant', 'tool', {
+        tool: {
+          id: 'toolu_w1',
+          name: 'Write',
+          summary: 'src/middleware/session.ts',
+          input: {
+            file_path: '/Users/marcus/dev/api-server/src/middleware/session.ts',
+            content:
+              'export function requireSession() {\n  return (req, res, next) => {\n    if (!req.session?.valid) return res.sendStatus(401);\n    next();\n  };\n}\n',
+          },
+        },
+      }),
+      ev('a5e:0', now - 47 * M, 'user', 'result', {
+        result: { toolUseId: 'toolu_w1', isError: false, text: 'File created successfully.' },
+      }),
+      ev('a5f:0', now - 46 * M, 'assistant', 'tool', {
+        tool: {
+          id: 'toolu_b1',
+          name: 'Bash',
+          summary: 'npm test -- --silent',
+          input: { command: 'npm test -- --silent', description: 'Run the test suite' },
+        },
+      }),
+      ev('a5g:0', now - 46 * M, 'user', 'result', {
+        result: {
+          toolUseId: 'toolu_b1',
+          isError: true,
+          text: 'FAIL src/routes/orders.test.ts\n  ● GET /orders › returns 401 without a session\n\nTests: 1 failed, 141 passed',
+        },
+      }),
+      ev('a5h:0', now - 45 * M, 'assistant', 'tool', {
+        tool: {
+          id: 'toolu_e1',
+          name: 'Edit',
+          summary: 'src/routes/orders.ts',
+          input: {
+            file_path: '/Users/marcus/dev/api-server/src/routes/orders.ts',
+            old_string: 'router.get("/orders", handler);',
+            new_string: 'router.get("/orders", requireSession(), handler);',
+          },
+        },
+      }),
+      ev('a5i:0', now - 45 * M, 'user', 'result', {
+        result: {
+          toolUseId: 'toolu_e1',
+          isError: false,
+          patch: {
+            path: 'src/routes/orders.ts',
+            hunks: [
+              {
+                oldStart: 7,
+                oldLines: 3,
+                newStart: 7,
+                newLines: 3,
+                lines: [
+                  ' import { handler } from "./handler";',
+                  '-router.get("/orders", handler);',
+                  '+router.get("/orders", requireSession(), handler);',
+                  ' export default router;',
+                ],
+              },
+            ],
+          },
+        },
+      }),
+      ev('a5j:0', now - 44 * M, 'assistant', 'question', {
+        question: {
+          questions: [
+            {
+              question: 'How long should refresh tokens live?',
+              header: 'Rotation',
+              multiSelect: false,
+              options: [{ label: '7 days' }, { label: '30 days' }, { label: '90 days' }],
+            },
+          ],
+          answers: { 'How long should refresh tokens live?': '30 days' },
+        },
+      }),
+      ev('a5k:0', now - 43 * M, 'system', 'decision', {
+        text: "Allowed by Marcus's iPhone · Always allow Bash(npm test:*)",
+      }),
+      ev('a6:0', now - 30 * M, 'assistant', 'todos', {
         todos: [
           { content: 'Add requireSession() middleware', status: 'completed' },
           { content: 'Replace inline validation in 11 handlers', status: 'completed' },
@@ -772,11 +1105,36 @@ export function buildFixtures(now: number): Fixtures {
           { content: 'Open the PR', status: 'pending' },
         ],
       }),
-      ev('a7', now - 60 * S, 'assistant', 'text', {
+      ev('a6b:0', now - 20 * M, 'system', 'task', {
+        task: {
+          taskId: 'bash-lint',
+          status: 'completed',
+          summary: 'npx eslint . --cache: no problems',
+        },
+      }),
+      ev('a6c:0', now - 3 * M, 'user', 'relayed', {
+        text: 'Keep the old /session endpoint working until the mobile app ships',
+      }),
+      ev('a7:0', now - 60 * S, 'assistant', 'text', {
+        messageId: 'msg_a7',
         text: 'Middleware is in place and all **142 tests pass**. Next I need to apply the migration for the new `refresh_tokens` table.',
       }),
-      ev('a8', now - 45 * S, 'assistant', 'tool', {
-        tool: { id: 'toolu_auth_1', name: 'Bash', summary: 'npm run migrate -- --force' },
+      ev('a8:0', now - 45 * S, 'assistant', 'tool', {
+        tool: {
+          id: 'toolu_auth_1',
+          name: 'Bash',
+          summary: 'npm run migrate -- --force',
+          input: { command: 'npm run migrate -- --force' },
+        },
+      }),
+    ],
+    's-stream': [
+      ev('st1:0', now - 6 * M, 'user', 'prompt', {
+        text: 'Profile the index build and make it at least 2x faster',
+      }),
+      ev('st2:0', now - 5 * M, 'assistant', 'text', {
+        messageId: 'msg_st2',
+        text: 'The profile shows **68%** of the time in `tokenize()`, which re-compiles its regex for every document.',
       }),
     ],
     's-db': [
@@ -831,8 +1189,88 @@ export function buildFixtures(now: number): Fixtures {
     lastActivityAt: now - i * 7 * H,
   }));
 
+  const tasks: Record<string, BackgroundTask[]> = {
+    's-auth': [
+      {
+        id: 'bash-tests',
+        kind: 'bash',
+        label: 'npm run test:watch',
+        status: 'running',
+        startedAt: now - 18 * M,
+        outputAvailable: true,
+      },
+      {
+        id: 'bash-lint',
+        kind: 'bash',
+        label: 'npx eslint . --cache',
+        status: 'completed',
+        startedAt: now - 30 * M,
+        endedAt: now - 29 * M,
+        outputAvailable: true,
+      },
+      {
+        id: 'mon-logs',
+        kind: 'monitor',
+        label: 'tail -f logs/api.log',
+        status: 'running',
+        startedAt: now - 25 * M,
+        outputAvailable: true,
+      },
+    ],
+  };
+  const queued: Record<string, QueuedMessage[]> = {
+    's-stream': [
+      {
+        id: 'q-1',
+        text: 'Also keep the old index format readable for one release',
+        createdAt: now - 20 * S,
+        via: 'owned',
+        status: 'queued',
+        cancellable: true,
+      },
+    ],
+    's-docs': [
+      {
+        id: 'q-2',
+        text: 'Use British spelling in the new guide',
+        createdAt: now - 50 * S,
+        via: 'hook-busy',
+        status: 'queued',
+        cancellable: true,
+      },
+    ],
+  };
+  const terminals: Record<string, string> = {
+    's-billing': [
+      '╭──────────────────────────────────────────────────────────────╮',
+      '│ ✻ Welcome to Claude Code!                                     │',
+      '╰──────────────────────────────────────────────────────────────╯',
+      '',
+      '> Plan the migration of billing to Stripe API v3.',
+      '',
+      '⏺ Here is the plan. Would you like to proceed?',
+      '',
+      '  ❯ 1. Yes, and auto-accept edits',
+      '    2. Yes, and manually approve edits',
+      '    3. No, keep planning',
+      '',
+      '  plan mode on (shift+tab to cycle)',
+    ].join('\n'),
+    's-audit': [
+      '[09:12:03] claude --bg started (job k7m2)',
+      '[09:12:05] Running workflow dependency-audit',
+      '[09:14:40] Scan: 2 agents running',
+      '[09:16:12] Triage: 1 agent running',
+      '[09:16:31] Bash npm audit --json',
+    ].join('\n'),
+  };
+
   return {
     sessions,
+    pendingItems,
+    tasks,
+    queued,
+    terminals,
     history,
     agents,
     workflows,

@@ -9,6 +9,7 @@ import {
   GitOverview,
   LaunchOverrides,
   LifecycleAction,
+  PendingRef,
   SessionDetail,
   SessionSummary,
 } from '../../core/models';
@@ -95,6 +96,10 @@ export class SessionDetailComponent {
   private readonly detail = signal<SessionDetail | null>(null);
   protected readonly session = computed<SessionSummary | undefined>(
     () => this.live() ?? this.detail() ?? undefined,
+  );
+  /** The session's pending previews, with their session id. */
+  protected readonly pending = computed<PendingRef[]>(() =>
+    (this.session()?.pending ?? []).map((p) => ({ ...p, sessionId: this.id() })),
   );
   protected readonly loading = signal(true);
   protected readonly store = signal<TranscriptStore | null>(null);
