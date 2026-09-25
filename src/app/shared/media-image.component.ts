@@ -57,6 +57,8 @@ export class MediaImageComponent {
   protected readonly src = signal<string | null>(null);
   protected readonly failed = signal(false);
   private url: string | null = null;
+  private destroyed = false;
+  private readonly abort = new AbortController();
 
   constructor() {
     const host = inject(ElementRef<HTMLElement>).nativeElement as HTMLElement;
@@ -74,18 +76,22 @@ export class MediaImageComponent {
       queueMicrotask(load);
     }
     inject(DestroyRef).onDestroy(() => {
+      this.destroyed = true;
       io?.disconnect();
+      this.abort.abort();
       if (this.url) URL.revokeObjectURL(this.url);
     });
   }
 
   private async load(): Promise<void> {
     try {
-      const blob = await this.api.fetchMedia(this.ref());
+      const blob = await this.api.fetchMedia(this.ref(), this.abort.signal);
+      // Gone while it downloaded: a URL made now would never be revoked.
+      if (this.destroyed) return;
       this.url = URL.createObjectURL(blob);
       this.src.set(this.url);
     } catch {
-      this.failed.set(true);
+      if (!this.destroyed) this.failed.set(true);
     }
   }
 }

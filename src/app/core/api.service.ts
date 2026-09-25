@@ -135,10 +135,11 @@ export class ApiService {
   }
 
   /** Fetch an image referenced by a UiEvent (`image.ref`), with auth. Use
-   * `URL.createObjectURL` on the result; revoke it when done. */
-  async fetchMedia(ref: string): Promise<Blob> {
+   * `URL.createObjectURL` on the result; revoke it when done. `signal`
+   * cancels the download (e.g. the row went away). */
+  async fetchMedia(ref: string, signal?: AbortSignal): Promise<Blob> {
     const path = ref.startsWith('/api/') ? ref.slice(4) : ref;
-    const res = await this.send(path, { method: 'GET' }, { accept: '*/*' });
+    const res = await this.send(path, { method: 'GET', signal }, { accept: '*/*' });
     return res.blob();
   }
 
