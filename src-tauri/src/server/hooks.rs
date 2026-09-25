@@ -599,8 +599,34 @@ async fn hold_policy(state: &AppState, session: &str) -> Option<Duration> {
     (state.hub.client_count() > 0).then(|| state.hooks.headless_hold())
 }
 
-/// The pending card for a PermissionRequest.
-fn build_item(p: &HookPayload, agent: Option<&str>, tool_use_id: Option<String>) -> PendingItem {
+/// Input keys kept on a card whose full input is too large to keep: what the
+/// card shows and what the danger classifier reads.
+const SLIM_INPUT_KEYS: [&str; 4] = ["file_path", "notebook_path", "path", "command"];
+/// Longest value kept for one of [`SLIM_INPUT_KEYS`] on a trimmed card.
+const SLIM_VALUE_MAX: usize = 4096;
+
+/// The identifying fields of an oversized tool input (paths, the command),
+/// each cut to [`SLIM_VALUE_MAX`] characters.
+fn slim_input(input: &Value) -> Value {
+    let mut out = serde_json::Map::new();
+    for key in SLIM_INPUT_KEYS {
+        if let Some(v) = input.get(key).and_then(Value::as_str) {
+            let cut: String = v.chars().take(SLIM_VALUE_MAX).collect();
+            out.insert(key.to_string(), Value::String(cut));
+        }
+    }
+    Value::Object(out)
+}
+
+/// The pending card for a PermissionRequest. The danger classifier runs on
+/// the FULL input (with the session's `cwd`) before an oversized input is
+/// trimmed, so padding a Write past the size limit cannot hide its target.
+fn build_item(
+    p: &HookPayload,
+    agent: Option<&str>,
+    tool_use_id: Option<String>,
+    cwd: Option<&str>,
+) -> PendingItem {
     let tool = p.tool_name.clone().unwrap_or_default();
     let input = p
         .tool_input
@@ -644,7 +670,7 @@ fn build_item(p: &HookPayload, agent: Option<&str>, tool_use_id: Option<String>)
     };
     let keep_input = kind != PendingKind::Permission
         || serde_json::to_vec(&input).is_ok_and(|b| b.len() <= INPUT_KEEP_MAX);
-    PendingItem {
+    let mut item = PendingItem {
         session_id: p.session_id.clone(),
         kind,
         source: PendingSource::Hook,
@@ -654,14 +680,23 @@ fn build_item(p: &HookPayload, agent: Option<&str>, tool_use_id: Option<String>)
         agent_type: p.agent_type.clone().filter(|t| !t.is_empty()),
         title,
         detail,
-        input: keep_input.then_some(input),
+        input: Some(input),
         questions,
         plan,
         suggestions: pending::suggestions_from_raw(p.permission_suggestions.as_ref()),
-        // The server-side classifier (pending store) raises this when needed.
         dangerous: false,
         ..Default::default()
+    };
+    // Classify now, on the whole input; the pending store only ever raises
+    // the flag, so it survives the trim below.
+    if let Some(why) = pending::classify_dangerous(&item, cwd) {
+        item.dangerous = true;
+        item.dangerous_reason = Some(why);
     }
+    if !keep_input {
+        item.input = item.input.as_ref().map(slim_input);
+    }
+    item
 }
 
 /// The PermissionRequest answer for a decision. A plain permission is
@@ -716,7 +751,12 @@ async fn permission_request(
     let Some(hold_for) = hold_policy(state, session).await else {
         return relay::empty();
     };
-    let item = build_item(p, agent, tool_use_id.clone());
+    let cwd = state
+        .find_session(session)
+        .await
+        .map(|s| s.cwd)
+        .filter(|c| !c.is_empty());
+    let item = build_item(p, agent, tool_use_id.clone(), cwd.as_deref());
     let (guard, rx) = pending::raise(state, item.clone()).await;
     let id = guard.id().to_string();
     // The store's copy (the server may have adjusted it, e.g. classified it
@@ -1142,6 +1182,7 @@ mod tests {
             })),
             None,
             Some("toolu_1".into()),
+            None,
         );
         assert_eq!(q.kind, PendingKind::Question);
         assert_eq!(q.title, "Which color?");
@@ -1152,6 +1193,7 @@ mod tests {
         let plan = build_item(
             &payload(json!({ "session_id": s, "tool_name": "ExitPlanMode",
                 "tool_input": { "plan": "1. do it" } })),
+            None,
             None,
             None,
         );
@@ -1167,6 +1209,7 @@ mod tests {
                     "rules": [{ "toolName": "Bash", "ruleContent": "npm test:*" }] }] }),
             ),
             Some("a1"),
+            None,
             None,
         );
         assert_eq!(bash.kind, PendingKind::Permission);
@@ -1190,8 +1233,56 @@ mod tests {
             ),
             None,
             None,
+            None,
         );
         assert_eq!(mcp.detail.as_deref(), Some("github · create_issue"));
+    }
+
+    #[test]
+    fn an_oversized_write_is_classified_before_its_input_is_trimmed() {
+        let s = "0a1b2c3d-0000-4000-8000-000000000000";
+        let padding = "x".repeat(INPUT_KEEP_MAX + 16);
+        for path in [
+            "~/.zshrc",
+            ".git/hooks/pre-commit",
+            "~/.claude/settings.json",
+        ] {
+            let item = build_item(
+                &payload(json!({ "session_id": s, "tool_name": "Write",
+                    "tool_input": { "file_path": path, "content": padding } })),
+                None,
+                None,
+                Some("/tmp/some-repo"),
+            );
+            assert!(item.dangerous, "{path}");
+            assert!(item.dangerous_reason.is_some());
+            // The card keeps what identifies the call, not the megabytes.
+            let input = item.input.as_ref().unwrap();
+            assert_eq!(input["file_path"], path);
+            assert!(input.get("content").is_none());
+        }
+        // A big ordinary write is trimmed and stays ordinary.
+        let item = build_item(
+            &payload(json!({ "session_id": s, "tool_name": "Write",
+                "tool_input": { "file_path": "big.txt", "content": padding } })),
+            None,
+            None,
+            Some("/tmp/some-repo"),
+        );
+        assert!(!item.dangerous);
+        assert_eq!(item.input.unwrap()["file_path"], "big.txt");
+        // A huge command is classified on its whole text, and cut for the card.
+        let command = format!("{padding} && echo x >> ~/.zshrc");
+        let item = build_item(
+            &payload(json!({ "session_id": s, "tool_name": "Bash",
+                "tool_input": { "command": command } })),
+            None,
+            None,
+            None,
+        );
+        assert!(item.dangerous);
+        let kept = item.input.unwrap()["command"].as_str().unwrap().len();
+        assert_eq!(kept, SLIM_VALUE_MAX);
     }
 
     #[test]
