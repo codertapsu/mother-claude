@@ -1476,15 +1476,22 @@ async fn on_result(state: &AppState, h: &OwnedHandle, v: &Value) {
     let now = crate::claude::registry::now_ms();
     let (worked_ms, still_busy) = {
         let mut live = h.live();
+        // `turn_started_at` is the start of the busy period: queued messages
+        // chain turns without it being reset.
         let started = live.turn_started_at.unwrap_or(now);
+        let wall = u64::try_from(now - started).unwrap_or(0);
         let worked = v
             .get("duration_ms")
             .and_then(Value::as_u64)
-            .unwrap_or_else(|| u64::try_from(now - started).unwrap_or(0));
+            .map_or(wall, |d| d.max(wall));
         // Messages still queued start the next turn right away.
         let busy = !live.queued.is_empty();
         live.turn_active = busy;
-        live.turn_started_at = busy.then_some(now);
+        if !busy {
+            live.turn_started_at = None;
+        } else if live.turn_started_at.is_none() {
+            live.turn_started_at = Some(now);
+        }
         (worked, busy)
     };
     let subtype = v.get("subtype").and_then(Value::as_str).unwrap_or_default();
@@ -1514,7 +1521,11 @@ async fn on_result(state: &AppState, h: &OwnedHandle, v: &Value) {
         .await;
         crate::server::push::on_session_failed(state, &h.id, &text);
     }
-    crate::server::push::on_turn_finished(state, &h.id, worked_ms);
+    // Only when the session is really done: queued messages keep it working,
+    // and the push fired at the end covers the whole busy period.
+    if !still_busy {
+        crate::server::push::on_turn_finished(state, &h.id, worked_ms);
+    }
     if still_busy {
         note_activity(state, h, Activity::new(ActivityKind::Thinking, "Thinking")).await;
     } else {
