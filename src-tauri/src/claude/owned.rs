@@ -309,16 +309,18 @@ pub fn overlay(state: &AppState, summary: &mut SessionSummary) {
 
 /// The effective permission mode of any session, for the "no unapproved
 /// execution for callers without dangerous rights" gates: the owned
-/// session's live mode, a bridge conversation's mode, else the summary's.
-///
-/// B2 provides the full version (hook payloads, transcript records, pidfile
-/// argv); this covers what B3 knows and falls back to the summary.
+/// session's live mode, a bridge conversation's mode, else the data layer's
+/// effective mode (hook / owned notes, transcript records, pidfile argv),
+/// else the summary's.
 pub async fn effective_permission_mode(state: &AppState, id: &str) -> Option<String> {
     if let Some(mode) = live_state(state, id).and_then(|l| l.permission_mode) {
         return Some(mode);
     }
     if let Some(t) = state.bridge.thread(id).await {
         return Some(t.permission_mode);
+    }
+    if let Some(mode) = super::summaries::effective_permission_mode(state, id) {
+        return Some(mode);
     }
     state.find_session(id).await.and_then(|s| s.permission_mode)
 }

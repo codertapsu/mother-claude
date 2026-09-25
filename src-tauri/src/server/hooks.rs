@@ -279,13 +279,16 @@ pub fn permission_mode(state: &AppState, session_id: &str) -> Option<String> {
 }
 
 /// Whether the session runs in bypassPermissions: the latest hook report,
-/// else the summary's mode, else the process argv
-/// (`--dangerously-skip-permissions`, `--permission-mode bypassPermissions`).
-///
-/// A stand-in for the data layer's `effective_permission_mode` helper.
+/// else the data layer's effective permission mode (hook / owned notes,
+/// transcript records, pidfile argv), else the summary's mode, else the
+/// process argv (`--dangerously-skip-permissions`,
+/// `--permission-mode bypassPermissions`).
 pub async fn effective_bypass(state: &AppState, session: &SessionSummary) -> bool {
     const BYPASS: &str = crate::claude::caps::BYPASS_MODE;
     if let Some(mode) = permission_mode(state, &session.id) {
+        return mode == BYPASS;
+    }
+    if let Some(mode) = crate::claude::summaries::effective_permission_mode(state, &session.id) {
         return mode == BYPASS;
     }
     if let Some(mode) = &session.permission_mode {
@@ -470,6 +473,30 @@ pub async fn dispatch_from(
     state
         .activity
         .note_hook(&p.session_id, name, p.tool_name.as_deref(), agent);
+    if let Some(mode) = p.permission_mode.as_deref() {
+        // The data layer's effective permission mode takes the latest report.
+        state.activity.note_permission_mode(&p.session_id, mode);
+    }
+    match name {
+        "Notification" => crate::server::push::on_notification_hook(
+            state,
+            &p.session_id,
+            p.notification_type.as_deref(),
+            p.message.as_deref(),
+        ),
+        "PreToolUse" if p.tool_name.as_deref() == Some("PushNotification") => {
+            crate::server::push::on_claude_notification(
+                state,
+                &p.session_id,
+                p.tool_input
+                    .as_ref()
+                    .and_then(|i| i.get("message"))
+                    .and_then(Value::as_str),
+                p.tool_use(),
+            )
+        }
+        _ => {}
+    }
     let key = p.tool_input.as_ref().map(input_key);
     let ev = machine::Event {
         name,

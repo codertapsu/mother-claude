@@ -826,6 +826,8 @@ async fn detect_and_store(state: &AppState, with_tailscale: bool) {
         );
     }
     let changed = state.remote.set_detected(tunnels, state.bridge.config.port);
+    // The public https URL is the VAPID contact of our pushes.
+    crate::server::push::set_public_url(state, state.remote.public_url().as_deref());
     if changed {
         let bridge = state.bridge.config.port.unwrap_or_default();
         if state.remote.bridge_exposed() {
@@ -1136,6 +1138,7 @@ pub async fn update(state: &AppState, body: &Value) -> ApiResult<Value> {
         }
     }
     state.remote.save(&s);
+    crate::server::push::set_public_url(state, state.remote.public_url().as_deref());
     if s.internet_enabled != before.internet_enabled {
         apply_tunnel(state).await;
         crate::server::ws::publish_notice(

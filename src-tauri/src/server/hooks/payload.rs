@@ -36,6 +36,8 @@ pub struct HookPayload {
     pub permission_mode: Option<String>,
     pub permission_suggestions: Option<Value>,
     pub notification_type: Option<String>,
+    /// Notification text (Notification hooks).
+    pub message: Option<String>,
     /// SessionStart `startup|resume|clear|compact|fork`, SessionEnd reason.
     pub source: Option<String>,
     pub reason: Option<String>,

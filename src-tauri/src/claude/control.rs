@@ -1179,6 +1179,9 @@ async fn on_system(state: &AppState, h: &Arc<OwnedHandle>, v: &Value) {
                 h.kill.notify_one();
                 return;
             }
+            if let Some(m) = &mode {
+                state.activity.note_permission_mode(&h.id, m);
+            }
             ws::patch_session(state, &h.id, |s| {
                 if let Some(m) = &mode {
                     s.permission_mode = Some(m.clone());
@@ -1196,6 +1199,7 @@ async fn on_system(state: &AppState, h: &Arc<OwnedHandle>, v: &Value) {
             let mode = text("permissionMode");
             if let Some(m) = &mode {
                 h.live().permission_mode = Some(m.clone());
+                state.activity.note_permission_mode(&h.id, m);
                 let m = m.clone();
                 ws::patch_session(state, &h.id, |s| s.permission_mode = Some(m)).await;
             }
@@ -1409,6 +1413,23 @@ async fn on_assistant(state: &AppState, h: &OwnedHandle, v: &Value) {
         let mut a = Activity::new(ActivityKind::Tool, format!("Running {name}"));
         a.tool = Some(name);
         note_activity(state, h, a).await;
+    }
+    // Claude asked to notify the user (PushNotification tool): push it now,
+    // keyed by the tool-use id so the transcript copy is not pushed again.
+    for b in v
+        .pointer("/message/content")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter(|b| b.get("type").and_then(Value::as_str) == Some("tool_use"))
+        .filter(|b| b.get("name").and_then(Value::as_str) == Some("PushNotification"))
+    {
+        crate::server::push::on_claude_notification(
+            state,
+            &h.id,
+            b.pointer("/input/message").and_then(Value::as_str),
+            b.get("id").and_then(Value::as_str),
+        );
     }
     if let Some(m) = v.pointer("/message/model").and_then(Value::as_str) {
         if m != "<synthetic>" {
