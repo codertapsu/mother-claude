@@ -1007,13 +1007,26 @@ async fn http_routes_drive_an_owned_session() {
         r.json::<Value>().await.unwrap()["error"]["code"],
         "not_a_background_session"
     );
-    // With a job id it goes through `claude stop <short>`.
+    // With a job id it goes through `claude stop <short>`, and the terminal
+    // view is the rendered `claude logs` screen.
     ws::patch_session(&f.st, foreign, |s| s.job_id = Some("2d2e9c5e".into())).await;
     let r = post(&format!("/sessions/{foreign}/stop"), json!({}))
         .await
         .unwrap();
     assert_eq!(r.status(), 200);
     assert_eq!(r.json::<Value>().await.unwrap()["output"], "stop 2d2e9c5e");
+    let v: Value = c
+        .get(format!("{base}/api/sessions/{foreign}/terminal"))
+        .bearer_auth(&token)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(v["rows"][0], "fake screen");
+    assert_eq!(v["rows"][2], "\u{276f} ok");
+    assert!(!v["text"].as_str().unwrap().contains('\u{1b}'));
 }
 
 /// One live round trip against the INSTALLED CLI (haiku, a temp dir, project

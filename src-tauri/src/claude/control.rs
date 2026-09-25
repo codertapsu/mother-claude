@@ -37,6 +37,7 @@
 //! approvals over HTTP, so live control requests are refused for it.
 
 mod protocol;
+pub mod vt;
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
@@ -1831,6 +1832,21 @@ pub async fn run_lifecycle(action: &str, short_id: &str) -> Result<String> {
     } else {
         Err(anyhow!("`claude {action} {short_id}` failed: {stderr}"))
     }
+}
+
+/// Width × height of the grid `claude logs` snapshots are replayed onto.
+pub const LOGS_COLS: usize = 200;
+pub const LOGS_ROWS: usize = 50;
+
+/// The current screen of a background job (`claude logs <short>`), rendered
+/// to plain lines (never raw terminal bytes).
+pub async fn logs_screen(short_id: &str) -> Result<vt::Screen> {
+    let out = run_job_command("logs", short_id).await?;
+    if !out.status.success() {
+        let stderr = String::from_utf8_lossy(&out.stderr).trim().to_string();
+        anyhow::bail!("`claude logs {short_id}` failed: {stderr}");
+    }
+    Ok(vt::render(&out.stdout, LOGS_COLS, LOGS_ROWS))
 }
 
 #[cfg(test)]

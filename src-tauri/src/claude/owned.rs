@@ -898,6 +898,15 @@ pub async fn lifecycle(state: &AppState, action: &str, id: &str) -> ApiResult<St
         .map_err(|e| ApiError::unprocessable("lifecycle_failed", format!("{e:#}")))
 }
 
+/// The current screen of a background session (`claude logs <short>`),
+/// rendered to plain text lines.
+pub async fn background_screen(state: &AppState, id: &str) -> ApiResult<control::vt::Screen> {
+    let short = short_job_id(state, id).await.ok_or_else(not_background)?;
+    control::logs_screen(&short)
+        .await
+        .map_err(|e| ApiError::unprocessable("terminal_failed", format!("{e:#}")))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
