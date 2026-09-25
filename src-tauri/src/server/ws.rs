@@ -113,6 +113,10 @@ pub enum ServerEvent {
     PairRequest { pending: Value },
     /// Everyone: refetch and resubscribe.
     Resync,
+    /// A pending item was answered or withdrawn (everyone). Produced by the
+    /// pending store (B3); `{t:"pendingResolved", id, session, outcome, by?,
+    /// at, text?}`.
+    PendingResolved(crate::claude::model::PendingResolved),
 }
 
 /// Who receives an event.
@@ -127,9 +131,10 @@ pub enum Audience<'a> {
 impl ServerEvent {
     pub fn audience(&self) -> Audience<'_> {
         match self {
-            ServerEvent::Sessions { .. } | ServerEvent::Notice { .. } | ServerEvent::Resync => {
-                Audience::All
-            }
+            ServerEvent::Sessions { .. }
+            | ServerEvent::Notice { .. }
+            | ServerEvent::Resync
+            | ServerEvent::PendingResolved(_) => Audience::All,
             ServerEvent::Transcript { session, .. }
             | ServerEvent::Stream { session, .. }
             | ServerEvent::Agents { session, .. } => Audience::Session(session),
@@ -363,6 +368,12 @@ pub fn publish_devices(state: &AppState) {
 /// A pairing waits for approval (desktop clients).
 pub fn publish_pair_request(state: &AppState, pending: Value) {
     state.broadcast(ServerEvent::PairRequest { pending });
+}
+
+/// A pending item left the store (answered here or elsewhere, withdrawn,
+/// expired), for everyone.
+pub fn publish_pending_resolved(state: &AppState, resolved: crate::claude::model::PendingResolved) {
+    state.broadcast(ServerEvent::PendingResolved(resolved));
 }
 
 /// Tell every client to refetch and resubscribe.
