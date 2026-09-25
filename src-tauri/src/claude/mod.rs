@@ -14,6 +14,7 @@ pub mod experimental;
 pub mod git;
 pub mod home;
 pub mod hooks;
+pub mod ids;
 pub mod index;
 pub mod live;
 pub mod model;
