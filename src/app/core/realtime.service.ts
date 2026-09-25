@@ -542,7 +542,9 @@ export class RealtimeService {
       const me = await this.api.getMe();
       this.auth.me.set(me);
       if (this.authed) return; // the socket came back meanwhile
-      if (me.ingress === 'tunnel') {
+      // A tunnel pointed at the main port arrives on the loopback listener:
+      // `effectiveIngress` is the network the request really came from.
+      if ((me.effectiveIngress ?? me.ingress) === 'tunnel') {
         // Over a tunnel the socket normally works, and polling would burn
         // the tunnel's request quota: keep retrying the socket instead.
         this.noPolling = true;

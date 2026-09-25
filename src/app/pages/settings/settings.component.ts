@@ -99,7 +99,10 @@ export class SettingsComponent {
   });
 
   protected readonly ingress = computed(() => {
-    const i = this.me()?.ingress;
+    // A tunnel pointed at the main port arrives on the loopback listener:
+    // `effectiveIngress` is the network the request really came from.
+    const m = this.me();
+    const i = m?.effectiveIngress ?? m?.ingress;
     return i ? (INGRESS[i] ?? i) : '—';
   });
   protected readonly secure = window.isSecureContext;

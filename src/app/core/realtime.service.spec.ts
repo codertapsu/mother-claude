@@ -211,4 +211,14 @@ describe('RealtimeService', () => {
     await flush();
     expect(rt.session('s1')()?.status).toBe('working');
   });
+
+  it('does not poll through a tunnel pointed at the main port', async () => {
+    backend.routes.set('/me', () => ({
+      status: 200,
+      body: me({ ingress: 'loopback', effectiveIngress: 'tunnel' }),
+    }));
+    const internals = rt as unknown as { maybeStartPolling(): Promise<void> };
+    await internals.maybeStartPolling();
+    expect(rt.connection()).not.toBe('limited');
+  });
 });
