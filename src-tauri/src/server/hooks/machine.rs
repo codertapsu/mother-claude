@@ -275,6 +275,11 @@ impl SessionHooks {
     pub fn has_waiter(&self) -> bool {
         self.waiter.is_some()
     }
+
+    #[cfg(test)]
+    fn interrupt_pending_for_test(&self) -> bool {
+        self.interrupt
+    }
 }
 
 /// A held PermissionRequest.
@@ -303,6 +308,8 @@ pub struct Event<'a> {
     pub prompt_id: Option<&'a str>,
     pub prompt: Option<&'a str>,
     pub permission_mode: Option<&'a str>,
+    /// SessionStart's `source`: `startup|resume|clear|compact|fork`.
+    pub source: Option<&'a str>,
     pub pid: Option<u32>,
 }
 
@@ -572,8 +579,13 @@ impl Hub {
             "SessionStart" => {
                 out.response = relay::additional_context("SessionStart", &relay::notice(&s.marker));
                 s.marker_announced = true;
-                s.turn_active = false;
-                s.interrupt = false;
+                // Auto-compaction fires SessionStart(compact) in the middle of
+                // a turn: the turn, a pending interrupt and the busy state
+                // carry on. Every other source starts afresh.
+                if ev.source != Some("compact") {
+                    s.turn_active = false;
+                    s.interrupt = false;
+                }
             }
             "SessionEnd" => {
                 s.ended = true;
@@ -1425,6 +1437,59 @@ mod tests {
         let s = hub.session(S).unwrap();
         assert_eq!(s.pid, Some(2000));
         assert!(!s.marker_announced);
+    }
+
+    #[test]
+    fn a_mid_turn_compaction_keeps_the_turn_and_its_interrupt() {
+        let mut hub = Hub::new();
+        hub.on_event(
+            &Event {
+                prompt_id: Some("p1"),
+                ..ev("UserPromptSubmit")
+            },
+            1,
+        );
+        let Arm::Parked(_, mut rx) = hub.arm_waiter(S, Some(42), 2) else {
+            panic!("should park");
+        };
+        hub.interrupt(S, 3);
+        let out = hub.on_event(
+            &Event {
+                source: Some("compact"),
+                ..ev("SessionStart")
+            },
+            4,
+        );
+        assert!(out.response["hookSpecificOutput"]["additionalContext"]
+            .as_str()
+            .is_some_and(|t| t.contains("[[MC-RELAY")));
+        let s = hub.session(S).unwrap();
+        assert!(s.turn_active && s.interrupt_pending_for_test());
+        // A message queued now waits for the turn (no wake release).
+        let (m, delivered) = hub.enqueue(S, "later".into(), 5).unwrap();
+        assert_eq!(m.status, QueueStatus::Queued);
+        assert!(delivered.is_empty());
+        assert!(rx.try_recv().is_err());
+        // The interrupt still lands at the next main-thread tool call.
+        let pre = hub.on_event(
+            &Event {
+                tool_use_id: Some("t"),
+                tool_name: Some("Bash"),
+                ..ev("PreToolUse")
+            },
+            6,
+        );
+        assert_eq!(pre.response, relay::interrupt_output());
+        // A fresh start (resume, clear, …) does reset.
+        hub.on_event(
+            &Event {
+                source: Some("resume"),
+                ..ev("SessionStart")
+            },
+            7,
+        );
+        assert!(!hub.session(S).unwrap().turn_active);
+        assert!(!hub.interrupt_pending(S));
     }
 
     #[test]

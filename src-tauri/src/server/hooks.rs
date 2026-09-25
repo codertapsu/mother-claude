@@ -530,6 +530,7 @@ pub async fn dispatch_from(
         prompt_id: p.prompt_id.as_deref(),
         prompt: p.prompt.as_deref(),
         permission_mode: p.permission_mode.as_deref(),
+        source: p.source.as_deref(),
         pid,
     };
     let out = state.hooks.lock().on_event(&ev, now);
