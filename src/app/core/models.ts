@@ -911,7 +911,8 @@ export interface VapidInfo {
     code: string;
     text?: string;
     publicUrl?: string;
-    iosHomeScreen?: boolean;
+    /** Guidance text: on iPhone/iPad push works only in the Home Screen app. */
+    iosHomeScreen?: string;
     requiresUserGesture?: boolean;
   };
 }

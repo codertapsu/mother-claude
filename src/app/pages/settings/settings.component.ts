@@ -112,6 +112,7 @@ export class SettingsComponent {
   constructor() {
     void this.permissions.refresh();
     void this.push.refresh();
+    if (!this.isDesktop()) void this.push.loadHint();
     // Per-event preferences exist once this device has push on.
     effect(() => {
       if (this.push.state() === 'on' && !this.prefs()) void this.loadPrefs();

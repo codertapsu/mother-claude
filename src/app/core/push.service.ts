@@ -2,7 +2,7 @@ import { Injectable, computed, inject, signal } from '@angular/core';
 
 import { ApiError, ApiService, errorMessage } from './api.service';
 import { ConfigService } from './config.service';
-import { PushPrefs, SessionPushPref } from './models';
+import { PushPrefs, SessionPushPref, VapidInfo } from './models';
 import { isIos, isStandalone, isTauri } from './platform';
 
 export type PushState = 'unsupported' | 'checking' | 'off' | 'on' | 'denied' | 'working' | 'error';
@@ -25,6 +25,9 @@ export class PushService {
   readonly state = signal<PushState>('checking');
   readonly error = signal('');
 
+  /** The server's guidance for this connection (`GET /push/vapid`). */
+  readonly hint = signal<VapidInfo['secureContextHint'] | null>(null);
+
   /** Why push can't work here (empty when it can). */
   readonly unsupportedReason = computed(() => {
     if (this.config.desktop() || isTauri()) {
@@ -34,7 +37,10 @@ export class PushService {
       return "Push needs a trusted HTTPS address. On the local network, trust the Mac's certificate first (Pair page › Trust this Mac), or open Mother Claude through your internet address (ngrok, Cloudflare, Tailscale). Until then you get in-app alerts while the app is open.";
     }
     if (isIos() && !isStandalone()) {
-      return 'On iPhone and iPad, add Mother Claude to your Home Screen first (Share → Add to Home Screen), open it from there, pair it, then enable push.';
+      return (
+        this.hint()?.iosHomeScreen ||
+        'On iPhone and iPad, add Mother Claude to your Home Screen first (Share → Add to Home Screen), open it from there, pair it, then enable push.'
+      );
     }
     if (
       !('serviceWorker' in navigator) ||
@@ -52,6 +58,15 @@ export class PushService {
   readonly prefs = signal<PushPrefs | null>(null);
 
   private registration: ServiceWorkerRegistration | null = null;
+
+  /** Fetch the server's guidance (Settings shows it). */
+  async loadHint(): Promise<void> {
+    try {
+      this.hint.set((await this.api.getVapidKey()).secureContextHint ?? null);
+    } catch {
+      /* the local wording stays */
+    }
+  }
 
   async loadPrefs(): Promise<PushPrefs | null> {
     try {
