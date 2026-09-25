@@ -99,7 +99,8 @@ conversation*, not accumulating a new one per message. So:
 1. **`thread_id` always wins.** Naming a conversation that is not currently
    running resumes it from disk — any past conversation, from this app or from
    your terminal, can be picked up. It does not change which conversation later
-   unaddressed messages join.
+   unaddressed messages join. A conversation still open in another window is
+   not taken over: that answers `409 thread_live_elsewhere`; fork it instead.
 2. **`createNewChat: true`** starts a fresh conversation *and* makes it the one
    later messages join. It is `false` by default, deliberately.
 3. Otherwise the message joins the **current conversation** — the one nominated
@@ -199,10 +200,16 @@ Turn it on with `MOTHER_CLAUDE_BRIDGE_REQUIRE_TOKEN=1` and present a token as
 device uses its own token.
 
 "From this machine" means a loopback connection with a loopback `Host` and no
-proxy headers. A request that came through a tunnel or proxy always needs a
-token (`401 tunneled_request_requires_token`), and while Mother Claude sees a
-tunnel pointing at this port the tokenless mode is off for everyone
-(`401 bridge_exposed_requires_token`) until that tunnel stops.
+proxy headers. A development server or reverse proxy on this Mac (Next.js
+rewrites, `http-proxy` with `xfwd`, a local nginx or Caddy) counts too when the
+only proxy headers are `X-Forwarded-*`, every `X-Forwarded-For` hop is a
+loopback address and `X-Forwarded-Host` (if sent) names `localhost`, `127.x` or
+`[::1]`. A request that came through a tunnel — a non-loopback hop, or headers
+a tunnel adds (`cf-*`, `ngrok-*`, `tailscale-*`, `Via`, `Forwarded`, …) — needs
+a paired device's token (`401 tunneled_request_requires_token`; the desktop and
+`token`-file credentials are only accepted from this machine), and while
+Mother Claude sees a tunnel pointing at this port the tokenless mode is off for
+everyone (`401 bridge_exposed_requires_token`) until that tunnel stops.
 
 The `/v1` mount on the main app port always requires a token, because that
 listener is reachable from your LAN.
@@ -230,16 +237,19 @@ shared or untrusted one.
 These stay locked regardless:
 
 - the port is **loopback-only** and never binds an external interface;
-- **dangerous** requests need a local client — no foreign `Origin` — or a token
-  with the right to them: `permission_mode: bypassPermissions`, transcript
+- **dangerous** requests need a local client on this port — no foreign
+  `Origin`, no proxy headers, with or without the `token` file — or a token
+  with the right to them (the desktop app's, or a paired device granted
+  dangerous actions; on the `/v1` mount of the main port the `token` file does
+  not grant them): `permission_mode: bypassPermissions`, transcript
   deletion, `POST /auth/login`, approvals of dangerous actions, thread options
   that run code nobody approves (`mcp_servers`, `allowed_tools`,
   `additional_directories`, a `cwd` Claude Code was never opened in, resuming a
   conversation whose approvals are off), and turns sent into a conversation
   whose approvals are off. A page on another website therefore keeps tokenless
   access to ordinary work, never to these;
-- tunnelled requests need a token, and a detected tunnel to the port switches
-  the tokenless mode off;
+- tunnelled requests need a paired device's token, and a detected tunnel to
+  the port switches the tokenless mode off;
 - the LAN mount on port 6725 **always** requires the token.
 
 To close it down: `MOTHER_CLAUDE_BRIDGE_REQUIRE_TOKEN=1`, plus
@@ -349,7 +359,7 @@ curl -sS http://127.0.0.1:5612/threads/$THREAD/run \
 | `thinking` | `on` · `off`. Omit to inherit your own Claude settings. |
 | `permission_mode` | `default` · `plan` · `acceptEdits` · `dontAsk` · `auto` · `bypassPermissions` |
 | `thread_id` | Pre-assign the conversation id (must be a UUID). |
-| `resume` | Continue an existing conversation in place. |
+| `resume` | Continue an existing conversation in place (a fork when it is still running in another window; the answer then has `forked: true` and the new id). |
 | `fork` | With `resume`, branch to a new id instead. |
 | `system_prompt_append` | Extra instructions appended to Claude Code's own prompt. |
 | `allowed_tools` / `disallowed_tools` | Restrict the tool surface. |
@@ -618,7 +628,7 @@ Every failure is the same envelope, with context fields flattened alongside:
 | 400 | `invalid_json`, `invalid_multipart` | Fix the body |
 | 401 | `unauthorized` | Present the API token |
 | 401 | `claude_login_required` | Claude itself is signed out — run `claude` and `/login` |
-| 401 | `tunneled_request_requires_token`, `bridge_exposed_requires_token` | The request came through a tunnel, or a tunnel points at the port: send a token |
+| 401 | `tunneled_request_requires_token`, `bridge_exposed_requires_token` | The request came through a tunnel (or a proxy with a non-loopback hop), or a tunnel points at the port: send a paired device's token |
 | 403 | `dangerous_blocked`, `untrusted_cwd`, `file_id_not_accepted` | Do it from a local client (or a device granted dangerous actions), or don't |
 | 403 | `origin_not_allowed` | Add the page's origin to `MOTHER_CLAUDE_BRIDGE_ORIGINS` |
 | 404 | `thread_not_found`, `turn_not_found`, `operation_not_found`, `request_not_found`, `not_found` | Check the id; operations do not survive a restart |

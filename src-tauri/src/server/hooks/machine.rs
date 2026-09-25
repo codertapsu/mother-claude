@@ -53,6 +53,11 @@ pub const FALLBACK_WINDOW_MS: i64 = 5_000;
 /// `wake` stays true this long after a waiter's poll ended (it re-polls at
 /// once), so the capability does not flap every 50 s.
 const WAKE_GRACE_MS: i64 = 5_000;
+/// How long a finished tool call is remembered (a PermissionRequest for it
+/// may still be on its way to `hold`, answered at the desk meanwhile).
+const FINISHED_TTL_MS: i64 = 10_000;
+/// Finished tool calls remembered per session.
+const FINISHED_CAP: usize = 64;
 /// A pidfile transition must hold this long before it withdraws prompts.
 const LEAVE_CONFIRM_MS: i64 = 300;
 /// The pidfile must have been idle this long before it ends a turn.
@@ -61,6 +66,12 @@ const IDLE_CONFIRM_MS: i64 = 1_000;
 const HISTORY_CAP: usize = 64;
 /// Queued messages per session.
 pub const QUEUE_CAP: usize = 20;
+/// A relay not handed over within this long is dropped (failed), never
+/// delivered into a context the user has long forgotten (a resume days
+/// later).
+pub const RELAY_TTL_MS: i64 = 30 * 60 * 1000;
+/// The mode in which nobody approves tool calls.
+const BYPASS: &str = "bypassPermissions";
 
 /// What a parked `/hooks/wait` waiter is told.
 #[derive(Debug, PartialEq, Eq)]
@@ -89,6 +100,22 @@ struct PreTool {
     matched: bool,
 }
 
+/// A tool call that finished (PostToolUse / PostToolUseFailure /
+/// PermissionDenied).
+#[derive(Debug, Clone)]
+struct Finished {
+    tool_use_id: String,
+    agent_id: Option<String>,
+    tool_name: Option<String>,
+    input_key: Option<u64>,
+    at_ms: i64,
+}
+
+/// The tool call a PermissionRequest was about already finished: it was
+/// answered at the desk while the request made its way to `hold`.
+#[derive(Debug, PartialEq, Eq)]
+pub struct AlreadyFinished;
+
 /// A tool call between its PreToolUse and PostToolUse.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InFlight {
@@ -108,6 +135,28 @@ pub struct Subagent {
 #[derive(Debug, Clone)]
 struct Queued {
     msg: QueuedMessage,
+    /// The sender may cause unapproved execution (it could have messaged a
+    /// bypassPermissions session directly).
+    sender_may_dangerous: bool,
+}
+
+/// Why a queued relay was dropped instead of delivered.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DropReason {
+    /// Not handed over within [`RELAY_TTL_MS`].
+    Expired,
+    /// The session ended with it still queued.
+    SessionEnded,
+    /// The session switched to bypassPermissions and the sender may not
+    /// cause unapproved execution.
+    Bypass,
+}
+
+/// Why a message could not be queued.
+#[derive(Debug, PartialEq, Eq)]
+pub enum EnqueueError {
+    Full,
+    Ended,
 }
 
 /// One session's hook state.
@@ -132,6 +181,7 @@ pub struct SessionHooks {
     /// first relay).
     pub marker_announced: bool,
     pre_tools: VecDeque<PreTool>,
+    finished: VecDeque<Finished>,
     pub in_flight: HashMap<String, InFlight>,
     queue: Vec<Queued>,
     history: VecDeque<(String, QueueStatus)>,
@@ -142,6 +192,8 @@ pub struct SessionHooks {
     left_waiting_at: Option<i64>,
     /// Relays whose delivery a later UserPromptSubmit confirmed.
     pub confirmed_relays: u64,
+    /// Queued relays dropped since the glue last looked (for a notice).
+    dropped: Vec<(QueuedMessage, DropReason)>,
 }
 
 impl SessionHooks {
@@ -164,6 +216,7 @@ impl SessionHooks {
         self.marker_announced = false;
         self.last_prompt_id = None;
         self.pre_tools.clear();
+        self.finished.clear();
         self.in_flight.clear();
         self.subagents.clear();
         self.pid_status = None;
@@ -187,6 +240,28 @@ impl SessionHooks {
         {
             self.pre_tools.pop_front();
         }
+        while self
+            .finished
+            .front()
+            .is_some_and(|f| now - f.at_ms > FINISHED_TTL_MS)
+            || self.finished.len() > FINISHED_CAP
+        {
+            self.finished.pop_front();
+        }
+    }
+
+    /// Whether the call a PermissionRequest that arrived at `arrived_ms` is
+    /// about has finished already: its correlated `tool_use_id`, or (it
+    /// being uncorrelated or mis-correlated) the same agent, tool and input
+    /// finishing after the request arrived.
+    fn finished_after(&self, h: &Held) -> bool {
+        self.finished.iter().any(|f| {
+            h.tool_use_id.as_deref() == Some(f.tool_use_id.as_str())
+                || (f.agent_id == h.agent_id
+                    && f.tool_name.as_deref() == Some(h.tool_name.as_str())
+                    && f.input_key == Some(h.input_key)
+                    && f.at_ms >= h.created_ms)
+        })
     }
 
     fn remember(&mut self, id: &str, status: QueueStatus) {
@@ -196,35 +271,78 @@ impl SessionHooks {
         }
     }
 
-    /// Hand every queued message over: marks them delivered and returns the
-    /// relay text plus the messages.
-    fn claim(&mut self) -> Option<(String, Vec<QueuedMessage>)> {
+    /// Drop the queued messages `which` selects, as `reason` (never
+    /// delivered, no longer cancellable, reported to the glue).
+    fn drop_queued(&mut self, reason: DropReason, which: impl Fn(&Queued) -> bool) {
+        let (gone, keep): (Vec<Queued>, Vec<Queued>) =
+            std::mem::take(&mut self.queue).into_iter().partition(which);
+        self.queue = keep;
+        for q in gone {
+            let mut m = q.msg;
+            m.status = match reason {
+                DropReason::Bypass => QueueStatus::Cancelled,
+                DropReason::Expired | DropReason::SessionEnded => QueueStatus::Failed,
+            };
+            m.cancellable = false;
+            self.remember(&m.id, m.status);
+            self.dropped.push((m, reason));
+        }
+    }
+
+    /// What may never be handed over now: messages past their TTL, and —
+    /// the session being in bypassPermissions *now* — messages whose sender
+    /// may not cause unapproved execution (they were queued before the
+    /// switch; the gate at enqueue time no longer covers them).
+    fn prune_queue(&mut self, now: i64) {
+        self.drop_queued(DropReason::Expired, |q| {
+            now - q.msg.created_at > RELAY_TTL_MS
+        });
+        if self.permission_mode.as_deref() == Some(BYPASS) {
+            self.drop_queued(DropReason::Bypass, |q| !q.sender_may_dangerous);
+        }
+    }
+
+    /// Hand the queued messages over, oldest first, as many whole ones as
+    /// fit in one `additionalContext` (the rest stay queued and cancellable
+    /// for the next hand-over): marks them delivered and returns the relay
+    /// text plus the messages. Expired messages, and those a session now in
+    /// bypassPermissions may not take, are dropped first.
+    fn claim_raw(&mut self, now: i64) -> Option<(String, Vec<Queued>)> {
+        self.prune_queue(now);
         if self.queue.is_empty() {
             return None;
         }
-        let mut msgs: Vec<QueuedMessage> = self.queue.drain(..).map(|q| q.msg).collect();
-        for m in &mut msgs {
-            m.status = QueueStatus::Delivered;
-            m.cancellable = false;
+        let queued: Vec<QueuedMessage> = self.queue.iter().map(|q| q.msg.clone()).collect();
+        let take = relay::fitting(&self.marker, &queued, !self.marker_announced);
+        let mut taken: Vec<Queued> = self.queue.drain(..take).collect();
+        for q in &mut taken {
+            q.msg.status = QueueStatus::Delivered;
+            q.msg.cancellable = false;
         }
-        for m in &msgs {
-            self.remember(&m.id, QueueStatus::Delivered);
+        for q in &taken {
+            self.remember(&q.msg.id, QueueStatus::Delivered);
         }
+        let msgs: Vec<QueuedMessage> = taken.iter().map(|q| q.msg.clone()).collect();
         let text = relay::build(&self.marker, &msgs, !self.marker_announced);
         self.marker_announced = true;
-        Some((text, msgs))
+        Some((text, taken))
+    }
+
+    fn claim(&mut self, now: i64) -> Option<(String, Vec<QueuedMessage>)> {
+        self.claim_raw(now)
+            .map(|(text, taken)| (text, taken.into_iter().map(|q| q.msg).collect()))
     }
 
     /// Undo a claim whose delivery failed (the waiter vanished).
-    fn unclaim(&mut self, msgs: Vec<QueuedMessage>, announced_before: bool) {
-        let ids: Vec<String> = msgs.iter().map(|m| m.id.clone()).collect();
+    fn unclaim(&mut self, taken: Vec<Queued>, announced_before: bool) {
+        let ids: Vec<String> = taken.iter().map(|q| q.msg.id.clone()).collect();
         self.history.retain(|(id, _)| !ids.contains(id));
-        let mut back: Vec<Queued> = msgs
+        let mut back: Vec<Queued> = taken
             .into_iter()
-            .map(|mut m| {
-                m.status = QueueStatus::Queued;
-                m.cancellable = true;
-                Queued { msg: m }
+            .map(|mut q| {
+                q.msg.status = QueueStatus::Queued;
+                q.msg.cancellable = true;
+                q
             })
             .collect();
         back.append(&mut self.queue);
@@ -238,11 +356,11 @@ impl SessionHooks {
             return Vec::new();
         }
         let announced_before = self.marker_announced;
-        let Some((text, msgs)) = self.claim() else {
+        let Some((text, taken)) = self.claim_raw(now) else {
             return Vec::new();
         };
         let Some(w) = self.waiter.take() else {
-            self.unclaim(msgs, announced_before);
+            self.unclaim(taken, announced_before);
             return Vec::new();
         };
         match w.tx.send(WaitSignal::Release(text)) {
@@ -252,10 +370,10 @@ impl SessionHooks {
                 // until it ends.
                 self.turn_active = true;
                 self.turn_started_ms = now;
-                msgs
+                taken.into_iter().map(|q| q.msg).collect()
             }
             Err(_) => {
-                self.unclaim(msgs, announced_before);
+                self.unclaim(taken, announced_before);
                 Vec::new()
             }
         }
@@ -274,6 +392,11 @@ impl SessionHooks {
 
     pub fn has_waiter(&self) -> bool {
         self.waiter.is_some()
+    }
+
+    #[cfg(test)]
+    fn interrupt_pending_for_test(&self) -> bool {
+        self.interrupt
     }
 }
 
@@ -303,6 +426,8 @@ pub struct Event<'a> {
     pub prompt_id: Option<&'a str>,
     pub prompt: Option<&'a str>,
     pub permission_mode: Option<&'a str>,
+    /// SessionStart's `source`: `startup|resume|clear|compact|fork`.
+    pub source: Option<&'a str>,
     pub pid: Option<u32>,
 }
 
@@ -353,20 +478,29 @@ pub enum CancelError {
 }
 
 /// Every session's hook state plus the held prompts.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct Hub {
     sessions: HashMap<String, SessionHooks>,
     held: HashMap<String, Held>,
     next_waiter: u64,
+    /// Key of the per-session relay markers ([`relay::marker_for`]).
+    secret: Vec<u8>,
+}
+
+impl Default for Hub {
+    fn default() -> Self {
+        Self::with_secret(crate::server::auth::random_bytes(32))
+    }
 }
 
 fn session_mut<'a>(
     sessions: &'a mut HashMap<String, SessionHooks>,
+    secret: &[u8],
     id: &str,
 ) -> &'a mut SessionHooks {
     sessions
         .entry(id.to_string())
-        .or_insert_with(|| SessionHooks::new(relay::new_marker()))
+        .or_insert_with(|| SessionHooks::new(relay::marker_for(secret, id)))
 }
 
 fn held_where(
@@ -384,8 +518,20 @@ fn held_where(
 }
 
 impl Hub {
+    /// A hub with a random marker key (markers change with the process).
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// A hub whose relay markers derive from `secret` (persisted, so a
+    /// session keeps its marker across restarts).
+    pub fn with_secret(secret: Vec<u8>) -> Self {
+        Self {
+            sessions: HashMap::new(),
+            held: HashMap::new(),
+            next_waiter: 0,
+            secret,
+        }
     }
 
     pub fn session(&self, id: &str) -> Option<&SessionHooks> {
@@ -425,7 +571,7 @@ impl Hub {
     /// Note that `session` sent something (an event or a wake poll) from
     /// `pid`. Returns the session.
     fn touch(&mut self, session: &str, pid: Option<u32>, now: i64) -> &mut SessionHooks {
-        let s = session_mut(&mut self.sessions, session);
+        let s = session_mut(&mut self.sessions, &self.secret, session);
         if let Some(pid) = pid {
             if s.pid.is_some_and(|old| old != pid) {
                 s.reset_process();
@@ -449,8 +595,13 @@ impl Hub {
         let mut out = Outcome::default();
         let main = ev.agent_id.is_none();
         self.touch(ev.session, ev.pid, now);
-        let Hub { sessions, held, .. } = self;
-        let s = session_mut(sessions, ev.session);
+        let Hub {
+            sessions,
+            held,
+            secret,
+            ..
+        } = self;
+        let s = session_mut(sessions, secret, ev.session);
         if let Some(m) = ev.permission_mode.filter(|m| !m.is_empty()) {
             s.permission_mode = Some(m.to_string());
         }
@@ -487,6 +638,17 @@ impl Hub {
                 if let Some(id) = ev.tool_use_id {
                     s.in_flight.remove(id);
                     s.pre_tools.retain(|p| p.tool_use_id != id);
+                    // A PermissionRequest for this call may still be on its
+                    // way to `hold` (process binding, raise): let it see
+                    // the call is over.
+                    s.prune_pre(now);
+                    s.finished.push_back(Finished {
+                        tool_use_id: id.to_string(),
+                        agent_id: ev.agent_id.map(str::to_string),
+                        tool_name: ev.tool_name.map(str::to_string),
+                        input_key: ev.input_key,
+                        at_ms: now,
+                    });
                     let mut ids =
                         held_where(held, ev.session, |h| h.tool_use_id.as_deref() == Some(id));
                     if ids.is_empty() {
@@ -512,7 +674,7 @@ impl Hub {
                     s.start_turn(now);
                     if s.interrupt {
                         out.response = relay::interrupt_output();
-                    } else if let Some((text, msgs)) = s.claim() {
+                    } else if let Some((text, msgs)) = s.claim(now) {
                         out.response = relay::additional_context("PostToolUse", &text);
                         out.delivered = msgs;
                     }
@@ -526,7 +688,7 @@ impl Hub {
                         .map(|id| (id, "the turn ended")),
                 );
                 if ev.name == "Stop" {
-                    if let Some((text, msgs)) = s.claim() {
+                    if let Some((text, msgs)) = s.claim(now) {
                         // The turn goes on with the relayed message.
                         out.response = relay::additional_context("Stop", &text);
                         out.delivered = msgs;
@@ -572,14 +734,21 @@ impl Hub {
             "SessionStart" => {
                 out.response = relay::additional_context("SessionStart", &relay::notice(&s.marker));
                 s.marker_announced = true;
-                s.turn_active = false;
-                s.interrupt = false;
+                // Auto-compaction fires SessionStart(compact) in the middle of
+                // a turn: the turn, a pending interrupt and the busy state
+                // carry on. Every other source starts afresh.
+                if ev.source != Some("compact") {
+                    s.turn_active = false;
+                    s.interrupt = false;
+                }
             }
             "SessionEnd" => {
                 s.ended = true;
                 s.turn_active = false;
                 s.interrupt = false;
                 s.in_flight.clear();
+                // Never carried into a resume, possibly days later.
+                s.drop_queued(DropReason::SessionEnded, |_| true);
                 if let Some(w) = s.waiter.take() {
                     let _ = w.tx.send(WaitSignal::Gone);
                 }
@@ -649,20 +818,87 @@ impl Hub {
         Some(hit.tool_use_id.clone())
     }
 
+    /// Whether a main-thread prompt is (or may be about to be) on the
+    /// session's screen: a held main-thread PermissionRequest, or — with
+    /// `recent_tool_ms` — an unfinished main-thread tool call that started
+    /// that recently (its permission dialog may be opening right now).
+    pub fn main_prompt_open(&self, session: &str, now: i64, recent_tool_ms: Option<i64>) -> bool {
+        if self
+            .held
+            .values()
+            .any(|h| h.session == session && h.agent_id.is_none())
+        {
+            return true;
+        }
+        let Some(window) = recent_tool_ms else {
+            return false;
+        };
+        self.sessions.get(session).is_some_and(|s| {
+            s.in_flight
+                .values()
+                .any(|f| f.agent_id.is_none() && now - f.since_ms <= window)
+        })
+    }
+
+    #[cfg(test)]
+    fn prune_session_for_test(&mut self, session: &str, now: i64) {
+        if let Some(s) = self.sessions.get_mut(session) {
+            s.prune_pre(now);
+        }
+    }
+
     /// Whether an interrupt is pending for the session's main thread.
     pub fn interrupt_pending(&self, session: &str) -> bool {
         self.sessions.get(session).is_some_and(|s| s.interrupt)
     }
 
-    /// Register a held PermissionRequest. If an interrupt for the session's
-    /// main thread was requested meanwhile, the interrupt sender comes back so
-    /// the caller answers at once.
-    pub fn hold(&mut self, pending_id: String, mut h: Held) -> Option<oneshot::Sender<()>> {
+    /// Whether the tool call of a PermissionRequest that arrived at
+    /// `arrived_ms` already finished (answered at the desk before we got to
+    /// it) — checked before raising a card for it.
+    pub fn already_finished(
+        &self,
+        session: &str,
+        agent_id: Option<&str>,
+        tool_use_id: Option<&str>,
+        tool_name: &str,
+        input_key: u64,
+        arrived_ms: i64,
+    ) -> bool {
+        self.sessions.get(session).is_some_and(|s| {
+            s.finished_after(&Held {
+                session: session.to_string(),
+                agent_id: agent_id.map(str::to_string),
+                tool_use_id: tool_use_id.map(str::to_string),
+                tool_name: tool_name.to_string(),
+                input_key,
+                created_ms: arrived_ms,
+                interrupt: None,
+            })
+        })
+    }
+
+    /// Register a held PermissionRequest (`created_ms` = when the request
+    /// arrived). If an interrupt for the session's main thread was requested
+    /// meanwhile, the interrupt sender comes back so the caller answers at
+    /// once. If its tool call finished in the meantime (answered at the
+    /// desk), nothing is held: [`AlreadyFinished`].
+    pub fn hold(
+        &mut self,
+        pending_id: String,
+        mut h: Held,
+    ) -> Result<Option<oneshot::Sender<()>>, AlreadyFinished> {
+        if self
+            .sessions
+            .get(&h.session)
+            .is_some_and(|s| s.finished_after(&h))
+        {
+            return Err(AlreadyFinished);
+        }
         let fire = (h.agent_id.is_none() && self.interrupt_pending(&h.session))
             .then(|| h.interrupt.take())
             .flatten();
         self.held.insert(pending_id, h);
-        fire
+        Ok(fire)
     }
 
     pub fn unhold(&mut self, pending_id: &str) {
@@ -676,7 +912,7 @@ impl Hub {
     /// Flag an interrupt; returns the senders of the held main-thread prompts
     /// to answer with deny + interrupt.
     pub fn interrupt(&mut self, session: &str, now: i64) -> Vec<oneshot::Sender<()>> {
-        let s = session_mut(&mut self.sessions, session);
+        let s = session_mut(&mut self.sessions, &self.secret, session);
         s.interrupt = true;
         if s.last_event_ms == 0 {
             s.last_event_ms = now;
@@ -688,16 +924,34 @@ impl Hub {
             .collect()
     }
 
-    /// Queue a relay message; delivered at once when the session is idle and
-    /// a waiter is parked. Returns the message (status `delivered` when it
-    /// went out) and everything delivered with it.
+    /// [`Self::enqueue_from`] for a sender with the dangerous right.
+    #[cfg(test)]
     pub fn enqueue(
         &mut self,
         session: &str,
         text: String,
         now: i64,
-    ) -> Result<(QueuedMessage, Vec<QueuedMessage>), QueuedMessage> {
-        let s = session_mut(&mut self.sessions, session);
+    ) -> Result<(QueuedMessage, Vec<QueuedMessage>), EnqueueError> {
+        self.enqueue_from(session, text, now, true)
+    }
+
+    /// Queue a relay message; delivered at once when the session is idle and
+    /// a waiter is parked. Returns the message (status `delivered` when it
+    /// went out) and everything delivered with it. `sender_may_dangerous`:
+    /// whether it may still be delivered should the session switch to
+    /// bypassPermissions before it goes out.
+    pub fn enqueue_from(
+        &mut self,
+        session: &str,
+        text: String,
+        now: i64,
+        sender_may_dangerous: bool,
+    ) -> Result<(QueuedMessage, Vec<QueuedMessage>), EnqueueError> {
+        let s = session_mut(&mut self.sessions, &self.secret, session);
+        if s.ended {
+            return Err(EnqueueError::Ended);
+        }
+        s.prune_queue(now);
         let msg = QueuedMessage {
             id: uuid::Uuid::new_v4().to_string(),
             text,
@@ -712,9 +966,12 @@ impl Hub {
             cancellable: true,
         };
         if s.queue.len() >= QUEUE_CAP {
-            return Err(msg);
+            return Err(EnqueueError::Full);
         }
-        s.queue.push(Queued { msg: msg.clone() });
+        s.queue.push(Queued {
+            msg: msg.clone(),
+            sender_may_dangerous,
+        });
         let delivered = s.try_release(now);
         let msg = delivered
             .iter()
@@ -722,6 +979,26 @@ impl Hub {
             .cloned()
             .unwrap_or(msg);
         Ok((msg, delivered))
+    }
+
+    /// A fresher permission mode for the session than its last hook event
+    /// carried (the wake poll's Stop payload, the dashboard's effective
+    /// mode): it decides what a later hand-over may deliver.
+    pub fn note_mode(&mut self, session: &str, mode: &str) {
+        if let Some(s) = self.sessions.get_mut(session) {
+            if !mode.is_empty() {
+                s.permission_mode = Some(mode.to_string());
+            }
+        }
+    }
+
+    /// Queued relays dropped since the last call, per session (for notices).
+    pub fn take_dropped(&mut self) -> Vec<(String, QueuedMessage, DropReason)> {
+        let mut out = Vec::new();
+        for (id, s) in &mut self.sessions {
+            out.extend(s.dropped.drain(..).map(|(m, r)| (id.clone(), m, r)));
+        }
+        out
     }
 
     /// Take a still-queued message back.
@@ -760,7 +1037,7 @@ impl Hub {
             let _ = old.tx.send(WaitSignal::Superseded);
         }
         if !s.turn_active {
-            if let Some((text, msgs)) = s.claim() {
+            if let Some((text, msgs)) = s.claim(now) {
                 s.last_waiter_end_ms = now;
                 s.turn_active = true;
                 s.turn_started_ms = now;
@@ -842,11 +1119,15 @@ impl Hub {
     /// nothing queued or held.
     pub fn gc(&mut self, now: i64) -> usize {
         const HOUR: i64 = 60 * 60 * 1000;
+        for s in self.sessions.values_mut() {
+            s.prune_queue(now);
+        }
         let held = &self.held;
         let before = self.sessions.len();
         self.sessions.retain(|id, s| {
             let idle_for = now - s.last_event_ms;
             let busy = !s.queue.is_empty()
+                || !s.dropped.is_empty()
                 || s.waiter.is_some()
                 || held.values().any(|h| &h.session == id);
             busy || !((s.ended && idle_for > HOUR) || idle_for > 24 * HOUR)
@@ -871,7 +1152,7 @@ mod tests {
     }
 
     fn held(hub: &mut Hub, id: &str, agent: Option<&str>, tool_use: Option<&str>, at: i64) {
-        hub.hold(
+        let _ = hub.hold(
             id.into(),
             Held {
                 session: S.into(),
@@ -1006,6 +1287,64 @@ mod tests {
             50,
         );
         assert_eq!(ids(&out), vec!["p3"]);
+    }
+
+    #[test]
+    fn a_prompt_answered_at_the_desk_before_it_was_held_is_not_held() {
+        let mut hub = Hub::new();
+        hub.mark_seen(S, 1);
+        let request = |at, tool_use: Option<&str>| Held {
+            session: S.into(),
+            agent_id: None,
+            tool_use_id: tool_use.map(str::to_string),
+            tool_name: "Bash".into(),
+            input_key: 7,
+            created_ms: at,
+            interrupt: None,
+        };
+        // The PermissionRequest arrives at 50; binding and raising take a
+        // while; meanwhile the user presses Enter and the tool runs.
+        pre(&mut hub, "t1", None, 7, 40);
+        hub.on_event(
+            &Event {
+                tool_use_id: Some("t1"),
+                tool_name: Some("Bash"),
+                input_key: Some(7),
+                ..ev("PostToolUse")
+            },
+            100,
+        );
+        // Correlation now finds nothing; the (agent, tool, input) match
+        // after the arrival says the call is over.
+        assert_eq!(hub.correlate(S, None, "Bash", 7, 120), None);
+        assert!(hub.already_finished(S, None, None, "Bash", 7, 50));
+        assert_eq!(
+            hub.hold("p1".into(), request(50, None)).unwrap_err(),
+            AlreadyFinished
+        );
+        assert_eq!(hub.held_count(S), 0);
+        // Correlated by id, even when it finished before the arrival.
+        assert!(hub.hold("p2".into(), request(150, Some("t1"))).is_err());
+        // The same command asked again later is a new call: held.
+        assert!(!hub.already_finished(S, None, None, "Bash", 7, 200));
+        assert!(hub.hold("p3".into(), request(200, None)).is_ok());
+        assert_eq!(hub.held_count(S), 1);
+        // Forgotten after a while.
+        hub.prune_session_for_test(S, 100 + FINISHED_TTL_MS + 1);
+        assert!(!hub.already_finished(S, None, Some("t1"), "Bash", 7, 150));
+    }
+
+    #[test]
+    fn a_hold_stamped_with_its_arrival_meets_the_pidfile_edge() {
+        let mut hub = Hub::new();
+        hub.mark_seen(S, 1);
+        // waiting at 20, the desk answers at 30 (busy); the card is raised
+        // at 60 but the request arrived at 25.
+        hub.observe_pidfile(S, "waiting", 20, 20);
+        hub.observe_pidfile(S, "busy", 30, 40);
+        held(&mut hub, "p", None, None, 25);
+        let out = hub.observe_pidfile(S, "busy", 30, 400);
+        assert_eq!(ids(&out), vec!["p"]);
     }
 
     #[test]
@@ -1175,6 +1514,42 @@ mod tests {
     }
 
     #[test]
+    fn a_long_queue_is_handed_over_in_parts_that_fit() {
+        let mut hub = Hub::new();
+        hub.on_event(
+            &Event {
+                prompt_id: Some("p1"),
+                ..ev("UserPromptSubmit")
+            },
+            1,
+        );
+        for c in ['a', 'b', 'c'] {
+            hub.enqueue(S, c.to_string().repeat(4_000), 2).unwrap();
+        }
+        let post = |hub: &mut Hub, now| {
+            hub.on_event(
+                &Event {
+                    tool_use_id: Some("t"),
+                    ..ev("PostToolUse")
+                },
+                now,
+            )
+        };
+        let out = post(&mut hub, 3);
+        let ctx = out.response["hookSpecificOutput"]["additionalContext"]
+            .as_str()
+            .unwrap();
+        assert!(ctx.chars().count() < 10_000);
+        assert_eq!(out.delivered.len(), 2);
+        let left = hub.session(S).unwrap().queued();
+        assert_eq!(left.len(), 1);
+        assert!(left[0].cancellable, "still takeable back");
+        let out = post(&mut hub, 4);
+        assert_eq!(out.delivered.len(), 1);
+        assert!(hub.session(S).unwrap().queued().is_empty());
+    }
+
+    #[test]
     fn the_waiter_is_released_only_when_idle_and_newest_wins() {
         let mut hub = Hub::new();
         hub.on_event(
@@ -1265,7 +1640,7 @@ mod tests {
         );
         let (tx_main, mut rx_main) = oneshot::channel();
         let (tx_sub, mut rx_sub) = oneshot::channel();
-        hub.hold(
+        let _ = hub.hold(
             "main".into(),
             Held {
                 session: S.into(),
@@ -1277,7 +1652,7 @@ mod tests {
                 interrupt: Some(tx_main),
             },
         );
-        hub.hold(
+        let _ = hub.hold(
             "sub".into(),
             Held {
                 session: S.into(),
@@ -1335,7 +1710,7 @@ mod tests {
                 interrupt: Some(tx),
             },
         );
-        assert!(fire.is_some());
+        assert!(fire.unwrap().is_some());
         // Stop clears it: the next turn is not killed.
         hub.on_event(&ev("Stop"), 8);
         assert!(!hub.interrupt_pending(S));
@@ -1406,6 +1781,59 @@ mod tests {
     }
 
     #[test]
+    fn a_mid_turn_compaction_keeps_the_turn_and_its_interrupt() {
+        let mut hub = Hub::new();
+        hub.on_event(
+            &Event {
+                prompt_id: Some("p1"),
+                ..ev("UserPromptSubmit")
+            },
+            1,
+        );
+        let Arm::Parked(_, mut rx) = hub.arm_waiter(S, Some(42), 2) else {
+            panic!("should park");
+        };
+        hub.interrupt(S, 3);
+        let out = hub.on_event(
+            &Event {
+                source: Some("compact"),
+                ..ev("SessionStart")
+            },
+            4,
+        );
+        assert!(out.response["hookSpecificOutput"]["additionalContext"]
+            .as_str()
+            .is_some_and(|t| t.contains("[[MC-RELAY")));
+        let s = hub.session(S).unwrap();
+        assert!(s.turn_active && s.interrupt_pending_for_test());
+        // A message queued now waits for the turn (no wake release).
+        let (m, delivered) = hub.enqueue(S, "later".into(), 5).unwrap();
+        assert_eq!(m.status, QueueStatus::Queued);
+        assert!(delivered.is_empty());
+        assert!(rx.try_recv().is_err());
+        // The interrupt still lands at the next main-thread tool call.
+        let pre = hub.on_event(
+            &Event {
+                tool_use_id: Some("t"),
+                tool_name: Some("Bash"),
+                ..ev("PreToolUse")
+            },
+            6,
+        );
+        assert_eq!(pre.response, relay::interrupt_output());
+        // A fresh start (resume, clear, …) does reset.
+        hub.on_event(
+            &Event {
+                source: Some("resume"),
+                ..ev("SessionStart")
+            },
+            7,
+        );
+        assert!(!hub.session(S).unwrap().turn_active);
+        assert!(!hub.interrupt_pending(S));
+    }
+
+    #[test]
     fn session_start_announces_the_marker() {
         let mut hub = Hub::new();
         let out = hub.on_event(&ev("SessionStart"), 1);
@@ -1429,17 +1857,105 @@ mod tests {
     }
 
     #[test]
+    fn messages_queued_before_a_switch_to_bypass_need_a_dangerous_sender() {
+        let mut hub = Hub::new();
+        hub.on_event(
+            &Event {
+                prompt_id: Some("p1"),
+                permission_mode: Some("default"),
+                ..ev("UserPromptSubmit")
+            },
+            1,
+        );
+        let (phone, _) = hub
+            .enqueue_from(S, "from the phone".into(), 2, false)
+            .unwrap();
+        let (mac, _) = hub.enqueue_from(S, "from the Mac".into(), 3, true).unwrap();
+        // Shift+Tab at the desk: the next hook reports bypassPermissions.
+        let out = hub.on_event(
+            &Event {
+                tool_use_id: Some("t1"),
+                permission_mode: Some(BYPASS),
+                ..ev("PostToolUse")
+            },
+            4,
+        );
+        let ctx = out.response["hookSpecificOutput"]["additionalContext"]
+            .as_str()
+            .unwrap();
+        assert!(ctx.contains("from the Mac") && !ctx.contains("from the phone"));
+        assert_eq!(out.delivered.len(), 1);
+        assert_eq!(out.delivered[0].id, mac.id);
+        let dropped = hub.take_dropped();
+        assert_eq!(dropped.len(), 1);
+        assert_eq!(dropped[0].1.id, phone.id);
+        assert_eq!(dropped[0].1.status, QueueStatus::Cancelled);
+        assert_eq!(dropped[0].2, DropReason::Bypass);
+        assert!(hub.take_dropped().is_empty(), "reported once");
+        assert_eq!(hub.cancel(S, &phone.id).unwrap_err(), CancelError::NotFound);
+
+        // The wake path checks too: the Stop payload's mode is noted first.
+        hub.on_event(&ev("Stop"), 5);
+        hub.enqueue_from(S, "idle, from the phone".into(), 6, false)
+            .unwrap();
+        hub.note_mode(S, BYPASS);
+        match hub.arm_waiter(S, Some(42), 7) {
+            Arm::Parked(..) => {}
+            Arm::Immediate(t, _) => panic!("delivered into bypass: {t}"),
+        }
+        assert_eq!(hub.take_dropped()[0].2, DropReason::Bypass);
+    }
+
+    #[test]
+    fn stale_relays_expire_and_never_outlive_their_session() {
+        let mut hub = Hub::new();
+        hub.mark_seen(S, 1);
+        let (old, _) = hub.enqueue(S, "deploy to staging".into(), 1).unwrap();
+        // Handed over only within the TTL.
+        let out = hub.on_event(&ev("Stop"), 2 + RELAY_TTL_MS);
+        assert_eq!(out.response, json!({}));
+        let dropped = hub.take_dropped();
+        assert_eq!(dropped[0].1.id, old.id);
+        assert_eq!(dropped[0].1.status, QueueStatus::Failed);
+        assert_eq!(dropped[0].2, DropReason::Expired);
+        // SessionEnd drops what is still queued, and takes nothing new.
+        hub.enqueue(S, "later".into(), 3 + RELAY_TTL_MS).unwrap();
+        hub.on_event(&ev("SessionEnd"), 4 + RELAY_TTL_MS);
+        assert!(hub.session(S).unwrap().queued().is_empty());
+        assert_eq!(hub.take_dropped()[0].2, DropReason::SessionEnded);
+        assert_eq!(
+            hub.enqueue(S, "too late".into(), 5 + RELAY_TTL_MS)
+                .unwrap_err(),
+            EnqueueError::Ended
+        );
+        // A resumed process speaks again: messages are welcome.
+        hub.on_event(
+            &Event {
+                pid: Some(7),
+                ..ev("SessionStart")
+            },
+            6 + RELAY_TTL_MS,
+        );
+        assert!(hub
+            .enqueue(S, "hello again".into(), 7 + RELAY_TTL_MS)
+            .is_ok());
+        // gc expires forgotten queues too.
+        hub.gc(8 + 2 * RELAY_TTL_MS);
+        assert!(hub.session(S).unwrap().queued().is_empty());
+        assert_eq!(hub.take_dropped()[0].2, DropReason::Expired);
+    }
+
+    #[test]
     fn the_queue_is_bounded_and_gc_keeps_busy_sessions() {
         let mut hub = Hub::new();
         for i in 0..QUEUE_CAP {
             hub.enqueue(S, format!("m{i}"), 1).unwrap();
         }
-        assert!(hub.enqueue(S, "one too many".into(), 1).is_err());
         assert_eq!(
-            hub.gc(100 * 24 * 60 * 60 * 1000),
-            0,
-            "queued messages keep it"
+            hub.enqueue(S, "one too many".into(), 1).unwrap_err(),
+            EnqueueError::Full
         );
+        assert_eq!(hub.gc(RELAY_TTL_MS), 0, "queued messages keep it");
         let other = "1a1b2c3d-0000-4000-8000-000000000000";
         hub.on_event(
             &Event {
@@ -1450,6 +1966,45 @@ mod tests {
         );
         assert_eq!(hub.gc(2 * 60 * 60 * 1000), 1);
         assert!(hub.session(other).is_none());
+    }
+
+    #[test]
+    fn open_main_thread_prompts_are_reported() {
+        let mut hub = Hub::new();
+        assert!(!hub.main_prompt_open(S, 0, Some(5_000)));
+        pre(&mut hub, "t1", None, 1, 100);
+        pre(&mut hub, "s1", Some("agent"), 1, 100);
+        // A main-thread tool that just started may be opening a dialog.
+        assert!(hub.main_prompt_open(S, 1_000, Some(5_000)));
+        assert!(!hub.main_prompt_open(S, 1_000, None));
+        assert!(
+            !hub.main_prompt_open(S, 10_000, Some(5_000)),
+            "long-running"
+        );
+        held(&mut hub, "sub", Some("agent"), None, 200);
+        assert!(
+            !hub.main_prompt_open(S, 10_000, None),
+            "a subagent's prompt"
+        );
+        held(&mut hub, "main", None, None, 300);
+        assert!(hub.main_prompt_open(S, 10_000, None));
+    }
+
+    #[test]
+    fn markers_survive_a_restart_with_the_same_secret() {
+        let secret = b"persisted".to_vec();
+        let mut before = Hub::with_secret(secret.clone());
+        before.on_event(&ev("SessionStart"), 1);
+        let mut after = Hub::with_secret(secret);
+        after.mark_seen(S, 2);
+        assert_eq!(
+            before.session(S).unwrap().marker,
+            after.session(S).unwrap().marker
+        );
+        assert_ne!(
+            Hub::new().session(S).map(|s| s.marker.clone()),
+            Some(before.session(S).unwrap().marker.clone())
+        );
     }
 
     #[test]

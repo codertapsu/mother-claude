@@ -171,24 +171,20 @@ pub async fn message(
         }
         Route::Owned => {
             return Ok(Json(
-                owned::send(&state, &id, &body.text, &body.images).await?,
+                owned::send_as(&state, ctx.may_dangerous(), &id, &body.text, &body.images).await?,
             ))
         }
-        Route::Tmux(s) => {
-            tmux::send_text_as(&state, &ctx, &s, &body.text).await?;
-            Delivery::Relayed
-        }
-        Route::Hooks(_) => {
-            let queued = hooks::enqueue_relay_as(&state, &ctx, &id, &body.text).await?;
-            return Ok(Json(MessageReceipt {
-                delivery: if queued.status == QueueStatus::Delivered {
-                    Delivery::Relayed
-                } else {
-                    Delivery::Queued
-                },
-                message_id: queued.id,
-            }));
-        }
+        Route::Tmux(s) => match tmux::send_text_as(&state, &ctx, &s, &body.text).await {
+            Ok(()) => Delivery::Relayed,
+            // The pane cannot be reached from here (custom socket, tmux gone)
+            // but the hooks can: relay through them (the caps follow).
+            Err(e) if tmux::is_unreachable_error(&e) && hooks::is_active(&state, &id) => {
+                crate::claude::caps::refresh(&state, &id).await;
+                return relay(&state, &ctx, &id, &body.text).await;
+            }
+            Err(e) => return Err(e),
+        },
+        Route::Hooks(_) => return relay(&state, &ctx, &id, &body.text).await,
         Route::Pty(s) => {
             foreign::pty_inject_text(&state, &ctx, &s, &body.text).await?;
             Delivery::Relayed
@@ -198,6 +194,24 @@ pub async fn message(
     Ok(Json(MessageReceipt {
         delivery,
         message_id,
+    }))
+}
+
+/// Queue `text` for a hooked foreign session.
+async fn relay(
+    state: &AppState,
+    ctx: &ClientContext,
+    id: &str,
+    text: &str,
+) -> ApiResult<Json<MessageReceipt>> {
+    let queued = hooks::enqueue_relay_as(state, ctx, id, text).await?;
+    Ok(Json(MessageReceipt {
+        delivery: if queued.status == QueueStatus::Delivered {
+            Delivery::Relayed
+        } else {
+            Delivery::Queued
+        },
+        message_id: queued.id,
     }))
 }
 
@@ -227,7 +241,13 @@ pub async fn interrupt(
 ) -> ApiResult<Json<Value>> {
     match route_for(&state, &id).await? {
         Route::Owned => owned::interrupt(&state, &id).await?,
-        Route::Tmux(s) => tmux::send_key(&state, &s, "Escape").await?,
+        Route::Tmux(s) => match tmux::send_key(&state, &s, "Escape").await {
+            Err(e) if tmux::is_unreachable_error(&e) && hooks::is_active(&state, &id) => {
+                crate::claude::caps::refresh(&state, &id).await;
+                hooks::request_interrupt(&state, &id).await?
+            }
+            other => other?,
+        },
         Route::Hooks(_) => hooks::request_interrupt(&state, &id).await?,
         Route::Bridge => {
             // Interrupt the conversation's running turn, if any (naming the
@@ -259,7 +279,7 @@ pub struct ModelBody {
 
 /// `POST /api/sessions/{id}/model {model}`.
 pub async fn set_model(
-    Authed(_ctx): Authed,
+    Authed(ctx): Authed,
     State(state): State<AppState>,
     Path(id): Path<String>,
     Body(body): Body<ModelBody>,
@@ -285,7 +305,7 @@ pub async fn set_model(
                 .update_thread(&id, move |r| r.model = Some(m))
                 .await;
         }
-        Route::Tmux(s) => tmux::send_text(&state, &s, &format!("/model {model}")).await?,
+        Route::Tmux(s) => tmux::send_text_as(&state, &ctx, &s, &format!("/model {model}")).await?,
         other => return Err(unsupported("Changing the model", &other)),
     }
     Ok(ok())
@@ -340,7 +360,7 @@ pub struct EffortBody {
 
 /// `POST /api/sessions/{id}/effort {effort}`.
 pub async fn set_effort(
-    Authed(_ctx): Authed,
+    Authed(ctx): Authed,
     State(state): State<AppState>,
     Path(id): Path<String>,
     Body(body): Body<EffortBody>,
@@ -348,11 +368,16 @@ pub async fn set_effort(
     owned::validate_launch(Some(&body.effort), None, None)?;
     match route_for(&state, &id).await? {
         Route::Owned => owned::set_effort(&state, &id, &body.effort).await?,
-        Route::Tmux(s) => tmux::send_text(&state, &s, &format!("/effort {}", body.effort)).await?,
+        Route::Tmux(s) => {
+            tmux::send_text_as(&state, &ctx, &s, &format!("/effort {}", body.effort)).await?
+        }
         other => return Err(unsupported("Changing the effort", &other)),
     }
     Ok(ok())
 }
+
+/// Characters a name typed into a terminal (`/rename <name>`) may not carry.
+const SHELL_METACHARACTERS: [char; 8] = [';', '|', '&', '$', '`', '<', '>', '\\'];
 
 #[derive(Debug, Default, Deserialize)]
 #[serde(default)]
@@ -362,7 +387,7 @@ pub struct RenameBody {
 
 /// `POST /api/sessions/{id}/rename {name}`.
 pub async fn rename(
-    Authed(_ctx): Authed,
+    Authed(ctx): Authed,
     State(state): State<AppState>,
     Path(id): Path<String>,
     Body(body): Body<RenameBody>,
@@ -378,7 +403,15 @@ pub async fn rename(
         Route::Owned => owned::rename(&state, &id, name).await?,
         Route::Tmux(s) => {
             let one_line: String = name.split_whitespace().collect::<Vec<_>>().join(" ");
-            tmux::send_text(&state, &s, &format!("/rename {one_line}")).await?
+            // Defence in depth: typed into a terminal, a name must never be
+            // able to act as a shell command line.
+            if one_line.contains(SHELL_METACHARACTERS) {
+                return Err(ApiError::unprocessable(
+                    "invalid_name",
+                    "A session name typed into its terminal may not contain ; | & $ ` < > \\.",
+                ));
+            }
+            tmux::send_text_as(&state, &ctx, &s, &format!("/rename {one_line}")).await?
         }
         other => return Err(unsupported("Renaming", &other)),
     }
@@ -642,8 +675,16 @@ pub async fn permission_request(
     let item = sidecar_item(&id, body);
     let is_question = item.kind == PendingKind::Question;
     let (guard, rx) = pending::raise(&state, item).await;
-    let decision = pending::wait(rx, SIDECAR_TIMEOUT).await;
-    drop(guard);
+    let end = pending::wait_end(rx, SIDECAR_TIMEOUT).await;
+    if matches!(end, pending::WaitEnd::TimedOut) {
+        guard.expire();
+    } else {
+        drop(guard);
+    }
+    let decision = match end {
+        pending::WaitEnd::Decided(d) => Some(d),
+        pending::WaitEnd::Closed | pending::WaitEnd::TimedOut => None,
+    };
     Json(match decision {
         Some(d) if d.is_allow() && is_question => {
             json!({ "behavior": "answer", "answer": d.answer_text().unwrap_or_default() })

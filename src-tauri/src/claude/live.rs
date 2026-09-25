@@ -480,6 +480,24 @@ impl LiveRoster {
         g.argv_modes.get(&key).cloned().flatten()
     }
 
+    /// Re-read the session's pidfile right now (not the cached record):
+    /// `(status, waitingFor)`. `None` when the roster knows no pid for it or
+    /// the file is gone, unreadable or belongs to another session. Nothing
+    /// is cached or broadcast (that stays the monitor's job). Blocking (may
+    /// sleep 50 ms on a torn read): call from `spawn_blocking`.
+    pub fn fresh_status(
+        &self,
+        home: &ClaudeHome,
+        session_id: &str,
+    ) -> Option<(Option<String>, Option<String>)> {
+        let pid = self.lock().live.get(session_id)?.pid?;
+        let path = home.base().join("sessions").join(format!("{pid}.json"));
+        let PidfileRead::Parsed(rec) = read_pidfile(&path) else {
+            return None;
+        };
+        (rec.session_id.as_deref() == Some(session_id)).then_some((rec.status, rec.waiting_for))
+    }
+
     /// Whether `~/.claude/sessions/` existed at the last refresh. Older CLIs
     /// did not write pidfiles; the data layer then falls back to transcript
     /// recency for liveness.
@@ -916,6 +934,49 @@ mod tests {
     fn write(dir: &Path, name: &str, body: &str) {
         std::fs::create_dir_all(dir).unwrap();
         std::fs::write(dir.join(name), body).unwrap();
+    }
+
+    #[test]
+    fn fresh_status_rereads_the_pidfile_without_touching_the_roster() {
+        let tmp = tempfile::tempdir().unwrap();
+        let home = ClaudeHome::with_base(tmp.path());
+        let sessions = tmp.path().join("sessions");
+        let me = std::process::id();
+        let body = |status: &str, waiting: &str| {
+            format!(
+                r#"{{"pid":{me},"sessionId":"{SID}","status":"{status}","waitingFor":"{waiting}"}}"#
+            )
+        };
+        let roster = LiveRoster::new();
+        assert_eq!(roster.fresh_status(&home, SID), None, "no pid known yet");
+        write(&sessions, &format!("{me}.json"), &body("busy", ""));
+        roster.refresh(&home);
+        // The CLI opens a dialog; the monitor has not refreshed yet.
+        write(
+            &sessions,
+            &format!("{me}.json"),
+            &body("waiting", "permission prompt"),
+        );
+        assert_eq!(roster.get(SID).unwrap().status.as_deref(), Some("busy"));
+        assert_eq!(
+            roster.fresh_status(&home, SID),
+            Some((
+                Some("waiting".to_string()),
+                Some("permission prompt".to_string())
+            ))
+        );
+        assert_eq!(
+            roster.get(SID).unwrap().status.as_deref(),
+            Some("busy"),
+            "cache untouched"
+        );
+        // The pid now belongs to another session: not ours.
+        write(
+            &sessions,
+            &format!("{me}.json"),
+            &format!(r#"{{"pid":{me},"sessionId":"other","status":"idle"}}"#),
+        );
+        assert_eq!(roster.fresh_status(&home, SID), None);
     }
 
     #[test]

@@ -9,15 +9,28 @@
 //!   `${TMUX_TMPDIR:-/tmp}/tmux-<uid>/`, with `list-panes -a -F '#{pane_pid}
 //!   #{pane_id}'` matched against the claude pid (or, failing that, the
 //!   recorded pane id whose pane pid is an ancestor of the claude pid).
-//! * **Typing text** ([`send_text_as`]): refused unless the pidfile shows
-//!   `idle`, or `busy` with no `waitingFor` (409 `session_waiting`); C0/C1,
-//!   ESC and DEL are stripped; single lines go through `send-keys -t <pane>
-//!   -l -- <text>`, multi-line text through `load-buffer` + `paste-buffer -p`
-//!   (bracketed paste); after 400 ms the pidfile is re-read and, if a dialog
-//!   opened meanwhile, `C-u` clears the input instead of pressing Enter and
-//!   the request fails. For callers without the dangerous right a leading `!`
-//!   (shell mode) is refused, only an allowlist of slash commands passes, and
-//!   sessions in bypassPermissions are refused outright. Max 16 KiB.
+//! * **Typing text** ([`send_text_as`]): refused unless the pidfile — read
+//!   fresh from disk, not the monitor's cached roster — shows `idle`, or
+//!   `busy` with no `waitingFor` (409 `session_waiting`); refused too while a
+//!   main-thread prompt is held by the hooks or its card is open, and while
+//!   the visible pane shows a dialog (numbered options with the `❯` cursor,
+//!   "Esc to cancel"). C0/C1, ESC and DEL are stripped; single lines go
+//!   through `send-keys -t <pane> -l -- <text>`, multi-line text through
+//!   `load-buffer` + `paste-buffer -p` (bracketed paste); after 400 ms all of
+//!   that is checked again and, if a dialog opened meanwhile, `C-u` clears
+//!   the input instead of pressing Enter and the request fails. For callers
+//!   without the dangerous right a leading `!` (shell mode) is refused, only
+//!   an allowlist of slash commands passes, text starting with a digit is
+//!   refused unless the session is idle (digits answer dialogs), a
+//!   main-thread tool call that just started counts as a possible dialog,
+//!   and sessions in bypassPermissions are refused outright. Max 16 KiB.
+//! * **Claude must own the terminal.** Before typing, before Enter and
+//!   before a key, `ps` must show the claude process in the terminal's
+//!   foreground process group and not stopped (Ctrl+Z hands the pane to the
+//!   user's shell, which would run the text), and no editor or pager it
+//!   opened (Ctrl+G) may hold the terminal while it is idle (409
+//!   `session_not_foreground`). A pane found only through the ancestor
+//!   fallback is refused when this cannot be verified.
 //! * **Keys** ([`send_key`]): the allowlist in [`ALLOWED_KEYS`].
 //! * **Screen** ([`capture`]): `capture-pane -p -J -S -<lines>` (plain text).
 //!
@@ -58,6 +71,42 @@ const ENTER_DELAY: Duration = Duration::from_millis(400);
 
 /// Timeout of one tmux invocation.
 const TMUX_TIMEOUT: Duration = Duration::from_secs(3);
+
+/// How long a failed pane lookup keeps the caps on the hooks channel (when
+/// hooks are active) before tmux is tried again.
+const UNREACHABLE_TTL: Duration = Duration::from_secs(60);
+
+/// Editors and pagers Claude Code may open in its own terminal (Ctrl+G opens
+/// `$EDITOR`): while one holds the terminal, typed text goes to it (vim's
+/// `:!cmd` runs a shell command).
+const EDITORS_AND_PAGERS: [&str; 26] = [
+    "vi",
+    "vim",
+    "nvim",
+    "view",
+    "vimdiff",
+    "ex",
+    "ed",
+    "nano",
+    "pico",
+    "emacs",
+    "emacsclient",
+    "hx",
+    "helix",
+    "micro",
+    "kak",
+    "joe",
+    "jed",
+    "ne",
+    "mg",
+    "mcedit",
+    "mc",
+    "less",
+    "more",
+    "most",
+    "man",
+    "vis",
+];
 
 // ───────────────────────────── pure helpers ─────────────────────────────
 
@@ -109,14 +158,28 @@ fn is_digits(s: &str, max: usize) -> bool {
     !s.is_empty() && s.len() <= max && s.bytes().all(|b| b.is_ascii_digit())
 }
 
-/// Parse `list-panes -F '#{pane_pid} #{pane_id}'` output.
-pub fn parse_list_panes(out: &str) -> Vec<(u32, String)> {
+/// One `list-panes` row.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PaneRow {
+    pub pid: u32,
+    pub pane: String,
+    /// `/dev/ttysNNN`, when tmux reported it.
+    pub tty: Option<String>,
+}
+
+/// Parse `list-panes -F '#{pane_pid} #{pane_id} #{pane_tty}'` output (the
+/// tty column is optional).
+pub fn parse_list_panes(out: &str) -> Vec<PaneRow> {
     out.lines()
         .filter_map(|l| {
             let mut it = l.split_whitespace();
             let pid = it.next()?.parse::<u32>().ok()?;
-            let pane = it.next()?;
-            parse_target(pane).map(|t| (pid, t.pane))
+            let pane = parse_target(it.next()?)?.pane;
+            let tty = it
+                .next()
+                .filter(|t| t.starts_with("/dev/") && t.len() <= 64)
+                .map(str::to_string);
+            Some(PaneRow { pid, pane, tty })
         })
         .collect()
 }
@@ -134,12 +197,22 @@ fn with(socket: Option<&Path>, rest: &[&str]) -> Vec<OsString> {
     v
 }
 
-/// `list-panes -a -F '#{pane_pid} #{pane_id}'`.
+/// `list-panes -a -F '#{pane_pid} #{pane_id} #{pane_tty}'`.
 pub fn list_panes_args(socket: Option<&Path>) -> Vec<OsString> {
     with(
         socket,
-        &["list-panes", "-a", "-F", "#{pane_pid} #{pane_id}"],
+        &[
+            "list-panes",
+            "-a",
+            "-F",
+            "#{pane_pid} #{pane_id} #{pane_tty}",
+        ],
     )
+}
+
+/// `capture-pane -p -J -t <pane>`: the visible screen only.
+pub fn visible_args(socket: Option<&Path>, pane: &str) -> Vec<OsString> {
+    with(socket, &["capture-pane", "-p", "-J", "-t", pane])
 }
 
 /// `send-keys -t <pane> -l -- <text>`: literal text, never key names.
@@ -239,6 +312,120 @@ pub fn may_type(status: Option<&str>, waiting_for: Option<&str>) -> bool {
     }
 }
 
+/// For callers without the dangerous right: text starting with a digit
+/// selects a dialog option the moment it is typed (option 2 is often "Yes,
+/// and don't ask again"), so it is only typed into an idle session.
+pub fn check_restricted_digit(text: &str, status: Option<&str>) -> ApiResult<()> {
+    let first = text.trim_start().chars().next();
+    if status != Some("idle") && first.is_some_and(|c| ('1'..='9').contains(&c)) {
+        return Err(ApiError::conflict(
+            "session_busy",
+            "Text starting with a digit would answer a dialog if one opened while it is typed; \
+             send it when the session is idle (or from this computer).",
+        ));
+    }
+    Ok(())
+}
+
+/// Whether the visible screen shows a dialog, picker or question: an option
+/// line with the `❯` cursor (`❯ 1. Yes`) or an "Esc to cancel" footer near
+/// the bottom.
+pub fn screen_shows_dialog(screen: &str) -> bool {
+    screen_shows_dialog_besides(screen, None)
+}
+
+/// [`screen_shows_dialog`], ignoring an input line that is just the text we
+/// typed ourselves (`typed`'s first line), should the prompt glyph be `❯`.
+pub fn screen_shows_dialog_besides(screen: &str, typed: Option<&str>) -> bool {
+    let typed = typed
+        .and_then(|t| t.lines().next())
+        .map(str::trim)
+        .filter(|t| !t.is_empty());
+    let lines: Vec<&str> = screen
+        .lines()
+        .map(|l| {
+            l.trim_matches(|c: char| c.is_whitespace() || ('\u{2500}'..='\u{257f}').contains(&c))
+        })
+        .filter(|l| !l.is_empty())
+        .collect();
+    let tail = &lines[lines.len().saturating_sub(20)..];
+    tail.iter().any(|l| {
+        l.to_lowercase().contains("esc to cancel")
+            || (is_option_cursor(l)
+                && !typed.is_some_and(|t| l.trim_start_matches('❯').trim_start().starts_with(t)))
+    })
+}
+
+fn is_option_cursor(line: &str) -> bool {
+    let Some(rest) = line.strip_prefix('❯') else {
+        return false;
+    };
+    let rest = rest.trim_start();
+    let digits = rest.bytes().take_while(u8::is_ascii_digit).count();
+    (1..=2).contains(&digits) && rest[digits..].starts_with('.')
+}
+
+/// `ps -o stat=,pgid=,tpgid=` of one process.
+pub fn parse_stat_line(out: &str) -> Option<(String, i64, i64)> {
+    let mut it = out.split_whitespace();
+    let stat = it.next()?.to_string();
+    let pgid = it.next()?.parse().ok()?;
+    let tpgid = it.next()?.parse().ok()?;
+    Some((stat, pgid, tpgid))
+}
+
+/// Claude holds its terminal: not stopped (`T`, Ctrl+Z) and its process
+/// group is the terminal's foreground group.
+pub fn holds_terminal(stat: &str, pgid: i64, tpgid: i64) -> bool {
+    !stat.contains('T') && pgid > 0 && tpgid == pgid
+}
+
+/// One `ps -o pid=,ppid=,pgid=,stat=,comm= -t <tty>` row.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TtyProc {
+    pub pid: u32,
+    pub pgid: i64,
+    pub stat: String,
+    /// Executable name (basename).
+    pub comm: String,
+}
+
+/// Parse `ps -o pid=,ppid=,pgid=,stat=,comm=` output (comm may be a path
+/// with spaces).
+pub fn parse_tty_procs(out: &str) -> Vec<TtyProc> {
+    out.lines()
+        .filter_map(|l| {
+            let mut it = l.split_whitespace();
+            let pid = it.next()?.parse().ok()?;
+            let _ppid: u32 = it.next()?.parse().ok()?;
+            let pgid = it.next()?.parse().ok()?;
+            let stat = it.next()?.to_string();
+            let comm = it.collect::<Vec<_>>().join(" ");
+            let comm = comm.rsplit('/').next().unwrap_or_default().to_string();
+            (!comm.is_empty()).then_some(TtyProc {
+                pid,
+                pgid,
+                stat,
+                comm,
+            })
+        })
+        .collect()
+}
+
+/// An editor or pager in Claude's foreground process group (it opened it),
+/// holding the terminal.
+pub fn editor_in_front(procs: &[TtyProc], claude_pid: u32, claude_pgid: i64) -> Option<String> {
+    procs
+        .iter()
+        .find(|p| {
+            p.pid != claude_pid
+                && p.pgid == claude_pgid
+                && p.stat.contains('+')
+                && EDITORS_AND_PAGERS.contains(&p.comm.trim_start_matches('-'))
+        })
+        .map(|p| p.comm.clone())
+}
+
 /// Strip what a terminal screen should never carry to a client (escapes and
 /// other controls; `capture-pane` without `-e` has none, but be sure) and
 /// drop trailing blank lines.
@@ -261,12 +448,19 @@ struct Resolved {
     socket: Option<PathBuf>,
     pane: String,
     pid: Option<u32>,
+    /// The pane's tty (`/dev/ttysNNN`), when tmux reported it.
+    tty: Option<String>,
+    /// Found through the recorded pane whose process is only an *ancestor* of
+    /// claude (a shell sits between them and could get the terminal).
+    via_ancestor: bool,
 }
 
 /// Resolved tmux sockets / panes per session.
 #[derive(Debug, Default)]
 pub struct TmuxState {
     resolved: Mutex<HashMap<String, Resolved>>,
+    /// Sessions whose pane could not be found: `(pid, when)`.
+    unreachable: Mutex<HashMap<String, (Option<u32>, std::time::Instant)>>,
     bin: OnceLock<Option<PathBuf>>,
 }
 
@@ -281,9 +475,31 @@ impl TmuxState {
     }
 
     fn remember(&self, id: &str, r: Resolved) {
+        if let Ok(mut m) = self.unreachable.lock() {
+            m.remove(id);
+        }
         if let Ok(mut m) = self.resolved.lock() {
             m.insert(id.to_string(), r);
         }
+    }
+
+    pub(crate) fn mark_unreachable(&self, id: &str, pid: Option<u32>) {
+        if let Ok(mut m) = self.unreachable.lock() {
+            if m.len() > 1024 {
+                m.retain(|_, (_, at)| at.elapsed() < UNREACHABLE_TTL);
+            }
+            m.insert(id.to_string(), (pid, std::time::Instant::now()));
+        }
+    }
+
+    /// The session's pane could not be found in the last minute (a custom
+    /// `-S` socket or `TMUX_TMPDIR` this app does not see, tmux gone). The
+    /// caps then fall back to the hooks channel when hooks are active.
+    pub fn unreachable(&self, id: &str, pid: Option<u32>) -> bool {
+        self.unreachable.lock().is_ok_and(|m| {
+            m.get(id)
+                .is_some_and(|(p, at)| *p == pid && at.elapsed() < UNREACHABLE_TTL)
+        })
     }
 
     fn forget(&self, id: &str) {
@@ -353,6 +569,7 @@ async fn run_tmux(bin: &Path, args: &[OsString], stdin: Option<&[u8]>) -> ApiRes
 }
 
 /// Candidate sockets besides the default server.
+#[cfg(unix)]
 fn socket_candidates() -> Vec<PathBuf> {
     let tmp = std::env::var_os("TMUX_TMPDIR")
         .map(PathBuf::from)
@@ -370,6 +587,12 @@ fn socket_candidates() -> Vec<PathBuf> {
         .unwrap_or_default();
     out.sort();
     out
+}
+
+/// tmux sockets live under a per-uid directory only on unix.
+#[cfg(not(unix))]
+fn socket_candidates() -> Vec<PathBuf> {
+    Vec::new()
 }
 
 /// Parent pid of `pid` (`ps -o ppid=`), for the pane-pid ancestor match.
@@ -411,6 +634,26 @@ fn target_for(state: &AppState, session: &SessionSummary) -> Option<(Target, Opt
 }
 
 async fn resolve(state: &AppState, session: &SessionSummary) -> ApiResult<(PathBuf, Resolved)> {
+    let pid = target_for(state, session).and_then(|(_, pid)| pid);
+    let res = resolve_inner(state, session).await;
+    if let Err(e) = &res {
+        if is_unreachable_error(e) {
+            state.tmux.mark_unreachable(&session.id, pid);
+        }
+    }
+    res
+}
+
+/// Errors that mean "this pane cannot be reached through tmux from here"
+/// (the dispatchers then fall back to the hooks channel when it is active).
+pub fn is_unreachable_error(e: &ApiError) -> bool {
+    matches!(e.code.as_str(), "no_tmux_pane" | "tmux_unavailable")
+}
+
+async fn resolve_inner(
+    state: &AppState,
+    session: &SessionSummary,
+) -> ApiResult<(PathBuf, Resolved)> {
     let bin = state.tmux.binary().ok_or_else(|| {
         ApiError::conflict(
             "tmux_unavailable",
@@ -435,21 +678,25 @@ async fn resolve(state: &AppState, session: &SessionSummary) -> ApiResult<(PathB
         };
         let panes = parse_list_panes(&out);
         if let Some(pid) = pid {
-            if let Some((_, pane)) = panes.iter().find(|(p, _)| *p == pid) {
+            if let Some(row) = panes.iter().find(|r| r.pid == pid) {
                 let r = Resolved {
                     socket: socket.clone(),
-                    pane: pane.clone(),
+                    pane: row.pane.clone(),
                     pid: Some(pid),
+                    tty: row.tty.clone(),
+                    via_ancestor: false,
                 };
                 state.tmux.remember(&session.id, r.clone());
                 return Ok((bin, r));
             }
-            if let Some((pane_pid, pane)) = panes.iter().find(|(_, p)| *p == target.pane) {
-                if fallback.is_none() && is_ancestor(*pane_pid, pid).await {
+            if let Some(row) = panes.iter().find(|r| r.pane == target.pane) {
+                if fallback.is_none() && is_ancestor(row.pid, pid).await {
                     fallback = Some(Resolved {
                         socket: socket.clone(),
-                        pane: pane.clone(),
+                        pane: row.pane.clone(),
                         pid: Some(pid),
+                        tty: row.tty.clone(),
+                        via_ancestor: true,
                     });
                 }
             }
@@ -472,9 +719,30 @@ pub async fn pane_for(state: &AppState, session: &SessionSummary) -> Option<Stri
     resolve(state, session).await.ok().map(|(_, r)| r.pane)
 }
 
-/// The pidfile status right now (`status`, `waitingFor`), falling back to
-/// the summary when the live roster has no record.
-fn current_status(state: &AppState, session: &SessionSummary) -> (Option<String>, Option<String>) {
+/// The session's pidfile read from disk right now (`status`, `waitingFor`),
+/// not the monitor's cached roster (which lags a dialog by a debounce and a
+/// cycle).
+async fn fresh_status(
+    state: &AppState,
+    session: &SessionSummary,
+) -> Option<(Option<String>, Option<String>)> {
+    let (st, id) = (state.clone(), session.id.clone());
+    tokio::task::spawn_blocking(move || st.live.fresh_status(&st.home, &id))
+        .await
+        .ok()
+        .flatten()
+        .filter(|(status, _)| status.is_some())
+}
+
+/// The pidfile status now: a fresh read, else the live roster, else the
+/// summary.
+async fn current_status(
+    state: &AppState,
+    session: &SessionSummary,
+) -> (Option<String>, Option<String>) {
+    if let Some(fresh) = fresh_status(state, session).await {
+        return fresh;
+    }
     if let Some(l) = state.live.get(&session.id) {
         if l.status.is_some() {
             return (l.status, l.waiting_for);
@@ -509,14 +777,132 @@ fn waiting_error(waiting_for: Option<&str>) -> ApiError {
     )
 }
 
+fn not_foreground(why: &str) -> ApiError {
+    ApiError::conflict(
+        "session_not_foreground",
+        format!(
+            "Claude does not have its terminal right now ({why}); typing there could run a \
+             command. Bring Claude Code back to the front in its terminal first."
+        ),
+    )
+}
+
+async fn ps_out(args: &[&str]) -> Option<String> {
+    let out = tokio::time::timeout(
+        Duration::from_secs(2),
+        tokio::process::Command::new("ps")
+            .args(args)
+            .env("LC_ALL", "C")
+            .stdin(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .kill_on_drop(true)
+            .output(),
+    )
+    .await
+    .ok()?
+    .ok()?;
+    out.status
+        .success()
+        .then(|| String::from_utf8_lossy(&out.stdout).into_owned())
+}
+
+/// Who has the pane's terminal.
+enum Front {
+    Claude,
+    Other(String),
+    /// `ps` could not tell.
+    Unknown,
+}
+
+/// Whether claude holds its terminal: in the foreground process group, not
+/// stopped, and (when `idle`) no editor or pager it opened in front of it.
+async fn front(r: &Resolved, idle: bool) -> Front {
+    let Some(pid) = r.pid else {
+        return Front::Unknown;
+    };
+    let pid_s = pid.to_string();
+    let Some((stat, pgid, tpgid)) = ps_out(&["-o", "stat=,pgid=,tpgid=", "-p", &pid_s])
+        .await
+        .as_deref()
+        .and_then(parse_stat_line)
+    else {
+        return Front::Unknown;
+    };
+    if stat.contains('T') {
+        return Front::Other("it is suspended (Ctrl+Z)".into());
+    }
+    if !holds_terminal(&stat, pgid, tpgid) {
+        return Front::Other("another program is in the foreground".into());
+    }
+    if idle {
+        if let Some(tty) = &r.tty {
+            if let Some(out) = ps_out(&["-o", "pid=,ppid=,pgid=,stat=,comm=", "-t", tty]).await {
+                if let Some(editor) = editor_in_front(&parse_tty_procs(&out), pid, pgid) {
+                    return Front::Other(format!("{editor} is open in it"));
+                }
+            }
+        }
+    }
+    Front::Claude
+}
+
+/// 409 unless claude owns the pane's terminal. An unverifiable answer is
+/// accepted only when claude is the pane's own process (no shell behind it).
+async fn ensure_front(r: &Resolved, idle: bool) -> ApiResult<()> {
+    match front(r, idle).await {
+        Front::Claude => Ok(()),
+        Front::Other(why) => Err(not_foreground(&why)),
+        Front::Unknown if r.via_ancestor => Err(not_foreground(
+            "its process state could not be checked, and a shell runs behind it",
+        )),
+        Front::Unknown => Ok(()),
+    }
+}
+
+/// 409 unless the visible pane is free of dialogs (`typed`: the text we
+/// just typed, which may sit in the input line).
+async fn ensure_no_dialog(bin: &Path, r: &Resolved, typed: Option<&str>) -> ApiResult<()> {
+    let screen = run_tmux(bin, &visible_args(r.socket.as_deref(), &r.pane), None).await?;
+    if screen_shows_dialog_besides(&screen, typed) {
+        return Err(waiting_error(Some("dialog open")));
+    }
+    Ok(())
+}
+
+/// Everything that must hold right before keystrokes reach the pane: claude
+/// owns the terminal, the pidfile (read now) allows typing, no main-thread
+/// prompt is open or opening, and no dialog is on screen.
+async fn ready_to_type(
+    state: &AppState,
+    session: &SessionSummary,
+    bin: &Path,
+    r: &Resolved,
+    strict: bool,
+    typed: Option<&str>,
+) -> ApiResult<()> {
+    let Some((status, waiting_for)) = fresh_status(state, session).await else {
+        return Err(waiting_error(None));
+    };
+    if !may_type(status.as_deref(), waiting_for.as_deref()) {
+        return Err(waiting_error(waiting_for.as_deref()));
+    }
+    ensure_front(r, status.as_deref() == Some("idle")).await?;
+    if crate::server::hooks::main_prompt_may_be_open(state, &session.id, strict) {
+        return Err(waiting_error(Some("permission prompt")));
+    }
+    ensure_no_dialog(bin, r, typed).await
+}
+
 async fn type_now(
     state: &AppState,
     session: &SessionSummary,
     bin: &Path,
     r: &Resolved,
     text: &str,
+    strict: bool,
 ) -> ApiResult<()> {
     let socket = r.socket.as_deref();
+    ready_to_type(state, session, bin, r, strict, None).await?;
     if text.contains('\n') {
         let buffer = format!("mc-{}", uuid::Uuid::new_v4().simple());
         run_tmux(
@@ -530,12 +916,15 @@ async fn type_now(
         run_tmux(bin, &send_literal_args(socket, &r.pane, text), None).await?;
     }
     tokio::time::sleep(ENTER_DELAY).await;
-    // A dialog may have opened while we typed: never let our Enter answer it.
-    let (status, waiting_for) = current_status(state, session);
-    if status.as_deref() == Some("waiting") || !may_type(status.as_deref(), waiting_for.as_deref())
-    {
-        let _ = run_tmux(bin, &send_key_args(socket, &r.pane, "C-u"), None).await;
-        return Err(waiting_error(waiting_for.as_deref()));
+    // Something may have changed while we typed: never let our Enter answer
+    // a dialog or reach a shell.
+    if let Err(e) = ready_to_type(state, session, bin, r, strict, Some(text)).await {
+        // Clear the input only while claude still owns the terminal (C-u in
+        // an editor scrolls, in a shell it is harmless but pointless).
+        if e.code != "session_not_foreground" {
+            let _ = run_tmux(bin, &send_key_args(socket, &r.pane, "C-u"), None).await;
+        }
+        return Err(e);
     }
     run_tmux(bin, &send_key_args(socket, &r.pane, "Enter"), None).await?;
     Ok(())
@@ -550,12 +939,6 @@ pub async fn send_text_as(
     text: &str,
 ) -> ApiResult<()> {
     send_text_inner(state, ctx.may_dangerous(), session, text).await
-}
-
-/// Type `text` with the restricted rules (a caller without the dangerous
-/// right). Used for the fixed slash commands the dispatchers send.
-pub async fn send_text(state: &AppState, session: &SessionSummary, text: &str) -> ApiResult<()> {
-    send_text_inner(state, false, session, text).await
 }
 
 async fn send_text_inner(
@@ -574,12 +957,18 @@ async fn send_text_inner(
             ));
         }
     }
-    let (status, waiting_for) = current_status(state, session);
+    let (status, waiting_for) = current_status(state, session).await;
     if !may_type(status.as_deref(), waiting_for.as_deref()) {
         return Err(waiting_error(waiting_for.as_deref()));
     }
+    if !privileged {
+        check_restricted_digit(&text, status.as_deref())?;
+    }
+    if crate::server::hooks::main_prompt_may_be_open(state, &session.id, !privileged) {
+        return Err(waiting_error(Some("permission prompt")));
+    }
     let (bin, r) = resolve(state, session).await?;
-    match type_now(state, session, &bin, &r, &text).await {
+    match type_now(state, session, &bin, &r, &text, !privileged).await {
         Err(e) if e.code == "tmux_failed" => {
             state.tmux.forget(&session.id);
             Err(e)
@@ -588,7 +977,8 @@ async fn send_text_inner(
     }
 }
 
-/// Press one allowlisted key in the session's pane.
+/// Press one allowlisted key in the session's pane (claude must own the
+/// terminal).
 pub async fn send_key(state: &AppState, session: &SessionSummary, key: &str) -> ApiResult<()> {
     if !ALLOWED_KEYS.contains(&key) {
         return Err(ApiError::unprocessable(
@@ -597,6 +987,10 @@ pub async fn send_key(state: &AppState, session: &SessionSummary, key: &str) -> 
         ));
     }
     let (bin, r) = resolve(state, session).await?;
+    // Only the suspended / foreground check here: keys exist to answer
+    // dialogs, and an editor in front of an idle session is caught below.
+    let (status, _) = current_status(state, session).await;
+    ensure_front(&r, status.as_deref() == Some("idle")).await?;
     let res = run_tmux(
         &bin,
         &send_key_args(r.socket.as_deref(), &r.pane, key),
@@ -661,11 +1055,113 @@ mod tests {
 
     #[test]
     fn list_panes_output_parses() {
-        let out = "74764 %0\n  123 %7 \ngarbage\n9 notapane\n42 %3\n";
+        let out = "74764 %0 /dev/ttys003\n  123 %7 \ngarbage\n9 notapane\n42 %3 tty9\n";
+        let row = |pid, pane: &str, tty: Option<&str>| PaneRow {
+            pid,
+            pane: pane.into(),
+            tty: tty.map(str::to_string),
+        };
         assert_eq!(
             parse_list_panes(out),
-            vec![(74764, "%0".into()), (123, "%7".into()), (42, "%3".into())]
+            vec![
+                row(74764, "%0", Some("/dev/ttys003")),
+                row(123, "%7", None),
+                row(42, "%3", None),
+            ]
         );
+    }
+
+    #[test]
+    fn claude_must_hold_its_terminal() {
+        assert_eq!(
+            parse_stat_line(" S+   4242  4242\n"),
+            Some(("S+".into(), 4242, 4242))
+        );
+        assert_eq!(parse_stat_line("S+ x 1"), None);
+        assert!(holds_terminal("S+", 4242, 4242));
+        assert!(holds_terminal("Ss+", 4242, 4242));
+        // Ctrl+Z: stopped, and the shell's group got the terminal.
+        assert!(!holds_terminal("T", 4242, 4100));
+        assert!(!holds_terminal("T+", 4242, 4242));
+        // Some other group (a shell job) is in front.
+        assert!(!holds_terminal("S", 4242, 4100));
+        // No controlling terminal at all.
+        assert!(!holds_terminal("S", 4242, 0));
+    }
+
+    #[test]
+    fn an_editor_opened_by_claude_is_noticed() {
+        let out = "\
+ 4100  4000  4100 Ss   /bin/zsh
+ 4242  4100  4242 S+   /opt/homebrew/bin/claude
+ 4300  4242  4242 S+   /usr/bin/vim
+ 4400  4242  4242 S+   /Users/x/My Tools/node
+";
+        let procs = parse_tty_procs(out);
+        assert_eq!(procs.len(), 4);
+        assert_eq!(procs[3].comm, "node");
+        assert_eq!(editor_in_front(&procs, 4242, 4242).as_deref(), Some("vim"));
+        // An MCP server (node) in the same group is not an editor.
+        let without_vim: Vec<TtyProc> = procs.iter().filter(|p| p.comm != "vim").cloned().collect();
+        assert_eq!(editor_in_front(&without_vim, 4242, 4242), None);
+        // A background vim (no `+`) or one in another group does not count.
+        let bg = parse_tty_procs(" 4300  4242  4242 S    /usr/bin/vim\n");
+        assert_eq!(editor_in_front(&bg, 4242, 4242), None);
+        let other = parse_tty_procs(" 4300  4100  4300 S+   /usr/bin/vim\n");
+        assert_eq!(editor_in_front(&other, 4242, 4242), None);
+    }
+
+    #[test]
+    fn dialogs_on_screen_are_recognised() {
+        let permission = "\
+ Bash command
+
+   echo A > a.txt
+
+ Do you want to proceed?
+ ❯ 1. Yes
+   2. Yes, and always allow access to /tmp from this project
+   3. No
+
+ Esc to cancel · Tab to amend
+";
+        assert!(screen_shows_dialog(permission));
+        assert!(screen_shows_dialog(
+            "│ Select model\n│ ❯ 1. Default (recommended)\n│   2. Opus\n"
+        ));
+        assert!(screen_shows_dialog(
+            "Enter to set as default · s to use this session only · Esc to cancel"
+        ));
+        let idle = "\
+⏺ Do you want me to run the tests as well?
+
+──────────────────────────────
+> 1. fix the parser
+──────────────────────────────
+  ? for shortcuts
+";
+        assert!(!screen_shows_dialog(idle));
+        assert!(!screen_shows_dialog(""));
+        assert!(!screen_shows_dialog("❯ 123. not an option"));
+        // Our own text in a `❯` input line is not a dialog.
+        assert!(screen_shows_dialog("❯ 1. fix the parser"));
+        assert!(!screen_shows_dialog_besides(
+            "❯ 1. fix the parser",
+            Some("1. fix the parser\nand more")
+        ));
+    }
+
+    #[test]
+    fn restricted_digits_only_into_idle_sessions() {
+        assert!(check_restricted_digit("2 more things", Some("idle")).is_ok());
+        assert!(check_restricted_digit("hello 2", Some("busy")).is_ok());
+        assert!(check_restricted_digit("0 is fine", Some("busy")).is_ok());
+        for text in ["2", " 1. fix X", "9 lives"] {
+            assert_eq!(
+                check_restricted_digit(text, Some("busy")).unwrap_err().code,
+                "session_busy"
+            );
+        }
     }
 
     #[test]
@@ -702,7 +1198,16 @@ mod tests {
         );
         assert_eq!(
             strs(list_panes_args(None)),
-            vec!["list-panes", "-a", "-F", "#{pane_pid} #{pane_id}"]
+            vec![
+                "list-panes",
+                "-a",
+                "-F",
+                "#{pane_pid} #{pane_id} #{pane_tty}"
+            ]
+        );
+        assert_eq!(
+            strs(visible_args(None, "%3")),
+            vec!["capture-pane", "-p", "-J", "-t", "%3"]
         );
     }
 

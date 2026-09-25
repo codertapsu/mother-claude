@@ -705,6 +705,95 @@ async fn the_loopback_bridge_answers_without_a_token_or_an_allowlisted_origin() 
     assert_eq!(resp.json::<Value>().await.unwrap()["error"]["field"], "cwd");
 }
 
+/// The documented `token` file must never take away what the same local
+/// request may do without it — on the tokenless port, or with
+/// `MOTHER_CLAUDE_BRIDGE_REQUIRE_TOKEN=1` where it is the only way in.
+#[tokio::test]
+async fn a_local_script_token_never_lowers_what_the_bridge_port_allows() {
+    let http = client();
+    // bypassPermissions is gated before the cwd is checked: a 422 about the
+    // cwd means the gate let it through, a 403 that it did not.
+    let body = json!({
+        "cwd": "/definitely/not/a/directory",
+        "permission_mode": "bypassPermissions",
+    });
+    let (base, _token, state) = boot_tokenless().await;
+    let tokenless = http
+        .post(format!("{base}/threads"))
+        .json(&body)
+        .send()
+        .await
+        .unwrap()
+        .status();
+    let scripted = http
+        .post(format!("{base}/threads"))
+        .bearer_auth(&state.auth.script_token)
+        .json(&body)
+        .send()
+        .await
+        .unwrap()
+        .status();
+    assert_eq!(tokenless, reqwest::StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(scripted, tokenless);
+
+    let dir = tempfile::tempdir().unwrap().keep();
+    let (base, _token, state) = boot_router(ClaudeHome::with_base(&dir), true).await;
+    let resp = http
+        .post(format!("{base}/threads"))
+        .bearer_auth(&state.auth.script_token)
+        .json(&body)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), reqwest::StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(resp.json::<Value>().await.unwrap()["error"]["field"], "cwd");
+    // A foreign Origin still gets nothing dangerous, token or not.
+    let resp = http
+        .post(format!("{base}/threads"))
+        .bearer_auth(&state.auth.script_token)
+        .header("origin", "https://some-other-site.example")
+        .json(&body)
+        .send()
+        .await
+        .unwrap();
+    assert!(resp.status().is_client_error());
+    assert_ne!(resp.status(), reqwest::StatusCode::UNPROCESSABLE_ENTITY);
+}
+
+/// A web app under development that proxies its API calls through its dev
+/// server (Next.js rewrites, http-proxy `xfwd`) is a local tool; a tunnel is
+/// not.
+#[tokio::test]
+async fn a_local_dev_proxy_reaches_the_tokenless_port_but_a_tunnel_does_not() {
+    let (base, _token, _state) = boot_tokenless().await;
+    let http = client();
+    let get = |extra: Vec<(&'static str, &'static str)>| {
+        let mut req = http
+            .get(format!("{base}/capabilities"))
+            .header("x-forwarded-host", "localhost:3000")
+            .header("x-forwarded-proto", "http")
+            .header("x-forwarded-port", "3000");
+        for (k, v) in extra {
+            req = req.header(k, v);
+        }
+        req.send()
+    };
+    let ok = get(vec![("x-forwarded-for", "127.0.0.1")]).await.unwrap();
+    assert!(ok.status().is_success(), "got {}", ok.status());
+    let tunnel = get(vec![("x-forwarded-for", "127.0.0.1, 203.0.113.7")])
+        .await
+        .unwrap();
+    assert_eq!(tunnel.status(), reqwest::StatusCode::UNAUTHORIZED);
+    assert_eq!(
+        tunnel.json::<Value>().await.unwrap()["error"]["code"],
+        "tunneled_request_requires_token"
+    );
+    let cloudflare = get(vec![("x-forwarded-for", "127.0.0.1"), ("cf-ray", "8a1")])
+        .await
+        .unwrap();
+    assert_eq!(cloudflare.status(), reqwest::StatusCode::UNAUTHORIZED);
+}
+
 /// Startup reports Claude's own sign-in, so a signed-out account is one clear
 /// statement rather than every turn returning "Not logged in".
 #[tokio::test]

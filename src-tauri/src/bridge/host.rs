@@ -475,6 +475,15 @@ async fn handle_frame(state: &AppState, frame: Value) {
             let session_id = frame.get("sessionId").and_then(Value::as_str);
             let turn_id = frame.get("turnId").and_then(Value::as_str);
             let message = frame.get("message").cloned().unwrap_or(Value::Null);
+            // system/init and system/status carry the live permission mode.
+            if let (Some(id), Some(mode)) = (
+                session_id,
+                (message.get("type").and_then(Value::as_str) == Some("system"))
+                    .then(|| message.get("permissionMode").and_then(Value::as_str))
+                    .flatten(),
+            ) {
+                super::note_thread_mode(state, id, mode).await;
+            }
             let event = json!({
                 "method": "message",
                 "params": {
@@ -675,17 +684,27 @@ async fn raise_request_inner(state: AppState, frame: Value) {
 
     let st = state.clone();
     tokio::spawn(async move {
-        let result = tokio::select! {
-            v = bridge_rx => v.ok(),
-            d = dash_rx => d.ok().map(|d| decision_to_result(&kind, &item, &d)),
-            _ = tokio::time::sleep(REQUEST_TIMEOUT) => None,
-        }
-        .unwrap_or_else(
+        let (result, timed_out) = tokio::select! {
+            v = bridge_rx => (v.ok(), false),
+            d = dash_rx => (d.ok().map(|d| decision_to_result(&kind, &item, &d)), false),
+            _ = tokio::time::sleep(REQUEST_TIMEOUT) => (None, true),
+        };
+        let result = result.unwrap_or_else(
             || json!({ "behavior": "deny", "message": "Timed out waiting for a human." }),
         );
 
         st.bridge.host.take_request(&request_id);
-        drop(guard);
+        // An approval that switches the conversation's mode (a plan approved
+        // into bypassPermissions, an update chosen on /requests) changes what
+        // the gates must assume before the host even applies it.
+        if let Some(mode) = super::mode_set_by(&result) {
+            super::note_thread_mode(&st, &session_id, &mode).await;
+        }
+        if timed_out {
+            guard.expire();
+        } else {
+            drop(guard);
+        }
 
         let payload = json!({ "requestId": request_id, "result": result });
         if let Err(e) = st

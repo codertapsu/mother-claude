@@ -9,7 +9,9 @@
 //! | sidecar token (per run, child env) | `mcs_` | only when `ctx.local` | `Sidecar` |
 //!
 //! `LocalScript` reaches data and control routes but never admin routes
-//! (pairing, devices, remote access, plugin install) and never dangerous ones.
+//! (pairing, devices, remote access, plugin install). Dangerous actions: only
+//! on the bridge's own loopback port, like the same local caller without a
+//! token (see `ClientContext::may_dangerous`).
 //!
 //! Presentation: `Authorization: Bearer <t>`. `?token=` is accepted **only**
 //! when the request is genuinely local (backcompat for local scripts and the

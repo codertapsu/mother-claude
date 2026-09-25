@@ -315,25 +315,43 @@ impl PendingStore {
         decision: Decision,
         ctx: &ClientContext,
     ) -> Result<PendingItem, RespondError> {
+        self.resolve_detailed(id, decision, ctx).map_err(|(e, _)| e)
+    }
+
+    /// [`Self::resolve`]; an error also carries the item's session when
+    /// *this call* removed it (its raiser had stopped waiting), so the caller
+    /// can publish that it is gone — nobody else will.
+    fn resolve_detailed(
+        &self,
+        id: &str,
+        decision: Decision,
+        ctx: &ClientContext,
+    ) -> Result<PendingItem, (RespondError, Option<String>)> {
         let mut g = self.lock();
         let Some(slot) = g.slots.get(id) else {
-            return Err(if g.finished_set.contains(id) {
-                RespondError::AlreadyDecided
-            } else {
-                RespondError::NotFound
-            });
+            return Err((
+                if g.finished_set.contains(id) {
+                    RespondError::AlreadyDecided
+                } else {
+                    RespondError::NotFound
+                },
+                None,
+            ));
         };
         if !slot.item.answerable {
-            return Err(RespondError::NotAnswerable);
+            return Err((RespondError::NotAnswerable, None));
         }
-        validate(&slot.item, &decision)?;
+        validate(&slot.item, &decision).map_err(|e| (e, None))?;
         let dangerous = decision.is_allow() && is_dangerous(&slot.item, &decision);
         if dangerous && !ctx.may_dangerous() {
-            return Err(RespondError::Forbidden(
-                "Approving a dangerous action — bypassPermissions, or an \"always allow\" that \
-                 is written to settings or widens the filesystem — is restricted to this \
-                 computer or a device you granted dangerous actions."
-                    .into(),
+            return Err((
+                RespondError::Forbidden(
+                    "Approving a dangerous action — bypassPermissions, or an \"always allow\" \
+                     that is written to settings or widens the filesystem — is restricted to \
+                     this computer or a device you granted dangerous actions."
+                        .into(),
+                ),
+                None,
             ));
         }
         if dangerous {
@@ -341,7 +359,7 @@ impl PendingStore {
             ctx.note_dangerous("approve a dangerous action");
         }
         let Some(mut slot) = g.slots.remove(id) else {
-            return Err(RespondError::NotFound);
+            return Err((RespondError::NotFound, None));
         };
         g.finish(id);
         let resolution = resolution_for_decision(&slot.item, &decision, ctx, None);
@@ -356,7 +374,7 @@ impl PendingStore {
                 id.to_string(),
                 resolved(&slot.item, outcome, Some(kind), None, None),
             );
-            return Err(RespondError::AlreadyDecided);
+            return Err((RespondError::AlreadyDecided, Some(slot.item.session_id)));
         }
         g.resolutions.insert(id.to_string(), resolution);
         Ok(slot.item)
@@ -963,6 +981,8 @@ pub struct PendingGuard {
     state: AppState,
     id: String,
     session_id: String,
+    /// The withdraw reason used on drop (it decides the published outcome).
+    reason: &'static str,
 }
 
 impl PendingGuard {
@@ -973,16 +993,17 @@ impl PendingGuard {
     pub fn session_id(&self) -> &str {
         &self.session_id
     }
+
+    /// Nobody answered in time: withdraw the item as `expired` ("Nobody
+    /// answered in time") rather than `cancelled (request ended)`.
+    pub fn expire(mut self) {
+        self.reason = "timeout";
+    }
 }
 
 impl Drop for PendingGuard {
     fn drop(&mut self) {
-        if self
-            .state
-            .pending
-            .withdraw(&self.id, "request ended")
-            .is_none()
-        {
+        if self.state.pending.withdraw(&self.id, self.reason).is_none() {
             return; // already resolved (and published) or withdrawn
         }
         publish_resolution(&self.state, &self.id);
@@ -1031,25 +1052,47 @@ pub async fn raise(
         item.dangerous_reason.get_or_insert(why);
     }
     let (id, rx) = state.pending.register(item);
+    // The guard exists before the first await: if the raiser's future is
+    // dropped while publishing (client gone), the item is withdrawn instead
+    // of being orphaned.
+    let guard = PendingGuard {
+        state: state.clone(),
+        id: id.clone(),
+        session_id: session_id.clone(),
+        reason: "request ended",
+    };
     changed(state, &session_id).await;
     if let Some(item) = state.pending.get(&id) {
         crate::server::push::on_pending_added(state, &item);
     }
-    (
-        PendingGuard {
-            state: state.clone(),
-            id,
-            session_id,
-        },
-        rx,
-    )
+    (guard, rx)
+}
+
+/// How waiting for a decision ended.
+#[derive(Debug)]
+pub enum WaitEnd {
+    Decided(Decision),
+    /// Withdrawn (the sender was dropped).
+    Closed,
+    /// Nobody answered within the timeout.
+    TimedOut,
+}
+
+/// Await a decision for at most `timeout`, telling a timeout apart from a
+/// withdrawal (call [`PendingGuard::expire`] on a timeout).
+pub async fn wait_end(rx: oneshot::Receiver<Decision>, timeout: Duration) -> WaitEnd {
+    match tokio::time::timeout(timeout, rx).await {
+        Ok(Ok(d)) => WaitEnd::Decided(d),
+        Ok(Err(_)) => WaitEnd::Closed,
+        Err(_) => WaitEnd::TimedOut,
+    }
 }
 
 /// Await a decision for at most `timeout`. `None` = timed out or withdrawn.
 pub async fn wait(rx: oneshot::Receiver<Decision>, timeout: Duration) -> Option<Decision> {
-    match tokio::time::timeout(timeout, rx).await {
-        Ok(Ok(d)) => Some(d),
-        _ => None,
+    match wait_end(rx, timeout).await {
+        WaitEnd::Decided(d) => Some(d),
+        WaitEnd::Closed | WaitEnd::TimedOut => None,
     }
 }
 
@@ -1089,7 +1132,20 @@ pub async fn respond(
         Some(item) if item.session_id != session_id => return Err(RespondError::NotFound),
         _ => {}
     }
-    let item = state.pending.resolve(request_id, decision.clone(), ctx)?;
+    let item = match state
+        .pending
+        .resolve_detailed(request_id, decision.clone(), ctx)
+    {
+        Ok(item) => item,
+        Err((e, Some(gone_from))) => {
+            // This call removed an item whose raiser had just stopped
+            // waiting; its guard now finds nothing, so publish here.
+            publish_resolution(state, request_id);
+            changed(state, &gone_from).await;
+            return Err(e);
+        }
+        Err((e, None)) => return Err(e),
+    };
     // The store cannot look up device names; fill it in, then publish.
     if let Some(device) = ctx.device_id() {
         let name = state
@@ -1580,6 +1636,94 @@ mod tests {
             store.resolution(&qid).unwrap().outcome,
             PendingOutcome::Answered
         );
+    }
+
+    fn test_state() -> (AppState, tempfile::TempDir) {
+        let home = tempfile::tempdir().unwrap();
+        let st = crate::state::Inner::new(
+            crate::claude::ClaudeHome::with_base(home.path()),
+            crate::state::ServerConfig {
+                host: "127.0.0.1".into(),
+                port: 0,
+            },
+            crate::server::auth::Auth::ephemeral(),
+        );
+        (st, home)
+    }
+
+    #[tokio::test]
+    async fn a_raise_dropped_while_publishing_leaves_no_card() {
+        let (st, _home) = test_state();
+        // A reader on the snapshot parks `raise` in its publish (a write),
+        // after it registered the item; drop it there (hyper does this when
+        // the client disconnects).
+        let snap = st.snapshot.read().await;
+        let task = {
+            let st = st.clone();
+            tokio::spawn(async move {
+                let _held = raise(&st, item("s1")).await;
+                std::future::pending::<()>().await;
+            })
+        };
+        for _ in 0..50 {
+            if st.pending.len() == 1 {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+        assert_eq!(st.pending.len(), 1, "registered before the await");
+        task.abort();
+        let _ = task.await;
+        drop(snap);
+        assert!(st.pending.is_empty(), "the guard withdrew it");
+    }
+
+    #[tokio::test]
+    async fn an_answer_to_a_raiser_that_just_left_is_still_published() {
+        let (st, _home) = test_state();
+        let mut bus = st.bus.subscribe();
+        let (id, rx) = st.pending.register(item("s1"));
+        drop(rx); // the raiser's select finished, its guard has not run yet
+        let e = respond(&st, "s1", &id, Decision::allow(), &local())
+            .await
+            .unwrap_err();
+        assert_eq!(e, RespondError::AlreadyDecided);
+        let mut published = false;
+        while let Ok(ev) = bus.try_recv() {
+            if let crate::server::ws::ServerEvent::PendingResolved(r) = &*ev {
+                published |= r.id == id && r.outcome == PendingOutcome::Cancelled;
+            }
+        }
+        assert!(published, "clients must drop the card");
+    }
+
+    #[tokio::test]
+    async fn an_expired_guard_reports_expired() {
+        let (st, _home) = test_state();
+        let (guard, _rx) = raise(&st, item("s1")).await;
+        let id = guard.id().to_string();
+        guard.expire();
+        let r = st.pending.resolution(&id).unwrap();
+        assert_eq!(r.outcome, PendingOutcome::Expired);
+        assert_eq!(r.by.unwrap().kind, ResolverKind::Timeout);
+        let (guard, _rx) = raise(&st, item("s1")).await;
+        let id = guard.id().to_string();
+        drop(guard);
+        assert_eq!(
+            st.pending.resolution(&id).unwrap().outcome,
+            PendingOutcome::Cancelled
+        );
+        let (_tx, rx) = oneshot::channel::<Decision>();
+        assert!(matches!(
+            wait_end(rx, Duration::from_millis(5)).await,
+            WaitEnd::TimedOut
+        ));
+        let (tx, rx) = oneshot::channel::<Decision>();
+        drop(tx);
+        assert!(matches!(
+            wait_end(rx, Duration::from_secs(5)).await,
+            WaitEnd::Closed
+        ));
     }
 
     #[test]

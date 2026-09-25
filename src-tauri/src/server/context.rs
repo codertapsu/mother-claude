@@ -95,7 +95,8 @@ pub enum Principal {
     Device { id: String, allow_dangerous: bool },
     /// The persisted on-disk token (`<app data>/script-token`) kept for local scripts:
     /// accepted only when `local`; data and control routes, never admin routes
-    /// (pairing, devices, remote access, plugin install) and never dangerous.
+    /// (pairing, devices, remote access, plugin install); dangerous actions
+    /// only on the bridge port, as for a tokenless local caller there.
     LocalScript,
     /// The foreign-control hook plugin (`mch_…`), local only.
     Hook,
@@ -250,7 +251,11 @@ impl ClientContext {
     ///   `MOTHER_CLAUDE_ALLOW_REMOTE_DANGEROUS` override on the effective LAN;
     /// * `Anonymous` → only the tokenless bridge port with a genuinely local
     ///   caller (curl, Postman, a localhost page) — never another website;
-    /// * `LocalScript`, `Hook`, `Sidecar` → never.
+    /// * `LocalScript` → the same as an anonymous caller: on the bridge port,
+    ///   with a genuinely local caller (sending the `token` file must never
+    ///   take away what the same request has without it, as it does with
+    ///   `MOTHER_CLAUDE_BRIDGE_REQUIRE_TOKEN=1`); never on the dashboard port;
+    /// * `Hook`, `Sidecar` → never.
     pub fn may_dangerous(&self) -> bool {
         match &self.principal {
             Principal::Desktop => true,
@@ -260,8 +265,10 @@ impl ClientContext {
                 *allow_dangerous
                     || (self.allow_remote_dangerous && self.effective_ingress == Ingress::Lan)
             }
-            Principal::Anonymous => self.ingress == Ingress::BridgeLoopback && self.local,
-            Principal::LocalScript | Principal::Hook | Principal::Sidecar => false,
+            Principal::Anonymous | Principal::LocalScript => {
+                self.ingress == Ingress::BridgeLoopback && self.local
+            }
+            Principal::Hook | Principal::Sidecar => false,
         }
     }
 
@@ -425,6 +432,66 @@ pub fn is_machine_local(ingress: Ingress, peer: SocketAddr, headers: &HeaderMap)
         && peer.ip().to_canonical().is_loopback()
         && single_loopback_host(headers)
         && !has_proxy_headers(headers)
+}
+
+/// The `X-Forwarded-*` headers a development server or local reverse proxy
+/// adds (Next.js rewrites, http-proxy `xfwd`, nginx/Caddy defaults).
+const DEV_PROXY_HEADERS: [&str; 5] = [
+    "x-forwarded-for",
+    "x-forwarded-host",
+    "x-forwarded-proto",
+    "x-forwarded-port",
+    "x-forwarded-prefix",
+];
+
+fn forwarded_hop_is_loopback(hop: &str) -> bool {
+    let hop = hop.trim();
+    let bare = hop
+        .strip_prefix('[')
+        .and_then(|h| h.split_once(']').map(|(ip, _)| ip))
+        .unwrap_or(hop);
+    bare.parse::<IpAddr>()
+        .or_else(|_| bare.parse::<SocketAddr>().map(|a| a.ip()))
+        .is_ok_and(|ip| ip.to_canonical().is_loopback())
+}
+
+/// A request a development server or reverse proxy **on this machine**
+/// relayed to the bridge's loopback port: loopback listener, peer and
+/// `Host`, and the only proxy headers are `X-Forwarded-For` (present, every
+/// hop loopback) plus `X-Forwarded-Host` (a loopback authority) /
+/// `-Proto` / `-Port` / `-Prefix`. A tunnel always adds a non-loopback hop or
+/// a fingerprint of its own (`cf-*`, `ngrok-*`, `tailscale-*`, `via`,
+/// `forwarded`, …), which fails this. Raw TCP tunnels are caught separately
+/// (`bridge_exposed`). Only for the bridge's tokenless mode — never for
+/// dangerous actions, which keep requiring [`is_local`] (no proxy headers).
+pub fn is_local_dev_proxy(ingress: Ingress, peer: SocketAddr, headers: &HeaderMap) -> bool {
+    if ingress != Ingress::BridgeLoopback
+        || !peer.ip().to_canonical().is_loopback()
+        || !single_loopback_host(headers)
+    {
+        return false;
+    }
+    if headers
+        .keys()
+        .any(|n| is_proxy_header(n.as_str()) && !DEV_PROXY_HEADERS.contains(&n.as_str()))
+    {
+        return false;
+    }
+    // Every comma-separated entry of every value; `None` if one is not text.
+    let entries = |name: &str| -> Option<Vec<String>> {
+        let mut out = Vec::new();
+        for v in headers.get_all(name) {
+            out.extend(v.to_str().ok()?.split(',').map(|e| e.trim().to_string()));
+        }
+        Some(out)
+    };
+    let Some(hops) = entries("x-forwarded-for") else {
+        return false;
+    };
+    if hops.is_empty() || !hops.iter().all(|h| forwarded_hop_is_loopback(h)) {
+        return false;
+    }
+    entries("x-forwarded-host").is_some_and(|hosts| hosts.iter().all(|h| host_is_loopback(Some(h))))
 }
 
 /// Former name of [`is_machine_local`].
@@ -1303,8 +1370,14 @@ mod tests {
 
         // The tokenless bridge port: a genuinely local anonymous caller only.
         let h = headers(&[("host", "127.0.0.1:5612")]);
-        let bridge = ClientContext::new(Ingress::BridgeLoopback, peer("127.0.0.1:1"), &h, false);
+        let mut bridge =
+            ClientContext::new(Ingress::BridgeLoopback, peer("127.0.0.1:1"), &h, false);
         assert!(bridge.may_dangerous());
+        // Presenting the script token there keeps the same rights.
+        bridge.principal = Principal::LocalScript;
+        assert!(bridge.may_dangerous());
+        bridge.principal = Principal::Hook;
+        assert!(!bridge.may_dangerous());
         let h = headers(&[
             ("host", "127.0.0.1:5612"),
             ("origin", "https://example.com"),
@@ -1318,6 +1391,86 @@ mod tests {
 
         assert!(!ClientContext::unknown().may_dangerous());
         assert!(!ClientContext::unknown().local);
+    }
+
+    #[test]
+    fn a_local_dev_proxy_is_recognised_and_a_tunnel_is_not() {
+        let dev = |extra: &[(&str, &str)]| {
+            let mut pairs = vec![
+                ("host", "127.0.0.1:5612"),
+                ("x-forwarded-for", "127.0.0.1"),
+                ("x-forwarded-host", "localhost:3000"),
+                ("x-forwarded-proto", "http"),
+                ("x-forwarded-port", "3000"),
+            ];
+            pairs.extend_from_slice(extra);
+            headers(&pairs)
+        };
+        let lo = peer("127.0.0.1:50000");
+        // Next.js rewrites / http-proxy xfwd.
+        assert!(is_local_dev_proxy(Ingress::BridgeLoopback, lo, &dev(&[])));
+        let h = headers(&[
+            ("host", "localhost:5612"),
+            ("x-forwarded-for", "::ffff:127.0.0.1, ::1"),
+        ]);
+        assert!(is_local_dev_proxy(Ingress::BridgeLoopback, lo, &h));
+        // Never for dangerous actions, never on another listener.
+        let ctx = ClientContext::new(Ingress::BridgeLoopback, lo, &dev(&[]), false);
+        assert!(!ctx.on_machine && !ctx.local && !ctx.may_dangerous());
+        assert!(!is_local_dev_proxy(Ingress::Loopback, lo, &dev(&[])));
+        assert!(!is_local_dev_proxy(
+            Ingress::BridgeLoopback,
+            peer("192.168.1.9:1"),
+            &dev(&[])
+        ));
+        // A tunnel: a public hop, its own fingerprints, a remote host.
+        let tunnel = headers(&[
+            ("host", "127.0.0.1:5612"),
+            ("x-forwarded-for", "127.0.0.1, 203.0.113.7"),
+        ]);
+        assert!(!is_local_dev_proxy(Ingress::BridgeLoopback, lo, &tunnel));
+        for extra in [
+            ("cf-ray", "1"),
+            ("ngrok-trace-id", "1"),
+            ("tailscale-user-login", "a"),
+            ("via", "1.1 x"),
+            ("forwarded", "for=127.0.0.1"),
+            ("x-real-ip", "127.0.0.1"),
+            ("x-forwarded-server", "x"),
+        ] {
+            assert!(
+                !is_local_dev_proxy(Ingress::BridgeLoopback, lo, &dev(&[extra])),
+                "{extra:?}"
+            );
+        }
+        let remote_host = headers(&[
+            ("host", "127.0.0.1:5612"),
+            ("x-forwarded-for", "127.0.0.1"),
+            ("x-forwarded-host", "abc.ngrok.app"),
+        ]);
+        assert!(!is_local_dev_proxy(
+            Ingress::BridgeLoopback,
+            lo,
+            &remote_host
+        ));
+        // X-Forwarded-For is required, and must be clean.
+        let no_xff = headers(&[
+            ("host", "127.0.0.1:5612"),
+            ("x-forwarded-host", "localhost:3000"),
+        ]);
+        assert!(!is_local_dev_proxy(Ingress::BridgeLoopback, lo, &no_xff));
+        let junk = headers(&[
+            ("host", "127.0.0.1:5612"),
+            ("x-forwarded-for", "127.0.0.1, "),
+        ]);
+        assert!(!is_local_dev_proxy(Ingress::BridgeLoopback, lo, &junk));
+        let remote_origin_host =
+            headers(&[("host", "example.com"), ("x-forwarded-for", "127.0.0.1")]);
+        assert!(!is_local_dev_proxy(
+            Ingress::BridgeLoopback,
+            lo,
+            &remote_origin_host
+        ));
     }
 
     #[test]

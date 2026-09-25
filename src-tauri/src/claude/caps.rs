@@ -110,30 +110,33 @@ pub fn input_with(state: &AppState, facts: &SessionFacts, extra: &ExtraFacts) ->
         .tmux
         .clone()
         .or_else(|| live_rec.as_ref().and_then(|l| l.tmux.clone()));
-    let job_id = facts
+    // Only a recorded short id (pidfile `jobId`, `jobs/<short>/state.json`),
+    // the same ones `claude stop|respawn|rm|logs` get from the routes: never a
+    // guessed `id[..8]`, which the CLI renames on a collision (and which the
+    // routes would not accept anyway).
+    let background_job = facts
         .job_id
         .clone()
-        .or_else(|| live_rec.as_ref().and_then(|l| l.job_id.clone()));
-    let is_background = matches!(facts.kind.as_deref(), Some("background") | Some("bg"))
-        || live_rec
-            .as_ref()
-            .is_some_and(|l| matches!(l.kind.as_deref(), Some("background") | Some("bg")));
-    // The short id is the first 8 hex chars of the UUID unless the CLI had to
-    // rename it on a collision; prefer the recorded one.
-    let background_job = job_id.or_else(|| {
-        (is_background && facts.live && facts.id.len() >= 8 && facts.id.is_char_boundary(8))
-            .then(|| facts.id[..8].to_string())
-    });
+        .or_else(|| state.live.short_job_id(&facts.id))
+        .filter(|j| super::ids::is_short_job_id(j));
     let mode = crate::server::hooks::permission_mode(state, &facts.id)
         .or_else(|| extra.permission_mode.clone());
+    let hooks_active = crate::server::hooks::hooks_active(state, &facts.id, pid);
+    // A pane this app could not reach (a custom `-S` socket, a TMUX_TMPDIR
+    // only the user's shell has, tmux gone): route through the hooks when
+    // they flow instead of failing every message with 409.
+    let tmux_pane = tmux_target
+        .as_deref()
+        .and_then(pane_of_target)
+        .filter(|_| !(hooks_active && state.tmux.unreachable(&facts.id, pid)));
     CapsInput {
         owned: facts.owned && !facts.bridge_thread,
         bridge_thread: facts.bridge_thread,
         live: facts.live,
-        hooks_active: crate::server::hooks::hooks_active(state, &facts.id, pid),
+        hooks_active,
         hooks_installed: state.plugin.installed_cached(),
         wake: crate::server::hooks::wake_armed(state, &facts.id),
-        tmux_pane: tmux_target.as_deref().and_then(pane_of_target),
+        tmux_pane,
         background_job,
         pty_enabled: super::foreign_injection_enabled(),
         transcript_missing: extra.transcript_missing,
@@ -244,6 +247,14 @@ pub fn compute(input: &CapsInput) -> ControlCaps {
             ..Default::default()
         };
         if input.bridge_thread {
+            // The bridge host takes text, model and mode changes, interrupts
+            // and approvals; the dashboard dispatchers refuse the rest for a
+            // bridge conversation, so never offer it.
+            caps.set_effort = false;
+            caps.stop_task = false;
+            caps.attach_images = false;
+            caps.rename = RenameCap::None;
+            caps.attach = AttachCap::None;
             caps.limits.push(limit(
                 codes::BRIDGE_THREAD,
                 "Driven through the HTTP bridge.",
@@ -340,11 +351,9 @@ pub fn compute(input: &CapsInput) -> ControlCaps {
         caps.attach = AttachCap::Path;
         caps.approve = input.hooks_active;
         caps.answer = input.hooks_active;
-        caps.set_mode = if input.hooks_active {
-            SetModeCap::OnPrompt
-        } else {
-            SetModeCap::None
-        };
+        // No channel can switch a foreign session's permission mode yet (a
+        // hook reply cannot, and Shift+Tab only cycles): never offer it.
+        caps.set_mode = SetModeCap::None;
         caps.approve_via = if input.hooks_active {
             ApproveVia::Hook
         } else {
@@ -384,7 +393,7 @@ pub fn compute(input: &CapsInput) -> ControlCaps {
         caps.approve = true;
         caps.answer = true;
         caps.interrupt = InterruptCap::NextTool;
-        caps.set_mode = SetModeCap::OnPrompt;
+        caps.set_mode = SetModeCap::None;
         caps.approve_via = ApproveVia::Hook;
         // Files are uploaded and referenced as `@<path>` in the relayed text.
         caps.attach = AttachCap::Path;
@@ -486,6 +495,13 @@ mod tests {
         assert_eq!(b.channel, ControlChannel::Owned);
         assert!(has(&b, codes::BRIDGE_THREAD));
         assert_eq!(b.notes.len(), b.limits.len());
+        // Only what the bridge dispatchers accept.
+        assert!(b.approve && b.answer && b.set_model && b.slash_commands);
+        assert_eq!(b.set_mode, SetModeCap::Any);
+        assert_eq!(b.interrupt, InterruptCap::Immediate);
+        assert!(!b.set_effort && !b.stop_task && !b.attach_images);
+        assert_eq!(b.rename, RenameCap::None);
+        assert_eq!(b.attach, AttachCap::None);
     }
 
     #[test]
@@ -503,7 +519,7 @@ mod tests {
         assert!(c.approve && c.answer && c.slash_commands && c.set_model && c.set_effort);
         assert!(c.keys && c.terminal && c.fork && c.continue_owned);
         assert_eq!(c.approve_via, ApproveVia::Hook);
-        assert_eq!(c.set_mode, SetModeCap::OnPrompt);
+        assert_eq!(c.set_mode, SetModeCap::None, "POST /mode refuses tmux");
         assert_eq!(c.rename, RenameCap::Sync);
         assert!(has(&c, codes::TMUX_BEST_EFFORT) && has(&c, codes::TMUX_SETTINGS));
         assert!(!has(&c, codes::APPROVE_WITH_KEYS));
@@ -555,7 +571,7 @@ mod tests {
         assert_eq!(c.message, MessageCap::Relay);
         assert!(c.approve && c.answer && c.fork && c.continue_owned && c.wake);
         assert_eq!(c.interrupt, InterruptCap::NextTool);
-        assert_eq!(c.set_mode, SetModeCap::OnPrompt);
+        assert_eq!(c.set_mode, SetModeCap::None, "POST /mode refuses hooks");
         assert_eq!(c.approve_via, ApproveVia::Hook);
         assert!(!c.set_model && !c.slash_commands && !c.keys && !c.terminal);
         assert_eq!(c.rename, RenameCap::None);
@@ -730,7 +746,21 @@ mod tests {
             },
         );
         assert_eq!(input.tmux_pane.as_deref(), Some("%7"));
-        assert_eq!(input.background_job.as_deref(), Some("0a1b2c3d"));
+        // No recorded short id: no lifecycle buttons the routes would refuse.
+        assert_eq!(input.background_job, None);
+        let c = compute(&input);
+        assert!(!c.lifecycle.stop && !c.lifecycle.rm && !c.lifecycle.respawn);
+        let recorded = input_for(
+            &state,
+            &SessionFacts {
+                id: "0a1b2c3d-0000-4000-8000-000000000000".into(),
+                live: true,
+                kind: Some("background".into()),
+                job_id: Some("0a1b2c3e".into()),
+                ..Default::default()
+            },
+        );
+        assert_eq!(recorded.background_job.as_deref(), Some("0a1b2c3e"));
         assert!(!input.hooks_active && !input.wake && !input.bypass);
         let bridge = input_with(
             &state,
@@ -759,5 +789,24 @@ mod tests {
             },
         );
         assert!(bad.tmux_pane.is_none());
+
+        // A pane this app cannot reach falls back to the hooks, when they flow.
+        let id = "1a1b2c3d-0000-4000-8000-000000000000";
+        let facts = SessionFacts {
+            id: id.into(),
+            live: true,
+            tmux: Some("main:@1.%7".into()),
+            ..Default::default()
+        };
+        state.tmux.mark_unreachable(id, None);
+        assert_eq!(
+            input_for(&state, &facts).tmux_pane.as_deref(),
+            Some("%7"),
+            "no hooks: tmux is still the best bet"
+        );
+        state.hooks.touch(id, 1);
+        let hooked = input_for(&state, &facts);
+        assert!(hooked.hooks_active && hooked.tmux_pane.is_none());
+        assert_eq!(compute(&hooked).channel, ControlChannel::Hooks);
     }
 }

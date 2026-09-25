@@ -310,6 +310,18 @@ def run_turn(msg):
         pump(time.time() + 0.3)
         log({"cancel_reply": REPLIES.get(rid)})
         result("cancelled", answered)
+    elif text == "cancel-fast":
+        # The request and its cancel in ONE write: both lines sit in the
+        # host's read buffer together (a hook won the race at once).
+        rid = str(uuidlib.uuid4())
+        req = {"type": "control_request", "request_id": rid,
+               "request": can_use_tool("Bash", {"command": "sleep 1", "description": "Nap"})}
+        sys.stdout.write(json.dumps(req) + "\n" +
+                         json.dumps({"type": "control_cancel_request", "request_id": rid}) + "\n")
+        sys.stdout.flush()
+        pump(time.time() + 0.5)
+        log({"cancel_fast_reply": REPLIES.get(rid)})
+        result("cancelled fast", answered)
     elif text == "elicit":
         _, resp = ask({"subtype": "elicitation", "mcp_server_name": "gh", "message": "Which repo?",
                        "requested_schema": {"type": "object", "properties": {"repo": {"type": "string"}}}})

@@ -192,8 +192,7 @@ impl CreateThread {
             risky.push("additional_directories");
         }
         if let Some(resume) = &self.resume {
-            if crate::claude::owned::is_dangerous_mode(stored_mode(state, resume).await.as_deref())
-            {
+            if runs_without_approvals(state, resume).await {
                 risky.push("resume");
             }
         }
@@ -300,16 +299,28 @@ impl CreateThread {
     }
 }
 
-/// The permission mode a conversation last ran with: the bridge's record,
-/// else what the dashboard knows about the session.
-pub async fn stored_mode(state: &AppState, thread_id: &str) -> Option<String> {
-    if let Some(t) = state.bridge.thread(thread_id).await {
-        return Some(t.permission_mode);
-    }
-    state
+/// Whether a conversation runs with approvals switched off
+/// (bypassPermissions / dontAsk) by any account: the bridge record (kept in
+/// step with the host's reports and with approvals that switch the mode),
+/// the newest hook / transcript note, or the summary. Fails closed — the
+/// gates on it decide whether unapproved execution is possible.
+pub async fn runs_without_approvals(state: &AppState, thread_id: &str) -> bool {
+    let record = state
+        .bridge
+        .thread(thread_id)
+        .await
+        .map(|t| t.permission_mode);
+    let summary = state
         .find_session(thread_id)
         .await
-        .and_then(|s| s.permission_mode)
+        .and_then(|s| s.permission_mode);
+    [
+        record,
+        crate::claude::summaries::effective_permission_mode(state, thread_id),
+        summary,
+    ]
+    .iter()
+    .any(|m| crate::claude::owned::is_dangerous_mode(m.as_deref()))
 }
 
 /// Whether the user already trusted `cwd` in Claude Code on this machine: a
@@ -358,6 +369,34 @@ pub fn cwd_is_trusted(home: &crate::claude::ClaudeHome, cwd: &str) -> bool {
         .any(|p| p.ancestors().any(|a| a.parent().is_some() && trusted(a)))
 }
 
+/// How a conversation that names an existing session id may continue it.
+#[derive(Debug, PartialEq, Eq)]
+pub enum Takeover {
+    /// Nobody else holds it: continue in place (same id, same transcript).
+    InPlace,
+    /// Another process (a terminal, VS Code) runs it: continue in a fork, or
+    /// two processes would append to one transcript and its hooks would be
+    /// silenced as "owned".
+    Fork,
+}
+
+/// Whether session `id` may be continued by the bridge, and how. `409
+/// already_owned` when Mother Claude already drives it (Path A/B).
+pub async fn takeover(state: &AppState, id: &str) -> BridgeResult<Takeover> {
+    if crate::claude::owned::has_handle(state, id) {
+        return Err(BridgeError::conflict(
+            "already_owned",
+            "Mother Claude already drives that session; send it messages instead.",
+        )
+        .with("thread_id", id.to_string()));
+    }
+    Ok(if crate::claude::owned::live_elsewhere(state, id).await {
+        Takeover::Fork
+    } else {
+        Takeover::InPlace
+    })
+}
+
 /// `POST /threads` — start a conversation and return its id.
 pub async fn create(
     State(state): State<AppState>,
@@ -365,8 +404,14 @@ pub async fn create(
     Body(body): Body<CreateThread>,
 ) -> BridgeResult<Response> {
     let caller_cwd = body.cwd.clone();
-    let body = body.with_defaults(&state.bridge.defaults().await);
+    let mut body = body.with_defaults(&state.bridge.defaults().await);
     body.validate(&ctx)?;
+    if let (Some(resume), false) = (body.resume.clone(), body.fork) {
+        // A session still running elsewhere is continued in a fork.
+        if takeover(&state, &resume).await? == Takeover::Fork {
+            body.fork = true;
+        }
+    }
 
     let cwd = body.cwd.clone().unwrap_or_else(default_cwd);
     let path = std::path::Path::new(&cwd);
@@ -421,6 +466,7 @@ pub async fn create(
 
     Ok(created(json!({
         "thread_id": thread_id,
+        "forked": body.fork,
         "status": "created",
         "cwd": result.get("cwd").and_then(Value::as_str).unwrap_or(&cwd),
         "model": record.model,
@@ -817,6 +863,118 @@ mod tests {
             &h,
             false,
         )
+    }
+
+    fn test_state() -> (AppState, tempfile::TempDir) {
+        let home = tempfile::tempdir().unwrap();
+        let st = crate::state::Inner::new(
+            crate::claude::ClaudeHome::with_base(home.path()),
+            crate::state::ServerConfig {
+                host: "127.0.0.1".into(),
+                port: 0,
+            },
+            crate::server::auth::Auth::ephemeral(),
+        );
+        (st, home)
+    }
+
+    fn record(id: &str, mode: &str) -> crate::bridge::ThreadRecord {
+        crate::bridge::ThreadRecord {
+            thread_id: id.into(),
+            cwd: "/tmp".into(),
+            created_at: 1,
+            model: None,
+            effort: None,
+            permission_mode: mode.into(),
+            title: None,
+            persisted: true,
+            active_turn: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn a_switch_to_bypass_after_start_closes_the_gates() {
+        let (st, _home) = test_state();
+        let id = "0a1b2c3d-0000-4000-8000-00000000000b";
+        st.bridge.insert_thread(record(id, "default")).await;
+        assert!(!runs_without_approvals(&st, id).await);
+        assert!(
+            super::super::turns::require_turn_allowed(&st, &remote(), id)
+                .await
+                .is_ok()
+        );
+        assert!(!crate::claude::owned::runs_unapproved(&st, id).await);
+
+        // A plan approved into bypassPermissions: the delivered result
+        // carries the switch.
+        let item = crate::claude::model::PendingItem {
+            kind: crate::claude::model::PendingKind::Plan,
+            ..Default::default()
+        };
+        let mut d = crate::pending::Decision::allow();
+        d.mode = Some("bypassPermissions".into());
+        let result = crate::pending::permission_result(&item, &d);
+        let mode = crate::bridge::mode_set_by(&result).unwrap();
+        crate::bridge::note_thread_mode(&st, id, &mode).await;
+        assert_eq!(
+            st.bridge.thread(id).await.unwrap().permission_mode,
+            "bypassPermissions"
+        );
+        assert!(
+            super::super::turns::require_turn_allowed(&st, &remote(), id)
+                .await
+                .is_err()
+        );
+        assert!(crate::claude::owned::runs_unapproved(&st, id).await);
+
+        // Fail closed: a stale "default" record does not outvote a newer
+        // report of bypass.
+        let other = "0a1b2c3d-0000-4000-8000-00000000000c";
+        st.bridge.insert_thread(record(other, "default")).await;
+        st.activity.note_permission_mode(other, "bypassPermissions");
+        assert!(runs_without_approvals(&st, other).await);
+        assert!(crate::claude::owned::runs_unapproved(&st, other).await);
+    }
+
+    #[tokio::test]
+    async fn a_session_live_elsewhere_is_forked_not_taken_over() {
+        let (st, _home) = test_state();
+        let id = "0a1b2c3d-0000-4000-8000-00000000000d";
+        assert_eq!(takeover(&st, id).await.unwrap(), Takeover::InPlace);
+        st.live.insert_for_test(crate::claude::live::LiveSession {
+            pid: Some(std::process::id()),
+            session_id: Some(id.into()),
+            status: Some("idle".into()),
+            ..Default::default()
+        });
+        assert_eq!(takeover(&st, id).await.unwrap(), Takeover::Fork);
+    }
+
+    #[test]
+    fn mode_switches_are_read_from_approval_results() {
+        use crate::bridge::mode_set_by;
+        use serde_json::json;
+        assert_eq!(
+            mode_set_by(&json!({ "behavior": "allow", "updatedPermissions": [
+                { "type": "addRules", "destination": "session", "rules": [] },
+                { "type": "setMode", "mode": "acceptEdits", "destination": "session" },
+                { "type": "setMode", "mode": "bypassPermissions", "destination": "cliArg" }
+            ] })),
+            Some("bypassPermissions".into())
+        );
+        assert_eq!(
+            mode_set_by(&json!({ "behavior": "allow", "updatedPermissions": [
+                { "type": "setMode", "mode": "plan", "destination": "userSettings" }
+            ] })),
+            None
+        );
+        assert_eq!(
+            mode_set_by(&json!({ "behavior": "deny", "updatedPermissions": [
+                { "type": "setMode", "mode": "bypassPermissions" }
+            ] })),
+            None
+        );
+        assert_eq!(mode_set_by(&json!({ "behavior": "allow" })), None);
     }
 
     #[test]

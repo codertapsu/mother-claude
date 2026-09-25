@@ -886,55 +886,73 @@ pub async fn detail(state: &AppState, summary: SessionSummary) -> SessionDetail 
     let cwd = summary.cwd.clone();
     let live = summary.live;
     let started = summary.started_at;
-    let (tasks, todos_detail, files_changed) = state
-        .index
-        .with_main(&id, |f| {
-            let tasks: Vec<BackgroundTask> = f
-                .agg
-                .tasks
-                .iter()
-                .rev()
-                .take(100)
-                .map(|t| {
-                    let stale_running = t.status == "running"
-                        && (!live
-                            || started
-                                .is_some_and(|s| t.started_at.is_some_and(|ts| ts + 5_000 < s)));
-                    BackgroundTask {
-                        id: t.id.clone(),
-                        kind: task_kind(&t.kind),
-                        label: t.label.clone(),
-                        status: if stale_running {
-                            "stopped".into()
-                        } else {
-                            t.status.clone()
-                        },
-                        started_at: t.started_at,
-                        ended_at: t.ended_at,
-                        output_available: t
-                            .output_file
-                            .as_deref()
-                            .is_some_and(|p| std::path::Path::new(p).is_file()),
-                    }
-                })
-                .collect();
-            let files: Vec<FileChanged> = f
-                .agg
-                .files_changed
-                .iter()
-                .map(|(p, (a, r))| FileChanged {
-                    path: p
-                        .strip_prefix(&cwd)
-                        .map(|r| r.trim_start_matches('/').to_string())
-                        .filter(|r| !r.is_empty())
-                        .unwrap_or_else(|| p.clone()),
-                    added: (*a > 0 || *r > 0).then_some(*a),
-                    removed: (*a > 0 || *r > 0).then_some(*r),
-                })
-                .collect();
-            (tasks, f.agg.todos.clone().unwrap_or_default(), files)
-        })
-        .unwrap_or_default();
+    // Off the async workers: the index's per-file lock can be held by the
+    // monitor's catch-up scan (up to 64 MB), and the output files are
+    // stat'ed after it is released.
+    let st = state.clone();
+    let sid = id.clone();
+    let (tasks, todos_detail, files_changed) = tokio::task::spawn_blocking(move || {
+        let (tasks, todos, files) = st
+            .index
+            .with_main(&sid, |f| {
+                let tasks: Vec<(BackgroundTask, Option<String>)> = f
+                    .agg
+                    .tasks
+                    .iter()
+                    .rev()
+                    .take(100)
+                    .map(|t| {
+                        let stale_running = t.status == "running"
+                            && (!live
+                                || started.is_some_and(|s| {
+                                    t.started_at.is_some_and(|ts| ts + 5_000 < s)
+                                }));
+                        let task = BackgroundTask {
+                            id: t.id.clone(),
+                            kind: task_kind(&t.kind),
+                            label: t.label.clone(),
+                            status: if stale_running {
+                                "stopped".into()
+                            } else {
+                                t.status.clone()
+                            },
+                            started_at: t.started_at,
+                            ended_at: t.ended_at,
+                            output_available: false,
+                        };
+                        (task, t.output_file.clone())
+                    })
+                    .collect();
+                let files: Vec<FileChanged> = f
+                    .agg
+                    .files_changed
+                    .iter()
+                    .map(|(p, (a, r))| FileChanged {
+                        path: p
+                            .strip_prefix(&cwd)
+                            .map(|r| r.trim_start_matches('/').to_string())
+                            .filter(|r| !r.is_empty())
+                            .unwrap_or_else(|| p.clone()),
+                        added: (*a > 0 || *r > 0).then_some(*a),
+                        removed: (*a > 0 || *r > 0).then_some(*r),
+                    })
+                    .collect();
+                (tasks, f.agg.todos.clone().unwrap_or_default(), files)
+            })
+            .unwrap_or_default();
+        let tasks: Vec<BackgroundTask> = tasks
+            .into_iter()
+            .map(|(mut task, output)| {
+                task.output_available = output
+                    .as_deref()
+                    .is_some_and(|p| std::path::Path::new(p).is_file());
+                task
+            })
+            .collect();
+        (tasks, todos, files)
+    })
+    .await
+    .unwrap_or_default();
     let mut queued_messages = crate::server::hooks::queued(state, &id);
     let (mut agents_detail, mut tasks) = (agents_detail, tasks);
     if summary.owned {

@@ -321,17 +321,19 @@ pub async fn effective_permission_mode(state: &AppState, id: &str) -> Option<Str
 }
 
 /// Whether messages into session `id` run tools with nobody approving them.
-/// An owned session's live mode and a bridge conversation's mode are
-/// authoritative (Mother Claude set them); for any other session every report
-/// counts and bypass is sticky ([`crate::server::hooks::reported_bypass`]), so
-/// one forged hook report cannot lower the gate.
+/// Fails closed: any source saying bypassPermissions is enough — the owned
+/// session's live mode, a bridge conversation's record, and every report
+/// [`crate::server::hooks::reported_bypass`] weighs (hook state, the newest
+/// hook / owned / transcript note, the transcript's latest record, the
+/// summary). Bypass is sticky across sources on purpose: a bridge record
+/// alone went stale when an approval switched the conversation to bypass, and
+/// one forged hook report must never lower the gate.
 pub async fn runs_unapproved(state: &AppState, id: &str) -> bool {
     const BYPASS: &str = "bypassPermissions";
-    if let Some(mode) = live_state(state, id).and_then(|l| l.permission_mode) {
-        return mode == BYPASS;
-    }
-    if let Some(t) = state.bridge.thread(id).await {
-        return t.permission_mode == BYPASS;
+    let live = live_state(state, id).and_then(|l| l.permission_mode);
+    let bridge = state.bridge.thread(id).await.map(|t| t.permission_mode);
+    if [live, bridge].iter().flatten().any(|m| m == BYPASS) {
+        return true;
     }
     let summary_mode = state.find_session(id).await.and_then(|s| s.permission_mode);
     crate::server::hooks::reported_bypass(state, id, summary_mode.as_deref()).unwrap_or(false)
@@ -574,7 +576,7 @@ pub async fn continue_session(
 }
 
 /// Whether another process holds session `id` right now.
-async fn live_elsewhere(state: &AppState, id: &str) -> bool {
+pub(crate) async fn live_elsewhere(state: &AppState, id: &str) -> bool {
     if state.live.get(id).is_some() {
         return true;
     }
@@ -629,6 +631,28 @@ pub async fn continue_as(
         ..Default::default()
     };
     state.control.spawn(state, opts).await.map_err(spawn_error)
+}
+
+/// [`send`] for a caller: a message a caller without the dangerous right
+/// queues behind a running turn is remembered, so it can be taken back
+/// before the session switches to a mode without approvals ([`set_mode`]).
+pub async fn send_as(
+    state: &AppState,
+    may_dangerous: bool,
+    id: &str,
+    text: &str,
+    images: &[ImageInput],
+) -> ApiResult<MessageReceipt> {
+    let receipt = send(state, id, text, images).await?;
+    if !may_dangerous && receipt.delivery == Delivery::Queued {
+        let mid = receipt.message_id.clone();
+        state.control.update(id, move |l| {
+            l.restricted_queued
+                .retain(|q| l.queued.iter().any(|m| &m.id == q));
+            l.restricted_queued.push(mid);
+        });
+    }
+    Ok(receipt)
 }
 
 /// Send a user message (text + images) to an owned session. Returns the
@@ -715,6 +739,9 @@ pub async fn set_mode(state: &AppState, id: &str, mode: &str) -> ApiResult<()> {
             ));
         }
     }
+    if is_dangerous_mode(Some(mode)) {
+        withdraw_restricted_queued(state, id).await;
+    }
     request(
         state,
         id,
@@ -727,6 +754,42 @@ pub async fn set_mode(state: &AppState, id: &str, mode: &str) -> ApiResult<()> {
     let mode = mode.to_string();
     ws::patch_session(state, id, |s| s.permission_mode = Some(mode)).await;
     Ok(())
+}
+
+/// Take back the queued messages a caller without the dangerous right sent:
+/// they were allowed because the session asked for approvals, which it is
+/// about to stop doing.
+async fn withdraw_restricted_queued(state: &AppState, id: &str) {
+    let Some(live) = live_state(state, id) else {
+        return;
+    };
+    let ids: Vec<String> = live
+        .restricted_queued
+        .iter()
+        .filter(|q| live.queued.iter().any(|m| &m.id == *q))
+        .cloned()
+        .collect();
+    let mut withdrawn = 0;
+    for mid in &ids {
+        match cancel_queued(state, id, mid).await {
+            Ok(()) => withdrawn += 1,
+            Err(e) => {
+                tracing::debug!(session = %id, error = %e.message, "queued message not withdrawn")
+            }
+        }
+    }
+    state.control.update(id, |l| l.restricted_queued.clear());
+    if withdrawn > 0 {
+        ws::publish_notice(
+            state,
+            super::model::NoticeLevel::Warning,
+            format!(
+                "{withdrawn} queued message(s) from a device without the right to dangerous \
+                 actions were withdrawn before the session stopped asking for approvals."
+            ),
+            Some(id),
+        );
+    }
 }
 
 /// Switch effort live (`apply_flag_settings {effortLevel}`).

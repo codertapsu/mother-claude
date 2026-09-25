@@ -478,6 +478,23 @@ async fn cancels_elicitations_and_unknown_requests_are_answered() {
 }
 
 #[tokio::test]
+async fn a_cancel_buffered_behind_its_request_raises_no_card() {
+    let f = Fixture::new();
+    let mut rx = f.st.bus.subscribe();
+    let id = f.spawn_text("cancel-fast").await;
+    wait_turn_done(&f.st, &id).await;
+    wait_for("the log", || !f.logged("cancel_fast_reply").is_empty()).await;
+    // The cancel reached the request before its handler ran: no card was
+    // raised (or left behind), and nothing was answered.
+    assert!(f.st.pending.list(&id).is_empty());
+    assert!(!drain(&mut rx)
+        .iter()
+        .any(|e| matches!(&**e, ServerEvent::PendingResolved(r) if r.session == id)));
+    assert!(f.logged("cancel_fast_reply").pop().unwrap().is_null());
+    owned::kill(&f.st, &id).await.unwrap();
+}
+
+#[tokio::test]
 async fn live_control_requests_and_cli_errors() {
     let f = Fixture::new();
     // Launched by a caller without dangerous rights: no bypass available.
@@ -624,6 +641,45 @@ async fn queued_messages_can_be_taken_back() {
     wait_turn_done(&f.st, &id).await;
     let r3 = owned::send(&f.st, &id, "hello", &[]).await.unwrap();
     assert_eq!(r3.delivery, Delivery::Sent);
+    owned::kill(&f.st, &id).await.unwrap();
+}
+
+#[tokio::test]
+async fn switching_to_bypass_takes_back_what_restricted_callers_queued() {
+    let f = Fixture::new();
+    let id = f.spawn_text("slow").await;
+    wait_for("the first turn", || !f.received().is_empty()).await;
+    let from_phone = owned::send_as(&f.st, false, &id, "from the phone", &[])
+        .await
+        .unwrap();
+    let from_mac = owned::send_as(&f.st, true, &id, "from the Mac", &[])
+        .await
+        .unwrap();
+    assert_eq!(from_phone.delivery, Delivery::Queued);
+    assert_eq!(from_mac.delivery, Delivery::Queued);
+    owned::set_mode(&f.st, &id, "bypassPermissions")
+        .await
+        .unwrap();
+    let cancelled: Vec<Value> = f
+        .received()
+        .into_iter()
+        .filter(|l| l["request"]["subtype"] == "cancel_async_message")
+        .map(|l| l["request"]["message_uuid"].clone())
+        .collect();
+    assert_eq!(cancelled, vec![Value::from(from_phone.message_id.clone())]);
+    let left: Vec<String> = owned::queued(&f.st, &id)
+        .into_iter()
+        .map(|q| q.id)
+        .collect();
+    assert_eq!(left, vec![from_mac.message_id]);
+    // The cancel reached the CLI before the mode switch did.
+    let order: Vec<String> = f
+        .received()
+        .into_iter()
+        .filter_map(|l| l["request"]["subtype"].as_str().map(str::to_string))
+        .filter(|s| s == "cancel_async_message" || s == "set_permission_mode")
+        .collect();
+    assert_eq!(order, vec!["cancel_async_message", "set_permission_mode"]);
     owned::kill(&f.st, &id).await.unwrap();
 }
 

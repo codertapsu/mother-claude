@@ -73,6 +73,7 @@ pub const PROMPT_TIMEOUT: Duration = Duration::from_secs(12 * 60 * 60);
 /// Text/thinking deltas are coalesced for this long before publishing.
 const DELTA_FLUSH: Duration = Duration::from_millis(60);
 /// Grace period between SIGTERM and SIGKILL when stopping a child.
+#[cfg(unix)]
 const KILL_GRACE: Duration = Duration::from_secs(3);
 /// VS Code's setting sources.
 pub const SETTING_SOURCES: &str = "user,project,local";
@@ -104,12 +105,22 @@ pub const SCRUBBED_ENV: [&str; 12] = [
 /// hook scripts exit immediately when it is set (no double cards).
 pub const OWNED_ENV: &str = "MOTHER_CLAUDE_OWNED";
 
-/// Scrub a child's environment ([`SCRUBBED_ENV`]) and mark it owned. Used for
-/// the Path B `claude`, the Path A sidecar and the bridge host.
-pub fn apply_child_env(cmd: &mut tokio::process::Command) {
+/// Scrub a child's environment ([`SCRUBBED_ENV`], plus any inherited
+/// [`OWNED_ENV`]) without marking it owned. Used for the lifecycle commands
+/// (`claude stop|respawn|rm|logs`): they can cold-start a transient
+/// background daemon that would pass the marker on to every background
+/// session it runs, silencing their hooks.
+pub fn scrub_child_env(cmd: &mut tokio::process::Command) {
     for key in SCRUBBED_ENV {
         cmd.env_remove(key);
     }
+    cmd.env_remove(OWNED_ENV);
+}
+
+/// Scrub a child's environment ([`scrub_child_env`]) and mark it owned. Used
+/// for the Path B `claude`, the Path A sidecar and the bridge host.
+pub fn apply_child_env(cmd: &mut tokio::process::Command) {
+    scrub_child_env(cmd);
     cmd.env(OWNED_ENV, "1");
 }
 
@@ -288,6 +299,9 @@ pub struct OwnedLive {
     pub activity: Activity,
     /// Our messages written while a turn ran and not answered yet.
     pub queued: Vec<QueuedMessage>,
+    /// Ids in `queued` sent by callers without the dangerous right: taken
+    /// back before the session switches to a mode without approvals.
+    pub restricted_queued: Vec<String>,
     pub tasks: Vec<OwnedTask>,
     pub last_error: Option<LastError>,
     /// Launched with `--allow-dangerously-skip-permissions`.
@@ -990,8 +1004,24 @@ async fn dispatch(
     match kind {
         "control_request" => {
             flush_delta(state, h, delta);
+            // Register the cancel slot of a request that waits for a human
+            // *before* spawning its handler: a `control_cancel_request`
+            // buffered right behind it is dispatched before the spawned task
+            // first runs, and must still find it.
+            let cancel = match cli_request_ids(&v) {
+                Some((rid, true)) => {
+                    let mut incoming = lock(&h.incoming);
+                    if incoming.contains_key(&rid) {
+                        return; // duplicate delivery of an in-flight request
+                    }
+                    let (tx, rx) = oneshot::channel();
+                    incoming.insert(rid, Incoming { cancel: Some(tx) });
+                    Some(rx)
+                }
+                _ => None,
+            };
             let (st, hh) = (state.clone(), h.clone());
-            tokio::spawn(async move { handle_cli_request(&st, &hh, v).await });
+            tokio::spawn(async move { handle_cli_request(&st, &hh, v, cancel).await });
         }
         "control_cancel_request" => {
             if let Some(rid) = v.get("request_id").and_then(Value::as_str) {
@@ -1449,15 +1479,22 @@ async fn on_result(state: &AppState, h: &OwnedHandle, v: &Value) {
     let now = crate::claude::registry::now_ms();
     let (worked_ms, still_busy) = {
         let mut live = h.live();
+        // `turn_started_at` is the start of the busy period: queued messages
+        // chain turns without it being reset.
         let started = live.turn_started_at.unwrap_or(now);
+        let wall = u64::try_from(now - started).unwrap_or(0);
         let worked = v
             .get("duration_ms")
             .and_then(Value::as_u64)
-            .unwrap_or_else(|| u64::try_from(now - started).unwrap_or(0));
+            .map_or(wall, |d| d.max(wall));
         // Messages still queued start the next turn right away.
         let busy = !live.queued.is_empty();
         live.turn_active = busy;
-        live.turn_started_at = busy.then_some(now);
+        if !busy {
+            live.turn_started_at = None;
+        } else if live.turn_started_at.is_none() {
+            live.turn_started_at = Some(now);
+        }
         (worked, busy)
     };
     let subtype = v.get("subtype").and_then(Value::as_str).unwrap_or_default();
@@ -1487,7 +1524,11 @@ async fn on_result(state: &AppState, h: &OwnedHandle, v: &Value) {
         .await;
         crate::server::push::on_session_failed(state, &h.id, &text);
     }
-    crate::server::push::on_turn_finished(state, &h.id, worked_ms);
+    // Only when the session is really done: queued messages keep it working,
+    // and the push fired at the end covers the whole busy period.
+    if !still_busy {
+        crate::server::push::on_turn_finished(state, &h.id, worked_ms);
+    }
     if still_busy {
         note_activity(state, h, Activity::new(ActivityKind::Thinking, "Thinking")).await;
     } else {
@@ -1518,7 +1559,23 @@ enum Outcome {
     TimedOut,
 }
 
-async fn handle_cli_request(state: &AppState, h: &Arc<OwnedHandle>, v: Value) {
+/// The request id of a CLI → host `control_request`, and whether it waits
+/// for a human (`can_use_tool`, `elicitation`: those can be cancelled).
+fn cli_request_ids(v: &Value) -> Option<(String, bool)> {
+    let rid = v.get("request_id").and_then(Value::as_str)?.to_string();
+    let subtype = v
+        .pointer("/request/subtype")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    Some((rid, matches!(subtype, "can_use_tool" | "elicitation")))
+}
+
+async fn handle_cli_request(
+    state: &AppState,
+    h: &Arc<OwnedHandle>,
+    v: Value,
+    cancel: Option<oneshot::Receiver<()>>,
+) {
     let Some(rid) = v
         .get("request_id")
         .and_then(Value::as_str)
@@ -1532,11 +1589,11 @@ async fn handle_cli_request(state: &AppState, h: &Arc<OwnedHandle>, v: Value) {
         .and_then(Value::as_str)
         .unwrap_or_default()
         .to_string();
-    let reply = match subtype.as_str() {
-        "can_use_tool" => {
+    let reply = match (subtype.as_str(), cancel) {
+        ("can_use_tool", Some(cancel)) => {
             let item = protocol::item_from_can_use_tool(&h.id, &req);
             let tool_use_id = req.get("tool_use_id").cloned();
-            match ask_human(state, h, &rid, item.clone()).await {
+            match ask_human(state, h, &rid, item.clone(), cancel).await {
                 Some(Outcome::Decided(d)) => {
                     let mut out = pending::permission_result(&item, &d);
                     if let Some(t) = tool_use_id.filter(|t| !t.is_null()) {
@@ -1556,16 +1613,17 @@ async fn handle_cli_request(state: &AppState, h: &Arc<OwnedHandle>, v: Value) {
                 Some(Outcome::Cancelled) | None => None,
             }
         }
-        "elicitation" => {
+        ("elicitation", Some(cancel)) => {
             // Only worth a card when someone can see it.
             if state.hub.client_count() == 0 {
+                lock(&h.incoming).remove(&rid);
                 Some(protocol::control_success(
                     &rid,
                     json!({ "action": "decline" }),
                 ))
             } else {
                 let item = protocol::item_from_elicitation(&h.id, &req);
-                match ask_human(state, h, &rid, item.clone()).await {
+                match ask_human(state, h, &rid, item.clone(), cancel).await {
                     Some(Outcome::Decided(d)) => Some(protocol::control_success(
                         &rid,
                         pending::elicitation_result(&d),
@@ -1579,11 +1637,11 @@ async fn handle_cli_request(state: &AppState, h: &Arc<OwnedHandle>, v: Value) {
             }
         }
         // Hosts must answer unknown dialog kinds with `cancelled`.
-        "request_user_dialog" => Some(protocol::control_success(
+        ("request_user_dialog", _) => Some(protocol::control_success(
             &rid,
             json!({ "behavior": "cancelled" }),
         )),
-        other => {
+        (other, _) => {
             tracing::debug!(session = %h.id, subtype = %other, "unsupported CLI control request");
             Some(protocol::control_error(&rid, "unsupported"))
         }
@@ -1595,26 +1653,24 @@ async fn handle_cli_request(state: &AppState, h: &Arc<OwnedHandle>, v: Value) {
     }
 }
 
-/// Raise a pending item for CLI request `rid` and wait for a human. `None`
-/// when the request id is a duplicate delivery.
+/// Raise a pending item for CLI request `rid` and wait for a human.
+/// `cancel_rx` is the slot [`dispatch`] registered in `incoming` before this
+/// handler was spawned. `None` when the process is gone.
 async fn ask_human(
     state: &AppState,
     h: &Arc<OwnedHandle>,
     rid: &str,
     item: pending::PendingItem,
+    mut cancel_rx: oneshot::Receiver<()>,
 ) -> Option<Outcome> {
-    let (cancel_tx, cancel_rx) = oneshot::channel();
-    {
-        let mut incoming = lock(&h.incoming);
-        if incoming.contains_key(rid) {
-            return None; // duplicate delivery of an in-flight request
-        }
-        incoming.insert(
-            rid.to_string(),
-            Incoming {
-                cancel: Some(cancel_tx),
-            },
-        );
+    // Cancelled (or the process exited) before this task first ran: no card.
+    let already = !matches!(
+        cancel_rx.try_recv(),
+        Err(oneshot::error::TryRecvError::Empty)
+    );
+    if already || !h.alive.load(Ordering::SeqCst) {
+        lock(&h.incoming).remove(rid);
+        return h.alive.load(Ordering::SeqCst).then_some(Outcome::Cancelled);
     }
     let (guard, rx) = pending::raise(state, item).await;
     let pending_id = guard.id().to_string();
@@ -1848,7 +1904,8 @@ async fn run_job_command(action: &str, short_id: &str) -> Result<std::process::O
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .kill_on_drop(true);
-    apply_child_env(&mut cmd);
+    // Not owned: never mark a lifecycle command (see `scrub_child_env`).
+    scrub_child_env(&mut cmd);
     tokio::time::timeout(Duration::from_secs(60), cmd.output())
         .await
         .map_err(|_| anyhow!("`claude {action} {short_id}` timed out"))?
@@ -1929,6 +1986,33 @@ mod tests {
             Some(&Some("x".to_string()))
         );
         assert!(!envs.contains_key("CLAUDE_CONFIG_DIR"));
+    }
+
+    #[test]
+    fn lifecycle_commands_are_never_marked_owned() {
+        // `claude stop|respawn|rm|logs` can cold-start a transient daemon; a
+        // marker it inherited would silence every background session's hooks.
+        let mut cmd = tokio::process::Command::new("true");
+        cmd.env(OWNED_ENV, "1").env("CLAUDE_CODE_USE_BEDROCK", "1");
+        scrub_child_env(&mut cmd);
+        let envs: HashMap<String, Option<String>> = cmd
+            .as_std()
+            .get_envs()
+            .map(|(k, v)| {
+                (
+                    k.to_string_lossy().into_owned(),
+                    v.map(|v| v.to_string_lossy().into_owned()),
+                )
+            })
+            .collect();
+        assert_eq!(envs.get(OWNED_ENV), Some(&None), "marker removed, not set");
+        for key in SCRUBBED_ENV {
+            assert_eq!(envs.get(key), Some(&None), "{key} must be removed");
+        }
+        assert_eq!(
+            envs.get("CLAUDE_CODE_USE_BEDROCK"),
+            Some(&Some("1".to_string()))
+        );
     }
 
     #[test]

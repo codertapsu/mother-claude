@@ -48,7 +48,9 @@ use serde_json::Value;
 use tokio::sync::oneshot;
 
 pub use self::binding::{verify as verify_binding, Binding};
-pub use self::machine::{Arm, CancelError, WaitSignal, QUEUE_CAP};
+pub use self::machine::{
+    Arm, CancelError, DropReason, EnqueueError, WaitSignal, QUEUE_CAP, RELAY_TTL_MS,
+};
 pub use self::payload::{input_key, is_safe_id, is_uuid, HookPayload};
 pub use self::relay::{MARKER_PREFIX, TEXT_MAX_BYTES as RELAY_TEXT_MAX};
 
@@ -109,6 +111,56 @@ pub struct HookHub {
 
 impl Default for HookHub {
     fn default() -> Self {
+        Self::with_hub(machine::Hub::new())
+    }
+}
+
+/// File (in the app data dir, 0600) holding the key of the relay markers.
+const RELAY_SECRET_FILE: &str = "relay-marker.key";
+
+/// The persisted relay-marker key, created on first use. `None` without a
+/// data dir, or when it can be neither read nor written (markers then change
+/// with the process, as before).
+fn load_relay_secret(data_dir: &std::path::Path) -> Option<Vec<u8>> {
+    let path = data_dir.join(RELAY_SECRET_FILE);
+    let parse = |t: &str| -> Option<Vec<u8>> {
+        let t = t.trim();
+        (t.len() == 64 && t.bytes().all(|b| b.is_ascii_hexdigit())).then(|| {
+            (0..32)
+                .filter_map(|i| u8::from_str_radix(&t[2 * i..2 * i + 2], 16).ok())
+                .collect()
+        })
+    };
+    if let Ok(text) = std::fs::read_to_string(&path) {
+        if let Some(secret) = parse(&text) {
+            return Some(secret);
+        }
+        tracing::warn!("relay marker key unreadable; replacing it");
+    }
+    let secret = crate::server::auth::random_bytes(32);
+    let hex: String = secret.iter().map(|b| format!("{b:02x}")).collect();
+    match crate::persist::write_private(&path, hex.as_bytes()) {
+        Ok(()) => Some(secret),
+        Err(e) => {
+            tracing::warn!(error = %e, "could not persist the relay marker key");
+            None
+        }
+    }
+}
+
+impl HookHub {
+    /// The hub for the app: relay markers keyed by a secret persisted in
+    /// `data_dir`, so a running session keeps its marker when Mother Claude
+    /// restarts (its SessionStart context named it). Without a data dir the
+    /// key is random per process.
+    pub fn load(data_dir: Option<&std::path::Path>) -> Self {
+        match data_dir.and_then(load_relay_secret) {
+            Some(secret) => Self::with_hub(machine::Hub::with_secret(secret)),
+            None => Self::default(),
+        }
+    }
+
+    fn with_hub(hub: machine::Hub) -> Self {
         let headless = std::env::var("MOTHER_CLAUDE_HEADLESS_HOLD_SECS")
             .ok()
             .and_then(|v| v.trim().parse::<u64>().ok())
@@ -117,7 +169,7 @@ impl Default for HookHub {
             .unwrap_or(HEADLESS_HOLD_DEFAULT)
             .min(HOLD_MAX);
         Self {
-            inner: Mutex::new(machine::Hub::new()),
+            inner: Mutex::new(hub),
             wait_hold_ms: AtomicU64::new(WAIT_HOLD.as_millis() as u64),
             headless_hold_ms: AtomicU64::new(headless.as_millis() as u64),
             last_any: AtomicI64::new(0),
@@ -218,6 +270,7 @@ fn now_ms() -> i64 {
 
 /// Whether `pid` names a live process (`kill(pid, 0)`; EPERM counts as
 /// alive).
+#[cfg(unix)]
 pub fn pid_alive(pid: u32) -> bool {
     let Ok(p) = libc::pid_t::try_from(pid) else {
         return false;
@@ -228,6 +281,13 @@ pub fn pid_alive(pid: u32) -> bool {
     // SAFETY: signal 0 performs only the existence/permission check.
     let r = unsafe { libc::kill(p, 0) };
     r == 0 || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
+}
+
+/// Non-unix: no cheap existence check, so trust the pid the session reported
+/// (the live roster still ends sessions whose pidfile disappears).
+#[cfg(not(unix))]
+pub fn pid_alive(pid: u32) -> bool {
+    pid > 1
 }
 
 /// Whether hooks from `session_id`'s current process were seen (drives
@@ -267,6 +327,28 @@ pub fn wake_armed(state: &AppState, session_id: &str) -> bool {
         .lock()
         .session(session_id)
         .is_some_and(|s| s.wake(now))
+}
+
+/// A main-thread tool call younger than this may still open its permission
+/// dialog.
+const RECENT_TOOL_MS: i64 = 5_000;
+
+/// Whether a main-thread prompt is, or may be about to be, on the session's
+/// screen, so typed keystrokes would answer it: an answerable main-thread
+/// card, a held PermissionRequest, or (`strict`, for callers without the
+/// dangerous right) a main-thread tool call that started in the last few
+/// seconds and has not finished.
+pub fn main_prompt_may_be_open(state: &AppState, session_id: &str, strict: bool) -> bool {
+    let recent = strict.then_some(RECENT_TOOL_MS);
+    state
+        .hooks
+        .lock()
+        .main_prompt_open(session_id, now_ms(), recent)
+        || state
+            .pending
+            .list(session_id)
+            .iter()
+            .any(|p| p.answerable && p.agent_id.is_none())
 }
 
 /// The permission mode the session's hooks last reported.
@@ -366,8 +448,40 @@ fn record_delivered(session: &str, msgs: &[QueuedMessage]) {
     }
 }
 
+/// Tell the senders about queued relays the state machine dropped (expired,
+/// session ended, session now in bypassPermissions) and refresh those
+/// sessions' queue counts.
+async fn publish_dropped(state: &AppState) {
+    let dropped = state.hooks.lock().take_dropped();
+    let mut sessions: Vec<String> = Vec::new();
+    for (session, msg, reason) in dropped {
+        tracing::info!(session = %session, message = %msg.id, ?reason, "relay dropped");
+        let text = match reason {
+            DropReason::Expired => format!(
+                "A queued message was not delivered: nothing picked it up within {} minutes.",
+                RELAY_TTL_MS / 60_000
+            ),
+            DropReason::SessionEnded => {
+                "A queued message was not delivered: the session ended first.".to_string()
+            }
+            DropReason::Bypass => "A queued message was withdrawn: the session switched to \
+                 bypassPermissions, where messages need this computer or a device allowed \
+                 dangerous actions."
+                .to_string(),
+        };
+        super::ws::publish_notice(state, NoticeLevel::Warning, text, Some(&session));
+        if !sessions.contains(&session) {
+            sessions.push(session);
+        }
+    }
+    for session in sessions {
+        crate::claude::caps::refresh(state, &session).await;
+    }
+}
+
 /// Carry out what the state machine decided; returns the hook response.
 async fn apply(state: &AppState, session: &str, out: machine::Outcome) -> Value {
+    publish_dropped(state).await;
     for (id, reason) in &out.withdraw {
         pending::withdraw(state, id, reason).await;
     }
@@ -490,6 +604,9 @@ pub async fn dispatch_from(
     pid: Option<u32>,
     peer: Option<SocketAddr>,
 ) -> Value {
+    // Stamped before anything slow (process binding runs ps + lsof): a
+    // PermissionRequest answered at the desk meanwhile is recognised by it.
+    let arrived_ms = now_ms();
     if !is_uuid(&p.session_id) {
         return relay::empty();
     }
@@ -553,12 +670,13 @@ pub async fn dispatch_from(
         prompt_id: p.prompt_id.as_deref(),
         prompt: p.prompt.as_deref(),
         permission_mode,
+        source: p.source.as_deref(),
         pid,
     };
     let out = state.hooks.lock().on_event(&ev, now);
     let response = apply(state, &p.session_id, out).await;
     if name == "PermissionRequest" {
-        return permission_request(state, &p, agent, key.unwrap_or_default()).await;
+        return permission_request(state, &p, agent, key.unwrap_or_default(), arrived_ms).await;
     }
     response
 }
@@ -780,6 +898,10 @@ impl Drop for HeldGuard {
 enum Answer {
     Decision(Decision),
     Interrupt,
+    /// Withdrawn (answered elsewhere, turn over, …).
+    Closed,
+    /// Nobody answered within the hold.
+    Expired,
 }
 
 async fn permission_request(
@@ -787,19 +909,31 @@ async fn permission_request(
     p: &HookPayload,
     agent: Option<&str>,
     key: u64,
+    arrived_ms: i64,
 ) -> Value {
     let session = p.session_id.as_str();
     let Some(tool_name) = p.tool_name.as_deref().filter(|t| !t.is_empty()) else {
         return relay::empty();
     };
     let now = now_ms();
-    let (tool_use_id, interrupted) = {
+    let (tool_use_id, interrupted, finished) = {
         let mut hub = state.hooks.lock();
         let t = hub.correlate(session, agent, tool_name, key, now);
-        (t, agent.is_none() && hub.interrupt_pending(session))
+        let finished =
+            hub.already_finished(session, agent, t.as_deref(), tool_name, key, arrived_ms);
+        (
+            t,
+            agent.is_none() && hub.interrupt_pending(session),
+            finished,
+        )
     };
     if interrupted {
         return relay::interrupt_decision();
+    }
+    // Answered at the desk while this request was being bound: no card, no
+    // push (the CLI ignores a late answer anyway).
+    if finished {
+        return relay::empty();
     }
     let Some(hold_for) = hold_policy(state, session).await else {
         return relay::empty();
@@ -816,7 +950,7 @@ async fn permission_request(
     // dangerous) is what the answer is built from.
     let item = state.pending.get(&id).unwrap_or(item);
     let (itx, irx) = oneshot::channel::<()>();
-    let fire_now = state.hooks.lock().hold(
+    let held = state.hooks.lock().hold(
         id.clone(),
         machine::Held {
             session: session.to_string(),
@@ -824,12 +958,23 @@ async fn permission_request(
             tool_use_id,
             tool_name: tool_name.to_string(),
             input_key: key,
-            created_ms: item.created_at,
+            // The arrival, not the card: a pidfile edge (waiting → busy)
+            // after the request arrived must still withdraw it.
+            created_ms: arrived_ms,
             interrupt: Some(itx),
         },
     );
-    if let Some(tx) = fire_now {
-        let _ = tx.send(());
+    match held {
+        Ok(Some(tx)) => {
+            let _ = tx.send(());
+        }
+        Ok(None) => {}
+        Err(machine::AlreadyFinished) => {
+            // The tool ran (answered at the desk) while the card was raised.
+            pending::withdraw(state, &id, "the tool ran (answered elsewhere)").await;
+            drop(guard);
+            return relay::empty();
+        }
     }
     let _held = HeldGuard {
         state: state.clone(),
@@ -843,14 +988,22 @@ async fn permission_request(
         }
     };
     let answer = tokio::select! {
-        d = pending::wait(rx, hold_for) => d.map(Answer::Decision),
-        () = interrupt => Some(Answer::Interrupt),
+        end = pending::wait_end(rx, hold_for) => match end {
+            pending::WaitEnd::Decided(d) => Answer::Decision(d),
+            pending::WaitEnd::Closed => Answer::Closed,
+            pending::WaitEnd::TimedOut => Answer::Expired,
+        },
+        () = interrupt => Answer::Interrupt,
     };
-    drop(guard);
+    if matches!(answer, Answer::Expired) {
+        guard.expire();
+    } else {
+        drop(guard);
+    }
     match answer {
-        Some(Answer::Decision(d)) => hook_decision(&item, &d),
-        Some(Answer::Interrupt) => relay::interrupt_decision(),
-        None => relay::empty(),
+        Answer::Decision(d) => hook_decision(&item, &d),
+        Answer::Interrupt => relay::interrupt_decision(),
+        Answer::Closed | Answer::Expired => relay::empty(),
     }
 }
 
@@ -885,6 +1038,7 @@ pub async fn wait(
 ) -> Response {
     let p = HookPayload::parse(&body).unwrap_or_default();
     drop(body);
+    let mode = p.permission_mode.clone();
     let session = if p.session_id.is_empty() {
         q.get("session").cloned().unwrap_or_default()
     } else {
@@ -926,7 +1080,16 @@ pub async fn wait(
     if !bound(&state, &session, Some(ctx.peer), "wait").await {
         return gone("not the session's process");
     }
-    let arm = state.hooks.lock().arm_waiter(&session, Some(pid), now_ms());
+    let arm = {
+        let mut hub = state.hooks.lock();
+        // The Stop payload's mode is the freshest word on what a wake may
+        // hand over.
+        if let Some(mode) = mode.as_deref() {
+            hub.note_mode(&session, mode);
+        }
+        hub.arm_waiter(&session, Some(pid), now_ms())
+    };
+    publish_dropped(&state).await;
     match arm {
         Arm::Immediate(text, msgs) => {
             record_delivered(&session, &msgs);
@@ -969,7 +1132,11 @@ pub async fn enqueue_relay(
     session_id: &str,
     text: &str,
 ) -> ApiResult<QueuedMessage> {
-    enqueue_inner(state, session_id, text, None).await
+    let bypass = match state.find_session(session_id).await {
+        Some(s) => effective_bypass(state, &s).await,
+        None => false,
+    };
+    enqueue_inner(state, session_id, text, None, true, bypass).await
 }
 
 /// [`enqueue_relay`] for a dashboard caller: a session running without
@@ -981,29 +1148,33 @@ pub async fn enqueue_relay_as(
     session_id: &str,
     text: &str,
 ) -> ApiResult<QueuedMessage> {
-    if !ctx.may_dangerous() {
-        if let Some(s) = state.find_session(session_id).await {
-            if effective_bypass(state, &s).await {
-                return Err(ApiError::dangerous_blocked(
-                    "This session runs without permission prompts (bypassPermissions); \
-                     messages to it are restricted to this computer or a device allowed \
-                     dangerous actions.",
-                ));
-            }
-        }
+    let may_dangerous = ctx.may_dangerous();
+    let bypass = match state.find_session(session_id).await {
+        Some(s) => effective_bypass(state, &s).await,
+        None => false,
+    };
+    if bypass && !may_dangerous {
+        return Err(ApiError::dangerous_blocked(
+            "This session runs without permission prompts (bypassPermissions); messages to it \
+             are restricted to this computer or a device allowed dangerous actions.",
+        ));
     }
     let from = ctx
         .device_id()
         .map(str::to_string)
         .unwrap_or_else(|| ctx.principal.label().to_string());
-    enqueue_inner(state, session_id, text, Some(from)).await
+    enqueue_inner(state, session_id, text, Some(from), may_dangerous, bypass).await
 }
 
+/// Queue `text`; `sender_may_dangerous` keeps it deliverable should the
+/// session be in (or switch to) bypassPermissions when it goes out.
 async fn enqueue_inner(
     state: &AppState,
     session_id: &str,
     text: &str,
     from: Option<String>,
+    sender_may_dangerous: bool,
+    bypass_now: bool,
 ) -> ApiResult<QueuedMessage> {
     if !is_uuid(session_id) {
         return Err(ApiError::no_such_session(session_id));
@@ -1011,15 +1182,28 @@ async fn enqueue_inner(
     let text = relay::sanitize(text)?;
     let digest = crate::server::auth::sha256_hex(&text);
     let now = now_ms();
-    let res = state.hooks.lock().enqueue(session_id, text, now);
-    let (msg, delivered) = res.map_err(|_| {
-        ApiError::conflict(
+    let res = {
+        let mut hub = state.hooks.lock();
+        if bypass_now {
+            // What the dashboard knows (a switch at the desk while idle
+            // reaches no hook): hand-overs check it too.
+            hub.note_mode(session_id, crate::claude::caps::BYPASS_MODE);
+        }
+        hub.enqueue_from(session_id, text, now, sender_may_dangerous)
+    };
+    publish_dropped(state).await;
+    let (msg, delivered) = res.map_err(|e| match e {
+        EnqueueError::Full => ApiError::conflict(
             "queue_full",
             format!(
                 "{QUEUE_CAP} messages are already waiting for this session; wait for them to \
                  be delivered or cancel some."
             ),
-        )
+        ),
+        EnqueueError::Ended => ApiError::conflict(
+            "session_ended",
+            "This session has ended; continue it here to send it a message.",
+        ),
     })?;
     // Audit: who relayed what (by hash; never the text).
     tracing::info!(
@@ -1139,6 +1323,7 @@ async fn watch_loop(state: AppState) {
             if dropped > 0 {
                 tracing::debug!(dropped, "forgot idle hook sessions");
             }
+            publish_dropped(&state).await;
         }
     }
 }
@@ -1210,6 +1395,33 @@ mod tests {
         ));
         assert!(!argv_is_print("-p"));
         assert!(!argv_is_print(""));
+    }
+
+    #[test]
+    fn the_relay_marker_key_is_persisted_privately() {
+        let dir = tempfile::tempdir().unwrap();
+        let s = "0a1b2c3d-0000-4000-8000-000000000000";
+        let a = HookHub::load(Some(dir.path()));
+        a.touch(s, 1);
+        let b = HookHub::load(Some(dir.path()));
+        b.touch(s, 2);
+        assert_eq!(a.marker(s), b.marker(s), "same marker after a restart");
+        let path = dir.path().join(RELAY_SECRET_FILE);
+        assert_eq!(std::fs::read_to_string(&path).unwrap().len(), 64);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+            assert_eq!(mode, 0o600);
+        }
+        // A corrupt key is replaced; no data dir means a per-process key.
+        std::fs::write(&path, "junk").unwrap();
+        let c = HookHub::load(Some(dir.path()));
+        c.touch(s, 3);
+        assert_ne!(c.marker(s), a.marker(s));
+        let d = HookHub::load(None);
+        d.touch(s, 4);
+        assert!(d.marker(s).is_some());
     }
 
     #[test]
