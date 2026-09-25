@@ -425,14 +425,52 @@ pub fn trusted_in(claude_json: &Path, projects_dir: &Path, dir: &Path) -> bool {
         }
         cur = d.parent();
     }
-    let recorded = projects_dir.join(crate::claude::encode_cwd(&dir.to_string_lossy()));
-    std::fs::read_dir(recorded)
-        .map(|entries| {
-            entries
-                .flatten()
-                .any(|e| e.path().extension().is_some_and(|x| x == "jsonl"))
+    transcripts_recorded_in(projects_dir, dir)
+}
+
+/// Transcripts scanned per directory by [`transcripts_recorded_in`].
+const TRUST_SCAN_FILES: usize = 200;
+/// Lines read per transcript while looking for its `cwd`.
+const TRUST_SCAN_LINES: usize = 200;
+
+/// Whether Claude Code recorded a session in EXACTLY `dir`: a transcript
+/// under `projects/<encoded dir>` whose records name `cwd == dir`. The
+/// encoded name alone is not enough — `/x/app.v2`, `/x/app_v2` and
+/// `/x/app v2` all encode like `/x/app-v2`, and trusting a freshly cloned
+/// look-alike would run its project hooks and `.mcp.json` unasked.
+pub fn transcripts_recorded_in(projects_dir: &Path, dir: &Path) -> bool {
+    use std::io::BufRead as _;
+    let wanted = dir.to_string_lossy();
+    let wanted = match wanted.trim_end_matches('/') {
+        "" => "/",
+        w => w,
+    };
+    let recorded = projects_dir.join(crate::claude::encode_cwd(wanted));
+    let Ok(entries) = std::fs::read_dir(recorded) else {
+        return false;
+    };
+    entries
+        .flatten()
+        .filter(|e| e.path().extension().is_some_and(|x| x == "jsonl"))
+        .take(TRUST_SCAN_FILES)
+        .any(|e| {
+            let Ok(file) = std::fs::File::open(e.path()) else {
+                return false;
+            };
+            // The first record that names a cwd decides for this file.
+            std::io::BufReader::new(file)
+                .lines()
+                .take(TRUST_SCAN_LINES)
+                .map_while(Result::ok)
+                .find_map(|line| {
+                    let v: serde_json::Value = serde_json::from_str(&line).ok()?;
+                    v.get("cwd")?.as_str().map(|c| {
+                        let c = c.trim_end_matches('/');
+                        (if c.is_empty() { "/" } else { c }) == wanted
+                    })
+                })
+                .unwrap_or(false)
         })
-        .unwrap_or(false)
 }
 
 fn spawn_error(e: anyhow::Error) -> ApiError {
@@ -1075,7 +1113,7 @@ mod tests {
             &projects,
             Path::new("/elsewhere")
         ));
-        // A directory with transcripts counts as trusted.
+        // A directory with transcripts recorded in it counts as trusted.
         let enc = crate::claude::encode_cwd("/elsewhere");
         std::fs::create_dir_all(projects.join(&enc)).unwrap();
         assert!(!trusted_in(
@@ -1084,7 +1122,37 @@ mod tests {
             Path::new("/elsewhere")
         ));
         std::fs::write(projects.join(&enc).join("x.jsonl"), "{}").unwrap();
+        assert!(
+            !trusted_in(&claude_json, &projects, Path::new("/elsewhere")),
+            "a transcript that names no cwd proves nothing"
+        );
+        std::fs::write(
+            projects.join(&enc).join("x.jsonl"),
+            "{\"type\":\"summary\"}\n{\"type\":\"user\",\"cwd\":\"/elsewhere\"}\n",
+        )
+        .unwrap();
         assert!(trusted_in(&claude_json, &projects, Path::new("/elsewhere")));
+        assert!(trusted_in(
+            &claude_json,
+            &projects,
+            Path::new("/elsewhere/")
+        ));
+        // A look-alike folder that encodes the same way is not trusted.
+        let enc = crate::claude::encode_cwd("/x/app-v2");
+        std::fs::create_dir_all(projects.join(&enc)).unwrap();
+        std::fs::write(
+            projects.join(&enc).join("s.jsonl"),
+            "{\"type\":\"user\",\"cwd\":\"/x/app-v2\"}\n",
+        )
+        .unwrap();
+        assert!(trusted_in(&claude_json, &projects, Path::new("/x/app-v2")));
+        for twin in ["/x/app.v2", "/x/app_v2", "/x/app v2"] {
+            assert_eq!(crate::claude::encode_cwd(twin), enc);
+            assert!(
+                !trusted_in(&claude_json, &projects, Path::new(twin)),
+                "{twin}"
+            );
+        }
         // Missing or corrupt config is just "not trusted".
         std::fs::write(&claude_json, "{not json").unwrap();
         assert!(!trusted_in(

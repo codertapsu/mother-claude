@@ -1157,7 +1157,22 @@ async fn trusted_folders_are_the_ones_claude_already_knows() {
     use mother_claude_lib::bridge::routes::threads::cwd_is_trusted;
     assert!(!cwd_is_trusted(&st.home, &cwd));
     assert!(!cwd_is_trusted(&st.home, "relative/path"));
+    // An empty (or look-alike) transcript directory proves nothing…
     std::fs::create_dir_all(st.home.transcript_dir(&cwd)).unwrap();
+    assert!(!cwd_is_trusted(&st.home, &cwd));
+    let twin = format!("{}.v2", cwd.trim_end_matches('/'));
+    std::fs::write(
+        st.home.transcript_dir(&cwd).join("s.jsonl"),
+        format!("{}\n", json!({ "type": "user", "cwd": twin })),
+    )
+    .unwrap();
+    assert!(!cwd_is_trusted(&st.home, &cwd));
+    // …a session recorded in exactly this folder does.
+    std::fs::write(
+        st.home.transcript_dir(&cwd).join("t.jsonl"),
+        format!("{}\n", json!({ "type": "user", "cwd": cwd })),
+    )
+    .unwrap();
     assert!(cwd_is_trusted(&st.home, &cwd));
 }
 

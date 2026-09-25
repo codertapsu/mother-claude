@@ -314,7 +314,9 @@ pub async fn stored_mode(state: &AppState, thread_id: &str) -> Option<String> {
 
 /// Whether the user already trusted `cwd` in Claude Code on this machine: a
 /// `~/.claude.json` project entry (for it or a parent folder) with
-/// `hasTrustDialogAccepted`, or transcripts under `projects/<encoded cwd>`.
+/// `hasTrustDialogAccepted`, or transcripts recorded in exactly this folder
+/// ([`crate::claude::owned::transcripts_recorded_in`] — not merely a
+/// `projects/<encoded cwd>` directory, which look-alike paths share).
 /// Headless runs show no trust dialog, so an untrusted folder's project hooks
 /// and `.mcp.json` would run unasked.
 pub fn cwd_is_trusted(home: &crate::claude::ClaudeHome, cwd: &str) -> bool {
@@ -328,9 +330,10 @@ pub fn cwd_is_trusted(home: &crate::claude::ClaudeHome, cwd: &str) -> bool {
     } else {
         vec![raw, canonical]
     };
+    let projects_dir = home.projects_dir();
     if forms
         .iter()
-        .any(|p| home.transcript_dir(&p.to_string_lossy()).is_dir())
+        .any(|p| crate::claude::owned::transcripts_recorded_in(&projects_dir, p))
     {
         return true;
     }
