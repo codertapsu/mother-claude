@@ -559,8 +559,17 @@ pub fn build_one(state: &AppState, id: &str, ctx: &BuildCtx) -> Option<SessionSu
         .filter(|t| *t >= midnight)
         .and_then(|_| cost_since(state, id, midnight))
         .filter(|c| *c > 0.0);
+    // Nothing is queued in a process that is gone, nor carried over from an
+    // earlier process of the same session.
     let queued_cli = agg
-        .map(|a| a.queue.iter().filter(|q| !q.notification).count() as u32)
+        .filter(|_| live)
+        .map(|a| {
+            a.queue
+                .iter()
+                .filter(|q| !q.notification)
+                .filter(|q| process_started.is_none_or(|s| q.ts.is_none_or(|ts| ts + 5_000 >= s)))
+                .count() as u32
+        })
         .unwrap_or(0);
     let queued = queued_cli + crate::server::hooks::queued(state, id).len() as u32;
 

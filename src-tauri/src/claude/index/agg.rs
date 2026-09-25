@@ -1165,13 +1165,17 @@ impl Aggregates {
                         if let Some(note) = parse_task_notification(&text) {
                             self.complete_task(&note, ts);
                         }
+                        // A content-less enqueue is a prompt whose content
+                        // is not a plain string (e.g. with an image).
                         self.queue.push(QueuedPrompt {
                             notification: text.contains("<task-notification>"),
                             text: clip_chars(&text, TEXT_MAX),
                             ts,
                         });
                         if self.queue.len() > QUEUE_CAP {
-                            self.queue.remove(0);
+                            // Stale notifications go first.
+                            let i = self.queue.iter().position(|q| q.notification).unwrap_or(0);
+                            self.queue.remove(i);
                         }
                     }
                     Some("dequeue") | Some("remove") | Some("popAll") => {
@@ -1184,7 +1188,14 @@ impl Aggregates {
                         } else if rec.operation.is("popAll") {
                             self.queue.clear();
                         } else if !self.queue.is_empty() {
-                            self.queue.remove(0);
+                            // `dequeue` never names what it takes. The CLI
+                            // takes prompts typed while busy before task
+                            // notifications, so take the oldest prompt, else
+                            // the oldest notification (taking the head let a
+                            // stale notification absorb a prompt's dequeue,
+                            // leaving the prompt "queued" forever).
+                            let i = self.queue.iter().position(|q| !q.notification).unwrap_or(0);
+                            self.queue.remove(i);
                         }
                     }
                     _ => {}
@@ -2460,6 +2471,51 @@ mod tests {
         assert_eq!(t("b1"), "completed");
         assert_eq!(t("b2"), "stopped");
         assert!(fi.agg.queue.is_empty());
+    }
+
+    #[test]
+    fn contentless_dequeues_take_prompts_before_notifications() {
+        let q = |op: &str, content: Option<&str>| {
+            let c = content.map_or("null".to_string(), |c| serde_json::to_string(c).unwrap());
+            format!(r#"{{"type":"queue-operation","operation":"{op}","content":{c}}}"#) + "\n"
+        };
+        let note = "<task-notification>\n<task-id>zz</task-id>\n</task-notification>";
+        // A stale notification at the head, then a content-less prompt
+        // (+T +N -N), then a text prompt taken by a content-less dequeue
+        // (+H -N), as the CLI writes them.
+        let lines = q("enqueue", Some(note))
+            + &q("enqueue", None)
+            + &q("dequeue", None)
+            + &q("enqueue", Some("do this next"))
+            + &q("dequeue", None);
+        let fi = scan_str(&lines);
+        let queue = &fi.agg.queue;
+        assert_eq!(
+            queue.iter().filter(|x| !x.notification).count(),
+            0,
+            "{queue:?}"
+        );
+        assert_eq!(queue.len(), 1);
+        assert!(queue[0].notification);
+        // With only notifications left, a dequeue takes the oldest.
+        let fi = scan_str(&(q("enqueue", Some(note)) + &q("dequeue", None)));
+        assert!(fi.agg.queue.is_empty());
+    }
+
+    #[test]
+    fn a_full_queue_drops_stale_notifications_first() {
+        let mut lines =
+            String::from(r#"{"type":"queue-operation","operation":"enqueue","content":"keep me"}"#)
+                + "\n";
+        for i in 0..QUEUE_CAP {
+            lines += &format!(
+                r#"{{"type":"queue-operation","operation":"enqueue","content":"<task-notification><task-id>t{i}</task-id></task-notification>"}}"#
+            );
+            lines += "\n";
+        }
+        let fi = scan_str(&lines);
+        assert_eq!(fi.agg.queue.len(), QUEUE_CAP);
+        assert_eq!(fi.agg.queue[0].text, "keep me");
     }
 
     #[test]
