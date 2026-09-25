@@ -44,7 +44,7 @@ pub use git::{
 };
 pub use home::{best_effort_decode, encode_cwd, user_home_dir, ClaudeHome};
 pub use registry::{
-    build_registry, query_agents, read_state_jsons, scan_transcripts, summarize_transcript,
+    build_registry, query_agents, read_state_jsons, stored_transcript, summarize_transcript,
     PendingInput, PendingKind, QuestionOption, RegistryInputs, Session, SessionState, Surface,
     TranscriptSummary, UsageSummary,
 };

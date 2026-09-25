@@ -625,58 +625,49 @@ fn truncate_chars(s: &str, max: usize) -> String {
     format!("{cut}…")
 }
 
-/// Scan every transcript under `projects/` into summaries. I/O errors per
-/// file are logged and skipped.
-pub fn scan_transcripts(home: &ClaudeHome) -> Vec<TranscriptSummary> {
-    use std::sync::{Mutex, OnceLock};
-
-    use super::index::{FileIndex, FileKind};
-
-    // Incremental and streaming: one `FileIndex` per transcript, kept across
-    // calls, so only appended bytes are read again and no file is ever loaded
-    // whole (transcripts reach hundreds of MB, lines tens of MB).
-    static CACHE: OnceLock<Mutex<HashMap<std::path::PathBuf, FileIndex>>> = OnceLock::new();
-    let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
-    let mut cache = cache.lock().unwrap_or_else(|p| p.into_inner());
-
-    let mut out = Vec::new();
-    let mut seen = HashSet::new();
-    let projects = home.projects_dir();
-    let Ok(project_dirs) = std::fs::read_dir(&projects) else {
-        return out;
-    };
-    for project in project_dirs.filter_map(|e| e.ok()) {
-        let dir = project.path();
-        if !dir.is_dir() {
-            continue;
-        }
-        let Ok(files) = std::fs::read_dir(&dir) else {
-            continue;
-        };
-        for file in files.filter_map(|e| e.ok()) {
-            let path = file.path();
-            if path.extension().and_then(|e| e.to_str()) != Some("jsonl") {
-                continue;
-            }
-            let Some(id) = path.file_stem().and_then(|s| s.to_str()) else {
-                continue;
-            };
-            seen.insert(path.clone());
-            let fi = cache
-                .entry(path.clone())
-                .or_insert_with(|| FileIndex::new(path.clone(), FileKind::Main, id));
-            if let Err(e) = fi.scan(None) {
-                tracing::debug!(path = %path.display(), error = %e, "skip transcript");
-                continue;
-            }
-            if fi.offset == 0 {
-                continue;
-            }
-            out.push(summary_from_index(id, fi));
-        }
+/// The summary of one stored transcript, answered from the shared
+/// transcript index (no second index, nothing re-read that the index already
+/// holds). `None` when no main transcript has that session id. Blocking.
+pub fn stored_transcript(
+    index: &super::index::TranscriptIndex,
+    home: &ClaudeHome,
+    id: &str,
+) -> Option<TranscriptSummary> {
+    if !super::ids::is_session_id(id) {
+        return None;
     }
-    cache.retain(|p, _| seen.contains(p));
-    out
+    if index.session_files(id).and_then(|f| f.main).is_none() {
+        // Written since the last discovery pass? One stat per project dir
+        // decides before paying for a full re-list.
+        let name = format!("{id}.jsonl");
+        let on_disk = std::fs::read_dir(home.projects_dir())
+            .into_iter()
+            .flatten()
+            .flatten()
+            .any(|d| d.path().join(&name).is_file());
+        if !on_disk {
+            return None;
+        }
+        index.discover(home);
+    }
+    let files = index.session_files(id)?;
+    files.main.as_ref()?;
+    // Indexed now (a tail window when large; the rest in the background).
+    index.ensure(id, true);
+    index
+        .with_main(id, |fi| summary_from_index(id, fi))
+        .or_else(|| {
+            Some(TranscriptSummary {
+                id: id.to_string(),
+                cwd: files
+                    .project_dir
+                    .as_ref()
+                    .and_then(|d| d.file_name())
+                    .and_then(|n| n.to_str())
+                    .map(super::home::best_effort_decode),
+                ..Default::default()
+            })
+        })
 }
 
 /// A legacy [`TranscriptSummary`] from the index aggregates of a file.
@@ -685,7 +676,7 @@ fn summary_from_index(id: &str, fi: &super::index::FileIndex) -> TranscriptSumma
     let t = a.usage.total();
     TranscriptSummary {
         id: id.to_string(),
-        cwd: a.cwd.clone(),
+        cwd: fi.project_cwd().map(str::to_string),
         surface: a
             .entrypoint
             .as_deref()
@@ -1411,13 +1402,19 @@ mod tests {
     }
 
     #[test]
-    fn scan_transcripts_streams_incrementally() {
+    fn stored_transcripts_come_from_the_shared_index() {
         use std::io::Write;
         let dir = tempfile::tempdir().unwrap();
         let home = ClaudeHome::with_base(dir.path());
+        let index = super::super::index::TranscriptIndex::new(None);
+        let id = "5c0ffee0-1111-4222-8333-444455556666";
         let proj = home.transcript_dir("/Users/dev/scan");
         std::fs::create_dir_all(&proj).unwrap();
-        let path = proj.join("scan-1.jsonl");
+        // Not a session id, or no such transcript.
+        assert!(stored_transcript(&index, &home, "scan-1").is_none());
+        assert!(stored_transcript(&index, &home, id).is_none());
+        // Written after the last discovery pass: still found.
+        let path = proj.join(format!("{id}.jsonl"));
         std::fs::write(
             &path,
             concat!(
@@ -1425,16 +1422,17 @@ mod tests {
                 "\n",
                 r#"{"type":"custom-title","customTitle":"Scanned"}"#,
                 "\n",
+                r#"{"type":"user","cwd":"/Users/dev/elsewhere","message":{"content":"cd"}}"#,
+                "\n",
             ),
         )
         .unwrap();
-        std::fs::write(proj.join("empty.jsonl"), "").unwrap();
-        let all = scan_transcripts(&home);
-        let s = all.iter().find(|t| t.id == "scan-1").unwrap();
+        let s = stored_transcript(&index, &home, id).unwrap();
+        // Where the conversation lives, not where its shell drifted to.
         assert_eq!(s.cwd.as_deref(), Some("/Users/dev/scan"));
         assert_eq!(s.title.as_deref(), Some("Scanned"));
         assert_eq!(s.surface, Surface::VsCode);
-        assert!(all.iter().all(|t| t.id != "empty"));
+        // Appends are picked up by the index's own update.
         let mut f = std::fs::OpenOptions::new()
             .append(true)
             .open(&path)
@@ -1444,8 +1442,8 @@ mod tests {
             r#"{{"type":"assistant","timestamp":"2026-06-23T08:00:01.000Z","message":{{"id":"m1","model":"claude-opus-4-8","content":[{{"type":"text","text":"yo"}}],"usage":{{"input_tokens":3,"output_tokens":4}}}}}}"#
         )
         .unwrap();
-        let again = scan_transcripts(&home);
-        let s = again.iter().find(|t| t.id == "scan-1").unwrap();
+        index.update(std::slice::from_ref(&path));
+        let s = stored_transcript(&index, &home, id).unwrap();
         assert_eq!(s.usage.output_tokens, 4);
         assert_eq!(s.model.as_deref(), Some("claude-opus-4-8"));
     }
