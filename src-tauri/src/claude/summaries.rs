@@ -463,10 +463,18 @@ pub fn build_one(state: &AppState, id: &str, ctx: &BuildCtx) -> Option<SessionSu
     let live = pid.is_some() || owned_handle || bridge_thread || legacy_live;
     let agg = main.as_ref().map(|m| &m.agg);
 
+    let project_enc = files
+        .as_ref()
+        .and_then(|f| f.project_dir.as_ref())
+        .and_then(|d| d.file_name())
+        .and_then(|n| n.to_str());
     let cwd = pid
         .as_ref()
         .and_then(|p| p.cwd.clone())
-        .or_else(|| agg.and_then(|a| a.cwd.clone()))
+        .or_else(|| {
+            agg.and_then(|a| a.project_cwd(project_enc))
+                .map(str::to_string)
+        })
         .or_else(|| ctx.owned_meta.get(id).map(|(c, _)| c.clone()))
         .or_else(|| job.as_ref().and_then(|j| j.cwd.clone()))
         .or_else(|| previous.map(|p| p.cwd.clone()).filter(|c| !c.is_empty()))

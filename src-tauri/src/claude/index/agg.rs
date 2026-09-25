@@ -870,8 +870,12 @@ const PENDING_WITH_INPUT: usize = 4;
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct Aggregates {
+    /// The latest record's cwd (the shell may have moved during the session).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cwd: Option<String>,
+    /// The first record's cwd (the directory the session was launched in).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub first_cwd: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub git_branch: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1082,6 +1086,9 @@ impl Aggregates {
         let ty = rec.ty.get().unwrap_or("").to_string();
         // Identity fields ride on most records.
         if let Some(c) = rec.cwd.get().filter(|c| !c.is_empty()) {
+            if self.first_cwd.is_none() {
+                self.first_cwd = Some(c.to_string());
+            }
             if self.cwd.as_deref() != Some(c) {
                 self.cwd = Some(c.to_string());
             }
@@ -1756,12 +1763,30 @@ impl Aggregates {
         }
     }
 
+    /// The session's project directory: the cwd whose encoding names the
+    /// `projects/<enc>` directory holding the transcript (where the CLI looks
+    /// it up on `--resume`), else the first record's cwd. The latest cwd
+    /// drifts when the shell moves during the session.
+    pub fn project_cwd(&self, project_dir_name: Option<&str>) -> Option<&str> {
+        let candidates = [self.first_cwd.as_deref(), self.cwd.as_deref()];
+        project_dir_name
+            .and_then(|enc| {
+                candidates
+                    .into_iter()
+                    .flatten()
+                    .find(|c| crate::claude::home::encode_cwd(c) == enc)
+            })
+            .or(self.first_cwd.as_deref())
+            .or(self.cwd.as_deref())
+    }
+
     /// A copy without the large lists (tasks, agent calls, workflow runs,
     /// files changed) and without the usage accumulator — what a summary
     /// needs, cheap enough to take on every refresh.
     pub fn light_clone(&self) -> Aggregates {
         Aggregates {
             cwd: self.cwd.clone(),
+            first_cwd: self.first_cwd.clone(),
             git_branch: self.git_branch.clone(),
             version: self.version.clone(),
             entrypoint: self.entrypoint.clone(),
@@ -1943,6 +1968,17 @@ fn memchr_nl(s: &[u8]) -> Option<usize> {
 }
 
 impl FileIndex {
+    /// [`Aggregates::project_cwd`] for this file's `projects/<enc>` parent
+    /// (main transcripts).
+    pub fn project_cwd(&self) -> Option<&str> {
+        let enc = self
+            .path
+            .parent()
+            .and_then(|d| d.file_name())
+            .and_then(|n| n.to_str());
+        self.agg.project_cwd(enc)
+    }
+
     pub fn new(path: PathBuf, kind: FileKind, session_id: &str) -> Self {
         let name = path
             .file_name()
@@ -2150,6 +2186,37 @@ mod tests {
             messages: 1,
             ..Totals::default()
         }
+    }
+
+    #[test]
+    fn project_cwd_ignores_a_drifted_shell_cwd() {
+        let rec = |cwd: &str| {
+            format!(r#"{{"type":"user","cwd":"{cwd}","message":{{"content":"x"}}}}"#) + "\n"
+        };
+        let dir = tempfile::tempdir().unwrap();
+        let proj = dir.path().join("-w-zira-zira-client");
+        std::fs::create_dir_all(&proj).unwrap();
+        let path = proj.join("s.jsonl");
+        std::fs::write(
+            &path,
+            rec("/w/zira/zira-client") + &rec("/w/zira/zira-server") + &rec("/w/zira/zira-server"),
+        )
+        .unwrap();
+        let mut fi = FileIndex::new(path, FileKind::Main, "s");
+        fi.scan(None).unwrap();
+        assert_eq!(fi.agg.cwd.as_deref(), Some("/w/zira/zira-server"));
+        assert_eq!(fi.agg.first_cwd.as_deref(), Some("/w/zira/zira-client"));
+        assert_eq!(fi.project_cwd(), Some("/w/zira/zira-client"));
+        // The latest cwd wins when it is the one naming the project dir.
+        let a = Aggregates {
+            first_cwd: Some("/a".into()),
+            cwd: Some("/b".into()),
+            ..Default::default()
+        };
+        assert_eq!(a.project_cwd(Some("-b")), Some("/b"));
+        // No match (or no dir): the first cwd.
+        assert_eq!(a.project_cwd(Some("-c")), Some("/a"));
+        assert_eq!(a.project_cwd(None), Some("/a"));
     }
 
     #[test]
