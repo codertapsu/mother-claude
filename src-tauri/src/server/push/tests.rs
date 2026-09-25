@@ -228,7 +228,8 @@ async fn details_only_for_devices_that_opt_in() {
 #[tokio::test]
 async fn coalesces_per_session_and_skips_devices_looking_at_the_app() {
     let (base, mock) = mock_server().await;
-    let st = started(400);
+    // A generous window so a slow CI scheduler cannot split the burst.
+    let st = started(1_000);
     let sk = subscribe_mock(&st, &base, "away", "away");
     subscribe_mock(&st, &base, "watching", "watching");
     // `watching` has the app open and visible.
@@ -274,15 +275,15 @@ async fn coalesces_per_session_and_skips_devices_looking_at_the_app() {
 #[tokio::test]
 async fn answered_cards_are_not_pushed_in_the_trailing_batch() {
     let (base, mock) = mock_server().await;
-    let st = started(300);
+    let st = started(1_000);
     subscribe_mock(&st, &base, "d1", "p");
     let (_g1, _r1) = crate::pending::raise(&st, permission("s1", "Bash", "a")).await;
     let (g2, _r2) = crate::pending::raise(&st, permission("s1", "Edit", "b")).await;
     // Answered at the Mac before the window closed.
     drop(g2);
     wait_until("leading push", || mock.hits("p").len() == 1).await;
-    settle().await;
-    settle().await;
+    // Past the end of the window: the trailing batch had nothing left.
+    tokio::time::sleep(Duration::from_millis(1_400)).await;
     assert_eq!(mock.hits("p").len(), 1);
 }
 
