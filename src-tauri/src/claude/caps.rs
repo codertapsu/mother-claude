@@ -110,20 +110,15 @@ pub fn input_with(state: &AppState, facts: &SessionFacts, extra: &ExtraFacts) ->
         .tmux
         .clone()
         .or_else(|| live_rec.as_ref().and_then(|l| l.tmux.clone()));
-    let job_id = facts
+    // Only a recorded short id (pidfile `jobId`, `jobs/<short>/state.json`),
+    // the same ones `claude stop|respawn|rm|logs` get from the routes: never a
+    // guessed `id[..8]`, which the CLI renames on a collision (and which the
+    // routes would not accept anyway).
+    let background_job = facts
         .job_id
         .clone()
-        .or_else(|| live_rec.as_ref().and_then(|l| l.job_id.clone()));
-    let is_background = matches!(facts.kind.as_deref(), Some("background") | Some("bg"))
-        || live_rec
-            .as_ref()
-            .is_some_and(|l| matches!(l.kind.as_deref(), Some("background") | Some("bg")));
-    // The short id is the first 8 hex chars of the UUID unless the CLI had to
-    // rename it on a collision; prefer the recorded one.
-    let background_job = job_id.or_else(|| {
-        (is_background && facts.live && facts.id.len() >= 8 && facts.id.is_char_boundary(8))
-            .then(|| facts.id[..8].to_string())
-    });
+        .or_else(|| state.live.short_job_id(&facts.id))
+        .filter(|j| super::ids::is_short_job_id(j));
     let mode = crate::server::hooks::permission_mode(state, &facts.id)
         .or_else(|| extra.permission_mode.clone());
     let hooks_active = crate::server::hooks::hooks_active(state, &facts.id, pid);
@@ -751,7 +746,21 @@ mod tests {
             },
         );
         assert_eq!(input.tmux_pane.as_deref(), Some("%7"));
-        assert_eq!(input.background_job.as_deref(), Some("0a1b2c3d"));
+        // No recorded short id: no lifecycle buttons the routes would refuse.
+        assert_eq!(input.background_job, None);
+        let c = compute(&input);
+        assert!(!c.lifecycle.stop && !c.lifecycle.rm && !c.lifecycle.respawn);
+        let recorded = input_for(
+            &state,
+            &SessionFacts {
+                id: "0a1b2c3d-0000-4000-8000-000000000000".into(),
+                live: true,
+                kind: Some("background".into()),
+                job_id: Some("0a1b2c3e".into()),
+                ..Default::default()
+            },
+        );
+        assert_eq!(recorded.background_job.as_deref(), Some("0a1b2c3e"));
         assert!(!input.hooks_active && !input.wake && !input.bypass);
         let bridge = input_with(
             &state,
