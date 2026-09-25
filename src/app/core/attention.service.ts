@@ -86,7 +86,8 @@ export class AttentionService {
 
   private alert(): void {
     try {
-      navigator.vibrate?.([80, 60, 80]);
+      // Browsers refuse (and log) vibration before the first tap.
+      if (navigator.userActivation?.hasBeenActive ?? true) navigator.vibrate?.([80, 60, 80]);
     } catch {
       /* not supported */
     }
