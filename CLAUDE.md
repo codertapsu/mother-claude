@@ -98,16 +98,26 @@ where an override is wanted. (Verified against SDK 0.3.186 / CLI 2.1.186.)
 - **All data for both desktop and mobile flows through the axum server, never
   Tauri `invoke`.** Tauri `invoke` is allowed only for desktop-only OS concerns
   (e.g. opening System Settings for Full Disk Access). Dashboard data: HTTP/WS.
+- **Who is asking is decided once per request.** Every listener's router is
+  built with its `Ingress` (`server::context`); a middleware builds a
+  `ClientContext {ingress, peer, client_ip, local, on_machine, principal}`.
+  `local` is strict (loopback listener + loopback peer + loopback `Host` + no
+  proxy/tunnel headers + local-or-absent `Origin`), because tunnels connect
+  from 127.0.0.1. Handlers use `ctx.local` / `ctx.may_dangerous()` and the
+  guard extractors in `server::auth` (`Authed`, `DesktopOnly`, `DangerousOk`,
+  `HookOnly`, `SidecarOnly`) — never the raw TCP peer.
 - **The bridge is a second consumer of the same server, not a second server.**
-  `bridge::router` nests into the same axum app and reuses `auth::require_token`,
-  `auth::dangerous_blocked`, `state.resolvers` and `state.set_pending` — a bridge
-  tool approval shows up as a dashboard card and either surface may answer it.
-  Its extra listener binds **loopback only** and is **tokenless and
-  origin-open by default**, so local tools can call it without setup; that
-  never applies to the LAN-reachable `/v1` mount, which always requires the
-  token. Dangerous actions (`bypassPermissions`, transcript deletion, starting
-  a sign-in flow, approving a dangerous tool call or attaching a standing
-  permission grant to an approval) stay local-client-only on both.
+  `bridge::router` nests into the same axum app and reuses the same
+  `ClientContext`, the dangerous-action policy and the pending store
+  (`crate::pending`) — a bridge tool approval shows up as a dashboard card and
+  either surface may answer it. Its extra listener binds **loopback only** and
+  is **tokenless and origin-open by default** for requests from this machine
+  (`ctx.on_machine`), so local tools can call it without setup; a tunnelled
+  request needs a token, and the LAN-reachable `/v1` mount always does.
+  Dangerous actions (`bypassPermissions`, transcript deletion, starting a
+  sign-in flow, approving a dangerous tool call or attaching a standing
+  permission grant to an approval) need a local client (or a device the
+  desktop granted dangerous actions; never through the bridge port).
 - Single broadcast bus (`tokio::sync::broadcast`) fans events to webview + all
   WS clients. Backpressure-aware.
 - TLS + token auth are **mandatory** whenever the bind address is non-loopback.
