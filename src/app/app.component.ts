@@ -158,6 +158,7 @@ export class AppComponent {
   protected readonly connDetail = computed(() => connectionDetail(this.connection()));
 
   private lastState: string | null = null;
+  private lastToken = '';
 
   constructor() {
     void this.boot();
@@ -194,8 +195,19 @@ export class AppComponent {
     effect(() => {
       if (!this.ready()) return;
       const state = this.auth.state();
+      const token = this.config.token();
       const prev = this.lastState;
+      const prevToken = this.lastToken;
       this.lastState = state;
+      this.lastToken = token;
+      if (state === 'paired' && prev === 'paired' && prevToken && token !== prevToken) {
+        // Paired again while paired: the socket and the push subscription
+        // still belong to the old device.
+        this.realtime.restart();
+        void this.loadMe();
+        void this.push.resubscribe();
+        return;
+      }
       if (state === 'unpaired') {
         this.realtime.stop();
         // Read the address bar, not router.url: during the initial navigation

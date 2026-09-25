@@ -154,6 +154,25 @@ export class PushService {
     }
   }
 
+  /**
+   * This browser got a new device token (it paired again): register its
+   * existing subscription for the new device, so notifications keep coming.
+   * No permission prompt; nothing happens without a subscription.
+   */
+  async resubscribe(): Promise<void> {
+    if (!this.supported() || Notification.permission !== 'granted') return;
+    try {
+      const sub = await this.registration?.pushManager.getSubscription();
+      if (!sub) return;
+      const { publicKey } = await this.api.getVapidKey();
+      if (!sameKey(sub.options.applicationServerKey, publicKey)) return; // enable() renews it
+      await this.send(sub, publicKey);
+      this.state.set('on');
+    } catch (e) {
+      this.error.set(errorMessage(e));
+    }
+  }
+
   private subscribe(publicKey: string): Promise<PushSubscription> {
     if (!this.registration) throw new Error('The service worker is not registered.');
     return this.registration.pushManager.subscribe({

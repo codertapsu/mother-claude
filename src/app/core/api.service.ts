@@ -515,7 +515,11 @@ export class ApiService {
 
     if (res.status === 304 && opts.allowNotModified) return res;
     if (res.status === 401) {
-      if (opts.auth !== false) this.auth.handleUnauthorized();
+      // Only the credential in use now counts: an answer to a request sent
+      // with a token that was replaced meanwhile (re-pairing) says nothing.
+      if (opts.auth !== false && cfg.token === this.config.token()) {
+        this.auth.handleUnauthorized();
+      }
       const env = parseEnvelope(await res.text().catch(() => ''));
       throw new ApiError(env.message || 'Not paired', 401, 'unauthorized', env.code);
     }

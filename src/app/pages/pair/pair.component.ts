@@ -4,7 +4,9 @@ import { Router, RouterLink } from '@angular/router';
 
 import { ApiError, ApiService, errorMessage } from '../../core/api.service';
 import { AuthService } from '../../core/auth.service';
+import { DeviceService } from '../../core/device.service';
 import { describeDevice, isIos, isStandalone, urlParam } from '../../core/platform';
+import { RealtimeService } from '../../core/realtime.service';
 import { IconComponent } from '../../shared/icon.component';
 
 type Phase = 'enter' | 'exchanging' | 'waiting' | 'done' | 'error';
@@ -69,12 +71,27 @@ function groupCode(code: string): string {
           </p>
           <a class="btn primary" routerLink="/remote"><mc-icon name="qr" /> Open Remote</a>
         </div>
-      } @else if (alreadyPaired() && phase() === 'enter') {
+      } @else if (alreadyPaired() && (phase() === 'enter' || phase() === 'error')) {
         <div class="card">
           <p><mc-icon name="check" /> This device is paired with Mother Claude.</p>
+          @if (phase() === 'error') {
+            <p class="notice error" role="alert">{{ error() }}</p>
+          } @else if (codeValid()) {
+            <p class="muted small">
+              You scanned a new pairing code, but this device already works. Pairing again replaces
+              its current pairing (the old one is removed from your Mac).
+            </p>
+          }
           <div class="row">
             <a class="btn primary" routerLink="/">Open sessions</a>
-            <button class="btn" type="button" (click)="forget()">Forget this device</button>
+            @if (codeValid() && phase() === 'enter') {
+              <button class="btn" type="button" [disabled]="busy()" (click)="pairAgain()">
+                Pair again
+              </button>
+            }
+            <button class="btn" type="button" [disabled]="busy()" (click)="forget()">
+              {{ busy() ? 'Unpairing…' : 'Forget this device' }}
+            </button>
           </div>
         </div>
       } @else {
@@ -294,6 +311,8 @@ function groupCode(code: string): string {
 export class PairComponent {
   private api = inject(ApiService);
   private auth = inject(AuthService);
+  private device = inject(DeviceService);
+  private realtime = inject(RealtimeService);
   private router = inject(Router);
 
   protected readonly isDesktop = this.auth.isDesktop;
@@ -311,9 +330,12 @@ export class PairComponent {
   protected readonly ios = signal(isIos());
   /** The server offers its local CA for download (`/api/pair/ca.crt`). */
   protected readonly caAvailable = signal(false);
+  protected readonly busy = signal(false);
 
   private pollTimer?: ReturnType<typeof setTimeout>;
   private attempt = 0;
+  /** This pairing replaces the device's current one ("Pair again"). */
+  private replacing = false;
 
   constructor() {
     inject(DestroyRef).onDestroy(() => clearTimeout(this.pollTimer));
@@ -328,7 +350,9 @@ export class PairComponent {
       }
       if (!this.isDesktop()) {
         this.code.set(groupCode(normalizePairCode(fromQr)));
-        void this.exchange(normalizePairCode(fromQr));
+        // Already paired: a scan would mint a second device for this phone.
+        // Ask first ("Pair again" replaces the current pairing).
+        if (!this.alreadyPaired()) void this.exchange(normalizePairCode(fromQr));
       }
     }
   }
@@ -355,8 +379,23 @@ export class PairComponent {
     this.phase.set('enter');
   }
 
-  protected forget(): void {
-    this.auth.forget();
+  /** Unpair on the Mac too (as Settings does), not only in this browser. */
+  protected async forget(): Promise<void> {
+    this.busy.set(true);
+    try {
+      await this.device.forgetThisDevice();
+    } finally {
+      this.busy.set(false);
+    }
+  }
+
+  /** Replace this device's pairing with the scanned code. The old device is
+   * revoked only once the new token is in hand, so a bad code leaves the
+   * current pairing working. */
+  protected pairAgain(): void {
+    if (!this.codeValid()) return;
+    this.replacing = true;
+    void this.exchange(normalizePairCode(this.code()));
   }
 
   private async exchange(code: string): Promise<void> {
@@ -372,7 +411,7 @@ export class PairComponent {
       });
       if (attempt !== this.attempt) return;
       if (res.status === 'paired') {
-        this.finish(res.token);
+        void this.finish(res.token);
       } else {
         this.fingerprint.set(res.fingerprint);
         this.phase.set('waiting');
@@ -392,7 +431,7 @@ export class PairComponent {
         if (attempt !== this.attempt) return;
         switch (st.status) {
           case 'approved':
-            if (st.token) this.finish(st.token);
+            if (st.token) void this.finish(st.token);
             else this.fail(new Error('Approved, but the server sent no device key. Try again.'));
             return;
           case 'denied':
@@ -421,9 +460,16 @@ export class PairComponent {
     }, POLL_MS);
   }
 
-  private finish(token: string): void {
+  private async finish(token: string): Promise<void> {
     this.phase.set('done');
     this.revoked.set(false);
+    if (this.replacing && this.auth.state() === 'paired') {
+      // Revoke the device this browser was, with its own token, before the
+      // new token replaces it (the socket reconnects with the new one).
+      this.realtime.stop();
+      await this.device.releaseForRepair();
+    }
+    this.replacing = false;
     this.auth.completePairing(token);
     void this.router.navigate(['/'], { replaceUrl: true });
   }
