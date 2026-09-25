@@ -194,8 +194,8 @@ thing.
 this machine, which is what makes the examples in this document work as written.
 Turn it on with `MOTHER_CLAUDE_BRIDGE_REQUIRE_TOKEN=1` and present a token as
 `Authorization: Bearer <token>` (or `?token=<token>` from this machine, for
-`EventSource`, which cannot set headers). Scripts on this Mac use the `token`
-file in the app data directory (see [REMOTE.md](REMOTE.md#for-scripts)); a paired
+`EventSource`, which cannot set headers). Scripts on this Mac use the
+`script-token` file in the app data directory (see [REMOTE.md](REMOTE.md#for-scripts)); a paired
 device uses its own token.
 
 "From this machine" means a loopback connection with a loopback `Host` and no

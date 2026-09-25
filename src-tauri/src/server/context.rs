@@ -93,7 +93,7 @@ pub enum Principal {
     /// to *this request's* effective ingress: the LAN grant on the LAN, the
     /// internet grant anywhere else (resolved by `DeviceStore::authenticate`).
     Device { id: String, allow_dangerous: bool },
-    /// The persisted on-disk token (`<app data>/token`) kept for local scripts:
+    /// The persisted on-disk token (`<app data>/script-token`) kept for local scripts:
     /// accepted only when `local`; data and control routes, never admin routes
     /// (pairing, devices, remote access, plugin install) and never dangerous.
     LocalScript,

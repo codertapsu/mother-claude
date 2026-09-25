@@ -26,18 +26,20 @@ reduced route set (no `/v1`, no `/hooks/*`) and the tunnel pairing rules.
 
 ## Credentials
 
-| credential                                                       | holder                                            | accepted                            | principal                                                                                         |
-| ---------------------------------------------------------------- | ------------------------------------------------- | ----------------------------------- | ------------------------------------------------------------------------------------------------- |
-| desktop token — new on every launch, kept in memory              | the desktop webview, via the `server_info` invoke | only from a _local_ request         | Desktop: everything                                                                               |
-| local-script token — the `token` file in the app data dir (0600) | your own scripts                                  | only from a _local_ request         | data and control routes; never pairing, devices, remote access or plugin install; never dangerous |
-| device token `mcd_…`                                             | paired phones and browsers                        | any ingress                         | Device                                                                                            |
-| hook token `mch_…`                                               | the foreign-control plugin                        | only local, only `/hooks/*`         | Hook                                                                                              |
-| sidecar token `mcs_…`                                            | the Path A sidecar (per run)                      | only local, only its callback route | Sidecar                                                                                           |
+| credential                                                              | holder                                            | accepted                            | principal                                                                                         |
+| ----------------------------------------------------------------------- | ------------------------------------------------- | ----------------------------------- | ------------------------------------------------------------------------------------------------- |
+| desktop token — new on every launch, kept in memory                     | the desktop webview, via the `server_info` invoke | only from a _local_ request         | Desktop: everything                                                                               |
+| local-script token — the `script-token` file in the app data dir (0600) | your own scripts                                  | only from a _local_ request         | data and control routes; never pairing, devices, remote access or plugin install; never dangerous |
+| device token `mcd_…`                                                    | paired phones and browsers                        | any ingress                         | Device                                                                                            |
+| hook token `mch_…`                                                      | the foreign-control plugin                        | only local, only `/hooks/*`         | Hook                                                                                              |
+| sidecar token `mcs_…`                                                   | the Path A sidecar (per run)                      | only local, only its callback route | Sidecar                                                                                           |
 
 Tokens travel as `Authorization: Bearer`. `?token=` is accepted only from a
 local request (local scripts, SSE); WebSockets authenticate with their first
 frame. Only SHA-256 hashes of device tokens are stored (`devices.json`, 0600).
-No Mother Claude token is passed to a `claude` child process.
+No Mother Claude token is passed to a `claude` child process. The old master
+token (the `token` file, which earlier versions put in pairing links, logs, child
+environments and hook headers) is deleted on upgrade and never accepted again.
 
 **Being local never grants a device anything.** A raw TCP forward (`ssh -R`,
 `ngrok tcp`) can forge `Host: localhost` without adding proxy headers, so
