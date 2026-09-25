@@ -579,8 +579,9 @@ async fn messages_relay_through_tool_boundaries_and_the_wake_listener() {
         .await
         .unwrap();
     assert_eq!(r.status(), StatusCode::CONFLICT, "already delivered");
-    // The relayed message is on Mother Claude's own timeline.
-    assert!(st
+    // The transcript shows the relayed message once the CLI records it; the
+    // timeline keeps no second copy.
+    assert!(!st
         .timeline
         .list(S)
         .iter()

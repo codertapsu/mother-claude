@@ -57,7 +57,7 @@ use super::context::ClientContext;
 use super::error::{ApiError, ApiResult};
 use crate::claude::model::{
     NoticeLevel, PendingItem, PendingKind, PendingSource, QueueStatus, QueuedMessage,
-    SessionSummary, Surface, UiEvent, UiKind, UiRole,
+    SessionSummary, Surface,
 };
 use crate::pending::{self, Decision};
 use crate::state::AppState;
@@ -339,21 +339,12 @@ async fn is_owned_any(state: &AppState, id: &str) -> bool {
 
 // ───────────────────────────── outcomes ─────────────────────────────
 
-fn relayed_event(m: &QueuedMessage) -> UiEvent {
-    UiEvent {
-        id: format!("relay:{}", m.id),
-        ts: Some(now_ms()),
-        role: UiRole::User,
-        kind: UiKind::Relayed,
-        text: Some(m.text.clone()),
-        ..Default::default()
-    }
-}
-
-fn record_delivered(state: &AppState, session: &str, msgs: &[QueuedMessage]) {
+fn record_delivered(session: &str, msgs: &[QueuedMessage]) {
+    // The transcript shows the relayed text once the CLI records it (the data
+    // layer maps `[[MC-RELAY <marker>]]` records to `relayed` events), so no
+    // timeline copy here: it would show every message twice.
     for m in msgs {
         tracing::info!(session = %session, message = %m.id, "relay delivered");
-        state.timeline.push(session, relayed_event(m));
     }
 }
 
@@ -362,7 +353,7 @@ async fn apply(state: &AppState, session: &str, out: machine::Outcome) -> Value 
     for (id, reason) in &out.withdraw {
         pending::withdraw(state, id, reason).await;
     }
-    record_delivered(state, session, &out.delivered);
+    record_delivered(session, &out.delivered);
     if let Some(ms) = out.turn_finished_ms {
         crate::server::push::on_turn_finished(state, session, ms);
     }
@@ -845,7 +836,7 @@ pub async fn wait(
     let arm = state.hooks.lock().arm_waiter(&session, Some(pid), now_ms());
     match arm {
         Arm::Immediate(text, msgs) => {
-            record_delivered(&state, &session, &msgs);
+            record_delivered(&session, &msgs);
             crate::claude::caps::refresh(&state, &session).await;
             released(text)
         }
@@ -946,7 +937,7 @@ async fn enqueue_inner(
         delivered = msg.status == QueueStatus::Delivered,
         "relay queued"
     );
-    record_delivered(state, session_id, &delivered);
+    record_delivered(session_id, &delivered);
     crate::claude::caps::refresh(state, session_id).await;
     if msg.status == QueueStatus::Queued {
         watch_undelivered(state, session_id, &msg.id);
