@@ -887,6 +887,7 @@ fn schemas() -> Value {
             "type": "object",
             "properties": {
                 "thread_id": { "type": "string" },
+                "forked": { "type": "boolean", "description": "A new id branched from `resume` (asked for, or the session was running in another window)." },
                 "status": { "const": "created" },
                 "cwd": { "type": "string" },
                 "model": { "type": ["string", "null"] },

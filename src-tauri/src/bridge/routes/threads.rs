@@ -366,6 +366,34 @@ pub fn cwd_is_trusted(home: &crate::claude::ClaudeHome, cwd: &str) -> bool {
         .any(|p| p.ancestors().any(|a| a.parent().is_some() && trusted(a)))
 }
 
+/// How a conversation that names an existing session id may continue it.
+#[derive(Debug, PartialEq, Eq)]
+pub enum Takeover {
+    /// Nobody else holds it: continue in place (same id, same transcript).
+    InPlace,
+    /// Another process (a terminal, VS Code) runs it: continue in a fork, or
+    /// two processes would append to one transcript and its hooks would be
+    /// silenced as "owned".
+    Fork,
+}
+
+/// Whether session `id` may be continued by the bridge, and how. `409
+/// already_owned` when Mother Claude already drives it (Path A/B).
+pub async fn takeover(state: &AppState, id: &str) -> BridgeResult<Takeover> {
+    if crate::claude::owned::has_handle(state, id) {
+        return Err(BridgeError::conflict(
+            "already_owned",
+            "Mother Claude already drives that session; send it messages instead.",
+        )
+        .with("thread_id", id.to_string()));
+    }
+    Ok(if crate::claude::owned::live_elsewhere(state, id).await {
+        Takeover::Fork
+    } else {
+        Takeover::InPlace
+    })
+}
+
 /// `POST /threads` — start a conversation and return its id.
 pub async fn create(
     State(state): State<AppState>,
@@ -373,8 +401,14 @@ pub async fn create(
     Body(body): Body<CreateThread>,
 ) -> BridgeResult<Response> {
     let caller_cwd = body.cwd.clone();
-    let body = body.with_defaults(&state.bridge.defaults().await);
+    let mut body = body.with_defaults(&state.bridge.defaults().await);
     body.validate(&ctx)?;
+    if let (Some(resume), false) = (body.resume.clone(), body.fork) {
+        // A session still running elsewhere is continued in a fork.
+        if takeover(&state, &resume).await? == Takeover::Fork {
+            body.fork = true;
+        }
+    }
 
     let cwd = body.cwd.clone().unwrap_or_else(default_cwd);
     let path = std::path::Path::new(&cwd);
@@ -429,6 +463,7 @@ pub async fn create(
 
     Ok(created(json!({
         "thread_id": thread_id,
+        "forked": body.fork,
         "status": "created",
         "cwd": result.get("cwd").and_then(Value::as_str).unwrap_or(&cwd),
         "model": record.model,
@@ -896,6 +931,20 @@ mod tests {
         st.activity.note_permission_mode(other, "bypassPermissions");
         assert!(runs_without_approvals(&st, other).await);
         assert!(crate::claude::owned::runs_unapproved(&st, other).await);
+    }
+
+    #[tokio::test]
+    async fn a_session_live_elsewhere_is_forked_not_taken_over() {
+        let (st, _home) = test_state();
+        let id = "0a1b2c3d-0000-4000-8000-00000000000d";
+        assert_eq!(takeover(&st, id).await.unwrap(), Takeover::InPlace);
+        st.live.insert_for_test(crate::claude::live::LiveSession {
+            pid: Some(std::process::id()),
+            session_id: Some(id.into()),
+            status: Some("idle".into()),
+            ..Default::default()
+        });
+        assert_eq!(takeover(&st, id).await.unwrap(), Takeover::Fork);
     }
 
     #[test]

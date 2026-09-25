@@ -698,6 +698,18 @@ pub async fn ensure_thread_live(
     let stored = stored_thread(state, thread_id)
         .await
         .ok_or_else(|| error::BridgeError::thread_not_found(thread_id))?;
+    // Never resume a session another process still runs (or Mother Claude
+    // already drives): two writers on one transcript, and marking it owned
+    // would silence its hooks. Silently forking would break a caller that
+    // keeps using this id, so say how to fork.
+    if routes::threads::takeover(state, thread_id).await? == routes::threads::Takeover::Fork {
+        return Err(error::BridgeError::conflict(
+            "thread_live_elsewhere",
+            "That conversation is running in another window. Fork it with POST /threads \
+             {\"resume\": \"<id>\", \"fork\": true} and talk to the fork.",
+        )
+        .with("thread_id", thread_id.to_string()));
+    }
 
     let defaults = state.bridge.defaults().await;
     if crate::claude::owned::is_dangerous_mode(defaults.permission_mode.as_deref())

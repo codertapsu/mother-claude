@@ -99,7 +99,8 @@ conversation*, not accumulating a new one per message. So:
 1. **`thread_id` always wins.** Naming a conversation that is not currently
    running resumes it from disk — any past conversation, from this app or from
    your terminal, can be picked up. It does not change which conversation later
-   unaddressed messages join.
+   unaddressed messages join. A conversation still open in another window is
+   not taken over: that answers `409 thread_live_elsewhere`; fork it instead.
 2. **`createNewChat: true`** starts a fresh conversation *and* makes it the one
    later messages join. It is `false` by default, deliberately.
 3. Otherwise the message joins the **current conversation** — the one nominated
@@ -346,7 +347,7 @@ curl -sS http://127.0.0.1:5612/threads/$THREAD/run \
 | `thinking` | `on` · `off`. Omit to inherit your own Claude settings. |
 | `permission_mode` | `default` · `plan` · `acceptEdits` · `dontAsk` · `auto` · `bypassPermissions` |
 | `thread_id` | Pre-assign the conversation id (must be a UUID). |
-| `resume` | Continue an existing conversation in place. |
+| `resume` | Continue an existing conversation in place (a fork when it is still running in another window; the answer then has `forked: true` and the new id). |
 | `fork` | With `resume`, branch to a new id instead. |
 | `system_prompt_append` | Extra instructions appended to Claude Code's own prompt. |
 | `allowed_tools` / `disallowed_tools` | Restrict the tool surface. |

@@ -539,7 +539,7 @@ pub async fn continue_session(
 }
 
 /// Whether another process holds session `id` right now.
-async fn live_elsewhere(state: &AppState, id: &str) -> bool {
+pub(crate) async fn live_elsewhere(state: &AppState, id: &str) -> bool {
     if state.live.get(id).is_some() {
         return true;
     }
