@@ -6,8 +6,10 @@
 
 **Mother Claude** is a Tauri v2 (Rust) + Angular desktop app that monitors and
 controls every local Claude Code session/agent/service from one dashboard, and
-serves that *same* dashboard over the LAN (default `0.0.0.0:6725`) so it can be
-driven from a phone. Four layers:
+serves that *same* dashboard over the LAN (default `0.0.0.0:6725`, TLS on
+private addresses) and, when the user turns it on, to a tunnel through a
+loopback-only port (default `6726`), so it can be driven from a phone. Four
+layers:
 
 1. **Rust core** (`src-tauri/src/claude/`) — an adapter over `~/.claude` plus
    session control.
@@ -62,11 +64,25 @@ a rotating key and an undocumented protocol).
     `send-keys`, never while a dialog is open.
   What each session supports is `SessionSummary.control` (`claude/caps.rs`);
   the UI must stay honest about it. PTY-driving `claude attach` remains an
-  experimental extra for background jobs (`experimental` feature, default on;
-  runtime opt-out `MOTHER_CLAUDE_FOREIGN_INJECTION=0`). The "CCR v1"
-  transport is a status probe only. Never speak the cc-daemon control socket
-  or `/tmp/cc-socks/*.sock` directly. Owned sessions remain the path to
-  *reliable* control (model, effort, slash commands, images).
+  experimental extra for **background (`--bg`) jobs only**, addressed by their
+  short job id and gated as dangerous (`experimental` feature, default on;
+  runtime opt-out `MOTHER_CLAUDE_FOREIGN_INJECTION=0`). It cannot reach VS
+  Code, JetBrains, Desktop or terminal sessions: they are not supervisor-hosted
+  and have no short id. The "CCR v1" transport is a status probe only. Never
+  speak the cc-daemon control socket or `/tmp/cc-socks/*.sock` directly.
+  Owned sessions remain the path to *reliable* control (model, effort, slash
+  commands, images).
+- **Limits of the hooks channel** (verified on CLI 2.1.282): no model, effort or
+  slash-command changes (tmux or an owned fork only); the permission mode
+  changes only together with an approval (`updatedPermissions` `setMode`);
+  interrupts land at the next tool boundary (`continue:false`), never
+  mid-generation; relayed messages reach the model as `additionalContext` or
+  the `mc-wake` stderr and never show in the session's own UI; headless
+  `claude -p`/SDK runs are never woken, and their `PermissionRequest` is held
+  only briefly (`MOTHER_CLAUDE_HEADLESS_HOLD_SECS`, default 120) and only while
+  a dashboard is connected; a `bypassPermissions` session raises almost no
+  `PermissionRequest`s; sessions started before the install need
+  `/reload-plugins`.
 
 **Design the product around owning sessions.** Do not block on foreign injection.
 
@@ -79,26 +95,32 @@ undocumented research-preview internals.
 
 | Source | Path / command | Gives |
 |---|---|---|
-| **Live roster** | `~/.claude/sessions/<pid>.json` (**never** the `*.key` files beside them) | `pid, sessionId, cwd, kind, entrypoint, status (busy/idle/waiting), waitingFor, tmux, jobId, …` — `claude/live.rs` |
-| Background jobs | `~/.claude/jobs/<short>/state.json` | short job id (`daemonShort`), state, detail |
-| Running roster | `~/.claude/daemon/roster.json` | `{proto, supervisorPid, updatedAt, workers}` |
-| Daemon health | `claude daemon status` | pid, version, uptime |
-| **Transcripts (all surfaces)** | `~/.claude/projects/<encoded-cwd>/<id>.jsonl` | append-only NDJSON, tailable — indexed incrementally by `claude/index.rs` (checkpoint `index-cache.json` in the app data dir) |
-| Subagents | `projects/<enc>/<id>/subagents/agent-<aid>.{jsonl,meta.json}` | per-agent transcripts, type, parent tool use |
-| Workflows | `projects/<enc>/<id>/subagents/workflows/<run>/journal.jsonl`, `workflows/<run>.json` | running / finished workflow agents |
+| **Live roster** | `~/.claude/sessions/<pid>.json` (**never** the `*.key` files beside them) | `pid, sessionId, cwd, kind, entrypoint, status (busy/idle/waiting), waitingFor, tmux, jobId, procStart, …` — `claude/live.rs` |
+| Background jobs | `~/.claude/jobs/<short>/state.json` (keyed by the **short** job id, not the session uuid) | short id (`daemonShort`), `sessionId`, state (`working/blocked/done/failed/stopped`), detail — also for stopped jobs with no process |
+| Background lifecycle | `claude stop\|respawn\|rm <short>`, `claude logs <short>` | lifecycle; the terminal view (rendered with `vt100`) |
+| Daemon health | `claude daemon status` | pid, version, uptime (`/api/daemon`, `/api/services`) |
+| **Transcripts (all surfaces)** | `~/.claude/projects/<encoded-cwd>/<id>.jsonl` | append-only NDJSON, tailable — indexed incrementally by `claude/index.rs` (checkpoint `index-cache.json` in the app data dir); found by session id, since the cwd can drift |
+| Subagents | `projects/<enc>/<id>/subagents/agent-<aid>.{jsonl,meta.json}` | per-agent transcripts (written per block, so live), type, parent tool use |
+| Workflows | `projects/<enc>/<id>/subagents/workflows/<run>/journal.jsonl`, `workflows/<run>.json` | running (`started` − `result`) / finished workflow agents |
 | Background task output | `<tmp>/claude-<uid>/<enc>/<id>/tasks/<task>.output` | shell output tail (read on demand, 16 KB) |
-| Command history | `~/.claude/history.jsonl` | command usage |
-| MCP inventory | `~/.claude.json`, project `.mcp.json` | configured MCP servers |
-| Daemon log | `~/.claude/daemon.log` | supervisor logs |
+| MCP inventory | `~/.claude.json` `mcpServers` | configured MCP servers (`env`/`headers` values redacted before serving) |
+| Trusted folders | `~/.claude.json` `projects[<dir>].hasTrustDialogAccepted` | where non-desktop callers may spawn/continue |
+| Claude sign-in | `claude auth status --json` | account, checked at startup (`claude/auth.rs`) |
 | Worktrees | `<project>/.claude/worktrees/<name>` | per-session isolated edits |
-| Live events | **Hooks** from the Mother Claude plugin (`mc-hook` → `POST /hooks/event`, `mc-wake` → `POST /hooks/wait`) | tool, prompt, subagent, stop and session events; held approvals |
+| tmux panes | pidfile `tmux` (`session:@win.%pane`) + `tmux list-panes -a` on the default socket, then `${TMUX_TMPDIR:-/tmp}/tmux-<uid>/*` | the pane to type into / capture (`claude/tmux.rs`) |
+| Live events | **Hooks plugin** (`mc-hook` → `POST /hooks/event`, `mc-wake` → `POST /hooks/wait?pid=`), installed via `claude plugin …`, status from `claude plugin list --json` | tool, prompt, permission, subagent, compaction, notification, stop and session events; held approvals; relays and wake-ups (`server/hooks.rs`, `claude/hooks.rs`) |
 
 Key facts: `<encoded-cwd>` = absolute path with every non-alphanumeric char → `-`.
 The *same* `projects` store is written by CLI, VS Code/JetBrains, and Claude
 Desktop — reading it captures all surfaces for free. Transcript `tool_use`/
 `tool_result` are content blocks inside `message.content`, **not** top-level event
-types. Token usage is in `message.usage`. Tail with a byte offset, split on `\n`,
-buffer the trailing partial line. Transcripts are pruned after 30 days.
+types. Token usage is in `message.usage` (de-duplicate by `message.id`, keep the
+last record). Tail with a byte offset, split on `\n`, buffer the trailing partial
+line; lines can be tens of MB, so never read a whole file. A main transcript
+flushes each API message only when it completes (no live token stream for
+foreign sessions); subagent files are written per block. Transcripts are pruned
+after 30 days. `~/.claude/daemon/roster.json`, `history.jsonl` and `daemon.log`
+exist but nothing reads them (`home.rs` only knows their paths).
 
 The roster no longer spawns `claude agents --json` (its shape drifts and it is
 slow): pidfiles give status and liveness is `kill(pid, 0)` plus the process
@@ -170,7 +192,13 @@ where an override is wanted. (Verified against SDK 0.3.186 / CLI 2.1.186.)
 - Single broadcast bus (`tokio::sync::broadcast`) fans events to webview + all
   WS clients. Backpressure-aware.
 - TLS + token auth are **mandatory** whenever the bind address is non-loopback.
-  Dangerous approvals (`bypassPermissions`) are local-desktop-only by default.
+  Dangerous actions are desktop-only by default; a device gets them only through
+  a per-device grant set from the desktop (LAN and internet separately).
+- **Never write under `~/.claude` from our code.** Changes there happen only
+  through Claude Code itself on an explicit user action: `claude plugin
+  install/uninstall` from the desktop, a standing grant the user chose, a
+  transcript purge through the SDK. Tests and scripts must never run the plugin
+  installer against the real config.
 
 ## Build / lint / test commands
 
