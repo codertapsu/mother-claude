@@ -102,6 +102,8 @@ export class SessionContext {
   readonly commands = signal<CommandInfo[] | null>(null);
 
   private subs = new Subscription();
+  /** The `/commands` request in flight (a burst of keystrokes shares it). */
+  private commandsLoading?: Promise<CommandInfo[]>;
   private tick = 0;
   private detailTimer?: ReturnType<typeof setTimeout>;
 
@@ -156,6 +158,7 @@ export class SessionContext {
     this.agents.set([]);
     this.workflows.set([]);
     this.commands.set(null);
+    this.commandsLoading = undefined;
     this.openPicker.set(null);
     this.terminalOpen.set(false);
     if (!id) return;
@@ -210,18 +213,27 @@ export class SessionContext {
     }
   }
 
-  async loadCommands(): Promise<CommandInfo[]> {
+  loadCommands(): Promise<CommandInfo[]> {
     const have = this.commands();
-    if (have) return have;
-    try {
-      const res = await this.api.getCommands(this.id());
-      const list = (res.commands ?? []).filter((c) => c?.name);
-      this.commands.set(list);
+    if (have) return Promise.resolve(have);
+    if (this.commandsLoading) return this.commandsLoading;
+    const id = this.id();
+    const load = (async () => {
+      let list: CommandInfo[];
+      try {
+        const res = await this.api.getCommands(id);
+        list = (res.commands ?? []).filter((c) => c?.name);
+      } catch {
+        list = [];
+      }
+      if (id === this.id()) {
+        this.commands.set(list);
+        this.commandsLoading = undefined;
+      }
       return list;
-    } catch {
-      this.commands.set([]);
-      return [];
-    }
+    })();
+    this.commandsLoading = load;
+    return load;
   }
 
   // ─────────────────────────────────────────────────────────── Actions

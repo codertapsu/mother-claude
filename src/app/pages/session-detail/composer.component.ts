@@ -43,6 +43,8 @@ interface PaletteItem {
 }
 
 const DRAFT_PREFIX = 'mc_draft_';
+/** Text before the caret that is a `/command` being typed. */
+const SLASH_QUERY = /^\/[^\s]*$/;
 const RELAY_EXPLAINED_KEY = 'mc_relay_explained';
 /** Commands the header handles with its own pickers. */
 const PICKER_COMMANDS: Record<string, PickerKind> = {
@@ -116,6 +118,8 @@ export class ComposerComponent {
   protected readonly active = signal(0);
   private fileQueryTimer?: ReturnType<typeof setTimeout>;
   private fileQuerySeq = 0;
+  /** Bumped on every palette change: a late `/commands` answer checks it. */
+  private slashSeq = 0;
   private draftTimer?: ReturnType<typeof setTimeout>;
   private nextId = 1;
 
@@ -286,11 +290,10 @@ export class ComposerComponent {
   // ─────────────────────────────────────────────────────────── Palette
 
   private updatePalette(el: HTMLTextAreaElement): void {
-    const value = el.value;
-    const caret = el.selectionStart ?? value.length;
-    const before = value.slice(0, caret);
-    if (this.caps()?.slashCommands && /^\/[^\s]*$/.test(before)) {
-      void this.showCommands(before.slice(1).toLowerCase());
+    const seq = ++this.slashSeq;
+    const before = this.beforeCaret(el);
+    if (this.caps()?.slashCommands && SLASH_QUERY.test(before)) {
+      void this.showCommands(before.slice(1).toLowerCase(), seq);
       return;
     }
     const at = /(?:^|\s)@([^\s@]*)$/.exec(before);
@@ -301,8 +304,18 @@ export class ComposerComponent {
     this.closePalette();
   }
 
-  private async showCommands(q: string): Promise<void> {
+  private beforeCaret(el: HTMLTextAreaElement): string {
+    const value = el.value;
+    return value.slice(0, el.selectionStart ?? value.length);
+  }
+
+  private async showCommands(q: string, seq: number): Promise<void> {
     const server = await this.ctx.loadCommands();
+    // The first `/commands` can take a while over a tunnel: if the text
+    // moved on meanwhile (the `/` deleted, a newer query), this answer is
+    // stale and must not reopen the palette (Enter would then pick from it).
+    const el = this.ta()?.nativeElement;
+    if (seq !== this.slashSeq || !el || !SLASH_QUERY.test(this.beforeCaret(el))) return;
     const seen = new Set<string>();
     const all = [...BUILTIN, ...server].filter((c) => {
       const name = c.name.replace(/^\//, '');
@@ -347,6 +360,7 @@ export class ComposerComponent {
     this.palette.set(null);
     this.paletteItems.set([]);
     this.fileQuerySeq++;
+    this.slashSeq++;
   }
 
   /** Arrow keys / Enter / Tab / Escape while the palette is open. */
