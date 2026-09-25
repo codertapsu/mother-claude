@@ -327,13 +327,18 @@ impl PendingStore {
             return Err(RespondError::NotAnswerable);
         }
         validate(&slot.item, &decision)?;
-        if decision.is_allow() && is_dangerous(&slot.item, &decision) && !ctx.may_dangerous() {
+        let dangerous = decision.is_allow() && is_dangerous(&slot.item, &decision);
+        if dangerous && !ctx.may_dangerous() {
             return Err(RespondError::Forbidden(
                 "Approving a dangerous action — bypassPermissions, or an \"always allow\" that \
                  is written to settings or widens the filesystem — is restricted to this \
                  computer or a device you granted dangerous actions."
                     .into(),
             ));
+        }
+        if dangerous {
+            // Audited, and a device passing the gate raises a desktop notice.
+            ctx.note_dangerous("approve a dangerous action");
         }
         let Some(mut slot) = g.slots.remove(id) else {
             return Err(RespondError::NotFound);
@@ -988,9 +993,23 @@ impl Drop for PendingGuard {
     }
 }
 
-/// Broadcast the remembered resolution of `id` (`pendingResolved`).
+/// Broadcast the remembered resolution of `id` (`pendingResolved`) and keep
+/// a `decision` row for the session's timeline (merged into transcript pages).
 fn publish_resolution(state: &AppState, id: &str) {
     if let Some(r) = state.pending.resolution(id) {
+        if let Some(text) = r.text.clone().filter(|t| !t.trim().is_empty()) {
+            state.timeline.push(
+                &r.session,
+                crate::claude::model::UiEvent {
+                    id: format!("decision:{}", r.id),
+                    ts: Some(r.at),
+                    role: crate::claude::model::UiRole::System,
+                    kind: crate::claude::model::UiKind::Decision,
+                    text: Some(text),
+                    ..Default::default()
+                },
+            );
+        }
         crate::server::ws::publish_pending_resolved(state, r);
     }
 }
