@@ -262,6 +262,15 @@ interface Attachment extends ImageAttachment {
         justify-content: center;
         cursor: pointer;
       }
+      /* A 44 px hit area from the thumbnail's corner (it clips overflow). */
+      .remove::before {
+        content: '';
+        position: absolute;
+        top: -0.2rem;
+        right: -0.2rem;
+        width: var(--tap);
+        height: var(--tap);
+      }
       .actions {
         display: flex;
         align-items: center;

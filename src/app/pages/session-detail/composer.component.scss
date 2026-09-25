@@ -177,8 +177,8 @@ textarea:focus {
 }
 .rm {
   position: absolute;
-  top: -0.4rem;
-  right: -0.4rem;
+  top: 0.15rem;
+  right: 0.15rem;
   width: 1.5rem;
   height: 1.5rem;
   border-radius: 50%;
@@ -190,6 +190,16 @@ textarea:focus {
   justify-content: center;
   padding: 0;
   cursor: pointer;
+}
+/* A 44 px hit area from the thumbnail's corner (the strip scrolls, so it
+   would clip anything outside the thumbnail). */
+.rm::before {
+  content: '';
+  position: absolute;
+  top: -0.15rem;
+  right: -0.15rem;
+  width: var(--tap);
+  height: var(--tap);
 }
 .spin {
   width: 1rem;
