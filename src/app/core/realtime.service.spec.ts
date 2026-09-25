@@ -116,6 +116,20 @@ describe('RealtimeService', () => {
     return s;
   };
 
+  it('comes back to Live when a frame arrives after an offline blip', () => {
+    const s = goLive();
+    expect(rt.connection()).toBe('open');
+    window.dispatchEvent(new Event('offline'));
+    expect(rt.connection()).toBe('offline');
+    window.dispatchEvent(new Event('online'));
+    // The probe went out on the surviving socket…
+    expect(s.sent.some((f) => f.t === 'ping')).toBeTrue();
+    // …and its answer proves the link.
+    s.frame({ t: 'pong' });
+    expect(rt.connection()).toBe('open');
+    expect(rt.canAct()).toBeTrue();
+  });
+
   it('keeps the device token when REST still accepts it after a 4401 close', async () => {
     backend.routes.set('/me', () => ({ status: 200, body: me() }));
     const s = goLive();

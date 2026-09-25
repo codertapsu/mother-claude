@@ -110,6 +110,13 @@ const POLL_HIDDEN_MS = 15_000;
 const TRANSCRIPT_POLL_MS = 2_000;
 /** While limited, try the socket again this often. */
 const WS_RETRY_LIMITED_MS = 60_000;
+/** States a frame on an authed socket proves wrong. */
+const RESTORABLE: ReadonlySet<ConnectionState> = new Set<ConnectionState>([
+  'connecting',
+  'reconnecting',
+  'offline',
+  'unreachable',
+]);
 
 interface SubEntry {
   session: string;
@@ -411,6 +418,9 @@ export class RealtimeService {
       if (this.socket !== socket) return;
       this.lastFrameAt = Date.now();
       this.lastDataAtS.set(this.lastFrameAt);
+      // A frame on an authed socket proves the link works, whatever an
+      // `offline` event (e.g. a Wi-Fi hand-off the socket survived) said.
+      if (this.authed && RESTORABLE.has(this.connectionS())) this.connectionS.set('open');
       this.dispatch(ev.data);
     };
     socket.onclose = (ev: CloseEvent) => {
@@ -779,6 +789,9 @@ export class RealtimeService {
       if (this.started && this.connectionS() !== 'unpaired') {
         this.stopPolling();
         this.connectionS.set('offline');
+        // The socket may survive (a localhost socket always does): the probe
+        // either brings a frame back (⇒ open again) or reconnects.
+        this.probe();
       }
     });
     this.zone.runOutsideAngular(() => {
