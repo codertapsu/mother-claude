@@ -1,0 +1,222 @@
+:host {
+  display: block;
+}
+
+section.card {
+  margin-bottom: 0.9rem;
+}
+h2.first {
+  margin-top: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+h3 {
+  margin: 1rem 0 0.4rem;
+  font-size: 0.9rem;
+}
+
+.grid {
+  display: grid;
+  gap: 0.9rem;
+  margin-bottom: 0.9rem;
+}
+.grid section.card {
+  margin: 0;
+}
+@media (min-width: 1100px) {
+  .grid {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    align-items: start;
+  }
+}
+
+.approvals {
+  border-color: var(--amber-border);
+}
+.approval {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 0.6rem 0;
+}
+.approval + .approval {
+  border-top: 1px solid var(--border);
+}
+.who {
+  display: flex;
+  flex-direction: column;
+}
+.fp {
+  font-family: var(--mono);
+  font-size: 2rem;
+  font-weight: 700;
+  letter-spacing: 0.3em;
+  color: var(--accent-text);
+}
+.fp-hint {
+  margin: 0 0 0.25rem;
+}
+
+.pair {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.65rem;
+}
+.pair p {
+  margin: 0;
+}
+.addr {
+  width: 100%;
+}
+.qr-wrap {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  align-items: flex-start;
+  width: 100%;
+  margin-top: 0.25rem;
+}
+.qr-wrap.stale .qr {
+  opacity: 0.25;
+}
+.qr {
+  flex: 0 0 auto;
+  width: 13.5rem;
+  height: 13.5rem;
+  max-width: 100%;
+  padding: 0.5rem;
+  background: var(--qr-bg);
+  border-radius: var(--radius-sm);
+}
+.qr ::ng-deep svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.code-info {
+  flex: 1 1 12rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  align-items: flex-start;
+}
+.code {
+  font-size: 1.3rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+
+.internet .switch + .switch {
+  margin-top: 0.5rem;
+}
+.tunnel {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.35rem 0;
+}
+.manual {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+.manual .field {
+  flex: 1;
+}
+.cmds {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.cmd {
+  display: grid;
+  grid-template-columns: 5.5rem minmax(0, 1fr) auto;
+  gap: 0.5rem;
+  align-items: center;
+}
+.cmd-name {
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+.cmd-text {
+  display: block;
+  overflow-x: auto;
+  white-space: nowrap;
+  padding: 0.35rem 0.5rem;
+}
+.warnings {
+  list-style: none;
+  padding: 0;
+  margin: 0.75rem 0 0;
+}
+.warnings li {
+  display: flex;
+  gap: 0.4rem;
+  align-items: flex-start;
+  font-size: 0.85rem;
+  padding: 0.25rem 0;
+  color: var(--amber);
+}
+.warnings mc-icon {
+  margin-top: 0.15rem;
+}
+.bridge {
+  margin: 0.9rem 0 0;
+}
+
+.device {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 1rem;
+  padding: 0.6rem 0;
+}
+.dmain {
+  flex: 1 1 14rem;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.dname {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+.rename {
+  display: flex;
+  gap: 0.4rem;
+  align-items: center;
+}
+.switch.dangerous {
+  min-height: 0;
+}
+
+.foreign .kv {
+  margin: 0.75rem 0;
+}
+.notes {
+  margin: 0 0 0.5rem;
+  padding-left: 1.1rem;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+.actions {
+  margin-top: 0.5rem;
+}
+
+@media (max-width: 767px) {
+  .cmd {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+  .cmd-name {
+    grid-column: 1 / -1;
+  }
+  .manual {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}

@@ -31,6 +31,10 @@ export const routes: Routes = [
     loadComponent: () =>
       import('./pages/new-session/new-session.component').then((m) => m.NewSessionComponent),
   },
+  {
+    path: 'remote',
+    loadComponent: () => import('./pages/remote/remote.component').then((m) => m.RemoteComponent),
+  },
   // Phone entry: #/pair?c=CODE from a QR code, or a typed code.
   {
     path: 'pair',
