@@ -226,17 +226,27 @@ async fn credentials_are_accepted_only_where_they_belong() {
 async fn failed_credentials_are_rate_limited() {
     let (base, _st) = boot().await;
     let c = http();
+    // Through a tunnel (the client ip is the last X-Forwarded-For value).
     let mut last = StatusCode::OK;
     for _ in 0..25 {
         last = c
             .get(format!("{base}/api/sessions"))
             .bearer_auth("mcd_not-a-device")
+            .header("x-forwarded-for", "203.0.113.50")
             .send()
             .await
             .unwrap()
             .status();
     }
     assert_eq!(last, StatusCode::TOO_MANY_REQUESTS);
+    // A machine-local caller is never limited.
+    let r = c
+        .get(format!("{base}/api/sessions"))
+        .bearer_auth("mcd_not-a-device")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), StatusCode::UNAUTHORIZED);
 }
 
 /// The sidecar raises a prompt and blocks; the dashboard answers through
