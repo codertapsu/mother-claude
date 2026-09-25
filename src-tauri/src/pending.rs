@@ -981,6 +981,8 @@ pub struct PendingGuard {
     state: AppState,
     id: String,
     session_id: String,
+    /// The withdraw reason used on drop (it decides the published outcome).
+    reason: &'static str,
 }
 
 impl PendingGuard {
@@ -991,16 +993,17 @@ impl PendingGuard {
     pub fn session_id(&self) -> &str {
         &self.session_id
     }
+
+    /// Nobody answered in time: withdraw the item as `expired` ("Nobody
+    /// answered in time") rather than `cancelled (request ended)`.
+    pub fn expire(mut self) {
+        self.reason = "timeout";
+    }
 }
 
 impl Drop for PendingGuard {
     fn drop(&mut self) {
-        if self
-            .state
-            .pending
-            .withdraw(&self.id, "request ended")
-            .is_none()
-        {
+        if self.state.pending.withdraw(&self.id, self.reason).is_none() {
             return; // already resolved (and published) or withdrawn
         }
         publish_resolution(&self.state, &self.id);
@@ -1056,6 +1059,7 @@ pub async fn raise(
         state: state.clone(),
         id: id.clone(),
         session_id: session_id.clone(),
+        reason: "request ended",
     };
     changed(state, &session_id).await;
     if let Some(item) = state.pending.get(&id) {
@@ -1064,11 +1068,31 @@ pub async fn raise(
     (guard, rx)
 }
 
+/// How waiting for a decision ended.
+#[derive(Debug)]
+pub enum WaitEnd {
+    Decided(Decision),
+    /// Withdrawn (the sender was dropped).
+    Closed,
+    /// Nobody answered within the timeout.
+    TimedOut,
+}
+
+/// Await a decision for at most `timeout`, telling a timeout apart from a
+/// withdrawal (call [`PendingGuard::expire`] on a timeout).
+pub async fn wait_end(rx: oneshot::Receiver<Decision>, timeout: Duration) -> WaitEnd {
+    match tokio::time::timeout(timeout, rx).await {
+        Ok(Ok(d)) => WaitEnd::Decided(d),
+        Ok(Err(_)) => WaitEnd::Closed,
+        Err(_) => WaitEnd::TimedOut,
+    }
+}
+
 /// Await a decision for at most `timeout`. `None` = timed out or withdrawn.
 pub async fn wait(rx: oneshot::Receiver<Decision>, timeout: Duration) -> Option<Decision> {
-    match tokio::time::timeout(timeout, rx).await {
-        Ok(Ok(d)) => Some(d),
-        _ => None,
+    match wait_end(rx, timeout).await {
+        WaitEnd::Decided(d) => Some(d),
+        WaitEnd::Closed | WaitEnd::TimedOut => None,
     }
 }
 
@@ -1671,6 +1695,35 @@ mod tests {
             }
         }
         assert!(published, "clients must drop the card");
+    }
+
+    #[tokio::test]
+    async fn an_expired_guard_reports_expired() {
+        let (st, _home) = test_state();
+        let (guard, _rx) = raise(&st, item("s1")).await;
+        let id = guard.id().to_string();
+        guard.expire();
+        let r = st.pending.resolution(&id).unwrap();
+        assert_eq!(r.outcome, PendingOutcome::Expired);
+        assert_eq!(r.by.unwrap().kind, ResolverKind::Timeout);
+        let (guard, _rx) = raise(&st, item("s1")).await;
+        let id = guard.id().to_string();
+        drop(guard);
+        assert_eq!(
+            st.pending.resolution(&id).unwrap().outcome,
+            PendingOutcome::Cancelled
+        );
+        let (_tx, rx) = oneshot::channel::<Decision>();
+        assert!(matches!(
+            wait_end(rx, Duration::from_millis(5)).await,
+            WaitEnd::TimedOut
+        ));
+        let (tx, rx) = oneshot::channel::<Decision>();
+        drop(tx);
+        assert!(matches!(
+            wait_end(rx, Duration::from_secs(5)).await,
+            WaitEnd::Closed
+        ));
     }
 
     #[test]

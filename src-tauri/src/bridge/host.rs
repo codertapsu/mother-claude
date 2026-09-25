@@ -648,17 +648,21 @@ async fn raise_request_inner(state: AppState, frame: Value) {
 
     let st = state.clone();
     tokio::spawn(async move {
-        let result = tokio::select! {
-            v = bridge_rx => v.ok(),
-            d = dash_rx => d.ok().map(|d| decision_to_result(&kind, &item, &d)),
-            _ = tokio::time::sleep(REQUEST_TIMEOUT) => None,
-        }
-        .unwrap_or_else(
+        let (result, timed_out) = tokio::select! {
+            v = bridge_rx => (v.ok(), false),
+            d = dash_rx => (d.ok().map(|d| decision_to_result(&kind, &item, &d)), false),
+            _ = tokio::time::sleep(REQUEST_TIMEOUT) => (None, true),
+        };
+        let result = result.unwrap_or_else(
             || json!({ "behavior": "deny", "message": "Timed out waiting for a human." }),
         );
 
         st.bridge.host.take_request(&request_id);
-        drop(guard);
+        if timed_out {
+            guard.expire();
+        } else {
+            drop(guard);
+        }
 
         let payload = json!({ "requestId": request_id, "result": result });
         if let Err(e) = st

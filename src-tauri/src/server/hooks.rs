@@ -700,6 +700,10 @@ impl Drop for HeldGuard {
 enum Answer {
     Decision(Decision),
     Interrupt,
+    /// Withdrawn (answered elsewhere, turn over, …).
+    Closed,
+    /// Nobody answered within the hold.
+    Expired,
 }
 
 async fn permission_request(
@@ -758,14 +762,22 @@ async fn permission_request(
         }
     };
     let answer = tokio::select! {
-        d = pending::wait(rx, hold_for) => d.map(Answer::Decision),
-        () = interrupt => Some(Answer::Interrupt),
+        end = pending::wait_end(rx, hold_for) => match end {
+            pending::WaitEnd::Decided(d) => Answer::Decision(d),
+            pending::WaitEnd::Closed => Answer::Closed,
+            pending::WaitEnd::TimedOut => Answer::Expired,
+        },
+        () = interrupt => Answer::Interrupt,
     };
-    drop(guard);
+    if matches!(answer, Answer::Expired) {
+        guard.expire();
+    } else {
+        drop(guard);
+    }
     match answer {
-        Some(Answer::Decision(d)) => hook_decision(&item, &d),
-        Some(Answer::Interrupt) => relay::interrupt_decision(),
-        None => relay::empty(),
+        Answer::Decision(d) => hook_decision(&item, &d),
+        Answer::Interrupt => relay::interrupt_decision(),
+        Answer::Closed | Answer::Expired => relay::empty(),
     }
 }
 

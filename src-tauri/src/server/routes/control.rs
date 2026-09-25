@@ -642,8 +642,16 @@ pub async fn permission_request(
     let item = sidecar_item(&id, body);
     let is_question = item.kind == PendingKind::Question;
     let (guard, rx) = pending::raise(&state, item).await;
-    let decision = pending::wait(rx, SIDECAR_TIMEOUT).await;
-    drop(guard);
+    let end = pending::wait_end(rx, SIDECAR_TIMEOUT).await;
+    if matches!(end, pending::WaitEnd::TimedOut) {
+        guard.expire();
+    } else {
+        drop(guard);
+    }
+    let decision = match end {
+        pending::WaitEnd::Decided(d) => Some(d),
+        pending::WaitEnd::Closed | pending::WaitEnd::TimedOut => None,
+    };
     Json(match decision {
         Some(d) if d.is_allow() && is_question => {
             json!({ "behavior": "answer", "answer": d.answer_text().unwrap_or_default() })
