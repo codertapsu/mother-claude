@@ -8,6 +8,8 @@ import {
   agentKindIcon,
   agentKindLabel,
   agentStatusTone,
+  isTaskAgent,
+  mergeBackgroundTasks,
   orderAgentTree,
 } from '../../shared/agents';
 import { ChipComponent } from '../../shared/chip.component';
@@ -364,16 +366,23 @@ export class AgentsPanelComponent {
   protected readonly ctx = inject(SessionContext);
   protected readonly output = signal<BackgroundTask | null>(null);
 
-  /** Agents that belong to no workflow run, as a tree. */
+  /** Agents that belong to no workflow run, as a tree. Shells and monitors
+   * are listed once, under "Background tasks" (they have no transcript). */
   protected readonly tree = computed(() =>
     orderAgentTree(
-      this.ctx.agents().filter((a) => !a.workflowRunId || !this.runIds().has(a.workflowRunId)),
+      this.ctx
+        .agents()
+        .filter(
+          (a) => !isTaskAgent(a) && (!a.workflowRunId || !this.runIds().has(a.workflowRunId)),
+        ),
     ),
   );
   private readonly runIds = computed(() => new Set(this.ctx.workflows().map((w) => w.runId)));
   protected readonly runs = computed(() =>
     this.ctx.workflows().map((run) => {
-      const agents = orderAgentTree(this.ctx.agents().filter((a) => a.workflowRunId === run.runId));
+      const agents = orderAgentTree(
+        this.ctx.agents().filter((a) => !isTaskAgent(a) && a.workflowRunId === run.runId),
+      );
       const current = new Set(
         agents.filter((a) => a.status === 'running' && a.phase).map((a) => a.phase as string),
       );
@@ -391,7 +400,7 @@ export class AgentsPanelComponent {
     }),
   );
   protected readonly tasks = computed(() =>
-    [...this.ctx.tasks()].sort(
+    mergeBackgroundTasks(this.ctx.tasks(), this.ctx.agents()).sort(
       (a, b) =>
         Number(b.status === 'running') - Number(a.status === 'running') ||
         (b.startedAt ?? 0) - (a.startedAt ?? 0),

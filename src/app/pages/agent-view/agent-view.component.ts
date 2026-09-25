@@ -9,21 +9,32 @@ import { NoticeService } from '../../core/notice.service';
 import { RealtimeService } from '../../core/realtime.service';
 import { TranscriptStore } from '../../core/transcript-store';
 import { ActivityLineComponent } from '../../shared/activity-line.component';
-import { agentKindIcon, agentKindLabel, agentStatusTone } from '../../shared/agents';
+import {
+  agentKindIcon,
+  agentKindLabel,
+  agentStatusTone,
+  isTaskAgent,
+  taskFromAgent,
+} from '../../shared/agents';
 import { ChipComponent } from '../../shared/chip.component';
 import { IconComponent } from '../../shared/icon.component';
 import { renderMarkdown } from '../../shared/markdown';
 import { TimeAgoComponent } from '../../shared/time-ago.component';
 import { formatTokens, sessionName } from '../../shared/util';
+import { TaskOutputBodyComponent } from '../session-detail/task-output.component';
 import { TranscriptComponent } from '../session-detail/transcript.component';
 
 /** Running agents' transcripts also refresh this often, in case the live
  * `sub{agent}` stream isn't available. */
 const SAFETY_POLL_MS = 15_000;
+/** While Limited (no socket, so no `agents` frames), refresh the agent list
+ * every this many poll ticks (2 s each). */
+const AGENTS_POLL_TICKS = 4;
 
 /**
- * One agent — a subagent, workflow agent, background shell or monitor —
- * with its own transcript, live while it runs (`sub{session, agent}`).
+ * One agent — a subagent, workflow agent or teammate — with its own
+ * transcript, live while it runs (`sub{session, agent}`). A background shell
+ * or monitor has no transcript: it shows its output tail instead.
  * Header: type, label, status, elapsed, tokens and tool uses, a breadcrumb up
  * to the parent session (and parent agent), and Stop where allowed. When the
  * agent is done, the footer shows its result as the parent received it (the
@@ -36,6 +47,7 @@ const SAFETY_POLL_MS = 15_000;
     ActivityLineComponent,
     ChipComponent,
     IconComponent,
+    TaskOutputBodyComponent,
     TimeAgoComponent,
     TranscriptComponent,
   ],
@@ -118,12 +130,16 @@ const SAFETY_POLL_MS = 15_000;
             <p class="notice error">{{ loadError() }}</p>
           }
 
-          <mc-transcript
-            [scroller]="scroller"
-            [store]="store()"
-            [sessionId]="sessionId()"
-            [running]="agent()?.status === 'running'"
-          />
+          @if (shellTask(); as t) {
+            <mc-task-output-body class="shell-out" [sessionId]="sessionId()" [task]="t" />
+          } @else {
+            <mc-transcript
+              [scroller]="scroller"
+              [store]="store()"
+              [sessionId]="sessionId()"
+              [running]="agent()?.status === 'running'"
+            />
+          }
 
           @if (agent() && agent()?.status !== 'running') {
             <section class="card result" aria-label="Result">
@@ -235,6 +251,10 @@ const SAFETY_POLL_MS = 15_000;
         flex-wrap: wrap;
         gap: 0.3rem;
       }
+      .shell-out {
+        display: block;
+        margin-top: 0.5rem;
+      }
       .result {
         margin-top: 0.5rem;
         border-color: var(--green-border);
@@ -275,7 +295,14 @@ export class AgentViewComponent {
   );
 
   private readonly agents = signal<AgentInfo[]>([]);
+  /** The session whose agent list `agents` holds ('' until it loaded). */
+  private readonly agentsFor = signal('');
   protected readonly agent = computed(() => this.agents().find((a) => a.id === this.agentId()));
+  /** A shell or monitor: shown as its output, never as a transcript. */
+  protected readonly shellTask = computed(() => {
+    const a = this.agent();
+    return a && isTaskAgent(a) ? taskFromAgent(a) : null;
+  });
   protected readonly parent = computed(() => {
     const pid = this.agent()?.parentId;
     return pid ? this.agents().find((a) => a.id === pid) : undefined;
@@ -302,29 +329,65 @@ export class AgentViewComponent {
   protected readonly kindLabel = agentKindLabel;
   protected readonly tone = agentStatusTone;
   private resultFor = '';
+  /** `session/agent` the open transcript store belongs to. */
+  private storeKey = '';
+  /** Session whose agent list is being fetched ('' = none). */
+  private loadingAgents = '';
+  private tick = 0;
 
   constructor() {
     const subs = [
       this.realtime.agents$.subscribe((f) => {
-        if (f.session === this.sessionId()) this.agents.set(f.agents ?? []);
+        if (f.session !== this.sessionId()) return;
+        this.agents.set(f.agents ?? []);
+        this.agentsFor.set(f.session);
       }),
       this.realtime.refetch$.subscribe(() => void this.loadAgents()),
+      // Limited (polling): no agents frames arrive, so status, result and
+      // Stop would freeze; refresh the list now and then.
+      this.realtime.pollTick$.subscribe(() => {
+        this.tick += 1;
+        if (this.tick % AGENTS_POLL_TICKS === 0) void this.loadAgents();
+      }),
     ];
     this.destroyRef.onDestroy(() => {
       subs.forEach((s) => s.unsubscribe());
       this.store()?.destroy();
     });
 
-    // (Re)open the agent's live transcript when the route changes.
+    // Route change: forget the previous agent and load this session's list.
+    effect(() => {
+      this.sessionId();
+      this.agentId();
+      untracked(() => {
+        this.closeStore();
+        this.resultText.set('');
+        this.resultFor = '';
+        this.agentsFor.set('');
+        void this.loadAgents();
+      });
+    });
+
+    // Open the live transcript once the list says what this agent is: a
+    // shell or monitor has none (asking for it would 404), so it shows its
+    // output instead. An agent the list doesn't know still gets its
+    // transcript (older finished agents drop off the list).
     effect(() => {
       const id = this.sessionId();
       const agentId = this.agentId();
+      const ready = this.agentsFor() === id;
+      const shell = !!this.shellTask();
       untracked(() => {
-        this.store()?.destroy();
-        this.resultText.set('');
-        this.resultFor = '';
-        this.store.set(id && agentId ? this.realtime.openTranscript(id, { agentId }) : null);
-        void this.loadAgents();
+        if (!id || !agentId || !ready) return;
+        if (shell) {
+          this.closeStore();
+          return;
+        }
+        const key = `${id}\u0000${agentId}`;
+        if (this.storeKey === key && this.store()) return;
+        this.closeStore();
+        this.storeKey = key;
+        this.store.set(this.realtime.openTranscript(id, { agentId }));
       });
     });
 
@@ -351,16 +414,27 @@ export class AgentViewComponent {
     }
   }
 
+  private closeStore(): void {
+    this.store()?.destroy();
+    this.store.set(null);
+    this.storeKey = '';
+  }
+
   private async loadAgents(): Promise<void> {
     const id = this.sessionId();
-    if (!id) return;
+    if (!id || this.loadingAgents === id) return; // a slow poll must not pile up
+    this.loadingAgents = id;
     try {
       const res = await this.api.getSessionAgents(id);
       if (id !== this.sessionId()) return;
       this.agents.set(res.agents ?? []);
       this.loadError.set(this.agent() ? '' : 'This agent is no longer listed for the session.');
     } catch (e) {
-      this.loadError.set(describeError(e).text);
+      if (id === this.sessionId()) this.loadError.set(describeError(e).text);
+    } finally {
+      if (this.loadingAgents === id) this.loadingAgents = '';
+      // Even when the list failed, let the transcript open (it may exist).
+      if (id === this.sessionId()) this.agentsFor.set(id);
     }
   }
 

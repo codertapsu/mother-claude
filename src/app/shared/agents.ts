@@ -1,4 +1,4 @@
-import { AgentInfo } from '../core/models';
+import { AgentInfo, BackgroundTask } from '../core/models';
 import { IconName } from './icon.component';
 
 const KIND_ICONS: Record<string, IconName> = {
@@ -23,6 +23,56 @@ export function agentKindIcon(a: Pick<AgentInfo, 'kind'>): IconName {
 
 export function agentKindLabel(a: Pick<AgentInfo, 'kind'>): string {
   return KIND_LABELS[a.kind] ?? a.kind;
+}
+
+/** A background shell or monitor. The server lists these among a session's
+ * agents (they count as background work), but they have no transcript of
+ * their own: their output comes from `GET /sessions/{id}/tasks/{taskId}/output`,
+ * so they must never link to the agent (transcript) view. */
+export function isTaskAgent(a: Pick<AgentInfo, 'kind'>): boolean {
+  return a.kind === 'bash' || a.kind === 'monitor';
+}
+
+/** The background-task row for a shell/monitor agent. */
+export function taskFromAgent(a: AgentInfo, outputAvailable = true): BackgroundTask {
+  return {
+    id: a.taskId ?? a.id,
+    kind: a.kind === 'monitor' ? 'monitor' : 'bash',
+    label: a.label,
+    status: a.status,
+    startedAt: a.startedAt,
+    endedAt: a.endedAt,
+    outputAvailable,
+  };
+}
+
+/**
+ * One list of background tasks without duplicates:
+ * - shells/monitors the server only reported as agents are added (by task id);
+ * - an async subagent's task is dropped: it has its own agent row (with Stop),
+ *   whose `taskId` is that task.
+ */
+export function mergeBackgroundTasks(
+  tasks: readonly BackgroundTask[],
+  agents: readonly AgentInfo[],
+): BackgroundTask[] {
+  const shownElsewhere = new Set<string>();
+  for (const a of agents) if (!isTaskAgent(a) && a.taskId) shownElsewhere.add(a.taskId);
+  const out: BackgroundTask[] = [];
+  const seen = new Set<string>();
+  for (const t of tasks) {
+    if (shownElsewhere.has(t.id) || seen.has(t.id)) continue;
+    seen.add(t.id);
+    out.push(t);
+  }
+  for (const a of agents) {
+    if (!isTaskAgent(a)) continue;
+    const t = taskFromAgent(a);
+    if (seen.has(t.id)) continue;
+    seen.add(t.id);
+    out.push(t);
+  }
+  return out;
 }
 
 /** Parents before their children (depth-first), roots by start time. The

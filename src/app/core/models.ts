@@ -497,11 +497,10 @@ export interface SessionAgents {
 export interface FleetSession {
   sessionId: string;
   name: string;
-  /** Running agents only. */
+  /** Running agents only, background shells and monitors included (kind
+   * `bash`/`monitor`: they have output, not a transcript). */
   agents: AgentInfo[];
   workflows?: WorkflowRun[];
-  /** Background shells and monitors. */
-  tasks?: BackgroundTask[];
 }
 
 /** "3 working · 7 agents running · 2 need you · $4.12 today". */
