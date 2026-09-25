@@ -328,7 +328,7 @@ pub struct ChatBody {
 /// `POST /chat` — the smallest useful call: one message in, one answer out.
 pub async fn chat(
     State(state): State<AppState>,
-    connect: axum::extract::ConnectInfo<std::net::SocketAddr>,
+    ctx: crate::server::context::ClientContext,
     Body(body): Body<ChatBody>,
 ) -> BridgeResult<Response> {
     let input = match (&body.input, &body.message) {
@@ -345,7 +345,7 @@ pub async fn chat(
     // conversation (and a subprocess) that is immediately orphaned.
     inputs::normalize(&input)?;
 
-    let thread_id = resolve_chat_thread(&state, connect, &body).await?;
+    let thread_id = resolve_chat_thread(&state, ctx, &body).await?;
 
     let op = begin_turn(
         &state,
@@ -406,19 +406,19 @@ pub async fn chat(
 /// new one per message.
 async fn resolve_chat_thread(
     state: &AppState,
-    connect: axum::extract::ConnectInfo<std::net::SocketAddr>,
+    ctx: crate::server::context::ClientContext,
     body: &ChatBody,
 ) -> BridgeResult<String> {
     if let Some(id) = &body.thread_id {
         validate_id("thread_id", id)?;
         // Explicitly named: a failure to resume belongs to the caller.
-        crate::bridge::ensure_thread_live(state, id).await?;
+        crate::bridge::ensure_thread_live(state, &ctx, id).await?;
         return Ok(id.clone());
     }
 
     if !body.create_new_chat {
         if let Some(active) = state.bridge.active_thread.read().await.clone() {
-            match crate::bridge::ensure_thread_live(state, &active).await {
+            match crate::bridge::ensure_thread_live(state, &ctx, &active).await {
                 Ok(()) => return Ok(active),
                 // The conversation we were pointing at is gone. That is not the
                 // caller's problem — open a new one rather than failing a
@@ -455,7 +455,7 @@ async fn resolve_chat_thread(
         resume: body.options.resume.clone(),
         fork: body.options.fork,
     };
-    let response = super::threads::create(State(state.clone()), connect, Body(options)).await?;
+    let response = super::threads::create(State(state.clone()), ctx, Body(options)).await?;
     let created = thread_id_from(response).await?;
     state.bridge.set_active_thread(Some(created.clone())).await;
     Ok(created)

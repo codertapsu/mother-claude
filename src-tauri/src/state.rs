@@ -1,40 +1,43 @@
 //! Shared application state and the single broadcast bus.
 //!
 //! One [`tokio::sync::broadcast`] sender fans every update out to the desktop
-//! webview *and* all LAN/WebSocket clients — there is no separate path for
-//! desktop vs mobile. The [`AppState`] handle is cloned into axum handlers and
-//! the background monitor.
+//! webview *and* all LAN/tunnel WebSocket clients — there is no separate path
+//! for desktop vs mobile. The WebSocket hub (`server::ws`) filters it per
+//! client (subscriptions, desktop-only frames).
+//!
+//! **One field per subsystem, owned by that subsystem's file.** Agents extend
+//! their own types (add fields inside `DeviceStore`, `HookHub`, …) instead of
+//! adding fields here; see `interfaces.md` for who owns what.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::net::SocketAddr;
+use std::path::PathBuf;
 use std::sync::Arc;
 
-use serde::Serialize;
-use tokio::sync::{broadcast, oneshot, RwLock};
+use tokio::sync::{broadcast, RwLock};
 
 use crate::bridge::{BridgeConfig, BridgeState};
+use crate::claude::activity::ActivityTracker;
+use crate::claude::agents::AgentTracker;
 use crate::claude::control::ControlRegistry;
-use crate::claude::{
-    AuthStatus, ClaudeHome, PendingInput, Session, SessionState, Surface, TranscriptEvent,
-    UsageSummary,
-};
+use crate::claude::hooks::PluginManager;
+use crate::claude::index::TranscriptIndex;
+use crate::claude::live::LiveRoster;
+use crate::claude::model::{NoticeLevel, SessionSummary};
+use crate::claude::tmux::TmuxState;
+use crate::claude::uievents::Timeline;
+use crate::claude::{AuthStatus, ClaudeHome, Session};
+use crate::pending::PendingStore;
 use crate::server::auth::Auth;
+use crate::server::devices::DeviceStore;
+use crate::server::hooks::HookHub;
+use crate::server::pairing::PairingState;
+use crate::server::push::PushService;
+use crate::server::ratelimit::AuthLimiter;
+use crate::server::remote::RemoteState;
+use crate::server::ws::{Hub, Presence, Snapshot};
 
-/// How a pending prompt was resolved by a human.
-#[derive(Debug)]
-pub enum Resolution {
-    Allow,
-    Deny,
-    Answer(String),
-}
-
-/// A blocked permission/question request: the channel that resumes it plus the
-/// facts needed to gate its resolution (dangerousness must come from the
-/// request being resolved, not whatever currently occupies the session's slot).
-pub struct PendingResolver {
-    pub tx: oneshot::Sender<Resolution>,
-    pub dangerous: bool,
-}
+pub use crate::server::ws::ServerEvent;
 
 /// Cloneable shared state handle.
 pub type AppState = Arc<Inner>;
@@ -66,64 +69,83 @@ impl ServerConfig {
     }
 
     /// True when bound to something other than loopback — TLS + auth become
-    /// mandatory (enforced in the auth commit).
+    /// mandatory.
     pub fn is_non_loopback(&self) -> bool {
         !(self.host == "127.0.0.1" || self.host == "localhost" || self.host == "::1")
     }
-}
-
-/// Events broadcast to every connected client. Adjacently tagged so the Angular
-/// client can switch on `kind` and read `data`.
-#[derive(Debug, Clone, Serialize)]
-#[serde(tag = "kind", content = "data", rename_all = "camelCase")]
-pub enum ServerEvent {
-    /// Full refreshed session list.
-    Sessions(Vec<Session>),
-    /// New transcript lines for one session (live deltas; history is via REST).
-    #[serde(rename_all = "camelCase")]
-    Transcript {
-        session_id: String,
-        events: Vec<TranscriptEvent>,
-    },
-    /// A raw hook event forwarded from a (possibly foreign) session.
-    Hook(serde_json::Value),
-    /// A pending input changed (set or cleared) for a session.
-    #[serde(rename_all = "camelCase")]
-    Pending {
-        session_id: String,
-        pending: Option<PendingInput>,
-    },
-    /// A human-readable notice.
-    Notice(String),
 }
 
 /// The shared application state.
 pub struct Inner {
     pub home: ClaudeHome,
     pub config: ServerConfig,
+    /// Credentials (master / hook / sidecar tokens). Foundation.
     pub auth: Auth,
+    /// Owned-session children. B3 (`claude/control.rs`, `claude/owned.rs`).
     pub control: ControlRegistry,
-    /// Experimental PTY-attach registry (Stage 3, feature-gated).
+    /// Experimental PTY-attach registry. B4.
     #[cfg(feature = "experimental")]
     pub pty: crate::claude::experimental::PtyRegistry,
-    pub bus: broadcast::Sender<ServerEvent>,
-    /// TLS certificate fingerprint, set once the server binds (None for http).
+    /// The single broadcast bus (events are `Arc`ed: one allocation, many
+    /// receivers). Publish through `server::ws::publish_*`. Foundation.
+    pub bus: broadcast::Sender<Arc<ServerEvent>>,
+    /// TLS certificate fingerprint, set once the LAN listeners bind. B1.
     pub fingerprint: RwLock<Option<String>>,
-    /// Session ids spawned by Mother Claude (full control / injection allowed).
+    /// Session ids Mother Claude spawned/continued (and bridge threads). B3.
     pub owned: RwLock<HashSet<String>>,
-    /// Live pending prompts keyed by session id.
-    pub pending: RwLock<HashMap<String, PendingInput>>,
-    /// Oneshot resolvers keyed by request id; a blocked permission/question
-    /// request awaits its sender. std Mutex — held only for insert/remove.
-    pub resolvers: std::sync::Mutex<HashMap<String, PendingResolver>>,
-    /// Last computed session list (served by REST without recomputation).
-    pub sessions: RwLock<Vec<Session>>,
-    /// The Claude HTTP bridge: conversations, turns, operations and their
-    /// event logs. Lazily started — nothing runs until something calls it.
+    /// The session list every client sees + diff bookkeeping. Write only via
+    /// `server::ws::{publish_sessions, upsert_session, patch_session}`.
+    pub snapshot: RwLock<Snapshot>,
+    /// Legacy registry rows from the last refresh. B2 (replaced by the new
+    /// data layer).
+    pub registry: RwLock<Vec<Session>>,
+    /// Pending human decisions. Foundation (`pending.rs`).
+    pub pending: PendingStore,
+    /// Connected WebSocket clients. Foundation (`server/ws.rs`).
+    pub hub: Hub,
+    /// Per-device foreground state from `visible` frames. Foundation; read by
+    /// B5.
+    pub presence: Presence,
+    /// The Claude HTTP bridge.
     pub bridge: BridgeState,
-    /// Claude's own Anthropic sign-in, checked once at startup. Cached because
-    /// the check is a subprocess and callers ask on every health probe.
+    /// Claude's own Anthropic sign-in, checked once at startup.
     pub claude_auth: RwLock<AuthStatus>,
+    /// Failed-auth rate limiting. B1 (`server/ratelimit.rs`).
+    pub limits: AuthLimiter,
+    /// Paired devices. B1 (`server/devices.rs`).
+    pub devices: DeviceStore,
+    /// Pairing codes and approvals. B1 (`server/pairing.rs`).
+    pub pairing: PairingState,
+    /// Internet access / tunnels. B1 (`server/remote.rs`).
+    pub remote: RemoteState,
+    /// `~/.claude/sessions/*.json` roster. B2 (`claude/live.rs`).
+    pub live: LiveRoster,
+    /// Incremental transcript index. B2 (`claude/index.rs`).
+    pub index: TranscriptIndex,
+    /// Subagents / workflows / background tasks. B2 (`claude/agents.rs`).
+    pub agents: AgentTracker,
+    /// "What is it doing now" hints. B2 (`claude/activity.rs`).
+    pub activity: ActivityTracker,
+    /// Mother Claude's own timeline events (relayed messages). B2
+    /// (`claude/uievents.rs`); B4 pushes into it.
+    pub timeline: Timeline,
+    /// Hook dispatcher state. B4 (`server/hooks.rs`).
+    pub hooks: HookHub,
+    /// Hooks plugin install state. B4 (`claude/hooks.rs`).
+    pub plugin: PluginManager,
+    /// tmux sockets/panes. B4 (`claude/tmux.rs`).
+    pub tmux: TmuxState,
+    /// Web Push. B5 (`server/push.rs`).
+    pub push: PushService,
+}
+
+impl std::fmt::Debug for Inner {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Inner")
+            .field("config", &self.config)
+            .field("auth", &self.auth)
+            .finish_non_exhaustive()
+    }
 }
 
 impl Inner {
@@ -136,6 +158,7 @@ impl Inner {
     /// Tests use this to get a bridge that never binds a real port
     /// (`port: None`), which the environment-driven constructor cannot express
     /// without mutating process-global state that parallel tests would race on.
+    /// With `Auth::ephemeral()` (no `config_dir`) nothing touches the disk.
     pub fn with_bridge_config(
         home: ClaudeHome,
         config: ServerConfig,
@@ -143,137 +166,128 @@ impl Inner {
         bridge: BridgeConfig,
     ) -> AppState {
         let (bus, _rx) = broadcast::channel(1024);
+        let data_dir = auth.config_dir.clone();
+        let data_dir = data_dir.as_deref();
         Arc::new(Inner {
             home,
             config,
-            auth,
             control: ControlRegistry::new(),
             #[cfg(feature = "experimental")]
             pty: crate::claude::experimental::PtyRegistry::new(),
             bus,
             fingerprint: RwLock::new(None),
             owned: RwLock::new(HashSet::new()),
-            pending: RwLock::new(HashMap::new()),
-            resolvers: std::sync::Mutex::new(HashMap::new()),
-            sessions: RwLock::new(Vec::new()),
+            snapshot: RwLock::new(Snapshot::default()),
+            registry: RwLock::new(Vec::new()),
+            pending: PendingStore::new(),
+            hub: Hub::new(),
+            presence: Presence::new(),
             bridge: BridgeState::new(bridge),
             claude_auth: RwLock::new(AuthStatus::default()),
+            limits: AuthLimiter::new(),
+            devices: DeviceStore::load(data_dir),
+            pairing: PairingState::new(data_dir),
+            remote: RemoteState::new(data_dir),
+            live: LiveRoster::new(),
+            index: TranscriptIndex::new(data_dir),
+            agents: AgentTracker::new(),
+            activity: ActivityTracker::new(),
+            timeline: Timeline::new(),
+            hooks: HookHub::new(),
+            plugin: PluginManager::new(),
+            tmux: TmuxState::new(),
+            push: PushService::new(data_dir),
+            auth,
         })
     }
 
     /// Broadcast an event; ignores the "no receivers" error.
     pub fn broadcast(&self, event: ServerEvent) {
-        let _ = self.bus.send(event);
+        let _ = self.bus.send(Arc::new(event));
+    }
+
+    /// Broadcast an info notice (shorthand for `ws::publish_notice`).
+    pub fn notice(&self, text: impl Into<String>) {
+        let _ = self.bus.send(Arc::new(ServerEvent::Notice {
+            level: NoticeLevel::Info,
+            text: text.into(),
+            session: None,
+        }));
     }
 
     pub async fn is_owned(&self, id: &str) -> bool {
         self.owned.read().await.contains(id)
     }
 
-    /// Look up a session from the last computed snapshot.
-    pub async fn find_session(&self, id: &str) -> Option<Session> {
-        self.sessions
-            .read()
-            .await
-            .iter()
-            .find(|s| s.id == id)
-            .cloned()
+    /// One session from the current snapshot.
+    pub async fn find_session(&self, id: &str) -> Option<SessionSummary> {
+        self.snapshot.read().await.find(id).cloned()
     }
 
-    /// Set or clear a session's pending prompt, updating the cached snapshot and
-    /// broadcasting both a `pending` and a fresh `sessions` event so the UI
-    /// reacts immediately (without waiting for the next monitor sweep).
-    pub async fn set_pending(&self, id: &str, pending: Option<PendingInput>) {
-        {
-            let mut map = self.pending.write().await;
-            match &pending {
-                Some(p) => {
-                    map.insert(id.to_string(), p.clone());
-                }
-                None => {
-                    map.remove(id);
-                }
-            }
+    /// Every session in the current snapshot (any scope), most recent first.
+    pub async fn sessions(&self) -> Vec<SessionSummary> {
+        self.snapshot.read().await.sessions.clone()
+    }
+
+    /// The transcript file of a session: the index's answer (located by id),
+    /// else derived from the session's cwd.
+    pub async fn transcript_path(&self, id: &str) -> Option<PathBuf> {
+        if let Some(p) = self.index.transcript_path(id) {
+            return Some(p);
         }
-        let snapshot = {
-            let mut sessions = self.sessions.write().await;
-            if let Some(s) = sessions.iter_mut().find(|s| s.id == id) {
-                s.pending = pending.clone();
-                if pending.is_some() {
-                    s.state = SessionState::NeedsInput;
-                }
-            }
-            sessions.clone()
+        let cwd = match self.find_session(id).await {
+            Some(s) => s.cwd,
+            None => self
+                .registry
+                .read()
+                .await
+                .iter()
+                .find(|s| s.id == id)
+                .map(|s| s.cwd.clone())
+                .unwrap_or_default(),
         };
-        self.broadcast(ServerEvent::Pending {
-            session_id: id.to_string(),
-            pending,
-        });
-        self.broadcast(ServerEvent::Sessions(snapshot));
+        (!cwd.is_empty()).then(|| self.home.transcript_path(&cwd, id))
     }
 
-    /// Mark a session owned and reflect it in the cached snapshot immediately
-    /// (flip an existing row, or insert a synthetic one for a brand-new id), then
-    /// broadcast — so spawn/continue show up without waiting for the next sweep.
-    pub async fn mark_owned(&self, id: &str, cwd: &str, started_at: i64) {
+    /// Mark a session owned and reflect it in the snapshot immediately (flip
+    /// an existing row, or insert a synthetic one for a brand-new id), so
+    /// spawn/continue show up without waiting for the next refresh.
+    pub async fn mark_owned(self: &Arc<Self>, id: &str, cwd: &str, started_at: i64) {
         self.owned.write().await.insert(id.to_string());
-        let snapshot = {
-            let mut sessions = self.sessions.write().await;
-            match sessions.iter_mut().find(|s| s.id == id) {
-                Some(s) => {
-                    s.owned = true;
-                    s.can_inject = true;
-                    s.running = true;
-                }
-                None => {
-                    let project_name = std::path::Path::new(cwd)
-                        .file_name()
-                        .and_then(|s| s.to_str())
-                        .unwrap_or(cwd)
-                        .to_string();
-                    sessions.push(Session {
-                        id: id.to_string(),
-                        cwd: cwd.to_string(),
-                        project_name,
-                        surface: Surface::Unknown,
-                        owned: true,
-                        state: SessionState::Working,
-                        model: None,
-                        title: None,
-                        started_at: Some(started_at),
-                        last_activity: Some(started_at),
-                        pid: None,
-                        kind: None,
-                        git_branch: None,
-                        running: true,
-                        message_count: 0,
-                        usage: UsageSummary::default(),
-                        pending: None,
-                        tasks: Vec::new(),
-                        can_inject: true,
-                    });
-                }
-            }
-            sessions.clone()
-        };
-        self.broadcast(ServerEvent::Sessions(snapshot));
+        let found = crate::server::ws::patch_session(self, id, |s| {
+            s.owned = true;
+            s.live = true;
+            s.surface = crate::claude::model::Surface::MotherClaude;
+            s.control = crate::claude::caps::compute(&crate::claude::caps::CapsInput {
+                owned: true,
+                live: true,
+                ..Default::default()
+            });
+        })
+        .await;
+        if !found {
+            crate::server::ws::upsert_session(
+                self,
+                crate::claude::summaries::synthetic_owned(id, cwd, started_at),
+            )
+            .await;
+        }
     }
 
     /// Forget a session we no longer control, so `owned` does not grow for the
     /// life of the process and a dead conversation stops claiming it can be
-    /// driven.
-    pub async fn unmark_owned(&self, id: &str) {
+    /// driven. Its pending items are withdrawn.
+    pub async fn unmark_owned(self: &Arc<Self>, id: &str) {
         self.owned.write().await.remove(id);
-        let snapshot = {
-            let mut sessions = self.sessions.write().await;
-            if let Some(s) = sessions.iter_mut().find(|s| s.id == id) {
-                s.owned = false;
-                s.can_inject = false;
-                s.running = false;
-            }
-            sessions.clone()
-        };
-        self.broadcast(ServerEvent::Sessions(snapshot));
+        crate::pending::withdraw_session(self, id, "session no longer owned").await;
+        crate::server::ws::patch_session(self, id, |s| {
+            s.owned = false;
+            s.live = false;
+            s.status = crate::claude::model::SessionStatus::Ended;
+            s.activity = crate::claude::summaries::activity_for(s.status, &s.pending);
+            s.control = crate::claude::caps::compute(&crate::claude::caps::CapsInput::default());
+        })
+        .await;
     }
 
     /// Re-check Claude's sign-in and cache the answer.
@@ -281,44 +295,5 @@ impl Inner {
         let status = crate::claude::auth_status().await;
         *self.claude_auth.write().await = status.clone();
         status
-    }
-
-    pub fn register_resolver(
-        &self,
-        request_id: String,
-        tx: oneshot::Sender<Resolution>,
-        dangerous: bool,
-    ) {
-        if let Ok(mut r) = self.resolvers.lock() {
-            r.insert(request_id, PendingResolver { tx, dangerous });
-        }
-    }
-
-    pub fn take_resolver(&self, request_id: &str) -> Option<PendingResolver> {
-        self.resolvers
-            .lock()
-            .ok()
-            .and_then(|mut r| r.remove(request_id))
-    }
-
-    /// Whether the blocked request behind `request_id` is dangerous, if it is
-    /// still registered (peek without taking).
-    pub fn resolver_dangerous(&self, request_id: &str) -> Option<bool> {
-        self.resolvers
-            .lock()
-            .ok()
-            .and_then(|r| r.get(request_id).map(|p| p.dangerous))
-    }
-
-    /// Clear the session's pending card only if it still belongs to
-    /// `request_id` — a newer prompt may have replaced it and must survive.
-    pub async fn clear_pending_if(&self, id: &str, request_id: &str) {
-        let matches = {
-            let map = self.pending.read().await;
-            map.get(id).and_then(|p| p.request_id.as_deref()) == Some(request_id)
-        };
-        if matches {
-            self.set_pending(id, None).await;
-        }
     }
 }

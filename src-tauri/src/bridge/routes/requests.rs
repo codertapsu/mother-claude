@@ -7,16 +7,14 @@
 //! dropped. That is deliberate: a phone and a script are both legitimate ways
 //! to unblock a turn.
 
-use std::net::SocketAddr;
-
-use axum::extract::{ConnectInfo, Path, State};
+use axum::extract::{Path, State};
 use axum::response::Response;
 use serde::Deserialize;
 use serde_json::{json, Value};
 
 use super::{ok, validate_id, Body};
 use crate::bridge::error::{BridgeError, BridgeResult};
-use crate::server::auth;
+use crate::server::context::ClientContext;
 use crate::state::AppState;
 
 /// `GET /requests` — everything currently waiting on a human.
@@ -149,7 +147,7 @@ impl RespondBody {
 /// `POST /requests/{id}/respond` — unblock a waiting conversation.
 pub async fn respond(
     State(state): State<AppState>,
-    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    ctx: ClientContext,
     Path(request_id): Path<String>,
     Body(body): Body<RespondBody>,
 ) -> BridgeResult<Response> {
@@ -170,13 +168,7 @@ pub async fn respond(
         .and_then(Value::as_bool)
         .unwrap_or(false)
         || body.is_escalation();
-    if body.is_approval()
-        && auth::dangerous_blocked(
-            dangerous,
-            auth::is_loopback(&peer),
-            state.auth.allow_remote_dangerous,
-        )
-    {
+    if body.is_approval() && dangerous && !ctx.may_dangerous() {
         return Err(BridgeError::forbidden(
             "dangerous_blocked",
             "Approving a dangerous action — or attaching a standing permission \

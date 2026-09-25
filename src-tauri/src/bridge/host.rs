@@ -23,8 +23,9 @@ use tokio::sync::{oneshot, Mutex as AsyncMutex};
 
 use super::error::{BridgeError, BridgeResult};
 use super::ops::OperationStatus;
-use crate::claude::{PendingInput, PendingKind, QuestionOption};
-use crate::state::{AppState, Resolution, ServerEvent};
+use crate::claude::model::{PendingItem, PendingKind, PendingSource, Question, QuestionOption};
+use crate::pending::Decision;
+use crate::state::AppState;
 
 /// Default deadline for one host RPC.
 pub const RPC_TIMEOUT: Duration = Duration::from_secs(120);
@@ -600,7 +601,6 @@ async fn raise_request_inner(state: AppState, frame: Value) {
     }
 
     let (bridge_tx, bridge_rx) = oneshot::channel::<Value>();
-    let (dash_tx, dash_rx) = oneshot::channel::<Resolution>();
 
     let record = PendingRequest {
         id: request_id.clone(),
@@ -618,16 +618,11 @@ async fn raise_request_inner(state: AppState, frame: Value) {
         Err(p) => p.into_inner().insert(request_id.clone(), record),
     };
 
-    // Dashboard surface: the same oneshot registry the Path A sidecar uses, so
-    // an approval card appears in the app and on the phone exactly as it does
-    // for a session the dashboard launched itself.
-    state.register_resolver(request_id.clone(), dash_tx, dangerous);
-    state
-        .set_pending(
-            &session_id,
-            Some(pending_input(&request_id, &kind, &params, dangerous)),
-        )
-        .await;
+    // Dashboard surface: the shared pending store, so an approval card appears
+    // in the app and on the phone exactly as it does for any other session.
+    // The guard withdraws the card whichever surface answers.
+    let item = pending_item(&request_id, &session_id, &kind, &params, dangerous);
+    let (guard, dash_rx) = crate::pending::raise(state, item.clone()).await;
 
     // Bridge surface: an SSE frame so a headless client can see it too.
     let event = json!({
@@ -650,7 +645,7 @@ async fn raise_request_inner(state: AppState, frame: Value) {
     tokio::spawn(async move {
         let result = tokio::select! {
             v = bridge_rx => v.ok(),
-            r = dash_rx => r.ok().map(|r| resolution_to_result(&kind, r)),
+            d = dash_rx => d.ok().map(|d| decision_to_result(&kind, &item, &d)),
             _ = tokio::time::sleep(REQUEST_TIMEOUT) => None,
         }
         .unwrap_or_else(
@@ -658,8 +653,7 @@ async fn raise_request_inner(state: AppState, frame: Value) {
         );
 
         st.bridge.host.take_request(&request_id);
-        let _ = st.take_resolver(&request_id);
-        st.clear_pending_if(&session_id, &request_id).await;
+        drop(guard);
 
         let payload = json!({ "requestId": request_id, "result": result });
         if let Err(e) = st
@@ -670,55 +664,102 @@ async fn raise_request_inner(state: AppState, frame: Value) {
         {
             tracing::warn!(error = %e, "could not deliver a request response to the bridge host");
         }
-        st.broadcast(ServerEvent::Notice(format!(
-            "bridge request {request_id} answered"
-        )));
+        st.notice(format!("bridge request {request_id} answered"));
     });
 }
 
-/// Map a dashboard resolution onto the host's expected result shape.
-fn resolution_to_result(kind: &str, resolution: Resolution) -> Value {
-    match (kind, resolution) {
-        (_, Resolution::Allow) => json!({ "behavior": "allow" }),
-        (_, Resolution::Deny) => json!({ "behavior": "deny" }),
-        ("question", Resolution::Answer(answer)) => json!({ "answer": answer }),
-        // Typing a reply to a tool approval is a refusal with a reason.
-        (_, Resolution::Answer(answer)) => json!({ "behavior": "deny", "message": answer }),
+/// Map a dashboard decision onto the host's expected result shape: questions
+/// (the `ask_user` tool) take `{answer}`; permissions take the shared
+/// permission result.
+fn decision_to_result(kind: &str, item: &PendingItem, decision: &Decision) -> Value {
+    if kind == "question" {
+        return if decision.is_allow() {
+            json!({ "answer": decision.answer_text().unwrap_or_default() })
+        } else {
+            json!({ "behavior": "deny" })
+        };
     }
+    crate::pending::permission_result(item, decision)
 }
 
-/// Build the dashboard's pending-prompt card from a host request payload.
-fn pending_input(request_id: &str, kind: &str, params: &Value, dangerous: bool) -> PendingInput {
+/// Build the dashboard's pending item from a host request payload.
+fn pending_item(
+    request_id: &str,
+    session_id: &str,
+    kind: &str,
+    params: &Value,
+    dangerous: bool,
+) -> PendingItem {
     let text = |key: &str| params.get(key).and_then(Value::as_str).map(str::to_string);
-    let options = params
-        .get("options")
-        .and_then(Value::as_array)
-        .map(|items| {
-            items
-                .iter()
-                .filter_map(|v| serde_json::from_value::<QuestionOption>(v.clone()).ok())
-                .collect()
-        })
-        .unwrap_or_default();
-
-    PendingInput {
-        kind: if kind == "question" {
-            PendingKind::Question
-        } else {
-            PendingKind::Permission
-        },
-        tool: text("tool"),
-        prompt: text("prompt"),
-        header: text("header"),
-        options,
-        multi_select: params
-            .get("multiSelect")
-            .and_then(Value::as_bool)
-            .unwrap_or(false),
+    let tool = text("tool");
+    let input = params.get("input").cloned().filter(|v| !v.is_null());
+    let is_plan = tool.as_deref() == Some("ExitPlanMode");
+    let pending_kind = match kind {
+        "question" => PendingKind::Question,
+        "elicitation" => PendingKind::Elicitation,
+        _ if is_plan => PendingKind::Plan,
+        _ => PendingKind::Permission,
+    };
+    let questions = (pending_kind == PendingKind::Question).then(|| {
+        vec![Question {
+            question: text("prompt").unwrap_or_default(),
+            header: text("header"),
+            options: params
+                .get("options")
+                .and_then(Value::as_array)
+                .map(|items| {
+                    items
+                        .iter()
+                        .filter_map(|o| match o {
+                            Value::String(s) => Some(QuestionOption {
+                                label: s.clone(),
+                                description: None,
+                            }),
+                            _ => Some(QuestionOption {
+                                label: o.get("label")?.as_str()?.to_string(),
+                                description: o
+                                    .get("description")
+                                    .and_then(Value::as_str)
+                                    .map(str::to_string),
+                            }),
+                        })
+                        .collect()
+                })
+                .unwrap_or_default(),
+            multi_select: params
+                .get("multiSelect")
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
+        }]
+    });
+    let plan = if is_plan {
+        input
+            .as_ref()
+            .and_then(|i| i.get("plan"))
+            .and_then(Value::as_str)
+            .map(str::to_string)
+    } else {
+        None
+    };
+    PendingItem {
+        id: request_id.to_string(),
+        session_id: session_id.to_string(),
+        kind: pending_kind,
+        source: PendingSource::Bridge,
+        tool_name: tool.clone(),
+        tool_use_id: text("toolUseId"),
+        title: text("prompt").unwrap_or_else(|| match &tool {
+            Some(t) => format!("Claude wants to use {t}."),
+            None => "Claude is waiting for you.".into(),
+        }),
         detail: text("detail"),
-        request_id: Some(request_id.to_string()),
-        answerable: true,
+        input,
+        questions,
+        plan,
+        suggestions: crate::pending::suggestions_from_raw(params.get("suggestions")),
         dangerous,
+        answerable: true,
+        ..Default::default()
     }
 }
 
@@ -743,40 +784,88 @@ mod tests {
     }
 
     #[test]
-    fn resolutions_map_to_host_results() {
-        assert_eq!(
-            resolution_to_result("permission", Resolution::Allow)["behavior"],
-            "allow"
+    fn decisions_map_to_host_results() {
+        let item = pending_item(
+            "r",
+            "s",
+            "permission",
+            &json!({ "tool": "Bash", "input": { "command": "ls" } }),
+            false,
         );
-        assert_eq!(
-            resolution_to_result("question", Resolution::Answer("blue".into()))["answer"],
-            "blue"
+        let allow = decision_to_result("permission", &item, &Decision::allow());
+        assert_eq!(allow["behavior"], "allow");
+        assert_eq!(allow["updatedInput"]["command"], "ls");
+        let deny = decision_to_result(
+            "permission",
+            &item,
+            &Decision::deny(Some("no thanks".into())),
         );
-        let denied = resolution_to_result("permission", Resolution::Answer("no thanks".into()));
-        assert_eq!(denied["behavior"], "deny");
-        assert_eq!(denied["message"], "no thanks");
+        assert_eq!(deny["behavior"], "deny");
+        assert_eq!(deny["message"], "no thanks");
+
+        let q = pending_item(
+            "r2",
+            "s",
+            "question",
+            &json!({ "prompt": "Colour?" }),
+            false,
+        );
+        let mut d = Decision::allow();
+        d.answers = Some(
+            [("Colour?".to_string(), "blue".to_string())]
+                .into_iter()
+                .collect(),
+        );
+        assert_eq!(decision_to_result("question", &q, &d)["answer"], "blue");
+        assert_eq!(
+            decision_to_result("question", &q, &Decision::deny(None))["behavior"],
+            "deny"
+        );
     }
 
     #[test]
-    fn pending_cards_carry_options_and_kind() {
+    fn pending_items_carry_options_kind_and_suggestions() {
         let params = json!({
             "prompt": "Which database?",
             "header": "Storage",
             "options": ["postgres", { "label": "sqlite", "description": "local file" }],
             "multiSelect": true,
         });
-        let card = pending_input("req-1", "question", &params, false);
-        assert!(matches!(card.kind, PendingKind::Question));
-        assert_eq!(card.prompt.as_deref(), Some("Which database?"));
-        assert_eq!(card.header.as_deref(), Some("Storage"));
-        assert_eq!(card.options.len(), 2);
-        assert!(card.multi_select);
-        assert_eq!(card.request_id.as_deref(), Some("req-1"));
+        let card = pending_item("req-1", "t1", "question", &params, false);
+        assert_eq!(card.kind, PendingKind::Question);
+        assert_eq!(card.source, PendingSource::Bridge);
+        let q = &card.questions.as_ref().unwrap()[0];
+        assert_eq!(q.question, "Which database?");
+        assert_eq!(q.header.as_deref(), Some("Storage"));
+        assert_eq!(q.options.len(), 2);
+        assert!(q.multi_select);
+        assert_eq!(card.id, "req-1");
+        assert_eq!(card.session_id, "t1");
 
-        let permission = pending_input("req-2", "permission", &json!({ "tool": "Bash" }), true);
-        assert!(matches!(permission.kind, PendingKind::Permission));
+        let permission = pending_item(
+            "req-2",
+            "t1",
+            "permission",
+            &json!({ "tool": "Bash", "toolUseId": "toolu_1",
+                     "suggestions": [{ "type": "addRules", "destination": "userSettings",
+                                        "rules": [{ "toolName": "Bash" }] }] }),
+            true,
+        );
+        assert_eq!(permission.kind, PendingKind::Permission);
         assert!(permission.dangerous);
-        assert_eq!(permission.tool.as_deref(), Some("Bash"));
+        assert_eq!(permission.tool_name.as_deref(), Some("Bash"));
+        assert_eq!(permission.tool_use_id.as_deref(), Some("toolu_1"));
+        assert!(permission.suggestions[0].standing);
+
+        let plan = pending_item(
+            "req-3",
+            "t1",
+            "permission",
+            &json!({ "tool": "ExitPlanMode", "input": { "plan": "1. do it" } }),
+            false,
+        );
+        assert_eq!(plan.kind, PendingKind::Plan);
+        assert_eq!(plan.plan.as_deref(), Some("1. do it"));
     }
 
     #[test]

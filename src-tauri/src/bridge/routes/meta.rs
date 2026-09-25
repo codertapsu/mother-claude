@@ -95,7 +95,7 @@ pub async fn capabilities(
             // This mount's policy, not the other listener's: the loopback port
             // may be tokenless while the LAN mount never is.
             "require_token": policy.require_token,
-            "token_sources": ["Authorization: Bearer", "?token=", "mc_token cookie"],
+            "token_sources": ["Authorization: Bearer", "?token= (this machine only)"],
         },
         "notes": [
             "Conversations are process-local: a conversation created here is lost \
@@ -207,15 +207,10 @@ pub async fn auth(
 /// flow is launched: waiting for a human to finish an OAuth round trip inside an
 /// HTTP handler would only ever produce a timeout. Poll `GET /auth?refresh=true`.
 pub async fn auth_login(
-    State(state): State<AppState>,
-    axum::extract::ConnectInfo(peer): axum::extract::ConnectInfo<std::net::SocketAddr>,
+    ctx: crate::server::context::ClientContext,
     super::Body(body): super::Body<LoginBody>,
 ) -> BridgeResult<Response> {
-    if crate::server::auth::dangerous_blocked(
-        true,
-        crate::server::auth::is_loopback(&peer),
-        state.auth.allow_remote_dangerous,
-    ) {
+    if !ctx.may_dangerous() {
         return Err(crate::bridge::error::BridgeError::forbidden(
             "dangerous_blocked",
             "Signing in opens a browser on the host machine, so it is restricted \

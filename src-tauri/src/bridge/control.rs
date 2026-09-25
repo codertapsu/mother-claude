@@ -24,7 +24,8 @@ use tokio::sync::oneshot;
 
 use super::error::{BridgeError, BridgeResult};
 use super::routes::threads::{EFFORT_LEVELS, PERMISSION_MODES, SETTING_SOURCES};
-use crate::state::{AppState, ServerEvent};
+use crate::server::auth::Authed;
+use crate::state::AppState;
 
 /// Defaults applied to every conversation the bridge creates.
 ///
@@ -245,7 +246,7 @@ pub async fn stop(state: &AppState) -> BridgeResult<Value> {
 async fn announce(state: &AppState, what: &str) {
     let running = state.bridge.is_running().await;
     tracing::info!(running, "Claude bridge {what}");
-    state.broadcast(ServerEvent::Notice(format!("Claude bridge {what}")));
+    state.notice(format!("Claude bridge {what}"));
 }
 
 /// Everything the control screen needs in one payload.
@@ -309,7 +310,7 @@ pub async fn status(state: &AppState) -> Value {
 // --- dashboard handlers ----------------------------------------------------
 
 /// `GET /api/bridge`
-pub async fn get_status(State(state): State<AppState>) -> Response {
+pub async fn get_status(Authed(_ctx): Authed, State(state): State<AppState>) -> Response {
     axum::Json(status(&state).await).into_response()
 }
 
@@ -320,16 +321,31 @@ pub struct StartBody {
     pub defaults: BridgeDefaults,
 }
 
-/// `POST /api/bridge/start`
+/// `POST /api/bridge/start`. Defaults with a permission mode that skips
+/// approvals are desktop-only (design G1): every conversation the bridge then
+/// creates or resumes would inherit it.
 pub async fn post_start(
+    Authed(ctx): Authed,
     State(state): State<AppState>,
     super::routes::Body(body): super::routes::Body<StartBody>,
 ) -> BridgeResult<Response> {
+    if crate::claude::owned::is_dangerous_mode(body.defaults.permission_mode.as_deref())
+        && !ctx.is_desktop()
+    {
+        return Err(BridgeError::forbidden(
+            "desktop_only",
+            "Starting the bridge with a permission mode that skips approvals is only \
+             possible from the Mother Claude desktop app.",
+        ));
+    }
     Ok(axum::Json(start(&state, body.defaults).await?).into_response())
 }
 
 /// `POST /api/bridge/stop`
-pub async fn post_stop(State(state): State<AppState>) -> BridgeResult<Response> {
+pub async fn post_stop(
+    Authed(_ctx): Authed,
+    State(state): State<AppState>,
+) -> BridgeResult<Response> {
     Ok(axum::Json(stop(&state).await?).into_response())
 }
 
@@ -342,6 +358,7 @@ pub struct ActiveThreadBody {
 
 /// `POST /api/bridge/active-thread` — change which conversation new messages join.
 pub async fn post_active_thread(
+    Authed(_ctx): Authed,
     State(state): State<AppState>,
     super::routes::Body(body): super::routes::Body<ActiveThreadBody>,
 ) -> BridgeResult<Response> {

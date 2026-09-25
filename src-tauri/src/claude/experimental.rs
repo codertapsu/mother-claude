@@ -19,7 +19,7 @@ use std::sync::Mutex;
 use anyhow::{anyhow, Context, Result};
 use portable_pty::{native_pty_system, CommandBuilder, PtySize};
 
-use crate::state::{AppState, ServerEvent};
+use crate::state::AppState;
 
 struct PtyHandle {
     writer: Mutex<Box<dyn Write + Send>>,
@@ -75,20 +75,17 @@ impl PtyRegistry {
         let mut reader = pair.master.try_clone_reader().context("clone pty reader")?;
         let writer = pair.master.take_writer().context("take pty writer")?;
 
-        let st = state.clone();
+        // Drain the PTY so the child never blocks on a full buffer. The raw
+        // terminal output is not broadcast (it can contain anything the
+        // session prints); B4 may keep a bounded tail for the terminal view.
+        let _ = state;
         let sid = id.to_string();
         std::thread::spawn(move || {
             let mut buf = [0u8; 4096];
             loop {
                 match reader.read(&mut buf) {
                     Ok(0) | Err(_) => break,
-                    Ok(n) => {
-                        let chunk = String::from_utf8_lossy(&buf[..n]).to_string();
-                        st.broadcast(ServerEvent::Hook(serde_json::json!({
-                            "experimentalPty": sid,
-                            "output": chunk,
-                        })));
-                    }
+                    Ok(n) => tracing::trace!(session = %sid, bytes = n, "pty output"),
                 }
             }
         });

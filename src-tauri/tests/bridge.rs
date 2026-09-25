@@ -100,6 +100,13 @@ async fn boot_stopped(home: ClaudeHome, require_token: bool) -> (String, String,
             require_token,
         ))
         .with_state(state.clone());
+    // What `bridge::listener_router` does for the real loopback port: mark the
+    // ingress so the context layer can tell local callers from tunnelled ones.
+    let app = mother_claude_lib::server::context::layer(
+        app,
+        state.clone(),
+        mother_claude_lib::server::Ingress::BridgeLoopback,
+    );
 
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
@@ -283,7 +290,7 @@ async fn the_v1_mount_on_the_main_server_is_reachable_and_authenticated() {
         .json()
         .await
         .unwrap();
-    assert!(sessions.is_array());
+    assert!(sessions["sessions"].is_array());
 }
 
 #[tokio::test]

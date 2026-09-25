@@ -4,6 +4,11 @@
 //! Refreshes on a fixed interval *and* on debounced filesystem changes, so live
 //! edits surface in well under a second while a periodic sweep catches anything
 //! the watcher misses.
+//!
+//! Owner: **B2 (data layer)**, which replaces the legacy registry pipeline
+//! below (live roster + incremental index + agents). Whatever the pipeline, it
+//! ends in `ws::publish_sessions` (diffed broadcast) and
+//! `ws::publish_transcript` (subscribers only).
 
 use std::collections::{HashMap, HashSet};
 use std::time::Duration;
@@ -15,7 +20,8 @@ use crate::claude::{
     build_registry, query_agents, read_state_jsons, scan_transcripts, FsWatcher, RegistryInputs,
     TranscriptTailer,
 };
-use crate::state::{AppState, ServerEvent};
+use crate::server::ws;
+use crate::state::AppState;
 
 const REFRESH_INTERVAL: Duration = Duration::from_secs(3);
 
@@ -79,12 +85,16 @@ async fn refresh(state: &AppState, tailers: &mut HashMap<String, TranscriptTaile
             .unwrap_or_default();
 
     let owned = state.owned.read().await.clone();
-    let pending = state.pending.read().await.clone();
+    // Answerable pending items live in the PendingStore and are merged by the
+    // summary builder; the registry only contributes transcript-observed ones.
+    let pending = HashMap::new();
     // Bridge conversations are owned too; without them a conversation created
     // over HTTP vanishes from the dashboard until its first turn writes a
     // transcript.
     let mut owned_live = state.control.live();
-    owned_live.extend(state.bridge.live_sessions().await);
+    let bridge_live = state.bridge.live_sessions().await;
+    let bridge_ids: HashSet<String> = bridge_live.iter().map(|m| m.id.clone()).collect();
+    owned_live.extend(bridge_live);
 
     let sessions = build_registry(RegistryInputs {
         agents: &agents,
@@ -97,8 +107,9 @@ async fn refresh(state: &AppState, tailers: &mut HashMap<String, TranscriptTaile
         owned_live: &owned_live,
     });
 
-    *state.sessions.write().await = sessions.clone();
-    state.broadcast(ServerEvent::Sessions(sessions.clone()));
+    *state.registry.write().await = sessions.clone();
+    let summaries = crate::claude::summaries::build(state, &sessions, &bridge_ids);
+    ws::publish_sessions(state, summaries).await;
 
     for s in &sessions {
         if s.cwd.is_empty() {
@@ -108,11 +119,16 @@ async fn refresh(state: &AppState, tailers: &mut HashMap<String, TranscriptTaile
         let tailer = tailers
             .entry(s.id.clone())
             .or_insert_with(|| TranscriptTailer::at_end(path));
-        match tailer.poll() {
-            Ok(events) if !events.is_empty() => state.broadcast(ServerEvent::Transcript {
-                session_id: s.id.clone(),
-                events,
-            }),
+        match tailer.poll_with_offsets() {
+            Ok(records) if !records.is_empty() => {
+                let events = records
+                    .iter()
+                    .flat_map(|(off, ev)| {
+                        crate::claude::uievents::map_event(&s.id, ev, &format!("@{off}"))
+                    })
+                    .collect();
+                ws::publish_transcript(state, &s.id, events, tailer.cursor().to_string());
+            }
             Ok(_) => {}
             Err(e) => tracing::debug!(error = %e, id = %s.id, "transcript tail error"),
         }

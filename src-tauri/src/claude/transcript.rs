@@ -48,53 +48,66 @@ impl TranscriptTailer {
         &self.path
     }
 
-    /// Read everything appended since the last poll and parse complete lines.
-    ///
-    /// Detects truncation/rotation (file shorter than our offset) and restarts
-    /// from the beginning. Returns an empty vec when there is nothing new or the
-    /// file does not yet exist.
-    pub fn poll(&mut self) -> std::io::Result<Vec<TranscriptEvent>> {
+    /// Byte offset just past the last complete line read — the transcript
+    /// "tail" cursor clients resume from.
+    pub fn cursor(&self) -> u64 {
+        self.offset.saturating_sub(self.partial.len() as u64)
+    }
+
+    /// Like [`poll`](Self::poll), but also returns each event's starting byte
+    /// offset (for stable UI event ids).
+    pub fn poll_with_offsets(&mut self) -> std::io::Result<Vec<(u64, TranscriptEvent)>> {
+        let start = self.cursor();
         let mut file = match File::open(&self.path) {
             Ok(f) => f,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
             Err(e) => return Err(e),
         };
-
         let len = file.metadata()?.len();
-        if len < self.offset {
-            // Truncated or rotated — restart.
+        let (start, restart) = if len < self.offset {
+            (0, true)
+        } else {
+            (start, false)
+        };
+        if restart {
             self.offset = 0;
             self.partial.clear();
         }
         if len == self.offset {
             return Ok(Vec::new());
         }
-
         file.seek(SeekFrom::Start(self.offset))?;
         let mut fresh = Vec::new();
         let read = file.read_to_end(&mut fresh)?;
         self.offset += read as u64;
-
-        // Combine carried partial bytes with the freshly read bytes.
         let mut buf = std::mem::take(&mut self.partial);
         buf.extend_from_slice(&fresh);
-
         let mut events = Vec::new();
-        let mut start = 0usize;
+        let mut line_start = 0usize;
         for i in 0..buf.len() {
             if buf[i] == b'\n' {
-                let line = &buf[start..i];
-                let text = String::from_utf8_lossy(line);
+                let text = String::from_utf8_lossy(&buf[line_start..i]);
                 if let Some(ev) = parse_transcript_line(&text) {
-                    events.push(ev);
+                    events.push((start + line_start as u64, ev));
                 }
-                start = i + 1;
+                line_start = i + 1;
             }
         }
-        // Whatever follows the last newline is an incomplete line — carry it.
-        self.partial = buf[start..].to_vec();
-
+        self.partial = buf[line_start..].to_vec();
         Ok(events)
+    }
+
+    /// Read everything appended since the last poll and parse complete lines.
+    ///
+    /// Detects truncation/rotation (file shorter than our offset) and restarts
+    /// from the beginning. Returns an empty vec when there is nothing new or the
+    /// file does not yet exist.
+    pub fn poll(&mut self) -> std::io::Result<Vec<TranscriptEvent>> {
+        Ok(self
+            .poll_with_offsets()?
+            .into_iter()
+            .map(|(_, ev)| ev)
+            .collect())
     }
 }
 

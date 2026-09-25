@@ -1,25 +1,40 @@
 //! The embedded axum HTTP/WebSocket server.
 //!
 //! Every piece of dashboard data flows through here so the desktop webview and
-//! phone browsers share exactly one path. A background monitor keeps the session
-//! snapshot fresh (polling `claude agents --json` + filesystem watch) and streams
-//! live transcript deltas over the broadcast bus.
+//! phone browsers share exactly one path. Each listener serves
+//! [`router_for`] with its own [`Ingress`], so the context middleware knows
+//! which door a request came through.
+//!
+//! Module owners (see `interfaces.md`): `context`, `auth`, `error`, `ws`,
+//! `routes/mod.rs` — foundation; `devices`, `pairing`, `remote`, `ratelimit`,
+//! `security`, `listeners`, `tls` — B1; `monitor` — B2; `hooks` — B4; `push` —
+//! B5.
 
 pub mod auth;
+pub mod context;
+pub mod devices;
 pub mod error;
-pub mod http;
+pub mod hooks;
+pub mod listeners;
 pub mod monitor;
+pub mod pairing;
+pub mod push;
+pub mod ratelimit;
+pub mod remote;
+pub mod routes;
+pub mod security;
 pub mod tls;
 pub mod ws;
 
 use std::path::PathBuf;
 
 use anyhow::Context;
+use axum::response::IntoResponse;
 use axum::routing::{get, post};
 use axum::Router;
-use tower_http::cors::CorsLayer;
 use tower_http::services::{ServeDir, ServeFile};
-use tower_http::trace::TraceLayer;
+
+pub use context::Ingress;
 
 use crate::state::AppState;
 
@@ -44,93 +59,67 @@ pub fn resolve_web_dir() -> Option<PathBuf> {
         .find(|p| p.join("index.html").is_file())
 }
 
-/// Build the axum router (without binding). Exposed for integration tests.
+/// Served when the Angular build is not present on disk.
+pub async fn no_frontend() -> impl IntoResponse {
+    (
+        axum::http::StatusCode::SERVICE_UNAVAILABLE,
+        [("content-type", "text/html; charset=utf-8")],
+        "<h1>Mother Claude</h1><p>Frontend not built. Run <code>npm run build</code> \
+         or set <code>MOTHER_CLAUDE_WEB_DIR</code>. The API is available under <code>/api</code>.</p>",
+    )
+}
+
+/// Build the application router for one listener.
 ///
-/// `/api/*`, `/ws`, and `/hooks/*` require the API token; the static SPA is
-/// served without auth so a phone can load the app and then authenticate.
-pub fn router(state: AppState) -> Router {
-    let api = Router::new()
-        .route("/health", get(http::health))
-        .route("/sessions", get(http::list_sessions).post(http::post_spawn))
-        .route("/sessions/{id}", get(http::get_session))
-        .route("/sessions/{id}/transcript", get(http::get_transcript))
-        .route("/sessions/{id}/diff", get(http::get_diff))
-        .route("/sessions/{id}/file-patch", get(http::get_file_patch))
-        .route("/sessions/{id}/message", post(http::post_message))
-        .route("/sessions/{id}/continue", post(http::post_continue))
-        .route(
-            "/sessions/{id}/permission-request",
-            post(http::post_permission_request),
-        )
-        .route("/sessions/{id}/permission", post(http::post_permission))
-        .route("/sessions/{id}/answer", post(http::post_answer))
-        .route("/sessions/{id}/stop", post(http::post_stop))
-        .route("/sessions/{id}/respawn", post(http::post_respawn))
-        .route("/sessions/{id}/rm", post(http::post_rm))
-        .route("/services", get(http::get_services))
-        .route("/defaults", get(http::get_defaults))
-        .route("/daemon", get(http::get_daemon))
-        .route("/pairing", get(http::get_pairing))
-        .route("/hooks/install", post(http::post_install_hooks))
-        // Starting and configuring the Claude HTTP bridge. These live on the
-        // dashboard API because you have to be able to start something that is
-        // not running.
-        .route("/bridge", get(crate::bridge::control::get_status))
-        .route("/bridge/start", post(crate::bridge::control::post_start))
-        .route("/bridge/stop", post(crate::bridge::control::post_stop))
-        .route(
-            "/bridge/active-thread",
-            post(crate::bridge::control::post_active_thread),
-        );
-
-    // Experimental, unsanctioned foreign-session injection (off by default).
-    #[cfg(feature = "experimental")]
-    let api = api
-        .route("/sessions/{id}/pty-attach", post(http::post_pty_attach))
-        .route("/sessions/{id}/pty-inject", post(http::post_pty_inject));
-
-    let secured = Router::new()
-        .route("/ws", get(ws::ws_handler))
-        .route("/hooks/event", post(http::post_hook_event))
-        .nest("/api", api)
-        .layer(axum::middleware::from_fn_with_state(
-            state.clone(),
-            auth::require_token,
-        ));
-
-    // The Claude HTTP bridge. Mounted outside `secured` because it carries its
-    // own auth layer — but always token-required here, since this listener is
-    // reachable from the LAN. Its tokenless mode exists only on the dedicated
-    // loopback port (see `bridge::serve`).
-    let secured = secured.nest("/v1", crate::bridge::router(state.clone(), true));
-
+/// * `/api/*` — the dashboard API (guards per route, see `routes`);
+/// * `/ws` — WebSocket v2 (authenticates itself);
+/// * `/hooks/event`, `/hooks/wait` — the hook plugin (Hook principal; not on
+///   the tunnel ingress);
+/// * `/v1` — the Claude HTTP bridge, token always required here (not on the
+///   tunnel ingress);
+/// * everything else — the SPA (no auth, so a phone can load the app and
+///   then pair).
+pub fn router_for(state: AppState, ingress: Ingress) -> Router {
+    let mut app: Router<AppState> = Router::new()
+        .nest("/api", routes::api_router())
+        .route("/ws", get(ws::ws_handler));
+    if ingress != Ingress::Tunnel {
+        app = app
+            .route("/hooks/event", post(hooks::post_event))
+            .route("/hooks/wait", get(hooks::wait))
+            // Mounted with its own auth layer — always token-required here,
+            // since this listener may be reachable from the LAN. Its tokenless
+            // mode exists only on the dedicated loopback port.
+            .nest("/v1", crate::bridge::router(state.clone(), true));
+    }
     let app = match resolve_web_dir() {
         Some(dir) => {
             let index = dir.join("index.html");
-            secured.fallback_service(ServeDir::new(dir).fallback(ServeFile::new(index)))
+            app.fallback_service(ServeDir::new(dir).fallback(ServeFile::new(index)))
         }
-        None => secured.fallback(http::no_frontend),
+        None => app.fallback(no_frontend),
     };
+    let app = security::apply(app.with_state(state.clone()), ingress);
+    context::layer(app, state, ingress)
+}
 
-    app.layer(CorsLayer::permissive())
-        .layer(TraceLayer::new_for_http())
-        .with_state(state)
+/// The loopback router (desktop, local scripts, hooks, sidecar). Exposed for
+/// integration tests.
+pub fn router(state: AppState) -> Router {
+    router_for(state, Ingress::Loopback)
 }
 
 /// Bind and serve.
 ///
 /// Always serves plain HTTP on `127.0.0.1:<port>` — this loopback endpoint is
-/// what the desktop webview, foreign-session hooks, and the local sidecar use,
-/// avoiding self-signed-cert friction. When the configured host is non-loopback,
-/// it additionally serves **TLS** on each detected LAN IP (same port) for phones.
-/// Also spawns the background monitor.
+/// what the desktop webview, the hook plugin and the local sidecar use. When
+/// the configured host is non-loopback it additionally serves TLS on the LAN
+/// addresses (same port) for phones (`listeners::start_lan`). Also starts the
+/// background subsystems (each owner's `start` function).
 pub async fn serve(state: AppState) -> anyhow::Result<()> {
     use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
-    // Establish Claude's own sign-in before anything can depend on it. Without
-    // this, a signed-out account shows up as every turn returning the sentence
-    // "Not logged in · Please run /login" — a per-request mystery instead of one
-    // statement at the moment the app opens.
+    // Establish Claude's own sign-in before anything can depend on it.
     let auth = state.refresh_claude_auth().await;
     if !auth.logged_in {
         tracing::warn!(status = %auth.summary(), "Claude is not signed in");
@@ -138,58 +127,21 @@ pub async fn serve(state: AppState) -> anyhow::Result<()> {
 
     tokio::spawn(monitor::run(state.clone()));
     tokio::spawn(crate::bridge::autostart(state.clone()));
+    hooks::start(&state);
+    push::start(&state);
 
-    let port = state.config.port;
-
-    // LAN TLS servers (bound to specific IPs so they don't collide with the
-    // loopback HTTP bind on the same port).
-    if state.config.is_non_loopback() {
-        let _ = rustls::crypto::ring::default_provider().install_default();
-        let cert_dir = state
-            .auth
-            .config_dir
-            .clone()
-            .unwrap_or_else(|| std::env::temp_dir().join("mother-claude"))
-            .join("certs");
-        match tls::ensure_cert(&cert_dir) {
-            Ok(bundle) => {
-                *state.fingerprint.write().await = Some(bundle.fingerprint.clone());
-                match axum_server::tls_rustls::RustlsConfig::from_pem(
-                    bundle.cert_pem.into_bytes(),
-                    bundle.key_pem.into_bytes(),
-                )
-                .await
-                {
-                    Ok(tls_config) => {
-                        for ip in tls::local_ips() {
-                            let addr = SocketAddr::new(ip, port);
-                            let app = router(state.clone());
-                            let cfg = tls_config.clone();
-                            tokio::spawn(async move {
-                                if let Err(e) = axum_server::bind_rustls(addr, cfg)
-                                    .serve(app.into_make_service_with_connect_info::<SocketAddr>())
-                                    .await
-                                {
-                                    tracing::error!(%addr, error = %e, "TLS server stopped");
-                                }
-                            });
-                        }
-                    }
-                    Err(e) => tracing::error!(error = %e, "could not build TLS config"),
-                }
-            }
-            Err(e) => tracing::error!(error = %e, "could not prepare TLS cert"),
-        }
-    }
+    listeners::start_lan(&state).await;
 
     announce(&state).await;
 
     // Primary: loopback HTTP. Keeps serve() alive for the app's lifetime.
+    let port = state.config.port;
     let loopback = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), port);
     let listener = tokio::net::TcpListener::bind(loopback)
         .await
         .with_context(|| format!("could not bind {loopback}"))?;
-    let app = router(state.clone());
+    remote::start(&state);
+    let app = router_for(state.clone(), Ingress::Loopback);
     axum::serve(
         listener,
         app.into_make_service_with_connect_info::<SocketAddr>(),
@@ -199,7 +151,8 @@ pub async fn serve(state: AppState) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Log the token and URLs to the console at startup.
+/// Log the URLs to the console at startup. Tokens are shown only as a
+/// fingerprint; the desktop webview gets the real one through `server_info`.
 async fn announce(state: &AppState) {
     let fingerprint = state
         .fingerprint
@@ -208,21 +161,25 @@ async fn announce(state: &AppState) {
         .clone()
         .unwrap_or_else(|| "n/a (http)".to_string());
     let port = state.config.port;
-    tracing::info!(token = %state.auth.token, "Mother Claude server listening");
+    tracing::info!(
+        token = %auth::fingerprint(&state.auth.token),
+        "Mother Claude server listening"
+    );
     println!("\n  Mother Claude dashboard");
     println!("  Local:  http://127.0.0.1:{port}");
     if state.config.is_non_loopback() {
         for ip in tls::local_ips() {
-            println!("  LAN:    https://{ip}:{port}  (scan the QR in Settings)");
+            println!("  LAN:    https://{ip}:{port}  (pair from Remote in the app)");
         }
         println!("  TLS fingerprint (SHA-256): {fingerprint}");
     }
-    println!("  Token:  {}", state.auth.token);
-    let auth = state.claude_auth.read().await.clone();
-    if auth.logged_in {
-        println!("  Claude: {}", auth.summary());
-    } else {
-        println!("  Claude: {}", auth.summary());
+    println!(
+        "  Token:  {} (the desktop app holds it)",
+        auth::fingerprint(&state.auth.token)
+    );
+    let claude_auth = state.claude_auth.read().await.clone();
+    println!("  Claude: {}", claude_auth.summary());
+    if !claude_auth.logged_in {
         println!("          until then every turn will answer \"Not logged in\"");
     }
     if state.bridge.config.enabled {
@@ -237,215 +194,4 @@ async fn announce(state: &AppState) {
         );
     }
     println!();
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::claude::ClaudeHome;
-    use crate::state::{Inner, ServerConfig};
-
-    /// Boot the router on an ephemeral port (no monitor, no `claude` calls) and
-    /// hit the REST API over real HTTP, exercising token auth.
-    #[tokio::test]
-    async fn serves_api_with_token_auth() {
-        let dir = tempfile::tempdir().unwrap();
-        let state = Inner::new(
-            ClaudeHome::with_base(dir.path()),
-            ServerConfig {
-                host: "127.0.0.1".into(),
-                port: 0,
-            },
-            auth::Auth::ephemeral(),
-        );
-        let token = state.auth.token.clone();
-        let app = router(state);
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let addr = listener.local_addr().unwrap();
-        tokio::spawn(async move {
-            axum::serve(listener, app).await.unwrap();
-        });
-
-        let base = format!("http://{addr}");
-        let client = reqwest::Client::new();
-
-        // Missing token -> 401.
-        let resp = client
-            .get(format!("{base}/api/sessions"))
-            .send()
-            .await
-            .unwrap();
-        assert_eq!(resp.status(), reqwest::StatusCode::UNAUTHORIZED);
-
-        // With bearer token -> ok.
-        let health: serde_json::Value = client
-            .get(format!("{base}/api/health"))
-            .bearer_auth(&token)
-            .send()
-            .await
-            .unwrap()
-            .json()
-            .await
-            .unwrap();
-        assert_eq!(health["status"], "ok");
-
-        // Token via query string (the WebSocket path) also works.
-        let sessions: serde_json::Value = client
-            .get(format!("{base}/api/sessions?token={token}"))
-            .send()
-            .await
-            .unwrap()
-            .json()
-            .await
-            .unwrap();
-        assert!(sessions.is_array());
-        assert_eq!(sessions.as_array().unwrap().len(), 0);
-
-        // Pairing payload includes a QR SVG.
-        let pairing: serde_json::Value = client
-            .get(format!("{base}/api/pairing"))
-            .bearer_auth(&token)
-            .send()
-            .await
-            .unwrap()
-            .json()
-            .await
-            .unwrap();
-        assert!(pairing["svg"].as_str().unwrap().contains("<svg"));
-
-        // Unknown session -> 404 (authorized).
-        let resp = client
-            .get(format!("{base}/api/sessions/does-not-exist"))
-            .bearer_auth(&token)
-            .send()
-            .await
-            .unwrap();
-        assert_eq!(resp.status(), reqwest::StatusCode::NOT_FOUND);
-    }
-
-    /// End-to-end approval loop: a (simulated) sidecar raises a permission
-    /// request that blocks; the dashboard approves it; the request unblocks with
-    /// `allow`.
-    #[tokio::test]
-    async fn permission_request_resolves_via_dashboard() {
-        let dir = tempfile::tempdir().unwrap();
-        let state = Inner::new(
-            ClaudeHome::with_base(dir.path()),
-            ServerConfig {
-                host: "127.0.0.1".into(),
-                port: 0,
-            },
-            auth::Auth::ephemeral(),
-        );
-        let token = state.auth.token.clone();
-        let app = router(state);
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let addr = listener.local_addr().unwrap();
-        tokio::spawn(async move {
-            axum::serve(
-                listener,
-                app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
-            )
-            .await
-            .unwrap();
-        });
-
-        let base = format!("http://{addr}");
-        let client = reqwest::Client::new();
-
-        // Sidecar side: raise a permission request and block for the answer.
-        let (c2, b2, t2) = (client.clone(), base.clone(), token.clone());
-        let blocked = tokio::spawn(async move {
-            c2.post(format!("{b2}/api/sessions/sess1/permission-request"))
-                .bearer_auth(&t2)
-                .json(&serde_json::json!({ "kind": "permission", "tool": "Bash" }))
-                .send()
-                .await
-                .unwrap()
-                .json::<serde_json::Value>()
-                .await
-                .unwrap()
-        });
-
-        // Dashboard side: approve (retry until the pending request is registered).
-        let mut approved = false;
-        for _ in 0..50 {
-            let r = client
-                .post(format!("{base}/api/sessions/sess1/permission"))
-                .bearer_auth(&token)
-                .json(&serde_json::json!({ "decision": "allow" }))
-                .send()
-                .await
-                .unwrap();
-            if r.status() == reqwest::StatusCode::NO_CONTENT {
-                approved = true;
-                break;
-            }
-            tokio::time::sleep(std::time::Duration::from_millis(40)).await;
-        }
-        assert!(approved, "dashboard approval never landed");
-
-        let decision = blocked.await.unwrap();
-        assert_eq!(decision["behavior"], "allow");
-    }
-
-    /// Hook events require the token and are fanned out on the bus.
-    #[tokio::test]
-    async fn hook_event_authenticated_and_broadcast() {
-        use crate::state::ServerEvent;
-
-        let dir = tempfile::tempdir().unwrap();
-        let state = Inner::new(
-            ClaudeHome::with_base(dir.path()),
-            ServerConfig {
-                host: "127.0.0.1".into(),
-                port: 0,
-            },
-            auth::Auth::ephemeral(),
-        );
-        let token = state.auth.token.clone();
-        let mut rx = state.bus.subscribe();
-        let app = router(state.clone());
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let addr = listener.local_addr().unwrap();
-        tokio::spawn(async move {
-            axum::serve(
-                listener,
-                app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
-            )
-            .await
-            .unwrap();
-        });
-
-        let base = format!("http://{addr}");
-        let client = reqwest::Client::new();
-
-        // No token -> 401.
-        let resp = client
-            .post(format!("{base}/hooks/event"))
-            .json(&serde_json::json!({ "hook_event_name": "PreToolUse" }))
-            .send()
-            .await
-            .unwrap();
-        assert_eq!(resp.status(), reqwest::StatusCode::UNAUTHORIZED);
-
-        // With token -> 200 and a Hook event on the bus.
-        let resp = client
-            .post(format!("{base}/hooks/event"))
-            .bearer_auth(&token)
-            .json(&serde_json::json!({ "hook_event_name": "PreToolUse", "tool_name": "Bash" }))
-            .send()
-            .await
-            .unwrap();
-        assert!(resp.status().is_success());
-
-        let event = tokio::time::timeout(std::time::Duration::from_secs(2), rx.recv())
-            .await
-            .expect("no event")
-            .unwrap();
-        match event {
-            ServerEvent::Hook(v) => assert_eq!(v["tool_name"], "Bash"),
-            other => panic!("expected Hook event, got {other:?}"),
-        }
-    }
 }

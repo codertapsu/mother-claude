@@ -7,10 +7,9 @@
 //! conversation stays readable after its process is gone.
 
 use std::collections::HashMap;
-use std::net::SocketAddr;
 use std::time::Duration;
 
-use axum::extract::{ConnectInfo, Path, Query, State};
+use axum::extract::{Path, Query, State};
 use axum::response::Response;
 use serde::{Deserialize, Deserializer};
 use serde_json::{json, Value};
@@ -20,7 +19,7 @@ use super::{created, ok, validate_id, Body};
 use crate::bridge::error::{BridgeError, BridgeResult};
 use crate::bridge::host::{CREATE_TIMEOUT, RPC_TIMEOUT};
 use crate::bridge::ThreadRecord;
-use crate::server::auth;
+use crate::server::context::ClientContext;
 use crate::state::AppState;
 
 pub const EFFORT_LEVELS: [&str; 5] = ["low", "medium", "high", "xhigh", "max"];
@@ -119,7 +118,7 @@ impl CreateThread {
         self
     }
 
-    fn validate(&self, peer: &SocketAddr, state: &AppState) -> BridgeResult<()> {
+    fn validate(&self, ctx: &ClientContext) -> BridgeResult<()> {
         one_of("effort", &self.effort, &EFFORT_LEVELS)?;
         one_of("permission_mode", &self.permission_mode, &PERMISSION_MODES)?;
         one_of("thinking", &self.thinking, &["on", "off"])?;
@@ -150,17 +149,13 @@ impl CreateThread {
 
         // `bypassPermissions` skips every approval prompt, so it is gated by
         // the same rule the dashboard uses for dangerous actions.
-        if self.permission_mode.as_deref() == Some("bypassPermissions")
-            && auth::dangerous_blocked(
-                true,
-                auth::is_loopback(peer),
-                state.auth.allow_remote_dangerous,
-            )
+        if crate::claude::owned::is_dangerous_mode(self.permission_mode.as_deref())
+            && !ctx.may_dangerous()
         {
             return Err(BridgeError::forbidden(
                 "dangerous_blocked",
-                "permission_mode `bypassPermissions` is restricted to local clients. \
-                 Set MOTHER_CLAUDE_ALLOW_REMOTE_DANGEROUS=1 to override.",
+                "Permission modes that skip approvals (`bypassPermissions`, `dontAsk`) are \
+                 restricted to local clients.",
             ));
         }
         Ok(())
@@ -233,11 +228,11 @@ impl CreateThread {
 /// `POST /threads` — start a conversation and return its id.
 pub async fn create(
     State(state): State<AppState>,
-    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    ctx: ClientContext,
     Body(body): Body<CreateThread>,
 ) -> BridgeResult<Response> {
     let body = body.with_defaults(&state.bridge.defaults().await);
-    body.validate(&peer, &state)?;
+    body.validate(&ctx)?;
 
     let cwd = body.cwd.clone().unwrap_or_else(default_cwd);
     let path = std::path::Path::new(&cwd);
@@ -576,7 +571,7 @@ pub struct PermissionModeBody {
 /// `POST /threads/{id}/permission-mode` — change approval behaviour live.
 pub async fn set_permission_mode(
     State(state): State<AppState>,
-    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    ctx: ClientContext,
     Path(thread_id): Path<String>,
     Body(body): Body<PermissionModeBody>,
 ) -> BridgeResult<Response> {
@@ -586,16 +581,11 @@ pub async fn set_permission_mode(
         &Some(body.permission_mode.clone()),
         &PERMISSION_MODES,
     )?;
-    if body.permission_mode == "bypassPermissions"
-        && auth::dangerous_blocked(
-            true,
-            auth::is_loopback(&peer),
-            state.auth.allow_remote_dangerous,
-        )
+    if crate::claude::owned::is_dangerous_mode(Some(&body.permission_mode)) && !ctx.may_dangerous()
     {
         return Err(BridgeError::forbidden(
             "dangerous_blocked",
-            "permission_mode `bypassPermissions` is restricted to local clients.",
+            "Permission modes that skip approvals are restricted to local clients.",
         ));
     }
     let result = state
@@ -620,7 +610,7 @@ pub async fn set_permission_mode(
 /// disk; `?purge=true` deletes that too.
 pub async fn close(
     State(state): State<AppState>,
-    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    ctx: ClientContext,
     Path(thread_id): Path<String>,
     Query(params): Query<HashMap<String, String>>,
 ) -> BridgeResult<Response> {
@@ -628,13 +618,7 @@ pub async fn close(
     let purge = params.get("purge").map(String::as_str) == Some("true");
 
     // Deleting a transcript is irreversible, so it obeys the dangerous gate.
-    if purge
-        && auth::dangerous_blocked(
-            true,
-            auth::is_loopback(&peer),
-            state.auth.allow_remote_dangerous,
-        )
-    {
+    if purge && !ctx.may_dangerous() {
         return Err(BridgeError::forbidden(
             "dangerous_blocked",
             "Deleting a transcript is restricted to local clients.",
@@ -677,33 +661,35 @@ pub async fn close(
 mod tests {
     use super::*;
 
-    fn local() -> SocketAddr {
-        "127.0.0.1:5000".parse().unwrap()
+    fn local() -> ClientContext {
+        let mut h = axum::http::HeaderMap::new();
+        h.insert("host", "127.0.0.1:5612".parse().unwrap());
+        ClientContext::new(
+            crate::server::context::Ingress::BridgeLoopback,
+            "127.0.0.1:5000".parse().unwrap(),
+            &h,
+            false,
+        )
     }
 
-    fn remote() -> SocketAddr {
-        "192.168.1.40:5000".parse().unwrap()
-    }
-
-    fn state() -> AppState {
-        crate::state::Inner::new(
-            crate::claude::ClaudeHome::with_base(std::env::temp_dir()),
-            crate::state::ServerConfig {
-                host: "127.0.0.1".into(),
-                port: 0,
-            },
-            auth::Auth::ephemeral(),
+    fn remote() -> ClientContext {
+        let mut h = axum::http::HeaderMap::new();
+        h.insert("host", "192.168.1.2:6725".parse().unwrap());
+        ClientContext::new(
+            crate::server::context::Ingress::Lan,
+            "192.168.1.40:5000".parse().unwrap(),
+            &h,
+            false,
         )
     }
 
     #[test]
     fn enum_fields_are_validated_by_name() {
-        let st = state();
         let body = CreateThread {
             effort: Some("turbo".into()),
             ..Default::default()
         };
-        let err = body.validate(&local(), &st).unwrap_err();
+        let err = body.validate(&local()).unwrap_err();
         assert_eq!(err.code, "invalid_field");
         assert_eq!(err.body()["error"]["field"], "effort");
 
@@ -712,7 +698,7 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(
-            body.validate(&local(), &st).unwrap_err().body()["error"]["field"],
+            body.validate(&local()).unwrap_err().body()["error"]["field"],
             "permission_mode"
         );
 
@@ -721,33 +707,45 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(
-            body.validate(&local(), &st).unwrap_err().body()["error"]["field"],
+            body.validate(&local()).unwrap_err().body()["error"]["field"],
             "setting_sources"
         );
     }
 
     #[test]
     fn bypass_permissions_is_local_only() {
-        let st = state();
         let body = CreateThread {
             permission_mode: Some("bypassPermissions".into()),
             ..Default::default()
         };
-        assert!(body.validate(&local(), &st).is_ok());
-        let err = body.validate(&remote(), &st).unwrap_err();
+        assert!(body.validate(&local()).is_ok());
+        let err = body.validate(&remote()).unwrap_err();
         assert_eq!(err.code, "dangerous_blocked");
         assert_eq!(err.status, axum::http::StatusCode::FORBIDDEN);
+
+        // A page on another website calling the loopback bridge: tokenless for
+        // ordinary work, but never for skipping approvals.
+        let mut h = axum::http::HeaderMap::new();
+        h.insert("host", "127.0.0.1:5612".parse().unwrap());
+        h.insert("origin", "https://evil.example".parse().unwrap());
+        let page = ClientContext::new(
+            crate::server::context::Ingress::BridgeLoopback,
+            "127.0.0.1:5000".parse().unwrap(),
+            &h,
+            false,
+        );
+        assert!(page.on_machine && !page.local);
+        assert_eq!(body.validate(&page).unwrap_err().code, "dangerous_blocked");
     }
 
     #[test]
     fn fork_without_resume_is_rejected_and_thread_ids_must_be_uuids() {
-        let st = state();
         let body = CreateThread {
             fork: true,
             ..Default::default()
         };
         assert_eq!(
-            body.validate(&local(), &st).unwrap_err().body()["error"]["field"],
+            body.validate(&local()).unwrap_err().body()["error"]["field"],
             "fork"
         );
 
@@ -756,7 +754,7 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(
-            body.validate(&local(), &st).unwrap_err().body()["error"]["field"],
+            body.validate(&local()).unwrap_err().body()["error"]["field"],
             "thread_id"
         );
 
@@ -764,7 +762,7 @@ mod tests {
             thread_id: Some(Uuid::new_v4().to_string()),
             ..Default::default()
         };
-        assert!(body.validate(&local(), &st).is_ok());
+        assert!(body.validate(&local()).is_ok());
     }
 
     #[test]

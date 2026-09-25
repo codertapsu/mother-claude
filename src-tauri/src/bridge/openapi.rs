@@ -575,8 +575,9 @@ pub fn document(require_token: bool, messages_api: bool, mount: &str) -> Value {
                 "BridgeBearer": {
                     "type": "http",
                     "scheme": "bearer",
-                    "description": "The Mother Claude API token. Also accepted as ?token= \
-                                    (for EventSource) or an mc_token cookie.",
+                    "description": "A Mother Claude token: a paired device's token, or the \
+                                    desktop token from this machine. ?token= (for \
+                                    EventSource) is accepted only from this machine.",
                 },
             },
             "schemas": schemas(),

@@ -16,7 +16,9 @@
  * Disable with MOTHER_CLAUDE_SIDECAR=0 to force the headless path. Runtime
  * correctness depends on the installed SDK version.
  *
- * Env in: MOTHER_CLAUDE_URL, MOTHER_CLAUDE_TOKEN, MC_SESSION_ID, MC_CWD,
+ * Env in: MOTHER_CLAUDE_URL, MOTHER_CLAUDE_TOKEN (the per-run `mcs_…` sidecar
+ * credential, valid only for this session's permission-request route; removed
+ * from the environment before the SDK spawns `claude`), MC_SESSION_ID, MC_CWD,
  * MC_PROMPT, MC_MODEL (optional), MC_PERMISSION_MODE (optional),
  * MC_RESUME (set only when continuing an existing conversation).
  */
@@ -26,6 +28,9 @@ import * as readline from 'node:readline';
 
 const URL = process.env.MOTHER_CLAUDE_URL ?? 'http://127.0.0.1:6725';
 const TOKEN = process.env.MOTHER_CLAUDE_TOKEN ?? '';
+// Never let the credential reach the `claude` child the SDK spawns (it
+// inherits process.env), where the model's Bash tool could read it.
+delete process.env.MOTHER_CLAUDE_TOKEN;
 const SESSION_ID = process.env.MC_SESSION_ID ?? '';
 const CWD = process.env.MC_CWD ?? process.cwd();
 const PROMPT = process.env.MC_PROMPT ?? '';

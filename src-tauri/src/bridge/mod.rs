@@ -427,16 +427,12 @@ pub fn router(state: AppState, require_token: bool) -> Router<AppState> {
             require_started,
         ));
 
-    let api = meta.merge(api);
-
-    let api = if require_token {
-        api.route_layer(axum::middleware::from_fn_with_state(
-            state.clone(),
-            require_bridge_token,
-        ))
-    } else {
-        api
-    };
+    // Authentication runs on every mount: the token is always required on
+    // `/v1` of the main server, and on the loopback port the tokenless mode
+    // applies only to requests genuinely from this machine (design §2.3).
+    let api = meta
+        .merge(api)
+        .route_layer(axum::middleware::from_fn(require_bridge_auth));
 
     let public = Router::new()
         .route("/openapi.json", get(routes::meta::openapi))
@@ -492,21 +488,41 @@ pub struct MountPolicy {
     pub require_token: bool,
 }
 
-/// Token check that answers with the bridge's error envelope.
+/// Authentication with the bridge's error envelope (design §2.3).
 ///
-/// `auth::require_token` returns a bare 401 with no body, which is right for the
-/// dashboard but breaks the bridge's promise that every failure is
-/// `{"error":{"code","message"}}`.
-async fn require_bridge_token(
-    axum::extract::State(state): axum::extract::State<AppState>,
+/// * A desktop (local master token) or paired-device credential always passes.
+/// * On a tokenless mount (the dedicated loopback port with
+///   `MOTHER_CLAUDE_BRIDGE_REQUIRE_TOKEN` unset) a request **from this
+///   machine** — loopback peer, loopback `Host`, no proxy/tunnel headers —
+///   passes without a token, whatever its `Origin` (local tools and pages you
+///   are developing keep working; dangerous actions still need a local origin).
+/// * Anything else is `401`; a tunnelled request to the tokenless port gets
+///   `tunneled_request_requires_token`.
+async fn require_bridge_auth(
+    axum::Extension(policy): axum::Extension<MountPolicy>,
+    ctx: crate::server::context::ClientContext,
     req: axum::extract::Request,
     next: axum::middleware::Next,
 ) -> axum::response::Response {
-    if crate::server::auth::request_is_authorized(&state, &req) {
+    if ctx.principal.is_user() {
         return next.run(req).await;
     }
+    if !policy.require_token {
+        if ctx.on_machine {
+            return next.run(req).await;
+        }
+        return error::BridgeError::new(
+            axum::http::StatusCode::UNAUTHORIZED,
+            "tunneled_request_requires_token",
+            "This request came through a proxy or tunnel; the tokenless mode is only for \
+             clients on this machine.",
+        )
+        .into_response();
+    }
     error::BridgeError::unauthorized(
-        "This endpoint requires the Mother Claude API token. Send it as          `Authorization: Bearer <token>`, `?token=` or an `mc_token` cookie.",
+        "This endpoint requires a Mother Claude token. Send it as \
+         `Authorization: Bearer <token>` (a paired device's token, or the desktop token \
+         from this machine).",
     )
     .into_response()
 }
@@ -518,11 +534,19 @@ async fn require_bridge_token(
 /// at a tokenless loopback bridge and never need to see the answer. Checking
 /// `Origin` server-side is what actually stops that; the JSON content-type
 /// requirement is the second lock on the same door.
+///
+/// A genuinely local request (`ClientContext::local`: this machine, no proxy,
+/// and a local or absent `Origin`) always passes — its origin is the desktop
+/// webview or a page served from localhost.
 async fn guard_origin(
     axum::extract::State(state): axum::extract::State<AppState>,
+    ctx: crate::server::context::ClientContext,
     req: axum::extract::Request,
     next: axum::middleware::Next,
 ) -> axum::response::Response {
+    if ctx.local {
+        return next.run(req).await;
+    }
     let origin = req
         .headers()
         .get(axum::http::header::ORIGIN)
@@ -597,11 +621,12 @@ pub fn listener_router(state: AppState, require_token: bool) -> Router {
         }
     }
 
-    Router::new()
+    let app = Router::new()
         .merge(router(state.clone(), require_token))
         .nest("/v1", router(state.clone(), require_token))
         .layer(cors)
-        .with_state(state)
+        .with_state(state.clone());
+    crate::server::context::layer(app, state, crate::server::context::Ingress::BridgeLoopback)
 }
 
 /// Find a stored conversation by id, reading `~/.claude` through the adapter.
@@ -640,7 +665,14 @@ pub async fn thread_exists(state: &AppState, thread_id: &str) -> bool {
 ///
 /// This is what lets a client name any past conversation — or nominate one as
 /// the default before the bridge has ever run it — and simply keep talking.
-pub async fn ensure_thread_live(state: &AppState, thread_id: &str) -> error::BridgeResult<()> {
+/// `ctx` is the caller: resuming into a default permission mode that removes
+/// the human from the loop (bypassPermissions / dontAsk) is refused for a
+/// caller that may not perform dangerous actions (design G1).
+pub async fn ensure_thread_live(
+    state: &AppState,
+    ctx: &crate::server::context::ClientContext,
+    thread_id: &str,
+) -> error::BridgeResult<()> {
     if state.bridge.thread(thread_id).await.is_some() {
         return Ok(());
     }
@@ -649,6 +681,15 @@ pub async fn ensure_thread_live(state: &AppState, thread_id: &str) -> error::Bri
         .ok_or_else(|| error::BridgeError::thread_not_found(thread_id))?;
 
     let defaults = state.bridge.defaults().await;
+    if crate::claude::owned::is_dangerous_mode(defaults.permission_mode.as_deref())
+        && !ctx.may_dangerous()
+    {
+        return Err(error::BridgeError::forbidden(
+            "dangerous_blocked",
+            "The bridge's default permission mode skips approvals, so resuming a \
+             conversation with it is restricted to local clients.",
+        ));
+    }
     // Resume where the conversation actually lived. Reopening it somewhere else
     // would silently change which files it can see.
     let cwd = stored

@@ -4,17 +4,28 @@
 //! Claude Code's research-preview internals. Everything above it works with the
 //! tolerant types defined here, so a single module absorbs version churn.
 
+pub mod activity;
+pub mod agents;
 pub mod auth;
+pub mod caps;
 pub mod control;
 #[cfg(feature = "experimental")]
 pub mod experimental;
 pub mod git;
 pub mod home;
+pub mod hooks;
+pub mod index;
+pub mod live;
 pub mod model;
+pub mod owned;
+pub mod pricing;
 pub mod registry;
 pub mod schema;
 pub mod settings;
+pub mod summaries;
+pub mod tmux;
 pub mod transcript;
+pub mod uievents;
 pub mod watcher;
 
 /// Resolve the Claude Code binary: `$MOTHER_CLAUDE_CLI` if set, else `claude`.

@@ -23,7 +23,7 @@ use tokio::process::{Child, ChildStdin};
 use tokio::sync::Mutex as AsyncMutex;
 use uuid::Uuid;
 
-use crate::state::{AppState, ServerEvent};
+use crate::state::AppState;
 
 /// Options for launching an owned session. `None` for model/effort/thinking
 /// inherits the user's own Claude settings (~/.claude/settings.json) — i.e.
@@ -117,7 +117,6 @@ impl ControlRegistry {
             .as_deref()
             .unwrap_or("default")
             .to_string();
-        let token = state.auth.token.clone();
 
         // One controller per session: a second spawn/continue would clobber
         // this handle and its reaper would then orphan the original child.
@@ -142,15 +141,13 @@ impl ControlRegistry {
             Some(entry) => {
                 tracing::info!(session = %id, "spawning owned session via sidecar (Path A)");
                 let url = server_url(state);
-                let ca_cert = server_ca_cert(state, &url);
                 match sidecar_command(
                     &entry,
                     &id,
                     &opts,
                     &permission_mode,
-                    &token,
+                    &state.auth.sidecar_token,
                     &url,
-                    ca_cert.as_deref(),
                 )
                 .spawn()
                 {
@@ -160,13 +157,13 @@ impl ControlRegistry {
                     }
                     Err(e) => {
                         tracing::warn!(error = %e, "sidecar failed to start; falling back to headless (Path B)");
-                        headless_command(&id, &opts, &permission_mode, &token)
+                        headless_command(&id, &opts, &permission_mode)
                             .spawn()
                             .context("failed to spawn claude (Path B fallback)")?
                     }
                 }
             }
-            None => headless_command(&id, &opts, &permission_mode, &token)
+            None => headless_command(&id, &opts, &permission_mode)
                 .spawn()
                 .with_context(|| format!("failed to spawn `{}`", crate::claude::claude_bin()))?,
         };
@@ -208,7 +205,7 @@ impl ControlRegistry {
         } else {
             "Spawned"
         };
-        state.broadcast(ServerEvent::Notice(format!("{verb} owned session {id}")));
+        state.notice(format!("{verb} owned session {id}"));
 
         // Drain stdout/stderr so the child never blocks; the transcript file tail
         // handles the live view, so here we mostly watch for completion.
@@ -220,9 +217,7 @@ impl ControlRegistry {
                 while let Ok(Some(line)) = lines.next_line().await {
                     if let Ok(value) = serde_json::from_str::<serde_json::Value>(&line) {
                         if value.get("type").and_then(|t| t.as_str()) == Some("result") {
-                            st.broadcast(ServerEvent::Notice(format!(
-                                "Session {sid} turn complete"
-                            )));
+                            st.notice(format!("Session {sid} turn complete"));
                         }
                     }
                 }
@@ -247,16 +242,26 @@ impl ControlRegistry {
             tokio::spawn(async move {
                 let status = registry_handle.child.lock().await.wait().await;
                 tracing::info!(session = %sid, ?status, "owned session exited");
-                if let Ok(mut m) = map.lock() {
+                let mine = match map.lock() {
                     // Only drop the entry if it is still OUR handle — a newer
                     // controller for the same id must not be orphaned.
-                    if m.get(&sid)
-                        .is_some_and(|h| Arc::ptr_eq(h, &registry_handle))
-                    {
-                        m.remove(&sid);
+                    Ok(mut m) => {
+                        let mine = m
+                            .get(&sid)
+                            .is_some_and(|h| Arc::ptr_eq(h, &registry_handle));
+                        if mine {
+                            m.remove(&sid);
+                        }
+                        mine
                     }
+                    Err(_) => false,
+                };
+                if mine {
+                    // No longer drivable: clear ownership and withdraw its
+                    // pending prompts so no card waits on a dead process.
+                    st.unmark_owned(&sid).await;
                 }
-                st.broadcast(ServerEvent::Notice(format!("Session {sid} exited")));
+                st.notice(format!("Session {sid} exited"));
             });
         }
 
@@ -351,21 +356,18 @@ fn sidecar_entry() -> Option<PathBuf> {
     candidates.into_iter().flatten().find(|p| p.is_file())
 }
 
-/// Loopback URL the sidecar uses to reach this server.
+/// Loopback URL the sidecar uses to reach this server. The loopback listener
+/// is always plain HTTP (TLS is only on the LAN addresses), so this is always
+/// `http://` (design G3).
 fn server_url(state: &AppState) -> String {
-    let scheme = if state.config.is_non_loopback() {
-        "https"
-    } else {
-        "http"
-    };
-    format!("{scheme}://127.0.0.1:{}", state.config.port)
+    format!("http://127.0.0.1:{}", state.config.port)
 }
 
-/// Shared stdio/env configuration for both spawn paths.
-fn configure_common(cmd: &mut tokio::process::Command, cwd: &str, token: &str) {
+/// Shared stdio/env configuration for both spawn paths. No Mother Claude
+/// credential is ever inherited by a `claude` child (design §2.5).
+fn configure_common(cmd: &mut tokio::process::Command, cwd: &str) {
     cmd.current_dir(cwd)
-        // Hooks fired by this session authenticate back to us with the token.
-        .env("MOTHER_CLAUDE_TOKEN", token)
+        .env_remove("MOTHER_CLAUDE_TOKEN")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
@@ -376,7 +378,6 @@ fn headless_command(
     id: &str,
     opts: &SpawnOptions,
     permission_mode: &str,
-    token: &str,
 ) -> tokio::process::Command {
     let mut c = tokio::process::Command::new(crate::claude::claude_bin());
     c.arg("-p")
@@ -417,36 +418,18 @@ fn headless_command(
     }
     // NOTE: the initial prompt is deliberately NOT passed as argv — it goes
     // over stdin as the first stream-json user message (see spawn()).
-    configure_common(&mut c, &opts.cwd, token);
+    configure_common(&mut c, &opts.cwd);
     c
 }
 
-/// Resolve the CA cert Node should trust for the sidecar's https loopback
-/// connection (our own generated self-signed cert), if the URL is https.
-fn server_ca_cert(state: &AppState, server_url: &str) -> Option<std::path::PathBuf> {
-    if !server_url.starts_with("https://") {
-        return None;
-    }
-    let cert = state
-        .auth
-        .config_dir
-        .clone()
-        .unwrap_or_else(|| std::env::temp_dir().join("mother-claude"))
-        .join("certs")
-        .join("cert.pem");
-    cert.is_file().then_some(cert)
-}
-
 /// Path A: the Node Agent SDK sidecar (canUseTool + ask_user).
-#[allow(clippy::too_many_arguments)]
 fn sidecar_command(
     entry: &Path,
     id: &str,
     opts: &SpawnOptions,
     permission_mode: &str,
-    token: &str,
+    sidecar_token: &str,
     server_url: &str,
-    ca_cert: Option<&Path>,
 ) -> tokio::process::Command {
     let mut c = tokio::process::Command::new("node");
     c.arg(entry)
@@ -455,12 +438,6 @@ fn sidecar_command(
         .env("MC_PROMPT", &opts.prompt)
         .env("MC_PERMISSION_MODE", permission_mode)
         .env("MOTHER_CLAUDE_URL", server_url);
-    // Self-signed loopback TLS: trust OUR cert specifically. (Never
-    // NODE_TLS_REJECT_UNAUTHORIZED=0 — that would disable verification for the
-    // whole process tree, including the CLI's api.anthropic.com traffic.)
-    if let Some(ca) = ca_cert {
-        c.env("NODE_EXTRA_CA_CERTS", ca);
-    }
     if let Some(model) = &opts.model {
         c.env("MC_MODEL", model);
     }
@@ -475,7 +452,12 @@ fn sidecar_command(
     if let Some(resume) = &opts.resume {
         c.env("MC_RESUME", resume);
     }
-    configure_common(&mut c, &opts.cwd, token);
+    configure_common(&mut c, &opts.cwd);
+    // The sidecar's own credential (`mcs_…`): valid only for
+    // `/api/sessions/{id}/permission-request` from this machine. The sidecar
+    // removes it from its environment before starting the SDK, so the `claude`
+    // child never sees it.
+    c.env("MOTHER_CLAUDE_TOKEN", sidecar_token);
     c
 }
 
