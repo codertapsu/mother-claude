@@ -235,10 +235,14 @@
   @if (item().dangerous) {
     <p class="reason">
       <mc-icon name="alert" [size]="14" />
-      <span
-        >Marked dangerous: approving it can run without further checks or change settings beyond
-        this request.</span
-      >
+      @if (full()?.dangerousReason; as why) {
+        <span>Marked dangerous: {{ why }}</span>
+      } @else {
+        <span
+          >Marked dangerous: approving it can run without further checks or change settings beyond
+          this request.</span
+        >
+      }
     </p>
   }
 

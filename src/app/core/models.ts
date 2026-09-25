@@ -251,6 +251,8 @@ export interface PendingItem {
   plan?: string;
   suggestions: PermissionSuggestion[];
   dangerous: boolean;
+  /** Why the server marked it dangerous (a sentence, for the card). */
+  dangerousReason?: string;
   answerable: boolean;
   createdAt: number;
   /** `input` was capped (4 KB) in this copy; `GET /sessions/{id}` has it all. */
