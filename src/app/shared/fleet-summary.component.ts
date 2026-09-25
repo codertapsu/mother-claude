@@ -1,16 +1,65 @@
 import { ChangeDetectionStrategy, Component, computed, inject, output } from '@angular/core';
 import { RouterLink } from '@angular/router';
 
+import { FleetSummary, SessionSummary } from '../core/models';
 import { NowService } from '../core/now.service';
 import { RealtimeService } from '../core/realtime.service';
 import { IconComponent } from './icon.component';
 import { formatTokens, formatUsd } from './util';
 
+/** The fleet summary with the server's rules (`GET /agents` `summary`), from
+ * the active session store, plus what the cost fallback needs. */
+export interface FleetCounts extends Pick<FleetSummary, 'working' | 'agentsRunning' | 'needYou'> {
+  costToday: number;
+  /** Sessions active since midnight. */
+  todaySessions: number;
+  /** Some session active today has a known price. */
+  priced: boolean;
+  /** Input + output tokens of today's sessions (shown when none is priced). */
+  tokensToday: number;
+}
+
+/**
+ * Same rules as the server's fleet summary:
+ * - working: live sessions whose status is `working`;
+ * - agentsRunning: running subagents and workflow agents (shells and
+ *   monitors are background work, not agents);
+ * - needYou: sessions with at least one request answerable from here;
+ * - costToday: `costUsd` of sessions whose last activity is after midnight.
+ */
+export function fleetCounts(sessions: readonly SessionSummary[], midnight: number): FleetCounts {
+  const out: FleetCounts = {
+    working: 0,
+    agentsRunning: 0,
+    needYou: 0,
+    costToday: 0,
+    todaySessions: 0,
+    priced: false,
+    tokensToday: 0,
+  };
+  for (const s of sessions) {
+    if (s.live && s.status === 'working') out.working += 1;
+    if ((s.pending ?? []).some((p) => p.answerable)) out.needYou += 1;
+    out.agentsRunning += s.agents?.running ?? 0;
+    if ((s.lastActivityAt ?? 0) >= midnight) {
+      out.todaySessions += 1;
+      if (typeof s.costUsd === 'number') {
+        out.priced = true;
+        out.costToday += s.costUsd;
+      }
+      out.tokensToday += (s.usage?.input ?? 0) + (s.usage?.output ?? 0);
+    }
+  }
+  out.costToday = Math.round(out.costToday * 100) / 100;
+  return out;
+}
+
 /**
  * "3 working · 7 agents running · 2 need you · $4.12 today" across every
  * session. Each part is a shortcut (a list filter, the Agents page). Cost is
  * the sum for sessions active since local midnight, falling back to tokens
- * when no session's price is known.
+ * when no session's price is known. Counted like the server's fleet summary
+ * ({@link fleetCounts}), so the phone and the fleet agree.
  */
 @Component({
   selector: 'mc-fleet-summary',
@@ -89,36 +138,19 @@ export class FleetSummaryComponent {
 
   readonly filter = output<'live' | 'needs'>();
 
-  protected readonly working = computed(
-    () =>
-      this.realtime.sessions().filter((s) => s.status === 'working' || s.status === 'starting')
-        .length,
-  );
-  protected readonly agents = computed(() =>
-    this.realtime
-      .sessions()
-      .reduce((n, s) => n + (s.agents?.running ?? 0) + (s.agents?.backgroundRunning ?? 0), 0),
-  );
-  protected readonly needs = computed(
-    () =>
-      this.realtime.sessions().filter((s) => s.status === 'waiting' || (s.pending?.length ?? 0) > 0)
-        .length,
-  );
-  private readonly todays = computed(() => {
+  private readonly counts = computed(() => {
     const midnight = new Date(this.clock.now());
     midnight.setHours(0, 0, 0, 0);
-    return this.realtime
-      .sessions()
-      .filter((s) => (s.lastActivityAt ?? s.startedAt ?? 0) >= midnight.getTime());
+    return fleetCounts(this.realtime.sessions(), midnight.getTime());
   });
+  protected readonly working = computed(() => this.counts().working);
+  protected readonly agents = computed(() => this.counts().agentsRunning);
+  protected readonly needs = computed(() => this.counts().needYou);
   protected readonly today = computed(() => {
-    const list = this.todays();
-    const priced = list.filter((s) => typeof s.costUsd === 'number');
-    if (priced.length) return formatUsd(priced.reduce((n, s) => n + (s.costUsd ?? 0), 0));
-    const tokens = list.reduce((n, s) => n + (s.usage?.input ?? 0) + (s.usage?.output ?? 0), 0);
-    return `${formatTokens(tokens)} tokens`;
+    const c = this.counts();
+    return c.priced ? formatUsd(c.costToday) : `${formatTokens(c.tokensToday)} tokens`;
   });
   protected readonly costTitle = computed(
-    () => `Across ${this.todays().length} sessions active since midnight (estimated)`,
+    () => `Across ${this.counts().todaySessions} sessions active since midnight (estimated)`,
   );
 }

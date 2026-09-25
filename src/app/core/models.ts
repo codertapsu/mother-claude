@@ -505,9 +505,16 @@ export interface FleetSession {
 
 /** "3 working · 7 agents running · 2 need you · $4.12 today". */
 export interface FleetSummary {
+  /** Live sessions currently working. */
   working: number;
+  /** Running subagents and workflow agents. */
   agentsRunning: number;
+  workflowsRunning?: number;
+  /** Running background shells and monitors. */
+  backgroundRunning?: number;
+  /** Sessions with a request answerable from here. */
   needYou: number;
+  /** USD of sessions active since the Mac's midnight. */
   costToday?: number;
 }
 
