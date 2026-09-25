@@ -79,8 +79,10 @@ For headless and CI runs, where there is nobody to press a button, set
 
 ### Controlling it over HTTP
 
-The same controls are on the dashboard API, which needs the Mother Claude token
-because it is reachable from your LAN:
+The same controls are on the dashboard API on the main port, which always needs
+a Mother Claude token (the desktop's, the local-script `token` file from this
+Mac, or a paired device's). Starting with defaults that skip approvals
+(`bypassPermissions`) is possible only from the desktop app:
 
 | Method and path | Result |
 |---|---|
@@ -139,13 +141,17 @@ explicitly and always have.
 
 | Address | Auth | Use it for |
 |---|---|---|
-| `http://127.0.0.1:5612/…` | **None by default** | Local scripts, Postman, Swagger, a web app you are building. |
+| `http://127.0.0.1:5612/…` | **None for requests from this machine** (by default); a token for anything that came through a tunnel or proxy | Local scripts, Postman, Swagger, a web app you are building. |
 | `http://127.0.0.1:5612/v1/…` | Same | Identical routes under a version prefix. |
-| `http://127.0.0.1:6725/v1/…` | Token, **always** | The main app port. Reachable from your LAN over TLS. |
+| `http://127.0.0.1:6725/v1/…` | Token, **always** | The main app port, from this machine. |
+| `https://<LAN address>:6725/v1/…` | Token, **always** (a paired device's) | The same mount from your LAN, over TLS. |
+| The Internet-access port (`6726`), or anything tunnelled to `6725` | — | Not served: `/v1` never answers through a tunnel. |
 
 The dedicated port binds loopback only, always — the bridge can drive an agent
 with filesystem write access, so it is never exposed to the network. LAN clients
 use the `/v1` mount on the main server, which already has TLS and token auth.
+From the LAN only a paired device's token works there; the desktop and
+local-script tokens are accepted only from this machine.
 
 Configuration lives in the environment (see `.env.example`):
 
@@ -187,8 +193,8 @@ curl -sS 'http://127.0.0.1:5612/auth?refresh=true'   # poll until authenticated
 ```
 
 Signing in opens a browser on the host machine, so `POST /auth/login` is
-restricted to local clients. `claude auth login` in a terminal does the same
-thing.
+restricted to local clients (and devices granted dangerous actions).
+`claude auth login` in a terminal does the same thing.
 
 **The bridge token** is off by default on `127.0.0.1:5612` for requests from
 this machine, which is what makes the examples in this document work as written.
@@ -368,7 +374,7 @@ on this Mac (`403 untrusted_cwd`).
 | Method and path | Result |
 |---|---|
 | `GET /auth` | Which Anthropic account Claude is signed in as; `?refresh=true` re-checks |
-| `POST /auth/login` | Start the browser sign-in flow (local clients only) |
+| `POST /auth/login` | Start the browser sign-in flow (local clients, or a device granted dangerous actions) |
 | `GET /threads` | Live conversations plus what is on disk |
 | `GET /threads/{id}` | One conversation; `?include_messages=true` inlines its transcript |
 | `GET /threads/{id}/messages` | The stored transcript |
@@ -377,7 +383,7 @@ on this Mac (`403 untrusted_cwd`).
 | `POST /threads/{id}/fork` | Branch into a new conversation id |
 | `POST /threads/{id}/model` | Switch model mid-conversation |
 | `POST /threads/{id}/permission-mode` | Change approval behaviour live |
-| `DELETE /threads/{id}` | End it. `?purge=true` also deletes the transcript (local clients only) |
+| `DELETE /threads/{id}` | End it. `?purge=true` also deletes the transcript (local clients, or a device granted dangerous actions) |
 | `POST /threads/{id}/turns/{turn}/steer` | Add input to a turn already running |
 | `POST /threads/{id}/turns/{turn}/interrupt` | Stop the turn, keep the conversation |
 
@@ -460,8 +466,9 @@ A fresh `/events` subscriber starts at the oldest retained event. Heartbeat
 comments arrive every 15s. **Disconnecting does not interrupt Claude** — use the
 interrupt endpoint.
 
-`EventSource` works if you pass `?token=`; the bundled JS client uses `fetch`
-instead so the token stays in a header.
+`EventSource` cannot set headers. When a token is needed, it works with
+`?token=` only from this machine (a query token is refused from anywhere else);
+the bundled JS client uses `fetch` instead so the token stays in a header.
 
 ---
 
@@ -506,10 +513,13 @@ curl -sS http://127.0.0.1:5612/requests/$ID/respond -H 'Content-Type: applicatio
 
 `{"result": {…}}` sends the raw callback result if you need full control.
 
-Unanswered requests are denied after 10 minutes. Approving something flagged `dangerous` is restricted to local clients — and so
-is *any* approval that also grants a standing privilege, such as attaching a
-`setMode: bypassPermissions` update or writing a rule to `userSettings`. The
-severity of an answer is not the severity of the question it answers.
+Unanswered requests are denied after 10 minutes. Approving something flagged
+`dangerous` is restricted to local clients and devices granted dangerous
+actions — and so is *any* approval that also grants a standing privilege, such
+as attaching a `setMode: bypassPermissions` update or writing a rule to
+`userSettings`. The severity of an answer is not the severity of the question it
+answers. Whether a request is `dangerous` is decided by the server (for example
+an edit to `.claude/` or a shell startup file), not by the client.
 
 ---
 
