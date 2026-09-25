@@ -93,6 +93,40 @@ connects, its open connections and its recent actions.
 - The iOS Home Screen app keeps its own storage: from a paired Safari tab, use
   **Set up the Home Screen app** to get a one-time code for it.
 
+## Notifications
+
+On the phone, **Settings › Push notifications › Enable** subscribes this device
+to Web Push. It needs a trusted HTTPS address: the tunnel's, or the LAN address
+once the phone trusts the Mac's certificate. On iPhone and iPad, add Mother
+Claude to the Home Screen first and enable push from there.
+
+- Per event: permission requests, questions, plans, finished turns (30 s or
+  longer), failures, notifications Claude sends itself, and idle sessions.
+- Per session (the ⋯ menu): **Follow**, **Mute**, and a one-shot **Notify me
+  when this turn finishes**.
+- Notifications show only the session name and what happened; turn on **Show
+  details** to include the command or question. Nothing is sent to a device
+  that has the app open in the foreground, and a revoked device's
+  subscriptions are deleted.
+
+## Sessions started elsewhere
+
+Sessions you start in a terminal, VS Code or JetBrains can be watched from the
+phone right away. To answer and message them too, install **foreign-session
+control** from **Remote › Foreign-session control** on the Mac: it installs a
+small Claude Code plugin with `claude plugin install` (your `settings.json`
+hooks are never touched) and can be removed the same way.
+
+| session | message | approve / answer | interrupt | model, mode, effort |
+| --- | --- | --- | --- | --- |
+| started by Mother Claude | direct, with images | yes | immediately | yes |
+| with the plugin | at the next tool call or turn end | yes, first answer wins | at the next tool call | no — "Continue here" |
+| in tmux | typed into the pane | with the plugin, else keys | immediately (Esc) | slash commands |
+| background job | experimental PTY | — | — | — |
+| anything else | — | — | — | "Continue here" forks it |
+
+Every session shows what it supports and why in its channel badge.
+
 ## For scripts
 
 The file `token` in the app data directory
