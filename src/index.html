@@ -4,9 +4,28 @@
     <meta charset="utf-8" />
     <title>Mother Claude</title>
     <base href="/" />
-    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content"
+    />
     <meta name="color-scheme" content="dark light" />
+    <meta
+      name="description"
+      content="Monitor and control every Claude Code session on your computer."
+    />
+    <meta name="theme-color" content="#0e0f13" media="(prefers-color-scheme: dark)" />
+    <meta name="theme-color" content="#f6f6f9" media="(prefers-color-scheme: light)" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="Mother Claude" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="format-detection" content="telephone=no" />
     <link rel="icon" type="image/x-icon" href="favicon.ico" />
+    <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png" />
+    <link rel="apple-touch-icon" href="apple-touch-icon.png" />
+    <!-- use-credentials: the manifest fetch must carry the tunnel's cookie
+         (e.g. ngrok's "Visit" cookie) or it hits the interstitial. -->
+    <link rel="manifest" href="manifest.webmanifest" crossorigin="use-credentials" />
   </head>
   <body>
     <mc-root></mc-root>

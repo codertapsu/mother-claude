@@ -1,0 +1,166 @@
+@if (step(); as s) {
+  <mc-tool-step
+    [step]="s"
+    [sessionId]="sessionId()"
+    [cwd]="cwd()"
+    [running]="running()"
+    [agentId]="agentFor(s)"
+  />
+} @else if (steps().length) {
+  <div class="group" [class.open]="groupOpen()">
+    <button
+      type="button"
+      class="ghead"
+      [attr.aria-expanded]="groupOpen()"
+      (click)="groupOpen.set(!groupOpen())"
+    >
+      <mc-icon name="layers" [size]="14" />
+      <span class="gsum">{{ summary() }}</span>
+      @if (failed()) {
+        <span class="gfail">{{ failed() }} failed</span>
+      }
+      <mc-icon [name]="groupOpen() ? 'chevronDown' : 'chevronRight'" [size]="14" />
+    </button>
+    @if (groupOpen()) {
+      @for (s of steps(); track s.tool.id) {
+        <mc-tool-step
+          [step]="s"
+          [sessionId]="sessionId()"
+          [cwd]="cwd()"
+          [running]="running()"
+          [agentId]="agentFor(s)"
+        />
+      }
+    } @else if (lastStep(); as last) {
+      <mc-tool-step
+        class="last"
+        [step]="last"
+        [sessionId]="sessionId()"
+        [cwd]="cwd()"
+        [running]="running()"
+        [agentId]="agentFor(last)"
+      />
+    }
+  </div>
+} @else if (ev(); as e) {
+  @switch (e.kind) {
+    @case ('prompt') {
+      <div class="prompt">
+        <span class="who"
+          >You
+          @if (e.ts) {
+            · <mc-time [ms]="e.ts" />
+          }
+        </span>
+        <div class="bubble">{{ e.text }}</div>
+      </div>
+    }
+    @case ('relayed') {
+      <div class="prompt relayed">
+        <span class="who"
+          ><mc-icon name="phone" [size]="12" /> Sent from Mother Claude{{
+            relayVia() ? ' ' + relayVia() : ''
+          }}
+          @if (e.ts) {
+            · <mc-time [ms]="e.ts" />
+          }
+        </span>
+        <div class="bubble">{{ e.text }}</div>
+      </div>
+    }
+    @case ('text') {
+      <div class="text md" [innerHTML]="html()"></div>
+    }
+    @case ('thinking') {
+      <details class="thinking">
+        <summary><mc-icon name="sparkle" [size]="13" /> Thinking</summary>
+        <div class="md" [innerHTML]="html()"></div>
+      </details>
+    }
+    @case ('image') {
+      @if (e.image?.ref; as ref) {
+        <div class="image" [class.mine]="e.role === 'user'"><mc-media-image [ref]="ref" /></div>
+      }
+    }
+    @case ('todos') {
+      <div class="todos" role="group" aria-label="To-do list">
+        @for (t of e.todos ?? []; track $index) {
+          <div class="todo" [attr.data-status]="t.status">
+            <mc-icon
+              [name]="
+                t.status === 'completed'
+                  ? 'check'
+                  : t.status === 'in_progress'
+                    ? 'activity'
+                    : 'circle'
+              "
+              [size]="14"
+            />
+            <span>{{ t.status === 'in_progress' && t.activeForm ? t.activeForm : t.content }}</span>
+            <span class="visually-hidden">({{ t.status.replace('_', ' ') }})</span>
+          </div>
+        }
+      </div>
+    }
+    @case ('question') {
+      <div class="question">
+        @for (q of e.question?.questions ?? []; track $index) {
+          <p class="q"><mc-icon name="question" [size]="14" /> {{ q.question }}</p>
+          <div class="opts">
+            @for (o of q.options; track o.label) {
+              <span class="opt" [class.chosen]="(answer(e, q.question) ?? '').includes(o.label)">
+                {{ o.label }}
+              </span>
+            }
+          </div>
+          @if (answer(e, q.question); as a) {
+            <p class="a"><mc-icon name="check" [size]="13" /> {{ a }}</p>
+          } @else {
+            <p class="a pending">Not answered yet</p>
+          }
+        }
+      </div>
+    }
+    @case ('plan') {
+      <div class="plan">
+        <p class="ptitle"><mc-icon name="map" [size]="14" /> Plan</p>
+        <div class="md" [class.folded]="planLong() && !planOpen()" [innerHTML]="html()"></div>
+        @if (planLong()) {
+          <button class="btn ghost small" type="button" (click)="planOpen.set(!planOpen())">
+            {{ planOpen() ? 'Show less' : 'Show the whole plan' }}
+          </button>
+        }
+      </div>
+    }
+    @case ('compact') {
+      <div class="divider" role="separator">
+        <span><mc-icon name="layers" [size]="13" /> {{ e.text || 'Conversation compacted' }}</span>
+      </div>
+    }
+    @case ('result') {
+      @if (e.result; as res) {
+        <details class="orphan" [class.err]="res.isError">
+          <summary>{{ res.isError ? 'Error' : 'Result' }}</summary>
+          @if (res.text) {
+            <pre>{{ res.text }}</pre>
+          }
+        </details>
+      }
+    }
+    @case ('task') {
+      <div class="system" data-kind="task">
+        <mc-icon name="activity" [size]="14" />
+        <span
+          >Background task {{ e.task?.status || 'update'
+          }}{{ e.task?.summary ? ': ' + e.task.summary : e.text ? ': ' + e.text : '' }}</span
+        >
+      </div>
+    }
+    @default {
+      <div class="system" [attr.data-kind]="e.kind">
+        <mc-icon [name]="systemIcon(e)" [size]="14" />
+        <span>{{ e.text || e.kind }}</span>
+      </div>
+    }
+  }
+}

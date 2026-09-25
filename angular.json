@@ -58,7 +58,13 @@
                   "inlineCritical": false
                 },
                 "fonts": true
-              }
+              },
+              "fileReplacements": [
+                {
+                  "replace": "src/app/core/mock/mock-loader.ts",
+                  "with": "src/app/core/mock/mock-loader.prod.ts"
+                }
+              ]
             },
             "development": {
               "optimization": false,

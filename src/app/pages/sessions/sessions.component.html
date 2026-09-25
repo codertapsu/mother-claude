@@ -1,102 +1,137 @@
-<div class="head row">
-  <h1>Sessions</h1>
-  <span class="spacer"></span>
-  <button class="btn primary" (click)="showSpawn.set(!showSpawn())">
-    {{ showSpawn() ? 'Cancel' : '+ New session' }}
-  </button>
-</div>
-
-@if (showSpawn()) {
-  <div class="card spawn">
-    <span class="lbl">Working directory</span>
-    <input
-      [ngModel]="spawnCwd()"
-      (ngModelChange)="spawnCwd.set($event)"
-      placeholder="/Users/you/project"
-    />
-    <mc-launch-options />
-    <span class="lbl">Initial instruction</span>
-    <textarea
-      [ngModel]="spawnPrompt()"
-      (ngModelChange)="spawnPrompt.set($event)"
-      placeholder="Describe what Claude should do…"
-    ></textarea>
-    @if (error()) {
-      <p class="err">{{ error() }}</p>
-    }
-    <div class="row">
-      <span class="spacer"></span>
-      <button class="btn primary" [disabled]="spawning()" (click)="spawn()">
-        {{ spawning() ? 'Starting…' : 'Launch (owned)' }}
-      </button>
-    </div>
+<div class="page">
+  <div class="page-head">
+    <h1>Sessions</h1>
+    <span class="spacer"></span>
+    <a class="btn primary" routerLink="/new"><mc-icon name="plus" [size]="16" /> New session</a>
   </div>
-}
 
-@if (sessions().length === 0) {
-  <div class="card empty muted">
-    No sessions found yet. Start one above, or launch Claude Code in a terminal / editor.
-  </div>
-}
+  @if (loaded() && all().length) {
+    <mc-fleet-summary (filter)="setFilter($event)" />
+  }
 
-@if (needsInput().length) {
-  <h2>Needs input</h2>
-  @for (s of needsInput(); track s.id) {
-    <ng-container [ngTemplateOutlet]="rowTpl" [ngTemplateOutletContext]="{ $implicit: s }" />
-  }
-}
-@if (working().length) {
-  <h2>Working</h2>
-  @for (s of working(); track s.id) {
-    <ng-container [ngTemplateOutlet]="rowTpl" [ngTemplateOutletContext]="{ $implicit: s }" />
-  }
-}
-@if (other().length) {
-  <h2>Idle &amp; completed</h2>
-  @for (s of other(); track s.id) {
-    <ng-container [ngTemplateOutlet]="rowTpl" [ngTemplateOutletContext]="{ $implicit: s }" />
-  }
-}
-
-<ng-template #rowTpl let-s>
-  <a class="card session" [routerLink]="['/session', s.id]">
-    <div class="line1">
-      <span class="name">{{ s.title || s.projectName || s.id }}</span>
-      <span class="spacer"></span>
-      <span class="badge {{ s.state }}">{{ label(s.state) }}</span>
-      <span class="badge" [class.owned]="s.owned" [class.foreign]="!s.owned">{{
-        s.owned ? 'owned' : 'foreign'
-      }}</span>
-    </div>
-    <div class="line2 muted mono">{{ s.cwd }}</div>
-    @if (s.pending; as p) {
-      <div class="pending-preview" [class.perm]="p.kind === 'permission'">
-        <span class="picon">{{ p.kind === 'question' ? '❓' : '🔐' }}</span>
-        <span class="ptext">{{
-          p.prompt || (p.tool ? p.tool + ' permission' : 'Waiting for your input')
-        }}</span>
-        @if (p.options?.length) {
-          <span class="pcount">{{ p.options!.length }} options</span>
+  <div class="toolbar">
+    <label class="search">
+      <mc-icon name="search" [size]="16" />
+      <input
+        type="search"
+        placeholder="Search sessions"
+        aria-label="Search sessions"
+        [ngModel]="query()"
+        (ngModelChange)="query.set($event)"
+        autocapitalize="off"
+        spellcheck="false"
+      />
+    </label>
+    <div class="filters">
+      <div class="segmented" role="group" aria-label="Show sessions">
+        <button type="button" [attr.aria-pressed]="filter() === 'live'" (click)="setFilter('live')">
+          Live <span class="n">{{ liveCount() }}</span>
+        </button>
+        <button
+          type="button"
+          [attr.aria-pressed]="filter() === 'needs'"
+          (click)="setFilter('needs')"
+        >
+          Needs you
+          @if (needsCount()) {
+            <span class="n warn">{{ needsCount() }}</span>
+          }
+        </button>
+        <button type="button" [attr.aria-pressed]="filter() === 'all'" (click)="setFilter('all')">
+          All <span class="n">{{ all().length }}</span>
+        </button>
+      </div>
+      <select aria-label="Surface" [ngModel]="surface()" (ngModelChange)="surface.set($event)">
+        <option value="">All surfaces</option>
+        @for (sf of surfaces(); track sf) {
+          <option [value]="sf">{{ surfaceLabel(sf) }}</option>
         }
+      </select>
+      <select aria-label="Project" [ngModel]="project()" (ngModelChange)="project.set($event)">
+        <option value="">All projects</option>
+        @for (p of projects(); track p) {
+          <option [value]="p">{{ p }}</option>
+        }
+      </select>
+    </div>
+  </div>
+
+  @if (!loaded()) {
+    @if (connection() === 'offline' || connection() === 'unreachable') {
+      <div class="card empty-state">
+        <strong>{{
+          connection() === 'offline' ? "You're offline" : "Can't reach your Mac"
+        }}</strong>
+        It may be asleep, offline, or the tunnel is down. This page updates as soon as it's back.
+      </div>
+    } @else {
+      <div class="skeleton" aria-label="Loading your sessions">
+        <span></span><span></span><span></span>
       </div>
     }
-    <div class="line3 muted">
-      <span>{{ surface(s.surface) }}</span>
-      @if (s.model) {
-        <span>· {{ s.model }}</span>
-      }
-      @if (s.gitBranch) {
-        <span>· {{ s.gitBranch }}</span>
-      }
-      <span>· {{ s.messageCount }} msgs</span>
-      <span>· {{ tokens(s.usage.totalTokens) }} tok</span>
-      <span>· {{ rel(s.lastActivity) }}</span>
-      @if (!s.canInject) {
-        <span class="ro" title="Live answer injection unavailable">read-only</span>
-      }
-      @if (runningTasks(s); as n) {
-        <span class="bg" title="Background tasks still running">⏳ {{ n }} background</span>
-      }
+  } @else if (!all().length) {
+    <div class="card empty-state">
+      <strong>No sessions in the last 24 h</strong>
+      Start one here, or run <code>claude</code> in a terminal or your editor — it shows up
+      automatically.
+      <div class="empty-actions">
+        <a class="btn primary" routerLink="/new"><mc-icon name="plus" [size]="15" /> New session</a>
+        <button class="btn" type="button" (click)="openHistory()">
+          <mc-icon name="clock" [size]="15" /> Show ended sessions
+        </button>
+      </div>
     </div>
-  </a>
-</ng-template>
+  } @else if (!groups().length) {
+    <div class="card empty-state">
+      <strong>No sessions match</strong>
+      <button class="btn" type="button" (click)="clearFilters()">Clear filters</button>
+    </div>
+  }
+
+  @for (g of groups(); track g.key) {
+    <section class="group" [attr.aria-label]="g.title">
+      <h2>
+        {{ g.title }} <span class="gcount">{{ g.items.length }}</span>
+      </h2>
+      <div class="cards">
+        @for (s of g.items; track s.id) {
+          <mc-session-card [session]="s" />
+        }
+      </div>
+    </section>
+  }
+
+  @if (loaded() && (filter() === 'all' || historyOpen())) {
+    <section class="history" aria-label="Ended sessions">
+      @if (!historyOpen()) {
+        <button class="btn block" type="button" (click)="openHistory()">
+          <mc-icon name="clock" [size]="16" /> Show ended sessions
+        </button>
+      } @else {
+        <h2>Earlier sessions</h2>
+        <div class="cards">
+          @for (s of historyVisible(); track s.id) {
+            <mc-session-card [session]="s" />
+          } @empty {
+            @if (!historyLoading()) {
+              <p class="muted">No earlier sessions{{ query() ? ' match' : '' }}.</p>
+            }
+          }
+        </div>
+        @if (historyError()) {
+          <p class="error-text small">{{ historyError() }}</p>
+        }
+        @if (!historyDone()) {
+          <button
+            class="btn block"
+            type="button"
+            [disabled]="historyLoading()"
+            (click)="loadMoreHistory()"
+          >
+            {{ historyLoading() ? 'Loading…' : 'Load more' }}
+          </button>
+        }
+      }
+    </section>
+  }
+</div>

@@ -7,6 +7,14 @@ export const routes: Routes = [
       import('./pages/sessions/sessions.component').then((m) => m.SessionsComponent),
   },
   {
+    path: 'inbox',
+    loadComponent: () => import('./pages/inbox/inbox.component').then((m) => m.InboxComponent),
+  },
+  {
+    path: 'agents',
+    loadComponent: () => import('./pages/agents/agents.component').then((m) => m.AgentsComponent),
+  },
+  {
     path: 'session/:id',
     loadComponent: () =>
       import('./pages/session-detail/session-detail.component').then(
@@ -14,18 +22,41 @@ export const routes: Routes = [
       ),
   },
   {
-    path: 'services',
+    path: 'session/:id/agent/:agentId',
     loadComponent: () =>
-      import('./pages/services/services.component').then((m) => m.ServicesComponent),
+      import('./pages/agent-view/agent-view.component').then((m) => m.AgentViewComponent),
+  },
+  {
+    path: 'new',
+    loadComponent: () =>
+      import('./pages/new-session/new-session.component').then((m) => m.NewSessionComponent),
+  },
+  {
+    path: 'remote',
+    loadComponent: () => import('./pages/remote/remote.component').then((m) => m.RemoteComponent),
+  },
+  // Phone entry: #/pair?c=CODE from a QR code, or a typed code.
+  {
+    path: 'pair',
+    loadComponent: () => import('./pages/pair/pair.component').then((m) => m.PairComponent),
+  },
+  {
+    path: 'settings',
+    loadComponent: () =>
+      import('./pages/settings/settings.component').then((m) => m.SettingsComponent),
+  },
+  {
+    path: 'more',
+    loadComponent: () => import('./pages/more/more.component').then((m) => m.MoreComponent),
   },
   {
     path: 'api',
     loadComponent: () => import('./pages/bridge/bridge.component').then((m) => m.BridgeComponent),
   },
   {
-    path: 'settings',
+    path: 'services',
     loadComponent: () =>
-      import('./pages/settings/settings.component').then((m) => m.SettingsComponent),
+      import('./pages/services/services.component').then((m) => m.ServicesComponent),
   },
   {
     path: 'good-to-know',
@@ -36,12 +67,6 @@ export const routes: Routes = [
     path: 'onboarding',
     loadComponent: () =>
       import('./pages/onboarding/onboarding.component').then((m) => m.OnboardingComponent),
-  },
-  // Pairing links (.../#/pair?token=…) — token is captured by ConfigService on
-  // load; this dedicated screen shows the QR + manual token entry.
-  {
-    path: 'pair',
-    loadComponent: () => import('./pages/pair/pair.component').then((m) => m.PairComponent),
   },
   { path: '**', redirectTo: '' },
 ];

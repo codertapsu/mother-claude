@@ -1,470 +1,100 @@
-@if (session(); as s) {
-  <div class="head">
-    <div class="row">
-      <a class="btn" routerLink="/">‹ Back</a>
-      <span class="title">{{ s.title || s.projectName || s.id }}</span>
-      <span class="badge {{ s.state }}">{{ label(s.state) }}</span>
-      <span class="badge" [class.owned]="s.owned" [class.foreign]="!s.owned">{{
-        s.owned ? 'owned' : 'foreign'
-      }}</span>
-    </div>
-    <div class="sub muted mono">{{ s.cwd }}</div>
-    <div class="row sub2 muted">
-      <span>{{ surface(s.surface) }}</span>
-      @if (s.model) {
-        <span>· {{ s.model }}</span>
-      }
-      @if (s.gitBranch) {
-        <span>· {{ s.gitBranch }}</span>
-      }
-      <span>· {{ s.usage.totalTokens }} tokens</span>
-      <span class="spacer"></span>
-      @if (!s.owned) {
+<div class="sd">
+  <mc-session-header class="sd-head" />
+
+  @if (ctx.session(); as s) {
+    <div class="sd-tabs" role="tablist" aria-label="Session views">
+      @for (t of tabs; track t.id; let i = $index) {
         <button
-          class="btn"
-          [disabled]="busy()"
-          title="Take this session over (resume in place) so you can drive it from here or your phone"
-          (click)="continueSession()"
+          type="button"
+          role="tab"
+          class="tab"
+          [id]="'sd-tab-' + t.id"
+          [attr.aria-selected]="ctx.tab() === t.id"
+          [attr.aria-controls]="'sd-panel'"
+          [attr.tabindex]="ctx.tab() === t.id ? 0 : -1"
+          (click)="select(t.id)"
+          (keydown)="onTabKey($event, i)"
         >
-          Continue here
-        </button>
-      }
-      @if (manageable(s)) {
-        <button class="btn" [disabled]="busy()" (click)="lifecycle('stop')">Stop</button>
-        <button class="btn" [disabled]="busy()" (click)="lifecycle('respawn')">Respawn</button>
-        <button class="btn danger" [disabled]="busy()" (click)="lifecycle('rm')">Remove</button>
-      } @else {
-        <span class="muted lifecycle-na" title="stop/respawn/rm only apply to background or app-owned sessions">
-          lifecycle n/a
-        </span>
-      }
-    </div>
-  </div>
-
-  <div class="tabs">
-    <button class="tab" [class.active]="tab() === 'transcript'" (click)="tab.set('transcript')">
-      Transcript
-    </button>
-    <button class="tab" [class.active]="tab() === 'changes'" (click)="openChanges()">
-      Changes{{ changeCount() ? ' (' + changeCount() + ')' : '' }}
-    </button>
-  </div>
-
-  @if (notice()) {
-    <div class="notice">{{ notice() }}</div>
-  }
-
-  @if (tab() === 'transcript') {
-    @if (s.pending; as p) {
-      <div
-        class="card pending"
-        [class.dangerous]="p.dangerous"
-        [class.question]="p.kind === 'question'"
-      >
-        <div class="row phead">
-          <span class="picon">{{ p.kind === 'permission' ? '🔐' : '❓' }}</span>
-          <strong>{{
-            p.kind === 'question'
-              ? 'Claude asks you'
-              : p.tool === 'ExitPlanMode'
-                ? 'Plan ready for approval'
-                : 'Permission requested'
-          }}</strong>
-          @if (p.header) {
-            <span class="badge chip">{{ p.header }}</span>
-          }
-          @if (p.multiSelect) {
-            <span class="badge chip">select all that apply</span>
-          }
-          @if (p.tool && p.kind === 'permission' && p.tool !== 'ExitPlanMode') {
-            <span class="badge mono">{{ p.tool }}</span>
-          }
-        </div>
-        @if (p.prompt) {
-          <p class="prompt">{{ p.prompt }}</p>
-        }
-        @if (p.detail) {
-          <pre class="detail mono">{{ p.detail }}</pre>
-        }
-        @if (p.dangerous) {
-          <p class="warn">⚠ Dangerous action — may be restricted to the local desktop.</p>
-        }
-
-        @if (p.answerable || s.canInject) {
-          @if (p.kind === 'permission') {
-            <div class="row actions">
-              <button class="btn primary big" [disabled]="busy()" (click)="respond('allow')">
-                ✓ Allow
-              </button>
-              <button class="btn danger big" [disabled]="busy()" (click)="respond('deny')">
-                ✕ Deny
-              </button>
-            </div>
-          } @else {
-            @if (p.options?.length) {
-              <div class="opts">
-                @for (o of p.options; track o.label) {
-                  <button
-                    class="opt"
-                    [class.sel]="selected().has(o.label)"
-                    [disabled]="busy()"
-                    (click)="p.multiSelect ? toggleOption(o.label) : chooseOption(o.label)"
-                  >
-                    <span class="olabel">
-                      @if (p.multiSelect) {
-                        <span class="checkbox">{{ selected().has(o.label) ? '☑' : '☐' }}</span>
-                      }
-                      {{ o.label }}
-                    </span>
-                    @if (o.description) {
-                      <span class="odesc">{{ o.description }}</span>
-                    }
-                  </button>
-                }
-              </div>
-              @if (p.multiSelect) {
-                <div class="row">
-                  <button
-                    class="btn primary"
-                    [disabled]="busy() || !selected().size"
-                    (click)="submitSelected()"
-                  >
-                    Send {{ selected().size || '' }} selected
-                  </button>
-                </div>
-              }
-            }
-            <div class="row answer">
-              <input
-                [ngModel]="answer()"
-                (ngModelChange)="answer.set($event)"
-                (keyup.enter)="submitAnswer()"
-                [disabled]="busy()"
-                [placeholder]="p.options?.length ? 'Or type your own answer…' : 'Your answer…'"
-              />
-              <button
-                class="btn"
-                [class.primary]="!p.options?.length"
-                [disabled]="busy()"
-                (click)="submitAnswer()"
-              >
-                Send
-              </button>
-            </div>
-          }
-          @if (!p.answerable && s.canInject && !s.owned) {
-            <p class="muted small">
-              Foreign session — sent best-effort via experimental PTY injection.
-            </p>
-          }
-        } @else {
-          @if (p.options?.length) {
-            <div class="opts readonly">
-              @for (o of p.options; track o.label) {
-                <div class="opt">
-                  <span class="olabel">{{ o.label }}</span>
-                  @if (o.description) {
-                    <span class="odesc">{{ o.description }}</span>
-                  }
-                </div>
-              }
-            </div>
-          }
-          <p class="muted">
-            This session is waiting for input in {{ surface(s.surface) }} — take it over to
-            answer from here or your phone.
-          </p>
-          <div class="row">
-            <button class="btn primary" [disabled]="busy()" (click)="continueSession()">
-              Continue here to answer →
-            </button>
-          </div>
-        }
-      </div>
-    }
-
-    <div #log class="log">
-      @for (r of rendered(); track r.key) {
-        <div class="msg {{ r.cls }}" [class.err]="r.error">
-          <div class="who">{{ r.who }}</div>
-          @if (r.tools.length) {
-            <div class="tools">
-              @for (t of r.tools; track $index) {
-                <div class="toolrow">
-                  <span class="badge mono">⚙ {{ t.name }}</span>
-                  @if (t.summary) {
-                    <span class="tsum mono">{{ t.summary }}</span>
-                  }
-                </div>
-              }
-            </div>
-          }
-          @if (r.edits.length) {
-            <div class="edits">
-              @for (e of r.edits; track $index) {
-                <button
-                  class="editchip"
-                  title="View this file's changes"
-                  (click)="openChangesFor(e.file)"
-                >
-                  ✎ <span class="mono">{{ base(e.file) }}</span>
-                  <span class="muted etool">{{ e.tool }}</span>
-                </button>
-              }
-            </div>
-          }
-          @for (q of r.questions; track $index) {
-            <div class="qcard">
-              <div class="row qhead">
-                <span class="picon">❓</span>
-                @if (q.header) {
-                  <span class="badge chip">{{ q.header }}</span>
-                }
-                <strong class="qtext">{{ q.question }}</strong>
-              </div>
-              @if (q.options.length) {
-                <div class="opts readonly">
-                  @for (o of q.options; track o.label) {
-                    <div class="opt" [class.chosen]="q.answer && answerMatches(q.answer, o.label)">
-                      <span class="olabel">{{ o.label }}</span>
-                      @if (o.description) {
-                        <span class="odesc">{{ o.description }}</span>
-                      }
-                    </div>
-                  }
-                </div>
-              }
-              @if (q.answer) {
-                <div class="ans">↳ {{ q.answer }}</div>
-              }
-            </div>
-          }
-          @for (pl of r.plans; track $index) {
-            <div class="plancard">
-              <div class="row qhead">
-                <span class="picon">🗺</span>
-                <strong>Proposed plan</strong>
-              </div>
-              <div class="body md" [innerHTML]="pl"></div>
-            </div>
-          }
-          @if (r.html) {
-            <div class="body md" [innerHTML]="r.html"></div>
-          } @else if (r.text.trim()) {
-            <pre class="body">{{ r.text.trim() }}</pre>
-          }
-          @for (res of r.results; track $index) {
-            @if (res.long) {
-              <details class="result" [class.err]="res.error">
-                <summary>
-                  <span class="mono rprev">{{ res.preview }}</span>
-                  <span class="muted rcount">{{ res.lines }} lines</span>
-                </summary>
-                <pre class="body">{{ res.text }}</pre>
-              </details>
-            } @else {
-              <pre class="body result-inline" [class.err]="res.error">{{ res.text }}</pre>
-            }
-          }
-        </div>
-      } @empty {
-        <p class="muted">No transcript yet.</p>
-      }
-    </div>
-
-    @if (s.canInject) {
-      <div class="composer">
-        <textarea
-          [ngModel]="instruction()"
-          (ngModelChange)="instruction.set($event)"
-          (keydown)="onComposerKeydown($event)"
-          [disabled]="busy()"
-          placeholder="Send an instruction… (Enter to send, Shift+Enter for newline)"
-        ></textarea>
-        <button class="btn primary" [disabled]="busy()" (click)="send()">Send</button>
-      </div>
-      @if (!s.owned) {
-        <p class="muted composer-hint">
-          Foreign background job — instructions are injected via experimental PTY (best-effort).
-        </p>
-      }
-    } @else {
-      <div class="card cant-drive">
-        <p>This session runs elsewhere ({{ surface(s.surface) }}) and isn't owned yet.</p>
-        <p class="muted">
-          <strong>Continue here</strong> resumes it in place — same conversation and context —
-          so you can keep giving commands from this device or your phone.
-        </p>
-        @if (s.surface === 'vs-code') {
-          <p class="warn sync-note">
-            ⚠ VS&nbsp;Code isn't synced live. If you were just working in it, <strong>close and
-            reopen VS&nbsp;Code (or its Claude panel)</strong> so its latest messages are saved —
-            otherwise “Continue here” picks up from the last saved point.
-          </p>
-        } @else {
-          <p class="muted sync-note">
-            A still-running session may not have saved its newest messages yet; “Continue here”
-            resumes from the last saved point.
-          </p>
-        }
-        <details class="copts">
-          <summary>Launch options (model · effort · thinking)</summary>
-          <mc-launch-options (changed)="onLaunchOverrides($event)" />
-        </details>
-        <button class="btn primary" [disabled]="busy()" (click)="continueSession()">
-          Continue here →
-        </button>
-      </div>
-    }
-  }
-
-  @if (tab() === 'changes') {
-    @if (diff(); as d) {
-      @if (!d.isRepo) {
-        <div class="card muted">Not a Git repository.</div>
-      } @else {
-        <div class="card">
-          <div class="row">
-            <span class="badge">{{ d.branch || 'detached' }}</span>
-            @if (d.head) {
-              <span class="mono muted">{{ d.head }}</span>
-            }
-            <span class="spacer"></span>
-            <span class="add">+{{ d.additions }}</span>
-            <span class="del">−{{ d.deletions }}</span>
-          </div>
-        </div>
-
-        <div class="row files-head">
-          <h2>Changed files</h2>
-          <span class="spacer"></span>
-          <div class="viewtoggle">
-            <button class="tgl" [class.active]="view() === 'list'" (click)="view.set('list')">
-              List
-            </button>
-            <button class="tgl" [class.active]="view() === 'tree'" (click)="view.set('tree')">
-              Tree
-            </button>
-          </div>
-        </div>
-        @if (view() === 'list') {
-          @for (f of d.files; track f.path) {
-            <button
-              class="card file"
-              [class.selected]="patch()?.path === f.path"
-              (click)="showPatch(f.path)"
+          {{ t.label }}
+          @if (counts()[t.id]; as n) {
+            <span class="tcount" [class.warn]="t.id === 'chat'"
+              >{{ n
+              }}<span class="visually-hidden">{{
+                t.id === 'chat' ? ' waiting' : t.id === 'agents' ? ' running' : ' files'
+              }}</span></span
             >
-              <span class="badge {{ f.status }}">{{ f.status }}</span>
-              <span class="fpath mono">{{ f.path }}</span>
-              <span class="spacer"></span>
-              <span class="add">+{{ f.additions }}</span>
-              <span class="del">−{{ f.deletions }}</span>
-            </button>
-          } @empty {
-            <p class="muted">No working-tree changes.</p>
           }
-        } @else {
-          @for (g of grouped(); track g.dir) {
-            <div class="dirhead mono muted">{{ g.dir === '.' ? '(root)' : g.dir + '/' }}</div>
-            @for (f of g.files; track f.path) {
-              <button
-                class="card file treefile"
-                [class.selected]="patch()?.path === f.path"
-                (click)="showPatch(f.path)"
-              >
-                <span class="badge {{ f.status }}">{{ f.status }}</span>
-                <span class="fpath mono">{{ base(f.path) }}</span>
-                <span class="spacer"></span>
-                <span class="add">+{{ f.additions }}</span>
-                <span class="del">−{{ f.deletions }}</span>
-              </button>
-            }
-          } @empty {
-            <p class="muted">No working-tree changes.</p>
-          }
-        }
-
-        @if (patch(); as p) {
-          <div class="row patch-head">
-            <h2 class="mono patch-title">{{ p.path }}</h2>
-            <span class="spacer"></span>
-            <div class="viewtoggle">
-              <button
-                class="tgl"
-                [class.active]="diffView() === 'unified'"
-                (click)="setDiffView('unified')"
-              >
-                Unified
-              </button>
-              <button
-                class="tgl"
-                [class.active]="diffView() === 'split'"
-                (click)="setDiffView('split')"
-              >
-                Split
-              </button>
-            </div>
-          </div>
-          @if (!p.raw) {
-            <div class="card muted">No diff for this file.</div>
-          } @else if (diffView() === 'unified') {
-            <div class="card patch mono">
-              @for (l of unifiedRows(); track $index) {
-                @if (l.kind === 'hunk' || l.kind === 'meta') {
-                  <div class="pline {{ l.kind }} full">{{ l.text || ' ' }}</div>
-                } @else {
-                  <div class="pline {{ l.kind }}">
-                    <span class="gut">{{ l.oldNo ?? '' }}</span>
-                    <span class="gut">{{ l.newNo ?? '' }}</span>
-                    <span class="sign">{{ l.kind === 'add' ? '+' : l.kind === 'del' ? '−' : '' }}</span>
-                    <span class="ptext">{{ l.text || ' ' }}</span>
-                  </div>
-                }
-              }
-            </div>
-          } @else {
-            <div class="card patch split mono">
-              @for (r of splitRows(); track $index) {
-                @if (r.header) {
-                  <div class="pline {{ r.headerKind }} full">{{ r.header }}</div>
-                } @else {
-                  <div class="srow">
-                    <span class="gut">{{ r.left?.no ?? '' }}</span>
-                    <span class="scell {{ r.left?.kind }}">{{ r.left?.text || ' ' }}</span>
-                    <span class="gut gr">{{ r.right?.no ?? '' }}</span>
-                    <span class="scell {{ r.right?.kind }}">{{ r.right?.text || ' ' }}</span>
-                  </div>
-                }
-              }
-            </div>
-          }
-        }
-
-        <h2>Recent commits</h2>
-        @for (c of d.commits; track c.id) {
-          <div class="card commit">
-            <span class="mono muted">{{ c.id }}</span> {{ c.summary }}
-            <span class="muted">— {{ c.author }}</span>
-          </div>
-        } @empty {
-          <p class="muted">No commits.</p>
-        }
-
-        @if (d.worktrees.length) {
-          <h2>Worktrees</h2>
-          @for (w of d.worktrees; track w.name) {
-            <div class="card mono">
-              {{ w.name }} → {{ w.path }} {{ w.locked ? '(locked)' : '' }}
-            </div>
-          }
-        }
+        </button>
       }
-    } @else {
-      <p class="muted">Loading diff…</p>
+    </div>
+
+    <div
+      #scroller
+      class="sd-scroll"
+      id="sd-panel"
+      role="tabpanel"
+      tabindex="-1"
+      [attr.aria-labelledby]="'sd-tab-' + ctx.tab()"
+    >
+      <div class="inner">
+        <mc-session-chips />
+        @switch (ctx.tab()) {
+          @case ('chat') {
+            <mc-transcript
+              [scroller]="scroller"
+              [store]="ctx.store()"
+              [bubbles]="ctx.stream()?.bubbles() ?? []"
+              [sessionId]="s.id"
+              [cwd]="s.cwd"
+              [relayVia]="relayVia()"
+              [agentLinks]="agentLinks()"
+              [running]="ctx.busy()"
+              [startingSince]="s.status === 'starting' ? s.startedAt || 1 : undefined"
+              [canCancel]="s.control.lifecycle.stop"
+              (cancelStart)="ctx.lifecycle('stop')"
+            />
+          }
+          @case ('agents') {
+            <mc-agents-panel />
+          }
+          @case ('changes') {
+            <mc-changes-panel />
+          }
+          @case ('info') {
+            <mc-info-panel />
+          }
+        }
+      </div>
+    </div>
+
+    @if (ctx.tab() === 'chat') {
+      <div class="sd-dock">
+        <div class="inner">
+          <mc-pending-dock />
+          <mc-composer />
+        </div>
+      </div>
     }
+  } @else if (ctx.loading()) {
+    <div class="sd-scroll">
+      <div class="inner skeleton" aria-label="Loading the session">
+        <span></span><span class="w"></span><span></span><span class="w"></span>
+      </div>
+    </div>
+  } @else {
+    <div class="sd-scroll">
+      <div class="inner">
+        <div class="card empty-state">
+          <strong>Session not found</strong>
+          {{ ctx.loadError() || 'It may have ended and been cleaned up.' }}
+          <div class="row center">
+            <a class="btn primary" routerLink="/"><mc-icon name="back" [size]="15" /> Sessions</a>
+            <button class="btn" type="button" (click)="ctx.refreshDetail()">Retry</button>
+          </div>
+        </div>
+      </div>
+    </div>
   }
-} @else {
-  <p class="muted">
-    Session not found (it may have ended). <a routerLink="/">Back to sessions</a>.
-  </p>
-}
+</div>
+
+<mc-terminal-sheet />

@@ -1,0 +1,429 @@
+<div class="page">
+  <div class="page-head"><h1>Remote</h1></div>
+  <p class="lede">
+    Pair phones and other devices, reach Mother Claude from anywhere, and control sessions that were
+    started elsewhere.
+  </p>
+
+  @if (!isDesktop()) {
+    <div class="card">
+      <p>Remote access and devices are managed from the desktop app.</p>
+      <a class="btn" routerLink="/settings">Open settings</a>
+    </div>
+  } @else {
+    @if (error()) {
+      <p class="notice error" role="alert">{{ error() }}</p>
+    }
+    @if (notice()) {
+      <p class="notice ok" role="status">{{ notice() }}</p>
+    }
+
+    <!-- Pending approvals first: someone is waiting. -->
+    @if (pendingPairs().length) {
+      <section class="card approvals" aria-label="Pairing requests">
+        <h2 class="first"><mc-icon name="key" [size]="15" /> Waiting for your approval</h2>
+        @for (p of pendingPairs(); track p.id) {
+          <div class="approval">
+            <div class="who">
+              <strong>{{ pairName(p) }}</strong>
+              <span class="muted small">
+                {{ p.platform || 'unknown platform' }}
+                @if (p.ip) {
+                  · {{ p.ip }}
+                }
+                @if (p.ingress) {
+                  · via {{ ingressLabel(p.ingress) }}
+                }
+                @if (p.createdAt) {
+                  · {{ p.createdAt | relTime }}
+                }
+              </span>
+            </div>
+            <p class="muted small fp-hint">
+              The device shows a 4-digit number: you'll type it to approve.
+            </p>
+            <div class="row">
+              <button
+                class="btn primary"
+                type="button"
+                [disabled]="busy().has(p.id)"
+                (click)="approving.set(p)"
+              >
+                <mc-icon name="check" [size]="15" /> Approve…
+              </button>
+              <button
+                class="btn danger"
+                type="button"
+                [disabled]="busy().has(p.id)"
+                (click)="deny(p)"
+              >
+                Deny
+              </button>
+            </div>
+          </div>
+        }
+      </section>
+    }
+
+    <div class="grid">
+      <!-- ─────────────── Pair a device ─────────────── -->
+      <section class="card pair" aria-label="Pair a device">
+        <h2 class="first"><mc-icon name="qr" [size]="15" /> Pair a device</h2>
+        <div class="segmented" role="group" aria-label="Where is the device">
+          <button type="button" [attr.aria-pressed]="target() === 'lan'" (click)="setTarget('lan')">
+            <mc-icon name="wifi" [size]="15" /> Same Wi-Fi
+          </button>
+          <button
+            type="button"
+            [attr.aria-pressed]="target() === 'internet'"
+            (click)="setTarget('internet')"
+          >
+            <mc-icon name="globe" [size]="15" /> Internet
+          </button>
+        </div>
+
+        @if (target() === 'lan') {
+          @if ((remote()?.lan?.addresses?.length ?? 0) > 1) {
+            <label class="field addr">
+              <span class="field-label">Address</span>
+              <select [ngModel]="lanUrl()" (ngModelChange)="lanUrl.set($event); code.set(null)">
+                @for (a of remote()?.lan?.addresses ?? []; track a.url) {
+                  <option [value]="a.url">{{ a.url }}</option>
+                }
+              </select>
+            </label>
+          }
+          <p class="muted small">
+            The phone must be on the same network. It warns once about the self-signed certificate
+            @if (remote()?.lan?.fingerprint; as fp) {
+              — check it matches <span class="mono break">{{ fp }}</span
+              >.
+            } @else {
+              — that's expected.
+            }
+          </p>
+        } @else {
+          @if (!remote()?.internet?.enabled) {
+            <p class="notice warn small">Turn on <strong>Internet access</strong> below first.</p>
+          } @else if (!publicUrl()) {
+            <p class="notice warn small">
+              No public URL yet: start a tunnel (commands below) or enter its address.
+            </p>
+          } @else {
+            <p class="muted small">
+              Pairs through <span class="mono break">{{ publicUrl() }}</span
+              >.
+              @if (remote()?.internet?.requireApproval) {
+                You'll approve the device here after it scans.
+              }
+            </p>
+          }
+        }
+
+        <button
+          class="btn primary"
+          type="button"
+          [disabled]="creating() || (target() === 'internet' && !internetReady())"
+          (click)="createCode()"
+        >
+          <mc-icon name="qr" [size]="16" />
+          {{ creating() ? 'Creating…' : code() && !expired() ? 'New code' : 'Show pairing code' }}
+        </button>
+        @if (codeError()) {
+          <p class="error-text small">{{ codeError() }}</p>
+        }
+
+        @if (code(); as c) {
+          <div class="qr-wrap" [class.stale]="expired()">
+            <div class="qr" [innerHTML]="qr()"></div>
+            <div class="code-info">
+              <div class="code mono" aria-label="Pairing code">{{ groupedCode() }}</div>
+              @if (expired()) {
+                <p class="error-text small">Expired — create a new code.</p>
+              } @else {
+                <p class="muted small">
+                  Works once · expires in <strong>{{ countdown() }}</strong>
+                </p>
+              }
+              <p class="small">
+                Scan with the phone's camera, or open
+                <span class="mono break">{{ c.baseUrl }}</span> on the phone and type the code.
+              </p>
+              <mc-copy-button [text]="c.url" label="Copy link" />
+            </div>
+          </div>
+        }
+      </section>
+
+      <!-- ─────────────── Internet access ─────────────── -->
+      <section class="card internet" aria-label="Internet access">
+        <h2 class="first"><mc-icon name="globe" [size]="15" /> Internet access</h2>
+        @if (remote(); as r) {
+          <label class="switch">
+            <input
+              type="checkbox"
+              [checked]="r.internet.enabled"
+              [disabled]="savingRemote()"
+              (change)="setInternet($any($event.target).checked)"
+            />
+            <span class="switch-text">
+              <strong>Allow access through a tunnel</strong>
+              <span class="muted small"
+                >Opens a local-only port ({{ r.internet.port }}) for ngrok, Cloudflare or Tailscale
+                to forward to. Devices still need their own pairing.</span
+              >
+            </span>
+          </label>
+          <label class="switch">
+            <input
+              type="checkbox"
+              [checked]="r.internet.requireApproval"
+              [disabled]="savingRemote()"
+              (change)="setRequireApproval($any($event.target).checked)"
+            />
+            <span class="switch-text">
+              <strong>Approve internet pairings here</strong>
+              <span class="muted small"
+                >A device pairing over the internet waits until you approve it on this
+                computer.</span
+              >
+            </span>
+          </label>
+
+          @if (r.internet.enabled) {
+            <h3>Public address</h3>
+            @for (t of r.internet.detected; track t.url) {
+              <div class="tunnel">
+                <span class="badge ok">{{ providerLabel(t.provider) }}</span>
+                <span class="mono break">{{ t.url }}</span>
+                @if (t.upstream) {
+                  <span class="muted small">→ {{ t.upstream }}</span>
+                }
+                @if (t.inspect) {
+                  <span class="badge warn" title="ngrok's inspector records request bodies"
+                    >inspector on</span
+                  >
+                }
+              </div>
+            } @empty {
+              <p class="muted small">No running tunnel detected yet (checked every 10 s).</p>
+            }
+            <div class="manual">
+              <label class="field">
+                <span class="field-label">Or enter it yourself</span>
+                <input
+                  [ngModel]="manualUrl()"
+                  (ngModelChange)="manualUrl.set($event)"
+                  placeholder="https://your-name.ngrok-free.app"
+                  spellcheck="false"
+                  autocapitalize="off"
+                />
+              </label>
+              <button
+                class="btn"
+                type="button"
+                [disabled]="savingRemote()"
+                (click)="saveManualUrl()"
+              >
+                Save
+              </button>
+            </div>
+
+            <h3>Start a tunnel</h3>
+            <div class="cmds">
+              <div class="cmd">
+                <span class="cmd-name">ngrok</span>
+                <code class="cmd-text">{{ r.internet.commands.ngrok }}</code>
+                <mc-copy-button [text]="r.internet.commands.ngrok" />
+              </div>
+              <div class="cmd">
+                <span class="cmd-name">Cloudflare</span>
+                <code class="cmd-text">{{ r.internet.commands.cloudflared }}</code>
+                <mc-copy-button [text]="r.internet.commands.cloudflared" />
+              </div>
+              <div class="cmd">
+                <span class="cmd-name">Tailscale</span>
+                <code class="cmd-text">{{ r.internet.commands.tailscale }}</code>
+                <mc-copy-button [text]="r.internet.commands.tailscale" />
+              </div>
+            </div>
+          }
+
+          @if (r.internet.warnings.length) {
+            <ul class="warnings">
+              @for (w of r.internet.warnings; track $index) {
+                <li><mc-icon name="alert" [size]="14" /> {{ w }}</li>
+              }
+            </ul>
+          }
+
+          <p class="muted small bridge">
+            HTTP API ({{ r.bridge.running ? 'running' : 'stopped' }}, port {{ r.bridge.port }})
+            stays on this computer — tunnels never reach it. <a routerLink="/api">API settings</a>
+          </p>
+        } @else {
+          <p class="muted">Loading…</p>
+        }
+      </section>
+    </div>
+
+    <!-- ─────────────── Devices ─────────────── -->
+    <section class="card devices" aria-label="Paired devices">
+      <h2 class="first"><mc-icon name="phone" [size]="15" /> Paired devices</h2>
+      <div class="list">
+        @for (d of activeDevices(); track d.id) {
+          <div class="device">
+            <div class="dmain">
+              @if (renaming() === d.id) {
+                <form class="rename" (submit)="$event.preventDefault(); saveRename(d)">
+                  <input
+                    name="rename"
+                    [ngModel]="renameText()"
+                    (ngModelChange)="renameText.set($event)"
+                    aria-label="Device name"
+                    maxlength="60"
+                  />
+                  <button class="btn small primary" type="submit">Save</button>
+                  <button class="btn small ghost" type="button" (click)="renaming.set(null)">
+                    Cancel
+                  </button>
+                </form>
+              } @else {
+                <div class="dname">
+                  <strong>{{ d.name }}</strong>
+                  <button
+                    class="btn ghost small icon-only"
+                    type="button"
+                    [attr.aria-label]="'Rename ' + d.name"
+                    (click)="startRename(d)"
+                  >
+                    <mc-icon name="edit" [size]="14" />
+                  </button>
+                </div>
+              }
+              <span class="muted small">
+                {{ d.platform || 'device' }}
+                @if (d.ingress) {
+                  · {{ ingressLabel(d.ingress) }}
+                }
+                @if (d.lastSeenAt) {
+                  · seen {{ d.lastSeenAt | relTime }}
+                }
+                @if (d.lastIp) {
+                  · {{ d.lastIp }}
+                }
+              </span>
+            </div>
+            <label class="switch dangerous">
+              <input
+                type="checkbox"
+                [checked]="d.allowDangerous"
+                [disabled]="busy().has(d.id)"
+                (change)="setDangerous(d, $any($event.target).checked)"
+              />
+              <span class="switch-text small">Allow dangerous actions</span>
+            </label>
+            <button
+              class="btn danger small"
+              type="button"
+              [disabled]="busy().has(d.id)"
+              (click)="revoke(d)"
+            >
+              {{ armed('revoke:' + d.id) ? 'Tap again to revoke' : 'Revoke' }}
+            </button>
+          </div>
+        } @empty {
+          <p class="muted">No devices yet. Pair one with the QR code above.</p>
+        }
+      </div>
+      <p class="muted small">
+        “Dangerous actions” are bypass-permissions mode, rules saved to settings, and approving
+        commands flagged dangerous. Off by default for every device.
+      </p>
+    </section>
+
+    <!-- ─────────────── Foreign-session control ─────────────── -->
+    <section id="foreign" class="card foreign" aria-label="Foreign-session control">
+      <h2 class="first"><mc-icon name="plug" [size]="15" /> Foreign-session control</h2>
+      <p>
+        Sessions you start in a terminal, VS Code or JetBrains are <em>foreign</em>: by default you
+        can watch them here but not answer them. The Mother Claude <strong>hooks plugin</strong>
+        lets you approve permissions, answer questions, send messages (delivered at the next tool
+        call or when the session goes idle) and interrupt at the next tool call — from this computer
+        or your phone. The desk UI keeps working; whoever answers first wins.
+      </p>
+      <p class="muted small">
+        Installed as a user-scope Claude Code plugin with <code>claude plugin install</code> — your
+        <code>settings.json</code> hooks are never touched. Uninstall removes it the same way.
+        Sessions started before installing pick it up after a restart.
+      </p>
+      @if (foreign(); as f) {
+        <dl class="kv">
+          <dt>Status</dt>
+          <dd>
+            @if (f.installed) {
+              <span class="badge ok"><mc-icon name="check" [size]="12" /> installed</span>
+              @if (f.pluginVersion) {
+                <span class="muted small"> v{{ f.pluginVersion }}</span>
+              }
+            } @else {
+              <span class="badge">not installed</span>
+            }
+          </dd>
+          <dt>Claude CLI</dt>
+          <dd>{{ f.cliAvailable ? 'found' : 'not found on PATH' }}</dd>
+          <dt>Sessions reporting</dt>
+          <dd>{{ f.sessionsWithHooks }}</dd>
+          <dt>Last hook event</dt>
+          <dd>{{ f.lastEventAt ? (f.lastEventAt | relTime) : 'none yet' }}</dd>
+        </dl>
+        @if (f.notes.length) {
+          <ul class="notes">
+            @for (n of f.notes; track $index) {
+              <li>{{ n }}</li>
+            }
+          </ul>
+        }
+        <div class="row actions">
+          @if (!f.installed) {
+            <button
+              class="btn primary"
+              type="button"
+              [disabled]="foreignBusy() || !f.cliAvailable"
+              (click)="installForeign()"
+            >
+              <mc-icon name="plug" [size]="15" />
+              {{ foreignBusy() ? 'Installing…' : 'Install foreign-session control' }}
+            </button>
+          } @else {
+            <button
+              class="btn danger"
+              type="button"
+              [disabled]="foreignBusy()"
+              (click)="uninstallForeign()"
+            >
+              {{
+                foreignBusy()
+                  ? 'Removing…'
+                  : armed('uninstall')
+                    ? 'Tap again to uninstall'
+                    : 'Uninstall'
+              }}
+            </button>
+          }
+        </div>
+      } @else if (!foreignError()) {
+        <p class="muted">Loading…</p>
+      }
+      @if (foreignError()) {
+        <p class="error-text small">{{ foreignError() }}</p>
+      }
+    </section>
+  }
+</div>
+
+<mc-pair-approval-dialog
+  [pending]="approving()"
+  (closed)="approving.set(null)"
+  (settled)="onSettled($event.pending, $event.approved)"
+/>

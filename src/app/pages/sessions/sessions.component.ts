@@ -1,76 +1,196 @@
-import { NgTemplateOutlet } from '@angular/common';
-import { Component, computed, inject, signal, viewChild } from '@angular/core';
+import { Component, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { Router, RouterLink } from '@angular/router';
+import { RouterLink } from '@angular/router';
 
-import { ApiService } from '../../core/api.service';
+import { ApiService, errorMessage } from '../../core/api.service';
+import { SessionSummary } from '../../core/models';
+import { storageGet, storageSet } from '../../core/platform';
 import { RealtimeService } from '../../core/realtime.service';
-import { LaunchOptionsComponent } from '../../shared/launch-options.component';
-import { relativeTime, formatTokens, stateLabel, surfaceLabel } from '../../shared/util';
+import { FleetSummaryComponent } from '../../shared/fleet-summary.component';
+import { IconComponent } from '../../shared/icon.component';
+import { SessionCardComponent } from '../../shared/session-card.component';
+import { surfaceLabel } from '../../shared/util';
 
+type Filter = 'live' | 'needs' | 'all';
+
+interface Group {
+  key: string;
+  title: string;
+  items: SessionSummary[];
+}
+
+const FILTER_KEY = 'mc_sessions_filter';
+const HISTORY_PAGE = 25;
+
+function needsYou(s: SessionSummary): boolean {
+  return s.status === 'waiting' || (s.pending?.length ?? 0) > 0;
+}
+
+function byRecent(a: SessionSummary, b: SessionSummary): number {
+  return (b.lastActivityAt ?? b.startedAt ?? 0) - (a.lastActivityAt ?? a.startedAt ?? 0);
+}
+
+/**
+ * Every session in the active scope (live, or active in the last 24 h),
+ * searchable and filterable, grouped by what they need; ended sessions page
+ * in on demand. A card with one simple pending request can be answered
+ * right here.
+ */
 @Component({
   selector: 'mc-sessions',
-  imports: [RouterLink, FormsModule, NgTemplateOutlet, LaunchOptionsComponent],
+  imports: [RouterLink, FormsModule, FleetSummaryComponent, IconComponent, SessionCardComponent],
   templateUrl: './sessions.component.html',
   styleUrl: './sessions.component.scss',
 })
 export class SessionsComponent {
   private realtime = inject(RealtimeService);
   private api = inject(ApiService);
-  private router = inject(Router);
 
-  protected readonly sessions = this.realtime.sessions;
+  protected readonly loaded = this.realtime.sessionsLoaded;
+  protected readonly connection = this.realtime.connection;
+  protected readonly all = this.realtime.sessions;
 
-  protected readonly needsInput = computed(() =>
-    this.sessions().filter((s) => s.state === 'needs-input'),
+  protected readonly query = signal('');
+  protected readonly filter = signal<Filter>(readFilter());
+  protected readonly surface = signal('');
+  protected readonly project = signal('');
+
+  protected readonly history = signal<SessionSummary[]>([]);
+  protected readonly historyOpen = signal(false);
+  protected readonly historyLoading = signal(false);
+  protected readonly historyError = signal('');
+  private historyCursor: string | undefined;
+  protected readonly historyDone = signal(false);
+
+  protected readonly liveCount = computed(() => this.all().filter((s) => s.live).length);
+  protected readonly needsCount = computed(() => this.all().filter(needsYou).length);
+
+  protected readonly surfaces = computed(() =>
+    [...new Set([...this.all(), ...this.history()].map((s) => s.surface))].sort(),
   );
-  protected readonly working = computed(() => this.sessions().filter((s) => s.state === 'working'));
-  protected readonly other = computed(() =>
-    this.sessions().filter((s) => s.state !== 'needs-input' && s.state !== 'working'),
+  protected readonly projects = computed(() =>
+    [...new Set([...this.all(), ...this.history()].map((s) => s.projectName).filter(Boolean))].sort(
+      (a, b) => a.localeCompare(b),
+    ),
   );
 
-  protected readonly showSpawn = signal(false);
-  private readonly launchOpts = viewChild(LaunchOptionsComponent);
-  protected readonly spawnCwd = signal('');
-  protected readonly spawnPrompt = signal('');
-  protected readonly spawning = signal(false);
-  protected readonly error = signal('');
+  private readonly matches = computed(() => {
+    const q = this.query().trim().toLowerCase();
+    const surface = this.surface();
+    const project = this.project();
+    return (s: SessionSummary): boolean => {
+      if (surface && s.surface !== surface) return false;
+      if (project && s.projectName !== project) return false;
+      if (!q) return true;
+      return [
+        s.title,
+        s.name,
+        s.projectName,
+        s.cwd,
+        s.gitBranch,
+        s.lastPrompt,
+        s.model?.label,
+        s.id,
+      ]
+        .filter(Boolean)
+        .some((v) => String(v).toLowerCase().includes(q));
+    };
+  });
 
-  /** Count of still-running background tasks (only meaningful while live). */
-  runningTasks(s: { running: boolean; tasks?: { status: string }[] }): number {
-    if (!s.running || !s.tasks) return 0;
-    return s.tasks.filter((t) => t.status === 'running').length;
+  protected readonly visible = computed(() => {
+    const match = this.matches();
+    const f = this.filter();
+    return this.all().filter(
+      (s) => match(s) && (f === 'all' || (f === 'live' ? s.live : needsYou(s))),
+    );
+  });
+
+  protected readonly groups = computed<Group[]>(() => {
+    const list = this.visible();
+    const needs = list.filter(needsYou);
+    const rest = list.filter((s) => !needsYou(s));
+    const groups: Group[] = [
+      {
+        key: 'needs',
+        title: 'Needs you',
+        items: needs.sort((a, b) => oldestPending(a) - oldestPending(b)),
+      },
+      {
+        key: 'working',
+        title: 'Working',
+        items: rest.filter((s) => s.status === 'working' || s.status === 'starting').sort(byRecent),
+      },
+      {
+        key: 'idle',
+        title: 'Idle',
+        items: rest.filter((s) => s.status === 'idle').sort(byRecent),
+      },
+      {
+        key: 'ended',
+        title: 'Ended recently',
+        items: rest.filter((s) => ['ended', 'failed', 'stopped'].includes(s.status)).sort(byRecent),
+      },
+    ];
+    // Unknown statuses from a newer server still show up.
+    const known = new Set(groups.flatMap((g) => g.items.map((s) => s.id)));
+    const other = list.filter((s) => !known.has(s.id));
+    if (other.length) groups.push({ key: 'other', title: 'Other', items: other.sort(byRecent) });
+    return groups.filter((g) => g.items.length);
+  });
+
+  protected readonly historyVisible = computed(() => {
+    const inStore = new Set(this.all().map((s) => s.id));
+    const match = this.matches();
+    return this.history().filter((s) => !inStore.has(s.id) && match(s));
+  });
+
+  protected readonly surfaceLabel = surfaceLabel;
+
+  setFilter(f: Filter): void {
+    this.filter.set(f);
+    storageSet(FILTER_KEY, f);
   }
 
-  protected readonly rel = relativeTime;
-  protected readonly tokens = formatTokens;
-  protected readonly label = stateLabel;
-  protected readonly surface = surfaceLabel;
+  clearFilters(): void {
+    this.query.set('');
+    this.surface.set('');
+    this.project.set('');
+    this.setFilter('all');
+  }
 
-  async spawn(): Promise<void> {
-    this.error.set('');
-    if (!this.spawnCwd().trim() || !this.spawnPrompt().trim()) {
-      this.error.set('Working directory and prompt are required.');
-      return;
-    }
-    if (this.launchOpts()?.invalid()) {
-      this.error.set('Enter a custom model id, or pick a model from the list.');
-      return;
-    }
-    this.spawning.set(true);
+  async openHistory(): Promise<void> {
+    this.historyOpen.set(true);
+    if (!this.history().length) await this.loadMoreHistory();
+  }
+
+  async loadMoreHistory(): Promise<void> {
+    if (this.historyLoading() || this.historyDone()) return;
+    this.historyLoading.set(true);
+    this.historyError.set('');
     try {
-      const res = await this.api.spawnSession({
-        cwd: this.spawnCwd().trim(),
-        prompt: this.spawnPrompt().trim(),
-        ...(this.launchOpts()?.value() ?? {}),
+      const page = await this.api.listSessions({
+        scope: 'all',
+        limit: HISTORY_PAGE,
+        before: this.historyCursor,
       });
-      this.showSpawn.set(false);
-      this.spawnPrompt.set('');
-      if (res?.id) this.router.navigate(['/session', res.id]);
+      const seen = new Set(this.history().map((s) => s.id));
+      const fresh = (page.sessions ?? []).filter((s) => !seen.has(s.id));
+      this.history.update((prev) => [...prev, ...fresh]);
+      this.historyCursor = page.nextBefore;
+      if (!page.nextBefore) this.historyDone.set(true);
     } catch (e) {
-      this.error.set(`Spawn failed: ${(e as Error).message}`);
+      this.historyError.set(errorMessage(e));
     } finally {
-      this.spawning.set(false);
+      this.historyLoading.set(false);
     }
   }
+}
+
+function oldestPending(s: SessionSummary): number {
+  return Math.min(...(s.pending ?? []).map((p) => p.createdAt), s.lastActivityAt ?? Infinity);
+}
+
+function readFilter(): Filter {
+  const v = storageGet(FILTER_KEY);
+  return v === 'live' || v === 'needs' ? v : 'all';
 }

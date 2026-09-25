@@ -1,60 +1,92 @@
-import { Injectable, signal } from '@angular/core';
+import { Injectable, computed, signal } from '@angular/core';
+
+import { mockRequested, mockRole, setActiveMock } from './mock/mock-api';
+import { loadMockBackend } from './mock/mock-loader';
+import { isTauri, storageGet, storageRemove, storageSet } from './platform';
 
 export interface ResolvedConfig {
-  /** Base for REST calls, e.g. `https://192.168.1.5:6725` or '' (same-origin). */
+  /** Origin for REST calls, e.g. `https://192.168.1.5:6725`. */
   baseUrl: string;
-  /** WebSocket URL including the token query. */
+  /** WebSocket URL. Never carries a token (auth is the first frame). */
   wsUrl: string;
-  /** API token, or '' if not yet paired (browser without a token). */
+  /** Bearer credential: the desktop token in the webview, a device token on
+   * phones/browsers, or '' when this browser is not paired yet. */
   token: string;
-  /** True when running inside the Tauri desktop webview. */
+  /** True inside the Tauri desktop webview. */
   desktop: boolean;
+  /** Dev-only fixture backend is serving every request. */
+  mock: boolean;
 }
 
 const TOKEN_KEY = 'mc_token';
+const MOCK_TOKEN_KEY = 'mc_mock_token';
 
 /**
- * Resolves how to reach the embedded server, working both inside the Tauri
- * desktop webview (via the `server_info` invoke) and in a phone browser
- * (same-origin, token from the pairing URL or localStorage). All dashboard data
- * flows through the HTTP/WS server in both cases — never Tauri `invoke`.
+ * Resolves how to reach the embedded server, both inside the Tauri desktop
+ * webview (via the `server_info` invoke) and in a phone browser (same origin,
+ * device token from localStorage). All dashboard data flows through the
+ * HTTP/WS server in both cases — never Tauri `invoke`.
+ *
+ * Tokens never travel in URLs: pairing hands the browser a device token that
+ * is kept in localStorage and sent as a Bearer header / WS first frame.
  */
 @Injectable({ providedIn: 'root' })
 export class ConfigService {
   readonly config = signal<ResolvedConfig | null>(null);
+  readonly token = computed(() => this.config()?.token ?? '');
+  readonly desktop = computed(() => this.config()?.desktop === true);
+  readonly mock = computed(() => this.config()?.mock === true);
   private pending?: Promise<ResolvedConfig>;
 
   ensure(): Promise<ResolvedConfig> {
-    if (this.config()) return Promise.resolve(this.config()!);
+    const current = this.config();
+    if (current) return Promise.resolve(current);
     if (!this.pending) this.pending = this.resolve();
     return this.pending;
   }
 
-  /** Persist a token captured from a pairing link / manual entry. */
+  /** Persist a device token obtained by pairing. */
   setToken(token: string): void {
-    localStorage.setItem(TOKEN_KEY, token);
     const current = this.config();
-    if (current) {
-      this.config.set({ ...current, token, wsUrl: this.buildWsUrl(current.baseUrl, token) });
-    }
+    storageSet(current?.mock ? MOCK_TOKEN_KEY : TOKEN_KEY, token);
+    if (current) this.config.set({ ...current, token });
   }
 
-  hasToken(): boolean {
-    return !!this.config()?.token;
+  /** Forget this browser's device token (revoked, or "forget this device"). */
+  clearToken(): void {
+    const current = this.config();
+    if (current?.desktop) return; // the desktop token is owned by the app
+    storageRemove(current?.mock ? MOCK_TOKEN_KEY : TOKEN_KEY);
+    if (current) this.config.set({ ...current, token: '' });
   }
 
   private async resolve(): Promise<ResolvedConfig> {
-    const captured = this.captureTokenFromUrl();
+    this.stripLegacyTokenFromUrl();
     let resolved: ResolvedConfig;
-
-    if (this.isTauri()) {
+    const mock = mockRequested() ? await loadMockBackend() : null;
+    if (mock) {
+      setActiveMock(mock);
+      const origin = window.location.origin;
+      const stored = storageGet(MOCK_TOKEN_KEY);
+      resolved = {
+        baseUrl: origin,
+        wsUrl: this.buildWsUrl(origin),
+        token: mockRole() === 'unpaired' ? (stored ?? '') : mock.token,
+        desktop: false,
+        mock: true,
+      };
+    } else if (isTauri()) {
       resolved = await this.resolveDesktop();
     } else {
       const baseUrl = window.location.origin;
-      const token = captured ?? localStorage.getItem(TOKEN_KEY) ?? '';
-      resolved = { baseUrl, token, wsUrl: this.buildWsUrl(baseUrl, token), desktop: false };
+      resolved = {
+        baseUrl,
+        wsUrl: this.buildWsUrl(baseUrl),
+        token: storageGet(TOKEN_KEY) ?? '',
+        desktop: false,
+        mock: false,
+      };
     }
-    if (resolved.token) localStorage.setItem(TOKEN_KEY, resolved.token);
     this.config.set(resolved);
     return resolved;
   }
@@ -70,42 +102,43 @@ export class ConfigService {
       return {
         baseUrl,
         token: info.token,
-        wsUrl: this.buildWsUrl(baseUrl, info.token),
+        wsUrl: this.buildWsUrl(baseUrl),
         desktop: true,
+        mock: false,
       };
     } catch {
-      // Fallback to the documented default if the invoke is unavailable.
+      // Fall back to the documented default if the invoke is unavailable.
       const baseUrl = 'http://localhost:6725';
-      const token = localStorage.getItem(TOKEN_KEY) ?? '';
-      return { baseUrl, token, wsUrl: this.buildWsUrl(baseUrl, token), desktop: true };
+      return {
+        baseUrl,
+        token: storageGet(TOKEN_KEY) ?? '',
+        wsUrl: this.buildWsUrl(baseUrl),
+        desktop: true,
+        mock: false,
+      };
     }
   }
 
-  private buildWsUrl(baseUrl: string, token: string): string {
-    const base = baseUrl || window.location.origin;
-    const ws = base.replace(/^http/, 'ws');
-    return `${ws}/ws${token ? `?token=${encodeURIComponent(token)}` : ''}`;
+  private buildWsUrl(baseUrl: string): string {
+    return `${baseUrl.replace(/^http/, 'ws')}/ws`;
   }
 
-  private captureTokenFromUrl(): string | null {
-    // Pairing links look like .../#/pair?token=XYZ
+  /** Old pairing links put a master token in the URL (`#/pair?token=…`).
+   * Tokens must never live in URLs: drop it from the address bar and history
+   * without using it (the server no longer accepts it from a phone anyway). */
+  private stripLegacyTokenFromUrl(): void {
     const hash = window.location.hash;
     const q = hash.indexOf('?');
-    if (q >= 0) {
-      const params = new URLSearchParams(hash.slice(q + 1));
-      const token = params.get('token');
-      if (token) {
-        localStorage.setItem(TOKEN_KEY, token);
-        return token;
-      }
+    if (q < 0) return;
+    const params = new URLSearchParams(hash.slice(q + 1));
+    if (!params.has('token')) return;
+    params.delete('token');
+    const rest = params.toString();
+    const clean = `${hash.slice(0, q)}${rest ? `?${rest}` : ''}`;
+    try {
+      history.replaceState(history.state, '', `${location.pathname}${location.search}${clean}`);
+    } catch {
+      /* best effort */
     }
-    return null;
-  }
-
-  private isTauri(): boolean {
-    return (
-      typeof (window as unknown as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__ !==
-      'undefined'
-    );
   }
 }

@@ -1,0 +1,254 @@
+@if (mode() === 'blocked') {
+  @if (session(); as s) {
+    <div class="blocked">
+      <p class="why">
+        <mc-icon name="info" [size]="16" />
+        <span
+          >You can watch this session from here, but not message it{{
+            s.live ? ' while it runs in ' + surfaceName() : ''
+          }}.</span
+        >
+      </p>
+      <mc-cap-limits [session]="s" />
+      @if (installMissing()) {
+        <a class="btn" routerLink="/remote" fragment="foreign"
+          ><mc-icon name="plug" [size]="15" /> Install foreign-session control</a
+        >
+      }
+      @if ((s.control.fork || s.control.continueOwned) && !continueOffered()) {
+        <button class="btn primary" type="button" (click)="ctx.continueHere()">
+          {{ s.live ? 'Continue here (fork)' : 'Continue here' }}
+        </button>
+      }
+    </div>
+  }
+} @else {
+  @if (ctx.queued().length) {
+    <ul class="queued" aria-label="Queued messages">
+      @for (q of ctx.queued(); track q.id) {
+        <li>
+          <mc-icon name="clock" [size]="14" />
+          <span class="qtext">{{ q.text }}</span>
+          <span class="qstate">{{
+            q.via === 'hook-busy' || q.via === 'hook-idle'
+              ? waitHint()
+                ? 'waiting for next step'
+                : 'relaying'
+              : 'queued'
+          }}</span>
+          @if (q.cancellable) {
+            <button
+              class="btn ghost icon-only small"
+              type="button"
+              [attr.aria-label]="'Take back: ' + q.text"
+              (click)="ctx.cancelQueued(q.id)"
+            >
+              <mc-icon name="x" [size]="14" />
+            </button>
+          }
+        </li>
+      }
+    </ul>
+  }
+
+  @if (explainer()) {
+    <div class="explainer" role="note">
+      <p>
+        <strong>How relayed messages arrive:</strong> Claude gets it at its next stopping point (a
+        tool call or the end of its turn). It won't appear in the VS Code panel; only Claude's reply
+        will.
+      </p>
+      <button class="btn small" type="button" (click)="dismissExplainer()">Got it</button>
+    </div>
+  }
+
+  @if (palette()) {
+    <ul
+      class="palette"
+      role="listbox"
+      id="mc-palette"
+      [attr.aria-label]="palette() === 'slash' ? 'Commands' : 'Files'"
+    >
+      @for (it of paletteItems(); track it.key; let i = $index) {
+        <li
+          role="option"
+          [id]="'mc-pal-' + i"
+          [attr.aria-selected]="i === active()"
+          [class.on]="i === active()"
+          tabindex="-1"
+          (mousedown)="$event.preventDefault()"
+          (click)="pick(it)"
+          (keydown.enter)="pick(it)"
+        >
+          <span class="plabel mono">{{ it.label }}</span>
+          @if (it.hint) {
+            <span class="phint">{{ it.hint }}</span>
+          }
+        </li>
+      }
+    </ul>
+  }
+
+  @if (attachments().length || uploading()) {
+    <div class="thumbs">
+      @for (a of attachments(); track a.id) {
+        <figure class="thumb">
+          <img [src]="a.url" [alt]="a.name" />
+          <button
+            class="rm"
+            type="button"
+            [attr.aria-label]="'Remove ' + a.name"
+            (click)="remove(a)"
+          >
+            <mc-icon name="x" [size]="12" />
+          </button>
+        </figure>
+      }
+      @if (uploading()) {
+        <span class="thumb busy" role="status" aria-label="Preparing attachment"
+          ><span class="spin" aria-hidden="true"></span
+        ></span>
+      }
+    </div>
+  }
+
+  <div class="box">
+    @if (attach() !== 'none') {
+      @if (attach() === 'inline') {
+        <button
+          class="btn ghost icon-only"
+          type="button"
+          aria-label="Attach a photo"
+          title="Photo or camera"
+          (click)="choose('photo')"
+        >
+          <mc-icon name="camera" />
+        </button>
+      }
+      <button
+        class="btn ghost icon-only"
+        type="button"
+        [attr.aria-label]="attach() === 'path' ? 'Attach a file (sent as a path)' : 'Attach a file'"
+        title="Attach a file"
+        (click)="choose('file')"
+      >
+        <mc-icon name="paperclip" />
+      </button>
+      <input
+        #photo
+        class="visually-hidden"
+        type="file"
+        accept="image/*"
+        multiple
+        tabindex="-1"
+        aria-hidden="true"
+        (change)="onFiles($event)"
+      />
+      <input
+        #file
+        class="visually-hidden"
+        type="file"
+        multiple
+        tabindex="-1"
+        aria-hidden="true"
+        (change)="onFiles($event)"
+      />
+    }
+    <textarea
+      #ta
+      rows="1"
+      [value]="text()"
+      [placeholder]="placeholder()"
+      aria-label="Message"
+      [attr.aria-controls]="palette() ? 'mc-palette' : null"
+      [attr.aria-activedescendant]="activeId()"
+      [attr.aria-expanded]="!!palette()"
+      [attr.enterkeyhint]="coarse() ? 'enter' : 'send'"
+      autocapitalize="sentences"
+      (input)="onInput($event)"
+      (keydown)="onKeydown($event)"
+      (focus)="onFocus()"
+      (blur)="onBlur()"
+    ></textarea>
+    <button
+      class="btn primary send"
+      type="button"
+      [disabled]="!canSend()"
+      (click)="submit('send')"
+      [attr.aria-label]="sendLabel()"
+    >
+      @if (sending()) {
+        <span class="spin" aria-hidden="true"></span>
+      } @else {
+        <mc-icon name="send" [size]="16" />
+      }
+      <span class="slabel">{{ sendLabel() }}</span>
+    </button>
+  </div>
+
+  <div class="under">
+    @if (failed()) {
+      <span class="failed" role="alert"
+        >Not sent.
+        <button class="btn ghost small" type="button" (click)="submit('send')">Retry</button></span
+      >
+    } @else if (mode() === 'resume') {
+      <span class="hint">Sending resumes this conversation here.</span>
+    } @else if (waitHint() && hasContent()) {
+      <span class="hint">{{ waitHint() }}</span>
+    } @else if (!coarse()) {
+      <span class="hint"
+        >Enter to send · Shift+Enter for a new line{{
+          caps()?.slashCommands ? ' · / for commands' : ''
+        }}
+        · &#64; for files</span
+      >
+    } @else if (caps()?.slashCommands) {
+      <span class="hint">/ for commands · &#64; for files</span>
+    }
+    <span class="spacer"></span>
+    @if (onePermission() && hasContent()) {
+      <button
+        class="btn small danger"
+        type="button"
+        [disabled]="!canSend()"
+        (click)="submit('deny')"
+      >
+        Deny &amp; send as feedback
+      </button>
+    } @else if (ctx.busy() && hasContent() && caps()?.interrupt !== 'none') {
+      <button class="btn small" type="button" [disabled]="!canSend()" (click)="submit('interrupt')">
+        Interrupt &amp; send
+      </button>
+    }
+    @if (ctx.busy() && caps()?.interrupt !== 'none') {
+      <button
+        class="btn small"
+        type="button"
+        [disabled]="!ctx.canAct()"
+        [title]="
+          caps()?.interrupt === 'immediate'
+            ? 'Stop the current turn'
+            : 'Stops at the next tool call'
+        "
+        (click)="ctx.interrupt()"
+      >
+        <mc-icon name="pause" [size]="14" /> {{ interruptLabel() }}
+      </button>
+    }
+  </div>
+}
+
+<mc-sheet
+  [open]="!!confirm()"
+  [title]="'Run /' + (confirm()?.name ?? '') + '?'"
+  (closed)="confirm.set(null)"
+>
+  <p>{{ confirm()?.text }}</p>
+  <div class="row">
+    <button class="btn primary" type="button" (click)="runConfirmed()">
+      Run /{{ confirm()?.name }}
+    </button>
+    <button class="btn ghost" type="button" (click)="confirm.set(null)">Cancel</button>
+  </div>
+</mc-sheet>
