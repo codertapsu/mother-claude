@@ -17,6 +17,7 @@ import {
   PendingResolvedFrame,
   ServerFrame,
   SessionSummary,
+  SessionsDiffFrame,
   SessionsFrame,
   StreamFrame,
   TranscriptFrame,
@@ -242,7 +243,10 @@ export class RealtimeService {
   private checkingLimited = false;
   /** This client may not poll (a tunnel client): don't ask again. */
   private noPolling = false;
-  private resyncing = false;
+  /** Set while a gap reload is in flight: the diffs applied meanwhile. */
+  private diffsDuringReload: SessionsDiffFrame[] | null = null;
+  /** Full `sessions` frames applied so far. */
+  private fullFrames = 0;
   private listenersBound = false;
   private readonly subs = new Map<string, SubEntry>();
   private fleetSubs = 0;
@@ -292,8 +296,11 @@ export class RealtimeService {
 
   /** Merge a REST copy of a session into the store (e.g. the detail page's
    * `GET /sessions/{id}` while polling). Only sessions already in the store
-   * are updated, so the active scope stays the server's decision. */
+   * are updated, so the active scope stays the server's decision. While the
+   * socket is live its diffs are authoritative: a REST copy may be older than
+   * the last diff, and the server only diffs again on the next change. */
   mergeSession(s: SessionSummary): void {
+    if (this.connectionS() === 'open') return;
     if (!s?.id || !this.store().has(s.id)) return;
     this.store.update((prev) => new Map(prev).set(s.id, s));
   }
@@ -665,7 +672,7 @@ export class RealtimeService {
         this.pairRequestS.next(frame);
         break;
       case 'resync':
-        void this.resync();
+        this.resync();
         break;
       case 'ping':
         this.send({ t: 'pong' });
@@ -702,20 +709,26 @@ export class RealtimeService {
     if (frame.full) {
       this.replaceStore(frame.sessions ?? []);
       this.lastSeq = typeof frame.seq === 'number' ? frame.seq : -1;
+      this.fullFrames += 1;
     } else {
       const seq = typeof frame.seq === 'number' ? frame.seq : -1;
       if (seq >= 0 && this.lastSeq >= 0 && seq <= this.lastSeq) return; // stale
       const gap = seq >= 0 && this.lastSeq >= 0 && seq !== this.lastSeq + 1;
       this.lastSeq = seq;
-      this.store.update((prev) => {
-        const next = new Map(prev);
-        for (const id of frame.remove ?? []) next.delete(id);
-        for (const s of frame.upsert ?? []) if (s?.id) next.set(s.id, s);
-        return next;
-      });
+      this.applyDiff(frame);
+      this.diffsDuringReload?.push(frame);
       if (gap) void this.reloadSessions();
     }
     this.sessionsS.next(frame);
+  }
+
+  private applyDiff(frame: SessionsDiffFrame): void {
+    this.store.update((prev) => {
+      const next = new Map(prev);
+      for (const id of frame.remove ?? []) next.delete(id);
+      for (const s of frame.upsert ?? []) if (s?.id) next.set(s.id, s);
+      return next;
+    });
   }
 
   private replaceStore(list: SessionSummary[]): void {
@@ -725,27 +738,34 @@ export class RealtimeService {
     this.sessionsLoadedS.set(true);
   }
 
-  /** The server dropped frames for us: rebuild the store and resubscribe. */
-  private async resync(): Promise<void> {
-    await this.reloadSessions();
+  /** The server dropped frames for us: resubscribe and tell REST-loaded
+   * views to refetch. The store needs nothing: the server follows `resync`
+   * with a full `sessions` frame (a REST reload here could land after newer
+   * diffs and roll the store back). */
+  private resync(): void {
     for (const key of this.subs.keys()) this.sendSub(key);
     if (this.fleetSubs > 0) this.send({ t: 'subFleet' });
     if (this.inboxSubs > 0) this.send({ t: 'subInbox' });
     this.refetchS.next('resync');
   }
 
-  /** Replace the store from REST (after a sequence gap or a resync). */
+  /** Replace the store from REST after a sequence gap. Diffs that arrive
+   * while the request is in flight are replayed on top of the REST copy
+   * (it may predate them); a full frame meanwhile makes the copy moot. */
   private async reloadSessions(): Promise<void> {
-    if (this.resyncing) return;
-    this.resyncing = true;
+    if (this.diffsDuringReload) return;
+    const diffs: SessionsDiffFrame[] = [];
+    this.diffsDuringReload = diffs;
+    const fullBefore = this.fullFrames;
     try {
       const page = await this.api.listSessions({ scope: 'active' });
+      if (this.fullFrames !== fullBefore) return;
       this.replaceStore(page.sessions ?? []);
-      this.lastSeq = -1; // accept whatever diff comes next
+      for (const d of diffs) this.applyDiff(d);
     } catch {
       // The next reconnect's full snapshot will repair the store.
     } finally {
-      this.resyncing = false;
+      this.diffsDuringReload = null;
     }
   }
 

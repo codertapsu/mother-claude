@@ -3,7 +3,7 @@ import { TestBed } from '@angular/core/testing';
 import { AuthService } from './auth.service';
 import { ConfigService } from './config.service';
 import { MockBackend, WebSocketLike, setActiveMock } from './mock/mock-api';
-import { MeInfo } from './models';
+import { MeInfo, SessionSummary } from './models';
 import { RealtimeService } from './realtime.service';
 
 class FakeSocket implements WebSocketLike {
@@ -74,6 +74,9 @@ const me = (over: Partial<MeInfo> = {}): MeInfo => ({
   allowDangerous: false,
   ...over,
 });
+
+const session = (id: string, status: string): SessionSummary =>
+  ({ id, status, live: true, pending: [] }) as unknown as SessionSummary;
 
 const flush = async (times = 5) => {
   for (let i = 0; i < times; i++) await new Promise((r) => setTimeout(r, 0));
@@ -149,5 +152,63 @@ describe('RealtimeService', () => {
     expect(auth.state()).toBe('unpaired');
     expect(auth.reason()).toBe('revoked');
     expect(config.token()).toBe('');
+  });
+
+  it('ignores REST copies of a session while the socket is live', () => {
+    const s = goLive();
+    s.frame({ t: 'sessions', full: true, seq: 1, sessions: [session('s1', 'idle')] });
+    rt.mergeSession(session('s1', 'working'));
+    expect(rt.session('s1')()?.status).toBe('idle');
+  });
+
+  it('merges REST copies of a session while not live', () => {
+    const s = goLive();
+    s.frame({ t: 'sessions', full: true, seq: 1, sessions: [session('s1', 'idle')] });
+    window.dispatchEvent(new Event('offline'));
+    rt.mergeSession(session('s1', 'working'));
+    expect(rt.session('s1')()?.status).toBe('working');
+  });
+
+  it('does not reload the store over REST on resync (a full frame follows)', async () => {
+    const s = goLive();
+    s.frame({ t: 'resync' });
+    await flush();
+    expect(backend.calls.filter((c) => c.startsWith('GET /sessions'))).toEqual([]);
+  });
+
+  it('replays diffs that arrived while a gap reload was in flight', async () => {
+    let answer!: (v: { status: number; body: unknown }) => void;
+    backend.routes.set(
+      '/sessions',
+      () => new Promise<{ status: number; body: unknown }>((r) => (answer = r)),
+    );
+    const s = goLive();
+    s.frame({ t: 'sessions', full: true, seq: 1, sessions: [session('s1', 'idle')] });
+    // seq 3 after 1: a gap ⇒ reload over REST.
+    s.frame({ t: 'sessions', full: false, seq: 3, upsert: [session('s2', 'idle')] });
+    await flush();
+    expect(backend.calls).toContain('GET /sessions');
+    // A newer diff lands before the (older) REST answer.
+    s.frame({ t: 'sessions', full: false, seq: 4, upsert: [session('s1', 'working')] });
+    answer({ status: 200, body: { sessions: [session('s1', 'idle'), session('s2', 'idle')] } });
+    await flush();
+    expect(rt.session('s1')()?.status).toBe('working');
+    expect(rt.session('s2')()?.status).toBe('idle');
+  });
+
+  it('drops a gap reload when a full frame arrived meanwhile', async () => {
+    let answer!: (v: { status: number; body: unknown }) => void;
+    backend.routes.set(
+      '/sessions',
+      () => new Promise<{ status: number; body: unknown }>((r) => (answer = r)),
+    );
+    const s = goLive();
+    s.frame({ t: 'sessions', full: true, seq: 1, sessions: [session('s1', 'idle')] });
+    s.frame({ t: 'sessions', full: false, seq: 3, upsert: [] });
+    await flush();
+    s.frame({ t: 'sessions', full: true, seq: 5, sessions: [session('s1', 'working')] });
+    answer({ status: 200, body: { sessions: [session('s1', 'idle')] } });
+    await flush();
+    expect(rt.session('s1')()?.status).toBe('working');
   });
 });
