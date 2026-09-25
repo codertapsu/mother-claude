@@ -237,12 +237,12 @@ pub fn file_patch_against(
         .recurse_untracked_dirs(true)
         .disable_pathspec_match(true)
         .pathspec(rel_path);
-    let base_tree = if branch {
-        merge_base_with_default(&repo)
-            .and_then(|(_, oid)| repo.find_commit(oid).ok())
-            .and_then(|c| c.tree().ok())
-    } else {
-        repo.head().ok().and_then(|h| h.peel_to_tree().ok())
+    let head_tree = || repo.head().ok().and_then(|h| h.peel_to_tree().ok());
+    let base_tree = match branch.then(|| merge_base_with_default(&repo)).flatten() {
+        Some((_, oid)) => repo.find_commit(oid).ok().and_then(|c| c.tree().ok()),
+        // No default branch to compare with: HEAD, as `branch_overview`
+        // falls back to the working tree changes (never the empty tree).
+        None => head_tree(),
     };
     let diff = repo
         .diff_tree_to_workdir_with_index(base_tree.as_ref(), Some(&mut opts))
@@ -590,6 +590,33 @@ mod tests {
         assert_eq!(ov.commits[0].summary, "feature work");
         let patch = file_patch_against(dir.path(), "b.txt", 64_000, true).unwrap();
         assert!(patch.contains("+on branch"));
+    }
+
+    #[test]
+    fn branch_patch_without_a_default_branch_diffs_against_head() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo = init_repo(dir.path());
+        fs::write(dir.path().join("a.txt"), "one\ntwo\n").unwrap();
+        let first = commit_all(&repo, "init");
+        // The only branch is `dev`: no origin/HEAD, main, master, … to find.
+        let commit = repo.find_commit(first).unwrap();
+        repo.branch("dev", &commit, true).unwrap();
+        repo.set_head("refs/heads/dev").unwrap();
+        for name in ["main", "master"] {
+            if let Ok(mut b) = repo.find_branch(name, git2::BranchType::Local) {
+                b.delete().unwrap();
+            }
+        }
+        fs::write(dir.path().join("a.txt"), "one\nTWO\n").unwrap();
+
+        let ov = branch_overview(dir.path(), 10);
+        assert!(ov.merge_base.is_none());
+        let patch = file_patch_against(dir.path(), "a.txt", 64_000, true).unwrap();
+        assert!(patch.contains("-two") && patch.contains("+TWO"), "{patch}");
+        assert!(
+            !patch.contains("+one"),
+            "not the whole file as added: {patch}"
+        );
     }
 
     #[test]
