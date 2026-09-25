@@ -205,6 +205,7 @@ pub fn run() {
         }
     };
     let app_state = Inner::new(home, ServerConfig::from_env(), Auth::load_or_create());
+    let exit_state = app_state.clone();
 
     tauri::Builder::default()
         .manage(app_state.clone())
@@ -245,8 +246,15 @@ pub fn run() {
             app_location,
             server_info
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running Mother Claude");
+        .build(tauri::generate_context!())
+        .expect("error while building Mother Claude")
+        .run(move |_app, event| {
+            if let tauri::RunEvent::Exit = event {
+                // Keep the transcript index's progress for the next launch
+                // (it is otherwise checkpointed every 30 s while dirty).
+                exit_state.index.persist(true);
+            }
+        });
 }
 
 #[cfg(all(test, unix))]
