@@ -83,11 +83,14 @@ pub async fn pty_inject_text(
         ));
     }
     let text = sanitize_pty_text(text)?;
-    let target = session.job_id.clone().unwrap_or_else(|| session.id.clone());
+    // `claude attach` takes the SHORT job id of a background session only.
+    let target = crate::claude::owned::short_job_id(state, &session.id)
+        .await
+        .ok_or_else(crate::claude::owned::not_background)?;
     state
         .pty
         .attach(state, &target, &session.cwd)
-        .map_err(|e| ApiError::internal(e.to_string()))?;
+        .map_err(|e| ApiError::unprocessable("pty_attach_failed", e.to_string()))?;
     state
         .pty
         .inject(&target, &text)
@@ -255,11 +258,14 @@ pub async fn pty_attach(
     #[cfg(feature = "experimental")]
     {
         let s = session(&state, &id).await?;
-        let target = s.job_id.clone().unwrap_or_else(|| s.id.clone());
+        // `claude attach` takes the SHORT job id of a background session only.
+        let target = crate::claude::owned::short_job_id(&state, &s.id)
+            .await
+            .ok_or_else(crate::claude::owned::not_background)?;
         state
             .pty
             .attach(&state, &target, &s.cwd)
-            .map_err(|e| ApiError::internal(e.to_string()))?;
+            .map_err(|e| ApiError::unprocessable("pty_attach_failed", e.to_string()))?;
         Ok(StatusCode::NO_CONTENT.into_response())
     }
     #[cfg(not(feature = "experimental"))]
