@@ -73,6 +73,7 @@ pub const PROMPT_TIMEOUT: Duration = Duration::from_secs(12 * 60 * 60);
 /// Text/thinking deltas are coalesced for this long before publishing.
 const DELTA_FLUSH: Duration = Duration::from_millis(60);
 /// Grace period between SIGTERM and SIGKILL when stopping a child.
+#[cfg(unix)]
 const KILL_GRACE: Duration = Duration::from_secs(3);
 /// VS Code's setting sources.
 pub const SETTING_SOURCES: &str = "user,project,local";
@@ -104,12 +105,22 @@ pub const SCRUBBED_ENV: [&str; 12] = [
 /// hook scripts exit immediately when it is set (no double cards).
 pub const OWNED_ENV: &str = "MOTHER_CLAUDE_OWNED";
 
-/// Scrub a child's environment ([`SCRUBBED_ENV`]) and mark it owned. Used for
-/// the Path B `claude`, the Path A sidecar and the bridge host.
-pub fn apply_child_env(cmd: &mut tokio::process::Command) {
+/// Scrub a child's environment ([`SCRUBBED_ENV`], plus any inherited
+/// [`OWNED_ENV`]) without marking it owned. Used for the lifecycle commands
+/// (`claude stop|respawn|rm|logs`): they can cold-start a transient
+/// background daemon that would pass the marker on to every background
+/// session it runs, silencing their hooks.
+pub fn scrub_child_env(cmd: &mut tokio::process::Command) {
     for key in SCRUBBED_ENV {
         cmd.env_remove(key);
     }
+    cmd.env_remove(OWNED_ENV);
+}
+
+/// Scrub a child's environment ([`scrub_child_env`]) and mark it owned. Used
+/// for the Path B `claude`, the Path A sidecar and the bridge host.
+pub fn apply_child_env(cmd: &mut tokio::process::Command) {
+    scrub_child_env(cmd);
     cmd.env(OWNED_ENV, "1");
 }
 
@@ -1848,7 +1859,8 @@ async fn run_job_command(action: &str, short_id: &str) -> Result<std::process::O
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .kill_on_drop(true);
-    apply_child_env(&mut cmd);
+    // Not owned: never mark a lifecycle command (see `scrub_child_env`).
+    scrub_child_env(&mut cmd);
     tokio::time::timeout(Duration::from_secs(60), cmd.output())
         .await
         .map_err(|_| anyhow!("`claude {action} {short_id}` timed out"))?
@@ -1929,6 +1941,33 @@ mod tests {
             Some(&Some("x".to_string()))
         );
         assert!(!envs.contains_key("CLAUDE_CONFIG_DIR"));
+    }
+
+    #[test]
+    fn lifecycle_commands_are_never_marked_owned() {
+        // `claude stop|respawn|rm|logs` can cold-start a transient daemon; a
+        // marker it inherited would silence every background session's hooks.
+        let mut cmd = tokio::process::Command::new("true");
+        cmd.env(OWNED_ENV, "1").env("CLAUDE_CODE_USE_BEDROCK", "1");
+        scrub_child_env(&mut cmd);
+        let envs: HashMap<String, Option<String>> = cmd
+            .as_std()
+            .get_envs()
+            .map(|(k, v)| {
+                (
+                    k.to_string_lossy().into_owned(),
+                    v.map(|v| v.to_string_lossy().into_owned()),
+                )
+            })
+            .collect();
+        assert_eq!(envs.get(OWNED_ENV), Some(&None), "marker removed, not set");
+        for key in SCRUBBED_ENV {
+            assert_eq!(envs.get(key), Some(&None), "{key} must be removed");
+        }
+        assert_eq!(
+            envs.get("CLAUDE_CODE_USE_BEDROCK"),
+            Some(&Some("1".to_string()))
+        );
     }
 
     #[test]
