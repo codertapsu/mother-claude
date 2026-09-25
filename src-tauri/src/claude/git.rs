@@ -60,6 +60,12 @@ pub struct GitOverview {
     pub deletions: usize,
     pub commits: Vec<CommitInfo>,
     pub worktrees: Vec<WorktreeInfo>,
+    /// `?base=branch`: the default branch the diff is taken against.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub base: Option<String>,
+    /// `?base=branch`: the merge base commit (short id).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub merge_base: Option<String>,
 }
 
 fn delta_status(delta: Delta) -> &'static str {
@@ -101,16 +107,20 @@ fn head_commit_id(repo: &Repository) -> Option<String> {
 }
 
 fn collect_changes(repo: &Repository) -> (Vec<FileChange>, usize, usize) {
-    let mut opts = DiffOptions::new();
-    opts.include_untracked(true).recurse_untracked_dirs(true);
-
     // Prefer HEAD tree → workdir; if there is no HEAD yet (no commits), diff the
     // empty tree → workdir so newly added files still show up.
     let head_tree = repo.head().ok().and_then(|h| h.peel_to_tree().ok());
-    let diff = match head_tree {
-        Some(tree) => repo.diff_tree_to_workdir_with_index(Some(&tree), Some(&mut opts)),
-        None => repo.diff_tree_to_workdir_with_index(None, Some(&mut opts)),
-    };
+    collect_changes_from(repo, head_tree.as_ref())
+}
+
+/// Changes from `base` (a tree; `None` = empty tree) to the working tree.
+fn collect_changes_from(
+    repo: &Repository,
+    base: Option<&git2::Tree>,
+) -> (Vec<FileChange>, usize, usize) {
+    let mut opts = DiffOptions::new();
+    opts.include_untracked(true).recurse_untracked_dirs(true);
+    let diff = repo.diff_tree_to_workdir_with_index(base, Some(&mut opts));
     let Ok(diff) = diff else {
         return (Vec::new(), 0, 0);
     };
@@ -202,20 +212,40 @@ pub fn overview(cwd: &Path, log_limit: usize) -> GitOverview {
         deletions,
         commits: recent_log(&repo, log_limit),
         worktrees: list_worktrees(&repo),
+        ..Default::default()
     }
 }
 
 /// Return the unified diff (patch) text for a single file in the working tree,
 /// truncated to `max_bytes`. `None` if not a repo or the file has no diff.
 pub fn file_patch(cwd: &Path, rel_path: &str, max_bytes: usize) -> Option<String> {
+    file_patch_against(cwd, rel_path, max_bytes, false)
+}
+
+/// [`file_patch`] against HEAD (`branch == false`) or against the merge base
+/// with the default branch (`branch == true`). The path is matched
+/// literally (no pathspec globbing).
+pub fn file_patch_against(
+    cwd: &Path,
+    rel_path: &str,
+    max_bytes: usize,
+    branch: bool,
+) -> Option<String> {
     let repo = open(cwd)?;
     let mut opts = DiffOptions::new();
     opts.include_untracked(true)
         .recurse_untracked_dirs(true)
+        .disable_pathspec_match(true)
         .pathspec(rel_path);
-    let head_tree = repo.head().ok().and_then(|h| h.peel_to_tree().ok());
+    let base_tree = if branch {
+        merge_base_with_default(&repo)
+            .and_then(|(_, oid)| repo.find_commit(oid).ok())
+            .and_then(|c| c.tree().ok())
+    } else {
+        repo.head().ok().and_then(|h| h.peel_to_tree().ok())
+    };
     let diff = repo
-        .diff_tree_to_workdir_with_index(head_tree.as_ref(), Some(&mut opts))
+        .diff_tree_to_workdir_with_index(base_tree.as_ref(), Some(&mut opts))
         .ok()?;
 
     let mut buf = String::new();
@@ -235,6 +265,190 @@ pub fn file_patch(cwd: &Path, rel_path: &str, max_bytes: usize) -> Option<String
         }
         Some(buf)
     }
+}
+
+/// The default branch (`origin/HEAD`'s target, else `main`/`master`, local or
+/// on origin) and its commit.
+fn default_branch(repo: &Repository) -> Option<(String, git2::Oid)> {
+    if let Ok(r) = repo.find_reference("refs/remotes/origin/HEAD") {
+        if let Ok(resolved) = r.resolve() {
+            if let (Some(oid), Ok(name)) = (resolved.target(), resolved.shorthand()) {
+                return Some((name.to_string(), oid));
+            }
+        }
+    }
+    for name in [
+        "main",
+        "master",
+        "origin/main",
+        "origin/master",
+        "trunk",
+        "develop",
+    ] {
+        let refname = if name.starts_with("origin/") {
+            format!("refs/remotes/{name}")
+        } else {
+            format!("refs/heads/{name}")
+        };
+        if let Some(oid) = repo.find_reference(&refname).ok().and_then(|r| r.target()) {
+            return Some((name.to_string(), oid));
+        }
+    }
+    None
+}
+
+/// `(default branch name, merge-base commit)` of HEAD and the default branch.
+fn merge_base_with_default(repo: &Repository) -> Option<(String, git2::Oid)> {
+    let head = repo.head().ok()?.target()?;
+    let (name, def) = default_branch(repo)?;
+    let base = repo.merge_base(head, def).ok()?;
+    Some((name, base))
+}
+
+/// The branch-vs-default overview: everything on this branch since it left
+/// the default branch (commits + committed and uncommitted changes).
+pub fn branch_overview(cwd: &Path, log_limit: usize) -> GitOverview {
+    let Some(repo) = open(cwd) else {
+        return GitOverview::default();
+    };
+    let mut ov = GitOverview {
+        is_repo: true,
+        repo_root: repo
+            .workdir()
+            .map(|p| p.to_string_lossy().to_string())
+            .or_else(|| Some(repo.path().to_string_lossy().to_string())),
+        branch: current_branch(&repo),
+        head: head_commit_id(&repo),
+        worktrees: list_worktrees(&repo),
+        ..Default::default()
+    };
+    let Some((name, base)) = merge_base_with_default(&repo) else {
+        // No default branch to compare with: fall back to the working tree.
+        let (files, a, d) = collect_changes(&repo);
+        ov.files = files;
+        ov.additions = a;
+        ov.deletions = d;
+        ov.commits = recent_log(&repo, log_limit);
+        return ov;
+    };
+    let tree = repo.find_commit(base).ok().and_then(|c| c.tree().ok());
+    let (files, a, d) = collect_changes_from(&repo, tree.as_ref());
+    ov.files = files;
+    ov.additions = a;
+    ov.deletions = d;
+    ov.base = Some(name);
+    ov.merge_base = Some(base.to_string().chars().take(8).collect());
+    if let Ok(mut walk) = repo.revwalk() {
+        if walk.push_head().is_ok() && walk.hide(base).is_ok() {
+            for oid in walk.flatten().take(log_limit) {
+                if let Ok(commit) = repo.find_commit(oid) {
+                    ov.commits.push(CommitInfo {
+                        id: oid.to_string().chars().take(8).collect(),
+                        summary: commit.summary().ok().flatten().unwrap_or("").to_string(),
+                        author: commit.author().name().unwrap_or("").to_string(),
+                        time: commit.time().seconds(),
+                    });
+                }
+            }
+        }
+    }
+    ov
+}
+
+/// Tracked files under `cwd` (paths relative to `cwd`), like `git ls-files`
+/// — cached per repo for 30 s.
+pub fn list_files(cwd: &Path) -> Vec<String> {
+    use std::collections::HashMap;
+    use std::sync::{Mutex, OnceLock};
+    use std::time::{Duration, Instant};
+
+    type Cache = HashMap<PathBuf, (Instant, std::sync::Arc<Vec<String>>)>;
+    static CACHE: OnceLock<Mutex<Cache>> = OnceLock::new();
+    const TTL: Duration = Duration::from_secs(30);
+    const MAX_FILES: usize = 200_000;
+
+    let key = cwd.to_path_buf();
+    let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+    if let Ok(g) = cache.lock() {
+        if let Some((at, files)) = g.get(&key) {
+            if at.elapsed() < TTL {
+                return files.as_ref().clone();
+            }
+        }
+    }
+    let Some(repo) = open(cwd) else {
+        return Vec::new();
+    };
+    let Some(root) = repo.workdir().and_then(|w| std::fs::canonicalize(w).ok()) else {
+        return Vec::new();
+    };
+    let here = std::fs::canonicalize(cwd).unwrap_or_else(|_| cwd.to_path_buf());
+    let prefix = here
+        .strip_prefix(&root)
+        .map(|p| p.to_string_lossy().replace('\\', "/"))
+        .unwrap_or_default();
+    let prefix = if prefix.is_empty() {
+        String::new()
+    } else {
+        format!("{}/", prefix.trim_end_matches('/'))
+    };
+    let mut files = Vec::new();
+    if let Ok(index) = repo.index() {
+        for entry in index.iter().take(MAX_FILES) {
+            let path = String::from_utf8_lossy(&entry.path).to_string();
+            if let Some(rel) = path.strip_prefix(&prefix) {
+                files.push(rel.to_string());
+            }
+        }
+    }
+    files.sort();
+    if let Ok(mut g) = cache.lock() {
+        if g.len() > 32 {
+            g.clear();
+        }
+        g.insert(key, (Instant::now(), std::sync::Arc::new(files.clone())));
+    }
+    files
+}
+
+/// Fuzzy file match for `@` completion: substring matches first (basename
+/// matches best), then in-order subsequences; at most `limit`.
+pub fn fuzzy_files(files: &[String], query: &str, limit: usize) -> Vec<String> {
+    let q = query.trim().to_lowercase();
+    if q.is_empty() {
+        return files.iter().take(limit).cloned().collect();
+    }
+    let mut scored: Vec<(i64, &String)> = files
+        .iter()
+        .filter_map(|f| {
+            let lower = f.to_lowercase();
+            let base = lower.rsplit('/').next().unwrap_or(&lower);
+            if let Some(i) = base.find(&q) {
+                return Some((3000 - i as i64 - f.len() as i64 / 4, f));
+            }
+            if let Some(i) = lower.find(&q) {
+                return Some((2000 - i as i64 - f.len() as i64 / 4, f));
+            }
+            // Subsequence with a gap penalty.
+            let mut gaps = 0i64;
+            let mut last: Option<usize> = None;
+            let mut it = lower.char_indices();
+            for qc in q.chars() {
+                let (pos, _) = it.by_ref().find(|(_, c)| *c == qc)?;
+                if let Some(l) = last {
+                    gaps += (pos - l - 1) as i64;
+                }
+                last = Some(pos);
+            }
+            Some((1000 - gaps - f.len() as i64 / 4, f))
+        })
+        .collect();
+    scored.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.cmp(b.1)));
+    scored
+        .into_iter()
+        .take(limit)
+        .map(|(_, f)| f.clone())
+        .collect()
 }
 
 /// Best-effort check whether `cwd` has any uncommitted changes (cheap status).
@@ -347,5 +561,56 @@ mod tests {
         let patch = file_patch(dir.path(), "a.txt", 64_000).unwrap();
         assert!(patch.contains("-two"));
         assert!(patch.contains("+TWO"));
+        // Pathspecs are literal: a glob names nothing.
+        assert!(file_patch(dir.path(), "*.txt", 64_000).is_none());
+    }
+
+    #[test]
+    fn branch_overview_diffs_against_the_merge_base() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo = init_repo(dir.path());
+        fs::write(dir.path().join("a.txt"), "base\n").unwrap();
+        let base = commit_all(&repo, "base");
+        // Name the default branch `main` and branch off it.
+        let base_commit = repo.find_commit(base).unwrap();
+        repo.branch("main", &base_commit, true).unwrap();
+        repo.branch("feature", &base_commit, true).unwrap();
+        repo.set_head("refs/heads/feature").unwrap();
+        fs::write(dir.path().join("b.txt"), "on branch\n").unwrap();
+        commit_all(&repo, "feature work");
+        fs::write(dir.path().join("c.txt"), "uncommitted\n").unwrap();
+
+        let ov = branch_overview(dir.path(), 10);
+        assert_eq!(ov.base.as_deref(), Some("main"));
+        assert!(ov.merge_base.is_some());
+        let paths: Vec<&str> = ov.files.iter().map(|f| f.path.as_str()).collect();
+        assert!(paths.contains(&"b.txt") && paths.contains(&"c.txt"));
+        assert!(!paths.contains(&"a.txt"));
+        assert_eq!(ov.commits.len(), 1);
+        assert_eq!(ov.commits[0].summary, "feature work");
+        let patch = file_patch_against(dir.path(), "b.txt", 64_000, true).unwrap();
+        assert!(patch.contains("+on branch"));
+    }
+
+    #[test]
+    fn lists_and_fuzzy_matches_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo = init_repo(dir.path());
+        fs::create_dir_all(dir.path().join("src/app")).unwrap();
+        fs::write(dir.path().join("src/app/main.rs"), "x").unwrap();
+        fs::write(dir.path().join("src/lib.rs"), "x").unwrap();
+        fs::write(dir.path().join("README.md"), "x").unwrap();
+        commit_all(&repo, "init");
+        let files = list_files(dir.path());
+        assert_eq!(files.len(), 3);
+        let sub = list_files(&dir.path().join("src"));
+        assert!(sub.contains(&"lib.rs".to_string()));
+        assert!(sub.contains(&"app/main.rs".to_string()));
+        let m = fuzzy_files(&files, "main", 50);
+        assert_eq!(m[0], "src/app/main.rs");
+        let m = fuzzy_files(&files, "sam", 50);
+        assert_eq!(m, vec!["src/app/main.rs".to_string()]);
+        assert!(fuzzy_files(&files, "zzz", 50).is_empty());
+        assert_eq!(fuzzy_files(&files, "", 2).len(), 2);
     }
 }
