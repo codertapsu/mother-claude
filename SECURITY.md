@@ -1,67 +1,158 @@
 # Security
 
-Mother Claude exposes a control plane for your Claude Code sessions over the LAN.
-Treat it as sensitive: anyone with the token can read transcripts and drive owned
-sessions.
+Mother Claude exposes a control plane for your Claude Code sessions. Whoever can
+drive it can run code on your Mac, so every request is attributed to a
+**principal** and checked against what that principal may do. The full user guide
+for remote access is [docs/REMOTE.md](docs/REMOTE.md).
 
-## Authentication
+## Who is asking
 
-- A random **64-char API token** is generated on first run and persisted (mode
-  `0600`) in the app data dir. It is required on every `/api/*`, `/ws`, and
-  `/hooks/*` request — via `Authorization: Bearer`, `?token=` (needed for browser
-  WebSockets), or an `mc_token` cookie. The static SPA is served without auth so a
-  phone can load the app and then authenticate.
-- The desktop webview gets the token from the `server_info` invoke; phones get it
-  from the pairing QR / link, or by pasting it in Settings.
+Every listener tags its requests with the door they came through (loopback
+`127.0.0.1:6725`, the LAN TLS listeners, the tunnel port, the bridge port
+`127.0.0.1:5612`). Tunnels (ngrok, cloudflared, Tailscale) connect from
+127.0.0.1, so the peer address alone proves nothing. Two predicates are derived
+from each request:
 
-## TLS
+- **machine-local**: a loopback listener, a loopback peer, exactly one `Host`
+  header naming `localhost`, `127.0.0.0/8` or `[::1]`, and no proxy header at
+  all (`Forwarded`, `Via`, `X-Forwarded-*`, `X-Real-IP`, `True-Client-IP`,
+  `CDN-Loop`, `CF-*`, `Tailscale-*`, `ngrok-*`).
+- **local**: machine-local and no `Origin`, or a local one (`tauri://localhost`,
+  `http(s)://localhost`, `127.x`, `[::1]`). `Origin: null` is never local.
 
-- Any **non-loopback** bind serves **TLS** (self-signed cert generated with
-  `rcgen`, SANs = `localhost` + loopback + detected LAN IPs), persisted in the
-  config dir. The SHA-256 **fingerprint** is shown in Settings — verify it on the
-  phone the first time. Loopback (`127.0.0.1`) is plain HTTP and is what the
-  desktop webview, hooks, and the local sidecar use.
-- We use the `ring` rustls provider (no aws-lc C toolchain dependency).
+Any request carrying a proxy header, or reaching the LAN listener from a
+non-private address, is treated as coming **through a tunnel**: it gets the
+reduced route set (no `/v1`, no `/hooks/*`) and the tunnel pairing rules.
 
-## Device pairing
+## Credentials
 
-Settings renders an SVG **QR** encoding `https://<lan-ip>:6725/#/pair?token=…`.
-Scanning it pairs a phone in one step. The token can be rotated by deleting the
-`token` file in the app data dir and restarting.
+| credential                                                       | holder                                            | accepted                            | principal                                                                                         |
+| ---------------------------------------------------------------- | ------------------------------------------------- | ----------------------------------- | ------------------------------------------------------------------------------------------------- |
+| desktop token — new on every launch, kept in memory              | the desktop webview, via the `server_info` invoke | only from a _local_ request         | Desktop: everything                                                                               |
+| local-script token — the `token` file in the app data dir (0600) | your own scripts                                  | only from a _local_ request         | data and control routes; never pairing, devices, remote access or plugin install; never dangerous |
+| device token `mcd_…`                                             | paired phones and browsers                        | any ingress                         | Device                                                                                            |
+| hook token `mch_…`                                               | the foreign-control plugin                        | only local, only `/hooks/*`         | Hook                                                                                              |
+| sidecar token `mcs_…`                                            | the Path A sidecar (per run)                      | only local, only its callback route | Sidecar                                                                                           |
 
-## The dangerous-action gate
+Tokens travel as `Authorization: Bearer`. `?token=` is accepted only from a
+local request (local scripts, SSE); WebSockets authenticate with their first
+frame. Only SHA-256 hashes of device tokens are stored (`devices.json`, 0600).
+No Mother Claude token is passed to a `claude` child process.
 
-Irreversible or high-risk actions are **restricted to the local desktop**
-(loopback peer) by default:
+**Being local never grants a device anything.** A raw TCP forward (`ssh -R`,
+`ngrok tcp`) can forge `Host: localhost` without adding proxy headers, so
+authorization depends on the principal, not on the address.
 
-- approving a **dangerous** permission (e.g. `bypassPermissions` /
-  `--dangerously-skip-permissions`),
-- **removing** a session (`rm`, deletes the worktree),
-- installing hooks into your user settings,
-- experimental PTY attach/inject.
+## Pairing
 
-Set `MOTHER_CLAUDE_ALLOW_REMOTE_DANGEROUS=1` to permit these from remote clients
-(not recommended). Normal monitoring and answering ordinary prompts work
-remotely.
+- The desktop creates a one-time code: 12 Crockford base32 characters (60 bits),
+  valid 5 minutes, at most 5 at a time. The QR encodes
+  `https://<host>/#/pair?c=<code>` — the code sits in the URL fragment, so it
+  never reaches a server, tunnel or proxy log.
+- A **LAN** code pairs at once only when it is redeemed on the LAN listener, from
+  a private address, with no proxy headers. Presented through a tunnel it is
+  refused.
+- Everything else (every **Internet** code) waits for the desktop: the phone shows
+  4 digits and you type them on the Mac to approve. Three wrong tries deny the
+  request. The desktop never receives the digits or the poll secret from the
+  server.
+- A code presented twice marks the pending request **contested**: it can no
+  longer be approved, and both phones and the desktop are told.
+- Pending requests expire after 10 minutes; at most 5 wait at once. Failed
+  exchanges and polls are limited per client address (10 a minute, then an
+  exponential block). There is no global limit a stranger could exhaust.
+- A paired phone can create a code for **itself** (the iOS Home Screen app has its
+  own storage); it adds a second token to the same device record.
+- Revoking a device (on the desktop, or "Unpair this device" on the phone) erases
+  its tokens, closes its WebSockets and drops its push subscriptions. Devices idle
+  for 30 days (configurable) expire. Every new device raises a notice.
+
+## Dangerous actions
+
+Approving `bypassPermissions` or a standing permission grant, `rm`, raw terminal
+keys, PTY injection, transcript purge, starting a sign-in flow, and HTTP bridge
+options that run code nobody approves (MCP servers, pre-approved tools, extra
+directories, an untrusted folder, work sent into a conversation whose approvals
+are off) are **dangerous**. They are allowed for:
+
+- the desktop;
+- a device you granted it in Remote access › Devices — **Allow dangerous actions
+  (LAN)** applies only on the LAN; **… over the Internet** is a separate grant for
+  tunnels, proxies and any other path;
+- on the bridge port, an anonymous request that is _local_ (curl, Postman, a
+  localhost page) — never a page on another website.
+
+`MOTHER_CLAUDE_ALLOW_REMOTE_DANGEROUS=1` extends this to every device on the LAN
+(never through a tunnel). Every dangerous action by a device raises a desktop
+notice and is written to the audit log.
+
+## TLS on the LAN
+
+- The LAN listeners bind only private IPv4 addresses (RFC 1918 and 169.254/16;
+  Tailscale's 100.64/10 when you enable it). Public IPv4 and IPv6 addresses are
+  never bound; the skipped ones are listed on the Remote page.
+- Certificates come from a **local CA** generated on first run (key 0600 in the
+  app data dir). It is name-constrained to private addresses and `localhost`, so
+  even a leaked CA key cannot impersonate a public site. The leaf is valid 397
+  days and re-issued whenever the LAN addresses change.
+- Trust the CA on a phone (`/api/pair/ca.crt`, or `/api/pair/ca.mobileconfig` on
+  iOS, then enable full trust) for a secure context: WebSockets, the service
+  worker and push then work on the LAN. Otherwise tap through the warning and
+  compare the fingerprint shown on the Remote page.
+- Pair over the LAN only on a network you control.
+
+## Internet access
+
+- Off by default. When on, Mother Claude listens on `127.0.0.1:6726` (change it
+  with `MOTHER_CLAUDE_TUNNEL_PORT`) for a tunnel to forward to. That port requires the last `X-Forwarded-Proto` to be
+  `https`, serves no `/v1` and no `/hooks/*`, and accepts only device tokens.
+  Switching Internet access off closes every connection on it.
+- The public URL is read from the tunnel's own local API (ngrok, cloudflared,
+  `tailscale serve status`) or entered by hand — never from request headers.
+- **Tailscale Serve** (`tailscale serve --bg 6726`) keeps access inside your
+  tailnet with a trusted certificate and is the recommended private option.
+  ngrok, cloudflared and Tailscale Funnel make the URL public; everything behind
+  it still needs a device token.
+- Warnings on the Remote page: ngrok's local inspector recording requests (use
+  `--inspect=false`), quick-tunnel URLs that change every run, tunnels pointing
+  at 6725 (works, less defended) or at the bridge port, raw TCP tunnels.
+
+## The Claude HTTP bridge (port 5612)
+
+It stays tokenless and open to any origin for **machine-local** requests, so
+local tools, Postman, Swagger and pages you are building can call it. A
+tunnelled request needs a token (`tunneled_request_requires_token`), and while a
+detected tunnel points at 5612 the tokenless mode is off entirely
+(`bridge_exposed_requires_token`). The `/v1` mount on the LAN-reachable port
+always needs a token.
+
+## HTTP hardening
+
+- `Content-Security-Policy` with `script-src 'self'` (no inline scripts; the
+  build fails if `index.html` gains one), `connect-src 'self'` plus the exact
+  public/LAN `wss://` origins, `frame-ancestors 'none'`; `nosniff`,
+  `Referrer-Policy: no-referrer`, `Cache-Control: no-store` on the API, HSTS
+  behind an HTTPS tunnel. The desktop webview has its own Tauri CSP.
+- CORS is open only to local requests (the desktop webview).
+- Failed authentication: 20 a minute per client address, then an exponential
+  block. Machine-local callers and valid credentials are never limited. At most 4
+  unauthenticated WebSockets per address (64 overall), with a 4 KiB first frame.
+
+## Logs and audit
+
+Tokens appear in logs only as short fingerprints; request spans record the path,
+never the query string or headers. `audit.jsonl` (0600, rotated at 2 MB, in the
+app data dir — never under `~/.claude`) records every state change made by a
+device or local script, every pairing event and every device change, with the
+device, ingress and client address.
 
 ## Hooks & secrets
 
-`POST /api/hooks/install` writes Mother Claude's hook block into your
-`~/.claude/settings.json` (backing it up first) so *foreign* sessions emit events
-to us. Because foreign sessions don't inherit our env, the **literal token** is
-embedded in that hook header. This is your own machine's config (not committed),
-but be aware the token is then readable there.
+Foreign-session control ships as a Claude Code plugin that authenticates with its
+own hook token, accepted only from local requests on `/hooks/*`.
 
-Tokens and generated TLS certs are created at runtime into the app config dir and
-are **never committed** (`.gitignore` excludes `*.pem`, `*.key`, `*.token`).
-
-## Network exposure
-
-- **Never expose port 6725 to the public internet.** It is a remote-control
-  surface for code execution.
-- For access beyond a trusted LAN, use **Tailscale** or **WireGuard** and bind to
-  the VPN interface (or keep `0.0.0.0` behind the VPN's firewall). The token +
-  TLS are a second layer, not a substitute for not being on the open internet.
+Tokens, certificates and keys are created at runtime in the app data dir and are
+**never committed** (`.gitignore` excludes `*.pem`, `*.key`, `*.token`).
 
 ## Reporting
 

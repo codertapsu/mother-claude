@@ -199,17 +199,17 @@ async fn credentials_are_accepted_only_where_they_belong() {
     assert!(pairing["svg"].as_str().unwrap().contains("<svg"));
     assert!(!pairing.to_string().contains(&master));
 
-    // Unregistered owners answer 501 with the envelope.
+    // A bogus pairing code answers with the envelope.
     let r = c
         .post(format!("{base}/api/pair/exchange"))
         .json(&json!({ "code": "X" }))
         .send()
         .await
         .unwrap();
-    assert_eq!(r.status(), StatusCode::NOT_IMPLEMENTED);
+    assert_eq!(r.status(), StatusCode::NOT_FOUND);
     assert_eq!(
         r.json::<Value>().await.unwrap()["error"]["code"],
-        "not_implemented"
+        "invalid_code"
     );
 
     // The retired settings.json hook installer is gone.
@@ -226,17 +226,27 @@ async fn credentials_are_accepted_only_where_they_belong() {
 async fn failed_credentials_are_rate_limited() {
     let (base, _st) = boot().await;
     let c = http();
+    // Through a tunnel (the client ip is the last X-Forwarded-For value).
     let mut last = StatusCode::OK;
     for _ in 0..25 {
         last = c
             .get(format!("{base}/api/sessions"))
             .bearer_auth("mcd_not-a-device")
+            .header("x-forwarded-for", "203.0.113.50")
             .send()
             .await
             .unwrap()
             .status();
     }
     assert_eq!(last, StatusCode::TOO_MANY_REQUESTS);
+    // A machine-local caller is never limited.
+    let r = c
+        .get(format!("{base}/api/sessions"))
+        .bearer_auth("mcd_not-a-device")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), StatusCode::UNAUTHORIZED);
 }
 
 /// The sidecar raises a prompt and blocks; the dashboard answers through
@@ -509,7 +519,18 @@ async fn websocket_auth_and_pending_diffs() {
 async fn tunnel_ingress_never_serves_hooks_or_the_bridge() {
     let st = state();
     let base = serve(server::router_for(st.clone(), Ingress::Tunnel)).await;
-    let c = http();
+    // Tunnels terminate TLS and say so; the tunnel port refuses anything else.
+    let c = reqwest::Client::builder()
+        .default_headers(
+            [(
+                reqwest::header::HeaderName::from_static("x-forwarded-proto"),
+                reqwest::header::HeaderValue::from_static("https"),
+            )]
+            .into_iter()
+            .collect(),
+        )
+        .build()
+        .unwrap();
     // Even the right credentials: hooks and /v1 are simply not routed here.
     let r = c
         .post(format!("{base}/hooks/event"))
@@ -525,8 +546,10 @@ async fn tunnel_ingress_never_serves_hooks_or_the_bridge() {
         .send()
         .await
         .unwrap();
+    assert_eq!(r.status(), StatusCode::NOT_FOUND, "no bridge on the tunnel");
+    let body = r.text().await.unwrap();
     assert!(
-        r.json::<Value>().await.is_err(),
+        !body.contains("require_token"),
         "no bridge JSON on the tunnel"
     );
     // And nothing is ever local there, not even with the master token.

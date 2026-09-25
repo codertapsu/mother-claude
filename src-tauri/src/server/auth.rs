@@ -2,10 +2,14 @@
 //!
 //! | credential | prefix | accepted | principal |
 //! |---|---|---|---|
-//! | desktop master token (persisted `token` file) | none | only when `ctx.local` | `Desktop` |
-//! | device token (pairing exchange, B1) | `mcd_` | any ingress | `Device` |
+//! | desktop token (new every launch, in memory, `server_info` invoke only) | none | only when `ctx.local` | `Desktop` |
+//! | local-script token (persisted `token` file, 0600) | none | only when `ctx.local` | `LocalScript` |
+//! | device token (pairing exchange) | `mcd_` | any ingress | `Device` |
 //! | hook token (persisted `hook-token` file, 0600) | `mch_` | only when `ctx.local` | `Hook` |
 //! | sidecar token (per run, child env) | `mcs_` | only when `ctx.local` | `Sidecar` |
+//!
+//! `LocalScript` reaches data and control routes but never admin routes
+//! (pairing, devices, remote access, plugin install) and never dangerous ones.
 //!
 //! Presentation: `Authorization: Bearer <t>`. `?token=` is accepted **only**
 //! when the request is genuinely local (backcompat for local scripts and the
@@ -46,9 +50,14 @@ pub const SIDECAR_PREFIX: &str = "mcs_";
 /// token.
 #[derive(Clone)]
 pub struct Auth {
-    /// Desktop master token. Handed to the webview through the `server_info`
-    /// invoke only; accepted only from genuinely local clients.
+    /// Desktop token: a fresh random value every launch, kept in memory and
+    /// handed to the webview through the `server_info` invoke only; accepted
+    /// only from genuinely local clients.
     pub token: String,
+    /// The persisted on-disk token (`<app data>/token`, 0600) kept for local
+    /// scripts. Accepted only from genuinely local clients, as
+    /// `Principal::LocalScript`.
+    pub script_token: String,
     /// `mch_…` token of the foreign-control hook plugin (persisted 0600 so an
     /// installed plugin keeps working across restarts).
     pub hook_token: String,
@@ -66,6 +75,7 @@ impl std::fmt::Debug for Auth {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Auth")
             .field("token", &fingerprint(&self.token))
+            .field("script_token", &fingerprint(&self.script_token))
             .field("hook_token", &fingerprint(&self.hook_token))
             .field("sidecar_token", &fingerprint(&self.sidecar_token))
             .field("allow_remote_dangerous", &self.allow_remote_dangerous)
@@ -79,6 +89,7 @@ impl Auth {
     pub fn ephemeral() -> Self {
         Self {
             token: new_master_token(),
+            script_token: new_master_token(),
             hook_token: random_token(HOOK_PREFIX),
             sidecar_token: random_token(SIDECAR_PREFIX),
             allow_remote_dangerous: false,
@@ -86,14 +97,21 @@ impl Auth {
         }
     }
 
-    /// Load the persisted master and hook tokens from the app data dir,
-    /// generating and persisting them (0600) on first run.
+    /// A new desktop token for this launch; load the persisted local-script
+    /// and hook tokens from the app data dir, generating and persisting them
+    /// (0600) on first run.
     pub fn load_or_create() -> Self {
         let config_dir = app_config_dir();
-        let token = config_dir
+        let script_token = config_dir
             .as_deref()
             .map(|d| load_or_create_secret(&d.join("token"), new_master_token))
             .unwrap_or_else(new_master_token);
+        // Never the same value as the on-disk token: the desktop credential
+        // exists only in this process's memory.
+        let mut token = new_master_token();
+        while token == script_token {
+            token = new_master_token();
+        }
         let hook_token = config_dir
             .as_deref()
             .map(|d| load_or_create_secret(&d.join("hook-token"), || random_token(HOOK_PREFIX)))
@@ -101,6 +119,7 @@ impl Auth {
             .unwrap_or_else(|| random_token(HOOK_PREFIX));
         Self {
             token,
+            script_token,
             hook_token,
             sidecar_token: random_token(SIDECAR_PREFIX),
             allow_remote_dangerous: std::env::var("MOTHER_CLAUDE_ALLOW_REMOTE_DANGEROUS")
@@ -247,7 +266,11 @@ pub fn presented_token(headers: &HeaderMap, uri: &Uri, allow_query: bool) -> Opt
 }
 
 /// Resolve a presented token into a principal for `ctx`, or `None` when it is
-/// not valid *for this caller* (e.g. the master token from a tunnel).
+/// not valid *for this caller* (e.g. the desktop token from a tunnel).
+///
+/// Device tokens are resolved against the request's **effective** ingress, so
+/// the device's LAN grant applies only on the LAN and its internet grant
+/// everywhere else.
 pub fn principal_for_token(
     state: &AppState,
     ctx: &ClientContext,
@@ -256,29 +279,62 @@ pub fn principal_for_token(
     if token.starts_with(DEVICE_PREFIX) {
         return state
             .devices
-            .authenticate(token, ctx.client_ip, ctx.ingress)
+            .authenticate(token, ctx.client_ip, ctx.effective_ingress)
             .map(|d| Principal::Device {
                 id: d.id,
                 allow_dangerous: d.allow_dangerous,
             });
     }
+    if !ctx.local {
+        return None;
+    }
     if token.starts_with(HOOK_PREFIX) {
-        return (ctx.local && token_matches(&state.auth.hook_token, token))
-            .then_some(Principal::Hook);
+        return token_matches(&state.auth.hook_token, token).then_some(Principal::Hook);
     }
     if token.starts_with(SIDECAR_PREFIX) {
-        return (ctx.local && token_matches(&state.auth.sidecar_token, token))
-            .then_some(Principal::Sidecar);
+        return token_matches(&state.auth.sidecar_token, token).then_some(Principal::Sidecar);
     }
-    (ctx.local && token_matches(&state.auth.token, token)).then_some(Principal::Desktop)
+    if token_matches(&state.auth.token, token) {
+        return Some(Principal::Desktop);
+    }
+    token_matches(&state.auth.script_token, token).then_some(Principal::LocalScript)
+}
+
+/// Count one rejected credential against the caller's failed-auth budget,
+/// unless the caller is machine-local (never limited). `Err(429)` while the
+/// caller is over budget.
+fn reject_credential(
+    state: &AppState,
+    ctx: &mut ClientContext,
+    token: &str,
+) -> Result<(), ApiError> {
+    tracing::debug!(
+        ip = %ctx.client_ip,
+        ingress = ctx.ingress.as_str(),
+        credential = %fingerprint(token),
+        "rejected credential"
+    );
+    if ctx.on_machine {
+        return Ok(());
+    }
+    ctx.credential_rejected = true;
+    if let Some(retry) = state.limits.blocked(ctx.client_ip) {
+        return Err(ApiError::too_many_requests(
+            retry,
+            "Too many failed authentication attempts. Try again later.",
+        ));
+    }
+    state.limits.record_failure(ctx.client_ip);
+    Ok(())
 }
 
 /// Fill `ctx.principal` from the request's credential. Called once per request
 /// by the context middleware.
 ///
 /// A presented-but-invalid credential counts against the client ip's
-/// failed-auth budget (20/min); over budget, further invalid credentials get
-/// `429` with `Retry-After`. Valid credentials are never rate limited.
+/// failed-auth budget (20/min, then an exponential block); over budget,
+/// further invalid credentials get `429` with `Retry-After`. Valid credentials
+/// and machine-local callers are never rate limited.
 pub fn authenticate(
     state: &AppState,
     ctx: &mut ClientContext,
@@ -292,20 +348,7 @@ pub fn authenticate(
         ctx.principal = p;
         return Ok(());
     }
-    if let Some(retry) = state.limits.blocked(ctx.client_ip) {
-        return Err(ApiError::too_many_requests(
-            retry,
-            "Too many failed authentication attempts. Try again later.",
-        ));
-    }
-    state.limits.record_failure(ctx.client_ip);
-    tracing::debug!(
-        ip = %ctx.client_ip,
-        ingress = ?ctx.ingress,
-        token = %fingerprint(&token),
-        "rejected credential"
-    );
-    Ok(())
+    reject_credential(state, ctx, &token)
 }
 
 /// Authenticate a bare token for an already-built context (WebSocket
@@ -319,18 +362,12 @@ pub fn authenticate_token(
         ctx.principal = p;
         return Ok(());
     }
-    if let Some(retry) = state.limits.blocked(ctx.client_ip) {
-        return Err(ApiError::too_many_requests(
-            retry,
-            "Too many failed authentication attempts. Try again later.",
-        ));
-    }
-    state.limits.record_failure(ctx.client_ip);
+    reject_credential(state, ctx, token)?;
     Err(ApiError::unauthorized("Invalid or revoked token."))
 }
 
 fn unauthorized(ctx: &ClientContext) -> ApiError {
-    if !ctx.local && ctx.ingress != super::context::Ingress::Lan && !ctx.on_machine {
+    if ctx.is_tunneled() {
         ApiError::unauthorized(
             "This request came through a proxy or tunnel: pair this device (scan the QR code \
              on the desktop) and send its token as `Authorization: Bearer <token>`.",
@@ -351,7 +388,7 @@ fn ctx_of(parts: &Parts) -> ClientContext {
         .unwrap_or_else(ClientContext::unknown)
 }
 
-/// Desktop (local master token) or a paired device.
+/// Desktop (local desktop token), a paired device, or a local script.
 #[derive(Debug, Clone)]
 pub struct Authed(pub ClientContext);
 
@@ -361,7 +398,9 @@ impl<S: Send + Sync> FromRequestParts<S> for Authed {
     async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
         let ctx = ctx_of(parts);
         match ctx.principal {
-            Principal::Desktop | Principal::Device { .. } => Ok(Authed(ctx)),
+            Principal::Desktop | Principal::Device { .. } | Principal::LocalScript => {
+                Ok(Authed(ctx))
+            }
             Principal::Anonymous => Err(unauthorized(&ctx)),
             Principal::Hook | Principal::Sidecar => Err(ApiError::forbidden(
                 "wrong_credential",
@@ -371,7 +410,9 @@ impl<S: Send + Sync> FromRequestParts<S> for Authed {
     }
 }
 
-/// The local desktop only (master token from a genuinely local client).
+/// The local desktop only (the per-launch desktop token from a genuinely local
+/// client). Admin routes: pairing codes and approvals, devices, remote access,
+/// plugin install.
 #[derive(Debug, Clone)]
 pub struct DesktopOnly(pub ClientContext);
 
@@ -435,8 +476,9 @@ impl<S: Send + Sync> FromRequestParts<S> for SidecarOnly {
     }
 }
 
-/// Authed AND allowed to perform dangerous actions (`L` routes: local, or a
-/// device the desktop granted `allowDangerous`).
+/// Authed AND allowed to perform dangerous actions (`L` routes: the desktop, or
+/// a device the desktop granted dangerous actions for this ingress). Marks the
+/// request so the audit layer can notify the desktop when a device used it.
 #[derive(Debug, Clone)]
 pub struct DangerousOk(pub ClientContext);
 
@@ -446,25 +488,29 @@ impl<S: Send + Sync> FromRequestParts<S> for DangerousOk {
     async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
         let Authed(ctx) = Authed::from_request_parts(parts, state).await?;
         if ctx.may_dangerous() {
+            ctx.note_dangerous(parts.uri.path());
             Ok(DangerousOk(ctx))
         } else {
-            Err(ApiError::dangerous_blocked(
-                "This action is restricted to this computer, or to a device you granted \
-                 dangerous actions on the desktop.",
-            ))
+            Err(ApiError::dangerous_blocked(DANGEROUS_BLOCKED_TEXT))
         }
     }
 }
 
-/// Require a user principal for a condition decided inside the handler (e.g.
-/// only when the body asks for bypassPermissions).
+/// The refusal text for dangerous actions.
+pub const DANGEROUS_BLOCKED_TEXT: &str = "This action is restricted to the Mother Claude \
+     desktop app, or to a device you granted dangerous actions in Remote > Devices.";
+
+/// Require the dangerous right for a condition decided inside the handler (e.g.
+/// only when the body asks for bypassPermissions). Marks the request when it
+/// passes (audit + desktop notice for devices).
 pub fn require_dangerous(ctx: &ClientContext, what: &str) -> Result<(), ApiError> {
     if ctx.may_dangerous() {
+        ctx.note_dangerous(what);
         Ok(())
     } else {
         Err(ApiError::dangerous_blocked(format!(
-            "{what} is restricted to this computer, or to a device you granted dangerous \
-             actions on the desktop."
+            "{what} is restricted to the Mother Claude desktop app, or to a device you \
+             granted dangerous actions in Remote > Devices."
         )))
     }
 }
@@ -484,6 +530,7 @@ pub fn require_desktop(ctx: &ClientContext, what: &str) -> Result<(), ApiError> 
 /// Defence in depth for the protected `/api` router: whatever guard a handler
 /// forgets, an anonymous caller never reaches it, a hook credential never
 /// reaches `/api`, and the sidecar credential reaches only its one route.
+/// (A local script passes here; `DesktopOnly` keeps it off admin routes.)
 pub async fn require_api_principal(req: Request<Body>, next: Next) -> Response {
     let ctx = req
         .extensions()
@@ -491,7 +538,9 @@ pub async fn require_api_principal(req: Request<Body>, next: Next) -> Response {
         .cloned()
         .unwrap_or_else(ClientContext::unknown);
     match ctx.principal {
-        Principal::Desktop | Principal::Device { .. } => next.run(req).await,
+        Principal::Desktop | Principal::Device { .. } | Principal::LocalScript => {
+            next.run(req).await
+        }
         Principal::Sidecar if req.uri().path().ends_with("/permission-request") => {
             next.run(req).await
         }
@@ -506,24 +555,23 @@ pub async fn require_api_principal(req: Request<Body>, next: Next) -> Response {
 
 /// `GET /api/me` payload for a caller.
 pub fn me(state: &AppState, ctx: &ClientContext) -> Me {
-    let (principal, device_id, name) = match &ctx.principal {
-        Principal::Device { id, .. } => (
-            "device".to_string(),
-            Some(id.clone()),
-            state.devices.get(id).map(|d| d.name),
-        ),
-        other => (other.label().to_string(), None, None),
-    };
+    let device = ctx.device_id().and_then(|id| state.devices.get(id));
     Me {
-        principal,
-        device_id,
-        name,
-        ingress: serde_json::to_value(ctx.ingress)
-            .ok()
-            .and_then(|v| v.as_str().map(str::to_string))
-            .unwrap_or_default(),
+        principal: ctx.principal.label().to_string(),
+        device_id: ctx.device_id().map(str::to_string),
+        name: device.as_ref().map(|d| d.name.clone()),
+        ingress: ctx.ingress.as_str().to_string(),
         local: ctx.local,
         allow_dangerous: ctx.may_dangerous(),
+        effective_ingress: Some(ctx.effective_ingress.as_str().to_string()),
+        platform: device
+            .as_ref()
+            .map(|d| d.platform.clone())
+            .filter(|p| !p.is_empty()),
+        paired_at: device.as_ref().map(|d| d.created_at),
+        allow_dangerous_lan: device.as_ref().map(|d| d.allow_dangerous),
+        allow_dangerous_internet: device.as_ref().map(|d| d.allow_dangerous_internet),
+        client_ip: (!ctx.local).then(|| ctx.client_ip.to_string()),
     }
 }
 
@@ -600,6 +648,7 @@ mod tests {
         let b = Auth::ephemeral();
         assert_eq!(a.token.len(), 64);
         assert_ne!(a.token, b.token);
+        assert_ne!(a.token, a.script_token);
         assert!(a.hook_token.starts_with(HOOK_PREFIX));
         assert!(a.sidecar_token.starts_with(SIDECAR_PREFIX));
         // 32 bytes base64url without padding = 43 chars.
@@ -608,6 +657,7 @@ mod tests {
         // Debug never prints a token.
         let dbg = format!("{a:?}");
         assert!(!dbg.contains(&a.token));
+        assert!(!dbg.contains(&a.script_token));
         assert!(!dbg.contains(&a.hook_token));
     }
 
@@ -679,13 +729,20 @@ mod tests {
     fn principals_by_credential_and_locality() {
         let st = state();
         let master = st.auth.token.clone();
+        let script = st.auth.script_token.clone();
         let hook = st.auth.hook_token.clone();
         let sidecar = st.auth.sidecar_token.clone();
+        assert_ne!(master, script);
         assert_eq!(
             principal_for_token(&st, &ctx(true), &master),
             Some(Principal::Desktop)
         );
         assert_eq!(principal_for_token(&st, &ctx(false), &master), None);
+        assert_eq!(
+            principal_for_token(&st, &ctx(true), &script),
+            Some(Principal::LocalScript)
+        );
+        assert_eq!(principal_for_token(&st, &ctx(false), &script), None);
         assert_eq!(
             principal_for_token(&st, &ctx(true), &hook),
             Some(Principal::Hook)
@@ -719,6 +776,35 @@ mod tests {
         let mut other =
             ClientContext::new(Ingress::Lan, "192.168.1.51:1".parse().unwrap(), &h, false);
         assert!(authenticate(&st, &mut other, &h, &uri("/api/sessions")).is_ok());
+        assert!(other.credential_rejected);
+
+        // A machine-local caller is never limited, however many bad tokens.
+        let mut lh = HeaderMap::new();
+        lh.insert("host", "127.0.0.1:6725".parse().unwrap());
+        lh.insert("authorization", "Bearer wrong".parse().unwrap());
+        for _ in 0..40 {
+            let mut c = ClientContext::new(
+                Ingress::Loopback,
+                "127.0.0.1:1".parse().unwrap(),
+                &lh,
+                false,
+            );
+            assert!(authenticate(&st, &mut c, &lh, &uri("/api/sessions")).is_ok());
+            assert!(!c.credential_rejected);
+        }
+        // A valid credential from a blocked address still works.
+        let mut good = HeaderMap::new();
+        good.insert("host", "192.168.1.2:6725".parse().unwrap());
+        let mut c = ClientContext::new(
+            Ingress::Lan,
+            "192.168.1.50:1".parse().unwrap(),
+            &good,
+            false,
+        );
+        assert!(st.limits.blocked(c.client_ip).is_some());
+        let (id, token) = st.devices.issue_for_test("phone");
+        assert!(authenticate_token(&st, &mut c, &token).is_ok());
+        assert_eq!(c.principal.device_id(), Some(id.as_str()));
     }
 
     #[test]

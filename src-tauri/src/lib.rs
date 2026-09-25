@@ -69,9 +69,16 @@ fn server_info(state: tauri::State<'_, state::AppState>) -> serde_json::Value {
 }
 
 fn init_tracing() {
-    let filter = EnvFilter::try_from_env("MOTHER_CLAUDE_LOG")
+    let mut filter = EnvFilter::try_from_env("MOTHER_CLAUDE_LOG")
         .or_else(|_| EnvFilter::try_new("info"))
         .unwrap_or_default();
+    // Log hygiene: the WebSocket library traces whole frames (the first one
+    // carries a token), so it never logs below info, whatever the filter says.
+    for directive in ["tungstenite=info", "tokio_tungstenite=info"] {
+        if let Ok(d) = directive.parse() {
+            filter = filter.add_directive(d);
+        }
+    }
     let _ = tracing_subscriber::fmt().with_env_filter(filter).try_init();
 }
 

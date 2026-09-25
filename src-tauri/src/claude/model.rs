@@ -799,7 +799,7 @@ pub enum NoticeLevel {
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct Me {
-    /// `desktop` | `device`.
+    /// `desktop` | `device` | `local-script`.
     pub principal: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub device_id: Option<String>,
@@ -808,7 +808,26 @@ pub struct Me {
     /// `loopback` | `lan` | `tunnel` | `bridge-loopback`.
     pub ingress: String,
     pub local: bool,
+    /// Whether THIS request may perform dangerous actions.
     pub allow_dangerous: bool,
+    /// The ingress used for policy: `tunnel` for anything proxied (B1).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub effective_ingress: Option<String>,
+    /// Device platform as given at pairing (B1).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub platform: Option<String>,
+    /// When this device was paired, epoch ms (B1).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub paired_at: Option<i64>,
+    /// The device's LAN dangerous grant (B1).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub allow_dangerous_lan: Option<bool>,
+    /// The device's internet dangerous grant (B1).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub allow_dangerous_internet: Option<bool>,
+    /// The client address this server sees (non-local callers only) (B1).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub client_ip: Option<String>,
 }
 
 /// `GET /api/sessions/{id}/commands` entry.

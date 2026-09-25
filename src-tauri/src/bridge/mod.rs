@@ -432,7 +432,10 @@ pub fn router(state: AppState, require_token: bool) -> Router<AppState> {
     // applies only to requests genuinely from this machine (design §2.3).
     let api = meta
         .merge(api)
-        .route_layer(axum::middleware::from_fn(require_bridge_auth));
+        .route_layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            require_bridge_auth,
+        ));
 
     let public = Router::new()
         .route("/openapi.json", get(routes::meta::openapi))
@@ -488,17 +491,22 @@ pub struct MountPolicy {
     pub require_token: bool,
 }
 
-/// Authentication with the bridge's error envelope (design §2.3).
+/// Authentication with the bridge's error envelope (design §2.3, §10 B1).
 ///
-/// * A desktop (local master token) or paired-device credential always passes.
+/// * A desktop, local-script or paired-device credential always passes.
 /// * On a tokenless mount (the dedicated loopback port with
-///   `MOTHER_CLAUDE_BRIDGE_REQUIRE_TOKEN` unset) a request **from this
-///   machine** — loopback peer, loopback `Host`, no proxy/tunnel headers —
-///   passes without a token, whatever its `Origin` (local tools and pages you
-///   are developing keep working; dangerous actions still need a local origin).
+///   `MOTHER_CLAUDE_BRIDGE_REQUIRE_TOKEN` unset) a **machine-local** request —
+///   loopback peer, exactly one loopback `Host`, no proxy/tunnel headers —
+///   passes without a token, whatever its `Origin` (local tools, Postman,
+///   Swagger and pages on other websites keep working; dangerous actions still
+///   need a local or absent `Origin`).
+/// * While tunnel detection sees a tunnel whose upstream is this port, the
+///   tokenless mode is off (`bridge_exposed_requires_token`): a raw TCP tunnel
+///   is invisible to header checks.
 /// * Anything else is `401`; a tunnelled request to the tokenless port gets
 ///   `tunneled_request_requires_token`.
 async fn require_bridge_auth(
+    axum::extract::State(state): axum::extract::State<AppState>,
     axum::Extension(policy): axum::Extension<MountPolicy>,
     ctx: crate::server::context::ClientContext,
     req: axum::extract::Request,
@@ -508,6 +516,16 @@ async fn require_bridge_auth(
         return next.run(req).await;
     }
     if !policy.require_token {
+        if state.remote.bridge_exposed() {
+            return error::BridgeError::new(
+                axum::http::StatusCode::UNAUTHORIZED,
+                "bridge_exposed_requires_token",
+                "A tunnel points at this port, so tokenless access is switched off until it \
+                 stops. Stop the tunnel, or send a Mother Claude token as `Authorization: \
+                 Bearer <token>`.",
+            )
+            .into_response();
+        }
         if ctx.on_machine {
             return next.run(req).await;
         }

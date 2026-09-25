@@ -683,8 +683,34 @@ pub async fn ws_handler(
         )
         .into_response();
     }
-    ws.on_upgrade(move |socket| run_client(socket, state, ctx))
+    // Pre-auth limits (B1): a socket that has not authenticated yet holds a
+    // slot (4 per client ip, 64 overall) until its first frame is checked.
+    let preauth = if ctx.principal.is_user() {
+        None
+    } else {
+        match state.limits.try_preauth(ctx.client_ip) {
+            Some(slot) => Some(slot),
+            None => {
+                return ApiError::too_many_requests(
+                    5,
+                    "Too many unauthenticated WebSocket connections.",
+                )
+                .into_response()
+            }
+        }
+    };
+    // Client frames are small; never buffer megabytes for a stranger.
+    ws.max_message_size(MAX_CLIENT_FRAME)
+        .max_frame_size(MAX_CLIENT_FRAME)
+        .on_upgrade(move |socket| async move {
+            run_client(socket, state, ctx, preauth).await;
+        })
 }
+
+/// Largest client frame accepted (client frames are tiny JSON objects).
+pub const MAX_CLIENT_FRAME: usize = 64 * 1024;
+/// Largest first (`auth`) frame accepted before authentication.
+pub const MAX_AUTH_FRAME: usize = 4 * 1024;
 
 async fn close(socket: &mut WebSocket, code: u16, reason: &'static str) {
     let _ = socket
@@ -700,6 +726,9 @@ async fn first_auth_token(socket: &mut WebSocket) -> Option<String> {
     loop {
         match socket.recv().await? {
             Ok(Message::Text(text)) => {
+                if text.len() > MAX_AUTH_FRAME {
+                    return None;
+                }
                 return match serde_json::from_str::<ClientFrame>(&text) {
                     Ok(ClientFrame::Auth { token }) if !token.is_empty() => Some(token),
                     _ => None,
@@ -721,7 +750,12 @@ fn full_frame(snap: &Snapshot) -> ServerEvent {
     }
 }
 
-async fn run_client(mut socket: WebSocket, state: AppState, mut ctx: ClientContext) {
+async fn run_client(
+    mut socket: WebSocket,
+    state: AppState,
+    mut ctx: ClientContext,
+    preauth: Option<super::ratelimit::PreAuthSlot>,
+) {
     // 1. Authenticate (header / local ?token= already resolved, else first frame).
     if !ctx.principal.is_user() {
         let token = tokio::time::timeout(AUTH_TIMEOUT, first_auth_token(&mut socket))
@@ -736,6 +770,7 @@ async fn run_client(mut socket: WebSocket, state: AppState, mut ctx: ClientConte
             return;
         }
     }
+    drop(preauth);
     let device_id = ctx.device_id().map(str::to_string);
     let desktop = ctx.is_desktop();
     let (client_id, mut close_rx) = state.hub.register(device_id.clone(), desktop);

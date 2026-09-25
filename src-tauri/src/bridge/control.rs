@@ -338,6 +338,28 @@ pub async fn post_start(
              possible from the Mother Claude desktop app.",
         ));
     }
+    // A default working directory the user never trusted would run its
+    // project hooks and MCP servers unasked in every conversation (B1).
+    if let Some(cwd) = body.defaults.cwd.clone().filter(|c| !c.trim().is_empty()) {
+        let home = state.home.clone();
+        let trusted = tokio::task::spawn_blocking(move || {
+            super::routes::threads::cwd_is_trusted(&home, &cwd)
+        })
+        .await
+        .unwrap_or(false);
+        if !trusted {
+            if ctx.may_dangerous() {
+                ctx.note_dangerous("bridge defaults with an untrusted folder");
+            } else {
+                return Err(BridgeError::forbidden(
+                    "untrusted_cwd",
+                    "That folder has never been opened in Claude Code on this Mac, so it can \
+                     only be the bridge's default from the desktop app.",
+                )
+                .with("field", "cwd"));
+            }
+        }
+    }
     Ok(axum::Json(start(&state, body.defaults).await?).into_response())
 }
 

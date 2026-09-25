@@ -161,6 +161,81 @@ impl CreateThread {
         Ok(())
     }
 
+    /// Options that let a caller run code nobody approves: an MCP server
+    /// (a stdio command), pre-approved tools, extra directories, a working
+    /// directory the user never trusted, or resuming a conversation whose
+    /// approvals are switched off. Only callers allowed dangerous actions may
+    /// use them (design §10, B1). `caller_cwd` is the cwd the *caller* named
+    /// (defaults chosen on the desktop are trusted).
+    pub async fn require_safe_options(
+        &self,
+        state: &AppState,
+        ctx: &ClientContext,
+        caller_cwd: Option<&str>,
+    ) -> BridgeResult<()> {
+        let mut risky: Vec<&'static str> = Vec::new();
+        if self
+            .mcp_servers
+            .as_ref()
+            .is_some_and(|v| !(v.is_null() || v.as_object().is_some_and(|o| o.is_empty())))
+        {
+            risky.push("mcp_servers");
+        }
+        if self.allowed_tools.as_ref().is_some_and(|t| !t.is_empty()) {
+            risky.push("allowed_tools");
+        }
+        if self
+            .additional_directories
+            .as_ref()
+            .is_some_and(|d| !d.is_empty())
+        {
+            risky.push("additional_directories");
+        }
+        if let Some(resume) = &self.resume {
+            if crate::claude::owned::is_dangerous_mode(stored_mode(state, resume).await.as_deref())
+            {
+                risky.push("resume");
+            }
+        }
+        let untrusted = match caller_cwd {
+            Some(cwd) => {
+                let home = state.home.clone();
+                let cwd = cwd.to_string();
+                !tokio::task::spawn_blocking(move || cwd_is_trusted(&home, &cwd))
+                    .await
+                    .unwrap_or(false)
+            }
+            None => false,
+        };
+        if ctx.may_dangerous() {
+            if !risky.is_empty() || untrusted {
+                ctx.note_dangerous("bridge conversation with unapproved-execution options");
+            }
+            return Ok(());
+        }
+        if let Some(first) = risky.first() {
+            return Err(BridgeError::forbidden(
+                "dangerous_blocked",
+                format!(
+                    "`{first}` can run code without an approval, so it is restricted to the \
+                     Mother Claude desktop app, local clients, or a device granted dangerous \
+                     actions."
+                ),
+            )
+            .with("field", *first));
+        }
+        if untrusted {
+            return Err(BridgeError::forbidden(
+                "untrusted_cwd",
+                "That folder has never been opened in Claude Code on this Mac, so its project \
+                 hooks and MCP servers are untrusted. Open it in Claude Code once, or start \
+                 the conversation from the desktop app.",
+            )
+            .with("field", "cwd"));
+        }
+        Ok(())
+    }
+
     fn host_options(&self, cwd: &str) -> Value {
         let mut options = json!({
             "cwd": cwd,
@@ -225,12 +300,68 @@ impl CreateThread {
     }
 }
 
+/// The permission mode a conversation last ran with: the bridge's record,
+/// else what the dashboard knows about the session.
+pub async fn stored_mode(state: &AppState, thread_id: &str) -> Option<String> {
+    if let Some(t) = state.bridge.thread(thread_id).await {
+        return Some(t.permission_mode);
+    }
+    state
+        .find_session(thread_id)
+        .await
+        .and_then(|s| s.permission_mode)
+}
+
+/// Whether the user already trusted `cwd` in Claude Code on this machine: a
+/// `~/.claude.json` project entry (for it or a parent folder) with
+/// `hasTrustDialogAccepted`, or transcripts under `projects/<encoded cwd>`.
+/// Headless runs show no trust dialog, so an untrusted folder's project hooks
+/// and `.mcp.json` would run unasked.
+pub fn cwd_is_trusted(home: &crate::claude::ClaudeHome, cwd: &str) -> bool {
+    let raw = std::path::PathBuf::from(cwd);
+    if !raw.is_absolute() {
+        return false;
+    }
+    let canonical = std::fs::canonicalize(&raw).unwrap_or_else(|_| raw.clone());
+    let forms: Vec<std::path::PathBuf> = if canonical == raw {
+        vec![raw]
+    } else {
+        vec![raw, canonical]
+    };
+    if forms
+        .iter()
+        .any(|p| home.transcript_dir(&p.to_string_lossy()).is_dir())
+    {
+        return true;
+    }
+    let Ok(text) = std::fs::read_to_string(home.claude_json()) else {
+        return false;
+    };
+    let Ok(json) = serde_json::from_str::<Value>(&text) else {
+        return false;
+    };
+    let Some(projects) = json.get("projects").and_then(Value::as_object) else {
+        return false;
+    };
+    let trusted = |p: &std::path::Path| {
+        projects
+            .get(p.to_string_lossy().as_ref())
+            .and_then(|e| e.get("hasTrustDialogAccepted"))
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
+    };
+    forms
+        .iter()
+        .any(|p| p.ancestors().any(|a| a.parent().is_some() && trusted(a)))
+}
+
 /// `POST /threads` — start a conversation and return its id.
 pub async fn create(
     State(state): State<AppState>,
     ctx: ClientContext,
     Body(body): Body<CreateThread>,
 ) -> BridgeResult<Response> {
+    let caller_cwd = body.cwd.clone();
     let body = body.with_defaults(&state.bridge.defaults().await);
     body.validate(&ctx)?;
 
@@ -242,6 +373,8 @@ pub async fn create(
             format!("{cwd} is not a directory on this machine."),
         ));
     }
+    body.require_safe_options(&state, &ctx, caller_cwd.as_deref())
+        .await?;
 
     // Continuing in place keeps the id (and the transcript); everything else
     // gets a fresh one the caller already holds.
