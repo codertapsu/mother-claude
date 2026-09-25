@@ -58,8 +58,8 @@ pub struct Auth {
     /// scripts. Accepted only from genuinely local clients, as
     /// `Principal::LocalScript`.
     pub script_token: String,
-    /// `mch_…` token of the foreign-control hook plugin (persisted 0600 so an
-    /// installed plugin keeps working across restarts).
+    /// `mch_…` token of the foreign-control hook plugin: new every launch,
+    /// written to `hook.curlrc` (0600) where the plugin's scripts read it.
     pub hook_token: String,
     /// `mcs_…` token for the Path A sidecar, new every run.
     pub sidecar_token: String,
