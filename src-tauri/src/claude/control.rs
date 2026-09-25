@@ -1214,12 +1214,19 @@ async fn on_system(state: &AppState, h: &Arc<OwnedHandle>, v: &Value) {
             } else if v.get("status").is_some_and(Value::is_null) && h.live().turn_active {
                 note_activity(state, h, Activity::new(ActivityKind::Thinking, "Thinking")).await;
             }
-            let mut f = StreamFrame {
-                kind: StreamKind::Status,
-                ..Default::default()
-            };
-            f.status = Some(status.unwrap_or_else(|| "status".into()));
-            ws::publish_stream(state, &h.id, f);
+            // Only a real status (e.g. `compacting`); `null` just means the
+            // turn runs normally and would render as an empty bubble.
+            if let Some(status) = status {
+                ws::publish_stream(
+                    state,
+                    &h.id,
+                    StreamFrame {
+                        kind: StreamKind::Status,
+                        status: Some(status),
+                        ..Default::default()
+                    },
+                );
+            }
         }
         "api_retry" => {
             note_activity(state, h, Activity::new(ActivityKind::Retrying, "Retrying")).await;
@@ -1488,10 +1495,16 @@ async fn on_result(state: &AppState, h: &OwnedHandle, v: &Value) {
     }
     let queued = h.live().queued.len() as u32;
     ws::patch_session(state, &h.id, |s| s.queued = queued).await;
+    let name = state
+        .find_session(&h.id)
+        .await
+        .map(|s| s.name)
+        .filter(|n| !n.trim().is_empty())
+        .unwrap_or_else(|| format!("Session {}", h.id.chars().take(8).collect::<String>()));
     ws::publish_notice(
         state,
         NoticeLevel::Success,
-        format!("Session {} finished a turn", h.id),
+        format!("{name} finished a turn"),
         Some(&h.id),
     );
 }
