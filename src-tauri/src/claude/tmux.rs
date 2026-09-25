@@ -353,6 +353,7 @@ async fn run_tmux(bin: &Path, args: &[OsString], stdin: Option<&[u8]>) -> ApiRes
 }
 
 /// Candidate sockets besides the default server.
+#[cfg(unix)]
 fn socket_candidates() -> Vec<PathBuf> {
     let tmp = std::env::var_os("TMUX_TMPDIR")
         .map(PathBuf::from)
@@ -370,6 +371,12 @@ fn socket_candidates() -> Vec<PathBuf> {
         .unwrap_or_default();
     out.sort();
     out
+}
+
+/// tmux sockets live under a per-uid directory only on unix.
+#[cfg(not(unix))]
+fn socket_candidates() -> Vec<PathBuf> {
+    Vec::new()
 }
 
 /// Parent pid of `pid` (`ps -o ppid=`), for the pane-pid ancestor match.

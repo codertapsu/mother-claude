@@ -218,6 +218,7 @@ fn now_ms() -> i64 {
 
 /// Whether `pid` names a live process (`kill(pid, 0)`; EPERM counts as
 /// alive).
+#[cfg(unix)]
 pub fn pid_alive(pid: u32) -> bool {
     let Ok(p) = libc::pid_t::try_from(pid) else {
         return false;
@@ -228,6 +229,13 @@ pub fn pid_alive(pid: u32) -> bool {
     // SAFETY: signal 0 performs only the existence/permission check.
     let r = unsafe { libc::kill(p, 0) };
     r == 0 || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
+}
+
+/// Non-unix: no cheap existence check, so trust the pid the session reported
+/// (the live roster still ends sessions whose pidfile disappears).
+#[cfg(not(unix))]
+pub fn pid_alive(pid: u32) -> bool {
+    pid > 1
 }
 
 /// Whether hooks from `session_id`'s current process were seen (drives
