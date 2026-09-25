@@ -1149,6 +1149,81 @@ async fn the_bridge_port_keeps_local_tokenless_access_but_not_dangerous_work() {
     assert_eq!(r.status(), StatusCode::OK);
 }
 
+/// The documented locked-down bridge (`REQUIRE_TOKEN=1` plus an origin
+/// allowlist): an allowlisted page on this machine uses the script token.
+#[tokio::test]
+async fn a_locked_down_bridge_accepts_the_script_token_from_allowlisted_pages() {
+    let dir = tempfile::tempdir().unwrap();
+    let st = Inner::with_bridge_config(
+        ClaudeHome::with_base(dir.path()),
+        ServerConfig {
+            host: "127.0.0.1".into(),
+            port: 0,
+        },
+        Auth::ephemeral(),
+        BridgeConfig {
+            enabled: true,
+            port: None,
+            require_token: true,
+            api_key: None,
+            allowed_origins: vec!["https://myapp.test".into(), "http://localhost:4200".into()],
+        },
+    );
+    let base = serve(mother_claude_lib::bridge::listener_router(st.clone(), true)).await;
+    let c = reqwest::Client::new();
+    let get = |origin: &'static str, token: Option<String>, query: bool| {
+        let mut url = format!("{base}/capabilities");
+        let mut r = c.get(&url).header("origin", origin);
+        if let Some(t) = token {
+            if query {
+                url = format!("{url}?token={t}");
+                r = c.get(&url).header("origin", origin);
+            } else {
+                r = r.bearer_auth(t);
+            }
+        }
+        r.send()
+    };
+    let script = st.auth.script_token.clone();
+    // The allowlisted page: header or ?token= (EventSource).
+    let r = get("https://myapp.test", Some(script.clone()), false)
+        .await
+        .unwrap();
+    assert_eq!(r.status(), StatusCode::OK);
+    let r = get("https://myapp.test", Some(script.clone()), true)
+        .await
+        .unwrap();
+    assert_eq!(r.status(), StatusCode::OK);
+    // Still a token-required port: nothing without one.
+    let r = get("https://myapp.test", None, false).await.unwrap();
+    assert_eq!(r.status(), StatusCode::UNAUTHORIZED);
+    // Never the desktop token from a page, even an allowlisted one.
+    let r = get("https://myapp.test", Some(st.auth.token.clone()), false)
+        .await
+        .unwrap();
+    assert_eq!(r.status(), StatusCode::UNAUTHORIZED);
+    // A page not on the list is refused outright.
+    let r = get("https://evil.example", Some(script.clone()), false)
+        .await
+        .unwrap();
+    assert_eq!(r.status(), StatusCode::FORBIDDEN);
+    // Localhost origins keep working as before.
+    let r = get("http://localhost:4200", Some(script.clone()), false)
+        .await
+        .unwrap();
+    assert_eq!(r.status(), StatusCode::OK);
+    // Through a tunnel, the allowlist grants nothing.
+    let r = c
+        .get(format!("{base}/capabilities"))
+        .header("origin", "https://myapp.test")
+        .header("x-forwarded-for", "203.0.113.9")
+        .bearer_auth(&script)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), StatusCode::UNAUTHORIZED);
+}
+
 #[tokio::test]
 async fn trusted_folders_are_the_ones_claude_already_knows() {
     let st = state();

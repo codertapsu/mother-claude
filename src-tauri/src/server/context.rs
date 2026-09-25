@@ -174,6 +174,8 @@ pub struct ClientContext {
     pub local: bool,
     /// Machine-local, `Origin` ignored ([`is_machine_local`]).
     pub on_machine: bool,
+    /// The request's `Origin`, when it sent exactly one.
+    pub origin: Option<String>,
     pub principal: Principal,
     /// `MOTHER_CLAUDE_ALLOW_REMOTE_DANGEROUS`, captured when the context was
     /// built so [`ClientContext::may_dangerous`] needs no state. Applies to
@@ -203,6 +205,7 @@ impl ClientContext {
             rate_key: rate_key(ingress, peer, headers),
             local: is_local(ingress, peer, headers),
             on_machine: is_machine_local(ingress, peer, headers),
+            origin: single_origin(headers),
             principal: Principal::Anonymous,
             allow_remote_dangerous,
             credential_rejected: false,
@@ -223,6 +226,7 @@ impl ClientContext {
             rate_key: RateKey::new(RateScope::Forwarded, peer.ip()),
             local: false,
             on_machine: false,
+            origin: None,
             principal: Principal::Anonymous,
             allow_remote_dangerous: false,
             credential_rejected: false,
@@ -426,6 +430,15 @@ pub fn is_machine_local(ingress: Ingress, peer: SocketAddr, headers: &HeaderMap)
 /// Former name of [`is_machine_local`].
 pub fn is_on_machine(ingress: Ingress, peer: SocketAddr, headers: &HeaderMap) -> bool {
     is_machine_local(ingress, peer, headers)
+}
+
+/// The `Origin` header, when exactly one was sent.
+fn single_origin(headers: &HeaderMap) -> Option<String> {
+    let mut origins = headers.get_all(header::ORIGIN).iter();
+    match (origins.next(), origins.next()) {
+        (Some(o), None) => o.to_str().ok().map(|o| o.trim().to_string()),
+        _ => None,
+    }
 }
 
 /// `local`: [`is_machine_local`] and no `Origin`, or exactly one local one.

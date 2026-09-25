@@ -16,6 +16,10 @@
 //! bridge's SSE); WebSockets authenticate with their first frame (see
 //! `server::ws`). There is no cookie path.
 //!
+//! One exception to "only when local": a page the user allowlisted in
+//! `MOTHER_CLAUDE_BRIDGE_ORIGINS`, calling the bridge's loopback port from this
+//! machine, may present the local-script token (header or `?token=`).
+//!
 //! [`authenticate`] resolves the credential into `ctx.principal` (called by the
 //! context middleware); handlers then pick a guard extractor:
 //! [`Authed`] (desktop or device), [`DesktopOnly`], [`HookOnly`],
@@ -325,7 +329,11 @@ pub fn principal_for_token(
             });
     }
     if !ctx.local {
-        return None;
+        // The locked-down bridge port's allowlisted page may use the
+        // local-script token — never the desktop, hook or sidecar ones.
+        return (allowlisted_bridge_page(state, ctx)
+            && token_matches(&state.auth.script_token, token))
+        .then_some(Principal::LocalScript);
     }
     if token.starts_with(HOOK_PREFIX) {
         return token_matches(&state.auth.hook_token, token).then_some(Principal::Hook);
@@ -337,6 +345,20 @@ pub fn principal_for_token(
         return Some(Principal::Desktop);
     }
     token_matches(&state.auth.script_token, token).then_some(Principal::LocalScript)
+}
+
+/// A page the user allowlisted for the bridge (`MOTHER_CLAUDE_BRIDGE_ORIGINS`),
+/// calling the bridge's own loopback port from this machine: it is not
+/// `local` (its `Origin` is not localhost), but the documented locked-down
+/// setup (`MOTHER_CLAUDE_BRIDGE_REQUIRE_TOKEN=1` plus that allowlist) has it
+/// present the local-script token, as a header or `?token=` (EventSource).
+fn allowlisted_bridge_page(state: &AppState, ctx: &ClientContext) -> bool {
+    ctx.ingress == super::context::Ingress::BridgeLoopback
+        && ctx.on_machine
+        && ctx
+            .origin
+            .as_deref()
+            .is_some_and(|o| state.bridge.config.allowed_origins.iter().any(|a| a == o))
 }
 
 /// Count one rejected credential against the caller's failed-auth budget,
@@ -380,7 +402,8 @@ pub fn authenticate(
     headers: &HeaderMap,
     uri: &Uri,
 ) -> Result<(), ApiError> {
-    let Some(token) = presented_token(headers, uri, ctx.local) else {
+    let allow_query = ctx.local || allowlisted_bridge_page(state, ctx);
+    let Some(token) = presented_token(headers, uri, allow_query) else {
         return Ok(());
     };
     if let Some(p) = principal_for_token(state, ctx, &token) {
