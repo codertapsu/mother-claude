@@ -154,4 +154,5 @@ the toggles — handy for a one-off full build.
   now (More info → Run anyway). Optional Authenticode setup is in
   [APPLE_SIGNING.md](APPLE_SIGNING.md#windows-authenticode-optional).
 - **Phone can't reach a published build** — unrelated to releasing; check pairing
-  and that the laptop is awake on the same Wi-Fi (see the app's *Good to know*).
+  and that the laptop is awake on the same Wi-Fi or its tunnel is running (see
+  [REMOTE.md](REMOTE.md#troubleshooting)).

@@ -1,67 +1,150 @@
 # Architecture
 
-Authoritative invariants also live in [CLAUDE.md](CLAUDE.md).
+Authoritative invariants also live in [CLAUDE.md](CLAUDE.md). The security model
+is in [SECURITY.md](SECURITY.md), the phone and remote-access guide in
+[docs/REMOTE.md](docs/REMOTE.md), the HTTP bridge in [docs/BRIDGE.md](docs/BRIDGE.md).
 
-## Three layers
+## Layers
 
 ```
- ┌──────────────────────────┐      HTTP/WS (token)      ┌───────────────────┐
- │ Angular SPA (src/)        │ ───────────────────────▶ │ axum server       │
- │  desktop webview + phone  │ ◀─────────────────────── │ (src-tauri/server)│
- └──────────────────────────┘     one shared path        └─────────┬─────────┘
-                                                                    │
-                                                          broadcast bus
-                                                                    │
-                                                        ┌───────────▼───────────┐
-                                                        │ claude/ adapter        │
-                                                        │  ~/.claude + claude CLI │
-                                                        └────────────────────────┘
+ ┌──────────────────────────┐   HTTP + WebSocket v2    ┌──────────────────────────┐
+ │ Angular SPA (src/)        │ ───────────────────────▶ │ axum server              │
+ │  desktop webview + phone  │ ◀─────────────────────── │ (src-tauri/src/server)   │
+ └──────────────────────────┘    one shared path        └────────────┬─────────────┘
+                                                                     │ AppState, broadcast bus,
+                                                                     │ pending store
+                  ┌──────────────────────────────┬───────────────────┼──────────────────────┐
+                  ▼                              ▼                   ▼                      ▼
+     ┌────────────────────────┐   ┌──────────────────────┐ ┌──────────────────┐ ┌──────────────────┐
+     │ claude/ adapter         │   │ owned control         │ │ foreign control   │ │ HTTP bridge       │
+     │ ~/.claude, pidfiles,    │   │ claude -p stream-json │ │ hooks plugin,     │ │ bridge/ + Node    │
+     │ transcripts, agents     │   │ (Path B)              │ │ tmux, PTY (bg)    │ │ bridge-host       │
+     └────────────────────────┘   └──────────────────────┘ └──────────────────┘ └──────────────────┘
 ```
 
 1. **Rust core** (`src-tauri/src/claude/`) — the *only* code that knows the
-   `~/.claude` layout/formats. Modules: `home` (paths + encoded-cwd), `schema`
-   (tolerant serde), `transcript` (byte-offset tailer), `watcher` (debounced
-   notify), `registry` (merge `agents --json` + transcripts + `state.json` →
-   `Session`), `git` (libgit2 diffs/log/worktrees), `control` (owned-session
-   spawn + lifecycle), `experimental` (PTY/CCR, feature-gated).
-2. **Embedded axum server** (`src-tauri/src/server/`) — REST + WebSocket on the
-   Tokio runtime. `http` (handlers), `ws` (fan-out), `monitor` (refresh loop),
-   `auth` (token + dangerous gate + pairing), `tls` (rcgen/rustls). **All**
-   dashboard data flows through here so desktop and mobile share one client.
-3. **Angular SPA** (`src/`) — standalone components + signals. `core/`
-   (ConfigService, ApiService=fetch, RealtimeService=WS) and `pages/` (sessions,
-   session-detail, services, settings).
+   `~/.claude` layout and formats:
+   - `home` (paths, encoded cwd), `schema` (tolerant serde), `ids` (validators
+     for every id that reaches a path or argv);
+   - `live` — the live roster from `sessions/<pid>.json` and
+     `jobs/<short>/state.json`, liveness by `kill(pid, 0)` + process start time;
+   - `index` — the incremental transcript index (one byte-offset cursor per main
+     and subagent file, aggregates for usage, model, mode, todos, queue,
+     background tasks; checkpointed to `index-cache.json`);
+   - `agents` — subagents, workflow runs and background shells; `activity` —
+     "what is it doing right now"; `pricing` — cost and context window;
+     `uievents` — transcript records normalised into `UiEvent`s, read backwards
+     in pages; `summaries` — the `SessionSummary` / `SessionDetail` contract;
+   - `control` + `owned` — owned sessions (Path B, and Path A behind a flag);
+     `caps` — what each session supports (`ControlCaps`); `hooks` — the
+     foreign-control plugin's files and `claude plugin` install/uninstall;
+     `tmux` — typing into panes; `experimental` — PTY `claude attach` for
+     background jobs;
+   - `git` (libgit2 diffs, log, worktrees), `settings`, `auth` (Claude's own
+     sign-in), `watcher` (debounced `notify`).
+2. **Embedded axum server** (`src-tauri/src/server/`) — REST under `/api`,
+   WebSocket v2 at `/ws`, the hook endpoints and the `/v1` bridge mount:
+   - `context` (who is asking: ingress, `machine-local` / `local`, principal) and
+     `auth` (credentials, guard extractors), `security` (headers, CORS, route
+     policy, audit), `ratelimit`, `error`;
+   - `routes/` — `data` (sessions, transcripts, agents, diffs, inbox),
+     `control` (the dispatchers that route each action to the owned / hooks /
+     tmux / PTY / bridge channel), `foreign`, `pairing`, `remote`, `push`,
+     `uploads`;
+   - `monitor` (the refresh pipeline), `ws` (the hub, per-client queues and
+     subscriptions), `hooks` (the plugin's dispatcher), `devices`, `pairing`,
+     `remote` (tunnel listener and detection), `listeners` + `tls` (LAN TLS),
+     `push` (Web Push).
+   **All** dashboard data flows through here so desktop and mobile share one
+   client. Tauri `invoke` is only for desktop OS concerns (`permissions.rs`,
+   `server_info`).
+3. **Angular SPA** (`src/`) — standalone components and signals. `core/`
+   (`ApiService` = fetch, `RealtimeService` = WS v2 with a polling fallback,
+   `TranscriptStore`, `PushService`) and `pages/` (sessions, inbox, agents,
+   session detail, new session, remote, pair, settings, API).
+4. **Claude HTTP bridge** (`src-tauri/src/bridge/` + `sidecar/src/bridge-host.ts`)
+   — see below.
+
+Shared pieces: `state.rs` (`AppState`, one field per subsystem), `pending.rs`
+(the pending-decision store every channel uses) and `persist.rs` (atomic 0600
+writes to the app data dir, never under `~/.claude`).
 
 ## Data flow
 
-`~/.claude` (+ `claude` CLI) → `claude/` adapter → `tokio::sync::broadcast` bus →
-axum WS/REST → webview & LAN clients. The `monitor` task refreshes the registry
-on a 3s interval **and** on debounced filesystem changes, broadcasting a
-`sessions` snapshot and live `transcript` deltas (per-session tailers started at
-EOF, so history stays a REST concern).
+```
+~/.claude/sessions, jobs, projects  ──▶ watcher (debounced) ─┐
+                                     2 s tick, 60 s sweep ──┼──▶ monitor ──▶ live roster + index + agents
+hook events, owned stream, pending ─────────────────────────┘                  │
+                                                                       summaries (content-hash diff)
+                                                                                 ▼
+                                               ws hub: sessions / transcript / agents / fleet / pending
+                                                                                 ▼
+                                                                  desktop webview, phones
+```
 
-### Why a `Session`'s state is *derived*
+- The monitor never re-reads an unchanged file (inode, size, mtime) and never
+  spawns `claude agents --json`. Historical transcripts are indexed lazily in the
+  background, most recent first.
+- Clients get a full `sessions` frame on connect and then only the sessions whose
+  content changed. Transcript, agents and fleet frames go only to clients that
+  subscribed; a subscriber that falls behind gets `resync` (or
+  `transcriptReset`) and refetches over REST.
+- Owned sessions also emit `stream` frames (text and thinking deltas), so they
+  update word by word; foreign sessions update when Claude Code flushes each
+  completed message.
 
-`claude agents --json` (2.1.185) reports `{pid, cwd, kind, startedAt, sessionId}`
-with **no** state field. `registry::build_registry` derives state: explicit
-`jobs/<id>/state.json` > live `pending` > running + recent-activity → working,
-else idle/completed. Surface comes from the transcript `entrypoint`.
+### Why a session's state is derived
+
+No single source says what a session is doing. `activity` combines, in order: a
+pending decision; the pidfile `status` / `waitingFor`; the owned control
+stream; the latest hook event (a `PreToolUse` without its `PostToolUse` means that
+tool is running); and the transcript tail (a tool call without a result, a
+prompt waiting for an answer, an API error).
 
 ## Networking model
 
-`serve()` always binds plain **HTTP on `127.0.0.1:<port>`** (used by the desktop
-webview, foreign-session hooks, and the local sidecar — no self-signed-cert
-friction). For a non-loopback config it *additionally* binds **TLS on each
-detected LAN IP** at the same port for phones (bound to specific IPs so they
-don't collide with the loopback bind).
+- `127.0.0.1:<port>` (default 6725), plain HTTP: the desktop webview, local
+  scripts, the hooks plugin and the Path A sidecar.
+- Each private LAN address at the same port, TLS with a certificate from a local
+  CA name-constrained to private ranges: phones at home.
+- `127.0.0.1:6726`, only while Internet access is on: the port a tunnel forwards
+  to. It serves a reduced router (no `/v1`, no `/hooks/*`) and requires
+  `X-Forwarded-Proto: https`.
+- `127.0.0.1:5612`, only once the bridge is started: the tokenless local API.
+
+Every listener's router carries its `Ingress`; the context middleware builds a
+`ClientContext` per request, and authorization is decided by principal (desktop,
+local script, device, hook, sidecar), not by address. See SECURITY.md.
 
 ## Owned vs foreign control
 
-- **Owned** (spawned by us, id chosen via `--session-id`, tracked in `owned`):
-  full control. Path B = headless `claude -p` stream-json subprocess (default).
-  Path A = Node Agent SDK sidecar with `canUseTool` + `ask_user` (opt-in).
-- **Foreign**: monitor + lifecycle only (`claude stop|respawn|rm`). Live
-  injection is experimental-only and off by default.
+- **Owned** (spawned or continued by Mother Claude): the installed `claude -p`
+  speaking the stream-json control protocol (`--permission-prompt-tool stdio`),
+  the way VS Code drives it. Approvals, questions, plans and elicitations arrive
+  as control requests and become pending items; interrupt, model, mode, effort,
+  rename, stop-task and queue-cancel go out as control requests. Path A (the
+  Agent SDK sidecar) is kept behind `MOTHER_CLAUDE_SIDECAR=1`.
+- **Foreign** (started in a terminal, VS Code, JetBrains, Claude Desktop or as a
+  background job): monitored from pidfiles and transcripts, and controlled only
+  through documented channels — the hooks plugin (held `PermissionRequest`,
+  relays at tool boundaries and turn ends, a wake listener for idle sessions,
+  interrupts at the next tool call), tmux panes, and experimental PTY attach for
+  background jobs. **Continue here** turns any of them into an owned session
+  (a fork when it is still running elsewhere).
+- `caps::compute` decides per session what is possible; the dispatchers in
+  `routes/control.rs` route each action to the matching channel, and the UI
+  shows the same capabilities.
+
+## Pending decisions
+
+`crate::pending` is the one store for every decision a human must make,
+whatever raised it (owned stream, hook, bridge host, sidecar). An item is
+published to the session's subscribers and the inbox, triggers push, and can be
+answered from any client through `POST /api/sessions/{id}/respond` (or the
+bridge's `/requests`). The first answer wins; later ones get `409
+already_decided`, and every client learns who answered (`pendingResolved`).
+Whether an answer is dangerous is decided server-side
+(`pending::classify_dangerous`).
 
 ## The Claude HTTP bridge
 
@@ -70,12 +153,12 @@ SSE event streams, steering, interruption, tool approvals, image input — model
 on the Codex HTTP bridge so a client can be repointed between the two.
 
 ```
- HTTP client ──▶ bridge routes (axum)  ──▶ RuntimeHost ──NDJSON──▶ bridge-host.js
+ HTTP client ──▶ bridge routes (axum) ──▶ RuntimeHost ──NDJSON──▶ bridge-host.js
                       │                        │                   (N Agent SDK
                       │                        │                    conversations)
                       ├─ OperationRegistry ────┤
                       │   (per-turn EventLog)  │
-                      └─ pending requests ─────┴──▶ state.resolvers + set_pending
+                      └─ /requests ────────────┴──▶ crate::pending (source: bridge)
                                                     (the dashboard's own cards)
 ```
 
@@ -83,20 +166,12 @@ Modules: `error` (one `{"error":{code,message,…}}` envelope), `events` (bounde
 replay logs — 2048 events / 8 MiB, with the 410-expired / 422-beyond-head cursor
 contract), `ops` (background operations, caps, retention), `host` (the Node
 supervisor), `inputs` (content-block normalization plus image validation),
-`messages` (the direct `api.anthropic.com` client), `openapi`, `assets`, `routes`.
+`messages` (the direct `api.anthropic.com` client), `openapi`, `assets`, `routes`,
+`control` (start/stop from the app's API screen).
 
-Two things are worth calling out:
-
-- **One approval, two surfaces.** A blocked tool call registers a resolver in
-  `state.resolvers` *and* a record in the bridge's `/requests` table. The
-  dashboard card and the HTTP endpoint race; whichever answers first wins.
-- **Mounted twice.** `/v1` on the main server (always token-required, TLS on LAN
-  binds) and a dedicated loopback port whose token requirement is configurable.
-  The Node host starts lazily on first use.
-
-## Permission bridge
-
-`POST /api/sessions/:id/permission-request` (sidecar-facing) registers a oneshot
-resolver, sets `pending`, broadcasts, and blocks. The dashboard's
-`POST .../permission|/answer` resolves it. Dangerous approvals are gated to the
-local desktop (`auth::dangerous_blocked`).
+- **One approval, two surfaces.** A blocked tool call is a pending item with
+  source `bridge` *and* a record in the bridge's `/requests` table. The dashboard
+  card and the HTTP endpoint race; whichever answers first wins.
+- **Mounted twice.** `/v1` on the main server (always token-required, TLS on the
+  LAN, never through a tunnel) and a dedicated loopback port that is tokenless
+  for requests from this machine only. The Node host starts lazily on first use.

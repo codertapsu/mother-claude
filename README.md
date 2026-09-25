@@ -7,17 +7,23 @@ your LAN — or from anywhere through a tunnel you run (Tailscale, ngrok,
 cloudflared) — so you can drive Claude from your phone while you step away,
 without turning on Claude's own Remote Control.
 
-- See every session and its derived state (working / needs-input / idle /
-  completed / failed / stopped) across **all** surfaces — terminal CLI, VS Code /
-  JetBrains, Claude Desktop — by reading the shared `~/.claude/projects` store.
-- Read live transcripts (tailed JSONL), token/cost usage, tools, and per-session
-  Git diffs / history / worktrees.
+- See every session on the Mac and what it is doing right now (working /
+  waiting for you / idle / ended / failed / stopped, and the tool it is running)
+  across **all** surfaces — terminal CLI, tmux, VS Code / JetBrains, Claude
+  Desktop, background jobs — from the live pidfiles and the shared
+  `~/.claude/projects` store.
+- Read live transcripts, token / cost / context usage, todos, tools and diffs,
+  and per-session Git history and worktrees.
 - **Control** sessions: spawn new ones, send instructions (with images and
   files), approve/deny permission prompts, answer questions and plans, switch
-  model / mode / effort, interrupt, and stop / respawn / remove.
+  model / mode / effort, interrupt, continue or fork, and stop / respawn / remove.
 - Watch every running **agent**: subagents, workflow runs and background shells,
-  with their own live transcripts.
-- Web Push notifications on the phone when a session needs you or finishes.
+  with counts per session and their own live transcripts.
+- **Sessions started elsewhere**: approve, answer and message them from the
+  phone through an optional Claude Code plugin, or type into them in tmux.
+- **Phone-first**: an Inbox of everything waiting for you, pairing by QR code,
+  an installable Home Screen app, and Web Push when a session needs you or
+  finishes.
 
 ## Download
 
@@ -58,30 +64,32 @@ undocumented protocol). So:
     prompts from the phone in parallel with the session's own dialog, relay
     messages at the next stopping point, interrupt at the next tool call;
   - **tmux** sessions can be typed into (and answered with keys);
-  - **background jobs** → lifecycle (stop / respawn / rm) and an experimental
-    PTY injection (`MOTHER_CLAUDE_FOREIGN_INJECTION=0` to disable).
+  - **background jobs** → lifecycle (stop / respawn / rm, by short job id), a
+    terminal view and an experimental PTY injection that needs the dangerous
+    right (`MOTHER_CLAUDE_FOREIGN_INJECTION=0` to disable).
   - Anything else: **“Continue here”** takes the session over as an owned one
     (a live session is forked, an ended one resumes in place). Switch devices —
     don't drive both at once.
 
-  Each session shows what it supports and why (`control` capabilities).
+  Each session shows what it supports and why (`control` capabilities); the
+  full matrix is in [docs/REMOTE.md](docs/REMOTE.md#what-you-can-do-with-each-session).
 
 Design intent: make the dashboard the *launcher* so "full control" is the norm.
 See [ARCHITECTURE.md](ARCHITECTURE.md) and [KNOWN_ISSUES.md](KNOWN_ISSUES.md).
 
-## Good to know (also shown in the app → Settings)
+## Good to know (a short version is in the app → Settings → Good to know)
 
 - **Your laptop is the brain.** Mother Claude runs on your laptop and bridges it
   to your phone — it isn't a cloud. Keep the laptop **awake** (plugged in, sleep
   disabled); if it sleeps, your phone loses the connection.
-- **VS Code isn't synced live.** The dashboard reads the transcript files Claude
-  writes. A live VS Code session may not save its newest messages until it's idle
-  or closed, so they might not appear in the app yet — and *"Continue here"* picks
-  up from the **last saved point**. To capture the very latest, **close and reopen
-  VS Code (or its Claude panel)** before continuing.
-- **One driver at a time.** After taking a session over, drive it from one place;
-  typing in both the original editor/terminal *and* the app can split the
-  conversation into two branches.
+- **Sessions started elsewhere update message by message.** Claude Code writes a
+  reply to its transcript when the reply is complete, so a long answer in a VS
+  Code or terminal session appears when it is done (sessions Mother Claude owns
+  stream word by word). *"Continue here"* picks up from what is on disk; a
+  session that is still running elsewhere is forked, not taken over.
+- **One driver at a time.** Continuing a session that is still open in an
+  editor or terminal creates a fork: from then on there are two separate
+  conversations. Carry on in one of them and close the other.
 - **Local first, internet when you choose.** Pair phones with a one-time QR code
   from **Remote**. Internet access is off until you turn it on and point a
   tunnel at it; internet pairings always wait for you to type the phone's 4
@@ -93,7 +101,8 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) and [KNOWN_ISSUES.md](KNOWN_ISSUES.md).
 - Node 24+ (Angular 22 needs ≥ 22.22.3) — `node --version`
 - Rust + the native target — `rustup target add aarch64-apple-darwin`
   (and `rustup component add rustfmt clippy`)
-- Claude Code CLI on `PATH` — `claude --version` (built against `2.1.185`)
+- Claude Code CLI on `PATH` — `claude --version` (verified against `2.1.282`)
+- Optional: `tmux`, to type into sessions that run in a tmux pane
 
 ## Quick start
 
@@ -108,7 +117,10 @@ On start, the console prints the dashboard URLs (tokens only as fingerprints):
   Mother Claude dashboard
   Local:  http://127.0.0.1:6725
   LAN:    https://192.168.x.x:6725  (pair from Remote in the app)
+  TLS fingerprint (SHA-256): AB:CD:…
   Token:  sha256:1a2b3c4d (the desktop app holds it)
+  Claude: you@example.com (max)
+  API:    http://127.0.0.1:6725/v1  (not started — start it on the API screen)
 ```
 
 ### Open it on your phone
@@ -137,8 +149,9 @@ cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
 cargo test  --manifest-path src-tauri/Cargo.toml
 ```
 
-`just ci` runs them all. The experimental tier:
-`cargo clippy --manifest-path src-tauri/Cargo.toml --features experimental -- -D warnings`.
+`just ci` runs them all. The `experimental` feature (PTY attach) is on by
+default; check the build without it too:
+`cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets --no-default-features -- -D warnings`.
 
 ## Permissions (macOS)
 
@@ -157,14 +170,17 @@ You can skip and revisit anytime under **Settings → Permissions**.
 
 | Var | Default | Purpose |
 |---|---|---|
-| `MOTHER_CLAUDE_HOST` | `0.0.0.0` | Bind host. Loopback ⇒ HTTP only; non-loopback ⇒ +TLS on LAN IPs. |
+| `MOTHER_CLAUDE_HOST` | `0.0.0.0` | Loopback ⇒ HTTP on `127.0.0.1` only; `0.0.0.0` ⇒ also TLS on every private LAN address; one private address ⇒ only that one. |
 | `MOTHER_CLAUDE_PORT` | `6725` | Port. |
 | `CLAUDE_CONFIG_DIR` | `~/.claude` | Claude config dir to read. |
 | `MOTHER_CLAUDE_CLI` | `claude` | Path to the Claude binary. |
 | `MOTHER_CLAUDE_SIDECAR` | off | `1` ⇒ drive owned sessions with the legacy Path A Agent SDK sidecar instead of the stream-json control protocol. |
-| `MOTHER_CLAUDE_FOREIGN_INJECTION` | on | `0` ⇒ disable driving foreign sessions via PTY (monitor + lifecycle only). |
+| `MOTHER_CLAUDE_FOREIGN_INJECTION` | on | `0` ⇒ disable the experimental PTY injection into background jobs. |
+| `MOTHER_CLAUDE_TMUX` | autodetect | Path to the `tmux` binary. |
+| `MOTHER_CLAUDE_HEADLESS_HOLD_SECS` | `120` | How long a headless (`claude -p`/SDK) session's permission request is held for the dashboard. |
 | `MOTHER_CLAUDE_ALLOW_REMOTE_DANGEROUS` | unset | `1` ⇒ paired devices on the LAN may take dangerous actions without a per-device grant (never through a tunnel). |
 | `MOTHER_CLAUDE_TUNNEL_PORT` | `6726` | Local-only port the tunnel forwards to while Internet access is on. |
+| `MOTHER_CLAUDE_DEVICE_IDLE_DAYS` | `30` | Paired devices unused this long are unpaired. |
 | `MOTHER_CLAUDE_VAPID_SUBJECT` | public URL | `mailto:` or `https:` contact sent with Web Push. |
 | `MOTHER_CLAUDE_WEB_DIR` | autodetect | Override the built SPA directory. |
 | `MOTHER_CLAUDE_BRIDGE` | on | `0` ⇒ disable the HTTP bridge entirely. |
@@ -174,23 +190,25 @@ You can skip and revisit anytime under **Settings → Permissions**.
 | `MOTHER_CLAUDE_BRIDGE_CWD` | home dir | Default working directory for API conversations. |
 | `MOTHER_CLAUDE_BRIDGE_ORIGINS` | unset | Unset ⇒ any browser origin may call the bridge; set ⇒ strict allowlist. |
 | `ANTHROPIC_API_KEY` | unset | Enables the bridge's direct Messages API routes. |
+| `MOTHER_CLAUDE_LOG` | `info` | `tracing` filter for the app's logs (never written under `~/.claude`). |
 
-## The Path A sidecar (built & run automatically)
+## The Node sidecar (built automatically)
 
-The Node Agent SDK sidecar — which drives owned sessions through `canUseTool` and
-a custom `ask_user` MCP tool so every tool and question routes to the dashboard —
-is now a first-class component:
+The `sidecar/` package builds two Node programs on the Agent SDK:
 
-- `npm run tauri:dev` and `npm run tauri:build` **build it for you** (their
-  `beforeDev`/`beforeBuild` hooks run `npm run sidecar:build`); `tauri:build`
-  also bundles it into the `.app` so the packaged app ships it.
-- The Rust core uses the sidecar **automatically** whenever it's present, and
-  falls back to the headless `claude -p` path if it isn't built, `node` is
-  missing, or you set `MOTHER_CLAUDE_SIDECAR=0`.
+- `bridge-host.js` — the runtime behind the Claude HTTP bridge (below). It
+  starts on the bridge's first use.
+- `agent-bridge.js` — the legacy **Path A** driver for owned sessions
+  (`canUseTool` + an `ask_user` MCP tool). Owned sessions use the installed
+  `claude` over the stream-json control protocol (Path B) by default; set
+  `MOTHER_CLAUDE_SIDECAR=1` to use Path A instead.
 
-So there is no manual step — a single `npm run tauri:dev` starts the embedded
-server, builds the sidecar, and runs the desktop app. (The SDK is large, so the
-sidecar adds ~275&nbsp;MB to a packaged build.)
+`npm run tauri:dev` and `npm run tauri:build` **build it for you** (their
+`beforeDevCommand`/`beforeBuildCommand` run `npm run sidecar:build` /
+`sidecar:bundle`), and `tauri:build` bundles it into the app. So a single
+`npm run tauri:dev` starts the embedded server, builds the sidecar and runs the
+desktop app. (The SDK is large, so the sidecar adds ~275&nbsp;MB to a packaged
+build.)
 
 ## Drive Claude over HTTP
 
@@ -207,8 +225,9 @@ curl -sS http://127.0.0.1:5612/chat -H 'Content-Type: application/json' \
 Open the app's **API** screen, pick the defaults you want (working directory,
 model, effort, permissions, and which conversation messages join), and press
 **Start**. Nothing listens until you do. After that there is no token and no
-setup — curl, Postman, Swagger and a web app you are building all just work.
-It is loopback-only, and the LAN mount still requires the token.
+setup for programs on this machine — curl, Postman, Swagger and a web app you
+are building all just work. It is loopback-only; a request that came through a
+tunnel needs a token, and the LAN mount always does.
 
 A message with no `thread_id` joins the current conversation, so a client that
 only sends `{"message": "…"}` keeps one continuous thread; pass

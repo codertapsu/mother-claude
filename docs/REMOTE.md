@@ -1,140 +1,470 @@
-# Remote access
+# Using Mother Claude from your phone
 
-Use Mother Claude from your phone — at home over Wi-Fi, or from anywhere through
-a tunnel — without turning on Claude's own Remote Control. Everything here is
-configured on the desktop app's **Remote access** page. The security model behind
-it is in [SECURITY.md](../SECURITY.md).
+Mother Claude puts every Claude Code session on your Mac on your phone: what each
+one is doing, its agents, and the approvals, questions and plans waiting for you.
+It works at home over Wi-Fi and, if you choose, from anywhere through a tunnel
+you run yourself. It does not use or need Claude's own Remote Control.
 
-## At home: pair over the LAN
+Everything is set up on the desktop app's **Remote** page (sidebar → Remote). On
+a phone the same page only says that it is managed from the desktop.
 
-1. On the Mac, open **Remote access** and choose **Local network**. A QR code and
-   a 12-character code appear; they are valid for 5 minutes and work once.
-2. Scan the QR with the phone's camera (or open `https://<Mac's LAN address>:6725`
-   and type the code on the Pair page).
-3. The phone is paired immediately and keeps its own token. Nothing else is
-   shared: the code in the QR is not a password.
+The security model behind this guide is in [SECURITY.md](../SECURITY.md).
 
-LAN pairing is automatic only for a phone that reaches the Mac directly, from a
-private address, over Wi-Fi or Ethernet. Use it only on a network you control.
+- [At home: pair over Wi-Fi](#at-home-pair-over-wi-fi)
+- [Away from home: Internet access through a tunnel](#away-from-home-internet-access-through-a-tunnel)
+- [Devices](#devices)
+- [Sessions started elsewhere](#sessions-started-elsewhere)
+- [What you can do with each session](#what-you-can-do-with-each-session)
+- [Notifications](#notifications)
+- [The security model in plain words](#the-security-model-in-plain-words)
+- [Troubleshooting](#troubleshooting)
+- [For scripts](#for-scripts)
 
-### Trusting the Mac's certificate
+## Ports at a glance
 
-The LAN listeners use a certificate from a local certificate authority that only
-covers private addresses. Without trusting it the phone shows a warning you can
-tap through (check that the fingerprint matches the one on the Remote page), but
-some features need a trusted certificate: live updates on iOS Safari, the
-Home Screen app, and push notifications.
+| Port   | Listens on                                           | Used by                                         | Credential                                                           |
+| ------ | ---------------------------------------------------- | ----------------------------------------------- | -------------------------------------------------------------------- |
+| `6725` | `127.0.0.1` (HTTP)                                   | the desktop app, your scripts, the hooks plugin | the desktop, script or hook token (this Mac only), or a device token |
+| `6725` | each private LAN address (HTTPS)                     | phones at home                                  | a device token                                                       |
+| `6726` | `127.0.0.1` (HTTP), only while Internet access is on | the tunnel you start                            | a device token; HTTPS-forwarded requests only                        |
+| `5612` | `127.0.0.1` (HTTP), only once the API is started     | local tools ([BRIDGE.md](BRIDGE.md))            | none from this Mac; a token for anything tunnelled                   |
 
-- **iPhone / iPad**: open `https://<Mac>:6725/api/pair/ca.mobileconfig`, install
-  the profile in Settings › General › VPN & Device Management, then enable it
-  under Settings › General › About › Certificate Trust Settings.
-- **Android**: download `https://<Mac>:6725/api/pair/ca.crt` and install it under
-  Settings › Security › Encryption & credentials › Install a certificate › CA
-  certificate.
+`MOTHER_CLAUDE_PORT`, `MOTHER_CLAUDE_TUNNEL_PORT` and `MOTHER_CLAUDE_BRIDGE_PORT`
+change them.
 
-The CA can only vouch for private addresses and `localhost`, so it cannot be used
-against any public website even if its key were stolen.
+## At home: pair over Wi-Fi
 
-Mother Claude binds only private IPv4 addresses. To also listen on your Tailscale
-address (100.x.y.z), turn on **Also listen on Tailscale**.
+1. On the Mac, open **Remote → Pair a device**, choose **Same Wi-Fi** and press
+   **Show pairing code**. A QR code and a 12-character code appear. The code
+   works once and expires after 5 minutes. With more than one network address,
+   pick the one the phone can reach.
+2. Scan the QR code with the phone's camera. Or open the address shown under
+   the code (`https://<Mac's address>:6725`) on the phone and type the code on
+   its Pair page.
+3. The phone is paired immediately and opens your sessions.
+
+The QR code carries only that one-time code, in the part of the link after
+`#`, which browsers never send to a server. No password or token is in it.
+
+A **Same Wi-Fi** code pairs only a phone that connects straight to the Mac from
+a private network address (home Wi-Fi or Ethernet). Presented any other way,
+for example through a tunnel, it is refused. Pair over Wi-Fi only on a network
+you control.
+
+Mother Claude listens on the Mac's private IPv4 addresses (`192.168.x.x`,
+`10.x.x.x`, `172.16–31.x.x`, `169.254.x.x`) and never on a public or IPv6
+address. The Remote page lists any address it skipped and why. The first time a
+phone connects, macOS may ask whether Mother Claude may use the local network:
+allow it.
+
+### The Mac's certificate
+
+At home the connection is HTTPS with a certificate from a small certificate
+authority that Mother Claude creates on the Mac the first time it runs. The
+phone does not know it, so it warns once ("This connection is not private").
+You can tap through; the Remote page shows the certificate's fingerprint to
+compare.
+
+Until the phone trusts it, some things don't work: iOS refuses live updates over
+an untrusted certificate (the app then shows **Limited** and refreshes every few
+seconds instead), and push notifications and the installed Home Screen app need
+a trusted address. To trust it:
+
+- **iPhone / iPad**: on the phone's Pair page open **Trust this Mac → Download
+  the profile** (`/api/pair/ca.mobileconfig`). Install it under Settings ›
+  General › VPN & Device Management, then turn on full trust under Settings ›
+  General › About › Certificate Trust Settings. Reload the page.
+- **Android**: **Download the Mac's certificate** (`/api/pair/ca.crt`) and
+  install it under Settings › Security › Encryption & credentials › Install a
+  certificate › CA certificate.
+
+This authority can only vouch for private addresses, Tailscale addresses
+(`100.64.0.0/10`) and `localhost`. Even if its key were stolen it could not
+impersonate a public website. The leaf certificate is renewed automatically when
+the Mac's addresses change.
+
+### The iPhone Home Screen app
+
+An app added to the Home Screen (Safari › Share › Add to Home Screen) keeps its
+own storage, separate from Safari, so it has to pair on its own. In a paired
+Safari tab, open **Settings › Home Screen app › Set up the Home Screen app**. It
+shows a one-time code that works for 5 minutes and only for this device; type it
+on the Home Screen app's Pair page. The Remote page then shows the device "with
+its Home Screen app".
+
+The same code works for any second address of the same phone. A pairing
+belongs to the address it was made on, because browser storage is per site, so
+a phone paired at home that later opens your tunnel URL (or your Tailscale
+address) starts unpaired there. Create a code in Settings where you are paired
+and type it at the new address.
+
+### Tailscale addresses
+
+With **Also listen on Tailscale** (Remote › Internet access) the dashboard is
+served on the Mac's Tailscale address (`100.x.y.z`) as well. A request that
+arrives there is treated like one from the internet: a **Same Wi-Fi** code is
+refused, and the device's **… over the internet** grant applies. Pair on Wi-Fi
+first and add the Tailscale address with a code from Settings (above), or use
+Tailscale Serve (below), which gives a real certificate.
 
 ## Away from home: Internet access through a tunnel
 
-1. On the Remote page, turn on **Internet access**. Mother Claude starts
-   listening on `127.0.0.1:6726` — a port that only a tunnel should reach.
-2. Start a tunnel to that port. The page shows the exact commands:
+Mother Claude never opens a port to the internet itself. You run a tunnel
+(Tailscale, ngrok or Cloudflare) on the Mac, and it forwards to a port that
+only listens on `127.0.0.1`.
 
-   | tunnel                                                     | command                                          | URL                                   |
-   | ---------------------------------------------------------- | ------------------------------------------------ | ------------------------------------- |
-   | **Tailscale Serve** (recommended, private to your tailnet) | `tailscale serve --bg 6726`                      | `https://<mac>.<tailnet>.ts.net`      |
-   | Tailscale Funnel (public)                                  | `tailscale funnel --bg 6726`                     | same, reachable by anyone             |
-   | ngrok                                                      | `ngrok http 127.0.0.1:6726 --inspect=false`      | random, or your free static domain    |
-   | cloudflared quick tunnel                                   | `cloudflared tunnel --url http://127.0.0.1:6726` | new `trycloudflare.com` URL every run |
+1. On the Remote page, under **Internet access**, turn on **Allow access
+   through a tunnel**. Mother Claude starts listening on `127.0.0.1:6726`. It
+   is off by default.
+2. Start one of these on the Mac. The Remote page shows each command with a
+   copy button and marks the tools it found installed:
 
-   Mother Claude finds the public URL through each tool's local API (you can also
-   enter it by hand). It never trusts a URL a request claims.
+   | Tunnel                                               | Command                                          | Address you get                                             |
+   | ---------------------------------------------------- | ------------------------------------------------ | ----------------------------------------------------------- |
+   | **Tailscale Serve** (recommended; your tailnet only) | `tailscale serve --bg 6726`                      | `https://<mac>.<tailnet>.ts.net`                            |
+   | ngrok                                                | `ngrok http 127.0.0.1:6726 --inspect=false`      | random, or your static domain with `--url https://<domain>` |
+   | Cloudflare quick tunnel                              | `cloudflared tunnel --url http://127.0.0.1:6726` | a new `*.trycloudflare.com` address every run               |
+   | Tailscale Funnel (public)                            | `tailscale funnel --bg 6726`                     | `https://<mac>.<tailnet>.ts.net`, open to anyone            |
 
-3. Choose **Internet** for the QR. The phone opens the public URL and shows **4
-   digits**; type the same digits on the Mac to approve. Nobody gets in without
-   you approving on the desk.
+   Tailscale Serve and Funnel need HTTPS certificates turned on for your
+   tailnet; Tailscale asks the first time. Serve is recommended because only
+   devices signed in to your tailnet can reach the address at all.
 
-Turning Internet access off closes every connection that came through the
-tunnel at once.
+3. Mother Claude finds the public address by itself by asking the tunnel tools
+   running on the Mac (every 10 seconds while the Remote page is open or
+   Internet access is on; Tailscale every 30):
+   - ngrok: its local agent API on `127.0.0.1:4040` (or `4041`);
+   - cloudflared: the quick-tunnel metrics on `127.0.0.1:20241–20245`;
+   - Tailscale: `tailscale serve status --json` (Serve and Funnel).
 
-### Warnings you may see
+   A named Cloudflare tunnel or any other proxy is not detected. Type its
+   `https://` address under **Or enter it yourself**. Mother Claude never
+   believes an address that a request claims for itself.
 
-- **ngrok inspector is on** — ngrok records every request (headers included) at
-  `http://127.0.0.1:4040`. Restart it with `--inspect=false`.
-- **Quick tunnel URL changes** — cloudflared quick tunnels get a new URL each run,
-  so paired phones and push notifications break. Prefer Tailscale or ngrok's
-  static domain.
-- **Tunnel points at 6725** — it works (those requests are treated as remote),
-  but 6726 serves fewer routes and insists on HTTPS.
-- **Tunnel points at the Claude API port (5612)** — anyone who finds the URL
+4. Under **Pair a device**, choose **Internet** and press **Show pairing code**.
+   Scan it with the phone (on mobile data, say). The phone opens the public
+   address and shows **4 digits**.
+5. On the Mac, a **Waiting for your approval** card appears (a dialog pops up
+   wherever you are in the app). Press **Approve…** and type the 4 digits the
+   phone shows. Three wrong tries deny the request. Nobody gets in through the
+   internet without you typing those digits at the Mac.
+
+Turning Internet access off stops the tunnel port and cuts every connection that
+came through it, live updates included. A tunnel you pointed at `6725` instead
+keeps working, because it bypasses that port, so point tunnels at `6726`.
+
+### Warnings on the Remote page
+
+- **ngrok's inspector is recording.** By default ngrok keeps every request,
+  headers included, at `http://127.0.0.1:4040` for anything on the Mac to read.
+  Restart it with `--inspect=false`.
+- **The quick tunnel's address changes.** A new `trycloudflare.com` address on
+  every run means phones have to pair again and push notifications stop. Use
+  Tailscale, ngrok's free static domain or a named Cloudflare tunnel.
+- **Tailscale Funnel is public.** Its name is published in certificate logs and
+  gets scanned; for your own devices use Serve.
+- **A tunnel points at 6725.** It works (those requests are treated as coming
+  from the internet), but 6726 serves fewer routes and insists on HTTPS.
+- **A tunnel points at the Claude API port (5612).** Anyone who finds the address
   could try to drive Claude. The API's tokenless mode is switched off until that
   tunnel stops.
-- **Raw TCP tunnel** — hides that traffic comes from the internet; use an HTTP
-  tunnel instead.
+- **A raw TCP tunnel.** It hides that traffic comes from the internet (to 6725),
+  or cannot work at all (to 6726). Use an HTTP tunnel.
+- **Internet access is on but no tunnel was found**, or **a tunnel points at 6726
+  while Internet access is off**.
+- **The tunnel port is not listening**: another program holds 6726. Set
+  `MOTHER_CLAUDE_TUNNEL_PORT` to another port.
 
 ## Devices
 
-The Remote page lists every paired device with its last address, how it
-connects, its open connections and its recent actions.
+**Remote → Paired devices** lists every device with its platform, how it last
+connected (local network or internet), when and from which address, and its
+open connections.
 
-- **Rename**, or **Revoke** — revoking closes the device's connections
-  immediately and it has to pair again.
-- **Allow dangerous actions (LAN)** — lets the device approve `bypassPermissions`
-  and "always allow" rules that are written to settings, remove sessions, send raw
-  terminal keys, and similar. Applies only while it is on your LAN.
-- **… over the Internet** — the same, through a tunnel. Leave it off unless you
-  really need it: a stolen phone would then be able to run anything on your Mac.
-- Devices unused for 30 days are unpaired automatically.
-- On the phone, **Settings › This device › Unpair** removes it from its side.
-- The iOS Home Screen app keeps its own storage: from a paired Safari tab, use
-  **Set up the Home Screen app** to get a one-time code for it.
+- **Rename** (the pencil) or **Revoke**. Revoking erases the device's tokens,
+  closes its connections at once and deletes its push subscriptions. It has to
+  pair again.
+- **Allow dangerous actions (LAN)** lets this device do what is otherwise
+  reserved for the Mac: switch a session to `bypassPermissions`, choose "always
+  allow" rules that are saved to settings, approve a tool call flagged
+  dangerous, remove sessions, send raw keys to a terminal, type into a session
+  that runs without permission prompts, and similar. It applies only while the
+  device is on your home network.
+- **… over the internet** is the same grant for requests through a tunnel,
+  proxy or Tailscale address. Leave it off unless you really need it: with it, a
+  stolen phone could run anything on your Mac.
+- Devices unused for 30 days are unpaired automatically
+  (`MOTHER_CLAUDE_DEVICE_IDLE_DAYS` changes that).
+- On the phone, **Settings › Connection › Unpair this device** removes it from
+  its own side.
 
-## Notifications
-
-On the phone, **Settings › Push notifications › Enable** subscribes this device
-to Web Push. It needs a trusted HTTPS address: the tunnel's, or the LAN address
-once the phone trusts the Mac's certificate. On iPhone and iPad, add Mother
-Claude to the Home Screen first and enable push from there.
-
-- Per event: permission requests, questions, plans, finished turns (30 s or
-  longer), failures, notifications Claude sends itself, and idle sessions.
-- Per session (the ⋯ menu): **Follow**, **Mute**, and a one-shot **Notify me
-  when this turn finishes**.
-- Notifications show only the session name and what happened; turn on **Show
-  details** to include the command or question. Nothing is sent to a device
-  that has the app open in the foreground, and a revoked device's
-  subscriptions are deleted.
+Every new device and every dangerous action by a device raises a notice on the
+Mac and is written to the audit log (see [SECURITY.md](../SECURITY.md#logs-and-audit)).
 
 ## Sessions started elsewhere
 
-Sessions you start in a terminal, VS Code or JetBrains can be watched from the
-phone right away. To answer and message them too, install **foreign-session
-control** from **Remote › Foreign-session control** on the Mac: it installs a
-small Claude Code plugin with `claude plugin install` (your `settings.json`
-hooks are never touched) and can be removed the same way.
+Mother Claude shows every Claude Code session on the Mac, whatever started it:
+terminal, VS Code, JetBrains, Claude Desktop, background jobs (`claude --bg`)
+and its own. It learns about running sessions from the small status files each
+Claude Code process writes under `~/.claude/sessions/`, and reads what they did
+from the transcripts under `~/.claude/projects/`.
 
-| session | message | approve / answer | interrupt | model, mode, effort |
-| --- | --- | --- | --- | --- |
-| started by Mother Claude | direct, with images | yes | immediately | yes |
-| with the plugin | at the next tool call or turn end | yes, first answer wins | at the next tool call | no — "Continue here" |
-| in tmux | typed into the pane | with the plugin, else keys | immediately (Esc) | slash commands |
-| background job | experimental PTY | — | — | — |
-| anything else | — | — | — | "Continue here" forks it |
+Sessions that Mother Claude starts ("owned") can be driven completely. The ones
+you started elsewhere ("foreign") can be watched right away. To answer and
+message them too, install **foreign-session control**.
 
-Every session shows what it supports and why in its channel badge.
+### Foreign-session control (the hooks plugin)
+
+On the Mac, open **Remote → Foreign-session control → Install foreign-session
+control**. This needs the `claude` command on your PATH and runs, on your
+behalf:
+
+```bash
+claude plugin marketplace add "<app data>/claude-plugin" --scope user
+claude plugin install mother-claude@mother-claude-local --scope user
+```
+
+(`<app data>` is `~/Library/Application Support/dev.motherclaude.Mother-Claude`
+on macOS.) The Claude Code CLI records the plugin in your user settings
+(`enabledPlugins`, `extraKnownMarketplaces`). Mother Claude never edits your
+`settings.json` and never touches your own hooks.
+
+The plugin is two small shell scripts and a `hooks.json`:
+
+- `mc-hook` forwards Claude Code's hook events (session start and end, prompts,
+  tool calls, permission requests, subagents, compaction, notifications, stop)
+  to Mother Claude on `127.0.0.1`, and hands back its answer where one is
+  needed: an approval, a message to deliver, an interrupt.
+- `mc-wake` waits in the background after a turn ends, so a message you send to
+  an idle session can wake it up.
+
+Both run `curl` against loopback only, authenticate with a token that is new at
+every launch of the app, and always exit quietly: with Mother Claude closed,
+your sessions behave exactly as before. Sessions Mother Claude runs itself are
+skipped, so nothing is reported twice.
+
+After installing, **new** sessions report in. A session that was already
+running needs `/reload-plugins` typed in it, or a restart. The Remote page
+counts the sessions reporting and those that need a reload.
+
+**Uninstall** (press twice) first switches the scripts off, so the hooks that
+running sessions already loaded go quiet, then runs `claude plugin uninstall`
+and `claude plugin marketplace remove`. The files stay in the app data folder,
+inert. Install and uninstall work only from the desktop app itself, never from a
+phone.
+
+### How each kind of session is reached
+
+- **Owned** (started from **New session**, or taken over with **Continue
+  here**): Mother Claude runs `claude` itself and speaks its control protocol,
+  the way the VS Code extension does. Everything works, immediately, and replies
+  stream word by word.
+- **With the plugin** (terminal, VS Code, JetBrains, Claude Desktop): a
+  permission request is held for the phone _while_ the session shows its own
+  dialog. Whoever answers first wins, and the other side's prompt goes away.
+  Messages are delivered at Claude's next tool call or at the end of the turn;
+  an idle session is woken to read them. They reach Claude but don't appear in
+  the session's own window, only Claude's reply does. An interrupt lands at the
+  next tool call.
+- **In tmux**: Mother Claude types into the session's pane (`tmux send-keys`),
+  so messages, slash commands and Esc work like typing at the terminal. It
+  refuses while a dialog is open, so it never answers one by accident. Approvals
+  go through the plugin when it is loaded; without it they can be answered with
+  keys from the terminal view.
+- **Background jobs** (`claude --bg`): stop, respawn and remove (by their short
+  job id), a read-only terminal view (`claude logs`), and, experimentally,
+  typing into them through `claude attach`, which needs a device allowed
+  dangerous actions (`MOTHER_CLAUDE_FOREIGN_INJECTION=0` turns it off).
+- **Anything else** can be watched. **Continue here** takes it over as an owned
+  session: a session that is still running elsewhere is **forked** (a copy with
+  a new id, so the two never write the same transcript); an ended one resumes
+  in place.
+
+Each session's badge ("Full control", "Via hooks", "Via tmux", "Experimental",
+"Watch only") opens the list of what works for it and why, with the action that
+fixes each limit (install the plugin, reload plugins, continue here).
+
+## What you can do with each session
+
+| From the phone                        | Owned                         | With the plugin (VS Code, terminal, JetBrains, Desktop)  | tmux, with the plugin | tmux, without it      | Without the plugin       |
+| ------------------------------------- | ----------------------------- | -------------------------------------------------------- | --------------------- | --------------------- | ------------------------ |
+| Watch the conversation, agents, cost  | yes, word by word             | yes, message by message                                  | yes                   | yes                   | yes                      |
+| Send a message                        | straight in                   | at the next tool call or turn end; wakes an idle session | typed into the pane   | typed into the pane   | —                        |
+| Attach images and files               | images inline, files as paths | as file paths                                            | as file paths         | as file paths         | —                        |
+| Approve or deny a permission          | yes                           | yes, in parallel with the desk (first answer wins)       | yes                   | with keys ¹           | —                        |
+| Answer questions, review plans        | yes                           | yes                                                      | yes                   | with keys ¹           | —                        |
+| Interrupt                             | immediately                   | at the next tool call                                    | immediately (Esc)     | immediately (Esc)     | —                        |
+| Switch model or effort                | yes                           | no ²                                                     | `/model`, `/effort` ³ | `/model`, `/effort` ³ | —                        |
+| Switch permission mode                | any time                      | only while approving (e.g. a plan)                       | only while approving  | —                     | —                        |
+| Slash commands                        | yes                           | no ²                                                     | yes ⁴                 | yes ⁴                 | —                        |
+| Rename                                | yes                           | —                                                        | yes (`/rename`)       | yes (`/rename`)       | —                        |
+| Terminal view                         | —                             | —                                                        | yes                   | yes                   | background jobs only     |
+| Stop a background task (shell, agent) | yes                           | —                                                        | —                     | —                     | —                        |
+| Continue here                         | as a fork                     | as a fork                                                | as a fork             | as a fork             | fork, or resume if ended |
+
+1. Keys (Enter, Esc, arrows, digits) need a device allowed dangerous actions, or the Mac.
+2. **Continue here** forks the session into an owned one, which can.
+3. Typed into the terminal, these also change your default for new sessions.
+4. `/compact`, `/clear`, `/context`, `/usage`, `/cost`, `/status`, `/todos`,
+   `/model`, `/effort`, `/rename` and `/btw`. Others (and a leading `!` for shell
+   mode) need a device allowed dangerous actions.
+
+Two more rules apply everywhere:
+
+- **Sessions without permission prompts.** A session in `bypassPermissions` runs
+  whatever it is told with nobody approving it, so messages, typed text and keys
+  sent to it need a device allowed dangerous actions. It also asks almost
+  nothing, so with the plugin only its questions, plans and the few actions no
+  mode approves automatically reach the phone.
+- **New sessions and Continue here from a phone** work only in folders Claude
+  Code has already been trusted in on this Mac (opened there once, or with
+  transcripts). Otherwise you get `untrusted_cwd`: open the folder once on the
+  Mac first.
+
+## Notifications
+
+Push notifications reach a phone even when the app is closed. On the phone,
+open **Settings › Notifications › Push notifications › Enable**.
+
+They need a **trusted HTTPS address**, because browsers allow push only in a
+secure context:
+
+| Where you enable them                                    | Push works?                                                                                     |
+| -------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| Your tunnel address (Tailscale Serve, ngrok, Cloudflare) | yes: its certificate is trusted                                                                 |
+| The home-network address, Mac certificate trusted        | yes, but tapping a notification opens that address, which only works at home                    |
+| The home-network address, certificate not trusted        | no: in-app alerts only (sound, vibration, the waiting count in the title) while the app is open |
+| iPhone / iPad in Safari                                  | no: add Mother Claude to the Home Screen, open it from there, pair it, then enable push         |
+| The desktop app                                          | not needed: the Mac shows everything live                                                       |
+
+The notifications travel from the Mac through Apple's, Google's or Mozilla's
+push service, so the Mac has to be awake and online. A quick-tunnel address
+that changes breaks existing subscriptions.
+
+What you get:
+
+- **Per event** (Settings, once push is on): permission requests, questions,
+  plans, finished turns (30 s or longer), failures, notifications Claude sends
+  itself ("tell me when the tests finish"), and sessions waiting for your next
+  prompt.
+- **Per session** (the session's ⋯ menu): **Follow**, **Mute**, and a one-shot
+  **Notify me when this turn finishes**.
+- A notification shows the session's name and what happened. **Show details**
+  adds the command or question.
+- Nothing is pushed to a device that has the app open in front of you, and bursts
+  from one session are combined (at most one notification per session every
+  10 seconds, followed by a summary).
+- **Send a test** checks the whole path.
+
+## The security model in plain words
+
+- **Your Mac is the server.** Sessions, transcripts and tokens stay on it. Nothing
+  goes through a Mother Claude cloud; there isn't one.
+- **Every phone has its own key.** Pairing gives each device a random token that
+  only it holds. The Mac keeps only a hash of it, and you can revoke any device
+  on its own.
+- **Codes, not passwords.** Pairing codes work once, for 5 minutes. Through the
+  internet a code is not enough: you also type the 4 digits the phone shows,
+  on the Mac.
+- **Being "local" is proven, not assumed.** Tunnels connect from `127.0.0.1`, so
+  Mother Claude looks at the listener, the `Host` header and every proxy header
+  before it treats a request as coming from this Mac. A request through a tunnel
+  is always treated as coming from the internet.
+- **The risky things stay on the Mac.** Pairing devices, changing remote access
+  and installing the plugin work only in the desktop app. Skipping permission
+  prompts, saving "always allow" rules to settings, removing sessions and raw
+  terminal keys need the desktop app or a device you granted dangerous actions
+  (separately for home and for the internet). A phone without that grant is
+  offered "always allow … in this session" instead.
+- **Only you open the door to the internet.** Internet access is off until you
+  switch it on and start a tunnel, and switching it off cuts the tunnel's
+  connections.
+- **The local API stays local.** The Claude HTTP API on port 5612 needs no token
+  only for programs on this Mac. Through a tunnel it asks for a token, and while
+  a tunnel points at it the tokenless mode is off entirely.
+
+## Troubleshooting
+
+**"This code is for your home network and cannot be used through a tunnel or
+proxy."** You scanned a **Same Wi-Fi** code over mobile data, a tunnel or a
+Tailscale address. Create an **Internet** code instead.
+
+**"This code was already used by another device."** A code was presented twice.
+A request made with it can no longer be approved; deny it and create a new code.
+
+**"Those digits do not match the ones on the phone."** Type the 4 digits the
+phone shows. After three wrong tries the request is denied and the phone has to
+start again.
+
+**The phone shows "Limited".** Live updates cannot connect, usually because the
+phone does not trust the Mac's certificate, and the app is refreshing every few
+seconds instead. Trust the certificate (see above) or use the tunnel address.
+
+**"Can't reach Mac".** The Mac is asleep or offline, the tunnel stopped, or a
+quick tunnel's address changed. Keep the Mac awake while you're away.
+
+**"The tunnel's browser warning page is in the way."** ngrok's free plan shows an
+interstitial page. Open the address once in the phone's browser, accept it and
+reload.
+
+**`https_required` (400) on the tunnel port.** The request did not arrive over
+HTTPS (the last `X-Forwarded-Proto` was not `https`). Open the `https://`
+address the tunnel prints, and point the tunnel at plain
+`http://127.0.0.1:6726`.
+
+**"No public URL yet".** No tunnel was detected. Start one of the commands on
+the Remote page, or type the address under **Or enter it yourself** (needed for
+named Cloudflare tunnels and other proxies).
+
+**"Mother Claude is not listening on your local network."** It was started with
+`MOTHER_CLAUDE_HOST=127.0.0.1`, or the Mac has no private network address (for
+example it is on a network that hands out public addresses). Use a tunnel, or
+**Also listen on Tailscale**.
+
+**"This device is no longer paired."** The device was revoked on the Mac, unused
+for too long, or its storage was cleared. Pair it again.
+
+**A foreign session says "Started before foreign control was installed".** Type
+`/reload-plugins` in it, or restart it.
+
+**A message stays "queued".** The session is busy and has not reached a tool call
+or the end of its turn yet, or it is idle but no wake listener is connected (the
+Mac tells you after 10 seconds). Cancel it from the queue if you change your
+mind. A message nothing picks up within 30 minutes is dropped with a notice, and
+anything still queued fails when the session ends (`session_ended`: continue it
+here instead).
+
+**`session_waiting` when typing into a tmux session.** It is showing a dialog;
+typing now would answer it. Answer the dialog first, or open the terminal view.
+
+**`session_not_foreground` when typing into a tmux session.** Claude is not the
+program in front in that pane (a shell, an editor or pager it opened, or Claude
+suspended with Ctrl+Z), so typing there could run a command. Bring Claude Code
+back to the front in its terminal first.
+
+**`dangerous_blocked`.** That action needs the Mac, or a device allowed dangerous
+actions on the network it is using now.
+
+**`untrusted_cwd`.** Claude Code was never opened in that folder on the Mac. Open
+it there once, or start the session from the desktop.
+
+**Push can't be enabled.** "Blocked in the browser's site settings": allow
+notifications for the site. On iPhone: add Mother Claude to the Home Screen and
+enable push from there. On the home network: trust the Mac's certificate first.
+
+**"Install foreign-session control" is greyed out.** The `claude` command was not
+found on the PATH the app sees. Install Claude Code, or start the app from a
+shell where `claude` works.
 
 ## For scripts
 
 The file `script-token` in the app data directory
 (`~/Library/Application Support/dev.motherclaude.Mother-Claude/script-token` on
-macOS) works for scripts on this Mac as `Authorization: Bearer <token>`. It can
-read and drive sessions, but it cannot pair devices, change remote access or
-perform dangerous actions. The desktop app uses its own token, new at every
-launch.
+macOS) works for scripts on this Mac as `Authorization: Bearer <token>` against
+`http://127.0.0.1:6725/api/…`. It can read and drive sessions, but it cannot
+pair devices, change remote access, install the plugin or take dangerous
+actions, and it is refused from anywhere but this Mac. The desktop app uses its
+own token, new at every launch and never written to disk.
 
 **Upgrading from an older version:** the old `token` file is deleted at the
 first launch and its value no longer works anywhere. Older versions put it in
