@@ -28,11 +28,13 @@
 //! [`cancel_queued`], [`queued`] (dispatchers), [`start`] (server).
 //! AppState field: `state.hooks`.
 
+mod binding;
 mod machine;
 mod payload;
 mod relay;
 
 use std::collections::HashMap;
+use std::net::SocketAddr;
 use std::sync::atomic::{AtomicI64, AtomicU64, Ordering};
 use std::sync::{Mutex, MutexGuard};
 use std::time::Duration;
@@ -45,6 +47,7 @@ use axum::Json;
 use serde_json::Value;
 use tokio::sync::oneshot;
 
+pub use self::binding::{verify as verify_binding, Binding};
 pub use self::machine::{Arm, CancelError, WaitSignal, QUEUE_CAP};
 pub use self::payload::{input_key, is_safe_id, is_uuid, HookPayload};
 pub use self::relay::{MARKER_PREFIX, TEXT_MAX_BYTES as RELAY_TEXT_MAX};
@@ -186,6 +189,16 @@ impl HookHub {
     /// Held PermissionRequests of a session.
     pub fn held_count(&self, session_id: &str) -> usize {
         self.lock().held_count(session_id)
+    }
+
+    /// Whether a forged event could do harm here: something is held or
+    /// queued for the session.
+    pub fn has_stake(&self, session_id: &str) -> bool {
+        let hub = self.lock();
+        hub.held_count(session_id) > 0
+            || hub
+                .session(session_id)
+                .is_some_and(|s| !s.queued().is_empty())
     }
 
     /// Ids of every session with hook state.
@@ -373,7 +386,7 @@ pub async fn observe_pidfile(state: &AppState, session: &str, status: &str, upda
 
 /// `POST /hooks/event`.
 pub async fn post_event(
-    HookOnly(_ctx): HookOnly,
+    HookOnly(ctx): HookOnly,
     State(state): State<AppState>,
     headers: HeaderMap,
     body: Bytes,
@@ -387,11 +400,51 @@ pub async fn post_event(
         .and_then(|v| v.to_str().ok())
         .and_then(|v| v.trim().parse::<u32>().ok())
         .filter(|p| *p > 1);
-    Json(dispatch(&state, p, pid).await).into_response()
+    Json(dispatch_from(&state, p, pid, Some(ctx.peer)).await).into_response()
+}
+
+/// Events that can create a card, hand over a relay or withdraw cards.
+fn is_sensitive(state: &AppState, name: &str, session: &str) -> bool {
+    match name {
+        "PermissionRequest" => true,
+        "PostToolUse" | "PostToolUseFailure" | "PermissionDenied" | "Stop" | "StopFailure"
+        | "UserPromptSubmit" | "SubagentStop" | "SessionEnd" => state.hooks.has_stake(session),
+        _ => false,
+    }
+}
+
+/// Whether a request from `peer` may act for `session`: when the live roster
+/// knows the session's process, the connection must come from its process
+/// tree (see `hooks/binding.rs`). `None` peer = trusted in-process caller.
+async fn bound(state: &AppState, session: &str, peer: Option<SocketAddr>, what: &str) -> bool {
+    let (Some(peer), Some(pid)) = (peer, state.live.get(session).and_then(|l| l.pid)) else {
+        return true;
+    };
+    match binding::verify(pid, peer).await {
+        Binding::Mismatch => {
+            tracing::warn!(
+                session = %session,
+                event = what,
+                "hook request does not come from the session's process; ignored"
+            );
+            false
+        }
+        Binding::Verified | Binding::Unknown => true,
+    }
 }
 
 /// Handle one hook event; returns the hook's stdout JSON.
 pub async fn dispatch(state: &AppState, p: HookPayload, pid: Option<u32>) -> Value {
+    dispatch_from(state, p, pid, None).await
+}
+
+/// [`dispatch`] for a request from `peer` (session binding applies).
+pub async fn dispatch_from(
+    state: &AppState,
+    p: HookPayload,
+    pid: Option<u32>,
+    peer: Option<SocketAddr>,
+) -> Value {
     if !is_uuid(&p.session_id) {
         return relay::empty();
     }
@@ -401,8 +454,11 @@ pub async fn dispatch(state: &AppState, p: HookPayload, pid: Option<u32>) -> Val
     if is_owned_any(state, &p.session_id).await {
         return relay::empty();
     }
-    let now = now_ms();
     let name = p.hook_event_name.as_str();
+    if is_sensitive(state, name, &p.session_id) && !bound(state, &p.session_id, peer, name).await {
+        return relay::empty();
+    }
+    let now = now_ms();
     // Never the payload: tool inputs, prompts and responses can hold secrets.
     tracing::debug!(
         event = name,
@@ -711,7 +767,7 @@ fn gone(why: &'static str) -> Response {
 
 /// `POST /hooks/wait?pid=<claude pid>` with the raw Stop payload as body.
 pub async fn wait(
-    HookOnly(_ctx): HookOnly,
+    HookOnly(ctx): HookOnly,
     State(state): State<AppState>,
     Query(q): Query<HashMap<String, String>>,
     body: Bytes,
@@ -753,6 +809,10 @@ pub async fn wait(
         .and_then(|l| l.pid)
         .is_some_and(|live| live != pid)
     {
+        return gone("not the session's process");
+    }
+    // Winning the listener means reading the phone's next messages.
+    if !bound(&state, &session, Some(ctx.peer), "wait").await {
         return gone("not the session's process");
     }
     let arm = state.hooks.lock().arm_waiter(&session, Some(pid), now_ms());

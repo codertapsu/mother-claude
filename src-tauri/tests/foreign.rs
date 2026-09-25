@@ -766,6 +766,39 @@ async fn a_killed_session_loses_its_cards_and_its_listener() {
     assert_eq!(r.status(), StatusCode::GONE);
 }
 
+#[tokio::test]
+async fn hook_requests_are_traced_to_the_sessions_process_tree() {
+    use hooks::Binding;
+    // A curl child of this process connects; the server end sees its port.
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let mut curl = tokio::process::Command::new("/usr/bin/curl")
+        .args(["-q", "-s", "--max-time", "10"])
+        .arg(format!("http://127.0.0.1:{port}/"))
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .kill_on_drop(true)
+        .spawn()
+        .unwrap();
+    let (_socket, peer) = listener.accept().await.unwrap();
+    // It is in this process's tree…
+    let mine = hooks::verify_binding(std::process::id(), peer).await;
+    // …and not in an unrelated process's.
+    let mut other = std::process::Command::new("/bin/sleep")
+        .arg("5")
+        .spawn()
+        .unwrap();
+    let theirs = hooks::verify_binding(other.id(), peer).await;
+    let _ = other.kill();
+    let _ = other.wait();
+    let _ = curl.start_kill();
+    // Unknown only when ps/lsof are unavailable (then nothing is enforced).
+    if mine != Binding::Unknown {
+        assert_eq!(mine, Binding::Verified);
+        assert_eq!(theirs, Binding::Mismatch);
+    }
+}
+
 // ───────────────────────────── the scripts ─────────────────────────────
 
 struct Plugin {
