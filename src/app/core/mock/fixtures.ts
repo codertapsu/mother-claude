@@ -221,6 +221,8 @@ function base(
     startedAt: now - H,
     lastActivityAt: now - 5 * M,
     version: '2.1.282',
+    // The demo sessions all ran today.
+    costToday: over.costUsd,
     ...over,
   };
 }

@@ -36,40 +36,62 @@ use tokio::sync::broadcast;
 
 use super::home::ClaudeHome;
 
-/// One `~/.claude/sessions/<pid>.json` record. Every field optional; unknown
-/// keys land in `extra`.
+/// One `~/.claude/sessions/<pid>.json` record. Every field optional and
+/// loosely typed (a field whose type drifts reads as `None` instead of failing
+/// the whole record); unknown keys land in `extra`.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct LiveSession {
+    #[serde(deserialize_with = "loose_u32")]
     pub pid: Option<u32>,
+    #[serde(deserialize_with = "loose_string")]
     pub session_id: Option<String>,
+    #[serde(deserialize_with = "loose_string")]
     pub cwd: Option<String>,
+    #[serde(deserialize_with = "loose_i64")]
     pub started_at: Option<i64>,
+    #[serde(deserialize_with = "loose_string")]
     pub proc_start: Option<String>,
+    #[serde(deserialize_with = "loose_string")]
     pub version: Option<String>,
     /// `interactive` | `bg` | `background` | …
+    #[serde(deserialize_with = "loose_string")]
     pub kind: Option<String>,
     /// `claude-vscode` | `cli` | `sdk-cli` | …
+    #[serde(deserialize_with = "loose_string")]
     pub entrypoint: Option<String>,
+    #[serde(deserialize_with = "loose_string")]
     pub name: Option<String>,
+    #[serde(deserialize_with = "loose_string")]
     pub name_source: Option<String>,
     /// `idle` | `busy` | `waiting` | `shell` | …
+    #[serde(deserialize_with = "loose_string")]
     pub status: Option<String>,
+    #[serde(deserialize_with = "loose_i64")]
     pub status_updated_at: Option<i64>,
     /// e.g. `permission prompt`, `input needed`, `dialog open`.
+    #[serde(deserialize_with = "loose_string")]
     pub waiting_for: Option<String>,
     /// Short background job id.
+    #[serde(deserialize_with = "loose_string")]
     pub job_id: Option<String>,
     /// tmux target `session:@win.%pane`.
+    #[serde(deserialize_with = "loose_string")]
     pub tmux: Option<String>,
+    #[serde(deserialize_with = "loose_string")]
     pub bridge_session_id: Option<String>,
+    #[serde(deserialize_with = "loose_string")]
     pub state: Option<String>,
+    #[serde(deserialize_with = "loose_string")]
     pub detail: Option<String>,
     pub tempo: Option<Value>,
     pub needs: Option<Value>,
+    #[serde(deserialize_with = "loose_i64")]
     pub updated_at: Option<i64>,
     /// `darwin` on macOS; `procStart` is only comparable there.
+    #[serde(deserialize_with = "loose_string")]
     pub pid_domain: Option<String>,
+    #[serde(deserialize_with = "loose_strings")]
     pub peer_features: Option<Vec<String>>,
     #[serde(flatten)]
     pub extra: Map<String, Value>,
@@ -147,6 +169,39 @@ fn loose_string<'de, D: Deserializer<'de>>(d: D) -> Result<Option<String>, D::Er
     })
 }
 
+fn loose_u32<'de, D: Deserializer<'de>>(d: D) -> Result<Option<u32>, D::Error> {
+    Ok(match Value::deserialize(d)? {
+        Value::Number(n) => n
+            .as_u64()
+            .or_else(|| {
+                n.as_f64()
+                    .filter(|f| f.fract() == 0.0 && *f >= 0.0)
+                    .map(|f| f as u64)
+            })
+            .and_then(|n| u32::try_from(n).ok()),
+        Value::String(s) => s.trim().parse::<u32>().ok(),
+        _ => None,
+    })
+}
+
+/// A list of strings: an array (non-strings skipped), a single string, or an
+/// object (its keys).
+fn loose_strings<'de, D: Deserializer<'de>>(d: D) -> Result<Option<Vec<String>>, D::Error> {
+    Ok(match Value::deserialize(d)? {
+        Value::Array(a) => Some(
+            a.into_iter()
+                .filter_map(|v| match v {
+                    Value::String(s) => Some(s),
+                    _ => None,
+                })
+                .collect(),
+        ),
+        Value::String(s) => Some(vec![s]),
+        Value::Object(m) => Some(m.into_iter().map(|(k, _)| k).collect()),
+        _ => None,
+    })
+}
+
 fn loose_i64<'de, D: Deserializer<'de>>(d: D) -> Result<Option<i64>, D::Error> {
     Ok(match Value::deserialize(d)? {
         Value::Number(n) => n.as_i64().or_else(|| n.as_f64().map(|f| f as i64)),
@@ -187,6 +242,25 @@ pub struct LiveChange {
 struct CachedFile {
     stamp: (u64, i64),
     record: Option<LiveSession>,
+    /// Consecutive read/parse failures (reset by a good read).
+    failures: u8,
+}
+
+/// A stamp no file has: the entry is re-read on the next refresh.
+const RETRY_STAMP: (u64, i64) = (u64::MAX, i64::MIN);
+/// After this many consecutive failed reads of a changed pidfile its stamp is
+/// accepted (the last good record is kept) so a persistently broken file is
+/// not re-read, with its 50 ms torn-read retry, on every refresh.
+const MAX_READ_FAILURES: u8 = 3;
+
+/// The outcome of reading one pidfile.
+#[derive(Debug)]
+enum PidfileRead {
+    Parsed(Box<LiveSession>),
+    /// The file no longer exists.
+    Gone,
+    /// Unreadable or unparseable (a torn rewrite, or drift serde can't read).
+    Failed,
 }
 
 #[derive(Debug, Clone)]
@@ -305,17 +379,18 @@ pub fn permission_mode_from_argv(cmdline: &str) -> Option<String> {
 }
 
 /// Read and parse one pidfile, retrying once after 50 ms on a torn read.
-fn read_pidfile(path: &Path) -> Option<LiveSession> {
+fn read_pidfile(path: &Path) -> PidfileRead {
     for attempt in 0..2 {
         let text = match std::fs::read(path) {
             Ok(t) => t,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return PidfileRead::Gone,
             Err(e) => {
                 tracing::debug!(error = %e, path = %path.display(), "pidfile unreadable");
-                return None;
+                return PidfileRead::Failed;
             }
         };
         match serde_json::from_slice::<LiveSession>(&text) {
-            Ok(rec) => return Some(rec),
+            Ok(rec) => return PidfileRead::Parsed(Box::new(rec)),
             Err(e) if attempt == 0 => {
                 tracing::trace!(error = %e, "pidfile torn read; retrying");
                 std::thread::sleep(Duration::from_millis(50));
@@ -325,7 +400,7 @@ fn read_pidfile(path: &Path) -> Option<LiveSession> {
             }
         }
     }
-    None
+    PidfileRead::Failed
 }
 
 fn read_job(path: &Path, short: &str) -> Option<JobState> {
@@ -448,11 +523,11 @@ impl LiveRoster {
                 }
             }
         }
-        let parsed: Vec<(PathBuf, CachedFile)> = to_parse
+        let parsed: Vec<(PathBuf, (u64, i64), PidfileRead)> = to_parse
             .into_iter()
             .map(|(path, st)| {
-                let record = read_pidfile(&path);
-                (path, CachedFile { stamp: st, record })
+                let read = read_pidfile(&path);
+                (path, st, read)
             })
             .collect();
 
@@ -489,8 +564,42 @@ impl LiveRoster {
         let candidates: Vec<LiveSession> = {
             let mut g = self.lock();
             g.sessions_dir_seen = dir_seen;
-            for (p, c) in parsed {
-                g.files.insert(p, c);
+            for (p, st, read) in parsed {
+                match read {
+                    PidfileRead::Parsed(rec) => {
+                        g.files.insert(
+                            p,
+                            CachedFile {
+                                stamp: st,
+                                record: Some(*rec),
+                                failures: 0,
+                            },
+                        );
+                    }
+                    PidfileRead::Gone => {
+                        g.files.remove(&p);
+                    }
+                    PidfileRead::Failed => {
+                        // Keep the last good record: a torn rewrite must not
+                        // report the session gone. Retry on the next refresh
+                        // unless this keeps failing.
+                        let prior = g.files.remove(&p);
+                        let failures = prior.as_ref().map_or(0, |c| c.failures).saturating_add(1);
+                        let stamp = if failures >= MAX_READ_FAILURES {
+                            st
+                        } else {
+                            RETRY_STAMP
+                        };
+                        g.files.insert(
+                            p,
+                            CachedFile {
+                                stamp,
+                                record: prior.and_then(|c| c.record),
+                                failures,
+                            },
+                        );
+                    }
+                }
             }
             g.files.retain(|p, _| seen_paths.contains(p));
             for (p, c) in jobs_parsed {
@@ -635,13 +744,18 @@ impl LiveRoster {
         }
         g.jobs = jobs;
         g.live = next;
-        // Forget identity checks of processes that are gone.
-        let live_keys: HashSet<(u32, String)> = g
-            .live
+        // Forget identity checks of pidfiles that are gone. A negative check
+        // (a stale pidfile whose pid was reused) is kept for its TTL while
+        // the file exists, or `ps` would run again on every refresh.
+        let key_of = |s: &LiveSession| Some((s.pid?, s.proc_start.clone().unwrap_or_default()));
+        let file_keys: HashSet<(u32, String)> = g
+            .files
             .values()
-            .filter_map(|s| Some((s.pid?, s.proc_start.clone().unwrap_or_default())))
+            .filter_map(|c| c.record.as_ref())
+            .filter_map(key_of)
             .collect();
-        g.proc_checks.retain(|k, _| live_keys.contains(k));
+        let live_keys: HashSet<(u32, String)> = g.live.values().filter_map(key_of).collect();
+        g.proc_checks.retain(|k, _| file_keys.contains(k));
         g.argv_modes.retain(|k, _| live_keys.contains(k));
         drop(g);
         change.appeared.sort();
@@ -682,6 +796,80 @@ mod tests {
         assert!(spare.is_spare());
         let not_spare: LiveSession = serde_json::from_str(r#"{"spare":false}"#).unwrap();
         assert!(!not_spare.is_spare());
+    }
+
+    #[test]
+    fn pidfile_type_drift_degrades_per_field() {
+        // Every field in an unexpected shape: the record still parses, the
+        // drifted fields read loosely or as None.
+        let s: LiveSession = serde_json::from_str(
+            r#"{"pid":"42","sessionId":"abc","startedAt":1790338119067.5,
+                "statusUpdatedAt":"1790338119999","updatedAt":true,
+                "status":7,"cwd":["/x"],"peerFeatures":{"ask":true,"push":1},
+                "procStart":null,"pidDomain":"darwin"}"#,
+        )
+        .unwrap();
+        assert_eq!(s.pid, Some(42));
+        assert_eq!(s.session_id.as_deref(), Some("abc"));
+        assert_eq!(s.started_at, Some(1790338119067));
+        assert_eq!(s.status_updated_at, Some(1790338119999));
+        assert_eq!(s.updated_at, None);
+        assert_eq!(s.status.as_deref(), Some("7"));
+        assert_eq!(s.cwd, None);
+        let mut pf = s.peer_features.clone().unwrap();
+        pf.sort();
+        assert_eq!(pf, vec!["ask".to_string(), "push".to_string()]);
+        assert_eq!(s.proc_start, None);
+        assert_eq!(s.pid_domain.as_deref(), Some("darwin"));
+        // A negative or oversized pid is no pid.
+        let s: LiveSession = serde_json::from_str(r#"{"pid":-1}"#).unwrap();
+        assert_eq!(s.pid, None);
+        let s: LiveSession = serde_json::from_str(r#"{"pid":99999999999}"#).unwrap();
+        assert_eq!(s.pid, None);
+        let s: LiveSession = serde_json::from_str(r#"{"peerFeatures":["a",1,"b"]}"#).unwrap();
+        assert_eq!(
+            s.peer_features,
+            Some(vec!["a".to_string(), "b".to_string()])
+        );
+        // Round trip through our own serialization.
+        let back: LiveSession = serde_json::from_str(&serde_json::to_string(&s).unwrap()).unwrap();
+        assert_eq!(back, s);
+    }
+
+    #[test]
+    fn a_failed_reread_keeps_the_last_good_record() {
+        let tmp = tempfile::tempdir().unwrap();
+        let home = ClaudeHome::with_base(tmp.path());
+        let sessions = tmp.path().join("sessions");
+        let me = std::process::id();
+        let good =
+            |status: &str| format!(r#"{{"pid":{me},"sessionId":"{SID}","status":"{status}"}}"#);
+        write(&sessions, &format!("{me}.json"), &good("busy"));
+        let roster = LiveRoster::new();
+        assert_eq!(roster.refresh(&home).appeared, vec![SID.to_string()]);
+        // A torn rewrite (both attempts): the session is not reported gone.
+        write(&sessions, &format!("{me}.json"), "{\"pid\":");
+        let change = roster.refresh(&home);
+        assert!(change.gone.is_empty());
+        assert!(change.transitions.is_empty());
+        assert_eq!(
+            roster.get(SID).and_then(|s| s.status).as_deref(),
+            Some("busy")
+        );
+        // The rewrite completes: picked up (the failed stamp was not cached).
+        write(&sessions, &format!("{me}.json"), &good("idle"));
+        let change = roster.refresh(&home);
+        assert_eq!(change.transitions.len(), 1);
+        assert_eq!(change.transitions[0].to.as_deref(), Some("idle"));
+        // A persistently broken file keeps the last record and stops being
+        // re-read after a few attempts.
+        write(&sessions, &format!("{me}.json"), "not json at all");
+        for _ in 0..MAX_READ_FAILURES {
+            assert!(roster.refresh(&home).gone.is_empty());
+        }
+        let stamp = roster.lock().files.values().next().map(|c| c.stamp);
+        assert_ne!(stamp, Some(RETRY_STAMP));
+        assert!(roster.is_live(SID));
     }
 
     #[test]
@@ -810,6 +998,51 @@ mod tests {
         std::fs::remove_file(sessions.join(format!("{me}.json"))).unwrap();
         roster.refresh(&home);
         assert!(roster.get(SID).is_none());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_negative_identity_check_is_cached_while_the_pidfile_exists() {
+        let me = std::process::id();
+        if ps_field(me, "lstart").is_none() {
+            return; // no ps in this environment
+        }
+        let tmp = tempfile::tempdir().unwrap();
+        let home = ClaudeHome::with_base(tmp.path());
+        let sessions = tmp.path().join("sessions");
+        // A stale pidfile whose pid now belongs to another process (us).
+        write(
+            &sessions,
+            &format!("{me}.json"),
+            &format!(
+                r#"{{"pid":{me},"sessionId":"{SID}","pidDomain":"darwin","procStart":"Thu Jan  1 00:00:00 1970"}}"#
+            ),
+        );
+        let roster = LiveRoster::new();
+        roster.refresh(&home);
+        assert!(!roster.is_live(SID));
+        let key = (me, "Thu Jan  1 00:00:00 1970".to_string());
+        let checked_at = roster
+            .lock()
+            .proc_checks
+            .get(&key)
+            .map(|(ok, at)| (*ok, *at));
+        assert!(
+            matches!(checked_at, Some((false, _))),
+            "negative result kept"
+        );
+        // The next refresh reuses it rather than running `ps` again.
+        roster.refresh(&home);
+        let again = roster
+            .lock()
+            .proc_checks
+            .get(&key)
+            .map(|(ok, at)| (*ok, *at));
+        assert_eq!(again, checked_at);
+        // Once the pidfile is gone, so is the check.
+        std::fs::remove_file(sessions.join(format!("{me}.json"))).unwrap();
+        roster.refresh(&home);
+        assert!(roster.lock().proc_checks.is_empty());
     }
 
     #[cfg(unix)]

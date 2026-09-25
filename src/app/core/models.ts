@@ -187,6 +187,8 @@ export interface SessionSummary {
   costUsd?: number;
   /** The cost came from Claude's own final `cost-state` record. */
   costFinal?: boolean;
+  /** Priced cost written since local midnight (absent when none). */
+  costToday?: number;
   context?: ContextFill;
   messageCount: number;
   /** ≤ 240 chars */
@@ -509,6 +511,7 @@ export interface FleetSummary {
   working: number;
   agentsRunning: number;
   needYou: number;
+  /** Priced cost written since local midnight, across sessions. */
   costToday?: number;
 }
 

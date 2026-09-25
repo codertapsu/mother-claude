@@ -505,20 +505,53 @@ pub struct UsageAcc {
     pub curve: Vec<(i64, f64)>,
     #[serde(skip_serializing_if = "is_zero_u64")]
     pub curve_stride: u64,
+    /// `(newest folded ts, cumulative folded cost)` as of the last fold of a
+    /// timestamped message. The curve is sampled every `curve_stride` folds,
+    /// so without this the unsampled tail would always count as "after" a
+    /// cutoff that follows every folded message.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_fold: Option<(i64, f64)>,
+    /// `(15-minute bucket start, cumulative folded cost before the bucket's
+    /// first fold)` for the buckets folded in the last [`RECENT_KEEP_MS`]
+    /// (sparse: only buckets that saw a message). Gives "cost since local
+    /// midnight" exactly: every zone's midnight falls on a quarter hour.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub recent: Vec<(i64, f64)>,
+}
+
+/// Below this (micro-dollar rounding of curve samples), a remainder is zero.
+const COST_EPSILON: f64 = 1e-6;
+/// Granularity of [`UsageAcc::recent`].
+pub const COST_BUCKET_MS: i64 = 15 * 60 * 1000;
+/// How far back [`UsageAcc::recent`] reaches (a day, plus DST slack).
+pub const RECENT_KEEP_MS: i64 = 26 * 60 * 60 * 1000;
+
+fn micro(c: f64) -> f64 {
+    (c * 1e6).round() / 1e6
 }
 
 impl UsageAcc {
     fn fold(&mut self, m: OpenMsg) {
+        if let Some(ts) = m.ts {
+            let bucket = ts - ts.rem_euclid(COST_BUCKET_MS);
+            // Out-of-order (older) messages count in the current bucket.
+            if self.recent.last().is_none_or(|(b, _)| *b < bucket) {
+                self.recent.push((bucket, micro(self.folded.cost)));
+                let keep_from = bucket - RECENT_KEEP_MS;
+                self.recent.retain(|(b, _)| *b >= keep_from);
+            }
+        }
         self.folded.add(&m.totals);
         if m.after_cost_state {
             self.after.add(&m.totals);
         }
         let stride = self.curve_stride.max(1);
         if let Some(ts) = m.ts {
+            let newest = self.last_fold.map_or(ts, |(t, _)| t.max(ts));
+            self.last_fold = Some((newest, micro(self.folded.cost)));
             if self.folded.messages.is_multiple_of(stride) {
                 // Micro-dollar precision keeps checkpoints small.
-                self.curve
-                    .push((ts, (self.folded.cost * 1e6).round() / 1e6));
+                self.curve.push((ts, micro(self.folded.cost)));
                 if self.curve.len() > CURVE_POINTS {
                     let kept: Vec<(i64, f64)> =
                         self.curve.iter().skip(1).step_by(2).copied().collect();
@@ -564,6 +597,35 @@ impl UsageAcc {
         }
     }
 
+    /// Forget [`recent`](Self::recent) buckets that start before `before`
+    /// (checkpoints: history files carry none).
+    pub fn forget_recent_before(&mut self, before: i64) {
+        self.recent.retain(|(b, _)| *b >= before);
+    }
+
+    /// Priced cost of messages written at or after `since`, which must lie
+    /// within [`RECENT_KEEP_MS`] of now (e.g. local midnight). Exact when
+    /// `since` is on a quarter hour.
+    pub fn cost_since(&self, since: i64) -> f64 {
+        let folded = match self
+            .recent
+            .iter()
+            .find(|(b, _)| *b + COST_BUCKET_MS > since)
+        {
+            Some((_, before)) => self.folded.cost - before,
+            // No folded message since then.
+            None => 0.0,
+        };
+        let folded = if folded < COST_EPSILON { 0.0 } else { folded };
+        folded
+            + self
+                .open
+                .iter()
+                .filter(|m| m.ts.is_none_or(|t| t >= since))
+                .map(|m| m.totals.cost)
+                .sum::<f64>()
+    }
+
     pub fn total(&self) -> Totals {
         let mut t = self.folded.clone();
         for m in &self.open {
@@ -582,16 +644,25 @@ impl UsageAcc {
     }
 
     /// Priced cost of messages written after `ts` (approximated from the
-    /// cost curve for folded messages; exact for open ones).
+    /// cost curve for folded messages; exact for open ones, and exact (zero)
+    /// when every timestamped folded message precedes `ts`).
     pub fn cost_after(&self, ts: i64) -> f64 {
-        let before = self
-            .curve
-            .iter()
-            .rev()
-            .find(|(t, _)| *t <= ts)
-            .map(|(_, c)| *c)
-            .unwrap_or(0.0);
-        let folded_after = (self.folded.cost - before).max(0.0);
+        let before = match self.last_fold {
+            // Every timestamped folded message is at or before `ts`: only
+            // untimestamped ones folded since then can be "after".
+            Some((newest, cost)) if newest <= ts => cost,
+            _ => self
+                .curve
+                .iter()
+                .rev()
+                .find(|(t, _)| *t <= ts)
+                .map(|(_, c)| *c)
+                .unwrap_or(0.0),
+        };
+        let mut folded_after = self.folded.cost - before;
+        if folded_after < COST_EPSILON {
+            folded_after = 0.0;
+        }
         folded_after
             + self
                 .open
@@ -799,8 +870,12 @@ const PENDING_WITH_INPUT: usize = 4;
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct Aggregates {
+    /// The latest record's cwd (the shell may have moved during the session).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cwd: Option<String>,
+    /// The first record's cwd (the directory the session was launched in).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub first_cwd: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub git_branch: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1011,6 +1086,9 @@ impl Aggregates {
         let ty = rec.ty.get().unwrap_or("").to_string();
         // Identity fields ride on most records.
         if let Some(c) = rec.cwd.get().filter(|c| !c.is_empty()) {
+            if self.first_cwd.is_none() {
+                self.first_cwd = Some(c.to_string());
+            }
             if self.cwd.as_deref() != Some(c) {
                 self.cwd = Some(c.to_string());
             }
@@ -1094,13 +1172,17 @@ impl Aggregates {
                         if let Some(note) = parse_task_notification(&text) {
                             self.complete_task(&note, ts);
                         }
+                        // A content-less enqueue is a prompt whose content
+                        // is not a plain string (e.g. with an image).
                         self.queue.push(QueuedPrompt {
                             notification: text.contains("<task-notification>"),
                             text: clip_chars(&text, TEXT_MAX),
                             ts,
                         });
                         if self.queue.len() > QUEUE_CAP {
-                            self.queue.remove(0);
+                            // Stale notifications go first.
+                            let i = self.queue.iter().position(|q| q.notification).unwrap_or(0);
+                            self.queue.remove(i);
                         }
                     }
                     Some("dequeue") | Some("remove") | Some("popAll") => {
@@ -1113,7 +1195,14 @@ impl Aggregates {
                         } else if rec.operation.is("popAll") {
                             self.queue.clear();
                         } else if !self.queue.is_empty() {
-                            self.queue.remove(0);
+                            // `dequeue` never names what it takes. The CLI
+                            // takes prompts typed while busy before task
+                            // notifications, so take the oldest prompt, else
+                            // the oldest notification (taking the head let a
+                            // stale notification absorb a prompt's dequeue,
+                            // leaving the prompt "queued" forever).
+                            let i = self.queue.iter().position(|q| !q.notification).unwrap_or(0);
+                            self.queue.remove(i);
                         }
                     }
                     _ => {}
@@ -1674,12 +1763,30 @@ impl Aggregates {
         }
     }
 
+    /// The session's project directory: the cwd whose encoding names the
+    /// `projects/<enc>` directory holding the transcript (where the CLI looks
+    /// it up on `--resume`), else the first record's cwd. The latest cwd
+    /// drifts when the shell moves during the session.
+    pub fn project_cwd(&self, project_dir_name: Option<&str>) -> Option<&str> {
+        let candidates = [self.first_cwd.as_deref(), self.cwd.as_deref()];
+        project_dir_name
+            .and_then(|enc| {
+                candidates
+                    .into_iter()
+                    .flatten()
+                    .find(|c| crate::claude::home::encode_cwd(c) == enc)
+            })
+            .or(self.first_cwd.as_deref())
+            .or(self.cwd.as_deref())
+    }
+
     /// A copy without the large lists (tasks, agent calls, workflow runs,
     /// files changed) and without the usage accumulator — what a summary
     /// needs, cheap enough to take on every refresh.
     pub fn light_clone(&self) -> Aggregates {
         Aggregates {
             cwd: self.cwd.clone(),
+            first_cwd: self.first_cwd.clone(),
             git_branch: self.git_branch.clone(),
             version: self.version.clone(),
             entrypoint: self.entrypoint.clone(),
@@ -1861,6 +1968,17 @@ fn memchr_nl(s: &[u8]) -> Option<usize> {
 }
 
 impl FileIndex {
+    /// [`Aggregates::project_cwd`] for this file's `projects/<enc>` parent
+    /// (main transcripts).
+    pub fn project_cwd(&self) -> Option<&str> {
+        let enc = self
+            .path
+            .parent()
+            .and_then(|d| d.file_name())
+            .and_then(|n| n.to_str());
+        self.agg.project_cwd(enc)
+    }
+
     pub fn new(path: PathBuf, kind: FileKind, session_id: &str) -> Self {
         let name = path
             .file_name()
@@ -2058,6 +2176,139 @@ mod tests {
         assert_eq!(after.messages, 1);
         assert_eq!(after.output, 200);
         assert_eq!(fi.agg.usage.total().messages, 2);
+    }
+
+    /// One priced message costing a dollar.
+    fn dollar() -> Totals {
+        Totals {
+            cost: 1.0,
+            priced: 1,
+            messages: 1,
+            ..Totals::default()
+        }
+    }
+
+    #[test]
+    fn project_cwd_ignores_a_drifted_shell_cwd() {
+        let rec = |cwd: &str| {
+            format!(r#"{{"type":"user","cwd":"{cwd}","message":{{"content":"x"}}}}"#) + "\n"
+        };
+        let dir = tempfile::tempdir().unwrap();
+        let proj = dir.path().join("-w-zira-zira-client");
+        std::fs::create_dir_all(&proj).unwrap();
+        let path = proj.join("s.jsonl");
+        std::fs::write(
+            &path,
+            rec("/w/zira/zira-client") + &rec("/w/zira/zira-server") + &rec("/w/zira/zira-server"),
+        )
+        .unwrap();
+        let mut fi = FileIndex::new(path, FileKind::Main, "s");
+        fi.scan(None).unwrap();
+        assert_eq!(fi.agg.cwd.as_deref(), Some("/w/zira/zira-server"));
+        assert_eq!(fi.agg.first_cwd.as_deref(), Some("/w/zira/zira-client"));
+        assert_eq!(fi.project_cwd(), Some("/w/zira/zira-client"));
+        // The latest cwd wins when it is the one naming the project dir.
+        let a = Aggregates {
+            first_cwd: Some("/a".into()),
+            cwd: Some("/b".into()),
+            ..Default::default()
+        };
+        assert_eq!(a.project_cwd(Some("-b")), Some("/b"));
+        // No match (or no dir): the first cwd.
+        assert_eq!(a.project_cwd(Some("-c")), Some("/a"));
+        assert_eq!(a.project_cwd(None), Some("/a"));
+    }
+
+    #[test]
+    fn cost_after_a_cutoff_past_every_message_is_zero() {
+        // Enough messages that the curve is thinned and its last sample
+        // trails the folded total.
+        for n in [17_i64, 250] {
+            let mut u = UsageAcc::default();
+            for i in 1..=n {
+                u.record(&format!("m{i}"), dollar(), Some(i * 1000), false);
+            }
+            u.compact();
+            assert_eq!(u.total().messages, n as u64);
+            // Only the newest (open) message is at n*1000.
+            assert_eq!(u.cost_after(n * 1000), 0.0, "n={n}");
+            assert_eq!(u.cost_after(n * 1000 + 1), 0.0, "n={n}");
+            // Everything is after a cutoff before the first message.
+            assert!((u.cost_after(0) - n as f64).abs() < 1e-9, "n={n}");
+            // The folded messages all precede the open one.
+            assert!((u.cost_after(n * 1000 - 1) - 1.0).abs() < 1e-9, "n={n}");
+            // A checkpoint round trip keeps the answer.
+            let back: UsageAcc = serde_json::from_str(&serde_json::to_string(&u).unwrap()).unwrap();
+            assert_eq!(back.cost_after(n * 1000), 0.0, "n={n}");
+        }
+    }
+
+    #[test]
+    fn cost_after_ignores_out_of_order_and_counts_untimestamped_tail() {
+        let mut u = UsageAcc::default();
+        u.record("a", dollar(), Some(5_000), false);
+        u.record("b", dollar(), Some(3_000), false);
+        u.close_all();
+        // Newest folded ts is 5000, whatever the fold order.
+        assert_eq!(u.cost_after(5_000), 0.0);
+        // An untimestamped message folded later is "after" any cutoff.
+        u.record("c", dollar(), None, false);
+        u.close_all();
+        assert!((u.cost_after(10_000) - 1.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn cost_since_counts_only_messages_from_that_point() {
+        const H: i64 = 60 * 60 * 1000;
+        let midnight = 1_790_294_400_000_i64; // a quarter-hour boundary
+        assert_eq!(midnight % COST_BUCKET_MS, 0);
+        let mut u = UsageAcc::default();
+        // Yesterday: 300 messages across the evening (thins the curve).
+        for i in 0..300 {
+            u.record(
+                &format!("y{i}"),
+                dollar(),
+                Some(midnight - 5 * H + i * 60_000),
+                false,
+            );
+        }
+        // One just before midnight, in the same quarter hour.
+        u.record("late", dollar(), Some(midnight - 1), false);
+        // Today: 7 messages.
+        for i in 0..7 {
+            u.record(
+                &format!("t{i}"),
+                dollar(),
+                Some(midnight + H + i * 60_000),
+                false,
+            );
+        }
+        assert_eq!(u.total().messages, 308);
+        assert!((u.cost_since(midnight) - 7.0).abs() < 1e-9);
+        u.compact();
+        assert!((u.cost_since(midnight) - 7.0).abs() < 1e-9);
+        // Nothing yet today.
+        assert_eq!(u.cost_since(midnight + 2 * H), 0.0);
+        // Buckets stay bounded to about a day.
+        assert!(u
+            .recent
+            .iter()
+            .all(|(b, _)| *b >= midnight + H - RECENT_KEEP_MS));
+        // A history checkpoint drops them; with none left nothing is "today".
+        let mut old = u.clone();
+        old.close_all();
+        old.forget_recent_before(midnight + 3 * H);
+        assert!(old.recent.is_empty());
+        assert_eq!(old.cost_since(midnight + 3 * H), 0.0);
+    }
+
+    #[test]
+    fn old_checkpoints_without_last_fold_still_load() {
+        let u: UsageAcc =
+            serde_json::from_str(r#"{"folded":{"cost":2.0,"messages":2},"curve":[[1,1.0]]}"#)
+                .unwrap();
+        assert!(u.last_fold.is_none());
+        assert!((u.cost_after(1) - 1.0).abs() < 1e-9);
     }
 
     #[test]
@@ -2287,6 +2538,51 @@ mod tests {
         assert_eq!(t("b1"), "completed");
         assert_eq!(t("b2"), "stopped");
         assert!(fi.agg.queue.is_empty());
+    }
+
+    #[test]
+    fn contentless_dequeues_take_prompts_before_notifications() {
+        let q = |op: &str, content: Option<&str>| {
+            let c = content.map_or("null".to_string(), |c| serde_json::to_string(c).unwrap());
+            format!(r#"{{"type":"queue-operation","operation":"{op}","content":{c}}}"#) + "\n"
+        };
+        let note = "<task-notification>\n<task-id>zz</task-id>\n</task-notification>";
+        // A stale notification at the head, then a content-less prompt
+        // (+T +N -N), then a text prompt taken by a content-less dequeue
+        // (+H -N), as the CLI writes them.
+        let lines = q("enqueue", Some(note))
+            + &q("enqueue", None)
+            + &q("dequeue", None)
+            + &q("enqueue", Some("do this next"))
+            + &q("dequeue", None);
+        let fi = scan_str(&lines);
+        let queue = &fi.agg.queue;
+        assert_eq!(
+            queue.iter().filter(|x| !x.notification).count(),
+            0,
+            "{queue:?}"
+        );
+        assert_eq!(queue.len(), 1);
+        assert!(queue[0].notification);
+        // With only notifications left, a dequeue takes the oldest.
+        let fi = scan_str(&(q("enqueue", Some(note)) + &q("dequeue", None)));
+        assert!(fi.agg.queue.is_empty());
+    }
+
+    #[test]
+    fn a_full_queue_drops_stale_notifications_first() {
+        let mut lines =
+            String::from(r#"{"type":"queue-operation","operation":"enqueue","content":"keep me"}"#)
+                + "\n";
+        for i in 0..QUEUE_CAP {
+            lines += &format!(
+                r#"{{"type":"queue-operation","operation":"enqueue","content":"<task-notification><task-id>t{i}</task-id></task-notification>"}}"#
+            );
+            lines += "\n";
+        }
+        let fi = scan_str(&lines);
+        assert_eq!(fi.agg.queue.len(), QUEUE_CAP);
+        assert_eq!(fi.agg.queue[0].text, "keep me");
     }
 
     #[test]

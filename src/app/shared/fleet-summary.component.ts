@@ -9,8 +9,8 @@ import { formatTokens, formatUsd } from './util';
 /**
  * "3 working · 7 agents running · 2 need you · $4.12 today" across every
  * session. Each part is a shortcut (a list filter, the Agents page). Cost is
- * the sum for sessions active since local midnight, falling back to tokens
- * when no session's price is known.
+ * what was priced since local midnight (each session's `costToday`, not its
+ * lifetime cost), falling back to tokens when no session's price is known.
  */
 @Component({
   selector: 'mc-fleet-summary',
@@ -114,11 +114,11 @@ export class FleetSummaryComponent {
   protected readonly today = computed(() => {
     const list = this.todays();
     const priced = list.filter((s) => typeof s.costUsd === 'number');
-    if (priced.length) return formatUsd(priced.reduce((n, s) => n + (s.costUsd ?? 0), 0));
+    if (priced.length) return formatUsd(priced.reduce((n, s) => n + (s.costToday ?? 0), 0));
     const tokens = list.reduce((n, s) => n + (s.usage?.input ?? 0) + (s.usage?.output ?? 0), 0);
     return `${formatTokens(tokens)} tokens`;
   });
   protected readonly costTitle = computed(
-    () => `Across ${this.todays().length} sessions active since midnight (estimated)`,
+    () => `Spent since midnight across ${this.todays().length} sessions active today (estimated)`,
   );
 }

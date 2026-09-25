@@ -724,12 +724,10 @@ async fn stored_thread(
     state: &AppState,
     thread_id: &str,
 ) -> Option<crate::claude::TranscriptSummary> {
-    let home = state.home.clone();
+    let state = state.clone();
     let id = thread_id.to_string();
     tokio::task::spawn_blocking(move || {
-        crate::claude::scan_transcripts(&home)
-            .into_iter()
-            .find(|t| t.id == id)
+        crate::claude::stored_transcript(&state.index, &state.home, &id)
     })
     .await
     .ok()

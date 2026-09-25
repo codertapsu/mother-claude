@@ -229,6 +229,43 @@ pub fn cost_view(state: &AppState, id: &str, live: bool) -> CostView {
     }
 }
 
+/// Priced cost of a session's messages (main + subagent files) written at or
+/// after `since` (within the last day, e.g. local midnight). The `cost-state`
+/// baseline cannot be split by day, so this is the priced estimate. `None`
+/// when the main transcript is not indexed.
+pub fn cost_since(state: &AppState, id: &str, since: i64) -> Option<f64> {
+    let main = state
+        .index
+        .with_main(id, |f| f.agg.usage.cost_since(since))?;
+    let subs: f64 = state
+        .index
+        .session_files(id)
+        .iter()
+        .flat_map(|f| f.subagents.values())
+        .filter_map(|a| {
+            state
+                .index
+                .with_file(&a.path, |f| f.agg.usage.cost_since(since))
+        })
+        .sum();
+    Some(((main + subs) * 1e6).round() / 1e6)
+}
+
+/// Local midnight of the day containing `now_ms` (epoch ms).
+pub fn local_midnight_ms(now_ms: i64) -> i64 {
+    use chrono::TimeZone;
+    chrono::Local
+        .timestamp_millis_opt(now_ms)
+        .single()
+        .and_then(|now| {
+            now.date_naive()
+                .and_hms_opt(0, 0, 0)
+                .and_then(|d| d.and_local_timezone(chrono::Local).earliest())
+        })
+        .map(|d| d.timestamp_millis())
+        .unwrap_or(now_ms - 24 * 3600 * 1000)
+}
+
 fn project_name(cwd: &str) -> String {
     std::path::Path::new(cwd)
         .file_name()
@@ -281,6 +318,122 @@ pub fn observed_item(id: &str, tool: &PendingTool, waiting_for: Option<&str>) ->
         plan,
         answerable: false,
         created_at: tool.ts.unwrap_or_default(),
+        ..Default::default()
+    }
+}
+
+/// Whether a tool call delegates to a subagent (its result arrives only when
+/// the subagent is done).
+fn is_delegation(t: &PendingTool) -> bool {
+    matches!(t.name.as_str(), "Agent" | "Task")
+}
+
+/// The pending tool a foreground subagent is blocked on, with its agent id:
+/// the newest pending tool of the subagent the `call` launched or of one of
+/// its nested agents. When the tracker has not mapped that subagent yet, any
+/// subagent file but the known background and workflow agents (whose running
+/// tools are not what the session waits on).
+fn subagent_waiting_tool(
+    state: &AppState,
+    id: &str,
+    files: Option<&super::index::SessionFiles>,
+    call: &PendingTool,
+    process_started: Option<i64>,
+) -> Option<(PendingTool, String)> {
+    let files = files?;
+    let agents = state.agents.for_session(id).0;
+    let allowed: HashSet<&str> = match agents
+        .iter()
+        .find(|a| a.tool_use_id.as_deref() == Some(call.id.as_str()))
+    {
+        Some(root) => {
+            let mut tree: HashSet<&str> = HashSet::from([root.id.as_str()]);
+            loop {
+                let before = tree.len();
+                for a in &agents {
+                    if a.parent_id.as_deref().is_some_and(|p| tree.contains(p)) {
+                        tree.insert(a.id.as_str());
+                    }
+                }
+                if tree.len() == before {
+                    break tree;
+                }
+            }
+        }
+        None => {
+            let elsewhere: HashSet<&str> = agents
+                .iter()
+                .filter(|a| a.background || a.workflow_run_id.is_some())
+                .map(|a| a.id.as_str())
+                .collect();
+            files
+                .subagents
+                .keys()
+                .map(String::as_str)
+                .filter(|a| !elsewhere.contains(a))
+                .collect()
+        }
+    };
+    files
+        .subagents
+        .values()
+        .filter(|a| allowed.contains(a.agent_id.as_str()))
+        .filter_map(|a| {
+            state
+                .index
+                .with_file(&a.path, |f| {
+                    f.agg
+                        .pending_tools
+                        .iter()
+                        .filter(|t| t.name != "TodoWrite" && !is_delegation(t))
+                        .filter(|t| {
+                            process_started.is_none_or(|s| t.ts.is_none_or(|ts| ts + 5_000 >= s))
+                        })
+                        .max_by_key(|t| t.ts)
+                        .cloned()
+                })
+                .flatten()
+                .map(|t| (t, a.agent_id.clone()))
+        })
+        .max_by_key(|(t, _)| t.ts)
+}
+
+/// What a waiting foreign session is waiting on: the newest current pending
+/// tool, or, when that is a foreground subagent call, the tool its subagent
+/// is blocked on (`Err(agent call)` when that cannot be found).
+fn waiting_tool<'a>(
+    state: &AppState,
+    id: &str,
+    files: Option<&super::index::SessionFiles>,
+    current: &[&'a PendingTool],
+    process_started: Option<i64>,
+) -> Option<Result<(PendingTool, Option<String>), &'a PendingTool>> {
+    let last = *current.last()?;
+    if !is_delegation(last) {
+        return Some(Ok((last.clone(), None)));
+    }
+    Some(
+        match subagent_waiting_tool(state, id, files, last, process_started) {
+            Some((t, agent)) => Ok((t, Some(agent))),
+            None => Err(last),
+        },
+    )
+}
+
+/// The observed item for a foreground subagent that waits on something we
+/// could not find: no tool name (it is not the `Agent` call that waits).
+fn observed_subagent_item(id: &str, call: &PendingTool, waiting_for: Option<&str>) -> PendingItem {
+    PendingItem {
+        id: format!("observed:{}", call.id),
+        session_id: id.to_string(),
+        kind: PendingKind::Permission,
+        source: PendingSource::Observed,
+        title: "A subagent is waiting for approval".to_string(),
+        detail: Some(call.summary.clone())
+            .filter(|s| !s.is_empty())
+            .or_else(|| waiting_for.map(str::to_string)),
+        answerable: false,
+        created_at: call.ts.unwrap_or_default(),
         ..Default::default()
     }
 }
@@ -353,10 +506,18 @@ pub fn build_one(state: &AppState, id: &str, ctx: &BuildCtx) -> Option<SessionSu
     let live = pid.is_some() || owned_handle || bridge_thread || legacy_live;
     let agg = main.as_ref().map(|m| &m.agg);
 
+    let project_enc = files
+        .as_ref()
+        .and_then(|f| f.project_dir.as_ref())
+        .and_then(|d| d.file_name())
+        .and_then(|n| n.to_str());
     let cwd = pid
         .as_ref()
         .and_then(|p| p.cwd.clone())
-        .or_else(|| agg.and_then(|a| a.cwd.clone()))
+        .or_else(|| {
+            agg.and_then(|a| a.project_cwd(project_enc))
+                .map(str::to_string)
+        })
         .or_else(|| ctx.owned_meta.get(id).map(|(c, _)| c.clone()))
         .or_else(|| job.as_ref().and_then(|j| j.cwd.clone()))
         .or_else(|| previous.map(|p| p.cwd.clone()).filter(|c| !c.is_empty()))
@@ -398,29 +559,38 @@ pub fn build_one(state: &AppState, id: &str, ctx: &BuildCtx) -> Option<SessionSu
         .is_some_and(|p| p.status.as_deref() == Some("waiting"));
     let process_started = pid.as_ref().and_then(|p| p.started_at);
     let pending_tools: &[PendingTool] = agg.map(|a| a.pending_tools.as_slice()).unwrap_or(&[]);
+    let current: Vec<&PendingTool> = pending_tools
+        .iter()
+        .filter(|t| process_started.is_none_or(|s| t.ts.is_none_or(|ts| ts + 5_000 >= s)))
+        .filter(|t| t.name != "TodoWrite")
+        .collect();
+    // What a waiting session waits on (a foreground subagent's own tool
+    // rather than the `Agent` call that delegated to it).
+    let waiting_on = if live && waiting {
+        waiting_tool(state, id, files.as_ref(), &current, process_started)
+    } else {
+        None
+    };
     if live && !owned && store.is_empty() {
-        let current: Vec<&PendingTool> = pending_tools
-            .iter()
-            .filter(|t| process_started.is_none_or(|s| t.ts.is_none_or(|ts| ts + 5_000 >= s)))
-            .filter(|t| t.name != "TodoWrite")
-            .collect();
-        let candidate = if waiting {
-            current.last().copied()
+        let waiting_for = pid.as_ref().and_then(|p| p.waiting_for.as_deref());
+        if waiting {
+            match &waiting_on {
+                Some(Ok((t, agent))) => {
+                    let mut item = observed_item(id, t, waiting_for);
+                    item.agent_id = agent.clone();
+                    observed.push(item);
+                }
+                Some(Err(call)) => observed.push(observed_subagent_item(id, call, waiting_for)),
+                None => {}
+            }
         } else if !state.live.has_sessions_dir() {
-            current
+            if let Some(t) = current
                 .iter()
                 .rev()
                 .find(|t| matches!(t.name.as_str(), "AskUserQuestion" | "ExitPlanMode"))
-                .copied()
-        } else {
-            None
-        };
-        if let Some(t) = candidate {
-            observed.push(observed_item(
-                id,
-                t,
-                pid.as_ref().and_then(|p| p.waiting_for.as_deref()),
-            ));
+            {
+                observed.push(observed_item(id, t, waiting_for));
+            }
         }
     }
     state.activity.set_observed(id, observed.clone());
@@ -456,6 +626,10 @@ pub fn build_one(state: &AppState, id: &str, ctx: &BuildCtx) -> Option<SessionSu
         job: job.as_ref(),
         has_transcript: main.is_some(),
         process_started,
+        waiting_on: waiting_on.as_ref().map(|w| match w {
+            Ok((t, _)) => Some(t),
+            Err(_) => None,
+        }),
     });
 
     // Model + context.
@@ -517,8 +691,22 @@ pub fn build_one(state: &AppState, id: &str, ctx: &BuildCtx) -> Option<SessionSu
     .into_iter()
     .flatten()
     .max();
+    let midnight = local_midnight_ms(ctx.now);
+    let cost_today = last_activity_at
+        .filter(|t| *t >= midnight)
+        .and_then(|_| cost_since(state, id, midnight))
+        .filter(|c| *c > 0.0);
+    // Nothing is queued in a process that is gone, nor carried over from an
+    // earlier process of the same session.
     let queued_cli = agg
-        .map(|a| a.queue.iter().filter(|q| !q.notification).count() as u32)
+        .filter(|_| live)
+        .map(|a| {
+            a.queue
+                .iter()
+                .filter(|q| !q.notification)
+                .filter(|q| process_started.is_none_or(|s| q.ts.is_none_or(|ts| ts + 5_000 >= s)))
+                .count() as u32
+        })
         .unwrap_or(0);
     let queued = queued_cli + crate::server::hooks::queued(state, id).len() as u32;
 
@@ -596,6 +784,7 @@ pub fn build_one(state: &AppState, id: &str, ctx: &BuildCtx) -> Option<SessionSu
         usage: cost.usage,
         cost_usd: cost.cost,
         cost_final: cost.final_.then_some(true),
+        cost_today,
         cost_estimated: cost.estimated.then_some(true),
         usage_partial: (cost.partial && main.is_some()
             || main.as_ref().is_some_and(|m| !m.complete))
@@ -836,6 +1025,120 @@ mod tests {
         );
         assert_eq!(surface_for(false, None, None, true), Surface::Background);
         assert_eq!(surface_for(false, None, None, false), Surface::Unknown);
+    }
+
+    #[test]
+    fn a_waiting_foreground_subagent_is_observed_by_its_own_tool() {
+        let tmp = tempfile::tempdir().unwrap();
+        let home = crate::claude::ClaudeHome::with_base(tmp.path());
+        let sid = "e2b6972f-7126-4f6e-a490-5ce75cb6a9f9";
+        let me = std::process::id();
+        let now = chrono::Utc::now().timestamp_millis();
+        let iso = |ms: i64| {
+            chrono::DateTime::from_timestamp_millis(ms)
+                .unwrap()
+                .to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
+        };
+        std::fs::create_dir_all(tmp.path().join("sessions")).unwrap();
+        std::fs::write(
+            tmp.path().join(format!("sessions/{me}.json")),
+            format!(
+                r#"{{"pid":{me},"sessionId":"{sid}","cwd":"/p","startedAt":{},"status":"waiting","waitingFor":"permission prompt"}}"#,
+                now - 60_000
+            ),
+        )
+        .unwrap();
+        let proj = tmp.path().join("projects/-p");
+        std::fs::create_dir_all(proj.join(sid).join("subagents")).unwrap();
+        // Main: a foreground Agent call without a result.
+        std::fs::write(
+            proj.join(format!("{sid}.jsonl")),
+            format!(
+                r#"{{"type":"assistant","timestamp":"{}","message":{{"id":"m1","model":"claude-haiku-4-5","stop_reason":"tool_use","content":[{{"type":"tool_use","id":"tu_agent","name":"Agent","input":{{"description":"Explore the repo"}}}}],"usage":{{"input_tokens":1,"output_tokens":1}}}}}}"#,
+                iso(now - 30_000)
+            ) + "\n",
+        )
+        .unwrap();
+        let sub = proj.join(sid).join("subagents/agent-aexp.jsonl");
+        let sub_line = |tool: &str| {
+            format!(
+                r#"{{"type":"assistant","isSidechain":true,"timestamp":"{}","message":{{"id":"s1","model":"claude-haiku-4-5","content":[{tool}],"usage":{{"input_tokens":1,"output_tokens":1}}}}}}"#,
+                iso(now - 10_000)
+            ) + "\n"
+        };
+        // The subagent is blocked on a Bash call.
+        std::fs::write(
+            &sub,
+            sub_line(r#"{"type":"tool_use","id":"stu1","name":"Bash","input":{"command":"rm -rf build","description":"Clean build"}}"#),
+        )
+        .unwrap();
+        std::fs::write(
+            sub.with_file_name("agent-aexp.meta.json"),
+            r#"{"agentType":"Explore","toolUseId":"tu_agent","requestShape":"foreground"}"#,
+        )
+        .unwrap();
+        // A background agent busy with a newer (running, not waiting) tool.
+        std::fs::write(
+            sub.with_file_name("agent-abg.jsonl"),
+            sub_line(r#"{"type":"tool_use","id":"btu1","name":"Grep","input":{"pattern":"x"}}"#)
+                .replace(&iso(now - 10_000), &iso(now - 1_000)),
+        )
+        .unwrap();
+        std::fs::write(
+            sub.with_file_name("agent-abg.meta.json"),
+            r#"{"agentType":"general-purpose","toolUseId":"tu_bg","requestShape":"background"}"#,
+        )
+        .unwrap();
+        // A fresh state over the home, fully indexed.
+        let load = || {
+            let state = crate::state::Inner::new(
+                home.clone(),
+                crate::state::ServerConfig {
+                    host: "127.0.0.1".into(),
+                    port: 0,
+                },
+                crate::server::auth::Auth::ephemeral(),
+            );
+            state.live.refresh(&home);
+            state.index.discover(&home);
+            state.index.queue_all();
+            state.index.drain_jobs_blocking();
+            state.agents.recompute(
+                &state.index,
+                sid,
+                &crate::claude::agents::AgentCtx {
+                    live: true,
+                    now,
+                    ..Default::default()
+                },
+            );
+            state
+        };
+        let ctx = BuildCtx {
+            now,
+            ..Default::default()
+        };
+        let state = load();
+        let s = build_one(&state, sid, &ctx).unwrap();
+        assert_eq!(s.status, SessionStatus::Waiting);
+        let p = &s.pending[0];
+        assert_eq!(p.tool_name.as_deref(), Some("Bash"));
+        assert_eq!(p.agent_id.as_deref(), Some("aexp"));
+        assert_eq!(s.activity.tool.as_deref(), Some("Bash"));
+        assert_eq!(s.activity.detail.as_deref(), Some("Clean build"));
+        let item = &state.activity.observed(sid)[0];
+        assert_eq!(item.title, "Allow Bash?");
+        assert_eq!(item.agent_id.as_deref(), Some("aexp"));
+
+        // Nothing pending in the subagent: a generic item, never "Allow Agent?".
+        std::fs::write(&sub, sub_line(r#"{"type":"text","text":"thinking"}"#)).unwrap();
+        let state = load();
+        let s = build_one(&state, sid, &ctx).unwrap();
+        let item = &state.activity.observed(sid)[0];
+        assert_eq!(item.title, "A subagent is waiting for approval");
+        assert_eq!(item.tool_name, None);
+        assert_eq!(item.detail.as_deref(), Some("Explore the repo"));
+        assert_eq!(s.activity.tool, None);
     }
 
     #[test]

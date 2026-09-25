@@ -342,6 +342,11 @@ pub struct Inputs<'a> {
     /// Earliest timestamp that belongs to the current process (pidfile
     /// `startedAt`): older tool uses are leftovers of a previous run.
     pub process_started: Option<i64>,
+    /// Resolved by the caller for a waiting session: `Some(Some(tool))` is
+    /// the tool it waits on (a foreground subagent's own tool rather than
+    /// the `Agent` call), `Some(None)` means a subagent waits on something
+    /// unknown, `None` falls back to the newest main-chain tool.
+    pub waiting_on: Option<Option<&'a PendingTool>>,
 }
 
 /// Status + activity for one session.
@@ -364,9 +369,17 @@ pub fn derive(i: &Inputs) -> (SessionStatus, Activity) {
             ActivityKind::Waiting,
             waiting_label(i.pidfile.and_then(|p| p.waiting_for.as_deref())),
         );
-        if let Some(t) = current_tools(i).last() {
+        let tools = current_tools(i);
+        let tool = match i.waiting_on {
+            Some(resolved) => resolved,
+            // Never name the `Agent` call as what waits: its subagent does.
+            None => tools.last().copied().filter(|t| !is_delegation(t)),
+        };
+        if let Some(t) = tool {
             a.tool = Some(t.name.clone());
             a.detail = Some(t.summary.clone()).filter(|s| !s.is_empty());
+        } else if tools.last().is_some_and(|t| is_delegation(t)) {
+            a.detail = Some("A subagent is waiting".to_string());
         } else if let Some(p) = i.pending.first() {
             a.tool = p.tool_name.clone();
         }
@@ -409,6 +422,10 @@ pub fn derive(i: &Inputs) -> (SessionStatus, Activity) {
         return (SessionStatus::Working, a.clone());
     }
     (SessionStatus::Working, tail_activity(i, status_since))
+}
+
+fn is_delegation(t: &PendingTool) -> bool {
+    matches!(t.name.as_str(), "Agent" | "Task")
 }
 
 fn current_tools<'a>(i: &'a Inputs) -> Vec<&'a PendingTool> {
@@ -573,6 +590,37 @@ mod tests {
         assert_eq!(a.tool.as_deref(), Some("Bash"));
         assert_eq!(a.detail.as_deref(), Some("npm test"));
         assert_eq!(a.since, Some(50));
+    }
+
+    #[test]
+    fn a_waiting_foreground_subagent_is_not_named_as_the_agent_call() {
+        let p = pidfile("waiting", Some("permission prompt"));
+        let tools = vec![tool("Agent", "Explore the repo", 10)];
+        // Unresolved (or resolved to nothing): no tool is named.
+        for waiting_on in [None, Some(None)] {
+            let (s, a) = derive(&Inputs {
+                live: true,
+                pidfile: Some(&p),
+                pending_tools: &tools,
+                waiting_on,
+                ..Default::default()
+            });
+            assert_eq!(s, SessionStatus::Waiting);
+            assert_eq!(a.label, "Waiting for approval");
+            assert_eq!(a.tool, None);
+            assert_eq!(a.detail.as_deref(), Some("A subagent is waiting"));
+        }
+        // Resolved to the subagent's own tool.
+        let bash = tool("Bash", "rm -rf build", 12);
+        let (_, a) = derive(&Inputs {
+            live: true,
+            pidfile: Some(&p),
+            pending_tools: &tools,
+            waiting_on: Some(Some(&bash)),
+            ..Default::default()
+        });
+        assert_eq!(a.tool.as_deref(), Some("Bash"));
+        assert_eq!(a.detail.as_deref(), Some("rm -rf build"));
     }
 
     #[test]

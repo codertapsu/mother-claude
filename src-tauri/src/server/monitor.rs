@@ -71,6 +71,22 @@ fn session_of_path(projects: &Path, path: &Path) -> Option<String> {
     crate::claude::ids::is_session_id(sid).then(|| sid.to_string())
 }
 
+/// A workflow run's `<sid>/workflows/<run>.json` (written when the run
+/// finishes) or `<sid>/subagents/workflows/<run>/journal.jsonl` (written when
+/// it starts): `(run id, is the run file)`. These are not transcripts, so
+/// [`classify_path`] does not name them, but the session's file list must
+/// learn them for the agents recompute to see the run start or end.
+fn run_file_of(projects: &Path, path: &Path, sid: &str) -> Option<(String, bool)> {
+    let rel = path.strip_prefix(projects).ok()?;
+    let parts: Vec<&str> = rel.iter().map(|c| c.to_str()).collect::<Option<_>>()?;
+    let (run, is_run_file) = match parts.as_slice() {
+        [_, s, "workflows", name] if *s == sid => (name.strip_suffix(".json")?, true),
+        [_, s, "subagents", "workflows", run, "journal.jsonl"] if *s == sid => (*run, false),
+        _ => return None,
+    };
+    crate::claude::ids::is_run_id(run).then(|| (run.to_string(), is_run_file))
+}
+
 pub async fn run(state: AppState) {
     let (idx_tx, mut idx_rx) = mpsc::unbounded_channel::<String>();
     let (tx, mut rx) = mpsc::unbounded_channel();
@@ -297,6 +313,19 @@ async fn run_cycle(state: &AppState, cycle: &mut Cycle, trigger: Trigger) {
                     }
                     None => discover = true,
                 }
+            } else if let Some((run, is_run_file)) = run_file_of(&projects, p, &sid) {
+                // A finished run's file otherwise waits for the next sweep,
+                // and the run keeps showing as running until then.
+                let known = state.index.session_files(&sid).is_some_and(|f| {
+                    if is_run_file {
+                        f.run_files.contains_key(&run)
+                    } else {
+                        f.journals.contains_key(&run)
+                    }
+                });
+                if !known && !rediscover.contains(&sid) {
+                    rediscover.insert(sid);
+                }
             }
         }
         if first {
@@ -345,6 +374,13 @@ async fn run_cycle(state: &AppState, cycle: &mut Cycle, trigger: Trigger) {
             paths.extend(state.index.tick_paths(&targets, now_ms(), window));
         }
         let advances = state.index.update(&paths);
+        // Filter appends against the subscriptions as they are *now*, not
+        // the snapshot taken before this cycle: `update` consumes the bytes
+        // for good, so a first subscriber that registered (and replayed up
+        // to the then-EOF) in between would otherwise never see them. A
+        // subscriber registered after `update` replays past these bytes,
+        // and any overlap is deduped by event id on the client.
+        let subs_now = state.hub.subscriptions();
         for a in &advances {
             touched_sessions.insert(a.session_id.clone());
         }
@@ -382,7 +418,7 @@ async fn run_cycle(state: &AppState, cycle: &mut Cycle, trigger: Trigger) {
         // Transcript appends for subscriptions.
         let mut appends: Vec<(Advance, crate::claude::uievents::RangeRead)> = Vec::new();
         for a in advances {
-            if !subs
+            if !subs_now
                 .iter()
                 .any(|(s, ag)| *s == a.session_id && *ag == a.agent_id)
             {
@@ -432,7 +468,6 @@ async fn run_cycle(state: &AppState, cycle: &mut Cycle, trigger: Trigger) {
         .collect();
     let mut fleet = Vec::new();
     let mut summary = FleetSummary::default();
-    let midnight = local_midnight_ms();
     for s in &summaries {
         if s.live && s.status == SessionStatus::Working {
             summary.working += 1;
@@ -440,9 +475,7 @@ async fn run_cycle(state: &AppState, cycle: &mut Cycle, trigger: Trigger) {
         if s.pending.iter().any(|p| p.answerable) {
             summary.need_you += 1;
         }
-        if s.last_activity_at.is_some_and(|t| t >= midnight) {
-            summary.cost_today += s.cost_usd.unwrap_or(0.0);
-        }
+        summary.cost_today += s.cost_today.unwrap_or(0.0);
         summary.agents_running += s.agents.running;
         summary.workflows_running += s.agents.workflows_running;
         summary.background_running += s.agents.background_running;
@@ -487,19 +520,42 @@ async fn run_cycle(state: &AppState, cycle: &mut Cycle, trigger: Trigger) {
     }
 }
 
-/// Epoch ms of today's local midnight.
-fn local_midnight_ms() -> i64 {
-    let now = chrono::Local::now();
-    now.date_naive()
-        .and_hms_opt(0, 0, 0)
-        .and_then(|d| d.and_local_timezone(chrono::Local).earliest())
-        .map(|d| d.timestamp_millis())
-        .unwrap_or_else(|| now.timestamp_millis() - 24 * 3600 * 1000)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn workflow_run_files_are_recognised() {
+        let projects = Path::new("/h/projects");
+        let sid = "e2b6972f-7126-4f6e-a490-5ce75cb6a9f9";
+        assert_eq!(
+            run_file_of(
+                projects,
+                &projects.join(format!("-p/{sid}/workflows/wf_abc-1.json")),
+                sid
+            ),
+            Some(("wf_abc-1".to_string(), true))
+        );
+        assert_eq!(
+            run_file_of(
+                projects,
+                &projects.join(format!(
+                    "-p/{sid}/subagents/workflows/wf_abc-1/journal.jsonl"
+                )),
+                sid
+            ),
+            Some(("wf_abc-1".to_string(), false))
+        );
+        // Not a run id, another session, or another file.
+        for p in [
+            format!("-p/{sid}/workflows/notarun.json"),
+            format!("-p/{sid}/workflows/wf_abc-1.txt"),
+            format!("-p/{sid}/subagents/workflows/wf_abc-1/agent-a1.jsonl"),
+            "-p/11111111-1111-4111-8111-111111111111/workflows/wf_abc-1.json".to_string(),
+        ] {
+            assert_eq!(run_file_of(projects, &projects.join(&p), sid), None, "{p}");
+        }
+    }
 
     #[test]
     fn paths_map_to_sessions() {
@@ -525,12 +581,5 @@ mod tests {
             session_of_path(projects, Path::new("/h/sessions/1.json")),
             None
         );
-    }
-
-    #[test]
-    fn midnight_is_today() {
-        let m = local_midnight_ms();
-        let now = now_ms();
-        assert!(m <= now && now - m <= 25 * 3600 * 1000);
     }
 }

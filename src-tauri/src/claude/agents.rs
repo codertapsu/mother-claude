@@ -535,12 +535,26 @@ impl AgentTracker {
                 .get(run_id)
                 .map(|p| self.journal(p))
                 .unwrap_or_default();
-            let finished = info.is_some();
+            // The run file is written when the run finishes, but may not be
+            // discovered yet: the workflow task's notification in the main
+            // transcript says the same.
+            let notified = main_tasks.iter().find(|t| {
+                t.kind == "workflow"
+                    && t.status != "running"
+                    && (t.run_id.as_deref() == Some(run_id.as_str())
+                        || launch.and_then(|l| l.task_id.as_deref()) == Some(t.id.as_str()))
+            });
+            let finished = info.is_some() || notified.is_some();
             let status = match info.as_ref().and_then(|i| i.status.get()) {
                 Some("completed") => WorkflowStatus::Completed,
                 Some("failed") => WorkflowStatus::Failed,
                 Some("killed") => WorkflowStatus::Killed,
                 Some(_) => WorkflowStatus::Completed,
+                None if notified.is_some() => match notified.map(|t| finished_status(&t.status)) {
+                    Some(AgentStatus::Failed) => WorkflowStatus::Failed,
+                    Some(AgentStatus::Stopped) => WorkflowStatus::Killed,
+                    _ => WorkflowStatus::Completed,
+                },
                 None => {
                     // Launched by this process? From the launch record, else
                     // (older runs past the index's cap) from the journal's
@@ -990,5 +1004,41 @@ mod tests {
         assert_eq!(w.total_tokens, Some(99));
         assert_eq!(w.phases.len(), 2);
         assert_eq!(w.agents.running, 0);
+    }
+
+    #[test]
+    fn a_notified_workflow_is_finished_before_its_run_file_is_discovered() {
+        let (tmp, _home, idx) = setup();
+        let main = tmp.path().join("projects/-p").join(format!("{SID}.jsonl"));
+        let ctx = AgentCtx {
+            live: true,
+            now: now(),
+            ..Default::default()
+        };
+        let tracker = AgentTracker::new();
+        tracker.recompute(&idx, SID, &ctx);
+        assert_eq!(
+            tracker.for_session(SID).1[0].status,
+            WorkflowStatus::Running
+        );
+        // The workflow task's notification lands in the main transcript; the
+        // run file is not discovered yet.
+        let note = format!(
+            r#"{{"type":"queue-operation","operation":"enqueue","timestamp":"{}","content":"<task-notification>\n<task-id>wtask1</task-id>\n<status>completed</status>\n<summary>done</summary>\n</task-notification>"}}"#,
+            iso(now())
+        ) + "\n";
+        let mut f = std::fs::OpenOptions::new()
+            .append(true)
+            .open(&main)
+            .unwrap();
+        std::io::Write::write_all(&mut f, note.as_bytes()).unwrap();
+        idx.update(std::slice::from_ref(&main));
+        tracker.recompute(&idx, SID, &ctx);
+        let (agents, workflows) = tracker.for_session(SID);
+        assert_eq!(workflows[0].status, WorkflowStatus::Completed);
+        assert_eq!(workflows[0].agents.running, 0);
+        assert!(!agents
+            .iter()
+            .any(|a| a.workflow_run_id.is_some() && a.status == AgentStatus::Running));
     }
 }
