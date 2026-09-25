@@ -44,12 +44,14 @@ pub struct ListQuery {
 }
 
 /// `GET /api/sessions?scope=active|all&limit=&before=` →
-/// `{sessions, nextBefore?}`.
+/// `{sessions, nextBefore?}`. Carries an `ETag`; a matching `If-None-Match`
+/// (the phone's polling fallback) gets `304 Not Modified`.
 pub async fn list_sessions(
     Authed(_ctx): Authed,
     State(state): State<AppState>,
+    headers: axum::http::HeaderMap,
     Query(q): Query<ListQuery>,
-) -> impl IntoResponse {
+) -> Response {
     let now = claude::registry::now_ms();
     let all = q.scope.as_deref() == Some("all");
     let sessions: Vec<SessionSummary> = state
@@ -67,7 +69,31 @@ pub async fn list_sessions(
     if let Some(nb) = next_before {
         body["nextBefore"] = json!(nb);
     }
-    Json(body)
+    let text = body.to_string();
+    let etag = format!("\"{}\"", &crate::server::auth::sha256_hex(&text)[..32]);
+    let fresh = headers
+        .get_all(header::IF_NONE_MATCH)
+        .iter()
+        .filter_map(|v| v.to_str().ok())
+        .flat_map(|v| v.split(','))
+        .map(|t| t.trim().trim_start_matches("W/"))
+        .any(|t| t == etag || t == "*");
+    let etag_value =
+        HeaderValue::from_str(&etag).unwrap_or_else(|_| HeaderValue::from_static("\"\""));
+    if fresh {
+        return (StatusCode::NOT_MODIFIED, [(header::ETAG, etag_value)]).into_response();
+    }
+    (
+        [
+            (header::ETAG, etag_value),
+            (
+                header::CONTENT_TYPE,
+                HeaderValue::from_static("application/json"),
+            ),
+        ],
+        text,
+    )
+        .into_response()
 }
 
 async fn session_or_404(state: &AppState, id: &str) -> ApiResult<SessionSummary> {
