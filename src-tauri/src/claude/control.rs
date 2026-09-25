@@ -299,6 +299,9 @@ pub struct OwnedLive {
     pub activity: Activity,
     /// Our messages written while a turn ran and not answered yet.
     pub queued: Vec<QueuedMessage>,
+    /// Ids in `queued` sent by callers without the dangerous right: taken
+    /// back before the session switches to a mode without approvals.
+    pub restricted_queued: Vec<String>,
     pub tasks: Vec<OwnedTask>,
     pub last_error: Option<LastError>,
     /// Launched with `--allow-dangerously-skip-permissions`.

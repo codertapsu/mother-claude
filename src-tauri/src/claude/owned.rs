@@ -581,6 +581,28 @@ pub async fn continue_as(
     state.control.spawn(state, opts).await.map_err(spawn_error)
 }
 
+/// [`send`] for a caller: a message a caller without the dangerous right
+/// queues behind a running turn is remembered, so it can be taken back
+/// before the session switches to a mode without approvals ([`set_mode`]).
+pub async fn send_as(
+    state: &AppState,
+    may_dangerous: bool,
+    id: &str,
+    text: &str,
+    images: &[ImageInput],
+) -> ApiResult<MessageReceipt> {
+    let receipt = send(state, id, text, images).await?;
+    if !may_dangerous && receipt.delivery == Delivery::Queued {
+        let mid = receipt.message_id.clone();
+        state.control.update(id, move |l| {
+            l.restricted_queued
+                .retain(|q| l.queued.iter().any(|m| &m.id == q));
+            l.restricted_queued.push(mid);
+        });
+    }
+    Ok(receipt)
+}
+
 /// Send a user message (text + images) to an owned session. Returns the
 /// delivery and the message id (cancel a queued one with [`cancel_queued`]).
 pub async fn send(
@@ -665,6 +687,9 @@ pub async fn set_mode(state: &AppState, id: &str, mode: &str) -> ApiResult<()> {
             ));
         }
     }
+    if is_dangerous_mode(Some(mode)) {
+        withdraw_restricted_queued(state, id).await;
+    }
     request(
         state,
         id,
@@ -677,6 +702,42 @@ pub async fn set_mode(state: &AppState, id: &str, mode: &str) -> ApiResult<()> {
     let mode = mode.to_string();
     ws::patch_session(state, id, |s| s.permission_mode = Some(mode)).await;
     Ok(())
+}
+
+/// Take back the queued messages a caller without the dangerous right sent:
+/// they were allowed because the session asked for approvals, which it is
+/// about to stop doing.
+async fn withdraw_restricted_queued(state: &AppState, id: &str) {
+    let Some(live) = live_state(state, id) else {
+        return;
+    };
+    let ids: Vec<String> = live
+        .restricted_queued
+        .iter()
+        .filter(|q| live.queued.iter().any(|m| &m.id == *q))
+        .cloned()
+        .collect();
+    let mut withdrawn = 0;
+    for mid in &ids {
+        match cancel_queued(state, id, mid).await {
+            Ok(()) => withdrawn += 1,
+            Err(e) => {
+                tracing::debug!(session = %id, error = %e.message, "queued message not withdrawn")
+            }
+        }
+    }
+    state.control.update(id, |l| l.restricted_queued.clear());
+    if withdrawn > 0 {
+        ws::publish_notice(
+            state,
+            super::model::NoticeLevel::Warning,
+            format!(
+                "{withdrawn} queued message(s) from a device without the right to dangerous \
+                 actions were withdrawn before the session stopped asking for approvals."
+            ),
+            Some(id),
+        );
+    }
 }
 
 /// Switch effort live (`apply_flag_settings {effortLevel}`).

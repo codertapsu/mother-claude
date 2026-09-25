@@ -645,6 +645,45 @@ async fn queued_messages_can_be_taken_back() {
 }
 
 #[tokio::test]
+async fn switching_to_bypass_takes_back_what_restricted_callers_queued() {
+    let f = Fixture::new();
+    let id = f.spawn_text("slow").await;
+    wait_for("the first turn", || !f.received().is_empty()).await;
+    let from_phone = owned::send_as(&f.st, false, &id, "from the phone", &[])
+        .await
+        .unwrap();
+    let from_mac = owned::send_as(&f.st, true, &id, "from the Mac", &[])
+        .await
+        .unwrap();
+    assert_eq!(from_phone.delivery, Delivery::Queued);
+    assert_eq!(from_mac.delivery, Delivery::Queued);
+    owned::set_mode(&f.st, &id, "bypassPermissions")
+        .await
+        .unwrap();
+    let cancelled: Vec<Value> = f
+        .received()
+        .into_iter()
+        .filter(|l| l["request"]["subtype"] == "cancel_async_message")
+        .map(|l| l["request"]["message_uuid"].clone())
+        .collect();
+    assert_eq!(cancelled, vec![Value::from(from_phone.message_id.clone())]);
+    let left: Vec<String> = owned::queued(&f.st, &id)
+        .into_iter()
+        .map(|q| q.id)
+        .collect();
+    assert_eq!(left, vec![from_mac.message_id]);
+    // The cancel reached the CLI before the mode switch did.
+    let order: Vec<String> = f
+        .received()
+        .into_iter()
+        .filter_map(|l| l["request"]["subtype"].as_str().map(str::to_string))
+        .filter(|s| s == "cancel_async_message" || s == "set_permission_mode")
+        .collect();
+    assert_eq!(order, vec!["cancel_async_message", "set_permission_mode"]);
+    owned::kill(&f.st, &id).await.unwrap();
+}
+
+#[tokio::test]
 async fn images_are_content_blocks() {
     let f = Fixture::new();
     let id = f

@@ -171,7 +171,7 @@ pub async fn message(
         }
         Route::Owned => {
             return Ok(Json(
-                owned::send(&state, &id, &body.text, &body.images).await?,
+                owned::send_as(&state, ctx.may_dangerous(), &id, &body.text, &body.images).await?,
             ))
         }
         Route::Tmux(s) => match tmux::send_text_as(&state, &ctx, &s, &body.text).await {
