@@ -5,12 +5,18 @@
 //!   Tailscale's 100.64/10 when opted in. Public IPv4 and every IPv6 address
 //!   are never bound; the ones skipped are reported with a reason.
 //! * **The local CA** (`certs/ca.pem`, `certs/ca-key.pem`, 0600) is generated
-//!   once. It is name-constrained to private address ranges and `localhost`,
-//!   so even a leaked CA key cannot mint a certificate for a public site. A
+//!   once. It is name-constrained to private address ranges and `localhost`
+//!   (Tailscale's 100.64/10 only once a CGNAT address is actually served), and
+//!   limited to TLS server authentication (EKU `serverAuth`, which Apple
+//!   enforces down the chain), so even a leaked CA key cannot mint a
+//!   certificate for a public site, an e-mail address or code signing. A
 //!   phone that trusts it (Settings › Profile on iOS, a user CA on Android)
 //!   gets a secure context on the LAN: wss, service workers and push work.
-//!   Only the public CA certificate is ever served (`/api/pair/ca.crt`,
-//!   `/api/pair/ca.mobileconfig`).
+//!   Removing the profile on the phone revokes that trust. Only the public
+//!   CA certificate is ever served (`/api/pair/ca.crt`,
+//!   `/api/pair/ca.mobileconfig`). `certs/ca.json` records what the CA
+//!   covers; an older or narrower CA is replaced (the phone then reinstalls
+//!   the profile).
 //! * **The leaf** (`certs/cert.pem`, `certs/key.pem`) is re-issued whenever its
 //!   SANs no longer cover the current addresses, it nears expiry (397-day
 //!   validity, Apple's limit), or the CA changed. `certs/leaf.json` records
@@ -39,6 +45,8 @@ const LEAF_DAYS: i64 = 397;
 const LEAF_RENEW_DAYS: i64 = 30;
 /// CA validity.
 const CA_YEARS: i32 = 10;
+/// Bumped whenever the CA's constraints change, so an older CA is replaced.
+const CA_VERSION: u32 = 2;
 
 /// A PEM cert/key pair plus fingerprints and the public CA.
 #[derive(Debug, Clone)]
@@ -219,8 +227,9 @@ fn ymd(dt: chrono::DateTime<chrono::Utc>) -> (i32, u8, u8) {
 
 /// The CA's parameters, rebuilt deterministically from its key (the CN
 /// carries a short hash of the public key), so the issuer can be recreated
-/// from the persisted key without parsing the certificate.
-fn ca_params(key: &KeyPair) -> CertificateParams {
+/// from the persisted key without parsing the certificate. `cgnat`: also
+/// permit Tailscale's 100.64/10.
+fn ca_params(key: &KeyPair, cgnat: bool) -> CertificateParams {
     let tag = &hex(&Sha256::digest(key.public_key_raw()))[..8];
     let mut p = CertificateParams::default();
     let mut dn = DistinguishedName::new();
@@ -233,21 +242,36 @@ fn ca_params(key: &KeyPair) -> CertificateParams {
         KeyUsagePurpose::CrlSign,
         KeyUsagePurpose::DigitalSignature,
     ];
+    // Name constraints cover only IP and DNS names (rcgen has no URI subtree,
+    // and an empty rfc822 exclusion is ambiguous), so the EKU is what keeps
+    // the CA from vouching for mail, code or clients.
+    p.extended_key_usages = vec![ExtendedKeyUsagePurpose::ServerAuth];
     let private =
         |a: [u8; 4], prefix: u8| GeneralSubtree::IpAddress(CidrSubnet::from_v4_prefix(a, prefix));
+    let mut permitted = vec![
+        private([10, 0, 0, 0], 8),
+        private([172, 16, 0, 0], 12),
+        private([192, 168, 0, 0], 16),
+        private([169, 254, 0, 0], 16),
+        private([127, 0, 0, 0], 8),
+        GeneralSubtree::DnsName("localhost".into()),
+    ];
+    if cgnat {
+        permitted.push(private([100, 64, 0, 0], 10));
+    }
     p.name_constraints = Some(NameConstraints {
-        permitted_subtrees: vec![
-            private([10, 0, 0, 0], 8),
-            private([172, 16, 0, 0], 12),
-            private([192, 168, 0, 0], 16),
-            private([169, 254, 0, 0], 16),
-            private([100, 64, 0, 0], 10),
-            private([127, 0, 0, 0], 8),
-            GeneralSubtree::DnsName("localhost".into()),
-        ],
+        permitted_subtrees: permitted,
         excluded_subtrees: Vec::new(),
     });
     p
+}
+
+/// What the persisted CA was minted with (`certs/ca.json`).
+#[derive(Debug, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+struct CaMeta {
+    version: u32,
+    cgnat: bool,
 }
 
 fn hex(bytes: &[u8]) -> String {
@@ -258,22 +282,41 @@ struct Ca {
     key: KeyPair,
     pem: String,
     der: Vec<u8>,
+    cgnat: bool,
 }
 
-fn load_or_create_ca(dir: &Path) -> Result<Ca> {
+/// Load the CA, or mint one: when there is none, when it predates the
+/// current constraints ([`CA_VERSION`]), or when `cgnat` is needed and it
+/// does not cover 100.64/10.
+fn load_or_create_ca(dir: &Path, cgnat: bool) -> Result<Ca> {
     let cert_path = dir.join("ca.pem");
     let key_path = dir.join("ca-key.pem");
-    if let (Ok(pem), Ok(key_pem)) = (
+    let meta_path = dir.join("ca.json");
+    let meta: CaMeta = crate::persist::read_json(&meta_path).unwrap_or_default();
+    let current = meta.version == CA_VERSION && (meta.cgnat || !cgnat);
+    if let (true, Ok(pem), Ok(key_pem)) = (
+        current,
         std::fs::read_to_string(&cert_path),
         std::fs::read_to_string(&key_path),
     ) {
         if let (Ok(key), Some(der)) = (KeyPair::from_pem(&key_pem), pem_to_der(&pem)) {
-            return Ok(Ca { key, pem, der });
+            return Ok(Ca {
+                key,
+                pem,
+                der,
+                cgnat: meta.cgnat,
+            });
         }
         tracing::warn!("the local CA files are unreadable; generating a new CA");
+    } else if cert_path.exists() {
+        tracing::info!(
+            cgnat,
+            "the local CA predates its current constraints; generating a new one (reinstall \
+             the profile on phones)"
+        );
     }
     let key = KeyPair::generate().context("generate CA key")?;
-    let mut params = ca_params(&key);
+    let mut params = ca_params(&key, cgnat);
     let now = chrono::Utc::now();
     let (y, m, d) = ymd(now - chrono::Duration::days(1));
     params.not_before = rcgen::date_time_ymd(y, m, d);
@@ -283,7 +326,19 @@ fn load_or_create_ca(dir: &Path) -> Result<Ca> {
     let der = cert.der().to_vec();
     crate::persist::write_private(&key_path, key.serialize_pem().as_bytes())?;
     crate::persist::write_private(&cert_path, pem.as_bytes())?;
-    Ok(Ca { key, pem, der })
+    crate::persist::write_json_private(
+        &meta_path,
+        &CaMeta {
+            version: CA_VERSION,
+            cgnat,
+        },
+    )?;
+    Ok(Ca {
+        key,
+        pem,
+        der,
+        cgnat,
+    })
 }
 
 /// Decode the first PEM block (base64 body between the armour lines).
@@ -314,7 +369,10 @@ struct LeafMeta {
 /// when its SANs no longer cover `ips`, it nears expiry, or the CA changed.
 pub fn ensure_cert(dir: &Path, ips: &[IpAddr]) -> Result<CertBundle> {
     std::fs::create_dir_all(dir).context("create cert dir")?;
-    let ca = load_or_create_ca(dir)?;
+    let cgnat = ips
+        .iter()
+        .any(|ip| matches!(ip, IpAddr::V4(v4) if is_cgnat(*v4)));
+    let ca = load_or_create_ca(dir, cgnat)?;
     let ca_fingerprint = sha256_fingerprint(&ca.der);
     let cert_path = dir.join("cert.pem");
     let key_path = dir.join("key.pem");
@@ -373,7 +431,7 @@ pub fn ensure_cert(dir: &Path, ips: &[IpAddr]) -> Result<CertBundle> {
     let end = now + chrono::Duration::days(LEAF_DAYS - 1);
     let (y, m, d) = ymd(end);
     params.not_after = rcgen::date_time_ymd(y, m, d);
-    let issuer = Issuer::new(ca_params(&ca.key), &ca.key);
+    let issuer = Issuer::new(ca_params(&ca.key, ca.cgnat), &ca.key);
     let cert = params.signed_by(&key, &issuer).context("sign leaf")?;
     // Serve the chain: leaf then CA.
     let cert_pem = format!("{}{}", cert.pem(), ca.pem);
@@ -550,6 +608,40 @@ mod tests {
         }
     }
 
+    /// `needle` occurs in `hay`.
+    fn contains(hay: &[u8], needle: &[u8]) -> bool {
+        hay.windows(needle.len()).any(|w| w == needle)
+    }
+
+    #[test]
+    fn the_ca_is_limited_to_server_auth_and_cgnat_only_when_served() {
+        // id-kp-serverAuth, 1.3.6.1.5.5.7.3.1.
+        const SERVER_AUTH: [u8; 10] = [0x06, 0x08, 0x2b, 0x06, 0x01, 0x05, 0x05, 0x07, 0x03, 0x01];
+        // iPAddress 100.64.0.0/255.192.0.0 in the name constraints.
+        const CGNAT: [u8; 8] = [100, 64, 0, 0, 0xff, 0xc0, 0, 0];
+        let dir = tempfile::tempdir().unwrap();
+        let a = ensure_cert(dir.path(), &[ip("192.168.1.5")]).unwrap();
+        assert!(contains(&a.ca_der, &SERVER_AUTH));
+        assert!(
+            !contains(&a.ca_der, &CGNAT),
+            "no Tailscale range unless needed"
+        );
+        // Serving a Tailscale address widens the CA once (a new CA).
+        let b = ensure_cert(dir.path(), &[ip("192.168.1.5"), ip("100.101.2.3")]).unwrap();
+        assert!(contains(&b.ca_der, &CGNAT));
+        assert_ne!(a.ca_fingerprint, b.ca_fingerprint);
+        // …and is kept afterwards, with or without it.
+        let c = ensure_cert(dir.path(), &[ip("192.168.1.5")]).unwrap();
+        assert_eq!(c.ca_fingerprint, b.ca_fingerprint);
+        // A CA from before these constraints (no ca.json) is replaced.
+        std::fs::remove_file(dir.path().join("ca.json")).unwrap();
+        let d = ensure_cert(dir.path(), &[ip("192.168.1.5")]).unwrap();
+        assert_ne!(d.ca_fingerprint, c.ca_fingerprint);
+        assert!(d.regenerated, "a new CA means a new leaf");
+        let e = ensure_cert(dir.path(), &[ip("192.168.1.5")]).unwrap();
+        assert_eq!(e.ca_fingerprint, d.ca_fingerprint);
+    }
+
     #[test]
     fn the_leaf_is_accepted_by_rustls() {
         let _ = rustls::crypto::ring::default_provider().install_default();
@@ -567,8 +659,29 @@ mod tests {
         let key = rustls::pki_types::PrivateKeyDer::Pkcs8(key.into());
         rustls::ServerConfig::builder()
             .with_no_client_auth()
-            .with_single_cert(certs, key)
+            .with_single_cert(certs.clone(), key)
             .expect("rustls accepts the chain and key");
+        // A client that trusts only the local CA accepts the leaf for the LAN
+        // address (the CA's EKU and name constraints allow it) and nothing else.
+        let mut roots = rustls::RootCertStore::empty();
+        roots.add(certs[1].clone()).unwrap();
+        let verifier = rustls::client::WebPkiServerVerifier::builder(std::sync::Arc::new(roots))
+            .build()
+            .unwrap();
+        let verify = |name: &str| {
+            verifier.verify_server_cert(
+                &certs[0],
+                &[],
+                &rustls::pki_types::ServerName::try_from(name.to_string()).unwrap(),
+                &[],
+                rustls::pki_types::UnixTime::now(),
+            )
+        };
+        use rustls::client::danger::ServerCertVerifier as _;
+        assert!(verify("192.168.1.5").is_ok());
+        assert!(verify("localhost").is_ok());
+        assert!(verify("192.168.1.6").is_err());
+        assert!(verify("example.com").is_err());
     }
 
     #[test]

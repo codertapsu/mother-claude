@@ -95,9 +95,12 @@ notice and is written to the audit log.
   Tailscale's 100.64/10 when you enable it). Public IPv4 and IPv6 addresses are
   never bound; the skipped ones are listed on the Remote page.
 - Certificates come from a **local CA** generated on first run (key 0600 in the
-  app data dir). It is name-constrained to private addresses and `localhost`, so
-  even a leaked CA key cannot impersonate a public site. The leaf is valid 397
-  days and re-issued whenever the LAN addresses change.
+  app data dir). It is name-constrained to private addresses and `localhost`
+  (Tailscale's 100.64/10 only once you bind a Tailscale address) and limited to
+  TLS server certificates, so even a leaked CA key cannot impersonate a public
+  site or sign mail or code. Any process running as you can read that key, so
+  removing the profile on the phone is how you revoke the trust. The leaf is
+  valid 397 days and re-issued whenever the LAN addresses change.
 - Trust the CA on a phone (`/api/pair/ca.crt`, or `/api/pair/ca.mobileconfig` on
   iOS, then enable full trust) for a secure context: WebSockets, the service
   worker and push then work on the LAN. Otherwise tap through the warning and
