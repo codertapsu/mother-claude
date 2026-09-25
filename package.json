@@ -10,6 +10,8 @@
     "ng": "ng",
     "start": "ng serve",
     "build": "ng build",
+    "postbuild": "node scripts/check-csp.mjs",
+    "check:csp": "node scripts/check-csp.mjs",
     "build:dev": "ng build --configuration development",
     "watch": "ng build --watch --configuration development",
     "test": "ng test --watch=false --browsers=ChromeHeadless",
