@@ -40,13 +40,13 @@ a single module absorbs version churn.
 
 ## Schema / CLI differences from the implementation brief
 
-- **`claude agents --json` has no `state` or `waitingFor` field.** On this
-  version it returns objects of the form
-  `{pid, cwd, kind, startedAt, sessionId}`. Session *state*
-  (working / needs-input / idle / completed / failed / stopped) is therefore
-  **derived** by the registry from transcript activity (recency + last event
-  type + `stop_reason`), `~/.claude/jobs/<id>/state.json` when present, and live
-  hook events — not read directly. `--all` adds completed sessions.
+- **`claude agents --json` has no `state` or `waitingFor` field** (2.1.185) and
+  spawning it on every refresh is slow, so the live roster is no longer built
+  from it: `~/.claude/sessions/<pid>.json` pidfiles (never the `*.key` files next
+  to them) give pid, status (`busy` / `idle` / `waiting` + `waitingFor`),
+  entrypoint, tmux target and job id; liveness is `kill(pid, 0)` plus the
+  process start time. Activity is derived from those, the owned control
+  stream, hook events and the transcript tail.
 - **`claude --bg "<task>"` does not exist** on 2.1.185. Background/owned sessions
   are spawned through the headless path (`claude -p --output-format stream-json
   --input-format stream-json`). Lifecycle subcommands that *do* exist and are
@@ -81,19 +81,25 @@ each foreign session's detail view.
 
 ## Fundamental limitations (by design)
 
-- **Foreign live-session answer injection is unavailable.** The cc-daemon control
-  socket (`~/.claude/daemon/control.key`, `daemon/dispatch`) is authenticated
-  with a rotating key over an undocumented protocol; auto-update rotates the key.
-  We never speak it. Foreign sessions get monitoring + lifecycle only. The UI
-  disables injection controls and labels these sessions accordingly.
+- **No private channel into foreign sessions.** The cc-daemon control socket
+  (`~/.claude/daemon/control.key`, `daemon/dispatch`, `/tmp/cc-socks/*.sock`) is
+  authenticated with a rotating key over an undocumented protocol; we never speak
+  it. Foreign sessions are controlled only through documented surfaces: the
+  optional foreign-control **plugin** (hooks), **tmux** panes, and the
+  experimental PTY `claude attach` for background jobs. Each session's `control`
+  capabilities say which apply; without any, it is watch-only with "Continue
+  here".
 - **macOS Full Disk Access (TCC):** the packaged GUI app needs FDA granted in
   System Settings to read `~/.claude/projects` and friends, even though the dev
   terminal can read them as the owning user. First-run check surfaces this.
-- **Hook caveats** (documented Claude Code bugs we route around): a `PreToolUse`
-  hook returning `allow` does **not** reliably suppress the native interactive
-  prompt, and `PermissionRequest` hooks do not fire in `-p` mode. We use hooks
-  for *events* and *deny* gating, not as a remote-approve bus for foreign TUI
-  sessions.
+- **Hook caveats.** A held `PermissionRequest` hook runs *in parallel* with the
+  session's own dialog (VS Code, terminal): whoever answers first wins, and the
+  phone's card is withdrawn when the tool runs or the turn moves on (verified on
+  2.1.282). Relayed messages arrive as hook `additionalContext` at the next tool
+  call or turn end (or wake an idle session through `asyncRewake`), so they do
+  not appear in the session's own window — only Claude's reply does. Sessions
+  started before the plugin was installed need `/reload-plugins` or a restart.
+  Headless `claude -p` runs are never held or woken.
 
 ## Foreign-session injection (`experimental` tier — now ON by default)
 
@@ -119,23 +125,22 @@ These are intentional choices made while implementing on this machine; each keep
 the product working and the commits green.
 
 - **Loopback HTTP + per-LAN-IP TLS** (instead of a single `0.0.0.0` TLS bind):
-  a self-signed cert can't be verified by the Tauri webview or by Claude Code's
-  hook HTTP client, so the server always serves plain HTTP on `127.0.0.1:<port>`
-  (desktop webview, hooks, local sidecar) and TLS on the LAN IPs (phones). This
-  is what makes both the desktop dashboard and foreign-hook ingestion work
-  out of the box.
+  the server always serves plain HTTP on `127.0.0.1:<port>` (desktop webview,
+  hook plugin, local scripts) and TLS only on private LAN addresses (phones),
+  with a certificate from a local CA name-constrained to private ranges. Public
+  addresses are never bound; the internet is reached through a tunnel to the
+  local-only tunnel port.
 - **`claude --bg` does not exist** on 2.1.185 — owned/background sessions are
   spawned via the headless `claude -p` path; foreign lifecycle uses
   `claude stop|respawn|rm`.
-- **Path B headless permission prompts**: in `-p` mode, permission prompts and
-  `PermissionRequest` hooks do not reliably surface, so remote *approval* of
-  owned sessions is best done via the **Path A sidecar** (canUseTool/ask_user),
-  which is optional and not part of the green gate (it needs
-  `@anthropic-ai/claude-agent-sdk` installed and runtime auth). The Rust
-  permission *bridge* it talks to is fully implemented and tested.
-- **Hook token**: installing hooks embeds the literal token in
-  `~/.claude/settings.json` (foreign sessions don't inherit our env). See
-  SECURITY.md.
+- **Owned sessions use the stream-json control protocol** (Path B): the
+  installed `claude -p` with `--permission-prompt-tool stdio` sends every
+  approval, question, plan and elicitation to Mother Claude as a control
+  request, the way VS Code drives it. The Agent SDK sidecar (Path A) remains as
+  a legacy option behind `MOTHER_CLAUDE_SIDECAR=1` (text only).
+- **Hook token**: the foreign-control plugin reads a per-launch token from
+  `hook.curlrc` (0600) in the app data dir; nothing is written to
+  `~/.claude/settings.json`. See SECURITY.md.
 - **QR is rendered as inline SVG** (qrcode crate) rather than a PNG via the
   `image` crate — crisper on mobile and one fewer dependency.
 - **Transcript view** caps rendering to the last ~800 events with auto-scroll

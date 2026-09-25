@@ -79,11 +79,14 @@ undocumented research-preview internals.
 
 | Source | Path / command | Gives |
 |---|---|---|
-| Session list | `claude agents --json [--all] [--cwd <p>]` | `pid, cwd, kind, startedAt, sessionId` |
-| Per-session state | `~/.claude/jobs/<id>/state.json` | live state (may be absent) |
+| **Live roster** | `~/.claude/sessions/<pid>.json` (**never** the `*.key` files beside them) | `pid, sessionId, cwd, kind, entrypoint, status (busy/idle/waiting), waitingFor, tmux, jobId, …` — `claude/live.rs` |
+| Background jobs | `~/.claude/jobs/<short>/state.json` | short job id (`daemonShort`), state, detail |
 | Running roster | `~/.claude/daemon/roster.json` | `{proto, supervisorPid, updatedAt, workers}` |
 | Daemon health | `claude daemon status` | pid, version, uptime |
-| **Transcripts (all surfaces)** | `~/.claude/projects/<encoded-cwd>/<id>.jsonl` | append-only NDJSON, tailable |
+| **Transcripts (all surfaces)** | `~/.claude/projects/<encoded-cwd>/<id>.jsonl` | append-only NDJSON, tailable — indexed incrementally by `claude/index.rs` (checkpoint `index-cache.json` in the app data dir) |
+| Subagents | `projects/<enc>/<id>/subagents/agent-<aid>.{jsonl,meta.json}` | per-agent transcripts, type, parent tool use |
+| Workflows | `projects/<enc>/<id>/subagents/workflows/<run>/journal.jsonl`, `workflows/<run>.json` | running / finished workflow agents |
+| Background task output | `<tmp>/claude-<uid>/<enc>/<id>/tasks/<task>.output` | shell output tail (read on demand, 16 KB) |
 | Command history | `~/.claude/history.jsonl` | command usage |
 | MCP inventory | `~/.claude.json`, project `.mcp.json` | configured MCP servers |
 | Daemon log | `~/.claude/daemon.log` | supervisor logs |
@@ -97,13 +100,14 @@ Desktop — reading it captures all surfaces for free. Transcript `tool_use`/
 types. Token usage is in `message.usage`. Tail with a byte offset, split on `\n`,
 buffer the trailing partial line. Transcripts are pruned after 30 days.
 
-`agents --json` output drifts between versions. On `2.1.185` it returned
-`{pid, cwd, kind, startedAt, sessionId}` with **no** state field, so
-`registry::build_registry` *derives* state from transcript activity +
-`state.json` + hook events. On `2.1.276` it also returns `name` and `status`
-(`idle`/`busy`), which currently land unused in the tolerant `extra` map —
-deriving state is still correct, but that field is now available if you want it.
-Verify against the installed CLI before relying on either shape.
+The roster no longer spawns `claude agents --json` (its shape drifts and it is
+slow): pidfiles give status and liveness is `kill(pid, 0)` plus the process
+start time (`ps -o lstart=`, darwin). Status and activity are derived by
+`claude/activity.rs` from the pidfile, the owned control stream, hook events
+and the transcript tail; summaries are built by `claude/summaries.rs` and
+published as WebSocket diffs by `server/monitor.rs`. Every id from a request is
+validated with `claude::ids` and files are found through the index, never built
+from request input.
 
 Claude's own Anthropic sign-in is read via `claude auth status --json` in
 `claude/auth.rs` and checked once at startup (`state.refresh_claude_auth`), so a

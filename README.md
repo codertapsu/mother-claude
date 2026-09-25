@@ -3,15 +3,21 @@
 One dashboard — desktop **and** phone — to monitor and control every local
 Claude Code session, agent, and service. Tauri v2 (Rust core) + Angular front end
 + an embedded `axum` HTTP/WebSocket server that serves the same dashboard over
-your LAN so you can drive Claude from your phone while you step away.
+your LAN — or from anywhere through a tunnel you run (Tailscale, ngrok,
+cloudflared) — so you can drive Claude from your phone while you step away,
+without turning on Claude's own Remote Control.
 
 - See every session and its derived state (working / needs-input / idle /
   completed / failed / stopped) across **all** surfaces — terminal CLI, VS Code /
   JetBrains, Claude Desktop — by reading the shared `~/.claude/projects` store.
 - Read live transcripts (tailed JSONL), token/cost usage, tools, and per-session
   Git diffs / history / worktrees.
-- **Control** sessions: spawn new ones, send instructions, approve/deny
-  permission prompts, answer questions, and stop / respawn / remove.
+- **Control** sessions: spawn new ones, send instructions (with images and
+  files), approve/deny permission prompts, answer questions and plans, switch
+  model / mode / effort, interrupt, and stop / respawn / remove.
+- Watch every running **agent**: subagents, workflow runs and background shells,
+  with their own live transcripts.
+- Web Push notifications on the phone when a session needs you or finishes.
 
 ## Download
 
@@ -41,19 +47,24 @@ permission decision into a *foreign* live session (started elsewhere and held by
 the Claude Code supervisor — its control socket uses a rotating key over an
 undocumented protocol). So:
 
-- **Owned sessions** → full, reliable control (spawn, message, approve/deny,
-  answer) over the Agent SDK / headless stdin. Press **Enter** to send (Shift+Enter
-  for a newline).
-- **Foreign sessions** → full **monitoring** (transcripts + hook events). Driving
-  them depends on the kind:
-  - **background jobs** → lifecycle (stop / respawn / rm) and live PTY injection
-    (best-effort; `MOTHER_CLAUDE_FOREIGN_INJECTION=0` to disable).
-  - **interactive (VS Code / CLI)** → can't be injected directly (no supported
-    mechanism). Use **“Continue here”** to *take over* the session — it resumes
-    the conversation **in place** (`claude --resume <id>`, same id, same context,
-    same transcript), turning that session into an owned one you fully control.
-    This is the supported way to leave your laptop and keep giving commands from
-    your phone. (Switch devices — don't drive both at once.)
+- **Owned sessions** → full, reliable control over the installed `claude`'s
+  stream-json control protocol (spawn, message with images, approve/deny,
+  answer, plans, model / mode / effort, interrupt, stop a task), streamed token
+  by token.
+- **Foreign sessions** → full **monitoring** (transcripts, pidfiles, hook
+  events), plus control through documented channels only:
+  - the optional **foreign-control plugin** (installed from **Remote** with
+    `claude plugin install`, never by editing your settings): approve and answer
+    prompts from the phone in parallel with the session's own dialog, relay
+    messages at the next stopping point, interrupt at the next tool call;
+  - **tmux** sessions can be typed into (and answered with keys);
+  - **background jobs** → lifecycle (stop / respawn / rm) and an experimental
+    PTY injection (`MOTHER_CLAUDE_FOREIGN_INJECTION=0` to disable).
+  - Anything else: **“Continue here”** takes the session over as an owned one
+    (a live session is forked, an ended one resumes in place). Switch devices —
+    don't drive both at once.
+
+  Each session shows what it supports and why (`control` capabilities).
 
 Design intent: make the dashboard the *launcher* so "full control" is the norm.
 See [ARCHITECTURE.md](ARCHITECTURE.md) and [KNOWN_ISSUES.md](KNOWN_ISSUES.md).
@@ -71,7 +82,10 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) and [KNOWN_ISSUES.md](KNOWN_ISSUES.md).
 - **One driver at a time.** After taking a session over, drive it from one place;
   typing in both the original editor/terminal *and* the app can split the
   conversation into two branches.
-- **Local network.** Designed for your own trusted Wi-Fi; pair via the QR code.
+- **Local first, internet when you choose.** Pair phones with a one-time QR code
+  from **Remote**. Internet access is off until you turn it on and point a
+  tunnel at it; internet pairings always wait for you to type the phone's 4
+  digits on the Mac. See [docs/REMOTE.md](docs/REMOTE.md).
 
 ## Prerequisites (macOS, Apple Silicon)
 
@@ -88,26 +102,28 @@ npm install
 npm run tauri:dev        # launch the desktop app (dev)
 ```
 
-On start, the console prints the dashboard URLs and the API token:
+On start, the console prints the dashboard URLs (tokens only as fingerprints):
 
 ```
   Mother Claude dashboard
   Local:  http://127.0.0.1:6725
-  LAN:    https://192.168.x.x:6725  (scan the QR in Settings)
-  Token:  <random token>
+  LAN:    https://192.168.x.x:6725  (pair from Remote in the app)
+  Token:  sha256:1a2b3c4d (the desktop app holds it)
 ```
 
 ### Open it on your phone
 
 1. Connect the phone to the **same Wi-Fi**.
-2. On the desktop, open **Pair a Phone** in the header (also under **Settings →
-   Pair a phone**) and scan the **QR** (it encodes
-   `https://<lan-ip>:6725/#/pair?token=…`).
-3. The cert is self-signed: your phone warns once — verify the **fingerprint**
-   shown there, then trust it.
+2. On the desktop, open **Remote → Pair a device → Same Wi-Fi** and scan the
+   **QR** with the phone's camera. It encodes a one-time code (valid 5 minutes,
+   in the URL fragment — never a token). You can also type the code on the
+   phone's Pair page.
+3. The phone warns once about the Mac's certificate; the Pair page shows how to
+   trust it (needed for live updates on iOS, the Home Screen app and push).
 
-From the phone you can monitor everything and, for **owned** sessions, spawn,
-send instructions, and approve/deny prompts.
+Away from home, turn on **Remote → Internet access**, start one of the tunnel
+commands shown there, and pair with an **Internet** code: the phone shows 4
+digits and you type them on the Mac. Details in [docs/REMOTE.md](docs/REMOTE.md).
 
 ## Build & quality gates
 
@@ -145,9 +161,11 @@ You can skip and revisit anytime under **Settings → Permissions**.
 | `MOTHER_CLAUDE_PORT` | `6725` | Port. |
 | `CLAUDE_CONFIG_DIR` | `~/.claude` | Claude config dir to read. |
 | `MOTHER_CLAUDE_CLI` | `claude` | Path to the Claude binary. |
-| `MOTHER_CLAUDE_SIDECAR` | on | `0` ⇒ disable the Path A sidecar and use the headless path. |
+| `MOTHER_CLAUDE_SIDECAR` | off | `1` ⇒ drive owned sessions with the legacy Path A Agent SDK sidecar instead of the stream-json control protocol. |
 | `MOTHER_CLAUDE_FOREIGN_INJECTION` | on | `0` ⇒ disable driving foreign sessions via PTY (monitor + lifecycle only). |
-| `MOTHER_CLAUDE_ALLOW_REMOTE_DANGEROUS` | unset | `1` ⇒ allow remote clients to approve dangerous actions / `rm`. |
+| `MOTHER_CLAUDE_ALLOW_REMOTE_DANGEROUS` | unset | `1` ⇒ paired devices on the LAN may take dangerous actions without a per-device grant (never through a tunnel). |
+| `MOTHER_CLAUDE_TUNNEL_PORT` | `6726` | Local-only port the tunnel forwards to while Internet access is on. |
+| `MOTHER_CLAUDE_VAPID_SUBJECT` | public URL | `mailto:` or `https:` contact sent with Web Push. |
 | `MOTHER_CLAUDE_WEB_DIR` | autodetect | Override the built SPA directory. |
 | `MOTHER_CLAUDE_BRIDGE` | on | `0` ⇒ disable the HTTP bridge entirely. |
 | `MOTHER_CLAUDE_BRIDGE_AUTOSTART` | off | `1` ⇒ start the API at launch (headless/CI) instead of from the app. |
@@ -208,5 +226,9 @@ dashboard like any other session, and its approval prompts appear on both.
 
 Full reference: **[docs/BRIDGE.md](docs/BRIDGE.md)**.
 
-> Never expose port 6725 to the public internet. The bridge port (5612) binds
-> loopback only. See [SECURITY.md](SECURITY.md).
+> For access from outside your network, use **Remote → Internet access** and a
+> tunnel to its local-only port (6726) — never a raw port forward. Devices need
+> their own pairing and never get dangerous actions through a tunnel unless you
+> grant them. The bridge port (5612) binds loopback only; a tunnel pointed at it
+> switches its tokenless mode off. See [SECURITY.md](SECURITY.md) and
+> [docs/REMOTE.md](docs/REMOTE.md).
