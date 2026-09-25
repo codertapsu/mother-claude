@@ -100,6 +100,8 @@ pub struct HookHub {
     wait_hold_ms: AtomicU64,
     headless_hold_ms: AtomicU64,
     last_any: AtomicI64,
+    /// pid → "runs in print mode (`-p`)", from its argv (never changes).
+    print_mode: Mutex<HashMap<u32, bool>>,
 }
 
 impl Default for HookHub {
@@ -116,6 +118,7 @@ impl Default for HookHub {
             wait_hold_ms: AtomicU64::new(WAIT_HOLD.as_millis() as u64),
             headless_hold_ms: AtomicU64::new(headless.as_millis() as u64),
             last_any: AtomicI64::new(0),
+            print_mode: Mutex::new(HashMap::new()),
         }
     }
 }
@@ -433,13 +436,16 @@ pub async fn dispatch(state: &AppState, p: HookPayload, pid: Option<u32>) -> Val
     response
 }
 
-/// How long to hold a PermissionRequest of `session`, or `None` to answer
-/// `{}` at once. Sessions that show their own prompt (terminal, VS Code,
-/// desktop, JetBrains, tmux) are held for up to [`HOLD_MAX`] in parallel
-/// with it; headless runs (`sdk-*`, unknown) only while a dashboard client
-/// is connected, briefly — they would otherwise block on us.
-async fn hold_policy(state: &AppState, session: &str) -> Option<Duration> {
+/// Whether the session shows its own prompts (terminal, VS Code, desktop,
+/// JetBrains, tmux, background jobs) — from the live roster's entrypoint,
+/// else the summary. Headless runs (`sdk-*`) and sessions nobody knows yet
+/// are not.
+async fn is_interactive(state: &AppState, session: &str) -> bool {
     let live = state.live.get(session);
+    let pid = live
+        .as_ref()
+        .and_then(|l| l.pid)
+        .or_else(|| state.hooks.lock().session(session).and_then(|s| s.pid));
     let summary = state.find_session(session).await;
     let entrypoint = live
         .as_ref()
@@ -447,22 +453,73 @@ async fn hold_policy(state: &AppState, session: &str) -> Option<Duration> {
         .or_else(|| summary.as_ref().and_then(|s| s.entrypoint.clone()));
     let tmux = live.as_ref().is_some_and(|l| l.tmux.is_some())
         || summary.as_ref().is_some_and(|s| s.tmux_pane.is_some());
-    let interactive = match entrypoint.as_deref() {
-        Some(e) if e.starts_with("sdk") => false,
-        Some(e) => INTERACTIVE_ENTRYPOINTS.contains(&e),
-        None => summary.as_ref().is_some_and(|s| {
-            matches!(
-                s.surface,
-                Surface::Vscode
-                    | Surface::Terminal
-                    | Surface::Tmux
-                    | Surface::Desktop
-                    | Surface::Jetbrains
-                    | Surface::Background
-            )
-        }),
+    let interactive = tmux
+        || match entrypoint.as_deref() {
+            Some(e) if e.starts_with("sdk") => false,
+            Some(e) => INTERACTIVE_ENTRYPOINTS.contains(&e),
+            None => summary.as_ref().is_some_and(|s| {
+                matches!(
+                    s.surface,
+                    Surface::Vscode
+                        | Surface::Terminal
+                        | Surface::Tmux
+                        | Surface::Desktop
+                        | Surface::Jetbrains
+                        | Surface::Background
+                )
+            }),
+        };
+    // A `claude -p` started from inside another session inherits that
+    // session's entrypoint; its argv tells the truth.
+    interactive && !matches!(pid, Some(p) if runs_print_mode(state, p).await)
+}
+
+/// Whether the process runs in print mode (`-p` / `--print`), cached per pid.
+async fn runs_print_mode(state: &AppState, pid: u32) -> bool {
+    if let Some(v) = state
+        .hooks
+        .print_mode
+        .lock()
+        .ok()
+        .and_then(|m| m.get(&pid).copied())
+    {
+        return v;
+    }
+    let out = tokio::time::timeout(
+        Duration::from_secs(2),
+        tokio::process::Command::new("ps")
+            .args(["-ww", "-o", "args=", "-p", &pid.to_string()])
+            .env("LC_ALL", "C")
+            .stdin(std::process::Stdio::null())
+            .output(),
+    )
+    .await;
+    let Ok(Ok(out)) = out else {
+        return false;
     };
-    if interactive || tmux {
+    let v = argv_is_print(&String::from_utf8_lossy(&out.stdout));
+    if let Ok(mut m) = state.hooks.print_mode.lock() {
+        if m.len() > 1024 {
+            m.clear();
+        }
+        m.insert(pid, v);
+    }
+    v
+}
+
+/// Whether a command line runs Claude Code in print mode (`-p`, `--print`).
+pub fn argv_is_print(args: &str) -> bool {
+    args.split_whitespace()
+        .skip(1)
+        .any(|w| w == "-p" || w == "--print")
+}
+
+/// How long to hold a PermissionRequest of `session`, or `None` to answer
+/// `{}` at once. Interactive sessions are held for up to [`HOLD_MAX`] in
+/// parallel with their own dialog; headless runs only while a dashboard
+/// client is connected, briefly — they would otherwise block on us.
+async fn hold_policy(state: &AppState, session: &str) -> Option<Duration> {
+    if is_interactive(state, session).await {
         return Some(HOLD_MAX);
     }
     (state.hub.client_count() > 0).then(|| state.hooks.headless_hold())
@@ -684,6 +741,11 @@ pub async fn wait(
     };
     if !pid_alive(pid) {
         return gone("process gone");
+    }
+    // A headless run (`claude -p`, SDK) would wait for this listener before
+    // exiting; messages reach it only as an owned session.
+    if !is_interactive(&state, &session).await {
+        return gone("headless session");
     }
     if state
         .live
@@ -965,6 +1027,18 @@ mod tests {
         ));
         assert!(!argv_is_bypass("claude --permission-mode"));
         assert!(!argv_is_bypass(""));
+    }
+
+    #[test]
+    fn print_mode_is_read_from_argv() {
+        assert!(argv_is_print("claude -p hello --model haiku"));
+        assert!(argv_is_print("/x/claude --print --output-format json"));
+        assert!(!argv_is_print(
+            "claude --output-format stream-json --input-format stream-json \
+             --permission-prompt-tool stdio --permission-mode default"
+        ));
+        assert!(!argv_is_print("-p"));
+        assert!(!argv_is_print(""));
     }
 
     #[test]

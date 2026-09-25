@@ -400,8 +400,17 @@ async fn owned_and_headless_sessions_are_not_held() {
     st.owned.write().await.remove(S);
 
     // Headless (`claude -p`, sdk-cli) with no dashboard client: `{}` at once
-    // (the CLI would otherwise wait on us).
+    // (the CLI would otherwise wait on us), and never a wake listener (it
+    // would keep the run from exiting).
     foreign_session(&st, S, Surface::Sdk, "sdk-cli").await;
+    let r = http()
+        .post(format!("{base}/hooks/wait?pid={}", my_pid()))
+        .bearer_auth(&st.auth.hook_token)
+        .json(&json!({ "session_id": S }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), StatusCode::GONE);
     let out = hook(
         &base,
         &st,
@@ -413,6 +422,38 @@ async fn owned_and_headless_sessions_are_not_held() {
     .await;
     assert_eq!(out, json!({}));
     assert!(st.pending.list(S).is_empty());
+
+    // A `claude -p` run started inside another session inherits its
+    // entrypoint; its argv gives it away.
+    foreign_session(&st, S, Surface::Vscode, "claude-vscode").await;
+    let mut printer = std::process::Command::new("/bin/sh")
+        // Two commands, so the shell stays (a lone command is exec'd).
+        .args(["-c", "sleep 5; :", "claude", "-p", "hello"])
+        .spawn()
+        .unwrap();
+    let r = http()
+        .post(format!("{base}/hooks/event"))
+        .bearer_auth(&st.auth.hook_token)
+        .header("x-mc-pid", printer.id().to_string())
+        .json(&ev(
+            "PermissionRequest",
+            json!({ "tool_name": "Bash", "tool_input": { "command": "ls" } }),
+        ))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.json::<Value>().await.unwrap(), json!({}));
+    assert!(st.pending.list(S).is_empty());
+    let r = http()
+        .post(format!("{base}/hooks/wait?pid={}", printer.id()))
+        .bearer_auth(&st.auth.hook_token)
+        .json(&json!({ "session_id": S }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), StatusCode::GONE);
+    let _ = printer.kill();
+    let _ = printer.wait();
 
     // Garbage and invalid ids are ignored, never errors.
     for body in [
@@ -893,6 +934,16 @@ async fn mc_wake_wakes_with_the_relay_and_stops_quietly() {
     assert_eq!((r.code, r.stderr.as_str()), (0, ""));
     st.owned.write().await.remove(S);
 
+    // A headless run exits at once (it would keep `claude -p` alive).
+    let r = run_script(
+        &wake_sh,
+        &[],
+        &stop_payload,
+        &[("CLAUDE_CODE_ENTRYPOINT", "sdk-cli")],
+    )
+    .await;
+    assert_eq!((r.code, r.stderr.as_str()), (0, ""));
+
     // Turned off → exit 0 before polling.
     std::fs::write(&p.paths.disabled, "off").unwrap();
     let r = run_script(&wake_sh, &[], &stop_payload, &[]).await;
@@ -979,53 +1030,70 @@ async fn e2e_the_cli_honours_the_hook_decision() {
             cmd.env_remove(k);
         }
     }
-    let child = cmd
+    let mut child = cmd
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
         .unwrap();
-    // Approve the first Bash prompt from "the phone".
-    let mut approved = None;
-    for _ in 0..900 {
-        let items: Vec<_> = st
-            .pending
-            .all()
-            .into_iter()
-            .filter(|i| i.tool_name.as_deref() == Some("Bash"))
-            .collect();
-        if let Some(item) = items.first() {
-            let sid = item.session_id.clone();
+    // Approve every Bash prompt from "the phone" until the run ends.
+    let started = std::time::Instant::now();
+    let mut approved: Vec<mother_claude_lib::claude::model::PendingItem> = Vec::new();
+    let mut last_approval = started;
+    let status = loop {
+        if let Some(status) = child.try_wait().unwrap() {
+            break Some(status);
+        }
+        if started.elapsed() > Duration::from_secs(150) {
+            break None;
+        }
+        for item in st.pending.all() {
+            if item.tool_name.as_deref() != Some("Bash") || approved.iter().any(|a| a.id == item.id)
+            {
+                continue;
+            }
             let r = http()
-                .post(format!("{base}/api/sessions/{sid}/respond"))
+                .post(format!("{base}/api/sessions/{}/respond", item.session_id))
                 .bearer_auth(&st.auth.token)
                 .json(&json!({ "requestId": item.id, "decision": "allow" }))
                 .send()
                 .await
                 .unwrap();
-            assert_eq!(r.status(), StatusCode::OK);
-            approved = Some(item.clone());
-            break;
+            eprintln!(
+                "[e2e] approved {} after {:?}: {}",
+                item.id,
+                started.elapsed(),
+                r.status()
+            );
+            last_approval = std::time::Instant::now();
+            approved.push(item);
         }
         tokio::time::sleep(Duration::from_millis(100)).await;
+    };
+    if status.is_none() {
+        let _ = child.start_kill();
     }
-    let out = tokio::time::timeout(Duration::from_secs(120), child.wait_with_output())
-        .await
-        .unwrap()
-        .unwrap();
-    let item = approved.unwrap_or_else(|| {
-        panic!(
-            "no PermissionRequest reached the server; stdout: {} stderr: {}",
-            String::from_utf8_lossy(&out.stdout),
-            String::from_utf8_lossy(&out.stderr)
-        )
-    });
-    assert_eq!(item.source, PendingSource::Hook);
-    assert!(item.tool_use_id.is_some(), "correlated with its PreToolUse");
+    let out = child.wait_with_output().await.unwrap();
+    eprintln!(
+        "[e2e] exit {:?} after {:?} ({:?} after the last approval)\nstdout: {}\nstderr: {}",
+        status,
+        started.elapsed(),
+        last_approval.elapsed(),
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let first = approved
+        .first()
+        .expect("a PermissionRequest reached the server");
+    assert_eq!(first.source, PendingSource::Hook);
+    assert!(
+        first.tool_use_id.is_some(),
+        "correlated with its PreToolUse"
+    );
     assert!(
         marker_file.exists(),
-        "the CLI ran the tool the hook approved; stdout: {}",
-        String::from_utf8_lossy(&out.stdout)
+        "the CLI ran the tool the hook approved"
     );
+    assert!(status.is_some(), "the run ended by itself");
 }
 
 /// The generated plugin passes the CLI's own validator (read-only, no

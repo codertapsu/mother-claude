@@ -17,6 +17,10 @@ mc_quiet() {
 }
 
 [ "${MOTHER_CLAUDE_OWNED:-}" = 1 ] && mc_quiet
+# A headless run (claude -p, the SDK) would wait for us before exiting.
+case "${CLAUDE_CODE_ENTRYPOINT:-}" in
+    sdk-*) mc_quiet ;;
+esac
 [ -d "$MC_DATA" ] || MC_DATA="${CLAUDE_PLUGIN_ROOT:-/nonexistent}/../.."
 command -v curl >/dev/null 2>&1 || mc_quiet
 case "${PPID:-}" in
