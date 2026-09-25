@@ -6,29 +6,50 @@ import { NoticeService } from '../../core/notice.service';
 import { AgentInfo, BackgroundTask, FleetSession, WorkflowRun } from '../../core/models';
 import { RealtimeService } from '../../core/realtime.service';
 import { ActivityLineComponent } from '../../shared/activity-line.component';
-import { agentKindIcon, agentKindLabel, orderAgentTree } from '../../shared/agents';
+import {
+  agentKindIcon,
+  agentKindLabel,
+  isTaskAgent,
+  orderAgentTree,
+  taskFromAgent,
+} from '../../shared/agents';
 import { ChipComponent } from '../../shared/chip.component';
 import { IconComponent } from '../../shared/icon.component';
 import { ElapsedPipe } from '../../shared/time.pipes';
 import { formatTokens, sessionName } from '../../shared/util';
+import { TaskOutputComponent } from '../session-detail/task-output.component';
+
+/** While Limited (no socket, so no `fleet` frames), refresh every this many
+ * poll ticks (2 s each). */
+const FLEET_POLL_TICKS = 4;
 
 interface FleetGroup {
   sessionId: string;
   name: string;
+  /** Subagents, workflow agents, teammates: each has a transcript. */
   agents: (AgentInfo & { level: number })[];
   workflows: WorkflowRun[];
-  tasks: BackgroundTask[];
+  /** Background shells and monitors: output only, no transcript. */
+  shells: AgentInfo[];
 }
 
 /**
  * The fleet: every running agent (subagents, workflow agents, background
  * shells, monitors) grouped by session, with live activity, elapsed time and
- * tokens, plus each session's running workflow runs and background tasks.
- * Tap one to open its transcript; stop it where the session allows.
+ * tokens, plus each session's running workflow runs. Tap an agent to open
+ * its transcript, or a shell/monitor for its output; stop it where the
+ * session allows.
  */
 @Component({
   selector: 'mc-agents',
-  imports: [RouterLink, ActivityLineComponent, ChipComponent, IconComponent, ElapsedPipe],
+  imports: [
+    RouterLink,
+    ActivityLineComponent,
+    ChipComponent,
+    IconComponent,
+    ElapsedPipe,
+    TaskOutputComponent,
+  ],
   template: `
     <div class="page">
       <div class="page-head">
@@ -49,7 +70,7 @@ interface FleetGroup {
         <section class="group">
           <a class="ghead" [routerLink]="['/session', g.sessionId]">
             <span class="gname">{{ g.name }}</span>
-            <span class="muted small">{{ g.agents.length }}</span>
+            <span class="muted small">{{ g.agents.length + g.shells.length }}</span>
             <mc-icon name="chevronRight" [size]="16" />
           </a>
           @for (w of g.workflows; track w.runId) {
@@ -63,18 +84,33 @@ interface FleetGroup {
               >
             </div>
           }
-          @for (t of g.tasks; track t.id) {
-            <a
-              class="card wf"
-              [routerLink]="['/session', g.sessionId]"
-              [queryParams]="{ tab: 'agents' }"
-            >
-              <mc-icon [name]="t.kind === 'monitor' ? 'activity' : 'terminal'" [size]="16" />
-              <span class="wname mono">{{ t.label }}</span>
-              @if (t.startedAt) {
-                <span class="muted small">{{ t.startedAt | elapsed }}</span>
+          @for (t of g.shells; track t.id) {
+            <div class="card wf shell">
+              <button
+                class="open"
+                type="button"
+                [attr.aria-label]="'Output of ' + t.label"
+                (click)="openOutput(t)"
+              >
+                <mc-icon [name]="t.kind === 'monitor' ? 'activity' : 'terminal'" [size]="16" />
+                <span class="wname mono">{{ t.label }}</span>
+                @if (t.startedAt) {
+                  <span class="muted small">{{ t.startedAt | elapsed }}</span>
+                }
+              </button>
+              @if (t.canStop) {
+                <button
+                  class="btn danger small"
+                  type="button"
+                  [disabled]="stopping().has(t.id)"
+                  [attr.aria-label]="'Stop ' + t.label"
+                  (click)="stop(t)"
+                >
+                  <mc-icon name="stop" [size]="14" />
+                  {{ stopping().has(t.id) ? 'Stopping…' : 'Stop' }}
+                </button>
               }
-            </a>
+            </div>
           }
           <div class="list card" [hidden]="!g.agents.length">
             @for (a of g.agents; track a.id) {
@@ -144,6 +180,12 @@ interface FleetGroup {
         }
       }
     </div>
+
+    <mc-task-output
+      [sessionId]="output()?.sessionId ?? ''"
+      [task]="output()?.task ?? null"
+      (closed)="output.set(null)"
+    />
   `,
   styles: [
     `
@@ -160,6 +202,25 @@ interface FleetGroup {
       }
       .wf mc-icon {
         color: var(--accent-text);
+      }
+      .shell {
+        padding-top: 0.25rem;
+        padding-bottom: 0.25rem;
+      }
+      .open {
+        flex: 1;
+        min-width: 0;
+        min-height: var(--tap);
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0;
+        border: 0;
+        background: none;
+        color: inherit;
+        font: inherit;
+        text-align: left;
+        cursor: pointer;
       }
       .wname {
         flex: 1;
@@ -274,24 +335,29 @@ export class AgentsComponent {
   protected readonly loaded = signal(false);
   protected readonly error = signal('');
   protected readonly stopping = signal<ReadonlySet<string>>(new Set());
+  /** The shell whose output sheet is open. */
+  protected readonly output = signal<{ sessionId: string; task: BackgroundTask } | null>(null);
+  private loading = false;
+  private tick = 0;
 
   protected readonly groups = computed<FleetGroup[]>(() => {
     const byId = new Map(this.realtime.sessions().map((s) => [s.id, s]));
     return this.fleet()
       .map((f) => {
         const s = byId.get(f.sessionId);
+        const all = f.agents ?? [];
         return {
           sessionId: f.sessionId,
           name: s ? sessionName(s) : f.name || f.sessionId.slice(0, 8),
-          agents: orderAgentTree(f.agents ?? []),
+          agents: orderAgentTree(all.filter((a) => !isTaskAgent(a))),
           workflows: (f.workflows ?? []).filter((w) => w.status === 'running'),
-          tasks: (f.tasks ?? []).filter((t) => t.status === 'running'),
+          shells: all.filter((a) => isTaskAgent(a) && a.status === 'running'),
         };
       })
-      .filter((g) => g.agents.length || g.workflows.length || g.tasks.length);
+      .filter((g) => g.agents.length || g.workflows.length || g.shells.length);
   });
   protected readonly total = computed(() =>
-    this.groups().reduce((n, g) => n + g.agents.length + g.tasks.length, 0),
+    this.groups().reduce((n, g) => n + g.agents.length + g.shells.length, 0),
   );
 
   protected readonly tokens = formatTokens;
@@ -305,6 +371,11 @@ export class AgentsComponent {
         this.loaded.set(true);
       }),
       this.realtime.refetch$.subscribe(() => void this.load()),
+      // Limited (polling): no fleet frames arrive, so refresh now and then.
+      this.realtime.pollTick$.subscribe(() => {
+        this.tick += 1;
+        if (this.tick % FLEET_POLL_TICKS === 0) void this.load();
+      }),
     ];
     destroyRef.onDestroy(() => {
       release();
@@ -332,7 +403,14 @@ export class AgentsComponent {
     }
   }
 
+  /** A shell or monitor has no transcript: show its output instead. */
+  protected openOutput(a: AgentInfo): void {
+    this.output.set({ sessionId: a.sessionId, task: taskFromAgent(a) });
+  }
+
   protected async load(): Promise<void> {
+    if (this.loading) return; // a slow poll must not pile up requests
+    this.loading = true;
     try {
       const fleet = await this.api.getFleet();
       this.fleet.set(fleet.sessions ?? []);
@@ -340,6 +418,7 @@ export class AgentsComponent {
     } catch (e) {
       this.error.set(describeError(e).text);
     } finally {
+      this.loading = false;
       this.loaded.set(true);
     }
   }

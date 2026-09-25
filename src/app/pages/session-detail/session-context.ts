@@ -2,7 +2,7 @@ import { Injectable, NgZone, computed, effect, inject, signal, untracked } from 
 import { Router } from '@angular/router';
 import { Subscription } from 'rxjs';
 
-import { ApiError, ApiService } from '../../core/api.service';
+import { ApiError, ApiService, describeError } from '../../core/api.service';
 import { AuthService } from '../../core/auth.service';
 import { LiveStream } from '../../core/live-stream';
 import {
@@ -63,6 +63,8 @@ export class SessionContext {
   readonly caps = computed(() => this.session()?.control);
   readonly loading = signal(true);
   readonly loadError = signal('');
+  /** The server said 404 (as opposed to not answering at all). */
+  readonly notFound = signal(false);
   readonly store = signal<TranscriptStore | null>(null);
   readonly stream = signal<LiveStream | null>(null);
 
@@ -89,6 +91,9 @@ export class SessionContext {
   readonly isDesktop = this.auth.isDesktop;
 
   readonly tab = signal<SessionTab>('chat');
+  /** A pending request to bring forward in the dock (`?pending=<id>`, e.g.
+   * from a notification). Cleared once the dock showed it. */
+  readonly focusPending = signal<string | null>(null);
   /** The composer asked the header to open a picker (`/model` etc.). */
   readonly openPicker = signal<PickerKind | null>(null);
   readonly terminalOpen = signal(false);
@@ -99,6 +104,8 @@ export class SessionContext {
   readonly commands = signal<CommandInfo[] | null>(null);
 
   private subs = new Subscription();
+  /** The `/commands` request in flight (a burst of keystrokes shares it). */
+  private commandsLoading?: Promise<CommandInfo[]>;
   private tick = 0;
   private detailTimer?: ReturnType<typeof setTimeout>;
 
@@ -139,17 +146,22 @@ export class SessionContext {
     });
   }
 
-  /** Switch to another session (the route reuses the page for /session/B). */
+  /** Switch to another session (the route reuses the page for /session/B).
+   * Every session opens on Chat, where its requests and the composer are. */
   open(id: string): void {
     if (id === this.id()) return;
     this.close();
     this.id.set(id);
+    this.tab.set('chat');
+    this.focusPending.set(null);
     this.detail.set(null);
     this.loading.set(true);
     this.loadError.set('');
+    this.notFound.set(false);
     this.agents.set([]);
     this.workflows.set([]);
     this.commands.set(null);
+    this.commandsLoading = undefined;
     this.openPicker.set(null);
     this.terminalOpen.set(false);
     if (!id) return;
@@ -188,34 +200,42 @@ export class SessionContext {
       this.workflows.set(d.workflows ?? []);
       this.realtime.mergeSession(d);
       this.loadError.set('');
+      this.notFound.set(false);
     } catch (e) {
       if (id !== this.id()) return;
       if (!this.live()) {
-        this.loadError.set(
-          e instanceof ApiError && e.status === 404
-            ? 'This session no longer exists.'
-            : e instanceof Error
-              ? e.message
-              : String(e),
-        );
+        // An unreachable Mac is not a missing session (a cold start from a
+        // notification while the Mac sleeps); a reconnect retries (refetch$).
+        const missing = e instanceof ApiError && e.status === 404;
+        this.notFound.set(missing);
+        this.loadError.set(missing ? 'This session no longer exists.' : describeError(e).text);
       }
     } finally {
       if (id === this.id()) this.loading.set(false);
     }
   }
 
-  async loadCommands(): Promise<CommandInfo[]> {
+  loadCommands(): Promise<CommandInfo[]> {
     const have = this.commands();
-    if (have) return have;
-    try {
-      const res = await this.api.getCommands(this.id());
-      const list = (res.commands ?? []).filter((c) => c?.name);
-      this.commands.set(list);
+    if (have) return Promise.resolve(have);
+    if (this.commandsLoading) return this.commandsLoading;
+    const id = this.id();
+    const load = (async () => {
+      let list: CommandInfo[];
+      try {
+        const res = await this.api.getCommands(id);
+        list = (res.commands ?? []).filter((c) => c?.name);
+      } catch {
+        list = [];
+      }
+      if (id === this.id()) {
+        this.commands.set(list);
+        this.commandsLoading = undefined;
+      }
       return list;
-    } catch {
-      this.commands.set([]);
-      return [];
-    }
+    })();
+    this.commandsLoading = load;
+    return load;
   }
 
   // ─────────────────────────────────────────────────────────── Actions

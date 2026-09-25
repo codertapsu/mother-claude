@@ -6,13 +6,10 @@ import { ApiService, errorMessage } from '../../core/api.service';
 import { AuthService } from '../../core/auth.service';
 import { ImageAttachment, ProjectInfo } from '../../core/models';
 import { IconComponent } from '../../shared/icon.component';
+import { MAX_IMAGES, prepareImage } from '../../shared/images';
 import { LaunchOptionsComponent } from '../../shared/launch-options.component';
 import { RelativeTimePipe } from '../../shared/time.pipes';
 import { shortPath } from '../../shared/util';
-
-const MAX_IMAGES = 10;
-const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
-const IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'];
 
 interface Attachment extends ImageAttachment {
   name: string;
@@ -108,7 +105,7 @@ interface Attachment extends ImageAttachment {
             <mc-icon name="image" [size]="16" /> Add images
             <input
               type="file"
-              accept="image/png,image/jpeg,image/gif,image/webp"
+              accept="image/*"
               multiple
               class="visually-hidden"
               (change)="onFiles($event)"
@@ -265,6 +262,15 @@ interface Attachment extends ImageAttachment {
         justify-content: center;
         cursor: pointer;
       }
+      /* A 44 px hit area from the thumbnail's corner (it clips overflow). */
+      .remove::before {
+        content: '';
+        position: absolute;
+        top: -0.2rem;
+        right: -0.2rem;
+        width: var(--tap);
+        height: var(--tap);
+      }
       .actions {
         display: flex;
         align-items: center;
@@ -320,23 +326,21 @@ export class NewSessionComponent {
         this.error.set(`At most ${MAX_IMAGES} images.`);
         break;
       }
-      if (!IMAGE_TYPES.includes(file.type)) {
-        this.error.set(`${file.name}: only PNG, JPEG, GIF or WebP images.`);
-        continue;
-      }
-      if (file.size > MAX_IMAGE_BYTES) {
-        this.error.set(`${file.name} is larger than 5 MB.`);
-        continue;
-      }
       try {
-        const preview = await readDataUrl(file);
-        const data = preview.slice(preview.indexOf(',') + 1);
+        // Same as the composer: phone photos are downscaled (≤ 2048 px) and
+        // re-encoded as needed, instead of refused or sent full size.
+        const img = await prepareImage(file);
         this.images.update((prev) => [
           ...prev,
-          { name: file.name, mediaType: file.type, data, preview },
+          {
+            name: file.name,
+            mediaType: img.mediaType,
+            data: img.data,
+            preview: `data:${img.mediaType};base64,${img.data}`,
+          },
         ]);
-      } catch {
-        this.error.set(`Could not read ${file.name}.`);
+      } catch (e) {
+        this.error.set(`${file.name}: ${errorMessage(e)}`);
       }
     }
   }
@@ -387,13 +391,4 @@ export class NewSessionComponent {
       this.loadingProjects.set(false);
     }
   }
-}
-
-function readDataUrl(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result));
-    reader.onerror = () => reject(reader.error);
-    reader.readAsDataURL(file);
-  });
 }

@@ -24,6 +24,11 @@ import { TimeAgoComponent } from './shared/time-ago.component';
 import { ToastComponent } from './shared/toast.component';
 
 const ONBOARDING_SKIP_KEY = 'mc_onboarding_skipped';
+
+/** A pair request that can still be approved. */
+export function isStillPending(p: PendingPair, now: number): boolean {
+  return (p.status ?? 'pending') === 'pending' && !(p.expiresAt && p.expiresAt <= now);
+}
 const WELCOME_SEEN_KEY = 'mc_welcome_seen';
 
 /** Sections reached through the phone's "More" tab. */
@@ -158,6 +163,7 @@ export class AppComponent {
   protected readonly connDetail = computed(() => connectionDetail(this.connection()));
 
   private lastState: string | null = null;
+  private lastToken = '';
 
   constructor() {
     void this.boot();
@@ -177,7 +183,23 @@ export class AppComponent {
     // Desktop: a device asked to pair.
     this.realtime.pairRequest$.subscribe((f) => {
       if (!f.pending?.id || !this.isDesktop() || this.section() === 'remote') return;
+      if (!isStillPending(f.pending, Date.now())) return;
       this.pairQueue.update((q) => (q.some((p) => p.id === f.pending.id) ? q : [...q, f.pending]));
+    });
+    // Requests settle elsewhere too (approved or denied on the Remote page or
+    // in another window, expired): `devices` frames follow every change.
+    this.realtime.devices$.subscribe(() => void this.prunePairQueue());
+    this.realtime.refetch$.subscribe(() => void this.prunePairQueue());
+    // Drop a request locally the moment it expires.
+    effect((onCleanup) => {
+      const q = this.pairQueue();
+      const next = Math.min(...q.map((p) => p.expiresAt ?? Infinity));
+      if (!Number.isFinite(next)) return;
+      const t = setTimeout(
+        () => this.pairQueue.update((list) => list.filter((p) => isStillPending(p, Date.now()))),
+        Math.max(0, next - Date.now()) + 250,
+      );
+      onCleanup(() => clearTimeout(t));
     });
     // Say connection changes out loud (the dot alone says nothing to a
     // screen reader).
@@ -194,8 +216,19 @@ export class AppComponent {
     effect(() => {
       if (!this.ready()) return;
       const state = this.auth.state();
+      const token = this.config.token();
       const prev = this.lastState;
+      const prevToken = this.lastToken;
       this.lastState = state;
+      this.lastToken = token;
+      if (state === 'paired' && prev === 'paired' && prevToken && token !== prevToken) {
+        // Paired again while paired: the socket and the push subscription
+        // still belong to the old device.
+        this.realtime.restart();
+        void this.loadMe();
+        void this.push.resubscribe();
+        return;
+      }
       if (state === 'unpaired') {
         this.realtime.stop();
         // Read the address bar, not router.url: during the initial navigation
@@ -271,6 +304,21 @@ export class AppComponent {
 
   protected nextPairRequest(): void {
     this.pairQueue.update((q) => q.slice(1));
+  }
+
+  /** Keep only the queued pair requests the server still has pending. */
+  private async prunePairQueue(): Promise<void> {
+    if (!this.pairQueue().length || !this.isDesktop()) return;
+    try {
+      const list = await this.api.listDevices();
+      const now = Date.now();
+      const open = new Set(
+        (list.pending ?? []).filter((p) => isStillPending(p, now)).map((p) => p.id),
+      );
+      this.pairQueue.update((q) => q.filter((p) => open.has(p.id) && isStillPending(p, now)));
+    } catch {
+      // Unknown right now: the dialog still reports the server's answer.
+    }
   }
 
   protected reconnect(): void {

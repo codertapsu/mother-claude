@@ -135,10 +135,11 @@ export class ApiService {
   }
 
   /** Fetch an image referenced by a UiEvent (`image.ref`), with auth. Use
-   * `URL.createObjectURL` on the result; revoke it when done. */
-  async fetchMedia(ref: string): Promise<Blob> {
+   * `URL.createObjectURL` on the result; revoke it when done. `signal`
+   * cancels the download (e.g. the row went away). */
+  async fetchMedia(ref: string, signal?: AbortSignal): Promise<Blob> {
     const path = ref.startsWith('/api/') ? ref.slice(4) : ref;
-    const res = await this.send(path, { method: 'GET' }, { accept: '*/*' });
+    const res = await this.send(path, { method: 'GET', signal }, { accept: '*/*' });
     return res.blob();
   }
 
@@ -515,7 +516,11 @@ export class ApiService {
 
     if (res.status === 304 && opts.allowNotModified) return res;
     if (res.status === 401) {
-      if (opts.auth !== false) this.auth.handleUnauthorized();
+      // Only the credential in use now counts: an answer to a request sent
+      // with a token that was replaced meanwhile (re-pairing) says nothing.
+      if (opts.auth !== false && cfg.token === this.config.token()) {
+        this.auth.handleUnauthorized();
+      }
       const env = parseEnvelope(await res.text().catch(() => ''));
       throw new ApiError(env.message || 'Not paired', 401, 'unauthorized', env.code);
     }

@@ -5,6 +5,7 @@ import { ApiService, errorMessage } from '../../core/api.service';
 import { AttentionService } from '../../core/attention.service';
 import { AuthService } from '../../core/auth.service';
 import { ConfigService } from '../../core/config.service';
+import { DeviceService } from '../../core/device.service';
 import { PairCode, PushPrefs } from '../../core/models';
 import { PermissionsService } from '../../core/permissions.service';
 import { PushService } from '../../core/push.service';
@@ -66,6 +67,7 @@ export class SettingsComponent {
   private api = inject(ApiService);
   private auth = inject(AuthService);
   private config = inject(ConfigService);
+  private device = inject(DeviceService);
   private permissions = inject(PermissionsService);
   private realtime = inject(RealtimeService);
   protected readonly push = inject(PushService);
@@ -99,7 +101,10 @@ export class SettingsComponent {
   });
 
   protected readonly ingress = computed(() => {
-    const i = this.me()?.ingress;
+    // A tunnel pointed at the main port arrives on the loopback listener:
+    // `effectiveIngress` is the network the request really came from.
+    const m = this.me();
+    const i = m?.effectiveIngress ?? m?.ingress;
     return i ? (INGRESS[i] ?? i) : '—';
   });
   protected readonly secure = window.isSecureContext;
@@ -107,6 +112,7 @@ export class SettingsComponent {
   constructor() {
     void this.permissions.refresh();
     void this.push.refresh();
+    if (!this.isDesktop()) void this.push.loadHint();
     // Per-event preferences exist once this device has push on.
     effect(() => {
       if (this.push.state() === 'on' && !this.prefs()) void this.loadPrefs();
@@ -169,9 +175,8 @@ export class SettingsComponent {
     this.forgetting.set(true);
     // Unpair on the server too, so the token stops working everywhere; forget
     // it locally even if the Mac can't be reached right now.
-    await this.api.unpairSelf().catch(() => undefined);
+    await this.device.forgetThisDevice();
     this.forgetting.set(false);
-    this.auth.forget();
   }
 
   private async loadPrefs(): Promise<void> {

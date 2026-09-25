@@ -43,6 +43,25 @@ interface PaletteItem {
 }
 
 const DRAFT_PREFIX = 'mc_draft_';
+/** Text before the caret that is a `/command` being typed. */
+const SLASH_QUERY = /^\/[^\s]*$/;
+
+/** What a send took from the composer. */
+interface Sent {
+  session: string;
+  text: string;
+  attachments: ReadonlySet<number>;
+}
+
+/**
+ * What stays in the composer once `sent` went out: text typed after it while
+ * the request was in flight. If the text was edited in a way that no longer
+ * starts with what was sent, it is kept as it is.
+ */
+export function remainderAfterSend(now: string, sent: string): string {
+  if (!now.startsWith(sent)) return now;
+  return now.slice(sent.length).trimStart();
+}
 const RELAY_EXPLAINED_KEY = 'mc_relay_explained';
 /** Commands the header handles with its own pickers. */
 const PICKER_COMMANDS: Record<string, PickerKind> = {
@@ -116,6 +135,8 @@ export class ComposerComponent {
   protected readonly active = signal(0);
   private fileQueryTimer?: ReturnType<typeof setTimeout>;
   private fileQuerySeq = 0;
+  /** Bumped on every palette change: a late `/commands` answer checks it. */
+  private slashSeq = 0;
   private draftTimer?: ReturnType<typeof setTimeout>;
   private nextId = 1;
 
@@ -286,11 +307,10 @@ export class ComposerComponent {
   // ─────────────────────────────────────────────────────────── Palette
 
   private updatePalette(el: HTMLTextAreaElement): void {
-    const value = el.value;
-    const caret = el.selectionStart ?? value.length;
-    const before = value.slice(0, caret);
-    if (this.caps()?.slashCommands && /^\/[^\s]*$/.test(before)) {
-      void this.showCommands(before.slice(1).toLowerCase());
+    const seq = ++this.slashSeq;
+    const before = this.beforeCaret(el);
+    if (this.caps()?.slashCommands && SLASH_QUERY.test(before)) {
+      void this.showCommands(before.slice(1).toLowerCase(), seq);
       return;
     }
     const at = /(?:^|\s)@([^\s@]*)$/.exec(before);
@@ -301,8 +321,18 @@ export class ComposerComponent {
     this.closePalette();
   }
 
-  private async showCommands(q: string): Promise<void> {
+  private beforeCaret(el: HTMLTextAreaElement): string {
+    const value = el.value;
+    return value.slice(0, el.selectionStart ?? value.length);
+  }
+
+  private async showCommands(q: string, seq: number): Promise<void> {
     const server = await this.ctx.loadCommands();
+    // The first `/commands` can take a while over a tunnel: if the text
+    // moved on meanwhile (the `/` deleted, a newer query), this answer is
+    // stale and must not reopen the palette (Enter would then pick from it).
+    const el = this.ta()?.nativeElement;
+    if (seq !== this.slashSeq || !el || !SLASH_QUERY.test(this.beforeCaret(el))) return;
     const seen = new Set<string>();
     const all = [...BUILTIN, ...server].filter((c) => {
       const name = c.name.replace(/^\//, '');
@@ -347,6 +377,7 @@ export class ComposerComponent {
     this.palette.set(null);
     this.paletteItems.set([]);
     this.fileQuerySeq++;
+    this.slashSeq++;
   }
 
   /** Arrow keys / Enter / Tab / Escape while the palette is open. */
@@ -492,14 +523,20 @@ export class ComposerComponent {
 
   protected async submit(how: 'send' | 'interrupt' | 'deny'): Promise<void> {
     if (!this.canSend()) return;
-    const text = this.text().trim();
+    // What goes out; anything typed or attached while it is in flight stays.
+    const sent: Sent = {
+      session: this.ctx.id(),
+      text: this.text(),
+      attachments: new Set(this.attachments().map((a) => a.id)),
+    };
+    const text = sent.text.trim();
     const images = this.attachments().map(({ mediaType, data }) => ({ mediaType, data }));
     this.sending.set(true);
     this.failed.set(false);
     this.closePalette();
     try {
       if (this.mode() === 'resume') {
-        if (await this.ctx.resumeWith(text)) this.cleared();
+        if (await this.ctx.resumeWith(text)) this.cleared(sent);
         else this.failed.set(true);
         return;
       }
@@ -514,7 +551,7 @@ export class ComposerComponent {
           });
         if (res) {
           this.notices.success(res.alreadyDecided ? res.text : 'Denied, with your note to Claude.');
-          if (!res.alreadyDecided) this.cleared();
+          if (!res.alreadyDecided) this.cleared(sent);
         } else if (res === undefined) this.failed.set(true);
         return;
       }
@@ -524,7 +561,7 @@ export class ComposerComponent {
         this.failed.set(true);
         return;
       }
-      this.cleared();
+      this.cleared(sent);
       if (res.delivery === 'queued') {
         this.notices.info('Queued: Claude reads it when the current step ends.');
       } else if (res.delivery === 'relayed') {
@@ -545,10 +582,18 @@ export class ComposerComponent {
     this.explainer.set(false);
   }
 
-  private cleared(): void {
-    this.setText('');
-    storageRemove(DRAFT_PREFIX + this.ctx.id());
-    this.clearAttachments();
+  /** The message went out: take it out of the composer, keeping whatever
+   * was typed or attached while the request was in flight (a slow tunnel). */
+  private cleared(sent: Sent): void {
+    if (this.ctx.id() !== sent.session) {
+      // Another session's composer now: only its sent draft goes.
+      storageRemove(DRAFT_PREFIX + sent.session);
+      return;
+    }
+    this.setText(remainderAfterSend(this.text(), sent.text));
+    if (!this.text().trim()) storageRemove(DRAFT_PREFIX + sent.session);
+    for (const a of this.attachments()) if (sent.attachments.has(a.id)) URL.revokeObjectURL(a.url);
+    this.attachments.update((prev) => prev.filter((a) => !sent.attachments.has(a.id)));
     this.failed.set(false);
   }
 }

@@ -17,6 +17,7 @@ import {
   PendingResolvedFrame,
   ServerFrame,
   SessionSummary,
+  SessionsDiffFrame,
   SessionsFrame,
   StreamFrame,
   TranscriptFrame,
@@ -110,6 +111,13 @@ const POLL_HIDDEN_MS = 15_000;
 const TRANSCRIPT_POLL_MS = 2_000;
 /** While limited, try the socket again this often. */
 const WS_RETRY_LIMITED_MS = 60_000;
+/** States a frame on an authed socket proves wrong. */
+const RESTORABLE: ReadonlySet<ConnectionState> = new Set<ConnectionState>([
+  'connecting',
+  'reconnecting',
+  'offline',
+  'unreachable',
+]);
 
 interface SubEntry {
   session: string;
@@ -235,7 +243,10 @@ export class RealtimeService {
   private checkingLimited = false;
   /** This client may not poll (a tunnel client): don't ask again. */
   private noPolling = false;
-  private resyncing = false;
+  /** Set while a gap reload is in flight: the diffs applied meanwhile. */
+  private diffsDuringReload: SessionsDiffFrame[] | null = null;
+  /** Full `sessions` frames applied so far. */
+  private fullFrames = 0;
   private listenersBound = false;
   private readonly subs = new Map<string, SubEntry>();
   private fleetSubs = 0;
@@ -285,8 +296,11 @@ export class RealtimeService {
 
   /** Merge a REST copy of a session into the store (e.g. the detail page's
    * `GET /sessions/{id}` while polling). Only sessions already in the store
-   * are updated, so the active scope stays the server's decision. */
+   * are updated, so the active scope stays the server's decision. While the
+   * socket is live its diffs are authoritative: a REST copy may be older than
+   * the last diff, and the server only diffs again on the next change. */
   mergeSession(s: SessionSummary): void {
+    if (this.connectionS() === 'open') return;
     if (!s?.id || !this.store().has(s.id)) return;
     this.store.update((prev) => new Map(prev).set(s.id, s));
   }
@@ -411,6 +425,9 @@ export class RealtimeService {
       if (this.socket !== socket) return;
       this.lastFrameAt = Date.now();
       this.lastDataAtS.set(this.lastFrameAt);
+      // A frame on an authed socket proves the link works, whatever an
+      // `offline` event (e.g. a Wi-Fi hand-off the socket survived) said.
+      if (this.authed && RESTORABLE.has(this.connectionS())) this.connectionS.set('open');
       this.dispatch(ev.data);
     };
     socket.onclose = (ev: CloseEvent) => {
@@ -420,10 +437,17 @@ export class RealtimeService {
       this.authed = false;
       clearTimeout(this.authTimer);
       if (ev.code === 4401 || ev.code === 4403) {
-        this.stopPolling();
-        this.connectionS.set('unpaired');
-        this.auth.handleUnauthorized();
-        if (!this.config.desktop()) return;
+        if (this.config.desktop()) {
+          // The desktop's token belongs to the app: flag it and keep trying.
+          this.auth.handleUnauthorized();
+        } else {
+          // Don't forget a device token on the socket's word alone: the
+          // close may be a late auth frame (a phone frozen right after
+          // the upgrade). REST decides; a 401 there unpairs.
+          if (this.connectionS() === 'open') this.connectionS.set('reconnecting');
+          void this.confirmUnauthorized(wasAuthed);
+          return;
+        }
       }
       if (!wasAuthed) this.noteHelloFailure();
       this.scheduleReconnect();
@@ -452,6 +476,25 @@ export class RealtimeService {
     const delay = Math.min(MAX_BACKOFF_MS, Math.round(base * (0.75 + Math.random() * 0.5)));
     this.attempt += 1;
     this.reconnectTimer = setTimeout(() => this.connect(), delay);
+  }
+
+  /** The socket was closed as unauthorized: ask REST whether the token is
+   * really gone. A 401 there unpairs (ApiService reports it to AuthService);
+   * a working token or a network failure just means "try again". */
+  private async confirmUnauthorized(wasAuthed: boolean): Promise<void> {
+    try {
+      const me = await this.api.getMe();
+      this.auth.me.set(me);
+    } catch (e) {
+      if (e instanceof ApiError && e.kind === 'unauthorized') {
+        this.stopPolling();
+        this.connectionS.set('unpaired');
+        return;
+      }
+    }
+    if (!this.started || this.socket || this.auth.state() === 'unpaired') return;
+    if (!wasAuthed) this.noteHelloFailure();
+    this.scheduleReconnect();
   }
 
   /** Drop the current socket and connect again right away. */
@@ -499,7 +542,9 @@ export class RealtimeService {
       const me = await this.api.getMe();
       this.auth.me.set(me);
       if (this.authed) return; // the socket came back meanwhile
-      if (me.ingress === 'tunnel') {
+      // A tunnel pointed at the main port arrives on the loopback listener:
+      // `effectiveIngress` is the network the request really came from.
+      if ((me.effectiveIngress ?? me.ingress) === 'tunnel') {
         // Over a tunnel the socket normally works, and polling would burn
         // the tunnel's request quota: keep retrying the socket instead.
         this.noPolling = true;
@@ -629,7 +674,7 @@ export class RealtimeService {
         this.pairRequestS.next(frame);
         break;
       case 'resync':
-        void this.resync();
+        this.resync();
         break;
       case 'ping':
         this.send({ t: 'pong' });
@@ -666,20 +711,26 @@ export class RealtimeService {
     if (frame.full) {
       this.replaceStore(frame.sessions ?? []);
       this.lastSeq = typeof frame.seq === 'number' ? frame.seq : -1;
+      this.fullFrames += 1;
     } else {
       const seq = typeof frame.seq === 'number' ? frame.seq : -1;
       if (seq >= 0 && this.lastSeq >= 0 && seq <= this.lastSeq) return; // stale
       const gap = seq >= 0 && this.lastSeq >= 0 && seq !== this.lastSeq + 1;
       this.lastSeq = seq;
-      this.store.update((prev) => {
-        const next = new Map(prev);
-        for (const id of frame.remove ?? []) next.delete(id);
-        for (const s of frame.upsert ?? []) if (s?.id) next.set(s.id, s);
-        return next;
-      });
+      this.applyDiff(frame);
+      this.diffsDuringReload?.push(frame);
       if (gap) void this.reloadSessions();
     }
     this.sessionsS.next(frame);
+  }
+
+  private applyDiff(frame: SessionsDiffFrame): void {
+    this.store.update((prev) => {
+      const next = new Map(prev);
+      for (const id of frame.remove ?? []) next.delete(id);
+      for (const s of frame.upsert ?? []) if (s?.id) next.set(s.id, s);
+      return next;
+    });
   }
 
   private replaceStore(list: SessionSummary[]): void {
@@ -689,27 +740,34 @@ export class RealtimeService {
     this.sessionsLoadedS.set(true);
   }
 
-  /** The server dropped frames for us: rebuild the store and resubscribe. */
-  private async resync(): Promise<void> {
-    await this.reloadSessions();
+  /** The server dropped frames for us: resubscribe and tell REST-loaded
+   * views to refetch. The store needs nothing: the server follows `resync`
+   * with a full `sessions` frame (a REST reload here could land after newer
+   * diffs and roll the store back). */
+  private resync(): void {
     for (const key of this.subs.keys()) this.sendSub(key);
     if (this.fleetSubs > 0) this.send({ t: 'subFleet' });
     if (this.inboxSubs > 0) this.send({ t: 'subInbox' });
     this.refetchS.next('resync');
   }
 
-  /** Replace the store from REST (after a sequence gap or a resync). */
+  /** Replace the store from REST after a sequence gap. Diffs that arrive
+   * while the request is in flight are replayed on top of the REST copy
+   * (it may predate them); a full frame meanwhile makes the copy moot. */
   private async reloadSessions(): Promise<void> {
-    if (this.resyncing) return;
-    this.resyncing = true;
+    if (this.diffsDuringReload) return;
+    const diffs: SessionsDiffFrame[] = [];
+    this.diffsDuringReload = diffs;
+    const fullBefore = this.fullFrames;
     try {
       const page = await this.api.listSessions({ scope: 'active' });
+      if (this.fullFrames !== fullBefore) return;
       this.replaceStore(page.sessions ?? []);
-      this.lastSeq = -1; // accept whatever diff comes next
+      for (const d of diffs) this.applyDiff(d);
     } catch {
       // The next reconnect's full snapshot will repair the store.
     } finally {
-      this.resyncing = false;
+      this.diffsDuringReload = null;
     }
   }
 
@@ -753,6 +811,9 @@ export class RealtimeService {
       if (this.started && this.connectionS() !== 'unpaired') {
         this.stopPolling();
         this.connectionS.set('offline');
+        // The socket may survive (a localhost socket always does): the probe
+        // either brings a frame back (⇒ open again) or reconnects.
+        this.probe();
       }
     });
     this.zone.runOutsideAngular(() => {

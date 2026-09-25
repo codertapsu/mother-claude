@@ -44,7 +44,8 @@
   font: inherit;
   font-size: 0.9rem;
   font-weight: 500;
-  min-height: 40px;
+  /* 44 px on phones and touch screens (--btn-h), smaller with a mouse. */
+  min-height: max(40px, var(--btn-h));
   padding: 0.35rem 0.8rem;
   cursor: pointer;
   white-space: nowrap;

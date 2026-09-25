@@ -4,6 +4,7 @@ import {
   DestroyRef,
   ElementRef,
   afterNextRender,
+  computed,
   effect,
   inject,
   input,
@@ -21,26 +22,19 @@ import { SessionContext } from './session-context';
 
 const REFRESH_MS = 3000;
 
-/** A background task's output tail (last 16 KB), refreshed every few
- * seconds while it runs and the sheet is open. */
+/** A background task's output tail (last 16 KB), refreshed every few seconds
+ * while it runs. Inline: the sheet below and the agent view (for a shell or
+ * monitor, which has no transcript of its own) both show it. */
 @Component({
-  selector: 'mc-task-output',
+  selector: 'mc-task-output-body',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [SheetComponent],
   template: `
-    <mc-sheet
-      size="full"
-      [open]="!!task()"
-      [title]="task()?.label ?? 'Output'"
-      (closed)="closed.emit()"
-    >
-      @if (error()) {
-        <p class="error-text small">{{ error() }}</p>
-      }
-      <pre #out class="out" tabindex="0" aria-label="Task output">{{
-        text() || (loading() ? 'Loading…' : 'No output yet.')
-      }}</pre>
-    </mc-sheet>
+    @if (error()) {
+      <p class="error-text small">{{ error() }}</p>
+    }
+    <pre #out class="out" tabindex="0" aria-label="Task output">{{
+      text() || (loading() ? 'Loading…' : 'No output yet.')
+    }}</pre>
   `,
   styles: [
     `
@@ -58,13 +52,12 @@ const REFRESH_MS = 3000;
     `,
   ],
 })
-export class TaskOutputComponent {
+export class TaskOutputBodyComponent {
   private api = inject(ApiService);
-  private ctx = inject(SessionContext);
   private injector = inject(Injector);
 
+  readonly sessionId = input.required<string>();
   readonly task = input<BackgroundTask | null>(null);
-  readonly closed = output<void>();
 
   private readonly out = viewChild<ElementRef<HTMLElement>>('out');
   protected readonly text = signal('');
@@ -75,15 +68,16 @@ export class TaskOutputComponent {
   constructor() {
     effect(() => {
       const t = this.task();
+      const sid = this.sessionId();
       untracked(() => {
         clearInterval(this.timer);
         this.text.set('');
         this.error.set('');
-        if (!t) return;
-        void this.load(t);
+        if (!t || !sid) return;
+        void this.load(sid, t);
         if (t.status === 'running') {
           this.timer = setInterval(() => {
-            if (document.visibilityState === 'visible') void this.load(t);
+            if (document.visibilityState === 'visible') void this.load(sid, t);
           }, REFRESH_MS);
         }
       });
@@ -91,11 +85,11 @@ export class TaskOutputComponent {
     inject(DestroyRef).onDestroy(() => clearInterval(this.timer));
   }
 
-  private async load(t: BackgroundTask): Promise<void> {
+  private async load(sid: string, t: BackgroundTask): Promise<void> {
     this.loading.set(true);
     try {
-      const text = await this.api.getTaskOutput(this.ctx.id(), t.id);
-      if (this.task()?.id !== t.id) return;
+      const text = await this.api.getTaskOutput(sid, t.id);
+      if (this.task()?.id !== t.id || this.sessionId() !== sid) return;
       const el = this.out()?.nativeElement;
       const atEnd = !el || el.scrollHeight - el.scrollTop - el.clientHeight < 40;
       this.text.set(text);
@@ -109,4 +103,31 @@ export class TaskOutputComponent {
       this.loading.set(false);
     }
   }
+}
+
+/** The output tail in a full-screen sheet. Inside a session page the session
+ * comes from its context; elsewhere (the fleet page) pass `sessionId`. */
+@Component({
+  selector: 'mc-task-output',
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  imports: [SheetComponent, TaskOutputBodyComponent],
+  template: `
+    <mc-sheet
+      size="full"
+      [open]="!!task()"
+      [title]="task()?.label ?? 'Output'"
+      (closed)="closed.emit()"
+    >
+      <mc-task-output-body [sessionId]="sid()" [task]="task()" />
+    </mc-sheet>
+  `,
+})
+export class TaskOutputComponent {
+  private ctx = inject(SessionContext, { optional: true });
+
+  readonly sessionId = input('');
+  readonly task = input<BackgroundTask | null>(null);
+  readonly closed = output<void>();
+
+  protected readonly sid = computed(() => this.sessionId() || this.ctx?.id() || '');
 }

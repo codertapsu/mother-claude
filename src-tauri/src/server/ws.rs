@@ -25,12 +25,18 @@
 //! * Auth: the upgrade needs no token in the URL. A local client may still use
 //!   `?token=` (resolved by the context middleware), anyone may send
 //!   `Authorization: Bearer`; otherwise the first frame must be
-//!   `{"t":"auth","token":…}` within 5 s, or the socket closes with 4401.
+//!   `{"t":"auth","token":…}` within 5 s. A token that is rejected closes
+//!   the socket with 4401; no auth frame in time (or a first frame that is
+//!   not one) closes it with 4408, so a client that was merely slow (a phone
+//!   frozen right after the upgrade) retries instead of forgetting its token.
 //! * Origin: the upgrade is refused unless `Origin` is absent, local, or the
 //!   same host as `Host`.
 //! * Backpressure: each client has a bounded queue (256 frames). On overflow
 //!   (or bus lag) the queue is dropped and `resync` + a full `sessions` frame
 //!   are sent instead.
+//! * Pre-auth pools: a socket that has not authenticated yet waits in a pool
+//!   per scope (this machine, the LAN, tunnels); a full pool closes its
+//!   oldest waiting socket with 4408, so the client retries.
 //! * Liveness: a client that sends nothing for 60 s is closed (4408).
 //! * At most 8 sockets per device (the oldest is closed with 4409).
 //! * `visible{v}` frames feed [`Presence`] (push skips foreground devices).
@@ -883,7 +889,9 @@ async fn close(socket: &mut WebSocket, code: u16, reason: &'static str) {
         .await;
 }
 
-/// Wait for the first `auth` frame (control frames are skipped).
+/// Wait for the first `auth` frame (control frames are skipped). `None` when
+/// the socket ends or the first frame is not an auth frame; an auth frame
+/// with an empty token yields `Some("")` (a credential that is rejected).
 async fn first_auth_token(socket: &mut WebSocket) -> Option<String> {
     loop {
         match socket.recv().await? {
@@ -892,7 +900,7 @@ async fn first_auth_token(socket: &mut WebSocket) -> Option<String> {
                     return None;
                 }
                 return match serde_json::from_str::<ClientFrame>(&text) {
-                    Ok(ClientFrame::Auth { token }) if !token.is_empty() => Some(token),
+                    Ok(ClientFrame::Auth { token }) => Some(token),
                     _ => None,
                 };
             }
@@ -931,9 +939,14 @@ async fn run_client(
             },
             None => wait.await.ok().flatten(),
         };
-        let ok = token
-            .map(|t| super::auth::authenticate_token(&state, &mut ctx, &t).is_ok())
-            .unwrap_or(false);
+        let Some(token) = token else {
+            // Nothing was rejected: the client was too slow (or spoke first
+            // with something else). 4401 would make it drop its token.
+            close(&mut socket, CLOSE_TIMEOUT, "auth timeout").await;
+            return;
+        };
+        let ok =
+            !token.is_empty() && super::auth::authenticate_token(&state, &mut ctx, &token).is_ok();
         if !ok || !ctx.principal.is_user() {
             close(&mut socket, CLOSE_UNAUTHORIZED, "unauthorized").await;
             return;

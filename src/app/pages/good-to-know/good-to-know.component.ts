@@ -8,7 +8,9 @@ import { LimitationsComponent } from '../../shared/limitations.component';
   imports: [LimitationsComponent],
   template: `
     <h1>Good to know</h1>
-    <p class="muted lead">A few things about how Mother Claude bridges your laptop to your phone.</p>
+    <p class="muted lead">
+      A few things about how Mother Claude bridges your laptop to your phone.
+    </p>
     <mc-limitations />
   `,
   styles: [

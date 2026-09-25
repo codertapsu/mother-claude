@@ -384,7 +384,7 @@ code {
 }
 @media (max-width: 767px), (pointer: coarse) {
   .btn.small {
-    min-height: 40px;
+    min-height: var(--tap);
   }
 }
 

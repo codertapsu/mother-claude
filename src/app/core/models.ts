@@ -253,6 +253,8 @@ export interface PendingItem {
   plan?: string;
   suggestions: PermissionSuggestion[];
   dangerous: boolean;
+  /** Why the server marked it dangerous (a sentence, for the card). */
+  dangerousReason?: string;
   answerable: boolean;
   createdAt: number;
   /** `input` was capped (4 KB) in this copy; `GET /sessions/{id}` has it all. */
@@ -499,19 +501,25 @@ export interface SessionAgents {
 export interface FleetSession {
   sessionId: string;
   name: string;
-  /** Running agents only. */
+  /** Running agents only, background shells and monitors included (kind
+   * `bash`/`monitor`: they have output, not a transcript). */
   agents: AgentInfo[];
   workflows?: WorkflowRun[];
-  /** Background shells and monitors. */
-  tasks?: BackgroundTask[];
 }
 
 /** "3 working · 7 agents running · 2 need you · $4.12 today". */
 export interface FleetSummary {
+  /** Live sessions currently working. */
   working: number;
+  /** Running subagents and workflow agents. */
   agentsRunning: number;
+  workflowsRunning?: number;
+  /** Running background shells and monitors. */
+  backgroundRunning?: number;
+  /** Sessions with a request answerable from here. */
   needYou: number;
-  /** Priced cost written since local midnight, across sessions. */
+  /** Priced cost written since local midnight, across sessions (the sum of
+   * their `costToday`, not of their lifetime `costUsd`). */
   costToday?: number;
 }
 
@@ -908,7 +916,8 @@ export interface VapidInfo {
     code: string;
     text?: string;
     publicUrl?: string;
-    iosHomeScreen?: boolean;
+    /** Guidance text: on iPhone/iPad push works only in the Home Screen app. */
+    iosHomeScreen?: string;
     requiresUserGesture?: boolean;
   };
 }
