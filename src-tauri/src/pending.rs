@@ -315,25 +315,43 @@ impl PendingStore {
         decision: Decision,
         ctx: &ClientContext,
     ) -> Result<PendingItem, RespondError> {
+        self.resolve_detailed(id, decision, ctx).map_err(|(e, _)| e)
+    }
+
+    /// [`Self::resolve`]; an error also carries the item's session when
+    /// *this call* removed it (its raiser had stopped waiting), so the caller
+    /// can publish that it is gone — nobody else will.
+    fn resolve_detailed(
+        &self,
+        id: &str,
+        decision: Decision,
+        ctx: &ClientContext,
+    ) -> Result<PendingItem, (RespondError, Option<String>)> {
         let mut g = self.lock();
         let Some(slot) = g.slots.get(id) else {
-            return Err(if g.finished_set.contains(id) {
-                RespondError::AlreadyDecided
-            } else {
-                RespondError::NotFound
-            });
+            return Err((
+                if g.finished_set.contains(id) {
+                    RespondError::AlreadyDecided
+                } else {
+                    RespondError::NotFound
+                },
+                None,
+            ));
         };
         if !slot.item.answerable {
-            return Err(RespondError::NotAnswerable);
+            return Err((RespondError::NotAnswerable, None));
         }
-        validate(&slot.item, &decision)?;
+        validate(&slot.item, &decision).map_err(|e| (e, None))?;
         let dangerous = decision.is_allow() && is_dangerous(&slot.item, &decision);
         if dangerous && !ctx.may_dangerous() {
-            return Err(RespondError::Forbidden(
-                "Approving a dangerous action — bypassPermissions, or an \"always allow\" that \
-                 is written to settings or widens the filesystem — is restricted to this \
-                 computer or a device you granted dangerous actions."
-                    .into(),
+            return Err((
+                RespondError::Forbidden(
+                    "Approving a dangerous action — bypassPermissions, or an \"always allow\" \
+                     that is written to settings or widens the filesystem — is restricted to \
+                     this computer or a device you granted dangerous actions."
+                        .into(),
+                ),
+                None,
             ));
         }
         if dangerous {
@@ -341,7 +359,7 @@ impl PendingStore {
             ctx.note_dangerous("approve a dangerous action");
         }
         let Some(mut slot) = g.slots.remove(id) else {
-            return Err(RespondError::NotFound);
+            return Err((RespondError::NotFound, None));
         };
         g.finish(id);
         let resolution = resolution_for_decision(&slot.item, &decision, ctx, None);
@@ -356,7 +374,7 @@ impl PendingStore {
                 id.to_string(),
                 resolved(&slot.item, outcome, Some(kind), None, None),
             );
-            return Err(RespondError::AlreadyDecided);
+            return Err((RespondError::AlreadyDecided, Some(slot.item.session_id)));
         }
         g.resolutions.insert(id.to_string(), resolution);
         Ok(slot.item)
@@ -1089,7 +1107,20 @@ pub async fn respond(
         Some(item) if item.session_id != session_id => return Err(RespondError::NotFound),
         _ => {}
     }
-    let item = state.pending.resolve(request_id, decision.clone(), ctx)?;
+    let item = match state
+        .pending
+        .resolve_detailed(request_id, decision.clone(), ctx)
+    {
+        Ok(item) => item,
+        Err((e, Some(gone_from))) => {
+            // This call removed an item whose raiser had just stopped
+            // waiting; its guard now finds nothing, so publish here.
+            publish_resolution(state, request_id);
+            changed(state, &gone_from).await;
+            return Err(e);
+        }
+        Err((e, None)) => return Err(e),
+    };
     // The store cannot look up device names; fill it in, then publish.
     if let Some(device) = ctx.device_id() {
         let name = state
@@ -1580,6 +1611,38 @@ mod tests {
             store.resolution(&qid).unwrap().outcome,
             PendingOutcome::Answered
         );
+    }
+
+    fn test_state() -> (AppState, tempfile::TempDir) {
+        let home = tempfile::tempdir().unwrap();
+        let st = crate::state::Inner::new(
+            crate::claude::ClaudeHome::with_base(home.path()),
+            crate::state::ServerConfig {
+                host: "127.0.0.1".into(),
+                port: 0,
+            },
+            crate::server::auth::Auth::ephemeral(),
+        );
+        (st, home)
+    }
+
+    #[tokio::test]
+    async fn an_answer_to_a_raiser_that_just_left_is_still_published() {
+        let (st, _home) = test_state();
+        let mut bus = st.bus.subscribe();
+        let (id, rx) = st.pending.register(item("s1"));
+        drop(rx); // the raiser's select finished, its guard has not run yet
+        let e = respond(&st, "s1", &id, Decision::allow(), &local())
+            .await
+            .unwrap_err();
+        assert_eq!(e, RespondError::AlreadyDecided);
+        let mut published = false;
+        while let Ok(ev) = bus.try_recv() {
+            if let crate::server::ws::ServerEvent::PendingResolved(r) = &*ev {
+                published |= r.id == id && r.outcome == PendingOutcome::Cancelled;
+            }
+        }
+        assert!(published, "clients must drop the card");
     }
 
     #[test]
