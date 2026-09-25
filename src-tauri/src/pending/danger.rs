@@ -13,7 +13,10 @@
 //!   `.mcp.json`), Mother Claude's own data dir, `~/.ssh/**`, a shell startup
 //!   file, a launch agent/daemon, or `.git/hooks/**` / `.git/config`;
 //! * a `Bash` (or `PowerShell`) command that names any of those paths, runs
-//!   `claude plugin|mcp|config`, or asks for permission bypass.
+//!   `claude plugin|mcp|config`, or asks for permission bypass;
+//! * a `Read`/`NotebookRead`/`Glob`/`LS` of Mother Claude's own data dir, or a
+//!   `Grep` rooted at (or above) it: its local-script token, CA key, hook
+//!   credential and push key would let the model approve its own prompts.
 //!
 //! Suggestions are classified separately ([`super::is_standing`]): choosing a
 //! standing one is dangerous even on a harmless item.
@@ -29,6 +32,11 @@ const WRITE_TOOLS: [&str; 4] = ["Edit", "Write", "MultiEdit", "NotebookEdit"];
 
 /// Tools whose `command` runs in a shell.
 const SHELL_TOOLS: [&str; 2] = ["Bash", "PowerShell"];
+
+/// Tools that read files or list directories. Only Mother Claude's own data
+/// makes them dangerous (its tokens and keys would let the model approve its
+/// own prompts); reading `.claude/`, `.git/config` or rc files stays routine.
+const READ_TOOLS: [&str; 5] = ["Read", "NotebookRead", "Grep", "Glob", "LS"];
 
 /// Shell startup / profile files (matched by file name anywhere).
 const SHELL_RC: [&str; 16] = [
@@ -90,7 +98,71 @@ pub fn classify(item: &PendingItem, env: &DangerEnv) -> Option<String> {
             return Some(format!("The command {why}."));
         }
     }
+    if READ_TOOLS.contains(&tool) {
+        // Glob's `pattern` is a path pattern; Grep's is a regex, not a path.
+        let keys: &[&str] = match tool {
+            "Glob" => &["pattern", "path"],
+            _ => &["file_path", "notebook_path", "path"],
+        };
+        for key in keys {
+            if let Some(why) = text(key).and_then(|p| reads_app_data(glob_base(p), env)) {
+                return Some(format!("{tool} reads {why}."));
+            }
+        }
+        // A recursive content search sweeps whatever lies below its root
+        // (the session's cwd when no path is given).
+        if tool == "Grep" {
+            let root = text("path")
+                .map(|p| lexical_path(p, env))
+                .or_else(|| env.cwd.clone());
+            if let Some(why) = root.and_then(|r| searches_app_data(&r, env)) {
+                return Some(format!("{tool} searches {why}."));
+            }
+        }
+    }
     None
+}
+
+/// The literal directory part of a glob pattern (everything before the first
+/// component holding `*`, `?`, `[` or `{`).
+fn glob_base(pattern: &str) -> &str {
+    match pattern.find(['*', '?', '[', '{']) {
+        Some(i) => pattern[..i].rsplit_once('/').map_or("", |(dir, _)| dir),
+        None => pattern,
+    }
+}
+
+/// Mother Claude's own data dirs, as given and symlink-resolved.
+fn app_dir_forms(env: &DangerEnv) -> Vec<PathBuf> {
+    env.app_dirs
+        .iter()
+        .flat_map(|d| [d.clone(), resolve_existing(d)])
+        .collect()
+}
+
+/// `raw` is inside Mother Claude's own data dir (tokens, the CA key, the hook
+/// credential, the push key).
+fn reads_app_data(raw: &str, env: &DangerEnv) -> Option<String> {
+    if raw.trim().is_empty() {
+        return None;
+    }
+    let lexical = lexical_path(raw, env);
+    let resolved = resolve_existing(&lexical);
+    let dirs = app_dir_forms(env);
+    [lexical, resolved]
+        .iter()
+        .any(|p| dirs.iter().any(|d| p.starts_with(d)))
+        .then(|| "Mother Claude's own data (tokens and keys)".to_string())
+}
+
+/// `root` holds Mother Claude's own data dir somewhere below it.
+fn searches_app_data(root: &Path, env: &DangerEnv) -> Option<String> {
+    let resolved = resolve_existing(root);
+    let dirs = app_dir_forms(env);
+    [root.to_path_buf(), resolved]
+        .iter()
+        .any(|r| dirs.iter().any(|d| d.starts_with(r)))
+        .then(|| "a folder holding Mother Claude's own data (tokens and keys)".to_string())
 }
 
 /// Why writing `raw` is dangerous, or `None`. Both the lexical path and the
@@ -453,6 +525,55 @@ mod tests {
             ),
             ("Bash", json!({ "command": "echo claude-mcp-docs" }), false),
             ("Bash", json!({ "command": "grep profile src/*.rs" }), false),
+            // Reading Mother Claude's own secrets.
+            (
+                "Read",
+                json!({ "file_path": "~/Library/Application Support/dev.motherclaude.Mother-Claude/script-token" }),
+                true,
+            ),
+            (
+                "Read",
+                json!({ "file_path": "../home/Library/Application Support/dev.motherclaude.Mother-Claude/certs/ca-key.pem" }),
+                true,
+            ),
+            (
+                "Glob",
+                json!({ "pattern": "~/Library/Application Support/dev.motherclaude*/**" }),
+                false,
+            ),
+            (
+                "Glob",
+                json!({ "pattern": "~/Library/Application Support/dev.motherclaude.Mother-Claude/*.pem" }),
+                true,
+            ),
+            (
+                "LS",
+                json!({ "path": "~/Library/Application Support/dev.motherclaude.Mother-Claude" }),
+                true,
+            ),
+            // A content search rooted above it sweeps it.
+            ("Grep", json!({ "pattern": "mc[a-z]_", "path": "~" }), true),
+            (
+                "Grep",
+                json!({ "pattern": "token", "path": "~/Library" }),
+                true,
+            ),
+            // Routine reads stay routine.
+            ("Read", json!({ "file_path": "src/main.rs" }), false),
+            (
+                "Read",
+                json!({ "file_path": "~/.claude/settings.json" }),
+                false,
+            ),
+            ("Read", json!({ "file_path": ".git/config" }), false),
+            (
+                "Grep",
+                json!({ "pattern": "fn main", "path": "src" }),
+                false,
+            ),
+            ("Grep", json!({ "pattern": "fn main" }), false),
+            ("LS", json!({ "path": "~" }), false),
+            ("Glob", json!({ "pattern": "**/*.rs" }), false),
         ];
         for (tool, input, want) in cases {
             let got = classify(&item(tool, input.clone()), &e);
