@@ -1,352 +1,100 @@
-@if (session(); as s) {
-  <header class="head">
-    <div class="row top">
-      <a class="btn ghost icon-only" routerLink="/" aria-label="Back to sessions">
-        <mc-icon name="back" />
-      </a>
-      <h1 class="title">{{ name(s) }}</h1>
-      <mc-status-pill [status]="s.status" [live]="s.live" />
-    </div>
-    <mc-activity-line [activity]="s.activity" />
-    <div class="chips">
-      <mc-channel-badge [surface]="s.surface" [control]="s.control" />
-      @if (s.model) {
-        <mc-chip>{{ s.model.label }}</mc-chip>
-      }
-      @if (s.permissionMode) {
-        <mc-chip [tone]="s.permissionMode === 'bypassPermissions' ? 'red' : 'muted'">{{
-          mode(s.permissionMode)
-        }}</mc-chip>
-      }
-      @if (s.effort) {
-        <mc-chip>{{ effort(s.effort) }}</mc-chip>
-      }
-      @if (s.context) {
-        <mc-context-meter [context]="s.context" />
-      }
-      @if (s.costUsd !== undefined && s.costUsd !== null) {
-        <mc-chip><mc-cost [usd]="s.costUsd" [final]="!!s.costFinal" /></mc-chip>
-      }
-      @if (s.gitBranch) {
-        <mc-chip icon="branch">{{ s.gitBranch }}</mc-chip>
-      }
-      @if (s.prLink) {
-        <a class="pr" [href]="s.prLink.url" target="_blank" rel="noopener noreferrer"
-          >PR #{{ s.prLink.number }}</a
+<div class="sd">
+  <mc-session-header class="sd-head" />
+
+  @if (ctx.session(); as s) {
+    <div class="sd-tabs" role="tablist" aria-label="Session views">
+      @for (t of tabs; track t.id; let i = $index) {
+        <button
+          type="button"
+          role="tab"
+          class="tab"
+          [id]="'sd-tab-' + t.id"
+          [attr.aria-selected]="ctx.tab() === t.id"
+          [attr.aria-controls]="'sd-panel'"
+          [attr.tabindex]="ctx.tab() === t.id ? 0 : -1"
+          (click)="select(t.id)"
+          (keydown)="onTabKey($event, i)"
         >
+          {{ t.label }}
+          @if (counts()[t.id]; as n) {
+            <span class="tcount" [class.warn]="t.id === 'chat'"
+              >{{ n
+              }}<span class="visually-hidden">{{
+                t.id === 'chat' ? ' waiting' : t.id === 'agents' ? ' running' : ' files'
+              }}</span></span
+            >
+          }
+        </button>
       }
     </div>
-    <div class="sub muted mono">{{ short(s.cwd) }}</div>
-    @if (s.control.lifecycle.stop || s.control.lifecycle.respawn || s.control.lifecycle.rm) {
-      <div class="row lifecycle">
-        @if (s.control.lifecycle.stop) {
-          <button class="btn small" type="button" [disabled]="busy()" (click)="lifecycle('stop')">
-            Stop
-          </button>
-        }
-        @if (s.control.lifecycle.respawn) {
-          <button
-            class="btn small"
-            type="button"
-            [disabled]="busy()"
-            (click)="lifecycle('respawn')"
-          >
-            Respawn
-          </button>
-        }
-        @if (s.control.lifecycle.rm) {
-          <button
-            class="btn small danger"
-            type="button"
-            [disabled]="busy()"
-            (click)="lifecycle('rm')"
-          >
-            Remove
-          </button>
+
+    <div
+      #scroller
+      class="sd-scroll"
+      id="sd-panel"
+      role="tabpanel"
+      tabindex="-1"
+      [attr.aria-labelledby]="'sd-tab-' + ctx.tab()"
+    >
+      <div class="inner">
+        <mc-session-chips />
+        @switch (ctx.tab()) {
+          @case ('chat') {
+            <mc-transcript
+              [scroller]="scroller"
+              [store]="ctx.store()"
+              [bubbles]="ctx.stream()?.bubbles() ?? []"
+              [sessionId]="s.id"
+              [cwd]="s.cwd"
+              [relayVia]="relayVia()"
+              [agentLinks]="agentLinks()"
+              [running]="ctx.busy()"
+              [startingSince]="s.status === 'starting' ? s.startedAt || 1 : undefined"
+              [canCancel]="s.control.lifecycle.stop"
+              (cancelStart)="ctx.lifecycle('stop')"
+            />
+          }
+          @case ('agents') {
+            <mc-agents-panel />
+          }
+          @case ('changes') {
+            <mc-changes-panel />
+          }
+          @case ('info') {
+            <mc-info-panel />
+          }
         }
       </div>
-    }
-  </header>
-
-  <div class="tabs" role="tablist">
-    <button
-      class="tab"
-      role="tab"
-      type="button"
-      [class.active]="tab() === 'chat'"
-      [attr.aria-selected]="tab() === 'chat'"
-      (click)="tab.set('chat')"
-    >
-      Chat
-    </button>
-    <button
-      class="tab"
-      role="tab"
-      type="button"
-      [class.active]="tab() === 'changes'"
-      [attr.aria-selected]="tab() === 'changes'"
-      (click)="openChanges()"
-    >
-      Changes{{ changeCount() ? ' (' + changeCount() + ')' : '' }}
-    </button>
-  </div>
-
-  @if (notice()) {
-    <div class="notice" role="status">{{ notice() }}</div>
-  }
-
-  @if (tab() === 'chat') {
-    <div class="log">
-      @if (store(); as t) {
-        @if (t.hasEarlier()) {
-          <button
-            class="btn small ghost earlier"
-            type="button"
-            [disabled]="t.loadingEarlier()"
-            (click)="t.loadEarlier()"
-          >
-            {{ t.loadingEarlier() ? 'Loading…' : 'Load earlier' }}
-          </button>
-        }
-        @if (t.loading()) {
-          <p class="muted">Loading transcript…</p>
-        } @else {
-          <mc-event-list [events]="t.events()" />
-        }
-        @if (t.error()) {
-          <p class="error-text small">{{ t.error() }}</p>
-        }
-      }
     </div>
 
-    <div class="bottom">
-      @for (p of pending(); track p.id) {
-        <mc-pending-card [item]="p" [session]="s" />
-      }
-
-      @if (s.control.message !== 'none') {
-        <div class="composer">
-          <textarea
-            rows="2"
-            [ngModel]="message()"
-            (ngModelChange)="message.set($event)"
-            (keydown)="onComposerKeydown($event)"
-            [disabled]="busy()"
-            placeholder="Message Claude… (Ctrl/⌘+Enter to send)"
-            aria-label="Message"
-          ></textarea>
-          <div class="composer-actions">
-            @if (s.live && s.control.interrupt !== 'none') {
-              <button
-                class="btn"
-                type="button"
-                [disabled]="busy()"
-                [title]="
-                  s.control.interrupt === 'immediate'
-                    ? 'Stop the current turn'
-                    : 'Stops at the next tool call'
-                "
-                (click)="interrupt()"
-              >
-                <mc-icon name="pause" [size]="15" />
-                {{ s.control.interrupt === 'immediate' ? 'Interrupt' : 'Interrupt (next tool)' }}
-              </button>
-            }
-            <button
-              class="btn primary"
-              type="button"
-              [disabled]="busy() || !message().trim()"
-              (click)="send()"
-            >
-              <mc-icon name="send" [size]="15" /> Send
-            </button>
+    @if (ctx.tab() === 'chat') {
+      <div class="sd-dock">
+        <div class="inner">
+          <mc-pending-dock />
+          <mc-composer />
+        </div>
+      </div>
+    }
+  } @else if (ctx.loading()) {
+    <div class="sd-scroll">
+      <div class="inner skeleton" aria-label="Loading the session">
+        <span></span><span class="w"></span><span></span><span class="w"></span>
+      </div>
+    </div>
+  } @else {
+    <div class="sd-scroll">
+      <div class="inner">
+        <div class="card empty-state">
+          <strong>Session not found</strong>
+          {{ ctx.loadError() || 'It may have ended and been cleaned up.' }}
+          <div class="row center">
+            <a class="btn primary" routerLink="/"><mc-icon name="back" [size]="15" /> Sessions</a>
+            <button class="btn" type="button" (click)="ctx.refreshDetail()">Retry</button>
           </div>
         </div>
-        @if (s.control.message === 'relay') {
-          <p class="muted small composer-hint">
-            Relayed through
-            {{ s.control.channel === 'tmux' ? 'its tmux pane' : 'the hooks plugin' }}: delivered
-            when Claude reaches the next tool call or goes idle.
-          </p>
-        }
-      } @else {
-        <div class="card cant-drive">
-          <p>
-            This session can't take messages from here.
-            @for (n of s.control.notes ?? []; track $index) {
-              <span class="muted"> {{ n }}</span>
-            }
-          </p>
-          @if (s.control.fork || s.control.continueOwned) {
-            <details class="copts">
-              <summary>Launch options (model · effort · mode)</summary>
-              <mc-launch-options (changed)="onLaunchOverrides($event)" />
-            </details>
-            <button
-              class="btn primary"
-              type="button"
-              [disabled]="busy()"
-              (click)="continueSession()"
-            >
-              {{ s.live ? 'Continue here (fork)' : 'Continue here' }}
-            </button>
-          }
-        </div>
-      }
+      </div>
     </div>
   }
+</div>
 
-  @if (tab() === 'changes') {
-    @if (diff(); as d) {
-      @if (!d.isRepo) {
-        <div class="card muted">Not a Git repository.</div>
-      } @else {
-        <div class="card">
-          <div class="row">
-            <span class="badge">{{ d.branch || 'detached' }}</span>
-            @if (d.head) {
-              <span class="mono muted">{{ d.head }}</span>
-            }
-            <span class="spacer"></span>
-            <span class="add">+{{ d.additions }}</span>
-            <span class="del">−{{ d.deletions }}</span>
-          </div>
-        </div>
-
-        <div class="row files-head">
-          <h2>Changed files</h2>
-          <span class="spacer"></span>
-          <div class="viewtoggle">
-            <button class="tgl" [class.active]="view() === 'list'" (click)="view.set('list')">
-              List
-            </button>
-            <button class="tgl" [class.active]="view() === 'tree'" (click)="view.set('tree')">
-              Tree
-            </button>
-          </div>
-        </div>
-        @if (view() === 'list') {
-          @for (f of d.files; track f.path) {
-            <button
-              class="card file"
-              [class.selected]="patch()?.path === f.path"
-              (click)="showPatch(f.path)"
-            >
-              <span class="badge {{ f.status }}">{{ f.status }}</span>
-              <span class="fpath mono">{{ f.path }}</span>
-              <span class="spacer"></span>
-              <span class="add">+{{ f.additions }}</span>
-              <span class="del">−{{ f.deletions }}</span>
-            </button>
-          } @empty {
-            <p class="muted">No working-tree changes.</p>
-          }
-        } @else {
-          @for (g of grouped(); track g.dir) {
-            <div class="dirhead mono muted">{{ g.dir === '.' ? '(root)' : g.dir + '/' }}</div>
-            @for (f of g.files; track f.path) {
-              <button
-                class="card file treefile"
-                [class.selected]="patch()?.path === f.path"
-                (click)="showPatch(f.path)"
-              >
-                <span class="badge {{ f.status }}">{{ f.status }}</span>
-                <span class="fpath mono">{{ base(f.path) }}</span>
-                <span class="spacer"></span>
-                <span class="add">+{{ f.additions }}</span>
-                <span class="del">−{{ f.deletions }}</span>
-              </button>
-            }
-          } @empty {
-            <p class="muted">No working-tree changes.</p>
-          }
-        }
-
-        @if (patch(); as p) {
-          <div class="row patch-head">
-            <h2 class="mono patch-title">{{ p.path }}</h2>
-            <span class="spacer"></span>
-            <div class="viewtoggle">
-              <button
-                class="tgl"
-                [class.active]="diffView() === 'unified'"
-                (click)="setDiffView('unified')"
-              >
-                Unified
-              </button>
-              <button
-                class="tgl"
-                [class.active]="diffView() === 'split'"
-                (click)="setDiffView('split')"
-              >
-                Split
-              </button>
-            </div>
-          </div>
-          @if (!p.raw) {
-            <div class="card muted">No diff for this file.</div>
-          } @else if (diffView() === 'unified') {
-            <div class="card patch mono">
-              @for (l of unifiedRows(); track $index) {
-                @if (l.kind === 'hunk' || l.kind === 'meta') {
-                  <div class="pline {{ l.kind }} full">{{ l.text || ' ' }}</div>
-                } @else {
-                  <div class="pline {{ l.kind }}">
-                    <span class="gut">{{ l.oldNo ?? '' }}</span>
-                    <span class="gut">{{ l.newNo ?? '' }}</span>
-                    <span class="sign">{{
-                      l.kind === 'add' ? '+' : l.kind === 'del' ? '−' : ''
-                    }}</span>
-                    <span class="ptext">{{ l.text || ' ' }}</span>
-                  </div>
-                }
-              }
-            </div>
-          } @else {
-            <div class="card patch split mono">
-              @for (r of splitRows(); track $index) {
-                @if (r.header) {
-                  <div class="pline {{ r.headerKind }} full">{{ r.header }}</div>
-                } @else {
-                  <div class="srow">
-                    <span class="gut">{{ r.left?.no ?? '' }}</span>
-                    <span class="scell {{ r.left?.kind }}">{{ r.left?.text || ' ' }}</span>
-                    <span class="gut gr">{{ r.right?.no ?? '' }}</span>
-                    <span class="scell {{ r.right?.kind }}">{{ r.right?.text || ' ' }}</span>
-                  </div>
-                }
-              }
-            </div>
-          }
-        }
-
-        <h2>Recent commits</h2>
-        @for (c of d.commits; track c.id) {
-          <div class="card commit">
-            <span class="mono muted">{{ c.id }}</span> {{ c.summary }}
-            <span class="muted">— {{ c.author }}</span>
-          </div>
-        } @empty {
-          <p class="muted">No commits.</p>
-        }
-
-        @if (d.worktrees.length) {
-          <h2>Worktrees</h2>
-          @for (w of d.worktrees; track w.name) {
-            <div class="card mono">
-              {{ w.name }} → {{ w.path }} {{ w.locked ? '(locked)' : '' }}
-            </div>
-          }
-        }
-      }
-    } @else {
-      <p class="muted">Loading diff…</p>
-    }
-  }
-} @else if (loading()) {
-  <p class="muted">Loading session…</p>
-} @else {
-  <p class="muted">
-    Session not found (it may have ended). <a routerLink="/">Back to sessions</a>.
-  </p>
-}
+<mc-terminal-sheet />

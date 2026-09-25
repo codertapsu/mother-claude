@@ -145,6 +145,17 @@
 .main {
   padding-bottom: calc(var(--tabbar-h) + env(safe-area-inset-bottom));
 }
+/* The session page owns the phone screen: no top bar, no tabs. */
+.shell.immersive .topbar,
+.shell.immersive .tabbar {
+  display: none;
+}
+.shell.immersive .main {
+  padding-bottom: 0;
+}
+.content.flush {
+  padding: 0;
+}
 
 .tabbar {
   position: fixed;
@@ -202,6 +213,9 @@
   }
   .content {
     padding: 1.5rem 2rem 2rem;
+  }
+  .content.flush {
+    padding: 0;
   }
   .sidebar {
     position: fixed;

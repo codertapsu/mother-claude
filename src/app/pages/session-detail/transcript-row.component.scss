@@ -1,0 +1,236 @@
+:host {
+  display: block;
+  min-width: 0;
+}
+
+.prompt {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.15rem;
+  margin-left: auto;
+  max-width: 88%;
+}
+.who {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.7rem;
+  color: var(--faint);
+}
+.bubble {
+  background: var(--accent-soft);
+  border: 1px solid var(--accent);
+  border-radius: 0.9rem 0.9rem 0.2rem 0.9rem;
+  padding: 0.5rem 0.75rem;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.relayed .bubble {
+  background: var(--blue-soft);
+  border-color: var(--blue-border);
+}
+
+.text {
+  overflow-wrap: anywhere;
+}
+
+.thinking summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-height: 28px;
+  cursor: pointer;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+.thinking .md {
+  color: var(--muted);
+  font-size: 0.85rem;
+  margin: 0.2rem 0 0.4rem 1.2rem;
+}
+
+.group {
+  border-left: 2px solid var(--border);
+  padding-left: 0.3rem;
+}
+.ghead {
+  appearance: none;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-height: 32px;
+  padding: 0.15rem 0.3rem;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.8rem;
+  text-align: left;
+  cursor: pointer;
+}
+.ghead:hover {
+  background: var(--panel-2);
+}
+.gsum {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.gfail {
+  color: var(--red);
+  font-size: 0.75rem;
+}
+
+.image.mine {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.todos {
+  background: var(--panel-2);
+  border-radius: var(--radius-sm);
+  padding: 0.5rem 0.65rem;
+}
+.todo {
+  display: flex;
+  gap: 0.4rem;
+  align-items: flex-start;
+  font-size: 0.85rem;
+  padding: 0.1rem 0;
+}
+.todo mc-icon {
+  margin-top: 0.15rem;
+  color: var(--faint);
+}
+.todo[data-status='completed'] {
+  color: var(--muted);
+  text-decoration: line-through;
+}
+.todo[data-status='completed'] mc-icon {
+  color: var(--green);
+}
+.todo[data-status='in_progress'] mc-icon {
+  color: var(--amber);
+}
+
+.question {
+  border: 1px solid var(--blue-border);
+  border-radius: var(--radius-sm);
+  padding: 0.55rem 0.7rem;
+}
+.q,
+.ptitle {
+  display: flex;
+  gap: 0.35rem;
+  align-items: center;
+  margin: 0;
+  font-weight: 500;
+}
+.opts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  margin: 0.4rem 0 0.2rem;
+}
+.opt {
+  font-size: 0.78rem;
+  padding: 0.1rem 0.5rem;
+  border-radius: 0.35rem;
+  border: 1px solid var(--border);
+  color: var(--muted);
+}
+.opt.chosen {
+  border-color: var(--accent);
+  color: var(--text);
+  background: var(--accent-soft);
+}
+.a {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  margin: 0.2rem 0 0.4rem;
+  color: var(--accent-text);
+  font-size: 0.85rem;
+}
+.a.pending {
+  color: var(--faint);
+}
+
+.plan {
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-sm);
+  padding: 0.6rem 0.75rem;
+}
+.plan .md {
+  margin-top: 0.35rem;
+}
+.plan .md.folded {
+  max-height: 16rem;
+  overflow: hidden;
+  mask-image: linear-gradient(to bottom, #000 70%, transparent);
+}
+
+.divider {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  color: var(--faint);
+  font-size: 0.75rem;
+}
+.divider::before,
+.divider::after {
+  content: '';
+  flex: 1;
+  border-top: 1px dashed var(--border-strong);
+}
+.divider span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.orphan summary {
+  cursor: pointer;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+.orphan.err summary {
+  color: var(--red);
+}
+.orphan pre {
+  margin: 0.3rem 0 0;
+  padding: 0.5rem 0.6rem;
+  background: var(--code-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: 0.75rem;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 20rem;
+  overflow: auto;
+}
+
+.system {
+  display: flex;
+  gap: 0.4rem;
+  align-items: flex-start;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+.system mc-icon {
+  margin-top: 0.1rem;
+}
+.system[data-kind='error'] {
+  color: var(--red);
+}
+.system[data-kind='decision'] {
+  color: var(--text);
+}
+.system[data-kind='decision'] mc-icon {
+  color: var(--green);
+}

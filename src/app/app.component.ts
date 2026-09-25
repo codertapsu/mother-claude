@@ -115,6 +115,8 @@ export class AppComponent {
     return path.split('/')[0] ?? '';
   });
   protected readonly pageTitle = computed(() => TITLES[this.section()] ?? 'Mother Claude');
+  /** The session page owns the whole phone screen (its own header). */
+  protected readonly immersive = computed(() => this.section() === 'session');
   protected readonly moreActive = computed(() => MORE_SECTIONS.includes(this.section()));
 
   protected readonly nav: NavItem[] = [

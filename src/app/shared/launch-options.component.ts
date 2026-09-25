@@ -1,15 +1,12 @@
 import { Component, computed, effect, inject, input, output, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 
-import { ApiService } from '../core/api.service';
 import { AuthService } from '../core/auth.service';
-import { LaunchDefaults, LaunchOverrides, PermissionMode } from '../core/models';
+import { DefaultsService, FALLBACK_EFFORTS } from '../core/defaults.service';
+import { LaunchOverrides, PermissionMode } from '../core/models';
 import { PERMISSION_MODES, effortLabel } from './util';
 
 const CUSTOM = '__custom__';
-
-/** Effort levels the CLI accepts; the server-provided list overrides this. */
-const FALLBACK_EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];
 
 /**
  * Model / Effort / Permission-mode selectors for launching or continuing a
@@ -92,8 +89,8 @@ const FALLBACK_EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];
   ],
 })
 export class LaunchOptionsComponent {
-  private api = inject(ApiService);
   private auth = inject(AuthService);
+  private defaultsService = inject(DefaultsService);
 
   /** Offer the permission-mode selector. */
   readonly showMode = input(true);
@@ -101,7 +98,7 @@ export class LaunchOptionsComponent {
   protected readonly CUSTOM = CUSTOM;
   protected readonly modes = PERMISSION_MODES;
   protected readonly canDangerous = this.auth.canDangerous;
-  protected readonly defaults = signal<LaunchDefaults | null>(null);
+  protected readonly defaults = this.defaultsService.defaults;
   protected readonly model = signal('');
   protected readonly customModel = signal('');
   protected readonly effort = signal('');
@@ -131,19 +128,11 @@ export class LaunchOptionsComponent {
   });
 
   constructor() {
-    void this.load();
+    void this.defaultsService.load();
     effect(() => this.changed.emit(this.value()));
   }
 
   protected label(effort: string): string {
     return effortLabel(effort);
-  }
-
-  private async load(): Promise<void> {
-    try {
-      this.defaults.set(await this.api.getDefaults());
-    } catch {
-      // Selectors still work with the fallback lists; Default stays unlabeled.
-    }
   }
 }

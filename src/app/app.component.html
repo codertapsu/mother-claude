@@ -1,7 +1,7 @@
 <a class="skip-link" href="#main">Skip to content</a>
 
 @if (chrome()) {
-  <div class="shell">
+  <div class="shell" [class.immersive]="immersive()">
     <!-- Desktop: left navigation -->
     <aside class="sidebar" aria-label="Main navigation">
       <a class="brand" routerLink="/">
@@ -104,7 +104,7 @@
           >
         </div>
       }
-      <main class="content" id="main" tabindex="-1">
+      <main class="content" id="main" tabindex="-1" [class.flush]="immersive()">
         <router-outlet />
       </main>
     </div>

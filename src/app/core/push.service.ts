@@ -2,6 +2,7 @@ import { Injectable, computed, inject, signal } from '@angular/core';
 
 import { ApiService, errorMessage } from './api.service';
 import { ConfigService } from './config.service';
+import { PushPrefs, SessionPushPref } from './models';
 import { isIos, isStandalone, isTauri } from './platform';
 
 export type PushState = 'unsupported' | 'checking' | 'off' | 'on' | 'denied' | 'working' | 'error';
@@ -46,7 +47,41 @@ export class PushService {
 
   readonly supported = computed(() => !this.unsupportedReason());
 
+  /** The device's notification prefs (loaded on demand). */
+  readonly prefs = signal<PushPrefs | null>(null);
+
   private registration: ServiceWorkerRegistration | null = null;
+
+  async loadPrefs(): Promise<PushPrefs | null> {
+    try {
+      const p = await this.api.getPushPrefs();
+      this.prefs.set(p);
+      return p;
+    } catch {
+      return this.prefs();
+    }
+  }
+
+  /** This session's follow/mute choice ('' = the per-event defaults). */
+  sessionPref(id: string): SessionPushPref | '' {
+    return this.prefs()?.sessions?.[id] ?? '';
+  }
+
+  /** Follow (always notify), mute, or back to the defaults (null). */
+  async setSessionPref(id: string, pref: SessionPushPref | null): Promise<void> {
+    const prev = this.prefs();
+    const sessions = { ...(prev?.sessions ?? {}) };
+    if (pref) sessions[id] = pref;
+    else delete sessions[id];
+    if (prev) this.prefs.set({ ...prev, sessions });
+    try {
+      const next = await this.api.setSessionPush(id, pref);
+      if (next) this.prefs.set(next);
+    } catch (e) {
+      this.prefs.set(prev);
+      throw e;
+    }
+  }
 
   /** Register the service worker (secure context, not Tauri, not mock). */
   async register(): Promise<void> {
