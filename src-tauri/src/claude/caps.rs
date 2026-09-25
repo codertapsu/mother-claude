@@ -336,6 +336,8 @@ pub fn compute(input: &CapsInput) -> ControlCaps {
         caps.keys = true;
         caps.terminal = true;
         caps.rename = RenameCap::Sync;
+        // Files are uploaded and referenced as `@<path>` in the typed text.
+        caps.attach = AttachCap::Path;
         caps.approve = input.hooks_active;
         caps.answer = input.hooks_active;
         caps.set_mode = if input.hooks_active {
@@ -384,6 +386,8 @@ pub fn compute(input: &CapsInput) -> ControlCaps {
         caps.interrupt = InterruptCap::NextTool;
         caps.set_mode = SetModeCap::OnPrompt;
         caps.approve_via = ApproveVia::Hook;
+        // Files are uploaded and referenced as `@<path>` in the relayed text.
+        caps.attach = AttachCap::Path;
         caps.limits.push(limit(
             codes::RELAY_DELIVERY,
             "Messages are delivered at Claude's next stopping point. They don't appear in the \
@@ -555,7 +559,7 @@ mod tests {
         assert_eq!(c.approve_via, ApproveVia::Hook);
         assert!(!c.set_model && !c.slash_commands && !c.keys && !c.terminal);
         assert_eq!(c.rename, RenameCap::None);
-        assert_eq!(c.attach, AttachCap::None);
+        assert_eq!(c.attach, AttachCap::Path);
         assert!(has(&c, codes::RELAY_DELIVERY));
         assert!(!has(&c, codes::NO_WAKE));
         assert_eq!(action(&c, codes::NO_MODEL_CHANGE), Some(LimitAction::Fork));
@@ -687,7 +691,7 @@ mod tests {
         assert_eq!(v["channel"], "tmux");
         assert_eq!(v["approveVia"], "keys");
         assert_eq!(v["rename"], "sync");
-        assert_eq!(v["attach"], "none");
+        assert_eq!(v["attach"], "path");
         assert_eq!(v["keys"], true);
         assert_eq!(v["terminal"], true);
         assert_eq!(v["wake"], false);

@@ -17,6 +17,7 @@ pub mod foreign;
 pub mod pairing;
 pub mod push;
 pub mod remote;
+pub mod uploads;
 
 use axum::extract::{DefaultBodyLimit, FromRequest, Request, State};
 use axum::response::IntoResponse;
@@ -104,6 +105,10 @@ pub fn api_router() -> Router<AppState> {
         .route(
             "/sessions/{id}/message",
             post(control::message).layer(DefaultBodyLimit::max(IMAGE_BODY_MAX)),
+        )
+        .route(
+            "/sessions/{id}/uploads",
+            post(uploads::upload).layer(DefaultBodyLimit::max(uploads::UPLOAD_BODY_MAX)),
         )
         .route("/sessions/{id}/queue/{message_id}", delete(control::cancel_queued))
         .route("/sessions/{id}/interrupt", post(control::interrupt))
