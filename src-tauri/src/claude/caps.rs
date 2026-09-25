@@ -126,14 +126,22 @@ pub fn input_with(state: &AppState, facts: &SessionFacts, extra: &ExtraFacts) ->
     });
     let mode = crate::server::hooks::permission_mode(state, &facts.id)
         .or_else(|| extra.permission_mode.clone());
+    let hooks_active = crate::server::hooks::hooks_active(state, &facts.id, pid);
+    // A pane this app could not reach (a custom `-S` socket, a TMUX_TMPDIR
+    // only the user's shell has, tmux gone): route through the hooks when
+    // they flow instead of failing every message with 409.
+    let tmux_pane = tmux_target
+        .as_deref()
+        .and_then(pane_of_target)
+        .filter(|_| !(hooks_active && state.tmux.unreachable(&facts.id, pid)));
     CapsInput {
         owned: facts.owned && !facts.bridge_thread,
         bridge_thread: facts.bridge_thread,
         live: facts.live,
-        hooks_active: crate::server::hooks::hooks_active(state, &facts.id, pid),
+        hooks_active,
         hooks_installed: state.plugin.installed_cached(),
         wake: crate::server::hooks::wake_armed(state, &facts.id),
-        tmux_pane: tmux_target.as_deref().and_then(pane_of_target),
+        tmux_pane,
         background_job,
         pty_enabled: super::foreign_injection_enabled(),
         transcript_missing: extra.transcript_missing,
@@ -759,5 +767,24 @@ mod tests {
             },
         );
         assert!(bad.tmux_pane.is_none());
+
+        // A pane this app cannot reach falls back to the hooks, when they flow.
+        let id = "1a1b2c3d-0000-4000-8000-000000000000";
+        let facts = SessionFacts {
+            id: id.into(),
+            live: true,
+            tmux: Some("main:@1.%7".into()),
+            ..Default::default()
+        };
+        state.tmux.mark_unreachable(id, None);
+        assert_eq!(
+            input_for(&state, &facts).tmux_pane.as_deref(),
+            Some("%7"),
+            "no hooks: tmux is still the best bet"
+        );
+        state.hooks.touch(id, 1);
+        let hooked = input_for(&state, &facts);
+        assert!(hooked.hooks_active && hooked.tmux_pane.is_none());
+        assert_eq!(compute(&hooked).channel, ControlChannel::Hooks);
     }
 }

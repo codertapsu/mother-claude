@@ -174,21 +174,17 @@ pub async fn message(
                 owned::send(&state, &id, &body.text, &body.images).await?,
             ))
         }
-        Route::Tmux(s) => {
-            tmux::send_text_as(&state, &ctx, &s, &body.text).await?;
-            Delivery::Relayed
-        }
-        Route::Hooks(_) => {
-            let queued = hooks::enqueue_relay_as(&state, &ctx, &id, &body.text).await?;
-            return Ok(Json(MessageReceipt {
-                delivery: if queued.status == QueueStatus::Delivered {
-                    Delivery::Relayed
-                } else {
-                    Delivery::Queued
-                },
-                message_id: queued.id,
-            }));
-        }
+        Route::Tmux(s) => match tmux::send_text_as(&state, &ctx, &s, &body.text).await {
+            Ok(()) => Delivery::Relayed,
+            // The pane cannot be reached from here (custom socket, tmux gone)
+            // but the hooks can: relay through them (the caps follow).
+            Err(e) if tmux::is_unreachable_error(&e) && hooks::is_active(&state, &id) => {
+                crate::claude::caps::refresh(&state, &id).await;
+                return relay(&state, &ctx, &id, &body.text).await;
+            }
+            Err(e) => return Err(e),
+        },
+        Route::Hooks(_) => return relay(&state, &ctx, &id, &body.text).await,
         Route::Pty(s) => {
             foreign::pty_inject_text(&state, &ctx, &s, &body.text).await?;
             Delivery::Relayed
@@ -198,6 +194,24 @@ pub async fn message(
     Ok(Json(MessageReceipt {
         delivery,
         message_id,
+    }))
+}
+
+/// Queue `text` for a hooked foreign session.
+async fn relay(
+    state: &AppState,
+    ctx: &ClientContext,
+    id: &str,
+    text: &str,
+) -> ApiResult<Json<MessageReceipt>> {
+    let queued = hooks::enqueue_relay_as(state, ctx, id, text).await?;
+    Ok(Json(MessageReceipt {
+        delivery: if queued.status == QueueStatus::Delivered {
+            Delivery::Relayed
+        } else {
+            Delivery::Queued
+        },
+        message_id: queued.id,
     }))
 }
 
@@ -227,7 +241,13 @@ pub async fn interrupt(
 ) -> ApiResult<Json<Value>> {
     match route_for(&state, &id).await? {
         Route::Owned => owned::interrupt(&state, &id).await?,
-        Route::Tmux(s) => tmux::send_key(&state, &s, "Escape").await?,
+        Route::Tmux(s) => match tmux::send_key(&state, &s, "Escape").await {
+            Err(e) if tmux::is_unreachable_error(&e) && hooks::is_active(&state, &id) => {
+                crate::claude::caps::refresh(&state, &id).await;
+                hooks::request_interrupt(&state, &id).await?
+            }
+            other => other?,
+        },
         Route::Hooks(_) => hooks::request_interrupt(&state, &id).await?,
         Route::Bridge => {
             // Interrupt the conversation's running turn, if any (naming the
