@@ -710,21 +710,141 @@ fn read_user_mcp_servers() -> Value {
     root.get("mcpServers").cloned().unwrap_or_else(|| json!({}))
 }
 
-/// Never serve secret values: `env` and `headers` keep their keys, every value
-/// becomes `"…"`.
-pub fn redact_mcp(mut servers: Value) -> Value {
-    if let Some(map) = servers.as_object_mut() {
-        for server in map.values_mut() {
-            for field in ["env", "headers"] {
-                if let Some(obj) = server.get_mut(field).and_then(Value::as_object_mut) {
-                    for v in obj.values_mut() {
-                        *v = json!("…");
-                    }
+/// Placeholder for a redacted value.
+const REDACTED: &str = "…";
+
+/// `scheme://host[:port]` of a URL: userinfo, path, query and fragment go
+/// (tokens live in all of them, e.g. `…/s/<secret>/mcp` or `?api_key=`).
+/// `None` when `raw` is not an absolute URL.
+fn url_origin(raw: &str) -> Option<String> {
+    let url = reqwest::Url::parse(raw.trim()).ok()?;
+    let host = url.host_str()?;
+    Some(match url.port() {
+        Some(port) => format!("{}://{host}:{port}", url.scheme()),
+        None => format!("{}://{host}", url.scheme()),
+    })
+}
+
+/// A flag whose value is (or may be) a credential: `--api-key`, `--token`,
+/// `--secret`, `--password`, `--auth…`, `-p`-style short flags excluded.
+fn is_secret_flag(flag: &str) -> bool {
+    let name = flag.trim_start_matches('-').to_ascii_lowercase();
+    flag.starts_with("--")
+        && [
+            "key",
+            "token",
+            "secret",
+            "password",
+            "passwd",
+            "pass",
+            "auth",
+            "credential",
+            "cookie",
+        ]
+        .iter()
+        .any(|w| name.contains(w))
+}
+
+/// A long, random-looking string (an API key pasted as a bare argument).
+fn looks_like_secret(arg: &str) -> bool {
+    arg.len() >= 20
+        && !arg.contains(['/', ' ', '.'])
+        && arg.chars().any(|c| c.is_ascii_digit())
+        && arg.chars().any(|c| c.is_ascii_alphabetic())
+        && arg
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '=' | '+'))
+}
+
+/// An MCP server's `args` with anything credential-shaped replaced: URLs cut
+/// to their origin (a DSN's password, a tokenized path), the value of a
+/// secret flag (`--api-key X`, `--token=X`), `KEY=value` pairs, and bare
+/// random-looking strings.
+fn redact_args(args: &[Value]) -> Vec<Value> {
+    let mut out = Vec::with_capacity(args.len());
+    let mut secret_next = false;
+    for arg in args {
+        let Some(a) = arg.as_str() else {
+            out.push(json!(REDACTED));
+            continue;
+        };
+        if std::mem::take(&mut secret_next) {
+            out.push(json!(REDACTED));
+            continue;
+        }
+        if a.starts_with('-') {
+            match a.split_once('=') {
+                // `--flag=value`: the value may be anything; keep the flag.
+                Some((flag, _)) => out.push(json!(format!("{flag}={REDACTED}"))),
+                None => {
+                    secret_next = is_secret_flag(a);
+                    out.push(json!(a));
                 }
             }
+            continue;
+        }
+        if a.contains("://") {
+            out.push(json!(url_origin(a).unwrap_or_else(|| REDACTED.to_string())));
+            continue;
+        }
+        if let Some((k, _)) = a.split_once('=') {
+            out.push(json!(format!("{k}={REDACTED}")));
+            continue;
+        }
+        if (a.contains('@') && a.contains(':')) || looks_like_secret(a) {
+            out.push(json!(REDACTED));
+            continue;
+        }
+        out.push(json!(a));
+    }
+    out
+}
+
+/// One MCP server, rebuilt from an allowlist: `type`, the `command`'s file
+/// name, redacted `args` ([`redact_args`]), the `url`'s origin, and the KEYS
+/// of `env` / `headers` with every value `"…"`. Unknown fields are dropped.
+fn redact_server(server: &Value) -> Value {
+    let mut out = serde_json::Map::new();
+    if let Some(t) = server.get("type").and_then(Value::as_str) {
+        out.insert("type".into(), json!(t));
+    }
+    if let Some(cmd) = server.get("command").and_then(Value::as_str) {
+        let name = std::path::Path::new(cmd.trim())
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        out.insert("command".into(), json!(name));
+    }
+    if let Some(args) = server.get("args").and_then(Value::as_array) {
+        out.insert("args".into(), Value::Array(redact_args(args)));
+    }
+    if let Some(url) = server.get("url").and_then(Value::as_str) {
+        out.insert(
+            "url".into(),
+            json!(url_origin(url).unwrap_or_else(|| REDACTED.to_string())),
+        );
+    }
+    for field in ["env", "headers"] {
+        if let Some(obj) = server.get(field).and_then(Value::as_object) {
+            let keys: serde_json::Map<String, Value> =
+                obj.keys().map(|k| (k.clone(), json!(REDACTED))).collect();
+            out.insert(field.into(), Value::Object(keys));
         }
     }
-    servers
+    Value::Object(out)
+}
+
+/// Never serve secret values: every paired device can read this, so each
+/// server is rebuilt from an allowlist ([`redact_server`]).
+pub fn redact_mcp(servers: Value) -> Value {
+    match servers {
+        Value::Object(map) => Value::Object(
+            map.iter()
+                .map(|(name, server)| (name.clone(), redact_server(server)))
+                .collect(),
+        ),
+        _ => json!({}),
+    }
 }
 
 #[cfg(test)]
@@ -734,14 +854,47 @@ mod tests {
     #[test]
     fn mcp_secrets_are_redacted() {
         let v = redact_mcp(json!({
-            "a": { "command": "x", "env": { "TOKEN": "secret" }, "headers": { "Authorization": "Bearer s" } },
-            "b": { "url": "https://x" }
+            "a": { "command": "/usr/local/bin/x", "env": { "TOKEN": "secret" },
+                   "headers": { "Authorization": "Bearer s" }, "extraSecret": "secret" },
+            "b": { "type": "http", "url": "https://x" },
+            "pg": { "command": "npx", "args": ["-y", "@modelcontextprotocol/server-postgres",
+                    "postgresql://user:hunter2secret@db.internal:5432/prod"] },
+            "k": { "command": "tool", "args": ["--api-key", "sk-live-secret-1234567890",
+                    "--token=ghp_secret123", "--verbose", "API_KEY=secret", "--port", "8080",
+                    "abcdefghijklmnop1234567890secret"] },
+            "z": { "type": "http",
+                   "url": "https://user:pw-secret@mcp.zapier.com/api/mcp/s/secret-path/mcp?api_key=secret#frag" },
+            "bad": "not an object",
         }));
         assert_eq!(v["a"]["env"]["TOKEN"], "…");
         assert_eq!(v["a"]["headers"]["Authorization"], "…");
-        assert_eq!(v["a"]["command"], "x");
+        assert_eq!(v["a"]["command"], "x", "the file name only");
+        assert!(
+            v["a"].get("extraSecret").is_none(),
+            "unknown fields are dropped"
+        );
         assert_eq!(v["b"]["url"], "https://x");
-        assert!(!v.to_string().contains("secret"));
+        assert_eq!(v["b"]["type"], "http");
+        // A DSN in args keeps only its origin.
+        assert_eq!(v["pg"]["args"][1], "@modelcontextprotocol/server-postgres");
+        assert_eq!(v["pg"]["args"][2], "postgresql://db.internal:5432");
+        // Secret flags, KEY=value pairs and bare keys.
+        let k = &v["k"]["args"];
+        assert_eq!(k[0], "--api-key");
+        assert_eq!(k[1], "…");
+        assert_eq!(k[2], "--token=…");
+        assert_eq!(k[3], "--verbose");
+        assert_eq!(k[4], "API_KEY=…");
+        assert_eq!(k[5], "--port");
+        assert_eq!(k[6], "8080");
+        assert_eq!(k[7], "…");
+        // A URL with userinfo, a secret path, query and fragment: the origin.
+        assert_eq!(v["z"]["url"], "https://mcp.zapier.com");
+        assert!(v["bad"].as_object().unwrap().is_empty());
+        let text = v.to_string();
+        assert!(!text.contains("secret"), "{text}");
+        assert!(!text.contains("hunter2"), "{text}");
+        assert!(!text.contains("pw-"), "{text}");
     }
 
     #[test]
