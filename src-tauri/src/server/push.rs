@@ -1044,6 +1044,16 @@ impl PushService {
             .store(true, std::sync::atomic::Ordering::Relaxed);
     }
 
+    /// Route tests: never touch DNS (every name resolves to a public IP).
+    pub(crate) fn test_transport_for_routes(&self) {
+        self.install_test_transport("142.250.74.10", false);
+    }
+
+    /// Route tests: every name resolves to `ip`.
+    pub(crate) fn test_transport_resolving_to(&self, ip: &str) {
+        self.install_test_transport(ip, false);
+    }
+
     fn set_window_ms(&self, ms: i64) {
         self.window_ms
             .store(ms, std::sync::atomic::Ordering::Relaxed);
