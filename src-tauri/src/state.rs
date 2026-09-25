@@ -256,23 +256,27 @@ impl Inner {
         self.owned.write().await.insert(id.to_string());
         // Sync mirror for `claude::owned::is_owned` (hook short-circuit).
         self.control.note_owned(id, true);
-        let found = crate::server::ws::patch_session(self, id, |s| {
+        // A bridge conversation (its record is inserted first) gets the
+        // bridge's narrower caps.
+        let bridge_thread = self.bridge.thread(id).await.is_some();
+        let control = crate::claude::caps::compute(&crate::claude::caps::CapsInput {
+            owned: !bridge_thread,
+            bridge_thread,
+            live: true,
+            ..Default::default()
+        });
+        let caps = control.clone();
+        let found = crate::server::ws::patch_session(self, id, move |s| {
             s.owned = true;
             s.live = true;
             s.surface = crate::claude::model::Surface::MotherClaude;
-            s.control = crate::claude::caps::compute(&crate::claude::caps::CapsInput {
-                owned: true,
-                live: true,
-                ..Default::default()
-            });
+            s.control = caps;
         })
         .await;
         if !found {
-            crate::server::ws::upsert_session(
-                self,
-                crate::claude::summaries::synthetic_owned(id, cwd, started_at),
-            )
-            .await;
+            let mut summary = crate::claude::summaries::synthetic_owned(id, cwd, started_at);
+            summary.control = control;
+            crate::server::ws::upsert_session(self, summary).await;
         }
     }
 

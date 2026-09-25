@@ -252,6 +252,14 @@ pub fn compute(input: &CapsInput) -> ControlCaps {
             ..Default::default()
         };
         if input.bridge_thread {
+            // The bridge host takes text, model and mode changes, interrupts
+            // and approvals; the dashboard dispatchers refuse the rest for a
+            // bridge conversation, so never offer it.
+            caps.set_effort = false;
+            caps.stop_task = false;
+            caps.attach_images = false;
+            caps.rename = RenameCap::None;
+            caps.attach = AttachCap::None;
             caps.limits.push(limit(
                 codes::BRIDGE_THREAD,
                 "Driven through the HTTP bridge.",
@@ -492,6 +500,13 @@ mod tests {
         assert_eq!(b.channel, ControlChannel::Owned);
         assert!(has(&b, codes::BRIDGE_THREAD));
         assert_eq!(b.notes.len(), b.limits.len());
+        // Only what the bridge dispatchers accept.
+        assert!(b.approve && b.answer && b.set_model && b.slash_commands);
+        assert_eq!(b.set_mode, SetModeCap::Any);
+        assert_eq!(b.interrupt, InterruptCap::Immediate);
+        assert!(!b.set_effort && !b.stop_task && !b.attach_images);
+        assert_eq!(b.rename, RenameCap::None);
+        assert_eq!(b.attach, AttachCap::None);
     }
 
     #[test]
