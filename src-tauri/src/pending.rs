@@ -1049,18 +1049,19 @@ pub async fn raise(
         item.dangerous_reason.get_or_insert(why);
     }
     let (id, rx) = state.pending.register(item);
+    // The guard exists before the first await: if the raiser's future is
+    // dropped while publishing (client gone), the item is withdrawn instead
+    // of being orphaned.
+    let guard = PendingGuard {
+        state: state.clone(),
+        id: id.clone(),
+        session_id: session_id.clone(),
+    };
     changed(state, &session_id).await;
     if let Some(item) = state.pending.get(&id) {
         crate::server::push::on_pending_added(state, &item);
     }
-    (
-        PendingGuard {
-            state: state.clone(),
-            id,
-            session_id,
-        },
-        rx,
-    )
+    (guard, rx)
 }
 
 /// Await a decision for at most `timeout`. `None` = timed out or withdrawn.
@@ -1624,6 +1625,33 @@ mod tests {
             crate::server::auth::Auth::ephemeral(),
         );
         (st, home)
+    }
+
+    #[tokio::test]
+    async fn a_raise_dropped_while_publishing_leaves_no_card() {
+        let (st, _home) = test_state();
+        // A reader on the snapshot parks `raise` in its publish (a write),
+        // after it registered the item; drop it there (hyper does this when
+        // the client disconnects).
+        let snap = st.snapshot.read().await;
+        let task = {
+            let st = st.clone();
+            tokio::spawn(async move {
+                let _held = raise(&st, item("s1")).await;
+                std::future::pending::<()>().await;
+            })
+        };
+        for _ in 0..50 {
+            if st.pending.len() == 1 {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+        assert_eq!(st.pending.len(), 1, "registered before the await");
+        task.abort();
+        let _ = task.await;
+        drop(snap);
+        assert!(st.pending.is_empty(), "the guard withdrew it");
     }
 
     #[tokio::test]
