@@ -231,6 +231,7 @@ export class RealtimeService {
   private pollTimer?: ReturnType<typeof setTimeout>;
   private transcriptPoll?: ReturnType<typeof setInterval>;
   private pollEtag?: string;
+  private pollBusy = false;
   private checkingLimited = false;
   /** This client may not poll (a tunnel client): don't ask again. */
   private noPolling = false;
@@ -540,7 +541,9 @@ export class RealtimeService {
   }
 
   private async pollOnce(): Promise<void> {
-    if (this.connectionS() !== 'limited') return;
+    // One loop only: a poll in flight schedules the next one itself.
+    if (this.connectionS() !== 'limited' || this.pollBusy) return;
+    this.pollBusy = true;
     try {
       const res = await this.api.pollSessions(this.pollEtag);
       if (res) {
@@ -559,6 +562,7 @@ export class RealtimeService {
     } catch (e) {
       if (e instanceof ApiError && e.kind === 'network') {
         // REST is gone too; the socket retry decides what comes next.
+        this.pollBusy = false;
         this.stopPolling();
         this.connectionS.set(navigator.onLine === false ? 'offline' : 'unreachable');
         this.helloFailures = 0;
@@ -566,6 +570,7 @@ export class RealtimeService {
         return;
       }
     }
+    this.pollBusy = false;
     if (this.connectionS() !== 'limited') return;
     const wait = document.visibilityState === 'visible' ? POLL_VISIBLE_MS : POLL_HIDDEN_MS;
     clearTimeout(this.pollTimer);
