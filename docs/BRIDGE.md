@@ -190,15 +190,22 @@ Signing in opens a browser on the host machine, so `POST /auth/login` is
 restricted to local clients. `claude auth login` in a terminal does the same
 thing.
 
-**The bridge token** is off by default on `127.0.0.1:5612`, which is what makes
-the examples in this document work as written. Turn it on with
-`MOTHER_CLAUDE_BRIDGE_REQUIRE_TOKEN=1` and present it as
-`Authorization: Bearer <token>`, `?token=<token>` (for `EventSource`, which
-cannot set headers), or an `mc_token` cookie. The token is printed at startup
-and shown under **Settings → Pair a phone**.
+**The bridge token** is off by default on `127.0.0.1:5612` for requests from
+this machine, which is what makes the examples in this document work as written.
+Turn it on with `MOTHER_CLAUDE_BRIDGE_REQUIRE_TOKEN=1` and present a token as
+`Authorization: Bearer <token>` (or `?token=<token>` from this machine, for
+`EventSource`, which cannot set headers). Scripts on this Mac use the `token`
+file in the app data directory (see [REMOTE.md](REMOTE.md#for-scripts)); a paired
+device uses its own token.
 
-The `/v1` mount on the main app port always requires it, because that listener
-is reachable from your LAN.
+"From this machine" means a loopback connection with a loopback `Host` and no
+proxy headers. A request that came through a tunnel or proxy always needs a
+token (`401 tunneled_request_requires_token`), and while Mother Claude sees a
+tunnel pointing at this port the tokenless mode is off for everyone
+(`401 bridge_exposed_requires_token`) until that tunnel stops.
+
+The `/v1` mount on the main app port always requires a token, because that
+listener is reachable from your LAN.
 
 ### Browser origins
 
@@ -220,11 +227,19 @@ names. This is the same posture as a local Codex bridge, and it is the right
 trade-off for a developer tool on your own machine; it is not one to make on a
 shared or untrusted one.
 
-Three things stay locked regardless:
+These stay locked regardless:
 
 - the port is **loopback-only** and never binds an external interface;
-- `permission_mode: bypassPermissions`, transcript deletion, `POST /auth/login`
-  and approvals of dangerous actions are **local-client only**;
+- **dangerous** requests need a local client — no foreign `Origin` — or a token
+  with the right to them: `permission_mode: bypassPermissions`, transcript
+  deletion, `POST /auth/login`, approvals of dangerous actions, thread options
+  that run code nobody approves (`mcp_servers`, `allowed_tools`,
+  `additional_directories`, a `cwd` Claude Code was never opened in, resuming a
+  conversation whose approvals are off), and turns sent into a conversation
+  whose approvals are off. A page on another website therefore keeps tokenless
+  access to ordinary work, never to these;
+- tunnelled requests need a token, and a detected tunnel to the port switches
+  the tokenless mode off;
 - the LAN mount on port 6725 **always** requires the token.
 
 To close it down: `MOTHER_CLAUDE_BRIDGE_REQUIRE_TOKEN=1`, plus
@@ -343,7 +358,10 @@ curl -sS http://127.0.0.1:5612/threads/$THREAD/run \
 | `skills`, `agents` | Skills and programmatic subagents. |
 
 `bypassPermissions` skips every approval prompt, so it is restricted to local
-clients unless `MOTHER_CLAUDE_ALLOW_REMOTE_DANGEROUS=1`.
+clients and to devices granted dangerous actions. So are `mcp_servers`, a
+non-empty `allowed_tools`, `additional_directories`, resuming a conversation
+whose approvals are off, and a `cwd` that Claude Code has never been opened in
+on this Mac (`403 untrusted_cwd`).
 
 ### The rest of the conversation surface
 
@@ -597,7 +615,8 @@ Every failure is the same envelope, with context fields flattened alongside:
 | 400 | `invalid_json`, `invalid_multipart` | Fix the body |
 | 401 | `unauthorized` | Present the API token |
 | 401 | `claude_login_required` | Claude itself is signed out — run `claude` and `/login` |
-| 403 | `dangerous_blocked`, `file_id_not_accepted` | Do it from a local client, or don't |
+| 401 | `tunneled_request_requires_token`, `bridge_exposed_requires_token` | The request came through a tunnel, or a tunnel points at the port: send a token |
+| 403 | `dangerous_blocked`, `untrusted_cwd`, `file_id_not_accepted` | Do it from a local client (or a device granted dangerous actions), or don't |
 | 403 | `origin_not_allowed` | Add the page's origin to `MOTHER_CLAUDE_BRIDGE_ORIGINS` |
 | 404 | `thread_not_found`, `turn_not_found`, `operation_not_found`, `request_not_found`, `not_found` | Check the id; operations do not survive a restart |
 | 405 | `method_not_allowed` | Check the method against the reference |

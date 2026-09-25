@@ -100,24 +100,42 @@ where an override is wanted. (Verified against SDK 0.3.186 / CLI 2.1.186.)
   (e.g. opening System Settings for Full Disk Access). Dashboard data: HTTP/WS.
 - **Who is asking is decided once per request.** Every listener's router is
   built with its `Ingress` (`server::context`); a middleware builds a
-  `ClientContext {ingress, peer, client_ip, local, on_machine, principal}`.
-  `local` is strict (loopback listener + loopback peer + loopback `Host` + no
-  proxy/tunnel headers + local-or-absent `Origin`), because tunnels connect
-  from 127.0.0.1. Handlers use `ctx.local` / `ctx.may_dangerous()` and the
-  guard extractors in `server::auth` (`Authed`, `DesktopOnly`, `DangerousOk`,
-  `HookOnly`, `SidecarOnly`) — never the raw TCP peer.
+  `ClientContext {ingress, effective_ingress, peer, client_ip, local,
+  on_machine, principal}`. `on_machine` (machine-local) = loopback listener +
+  loopback peer + exactly one loopback `Host` + no proxy/tunnel header; `local`
+  adds a local-or-absent `Origin`. Tunnels connect from 127.0.0.1, so never use
+  the raw TCP peer. **Authorize by principal, not by location**: `local` only
+  decides whether the desktop / local-script tokens and `?token=` are accepted;
+  `ctx.may_dangerous()` is true for `Principal::Desktop`, a device holding the
+  grant for its effective ingress (`allowDangerous` on the LAN,
+  `allowDangerousInternet` elsewhere), or an anonymous *local* caller on the
+  bridge port. Use the guard extractors in `server::auth` (`Authed`,
+  `DesktopOnly` for admin routes, `DangerousOk`, `HookOnly`, `SidecarOnly`), and
+  call `ctx.note_dangerous(..)` when a device passes a dangerous check you made
+  by hand (audit + desktop notice).
+- **The desktop token is per launch and in memory** (`server_info` invoke only).
+  The on-disk `token` file is `Principal::LocalScript`: local only, data and
+  control routes, never admin routes or dangerous actions. Phones pair for
+  `mcd_` device tokens (`server::pairing`, `server::devices`); internet
+  pairings need the desktop to type the phone's 4 digits. Internet access is a
+  separate loopback listener (`server::remote`, default 6726) behind a tunnel;
+  LAN TLS binds private addresses only, with a name-constrained local CA
+  (`server::tls`, `server::listeners`).
 - **The bridge is a second consumer of the same server, not a second server.**
   `bridge::router` nests into the same axum app and reuses the same
   `ClientContext`, the dangerous-action policy and the pending store
   (`crate::pending`) — a bridge tool approval shows up as a dashboard card and
   either surface may answer it. Its extra listener binds **loopback only** and
-  is **tokenless and origin-open by default** for requests from this machine
-  (`ctx.on_machine`), so local tools can call it without setup; a tunnelled
-  request needs a token, and the LAN-reachable `/v1` mount always does.
-  Dangerous actions (`bypassPermissions`, transcript deletion, starting a
-  sign-in flow, approving a dangerous tool call or attaching a standing
-  permission grant to an approval) need a local client (or a device the
-  desktop granted dangerous actions; never through the bridge port).
+  is **tokenless and origin-open by default** for machine-local requests
+  (`ctx.on_machine`), so local tools and other websites on this machine can call
+  it without setup; a tunnelled request needs a token, the tokenless mode turns
+  off while a detected tunnel points at the port, and the LAN-reachable `/v1`
+  mount always needs a token. Dangerous actions (`bypassPermissions`, transcript
+  deletion, starting a sign-in flow, approving a dangerous tool call or attaching
+  a standing permission grant to an approval, thread options that run code
+  nobody approves, turns into a conversation whose approvals are off) need the
+  dangerous right — for an anonymous bridge caller that means `local` (no
+  foreign `Origin`).
 - Single broadcast bus (`tokio::sync::broadcast`) fans events to webview + all
   WS clients. Backpressure-aware.
 - TLS + token auth are **mandatory** whenever the bind address is non-loopback.
