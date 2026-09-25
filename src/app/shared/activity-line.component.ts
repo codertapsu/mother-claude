@@ -1,6 +1,7 @@
-import { ChangeDetectionStrategy, Component, computed, input } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject, input } from '@angular/core';
 
 import { Activity } from '../core/models';
+import { RealtimeService } from '../core/realtime.service';
 import { ElapsedPipe } from './time.pipes';
 import { activityIsBusy, activityLabel } from './util';
 
@@ -12,13 +13,13 @@ import { activityIsBusy, activityLabel } from './util';
   host: { '[attr.data-kind]': 'activity()?.kind' },
   template: `
     @if (activity(); as a) {
-      <span class="dot" [class.busy]="busy()"></span>
+      <span class="dot" [class.busy]="busy()" [class.stale]="stale()"></span>
       <span class="line">
         <span class="label">{{ label() }}</span>
         @if (a.detail) {
           <span class="sep">·</span><span class="detail">{{ a.detail }}</span>
         }
-        @if (busy() && a.since) {
+        @if ((busy() || a.kind === 'waiting') && a.since) {
           <span class="sep">·</span><span class="elapsed">{{ a.since | elapsed }}</span>
         }
       </span>
@@ -45,6 +46,10 @@ import { activityIsBusy, activityLabel } from './util';
         background: var(--green);
         color: var(--green);
         animation: mc-pulse 1.6s ease-out infinite;
+      }
+      .dot.stale {
+        background: var(--faint) !important;
+        animation: none;
       }
       :host([data-kind='waiting']) .dot {
         background: var(--amber);
@@ -78,6 +83,9 @@ import { activityIsBusy, activityLabel } from './util';
   ],
 })
 export class ActivityLineComponent {
+  private realtime = inject(RealtimeService);
+  /** Not Live: the dot greys out (the activity may be out of date). */
+  protected readonly stale = computed(() => this.realtime.connection() !== 'open');
   readonly activity = input<Activity | undefined>(undefined);
   protected readonly label = computed(() => activityLabel(this.activity()));
   protected readonly busy = computed(() => activityIsBusy(this.activity()));

@@ -17,7 +17,7 @@
   --border-strong: #363a4c;
   --text: #e6e7ea;
   --muted: #9aa0ad;
-  --faint: #6b7180;
+  --faint: #80869a;
   --accent: #7c5cc9;
   --accent-text: #a891ec;
   --accent-soft: rgba(124, 92, 201, 0.16);
@@ -51,15 +51,15 @@
   --border-strong: #c7cad5;
   --text: #1b1d24;
   --muted: #5b6170;
-  --faint: #8a90a0;
+  --faint: #676d7c;
   --accent: #6d4bc2;
   --accent-text: #5b3aad;
   --accent-soft: rgba(109, 75, 194, 0.1);
   --on-accent: #ffffff;
-  --green: #15803d;
+  --green: #137537;
   --green-soft: rgba(21, 128, 61, 0.1);
   --green-border: #9fd5b3;
-  --amber: #b45309;
+  --amber: #a34a07;
   --amber-soft: rgba(180, 83, 9, 0.1);
   --amber-border: #e8c58f;
   --red: #c0262d;
@@ -712,6 +712,22 @@ pre {
   }
 }
 
+/* Windows High Contrast / forced colours: keep focus rings and the status
+   shapes visible (colour alone is replaced by the system palette). */
+@media (forced-colors: active) {
+  :focus-visible {
+    outline: 2px solid CanvasText;
+    outline-offset: 2px;
+  }
+  .btn,
+  .card {
+    border: 1px solid CanvasText;
+  }
+  .count-badge {
+    forced-color-adjust: none;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
@@ -720,5 +736,19 @@ pre {
     animation-iteration-count: 1 !important;
     transition-duration: 0.001ms !important;
     scroll-behavior: auto !important;
+  }
+}
+
+@keyframes mc-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes mc-shimmer {
+  from {
+    opacity: 0.55;
+  }
+  to {
+    opacity: 1;
   }
 }

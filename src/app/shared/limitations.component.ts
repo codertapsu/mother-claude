@@ -1,13 +1,15 @@
 import { Component } from '@angular/core';
 
+import { IconComponent } from './icon.component';
+
 /** Plain-language "good to know" notes about how the local bridge behaves. */
 @Component({
   selector: 'mc-limitations',
-  imports: [],
+  imports: [IconComponent],
   template: `
     <div class="card notes">
       <div class="note">
-        <span class="ico">💻</span>
+        <span class="ico" aria-hidden="true"><mc-icon name="monitor" [size]="18" /></span>
         <div>
           <strong>Your laptop is the brain.</strong>
           Mother Claude runs on your laptop and bridges it to your phone. Keep the laptop awake
@@ -16,7 +18,7 @@ import { Component } from '@angular/core';
       </div>
 
       <div class="note">
-        <span class="ico">🧩</span>
+        <span class="ico" aria-hidden="true"><mc-icon name="code" [size]="18" /></span>
         <div>
           <strong>VS Code isn't synced live.</strong>
           The dashboard reads the transcript files Claude writes. A live VS&nbsp;Code session may
@@ -28,7 +30,7 @@ import { Component } from '@angular/core';
       </div>
 
       <div class="note">
-        <span class="ico">🎮</span>
+        <span class="ico" aria-hidden="true"><mc-icon name="keyboard" [size]="18" /></span>
         <div>
           <strong>One driver at a time.</strong>
           After taking a session over, drive it from one place. If you keep typing in the original
@@ -37,7 +39,7 @@ import { Component } from '@angular/core';
       </div>
 
       <div class="note">
-        <span class="ico">📶</span>
+        <span class="ico" aria-hidden="true"><mc-icon name="wifi" [size]="18" /></span>
         <div>
           <strong>Local first, internet when you choose.</strong>
           Phones pair with a QR code from <strong>Remote</strong> on the desktop. On your own Wi-Fi
@@ -62,9 +64,9 @@ import { Component } from '@angular/core';
         font-size: 0.9rem;
       }
       .ico {
-        font-size: 1.1rem;
-        line-height: 1.3;
         flex: 0 0 auto;
+        color: var(--accent-text);
+        padding-top: 0.1rem;
       }
       .note strong {
         color: var(--text);
