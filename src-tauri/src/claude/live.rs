@@ -744,13 +744,18 @@ impl LiveRoster {
         }
         g.jobs = jobs;
         g.live = next;
-        // Forget identity checks of processes that are gone.
-        let live_keys: HashSet<(u32, String)> = g
-            .live
+        // Forget identity checks of pidfiles that are gone. A negative check
+        // (a stale pidfile whose pid was reused) is kept for its TTL while
+        // the file exists, or `ps` would run again on every refresh.
+        let key_of = |s: &LiveSession| Some((s.pid?, s.proc_start.clone().unwrap_or_default()));
+        let file_keys: HashSet<(u32, String)> = g
+            .files
             .values()
-            .filter_map(|s| Some((s.pid?, s.proc_start.clone().unwrap_or_default())))
+            .filter_map(|c| c.record.as_ref())
+            .filter_map(key_of)
             .collect();
-        g.proc_checks.retain(|k, _| live_keys.contains(k));
+        let live_keys: HashSet<(u32, String)> = g.live.values().filter_map(key_of).collect();
+        g.proc_checks.retain(|k, _| file_keys.contains(k));
         g.argv_modes.retain(|k, _| live_keys.contains(k));
         drop(g);
         change.appeared.sort();
@@ -993,6 +998,51 @@ mod tests {
         std::fs::remove_file(sessions.join(format!("{me}.json"))).unwrap();
         roster.refresh(&home);
         assert!(roster.get(SID).is_none());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_negative_identity_check_is_cached_while_the_pidfile_exists() {
+        let me = std::process::id();
+        if ps_field(me, "lstart").is_none() {
+            return; // no ps in this environment
+        }
+        let tmp = tempfile::tempdir().unwrap();
+        let home = ClaudeHome::with_base(tmp.path());
+        let sessions = tmp.path().join("sessions");
+        // A stale pidfile whose pid now belongs to another process (us).
+        write(
+            &sessions,
+            &format!("{me}.json"),
+            &format!(
+                r#"{{"pid":{me},"sessionId":"{SID}","pidDomain":"darwin","procStart":"Thu Jan  1 00:00:00 1970"}}"#
+            ),
+        );
+        let roster = LiveRoster::new();
+        roster.refresh(&home);
+        assert!(!roster.is_live(SID));
+        let key = (me, "Thu Jan  1 00:00:00 1970".to_string());
+        let checked_at = roster
+            .lock()
+            .proc_checks
+            .get(&key)
+            .map(|(ok, at)| (*ok, *at));
+        assert!(
+            matches!(checked_at, Some((false, _))),
+            "negative result kept"
+        );
+        // The next refresh reuses it rather than running `ps` again.
+        roster.refresh(&home);
+        let again = roster
+            .lock()
+            .proc_checks
+            .get(&key)
+            .map(|(ok, at)| (*ok, *at));
+        assert_eq!(again, checked_at);
+        // Once the pidfile is gone, so is the check.
+        std::fs::remove_file(sessions.join(format!("{me}.json"))).unwrap();
+        roster.refresh(&home);
+        assert!(roster.lock().proc_checks.is_empty());
     }
 
     #[cfg(unix)]
