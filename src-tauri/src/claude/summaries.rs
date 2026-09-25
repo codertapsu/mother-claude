@@ -328,16 +328,56 @@ fn is_delegation(t: &PendingTool) -> bool {
     matches!(t.name.as_str(), "Agent" | "Task")
 }
 
-/// The newest pending tool of the session's subagent files (the one a
-/// foreground subagent is blocked on), with its agent id.
+/// The pending tool a foreground subagent is blocked on, with its agent id:
+/// the newest pending tool of the subagent the `call` launched or of one of
+/// its nested agents. When the tracker has not mapped that subagent yet, any
+/// subagent file but the known background and workflow agents (whose running
+/// tools are not what the session waits on).
 fn subagent_waiting_tool(
     state: &AppState,
+    id: &str,
     files: Option<&super::index::SessionFiles>,
+    call: &PendingTool,
     process_started: Option<i64>,
 ) -> Option<(PendingTool, String)> {
-    files?
+    let files = files?;
+    let agents = state.agents.for_session(id).0;
+    let allowed: HashSet<&str> = match agents
+        .iter()
+        .find(|a| a.tool_use_id.as_deref() == Some(call.id.as_str()))
+    {
+        Some(root) => {
+            let mut tree: HashSet<&str> = HashSet::from([root.id.as_str()]);
+            loop {
+                let before = tree.len();
+                for a in &agents {
+                    if a.parent_id.as_deref().is_some_and(|p| tree.contains(p)) {
+                        tree.insert(a.id.as_str());
+                    }
+                }
+                if tree.len() == before {
+                    break tree;
+                }
+            }
+        }
+        None => {
+            let elsewhere: HashSet<&str> = agents
+                .iter()
+                .filter(|a| a.background || a.workflow_run_id.is_some())
+                .map(|a| a.id.as_str())
+                .collect();
+            files
+                .subagents
+                .keys()
+                .map(String::as_str)
+                .filter(|a| !elsewhere.contains(a))
+                .collect()
+        }
+    };
+    files
         .subagents
         .values()
+        .filter(|a| allowed.contains(a.agent_id.as_str()))
         .filter_map(|a| {
             state
                 .index
@@ -363,6 +403,7 @@ fn subagent_waiting_tool(
 /// is blocked on (`Err(agent call)` when that cannot be found).
 fn waiting_tool<'a>(
     state: &AppState,
+    id: &str,
     files: Option<&super::index::SessionFiles>,
     current: &[&'a PendingTool],
     process_started: Option<i64>,
@@ -371,10 +412,12 @@ fn waiting_tool<'a>(
     if !is_delegation(last) {
         return Some(Ok((last.clone(), None)));
     }
-    Some(match subagent_waiting_tool(state, files, process_started) {
-        Some((t, agent)) => Ok((t, Some(agent))),
-        None => Err(last),
-    })
+    Some(
+        match subagent_waiting_tool(state, id, files, last, process_started) {
+            Some((t, agent)) => Ok((t, Some(agent))),
+            None => Err(last),
+        },
+    )
 }
 
 /// The observed item for a foreground subagent that waits on something we
@@ -524,7 +567,7 @@ pub fn build_one(state: &AppState, id: &str, ctx: &BuildCtx) -> Option<SessionSu
     // What a waiting session waits on (a foreground subagent's own tool
     // rather than the `Agent` call that delegated to it).
     let waiting_on = if live && waiting {
-        waiting_tool(state, files.as_ref(), &current, process_started)
+        waiting_tool(state, id, files.as_ref(), &current, process_started)
     } else {
         None
     };
@@ -1029,6 +1072,23 @@ mod tests {
             sub_line(r#"{"type":"tool_use","id":"stu1","name":"Bash","input":{"command":"rm -rf build","description":"Clean build"}}"#),
         )
         .unwrap();
+        std::fs::write(
+            sub.with_file_name("agent-aexp.meta.json"),
+            r#"{"agentType":"Explore","toolUseId":"tu_agent","requestShape":"foreground"}"#,
+        )
+        .unwrap();
+        // A background agent busy with a newer (running, not waiting) tool.
+        std::fs::write(
+            sub.with_file_name("agent-abg.jsonl"),
+            sub_line(r#"{"type":"tool_use","id":"btu1","name":"Grep","input":{"pattern":"x"}}"#)
+                .replace(&iso(now - 10_000), &iso(now - 1_000)),
+        )
+        .unwrap();
+        std::fs::write(
+            sub.with_file_name("agent-abg.meta.json"),
+            r#"{"agentType":"general-purpose","toolUseId":"tu_bg","requestShape":"background"}"#,
+        )
+        .unwrap();
         // A fresh state over the home, fully indexed.
         let load = || {
             let state = crate::state::Inner::new(
@@ -1043,6 +1103,15 @@ mod tests {
             state.index.discover(&home);
             state.index.queue_all();
             state.index.drain_jobs_blocking();
+            state.agents.recompute(
+                &state.index,
+                sid,
+                &crate::claude::agents::AgentCtx {
+                    live: true,
+                    now,
+                    ..Default::default()
+                },
+            );
             state
         };
         let ctx = BuildCtx {
