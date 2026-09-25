@@ -589,11 +589,10 @@ pub fn sweep_expired(state: &AppState) {
     for id in state.devices.expired_ids() {
         let name = state.devices.get(&id).map(|d| d.name).unwrap_or_default();
         if revoke(state, &id, "expired") {
-            crate::server::ws::publish_notice(
+            crate::server::ws::publish_desktop_notice(
                 state,
                 NoticeLevel::Info,
                 format!("\"{name}\" was unpaired after being idle too long."),
-                None,
             );
         }
     }

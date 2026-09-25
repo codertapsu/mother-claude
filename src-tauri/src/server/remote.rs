@@ -835,7 +835,7 @@ async fn detect_and_store(state: &AppState, with_tailscale: bool) {
                 port = bridge,
                 "a tunnel points at the bridge port; tokenless mode is off"
             );
-            crate::server::ws::publish_notice(
+            crate::server::ws::publish_desktop_notice(
                 state,
                 NoticeLevel::Error,
                 format!(
@@ -843,16 +843,14 @@ async fn detect_and_store(state: &AppState, with_tailscale: bool) {
                      port is switched off until the tunnel stops — stop it unless you meant to \
                      publish the API."
                 ),
-                None,
             );
         } else {
-            crate::server::ws::publish_notice(
+            crate::server::ws::publish_desktop_notice(
                 state,
                 NoticeLevel::Info,
                 format!(
                     "No tunnel points at port {bridge} any more; tokenless local access is back."
                 ),
-                None,
             );
         }
     }
@@ -1141,7 +1139,7 @@ pub async fn update(state: &AppState, body: &Value) -> ApiResult<Value> {
     crate::server::push::set_public_url(state, state.remote.public_url().as_deref());
     if s.internet_enabled != before.internet_enabled {
         apply_tunnel(state).await;
-        crate::server::ws::publish_notice(
+        crate::server::ws::publish_desktop_notice(
             state,
             NoticeLevel::Info,
             if s.internet_enabled {
@@ -1149,7 +1147,6 @@ pub async fn update(state: &AppState, body: &Value) -> ApiResult<Value> {
             } else {
                 "Internet access is off; tunnel connections were closed."
             },
-            None,
         );
     }
     if s.bind_tailscale != before.bind_tailscale {

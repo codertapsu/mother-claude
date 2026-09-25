@@ -272,7 +272,7 @@ async fn audit(req: Request, next: Next) -> Response {
             },
         );
         if let Some(what) = dangerous {
-            crate::server::ws::publish_notice(
+            crate::server::ws::publish_desktop_notice(
                 &state,
                 NoticeLevel::Warning,
                 format!(
@@ -280,7 +280,6 @@ async fn audit(req: Request, next: Next) -> Response {
                     ctx.client_ip,
                     ctx.effective_ingress.as_str()
                 ),
-                None,
             );
         }
     }

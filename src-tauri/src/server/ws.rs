@@ -132,6 +132,15 @@ pub enum ServerEvent {
         #[serde(skip_serializing_if = "Option::is_none")]
         session: Option<String>,
     },
+    /// A notice only the desktop sees (pairings, a device's dangerous
+    /// actions, remote-access changes): the same `notice` frame on the wire.
+    #[serde(rename = "notice")]
+    DesktopNotice {
+        level: NoticeLevel,
+        text: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        session: Option<String>,
+    },
     /// Devices or pending pairings changed — refetch (desktop only).
     Devices,
     /// A pairing waits for approval (desktop only).
@@ -174,7 +183,9 @@ impl ServerEvent {
             }
             ServerEvent::Pending { item } => Audience::SessionOrInbox(&item.session_id),
             ServerEvent::Fleet { .. } => Audience::Fleet,
-            ServerEvent::Devices | ServerEvent::PairRequest { .. } => Audience::Desktop,
+            ServerEvent::Devices
+            | ServerEvent::PairRequest { .. }
+            | ServerEvent::DesktopNotice { .. } => Audience::Desktop,
         }
     }
 }
@@ -438,6 +449,16 @@ pub fn publish_notice(
         level,
         text: text.into(),
         session: session.map(str::to_string),
+    });
+}
+
+/// A notice for desktop clients only (security events that name devices,
+/// addresses or remote-access settings).
+pub fn publish_desktop_notice(state: &AppState, level: NoticeLevel, text: impl Into<String>) {
+    state.broadcast(ServerEvent::DesktopNotice {
+        level,
+        text: text.into(),
+        session: None,
     });
 }
 
@@ -1260,6 +1281,18 @@ mod tests {
             serde_json::to_value(&notice).unwrap(),
             json!({ "t": "notice", "level": "warning", "text": "x" })
         );
+        // The desktop-only notice is the same frame, for the desktop only.
+        let desk = ServerEvent::DesktopNotice {
+            level: NoticeLevel::Warning,
+            text: "x".into(),
+            session: None,
+        };
+        assert_eq!(
+            serde_json::to_value(&desk).unwrap(),
+            json!({ "t": "notice", "level": "warning", "text": "x" })
+        );
+        assert_eq!(desk.audience(), Audience::Desktop);
+        assert_eq!(notice.audience(), Audience::All);
         let t = ServerEvent::Transcript {
             session: "s".into(),
             agent: Some("a1".into()),

@@ -532,7 +532,7 @@ pub fn exchange(
                 "A pairing code that was already used was presented again by another device. \
                  Check Remote > Devices."
             };
-            crate::server::ws::publish_notice(state, NoticeLevel::Warning, text, None);
+            crate::server::ws::publish_desktop_notice(state, NoticeLevel::Warning, text);
             crate::server::ws::publish_devices(state);
             state.devices.audit.record(AuditEntry {
                 detail: Some(json!({
@@ -710,7 +710,7 @@ pub fn exchange(
 
 fn announce_new_device(state: &AppState, info: &DeviceInfo, ctx: &ClientContext) {
     crate::server::ws::publish_devices(state);
-    crate::server::ws::publish_notice(
+    crate::server::ws::publish_desktop_notice(
         state,
         NoticeLevel::Info,
         format!(
@@ -719,7 +719,6 @@ fn announce_new_device(state: &AppState, info: &DeviceInfo, ctx: &ClientContext)
             ctx.client_ip,
             ctx.effective_ingress.as_str()
         ),
-        None,
     );
 }
 
@@ -861,7 +860,7 @@ pub fn approve(
     let pending = p.clone();
     drop(g);
     crate::server::ws::publish_devices(state);
-    crate::server::ws::publish_notice(
+    crate::server::ws::publish_desktop_notice(
         state,
         NoticeLevel::Info,
         format!(
@@ -870,7 +869,6 @@ pub fn approve(
             pending.client_ip,
             pending.ingress.as_str()
         ),
-        None,
     );
     state.devices.audit.record(AuditEntry {
         device_id: Some(info.id.clone()),
