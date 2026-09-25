@@ -85,7 +85,9 @@
     <div class="sd-scroll">
       <div class="inner">
         <div class="card empty-state">
-          <strong>Session not found</strong>
+          <strong>{{
+            ctx.loadError() && !ctx.notFound() ? "Can't load this session" : 'Session not found'
+          }}</strong>
           {{ ctx.loadError() || 'It may have ended and been cleaned up.' }}
           <div class="row center">
             <a class="btn primary" routerLink="/"><mc-icon name="back" [size]="15" /> Sessions</a>

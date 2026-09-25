@@ -9,9 +9,11 @@ import { SessionDetailComponent } from './session-detail.component';
 
 describe('SessionDetailComponent routing', () => {
   let harness: RouterTestingHarness;
+  let backend: FakeBackend;
 
   beforeEach(async () => {
-    useFakeServer(new FakeBackend(), [
+    backend = new FakeBackend();
+    useFakeServer(backend, [
       provideRouter([{ path: 'session/:id', component: SessionDetailComponent }]),
     ]);
     harness = await RouterTestingHarness.create();
@@ -43,5 +45,30 @@ describe('SessionDetailComponent routing', () => {
     await flush();
     await harness.fixture.whenStable();
     expect(TestBed.inject(Router).url).toBe('/session/b');
+  });
+
+  const text = () => (harness.routeNativeElement?.textContent ?? '').replace(/\s+/g, ' ');
+
+  it('says the Mac is unreachable instead of "not found" when it is', async () => {
+    backend.routes.set('/sessions/gone-offline', () =>
+      Promise.reject(new TypeError('Load failed')),
+    );
+    await harness.navigateByUrl('/session/gone-offline');
+    await flush();
+    harness.detectChanges();
+    expect(text()).toContain("Can't load this session");
+    expect(text()).not.toContain('Session not found');
+  });
+
+  it('says "not found" for a 404', async () => {
+    backend.routes.set('/sessions/missing', () => ({
+      status: 404,
+      body: { error: { code: 'not_found', message: 'No such session' } },
+    }));
+    await harness.navigateByUrl('/session/missing');
+    await flush();
+    harness.detectChanges();
+    expect(text()).toContain('Session not found');
+    expect(text()).toContain('This session no longer exists.');
   });
 });

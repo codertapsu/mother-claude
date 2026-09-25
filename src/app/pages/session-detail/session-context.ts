@@ -2,7 +2,7 @@ import { Injectable, NgZone, computed, effect, inject, signal, untracked } from 
 import { Router } from '@angular/router';
 import { Subscription } from 'rxjs';
 
-import { ApiError, ApiService } from '../../core/api.service';
+import { ApiError, ApiService, describeError } from '../../core/api.service';
 import { AuthService } from '../../core/auth.service';
 import { LiveStream } from '../../core/live-stream';
 import {
@@ -63,6 +63,8 @@ export class SessionContext {
   readonly caps = computed(() => this.session()?.control);
   readonly loading = signal(true);
   readonly loadError = signal('');
+  /** The server said 404 (as opposed to not answering at all). */
+  readonly notFound = signal(false);
   readonly store = signal<TranscriptStore | null>(null);
   readonly stream = signal<LiveStream | null>(null);
 
@@ -155,6 +157,7 @@ export class SessionContext {
     this.detail.set(null);
     this.loading.set(true);
     this.loadError.set('');
+    this.notFound.set(false);
     this.agents.set([]);
     this.workflows.set([]);
     this.commands.set(null);
@@ -197,16 +200,15 @@ export class SessionContext {
       this.workflows.set(d.workflows ?? []);
       this.realtime.mergeSession(d);
       this.loadError.set('');
+      this.notFound.set(false);
     } catch (e) {
       if (id !== this.id()) return;
       if (!this.live()) {
-        this.loadError.set(
-          e instanceof ApiError && e.status === 404
-            ? 'This session no longer exists.'
-            : e instanceof Error
-              ? e.message
-              : String(e),
-        );
+        // An unreachable Mac is not a missing session (a cold start from a
+        // notification while the Mac sleeps); a reconnect retries (refetch$).
+        const missing = e instanceof ApiError && e.status === 404;
+        this.notFound.set(missing);
+        this.loadError.set(missing ? 'This session no longer exists.' : describeError(e).text);
       }
     } finally {
       if (id === this.id()) this.loading.set(false);
