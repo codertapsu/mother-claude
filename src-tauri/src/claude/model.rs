@@ -175,6 +175,67 @@ pub struct LifecycleCaps {
     pub rm: bool,
 }
 
+/// The button a [`CapLimit`] offers (design §10, ControlCaps v1.1).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum LimitAction {
+    InstallForeignControl,
+    ReloadPlugins,
+    ContinueOwned,
+    Fork,
+    OpenTerminal,
+    OpenOnDesktop,
+}
+
+/// One limitation of a session's control channel, with the action that lifts
+/// it (if any). `code` is stable for the UI; `text` is the one-line reason.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct CapLimit {
+    pub code: String,
+    pub text: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub action: Option<LimitAction>,
+}
+
+/// How a rename reaches the session.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum RenameCap {
+    /// The session itself is renamed (owned `rename_session`, tmux `/rename`).
+    Sync,
+    /// Only a Mother Claude alias.
+    Alias,
+    #[default]
+    None,
+}
+
+/// How attachments reach the session.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum AttachCap {
+    /// Image content blocks (owned).
+    Inline,
+    /// Uploaded file paths inserted as `@path` text.
+    Path,
+    #[default]
+    None,
+}
+
+/// Where a pending approval can be answered from here.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ApproveVia {
+    /// Owned control protocol (`can_use_tool`).
+    Control,
+    /// A held `PermissionRequest` hook.
+    Hook,
+    /// Keys typed into the session's terminal (tmux).
+    Keys,
+    #[default]
+    None,
+}
+
 /// What the dashboard can do with a session (design §4.1, computed in
 /// `claude::caps`). The UI must be honest about these.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -194,9 +255,26 @@ pub struct ControlCaps {
     pub fork: bool,
     pub continue_owned: bool,
     pub lifecycle: LifecycleCaps,
-    /// Hook events were seen from this session recently.
+    /// A hook event or wake poll arrived from the session's current process
+    /// (process-scoped: never decays while the process lives).
     pub hooks_active: bool,
-    /// Human-readable reasons/limits for the UI.
+    /// A `/hooks/wait` wake listener is connected right now: a message to an
+    /// idle session goes out at once instead of at the next tool call.
+    pub wake: bool,
+    /// How a rename reaches the session.
+    pub rename: RenameCap,
+    /// A terminal view is available (`GET /sessions/{id}/terminal`).
+    pub terminal: bool,
+    /// Keys can be sent (`POST /sessions/{id}/keys`, tmux only).
+    pub keys: bool,
+    /// How attachments reach the session.
+    pub attach: AttachCap,
+    /// Where approvals are answered from here.
+    pub approve_via: ApproveVia,
+    /// Machine-readable limits with the action that lifts each one.
+    pub limits: Vec<CapLimit>,
+    /// Human-readable reasons/limits for the UI (the `text` of each limit;
+    /// kept for clients that predate `limits`).
     pub notes: Vec<String>,
 }
 

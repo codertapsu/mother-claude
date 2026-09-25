@@ -85,8 +85,16 @@ pub fn router_for(state: AppState, ingress: Ingress) -> Router {
         .route("/ws", get(ws::ws_handler));
     if ingress != Ingress::Tunnel {
         app = app
-            .route("/hooks/event", post(hooks::post_event))
-            .route("/hooks/wait", get(hooks::wait))
+            .route(
+                "/hooks/event",
+                post(hooks::post_event)
+                    .layer(axum::extract::DefaultBodyLimit::max(hooks::HOOK_BODY_MAX)),
+            )
+            .route(
+                "/hooks/wait",
+                post(hooks::wait)
+                    .layer(axum::extract::DefaultBodyLimit::max(hooks::HOOK_BODY_MAX)),
+            )
             // Mounted with its own auth layer — always token-required here,
             // since this listener may be reachable from the LAN. Its tokenless
             // mode exists only on the dedicated loopback port.

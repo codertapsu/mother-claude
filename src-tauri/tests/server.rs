@@ -155,13 +155,16 @@ async fn credentials_are_accepted_only_where_they_belong() {
     let r = c
         .post(format!("{base}/hooks/event"))
         .bearer_auth(&hook)
-        .json(&json!({ "hook_event_name": "PreToolUse", "session_id": "s-hook" }))
+        .json(&json!({ "hook_event_name": "PreToolUse", "session_id": "5e55a0c1-0000-4000-8000-00000000c0de" }))
         .send()
         .await
         .unwrap();
     assert_eq!(r.status(), StatusCode::OK);
     assert_eq!(r.json::<Value>().await.unwrap(), json!({}));
-    assert!(st.hooks.last_event_at("s-hook").is_some());
+    assert!(st
+        .hooks
+        .last_event_at("5e55a0c1-0000-4000-8000-00000000c0de")
+        .is_some());
     let r = c
         .get(format!("{base}/api/sessions"))
         .bearer_auth(&hook)
