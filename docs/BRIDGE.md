@@ -231,16 +231,19 @@ shared or untrusted one.
 These stay locked regardless:
 
 - the port is **loopback-only** and never binds an external interface;
-- **dangerous** requests need a local client — no foreign `Origin` — or a token
-  with the right to them: `permission_mode: bypassPermissions`, transcript
+- **dangerous** requests need a local client on this port — no foreign
+  `Origin`, no proxy headers, with or without the `token` file — or a token
+  with the right to them (the desktop app's, or a paired device granted
+  dangerous actions; on the `/v1` mount of the main port the `token` file does
+  not grant them): `permission_mode: bypassPermissions`, transcript
   deletion, `POST /auth/login`, approvals of dangerous actions, thread options
   that run code nobody approves (`mcp_servers`, `allowed_tools`,
   `additional_directories`, a `cwd` Claude Code was never opened in, resuming a
   conversation whose approvals are off), and turns sent into a conversation
   whose approvals are off. A page on another website therefore keeps tokenless
   access to ordinary work, never to these;
-- tunnelled requests need a token, and a detected tunnel to the port switches
-  the tokenless mode off;
+- tunnelled requests need a paired device's token, and a detected tunnel to
+  the port switches the tokenless mode off;
 - the LAN mount on port 6725 **always** requires the token.
 
 To close it down: `MOTHER_CLAUDE_BRIDGE_REQUIRE_TOKEN=1`, plus

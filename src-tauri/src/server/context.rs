@@ -94,7 +94,8 @@ pub enum Principal {
     Device { id: String, allow_dangerous: bool },
     /// The persisted on-disk token (`<app data>/token`) kept for local scripts:
     /// accepted only when `local`; data and control routes, never admin routes
-    /// (pairing, devices, remote access, plugin install) and never dangerous.
+    /// (pairing, devices, remote access, plugin install); dangerous actions
+    /// only on the bridge port, as for a tokenless local caller there.
     LocalScript,
     /// The foreign-control hook plugin (`mch_…`), local only.
     Hook,
@@ -240,7 +241,11 @@ impl ClientContext {
     ///   `MOTHER_CLAUDE_ALLOW_REMOTE_DANGEROUS` override on the effective LAN;
     /// * `Anonymous` → only the tokenless bridge port with a genuinely local
     ///   caller (curl, Postman, a localhost page) — never another website;
-    /// * `LocalScript`, `Hook`, `Sidecar` → never.
+    /// * `LocalScript` → the same as an anonymous caller: on the bridge port,
+    ///   with a genuinely local caller (sending the `token` file must never
+    ///   take away what the same request has without it, as it does with
+    ///   `MOTHER_CLAUDE_BRIDGE_REQUIRE_TOKEN=1`); never on the dashboard port;
+    /// * `Hook`, `Sidecar` → never.
     pub fn may_dangerous(&self) -> bool {
         match &self.principal {
             Principal::Desktop => true,
@@ -250,8 +255,10 @@ impl ClientContext {
                 *allow_dangerous
                     || (self.allow_remote_dangerous && self.effective_ingress == Ingress::Lan)
             }
-            Principal::Anonymous => self.ingress == Ingress::BridgeLoopback && self.local,
-            Principal::LocalScript | Principal::Hook | Principal::Sidecar => false,
+            Principal::Anonymous | Principal::LocalScript => {
+                self.ingress == Ingress::BridgeLoopback && self.local
+            }
+            Principal::Hook | Principal::Sidecar => false,
         }
     }
 
@@ -1135,8 +1142,14 @@ mod tests {
 
         // The tokenless bridge port: a genuinely local anonymous caller only.
         let h = headers(&[("host", "127.0.0.1:5612")]);
-        let bridge = ClientContext::new(Ingress::BridgeLoopback, peer("127.0.0.1:1"), &h, false);
+        let mut bridge =
+            ClientContext::new(Ingress::BridgeLoopback, peer("127.0.0.1:1"), &h, false);
         assert!(bridge.may_dangerous());
+        // Presenting the script token there keeps the same rights.
+        bridge.principal = Principal::LocalScript;
+        assert!(bridge.may_dangerous());
+        bridge.principal = Principal::Hook;
+        assert!(!bridge.may_dangerous());
         let h = headers(&[
             ("host", "127.0.0.1:5612"),
             ("origin", "https://example.com"),

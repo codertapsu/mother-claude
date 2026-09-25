@@ -705,6 +705,61 @@ async fn the_loopback_bridge_answers_without_a_token_or_an_allowlisted_origin() 
     assert_eq!(resp.json::<Value>().await.unwrap()["error"]["field"], "cwd");
 }
 
+/// The documented `token` file must never take away what the same local
+/// request may do without it — on the tokenless port, or with
+/// `MOTHER_CLAUDE_BRIDGE_REQUIRE_TOKEN=1` where it is the only way in.
+#[tokio::test]
+async fn a_local_script_token_never_lowers_what_the_bridge_port_allows() {
+    let http = client();
+    // bypassPermissions is gated before the cwd is checked: a 422 about the
+    // cwd means the gate let it through, a 403 that it did not.
+    let body = json!({
+        "cwd": "/definitely/not/a/directory",
+        "permission_mode": "bypassPermissions",
+    });
+    let (base, _token, state) = boot_tokenless().await;
+    let tokenless = http
+        .post(format!("{base}/threads"))
+        .json(&body)
+        .send()
+        .await
+        .unwrap()
+        .status();
+    let scripted = http
+        .post(format!("{base}/threads"))
+        .bearer_auth(&state.auth.script_token)
+        .json(&body)
+        .send()
+        .await
+        .unwrap()
+        .status();
+    assert_eq!(tokenless, reqwest::StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(scripted, tokenless);
+
+    let dir = tempfile::tempdir().unwrap().keep();
+    let (base, _token, state) = boot_router(ClaudeHome::with_base(&dir), true).await;
+    let resp = http
+        .post(format!("{base}/threads"))
+        .bearer_auth(&state.auth.script_token)
+        .json(&body)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), reqwest::StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(resp.json::<Value>().await.unwrap()["error"]["field"], "cwd");
+    // A foreign Origin still gets nothing dangerous, token or not.
+    let resp = http
+        .post(format!("{base}/threads"))
+        .bearer_auth(&state.auth.script_token)
+        .header("origin", "https://some-other-site.example")
+        .json(&body)
+        .send()
+        .await
+        .unwrap();
+    assert!(resp.status().is_client_error());
+    assert_ne!(resp.status(), reqwest::StatusCode::UNPROCESSABLE_ENTITY);
+}
+
 /// Startup reports Claude's own sign-in, so a signed-out account is one clear
 /// statement rather than every turn returning "Not logged in".
 #[tokio::test]
