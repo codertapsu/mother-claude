@@ -420,10 +420,17 @@ export class RealtimeService {
       this.authed = false;
       clearTimeout(this.authTimer);
       if (ev.code === 4401 || ev.code === 4403) {
-        this.stopPolling();
-        this.connectionS.set('unpaired');
-        this.auth.handleUnauthorized();
-        if (!this.config.desktop()) return;
+        if (this.config.desktop()) {
+          // The desktop's token belongs to the app: flag it and keep trying.
+          this.auth.handleUnauthorized();
+        } else {
+          // Don't forget a device token on the socket's word alone: the
+          // close may be a late auth frame (a phone frozen right after
+          // the upgrade). REST decides; a 401 there unpairs.
+          if (this.connectionS() === 'open') this.connectionS.set('reconnecting');
+          void this.confirmUnauthorized(wasAuthed);
+          return;
+        }
       }
       if (!wasAuthed) this.noteHelloFailure();
       this.scheduleReconnect();
@@ -452,6 +459,25 @@ export class RealtimeService {
     const delay = Math.min(MAX_BACKOFF_MS, Math.round(base * (0.75 + Math.random() * 0.5)));
     this.attempt += 1;
     this.reconnectTimer = setTimeout(() => this.connect(), delay);
+  }
+
+  /** The socket was closed as unauthorized: ask REST whether the token is
+   * really gone. A 401 there unpairs (ApiService reports it to AuthService);
+   * a working token or a network failure just means "try again". */
+  private async confirmUnauthorized(wasAuthed: boolean): Promise<void> {
+    try {
+      const me = await this.api.getMe();
+      this.auth.me.set(me);
+    } catch (e) {
+      if (e instanceof ApiError && e.kind === 'unauthorized') {
+        this.stopPolling();
+        this.connectionS.set('unpaired');
+        return;
+      }
+    }
+    if (!this.started || this.socket || this.auth.state() === 'unpaired') return;
+    if (!wasAuthed) this.noteHelloFailure();
+    this.scheduleReconnect();
   }
 
   /** Drop the current socket and connect again right away. */
