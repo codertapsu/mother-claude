@@ -196,13 +196,17 @@ impl SessionHooks {
         }
     }
 
-    /// Hand every queued message over: marks them delivered and returns the
-    /// relay text plus the messages.
+    /// Hand the queued messages over, oldest first, as many whole ones as
+    /// fit in one `additionalContext` (the rest stay queued and cancellable
+    /// for the next hand-over): marks them delivered and returns the relay
+    /// text plus the messages.
     fn claim(&mut self) -> Option<(String, Vec<QueuedMessage>)> {
         if self.queue.is_empty() {
             return None;
         }
-        let mut msgs: Vec<QueuedMessage> = self.queue.drain(..).map(|q| q.msg).collect();
+        let queued: Vec<QueuedMessage> = self.queue.iter().map(|q| q.msg.clone()).collect();
+        let take = relay::fitting(&self.marker, &queued, !self.marker_announced);
+        let mut msgs: Vec<QueuedMessage> = self.queue.drain(..take).map(|q| q.msg).collect();
         for m in &mut msgs {
             m.status = QueueStatus::Delivered;
             m.cancellable = false;
@@ -1206,6 +1210,42 @@ mod tests {
         assert_eq!(out.delivered.len(), 2);
         assert!(out.turn_finished_ms.is_none());
         assert!(hub.session(S).unwrap().turn_active);
+    }
+
+    #[test]
+    fn a_long_queue_is_handed_over_in_parts_that_fit() {
+        let mut hub = Hub::new();
+        hub.on_event(
+            &Event {
+                prompt_id: Some("p1"),
+                ..ev("UserPromptSubmit")
+            },
+            1,
+        );
+        for c in ['a', 'b', 'c'] {
+            hub.enqueue(S, c.to_string().repeat(4_000), 2).unwrap();
+        }
+        let post = |hub: &mut Hub, now| {
+            hub.on_event(
+                &Event {
+                    tool_use_id: Some("t"),
+                    ..ev("PostToolUse")
+                },
+                now,
+            )
+        };
+        let out = post(&mut hub, 3);
+        let ctx = out.response["hookSpecificOutput"]["additionalContext"]
+            .as_str()
+            .unwrap();
+        assert!(ctx.chars().count() < 10_000);
+        assert_eq!(out.delivered.len(), 2);
+        let left = hub.session(S).unwrap().queued();
+        assert_eq!(left.len(), 1);
+        assert!(left[0].cancellable, "still takeable back");
+        let out = post(&mut hub, 4);
+        assert_eq!(out.delivered.len(), 1);
+        assert!(hub.session(S).unwrap().queued().is_empty());
     }
 
     #[test]
