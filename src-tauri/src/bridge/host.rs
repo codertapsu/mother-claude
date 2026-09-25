@@ -160,7 +160,9 @@ impl RuntimeHost {
         let mut command = tokio::process::Command::new("node");
         command
             .arg(&entry)
-            .env("MOTHER_CLAUDE_TOKEN", &state.auth.token)
+            // The host never calls back with a token; the desktop credential
+            // lives only in this process (B1).
+            .env_remove("MOTHER_CLAUDE_TOKEN")
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());

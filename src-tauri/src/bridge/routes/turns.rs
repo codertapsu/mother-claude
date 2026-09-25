@@ -22,6 +22,7 @@ use crate::bridge::host::RPC_TIMEOUT;
 use crate::bridge::inputs;
 use crate::bridge::ops::Operation;
 use crate::bridge::RUN_TIMEOUT_SECS;
+use crate::server::context::ClientContext;
 use crate::state::AppState;
 
 /// One user turn.
@@ -123,12 +124,39 @@ pub(crate) async fn begin_turn(
     Ok(op)
 }
 
+/// Sending work into a conversation whose approvals are switched off
+/// (bypassPermissions / dontAsk) runs tools nobody approves, so it needs the
+/// dangerous right (design §10, B1).
+pub(crate) async fn require_turn_allowed(
+    state: &AppState,
+    ctx: &ClientContext,
+    thread_id: &str,
+) -> BridgeResult<()> {
+    let mode = super::threads::stored_mode(state, thread_id).await;
+    if !crate::claude::owned::is_dangerous_mode(mode.as_deref()) {
+        return Ok(());
+    }
+    if ctx.may_dangerous() {
+        ctx.note_dangerous("a turn in a conversation without approvals");
+        return Ok(());
+    }
+    Err(BridgeError::forbidden(
+        "dangerous_blocked",
+        "This conversation runs with approvals switched off, so sending it work is restricted \
+         to the Mother Claude desktop app, local clients, or a device granted dangerous \
+         actions.",
+    )
+    .with("thread_id", thread_id.to_string()))
+}
+
 /// `POST /threads/{id}/turns` — start a turn, return `202` immediately.
 pub async fn start(
     State(state): State<AppState>,
+    ctx: ClientContext,
     Path(thread_id): Path<String>,
     Body(body): Body<TurnBody>,
 ) -> BridgeResult<Response> {
+    require_turn_allowed(&state, &ctx, &thread_id).await?;
     let op = begin_turn(&state, &thread_id, &body).await?;
     Ok(accepted(op.snapshot(), &op.id))
 }
@@ -136,9 +164,11 @@ pub async fn start(
 /// `POST /threads/{id}/run` — start a turn and wait for it.
 pub async fn run(
     State(state): State<AppState>,
+    ctx: ClientContext,
     Path(thread_id): Path<String>,
     Body(body): Body<TurnBody>,
 ) -> BridgeResult<Response> {
+    require_turn_allowed(&state, &ctx, &thread_id).await?;
     let op = begin_turn(&state, &thread_id, &body).await?;
     Ok(await_operation(&state, op).await)
 }
@@ -211,12 +241,14 @@ fn status_for_turn_error(error: &Value) -> StatusCode {
 /// `POST /threads/{id}/turns/{turn}/steer` — add input to a running turn.
 pub async fn steer(
     State(state): State<AppState>,
+    ctx: ClientContext,
     Path((thread_id, turn_id)): Path<(String, String)>,
     Body(body): Body<TurnBody>,
 ) -> BridgeResult<Response> {
     validate_id("thread_id", &thread_id)?;
     validate_id("turn_id", &turn_id)?;
     validate_priority(&body.priority)?;
+    require_turn_allowed(&state, &ctx, &thread_id).await?;
 
     let op = state
         .bridge
@@ -328,7 +360,7 @@ pub struct ChatBody {
 /// `POST /chat` — the smallest useful call: one message in, one answer out.
 pub async fn chat(
     State(state): State<AppState>,
-    ctx: crate::server::context::ClientContext,
+    ctx: ClientContext,
     Body(body): Body<ChatBody>,
 ) -> BridgeResult<Response> {
     let input = match (&body.input, &body.message) {
@@ -345,7 +377,8 @@ pub async fn chat(
     // conversation (and a subprocess) that is immediately orphaned.
     inputs::normalize(&input)?;
 
-    let thread_id = resolve_chat_thread(&state, ctx, &body).await?;
+    let thread_id = resolve_chat_thread(&state, ctx.clone(), &body).await?;
+    require_turn_allowed(&state, &ctx, &thread_id).await?;
 
     let op = begin_turn(
         &state,
