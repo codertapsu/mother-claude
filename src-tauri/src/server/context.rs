@@ -48,6 +48,7 @@ use axum::response::{IntoResponse, Response};
 use axum::Router;
 use serde::Serialize;
 
+use crate::server::ratelimit::{RateKey, RateScope};
 use crate::state::AppState;
 
 /// The listener a request arrived on.
@@ -92,7 +93,7 @@ pub enum Principal {
     /// to *this request's* effective ingress: the LAN grant on the LAN, the
     /// internet grant anywhere else (resolved by `DeviceStore::authenticate`).
     Device { id: String, allow_dangerous: bool },
-    /// The persisted on-disk token (`<app data>/token`) kept for local scripts:
+    /// The persisted on-disk token (`<app data>/script-token`) kept for local scripts:
     /// accepted only when `local`; data and control routes, never admin routes
     /// (pairing, devices, remote access, plugin install) and never dangerous.
     LocalScript,
@@ -163,13 +164,18 @@ pub struct ClientContext {
     pub proxied: bool,
     /// Raw TCP peer (`0.0.0.0:0` when the listener did not record one).
     pub peer: SocketAddr,
-    /// Tunnel-aware client address: for rate limits, device last-ip and
-    /// audit — never for trust decisions.
+    /// Tunnel-aware client address: for device last-ip, audit and display —
+    /// never for trust decisions.
     pub client_ip: IpAddr,
+    /// What the rate limiters count this caller against: `client_ip` plus
+    /// where it was learned ([`rate_key`]).
+    pub rate_key: RateKey,
     /// Machine-local and a local or absent `Origin` ([`is_local`]).
     pub local: bool,
     /// Machine-local, `Origin` ignored ([`is_machine_local`]).
     pub on_machine: bool,
+    /// The request's `Origin`, when it sent exactly one.
+    pub origin: Option<String>,
     pub principal: Principal,
     /// `MOTHER_CLAUDE_ALLOW_REMOTE_DANGEROUS`, captured when the context was
     /// built so [`ClientContext::may_dangerous`] needs no state. Applies to
@@ -196,8 +202,10 @@ impl ClientContext {
             proxied: has_proxy_headers(headers),
             peer,
             client_ip: client_ip(ingress, peer, headers),
+            rate_key: rate_key(ingress, peer, headers),
             local: is_local(ingress, peer, headers),
             on_machine: is_machine_local(ingress, peer, headers),
+            origin: single_origin(headers),
             principal: Principal::Anonymous,
             allow_remote_dangerous,
             credential_rejected: false,
@@ -215,8 +223,10 @@ impl ClientContext {
             proxied: false,
             peer,
             client_ip: peer.ip(),
+            rate_key: RateKey::new(RateScope::Forwarded, peer.ip()),
             local: false,
             on_machine: false,
+            origin: None,
             principal: Principal::Anonymous,
             allow_remote_dangerous: false,
             credential_rejected: false,
@@ -422,6 +432,15 @@ pub fn is_on_machine(ingress: Ingress, peer: SocketAddr, headers: &HeaderMap) ->
     is_machine_local(ingress, peer, headers)
 }
 
+/// The `Origin` header, when exactly one was sent.
+fn single_origin(headers: &HeaderMap) -> Option<String> {
+    let mut origins = headers.get_all(header::ORIGIN).iter();
+    match (origins.next(), origins.next()) {
+        (Some(o), None) => o.to_str().ok().map(|o| o.trim().to_string()),
+        _ => None,
+    }
+}
+
 /// `local`: [`is_machine_local`] and no `Origin`, or exactly one local one.
 pub fn is_local(ingress: Ingress, peer: SocketAddr, headers: &HeaderMap) -> bool {
     if !is_machine_local(ingress, peer, headers) {
@@ -513,30 +532,81 @@ fn forwarded_for(headers: &HeaderMap) -> Option<IpAddr> {
     })
 }
 
+/// An address taken from a forwarding header must name a real remote client:
+/// loopback, unspecified, multicast and broadcast values are refused (private
+/// and CGNAT addresses are fine — Tailscale clients have 100.64/10 ones).
+fn plausible_client(ip: IpAddr) -> Option<IpAddr> {
+    let ip = ip.to_canonical();
+    let bogus = ip.is_loopback()
+        || ip.is_unspecified()
+        || ip.is_multicast()
+        || matches!(ip, IpAddr::V4(v4) if v4.is_broadcast());
+    (!bogus).then_some(ip)
+}
+
+/// The client address a tunnel reported, if a trustworthy one is present.
+///
+/// Every supported tunnel puts the real address LAST in `X-Forwarded-For`:
+/// ngrok and Cloudflare append it, Tailscale sets it. Earlier values, and any
+/// provider header a client sends itself, pass through those tunnels
+/// untouched — so when a forwarding chain exists, only its last value counts.
+/// `CF-Connecting-IP` is read only when there is no chain at all (Cloudflare
+/// with its XFF header stripped); through ngrok or Tailscale a forged one can
+/// therefore never win.
+fn forwarded_client(headers: &HeaderMap) -> Option<IpAddr> {
+    if let Some(last) = last_forwarded(headers, "x-forwarded-for") {
+        return parse_forwarded_ip(&last).and_then(plausible_client);
+    }
+    if headers.contains_key("forwarded") {
+        return forwarded_for(headers).and_then(plausible_client);
+    }
+    header_values(headers, "cf-connecting-ip")
+        .last()
+        .and_then(|v| parse_forwarded_ip(v))
+        .and_then(plausible_client)
+}
+
 /// Tunnel-aware client address. When the peer is loopback and ANY proxy
-/// header is present: `CF-Connecting-IP`, else the LAST `X-Forwarded-For`
-/// value, else `Forwarded: for=`, else the peer. Otherwise the peer address
-/// (a LAN peer's own headers are never trusted).
+/// header is present: the LAST `X-Forwarded-For` value, else `Forwarded:
+/// for=`, else (no chain at all) `CF-Connecting-IP`, else the peer. A header
+/// value that is loopback, unspecified or multicast falls back to the peer.
+/// Otherwise the peer address (a LAN peer's own headers are never trusted).
 pub fn client_ip(_ingress: Ingress, peer: SocketAddr, headers: &HeaderMap) -> IpAddr {
     let peer_ip = peer.ip().to_canonical();
     if !peer_ip.is_loopback() || !has_proxy_headers(headers) {
         return peer_ip;
     }
-    header_values(headers, "cf-connecting-ip")
-        .last()
-        .and_then(|v| parse_forwarded_ip(v))
-        .or_else(|| last_forwarded(headers, "x-forwarded-for").and_then(|v| parse_forwarded_ip(&v)))
-        .or_else(|| forwarded_for(headers))
-        .map(|ip| ip.to_canonical())
-        .unwrap_or(peer_ip)
+    forwarded_client(headers).unwrap_or(peer_ip)
+}
+
+/// The rate-limit key for a request: machine-local callers share
+/// [`RateScope::Local`]; a non-loopback peer is [`RateScope::Direct`]; every
+/// other loopback peer (a tunnel or proxy, the tunnel listener, a forged
+/// `Host`) is [`RateScope::Forwarded`], keyed by [`client_ip`]. A forwarded
+/// address can therefore never share a bucket with a real local peer.
+pub fn rate_key(ingress: Ingress, peer: SocketAddr, headers: &HeaderMap) -> RateKey {
+    let ip = client_ip(ingress, peer, headers);
+    let scope = if is_machine_local(ingress, peer, headers) {
+        RateScope::Local
+    } else if peer.ip().to_canonical().is_loopback() {
+        RateScope::Forwarded
+    } else {
+        RateScope::Direct
+    };
+    RateKey::new(scope, ip)
 }
 
 /// Paths that attempt authentication: a blocked client gets `429` here rather
 /// than the SPA's static files, which stay reachable.
+///
+/// `/ws` is deliberately NOT one: a browser cannot send a credential with the
+/// upgrade, so a paired phone's upgrade is anonymous and would be locked out
+/// by a block on its address (a shared NAT, or a stranger's bad tokens). The
+/// first-frame check enforces the block for bad tokens instead, and the
+/// pre-auth pools bound unauthenticated sockets.
 fn is_auth_path(path: &str) -> bool {
     path.starts_with("/api/")
         || path == "/api"
-        || path == "/ws"
         || path.starts_with("/hooks/")
         || path.starts_with("/v1")
 }
@@ -580,7 +650,7 @@ pub async fn middleware(State(state): State<AppState>, mut req: Request, next: N
     }
     let limited = ctx.principal == Principal::Anonymous && !ctx.on_machine;
     if limited && is_auth_path(req.uri().path()) {
-        if let Some(retry) = state.limits.blocked(ctx.client_ip) {
+        if let Some(retry) = state.limits.blocked(ctx.rate_key) {
             return crate::server::error::ApiError::too_many_requests(
                 retry,
                 "Too many failed authentication attempts. Try again later.",
@@ -589,12 +659,12 @@ pub async fn middleware(State(state): State<AppState>, mut req: Request, next: N
         }
     }
     let counted = ctx.credential_rejected;
-    let client_ip = ctx.client_ip;
+    let rate_key = ctx.rate_key;
     req.extensions_mut().insert(ctx);
     req.extensions_mut().insert(state.clone());
     let response = next.run(req).await;
     if limited && !counted && response.status() == StatusCode::UNAUTHORIZED {
-        state.limits.record_failure(client_ip);
+        state.limits.record_failure(rate_key);
     }
     response
 }
@@ -1009,7 +1079,8 @@ mod tests {
                 ],
                 "203.0.113.7",
             ),
-            // Cloudflare wins.
+            // The last XFF value wins over a CF-Connecting-IP the client may
+            // have sent itself (ngrok and Tailscale pass it through).
             (
                 Loopback,
                 "127.0.0.1:1",
@@ -1017,7 +1088,68 @@ mod tests {
                     ("cf-connecting-ip", "198.51.100.4"),
                     ("x-forwarded-for", "9.9.9.9"),
                 ],
+                "9.9.9.9",
+            ),
+            (
+                Loopback,
+                "127.0.0.1:1",
+                vec![
+                    ("x-forwarded-for", "203.0.113.200"),
+                    ("cf-connecting-ip", "127.0.0.1"),
+                    ("cf-ray", "x"),
+                ],
+                "203.0.113.200",
+            ),
+            // Cloudflare with no forwarding chain at all.
+            (
+                Loopback,
+                "127.0.0.1:1",
+                vec![("cf-connecting-ip", "198.51.100.4"), ("cf-ray", "x")],
                 "198.51.100.4",
+            ),
+            // Header values naming this machine (or nothing) are refused.
+            (
+                Tunnel,
+                "127.0.0.1:1",
+                vec![("x-forwarded-for", "127.0.0.1")],
+                "127.0.0.1",
+            ),
+            (
+                Tunnel,
+                "127.0.0.1:1",
+                vec![("x-forwarded-for", "203.0.113.1, ::1")],
+                "127.0.0.1",
+            ),
+            (
+                Tunnel,
+                "127.0.0.1:1",
+                vec![("x-forwarded-for", "0.0.0.0")],
+                "127.0.0.1",
+            ),
+            (
+                Tunnel,
+                "127.0.0.1:1",
+                vec![("x-forwarded-for", "224.0.0.1")],
+                "127.0.0.1",
+            ),
+            (
+                Loopback,
+                "127.0.0.1:1",
+                vec![("cf-connecting-ip", "127.0.0.1")],
+                "127.0.0.1",
+            ),
+            // Private and CGNAT addresses are real clients (Tailscale).
+            (
+                Tunnel,
+                "127.0.0.1:1",
+                vec![("x-forwarded-for", "100.101.1.2")],
+                "100.101.1.2",
+            ),
+            (
+                Tunnel,
+                "127.0.0.1:1",
+                vec![("x-forwarded-for", "192.168.1.9")],
+                "192.168.1.9",
             ),
             (
                 Loopback,
@@ -1079,6 +1211,42 @@ mod tests {
                 "{ingress:?} {p} {hs:?}"
             );
         }
+    }
+
+    #[test]
+    fn rate_keys_never_mix_forwarded_and_local_callers() {
+        let local = headers(&[("host", "127.0.0.1:6725")]);
+        let desk = rate_key(Ingress::Loopback, peer("127.0.0.1:1"), &local);
+        assert_eq!(desk.scope, RateScope::Local);
+        // A tunnel client claiming to be 127.0.0.1 lands in its own bucket.
+        let forged = headers(&[
+            ("host", "a.ngrok.app"),
+            ("x-forwarded-for", "127.0.0.1"),
+            ("cf-connecting-ip", "127.0.0.1"),
+        ]);
+        let k = rate_key(Ingress::Loopback, peer("127.0.0.1:1"), &forged);
+        assert_eq!(k.scope, RateScope::Forwarded);
+        assert_ne!(k, desk);
+        // The tunnel listener without headers: forwarded, never local.
+        let k = rate_key(Ingress::Tunnel, peer("127.0.0.1:1"), &local);
+        assert_eq!(k.scope, RateScope::Forwarded);
+        // A LAN peer: direct.
+        let lan = headers(&[("host", "192.168.1.5:6725")]);
+        let k = rate_key(Ingress::Lan, peer("192.168.1.9:1"), &lan);
+        assert_eq!(k, RateKey::direct("192.168.1.9".parse().unwrap()));
+        // Forwarded IPv6 clients are counted per /64.
+        let v6 = |ip: &str| {
+            rate_key(
+                Ingress::Tunnel,
+                peer("127.0.0.1:1"),
+                &headers(&[("x-forwarded-for", ip)]),
+            )
+        };
+        assert_eq!(v6("2001:db8:0:1::1"), v6("2001:db8:0:1::99"));
+        assert_ne!(v6("2001:db8:0:1::1"), v6("2001:db8:0:2::1"));
+        // `/ws` is not pre-checked against the failed-auth block.
+        assert!(!is_auth_path("/ws"));
+        assert!(is_auth_path("/api/sessions") && is_auth_path("/v1/threads"));
     }
 
     fn device(allow_dangerous: bool) -> Principal {

@@ -278,21 +278,39 @@ pub fn permission_mode(state: &AppState, session_id: &str) -> Option<String> {
         .and_then(|s| s.permission_mode.clone())
 }
 
-/// Whether the session runs in bypassPermissions: the latest hook report,
-/// else the data layer's effective permission mode (hook / owned notes,
-/// transcript records, pidfile argv), else the summary's mode, else the
-/// process argv (`--dangerously-skip-permissions`,
-/// `--permission-mode bypassPermissions`).
-pub async fn effective_bypass(state: &AppState, session: &SessionSummary) -> bool {
+/// What the known reports say about a foreign session's permission mode:
+/// `Some(true)` when ANY of them — the hook state, the data layer's effective
+/// mode (hook / owned notes, transcript records, pidfile argv), the
+/// transcript's own latest record, the summary — says bypassPermissions;
+/// `Some(false)` when some mode is known and none does; `None` when nothing
+/// is known. Bypass is sticky on purpose: for the gates that keep callers
+/// without the dangerous right out of unapproved execution, one (possibly
+/// forged) report can never lower the gate.
+pub fn reported_bypass(state: &AppState, id: &str, summary_mode: Option<&str>) -> Option<bool> {
     const BYPASS: &str = crate::claude::caps::BYPASS_MODE;
-    if let Some(mode) = permission_mode(state, &session.id) {
-        return mode == BYPASS;
+    let transcript = state
+        .index
+        .with_main(id, |f| f.agg.permission_mode.clone())
+        .flatten()
+        .map(|(mode, _)| mode);
+    let reports = [
+        permission_mode(state, id),
+        crate::claude::summaries::effective_permission_mode(state, id),
+        transcript,
+        summary_mode.map(str::to_string),
+    ];
+    if reports.iter().flatten().any(|m| m == BYPASS) {
+        return Some(true);
     }
-    if let Some(mode) = crate::claude::summaries::effective_permission_mode(state, &session.id) {
-        return mode == BYPASS;
-    }
-    if let Some(mode) = &session.permission_mode {
-        return mode == BYPASS;
+    reports.iter().any(Option::is_some).then_some(false)
+}
+
+/// Whether the session runs in bypassPermissions ([`reported_bypass`]), else
+/// the process argv (`--dangerously-skip-permissions`, `--permission-mode
+/// bypassPermissions`).
+pub async fn effective_bypass(state: &AppState, session: &SessionSummary) -> bool {
+    if let Some(bypass) = reported_bypass(state, &session.id, session.permission_mode.as_deref()) {
+        return bypass;
     }
     let pid = state
         .live
@@ -397,13 +415,46 @@ pub async fn post_event(
     Json(dispatch_from(&state, p, pid, Some(ctx.peer)).await).into_response()
 }
 
-/// Events that can create a card, hand over a relay or withdraw cards.
-fn is_sensitive(state: &AppState, name: &str, session: &str) -> bool {
-    match name {
-        "PermissionRequest" => true,
+/// Events that can create a card, hand over a relay, withdraw cards or push
+/// text to every paired phone in the session's name.
+fn is_sensitive(state: &AppState, p: &HookPayload) -> bool {
+    match p.hook_event_name.as_str() {
+        "PermissionRequest" | "Notification" => true,
+        "PreToolUse" => p.tool_name.as_deref() == Some("PushNotification"),
         "PostToolUse" | "PostToolUseFailure" | "PermissionDenied" | "Stop" | "StopFailure"
-        | "UserPromptSubmit" | "SubagentStop" | "SessionEnd" => state.hooks.has_stake(session),
+        | "UserPromptSubmit" | "SubagentStop" | "SessionEnd" => {
+            state.hooks.has_stake(&p.session_id)
+        }
         _ => false,
+    }
+}
+
+/// The advisory fields of an event — its `permission_mode` and the
+/// `X-MC-Pid` header — that may be recorded. Both can lower a gate (a forged
+/// `default` over a bypassPermissions session) or reset the session's hook
+/// state (a new pid), so a CHANGE is accepted only from a request bound to
+/// the session; an unchanged value costs no check. `already_bound`: this
+/// request already passed [`bound`].
+async fn advisory_fields<'a>(
+    state: &AppState,
+    p: &'a HookPayload,
+    pid: Option<u32>,
+    peer: Option<SocketAddr>,
+    already_bound: bool,
+) -> (Option<&'a str>, Option<u32>) {
+    let mode = p.permission_mode.as_deref().filter(|m| !m.is_empty());
+    let (known_mode, known_pid) = state
+        .hooks
+        .lock()
+        .session(&p.session_id)
+        .map(|s| (s.permission_mode.clone(), s.pid))
+        .unwrap_or_default();
+    let changes = mode.is_some_and(|m| known_mode.as_deref() != Some(m))
+        || pid.is_some_and(|x| known_pid != Some(x));
+    if !changes || already_bound || bound(state, &p.session_id, peer, "advisory").await {
+        (mode, pid)
+    } else {
+        (None, None)
     }
 }
 
@@ -449,9 +500,11 @@ pub async fn dispatch_from(
         return relay::empty();
     }
     let name = p.hook_event_name.as_str();
-    if is_sensitive(state, name, &p.session_id) && !bound(state, &p.session_id, peer, name).await {
+    let sensitive = is_sensitive(state, &p);
+    if sensitive && !bound(state, &p.session_id, peer, name).await {
         return relay::empty();
     }
+    let (permission_mode, pid) = advisory_fields(state, &p, pid, peer, sensitive).await;
     let now = now_ms();
     // Never the payload: tool inputs, prompts and responses can hold secrets.
     tracing::debug!(
@@ -464,7 +517,7 @@ pub async fn dispatch_from(
     state
         .activity
         .note_hook(&p.session_id, name, p.tool_name.as_deref(), agent);
-    if let Some(mode) = p.permission_mode.as_deref() {
+    if let Some(mode) = permission_mode {
         // The data layer's effective permission mode takes the latest report.
         state.activity.note_permission_mode(&p.session_id, mode);
     }
@@ -499,7 +552,7 @@ pub async fn dispatch_from(
         input_key: key,
         prompt_id: p.prompt_id.as_deref(),
         prompt: p.prompt.as_deref(),
-        permission_mode: p.permission_mode.as_deref(),
+        permission_mode,
         pid,
     };
     let out = state.hooks.lock().on_event(&ev, now);
@@ -599,8 +652,34 @@ async fn hold_policy(state: &AppState, session: &str) -> Option<Duration> {
     (state.hub.client_count() > 0).then(|| state.hooks.headless_hold())
 }
 
-/// The pending card for a PermissionRequest.
-fn build_item(p: &HookPayload, agent: Option<&str>, tool_use_id: Option<String>) -> PendingItem {
+/// Input keys kept on a card whose full input is too large to keep: what the
+/// card shows and what the danger classifier reads.
+const SLIM_INPUT_KEYS: [&str; 4] = ["file_path", "notebook_path", "path", "command"];
+/// Longest value kept for one of [`SLIM_INPUT_KEYS`] on a trimmed card.
+const SLIM_VALUE_MAX: usize = 4096;
+
+/// The identifying fields of an oversized tool input (paths, the command),
+/// each cut to [`SLIM_VALUE_MAX`] characters.
+fn slim_input(input: &Value) -> Value {
+    let mut out = serde_json::Map::new();
+    for key in SLIM_INPUT_KEYS {
+        if let Some(v) = input.get(key).and_then(Value::as_str) {
+            let cut: String = v.chars().take(SLIM_VALUE_MAX).collect();
+            out.insert(key.to_string(), Value::String(cut));
+        }
+    }
+    Value::Object(out)
+}
+
+/// The pending card for a PermissionRequest. The danger classifier runs on
+/// the FULL input (with the session's `cwd`) before an oversized input is
+/// trimmed, so padding a Write past the size limit cannot hide its target.
+fn build_item(
+    p: &HookPayload,
+    agent: Option<&str>,
+    tool_use_id: Option<String>,
+    cwd: Option<&str>,
+) -> PendingItem {
     let tool = p.tool_name.clone().unwrap_or_default();
     let input = p
         .tool_input
@@ -644,7 +723,7 @@ fn build_item(p: &HookPayload, agent: Option<&str>, tool_use_id: Option<String>)
     };
     let keep_input = kind != PendingKind::Permission
         || serde_json::to_vec(&input).is_ok_and(|b| b.len() <= INPUT_KEEP_MAX);
-    PendingItem {
+    let mut item = PendingItem {
         session_id: p.session_id.clone(),
         kind,
         source: PendingSource::Hook,
@@ -654,14 +733,23 @@ fn build_item(p: &HookPayload, agent: Option<&str>, tool_use_id: Option<String>)
         agent_type: p.agent_type.clone().filter(|t| !t.is_empty()),
         title,
         detail,
-        input: keep_input.then_some(input),
+        input: Some(input),
         questions,
         plan,
         suggestions: pending::suggestions_from_raw(p.permission_suggestions.as_ref()),
-        // The server-side classifier (pending store) raises this when needed.
         dangerous: false,
         ..Default::default()
+    };
+    // Classify now, on the whole input; the pending store only ever raises
+    // the flag, so it survives the trim below.
+    if let Some(why) = pending::classify_dangerous(&item, cwd) {
+        item.dangerous = true;
+        item.dangerous_reason = Some(why);
     }
+    if !keep_input {
+        item.input = item.input.as_ref().map(slim_input);
+    }
+    item
 }
 
 /// The PermissionRequest answer for a decision. A plain permission is
@@ -716,7 +804,12 @@ async fn permission_request(
     let Some(hold_for) = hold_policy(state, session).await else {
         return relay::empty();
     };
-    let item = build_item(p, agent, tool_use_id.clone());
+    let cwd = state
+        .find_session(session)
+        .await
+        .map(|s| s.cwd)
+        .filter(|c| !c.is_empty());
+    let item = build_item(p, agent, tool_use_id.clone(), cwd.as_deref());
     let (guard, rx) = pending::raise(state, item.clone()).await;
     let id = guard.id().to_string();
     // The store's copy (the server may have adjusted it, e.g. classified it
@@ -1142,6 +1235,7 @@ mod tests {
             })),
             None,
             Some("toolu_1".into()),
+            None,
         );
         assert_eq!(q.kind, PendingKind::Question);
         assert_eq!(q.title, "Which color?");
@@ -1152,6 +1246,7 @@ mod tests {
         let plan = build_item(
             &payload(json!({ "session_id": s, "tool_name": "ExitPlanMode",
                 "tool_input": { "plan": "1. do it" } })),
+            None,
             None,
             None,
         );
@@ -1167,6 +1262,7 @@ mod tests {
                     "rules": [{ "toolName": "Bash", "ruleContent": "npm test:*" }] }] }),
             ),
             Some("a1"),
+            None,
             None,
         );
         assert_eq!(bash.kind, PendingKind::Permission);
@@ -1190,8 +1286,56 @@ mod tests {
             ),
             None,
             None,
+            None,
         );
         assert_eq!(mcp.detail.as_deref(), Some("github · create_issue"));
+    }
+
+    #[test]
+    fn an_oversized_write_is_classified_before_its_input_is_trimmed() {
+        let s = "0a1b2c3d-0000-4000-8000-000000000000";
+        let padding = "x".repeat(INPUT_KEEP_MAX + 16);
+        for path in [
+            "~/.zshrc",
+            ".git/hooks/pre-commit",
+            "~/.claude/settings.json",
+        ] {
+            let item = build_item(
+                &payload(json!({ "session_id": s, "tool_name": "Write",
+                    "tool_input": { "file_path": path, "content": padding } })),
+                None,
+                None,
+                Some("/tmp/some-repo"),
+            );
+            assert!(item.dangerous, "{path}");
+            assert!(item.dangerous_reason.is_some());
+            // The card keeps what identifies the call, not the megabytes.
+            let input = item.input.as_ref().unwrap();
+            assert_eq!(input["file_path"], path);
+            assert!(input.get("content").is_none());
+        }
+        // A big ordinary write is trimmed and stays ordinary.
+        let item = build_item(
+            &payload(json!({ "session_id": s, "tool_name": "Write",
+                "tool_input": { "file_path": "big.txt", "content": padding } })),
+            None,
+            None,
+            Some("/tmp/some-repo"),
+        );
+        assert!(!item.dangerous);
+        assert_eq!(item.input.unwrap()["file_path"], "big.txt");
+        // A huge command is classified on its whole text, and cut for the card.
+        let command = format!("{padding} && echo x >> ~/.zshrc");
+        let item = build_item(
+            &payload(json!({ "session_id": s, "tool_name": "Bash",
+                "tool_input": { "command": command } })),
+            None,
+            None,
+            None,
+        );
+        assert!(item.dangerous);
+        let kept = item.input.unwrap()["command"].as_str().unwrap().len();
+        assert_eq!(kept, SLIM_VALUE_MAX);
     }
 
     #[test]

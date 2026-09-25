@@ -856,21 +856,11 @@ pub async fn ws_handler(
         .into_response();
     }
     // Pre-auth limits (B1): a socket that has not authenticated yet holds a
-    // slot (4 per client ip, 64 overall) until its first frame is checked.
-    let preauth = if ctx.principal.is_user() {
-        None
-    } else {
-        match state.limits.try_preauth(ctx.client_ip) {
-            Some(slot) => Some(slot),
-            None => {
-                return ApiError::too_many_requests(
-                    5,
-                    "Too many unauthenticated WebSocket connections.",
-                )
-                .into_response()
-            }
-        }
-    };
+    // slot until its first frame is checked. Pools are per scope (this
+    // machine, the LAN, tunnels) and a full one closes its oldest waiting
+    // socket rather than refusing the newcomer, so nobody on the internet can
+    // lock the desktop or a paired phone out of live updates.
+    let preauth = (!ctx.principal.is_user()).then(|| state.limits.preauth(ctx.rate_key));
     // Client frames are small; never buffer megabytes for a stranger.
     ws.max_message_size(MAX_CLIENT_FRAME)
         .max_frame_size(MAX_CLIENT_FRAME)
@@ -930,10 +920,17 @@ async fn run_client(
 ) {
     // 1. Authenticate (header / local ?token= already resolved, else first frame).
     if !ctx.principal.is_user() {
-        let token = tokio::time::timeout(AUTH_TIMEOUT, first_auth_token(&mut socket))
-            .await
-            .ok()
-            .flatten();
+        let wait = tokio::time::timeout(AUTH_TIMEOUT, first_auth_token(&mut socket));
+        let token = match &preauth {
+            Some(slot) => tokio::select! {
+                t = wait => t.ok().flatten(),
+                _ = slot.evicted() => {
+                    close(&mut socket, CLOSE_TIMEOUT, "too many unauthenticated sockets").await;
+                    return;
+                }
+            },
+            None => wait.await.ok().flatten(),
+        };
         let ok = token
             .map(|t| super::auth::authenticate_token(&state, &mut ctx, &t).is_ok())
             .unwrap_or(false);

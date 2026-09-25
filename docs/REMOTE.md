@@ -129,11 +129,20 @@ Every session shows what it supports and why in its channel badge.
 
 ## For scripts
 
-The file `token` in the app data directory
-(`~/Library/Application Support/dev.motherclaude.Mother-Claude/token` on macOS)
-works for scripts on this Mac as `Authorization: Bearer <token>`. It can read and
-drive sessions, but it cannot pair devices, change remote access or perform
-dangerous actions. The desktop app uses its own token, new at every launch.
+The file `script-token` in the app data directory
+(`~/Library/Application Support/dev.motherclaude.Mother-Claude/script-token` on
+macOS) works for scripts on this Mac as `Authorization: Bearer <token>`. It can
+read and drive sessions, but it cannot pair devices, change remote access or
+perform dangerous actions. The desktop app uses its own token, new at every
+launch.
+
+**Upgrading from an older version:** the old `token` file is deleted at the
+first launch and its value no longer works anywhere. Older versions put it in
+pairing links and QR codes, logs, every Claude process they started and the hook
+entries in `~/.claude/settings.json`, so treat any copy of it as leaked. Point
+your scripts at `script-token`, re-pair phones, and remove any leftover Mother
+Claude hook entry that carries an `Authorization: Bearer` header from
+`~/.claude/settings.json` (and its `.mc-backup`).
 
 The Claude HTTP API on `http://127.0.0.1:5612` needs no token from this Mac; see
 [BRIDGE.md](BRIDGE.md).

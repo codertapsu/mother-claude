@@ -3,7 +3,7 @@
 //! | credential | prefix | accepted | principal |
 //! |---|---|---|---|
 //! | desktop token (new every launch, in memory, `server_info` invoke only) | none | only when `ctx.local` | `Desktop` |
-//! | local-script token (persisted `token` file, 0600) | none | only when `ctx.local` | `LocalScript` |
+//! | local-script token (persisted `script-token` file, 0600) | none | only when `ctx.local` | `LocalScript` |
 //! | device token (pairing exchange) | `mcd_` | any ingress | `Device` |
 //! | hook token (new every launch; `hook.curlrc`, 0600, for the plugin) | `mch_` | only when `ctx.local` | `Hook` |
 //! | sidecar token (per run, child env) | `mcs_` | only when `ctx.local` | `Sidecar` |
@@ -15,6 +15,10 @@
 //! when the request is genuinely local (backcompat for local scripts and the
 //! bridge's SSE); WebSockets authenticate with their first frame (see
 //! `server::ws`). There is no cookie path.
+//!
+//! One exception to "only when local": a page the user allowlisted in
+//! `MOTHER_CLAUDE_BRIDGE_ORIGINS`, calling the bridge's loopback port from this
+//! machine, may present the local-script token (header or `?token=`).
 //!
 //! [`authenticate`] resolves the credential into `ctx.principal` (called by the
 //! context middleware); handlers then pick a guard extractor:
@@ -54,8 +58,8 @@ pub struct Auth {
     /// handed to the webview through the `server_info` invoke only; accepted
     /// only from genuinely local clients.
     pub token: String,
-    /// The persisted on-disk token (`<app data>/token`, 0600) kept for local
-    /// scripts. Accepted only from genuinely local clients, as
+    /// The persisted on-disk token (`<app data>/script-token`, 0600) kept for
+    /// local scripts. Accepted only from genuinely local clients, as
     /// `Principal::LocalScript`.
     pub script_token: String,
     /// `mch_…` token of the foreign-control hook plugin: new every launch,
@@ -106,7 +110,7 @@ impl Auth {
         let config_dir = app_config_dir();
         let script_token = config_dir
             .as_deref()
-            .map(|d| load_or_create_secret(&d.join("token"), new_master_token))
+            .map(load_script_token)
             .unwrap_or_else(new_master_token);
         // Never the same value as the on-disk token: the desktop credential
         // exists only in this process's memory.
@@ -130,6 +134,43 @@ impl Auth {
             config_dir,
         }
     }
+}
+
+/// Where the local-script token lives, in the app data dir.
+pub const SCRIPT_TOKEN_FILE: &str = "script-token";
+
+/// The pre-pairing master token's file. Older versions put its value in every
+/// pairing QR/URL (`#/pair?token=`), in logs, in every owned `claude` child's
+/// environment and in `~/.claude/settings.json` hook headers, so it is retired
+/// on upgrade and never accepted again.
+const LEGACY_TOKEN_FILE: &str = "token";
+
+/// Load (or create) the local-script token in `dir`, deleting the legacy
+/// master-token file so no leaked copy of it keeps working.
+fn load_script_token(dir: &Path) -> String {
+    let legacy = dir.join(LEGACY_TOKEN_FILE);
+    let retired = std::fs::read_to_string(&legacy)
+        .map(|s| s.trim().to_string())
+        .ok();
+    match std::fs::remove_file(&legacy) {
+        Ok(()) => tracing::info!(
+            "retired the legacy master token; local scripts now use {}",
+            dir.join(SCRIPT_TOKEN_FILE).display()
+        ),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(e) => tracing::warn!(error = %e, "could not delete the legacy token file"),
+    }
+    let path = dir.join(SCRIPT_TOKEN_FILE);
+    let token = load_or_create_secret(&path, new_master_token);
+    if retired.as_deref() == Some(token.as_str()) {
+        // Never carry the retired value over (a hand-copied file).
+        let fresh = new_master_token();
+        if let Err(e) = crate::persist::write_private(&path, fresh.as_bytes()) {
+            tracing::warn!(error = %e, "could not persist a fresh script token");
+        }
+        return fresh;
+    }
+    token
 }
 
 /// Read a secret file, or generate one with `make`, persist it 0600 and return
@@ -288,7 +329,11 @@ pub fn principal_for_token(
             });
     }
     if !ctx.local {
-        return None;
+        // The locked-down bridge port's allowlisted page may use the
+        // local-script token — never the desktop, hook or sidecar ones.
+        return (allowlisted_bridge_page(state, ctx)
+            && token_matches(&state.auth.script_token, token))
+        .then_some(Principal::LocalScript);
     }
     if token.starts_with(HOOK_PREFIX) {
         return token_matches(&state.auth.hook_token, token).then_some(Principal::Hook);
@@ -300,6 +345,20 @@ pub fn principal_for_token(
         return Some(Principal::Desktop);
     }
     token_matches(&state.auth.script_token, token).then_some(Principal::LocalScript)
+}
+
+/// A page the user allowlisted for the bridge (`MOTHER_CLAUDE_BRIDGE_ORIGINS`),
+/// calling the bridge's own loopback port from this machine: it is not
+/// `local` (its `Origin` is not localhost), but the documented locked-down
+/// setup (`MOTHER_CLAUDE_BRIDGE_REQUIRE_TOKEN=1` plus that allowlist) has it
+/// present the local-script token, as a header or `?token=` (EventSource).
+fn allowlisted_bridge_page(state: &AppState, ctx: &ClientContext) -> bool {
+    ctx.ingress == super::context::Ingress::BridgeLoopback
+        && ctx.on_machine
+        && ctx
+            .origin
+            .as_deref()
+            .is_some_and(|o| state.bridge.config.allowed_origins.iter().any(|a| a == o))
 }
 
 /// Count one rejected credential against the caller's failed-auth budget,
@@ -320,13 +379,13 @@ fn reject_credential(
         return Ok(());
     }
     ctx.credential_rejected = true;
-    if let Some(retry) = state.limits.blocked(ctx.client_ip) {
+    if let Some(retry) = state.limits.blocked(ctx.rate_key) {
         return Err(ApiError::too_many_requests(
             retry,
             "Too many failed authentication attempts. Try again later.",
         ));
     }
-    state.limits.record_failure(ctx.client_ip);
+    state.limits.record_failure(ctx.rate_key);
     Ok(())
 }
 
@@ -343,7 +402,8 @@ pub fn authenticate(
     headers: &HeaderMap,
     uri: &Uri,
 ) -> Result<(), ApiError> {
-    let Some(token) = presented_token(headers, uri, ctx.local) else {
+    let allow_query = ctx.local || allowlisted_bridge_page(state, ctx);
+    let Some(token) = presented_token(headers, uri, allow_query) else {
         return Ok(());
     };
     if let Some(p) = principal_for_token(state, ctx, &token) {
@@ -679,6 +739,36 @@ mod tests {
     }
 
     #[test]
+    fn the_legacy_master_token_is_retired_on_upgrade() {
+        let dir = tempfile::tempdir().unwrap();
+        let legacy = dir.path().join(LEGACY_TOKEN_FILE);
+        std::fs::write(
+            &legacy,
+            "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\n",
+        )
+        .unwrap();
+        let token = load_script_token(dir.path());
+        assert_ne!(
+            token,
+            "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+        );
+        assert!(!legacy.exists(), "the leaked file is gone");
+        // Stable from then on, and private.
+        assert_eq!(load_script_token(dir.path()), token);
+        let path = dir.path().join(SCRIPT_TOKEN_FILE);
+        assert_eq!(std::fs::read_to_string(&path).unwrap().trim(), token);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+            assert_eq!(mode, 0o600);
+        }
+        // A script-token file that was copied from the old one is replaced.
+        std::fs::write(&legacy, &token).unwrap();
+        assert_ne!(load_script_token(dir.path()), token);
+    }
+
+    #[test]
     fn presentation_rules() {
         let mut h = HeaderMap::new();
         assert_eq!(
@@ -803,7 +893,7 @@ mod tests {
             &good,
             false,
         );
-        assert!(st.limits.blocked(c.client_ip).is_some());
+        assert!(st.limits.blocked(c.rate_key).is_some());
         let (id, token) = st.devices.issue_for_test("phone");
         assert!(authenticate_token(&st, &mut c, &token).is_ok());
         assert_eq!(c.principal.device_id(), Some(id.as_str()));

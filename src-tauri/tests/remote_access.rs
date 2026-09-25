@@ -727,6 +727,54 @@ async fn revoking_a_device_closes_its_sockets_and_kills_every_token() {
 }
 
 #[tokio::test]
+async fn revoking_a_device_ends_its_open_bridge_streams() {
+    let st = state();
+    mother_claude_lib::bridge::control::start(&st, Default::default())
+        .await
+        .unwrap();
+    let base = serve(server::router_for(st.clone(), Ingress::Loopback)).await;
+    let (info, token) = st.devices.issue(
+        "Lost phone",
+        "ios",
+        None,
+        Ingress::Lan,
+        "192.168.1.60".parse().unwrap(),
+    );
+    let mut r = reqwest::Client::new()
+        .get(format!("{base}/v1/events"))
+        .bearer_auth(&token)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), StatusCode::OK);
+    assert!(r.headers()["content-type"]
+        .to_str()
+        .unwrap()
+        .starts_with("text/event-stream"));
+    assert!(mother_claude_lib::server::devices::revoke(
+        &st, &info.id, "revoked"
+    ));
+    // The open stream ends with a terminal frame naming why.
+    let mut seen = String::new();
+    let ended = tokio::time::timeout(Duration::from_secs(5), async {
+        while let Some(chunk) = r.chunk().await.unwrap() {
+            seen.push_str(&String::from_utf8_lossy(&chunk));
+        }
+    })
+    .await;
+    assert!(ended.is_ok(), "the stream ended: {seen}");
+    assert!(seen.contains("device_revoked"), "{seen}");
+    // And the token opens nothing new.
+    let r = reqwest::Client::new()
+        .get(format!("{base}/v1/events"))
+        .bearer_auth(&token)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
 async fn a_device_can_unpair_itself() {
     let (local, tunnel, st) = boot().await;
     let (id, token) = pair_device(&local, &tunnel, &st, "203.0.113.71").await;
@@ -1101,6 +1149,81 @@ async fn the_bridge_port_keeps_local_tokenless_access_but_not_dangerous_work() {
     assert_eq!(r.status(), StatusCode::OK);
 }
 
+/// The documented locked-down bridge (`REQUIRE_TOKEN=1` plus an origin
+/// allowlist): an allowlisted page on this machine uses the script token.
+#[tokio::test]
+async fn a_locked_down_bridge_accepts_the_script_token_from_allowlisted_pages() {
+    let dir = tempfile::tempdir().unwrap();
+    let st = Inner::with_bridge_config(
+        ClaudeHome::with_base(dir.path()),
+        ServerConfig {
+            host: "127.0.0.1".into(),
+            port: 0,
+        },
+        Auth::ephemeral(),
+        BridgeConfig {
+            enabled: true,
+            port: None,
+            require_token: true,
+            api_key: None,
+            allowed_origins: vec!["https://myapp.test".into(), "http://localhost:4200".into()],
+        },
+    );
+    let base = serve(mother_claude_lib::bridge::listener_router(st.clone(), true)).await;
+    let c = reqwest::Client::new();
+    let get = |origin: &'static str, token: Option<String>, query: bool| {
+        let mut url = format!("{base}/capabilities");
+        let mut r = c.get(&url).header("origin", origin);
+        if let Some(t) = token {
+            if query {
+                url = format!("{url}?token={t}");
+                r = c.get(&url).header("origin", origin);
+            } else {
+                r = r.bearer_auth(t);
+            }
+        }
+        r.send()
+    };
+    let script = st.auth.script_token.clone();
+    // The allowlisted page: header or ?token= (EventSource).
+    let r = get("https://myapp.test", Some(script.clone()), false)
+        .await
+        .unwrap();
+    assert_eq!(r.status(), StatusCode::OK);
+    let r = get("https://myapp.test", Some(script.clone()), true)
+        .await
+        .unwrap();
+    assert_eq!(r.status(), StatusCode::OK);
+    // Still a token-required port: nothing without one.
+    let r = get("https://myapp.test", None, false).await.unwrap();
+    assert_eq!(r.status(), StatusCode::UNAUTHORIZED);
+    // Never the desktop token from a page, even an allowlisted one.
+    let r = get("https://myapp.test", Some(st.auth.token.clone()), false)
+        .await
+        .unwrap();
+    assert_eq!(r.status(), StatusCode::UNAUTHORIZED);
+    // A page not on the list is refused outright.
+    let r = get("https://evil.example", Some(script.clone()), false)
+        .await
+        .unwrap();
+    assert_eq!(r.status(), StatusCode::FORBIDDEN);
+    // Localhost origins keep working as before.
+    let r = get("http://localhost:4200", Some(script.clone()), false)
+        .await
+        .unwrap();
+    assert_eq!(r.status(), StatusCode::OK);
+    // Through a tunnel, the allowlist grants nothing.
+    let r = c
+        .get(format!("{base}/capabilities"))
+        .header("origin", "https://myapp.test")
+        .header("x-forwarded-for", "203.0.113.9")
+        .bearer_auth(&script)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), StatusCode::UNAUTHORIZED);
+}
+
 #[tokio::test]
 async fn trusted_folders_are_the_ones_claude_already_knows() {
     let st = state();
@@ -1109,7 +1232,22 @@ async fn trusted_folders_are_the_ones_claude_already_knows() {
     use mother_claude_lib::bridge::routes::threads::cwd_is_trusted;
     assert!(!cwd_is_trusted(&st.home, &cwd));
     assert!(!cwd_is_trusted(&st.home, "relative/path"));
+    // An empty (or look-alike) transcript directory proves nothing…
     std::fs::create_dir_all(st.home.transcript_dir(&cwd)).unwrap();
+    assert!(!cwd_is_trusted(&st.home, &cwd));
+    let twin = format!("{}.v2", cwd.trim_end_matches('/'));
+    std::fs::write(
+        st.home.transcript_dir(&cwd).join("s.jsonl"),
+        format!("{}\n", json!({ "type": "user", "cwd": twin })),
+    )
+    .unwrap();
+    assert!(!cwd_is_trusted(&st.home, &cwd));
+    // …a session recorded in exactly this folder does.
+    std::fs::write(
+        st.home.transcript_dir(&cwd).join("t.jsonl"),
+        format!("{}\n", json!({ "type": "user", "cwd": cwd })),
+    )
+    .unwrap();
     assert!(cwd_is_trusted(&st.home, &cwd));
 }
 
@@ -1207,23 +1345,53 @@ async fn responses_carry_the_hardening_headers() {
     assert!(r.headers().get("content-encoding").is_none());
 }
 
-#[tokio::test]
-async fn unauthenticated_websockets_are_capped_per_client() {
-    let (_local, tunnel, _st) = boot().await;
-    let mut held = Vec::new();
-    for _ in 0..4 {
-        held.push(ws_via_tunnel(&tunnel, "203.0.113.95").await);
-    }
-    let url = format!("{}/ws", tunnel.replacen("http", "ws", 1));
+async fn ws_with_headers(
+    base: &str,
+    headers: &[(&'static str, &str)],
+) -> tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>> {
+    let url = format!("{}/ws", base.replacen("http", "ws", 1));
     let mut req = tokio_tungstenite::tungstenite::client::IntoClientRequest::into_client_request(
         url.as_str(),
     )
     .unwrap();
-    req.headers_mut()
-        .insert("x-forwarded-proto", "https".parse().unwrap());
-    req.headers_mut()
-        .insert("x-forwarded-for", "203.0.113.95".parse().unwrap());
-    assert!(tokio_tungstenite::connect_async(req).await.is_err());
+    for (k, v) in headers {
+        req.headers_mut().insert(*k, v.parse().unwrap());
+    }
+    tokio_tungstenite::connect_async(req).await.unwrap().0
+}
+
+async fn auth_frame<S>(ws: &mut S, token: &str) -> Value
+where
+    S: futures_util::Sink<Message>
+        + futures_util::Stream<Item = Result<Message, tokio_tungstenite::tungstenite::Error>>
+        + Unpin,
+    <S as futures_util::Sink<Message>>::Error: std::fmt::Debug,
+{
+    ws.send(Message::Text(
+        json!({ "t": "auth", "token": token }).to_string().into(),
+    ))
+    .await
+    .unwrap();
+    next_frame(ws).await.unwrap()
+}
+
+#[tokio::test]
+async fn unauthenticated_websockets_are_capped_per_client() {
+    let (_local, tunnel, st) = boot().await;
+    let mut held = Vec::new();
+    for _ in 0..4 {
+        held.push(ws_via_tunnel(&tunnel, "203.0.113.95").await);
+    }
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    assert_eq!(st.limits.preauth_count(), 4);
+    // A fifth socket from the same client is accepted and closes that
+    // client's OLDEST waiting socket instead of being refused.
+    let mut fifth = ws_via_tunnel(&tunnel, "203.0.113.95").await;
+    let evicted = next_frame(&mut held[0]).await.unwrap();
+    assert_eq!(evicted["t"], "close");
+    assert_eq!(evicted["code"], 4408);
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    assert_eq!(st.limits.preauth_count(), 4);
     // Another client is unaffected.
     let mut other = ws_via_tunnel(&tunnel, "198.51.100.95").await;
     // An oversized first frame is refused.
@@ -1233,14 +1401,142 @@ async fn unauthenticated_websockets_are_capped_per_client() {
         .unwrap();
     assert_eq!(next_frame(&mut other).await.unwrap()["t"], "close");
     // Failing auth frees the slots.
-    for ws in &mut held {
-        ws.send(Message::Text(r#"{"t":"auth","token":"mcd_nope"}"#.into()))
-            .await
-            .unwrap();
-        assert_eq!(next_frame(ws).await.unwrap()["code"], 4401);
+    for ws in held.iter_mut().skip(1).chain(std::iter::once(&mut fifth)) {
+        assert_eq!(auth_frame(ws, "mcd_nope").await["code"], 4401);
     }
     tokio::time::sleep(Duration::from_millis(100)).await;
-    let _again = ws_via_tunnel(&tunnel, "203.0.113.95").await;
+    assert_eq!(st.limits.preauth_count(), 0);
+}
+
+#[tokio::test]
+async fn a_tunnel_flood_never_locks_the_desktop_or_a_phone_out_of_live_updates() {
+    let (local, tunnel, st) = boot().await;
+    let (id, token) = pair_device(&local, &tunnel, &st, "198.51.100.30").await;
+    // Strangers hold every tunnel slot, some claiming to be this machine.
+    let mut flood = Vec::new();
+    for i in 0..64 {
+        let ip = format!("203.0.113.{}", i % 20 + 1);
+        let cf = if i % 2 == 0 {
+            "127.0.0.1"
+        } else {
+            "198.51.100.30"
+        };
+        flood.push(
+            ws_with_headers(
+                &tunnel,
+                &[
+                    ("x-forwarded-proto", "https"),
+                    ("x-forwarded-for", &ip),
+                    ("cf-connecting-ip", cf),
+                ],
+            )
+            .await,
+        );
+    }
+    for _ in 0..4 {
+        flood.push(
+            ws_with_headers(
+                &local,
+                &[
+                    ("host", "a.ngrok-free.app"),
+                    ("x-forwarded-for", "127.0.0.1"),
+                    ("cf-connecting-ip", "127.0.0.1"),
+                ],
+            )
+            .await,
+        );
+    }
+    // The desktop's own socket (loopback, no proxy headers) still connects.
+    let mut desk = ws_with_headers(&local, &[("origin", "tauri://localhost")]).await;
+    let hello = auth_frame(&mut desk, &st.auth.token).await;
+    assert_eq!(hello["t"], "hello");
+    assert_eq!(hello["me"]["principal"], "desktop");
+    // So does the paired phone through the tunnel.
+    let mut phone = ws_via_tunnel(&tunnel, "198.51.100.30").await;
+    let hello = auth_frame(&mut phone, &token).await;
+    assert_eq!(hello["t"], "hello");
+    assert_eq!(hello["me"]["deviceId"], id.as_str());
+    drop(flood);
+}
+
+#[tokio::test]
+async fn a_forged_cf_connecting_ip_neither_picks_nor_frames_a_client() {
+    let (local, tunnel, st) = boot().await;
+    let (_id, token) = pair_device(&local, &tunnel, &st, "198.51.100.8").await;
+    // A stranger (ngrok appended their real address last) claims to be the
+    // victim phone, then this machine, and fails auth over and over.
+    for i in 0..25 {
+        let claimed = if i % 2 == 0 {
+            "198.51.100.8"
+        } else {
+            "127.0.0.1"
+        };
+        let r = via_tunnel("203.0.113.200")
+            .get(format!("{tunnel}/api/sessions"))
+            .bearer_auth("mcd_not-a-device")
+            .header("cf-connecting-ip", claimed)
+            .header("cf-ray", "x")
+            .send()
+            .await
+            .unwrap();
+        assert!(r.status().is_client_error());
+    }
+    // The stranger's own address is blocked…
+    let r = via_tunnel("203.0.113.200")
+        .get(format!("{tunnel}/api/sessions"))
+        .bearer_auth("mcd_not-a-device")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), StatusCode::TOO_MANY_REQUESTS);
+    // …the phone it pretended to be is not…
+    let r = via_tunnel("198.51.100.8")
+        .get(format!("{tunnel}/api/me"))
+        .bearer_auth(&token)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), StatusCode::OK);
+    let mut ws = ws_via_tunnel(&tunnel, "198.51.100.8").await;
+    assert_eq!(auth_frame(&mut ws, &token).await["t"], "hello");
+    // …and neither is the desktop.
+    let r = desk()
+        .get(format!("{local}/api/me"))
+        .bearer_auth(&st.auth.token)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn a_blocked_address_still_lets_its_paired_device_open_live_updates() {
+    let (local, tunnel, st) = boot().await;
+    let (id, token) = pair_device(&local, &tunnel, &st, "198.51.100.9").await;
+    // Someone behind the same address (a shared NAT) fails auth 25 times.
+    for _ in 0..25 {
+        via_tunnel("198.51.100.9")
+            .get(format!("{tunnel}/api/sessions"))
+            .bearer_auth("mcd_not-a-device")
+            .send()
+            .await
+            .unwrap();
+    }
+    let r = via_tunnel("198.51.100.9")
+        .get(format!("{tunnel}/api/sessions"))
+        .bearer_auth("mcd_not-a-device")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), StatusCode::TOO_MANY_REQUESTS);
+    // The paired device's upgrade is accepted and its first frame authenticates.
+    let mut ws = ws_via_tunnel(&tunnel, "198.51.100.9").await;
+    let hello = auth_frame(&mut ws, &token).await;
+    assert_eq!(hello["t"], "hello");
+    assert_eq!(hello["me"]["deviceId"], id.as_str());
+    // A bad first-frame token from the blocked address is still refused.
+    let mut bad = ws_via_tunnel(&tunnel, "198.51.100.9").await;
+    assert_eq!(auth_frame(&mut bad, "mcd_nope").await["code"], 4401);
 }
 
 #[tokio::test]

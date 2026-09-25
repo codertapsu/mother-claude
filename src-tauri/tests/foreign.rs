@@ -800,6 +800,65 @@ async fn hook_requests_are_traced_to_the_sessions_process_tree() {
     }
 }
 
+#[tokio::test]
+async fn an_unbound_hook_request_cannot_lower_a_sessions_permission_mode() {
+    let (base, st) = boot().await;
+    foreign_session(&st, S, Surface::Terminal, "cli").await;
+    // The session's real process (here a child that owns no sockets).
+    let mut claude = std::process::Command::new("/bin/sleep")
+        .arg("30")
+        .spawn()
+        .unwrap();
+    st.live
+        .insert_for_test(mother_claude_lib::claude::live::LiveSession {
+            pid: Some(claude.id()),
+            session_id: Some(S.into()),
+            ..Default::default()
+        });
+    // Its own hooks report bypassPermissions (in-process: trusted).
+    let own: hooks::HookPayload = serde_json::from_value(ev(
+        "PreToolUse",
+        json!({ "tool_name": "Read", "permission_mode": "bypassPermissions" }),
+    ))
+    .unwrap();
+    hooks::dispatch(&st, own, Some(claude.id())).await;
+    assert_eq!(
+        hooks::permission_mode(&st, S).as_deref(),
+        Some("bypassPermissions")
+    );
+    // Another process holding the hook token claims `default` and a new pid.
+    for name in ["PreToolUse", "Notification", "SessionStart"] {
+        let r = http()
+            .post(format!("{base}/hooks/event"))
+            .bearer_auth(&st.auth.hook_token)
+            .header("x-mc-pid", my_pid())
+            .json(&ev(
+                name,
+                json!({ "tool_name": "Read", "permission_mode": "default",
+                        "notification_type": "idle_prompt", "message": "phish" }),
+            ))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(r.status(), StatusCode::OK);
+    }
+    // Enforced whenever the binding can be checked (ps and lsof exist).
+    let lsof = Path::new("/usr/sbin/lsof").exists() || Path::new("/usr/bin/lsof").exists();
+    if lsof {
+        assert_eq!(
+            hooks::permission_mode(&st, S).as_deref(),
+            Some("bypassPermissions"),
+            "the forged mode was ignored"
+        );
+        assert!(hooks::is_active(&st, S), "the forged pid was ignored");
+        assert_eq!(hooks::reported_bypass(&st, S, None), Some(true));
+        // One stale report of `default` elsewhere cannot lower the gate.
+        assert_eq!(hooks::reported_bypass(&st, S, Some("default")), Some(true));
+    }
+    let _ = claude.kill();
+    let _ = claude.wait();
+}
+
 // ───────────────────────────── the scripts ─────────────────────────────
 
 struct Plugin {

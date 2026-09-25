@@ -427,30 +427,44 @@ pub struct ExchangeRequest {
     pub platform: String,
 }
 
-/// A best-effort label for where a request came through (for the approval
-/// card): the tunnel provider from its headers, else the ingress.
-pub fn provider_hint(ctx: &ClientContext, headers: &HeaderMap) -> String {
-    let has = |prefix: &str| headers.keys().any(|k| k.as_str().starts_with(prefix));
-    if has("cf-") {
-        "cloudflare".into()
-    } else if has("tailscale-") {
-        "tailscale".into()
-    } else if headers.keys().any(|k| {
-        k.as_str().starts_with("ngrok-") && k.as_str() != super::context::NGROK_SKIP_WARNING
-    }) {
-        "ngrok".into()
-    } else {
-        match ctx.effective_ingress {
-            Ingress::Lan => "lan".into(),
-            Ingress::Tunnel if ctx.ingress == Ingress::Tunnel => "tunnel".into(),
-            Ingress::Tunnel => "proxy".into(),
-            other => other.as_str().into(),
+/// A label for where a request came through (for the approval card).
+///
+/// Taken from the server's own tunnel detection (the tunnels found pointing at
+/// the listener this request arrived on), never from request headers: through
+/// ngrok or Tailscale a client can send any `cf-*` header it likes. When the
+/// detection is ambiguous every candidate is named; when it found nothing the
+/// ingress is shown.
+pub fn provider_hint(state: &AppState, ctx: &ClientContext) -> String {
+    let target = match (ctx.effective_ingress, ctx.ingress) {
+        (Ingress::Tunnel, Ingress::Tunnel) => "tunnel",
+        (Ingress::Tunnel, Ingress::Loopback) => "main",
+        (Ingress::Tunnel, Ingress::BridgeLoopback) => "bridge",
+        (Ingress::Tunnel, Ingress::Lan) => return "port-forward".into(),
+        (other, _) => return other.as_str().into(),
+    };
+    let mut providers: Vec<String> = state
+        .remote
+        .detected()
+        .into_iter()
+        // cloudflared quick tunnels do not report their upstream.
+        .filter(|t| t.target == target || t.target == "unknown")
+        .map(|t| t.provider)
+        .collect();
+    providers.sort();
+    providers.dedup();
+    if providers.is_empty() {
+        return if target == "tunnel" {
+            "tunnel"
+        } else {
+            "proxy"
         }
+        .into();
     }
+    providers.join(" or ")
 }
 
 fn pair_failure(state: &AppState, ctx: &ClientContext, err: ApiError) -> ApiError {
-    state.limits.record_pair_failure(ctx.client_ip);
+    state.limits.record_pair_failure(ctx.rate_key);
     err
 }
 
@@ -462,7 +476,7 @@ fn invalid_code() -> ApiError {
 }
 
 fn check_pair_limit(state: &AppState, ctx: &ClientContext) -> ApiResult<()> {
-    match state.limits.pair_blocked(ctx.client_ip) {
+    match state.limits.pair_blocked(ctx.rate_key) {
         Some(retry) => Err(ApiError::too_many_requests(
             retry,
             "Too many pairing attempts from this address. Try again later.",
@@ -489,7 +503,7 @@ pub fn exchange(
         .map(|u| sanitize_label(u, 200));
     let name = sanitize_label(&req.device_name, devices::MAX_NAME_CHARS);
     let platform = sanitize_label(&req.platform, 32);
-    let provider = provider_hint(ctx, headers);
+    let provider = provider_hint(state, ctx);
     let lan_auto = ctx.effective_ingress == Ingress::Lan
         && ctx.ingress == Ingress::Lan
         && !ctx.proxied
@@ -637,7 +651,7 @@ pub fn exchange(
         Plan::SelfToken(dev) => {
             let token = state.devices.add_token(&dev).ok_or_else(invalid_code)?;
             let info = state.devices.get(&dev).unwrap_or_default();
-            state.limits.clear_pair_failures(ctx.client_ip);
+            state.limits.clear_pair_failures(ctx.rate_key);
             crate::server::ws::publish_devices(state);
             state.devices.audit.record(AuditEntry {
                 device_id: Some(dev.clone()),
@@ -670,7 +684,7 @@ pub fn exchange(
                     });
                 }
             }
-            state.limits.clear_pair_failures(ctx.client_ip);
+            state.limits.clear_pair_failures(ctx.rate_key);
             announce_new_device(state, &info, ctx);
             state.devices.audit.record(AuditEntry {
                 device_id: Some(info.id.clone()),
@@ -762,7 +776,7 @@ pub fn poll(
                     "name": p.device_name,
                 });
                 drop(g);
-                state.limits.clear_pair_failures(ctx.client_ip);
+                state.limits.clear_pair_failures(ctx.rate_key);
                 out
             }
             None => json!({ "status": "approved", "deviceId": p.device_id }),
@@ -934,6 +948,63 @@ pub fn may_create(principal: &Principal, target: CodeTarget) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_provider_comes_from_detection_not_from_headers() {
+        use crate::server::remote::DetectedTunnel;
+        let st = crate::state::Inner::new(
+            crate::claude::ClaudeHome::with_base(std::env::temp_dir()),
+            crate::state::ServerConfig {
+                host: "127.0.0.1".into(),
+                port: 0,
+            },
+            auth::Auth::ephemeral(),
+        );
+        let ctx = |ingress: Ingress, pairs: &[(&'static str, &str)]| {
+            let mut h = HeaderMap::new();
+            for (k, v) in pairs {
+                h.insert(*k, v.parse().unwrap());
+            }
+            ClientContext::new(ingress, "127.0.0.1:1".parse().unwrap(), &h, false)
+        };
+        // A client-sent cf-* header through an ngrok tunnel says nothing.
+        let forged = ctx(
+            Ingress::Tunnel,
+            &[("x-forwarded-for", "203.0.113.9"), ("cf-ray", "x")],
+        );
+        assert_eq!(provider_hint(&st, &forged), "tunnel");
+        let tunnel = |provider: &str, target: &str| DetectedTunnel {
+            provider: provider.into(),
+            url: format!("https://{provider}.example"),
+            kind: "http".into(),
+            target: target.into(),
+            ..Default::default()
+        };
+        st.remote.set_detected(
+            vec![
+                tunnel("ngrok", "tunnel"),
+                tunnel("tailscale-funnel", "main"),
+            ],
+            None,
+        );
+        assert_eq!(provider_hint(&st, &forged), "ngrok");
+        let main = ctx(
+            Ingress::Loopback,
+            &[("host", "x.ts.net"), ("x-forwarded-for", "203.0.113.9")],
+        );
+        assert_eq!(provider_hint(&st, &main), "tailscale-funnel");
+        // Ambiguous detection names every candidate.
+        st.remote.set_detected(
+            vec![tunnel("ngrok", "tunnel"), tunnel("cloudflared", "unknown")],
+            None,
+        );
+        assert_eq!(provider_hint(&st, &forged), "cloudflared or ngrok");
+        // The LAN is the LAN.
+        let mut h = HeaderMap::new();
+        h.insert("host", "192.168.1.5:6725".parse().unwrap());
+        let lan = ClientContext::new(Ingress::Lan, "192.168.1.9:1".parse().unwrap(), &h, false);
+        assert_eq!(provider_hint(&st, &lan), "lan");
+    }
 
     #[test]
     fn codes_are_crockford_and_normalise() {

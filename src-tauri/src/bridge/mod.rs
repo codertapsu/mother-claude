@@ -513,6 +513,9 @@ async fn require_bridge_auth(
     next: axum::middleware::Next,
 ) -> axum::response::Response {
     if ctx.principal.is_user() {
+        if let Some(id) = ctx.device_id() {
+            return run_until_revoked(state, id.to_string(), req, next).await;
+        }
         return next.run(req).await;
     }
     if !policy.require_token {
@@ -543,6 +546,70 @@ async fn require_bridge_auth(
          from this machine).",
     )
     .into_response()
+}
+
+fn device_revoked() -> error::BridgeError {
+    error::BridgeError::new(
+        axum::http::StatusCode::UNAUTHORIZED,
+        "device_revoked",
+        "This device was unpaired on the Mother Claude desktop app.",
+    )
+}
+
+/// Serve a paired device's request, but never past the device's revocation:
+/// a long-running handler (a run, a chat) answers `401 device_revoked`, and an
+/// event stream ends with a terminal `bridge/error` frame. (Revoking already
+/// closes the device's WebSockets; this covers `/v1`.)
+async fn run_until_revoked(
+    state: AppState,
+    id: String,
+    req: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> axum::response::Response {
+    use futures_util::StreamExt as _;
+
+    let response = {
+        let state = state.clone();
+        let id = id.clone();
+        tokio::select! {
+            r = next.run(req) => r,
+            _ = async move { state.devices.until_revoked(&id).await } => {
+                return device_revoked().into_response();
+            }
+        }
+    };
+    let streaming = response
+        .headers()
+        .get(axum::http::header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|c| c.starts_with("text/event-stream"));
+    if !streaming {
+        return response;
+    }
+    let (parts, body) = response.into_parts();
+    let revoked: std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>> =
+        Box::pin(async move { state.devices.until_revoked(&id).await });
+    let frame = format!(
+        "data: {}\n\n",
+        serde_json::json!({
+            "method": "bridge/error",
+            "params": { "status": "failed", "error": device_revoked().body()["error"] },
+        })
+    );
+    let stream = futures_util::stream::unfold(
+        (body.into_data_stream(), Some(revoked)),
+        move |(mut body, revoked)| {
+            let frame = frame.clone();
+            async move {
+                let mut revoked = revoked?;
+                tokio::select! {
+                    item = body.next() => item.map(|i| (i, (body, Some(revoked)))),
+                    _ = &mut revoked => Some((Ok(axum::body::Bytes::from(frame)), (body, None))),
+                }
+            }
+        },
+    );
+    axum::response::Response::from_parts(parts, axum::body::Body::from_stream(stream))
 }
 
 /// Reject cross-origin browser requests from pages we do not trust.

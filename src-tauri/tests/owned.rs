@@ -813,7 +813,14 @@ async fn non_desktop_callers_need_a_trusted_cwd() {
                 &canonical.to_string_lossy(),
             ));
     std::fs::create_dir_all(&recorded).unwrap();
-    std::fs::write(recorded.join("old.jsonl"), "{}\n").unwrap();
+    std::fs::write(
+        recorded.join("old.jsonl"),
+        format!(
+            "{}\n",
+            serde_json::json!({ "type": "user", "cwd": canonical.to_string_lossy() })
+        ),
+    )
+    .unwrap();
     let id = owned::spawn_as(
         &f.st,
         phone_caller,

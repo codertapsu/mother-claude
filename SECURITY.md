@@ -26,18 +26,20 @@ reduced route set (no `/v1`, no `/hooks/*`) and the tunnel pairing rules.
 
 ## Credentials
 
-| credential                                                       | holder                                            | accepted                            | principal                                                                                         |
-| ---------------------------------------------------------------- | ------------------------------------------------- | ----------------------------------- | ------------------------------------------------------------------------------------------------- |
-| desktop token — new on every launch, kept in memory              | the desktop webview, via the `server_info` invoke | only from a _local_ request         | Desktop: everything                                                                               |
-| local-script token — the `token` file in the app data dir (0600) | your own scripts                                  | only from a _local_ request         | data and control routes; never pairing, devices, remote access or plugin install; never dangerous |
-| device token `mcd_…`                                             | paired phones and browsers                        | any ingress                         | Device                                                                                            |
-| hook token `mch_…`                                               | the foreign-control plugin                        | only local, only `/hooks/*`         | Hook                                                                                              |
-| sidecar token `mcs_…`                                            | the Path A sidecar (per run)                      | only local, only its callback route | Sidecar                                                                                           |
+| credential                                                              | holder                                            | accepted                            | principal                                                                                         |
+| ----------------------------------------------------------------------- | ------------------------------------------------- | ----------------------------------- | ------------------------------------------------------------------------------------------------- |
+| desktop token — new on every launch, kept in memory                     | the desktop webview, via the `server_info` invoke | only from a _local_ request         | Desktop: everything                                                                               |
+| local-script token — the `script-token` file in the app data dir (0600) | your own scripts                                  | only from a _local_ request         | data and control routes; never pairing, devices, remote access or plugin install; never dangerous |
+| device token `mcd_…`                                                    | paired phones and browsers                        | any ingress                         | Device                                                                                            |
+| hook token `mch_…`                                                      | the foreign-control plugin                        | only local, only `/hooks/*`         | Hook                                                                                              |
+| sidecar token `mcs_…`                                                   | the Path A sidecar (per run)                      | only local, only its callback route | Sidecar                                                                                           |
 
 Tokens travel as `Authorization: Bearer`. `?token=` is accepted only from a
 local request (local scripts, SSE); WebSockets authenticate with their first
 frame. Only SHA-256 hashes of device tokens are stored (`devices.json`, 0600).
-No Mother Claude token is passed to a `claude` child process.
+No Mother Claude token is passed to a `claude` child process. The old master
+token (the `token` file, which earlier versions put in pairing links, logs, child
+environments and hook headers) is deleted on upgrade and never accepted again.
 
 **Being local never grants a device anything.** A raw TCP forward (`ssh -R`,
 `ngrok tcp`) can forge `Host: localhost` without adding proxy headers, so
@@ -60,7 +62,8 @@ authorization depends on the principal, not on the address.
   longer be approved, and both phones and the desktop are told.
 - Pending requests expire after 10 minutes; at most 5 wait at once. Failed
   exchanges and polls are limited per client address (10 a minute, then an
-  exponential block). There is no global limit a stranger could exhaust.
+  exponential block). There is no global pairing limit a stranger could
+  exhaust.
 - A paired phone can create a code for **itself** (the iOS Home Screen app has its
   own storage); it adds a second token to the same device record.
 - Revoking a device (on the desktop, or "Unpair this device" on the phone) erases
@@ -92,9 +95,12 @@ notice and is written to the audit log.
   Tailscale's 100.64/10 when you enable it). Public IPv4 and IPv6 addresses are
   never bound; the skipped ones are listed on the Remote page.
 - Certificates come from a **local CA** generated on first run (key 0600 in the
-  app data dir). It is name-constrained to private addresses and `localhost`, so
-  even a leaked CA key cannot impersonate a public site. The leaf is valid 397
-  days and re-issued whenever the LAN addresses change.
+  app data dir). It is name-constrained to private addresses and `localhost`
+  (Tailscale's 100.64/10 only once you bind a Tailscale address) and limited to
+  TLS server certificates, so even a leaked CA key cannot impersonate a public
+  site or sign mail or code. Any process running as you can read that key, so
+  removing the profile on the phone is how you revoke the trust. The leaf is
+  valid 397 days and re-issued whenever the LAN addresses change.
 - Trust the CA on a phone (`/api/pair/ca.crt`, or `/api/pair/ca.mobileconfig` on
   iOS, then enable full trust) for a secure context: WebSockets, the service
   worker and push then work on the LAN. Otherwise tap through the warning and
@@ -135,8 +141,21 @@ always needs a token.
   behind an HTTPS tunnel. The desktop webview has its own Tauri CSP.
 - CORS is open only to local requests (the desktop webview).
 - Failed authentication: 20 a minute per client address, then an exponential
-  block. Machine-local callers and valid credentials are never limited. At most 4
-  unauthenticated WebSockets per address (64 overall), with a 4 KiB first frame.
+  block. Machine-local callers and valid credentials are never limited, and a
+  block never stops a paired device's WebSocket (a bad first-frame token is still
+  refused). A flood of new addresses never lifts an active block.
+- Behind a tunnel the client address is the **last** `X-Forwarded-For` value,
+  which ngrok, Cloudflare and Tailscale append or set themselves;
+  `CF-Connecting-IP` is read only when no forwarding chain exists, and header
+  values naming loopback, "any" or multicast are ignored. Limits key that address
+  apart from real local callers, and count forwarded IPv6 clients per /64. The
+  tunnel provider on a pairing card comes from the app's own tunnel detection,
+  never from request headers.
+- Unauthenticated WebSockets (every browser socket until its first frame, which
+  must arrive within 5 s and fit in 4 KiB) have separate pools for this Mac, the
+  LAN and tunnels: at most 4 per address and 64 per pool (32 for this Mac). A
+  full pool closes its oldest waiting socket instead of refusing the newcomer, so
+  nobody on the internet can lock the desktop or a paired phone out.
 
 ## Logs and audit
 
