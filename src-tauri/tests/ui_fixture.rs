@@ -13,7 +13,9 @@
 //! process is live, with a transcript that grows every few seconds. Creating
 //! `<dataDir>/raise-permission` makes the session's hook plugin (the real
 //! `mc-hook` script, run as a child of this process) hold a Bash permission
-//! request, as a foreign session would.
+//! request, as a foreign session would. Owned sessions spawned from the UI
+//! run the scripted fake CLI (`tests/fixtures/fake-claude.py`, no tokens
+//! spent): send `hello`, `bash`, `ask` or `plan` to see each kind of card.
 
 use std::io::Write;
 use std::net::SocketAddr;
@@ -87,7 +89,18 @@ async fn serve_a_synthetic_home_for_ui_checks() {
         .unwrap_or(120);
     let home = tempfile::tempdir().unwrap();
     let data = tempfile::tempdir().unwrap();
+    let work = tempfile::tempdir().unwrap();
     fixture(home.path());
+    // Owned sessions run the scripted fake CLI, never the real one.
+    let fake =
+        std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/fake-claude.py");
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o755));
+    }
+    std::env::set_var("MOTHER_CLAUDE_CLI", &fake);
+    std::env::remove_var("MOTHER_CLAUDE_SIDECAR");
     let mut auth = Auth::ephemeral();
     auth.config_dir = Some(data.path().to_path_buf());
     let st = Inner::with_bridge_config(
@@ -126,6 +139,7 @@ async fn serve_a_synthetic_home_for_ui_checks() {
         "hookToken": st.auth.hook_token,
         "dataDir": data.path(),
         "session": SID,
+        "workDir": work.path(),
         "pid": std::process::id(),
     });
     match std::env::var("MC_UI_OUT") {
