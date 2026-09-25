@@ -1,6 +1,28 @@
-import { Routes } from '@angular/router';
+import { inject } from '@angular/core';
+import { CanActivateFn, Router, Routes } from '@angular/router';
 
-export const routes: Routes = [
+import { AuthService } from './core/auth.service';
+
+/**
+ * Data pages need a paired device. The shell redirects to /pair when the
+ * pairing state changes; this also covers Back, a bookmark or a typed URL
+ * afterwards (which would otherwise show a misleading empty page). While
+ * the state is still unknown (startup) navigation proceeds and the shell
+ * decides once it is known.
+ */
+export const pairedGuard: CanActivateFn = () => {
+  const auth = inject(AuthService);
+  if (auth.state() !== 'unpaired') return true;
+  return inject(Router).createUrlTree(
+    ['/pair'],
+    auth.reason() === 'revoked' ? { queryParams: { reason: 'revoked' } } : {},
+  );
+};
+
+/** Reachable without pairing. */
+const OPEN = new Set(['pair', 'onboarding', '**']);
+
+const pages: Routes = [
   {
     path: '',
     loadComponent: () =>
@@ -70,3 +92,7 @@ export const routes: Routes = [
   },
   { path: '**', redirectTo: '' },
 ];
+
+export const routes: Routes = pages.map((r) =>
+  OPEN.has(r.path ?? '') ? r : { ...r, canActivate: [pairedGuard] },
+);
