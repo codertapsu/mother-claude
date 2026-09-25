@@ -1,66 +1,148 @@
-<div class="shell">
-  <header class="topbar">
-    <a class="brand" routerLink="/" (click)="menuOpen.set(false)">
-      <span class="dot"></span>
-      Mother&nbsp;Claude
-    </a>
-    <nav class="tabs" [class.open]="menuOpen()">
+<a class="skip-link" href="#main">Skip to content</a>
+
+@if (chrome()) {
+  <div class="shell">
+    <!-- Desktop: left navigation -->
+    <aside class="sidebar" aria-label="Main navigation">
+      <a class="brand" routerLink="/">
+        <span class="logo" aria-hidden="true"></span>
+        <span>Mother Claude</span>
+      </a>
+      <nav class="side-nav">
+        @for (item of desktopNav(); track item.path) {
+          <a
+            [routerLink]="item.path"
+            routerLinkActive="active"
+            [routerLinkActiveOptions]="{ exact: !!item.exact }"
+            [attr.aria-label]="
+              item.badge && pendingCount() ? item.label + ', ' + pendingCount() + ' waiting' : null
+            "
+          >
+            <mc-icon [name]="item.icon" />
+            <span class="label">{{ item.label }}</span>
+            @if (item.badge === 'pending' && pendingCount()) {
+              <span class="count-badge">{{ pendingCount() }}</span>
+            }
+          </a>
+        }
+      </nav>
+      <div class="side-foot">
+        @if (updateAvailable()) {
+          <a class="update" routerLink="/settings">
+            <mc-icon name="refresh" [size]="15" /> Update available
+          </a>
+        }
+        <div class="conn-row" role="status" [attr.data-state]="connection()">
+          <span class="conn-dot"></span>
+          <span>{{ connLabel() }}</span>
+          <span class="spacer"></span>
+          <button
+            type="button"
+            class="btn ghost icon-only small"
+            [attr.aria-label]="'Theme: ' + theme.pref() + '. Change theme'"
+            [title]="'Theme: ' + theme.pref()"
+            (click)="cycleTheme()"
+          >
+            <mc-icon [name]="themeIcon()" [size]="16" />
+          </button>
+        </div>
+        @if (mock()) {
+          <span class="mock-tag">mock data</span>
+        }
+      </div>
+    </aside>
+
+    <!-- Phone: top bar -->
+    <header class="topbar">
+      <a class="brand" routerLink="/">
+        <span class="logo" aria-hidden="true"></span>
+        <span class="page-title">{{ pageTitle() }}</span>
+      </a>
+      <span class="spacer"></span>
+      @if (mock()) {
+        <span class="mock-tag">mock</span>
+      }
+      @if (updateAvailable()) {
+        <a class="btn ghost icon-only" routerLink="/settings" aria-label="Update available">
+          <mc-icon name="refresh" />
+        </a>
+      }
+      <span class="conn" role="status" [attr.data-state]="connection()" [title]="connLabel()">
+        <span class="conn-dot"></span>
+        @if (connection() !== 'open') {
+          <span class="conn-text">{{ connLabel() }}</span>
+        } @else {
+          <span class="visually-hidden">{{ connLabel() }}</span>
+        }
+      </span>
+    </header>
+
+    <div class="main">
+      @if (interstitial()) {
+        <div class="banner warn" role="alert">
+          <mc-icon name="alert" />
+          <span
+            >The tunnel's browser warning page is in the way. Open this page once in your browser
+            and accept the warning (“Visit site”), then reload.</span
+          >
+          <button class="btn small" type="button" (click)="reload()">Reload</button>
+        </div>
+      }
+      @if (desktopRejected()) {
+        <div class="banner warn" role="alert">
+          <mc-icon name="alert" />
+          <span>The server rejected the desktop's own token. Restart Mother Claude.</span>
+        </div>
+      }
+      @if (needsPermission()) {
+        <div class="banner warn">
+          <mc-icon name="shield" />
+          <span
+            >A required macOS permission is missing —
+            <a routerLink="/onboarding">finish setup</a> so Mother Claude can read your
+            sessions.</span
+          >
+        </div>
+      }
+      <main class="content" id="main" tabindex="-1">
+        <router-outlet />
+      </main>
+    </div>
+
+    <!-- Phone: bottom tabs -->
+    <nav class="tabbar" aria-label="Main navigation">
+      <a routerLink="/" routerLinkActive="active" [routerLinkActiveOptions]="{ exact: true }">
+        <mc-icon name="sessions" [size]="22" />
+        <span>Sessions</span>
+      </a>
       <a
-        routerLink="/"
+        routerLink="/inbox"
         routerLinkActive="active"
-        [routerLinkActiveOptions]="{ exact: true }"
-        (click)="menuOpen.set(false)"
-        >Sessions</a
+        [attr.aria-label]="pendingCount() ? 'Inbox, ' + pendingCount() + ' waiting' : null"
       >
-      <a routerLink="/services" routerLinkActive="active" (click)="menuOpen.set(false)">Services</a>
-      <a routerLink="/api" routerLinkActive="active" (click)="menuOpen.set(false)">API</a>
-      <a routerLink="/settings" routerLinkActive="active" (click)="menuOpen.set(false)">Settings</a>
-      <a routerLink="/good-to-know" routerLinkActive="active" (click)="menuOpen.set(false)"
-        >Good to Know</a
-      >
-      <a routerLink="/pair" routerLinkActive="active" (click)="menuOpen.set(false)">Pair a Phone</a>
+        <span class="icon-wrap">
+          <mc-icon name="inbox" [size]="22" />
+          @if (pendingCount()) {
+            <span class="count-badge">{{ pendingCount() }}</span>
+          }
+        </span>
+        <span>Inbox</span>
+      </a>
+      <a routerLink="/agents" routerLinkActive="active">
+        <mc-icon name="agents" [size]="22" />
+        <span>Agents</span>
+      </a>
+      <a routerLink="/more" [class.active]="moreActive()">
+        <mc-icon name="more" [size]="22" />
+        <span>More</span>
+      </a>
     </nav>
-    <span class="spacer"></span>
-    @if (updateAvailable()) {
-      <a
-        class="update-badge"
-        routerLink="/settings"
-        (click)="menuOpen.set(false)"
-        title="An app update is available"
-        >⬆ Update</a
-      >
-    }
-    <span class="conn" [class]="connection()" [title]="'WebSocket: ' + connection()">
-      {{ connection() }}
-    </span>
-    <button
-      class="hamburger"
-      type="button"
-      aria-label="Menu"
-      [attr.aria-expanded]="menuOpen()"
-      (click)="menuOpen.set(!menuOpen())"
-    >
-      ☰
-    </button>
-  </header>
-
-  @if (needsToken()) {
-    <div class="banner">
-      Not paired — open <a routerLink="/pair">Pair a phone</a> to scan the QR or enter a token.
-    </div>
-  }
-
-  @if (needsPermission()) {
-    <div class="banner warn">
-      A required macOS permission is missing —
-      <a routerLink="/onboarding">finish setup</a> so Mother Claude can read your sessions.
-    </div>
-  }
-
-  <main class="content">
+  </div>
+} @else if (ready()) {
+  <main class="bare" id="main" tabindex="-1">
     <router-outlet />
   </main>
-</div>
+}
 
 <mc-modal [open]="showWelcome()" title="Welcome to Mother Claude" (closed)="dismissWelcome()">
   <p class="welcome-intro">
