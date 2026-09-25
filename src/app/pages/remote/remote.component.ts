@@ -42,6 +42,10 @@ const PROVIDER_LABELS: Record<string, string> = {
   ngrok: 'ngrok',
   cloudflared: 'Cloudflare Tunnel',
   tailscale: 'Tailscale Funnel',
+  'tailscale-funnel': 'Tailscale Funnel',
+  'tailscale-serve': 'Tailscale Serve',
+  tailscaleServe: 'Tailscale Serve',
+  cloudflare: 'Cloudflare',
 };
 
 /**
@@ -125,6 +129,11 @@ export class RemoteComponent {
     () => !!this.remote()?.internet.enabled && !!this.publicUrl(),
   );
   protected readonly activeDevices = computed(() => this.devices().filter((d) => !d.revoked));
+  /** Requests that can still be answered (decided ones linger briefly). */
+  protected readonly livePairs = computed(() =>
+    this.pendingPairs().filter((p) => (p.status ?? 'pending') === 'pending'),
+  );
+  protected readonly idleDays = signal<number | null>(null);
 
   constructor() {
     const destroyRef = inject(DestroyRef);
@@ -133,7 +142,9 @@ export class RemoteComponent {
       this.realtime.pairRequest$.subscribe((f) => {
         if (!f.pending?.id) return;
         this.pendingPairs.update((prev) =>
-          prev.some((p) => p.id === f.pending.id) ? prev : [...prev, f.pending],
+          prev.some((p) => p.id === f.pending.id)
+            ? prev.map((p) => (p.id === f.pending.id ? f.pending : p))
+            : [...prev, f.pending],
         );
       }),
       this.realtime.refetch$.subscribe(() => void this.loadAll()),
@@ -217,8 +228,8 @@ export class RemoteComponent {
     await this.saveRemote({ internetEnabled: enabled });
   }
 
-  protected async setRequireApproval(on: boolean): Promise<void> {
-    await this.saveRemote({ requireApproval: on });
+  protected async setBindTailscale(on: boolean): Promise<void> {
+    await this.saveRemote({ bindTailscale: on });
   }
 
   protected async saveManualUrl(): Promise<void> {
@@ -227,7 +238,7 @@ export class RemoteComponent {
       this.error.set('The public URL must start with https://');
       return;
     }
-    await this.saveRemote({ manualUrl: url });
+    await this.saveRemote({ manualUrl: url || null });
   }
 
   protected providerLabel(p: string): string {
@@ -260,6 +271,15 @@ export class RemoteComponent {
       await this.api.updateDevice(d.id, { allowDangerous: on });
       this.devices.update((prev) =>
         prev.map((x) => (x.id === d.id ? { ...x, allowDangerous: on } : x)),
+      );
+    });
+  }
+
+  protected async setDangerousInternet(d: DeviceInfo, on: boolean): Promise<void> {
+    await this.withBusy(d.id, async () => {
+      await this.api.updateDevice(d.id, { allowDangerousInternet: on });
+      this.devices.update((prev) =>
+        prev.map((x) => (x.id === d.id ? { ...x, allowDangerousInternet: on } : x)),
       );
     });
   }
@@ -386,6 +406,7 @@ export class RemoteComponent {
       const list = await this.api.listDevices();
       this.devices.set(list.devices ?? []);
       this.pendingPairs.set(list.pending ?? []);
+      this.idleDays.set(list.idleDays ?? null);
     } catch (e) {
       this.error.set(`Devices: ${errorMessage(e)}`);
     }

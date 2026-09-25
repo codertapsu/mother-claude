@@ -148,15 +148,7 @@
         <dt>Network</dt>
         <dd>{{ ingress() }}</dd>
         <dt>Dangerous actions</dt>
-        <dd>
-          {{
-            me()?.local
-              ? 'Allowed (local)'
-              : me()?.allowDangerous
-                ? 'Allowed for this device'
-                : 'Desktop only'
-          }}
-        </dd>
+        <dd>{{ dangerousLabel() }}</dd>
         <dt>Live updates</dt>
         <dd>{{ connection() }}</dd>
       </dl>
@@ -165,9 +157,14 @@
           <mc-icon name="refresh" [size]="14" /> Reconnect
         </button>
         @if (!c.desktop) {
-          <button class="btn danger small" type="button" (click)="forget()">
+          <button
+            class="btn danger small"
+            type="button"
+            [disabled]="forgetting()"
+            (click)="forget()"
+          >
             <mc-icon name="logout" [size]="14" />
-            {{ confirmForget() ? 'Tap again to forget' : 'Forget this device' }}
+            {{ confirmForget() ? 'Tap again to unpair' : 'Unpair this device' }}
           </button>
         }
         @if (isDesktop()) {
@@ -178,6 +175,35 @@
       </div>
     }
   </section>
+
+  @if (isDevice()) {
+    <h2>Home Screen app</h2>
+    <section class="card">
+      <p class="small">
+        On iPhone and iPad the Home Screen app keeps its own storage, so it pairs separately. Add
+        Mother Claude to your Home Screen (Share › Add to Home Screen), then get a one-time code
+        here and type it on the app's Pair page.
+      </p>
+      <div class="row actions">
+        <button
+          class="btn small"
+          type="button"
+          [disabled]="selfCodeBusy()"
+          (click)="homeScreenCode()"
+        >
+          <mc-icon name="key" [size]="14" />
+          {{ selfCodeBusy() ? 'Creating…' : 'Set up the Home Screen app' }}
+        </button>
+      </div>
+      @if (selfCode(); as sc) {
+        <p class="self-code mono" aria-label="Pairing code">{{ sc.display || sc.code }}</p>
+        <p class="muted small">Works once, for 5 minutes, and only for this device.</p>
+      }
+      @if (selfCodeError()) {
+        <p class="error-text small">{{ selfCodeError() }}</p>
+      }
+    </section>
+  }
 
   @if (desktopApp()) {
     <h2>Software updates</h2>

@@ -213,3 +213,9 @@ h3 {
     align-items: stretch;
   }
 }
+
+.grants {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}

@@ -31,6 +31,7 @@ import {
   PermissionMode,
   ProjectInfo,
   PushPrefs,
+  PushPrefsUpdate,
   PushSubscriptionBody,
   RemoteInfo,
   RemoteUpdate,
@@ -46,6 +47,7 @@ import {
   TranscriptPage,
   TranscriptQuery,
   UploadResult,
+  VapidInfo,
 } from './models';
 
 /**
@@ -81,7 +83,7 @@ import {
  *             continueSession(id, body) · sendKey(id, key) ·
  *             lifecycle(id, action)
  *   Pairing   createPairCode(req) · exchangePairCode(body) ·
- *             pollPairPending(pendingId, secret) · getMe()
+ *             pollPairPending(pendingId, secret) · getMe() · unpairSelf()
  *   Devices   listDevices() · approvePair(id, fingerprint) · denyPair(id) ·
  *             revokeDevice(id) · updateDevice(id, patch)
  *   Remote    getRemote() · updateRemote(patch)
@@ -297,7 +299,8 @@ export class ApiService {
 
   // ────────────────────────────────────────────────────────────── Pairing
 
-  /** Desktop: mint a single-use pairing code + QR for LAN or internet. */
+  /** Desktop: mint a single-use pairing code + QR for LAN or internet. A
+   * paired device may mint a `self` code for its own Home Screen app. */
   createPairCode(req: PairCodeRequest): Promise<PairCode> {
     return this.post('/pair/codes', req);
   }
@@ -338,6 +341,11 @@ export class ApiService {
 
   getMe(): Promise<MeInfo> {
     return this.req<MeInfo>('/me');
+  }
+
+  /** A device unpairs itself (the server forgets its token). */
+  unpairSelf(): Promise<void> {
+    return this.req('/me', { method: 'DELETE' });
   }
 
   // ────────────────────────────────────────────────────────────── Devices
@@ -392,8 +400,8 @@ export class ApiService {
 
   // ───────────────────────────────────────────────────────────────── Push
 
-  getVapidKey(): Promise<{ publicKey: string; secureContextHint?: string }> {
-    return this.req('/push/vapid');
+  getVapidKey(): Promise<VapidInfo> {
+    return this.req<VapidInfo>('/push/vapid');
   }
 
   pushSubscribe(sub: PushSubscriptionBody): Promise<void> {
@@ -412,13 +420,19 @@ export class ApiService {
     return this.req<PushPrefs>('/push/prefs');
   }
 
-  setPushPrefs(prefs: Partial<PushPrefs>): Promise<PushPrefs | null> {
+  /** Send only what changed: the server merges it. */
+  setPushPrefs(prefs: PushPrefsUpdate): Promise<PushPrefs | null> {
     return this.req('/push/prefs', { method: 'PUT', body: JSON.stringify(prefs) });
   }
 
   /** Follow / mute one session's notifications (`null` = back to default). */
   setSessionPush(id: string, pref: SessionPushPref | null): Promise<PushPrefs | null> {
-    return this.setPushPrefs({ sessions: { [id]: pref } as Record<string, SessionPushPref> });
+    return this.setPushPrefs({ sessions: { [id]: pref } });
+  }
+
+  /** Arm (or disarm) a one-shot "notify me when this turn finishes". */
+  setTurnFinishedPush(id: string, on: boolean): Promise<PushPrefs | null> {
+    return this.setPushPrefs({ turnFinished: { [id]: on } });
   }
 
   // ─────────────────────────────────────── The Claude HTTP bridge (/bridge)
@@ -600,6 +614,16 @@ export function describeError(e: unknown): DescribedError {
   }
   if (e.status === 403 && code === 'desktop_only') {
     return { text: 'Only the desktop app can do this.' };
+  }
+  if (e.status === 403 && code === 'untrusted_cwd') {
+    return {
+      text:
+        e.message ||
+        'That folder has never been opened with Claude Code on the Mac. Open it there once, or start the session from the desktop.',
+    };
+  }
+  if (e.status === 400 && code === 'https_required') {
+    return { text: e.message || 'Open Mother Claude through the https:// address of your tunnel.' };
   }
   if ((e.status === 409 || e.status === 410) && code === 'already_decided') {
     return { text: e.message || 'Already answered elsewhere.', alreadyDecided: true };

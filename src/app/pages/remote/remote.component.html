@@ -19,34 +19,44 @@
     }
 
     <!-- Pending approvals first: someone is waiting. -->
-    @if (pendingPairs().length) {
+    @if (livePairs().length) {
       <section class="card approvals" aria-label="Pairing requests">
         <h2 class="first"><mc-icon name="key" [size]="15" /> Waiting for your approval</h2>
-        @for (p of pendingPairs(); track p.id) {
+        @for (p of livePairs(); track p.id) {
           <div class="approval">
             <div class="who">
               <strong>{{ pairName(p) }}</strong>
               <span class="muted small">
                 {{ p.platform || 'unknown platform' }}
-                @if (p.ip) {
-                  · {{ p.ip }}
+                @if (p.clientIp || p.ip) {
+                  · {{ p.clientIp || p.ip }}
                 }
                 @if (p.ingress) {
                   · via {{ ingressLabel(p.ingress) }}
+                }
+                @if (p.provider) {
+                  ({{ providerLabel(p.provider) }})
                 }
                 @if (p.createdAt) {
                   · {{ p.createdAt | relTime }}
                 }
               </span>
             </div>
-            <p class="muted small fp-hint">
-              The device shows a 4-digit number: you'll type it to approve.
-            </p>
+            @if (p.contested) {
+              <p class="notice warn small">
+                This code was used by two devices, so this request can't be approved. Deny it and
+                create a new code.
+              </p>
+            } @else {
+              <p class="muted small fp-hint">
+                The device shows a 4-digit number: you'll type it to approve.
+              </p>
+            }
             <div class="row">
               <button
                 class="btn primary"
                 type="button"
-                [disabled]="busy().has(p.id)"
+                [disabled]="busy().has(p.id) || !!p.contested"
                 (click)="approving.set(p)"
               >
                 <mc-icon name="check" [size]="15" /> Approve…
@@ -93,15 +103,42 @@
               </select>
             </label>
           }
+          @if (remote()?.lan; as lan) {
+            @if (lan.enabled === false || lan.error) {
+              <p class="notice warn small">
+                {{
+                  lan.error ||
+                    'Mother Claude is not listening on your local network (no private address found).'
+                }}
+              </p>
+            }
+          }
           <p class="muted small">
-            The phone must be on the same network. It warns once about the self-signed certificate
+            The phone must be on the same network. Until it trusts the Mac's certificate it warns
+            once
             @if (remote()?.lan?.fingerprint; as fp) {
-              — check it matches <span class="mono break">{{ fp }}</span
+              — check the fingerprint matches <span class="mono break">{{ fp }}</span
               >.
             } @else {
               — that's expected.
             }
+            Trusting it (the phone's Pair page shows how:
+            @if (remote()?.lan?.mobileconfigUrl; as mc) {
+              <span class="mono break">{{ mc }}</span> on iPhone,
+            }
+            @if (remote()?.lan?.caUrl; as ca) {
+              <span class="mono break">{{ ca }}</span> on Android)
+            } @else {
+              a certificate download)
+            }
+            enables live updates on iOS, the Home Screen app and push notifications.
           </p>
+          @if (remote()?.lan?.caFingerprint; as cafp) {
+            <p class="muted small">
+              Certificate authority: <span class="mono break">{{ cafp }}</span> (it can only vouch
+              for private addresses).
+            </p>
+          }
         } @else {
           @if (!remote()?.internet?.enabled) {
             <p class="notice warn small">Turn on <strong>Internet access</strong> below first.</p>
@@ -174,21 +211,16 @@
               >
             </span>
           </label>
-          <label class="switch">
-            <input
-              type="checkbox"
-              [checked]="r.internet.requireApproval"
-              [disabled]="savingRemote()"
-              (change)="setRequireApproval($any($event.target).checked)"
-            />
-            <span class="switch-text">
-              <strong>Approve internet pairings here</strong>
-              <span class="muted small"
-                >A device pairing over the internet waits until you approve it on this
-                computer.</span
-              >
-            </span>
-          </label>
+          @if (r.internet.enabled && r.internet.listening === false) {
+            <p class="notice warn small">
+              The tunnel port ({{ r.internet.port }}) is not listening; another program may be using
+              it.
+            </p>
+          }
+          <p class="muted small">
+            <mc-icon name="shield" [size]="13" /> Internet pairings always wait for you: the device
+            shows 4 digits and you type them here.
+          </p>
 
           @if (r.internet.enabled) {
             <h3>Public address</h3>
@@ -231,22 +263,47 @@
 
             <h3>Start a tunnel</h3>
             <div class="cmds">
+              @if (r.internet.commands.tailscaleServe; as serve) {
+                <div class="cmd">
+                  <span class="cmd-name"
+                    >Tailscale Serve
+                    @if (r.internet.installed?.tailscale) {
+                      <span class="badge ok">installed</span>
+                    }
+                  </span>
+                  <code class="cmd-text">{{ serve }}</code>
+                  <mc-copy-button [text]="serve" />
+                </div>
+              }
               <div class="cmd">
-                <span class="cmd-name">ngrok</span>
+                <span class="cmd-name"
+                  >ngrok
+                  @if (r.internet.installed?.ngrok) {
+                    <span class="badge ok">installed</span>
+                  }
+                </span>
                 <code class="cmd-text">{{ r.internet.commands.ngrok }}</code>
                 <mc-copy-button [text]="r.internet.commands.ngrok" />
               </div>
               <div class="cmd">
-                <span class="cmd-name">Cloudflare</span>
+                <span class="cmd-name"
+                  >Cloudflare
+                  @if (r.internet.installed?.cloudflared) {
+                    <span class="badge ok">installed</span>
+                  }
+                </span>
                 <code class="cmd-text">{{ r.internet.commands.cloudflared }}</code>
                 <mc-copy-button [text]="r.internet.commands.cloudflared" />
               </div>
               <div class="cmd">
-                <span class="cmd-name">Tailscale</span>
+                <span class="cmd-name">Tailscale Funnel (public)</span>
                 <code class="cmd-text">{{ r.internet.commands.tailscale }}</code>
                 <mc-copy-button [text]="r.internet.commands.tailscale" />
               </div>
             </div>
+            @if (r.internet.recommended) {
+              <p class="muted small">Recommended: {{ providerLabel(r.internet.recommended) }}.</p>
+            }
           }
 
           @if (r.internet.warnings.length) {
@@ -257,10 +314,33 @@
             </ul>
           }
 
-          <p class="muted small bridge">
-            HTTP API ({{ r.bridge.running ? 'running' : 'stopped' }}, port {{ r.bridge.port }})
-            stays on this computer — tunnels never reach it. <a routerLink="/api">API settings</a>
-          </p>
+          <label class="switch">
+            <input
+              type="checkbox"
+              [checked]="!!r.lan.bindTailscale"
+              [disabled]="savingRemote()"
+              (change)="setBindTailscale($any($event.target).checked)"
+            />
+            <span class="switch-text">
+              <strong>Also listen on Tailscale</strong>
+              <span class="muted small"
+                >Serve the dashboard on this Mac's Tailscale address (100.x.y.z) too.</span
+              >
+            </span>
+          </label>
+
+          @if (r.bridge.exposed) {
+            <p class="notice error small" role="alert">
+              A tunnel points at the HTTP API port {{ r.bridge.port }}: its tokenless access is
+              switched off until that tunnel stops. Stop it unless you meant to publish the API.
+            </p>
+          } @else {
+            <p class="muted small bridge">
+              HTTP API ({{ r.bridge.running ? 'running' : 'stopped' }}, port {{ r.bridge.port }})
+              stays on this computer — the tunnel port never serves it.
+              <a routerLink="/api">API settings</a>
+            </p>
+          }
         } @else {
           <p class="muted">Loading…</p>
         }
@@ -312,17 +392,39 @@
                 @if (d.lastIp) {
                   · {{ d.lastIp }}
                 }
+                @if (d.sockets) {
+                  · {{ d.sockets }} open {{ d.sockets === 1 ? 'connection' : 'connections' }}
+                }
+                @if ((d.tokenCount ?? 1) > 1) {
+                  · with its Home Screen app
+                }
               </span>
             </div>
-            <label class="switch dangerous">
-              <input
-                type="checkbox"
-                [checked]="d.allowDangerous"
-                [disabled]="busy().has(d.id)"
-                (change)="setDangerous(d, $any($event.target).checked)"
-              />
-              <span class="switch-text small">Allow dangerous actions</span>
-            </label>
+            <div class="grants">
+              <label class="switch dangerous">
+                <input
+                  type="checkbox"
+                  [checked]="d.allowDangerous"
+                  [disabled]="busy().has(d.id)"
+                  (change)="setDangerous(d, $any($event.target).checked)"
+                />
+                <span class="switch-text small">Allow dangerous actions (LAN)</span>
+              </label>
+              <label class="switch dangerous internet">
+                <input
+                  type="checkbox"
+                  [checked]="!!d.allowDangerousInternet"
+                  [disabled]="busy().has(d.id)"
+                  (change)="setDangerousInternet(d, $any($event.target).checked)"
+                />
+                <span class="switch-text small"
+                  >… over the internet
+                  @if (d.allowDangerousInternet) {
+                    <span class="badge danger">risky</span>
+                  }
+                </span>
+              </label>
+            </div>
             <button
               class="btn danger small"
               type="button"
@@ -337,8 +439,13 @@
         }
       </div>
       <p class="muted small">
-        “Dangerous actions” are bypass-permissions mode, rules saved to settings, and approving
-        commands flagged dangerous. Off by default for every device.
+        “Dangerous actions” are bypass-permissions mode, rules saved to settings, removing sessions,
+        raw terminal keys, and approving commands flagged dangerous. Off by default for every
+        device. Leave the internet grant off unless you really need it: a stolen phone could then
+        run anything on this Mac.
+        @if (idleDays(); as days) {
+          Devices unused for {{ days }} days are unpaired automatically.
+        }
       </p>
     </section>
 
@@ -376,7 +483,18 @@
           <dd>{{ f.sessionsWithHooks }}</dd>
           <dt>Last hook event</dt>
           <dd>{{ f.lastEventAt ? (f.lastEventAt | relTime) : 'none yet' }}</dd>
+          @if (f.sessionsNeedingReload) {
+            <dt>Need a reload</dt>
+            <dd>
+              {{ f.sessionsNeedingReload }} running
+              {{ f.sessionsNeedingReload === 1 ? 'session was' : 'sessions were' }} started before
+              the install: run <code>/reload-plugins</code> in them, or restart them.
+            </dd>
+          }
         </dl>
+        @if (f.lastError) {
+          <p class="error-text small">{{ f.lastError }}</p>
+        }
         @if (f.notes.length) {
           <ul class="notes">
             @for (n of f.notes; track $index) {

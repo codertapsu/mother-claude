@@ -31,12 +31,13 @@ export class AuthService {
 
   /** Desktop principal: the Tauri webview (or whatever `me` says). */
   readonly isDesktop = computed(() => this.config.desktop() || this.me()?.principal === 'desktop');
-  /** May approve dangerous actions: a strictly local client, or a device the
-   * desktop granted "allow dangerous". */
+  /** May take dangerous actions: the server decides by principal (the
+   * desktop, or a device granted "allow dangerous" for the network it is on)
+   * and reports it as `me.allowDangerous`. Being local grants nothing else. */
   readonly canDangerous = computed(() => {
     const me = this.me();
     if (!me) return this.config.desktop();
-    return me.local || me.allowDangerous;
+    return me.allowDangerous;
   });
 
   private readonly unauthorizedS = new Subject<void>();

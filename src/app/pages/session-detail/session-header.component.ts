@@ -105,29 +105,45 @@ import { SessionContext } from './session-context';
               <span>Terminal view</span>
             </button>
           }
-          <div class="item static">
-            <mc-icon [name]="pushPref() === 'mute' ? 'bellOff' : 'bell'" [size]="18" />
-            <span>Notifications</span>
-            <div class="segmented" role="group" aria-label="Notifications for this session">
-              <button
-                type="button"
-                [attr.aria-pressed]="pushPref() === 'follow'"
-                (click)="setPush('follow')"
-              >
-                Follow
-              </button>
-              <button type="button" [attr.aria-pressed]="pushPref() === ''" (click)="setPush(null)">
-                Default
-              </button>
-              <button
-                type="button"
-                [attr.aria-pressed]="pushPref() === 'mute'"
-                (click)="setPush('mute')"
-              >
-                Mute
-              </button>
+          @if (pushAvailable()) {
+            <div class="item static">
+              <mc-icon [name]="pushPref() === 'mute' ? 'bellOff' : 'bell'" [size]="18" />
+              <span>Notifications</span>
+              <div class="segmented" role="group" aria-label="Notifications for this session">
+                <button
+                  type="button"
+                  [attr.aria-pressed]="pushPref() === 'follow'"
+                  (click)="setPush('follow')"
+                >
+                  Follow
+                </button>
+                <button
+                  type="button"
+                  [attr.aria-pressed]="pushPref() === ''"
+                  (click)="setPush(null)"
+                >
+                  Default
+                </button>
+                <button
+                  type="button"
+                  [attr.aria-pressed]="pushPref() === 'mute'"
+                  (click)="setPush('mute')"
+                >
+                  Mute
+                </button>
+              </div>
             </div>
-          </div>
+            @if (s.live && s.status !== 'idle' && s.status !== 'ended') {
+              <button class="item" type="button" (click)="toggleTurnFinished()">
+                <mc-icon name="bell" [size]="18" />
+                <span>{{
+                  turnArmed()
+                    ? "Don't notify when this turn finishes"
+                    : 'Notify me when this turn finishes'
+                }}</span>
+              </button>
+            }
+          }
           <div class="item static">
             <mc-icon name="terminal" [size]="18" />
             <span class="mono ellipsis">claude --resume {{ s.id.slice(0, 8) }}…</span>
@@ -398,6 +414,9 @@ export class SessionHeaderComponent {
   protected readonly pushPref = computed<SessionPushPref | ''>(() =>
     this.push.sessionPref(this.ctx.id()),
   );
+  /** Push is per device: the desktop app shows everything live instead. */
+  protected readonly pushAvailable = computed(() => !this.ctx.isDesktop());
+  protected readonly turnArmed = computed(() => this.push.turnFinishedArmed(this.ctx.id()));
   protected readonly vscodeUrl = computed(() => {
     const s = this.ctx.session();
     return s?.surface === 'vscode' && this.ctx.isDesktop()
@@ -458,6 +477,21 @@ export class SessionHeaderComponent {
           : pref === 'mute'
             ? 'Notifications from this session are muted.'
             : 'This session uses your notification settings.',
+      );
+    } catch (e) {
+      this.notices.error(e, undefined, 'Notifications');
+    }
+  }
+
+  protected async toggleTurnFinished(): Promise<void> {
+    const on = !this.turnArmed();
+    this.menu.set(false);
+    try {
+      await this.push.setTurnFinished(this.ctx.id(), on);
+      this.notices.success(
+        on
+          ? "You'll get a notification when this turn finishes (even if the session is muted)."
+          : 'No notification for this turn.',
       );
     } catch (e) {
       this.notices.error(e, undefined, 'Notifications');

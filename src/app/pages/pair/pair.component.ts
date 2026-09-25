@@ -119,7 +119,8 @@ function groupCode(code: string): string {
               @if (homeScreenApp()) {
                 <p class="notice small">
                   This Home Screen app keeps its own storage, separate from Safari, so it needs its
-                  own pairing: type a fresh code below.
+                  own pairing. In a paired Safari tab open Settings › Set up the Home Screen app (or
+                  create a code on the Mac), then type the code below.
                 </p>
               }
               <form class="form" (submit)="submit($event)">
@@ -170,8 +171,8 @@ function groupCode(code: string): string {
                   <ol class="steps small">
                     @if (ios()) {
                       <li>
-                        <a href="/pair/mother-claude.mobileconfig">Download the profile</a>, then
-                        open Settings › General › VPN &amp; Device Management and install it.
+                        <a href="/api/pair/ca.mobileconfig">Download the profile</a>, then open
+                        Settings › General › VPN &amp; Device Management and install it.
                       </li>
                       <li>
                         Settings › General › About › Certificate Trust Settings: turn on full trust
@@ -179,9 +180,9 @@ function groupCode(code: string): string {
                       </li>
                     } @else {
                       <li>
-                        <a href="/pair/ca.crt" download>Download the Mac's certificate</a> and open
-                        it to install it (Android: Settings › Security › Install a certificate › CA
-                        certificate).
+                        <a href="/api/pair/ca.crt" download>Download the Mac's certificate</a> and
+                        open it to install it (Android: Settings › Security › Install a certificate
+                        › CA certificate).
                       </li>
                     }
                     <li>Reload this page.</li>
@@ -308,7 +309,7 @@ export class PairComponent {
   /** Opened over the LAN address (self-signed certificate). */
   protected readonly lan = signal(isLanOrigin(location.hostname) && location.protocol === 'https:');
   protected readonly ios = signal(isIos());
-  /** The server offers its local CA for download (`/pair/ca.crt`). */
+  /** The server offers its local CA for download (`/api/pair/ca.crt`). */
   protected readonly caAvailable = signal(false);
 
   private pollTimer?: ReturnType<typeof setTimeout>;
@@ -334,7 +335,7 @@ export class PairComponent {
 
   private async probeCa(): Promise<void> {
     try {
-      const res = await fetch('/pair/ca.crt', { method: 'HEAD', cache: 'no-store' });
+      const res = await fetch('/api/pair/ca.crt', { method: 'HEAD', cache: 'no-store' });
       const type = res.headers.get('content-type') ?? '';
       this.caAvailable.set(res.ok && !type.includes('text/html'));
     } catch {
@@ -400,6 +401,14 @@ export class PairComponent {
           case 'expired':
             this.fail(new Error('The request expired before it was approved. Scan a new code.'));
             return;
+          case 'contested':
+            this.fail(
+              new Error(
+                st.message ||
+                  'This code was used by another device too, so it cannot be approved. Ask for a new code on your Mac.',
+              ),
+            );
+            return;
           default:
             this.poll(pendingId, secret, attempt);
         }
@@ -423,7 +432,11 @@ export class PairComponent {
     this.phase.set('error');
     if (e instanceof ApiError) {
       if (e.status === 429) {
-        this.error.set('Too many attempts. Wait a minute, then try again.');
+        this.error.set(
+          `Too many attempts. Wait ${e.retryAfter ? `${e.retryAfter} s` : 'a minute'}, then try again.`,
+        );
+      } else if (e.code === 'wrong_network' || e.code === 'code_already_used') {
+        this.error.set(e.message);
       } else if ([400, 403, 404, 409, 410, 422].includes(e.status)) {
         this.error.set(
           'That code is not valid. Codes work once and expire after 5 minutes — create a new one on the desktop.',

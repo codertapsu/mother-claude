@@ -40,14 +40,25 @@ const INGRESS: Record<string, string> = {
           <div>
             <strong>{{ p.deviceName || p.name || 'A device' }}</strong>
             <p class="muted small">
-              {{ p.platform || 'unknown platform' }} · from {{ where(p)
-              }}{{ p.ip ? ' (' + p.ip + ')' : '' }}
+              {{ p.platform || 'unknown platform' }} · from {{ where(p) }}
+              @if (ipOf(p); as ip) {
+                ({{ ip }})
+              }
               @if (p.createdAt) {
                 · <mc-time [ms]="p.createdAt" />
               }
             </p>
+            @if (p.userAgent) {
+              <p class="muted small ua">{{ p.userAgent }}</p>
+            }
           </div>
         </div>
+        @if (p.contested) {
+          <p class="notice warn small" role="alert">
+            This code was used by two devices, so this request can't be approved. Deny it and create
+            a new code.
+          </p>
+        }
         <form class="form" (submit)="approve($event, p)">
           <label class="field">
             <span class="field-label">Number shown on the device</span>
@@ -72,7 +83,11 @@ const INGRESS: Record<string, string> = {
             <p class="error-text small" role="alert">{{ error() }}</p>
           }
           <div class="row">
-            <button class="btn primary" type="submit" [disabled]="!valid() || busy()">
+            <button
+              class="btn primary"
+              type="submit"
+              [disabled]="!valid() || busy() || finished() || !!p.contested"
+            >
               <mc-icon name="check" [size]="15" /> Approve
             </button>
             <button class="btn danger" type="button" [disabled]="busy()" (click)="deny(p)">
@@ -103,6 +118,9 @@ const INGRESS: Record<string, string> = {
         flex-direction: column;
         gap: 0.6rem;
       }
+      .ua {
+        overflow-wrap: anywhere;
+      }
       .digits {
         font-family: var(--mono);
         font-size: 1.8rem;
@@ -125,6 +143,8 @@ export class PairApprovalDialogComponent {
   protected readonly digits = linkedSignal({ source: this.pending, computation: () => '' });
   protected readonly error = linkedSignal({ source: this.pending, computation: () => '' });
   protected readonly busy = signal(false);
+  /** The server said this request can no longer be approved. */
+  protected readonly finished = linkedSignal({ source: this.pending, computation: () => false });
   protected readonly valid = computed(() => /^\d{4}$/.test(this.digits()));
 
   protected clean(v: string): string {
@@ -134,7 +154,12 @@ export class PairApprovalDialogComponent {
   }
 
   protected where(p: PendingPair): string {
-    return INGRESS[p.ingress ?? ''] ?? p.ingress ?? 'an unknown network';
+    const net = INGRESS[p.ingress ?? ''] ?? p.ingress ?? 'an unknown network';
+    return p.provider && p.ingress === 'tunnel' ? `${net}, ${p.provider}` : net;
+  }
+
+  protected ipOf(p: PendingPair): string {
+    return p.clientIp || p.ip || '';
   }
 
   protected async approve(e: Event, p: PendingPair): Promise<void> {
@@ -147,11 +172,20 @@ export class PairApprovalDialogComponent {
       this.settled.emit({ pending: p, approved: true });
       this.closed.emit();
     } catch (err) {
-      this.error.set(
-        err instanceof ApiError && [400, 403, 409, 422].includes(err.status)
-          ? "Those digits don't match. Check the number on the device and try again."
-          : describeError(err).text,
-      );
+      if (err instanceof ApiError && err.code) {
+        // The server's own words: attempts left, contested, expired, answered.
+        const terminal = err.code !== 'fingerprint_mismatch' || /denied/i.test(err.message);
+        this.finished.set(terminal);
+        this.error.set(
+          err.message ||
+            (err.code === 'fingerprint_mismatch'
+              ? "Those digits don't match. Check the number on the device and try again."
+              : describeError(err).text),
+        );
+        if (terminal) this.digits.set('');
+      } else {
+        this.error.set(describeError(err).text);
+      }
     } finally {
       this.busy.set(false);
     }

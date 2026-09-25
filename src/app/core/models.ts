@@ -485,6 +485,8 @@ export interface TranscriptPage {
   events: UiEvent[];
   before?: string;
   tail: string;
+  /** `after=` was too far behind for a bounded read: refetch the last page. */
+  reset?: boolean;
 }
 
 export interface SessionAgents {
@@ -519,12 +521,16 @@ export interface Fleet {
 export interface McpServerStatus {
   name: string;
   status: string;
+  scope?: string;
   error?: string;
 }
 
 /** `POST /sessions/{id}/uploads` answer: where the file was stored. */
 export interface UploadResult {
+  /** Absolute path on the Mac, referenced as `@<path>` in the message. */
   path: string;
+  name?: string;
+  size?: number;
 }
 
 export type DiffBase = 'working' | 'branch';
@@ -596,10 +602,10 @@ export type KeyName =
 
 export type LifecycleAction = 'stop' | 'respawn' | 'rm';
 
-/** `GET /sessions/{id}/terminal` (`rows` when rendered from a log). */
+/** `GET /sessions/{id}/terminal`: the screen as plain text (and its lines). */
 export interface TerminalText {
   text: string;
-  rows?: number;
+  rows?: string[];
 }
 
 /** `GET /api/control/foreign` (desktop only). */
@@ -610,13 +616,21 @@ export interface ForeignControlStatus {
   lastEventAt?: number;
   sessionsWithHooks: number;
   notes: string[];
+  /** Installed but switched off (the plugin's scripts exit at once). */
+  enabled?: boolean;
+  /** Live sessions started before the install (need /reload-plugins). */
+  sessionsNeedingReload?: number;
+  pluginDir?: string;
+  lastError?: string;
 }
 
 // ─────────────────────────────────────────────────── 2.6 Pairing & devices
 
 export type Ingress = 'loopback' | 'lan' | 'tunnel' | 'bridge-loopback';
 
-export type PairTarget = 'lan' | 'internet';
+/** `self` = a paired device's code for its own second app (the iOS Home
+ * Screen app keeps storage separate from Safari). */
+export type PairTarget = 'lan' | 'internet' | 'self';
 
 export interface PairCodeRequest {
   target: PairTarget;
@@ -626,13 +640,16 @@ export interface PairCodeRequest {
 /** `POST /api/pair/codes`: a single-use, 5-minute pairing code + its QR. */
 export interface PairCode {
   code: string;
-  /** `{baseUrl}/#/pair?c={code}` */
+  /** The code grouped for reading aloud, e.g. `ABCD-EFGH-JKMN`. */
+  display?: string;
+  /** `{baseUrl}/#/pair?c={code}` (relative for `self` codes). */
   url: string;
   /** Server-rendered QR code (SVG markup). */
   svg: string;
   expiresAt: number;
+  ttlSec?: number;
   target: PairTarget;
-  baseUrl: string;
+  baseUrl?: string;
 }
 
 export interface PairExchangeBody {
@@ -654,17 +671,34 @@ export interface PairExchangePending {
   status: 'pending';
   pendingId: string;
   pollSecret: string;
-  /** 4 digits, shown on both the phone and the desktop. */
+  /** 4 digits shown on the phone; the user types them on the desktop. */
   fingerprint: string;
+  expiresAt?: number;
 }
 
 export type PairExchangeResult = PairExchangePaired | PairExchangePending;
 
 /** `GET /api/pair/pending/{id}` (header `X-Pair-Secret`). The token is returned once. */
+/** `contested`: the code was presented twice, so this request can never be
+ * approved (`message` says what to do). */
 export interface PairPendingStatus {
-  status: 'pending' | 'approved' | 'denied' | 'expired';
+  status: 'pending' | 'approved' | 'denied' | 'expired' | 'contested';
   token?: string;
   deviceId?: string;
+  name?: string;
+  message?: string;
+}
+
+/** One recent action of a device (Remote › Devices). */
+export interface DeviceAction {
+  at: number;
+  /** e.g. `POST /api/sessions/{id}/respond`. */
+  action: string;
+  status?: number;
+  ip?: string;
+  ingress?: string;
+  /** Passed a dangerous-action gate. */
+  dangerous?: boolean;
 }
 
 export interface DeviceInfo {
@@ -675,22 +709,47 @@ export interface DeviceInfo {
   lastSeenAt?: number;
   lastIp?: string;
   ingress?: Ingress;
+  /** How it paired: `lan` | `internet` | `self`. */
+  pairedVia?: string;
+  userAgent?: string;
+  /** Dangerous actions while on the LAN. */
   allowDangerous: boolean;
+  /** Dangerous actions through a tunnel. */
+  allowDangerousInternet?: boolean;
   revoked?: boolean;
+  revokedAt?: number;
+  revokeReason?: string;
+  /** Unpaired automatically after this (idle expiry). */
+  expiresAt?: number;
+  /** Tokens it holds (the Home Screen app adds one). */
+  tokenCount?: number;
+  /** Open live connections. */
+  sockets?: number;
+  recent?: DeviceAction[];
 }
 
-/** A pairing request waiting for desktop approval. */
+/** A pairing request waiting for desktop approval. The desktop never sees
+ * the 4 digits: the user reads them on the device and types them. */
 export interface PendingPair {
   id: string;
   deviceName?: string;
   /** Tolerated alias of `deviceName`. */
   name?: string;
   platform?: string;
+  userAgent?: string;
   /** Client IP (tunnel-aware). */
+  clientIp?: string;
+  /** Tolerated alias of `clientIp`. */
   ip?: string;
   ingress?: Ingress;
-  target?: PairTarget;
-  fingerprint: string;
+  /** The tunnel it came through (`ngrok`, `cloudflared`, `tailscale`, …). */
+  provider?: string;
+  codeTarget?: PairTarget;
+  /** `pending` | `approved` | `denied` | `expired`. */
+  status?: string;
+  /** The code was presented twice: this request cannot be approved. */
+  contested?: boolean;
+  fingerprintAttemptsLeft?: number;
   createdAt?: number;
   expiresAt?: number;
 }
@@ -698,14 +757,18 @@ export interface PendingPair {
 export interface DevicesList {
   devices: DeviceInfo[];
   pending: PendingPair[];
+  /** Devices unused this many days are unpaired automatically. */
+  idleDays?: number;
 }
 
 export interface DeviceUpdate {
   name?: string;
   allowDangerous?: boolean;
+  allowDangerousInternet?: boolean;
 }
 
-export type PrincipalKind = 'desktop' | 'device';
+/** `local-script` = the on-disk token of scripts on the Mac. */
+export type PrincipalKind = 'desktop' | 'device' | 'local-script';
 
 /** `GET /api/me` (also delivered in the WS `hello` frame). */
 export interface MeInfo {
@@ -713,8 +776,16 @@ export interface MeInfo {
   deviceId?: string;
   name?: string;
   ingress: Ingress;
+  /** The network the request really came from (a proxied request is `tunnel`). */
+  effectiveIngress?: Ingress;
   local: boolean;
+  /** May take dangerous actions right now (from where it connects). */
   allowDangerous: boolean;
+  allowDangerousLan?: boolean;
+  allowDangerousInternet?: boolean;
+  platform?: string;
+  pairedAt?: number;
+  clientIp?: string;
 }
 
 // ───────────────────────────────────────────────── 2.8 Remote access/tunnels
@@ -725,42 +796,67 @@ export interface DetectedTunnel {
   provider: TunnelProvider | string;
   url: string;
   upstream?: string;
+  upstreamPort?: number;
   /** ngrok's traffic inspector is on (it records request bodies). */
   inspect?: boolean;
+  /** `http` | `tcp`. */
+  kind?: string;
+  /** Which of our ports it reaches: `tunnel` | `main` | `bridge` | … */
+  target?: string;
 }
 
 /** `GET /api/remote` (desktop only). */
 export interface RemoteInfo {
   lan: {
-    addresses: { ip: string; url: string }[];
+    enabled?: boolean;
+    addresses: { ip: string; interface?: string; url: string }[];
+    /** Addresses deliberately not bound (public IPs, …) and why. */
+    skipped?: { ip: string; interface?: string; reason: string }[];
     port: number;
-    /** TLS certificate fingerprint. */
+    /** Leaf TLS certificate fingerprint. */
     fingerprint: string;
+    /** The local CA the phone can trust. */
+    caFingerprint?: string;
+    caUrl?: string;
+    mobileconfigUrl?: string;
+    bindTailscale?: boolean;
+    error?: string;
+    note?: string;
   };
   internet: {
     enabled: boolean;
+    /** The tunnel listener is bound right now. */
+    listening?: boolean;
     port: number;
     publicUrl?: string;
     manualUrl?: string;
+    /** Always true: internet pairings wait for approval on the Mac. */
     requireApproval: boolean;
     detected: DetectedTunnel[];
-    commands: { ngrok: string; cloudflared: string; tailscale: string };
+    checkedAt?: number;
+    installed?: { ngrok?: boolean; cloudflared?: boolean; tailscale?: boolean };
+    commands: { ngrok: string; cloudflared: string; tailscale: string; tailscaleServe?: string };
+    recommended?: string;
     warnings: string[];
   };
-  bridge: { port: number; running: boolean };
+  bridge: { port: number; running: boolean; exposed?: boolean };
+  devices?: { idleDays?: number; active?: number; pending?: number };
 }
 
-/** `PUT /api/remote` */
+/** `PUT /api/remote` (unknown fields are refused). */
 export interface RemoteUpdate {
   internetEnabled?: boolean;
-  manualUrl?: string;
-  requireApproval?: boolean;
+  /** `null` or `''` clears it. */
+  manualUrl?: string | null;
+  bindTailscale?: boolean;
+  deviceIdleDays?: number;
 }
 
 // ──────────────────────────────────────────────────────────────── 6 Push
 
 export type SessionPushPref = 'follow' | 'mute';
 
+/** `GET /api/push/prefs` (per device). */
 export interface PushPrefs {
   permission: boolean;
   question: boolean;
@@ -769,13 +865,57 @@ export interface PushPrefs {
   failed: boolean;
   /** Claude asked to notify you (PushNotification tool, Notification hooks). */
   claude?: boolean;
+  /** A session has been waiting idle for your next prompt. */
+  idle?: boolean;
+  /** Include the command / question text in notifications (off: only the
+   * session name and the kind of event). */
+  showDetails?: boolean;
   /** Per-session follow/mute; absent = the event prefs above. */
   sessions?: Record<string, SessionPushPref>;
+  /** Sessions with a one-shot "notify me when this turn finishes". */
+  turnFinished?: string[];
+  /** Subscriptions this device has stored. */
+  subscriptions?: number;
+  /** This caller can subscribe at all (paired devices only). */
+  available?: boolean;
+}
+
+/** `PUT /api/push/prefs`: any subset; maps are merged (`null` / `false`
+ * removes an entry). */
+export interface PushPrefsUpdate {
+  permission?: boolean;
+  question?: boolean;
+  plan?: boolean;
+  finished?: boolean;
+  failed?: boolean;
+  claude?: boolean;
+  idle?: boolean;
+  showDetails?: boolean;
+  sessions?: Record<string, SessionPushPref | 'default' | null>;
+  turnFinished?: Record<string, boolean>;
+}
+
+/** `GET /api/push/vapid`. */
+export interface VapidInfo {
+  /** base64url, uncompressed P-256. */
+  publicKey: string;
+  available?: boolean;
+  secureContextHint?: {
+    /** `desktop` | `lan_certificate` | `ok`. */
+    code: string;
+    text?: string;
+    publicUrl?: string;
+    iosHomeScreen?: boolean;
+    requiresUserGesture?: boolean;
+  };
 }
 
 export interface PushSubscriptionBody {
   endpoint: string;
   keys: { p256dh: string; auth: string };
+  /** The key this subscription was made with (base64url); lets the server
+   * spot a subscription made with an older key. */
+  applicationServerKey?: string;
 }
 
 // ─────────────────────────────────────────────────────── 4.6 WebSocket v2
@@ -851,6 +991,8 @@ export interface PendingResolvedFrame {
   outcome: PendingOutcome;
   by?: PendingResolvedBy;
   at: number;
+  /** One human line, e.g. "Allowed by Mac · Always allow Bash(npm test:*) in this session". */
+  text?: string;
 }
 
 export interface AgentsFrame {
@@ -868,7 +1010,7 @@ export interface FleetFrame {
 
 export interface NoticeFrame {
   t: 'notice';
-  level: 'info' | 'warn' | 'error' | string;
+  level: 'info' | 'success' | 'warning' | 'error' | string;
   text: string;
   session?: string;
 }

@@ -183,6 +183,12 @@ export class TranscriptStore {
         agent: this.opts.agentId,
       });
       if (this.destroyed) return;
+      if (page.reset) {
+        // Too far behind for a bounded read: start over from the last page.
+        this.polling = false;
+        void this.refresh(true);
+        return;
+      }
       this.merge((page.events ?? []).filter((e) => this.accepts(e)));
       this.noteTail(page.tail);
     } catch {
