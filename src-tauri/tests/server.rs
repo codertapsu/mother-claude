@@ -519,7 +519,18 @@ async fn websocket_auth_and_pending_diffs() {
 async fn tunnel_ingress_never_serves_hooks_or_the_bridge() {
     let st = state();
     let base = serve(server::router_for(st.clone(), Ingress::Tunnel)).await;
-    let c = http();
+    // Tunnels terminate TLS and say so; the tunnel port refuses anything else.
+    let c = reqwest::Client::builder()
+        .default_headers(
+            [(
+                reqwest::header::HeaderName::from_static("x-forwarded-proto"),
+                reqwest::header::HeaderValue::from_static("https"),
+            )]
+            .into_iter()
+            .collect(),
+        )
+        .build()
+        .unwrap();
     // Even the right credentials: hooks and /v1 are simply not routed here.
     let r = c
         .post(format!("{base}/hooks/event"))
@@ -535,8 +546,10 @@ async fn tunnel_ingress_never_serves_hooks_or_the_bridge() {
         .send()
         .await
         .unwrap();
+    assert_eq!(r.status(), StatusCode::NOT_FOUND, "no bridge on the tunnel");
+    let body = r.text().await.unwrap();
     assert!(
-        r.json::<Value>().await.is_err(),
+        !body.contains("require_token"),
         "no bridge JSON on the tunnel"
     );
     // And nothing is ever local there, not even with the master token.
