@@ -527,14 +527,20 @@ async fn require_bridge_auth(
             )
             .into_response();
         }
-        if ctx.on_machine {
+        // A development server or reverse proxy on this machine (all its
+        // X-Forwarded-For hops loopback, nothing a tunnel adds) is a local
+        // tool too.
+        if ctx.on_machine
+            || crate::server::context::is_local_dev_proxy(ctx.ingress, ctx.peer, req.headers())
+        {
             return next.run(req).await;
         }
         return error::BridgeError::new(
             axum::http::StatusCode::UNAUTHORIZED,
             "tunneled_request_requires_token",
             "This request came through a proxy or tunnel; the tokenless mode is only for \
-             clients on this machine.",
+             clients on this machine (a development proxy here is fine when every \
+             X-Forwarded-For hop is loopback). From elsewhere, use a paired device's token.",
         )
         .into_response();
     }

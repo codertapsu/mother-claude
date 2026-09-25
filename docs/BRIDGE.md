@@ -200,10 +200,16 @@ file in the app data directory (see [REMOTE.md](REMOTE.md#for-scripts)); a paire
 device uses its own token.
 
 "From this machine" means a loopback connection with a loopback `Host` and no
-proxy headers. A request that came through a tunnel or proxy always needs a
-token (`401 tunneled_request_requires_token`), and while Mother Claude sees a
-tunnel pointing at this port the tokenless mode is off for everyone
-(`401 bridge_exposed_requires_token`) until that tunnel stops.
+proxy headers. A development server or reverse proxy on this Mac (Next.js
+rewrites, `http-proxy` with `xfwd`, a local nginx or Caddy) counts too when the
+only proxy headers are `X-Forwarded-*`, every `X-Forwarded-For` hop is a
+loopback address and `X-Forwarded-Host` (if sent) names `localhost`, `127.x` or
+`[::1]`. A request that came through a tunnel — a non-loopback hop, or headers
+a tunnel adds (`cf-*`, `ngrok-*`, `tailscale-*`, `Via`, `Forwarded`, …) — needs
+a paired device's token (`401 tunneled_request_requires_token`; the desktop and
+`token`-file credentials are only accepted from this machine), and while
+Mother Claude sees a tunnel pointing at this port the tokenless mode is off for
+everyone (`401 bridge_exposed_requires_token`) until that tunnel stops.
 
 The `/v1` mount on the main app port always requires a token, because that
 listener is reachable from your LAN.
@@ -619,7 +625,7 @@ Every failure is the same envelope, with context fields flattened alongside:
 | 400 | `invalid_json`, `invalid_multipart` | Fix the body |
 | 401 | `unauthorized` | Present the API token |
 | 401 | `claude_login_required` | Claude itself is signed out — run `claude` and `/login` |
-| 401 | `tunneled_request_requires_token`, `bridge_exposed_requires_token` | The request came through a tunnel, or a tunnel points at the port: send a token |
+| 401 | `tunneled_request_requires_token`, `bridge_exposed_requires_token` | The request came through a tunnel (or a proxy with a non-loopback hop), or a tunnel points at the port: send a paired device's token |
 | 403 | `dangerous_blocked`, `untrusted_cwd`, `file_id_not_accepted` | Do it from a local client (or a device granted dangerous actions), or don't |
 | 403 | `origin_not_allowed` | Add the page's origin to `MOTHER_CLAUDE_BRIDGE_ORIGINS` |
 | 404 | `thread_not_found`, `turn_not_found`, `operation_not_found`, `request_not_found`, `not_found` | Check the id; operations do not survive a restart |
