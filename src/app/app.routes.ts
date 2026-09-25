@@ -7,11 +7,24 @@ export const routes: Routes = [
       import('./pages/sessions/sessions.component').then((m) => m.SessionsComponent),
   },
   {
+    path: 'inbox',
+    loadComponent: () => import('./pages/inbox/inbox.component').then((m) => m.InboxComponent),
+  },
+  {
+    path: 'agents',
+    loadComponent: () => import('./pages/agents/agents.component').then((m) => m.AgentsComponent),
+  },
+  {
     path: 'session/:id',
     loadComponent: () =>
       import('./pages/session-detail/session-detail.component').then(
         (m) => m.SessionDetailComponent,
       ),
+  },
+  {
+    path: 'session/:id/agent/:agentId',
+    loadComponent: () =>
+      import('./pages/agent-view/agent-view.component').then((m) => m.AgentViewComponent),
   },
   // Phone entry: #/pair?c=CODE from a QR code, or a typed code.
   {
