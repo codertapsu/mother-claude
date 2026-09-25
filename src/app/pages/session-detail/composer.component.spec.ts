@@ -6,7 +6,7 @@ import { FakeBackend, flush, useFakeServer } from '../../core/mock/fake-server.t
 import { setActiveMock } from '../../core/mock/mock-api';
 import { ControlCaps, SessionDetail } from '../../core/models';
 import { RealtimeService } from '../../core/realtime.service';
-import { ComposerComponent } from './composer.component';
+import { ComposerComponent, remainderAfterSend } from './composer.component';
 import { SessionContext } from './session-context';
 
 interface Reply {
@@ -15,8 +15,18 @@ interface Reply {
 }
 
 interface ComposerInternals {
+  text: WritableSignal<string>;
   palette: WritableSignal<'slash' | 'files' | null>;
+  submit(how: 'send'): Promise<void>;
 }
+
+describe('remainderAfterSend', () => {
+  it('keeps what was typed after the sent text', () => {
+    expect(remainderAfterSend('hello', 'hello')).toBe('');
+    expect(remainderAfterSend('hello\nand more', 'hello')).toBe('and more');
+    expect(remainderAfterSend('rewritten', 'hello')).toBe('rewritten');
+  });
+});
 
 describe('ComposerComponent', () => {
   let backend: FakeBackend;
@@ -54,6 +64,18 @@ describe('ComposerComponent', () => {
   });
 
   afterEach(() => setActiveMock(null));
+
+  it('keeps text typed while a send is in flight', async () => {
+    let answer!: (r: Reply) => void;
+    backend.routes.set('/sessions/s1/message', () => new Promise<Reply>((r) => (answer = r)));
+    type('first message');
+    const sent = cmp.submit('send');
+    await flush();
+    type('first message\nsecond thought');
+    answer({ status: 200, body: { delivery: 'sent', messageId: 'm1' } });
+    await sent;
+    expect(cmp.text()).toBe('second thought');
+  });
 
   it('ignores a /commands answer that arrives after the text moved on', async () => {
     let answer!: (r: Reply) => void;
