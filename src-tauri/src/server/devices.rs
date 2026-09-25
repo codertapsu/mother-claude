@@ -196,6 +196,9 @@ pub struct DeviceStore {
     inner: Mutex<Inner>,
     /// `<app data dir>/audit.jsonl` (in memory only without a data dir).
     pub audit: audit::AuditLog,
+    /// Bumped whenever a device is revoked or forgotten, so long-running
+    /// responses opened with its token can end ([`DeviceStore::until_revoked`]).
+    revocations: tokio::sync::watch::Sender<u64>,
 }
 
 impl Default for DeviceStore {
@@ -246,6 +249,7 @@ impl DeviceStore {
             .unwrap_or(DEFAULT_IDLE_DAYS);
         Self {
             audit: audit::AuditLog::new(data_dir.map(|d| d.join("audit.jsonl"))),
+            revocations: tokio::sync::watch::channel(0).0,
             path,
             inner: Mutex::new(Inner {
                 file,
@@ -499,7 +503,33 @@ impl DeviceStore {
         d.allow_dangerous = false;
         d.allow_dangerous_internet = false;
         self.persist_locked(&mut g);
+        drop(g);
+        self.revocations.send_modify(|n| *n = n.wrapping_add(1));
         true
+    }
+
+    /// Whether `id` is a known, unrevoked device.
+    pub fn is_active(&self, id: &str) -> bool {
+        self.lock()
+            .file
+            .devices
+            .iter()
+            .any(|d| d.id == id && !d.revoked)
+    }
+
+    /// Completes once device `id` is revoked or forgotten (at once if it
+    /// already is). Long-running responses opened with its token race this.
+    pub async fn until_revoked(&self, id: &str) {
+        let mut rx = self.revocations.subscribe();
+        loop {
+            if !self.is_active(id) {
+                return;
+            }
+            if rx.changed().await.is_err() {
+                // The store is going away; nothing will be revoked any more.
+                std::future::pending::<()>().await;
+            }
+        }
     }
 
     /// Forget a revoked device entirely.
@@ -511,6 +541,8 @@ impl DeviceStore {
         if removed {
             g.recent.remove(id);
             self.persist_locked(&mut g);
+            drop(g);
+            self.revocations.send_modify(|n| *n = n.wrapping_add(1));
         }
         removed
     }

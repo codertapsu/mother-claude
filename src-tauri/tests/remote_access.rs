@@ -727,6 +727,54 @@ async fn revoking_a_device_closes_its_sockets_and_kills_every_token() {
 }
 
 #[tokio::test]
+async fn revoking_a_device_ends_its_open_bridge_streams() {
+    let st = state();
+    mother_claude_lib::bridge::control::start(&st, Default::default())
+        .await
+        .unwrap();
+    let base = serve(server::router_for(st.clone(), Ingress::Loopback)).await;
+    let (info, token) = st.devices.issue(
+        "Lost phone",
+        "ios",
+        None,
+        Ingress::Lan,
+        "192.168.1.60".parse().unwrap(),
+    );
+    let mut r = reqwest::Client::new()
+        .get(format!("{base}/v1/events"))
+        .bearer_auth(&token)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), StatusCode::OK);
+    assert!(r.headers()["content-type"]
+        .to_str()
+        .unwrap()
+        .starts_with("text/event-stream"));
+    assert!(mother_claude_lib::server::devices::revoke(
+        &st, &info.id, "revoked"
+    ));
+    // The open stream ends with a terminal frame naming why.
+    let mut seen = String::new();
+    let ended = tokio::time::timeout(Duration::from_secs(5), async {
+        while let Some(chunk) = r.chunk().await.unwrap() {
+            seen.push_str(&String::from_utf8_lossy(&chunk));
+        }
+    })
+    .await;
+    assert!(ended.is_ok(), "the stream ended: {seen}");
+    assert!(seen.contains("device_revoked"), "{seen}");
+    // And the token opens nothing new.
+    let r = reqwest::Client::new()
+        .get(format!("{base}/v1/events"))
+        .bearer_auth(&token)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
 async fn a_device_can_unpair_itself() {
     let (local, tunnel, st) = boot().await;
     let (id, token) = pair_device(&local, &tunnel, &st, "203.0.113.71").await;
