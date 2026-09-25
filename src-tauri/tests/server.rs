@@ -199,17 +199,17 @@ async fn credentials_are_accepted_only_where_they_belong() {
     assert!(pairing["svg"].as_str().unwrap().contains("<svg"));
     assert!(!pairing.to_string().contains(&master));
 
-    // Unregistered owners answer 501 with the envelope.
+    // A bogus pairing code answers with the envelope.
     let r = c
         .post(format!("{base}/api/pair/exchange"))
         .json(&json!({ "code": "X" }))
         .send()
         .await
         .unwrap();
-    assert_eq!(r.status(), StatusCode::NOT_IMPLEMENTED);
+    assert_eq!(r.status(), StatusCode::NOT_FOUND);
     assert_eq!(
         r.json::<Value>().await.unwrap()["error"]["code"],
-        "not_implemented"
+        "invalid_code"
     );
 
     // The retired settings.json hook installer is gone.

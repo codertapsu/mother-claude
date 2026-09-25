@@ -67,11 +67,16 @@ pub fn api_router() -> Router<AppState> {
     // No credential needed.
     let public = Router::new()
         .route("/health", get(data::health))
-        .route("/pair/exchange", post(pairing::exchange))
-        .route("/pair/pending/{pending_id}", get(pairing::pending_status));
+        .route(
+            "/pair/exchange",
+            post(pairing::exchange).layer(DefaultBodyLimit::max(pairing::PAIR_BODY_MAX)),
+        )
+        .route("/pair/pending/{pending_id}", get(pairing::pending_status))
+        .route("/pair/ca.crt", get(pairing::ca_cert))
+        .route("/pair/ca.mobileconfig", get(pairing::ca_mobileconfig));
 
     let protected = Router::new()
-        .route("/me", get(me))
+        .route("/me", get(me).delete(pairing::unpair_self))
         // ── data (B2) ──
         .route(
             "/sessions",
@@ -124,7 +129,7 @@ pub fn api_router() -> Router<AppState> {
         .route("/control/foreign/uninstall", post(foreign::uninstall))
         .route("/hooks/install", post(foreign::legacy_install_hooks))
         // ── pairing / devices (B1) ──
-        .route("/pair/codes", post(pairing::create_code))
+        .route("/pair/codes", post(pairing::create_code).layer(DefaultBodyLimit::max(pairing::PAIR_BODY_MAX)))
         .route("/pairing", get(pairing::legacy_pairing))
         .route("/devices", get(pairing::list_devices))
         .route("/devices/pending/{pending_id}/approve", post(pairing::approve))
