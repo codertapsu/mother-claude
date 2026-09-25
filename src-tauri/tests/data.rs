@@ -632,3 +632,72 @@ async fn websocket_subscriptions_get_appends_and_bounded_replays() {
     assert!(!st.hub.is_subscribed(LIVE, Some("../x")));
     let _ = ws.close(None).await;
 }
+
+/// The production loop (`monitor::run`) indexes history in the background,
+/// writes `index-cache.json`, and on the next start adopts the checkpoints
+/// instead of rescanning: a marker planted in the checkpoint shows up.
+#[tokio::test]
+async fn monitor_run_writes_and_resumes_from_checkpoints() {
+    let home_dir = tempfile::tempdir().unwrap();
+    let data_dir = tempfile::tempdir().unwrap();
+    let proj = home_dir.path().join("projects/-tmp-cp");
+    std::fs::create_dir_all(&proj).unwrap();
+    std::fs::create_dir_all(home_dir.path().join("sessions")).unwrap();
+    std::fs::write(
+        proj.join(format!("{ENDED}.jsonl")),
+        lines(&[
+            json!({"type":"user","uuid":"c1","timestamp":iso(now()-5000),"cwd":"/tmp/cp","message":{"content":"hi"}}),
+            json!({"type":"custom-title","customTitle":"From the transcript"}),
+        ]),
+    )
+    .unwrap();
+    let boot = || {
+        let mut auth = Auth::ephemeral();
+        auth.config_dir = Some(data_dir.path().to_path_buf());
+        Inner::new(
+            ClaudeHome::with_base(home_dir.path()),
+            ServerConfig {
+                host: "127.0.0.1".into(),
+                port: 0,
+            },
+            auth,
+        )
+    };
+    async fn name_of(st: &AppState) -> Option<String> {
+        for _ in 0..100 {
+            if let Some(s) = st.find_session(ENDED).await {
+                return Some(s.name);
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        None
+    }
+    let cache = data_dir.path().join("index-cache.json");
+
+    // First run: indexed by the worker, checkpoint written when it drains.
+    let st = boot();
+    let task = tokio::spawn(monitor::run(st.clone()));
+    let mut named = None;
+    for _ in 0..100 {
+        named = st.find_session(ENDED).await.map(|s| s.name);
+        if named.as_deref() == Some("From the transcript") && cache.is_file() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    task.abort();
+    assert_eq!(named.as_deref(), Some("From the transcript"));
+    assert!(cache.is_file(), "checkpoint written");
+
+    // Plant a marker in the checkpoint; an adopted checkpoint shows it.
+    let mut v: Value = serde_json::from_slice(&std::fs::read(&cache).unwrap()).unwrap();
+    for f in v["files"].as_array_mut().unwrap() {
+        f["agg"]["customTitle"] = json!("FROM-CACHE");
+    }
+    std::fs::write(&cache, serde_json::to_vec(&v).unwrap()).unwrap();
+    let st = boot();
+    let task = tokio::spawn(monitor::run(st.clone()));
+    let name = name_of(&st).await;
+    task.abort();
+    assert_eq!(name.as_deref(), Some("FROM-CACHE"));
+}

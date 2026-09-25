@@ -299,12 +299,13 @@ async fn run_cycle(state: &AppState, cycle: &mut Cycle, trigger: Trigger) {
                 }
             }
         }
+        if first {
+            // Checkpoints from the previous run (no-op after the first call).
+            state.index.load_cache();
+        }
         if discover {
             let changed = state.index.discover(&state.home);
             touched_sessions.extend(changed);
-            if first {
-                state.index.queue_all();
-            }
         }
         for sid in &rediscover {
             state.index.rediscover_session(sid);
@@ -320,6 +321,10 @@ async fn run_cycle(state: &AppState, cycle: &mut Cycle, trigger: Trigger) {
         let watched: HashSet<String> = subs.iter().map(|(s, _)| s.clone()).collect();
         for sid in live.iter().chain(watched.iter()) {
             state.index.ensure(sid, true);
+        }
+        if first {
+            // History goes to the background worker, most recent first.
+            state.index.queue_all();
         }
         for sid in &touched_sessions {
             if !live.contains(sid) {
@@ -351,7 +356,12 @@ async fn run_cycle(state: &AppState, cycle: &mut Cycle, trigger: Trigger) {
         if agents_live_due || first {
             agents_due.extend(live.iter().cloned());
         }
-        agents_due.extend(watched.iter().cloned());
+        agents_due.extend(
+            watched
+                .iter()
+                .filter(|s| !state.agents.has_session(s))
+                .cloned(),
+        );
         let now = now_ms();
         let mut agents_changed: Vec<String> = Vec::new();
         for sid in &agents_due {
