@@ -149,7 +149,9 @@ device, ingress and client address.
 ## Hooks & secrets
 
 Foreign-session control ships as a Claude Code plugin that authenticates with its
-own hook token, accepted only from local requests on `/hooks/*`.
+own hook token, accepted only from local requests on `/hooks/*`. The hook token
+is new at every launch; the plugin's scripts read it from `hook.curlrc` (0600, in
+the app data dir), which the app rewrites at startup.
 
 Tokens, certificates and keys are created at runtime in the app data dir and are
 **never committed** (`.gitignore` excludes `*.pem`, `*.key`, `*.token`).

@@ -5,7 +5,7 @@
 //! | desktop token (new every launch, in memory, `server_info` invoke only) | none | only when `ctx.local` | `Desktop` |
 //! | local-script token (persisted `token` file, 0600) | none | only when `ctx.local` | `LocalScript` |
 //! | device token (pairing exchange) | `mcd_` | any ingress | `Device` |
-//! | hook token (persisted `hook-token` file, 0600) | `mch_` | only when `ctx.local` | `Hook` |
+//! | hook token (new every launch; `hook.curlrc`, 0600, for the plugin) | `mch_` | only when `ctx.local` | `Hook` |
 //! | sidecar token (per run, child env) | `mcs_` | only when `ctx.local` | `Sidecar` |
 //!
 //! `LocalScript` reaches data and control routes but never admin routes
@@ -97,9 +97,11 @@ impl Auth {
         }
     }
 
-    /// A new desktop token for this launch; load the persisted local-script
-    /// and hook tokens from the app data dir, generating and persisting them
-    /// (0600) on first run.
+    /// New desktop and hook tokens for this launch; load the persisted
+    /// local-script token from the app data dir, generating and persisting it
+    /// (0600) on first run. The hook token reaches the foreign-control plugin
+    /// only through `hook.curlrc`, which `claude::hooks::on_start` rewrites at
+    /// every launch (the scripts re-read it on every call).
     pub fn load_or_create() -> Self {
         let config_dir = app_config_dir();
         let script_token = config_dir
@@ -112,11 +114,11 @@ impl Auth {
         while token == script_token {
             token = new_master_token();
         }
-        let hook_token = config_dir
-            .as_deref()
-            .map(|d| load_or_create_secret(&d.join("hook-token"), || random_token(HOOK_PREFIX)))
-            .filter(|t| t.starts_with(HOOK_PREFIX))
-            .unwrap_or_else(|| random_token(HOOK_PREFIX));
+        let hook_token = random_token(HOOK_PREFIX);
+        if let Some(dir) = config_dir.as_deref() {
+            // The hook token used to be persisted; that file is stale now.
+            let _ = std::fs::remove_file(dir.join("hook-token"));
+        }
         Self {
             token,
             script_token,
