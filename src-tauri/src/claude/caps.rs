@@ -348,11 +348,9 @@ pub fn compute(input: &CapsInput) -> ControlCaps {
         caps.attach = AttachCap::Path;
         caps.approve = input.hooks_active;
         caps.answer = input.hooks_active;
-        caps.set_mode = if input.hooks_active {
-            SetModeCap::OnPrompt
-        } else {
-            SetModeCap::None
-        };
+        // No channel can switch a foreign session's permission mode yet (a
+        // hook reply cannot, and Shift+Tab only cycles): never offer it.
+        caps.set_mode = SetModeCap::None;
         caps.approve_via = if input.hooks_active {
             ApproveVia::Hook
         } else {
@@ -392,7 +390,7 @@ pub fn compute(input: &CapsInput) -> ControlCaps {
         caps.approve = true;
         caps.answer = true;
         caps.interrupt = InterruptCap::NextTool;
-        caps.set_mode = SetModeCap::OnPrompt;
+        caps.set_mode = SetModeCap::None;
         caps.approve_via = ApproveVia::Hook;
         // Files are uploaded and referenced as `@<path>` in the relayed text.
         caps.attach = AttachCap::Path;
@@ -511,7 +509,7 @@ mod tests {
         assert!(c.approve && c.answer && c.slash_commands && c.set_model && c.set_effort);
         assert!(c.keys && c.terminal && c.fork && c.continue_owned);
         assert_eq!(c.approve_via, ApproveVia::Hook);
-        assert_eq!(c.set_mode, SetModeCap::OnPrompt);
+        assert_eq!(c.set_mode, SetModeCap::None, "POST /mode refuses tmux");
         assert_eq!(c.rename, RenameCap::Sync);
         assert!(has(&c, codes::TMUX_BEST_EFFORT) && has(&c, codes::TMUX_SETTINGS));
         assert!(!has(&c, codes::APPROVE_WITH_KEYS));
@@ -563,7 +561,7 @@ mod tests {
         assert_eq!(c.message, MessageCap::Relay);
         assert!(c.approve && c.answer && c.fork && c.continue_owned && c.wake);
         assert_eq!(c.interrupt, InterruptCap::NextTool);
-        assert_eq!(c.set_mode, SetModeCap::OnPrompt);
+        assert_eq!(c.set_mode, SetModeCap::None, "POST /mode refuses hooks");
         assert_eq!(c.approve_via, ApproveVia::Hook);
         assert!(!c.set_model && !c.slash_commands && !c.keys && !c.terminal);
         assert_eq!(c.rename, RenameCap::None);
