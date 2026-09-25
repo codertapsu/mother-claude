@@ -366,7 +366,9 @@ function buildOptions(sessionId: string, opts: SessionOptions, session: () => Se
         return {
           behavior: 'allow',
           updatedInput: decision.updatedInput ?? (input as Record<string, unknown>),
-          ...(decision.updatedPermissions ? { updatedPermissions: decision.updatedPermissions } : {}),
+          ...(decision.updatedPermissions
+            ? { updatedPermissions: decision.updatedPermissions }
+            : {}),
         };
       }
       return {
@@ -381,8 +383,10 @@ function buildOptions(sessionId: string, opts: SessionOptions, session: () => Se
   if (opts.thinking === 'off') options.thinking = { type: 'disabled' };
   else if (opts.thinking === 'on') options.thinking = { type: 'adaptive' };
   if (opts.allowedTools?.length) options.allowedTools = opts.allowedTools;
-  if (opts.additionalDirectories?.length) options.additionalDirectories = opts.additionalDirectories;
-  if (opts.settingSources) options.settingSources = opts.settingSources as Options['settingSources'];
+  if (opts.additionalDirectories?.length)
+    options.additionalDirectories = opts.additionalDirectories;
+  if (opts.settingSources)
+    options.settingSources = opts.settingSources as Options['settingSources'];
   if (opts.maxTurns) options.maxTurns = opts.maxTurns;
   if (opts.maxBudgetUsd) options.maxBudgetUsd = opts.maxBudgetUsd;
   if (opts.title) options.title = opts.title;
@@ -577,11 +581,7 @@ async function createSession(params: Record<string, unknown>): Promise<Record<st
   // should be an HTTP error, while everything else returns straight away and
   // surfaces on the first turn, where it belongs.
   const grace = Number(params.readyGraceMs ?? 250);
-  await Promise.race([
-    ready,
-    ended,
-    new Promise<void>((resolve) => setTimeout(resolve, grace)),
-  ]);
+  await Promise.race([ready, ended, new Promise<void>((resolve) => setTimeout(resolve, grace))]);
   if (session.closed) {
     throw new HostError('claude_error', `Conversation ${sessionId} ended before it could start.`);
   }
@@ -645,10 +645,7 @@ const handlers: Record<string, Handler> = {
     // interrupted while the caller's turn completed normally.
     const turnId = session.turnId;
     if (expected && turnId && expected !== turnId) {
-      throw new HostError(
-        'invalid_state',
-        `Turn ${expected} is not the running turn (${turnId}).`,
-      );
+      throw new HostError('invalid_state', `Turn ${expected} is not the running turn (${turnId}).`);
     }
     if (expected && !turnId) {
       return { sessionId: session.id, turnId: null, alreadyFinished: true };
@@ -685,10 +682,18 @@ const handlers: Record<string, Handler> = {
     return { sessionId: session.id, permissionMode: mode };
   },
 
-  'session.models': async (params) => ({ models: await requireSession(params.sessionId).query.supportedModels() }),
-  'session.commands': async (params) => ({ commands: await requireSession(params.sessionId).query.supportedCommands() }),
-  'session.agents': async (params) => ({ agents: await requireSession(params.sessionId).query.supportedAgents() }),
-  'session.mcpStatus': async (params) => ({ servers: await requireSession(params.sessionId).query.mcpServerStatus() }),
+  'session.models': async (params) => ({
+    models: await requireSession(params.sessionId).query.supportedModels(),
+  }),
+  'session.commands': async (params) => ({
+    commands: await requireSession(params.sessionId).query.supportedCommands(),
+  }),
+  'session.agents': async (params) => ({
+    agents: await requireSession(params.sessionId).query.supportedAgents(),
+  }),
+  'session.mcpStatus': async (params) => ({
+    servers: await requireSession(params.sessionId).query.mcpServerStatus(),
+  }),
   'session.contextUsage': (params) => requireSession(params.sessionId).query.getContextUsage(),
   'session.accountInfo': (params) => requireSession(params.sessionId).query.accountInfo(),
   'session.initResult': (params) => requireSession(params.sessionId).query.initializationResult(),
@@ -747,21 +752,21 @@ const handlers: Record<string, Handler> = {
 
   // --- offline: these read ~/.claude/projects without a subprocess ---------
 
-  'store.list': async (params) =>
-    ({
-      sessions: await listSessions({
-        ...dir(params),
-        ...(typeof params.limit === 'number' ? { limit: params.limit } : {}),
-        ...(typeof params.offset === 'number' ? { offset: params.offset } : {}),
-        ...(typeof params.includeWorktrees === 'boolean'
-          ? { includeWorktrees: params.includeWorktrees }
-          : {}),
-      }),
+  'store.list': async (params) => ({
+    sessions: await listSessions({
+      ...dir(params),
+      ...(typeof params.limit === 'number' ? { limit: params.limit } : {}),
+      ...(typeof params.offset === 'number' ? { offset: params.offset } : {}),
+      ...(typeof params.includeWorktrees === 'boolean'
+        ? { includeWorktrees: params.includeWorktrees }
+        : {}),
     }),
+  }),
 
   'store.info': async (params) => {
     const info = await getSessionInfo(String(params.sessionId), dir(params));
-    if (!info) throw new HostError('thread_not_found', `No conversation ${String(params.sessionId)}.`);
+    if (!info)
+      throw new HostError('thread_not_found', `No conversation ${String(params.sessionId)}.`);
     return info;
   },
 
@@ -789,7 +794,11 @@ const handlers: Record<string, Handler> = {
   }),
 
   'store.subagentMessages': async (params) => ({
-    messages: await getSubagentMessages(String(params.sessionId), String(params.agentId), dir(params)),
+    messages: await getSubagentMessages(
+      String(params.sessionId),
+      String(params.agentId),
+      dir(params),
+    ),
   }),
 
   'store.fork': (params) =>
@@ -846,7 +855,13 @@ async function dispatch(line: string): Promise<void> {
   const op = String(command.op ?? '');
   const handler = handlers[op];
   if (!handler) {
-    if (id) send({ t: 'reply', id, ok: false, error: { code: 'unknown_method', message: `Unknown op ${op}.` } });
+    if (id)
+      send({
+        t: 'reply',
+        id,
+        ok: false,
+        error: { code: 'unknown_method', message: `Unknown op ${op}.` },
+      });
     return;
   }
   try {
