@@ -558,7 +558,7 @@ pub fn build_one(state: &AppState, id: &str, ctx: &BuildCtx) -> Option<SessionSu
         text: e.text.clone(),
         at: e.at,
     });
-    Some(SessionSummary {
+    let mut summary = SessionSummary {
         id: id.to_string(),
         name,
         title,
@@ -618,7 +618,13 @@ pub fn build_one(state: &AppState, id: &str, ctx: &BuildCtx) -> Option<SessionSu
             .filter(|on| *on),
         control,
         cli_name: pid.as_ref().and_then(|p| p.name.clone()),
-    })
+    };
+    if owned_handle {
+        // What the control protocol reported (model, mode, effort, queue,
+        // activity) wins over what the files say.
+        super::owned::overlay(state, &mut summary);
+    }
+    Some(summary)
 }
 
 /// A just-spawned owned session that no data source knows yet.
@@ -740,7 +746,34 @@ pub async fn detail(state: &AppState, summary: SessionSummary) -> SessionDetail 
             (tasks, f.agg.todos.clone().unwrap_or_default(), files)
         })
         .unwrap_or_default();
-    let queued_messages = crate::server::hooks::queued(state, &id);
+    let mut queued_messages = crate::server::hooks::queued(state, &id);
+    let (mut agents_detail, mut tasks) = (agents_detail, tasks);
+    if summary.owned {
+        // An owned session's control protocol reports its queue, subagents
+        // and background tasks live; merge them over what the files show.
+        for q in super::owned::queued(state, &id) {
+            if !queued_messages.iter().any(|m| m.id == q.id) {
+                queued_messages.push(q);
+            }
+        }
+        let (owned_agents, owned_tasks) = super::owned::tasks(state, &id);
+        for a in owned_agents {
+            // Same rule as the owned `agents` frame: the disk view wins, the
+            // control protocol adds what the files don't show yet.
+            let dup = agents_detail.iter().any(|b| {
+                b.id == a.id || (a.tool_use_id.is_some() && b.tool_use_id == a.tool_use_id)
+            });
+            if !dup {
+                agents_detail.push(a);
+            }
+        }
+        for t in owned_tasks {
+            match tasks.iter_mut().find(|x| x.id == t.id) {
+                Some(x) => *x = t,
+                None => tasks.push(t),
+            }
+        }
+    }
     SessionDetail {
         pending_detail: pending_detail(state, &id),
         summary,
