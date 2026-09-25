@@ -20,7 +20,6 @@ use serde::{Deserialize, Serialize};
 use super::control::OwnedSessionMeta;
 use super::home::ClaudeHome;
 use super::schema::{AgentEntry, ContentBlock, MessageContent, StateJson, TranscriptEvent};
-use super::transcript::read_all;
 
 /// Window (ms) within which recent transcript activity counts as "working".
 const WORKING_WINDOW_MS: i64 = 20_000;
@@ -629,7 +628,19 @@ fn truncate_chars(s: &str, max: usize) -> String {
 /// Scan every transcript under `projects/` into summaries. I/O errors per
 /// file are logged and skipped.
 pub fn scan_transcripts(home: &ClaudeHome) -> Vec<TranscriptSummary> {
+    use std::sync::{Mutex, OnceLock};
+
+    use super::index::{FileIndex, FileKind};
+
+    // Incremental and streaming: one `FileIndex` per transcript, kept across
+    // calls, so only appended bytes are read again and no file is ever loaded
+    // whole (transcripts reach hundreds of MB, lines tens of MB).
+    static CACHE: OnceLock<Mutex<HashMap<std::path::PathBuf, FileIndex>>> = OnceLock::new();
+    let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+    let mut cache = cache.lock().unwrap_or_else(|p| p.into_inner());
+
     let mut out = Vec::new();
+    let mut seen = HashSet::new();
     let projects = home.projects_dir();
     let Ok(project_dirs) = std::fs::read_dir(&projects) else {
         return out;
@@ -650,14 +661,63 @@ pub fn scan_transcripts(home: &ClaudeHome) -> Vec<TranscriptSummary> {
             let Some(id) = path.file_stem().and_then(|s| s.to_str()) else {
                 continue;
             };
-            match read_all(&path) {
-                Ok(events) if !events.is_empty() => out.push(summarize_transcript(id, &events)),
-                Ok(_) => {}
-                Err(e) => tracing::debug!(path = %path.display(), error = %e, "skip transcript"),
+            seen.insert(path.clone());
+            let fi = cache
+                .entry(path.clone())
+                .or_insert_with(|| FileIndex::new(path.clone(), FileKind::Main, id));
+            if let Err(e) = fi.scan(None) {
+                tracing::debug!(path = %path.display(), error = %e, "skip transcript");
+                continue;
             }
+            if fi.offset == 0 {
+                continue;
+            }
+            out.push(summary_from_index(id, fi));
         }
     }
+    cache.retain(|p, _| seen.contains(p));
     out
+}
+
+/// A legacy [`TranscriptSummary`] from the index aggregates of a file.
+fn summary_from_index(id: &str, fi: &super::index::FileIndex) -> TranscriptSummary {
+    let a = &fi.agg;
+    let t = a.usage.total();
+    TranscriptSummary {
+        id: id.to_string(),
+        cwd: a.cwd.clone(),
+        surface: a
+            .entrypoint
+            .as_deref()
+            .map(Surface::from_entrypoint)
+            .unwrap_or_default(),
+        model: a.display_model().map(str::to_string),
+        title: a.custom_title.clone().or_else(|| a.ai_title.clone()),
+        git_branch: a.git_branch.clone(),
+        started_at: a.first_ts,
+        last_activity: a.last_ts,
+        message_count: t.messages + a.prompts,
+        usage: UsageSummary {
+            input_tokens: t.input,
+            output_tokens: t.output,
+            cache_read_tokens: t.cache_read,
+            cache_creation_tokens: t.cache_write,
+            total_tokens: t.input + t.output + t.cache_read + t.cache_write,
+        },
+        pending: None,
+        tasks: a
+            .tasks
+            .iter()
+            .map(|b| BackgroundTask {
+                id: b.id.clone(),
+                kind: b.kind.clone(),
+                label: b.label.clone(),
+                status: b.status.clone(),
+                started_at: b.started_at,
+                ended_at: b.ended_at,
+            })
+            .collect(),
+    }
 }
 
 /// Read every `jobs/<id>/state.json` into a map keyed by session id.
@@ -1348,5 +1408,45 @@ mod tests {
         ));
         assert_eq!(r[0].state, SessionState::Completed);
         assert!(r[0].pending.is_none());
+    }
+
+    #[test]
+    fn scan_transcripts_streams_incrementally() {
+        use std::io::Write;
+        let dir = tempfile::tempdir().unwrap();
+        let home = ClaudeHome::with_base(dir.path());
+        let proj = home.transcript_dir("/Users/dev/scan");
+        std::fs::create_dir_all(&proj).unwrap();
+        let path = proj.join("scan-1.jsonl");
+        std::fs::write(
+            &path,
+            concat!(
+                r#"{"type":"user","timestamp":"2026-06-23T08:00:00.000Z","cwd":"/Users/dev/scan","entrypoint":"claude-vscode","message":{"content":"hi"}}"#,
+                "\n",
+                r#"{"type":"custom-title","customTitle":"Scanned"}"#,
+                "\n",
+            ),
+        )
+        .unwrap();
+        std::fs::write(proj.join("empty.jsonl"), "").unwrap();
+        let all = scan_transcripts(&home);
+        let s = all.iter().find(|t| t.id == "scan-1").unwrap();
+        assert_eq!(s.cwd.as_deref(), Some("/Users/dev/scan"));
+        assert_eq!(s.title.as_deref(), Some("Scanned"));
+        assert_eq!(s.surface, Surface::VsCode);
+        assert!(all.iter().all(|t| t.id != "empty"));
+        let mut f = std::fs::OpenOptions::new()
+            .append(true)
+            .open(&path)
+            .unwrap();
+        writeln!(
+            f,
+            r#"{{"type":"assistant","timestamp":"2026-06-23T08:00:01.000Z","message":{{"id":"m1","model":"claude-opus-4-8","content":[{{"type":"text","text":"yo"}}],"usage":{{"input_tokens":3,"output_tokens":4}}}}}}"#
+        )
+        .unwrap();
+        let again = scan_transcripts(&home);
+        let s = again.iter().find(|t| t.id == "scan-1").unwrap();
+        assert_eq!(s.usage.output_tokens, 4);
+        assert_eq!(s.model.as_deref(), Some("claude-opus-4-8"));
     }
 }

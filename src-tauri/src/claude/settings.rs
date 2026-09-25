@@ -132,6 +132,63 @@ pub fn read_launch_defaults(home: &ClaudeHome) -> LaunchDefaults {
     }
 }
 
+/// `~/.claude.json` `projects` keys whose workspace-trust dialog was accepted
+/// (`hasTrustDialogAccepted`), read streaming (nothing else is kept — the
+/// file also holds account data that must never be served). Cached by mtime.
+pub fn trusted_projects(home: &ClaudeHome) -> Vec<String> {
+    use std::collections::BTreeMap;
+    use std::sync::{Mutex, OnceLock};
+
+    use serde::Deserialize;
+
+    use super::index::loose::{LBool, Obj};
+
+    #[derive(Default, Deserialize)]
+    #[serde(default)]
+    struct Entry {
+        #[serde(rename = "hasTrustDialogAccepted")]
+        trusted: LBool,
+    }
+    #[derive(Default, Deserialize)]
+    #[serde(default)]
+    struct Root {
+        projects: Obj<BTreeMap<String, Obj<Entry>>>,
+    }
+
+    type Cached = Option<(std::path::PathBuf, i64, Vec<String>)>;
+    static CACHE: OnceLock<Mutex<Cached>> = OnceLock::new();
+    let path = home.claude_json();
+    let mtime = std::fs::metadata(&path)
+        .ok()
+        .map(|m| super::index::stamp_of(&m).mtime);
+    let Some(mtime) = mtime else {
+        return Vec::new();
+    };
+    let cache = CACHE.get_or_init(|| Mutex::new(None));
+    if let Ok(g) = cache.lock() {
+        if let Some((p, m, v)) = g.as_ref() {
+            if *p == path && *m == mtime {
+                return v.clone();
+            }
+        }
+    }
+    let list: Vec<String> = std::fs::File::open(&path)
+        .ok()
+        .and_then(|f| serde_json::from_reader::<_, Root>(std::io::BufReader::new(f)).ok())
+        .and_then(|r| r.projects.0)
+        .map(|m| {
+            m.into_iter()
+                .filter(|(_, e)| e.get().is_some_and(|e| e.trusted.yes()))
+                .map(|(k, _)| k)
+                .collect()
+        })
+        .unwrap_or_default();
+    if let Ok(mut g) = cache.lock() {
+        *g = Some((path, mtime, list.clone()));
+    }
+    list
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

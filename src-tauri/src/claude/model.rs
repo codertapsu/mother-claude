@@ -194,10 +194,84 @@ pub struct ControlCaps {
     pub fork: bool,
     pub continue_owned: bool,
     pub lifecycle: LifecycleCaps,
-    /// Hook events were seen from this session recently.
+    /// Hook events arrived from this session since its current process
+    /// started (process-scoped: never decays while the process lives).
     pub hooks_active: bool,
-    /// Human-readable reasons/limits for the UI.
+    /// Deprecated free-text reasons (kept for compatibility while callers move
+    /// to [`ControlCaps::limits`]); new code reads `limits`.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
     pub notes: Vec<String>,
+    /// Why a control is unavailable or limited, each with an optional action
+    /// the UI turns into a button (design §10 B2).
+    pub limits: Vec<CapLimit>,
+    /// Renaming syncs to the session (`sync`), is a Mother Claude-only alias
+    /// (`alias`), or is impossible (`none`).
+    pub rename: RenameCap,
+    /// A terminal view is available (tmux pane / background job screen).
+    pub terminal: bool,
+    /// Raw keys can be sent (tmux only).
+    pub keys: bool,
+    /// How attachments reach the session: inline content blocks, file paths
+    /// inserted into the text, or not at all.
+    pub attach: AttachCap,
+    /// Through which channel approvals are answered from here.
+    pub approve_via: ApproveVia,
+    /// A `/hooks/wait` waiter is held right now, so an idle-session message is
+    /// delivered at once (else at the next PostToolUse/Stop).
+    pub wake: bool,
+}
+
+/// One limitation of a session's control surface (replaces free-text notes).
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct CapLimit {
+    /// Stable machine code, e.g. `foreign_control_not_installed`,
+    /// `hooks_not_loaded`, `session_ended`.
+    pub code: String,
+    /// One human-readable line.
+    pub text: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub action: Option<CapAction>,
+}
+
+/// The button a [`CapLimit`] offers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum CapAction {
+    InstallForeignControl,
+    ReloadPlugins,
+    ContinueOwned,
+    Fork,
+    OpenTerminal,
+    OpenOnDesktop,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum RenameCap {
+    Sync,
+    Alias,
+    #[default]
+    None,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum AttachCap {
+    Inline,
+    Path,
+    #[default]
+    None,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ApproveVia {
+    Control,
+    Hook,
+    Keys,
+    #[default]
+    None,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -290,12 +364,26 @@ pub struct SessionSummary {
     pub todos: Option<TodoSummary>,
     pub agents: AgentCounts,
     pub queued: u32,
-    pub pending: Vec<PendingItem>,
+    /// Light previews of what needs a human (design §10 B2): the full items
+    /// come from `GET /inbox`, `GET /sessions/{id}` (`pendingDetail`) and the
+    /// `pending{item}` WS frame.
+    pub pending: Vec<PendingPreview>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_error: Option<LastError>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub remote_control: Option<bool>,
     pub control: ControlCaps,
+    /// `costUsd` is an estimate: some usage was priced with the standard
+    /// table although it ran in a different speed tier, or had no known price.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cost_estimated: Option<bool>,
+    /// Lifetime usage/cost are still being computed (a live transcript was
+    /// bootstrapped from its tail; the full pass runs in the background).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub usage_partial: Option<bool>,
+    /// Pidfile `name` (the CLI's own session name, e.g. `mother-claude-25`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cli_name: Option<String>,
 }
 
 impl SessionSummary {
@@ -404,6 +492,115 @@ pub struct PendingItem {
     pub dangerous: bool,
     pub answerable: bool,
     pub created_at: i64,
+}
+
+/// Quick answers offered on a list card (single single-select question with
+/// at most four options).
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct QuickOptions {
+    pub options: Vec<String>,
+}
+
+/// What `SessionSummary.pending` carries: just enough for list cards and
+/// quick actions. Never contains the tool input, plan or question bodies.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PendingPreview {
+    pub id: String,
+    pub kind: PendingKind,
+    pub source: PendingSource,
+    pub title: String,
+    /// ≤ 240 chars.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub detail: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tool_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub agent_id: Option<String>,
+    pub dangerous: bool,
+    pub answerable: bool,
+    pub created_at: i64,
+    pub question_count: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub quick: Option<QuickOptions>,
+}
+
+/// Longest `PendingPreview.detail`.
+pub const PREVIEW_DETAIL_MAX: usize = 240;
+
+fn clip_chars(s: &str, max: usize) -> String {
+    if s.chars().count() <= max {
+        return s.to_string();
+    }
+    let mut out: String = s.chars().take(max.saturating_sub(1)).collect();
+    out.push('…');
+    out
+}
+
+impl From<&PendingItem> for PendingPreview {
+    fn from(p: &PendingItem) -> Self {
+        let questions = p.questions.as_deref().unwrap_or_default();
+        let quick = match (p.kind, questions) {
+            (PendingKind::Question, [q])
+                if !q.multi_select && (1..=4).contains(&q.options.len()) =>
+            {
+                Some(QuickOptions {
+                    options: q.options.iter().map(|o| o.label.clone()).collect(),
+                })
+            }
+            _ => None,
+        };
+        let detail = p
+            .detail
+            .clone()
+            .or_else(|| questions.first().map(|q| q.question.clone()))
+            .or_else(|| {
+                p.plan
+                    .as_deref()
+                    .map(|t| t.lines().next().unwrap_or("").to_string())
+            })
+            .filter(|d| !d.trim().is_empty())
+            .map(|d| clip_chars(&d, PREVIEW_DETAIL_MAX));
+        PendingPreview {
+            id: p.id.clone(),
+            kind: p.kind,
+            source: p.source,
+            title: clip_chars(&p.title, PREVIEW_DETAIL_MAX),
+            detail,
+            tool_name: p.tool_name.clone(),
+            agent_id: p.agent_id.clone(),
+            dangerous: p.dangerous,
+            answerable: p.answerable,
+            created_at: p.created_at,
+            question_count: questions.len() as u32,
+            quick,
+        }
+    }
+}
+
+/// Who resolved a pending item (`pendingResolved.by`).
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct ResolvedBy {
+    /// `device` | `desktop` | `host` | `timeout`.
+    pub kind: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+}
+
+/// Why a pending item disappeared (`pendingResolved` WS frame, produced by
+/// the pending store; forwarded to every client).
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PendingResolved {
+    pub id: String,
+    pub session: String,
+    /// `allowed` | `denied` | `answered` | `withdrawn` | `expired` | `cancelled`.
+    pub outcome: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub by: Option<ResolvedBy>,
+    pub at: i64,
 }
 
 // ─────────────────────────────────── 4.3 Agents ───────────────────────────────
@@ -611,6 +808,8 @@ pub struct SessionDetail {
     pub todos_detail: Vec<Todo>,
     pub queued_messages: Vec<QueuedMessage>,
     pub files_changed: Vec<FileChanged>,
+    /// The full pending items (store items first, then observed ones).
+    pub pending_detail: Vec<PendingItem>,
 }
 
 /// One session's running agents for `GET /api/agents` and the `fleet` frame.
@@ -619,7 +818,29 @@ pub struct SessionDetail {
 pub struct FleetSession {
     pub session_id: String,
     pub name: String,
+    /// Running agents: subagents, workflow agents, background shells and
+    /// monitors.
     pub agents: Vec<AgentInfo>,
+    /// Running workflow runs of the session.
+    pub workflows: Vec<WorkflowRun>,
+}
+
+/// Cross-session counts for the fleet header (`GET /agents`, `fleet` frame).
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct FleetSummary {
+    /// Live sessions currently working.
+    pub working: u32,
+    /// Running subagents + workflow agents across sessions.
+    pub agents_running: u32,
+    /// Running workflow runs.
+    pub workflows_running: u32,
+    /// Running background shells / monitors.
+    pub background_running: u32,
+    /// Sessions with an answerable pending item.
+    pub need_you: u32,
+    /// Sum of `costUsd` of sessions active since local midnight.
+    pub cost_today: f64,
 }
 
 // ────────────────────────────────── 4.4 UiEvent ───────────────────────────────
@@ -651,6 +872,8 @@ pub enum UiKind {
     Todos,
     Question,
     Plan,
+    /// A pending item was resolved (who allowed/denied what; timeline row).
+    Decision,
 }
 
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
@@ -722,6 +945,10 @@ pub struct UiEvent {
     /// Stable across reads (the record uuid plus block index), so clients can
     /// dedupe REST pages against live WS appends.
     pub id: String,
+    /// `message.id` of the API message this block belongs to (the client drops
+    /// a live `stream` bubble when a UiEvent with the same messageId arrives).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub message_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ts: Option<i64>,
     pub role: UiRole,
@@ -756,6 +983,10 @@ pub struct TranscriptPage {
     pub before: Option<String>,
     /// Cursor for `sub{since}` / live appends (opaque byte offset of EOF).
     pub tail: String,
+    /// `after=` asked for more than one bounded read can return: refetch the
+    /// last page instead.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reset: Option<bool>,
 }
 
 // ─────────────────────────────── 4.6 live frames ──────────────────────────────
@@ -774,6 +1005,12 @@ pub enum StreamKind {
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct StreamFrame {
+    /// `message_start` message id of the streamed API message.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub message_id: Option<String>,
+    /// Content block index within that message.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub index: Option<u32>,
     pub kind: StreamKind,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub delta: Option<String>,
@@ -848,6 +1085,12 @@ pub struct ProjectInfo {
     pub name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_activity_at: Option<i64>,
+    /// The CLI's workspace-trust dialog was accepted for this path.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub trusted: Option<bool>,
+    /// Number of known sessions in this directory.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sessions: Option<u32>,
 }
 
 /// An image attached to a message or spawn (`images?: [{mediaType, data}]`).

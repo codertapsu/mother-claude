@@ -228,6 +228,55 @@ pub fn parse_transcript(blob: &str) -> Vec<TranscriptEvent> {
     blob.lines().filter_map(parse_transcript_line).collect()
 }
 
+/// A hook payload as the plugin's `mc-hook` posts it to `/hooks/event`
+/// (design §10 B2 "tolerant hook body"). `tool_response` is never
+/// materialised (PostToolUse carries the full tool output, up to tens of MB):
+/// only its presence is recorded. `tool_input` is kept up to 256 KB of JSON.
+///
+/// `transcript_path`, `cwd` and `agent_transcript_path` are deliberately NOT
+/// captured: files are only ever located by session id (never open a path a
+/// hook-token holder chose).
+#[derive(Debug, Clone, Default, serde::Deserialize)]
+#[serde(default)]
+pub struct HookPayload {
+    pub hook_event_name: super::index::loose::LStr,
+    pub session_id: super::index::loose::LStr,
+    pub agent_id: super::index::loose::LStr,
+    pub agent_type: super::index::loose::LStr,
+    pub tool_use_id: super::index::loose::LStr,
+    pub tool_name: super::index::loose::LStr,
+    pub tool_input: super::index::loose::SmallValue<262144>,
+    pub tool_response: super::index::loose::Present,
+    pub prompt_id: super::index::loose::LStr,
+    pub permission_mode: super::index::loose::LStr,
+    pub prompt: super::index::loose::CapStr<65536>,
+    pub message: super::index::loose::CapStr<4096>,
+    pub notification_type: super::index::loose::LStr,
+    pub permission_suggestions: Option<Value>,
+    pub stop_hook_active: super::index::loose::LBool,
+    pub source: super::index::loose::LStr,
+    pub reason: super::index::loose::LStr,
+    pub trigger: super::index::loose::LStr,
+}
+
+impl HookPayload {
+    /// Parse a hook body; `None` when it is not a JSON object.
+    pub fn parse(body: &[u8]) -> Option<Self> {
+        let first = body.iter().find(|b| !b.is_ascii_whitespace())?;
+        if *first != b'{' {
+            return None;
+        }
+        serde_json::from_slice::<Self>(body).ok()
+    }
+
+    /// The session id, only when it is a canonical UUID.
+    pub fn valid_session_id(&self) -> Option<&str> {
+        self.session_id
+            .get()
+            .filter(|s| super::ids::is_session_id(s))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -306,5 +355,25 @@ mod tests {
         let blob = "\n{\"type\":\"user\"}\ngarbage\n{\"type\":\"assistant\"}\n";
         let events = parse_transcript(blob);
         assert_eq!(events.len(), 2);
+    }
+
+    #[test]
+    fn hook_payload_skips_tool_response_and_paths() {
+        let big = "x".repeat(5 * 1024 * 1024);
+        let body = format!(
+            r#"{{"hook_event_name":"PostToolUse","session_id":"e2b6972f-7126-4f6e-a490-5ce75cb6a9f9","tool_name":"Read","tool_input":{{"file_path":"/a"}},"tool_response":{{"content":"{big}"}},"transcript_path":"/etc/passwd","cwd":"/","permission_mode":"default"}}"#
+        );
+        let p = HookPayload::parse(body.as_bytes()).unwrap();
+        assert_eq!(p.hook_event_name.get(), Some("PostToolUse"));
+        assert!(p.tool_response.0);
+        assert!(p.tool_input.0.is_some());
+        assert_eq!(
+            p.valid_session_id(),
+            Some("e2b6972f-7126-4f6e-a490-5ce75cb6a9f9")
+        );
+        assert_eq!(p.permission_mode.get(), Some("default"));
+        let bad = HookPayload::parse(br#"{"session_id":"../../x","tool_input":7}"#).unwrap();
+        assert!(bad.valid_session_id().is_none());
+        assert!(HookPayload::parse(b"[1,2]").is_none());
     }
 }

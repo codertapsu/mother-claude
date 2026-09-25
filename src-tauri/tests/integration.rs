@@ -8,6 +8,9 @@ use mother_claude_lib::server::auth::Auth;
 use mother_claude_lib::server::{self, monitor};
 use mother_claude_lib::state::{Inner, ServerConfig};
 
+/// Session ids are canonical lowercase UUIDs.
+const SID: &str = "0f3b7c2e-5a41-4d8e-9c6a-2b1e8f7d4a90";
+
 fn fixture(name: &str) -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("tests/fixtures")
@@ -127,6 +130,9 @@ async fn server_broadcasts_session_from_temp_home() {
     assert_eq!(full["t"], "sessions");
     assert_eq!(full["full"], true);
 
+    // A CLI that writes pidfiles has a `sessions/` dir; with no pidfile for
+    // this session it is not running.
+    std::fs::create_dir_all(dir.path().join("sessions")).unwrap();
     // Drop a synthetic transcript (recent, so it is in the `active` scope).
     let cwd = "/Users/dev/itest";
     let tdir = home.transcript_dir(cwd);
@@ -135,7 +141,7 @@ async fn server_broadcasts_session_from_temp_home() {
     let line = format!(
         "{{\"type\":\"user\",\"uuid\":\"u1\",\"cwd\":\"/Users/dev/itest\",\"timestamp\":\"{now}\",\"message\":{{\"role\":\"user\",\"content\":[{{\"type\":\"text\",\"text\":\"hi\"}}]}}}}\n"
     );
-    std::fs::write(tdir.join("itest-session.jsonl"), &line).unwrap();
+    std::fs::write(tdir.join(format!("{SID}.jsonl")), &line).unwrap();
 
     // Refresh and look for a sessions diff carrying it.
     let mut found = false;
@@ -147,11 +153,12 @@ async fn server_broadcasts_session_from_temp_home() {
                     .as_array()
                     .into_iter()
                     .flatten()
-                    .find(|s| s["id"] == "itest-session");
+                    .find(|s| s["id"] == SID);
                 if let Some(s) = hit {
                     assert_eq!(s["cwd"], "/Users/dev/itest");
                     assert_eq!(s["projectName"], "itest");
-                    assert!(s["control"]["notes"].is_array());
+                    assert!(s["control"]["limits"].is_array());
+                    assert_eq!(s["status"], "ended");
                     assert!(v["seq"].as_u64().unwrap() > full["seq"].as_u64().unwrap());
                     found = true;
                     break 'outer;
@@ -166,7 +173,7 @@ async fn server_broadcasts_session_from_temp_home() {
 
     // Subscribe with a cursor: the server replays the file after it.
     ws.send(Message::Text(
-        serde_json::json!({ "t": "sub", "session": "itest-session", "since": "0" })
+        serde_json::json!({ "t": "sub", "session": SID, "since": "0" })
             .to_string()
             .into(),
     ))
@@ -180,13 +187,13 @@ async fn server_broadcasts_session_from_temp_home() {
                     .as_array()
                     .into_iter()
                     .flatten()
-                    .any(|s| s["id"] == "itest-session"),
+                    .any(|s| s["id"] == SID),
                 "an unchanged session must not be re-sent"
             );
             continue;
         }
         if v["t"] == "transcript" {
-            assert_eq!(v["session"], "itest-session");
+            assert_eq!(v["session"], SID);
             assert_eq!(v["events"][0]["kind"], "prompt");
             assert_eq!(v["events"][0]["text"], "hi");
             assert_eq!(v["tail"], line.len().to_string());
