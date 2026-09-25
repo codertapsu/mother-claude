@@ -46,7 +46,13 @@ pub struct PendingRequest {
     /// The whole frame from the host, minus its envelope fields.
     pub params: Value,
     pub created_at: i64,
+    /// The server's own classification ([`crate::pending::classify_dangerous`])
+    /// OR-ed with the host's flag — never the host's heuristic alone.
     pub dangerous: bool,
+    /// The dashboard item this request was raised as (classified), so the
+    /// bridge's `/requests/{id}/respond` checks answers against the same input
+    /// and suggestions the dashboard does.
+    pub item: PendingItem,
     /// Taken by whichever surface answers first.
     responder: Option<oneshot::Sender<Value>>,
 }
@@ -410,6 +416,15 @@ impl RuntimeHost {
         map.get(id).map(PendingRequest::snapshot)
     }
 
+    /// The classified dashboard item behind a pending request.
+    pub fn pending_request_item(&self, id: &str) -> Option<PendingItem> {
+        let map = match self.requests.lock() {
+            Ok(m) => m,
+            Err(p) => p.into_inner(),
+        };
+        map.get(id).map(|r| r.item.clone())
+    }
+
     /// Answer a pending request from the bridge's own `/requests` surface.
     /// Returns an error if it is unknown or already answered.
     pub fn respond(&self, id: &str, result: Value) -> BridgeResult<()> {
@@ -592,7 +607,9 @@ async fn raise_request_inner(state: AppState, frame: Value) {
         .and_then(Value::as_str)
         .unwrap_or("permission")
         .to_string();
-    let dangerous = frame
+    // The host's own flag is a three-substring heuristic; it can only raise
+    // the server's classification, never replace it.
+    let host_dangerous = frame
         .get("dangerous")
         .and_then(Value::as_bool)
         .unwrap_or(false);
@@ -605,6 +622,16 @@ async fn raise_request_inner(state: AppState, frame: Value) {
         }
     }
 
+    // Classify BEFORE the request becomes answerable on either surface, with
+    // the same rules (and the conversation's cwd) as every other pending item.
+    let mut item = pending_item(&request_id, &session_id, &kind, &params, host_dangerous);
+    let cwd = match state.bridge.thread(&session_id).await {
+        Some(t) if !t.cwd.is_empty() => Some(t.cwd),
+        _ => state.control.cwd_of(&session_id),
+    };
+    classify_item(&mut item, cwd.as_deref());
+    let dangerous = item.dangerous;
+
     let (bridge_tx, bridge_rx) = oneshot::channel::<Value>();
 
     let record = PendingRequest {
@@ -615,6 +642,7 @@ async fn raise_request_inner(state: AppState, frame: Value) {
         params: params.clone(),
         created_at: crate::claude::registry::now_ms(),
         dangerous,
+        item: item.clone(),
         responder: Some(bridge_tx),
     };
     let snapshot = record.snapshot();
@@ -626,7 +654,6 @@ async fn raise_request_inner(state: AppState, frame: Value) {
     // Dashboard surface: the shared pending store, so an approval card appears
     // in the app and on the phone exactly as it does for any other session.
     // The guard withdraws the card whichever surface answers.
-    let item = pending_item(&request_id, &session_id, &kind, &params, dangerous);
     let (guard, dash_rx) = crate::pending::raise(state, item.clone()).await;
 
     // Bridge surface: an SSE frame so a headless client can see it too.
@@ -671,6 +698,15 @@ async fn raise_request_inner(state: AppState, frame: Value) {
         }
         st.notice(format!("bridge request {request_id} answered"));
     });
+}
+
+/// Apply the server's danger classification to a bridge item (it can only
+/// raise the flag the host sent).
+fn classify_item(item: &mut PendingItem, cwd: Option<&str>) {
+    if let Some(why) = crate::pending::classify_dangerous(item, cwd) {
+        item.dangerous = true;
+        item.dangerous_reason.get_or_insert(why);
+    }
 }
 
 /// Map a dashboard decision onto the host's expected result shape: questions
@@ -874,6 +910,31 @@ mod tests {
     }
 
     #[test]
+    fn the_server_classifies_bridge_requests_whatever_the_host_says() {
+        // The host's heuristic only knows three substrings; a Write to a shell
+        // startup file or a git hook is dangerous on the server's own rules.
+        for input in [
+            json!({ "file_path": "~/.zshrc", "content": "x" }),
+            json!({ "file_path": ".git/hooks/pre-commit", "content": "x" }),
+        ] {
+            let params = json!({ "tool": "Write", "input": input });
+            let mut item = pending_item("r", "t", "permission", &params, false);
+            assert!(!item.dangerous);
+            classify_item(&mut item, Some("/tmp/some-repo"));
+            assert!(item.dangerous, "{params}");
+            assert!(item.dangerous_reason.is_some());
+        }
+        // An ordinary write stays ordinary, and the host flag still counts.
+        let params = json!({ "tool": "Write", "input": { "file_path": "notes.md" } });
+        let mut item = pending_item("r", "t", "permission", &params, false);
+        classify_item(&mut item, Some("/tmp/some-repo"));
+        assert!(!item.dangerous);
+        let mut item = pending_item("r", "t", "permission", &params, true);
+        classify_item(&mut item, Some("/tmp/some-repo"));
+        assert!(item.dangerous);
+    }
+
+    #[test]
     fn request_snapshot_uses_the_codex_field_names() {
         let (tx, _rx) = oneshot::channel();
         let record = PendingRequest {
@@ -884,6 +945,7 @@ mod tests {
             params: json!({ "tool": "Bash" }),
             created_at: 42,
             dangerous: false,
+            item: PendingItem::default(),
             responder: Some(tx),
         };
         let snap = record.snapshot();
@@ -908,6 +970,7 @@ mod tests {
                 params: Value::Null,
                 created_at: 0,
                 dangerous: false,
+                item: PendingItem::default(),
                 responder: Some(tx),
             },
         );
@@ -940,6 +1003,7 @@ mod tests {
                     params: Value::Null,
                     created_at: created,
                     dangerous: false,
+                    item: PendingItem::default(),
                     responder: Some(tx),
                 },
             );
