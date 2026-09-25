@@ -1377,11 +1377,7 @@ fn solid_blue_png(width: u32, height: u32) -> Vec<u8> {
     // Raw scanlines: a filter byte of 0, then RGB per pixel. Every row is
     // identical, so build one and repeat it.
     let mut scanline = vec![0u8];
-    scanline.extend(
-        std::iter::repeat([0x20u8, 0x4E, 0xD8])
-            .take(width as usize)
-            .flatten(),
-    );
+    scanline.extend(std::iter::repeat_n([0x20u8, 0x4E, 0xD8], width as usize).flatten());
     let raw: Vec<u8> = scanline.repeat(height as usize);
 
     // zlib with stored (uncompressed) deflate blocks — valid, and no dependency.
