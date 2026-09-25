@@ -78,20 +78,12 @@ impl HookPayload {
 
 /// Canonical lowercase UUID (`8-4-4-4-12` hex).
 pub fn is_uuid(s: &str) -> bool {
-    let b = s.as_bytes();
-    b.len() == 36
-        && b.iter().enumerate().all(|(i, &c)| match i {
-            8 | 13 | 18 | 23 => c == b'-',
-            _ => c.is_ascii_digit() || (b'a'..=b'f').contains(&c),
-        })
+    crate::claude::ids::is_uuid(s)
 }
 
 /// `^[A-Za-z0-9_-]{1,80}$` (agent ids, tool use ids, message ids).
 pub fn is_safe_id(s: &str) -> bool {
-    !s.is_empty()
-        && s.len() <= 80
-        && s.bytes()
-            .all(|c| c.is_ascii_alphanumeric() || c == b'_' || c == b'-')
+    crate::claude::ids::is_simple_id(s)
 }
 
 /// Serialize `v` with object keys sorted, so equal inputs compare equal

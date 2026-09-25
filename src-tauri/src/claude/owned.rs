@@ -166,17 +166,12 @@ pub fn validate_model(model: &str) -> ApiResult<String> {
 
 /// A canonical lowercase UUID (session ids, message ids).
 pub fn is_uuid(id: &str) -> bool {
-    uuid::Uuid::parse_str(id)
-        .map(|u| u.hyphenated().to_string() == id)
-        .unwrap_or(false)
+    super::ids::is_uuid(id)
 }
 
 /// A task / agent / tool-use id: `^[A-Za-z0-9_-]{1,80}$`.
 pub fn is_simple_id(id: &str) -> bool {
-    (1..=80).contains(&id.len())
-        && id
-            .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+    super::ids::is_simple_id(id)
 }
 
 /// Validate images: count, type, base64, size, magic bytes. A `data:` URL

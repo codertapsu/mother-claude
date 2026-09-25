@@ -1816,7 +1816,7 @@ fn sidecar_command(
 /// `claude stop|respawn|rm|logs` take only the SHORT background job id (8 hex
 /// chars, or a unique prefix of it); a session UUID never matches.
 pub fn is_short_job_id(id: &str) -> bool {
-    (6..=16).contains(&id.len()) && id.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
+    super::ids::is_short_job_id(id)
 }
 
 const LIFECYCLE_ACTIONS: [&str; 4] = ["stop", "respawn", "rm", "logs"];
