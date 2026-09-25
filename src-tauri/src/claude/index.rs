@@ -52,7 +52,9 @@ pub const TICK_SCAN_MAX: u64 = 64 * 1024 * 1024;
 const CATCH_UP_INLINE_MAX: u64 = 32 * 1024 * 1024;
 /// Subagent files touched this recently are indexed immediately.
 const RECENT_SUBAGENT: Duration = Duration::from_secs(15 * 60);
-const CACHE_VERSION: u32 = 2;
+/// Bumped when checkpointed aggregates change meaning, so finished files
+/// (never re-scanned otherwise) are rebuilt once. 3: `UsageAcc::last_fold`.
+const CACHE_VERSION: u32 = 3;
 const PERSIST_EVERY: Duration = Duration::from_secs(30);
 
 /// A subagent / workflow-agent transcript of a session.

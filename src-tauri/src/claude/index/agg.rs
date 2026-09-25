@@ -505,7 +505,16 @@ pub struct UsageAcc {
     pub curve: Vec<(i64, f64)>,
     #[serde(skip_serializing_if = "is_zero_u64")]
     pub curve_stride: u64,
+    /// `(newest folded ts, cumulative folded cost)` as of the last fold of a
+    /// timestamped message. The curve is sampled every `curve_stride` folds,
+    /// so without this the unsampled tail would always count as "after" a
+    /// cutoff that follows every folded message.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_fold: Option<(i64, f64)>,
 }
+
+/// Below this (micro-dollar rounding of curve samples), a remainder is zero.
+const COST_EPSILON: f64 = 1e-6;
 
 impl UsageAcc {
     fn fold(&mut self, m: OpenMsg) {
@@ -515,6 +524,8 @@ impl UsageAcc {
         }
         let stride = self.curve_stride.max(1);
         if let Some(ts) = m.ts {
+            let newest = self.last_fold.map_or(ts, |(t, _)| t.max(ts));
+            self.last_fold = Some((newest, (self.folded.cost * 1e6).round() / 1e6));
             if self.folded.messages.is_multiple_of(stride) {
                 // Micro-dollar precision keeps checkpoints small.
                 self.curve
@@ -582,16 +593,25 @@ impl UsageAcc {
     }
 
     /// Priced cost of messages written after `ts` (approximated from the
-    /// cost curve for folded messages; exact for open ones).
+    /// cost curve for folded messages; exact for open ones, and exact (zero)
+    /// when every timestamped folded message precedes `ts`).
     pub fn cost_after(&self, ts: i64) -> f64 {
-        let before = self
-            .curve
-            .iter()
-            .rev()
-            .find(|(t, _)| *t <= ts)
-            .map(|(_, c)| *c)
-            .unwrap_or(0.0);
-        let folded_after = (self.folded.cost - before).max(0.0);
+        let before = match self.last_fold {
+            // Every timestamped folded message is at or before `ts`: only
+            // untimestamped ones folded since then can be "after".
+            Some((newest, cost)) if newest <= ts => cost,
+            _ => self
+                .curve
+                .iter()
+                .rev()
+                .find(|(t, _)| *t <= ts)
+                .map(|(_, c)| *c)
+                .unwrap_or(0.0),
+        };
+        let mut folded_after = self.folded.cost - before;
+        if folded_after < COST_EPSILON {
+            folded_after = 0.0;
+        }
         folded_after
             + self
                 .open
@@ -2058,6 +2078,63 @@ mod tests {
         assert_eq!(after.messages, 1);
         assert_eq!(after.output, 200);
         assert_eq!(fi.agg.usage.total().messages, 2);
+    }
+
+    /// One priced message costing a dollar.
+    fn dollar() -> Totals {
+        Totals {
+            cost: 1.0,
+            priced: 1,
+            messages: 1,
+            ..Totals::default()
+        }
+    }
+
+    #[test]
+    fn cost_after_a_cutoff_past_every_message_is_zero() {
+        // Enough messages that the curve is thinned and its last sample
+        // trails the folded total.
+        for n in [17_i64, 250] {
+            let mut u = UsageAcc::default();
+            for i in 1..=n {
+                u.record(&format!("m{i}"), dollar(), Some(i * 1000), false);
+            }
+            u.compact();
+            assert_eq!(u.total().messages, n as u64);
+            // Only the newest (open) message is at n*1000.
+            assert_eq!(u.cost_after(n * 1000), 0.0, "n={n}");
+            assert_eq!(u.cost_after(n * 1000 + 1), 0.0, "n={n}");
+            // Everything is after a cutoff before the first message.
+            assert!((u.cost_after(0) - n as f64).abs() < 1e-9, "n={n}");
+            // The folded messages all precede the open one.
+            assert!((u.cost_after(n * 1000 - 1) - 1.0).abs() < 1e-9, "n={n}");
+            // A checkpoint round trip keeps the answer.
+            let back: UsageAcc = serde_json::from_str(&serde_json::to_string(&u).unwrap()).unwrap();
+            assert_eq!(back.cost_after(n * 1000), 0.0, "n={n}");
+        }
+    }
+
+    #[test]
+    fn cost_after_ignores_out_of_order_and_counts_untimestamped_tail() {
+        let mut u = UsageAcc::default();
+        u.record("a", dollar(), Some(5_000), false);
+        u.record("b", dollar(), Some(3_000), false);
+        u.close_all();
+        // Newest folded ts is 5000, whatever the fold order.
+        assert_eq!(u.cost_after(5_000), 0.0);
+        // An untimestamped message folded later is "after" any cutoff.
+        u.record("c", dollar(), None, false);
+        u.close_all();
+        assert!((u.cost_after(10_000) - 1.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn old_checkpoints_without_last_fold_still_load() {
+        let u: UsageAcc =
+            serde_json::from_str(r#"{"folded":{"cost":2.0,"messages":2},"curve":[[1,1.0]]}"#)
+                .unwrap();
+        assert!(u.last_fold.is_none());
+        assert!((u.cost_after(1) - 1.0).abs() < 1e-9);
     }
 
     #[test]
