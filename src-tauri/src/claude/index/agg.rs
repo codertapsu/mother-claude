@@ -511,13 +511,36 @@ pub struct UsageAcc {
     /// cutoff that follows every folded message.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_fold: Option<(i64, f64)>,
+    /// `(15-minute bucket start, cumulative folded cost before the bucket's
+    /// first fold)` for the buckets folded in the last [`RECENT_KEEP_MS`]
+    /// (sparse: only buckets that saw a message). Gives "cost since local
+    /// midnight" exactly: every zone's midnight falls on a quarter hour.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub recent: Vec<(i64, f64)>,
 }
 
 /// Below this (micro-dollar rounding of curve samples), a remainder is zero.
 const COST_EPSILON: f64 = 1e-6;
+/// Granularity of [`UsageAcc::recent`].
+pub const COST_BUCKET_MS: i64 = 15 * 60 * 1000;
+/// How far back [`UsageAcc::recent`] reaches (a day, plus DST slack).
+pub const RECENT_KEEP_MS: i64 = 26 * 60 * 60 * 1000;
+
+fn micro(c: f64) -> f64 {
+    (c * 1e6).round() / 1e6
+}
 
 impl UsageAcc {
     fn fold(&mut self, m: OpenMsg) {
+        if let Some(ts) = m.ts {
+            let bucket = ts - ts.rem_euclid(COST_BUCKET_MS);
+            // Out-of-order (older) messages count in the current bucket.
+            if self.recent.last().is_none_or(|(b, _)| *b < bucket) {
+                self.recent.push((bucket, micro(self.folded.cost)));
+                let keep_from = bucket - RECENT_KEEP_MS;
+                self.recent.retain(|(b, _)| *b >= keep_from);
+            }
+        }
         self.folded.add(&m.totals);
         if m.after_cost_state {
             self.after.add(&m.totals);
@@ -525,11 +548,10 @@ impl UsageAcc {
         let stride = self.curve_stride.max(1);
         if let Some(ts) = m.ts {
             let newest = self.last_fold.map_or(ts, |(t, _)| t.max(ts));
-            self.last_fold = Some((newest, (self.folded.cost * 1e6).round() / 1e6));
+            self.last_fold = Some((newest, micro(self.folded.cost)));
             if self.folded.messages.is_multiple_of(stride) {
                 // Micro-dollar precision keeps checkpoints small.
-                self.curve
-                    .push((ts, (self.folded.cost * 1e6).round() / 1e6));
+                self.curve.push((ts, micro(self.folded.cost)));
                 if self.curve.len() > CURVE_POINTS {
                     let kept: Vec<(i64, f64)> =
                         self.curve.iter().skip(1).step_by(2).copied().collect();
@@ -573,6 +595,35 @@ impl UsageAcc {
         for m in std::mem::take(&mut self.open) {
             self.fold(m);
         }
+    }
+
+    /// Forget [`recent`](Self::recent) buckets that start before `before`
+    /// (checkpoints: history files carry none).
+    pub fn forget_recent_before(&mut self, before: i64) {
+        self.recent.retain(|(b, _)| *b >= before);
+    }
+
+    /// Priced cost of messages written at or after `since`, which must lie
+    /// within [`RECENT_KEEP_MS`] of now (e.g. local midnight). Exact when
+    /// `since` is on a quarter hour.
+    pub fn cost_since(&self, since: i64) -> f64 {
+        let folded = match self
+            .recent
+            .iter()
+            .find(|(b, _)| *b + COST_BUCKET_MS > since)
+        {
+            Some((_, before)) => self.folded.cost - before,
+            // No folded message since then.
+            None => 0.0,
+        };
+        let folded = if folded < COST_EPSILON { 0.0 } else { folded };
+        folded
+            + self
+                .open
+                .iter()
+                .filter(|m| m.ts.is_none_or(|t| t >= since))
+                .map(|m| m.totals.cost)
+                .sum::<f64>()
     }
 
     pub fn total(&self) -> Totals {
@@ -2126,6 +2177,51 @@ mod tests {
         u.record("c", dollar(), None, false);
         u.close_all();
         assert!((u.cost_after(10_000) - 1.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn cost_since_counts_only_messages_from_that_point() {
+        const H: i64 = 60 * 60 * 1000;
+        let midnight = 1_790_294_400_000_i64; // a quarter-hour boundary
+        assert_eq!(midnight % COST_BUCKET_MS, 0);
+        let mut u = UsageAcc::default();
+        // Yesterday: 300 messages across the evening (thins the curve).
+        for i in 0..300 {
+            u.record(
+                &format!("y{i}"),
+                dollar(),
+                Some(midnight - 5 * H + i * 60_000),
+                false,
+            );
+        }
+        // One just before midnight, in the same quarter hour.
+        u.record("late", dollar(), Some(midnight - 1), false);
+        // Today: 7 messages.
+        for i in 0..7 {
+            u.record(
+                &format!("t{i}"),
+                dollar(),
+                Some(midnight + H + i * 60_000),
+                false,
+            );
+        }
+        assert_eq!(u.total().messages, 308);
+        assert!((u.cost_since(midnight) - 7.0).abs() < 1e-9);
+        u.compact();
+        assert!((u.cost_since(midnight) - 7.0).abs() < 1e-9);
+        // Nothing yet today.
+        assert_eq!(u.cost_since(midnight + 2 * H), 0.0);
+        // Buckets stay bounded to about a day.
+        assert!(u
+            .recent
+            .iter()
+            .all(|(b, _)| *b >= midnight + H - RECENT_KEEP_MS));
+        // A history checkpoint drops them; with none left nothing is "today".
+        let mut old = u.clone();
+        old.close_all();
+        old.forget_recent_before(midnight + 3 * H);
+        assert!(old.recent.is_empty());
+        assert_eq!(old.cost_since(midnight + 3 * H), 0.0);
     }
 
     #[test]

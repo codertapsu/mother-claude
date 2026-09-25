@@ -439,7 +439,6 @@ async fn run_cycle(state: &AppState, cycle: &mut Cycle, trigger: Trigger) {
         .collect();
     let mut fleet = Vec::new();
     let mut summary = FleetSummary::default();
-    let midnight = local_midnight_ms();
     for s in &summaries {
         if s.live && s.status == SessionStatus::Working {
             summary.working += 1;
@@ -447,9 +446,7 @@ async fn run_cycle(state: &AppState, cycle: &mut Cycle, trigger: Trigger) {
         if s.pending.iter().any(|p| p.answerable) {
             summary.need_you += 1;
         }
-        if s.last_activity_at.is_some_and(|t| t >= midnight) {
-            summary.cost_today += s.cost_usd.unwrap_or(0.0);
-        }
+        summary.cost_today += s.cost_today.unwrap_or(0.0);
         summary.agents_running += s.agents.running;
         summary.workflows_running += s.agents.workflows_running;
         summary.background_running += s.agents.background_running;
@@ -494,16 +491,6 @@ async fn run_cycle(state: &AppState, cycle: &mut Cycle, trigger: Trigger) {
     }
 }
 
-/// Epoch ms of today's local midnight.
-fn local_midnight_ms() -> i64 {
-    let now = chrono::Local::now();
-    now.date_naive()
-        .and_hms_opt(0, 0, 0)
-        .and_then(|d| d.and_local_timezone(chrono::Local).earliest())
-        .map(|d| d.timestamp_millis())
-        .unwrap_or_else(|| now.timestamp_millis() - 24 * 3600 * 1000)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -532,12 +519,5 @@ mod tests {
             session_of_path(projects, Path::new("/h/sessions/1.json")),
             None
         );
-    }
-
-    #[test]
-    fn midnight_is_today() {
-        let m = local_midnight_ms();
-        let now = now_ms();
-        assert!(m <= now && now - m <= 25 * 3600 * 1000);
     }
 }

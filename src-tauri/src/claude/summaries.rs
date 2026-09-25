@@ -229,6 +229,43 @@ pub fn cost_view(state: &AppState, id: &str, live: bool) -> CostView {
     }
 }
 
+/// Priced cost of a session's messages (main + subagent files) written at or
+/// after `since` (within the last day, e.g. local midnight). The `cost-state`
+/// baseline cannot be split by day, so this is the priced estimate. `None`
+/// when the main transcript is not indexed.
+pub fn cost_since(state: &AppState, id: &str, since: i64) -> Option<f64> {
+    let main = state
+        .index
+        .with_main(id, |f| f.agg.usage.cost_since(since))?;
+    let subs: f64 = state
+        .index
+        .session_files(id)
+        .iter()
+        .flat_map(|f| f.subagents.values())
+        .filter_map(|a| {
+            state
+                .index
+                .with_file(&a.path, |f| f.agg.usage.cost_since(since))
+        })
+        .sum();
+    Some(((main + subs) * 1e6).round() / 1e6)
+}
+
+/// Local midnight of the day containing `now_ms` (epoch ms).
+pub fn local_midnight_ms(now_ms: i64) -> i64 {
+    use chrono::TimeZone;
+    chrono::Local
+        .timestamp_millis_opt(now_ms)
+        .single()
+        .and_then(|now| {
+            now.date_naive()
+                .and_hms_opt(0, 0, 0)
+                .and_then(|d| d.and_local_timezone(chrono::Local).earliest())
+        })
+        .map(|d| d.timestamp_millis())
+        .unwrap_or(now_ms - 24 * 3600 * 1000)
+}
+
 fn project_name(cwd: &str) -> String {
     std::path::Path::new(cwd)
         .file_name()
@@ -517,6 +554,11 @@ pub fn build_one(state: &AppState, id: &str, ctx: &BuildCtx) -> Option<SessionSu
     .into_iter()
     .flatten()
     .max();
+    let midnight = local_midnight_ms(ctx.now);
+    let cost_today = last_activity_at
+        .filter(|t| *t >= midnight)
+        .and_then(|_| cost_since(state, id, midnight))
+        .filter(|c| *c > 0.0);
     let queued_cli = agg
         .map(|a| a.queue.iter().filter(|q| !q.notification).count() as u32)
         .unwrap_or(0);
@@ -596,6 +638,7 @@ pub fn build_one(state: &AppState, id: &str, ctx: &BuildCtx) -> Option<SessionSu
         usage: cost.usage,
         cost_usd: cost.cost,
         cost_final: cost.final_.then_some(true),
+        cost_today,
         cost_estimated: cost.estimated.then_some(true),
         usage_partial: (cost.partial && main.is_some()
             || main.as_ref().is_some_and(|m| !m.complete))

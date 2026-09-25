@@ -270,6 +270,17 @@ async fn data_routes_over_a_synthetic_home() {
         ended.get("costFinal").is_none(),
         "usage after the last cost-state"
     );
+    // Cost today is what was priced since local midnight, never the lifetime
+    // total (the cost-state baseline cannot be split by day).
+    let midnight = mother_claude_lib::claude::summaries::local_midnight_ms(now());
+    if now() - 3_700_000 > midnight {
+        let today = ended["costToday"].as_f64().unwrap();
+        let priced = (1_000_000.0 + 200_000.0 * 5.0 + 1_000_000.0 + 100_000.0 * 5.0) / 1e6;
+        assert!((today - priced).abs() < 1e-6, "today {today} != {priced}");
+        assert!(today < cost);
+        let live_today = live["costToday"].as_f64().unwrap();
+        assert!((live_today - live["costUsd"].as_f64().unwrap()).abs() < 1e-6);
+    }
 
     // Active scope keeps both (live, recent).
     let v = get_json(&c, format!("{base}/api/sessions"), &token).await;

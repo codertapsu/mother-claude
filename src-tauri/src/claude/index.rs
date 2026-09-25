@@ -53,7 +53,8 @@ const CATCH_UP_INLINE_MAX: u64 = 32 * 1024 * 1024;
 /// Subagent files touched this recently are indexed immediately.
 const RECENT_SUBAGENT: Duration = Duration::from_secs(15 * 60);
 /// Bumped when checkpointed aggregates change meaning, so finished files
-/// (never re-scanned otherwise) are rebuilt once. 3: `UsageAcc::last_fold`.
+/// (never re-scanned otherwise) are rebuilt once. 3: `UsageAcc::last_fold`
+/// and `UsageAcc::recent`.
 const CACHE_VERSION: u32 = 3;
 const PERSIST_EVERY: Duration = Duration::from_secs(30);
 
@@ -731,12 +732,14 @@ impl TranscriptIndex {
             g.last_persist = Some(Instant::now());
             g.files.values().cloned().collect()
         };
+        let recent_from = now_ms() - agg::RECENT_KEEP_MS;
         let mut files: Vec<FileIndex> = shared
             .iter()
             .map(|s| lock_file(s).clone())
             .filter(|f| f.is_complete())
             .map(|mut f| {
                 f.agg.usage.compact();
+                f.agg.usage.forget_recent_before(recent_from);
                 if f.kind == FileKind::Subagent {
                     // Not shown for subagents; keeps the checkpoint small.
                     f.agg.last_prompt = None;

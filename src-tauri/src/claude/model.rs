@@ -355,6 +355,10 @@ pub struct SessionSummary {
     pub cost_usd: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cost_final: Option<bool>,
+    /// Priced cost of what was written since local midnight (main + subagent
+    /// files; absent when nothing priced happened today).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cost_today: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub context: Option<ContextFill>,
     pub message_count: u64,
@@ -881,7 +885,8 @@ pub struct FleetSummary {
     pub background_running: u32,
     /// Sessions with an answerable pending item.
     pub need_you: u32,
-    /// Sum of `costUsd` of sessions active since local midnight.
+    /// Priced cost written since local midnight, across sessions (the sum
+    /// of their `costToday`, not of their lifetime `costUsd`).
     pub cost_today: f64,
 }
 
