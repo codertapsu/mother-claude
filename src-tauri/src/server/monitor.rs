@@ -345,6 +345,13 @@ async fn run_cycle(state: &AppState, cycle: &mut Cycle, trigger: Trigger) {
             paths.extend(state.index.tick_paths(&targets, now_ms(), window));
         }
         let advances = state.index.update(&paths);
+        // Filter appends against the subscriptions as they are *now*, not
+        // the snapshot taken before this cycle: `update` consumes the bytes
+        // for good, so a first subscriber that registered (and replayed up
+        // to the then-EOF) in between would otherwise never see them. A
+        // subscriber registered after `update` replays past these bytes,
+        // and any overlap is deduped by event id on the client.
+        let subs_now = state.hub.subscriptions();
         for a in &advances {
             touched_sessions.insert(a.session_id.clone());
         }
@@ -382,7 +389,7 @@ async fn run_cycle(state: &AppState, cycle: &mut Cycle, trigger: Trigger) {
         // Transcript appends for subscriptions.
         let mut appends: Vec<(Advance, crate::claude::uievents::RangeRead)> = Vec::new();
         for a in advances {
-            if !subs
+            if !subs_now
                 .iter()
                 .any(|(s, ag)| *s == a.session_id && *ag == a.agent_id)
             {
