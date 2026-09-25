@@ -321,8 +321,23 @@ pub async fn effective_permission_mode(state: &AppState, id: &str) -> Option<Str
 }
 
 /// Whether messages into session `id` run tools with nobody approving them.
+/// Fails closed: any live source saying bypassPermissions is enough — the
+/// owned session's live mode, a bridge conversation's record, the newest
+/// hook / owned / transcript note, the summary. (A bridge record alone went
+/// stale when an approval switched the conversation to bypass.)
 pub async fn runs_unapproved(state: &AppState, id: &str) -> bool {
-    effective_permission_mode(state, id).await.as_deref() == Some("bypassPermissions")
+    const BYPASS: &str = "bypassPermissions";
+    let bridge = state.bridge.thread(id).await.map(|t| t.permission_mode);
+    let summary = state.find_session(id).await.and_then(|s| s.permission_mode);
+    [
+        live_state(state, id).and_then(|l| l.permission_mode),
+        bridge,
+        super::summaries::effective_permission_mode(state, id),
+        summary,
+    ]
+    .iter()
+    .flatten()
+    .any(|m| m == BYPASS)
 }
 
 /// The permission mode a launch runs in: always explicit; callers without

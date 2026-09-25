@@ -41,6 +41,7 @@ use axum::response::IntoResponse;
 use axum::routing::{delete, get, post};
 use axum::Router;
 use serde::Serialize;
+use serde_json::Value;
 use tokio::sync::RwLock;
 
 use crate::state::AppState;
@@ -764,6 +765,45 @@ pub async fn ensure_thread_live(
     state.bridge.insert_thread(record.clone()).await;
     state.mark_owned(thread_id, &cwd, record.created_at).await;
     Ok(())
+}
+
+/// The permission mode an approval result switches its session to: the
+/// last `setMode` update (destination `session` or `cliArg`) of an allow.
+pub fn mode_set_by(result: &Value) -> Option<String> {
+    if result.get("behavior").and_then(Value::as_str) != Some("allow") {
+        return None;
+    }
+    result
+        .get("updatedPermissions")
+        .and_then(Value::as_array)?
+        .iter()
+        .filter(|u| u.get("type").and_then(Value::as_str) == Some("setMode"))
+        .filter(|u| {
+            matches!(
+                u.get("destination").and_then(Value::as_str),
+                None | Some("session") | Some("cliArg")
+            )
+        })
+        .filter_map(|u| u.get("mode").and_then(Value::as_str))
+        .map(str::to_string)
+        .next_back()
+}
+
+/// A conversation now runs in `mode` (the host reported it, or an approval
+/// switched it): keep the bridge record, the dashboard's mode note and the
+/// summary in step, so the "no unapproved execution" gates see it.
+pub async fn note_thread_mode(state: &AppState, thread_id: &str, mode: &str) {
+    if mode.is_empty() || mode.len() > 40 {
+        return;
+    }
+    let m = mode.to_string();
+    state
+        .bridge
+        .update_thread(thread_id, move |r| r.permission_mode = m)
+        .await;
+    state.activity.note_permission_mode(thread_id, mode);
+    let m = mode.to_string();
+    crate::server::ws::patch_session(state, thread_id, move |s| s.permission_mode = Some(m)).await;
 }
 
 /// Start the bridge at boot when `MOTHER_CLAUDE_BRIDGE_AUTOSTART=1`.

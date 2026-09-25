@@ -132,8 +132,7 @@ pub(crate) async fn require_turn_allowed(
     ctx: &ClientContext,
     thread_id: &str,
 ) -> BridgeResult<()> {
-    let mode = super::threads::stored_mode(state, thread_id).await;
-    if !crate::claude::owned::is_dangerous_mode(mode.as_deref()) {
+    if !super::threads::runs_without_approvals(state, thread_id).await {
         return Ok(());
     }
     if ctx.may_dangerous() {
