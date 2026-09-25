@@ -6,6 +6,7 @@
 //! live transcript deltas over the broadcast bus.
 
 pub mod auth;
+pub mod error;
 pub mod http;
 pub mod monitor;
 pub mod tls;

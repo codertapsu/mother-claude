@@ -13,6 +13,7 @@ use tracing_subscriber::EnvFilter;
 pub mod bridge;
 pub mod claude;
 pub mod permissions;
+pub mod persist;
 pub mod server;
 pub mod state;
 

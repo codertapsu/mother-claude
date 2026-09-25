@@ -10,6 +10,7 @@ pub mod control;
 pub mod experimental;
 pub mod git;
 pub mod home;
+pub mod model;
 pub mod registry;
 pub mod schema;
 pub mod settings;
