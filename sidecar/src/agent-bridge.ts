@@ -12,9 +12,9 @@
  * and for remote permission approval of owned sessions.
  *
  * Built automatically by `npm run tauri:dev` / `tauri:build` (and bundled into
- * the packaged app), and used by the Rust core by default whenever present.
- * Disable with MOTHER_CLAUDE_SIDECAR=0 to force the headless path. Runtime
- * correctness depends on the installed SDK version.
+ * the packaged app). The Rust core uses it only when MOTHER_CLAUDE_SIDECAR=1;
+ * the default owned path is the headless `claude -p` control protocol (Path B).
+ * Runtime correctness depends on the installed SDK version.
  *
  * Env in: MOTHER_CLAUDE_URL, MOTHER_CLAUDE_TOKEN (the per-run `mcs_…` sidecar
  * credential, valid only for this session's permission-request route; removed
@@ -28,9 +28,18 @@ import * as readline from 'node:readline';
 
 const URL = process.env.MOTHER_CLAUDE_URL ?? 'http://127.0.0.1:6725';
 const TOKEN = process.env.MOTHER_CLAUDE_TOKEN ?? '';
-// Never let the credential reach the `claude` child the SDK spawns (it
-// inherits process.env), where the model's Bash tool could read it.
+// Never let the credential reach the `claude` child the SDK spawns, where the
+// model's Bash tool could read it: drop it from our own environment and hand
+// the SDK an explicit environment without it (belt and braces).
 delete process.env.MOTHER_CLAUDE_TOKEN;
+/** The `claude` child's environment: ours, minus the credential, marked as a
+ * Mother Claude-owned session so the foreign-control hooks stay out. */
+const CHILD_ENV: Record<string, string | undefined> = {
+  ...Object.fromEntries(
+    Object.entries(process.env).filter(([key]) => key !== 'MOTHER_CLAUDE_TOKEN'),
+  ),
+  MOTHER_CLAUDE_OWNED: '1',
+};
 const SESSION_ID = process.env.MC_SESSION_ID ?? '';
 const CWD = process.env.MC_CWD ?? process.cwd();
 const PROMPT = process.env.MC_PROMPT ?? '';
@@ -63,11 +72,14 @@ async function ask(
     dangerous?: boolean;
   },
 ): Promise<Resolution> {
-  const res = await fetch(`${URL}/api/sessions/${encodeURIComponent(SESSION_ID)}/permission-request`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json', authorization: `Bearer ${TOKEN}` },
-    body: JSON.stringify({ kind, ...payload }),
-  });
+  const res = await fetch(
+    `${URL}/api/sessions/${encodeURIComponent(SESSION_ID)}/permission-request`,
+    {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${TOKEN}` },
+      body: JSON.stringify({ kind, ...payload }),
+    },
+  );
   if (!res.ok) return { behavior: 'deny' };
   return (await res.json()) as Resolution;
 }
@@ -195,6 +207,7 @@ async function main(): Promise<void> {
     prompt: prompts(),
     options: {
       cwd: CWD,
+      env: CHILD_ENV,
       model: MODEL,
       effort: EFFORT as 'low' | 'medium' | 'high' | 'xhigh' | 'max' | undefined,
       thinking:
