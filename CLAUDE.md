@@ -47,14 +47,26 @@ a rotating key and an undocumented protocol).
   --session-id <new>`); never two writers on one transcript. The Agent SDK
   sidecar (Path A) stays behind `MOTHER_CLAUDE_SIDECAR=1`. Background jobs are
   addressed by their SHORT job id only.
-- **Foreign sessions** → monitoring (read transcripts + receive hook events) and
-  lifecycle (`stop`/`respawn`/`rm`). Live control is also enabled **by default**
-  via PTY-driving `claude attach` (the `experimental` Cargo feature is now
-  `default`), but it is **best-effort/unstable** — the UI labels foreign control
-  as experimental. Runtime opt-out: `MOTHER_CLAUDE_FOREIGN_INJECTION=0`.
-- Only PTY-`attach` foreign injection is implemented; the "CCR v1" transport is a
-  status probe only. Never speak the cc-daemon control socket directly. Owned
-  sessions remain the path to *reliable* control.
+- **Foreign sessions** → monitoring (transcripts, pidfiles, hook events),
+  lifecycle (`stop`/`respawn`/`rm`, short job id) and, through documented
+  channels only:
+  - the **Mother Claude plugin** (user scope, installed from the desktop via
+    `claude plugin marketplace add` + `claude plugin install`; never by
+    editing `~/.claude/settings.json` hooks). Its `mc-hook`/`mc-wake` scripts
+    (`src-tauri/assets/claude-plugin/`, exec-form hooks, always exit 0) feed
+    `server/hooks.rs`: a held `PermissionRequest` races the session's own
+    dialog (first answer wins), relays go out as PostToolUse/Stop
+    `additionalContext` or wake an idle session (`asyncRewake`), interrupts
+    land at the next tool boundary. Owned ids are ignored there;
+  - **tmux** (`claude/tmux.rs`) for sessions running in a pane: argv-only
+    `send-keys`, never while a dialog is open.
+  What each session supports is `SessionSummary.control` (`claude/caps.rs`);
+  the UI must stay honest about it. PTY-driving `claude attach` remains an
+  experimental extra for background jobs (`experimental` feature, default on;
+  runtime opt-out `MOTHER_CLAUDE_FOREIGN_INJECTION=0`). The "CCR v1"
+  transport is a status probe only. Never speak the cc-daemon control socket
+  or `/tmp/cc-socks/*.sock` directly. Owned sessions remain the path to
+  *reliable* control (model, effort, slash commands, images).
 
 **Design the product around owning sessions.** Do not block on foreign injection.
 
@@ -76,7 +88,7 @@ undocumented research-preview internals.
 | MCP inventory | `~/.claude.json`, project `.mcp.json` | configured MCP servers |
 | Daemon log | `~/.claude/daemon.log` | supervisor logs |
 | Worktrees | `<project>/.claude/worktrees/<name>` | per-session isolated edits |
-| Live events | **Hooks** (`http` handler → our server) | PreToolUse/PostToolUse/Notification/Stop |
+| Live events | **Hooks** from the Mother Claude plugin (`mc-hook` → `POST /hooks/event`, `mc-wake` → `POST /hooks/wait`) | tool, prompt, subagent, stop and session events; held approvals |
 
 Key facts: `<encoded-cwd>` = absolute path with every non-alphanumeric char → `-`.
 The *same* `projects` store is written by CLI, VS Code/JetBrains, and Claude

@@ -27,10 +27,9 @@ use super::caps::{self, CapsInput, SessionFacts};
 use super::index::{Aggregates, FileIndex, PendingTool, Totals};
 use super::live::LiveSession;
 use super::model::{
-    Activity, ActivityKind, AgentCounts, ApproveVia, AttachCap, BackgroundTask, BackgroundTaskKind,
-    CapAction, CapLimit, ContextFill, ControlCaps, ControlChannel, FileChanged, LastError,
-    ModelInfo, PendingItem, PendingKind, PendingPreview, PendingSource, PrLink, RenameCap,
-    SessionDetail, SessionStatus, SessionSummary, Surface, TodoStatus, TodoSummary, Usage,
+    Activity, ActivityKind, AgentCounts, BackgroundTask, BackgroundTaskKind, ContextFill,
+    FileChanged, LastError, ModelInfo, PendingItem, PendingKind, PendingPreview, PendingSource,
+    PrLink, SessionDetail, SessionStatus, SessionSummary, Surface, TodoStatus, TodoSummary, Usage,
 };
 use super::pricing;
 use crate::state::AppState;
@@ -286,85 +285,6 @@ pub fn observed_item(id: &str, tool: &PendingTool, waiting_for: Option<&str>) ->
     }
 }
 
-/// Fill the capability fields added in §10 when the capability computation
-/// predates them (the foundation's `caps::compute` fills only `notes`), so
-/// the UI always has `limits`, `approveVia`, `attach`, `rename`, `terminal`,
-/// `keys`. A computation that already sets them is left untouched.
-pub fn upgrade_legacy_caps(c: &mut ControlCaps, tmux: bool, background: bool) {
-    let untouched = c.limits.is_empty()
-        && c.approve_via == ApproveVia::None
-        && c.attach == AttachCap::None
-        && c.rename == RenameCap::None
-        && !c.terminal
-        && !c.keys;
-    if !untouched {
-        return;
-    }
-    c.limits = c
-        .notes
-        .iter()
-        .map(|n| {
-            let lower = n.to_ascii_lowercase();
-            let (code, action) = if lower.contains("install foreign") {
-                (
-                    "foreign_control_not_installed",
-                    Some(CapAction::InstallForeignControl),
-                )
-            } else if lower.contains("restart it") || lower.contains("before foreign control") {
-                ("hooks_not_loaded", Some(CapAction::ReloadPlugins))
-            } else if lower.contains("has ended") {
-                ("session_ended", Some(CapAction::ContinueOwned))
-            } else if lower.contains("continue here") || lower.contains("fork") {
-                ("continue_owned", Some(CapAction::Fork))
-            } else if lower.contains("tmux") {
-                ("tmux_best_effort", None)
-            } else if lower.contains("experimental") {
-                ("experimental_pty", None)
-            } else {
-                ("note", None)
-            };
-            CapLimit {
-                code: code.into(),
-                text: n.clone(),
-                action,
-            }
-        })
-        .collect();
-    match c.channel {
-        ControlChannel::Owned => {
-            c.rename = RenameCap::Sync;
-            c.attach = AttachCap::Inline;
-            c.approve_via = ApproveVia::Control;
-        }
-        ControlChannel::Tmux => {
-            c.rename = RenameCap::Alias;
-            c.attach = AttachCap::Path;
-            c.terminal = true;
-            c.keys = true;
-            c.approve_via = if c.approve {
-                ApproveVia::Hook
-            } else {
-                ApproveVia::Keys
-            };
-        }
-        ControlChannel::Hooks => {
-            c.rename = RenameCap::Alias;
-            c.attach = AttachCap::Path;
-            c.approve_via = ApproveVia::Hook;
-        }
-        ControlChannel::Pty => {
-            c.rename = RenameCap::Alias;
-            c.terminal = true;
-        }
-        ControlChannel::None => {
-            c.rename = RenameCap::Alias;
-        }
-    }
-    if tmux || background {
-        c.terminal = true;
-    }
-}
-
 /// Inputs gathered asynchronously by the monitor before a (sync) build.
 #[derive(Debug, Clone, Default)]
 pub struct BuildCtx {
@@ -617,17 +537,21 @@ pub fn build_one(state: &AppState, id: &str, ctx: &BuildCtx) -> Option<SessionSu
         job_id: job_id.clone(),
         tmux: tmux.clone(),
     };
-    let mut input: CapsInput = caps::input_for(state, &facts);
+    let permission_mode = effective_permission_mode(state, id);
+    let mut input: CapsInput = caps::input_with(
+        state,
+        &facts,
+        &caps::ExtraFacts {
+            pid: pid.as_ref().and_then(|p| p.pid),
+            permission_mode: permission_mode.clone(),
+            transcript_missing: main.is_none(),
+        },
+    );
     if !owned_handle && !bridge_thread {
         // `owned` in the caps means "a live control handle".
         input.owned = false;
     }
-    let mut control = caps::compute(&input);
-    upgrade_legacy_caps(
-        &mut control,
-        tmux.as_deref().is_some_and(is_tmux_target),
-        job_id.is_some(),
-    );
+    let control = caps::compute(&input);
 
     let last_error = agg.and_then(|a| a.last_error.as_ref()).map(|e| LastError {
         kind: e.kind.clone(),
@@ -653,7 +577,7 @@ pub fn build_one(state: &AppState, id: &str, ctx: &BuildCtx) -> Option<SessionSu
         activity: act,
         model,
         effort: agg.and_then(|a| a.effort.clone()),
-        permission_mode: effective_permission_mode(state, id),
+        permission_mode,
         git_branch: agg.and_then(|a| a.git_branch.clone()),
         pr_link: agg.and_then(|a| a.pr_link.as_ref()).map(|p| PrLink {
             number: p.number,
@@ -700,12 +624,11 @@ pub fn build_one(state: &AppState, id: &str, ctx: &BuildCtx) -> Option<SessionSu
 /// A just-spawned owned session that no data source knows yet.
 pub fn synthetic_owned(id: &str, cwd: &str, started_at: i64) -> SessionSummary {
     let project_name = project_name(cwd);
-    let mut control = caps::compute(&CapsInput {
+    let control = caps::compute(&CapsInput {
         owned: true,
         live: true,
         ..Default::default()
     });
-    upgrade_legacy_caps(&mut control, false, false);
     SessionSummary {
         id: id.to_string(),
         name: project_name.clone(),
@@ -833,6 +756,7 @@ pub async fn detail(state: &AppState, summary: SessionSummary) -> SessionDetail 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::claude::model::ControlChannel;
 
     #[test]
     fn tmux_targets() {
@@ -915,36 +839,6 @@ mod tests {
         );
         assert_eq!(p.title, "Allow Bash?");
         assert_eq!(p.detail.as_deref(), Some("rm -rf build"));
-    }
-
-    #[test]
-    fn legacy_caps_gain_limits_and_new_fields() {
-        let mut c = caps::compute(&CapsInput {
-            live: true,
-            ..Default::default()
-        });
-        upgrade_legacy_caps(&mut c, false, false);
-        assert!(c
-            .limits
-            .iter()
-            .any(|l| l.action == Some(CapAction::InstallForeignControl)));
-        assert_eq!(c.rename, RenameCap::Alias);
-        let mut owned = caps::compute(&CapsInput {
-            owned: true,
-            live: true,
-            ..Default::default()
-        });
-        upgrade_legacy_caps(&mut owned, false, false);
-        assert_eq!(owned.approve_via, ApproveVia::Control);
-        assert_eq!(owned.attach, AttachCap::Inline);
-        // A computation that already sets the new fields is left alone.
-        let mut modern = ControlCaps {
-            approve_via: ApproveVia::Hook,
-            notes: vec!["x".into()],
-            ..Default::default()
-        };
-        upgrade_legacy_caps(&mut modern, false, false);
-        assert!(modern.limits.is_empty());
     }
 
     #[test]

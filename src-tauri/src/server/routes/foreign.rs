@@ -1,9 +1,15 @@
 //! Foreign-session control routes (design §4.5 "Foreign control", §5.2–5.4,
 //! G2).
 //!
-//! Owner: **B4 (foreign control)**. The foundation implements the plugin
-//! status (from what it can see cheaply), the G2-sanitized experimental PTY
-//! paths, and `501` stubs for install/uninstall, keys and terminal.
+//! Owner: **B4 (foreign control)**.
+//!
+//! * `GET /control/foreign` (desktop): plugin status from `claude plugin list`
+//!   (cached) plus live hook traffic;
+//! * `POST /control/foreign/install|uninstall` (desktop, and only from this
+//!   computer): the `claude plugin` CLI, see `claude::hooks`;
+//! * `POST /sessions/{id}/keys` (L, tmux only): one allowlisted key;
+//! * `GET /sessions/{id}/terminal`: the tmux pane as plain text;
+//! * the experimental PTY paths (G2-sanitized, L).
 
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
@@ -14,7 +20,7 @@ use serde_json::{json, Value};
 
 use super::Body;
 use crate::claude::hooks::ForeignStatus;
-use crate::claude::model::{ControlChannel, SessionSummary};
+use crate::claude::model::{ControlChannel, NoticeLevel, SessionSummary};
 use crate::claude::tmux;
 use crate::server::auth::{require_dangerous, Authed, DangerousOk, DesktopOnly};
 use crate::server::context::ClientContext;
@@ -116,13 +122,17 @@ pub struct KeyBody {
     pub key: String,
 }
 
-/// `POST /api/sessions/{id}/keys {key}` (tmux only, L).
+/// `POST /api/sessions/{id}/keys {key}` (tmux only, L: a key can answer any
+/// dialog the terminal shows, including "Yes, and don't ask again").
 pub async fn keys(
     DangerousOk(_ctx): DangerousOk,
     State(state): State<AppState>,
     Path(id): Path<String>,
     Body(body): Body<KeyBody>,
 ) -> ApiResult<Json<Value>> {
+    if !crate::server::hooks::is_uuid(&id) {
+        return Err(ApiError::no_such_session(&id));
+    }
     if !tmux::ALLOWED_KEYS.contains(&body.key.as_str()) {
         return Err(ApiError::unprocessable(
             "invalid_key",
@@ -137,17 +147,25 @@ pub async fn keys(
     Ok(Json(json!({ "ok": true })))
 }
 
-/// `GET /api/sessions/{id}/terminal` → `{text}` (tmux capture-pane; B4 adds
-/// `claude logs` for background sessions).
+/// Lines of scrollback the terminal view returns.
+pub const TERMINAL_LINES: u32 = 200;
+
+/// `GET /api/sessions/{id}/terminal` → `{text, rows}`: the tmux pane as plain
+/// text (never escape sequences), `rows` = its lines. Background jobs render
+/// `claude logs <short>` through the owned-control side's VT renderer.
 pub async fn terminal(
     Authed(_ctx): Authed,
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> ApiResult<Json<Value>> {
+    if !crate::server::hooks::is_uuid(&id) {
+        return Err(ApiError::no_such_session(&id));
+    }
     let s = session(&state, &id).await?;
-    if s.control.channel == ControlChannel::Tmux {
-        let text = tmux::capture(&state, &s, 200).await?;
-        return Ok(Json(json!({ "text": text })));
+    if s.control.channel == ControlChannel::Tmux || (s.control.terminal && s.tmux_pane.is_some()) {
+        let text = tmux::capture(&state, &s, TERMINAL_LINES).await?;
+        let rows: Vec<&str> = text.lines().collect();
+        return Ok(Json(json!({ "text": text, "rows": rows })));
     }
     // Background sessions: `claude logs <short>` replayed onto a 200×50 grid
     // (B3) — plain lines, never raw terminal bytes.
@@ -156,8 +174,10 @@ pub async fn terminal(
         Err(e) if e.code != "not_a_background_session" => return Err(e),
         Err(_) => {}
     }
-    Err(ApiError::not_implemented(
-        "Terminal view for this session (B4)",
+    Err(ApiError::conflict(
+        "no_terminal",
+        "This session has no terminal Mother Claude can show (it is not in tmux and not a \
+         background job).",
     ))
 }
 
@@ -166,43 +186,51 @@ pub async fn status(
     DesktopOnly(_ctx): DesktopOnly,
     State(state): State<AppState>,
 ) -> Json<ForeignStatus> {
-    let sessions = state.sessions().await;
-    let with_hooks = sessions
-        .iter()
-        .filter(|s| crate::server::hooks::is_active(&state, &s.id))
-        .count() as u32;
-    Json(ForeignStatus {
-        installed: state.plugin.installed_cached(),
-        plugin_version: None,
-        cli_available: false,
-        last_event_at: state.hooks.last_any_event_at(),
-        sessions_with_hooks: with_hooks,
-        notes: vec!["Foreign-session control is not installed from this build yet.".into()],
-    })
+    Json(crate::claude::hooks::status(&state).await)
 }
 
-/// `POST /api/control/foreign/install` (desktop, local). STUB.
-pub async fn install(DesktopOnly(ctx): DesktopOnly) -> ApiResult<Json<Value>> {
+/// `POST /api/control/foreign/install` (desktop, local): write the plugin
+/// into the app data dir and install it at user scope with the `claude
+/// plugin` CLI.
+pub async fn install(
+    DesktopOnly(ctx): DesktopOnly,
+    State(state): State<AppState>,
+) -> ApiResult<Json<ForeignStatus>> {
     if !ctx.local {
         return Err(ApiError::dangerous_blocked(
             "Installing the plugin is only possible on this computer.",
         ));
     }
-    Err(ApiError::not_implemented(
-        "Installing foreign-session control (B4)",
-    ))
+    let status = crate::claude::hooks::install(&state).await?;
+    crate::server::ws::publish_notice(
+        &state,
+        NoticeLevel::Success,
+        "Foreign-session control installed. Sessions started from now on can be approved and \
+         messaged from Mother Claude; running ones need /reload-plugins or a restart.",
+        None,
+    );
+    Ok(Json(status))
 }
 
-/// `POST /api/control/foreign/uninstall` (desktop, local). STUB.
-pub async fn uninstall(DesktopOnly(ctx): DesktopOnly) -> ApiResult<Json<Value>> {
+/// `POST /api/control/foreign/uninstall` (desktop, local): turn the hooks off
+/// at once, then uninstall the plugin (its files stay, disabled).
+pub async fn uninstall(
+    DesktopOnly(ctx): DesktopOnly,
+    State(state): State<AppState>,
+) -> ApiResult<Json<ForeignStatus>> {
     if !ctx.local {
         return Err(ApiError::dangerous_blocked(
             "Uninstalling the plugin is only possible on this computer.",
         ));
     }
-    Err(ApiError::not_implemented(
-        "Uninstalling foreign-session control (B4)",
-    ))
+    let status = crate::claude::hooks::uninstall(&state).await?;
+    crate::server::ws::publish_notice(
+        &state,
+        NoticeLevel::Info,
+        "Foreign-session control uninstalled.",
+        None,
+    );
+    Ok(Json(status))
 }
 
 /// `POST /api/hooks/install` — retired: it edited `~/.claude/settings.json`

@@ -1,0 +1,16 @@
+{
+  "name": "mother-claude-local",
+  "owner": {
+    "name": "Mother Claude"
+  },
+  "metadata": {
+    "description": "The Mother Claude desktop app's own plugin, installed from the app's data directory."
+  },
+  "plugins": [
+    {
+      "name": "mother-claude",
+      "source": "./mother-claude",
+      "description": "Lets the Mother Claude desktop app see and answer this session's approvals, questions and plans, and relay messages from your phone."
+    }
+  ]
+}

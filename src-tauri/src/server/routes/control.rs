@@ -33,7 +33,7 @@ use super::foreign;
 use super::Body;
 use crate::claude::model::{
     ControlChannel, Delivery, ImageInput, MessageReceipt, NoticeLevel, PendingItem, PendingKind,
-    PendingSource, Question, QuestionOption, SessionSummary,
+    PendingSource, Question, QuestionOption, QueueStatus, SessionSummary,
 };
 use crate::claude::owned::{self, Caller, ContinueRequest, SpawnRequest};
 use crate::claude::tmux;
@@ -90,6 +90,7 @@ pub fn no_channel(s: &SessionSummary) -> ApiError {
          desktop, or continue it here as an owned session.",
     )
     .with("notes", json!(s.control.notes))
+    .with("limits", json!(s.control.limits))
 }
 
 fn unsupported(what: &str, route: &Route) -> ApiError {
@@ -174,13 +175,17 @@ pub async fn message(
             ))
         }
         Route::Tmux(s) => {
-            tmux::send_text(&state, &s, &body.text).await?;
+            tmux::send_text_as(&state, &ctx, &s, &body.text).await?;
             Delivery::Relayed
         }
         Route::Hooks(_) => {
-            let queued = hooks::enqueue_relay(&state, &id, &body.text).await?;
+            let queued = hooks::enqueue_relay_as(&state, &ctx, &id, &body.text).await?;
             return Ok(Json(MessageReceipt {
-                delivery: Delivery::Queued,
+                delivery: if queued.status == QueueStatus::Delivered {
+                    Delivery::Relayed
+                } else {
+                    Delivery::Queued
+                },
                 message_id: queued.id,
             }));
         }
@@ -371,6 +376,10 @@ pub async fn rename(
     }
     match route_for(&state, &id).await? {
         Route::Owned => owned::rename(&state, &id, name).await?,
+        Route::Tmux(s) => {
+            let one_line: String = name.split_whitespace().collect::<Vec<_>>().join(" ");
+            tmux::send_text(&state, &s, &format!("/rename {one_line}")).await?
+        }
         other => return Err(unsupported("Renaming", &other)),
     }
     Ok(ok())

@@ -88,13 +88,12 @@ pub fn router_for(state: AppState, ingress: Ingress) -> Router {
             .route(
                 "/hooks/event",
                 post(hooks::post_event)
-                    .layer(axum::extract::DefaultBodyLimit::max(routes::IMAGE_BODY_MAX)),
+                    .layer(axum::extract::DefaultBodyLimit::max(hooks::HOOK_BODY_MAX)),
             )
             .route(
                 "/hooks/wait",
-                get(hooks::wait)
-                    .post(hooks::wait)
-                    .layer(axum::extract::DefaultBodyLimit::max(routes::IMAGE_BODY_MAX)),
+                post(hooks::wait)
+                    .layer(axum::extract::DefaultBodyLimit::max(hooks::HOOK_BODY_MAX)),
             )
             // Mounted with its own auth layer — always token-required here,
             // since this listener may be reachable from the LAN. Its tokenless

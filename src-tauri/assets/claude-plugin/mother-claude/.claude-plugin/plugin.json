@@ -1,0 +1,9 @@
+{
+  "name": "mother-claude",
+  "version": "@VERSION@",
+  "description": "Foreign-session control for the Mother Claude desktop app: approvals, questions, plans and phone messages for sessions started in a terminal, VS Code or the desktop app. Silent when Mother Claude is closed.",
+  "author": {
+    "name": "Mother Claude"
+  },
+  "homepage": "https://github.com/codertapsu/mother-claude"
+}

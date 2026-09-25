@@ -1,0 +1,252 @@
+{
+  "description": "Mother Claude foreign-session control. Every hook forwards the event to the Mother Claude desktop app over loopback and is silent when the app is closed.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/mc-hook",
+            "args": [
+              "SessionStart",
+              "2",
+              "decide"
+            ],
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/mc-hook",
+            "args": [
+              "UserPromptSubmit",
+              "2",
+              "observe"
+            ],
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/mc-hook",
+            "args": [
+              "PreToolUse",
+              "2",
+              "decide"
+            ],
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "PermissionRequest": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/mc-hook",
+            "args": [
+              "PermissionRequest",
+              "3590",
+              "decide"
+            ],
+            "timeout": 3600
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/mc-hook",
+            "args": [
+              "PostToolUse",
+              "2",
+              "decide"
+            ],
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "PostToolUseFailure": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/mc-hook",
+            "args": [
+              "PostToolUseFailure",
+              "2",
+              "observe"
+            ],
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "PermissionDenied": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/mc-hook",
+            "args": [
+              "PermissionDenied",
+              "2",
+              "observe"
+            ],
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "Notification": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/mc-hook",
+            "args": [
+              "Notification",
+              "2",
+              "observe"
+            ],
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "SubagentStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/mc-hook",
+            "args": [
+              "SubagentStart",
+              "2",
+              "observe"
+            ],
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/mc-hook",
+            "args": [
+              "SubagentStop",
+              "2",
+              "observe"
+            ],
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/mc-hook",
+            "args": [
+              "PreCompact",
+              "2",
+              "observe"
+            ],
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "PostCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/mc-hook",
+            "args": [
+              "PostCompact",
+              "2",
+              "observe"
+            ],
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/mc-hook",
+            "args": [
+              "Stop",
+              "2",
+              "decide"
+            ],
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/mc-wake",
+            "args": [],
+            "asyncRewake": true,
+            "timeout": 86400
+          }
+        ]
+      }
+    ],
+    "StopFailure": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/mc-hook",
+            "args": [
+              "StopFailure",
+              "2",
+              "observe"
+            ],
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/mc-hook",
+            "args": [
+              "SessionEnd",
+              "2",
+              "observe"
+            ],
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}
