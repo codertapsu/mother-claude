@@ -6,6 +6,7 @@ import { ApiService, errorMessage } from '../../core/api.service';
 import { SessionSummary } from '../../core/models';
 import { storageGet, storageSet } from '../../core/platform';
 import { RealtimeService } from '../../core/realtime.service';
+import { FleetSummaryComponent } from '../../shared/fleet-summary.component';
 import { IconComponent } from '../../shared/icon.component';
 import { SessionCardComponent } from '../../shared/session-card.component';
 import { surfaceLabel } from '../../shared/util';
@@ -37,7 +38,7 @@ function byRecent(a: SessionSummary, b: SessionSummary): number {
  */
 @Component({
   selector: 'mc-sessions',
-  imports: [RouterLink, FormsModule, IconComponent, SessionCardComponent],
+  imports: [RouterLink, FormsModule, FleetSummaryComponent, IconComponent, SessionCardComponent],
   templateUrl: './sessions.component.html',
   styleUrl: './sessions.component.scss',
 })

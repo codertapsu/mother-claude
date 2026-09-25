@@ -8,20 +8,27 @@
         <span class="logo" aria-hidden="true"></span>
         <span>Mother Claude</span>
       </a>
-      <nav class="side-nav">
+      <nav class="side-nav" aria-label="Primary">
         @for (item of desktopNav(); track item.path) {
           <a
             [routerLink]="item.path"
             routerLinkActive="active"
+            ariaCurrentWhenActive="page"
             [routerLinkActiveOptions]="{ exact: !!item.exact }"
             [attr.aria-label]="
-              item.badge && pendingCount() ? item.label + ', ' + pendingCount() + ' waiting' : null
+              item.badge === 'pending' && pendingCount()
+                ? item.label + ', ' + pendingCount() + ' waiting'
+                : item.badge === 'agents' && agentsRunning()
+                  ? item.label + ', ' + agentsRunning() + ' running'
+                  : null
             "
           >
             <mc-icon [name]="item.icon" />
             <span class="label">{{ item.label }}</span>
             @if (item.badge === 'pending' && pendingCount()) {
               <span class="count-badge">{{ pendingCount() }}</span>
+            } @else if (item.badge === 'agents' && agentsRunning()) {
+              <span class="count-badge soft">{{ agentsRunning() }}</span>
             }
           </a>
         }
@@ -32,10 +39,26 @@
             <mc-icon name="refresh" [size]="15" /> Update available
           </a>
         }
-        <div class="conn-row" role="status" [attr.data-state]="connection()">
-          <span class="conn-dot"></span>
-          <span>{{ connLabel() }}</span>
+        <div class="conn-row" [attr.data-state]="connection()" [title]="connDetail()">
+          <span class="conn-dot" aria-hidden="true"></span>
+          <span class="conn-texts">
+            <span>{{ connLabel() }}</span>
+            @if (connection() !== 'open' && lastData()) {
+              <span class="faint small">Updated <mc-time [ms]="lastData()" /></span>
+            }
+          </span>
           <span class="spacer"></span>
+          @if (connection() !== 'open' && connection() !== 'unpaired') {
+            <button
+              type="button"
+              class="btn ghost icon-only small"
+              aria-label="Reconnect now"
+              title="Reconnect now"
+              (click)="reconnect()"
+            >
+              <mc-icon name="refresh" [size]="15" />
+            </button>
+          }
           <button
             type="button"
             class="btn ghost icon-only small"
@@ -67,14 +90,24 @@
           <mc-icon name="refresh" />
         </a>
       }
-      <span class="conn" role="status" [attr.data-state]="connection()" [title]="connLabel()">
-        <span class="conn-dot"></span>
+      <button
+        type="button"
+        class="conn"
+        [attr.data-state]="connection()"
+        [title]="connDetail()"
+        [attr.aria-label]="'Connection: ' + connLabel() + '. Reconnect'"
+        (click)="reconnect()"
+      >
+        <span class="conn-dot" aria-hidden="true"></span>
         @if (connection() !== 'open') {
-          <span class="conn-text">{{ connLabel() }}</span>
-        } @else {
-          <span class="visually-hidden">{{ connLabel() }}</span>
+          <span class="conn-text"
+            >{{ connLabel() }}
+            @if (lastData()) {
+              <span class="faint"> · <mc-time [ms]="lastData()" /></span>
+            }
+          </span>
         }
-      </span>
+      </button>
     </header>
 
     <div class="main">
@@ -110,14 +143,20 @@
     </div>
 
     <!-- Phone: bottom tabs -->
-    <nav class="tabbar" aria-label="Main navigation">
-      <a routerLink="/" routerLinkActive="active" [routerLinkActiveOptions]="{ exact: true }">
+    <nav class="tabbar" aria-label="Primary">
+      <a
+        routerLink="/"
+        routerLinkActive="active"
+        ariaCurrentWhenActive="page"
+        [routerLinkActiveOptions]="{ exact: true }"
+      >
         <mc-icon name="sessions" [size]="22" />
         <span>Sessions</span>
       </a>
       <a
         routerLink="/inbox"
         routerLinkActive="active"
+        ariaCurrentWhenActive="page"
         [attr.aria-label]="pendingCount() ? 'Inbox, ' + pendingCount() + ' waiting' : null"
       >
         <span class="icon-wrap">
@@ -128,11 +167,25 @@
         </span>
         <span>Inbox</span>
       </a>
-      <a routerLink="/agents" routerLinkActive="active">
-        <mc-icon name="agents" [size]="22" />
+      <a
+        routerLink="/agents"
+        routerLinkActive="active"
+        ariaCurrentWhenActive="page"
+        [attr.aria-label]="agentsRunning() ? 'Agents, ' + agentsRunning() + ' running' : null"
+      >
+        <span class="icon-wrap">
+          <mc-icon name="agents" [size]="22" />
+          @if (agentsRunning()) {
+            <span class="count-badge soft">{{ agentsRunning() }}</span>
+          }
+        </span>
         <span>Agents</span>
       </a>
-      <a routerLink="/more" [class.active]="moreActive()">
+      <a
+        routerLink="/more"
+        [class.active]="moreActive()"
+        [attr.aria-current]="moreActive() ? 'page' : null"
+      >
         <mc-icon name="more" [size]="22" />
         <span>More</span>
       </a>
@@ -144,10 +197,16 @@
   </main>
 }
 
-<mc-modal [open]="showWelcome()" title="Welcome to Mother Claude" (closed)="dismissWelcome()">
+<mc-sheet [open]="showWelcome()" title="Welcome to Mother Claude" (closed)="dismissWelcome()">
   <p class="welcome-intro">
     Monitor and control every local Claude Code session from one place — and from your phone. A few
     things worth knowing:
   </p>
   <mc-limitations />
-</mc-modal>
+  <div class="welcome-foot">
+    <button class="btn primary" type="button" (click)="dismissWelcome()">Got it</button>
+  </div>
+</mc-sheet>
+
+<mc-toasts />
+<mc-pair-approval-dialog [pending]="pairRequest()" (closed)="nextPairRequest()" />

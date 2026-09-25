@@ -1,5 +1,6 @@
 import { Injectable, computed, effect, inject, signal } from '@angular/core';
 
+import { NoticeService } from './notice.service';
 import { RealtimeService } from './realtime.service';
 import { storageGet, storageSet } from './platform';
 
@@ -15,8 +16,12 @@ const BASE_TITLE = 'Mother Claude';
 @Injectable({ providedIn: 'root' })
 export class AttentionService {
   private realtime = inject(RealtimeService);
+  private notices = inject(NoticeService);
 
-  readonly pendingCount = computed(() => this.realtime.pendingItems().length);
+  /** Requests someone can answer from here (observed ones wait at the desk). */
+  readonly pendingCount = computed(
+    () => this.realtime.pendingItems().filter((p) => p.answerable).length,
+  );
   readonly alertsEnabled = signal(storageGet(ALERTS_KEY) !== '0');
 
   private readonly seen = new Set<string>();
@@ -42,11 +47,11 @@ export class AttentionService {
     effect(() => {
       const items = this.realtime.pendingItems();
       const loaded = this.realtime.sessionsLoaded();
-      let fresh = false;
+      const fresh = [];
       for (const item of items) {
         if (!this.seen.has(item.id)) {
           this.seen.add(item.id);
-          fresh = true;
+          fresh.push(item);
         }
       }
       // The first snapshot is history, not news.
@@ -55,7 +60,22 @@ export class AttentionService {
         this.primed = true;
         return;
       }
-      if (fresh && this.alertsEnabled()) this.alert();
+      if (!fresh.length) return;
+      const first = fresh[0];
+      const session = this.realtime.sessions().find((s) => s.id === first.sessionId);
+      const what =
+        first.kind === 'question'
+          ? 'Question'
+          : first.kind === 'plan'
+            ? 'Plan to review'
+            : first.kind === 'elicitation'
+              ? 'Input needed'
+              : 'Permission needed';
+      const name = session?.title || session?.name || 'a session';
+      this.notices.announce(
+        `${what} in ${name}: ${first.title}${fresh.length > 1 ? ` (and ${fresh.length - 1} more)` : ''}`,
+      );
+      if (this.alertsEnabled()) this.alert();
     });
   }
 

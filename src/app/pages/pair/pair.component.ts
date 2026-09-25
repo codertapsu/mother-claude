@@ -20,6 +20,17 @@ export function normalizePairCode(raw: string): string {
     .replace(/[IL]/g, '1');
 }
 
+/** A private-network address (RFC 1918, link-local, *.local). */
+function isLanOrigin(host: string): boolean {
+  return (
+    /^10\./.test(host) ||
+    /^192\.168\./.test(host) ||
+    /^172\.(1[6-9]|2\d|3[01])\./.test(host) ||
+    /^169\.254\./.test(host) ||
+    host.endsWith('.local')
+  );
+}
+
 /** "ABCD1234WXYZ" → "ABCD-1234-WXYZ" */
 function groupCode(code: string): string {
   return code.replace(/(.{4})(?=.)/g, '$1-');
@@ -76,9 +87,14 @@ function groupCode(code: string): string {
           }
           @case ('waiting') {
             <div class="card center" role="status">
-              <p class="big-label">Approve this device on your computer</p>
-              <p class="muted">Check that the desktop shows the same number:</p>
-              <p class="fingerprint" aria-label="Fingerprint">{{ fingerprint() }}</p>
+              <p class="big-label">Approve this device on your Mac</p>
+              <p class="muted">On the Mac, type this number to approve it:</p>
+              <p
+                class="fingerprint"
+                [attr.aria-label]="'Number: ' + fingerprint().split('').join(' ')"
+              >
+                {{ fingerprint() }}
+              </p>
               <p class="muted small">Waiting for approval… (this page updates by itself)</p>
               <button class="btn" type="button" (click)="cancel()">Cancel</button>
             </div>
@@ -140,6 +156,44 @@ function groupCode(code: string): string {
               Codes work once and expire after 5 minutes. Pairing stores a device key in this
               browser only; the desktop can revoke it at any time.
             </p>
+            @if (lan()) {
+              <details class="card trust">
+                <summary>
+                  <mc-icon name="shield" [size]="16" /> Trust this Mac (recommended)
+                </summary>
+                <p class="small">
+                  On your home network the Mac uses its own certificate, so the browser warns once
+                  ("Not private"). Until the phone trusts it, live updates may fall back to
+                  refreshing every few seconds and notifications stay off.
+                </p>
+                @if (caAvailable()) {
+                  <ol class="steps small">
+                    @if (ios()) {
+                      <li>
+                        <a href="/pair/mother-claude.mobileconfig">Download the profile</a>, then
+                        open Settings › General › VPN &amp; Device Management and install it.
+                      </li>
+                      <li>
+                        Settings › General › About › Certificate Trust Settings: turn on full trust
+                        for “Mother Claude”.
+                      </li>
+                    } @else {
+                      <li>
+                        <a href="/pair/ca.crt" download>Download the Mac's certificate</a> and open
+                        it to install it (Android: Settings › Security › Install a certificate › CA
+                        certificate).
+                      </li>
+                    }
+                    <li>Reload this page.</li>
+                  </ol>
+                } @else {
+                  <p class="small">
+                    Tap “Show Details” › “visit this website” on the warning once. If live updates
+                    still don't connect, the app keeps working by refreshing every few seconds.
+                  </p>
+                }
+              </details>
+            }
           }
         }
       }
@@ -222,6 +276,17 @@ function groupCode(code: string): string {
       .foot {
         margin-top: 0.75rem;
       }
+      .trust {
+        margin-top: 1rem;
+      }
+      .trust summary {
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+        min-height: var(--tap);
+        cursor: pointer;
+        font-weight: 600;
+      }
     `,
   ],
 })
@@ -240,12 +305,18 @@ export class PairComponent {
   protected readonly homeScreenApp = signal(isIos() && isStandalone());
   protected readonly alreadyPaired = computed(() => this.auth.state() === 'paired');
   protected readonly codeValid = computed(() => normalizePairCode(this.code()).length >= 8);
+  /** Opened over the LAN address (self-signed certificate). */
+  protected readonly lan = signal(isLanOrigin(location.hostname) && location.protocol === 'https:');
+  protected readonly ios = signal(isIos());
+  /** The server offers its local CA for download (`/pair/ca.crt`). */
+  protected readonly caAvailable = signal(false);
 
   private pollTimer?: ReturnType<typeof setTimeout>;
   private attempt = 0;
 
   constructor() {
     inject(DestroyRef).onDestroy(() => clearTimeout(this.pollTimer));
+    if (this.lan()) void this.probeCa();
     const fromQr = urlParam('c');
     if (fromQr) {
       // The code must not linger in the address bar or history.
@@ -258,6 +329,16 @@ export class PairComponent {
         this.code.set(groupCode(normalizePairCode(fromQr)));
         void this.exchange(normalizePairCode(fromQr));
       }
+    }
+  }
+
+  private async probeCa(): Promise<void> {
+    try {
+      const res = await fetch('/pair/ca.crt', { method: 'HEAD', cache: 'no-store' });
+      const type = res.headers.get('content-type') ?? '';
+      this.caAvailable.set(res.ok && !type.includes('text/html'));
+    } catch {
+      this.caAvailable.set(false);
     }
   }
 

@@ -15,12 +15,19 @@ import { IconComponent } from '../../shared/icon.component';
 import { PermissionsListComponent } from '../../shared/permissions-list.component';
 import { UpdaterComponent } from '../../shared/updater.component';
 
-const PREF_ROWS: { key: keyof PushPrefs; label: string; hint: string }[] = [
+type PrefKey = 'permission' | 'question' | 'plan' | 'finished' | 'failed' | 'claude';
+
+const PREF_ROWS: { key: PrefKey; label: string; hint: string }[] = [
   { key: 'permission', label: 'Permission requests', hint: 'A tool call waits for approval' },
   { key: 'question', label: 'Questions', hint: 'Claude asks you something' },
   { key: 'plan', label: 'Plans', hint: 'A plan is ready for review' },
   { key: 'finished', label: 'Finished', hint: 'A longer turn (30 s+) completes' },
   { key: 'failed', label: 'Failures', hint: 'A session fails or hits an API error' },
+  {
+    key: 'claude',
+    label: 'When Claude asks',
+    hint: 'Claude sends a notification itself (e.g. “tell me when the tests finish”)',
+  },
 ];
 
 const INGRESS: Record<string, string> = {
@@ -78,7 +85,7 @@ export class SettingsComponent {
     this.theme.set(p);
   }
 
-  protected async togglePref(key: keyof PushPrefs, on: boolean): Promise<void> {
+  protected async togglePref(key: PrefKey, on: boolean): Promise<void> {
     const cur = this.prefs();
     if (!cur) return;
     const next = { ...cur, [key]: on };

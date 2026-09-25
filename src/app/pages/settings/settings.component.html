@@ -54,7 +54,7 @@
             <label class="switch list-row">
               <input
                 type="checkbox"
-                [checked]="p[row.key]"
+                [checked]="!!p[row.key]"
                 (change)="togglePref(row.key, $any($event.target).checked)"
               />
               <span class="switch-text">

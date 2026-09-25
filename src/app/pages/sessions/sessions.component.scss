@@ -72,3 +72,16 @@
 .empty-actions {
   margin-top: 0.75rem;
 }
+
+.skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+.skeleton span {
+  display: block;
+  height: 7.5rem;
+  border-radius: var(--radius);
+  background: var(--panel-2);
+  animation: mc-shimmer 1.2s ease-in-out infinite alternate;
+}

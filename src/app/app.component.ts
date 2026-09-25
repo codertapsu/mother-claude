@@ -4,18 +4,24 @@ import { NavigationEnd, Router, RouterLink, RouterLinkActive, RouterOutlet } fro
 import { filter, map } from 'rxjs';
 
 import { ApiService } from './core/api.service';
+import { PendingPair } from './core/models';
+import { NoticeService } from './core/notice.service';
 import { AttentionService } from './core/attention.service';
 import { AuthService } from './core/auth.service';
 import { ConfigService } from './core/config.service';
 import { PermissionsService } from './core/permissions.service';
 import { sessionStorageGet, storageGet, storageSet } from './core/platform';
 import { PushService } from './core/push.service';
-import { RealtimeService, connectionLabel } from './core/realtime.service';
+import { RealtimeService, connectionDetail, connectionLabel } from './core/realtime.service';
 import { ThemeService } from './core/theme.service';
 import { UpdaterService } from './core/updater.service';
+import { ViewportService } from './core/viewport.service';
 import { IconComponent, IconName } from './shared/icon.component';
 import { LimitationsComponent } from './shared/limitations.component';
-import { ModalComponent } from './shared/modal.component';
+import { PairApprovalDialogComponent } from './shared/pair-approval-dialog.component';
+import { SheetComponent } from './shared/sheet.component';
+import { TimeAgoComponent } from './shared/time-ago.component';
+import { ToastComponent } from './shared/toast.component';
 
 const ONBOARDING_SKIP_KEY = 'mc_onboarding_skipped';
 const WELCOME_SEEN_KEY = 'mc_welcome_seen';
@@ -53,7 +59,7 @@ interface NavItem {
   label: string;
   icon: IconName;
   exact?: boolean;
-  badge?: 'pending';
+  badge?: 'pending' | 'agents';
   desktopOnly?: boolean;
 }
 
@@ -72,7 +78,10 @@ interface NavItem {
     RouterLinkActive,
     IconComponent,
     LimitationsComponent,
-    ModalComponent,
+    PairApprovalDialogComponent,
+    SheetComponent,
+    TimeAgoComponent,
+    ToastComponent,
   ],
   templateUrl: './app.component.html',
   styleUrl: './app.component.scss',
@@ -86,6 +95,9 @@ export class AppComponent {
   private updater = inject(UpdaterService);
   private push = inject(PushService);
   private router = inject(Router);
+  private notices = inject(NoticeService);
+  /** Keeps --vvh/--vv-top in sync from startup. */
+  private viewport = inject(ViewportService);
   protected readonly theme = inject(ThemeService);
   protected readonly attention = inject(AttentionService);
 
@@ -99,6 +111,16 @@ export class AppComponent {
   protected readonly isDesktop = this.auth.isDesktop;
   protected readonly mock = this.config.mock;
   protected readonly showWelcome = signal(false);
+  protected readonly lastData = this.realtime.lastDataAt;
+  /** Running agents across every session (the Agents tab badge). */
+  protected readonly agentsRunning = computed(() =>
+    this.realtime
+      .sessions()
+      .reduce((n, s) => n + (s.agents?.running ?? 0) + (s.agents?.backgroundRunning ?? 0), 0),
+  );
+  /** Desktop: pairing requests waiting for the typed-number approval. */
+  private readonly pairQueue = signal<PendingPair[]>([]);
+  protected readonly pairRequest = computed(() => this.pairQueue()[0] ?? null);
 
   /** Hide the navigation until this device is paired. */
   protected readonly chrome = computed(() => this.ready() && this.auth.state() !== 'unpaired');
@@ -122,7 +144,7 @@ export class AppComponent {
   protected readonly nav: NavItem[] = [
     { path: '/', label: 'Sessions', icon: 'sessions', exact: true },
     { path: '/inbox', label: 'Inbox', icon: 'inbox', badge: 'pending' },
-    { path: '/agents', label: 'Agents', icon: 'agents' },
+    { path: '/agents', label: 'Agents', icon: 'agents', badge: 'agents' },
     { path: '/new', label: 'New session', icon: 'plus' },
     { path: '/remote', label: 'Remote', icon: 'phone', desktopOnly: true },
     { path: '/api', label: 'API', icon: 'code' },
@@ -133,11 +155,40 @@ export class AppComponent {
   );
 
   protected readonly connLabel = computed(() => connectionLabel(this.connection()));
+  protected readonly connDetail = computed(() => connectionDetail(this.connection()));
 
   private lastState: string | null = null;
 
   constructor() {
     void this.boot();
+
+    // Server notices become toasts.
+    this.realtime.notice$.subscribe((n) => {
+      const level =
+        n.level === 'error'
+          ? 'error'
+          : n.level === 'warn' || n.level === 'warning'
+            ? 'warning'
+            : n.level === 'success'
+              ? 'success'
+              : 'info';
+      this.notices.show(level, n.text);
+    });
+    // Desktop: a device asked to pair.
+    this.realtime.pairRequest$.subscribe((f) => {
+      if (!f.pending?.id || !this.isDesktop() || this.section() === 'remote') return;
+      this.pairQueue.update((q) => (q.some((p) => p.id === f.pending.id) ? q : [...q, f.pending]));
+    });
+    // Say connection changes out loud (the dot alone says nothing to a
+    // screen reader).
+    let lastConn = '';
+    effect(() => {
+      const c = this.connection();
+      if (lastConn && c !== lastConn && c !== 'connecting') {
+        this.notices.announce(`Connection: ${connectionLabel(c)}`);
+      }
+      lastConn = c;
+    });
 
     // Pairing state drives the socket and the /pair redirect.
     effect(() => {
@@ -216,5 +267,13 @@ export class AppComponent {
 
   protected reload(): void {
     location.reload();
+  }
+
+  protected nextPairRequest(): void {
+    this.pairQueue.update((q) => q.slice(1));
+  }
+
+  protected reconnect(): void {
+    this.realtime.reconnectNow();
   }
 }

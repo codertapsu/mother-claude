@@ -50,6 +50,9 @@
 [data-state='open'] .conn-dot {
   background: var(--green);
 }
+[data-state='limited'] .conn-dot {
+  background: var(--blue);
+}
 [data-state='connecting'] .conn-dot,
 [data-state='reconnecting'] .conn-dot {
   background: var(--amber);
@@ -57,6 +60,7 @@
   animation: mc-pulse 1.4s ease-out infinite;
 }
 [data-state='offline'] .conn-dot,
+[data-state='unreachable'] .conn-dot,
 [data-state='unpaired'] .conn-dot {
   background: var(--red);
 }
@@ -132,14 +136,37 @@
   text-overflow: ellipsis;
 }
 .conn {
+  appearance: none;
+  border: 0;
+  background: none;
+  font: inherit;
+  cursor: pointer;
   display: inline-flex;
   align-items: center;
   gap: 0.4rem;
   min-height: var(--tap);
+  min-width: var(--tap);
+  justify-content: center;
   padding: 0 0.25rem;
   font-size: 0.75rem;
   color: var(--muted);
   white-space: nowrap;
+}
+.content.flush {
+  padding: 0;
+}
+.welcome-foot {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 0.75rem;
+}
+.count-badge.soft {
+  background: var(--green-soft);
+  color: var(--green);
+  border-color: var(--panel);
+}
+.faint {
+  color: var(--faint);
 }
 
 .main {
@@ -152,9 +179,6 @@
 }
 .shell.immersive .main {
   padding-bottom: 0;
-}
-.content.flush {
-  padding: 0;
 }
 
 .tabbar {
@@ -280,6 +304,10 @@
     gap: 0.5rem;
     font-size: 0.8rem;
     color: var(--muted);
+  }
+  .conn-texts {
+    display: flex;
+    flex-direction: column;
   }
   .update {
     display: inline-flex;

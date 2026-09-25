@@ -5,6 +5,10 @@
     <a class="btn primary" routerLink="/new"><mc-icon name="plus" [size]="16" /> New session</a>
   </div>
 
+  @if (loaded() && all().length) {
+    <mc-fleet-summary (filter)="setFilter($event)" />
+  }
+
   <div class="toolbar">
     <label class="search">
       <mc-icon name="search" [size]="16" />
@@ -53,17 +57,28 @@
   </div>
 
   @if (!loaded()) {
-    <div class="card empty-state">
-      <strong>{{ connection() === 'offline' ? 'Offline' : 'Connecting…' }}</strong>
-      Loading your sessions.
-    </div>
+    @if (connection() === 'offline' || connection() === 'unreachable') {
+      <div class="card empty-state">
+        <strong>{{
+          connection() === 'offline' ? "You're offline" : "Can't reach your Mac"
+        }}</strong>
+        It may be asleep, offline, or the tunnel is down. This page updates as soon as it's back.
+      </div>
+    } @else {
+      <div class="skeleton" aria-label="Loading your sessions">
+        <span></span><span></span><span></span>
+      </div>
+    }
   } @else if (!all().length) {
     <div class="card empty-state">
-      <strong>No active sessions</strong>
+      <strong>No sessions in the last 24 h</strong>
       Start one here, or run <code>claude</code> in a terminal or your editor — it shows up
       automatically.
       <div class="empty-actions">
-        <a class="btn primary" routerLink="/new">New session</a>
+        <a class="btn primary" routerLink="/new"><mc-icon name="plus" [size]="15" /> New session</a>
+        <button class="btn" type="button" (click)="openHistory()">
+          <mc-icon name="clock" [size]="15" /> Show ended sessions
+        </button>
       </div>
     </div>
   } @else if (!groups().length) {
@@ -86,7 +101,7 @@
     </section>
   }
 
-  @if (loaded() && filter() === 'all') {
+  @if (loaded() && (filter() === 'all' || historyOpen())) {
     <section class="history" aria-label="Ended sessions">
       @if (!historyOpen()) {
         <button class="btn block" type="button" (click)="openHistory()">
