@@ -33,9 +33,20 @@ supported way to inject input into a *foreign* live session (started in another
 terminal/editor and held by the Claude Code supervisor — its control socket uses
 a rotating key and an undocumented protocol).
 
-- **Owned sessions** → full control via headless `claude -p --output-format
-  stream-json --input-format stream-json` (Path B) or the Agent SDK sidecar
-  (Path A, `canUseTool` + `ask_user` MCP tool).
+- **Owned sessions** → full control via the installed `claude -p` speaking the
+  stream-json control protocol (Path B, the default; `claude/control.rs`):
+  launched like VS Code does (`--permission-prompt-tool stdio`, always an
+  explicit `--permission-mode`), `initialize` first, every CLI → host control
+  request answered (`can_use_tool` becomes a pending item; unknown subtypes get
+  `error: unsupported`), and interrupt / model / mode / effort / rename /
+  stop-task / cancel-queued-message sent as control requests (CLI errors are a
+  422). Children get a scrubbed environment (`control::SCRUBBED_ENV`: the
+  parent session's `CLAUDECODE`/`CLAUDE_CODE_*` identity and our token — not
+  provider or auth variables) plus `MOTHER_CLAUDE_OWNED=1`. Continuing a
+  session another process holds **forks** it (`--resume --fork-session
+  --session-id <new>`); never two writers on one transcript. The Agent SDK
+  sidecar (Path A) stays behind `MOTHER_CLAUDE_SIDECAR=1`. Background jobs are
+  addressed by their SHORT job id only.
 - **Foreign sessions** → monitoring (read transcripts + receive hook events) and
   lifecycle (`stop`/`respawn`/`rm`). Live control is also enabled **by default**
   via PTY-driving `claude attach` (the `experimental` Cargo feature is now
@@ -136,6 +147,10 @@ where an override is wanted. (Verified against SDK 0.3.186 / CLI 2.1.186.)
   nobody approves, turns into a conversation whose approvals are off) need the
   dangerous right — for an anonymous bridge caller that means `local` (no
   foreign `Origin`).
+  Whether a tool call is dangerous is decided server-side for every channel
+  (`pending::classify_dangerous`: writes to `.claude/`, `.mcp.json`, shell
+  startup files, git hooks, launch agents, our data dir, …); a channel's own
+  flag can only raise it.
 - Single broadcast bus (`tokio::sync::broadcast`) fans events to webview + all
   WS clients. Backpressure-aware.
 - TLS + token auth are **mandatory** whenever the bind address is non-loopback.

@@ -107,11 +107,6 @@ pub enum ServerEvent {
     },
     /// A full pending item appeared (session and inbox subscribers).
     Pending { item: PendingItem },
-    /// A pending item was resolved or withdrawn (everyone).
-    PendingResolved {
-        #[serde(flatten)]
-        resolved: PendingResolved,
-    },
     /// Owned live deltas (subscribers only).
     Stream {
         session: String,
@@ -143,6 +138,10 @@ pub enum ServerEvent {
     PairRequest { pending: Value },
     /// Everyone: refetch and resubscribe.
     Resync,
+    /// A pending item was answered or withdrawn (everyone). Produced by the
+    /// pending store (B3); `{t:"pendingResolved", id, session, outcome, by?,
+    /// at, text?}`.
+    PendingResolved(crate::claude::model::PendingResolved),
 }
 
 /// Who receives an event.
@@ -165,7 +164,7 @@ impl ServerEvent {
             ServerEvent::Sessions { .. }
             | ServerEvent::Notice { .. }
             | ServerEvent::Resync
-            | ServerEvent::PendingResolved { .. } => Audience::All,
+            | ServerEvent::PendingResolved(_) => Audience::All,
             ServerEvent::Transcript { session, agent, .. }
             | ServerEvent::TranscriptReset { session, agent } => {
                 Audience::SessionKey(session, agent.as_deref())
@@ -398,12 +397,6 @@ pub fn publish_pending(state: &AppState, item: PendingItem) {
     state.broadcast(ServerEvent::Pending { item });
 }
 
-/// Why a pending item went away (B3's pending store calls this on resolve /
-/// withdraw); forwarded to every client.
-pub fn publish_pending_resolved(state: &AppState, resolved: PendingResolved) {
-    state.broadcast(ServerEvent::PendingResolved { resolved });
-}
-
 /// An owned session's live delta, for subscribers of `session`.
 pub fn publish_stream(state: &AppState, session: &str, frame: StreamFrame) {
     state.broadcast(ServerEvent::Stream {
@@ -456,6 +449,12 @@ pub fn publish_devices(state: &AppState) {
 /// A pairing waits for approval (desktop clients).
 pub fn publish_pair_request(state: &AppState, pending: Value) {
     state.broadcast(ServerEvent::PairRequest { pending });
+}
+
+/// A pending item left the store (answered here or elsewhere, withdrawn,
+/// expired), for everyone.
+pub fn publish_pending_resolved(state: &AppState, resolved: PendingResolved) {
+    state.broadcast(ServerEvent::PendingResolved(resolved));
 }
 
 /// Tell every client to refetch and resubscribe.
@@ -1279,15 +1278,14 @@ mod tests {
             .unwrap(),
             json!({ "t": "transcriptReset", "session": "s" })
         );
-        let r = ServerEvent::PendingResolved {
-            resolved: PendingResolved {
-                id: "p1".into(),
-                session: "s".into(),
-                outcome: "allowed".into(),
-                by: None,
-                at: 7,
-            },
-        };
+        let r = ServerEvent::PendingResolved(PendingResolved {
+            id: "p1".into(),
+            session: "s".into(),
+            outcome: crate::claude::model::PendingOutcome::Allowed,
+            by: None,
+            at: 7,
+            text: None,
+        });
         assert_eq!(
             serde_json::to_value(&r).unwrap(),
             json!({ "t": "pendingResolved", "id": "p1", "session": "s", "outcome": "allowed", "at": 7 })

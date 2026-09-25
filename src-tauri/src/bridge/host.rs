@@ -160,12 +160,15 @@ impl RuntimeHost {
         let mut command = tokio::process::Command::new("node");
         command
             .arg(&entry)
-            // The host never calls back with a token; the desktop credential
-            // lives only in this process (B1).
-            .env_remove("MOTHER_CLAUDE_TOKEN")
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
+        // The host talks to us over stdio only: no Mother Claude credential
+        // reaches it (or the `claude` children its SDK spawns, which inherit
+        // its environment). Scrub the parent's Claude Code session variables
+        // and mark the children owned so the foreign-control hook scripts
+        // stay out of bridge conversations.
+        crate::claude::control::apply_child_env(&mut command);
 
         // CLAUDE_CONFIG_DIR is deliberately NOT set here. Exporting it breaks
         // the CLI's credential resolution *even when it points at the default

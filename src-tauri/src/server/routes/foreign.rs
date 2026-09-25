@@ -149,6 +149,13 @@ pub async fn terminal(
         let text = tmux::capture(&state, &s, 200).await?;
         return Ok(Json(json!({ "text": text })));
     }
+    // Background sessions: `claude logs <short>` replayed onto a 200×50 grid
+    // (B3) — plain lines, never raw terminal bytes.
+    match crate::claude::owned::background_screen(&state, &id).await {
+        Ok(screen) => return Ok(Json(json!({ "text": screen.text, "rows": screen.rows }))),
+        Err(e) if e.code != "not_a_background_session" => return Err(e),
+        Err(_) => {}
+    }
     Err(ApiError::not_implemented(
         "Terminal view for this session (B4)",
     ))

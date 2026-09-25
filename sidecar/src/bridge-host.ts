@@ -59,6 +59,12 @@ import { z } from 'zod';
 import * as readline from 'node:readline';
 import { randomUUID } from 'node:crypto';
 
+// The Rust core starts this host with a scrubbed environment (no Mother Claude
+// credential, `MOTHER_CLAUDE_OWNED=1`); the SDK's `claude` children inherit it.
+// Enforce both here too, in case the host is ever started another way.
+delete process.env.MOTHER_CLAUDE_TOKEN;
+process.env.MOTHER_CLAUDE_OWNED = '1';
+
 // --------------------------------------------------------------------------
 // Output framing
 // --------------------------------------------------------------------------

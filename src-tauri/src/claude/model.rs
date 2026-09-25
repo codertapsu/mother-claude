@@ -490,6 +490,10 @@ pub struct PendingItem {
     pub plan: Option<String>,
     pub suggestions: Vec<PermissionSuggestion>,
     pub dangerous: bool,
+    /// Why the server classified the item as dangerous (B3,
+    /// `pending::classify_dangerous`), for the card's red-border reason.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dangerous_reason: Option<String>,
     pub answerable: bool,
     pub created_at: i64,
 }
@@ -579,28 +583,60 @@ impl From<&PendingItem> for PendingPreview {
     }
 }
 
-/// Who resolved a pending item (`pendingResolved.by`).
+/// How a pending item left the store (`pendingResolved` frame).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum PendingOutcome {
+    Allowed,
+    Denied,
+    Answered,
+    #[default]
+    Withdrawn,
+    Expired,
+    Cancelled,
+}
+
+/// Who (or what) resolved a pending item.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ResolverKind {
+    /// A paired device (`name` = the device name).
+    Device,
+    /// This computer (`name` = "Mac").
+    Desktop,
+    /// The session's own host answered or dropped it (VS Code, the terminal,
+    /// the CLI cancelling, the process exiting).
+    #[default]
+    Host,
+    /// Nobody answered in time.
+    Timeout,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct ResolvedBy {
-    /// `device` | `desktop` | `host` | `timeout`.
-    pub kind: String,
+    pub kind: ResolverKind,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
 }
 
-/// Why a pending item disappeared (`pendingResolved` WS frame, produced by
-/// the pending store; forwarded to every client).
+/// A pending item was answered or withdrawn (WS `pendingResolved`, and the
+/// `resolution` of a `409 already_decided`).
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct PendingResolved {
+    /// The pending item id.
     pub id: String,
     pub session: String,
-    /// `allowed` | `denied` | `answered` | `withdrawn` | `expired` | `cancelled`.
-    pub outcome: String,
+    pub outcome: PendingOutcome,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub by: Option<ResolvedBy>,
+    /// Epoch ms.
     pub at: i64,
+    /// One human line for toasts / the timeline, e.g. "Allowed by Marcus's
+    /// iPhone · Always allow Bash(npm test:*) in this session".
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
 }
 
 // ─────────────────────────────────── 4.3 Agents ───────────────────────────────
@@ -784,6 +820,8 @@ pub struct QueuedMessage {
     pub created_at: i64,
     pub via: QueueVia,
     pub status: QueueStatus,
+    /// The message can still be taken back (`DELETE /queue/{id}`).
+    pub cancellable: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -1005,13 +1043,15 @@ pub enum StreamKind {
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct StreamFrame {
-    /// `message_start` message id of the streamed API message.
+    pub kind: StreamKind,
+    /// The API message id (`message_start.message.id`) the delta belongs to;
+    /// the client drops its live bubble once a transcript UiEvent with the
+    /// same `messageId` arrives.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub message_id: Option<String>,
-    /// Content block index within that message.
+    /// The content block index within that message.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub index: Option<u32>,
-    pub kind: StreamKind,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub delta: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]

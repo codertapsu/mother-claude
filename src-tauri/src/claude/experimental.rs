@@ -14,7 +14,8 @@
 
 use std::collections::HashMap;
 use std::io::{Read, Write};
-use std::sync::Mutex;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
 
 use anyhow::{anyhow, Context, Result};
 use portable_pty::{native_pty_system, CommandBuilder, PtySize};
@@ -24,12 +25,15 @@ use crate::state::AppState;
 struct PtyHandle {
     writer: Mutex<Box<dyn Write + Send>>,
     _child: Box<dyn portable_pty::Child + Send + Sync>,
+    /// Which attach created it (the EOF reaper only removes its own handle).
+    generation: u64,
 }
 
 /// Registry of PTY-attached foreign sessions.
 #[derive(Default)]
 pub struct PtyRegistry {
-    sessions: Mutex<HashMap<String, PtyHandle>>,
+    sessions: Arc<Mutex<HashMap<String, PtyHandle>>>,
+    generations: AtomicU64,
 }
 
 impl PtyRegistry {
@@ -44,9 +48,16 @@ impl PtyRegistry {
             .unwrap_or(false)
     }
 
-    /// Attach to a foreign session in a PTY running `claude attach <id>`. PTY
-    /// output is broadcast on the bus as hook-style events.
+    /// Attach to a background session in a PTY running `claude attach
+    /// <short>`. `id` must be the SHORT background job id: `claude attach`
+    /// rejects session UUIDs (and interactive VS Code / terminal sessions have
+    /// no job at all), exiting at once while a handle stayed registered.
     pub fn attach(&self, state: &AppState, id: &str, cwd: &str) -> Result<()> {
+        if !crate::claude::control::is_short_job_id(id) {
+            return Err(anyhow!(
+                "PTY attach works only for background sessions (claude --bg) with a job id"
+            ));
+        }
         if self.is_attached(id) {
             return Ok(());
         }
@@ -78,14 +89,24 @@ impl PtyRegistry {
         // Drain the PTY so the child never blocks on a full buffer. The raw
         // terminal output is not broadcast (it can contain anything the
         // session prints); B4 may keep a bounded tail for the terminal view.
+        // On EOF (the attach exited: job gone, detached, refused) the handle
+        // is reaped, so `is_attached` never reports a dead PTY.
         let _ = state;
         let sid = id.to_string();
+        let generation = self.generations.fetch_add(1, Ordering::Relaxed);
+        let sessions = self.sessions.clone();
         std::thread::spawn(move || {
             let mut buf = [0u8; 4096];
             loop {
                 match reader.read(&mut buf) {
                     Ok(0) | Err(_) => break,
                     Ok(n) => tracing::trace!(session = %sid, bytes = n, "pty output"),
+                }
+            }
+            if let Ok(mut map) = sessions.lock() {
+                if map.get(&sid).is_some_and(|h| h.generation == generation) {
+                    map.remove(&sid);
+                    tracing::info!(session = %sid, "PTY attach ended; handle reaped");
                 }
             }
         });
@@ -96,6 +117,7 @@ impl PtyRegistry {
                 PtyHandle {
                     writer: Mutex::new(writer),
                     _child: child,
+                    generation,
                 },
             );
         }
@@ -137,6 +159,25 @@ mod tests {
     fn registry_starts_empty() {
         let r = PtyRegistry::new();
         assert!(!r.is_attached("x"));
+    }
+
+    #[test]
+    fn attach_requires_a_short_job_id() {
+        let dir = tempfile::tempdir().unwrap();
+        let st = crate::state::Inner::new(
+            crate::claude::ClaudeHome::with_base(dir.path()),
+            crate::state::ServerConfig {
+                host: "127.0.0.1".into(),
+                port: 0,
+            },
+            crate::server::auth::Auth::ephemeral(),
+        );
+        let r = PtyRegistry::new();
+        let err = r
+            .attach(&st, "631b387d-a7e5-4e12-ab38-522cb612803b", "")
+            .unwrap_err();
+        assert!(err.to_string().contains("background"));
+        assert!(!r.is_attached("631b387d-a7e5-4e12-ab38-522cb612803b"));
     }
 
     #[test]

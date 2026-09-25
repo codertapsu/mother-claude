@@ -17,6 +17,10 @@
 //! (computed by `claude::caps`), so B4 changes routing by changing the caps.
 //! B3 fills in the owned facade and may extend these handlers; keep the
 //! dispatcher order (bridge → owned → caps channel).
+//!
+//! **No unapproved execution for callers without dangerous rights:** a
+//! message, `/continue` or spawn into a session whose effective permission
+//! mode is bypassPermissions needs L (`may_dangerous`), whatever the channel.
 
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
@@ -31,10 +35,11 @@ use crate::claude::model::{
     ControlChannel, Delivery, ImageInput, MessageReceipt, NoticeLevel, PendingItem, PendingKind,
     PendingSource, Question, QuestionOption, SessionSummary,
 };
-use crate::claude::owned::{self, ContinueRequest, SpawnRequest};
-use crate::claude::{self, tmux};
+use crate::claude::owned::{self, Caller, ContinueRequest, SpawnRequest};
+use crate::claude::tmux;
 use crate::pending::{self, Decision, RespondBody};
 use crate::server::auth::{require_dangerous, Authed, DangerousOk, SidecarOnly};
+use crate::server::context::ClientContext;
 use crate::server::error::{ApiError, ApiResult};
 use crate::server::{hooks, ws};
 use crate::state::AppState;
@@ -61,7 +66,7 @@ pub async fn route_for(state: &AppState, id: &str) -> ApiResult<Route> {
     if state.bridge.thread(id).await.is_some() {
         return Ok(Route::Bridge);
     }
-    if owned::is_owned(state, id) {
+    if owned::has_handle(state, id) {
         return Ok(Route::Owned);
     }
     let s = state
@@ -101,6 +106,21 @@ fn ok() -> Json<Value> {
     Json(json!({ "ok": true }))
 }
 
+/// How long a dashboard → bridge-host call may take.
+const BRIDGE_CALL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
+
+/// 403 unless the caller may cause unapproved execution: the target runs in
+/// bypassPermissions, so anything it is told runs with nobody approving it.
+async fn gate_unapproved(state: &AppState, ctx: &ClientContext, id: &str) -> ApiResult<()> {
+    if owned::runs_unapproved(state, id).await {
+        require_dangerous(
+            ctx,
+            "This session runs without permission prompts (bypassPermissions); driving it",
+        )?;
+    }
+    Ok(())
+}
+
 /// `POST /api/sessions` → `201 {id}` (bypass-class modes = L).
 pub async fn spawn(
     Authed(ctx): Authed,
@@ -113,7 +133,7 @@ pub async fn spawn(
     if owned::is_dangerous_mode(req.permission_mode.as_deref()) {
         require_dangerous(&ctx, "Starting a session without permission prompts")?;
     }
-    let id = owned::spawn(&state, req).await?;
+    let id = owned::spawn_as(&state, Caller::of(&ctx), req).await?;
     Ok((StatusCode::CREATED, Json(json!({ "id": id }))).into_response())
 }
 
@@ -141,13 +161,18 @@ pub async fn message(
             "Images can only be sent to sessions Mother Claude owns.",
         ));
     }
+    gate_unapproved(&state, &ctx, &id).await?;
     let message_id = uuid::Uuid::new_v4().to_string();
     let delivery = match route {
         Route::Bridge => {
             crate::bridge::send_message(&state, &id, &body.text).await?;
             Delivery::Sent
         }
-        Route::Owned => owned::send_message(&state, &id, &body.text, &body.images).await?,
+        Route::Owned => {
+            return Ok(Json(
+                owned::send(&state, &id, &body.text, &body.images).await?,
+            ))
+        }
         Route::Tmux(s) => {
             tmux::send_text(&state, &s, &body.text).await?;
             Delivery::Relayed
@@ -178,9 +203,10 @@ pub async fn cancel_queued(
     Path((id, message_id)): Path<(String, String)>,
 ) -> ApiResult<Json<Value>> {
     match route_for(&state, &id).await? {
-        Route::Owned => Err(ApiError::not_implemented(
-            "Cancelling queued owned messages (B3)",
-        )),
+        Route::Owned => {
+            owned::cancel_queued(&state, &id, &message_id).await?;
+            Ok(ok())
+        }
         _ => {
             hooks::cancel_queued(&state, &id, &message_id).await?;
             Ok(ok())
@@ -199,9 +225,21 @@ pub async fn interrupt(
         Route::Tmux(s) => tmux::send_key(&state, &s, "Escape").await?,
         Route::Hooks(_) => hooks::request_interrupt(&state, &id).await?,
         Route::Bridge => {
-            return Err(ApiError::not_implemented(
-                "Interrupting HTTP-bridge conversations from the dashboard (B3)",
-            ))
+            // Interrupt the conversation's running turn, if any (naming the
+            // turn lets the host refuse if a different one is live).
+            if let Some(turn) = state.bridge.thread(&id).await.and_then(|t| t.active_turn) {
+                state
+                    .bridge
+                    .host
+                    .call(
+                        &state,
+                        "session.interrupt",
+                        json!({ "sessionId": id, "turnId": turn }),
+                        BRIDGE_CALL_TIMEOUT,
+                    )
+                    .await?;
+                state.bridge.set_active_turn(&id, None).await;
+            }
         }
         other => return Err(unsupported("Interrupting", &other)),
     }
@@ -221,12 +259,27 @@ pub async fn set_model(
     Path(id): Path<String>,
     Body(body): Body<ModelBody>,
 ) -> ApiResult<Json<Value>> {
-    let model = body.model.trim();
-    if model.is_empty() || model.starts_with('-') || model.contains(char::is_whitespace) {
-        return Err(ApiError::unprocessable("invalid_model", "Name a model."));
-    }
+    let model = owned::validate_model(&body.model)?;
+    let model = model.as_str();
     match route_for(&state, &id).await? {
         Route::Owned => owned::set_model(&state, &id, model).await?,
+        Route::Bridge => {
+            state
+                .bridge
+                .host
+                .call(
+                    &state,
+                    "session.setModel",
+                    json!({ "sessionId": id, "model": model }),
+                    BRIDGE_CALL_TIMEOUT,
+                )
+                .await?;
+            let m = model.to_string();
+            state
+                .bridge
+                .update_thread(&id, move |r| r.model = Some(m))
+                .await;
+        }
         Route::Tmux(s) => tmux::send_text(&state, &s, &format!("/model {model}")).await?,
         other => return Err(unsupported("Changing the model", &other)),
     }
@@ -252,6 +305,23 @@ pub async fn set_mode(
     }
     match route_for(&state, &id).await? {
         Route::Owned => owned::set_mode(&state, &id, &body.mode).await?,
+        Route::Bridge => {
+            state
+                .bridge
+                .host
+                .call(
+                    &state,
+                    "session.setPermissionMode",
+                    json!({ "sessionId": id, "mode": body.mode }),
+                    BRIDGE_CALL_TIMEOUT,
+                )
+                .await?;
+            let mode = body.mode.clone();
+            state
+                .bridge
+                .update_thread(&id, move |r| r.permission_mode = mode)
+                .await;
+        }
         other => return Err(unsupported("Changing the permission mode", &other)),
     }
     Ok(ok())
@@ -330,10 +400,35 @@ pub async fn respond(
         request_id,
         decision,
     } = body;
-    pending::respond(&state, &id, &request_id, decision, &ctx)
-        .await
-        .map_err(|e| e.into_api(&request_id))?;
-    Ok(Json(json!({ "ok": true, "requestId": request_id })))
+    match pending::respond(&state, &id, &request_id, decision, &ctx).await {
+        Ok(_) => {
+            let resolution = state.pending.resolution(&request_id);
+            Ok(Json(
+                json!({ "ok": true, "requestId": request_id, "resolution": resolution }),
+            ))
+        }
+        Err(e) => Err(already_decided_with_resolution(&state, e, &request_id)),
+    }
+}
+
+/// A refused answer; a `409 already_decided` carries how it was resolved
+/// ("Answered on Mac", "Answered elsewhere (…)") instead of a bare error.
+fn already_decided_with_resolution(
+    state: &AppState,
+    e: pending::RespondError,
+    request_id: &str,
+) -> ApiError {
+    let decided = e == pending::RespondError::AlreadyDecided;
+    let mut err = e.into_api(request_id);
+    if decided {
+        if let Some(r) = state.pending.resolution(request_id) {
+            if let Some(text) = &r.text {
+                err.message = format!("{text}.");
+            }
+            err = err.with("resolution", json!(r));
+        }
+    }
+    err
 }
 
 /// `POST /api/sessions/{id}/continue` → `201 {id}`.
@@ -350,31 +445,27 @@ pub async fn continue_session(
     if owned::is_dangerous_mode(req.permission_mode.as_deref()) {
         require_dangerous(&ctx, "Continuing without permission prompts")?;
     }
-    let new_id = owned::continue_session(&state, &id, &s.cwd, req).await?;
-    Ok((StatusCode::CREATED, Json(json!({ "id": new_id }))).into_response())
+    gate_unapproved(&state, &ctx, &id).await?;
+    let new_id = owned::continue_as(&state, Caller::of(&ctx), &id, &s.cwd, req).await?;
+    let forked = new_id != id;
+    Ok((
+        StatusCode::CREATED,
+        Json(json!({ "id": new_id, "forked": forked })),
+    )
+        .into_response())
 }
 
-/// The id `claude stop|respawn|rm` understands (the SHORT job id when known).
-fn lifecycle_id(state_session: Option<&SessionSummary>, id: &str) -> String {
-    state_session
-        .and_then(|s| s.job_id.clone())
-        .unwrap_or_else(|| id.to_string())
-}
-
+/// `claude stop|respawn|rm <short>` for a background session (422
+/// `not_a_background_session` when it has no short job id).
 async fn run_lifecycle(state: &AppState, action: &str, id: &str) -> ApiResult<Json<Value>> {
-    let target = lifecycle_id(state.find_session(id).await.as_ref(), id);
-    match claude::control::run_lifecycle(action, &target).await {
-        Ok(output) => {
-            ws::publish_notice(
-                state,
-                NoticeLevel::Info,
-                format!("{action} {id}: ok"),
-                Some(id),
-            );
-            Ok(Json(json!({ "ok": true, "output": output })))
-        }
-        Err(e) => Err(ApiError::unprocessable("lifecycle_failed", e.to_string())),
-    }
+    let output = owned::lifecycle(state, action, id).await?;
+    ws::publish_notice(
+        state,
+        NoticeLevel::Info,
+        format!("{action} {id}: ok"),
+        Some(id),
+    );
+    Ok(Json(json!({ "ok": true, "output": output })))
 }
 
 /// `POST /api/sessions/{id}/stop`.
@@ -395,7 +486,7 @@ pub async fn stop(
         );
         return Ok(ok());
     }
-    if owned::is_owned(&state, &id) || state.is_owned(&id).await {
+    if owned::has_handle(&state, &id) {
         owned::kill(&state, &id).await?;
         pending::withdraw_session(&state, &id, "session stopped").await;
         ws::publish_notice(
@@ -415,7 +506,7 @@ pub async fn respawn(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> ApiResult<Json<Value>> {
-    if owned::is_owned(&state, &id) || state.is_owned(&id).await {
+    if owned::is_owned(&state, &id) {
         return Err(ApiError::unprocessable(
             "not_a_background_session",
             "Respawn isn't supported for app-owned sessions — stop it and start a new one.",
@@ -430,12 +521,17 @@ pub async fn rm(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> ApiResult<Json<Value>> {
-    if owned::is_owned(&state, &id) || state.is_owned(&id).await {
+    let owned_here = if crate::bridge::close_thread(&state, &id).await {
+        true
+    } else if owned::has_handle(&state, &id) || state.is_owned(&id).await {
         let _ = owned::kill(&state, &id).await;
-        state.owned.write().await.remove(&id);
+        state.unmark_owned(&id).await;
+        true
+    } else {
+        false
+    };
+    if owned_here {
         pending::withdraw_session(&state, &id, "session removed").await;
-        // Best-effort daemon cleanup; "no job" is expected for our children.
-        let _ = claude::control::run_lifecycle("rm", &id).await;
         ws::publish_notice(
             &state,
             NoticeLevel::Info,
@@ -444,8 +540,9 @@ pub async fn rm(
         );
         return Ok(ok());
     }
+    let out = run_lifecycle(&state, "rm", &id).await?;
     pending::withdraw_session(&state, &id, "session removed").await;
-    run_lifecycle(&state, "rm", &id).await
+    Ok(out)
 }
 
 /// How long a sidecar prompt waits before defaulting to deny.
@@ -602,7 +699,7 @@ pub async fn legacy_permission(
     };
     pending::respond(&state, &id, &item.id, decision, &ctx)
         .await
-        .map_err(|e| e.into_api(&item.id))?;
+        .map_err(|e| already_decided_with_resolution(&state, e, &item.id))?;
     Ok(StatusCode::NO_CONTENT.into_response())
 }
 
@@ -652,8 +749,34 @@ pub async fn legacy_answer(
     };
     pending::respond(&state, &id, &item.id, decision, &ctx)
         .await
-        .map_err(|e| e.into_api(&item.id))?;
+        .map_err(|e| already_decided_with_resolution(&state, e, &item.id))?;
     Ok(StatusCode::NO_CONTENT.into_response())
+}
+
+/// `GET /api/sessions/{id}/context` → the CLI's context-usage breakdown
+/// (owned sessions only).
+pub async fn context_usage(
+    Authed(_ctx): Authed,
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> ApiResult<Json<Value>> {
+    match route_for(&state, &id).await? {
+        Route::Owned => Ok(Json(owned::context_usage(&state, &id).await?)),
+        other => Err(unsupported("Live context usage", &other)),
+    }
+}
+
+/// `GET /api/sessions/{id}/mcp` → `{servers:[{name,status,scope}]}` (owned
+/// sessions only; server config is never echoed).
+pub async fn mcp_status(
+    Authed(_ctx): Authed,
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> ApiResult<Json<Value>> {
+    match route_for(&state, &id).await? {
+        Route::Owned => Ok(Json(owned::mcp_status(&state, &id).await?)),
+        other => Err(unsupported("MCP status", &other)),
+    }
 }
 
 #[cfg(test)]

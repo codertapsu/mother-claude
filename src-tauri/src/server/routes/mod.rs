@@ -123,6 +123,8 @@ pub fn api_router() -> Router<AppState> {
         .route("/sessions/{id}/permission-request", post(control::permission_request))
         .route("/sessions/{id}/permission", post(control::legacy_permission))
         .route("/sessions/{id}/answer", post(control::legacy_answer))
+        .route("/sessions/{id}/context", get(control::context_usage))
+        .route("/sessions/{id}/mcp", get(control::mcp_status))
         // ── foreign control (B4) ──
         .route("/sessions/{id}/keys", post(foreign::keys))
         .route("/sessions/{id}/terminal", get(foreign::terminal))
