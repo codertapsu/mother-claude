@@ -45,9 +45,11 @@ use crate::claude::model::NoticeLevel;
 use crate::state::AppState;
 
 /// The SPA's Content-Security-Policy, before the extra `wss:` origins.
+/// `base-uri 'self'`: the Angular shell has `<base href="/">`, which
+/// `'none'` would block; a base on another origin stays forbidden.
 pub const CSP_BASE: &str = "default-src 'self'; script-src 'self'; \
     style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; \
-    object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'; \
+    object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'; \
     manifest-src 'self'; worker-src 'self'";
 
 /// The bridge's bundled docs/console (served under `/v1` on the main port):
