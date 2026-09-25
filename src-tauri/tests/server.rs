@@ -456,6 +456,11 @@ async fn websocket_auth_and_pending_diffs() {
     assert_eq!(v["upsert"][0]["status"], "waiting");
     assert_eq!(v["upsert"][0]["pending"][0]["title"], "Run tests?");
     drop(guard);
+    // Everyone learns why it went away (`pendingResolved`), then the diff.
+    let v = next_json(&mut ws).await.unwrap();
+    assert_eq!(v["t"], "pendingResolved");
+    assert_eq!(v["session"], "own-1");
+    assert_eq!(v["outcome"], "cancelled");
     let v = next_json(&mut ws).await.unwrap();
     assert!(v["upsert"][0]["pending"].as_array().unwrap().is_empty());
 
