@@ -321,8 +321,20 @@ pub async fn effective_permission_mode(state: &AppState, id: &str) -> Option<Str
 }
 
 /// Whether messages into session `id` run tools with nobody approving them.
+/// An owned session's live mode and a bridge conversation's mode are
+/// authoritative (Mother Claude set them); for any other session every report
+/// counts and bypass is sticky ([`crate::server::hooks::reported_bypass`]), so
+/// one forged hook report cannot lower the gate.
 pub async fn runs_unapproved(state: &AppState, id: &str) -> bool {
-    effective_permission_mode(state, id).await.as_deref() == Some("bypassPermissions")
+    const BYPASS: &str = "bypassPermissions";
+    if let Some(mode) = live_state(state, id).and_then(|l| l.permission_mode) {
+        return mode == BYPASS;
+    }
+    if let Some(t) = state.bridge.thread(id).await {
+        return t.permission_mode == BYPASS;
+    }
+    let summary_mode = state.find_session(id).await.and_then(|s| s.permission_mode);
+    crate::server::hooks::reported_bypass(state, id, summary_mode.as_deref()).unwrap_or(false)
 }
 
 /// The permission mode a launch runs in: always explicit; callers without
