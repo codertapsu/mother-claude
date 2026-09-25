@@ -34,7 +34,7 @@
   <p class="done" role="status" [class.elsewhere]="!done()">
     <mc-icon [name]="done() ? 'check' : 'info'" [size]="16" /> {{ settledText() }}
   </p>
-  @if (!done() && feedback().trim()) {
+  @if (!done() && !resolution()?.mine && feedback().trim()) {
     <button class="btn small" type="button" (click)="sendAsMessage.emit(feedback().trim())">
       <mc-icon name="send" [size]="14" /> Send your note as a message instead
     </button>

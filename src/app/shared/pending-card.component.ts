@@ -167,8 +167,13 @@ export class PendingCardComponent {
 
   /** How someone else settled it (pendingResolved), when they did. */
   protected readonly resolution = computed(() => this.pendings.resolutionOf(this.itemId()));
+  /** While this client's own answer is in flight, the server's echo of it
+   * (`pendingResolved` and the sessions diff land before the HTTP response)
+   * says nothing about someone else: wait for the response to tell. */
   protected readonly settled = computed(
-    () => !!this.done() || this.gone() || !!(this.resolution() && !this.resolution()?.mine),
+    () =>
+      !!this.done() ||
+      (!this.busy() && (this.gone() || !!(this.resolution() && !this.resolution()?.mine))),
   );
   protected readonly settledText = computed(() => {
     if (this.done()) return this.done();
@@ -309,11 +314,14 @@ export class PendingCardComponent {
       if (!need || this.gone()) return;
       untracked(() => void this.loadFull(it.sessionId, it.id));
     });
-    // Answered elsewhere while this card was open: say so once.
+    // Answered elsewhere while this card was open: say so once. Not while
+    // our own answer is in flight: the echo usually arrives first, and once
+    // the response lands it turns the resolution into ours (a 409 leaves it
+    // someone else's, and this runs again when the flag clears).
     let told = '';
     effect(() => {
       const r = this.resolution();
-      if (!r || r.mine || this.compact() || told === r.id) return;
+      if (!r || r.mine || this.compact() || this.busy() || told === r.id) return;
       told = r.id;
       untracked(() => {
         const note = this.feedback().trim() ? " Your note wasn't sent." : '';
