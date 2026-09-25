@@ -1,56 +1,770 @@
-// TypeScript mirrors of the Rust DTOs (src-tauri/src/claude/registry.rs &
-// server). Kept in sync by hand; the server emits camelCase.
+// TypeScript mirror of the server's API contract (design contract v1, §2.6,
+// §2.8, §4, §6). The server emits camelCase JSON; Rust structs live in
+// src-tauri/src/claude/model.rs (+ server/pairing.rs, remote.rs, push.rs).
+//
+// Every field the server may omit is optional here, and consumers must treat
+// unknown enum values gracefully — the backend reads undocumented Claude Code
+// internals, so values drift.
 
-export type Surface = 'cli' | 'vs-code' | 'jet-brains' | 'desktop' | 'unknown';
+// ─────────────────────────────────────────────────────────── 4.1 Sessions
 
-export type SessionState =
+export type SessionStatus =
   | 'working'
-  | 'needs-input'
+  | 'waiting'
   | 'idle'
-  | 'completed'
+  | 'starting'
+  | 'ended'
   | 'failed'
-  | 'stopped'
+  | 'stopped';
+
+export type Surface =
+  | 'vscode'
+  | 'terminal'
+  | 'tmux'
+  | 'desktop'
+  | 'jetbrains'
+  | 'background'
+  | 'mother-claude'
+  | 'sdk'
   | 'unknown';
 
-export type PendingKind = 'permission' | 'question';
+export type ActivityKind =
+  | 'thinking'
+  | 'tool'
+  | 'waiting'
+  | 'delegating'
+  | 'background'
+  | 'compacting'
+  | 'retrying'
+  | 'idle'
+  | 'starting'
+  | 'ended';
+
+/** "What is it doing right now" (§3.5). `since` is epoch ms. */
+export interface Activity {
+  kind: ActivityKind;
+  /** Server-built human label, e.g. "Running Bash". */
+  label: string;
+  tool?: string;
+  /** Salient detail, e.g. the command or the file path (≤ 120 chars). */
+  detail?: string;
+  since?: number;
+}
+
+export interface Usage {
+  input: number;
+  output: number;
+  cacheRead: number;
+  cacheWrite: number;
+  thinking?: number;
+}
+
+export interface ContextFill {
+  used: number;
+  window: number;
+  /** 0..100 */
+  pct: number;
+}
+
+export interface TodoSummary {
+  total: number;
+  done: number;
+  inProgress: number;
+  activeForm?: string;
+}
+
+export interface AgentCounts {
+  running: number;
+  total: number;
+  workflowsRunning: number;
+  backgroundRunning: number;
+}
+
+export type ControlChannel = 'owned' | 'hooks' | 'tmux' | 'pty' | 'none';
+
+/** What this dashboard can do with a session (§4.1, computed by §5.5). */
+export interface ControlCaps {
+  channel: ControlChannel;
+  /** relay = delivered through hooks or tmux, not straight into the CLI. */
+  message: 'direct' | 'relay' | 'none';
+  approve: boolean;
+  answer: boolean;
+  interrupt: 'immediate' | 'next-tool' | 'none';
+  setModel: boolean;
+  setMode: 'any' | 'on-prompt' | 'none';
+  setEffort: boolean;
+  slashCommands: boolean;
+  attachImages: boolean;
+  stopTask: boolean;
+  fork: boolean;
+  continueOwned: boolean;
+  lifecycle: { stop: boolean; respawn: boolean; rm: boolean };
+  /** Hook events were seen from this session recently. */
+  hooksActive: boolean;
+  /** Human-readable reasons/limits for the UI. */
+  notes: string[];
+}
+
+export interface ModelRef {
+  id: string;
+  label: string;
+  contextWindow?: number;
+}
+
+export interface PrLink {
+  number: number;
+  url: string;
+  repo?: string;
+}
+
+export interface SessionError {
+  kind: string;
+  text: string;
+  at: number;
+}
+
+export interface SessionSummary {
+  id: string;
+  name: string;
+  title?: string;
+  projectName: string;
+  cwd: string;
+  surface: Surface;
+  kind?: string;
+  entrypoint?: string;
+  owned: boolean;
+  live: boolean;
+  status: SessionStatus;
+  waitingFor?: string;
+  activity: Activity;
+  model?: ModelRef;
+  effort?: string;
+  permissionMode?: string;
+  gitBranch?: string;
+  prLink?: PrLink;
+  startedAt?: number;
+  lastActivityAt?: number;
+  pid?: number;
+  jobId?: string;
+  version?: string;
+  tmuxPane?: string;
+  usage: Usage;
+  costUsd?: number;
+  /** The cost came from Claude's own final `cost-state` record. */
+  costFinal?: boolean;
+  context?: ContextFill;
+  messageCount: number;
+  /** ≤ 240 chars */
+  lastPrompt?: string;
+  /** ≤ 240 chars */
+  lastMessage?: string;
+  todos?: TodoSummary;
+  agents: AgentCounts;
+  queued: number;
+  pending: PendingItem[];
+  lastError?: SessionError;
+  remoteControl?: boolean;
+  control: ControlCaps;
+}
+
+// ─────────────────────────────────────────── 4.2 Pending items & responding
 
 export interface QuestionOption {
   label: string;
   description?: string;
 }
 
-export interface PendingInput {
-  kind: PendingKind;
-  tool?: string;
-  prompt?: string;
-  /** Very short topic chip (AskUserQuestion `header`), e.g. "Auth method". */
+export interface Question {
+  question: string;
   header?: string;
-  options?: QuestionOption[];
-  multiSelect?: boolean;
-  /** Salient context: the Bash command / file path / plan text, display-ready. */
-  detail?: string;
-  requestId?: string;
-  answerable: boolean;
-  dangerous: boolean;
+  options: QuestionOption[];
+  multiSelect: boolean;
 }
 
-export interface UsageSummary {
-  inputTokens: number;
-  outputTokens: number;
-  cacheReadTokens: number;
-  cacheCreationTokens: number;
-  totalTokens: number;
-}
-
-/** A background task/agent/workflow a session launched. */
-export interface BackgroundTask {
-  id: string;
-  kind: 'bash' | 'agent' | 'workflow' | string;
+export interface PermissionSuggestion {
+  index: number;
   label: string;
-  status: 'running' | 'completed' | 'failed' | 'killed' | string;
+  kind: string;
+  destination?: string;
+  /** Persists beyond this session (settings file) — dangerous. */
+  standing: boolean;
+  raw: unknown;
+}
+
+export type PendingKind = 'permission' | 'question' | 'plan' | 'elicitation';
+
+/** observed = seen on disk, not answerable from here. */
+export type PendingSource = 'owned' | 'hook' | 'bridge' | 'sidecar' | 'observed';
+
+export interface PendingItem {
+  id: string;
+  sessionId: string;
+  kind: PendingKind;
+  source: PendingSource;
+  toolName?: string;
+  toolUseId?: string;
+  agentId?: string;
+  agentType?: string;
+  title: string;
+  detail?: string;
+  input?: unknown;
+  questions?: Question[];
+  /** Markdown (ExitPlanMode). */
+  plan?: string;
+  suggestions: PermissionSuggestion[];
+  dangerous: boolean;
+  answerable: boolean;
+  createdAt: number;
+}
+
+export type PermissionMode =
+  | 'default'
+  | 'acceptEdits'
+  | 'plan'
+  | 'auto'
+  | 'bypassPermissions'
+  | 'dontAsk';
+
+/** `POST /api/sessions/{id}/respond` */
+export interface RespondBody {
+  requestId: string;
+  decision: 'allow' | 'deny';
+  /** Index into `suggestions` ("always allow"). */
+  suggestion?: number;
+  /** Deny feedback / plan feedback. */
+  message?: string;
+  /** AskUserQuestion: question → label (multi: comma-joined) or free text. */
+  answers?: Record<string, string>;
+  /** Plan approval → switch to this mode. */
+  mode?: 'default' | 'acceptEdits' | 'plan' | 'auto' | 'bypassPermissions';
+  /** Deny + stop the turn. */
+  interrupt?: boolean;
+}
+
+// ──────────────────────────────────────────────────────────────── 4.3 Agents
+
+export type AgentKind = 'subagent' | 'workflow-agent' | 'bash' | 'monitor' | 'teammate';
+export type AgentStatus = 'running' | 'done' | 'failed' | 'stopped' | 'unknown';
+
+export interface AgentInfo {
+  id: string;
+  kind: AgentKind;
+  sessionId: string;
+  parentId?: string;
+  depth: number;
+  type?: string;
+  label: string;
+  phase?: string;
+  workflowRunId?: string;
+  status: AgentStatus;
+  background: boolean;
+  model?: string;
   startedAt?: number;
   endedAt?: number;
+  lastActivityAt?: number;
+  activity?: Activity;
+  tokens?: number;
+  toolUses?: number;
+  worktree?: string;
+  toolUseId?: string;
+  taskId?: string;
+  canStop: boolean;
 }
+
+export interface WorkflowRun {
+  runId: string;
+  name: string;
+  status: 'running' | 'completed' | 'failed' | 'killed';
+  phases: { title: string; detail?: string }[];
+  agents: { total: number; running: number; done: number; failed: number };
+  startedAt?: number;
+  durationMs?: number;
+  taskId?: string;
+  totalTokens?: number;
+}
+
+export interface Todo {
+  content: string;
+  status: 'pending' | 'in_progress' | 'completed';
+  activeForm?: string;
+}
+
+export interface BackgroundTask {
+  id: string;
+  kind: 'bash' | 'agent' | 'workflow' | 'monitor';
+  label: string;
+  status: string;
+  startedAt?: number;
+  endedAt?: number;
+  outputAvailable: boolean;
+}
+
+export interface QueuedMessage {
+  id: string;
+  text: string;
+  createdAt: number;
+  via: 'owned' | 'hook-busy' | 'hook-idle' | 'tmux';
+  status: 'queued' | 'delivered' | 'cancelled' | 'failed';
+}
+
+export interface ChangedFile {
+  path: string;
+  added?: number;
+  removed?: number;
+}
+
+/** `GET /api/sessions/{id}` (Rust `agents_detail`/`todos_detail` → camelCase). */
+export interface SessionDetail extends SessionSummary {
+  agentsDetail: AgentInfo[];
+  workflows: WorkflowRun[];
+  tasks: BackgroundTask[];
+  todosDetail: Todo[];
+  queuedMessages: QueuedMessage[];
+  filesChanged: ChangedFile[];
+}
+
+// ─────────────────────────────────────────────────────────────── 4.4 UiEvent
+
+export type UiEventKind =
+  | 'prompt'
+  | 'text'
+  | 'thinking'
+  | 'tool'
+  | 'result'
+  | 'image'
+  | 'notice'
+  | 'compact'
+  | 'error'
+  | 'task'
+  | 'relayed'
+  | 'todos'
+  | 'question'
+  | 'plan';
+
+export interface UiEvent {
+  id: string;
+  ts?: number;
+  role: 'user' | 'assistant' | 'system';
+  kind: UiEventKind;
+  text?: string;
+  /** Set on events that belong to a subagent's own transcript. */
+  agentId?: string;
+  tool?: { id: string; name: string; summary: string; input?: unknown };
+  result?: {
+    toolUseId: string;
+    isError: boolean;
+    text?: string;
+    patch?: { path: string; hunks: unknown[] };
+    truncated?: boolean;
+  };
+  /** `ref` is an /api path; fetch it with ApiService.fetchMedia (needs auth). */
+  image?: { mediaType: string; ref: string };
+  todos?: Todo[];
+  question?: { questions: Question[]; answers?: Record<string, string> };
+  plan?: { text: string };
+  task?: { taskId: string; status: string; summary?: string };
+}
+
+// ─────────────────────────────────────────────── 4.5 Requests and responses
+
+export type SessionScope = 'active' | 'all';
+
+export interface SessionsQuery {
+  scope?: SessionScope;
+  limit?: number;
+  /** Opaque cursor from a previous page's `nextBefore`. */
+  before?: string;
+}
+
+export interface SessionsPage {
+  sessions: SessionSummary[];
+  nextBefore?: string;
+}
+
+export interface TranscriptQuery {
+  /** Opaque cursor (a byte offset) from a previous page's `before`. */
+  before?: string;
+  /** ≤ 300 */
+  limit?: number;
+  agent?: string;
+}
+
+/** Newest-last. `before` pages further back; `tail` is the live cursor for `sub{since}`. */
+export interface TranscriptPage {
+  events: UiEvent[];
+  before?: string;
+  tail: string;
+}
+
+export interface SessionAgents {
+  agents: AgentInfo[];
+  workflows: WorkflowRun[];
+}
+
+export interface FleetSession {
+  sessionId: string;
+  name: string;
+  /** Running agents only. */
+  agents: AgentInfo[];
+}
+
+export interface Fleet {
+  sessions: FleetSession[];
+}
+
+export type DiffBase = 'working' | 'branch';
+
+export interface CommandInfo {
+  name: string;
+  description: string;
+  argumentHint?: string;
+}
+
+export interface ProjectInfo {
+  path: string;
+  name: string;
+  lastActivityAt?: number;
+}
+
+export interface Inbox {
+  items: PendingItem[];
+}
+
+/** Base64 (no data: prefix). png/jpeg/gif/webp, ≤ 5 MB each, ≤ 10 per message. */
+export interface ImageAttachment {
+  mediaType: string;
+  data: string;
+}
+
+export interface SpawnBody {
+  cwd: string;
+  prompt?: string;
+  model?: string;
+  effort?: string;
+  permissionMode?: PermissionMode;
+  images?: ImageAttachment[];
+}
+
+export interface MessageBody {
+  text: string;
+  images?: ImageAttachment[];
+}
+
+export interface MessageResult {
+  delivery: 'sent' | 'queued' | 'relayed';
+  messageId: string;
+}
+
+export interface ContinueBody {
+  fork?: boolean;
+  prompt?: string;
+  model?: string;
+  effort?: string;
+  permissionMode?: PermissionMode;
+}
+
+export type KeyName =
+  | 'Escape'
+  | 'Enter'
+  | 'Up'
+  | 'Down'
+  | 'Tab'
+  | '1'
+  | '2'
+  | '3'
+  | '4'
+  | '5'
+  | '6'
+  | '7'
+  | '8'
+  | '9';
+
+export type LifecycleAction = 'stop' | 'respawn' | 'rm';
+
+/** `GET /api/control/foreign` (desktop only). */
+export interface ForeignControlStatus {
+  installed: boolean;
+  pluginVersion?: string;
+  cliAvailable: boolean;
+  lastEventAt?: number;
+  sessionsWithHooks: number;
+  notes: string[];
+}
+
+// ─────────────────────────────────────────────────── 2.6 Pairing & devices
+
+export type Ingress = 'loopback' | 'lan' | 'tunnel' | 'bridge-loopback';
+
+export type PairTarget = 'lan' | 'internet';
+
+export interface PairCodeRequest {
+  target: PairTarget;
+  baseUrl?: string;
+}
+
+/** `POST /api/pair/codes`: a single-use, 5-minute pairing code + its QR. */
+export interface PairCode {
+  code: string;
+  /** `{baseUrl}/#/pair?c={code}` */
+  url: string;
+  /** Server-rendered QR code (SVG markup). */
+  svg: string;
+  expiresAt: number;
+  target: PairTarget;
+  baseUrl: string;
+}
+
+export interface PairExchangeBody {
+  code: string;
+  deviceName: string;
+  platform: string;
+}
+
+/** `201` — paired straight away. */
+export interface PairExchangePaired {
+  status: 'paired';
+  deviceId: string;
+  token: string;
+  name: string;
+}
+
+/** `202` — an internet pairing waiting for approval on the desktop. */
+export interface PairExchangePending {
+  status: 'pending';
+  pendingId: string;
+  pollSecret: string;
+  /** 4 digits, shown on both the phone and the desktop. */
+  fingerprint: string;
+}
+
+export type PairExchangeResult = PairExchangePaired | PairExchangePending;
+
+/** `GET /api/pair/pending/{id}` (header `X-Pair-Secret`). The token is returned once. */
+export interface PairPendingStatus {
+  status: 'pending' | 'approved' | 'denied' | 'expired';
+  token?: string;
+  deviceId?: string;
+}
+
+export interface DeviceInfo {
+  id: string;
+  name: string;
+  platform?: string;
+  createdAt?: number;
+  lastSeenAt?: number;
+  lastIp?: string;
+  ingress?: Ingress;
+  allowDangerous: boolean;
+  revoked?: boolean;
+}
+
+/** A pairing request waiting for desktop approval. */
+export interface PendingPair {
+  id: string;
+  deviceName?: string;
+  /** Tolerated alias of `deviceName`. */
+  name?: string;
+  platform?: string;
+  /** Client IP (tunnel-aware). */
+  ip?: string;
+  ingress?: Ingress;
+  target?: PairTarget;
+  fingerprint: string;
+  createdAt?: number;
+  expiresAt?: number;
+}
+
+export interface DevicesList {
+  devices: DeviceInfo[];
+  pending: PendingPair[];
+}
+
+export interface DeviceUpdate {
+  name?: string;
+  allowDangerous?: boolean;
+}
+
+export type PrincipalKind = 'desktop' | 'device';
+
+/** `GET /api/me` (also delivered in the WS `hello` frame). */
+export interface MeInfo {
+  principal: PrincipalKind;
+  deviceId?: string;
+  name?: string;
+  ingress: Ingress;
+  local: boolean;
+  allowDangerous: boolean;
+}
+
+// ───────────────────────────────────────────────── 2.8 Remote access/tunnels
+
+export type TunnelProvider = 'ngrok' | 'cloudflared' | 'tailscale';
+
+export interface DetectedTunnel {
+  provider: TunnelProvider | string;
+  url: string;
+  upstream?: string;
+  /** ngrok's traffic inspector is on (it records request bodies). */
+  inspect?: boolean;
+}
+
+/** `GET /api/remote` (desktop only). */
+export interface RemoteInfo {
+  lan: {
+    addresses: { ip: string; url: string }[];
+    port: number;
+    /** TLS certificate fingerprint. */
+    fingerprint: string;
+  };
+  internet: {
+    enabled: boolean;
+    port: number;
+    publicUrl?: string;
+    manualUrl?: string;
+    requireApproval: boolean;
+    detected: DetectedTunnel[];
+    commands: { ngrok: string; cloudflared: string; tailscale: string };
+    warnings: string[];
+  };
+  bridge: { port: number; running: boolean };
+}
+
+/** `PUT /api/remote` */
+export interface RemoteUpdate {
+  internetEnabled?: boolean;
+  manualUrl?: string;
+  requireApproval?: boolean;
+}
+
+// ──────────────────────────────────────────────────────────────── 6 Push
+
+export interface PushPrefs {
+  permission: boolean;
+  question: boolean;
+  plan: boolean;
+  finished: boolean;
+  failed: boolean;
+}
+
+export interface PushSubscriptionBody {
+  endpoint: string;
+  keys: { p256dh: string; auth: string };
+}
+
+// ─────────────────────────────────────────────────────── 4.6 WebSocket v2
+
+export type StreamKind = 'text' | 'thinking' | 'tool' | 'status';
+
+export interface HelloFrame {
+  t: 'hello';
+  v: number;
+  me: MeInfo;
+  serverTime: number;
+}
+
+export interface SessionsFullFrame {
+  t: 'sessions';
+  full: true;
+  sessions: SessionSummary[];
+  seq: number;
+}
+
+export interface SessionsDiffFrame {
+  t: 'sessions';
+  full: false;
+  upsert?: SessionSummary[];
+  remove?: string[];
+  seq: number;
+}
+
+export type SessionsFrame = SessionsFullFrame | SessionsDiffFrame;
+
+/** Appends for a subscribed session. Clients dedupe by event id. */
+export interface TranscriptFrame {
+  t: 'transcript';
+  session: string;
+  events: UiEvent[];
+  tail: string;
+}
+
+/** Owned sessions' live token-by-token deltas. */
+export interface StreamFrame {
+  t: 'stream';
+  session: string;
+  kind: StreamKind;
+  delta?: string;
+  tool?: { id?: string; name?: string; summary?: string; input?: unknown; phase?: string };
+  status?: string;
+}
+
+export interface AgentsFrame {
+  t: 'agents';
+  session: string;
+  agents: AgentInfo[];
+  workflows: WorkflowRun[];
+}
+
+export interface FleetFrame {
+  t: 'fleet';
+  sessions: FleetSession[];
+}
+
+export interface NoticeFrame {
+  t: 'notice';
+  level: 'info' | 'warn' | 'error' | string;
+  text: string;
+  session?: string;
+}
+
+/** Desktop only: devices or pending pairings changed — refetch. */
+export interface DevicesFrame {
+  t: 'devices';
+}
+
+/** Desktop only: a new pairing request. */
+export interface PairRequestFrame {
+  t: 'pairRequest';
+  pending: PendingPair;
+}
+
+/** The client lagged and frames were dropped — refetch and resubscribe. */
+export interface ResyncFrame {
+  t: 'resync';
+}
+
+export interface PingFrame {
+  t: 'ping';
+}
+
+export interface PongFrame {
+  t: 'pong';
+}
+
+export type ServerFrame =
+  | HelloFrame
+  | SessionsFrame
+  | TranscriptFrame
+  | StreamFrame
+  | AgentsFrame
+  | FleetFrame
+  | NoticeFrame
+  | DevicesFrame
+  | PairRequestFrame
+  | ResyncFrame
+  | PingFrame
+  | PongFrame;
+
+export type ClientFrame =
+  | { t: 'auth'; token: string }
+  | { t: 'sub'; session: string; since?: string }
+  | { t: 'unsub'; session: string }
+  | { t: 'subFleet' }
+  | { t: 'unsubFleet' }
+  | { t: 'ping' }
+  | { t: 'pong' }
+  | { t: 'visible'; v: boolean };
+
+// ─────────────────────────────────── Launch defaults (`GET /api/defaults`)
 
 export interface ModelOption {
   value: string;
@@ -58,22 +772,23 @@ export interface ModelOption {
   description?: string;
 }
 
-/** What the spawn/continue forms should offer and pre-select (server-read
+/** What the spawn/continue forms offer and pre-select (read by the server
  * from the user's own Claude settings). */
 export interface LaunchDefaults {
   model?: string;
   effort?: string;
   models: ModelOption[];
-  efforts: string[];
+  efforts?: string[];
 }
 
-/** Overrides for launching/continuing a session; unset = the user's own
- * Claude settings (exactly what VS Code / the CLI would use). */
+/** Launch/continue overrides; unset = the user's own Claude settings. */
 export interface LaunchOverrides {
   model?: string;
   effort?: string;
-  thinking?: 'on' | 'off';
+  permissionMode?: PermissionMode;
 }
+
+// ──────────────────────────────────────── The Claude HTTP bridge (/bridge/*)
 
 /** Defaults every conversation the bridge creates inherits, chosen when the
  * API is started. Every one is overridable per request. */
@@ -123,60 +838,7 @@ export interface BridgeStatus {
   consoleUrl?: string;
 }
 
-export interface Session {
-  id: string;
-  cwd: string;
-  projectName: string;
-  surface: Surface;
-  owned: boolean;
-  state: SessionState;
-  model?: string;
-  title?: string;
-  startedAt?: number;
-  lastActivity?: number;
-  pid?: number;
-  kind?: string;
-  gitBranch?: string;
-  running: boolean;
-  messageCount: number;
-  usage: UsageSummary;
-  pending?: PendingInput;
-  tasks?: BackgroundTask[];
-  canInject: boolean;
-}
-
-export interface ContentBlock {
-  type: string;
-  text?: string;
-  name?: string;
-  id?: string;
-  tool_use_id?: string;
-  input?: unknown;
-  content?: unknown;
-  is_error?: boolean;
-}
-
-export interface TranscriptMessage {
-  role?: string;
-  model?: string;
-  content?: string | ContentBlock[];
-  stop_reason?: string;
-  usage?: Record<string, unknown>;
-}
-
-export interface TranscriptEvent {
-  type: string;
-  uuid?: string;
-  parentUuid?: string;
-  timestamp?: string;
-  sessionId?: string;
-  cwd?: string;
-  gitBranch?: string;
-  subtype?: string;
-  message?: TranscriptMessage;
-  content?: unknown;
-  [key: string]: unknown;
-}
+// ──────────────────────────────────────────── Git (`/diff`, `/file-patch`)
 
 export interface FileChange {
   path: string;
@@ -210,6 +872,8 @@ export interface GitOverview {
   worktrees: WorktreeInfo[];
 }
 
+// ─────────────────────────────────────────── Desktop OS permissions (invoke)
+
 export interface PermissionInfo {
   id: string;
   label: string;
@@ -221,20 +885,10 @@ export interface PermissionInfo {
   steps: string[];
 }
 
-export interface Pairing {
-  url: string;
-  token: string;
-  svg: string;
-  fingerprint: string;
-  addresses: string[];
-  port: number;
-  tls: boolean;
-}
+// ───────────────────────────────────────────── Legacy (`GET /api/services`)
 
-// Adjacently-tagged ServerEvent: { kind, data }.
-export type ServerEvent =
-  | { kind: 'sessions'; data: Session[] }
-  | { kind: 'transcript'; data: { sessionId: string; events: TranscriptEvent[] } }
-  | { kind: 'hook'; data: unknown }
-  | { kind: 'pending'; data: { sessionId: string; pending?: PendingInput } }
-  | { kind: 'notice'; data: string };
+export interface ServicesInfo {
+  mcpServers?: Record<string, unknown>;
+  daemon?: { reachable?: boolean; raw?: string; error?: string };
+  backgroundJobs?: { id: string; cwd: string; state: string }[];
+}

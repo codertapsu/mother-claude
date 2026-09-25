@@ -1,38 +1,216 @@
-<h1>Settings</h1>
+<div class="page narrow">
+  <div class="page-head"><h1>Settings</h1></div>
 
-<h2>Good to know</h2>
-<mc-limitations />
+  <!-- ─────────────── Notifications ─────────────── -->
+  <h2>Notifications</h2>
+  <section class="card">
+    <div class="list">
+      <div class="list-row push">
+        <mc-icon name="bell" />
+        <div class="grow">
+          <strong>Push notifications</strong>
+          @switch (push.state()) {
+            @case ('on') {
+              <span class="muted small">On for this device.</span>
+            }
+            @case ('denied') {
+              <span class="muted small"
+                >Blocked in the browser's site settings. Allow notifications there, then come
+                back.</span
+              >
+            }
+            @case ('unsupported') {
+              <span class="muted small">{{ push.unsupportedReason() }}</span>
+            }
+            @case ('error') {
+              <span class="error-text small">{{ push.error() }}</span>
+            }
+            @default {
+              <span class="muted small"
+                >Get a notification when a session needs you, even with the app closed.</span
+              >
+            }
+          }
+        </div>
+        @if (push.supported()) {
+          @if (push.state() === 'on') {
+            <button class="btn small" type="button" (click)="push.disable()">Turn off</button>
+          } @else if (push.state() !== 'denied') {
+            <button
+              class="btn primary small"
+              type="button"
+              [disabled]="push.state() === 'working'"
+              (click)="push.enable()"
+            >
+              {{ push.state() === 'working' ? 'Enabling…' : 'Enable' }}
+            </button>
+          }
+        }
+      </div>
 
-<h2>Connection</h2>
-<div class="card">
-  @if (cfg(); as c) {
-    <div class="mono">Server: {{ c.baseUrl || '(same origin)' }}</div>
-    <div class="mono">Mode: {{ c.desktop ? 'desktop webview' : 'browser' }}</div>
-    <div class="mono">Token: {{ c.token ? 'set' : 'missing' }}</div>
+      @if (push.state() === 'on') {
+        @if (prefs(); as p) {
+          @for (row of prefRows; track row.key) {
+            <label class="switch list-row">
+              <input
+                type="checkbox"
+                [checked]="p[row.key]"
+                (change)="togglePref(row.key, $any($event.target).checked)"
+              />
+              <span class="switch-text">
+                <span>{{ row.label }}</span>
+                <span class="muted small">{{ row.hint }}</span>
+              </span>
+            </label>
+          }
+        }
+        @if (prefsError()) {
+          <p class="error-text small">{{ prefsError() }}</p>
+        }
+        <div class="list-row">
+          <button class="btn small" type="button" (click)="test()">Send a test</button>
+          @if (testSent()) {
+            <span class="muted small" role="status">{{ testSent() }}</span>
+          }
+        </div>
+      }
+
+      <label class="switch list-row">
+        <input
+          type="checkbox"
+          [checked]="attention.alertsEnabled()"
+          (change)="attention.setAlerts($any($event.target).checked)"
+        />
+        <span class="switch-text">
+          <span>In-app alerts</span>
+          <span class="muted small"
+            >Vibrate and play a short tone when a new request arrives while the app is open. The
+            waiting count also shows in the tab title.</span
+          >
+        </span>
+      </label>
+    </div>
+  </section>
+
+  <!-- ─────────────── Appearance ─────────────── -->
+  <h2>Appearance</h2>
+  <section class="card">
+    <div class="row">
+      <span class="grow">Theme</span>
+      <div class="segmented" role="group" aria-label="Theme">
+        <button
+          type="button"
+          [attr.aria-pressed]="theme.pref() === 'system'"
+          (click)="setTheme('system')"
+        >
+          <mc-icon name="monitor" [size]="15" /> System
+        </button>
+        <button
+          type="button"
+          [attr.aria-pressed]="theme.pref() === 'dark'"
+          (click)="setTheme('dark')"
+        >
+          <mc-icon name="moon" [size]="15" /> Dark
+        </button>
+        <button
+          type="button"
+          [attr.aria-pressed]="theme.pref() === 'light'"
+          (click)="setTheme('light')"
+        >
+          <mc-icon name="sun" [size]="15" /> Light
+        </button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ─────────────── Connection ─────────────── -->
+  <h2>Connection</h2>
+  <section class="card">
+    @if (cfg(); as c) {
+      <dl class="kv">
+        <dt>Server</dt>
+        <dd class="mono">{{ c.baseUrl }}</dd>
+        <dt>This app</dt>
+        <dd>
+          {{ c.mock ? 'Mock data (dev)' : c.desktop ? 'Desktop app' : 'Browser' }}
+          @if (!secure) {
+            <span class="muted small">· not a secure context</span>
+          }
+        </dd>
+        <dt>Signed in as</dt>
+        <dd>
+          @if (me(); as m) {
+            {{ m.principal === 'desktop' ? 'This computer (desktop)' : m.name || 'Paired device' }}
+          } @else {
+            {{ c.desktop ? 'This computer (desktop)' : '—' }}
+          }
+        </dd>
+        <dt>Network</dt>
+        <dd>{{ ingress() }}</dd>
+        <dt>Dangerous actions</dt>
+        <dd>
+          {{
+            me()?.local
+              ? 'Allowed (local)'
+              : me()?.allowDangerous
+                ? 'Allowed for this device'
+                : 'Desktop only'
+          }}
+        </dd>
+        <dt>Live updates</dt>
+        <dd>{{ connection() }}</dd>
+      </dl>
+      <div class="row actions">
+        <button class="btn small" type="button" (click)="reconnect()">
+          <mc-icon name="refresh" [size]="14" /> Reconnect
+        </button>
+        @if (!c.desktop) {
+          <button class="btn danger small" type="button" (click)="forget()">
+            <mc-icon name="logout" [size]="14" />
+            {{ confirmForget() ? 'Tap again to forget' : 'Forget this device' }}
+          </button>
+        }
+        @if (isDesktop()) {
+          <a class="btn small" routerLink="/remote"
+            ><mc-icon name="qr" [size]="14" /> Pair a phone</a
+          >
+        }
+      </div>
+    }
+  </section>
+
+  @if (desktopApp()) {
+    <h2>Software updates</h2>
+    <mc-updater />
+
+    <h2>Permissions</h2>
+    <mc-permissions-list />
   }
-</div>
 
-<h2>Software updates</h2>
-<mc-updater />
-
-<h2>Pair a phone</h2>
-<mc-pairing />
-
-@if (desktop()) {
-  <h2>Permissions</h2>
-  <mc-permissions-list />
-}
-
-<h2>Foreign-session control</h2>
-<div class="card">
-  <div class="row">
-    <span class="badge working">enabled</span>
-    <span>Running foreign sessions can be driven from the dashboard.</span>
-  </div>
-  <p class="muted small">
-    Instructions and answers are injected by PTY-driving <code>claude attach</code> — unstable,
-    unsupported internals, so it's best-effort. Disable by launching with
-    <code>MOTHER_CLAUDE_FOREIGN_INJECTION=0</code> (or building with
-    <code>--no-default-features</code>).
-  </p>
+  <!-- ─────────────── About ─────────────── -->
+  <h2>About</h2>
+  <section class="card">
+    <p class="about">
+      <strong>Mother Claude</strong>
+      @if (updater.currentVersion()) {
+        <span class="muted">v{{ updater.currentVersion() }}</span>
+      }
+      — monitor and control every Claude Code session on your computer, from the desktop or your
+      phone.
+    </p>
+    <div class="list">
+      <a class="list-row link" routerLink="/good-to-know">
+        <mc-icon name="book" /> <span class="grow">Good to know</span>
+        <mc-icon name="chevronRight" [size]="16" />
+      </a>
+      <a class="list-row link" routerLink="/services">
+        <mc-icon name="activity" /> <span class="grow">Services (daemon, MCP servers)</span>
+        <mc-icon name="chevronRight" [size]="16" />
+      </a>
+      <a class="list-row link" routerLink="/api">
+        <mc-icon name="code" /> <span class="grow">HTTP API</span>
+        <mc-icon name="chevronRight" [size]="16" />
+      </a>
+    </div>
+  </section>
 </div>

@@ -2,10 +2,36 @@
   display: block;
 }
 
-.card {
-  margin-bottom: 0.5rem;
+section.card {
+  padding-top: 0.35rem;
+  padding-bottom: 0.35rem;
 }
-
-.small {
-  font-size: 0.8rem;
+.grow {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+.push mc-icon {
+  color: var(--accent-text);
+}
+.kv {
+  margin: 0.6rem 0;
+}
+.actions {
+  margin: 0.5rem 0;
+}
+.about {
+  margin: 0.6rem 0;
+}
+.link {
+  color: var(--text);
+  text-decoration: none;
+}
+.link mc-icon {
+  color: var(--muted);
+}
+.row .grow {
+  flex-direction: row;
 }

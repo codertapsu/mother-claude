@@ -1,321 +1,199 @@
 @if (session(); as s) {
-  <div class="head">
-    <div class="row">
-      <a class="btn" routerLink="/">‹ Back</a>
-      <span class="title">{{ s.title || s.projectName || s.id }}</span>
-      <span class="badge {{ s.state }}">{{ label(s.state) }}</span>
-      <span class="badge" [class.owned]="s.owned" [class.foreign]="!s.owned">{{
-        s.owned ? 'owned' : 'foreign'
-      }}</span>
+  <header class="head">
+    <div class="row top">
+      <a class="btn ghost icon-only" routerLink="/" aria-label="Back to sessions">
+        <mc-icon name="back" />
+      </a>
+      <h1 class="title">{{ name(s) }}</h1>
+      <mc-status-pill [status]="s.status" [live]="s.live" />
     </div>
-    <div class="sub muted mono">{{ s.cwd }}</div>
-    <div class="row sub2 muted">
-      <span>{{ surface(s.surface) }}</span>
+    <mc-activity-line [activity]="s.activity" />
+    <div class="chips">
+      <mc-channel-badge [surface]="s.surface" [control]="s.control" />
       @if (s.model) {
-        <span>· {{ s.model }}</span>
+        <mc-chip>{{ s.model.label }}</mc-chip>
+      }
+      @if (s.permissionMode) {
+        <mc-chip [tone]="s.permissionMode === 'bypassPermissions' ? 'red' : 'muted'">{{
+          mode(s.permissionMode)
+        }}</mc-chip>
+      }
+      @if (s.effort) {
+        <mc-chip>{{ effort(s.effort) }}</mc-chip>
+      }
+      @if (s.context) {
+        <mc-context-meter [context]="s.context" />
+      }
+      @if (s.costUsd !== undefined && s.costUsd !== null) {
+        <mc-chip><mc-cost [usd]="s.costUsd" [final]="!!s.costFinal" /></mc-chip>
       }
       @if (s.gitBranch) {
-        <span>· {{ s.gitBranch }}</span>
+        <mc-chip icon="branch">{{ s.gitBranch }}</mc-chip>
       }
-      <span>· {{ s.usage.totalTokens }} tokens</span>
-      <span class="spacer"></span>
-      @if (!s.owned) {
-        <button
-          class="btn"
-          [disabled]="busy()"
-          title="Take this session over (resume in place) so you can drive it from here or your phone"
-          (click)="continueSession()"
+      @if (s.prLink) {
+        <a class="pr" [href]="s.prLink.url" target="_blank" rel="noopener noreferrer"
+          >PR #{{ s.prLink.number }}</a
         >
-          Continue here
-        </button>
-      }
-      @if (manageable(s)) {
-        <button class="btn" [disabled]="busy()" (click)="lifecycle('stop')">Stop</button>
-        <button class="btn" [disabled]="busy()" (click)="lifecycle('respawn')">Respawn</button>
-        <button class="btn danger" [disabled]="busy()" (click)="lifecycle('rm')">Remove</button>
-      } @else {
-        <span class="muted lifecycle-na" title="stop/respawn/rm only apply to background or app-owned sessions">
-          lifecycle n/a
-        </span>
       }
     </div>
-  </div>
+    <div class="sub muted mono">{{ short(s.cwd) }}</div>
+    @if (s.control.lifecycle.stop || s.control.lifecycle.respawn || s.control.lifecycle.rm) {
+      <div class="row lifecycle">
+        @if (s.control.lifecycle.stop) {
+          <button class="btn small" type="button" [disabled]="busy()" (click)="lifecycle('stop')">
+            Stop
+          </button>
+        }
+        @if (s.control.lifecycle.respawn) {
+          <button
+            class="btn small"
+            type="button"
+            [disabled]="busy()"
+            (click)="lifecycle('respawn')"
+          >
+            Respawn
+          </button>
+        }
+        @if (s.control.lifecycle.rm) {
+          <button
+            class="btn small danger"
+            type="button"
+            [disabled]="busy()"
+            (click)="lifecycle('rm')"
+          >
+            Remove
+          </button>
+        }
+      </div>
+    }
+  </header>
 
-  <div class="tabs">
-    <button class="tab" [class.active]="tab() === 'transcript'" (click)="tab.set('transcript')">
-      Transcript
+  <div class="tabs" role="tablist">
+    <button
+      class="tab"
+      role="tab"
+      type="button"
+      [class.active]="tab() === 'chat'"
+      [attr.aria-selected]="tab() === 'chat'"
+      (click)="tab.set('chat')"
+    >
+      Chat
     </button>
-    <button class="tab" [class.active]="tab() === 'changes'" (click)="openChanges()">
+    <button
+      class="tab"
+      role="tab"
+      type="button"
+      [class.active]="tab() === 'changes'"
+      [attr.aria-selected]="tab() === 'changes'"
+      (click)="openChanges()"
+    >
       Changes{{ changeCount() ? ' (' + changeCount() + ')' : '' }}
     </button>
   </div>
 
   @if (notice()) {
-    <div class="notice">{{ notice() }}</div>
+    <div class="notice" role="status">{{ notice() }}</div>
   }
 
-  @if (tab() === 'transcript') {
-    @if (s.pending; as p) {
-      <div
-        class="card pending"
-        [class.dangerous]="p.dangerous"
-        [class.question]="p.kind === 'question'"
-      >
-        <div class="row phead">
-          <span class="picon">{{ p.kind === 'permission' ? '🔐' : '❓' }}</span>
-          <strong>{{
-            p.kind === 'question'
-              ? 'Claude asks you'
-              : p.tool === 'ExitPlanMode'
-                ? 'Plan ready for approval'
-                : 'Permission requested'
-          }}</strong>
-          @if (p.header) {
-            <span class="badge chip">{{ p.header }}</span>
-          }
-          @if (p.multiSelect) {
-            <span class="badge chip">select all that apply</span>
-          }
-          @if (p.tool && p.kind === 'permission' && p.tool !== 'ExitPlanMode') {
-            <span class="badge mono">{{ p.tool }}</span>
-          }
-        </div>
-        @if (p.prompt) {
-          <p class="prompt">{{ p.prompt }}</p>
+  @if (tab() === 'chat') {
+    <div class="log">
+      @if (store(); as t) {
+        @if (t.hasEarlier()) {
+          <button
+            class="btn small ghost earlier"
+            type="button"
+            [disabled]="t.loadingEarlier()"
+            (click)="t.loadEarlier()"
+          >
+            {{ t.loadingEarlier() ? 'Loading…' : 'Load earlier' }}
+          </button>
         }
-        @if (p.detail) {
-          <pre class="detail mono">{{ p.detail }}</pre>
-        }
-        @if (p.dangerous) {
-          <p class="warn">⚠ Dangerous action — may be restricted to the local desktop.</p>
-        }
-
-        @if (p.answerable || s.canInject) {
-          @if (p.kind === 'permission') {
-            <div class="row actions">
-              <button class="btn primary big" [disabled]="busy()" (click)="respond('allow')">
-                ✓ Allow
-              </button>
-              <button class="btn danger big" [disabled]="busy()" (click)="respond('deny')">
-                ✕ Deny
-              </button>
-            </div>
-          } @else {
-            @if (p.options?.length) {
-              <div class="opts">
-                @for (o of p.options; track o.label) {
-                  <button
-                    class="opt"
-                    [class.sel]="selected().has(o.label)"
-                    [disabled]="busy()"
-                    (click)="p.multiSelect ? toggleOption(o.label) : chooseOption(o.label)"
-                  >
-                    <span class="olabel">
-                      @if (p.multiSelect) {
-                        <span class="checkbox">{{ selected().has(o.label) ? '☑' : '☐' }}</span>
-                      }
-                      {{ o.label }}
-                    </span>
-                    @if (o.description) {
-                      <span class="odesc">{{ o.description }}</span>
-                    }
-                  </button>
-                }
-              </div>
-              @if (p.multiSelect) {
-                <div class="row">
-                  <button
-                    class="btn primary"
-                    [disabled]="busy() || !selected().size"
-                    (click)="submitSelected()"
-                  >
-                    Send {{ selected().size || '' }} selected
-                  </button>
-                </div>
-              }
-            }
-            <div class="row answer">
-              <input
-                [ngModel]="answer()"
-                (ngModelChange)="answer.set($event)"
-                (keyup.enter)="submitAnswer()"
-                [disabled]="busy()"
-                [placeholder]="p.options?.length ? 'Or type your own answer…' : 'Your answer…'"
-              />
-              <button
-                class="btn"
-                [class.primary]="!p.options?.length"
-                [disabled]="busy()"
-                (click)="submitAnswer()"
-              >
-                Send
-              </button>
-            </div>
-          }
-          @if (!p.answerable && s.canInject && !s.owned) {
-            <p class="muted small">
-              Foreign session — sent best-effort via experimental PTY injection.
-            </p>
-          }
+        @if (t.loading()) {
+          <p class="muted">Loading transcript…</p>
         } @else {
-          @if (p.options?.length) {
-            <div class="opts readonly">
-              @for (o of p.options; track o.label) {
-                <div class="opt">
-                  <span class="olabel">{{ o.label }}</span>
-                  @if (o.description) {
-                    <span class="odesc">{{ o.description }}</span>
-                  }
-                </div>
-              }
-            </div>
-          }
-          <p class="muted">
-            This session is waiting for input in {{ surface(s.surface) }} — take it over to
-            answer from here or your phone.
-          </p>
-          <div class="row">
-            <button class="btn primary" [disabled]="busy()" (click)="continueSession()">
-              Continue here to answer →
-            </button>
-          </div>
+          <mc-event-list [events]="t.events()" />
         }
-      </div>
-    }
-
-    <div #log class="log">
-      @for (r of rendered(); track r.key) {
-        <div class="msg {{ r.cls }}" [class.err]="r.error">
-          <div class="who">{{ r.who }}</div>
-          @if (r.tools.length) {
-            <div class="tools">
-              @for (t of r.tools; track $index) {
-                <div class="toolrow">
-                  <span class="badge mono">⚙ {{ t.name }}</span>
-                  @if (t.summary) {
-                    <span class="tsum mono">{{ t.summary }}</span>
-                  }
-                </div>
-              }
-            </div>
-          }
-          @if (r.edits.length) {
-            <div class="edits">
-              @for (e of r.edits; track $index) {
-                <button
-                  class="editchip"
-                  title="View this file's changes"
-                  (click)="openChangesFor(e.file)"
-                >
-                  ✎ <span class="mono">{{ base(e.file) }}</span>
-                  <span class="muted etool">{{ e.tool }}</span>
-                </button>
-              }
-            </div>
-          }
-          @for (q of r.questions; track $index) {
-            <div class="qcard">
-              <div class="row qhead">
-                <span class="picon">❓</span>
-                @if (q.header) {
-                  <span class="badge chip">{{ q.header }}</span>
-                }
-                <strong class="qtext">{{ q.question }}</strong>
-              </div>
-              @if (q.options.length) {
-                <div class="opts readonly">
-                  @for (o of q.options; track o.label) {
-                    <div class="opt" [class.chosen]="q.answer && answerMatches(q.answer, o.label)">
-                      <span class="olabel">{{ o.label }}</span>
-                      @if (o.description) {
-                        <span class="odesc">{{ o.description }}</span>
-                      }
-                    </div>
-                  }
-                </div>
-              }
-              @if (q.answer) {
-                <div class="ans">↳ {{ q.answer }}</div>
-              }
-            </div>
-          }
-          @for (pl of r.plans; track $index) {
-            <div class="plancard">
-              <div class="row qhead">
-                <span class="picon">🗺</span>
-                <strong>Proposed plan</strong>
-              </div>
-              <div class="body md" [innerHTML]="pl"></div>
-            </div>
-          }
-          @if (r.html) {
-            <div class="body md" [innerHTML]="r.html"></div>
-          } @else if (r.text.trim()) {
-            <pre class="body">{{ r.text.trim() }}</pre>
-          }
-          @for (res of r.results; track $index) {
-            @if (res.long) {
-              <details class="result" [class.err]="res.error">
-                <summary>
-                  <span class="mono rprev">{{ res.preview }}</span>
-                  <span class="muted rcount">{{ res.lines }} lines</span>
-                </summary>
-                <pre class="body">{{ res.text }}</pre>
-              </details>
-            } @else {
-              <pre class="body result-inline" [class.err]="res.error">{{ res.text }}</pre>
-            }
-          }
-        </div>
-      } @empty {
-        <p class="muted">No transcript yet.</p>
+        @if (t.error()) {
+          <p class="error-text small">{{ t.error() }}</p>
+        }
       }
     </div>
 
-    @if (s.canInject) {
-      <div class="composer">
-        <textarea
-          [ngModel]="instruction()"
-          (ngModelChange)="instruction.set($event)"
-          (keydown)="onComposerKeydown($event)"
-          [disabled]="busy()"
-          placeholder="Send an instruction… (Enter to send, Shift+Enter for newline)"
-        ></textarea>
-        <button class="btn primary" [disabled]="busy()" (click)="send()">Send</button>
-      </div>
-      @if (!s.owned) {
-        <p class="muted composer-hint">
-          Foreign background job — instructions are injected via experimental PTY (best-effort).
-        </p>
+    <div class="bottom">
+      @for (p of s.pending; track p.id) {
+        <mc-pending-card [item]="p" [session]="s" />
       }
-    } @else {
-      <div class="card cant-drive">
-        <p>This session runs elsewhere ({{ surface(s.surface) }}) and isn't owned yet.</p>
-        <p class="muted">
-          <strong>Continue here</strong> resumes it in place — same conversation and context —
-          so you can keep giving commands from this device or your phone.
-        </p>
-        @if (s.surface === 'vs-code') {
-          <p class="warn sync-note">
-            ⚠ VS&nbsp;Code isn't synced live. If you were just working in it, <strong>close and
-            reopen VS&nbsp;Code (or its Claude panel)</strong> so its latest messages are saved —
-            otherwise “Continue here” picks up from the last saved point.
-          </p>
-        } @else {
-          <p class="muted sync-note">
-            A still-running session may not have saved its newest messages yet; “Continue here”
-            resumes from the last saved point.
+
+      @if (s.control.message !== 'none') {
+        <div class="composer">
+          <textarea
+            rows="2"
+            [ngModel]="message()"
+            (ngModelChange)="message.set($event)"
+            (keydown)="onComposerKeydown($event)"
+            [disabled]="busy()"
+            placeholder="Message Claude… (Ctrl/⌘+Enter to send)"
+            aria-label="Message"
+          ></textarea>
+          <div class="composer-actions">
+            @if (s.live && s.control.interrupt !== 'none') {
+              <button
+                class="btn"
+                type="button"
+                [disabled]="busy()"
+                [title]="
+                  s.control.interrupt === 'immediate'
+                    ? 'Stop the current turn'
+                    : 'Stops at the next tool call'
+                "
+                (click)="interrupt()"
+              >
+                <mc-icon name="pause" [size]="15" />
+                {{ s.control.interrupt === 'immediate' ? 'Interrupt' : 'Interrupt (next tool)' }}
+              </button>
+            }
+            <button
+              class="btn primary"
+              type="button"
+              [disabled]="busy() || !message().trim()"
+              (click)="send()"
+            >
+              <mc-icon name="send" [size]="15" /> Send
+            </button>
+          </div>
+        </div>
+        @if (s.control.message === 'relay') {
+          <p class="muted small composer-hint">
+            Relayed through
+            {{ s.control.channel === 'tmux' ? 'its tmux pane' : 'the hooks plugin' }}: delivered
+            when Claude reaches the next tool call or goes idle.
           </p>
         }
-        <details class="copts">
-          <summary>Launch options (model · effort · thinking)</summary>
-          <mc-launch-options (changed)="onLaunchOverrides($event)" />
-        </details>
-        <button class="btn primary" [disabled]="busy()" (click)="continueSession()">
-          Continue here →
-        </button>
-      </div>
-    }
+      } @else {
+        <div class="card cant-drive">
+          <p>
+            This session can't take messages from here.
+            @for (n of s.control.notes; track $index) {
+              <span class="muted"> {{ n }}</span>
+            }
+          </p>
+          @if (s.control.fork || s.control.continueOwned) {
+            <details class="copts">
+              <summary>Launch options (model · effort · mode)</summary>
+              <mc-launch-options (changed)="onLaunchOverrides($event)" />
+            </details>
+            <button
+              class="btn primary"
+              type="button"
+              [disabled]="busy()"
+              (click)="continueSession()"
+            >
+              {{ s.live ? 'Continue here (fork)' : 'Continue here' }}
+            </button>
+          }
+        </div>
+      }
+    </div>
   }
 
   @if (tab() === 'changes') {
@@ -416,7 +294,9 @@
                   <div class="pline {{ l.kind }}">
                     <span class="gut">{{ l.oldNo ?? '' }}</span>
                     <span class="gut">{{ l.newNo ?? '' }}</span>
-                    <span class="sign">{{ l.kind === 'add' ? '+' : l.kind === 'del' ? '−' : '' }}</span>
+                    <span class="sign">{{
+                      l.kind === 'add' ? '+' : l.kind === 'del' ? '−' : ''
+                    }}</span>
                     <span class="ptext">{{ l.text || ' ' }}</span>
                   </div>
                 }
@@ -463,6 +343,8 @@
       <p class="muted">Loading diff…</p>
     }
   }
+} @else if (loading()) {
+  <p class="muted">Loading session…</p>
 } @else {
   <p class="muted">
     Session not found (it may have ended). <a routerLink="/">Back to sessions</a>.

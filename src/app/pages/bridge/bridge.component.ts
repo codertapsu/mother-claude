@@ -1,17 +1,9 @@
 import { Component, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 
-import { ApiService } from '../../core/api.service';
-import { BridgeDefaults, BridgeStatus, LaunchDefaults, Session } from '../../core/models';
-import { relativeTime } from '../../shared/util';
-
-const EFFORT_LABELS: Record<string, string> = {
-  low: 'Low',
-  medium: 'Medium',
-  high: 'High',
-  xhigh: 'Extra High',
-  max: 'Max',
-};
+import { ApiService, errorMessage } from '../../core/api.service';
+import { BridgeDefaults, BridgeStatus, LaunchDefaults, SessionSummary } from '../../core/models';
+import { EFFORT_LABELS, effortLabel, relativeTime, sessionName } from '../../shared/util';
 
 const PERMISSION_MODES: { value: string; label: string; hint: string }[] = [
   { value: 'default', label: 'Ask me', hint: 'Every tool call needs approval' },
@@ -36,7 +28,7 @@ const FRESH = '';
   selector: 'mc-bridge',
   imports: [FormsModule],
   template: `
-    <h1>API</h1>
+    <div class="page-head"><h1>API</h1></div>
     <p class="lede">
       A local HTTP API for Claude on this machine — conversations, turns, live streams, tool
       approvals, images. It is off until you start it.
@@ -127,9 +119,7 @@ const FRESH = '';
           <label>
             <span class="lbl">Model</span>
             <select [ngModel]="model()" (ngModelChange)="model.set($event)">
-              <option value="">
-                Default{{ launch()?.model ? ' — ' + launch()!.model : '' }}
-              </option>
+              <option value="">Default{{ launch()?.model ? ' — ' + launch()!.model : '' }}</option>
               @for (m of launch()?.models ?? []; track m.value) {
                 <option [value]="m.value" [title]="m.description || ''">{{ m.label }}</option>
               }
@@ -172,11 +162,7 @@ const FRESH = '';
         </label>
 
         <label class="check">
-          <input
-            type="checkbox"
-            [ngModel]="isolate()"
-            (ngModelChange)="isolate.set($event)"
-          />
+          <input type="checkbox" [ngModel]="isolate()" (ngModelChange)="isolate.set($event)" />
           <span
             >Ignore project settings — don't load <code>CLAUDE.md</code>, hooks or MCP servers from
             the working directory</span
@@ -210,9 +196,7 @@ const FRESH = '';
             @if (pastSessions(s).length) {
               <optgroup label="Earlier conversations">
                 @for (p of pastSessions(s); track p.id) {
-                  <option [value]="p.id">
-                    {{ p.title || p.projectName || shortId(p.id) }} — {{ rel(p.lastActivity) }}
-                  </option>
+                  <option [value]="p.id">{{ label(p) }} — {{ rel(p.lastActivityAt) }}</option>
                 }
               </optgroup>
             }
@@ -386,7 +370,7 @@ export class BridgeComponent {
 
   readonly status = signal<BridgeStatus | null>(null);
   readonly launch = signal<LaunchDefaults | null>(null);
-  readonly sessions = signal<Session[]>([]);
+  readonly sessions = signal<SessionSummary[]>([]);
   readonly error = signal('');
   readonly busy = signal(false);
 
@@ -410,7 +394,10 @@ export class BridgeComponent {
       const [status, launch, sessions] = await Promise.all([
         this.api.getBridge(),
         this.api.getDefaults().catch(() => null),
-        this.api.listSessions().catch(() => [] as Session[]),
+        this.api
+          .listSessions({ scope: 'all', limit: 60 })
+          .then((page) => page.sessions ?? [])
+          .catch(() => [] as SessionSummary[]),
       ]);
       this.launch.set(launch);
       this.sessions.set(sessions);
@@ -460,20 +447,9 @@ export class BridgeComponent {
     }
   }
 
-  /** The server answers with its JSON envelope; show the message, not the status. */
+  /** The server's error envelope is already unpacked by ApiService. */
   private explain(e: unknown): string {
-    const raw = e instanceof Error ? e.message : String(e);
-    try {
-      const body = JSON.parse(raw) as { error?: { message?: string; field?: string } };
-      if (body.error?.message) {
-        return body.error.field
-          ? `${body.error.message} (${body.error.field})`
-          : body.error.message;
-      }
-    } catch {
-      // Not JSON — the raw text is the best we have.
-    }
-    return raw;
+    return errorMessage(e);
   }
 
   start(): Promise<void> {
@@ -493,12 +469,16 @@ export class BridgeComponent {
   }
 
   /** Recent sessions that are not already listed as running conversations. */
-  pastSessions(s: BridgeStatus): Session[] {
+  pastSessions(s: BridgeStatus): SessionSummary[] {
     const live = new Set((s.threads ?? []).map((t) => t.threadId));
     return this.sessions()
       .filter((session) => !live.has(session.id) && session.messageCount > 0)
-      .sort((a, b) => (b.lastActivity ?? 0) - (a.lastActivity ?? 0))
+      .sort((a, b) => (b.lastActivityAt ?? 0) - (a.lastActivityAt ?? 0))
       .slice(0, 25);
+  }
+
+  label(session: SessionSummary): string {
+    return sessionName(session);
   }
 
   /** The call to paste into a terminal, matching this listener's auth policy. */
@@ -513,7 +493,7 @@ export class BridgeComponent {
   }
 
   effortLabel(value: string): string {
-    return EFFORT_LABELS[value] ?? value;
+    return effortLabel(value);
   }
 
   shortId(id: string): string {

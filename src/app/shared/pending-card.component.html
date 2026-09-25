@@ -1,0 +1,337 @@
+<header class="head">
+  <span class="kicon" aria-hidden="true"><mc-icon [name]="icon()" [size]="18" /></span>
+  <div class="htext">
+    @if (showSession()) {
+      <a class="sess" [routerLink]="['/session', item().sessionId]">{{ sessionLabel() }}</a>
+    }
+    <strong class="title">{{ heading() }}</strong>
+  </div>
+  <span class="when">{{ item().createdAt | relTime }}</span>
+</header>
+
+@if (!compact() || item().toolName || item().agentId || item().dangerous) {
+  <div class="meta">
+    @if (item().toolName && item().kind === 'permission') {
+      <span class="tag mono">{{ item().toolName }}</span>
+    }
+    @if (item().agentId) {
+      <span class="tag" title="Asked by a subagent">
+        <mc-icon name="agents" [size]="12" /> {{ item().agentType || 'subagent' }}
+      </span>
+    }
+    @if (!compact() && item().source === 'hook') {
+      <span class="tag" title="Delivered through the hooks plugin; the first answer wins"
+        >via hooks</span
+      >
+    }
+    @if (item().dangerous) {
+      <span class="tag danger"><mc-icon name="alert" [size]="12" /> dangerous</span>
+    }
+  </div>
+}
+
+@if (done()) {
+  <p class="done" role="status"><mc-icon name="check" [size]="16" /> {{ done() }}</p>
+} @else if (compact()) {
+  <!-- ─────────────── Compact (session list) ─────────────── -->
+  @switch (item().kind) {
+    @case ('question') {
+      @if (questions()[0]; as q) {
+        <p class="qtext clamp">{{ q.question }}</p>
+      }
+    }
+    @case ('plan') {
+      <p class="detail clamp">
+        {{ item().detail || 'Claude finished planning and wants your go-ahead.' }}
+      </p>
+    }
+    @default {
+      @if (item().detail) {
+        <pre class="detail clamp">{{ item().detail }}</pre>
+      }
+    }
+  }
+  <div class="actions">
+    @if (canAct() && item().kind === 'permission') {
+      <button
+        class="btn primary small"
+        type="button"
+        [disabled]="busy() || allowBlocked()"
+        (click)="allowOnce()"
+      >
+        Allow
+      </button>
+      <button class="btn danger small" type="button" [disabled]="busy()" (click)="deny()">
+        Deny
+      </button>
+    } @else if (canAct() && item().kind === 'question' && simpleQuestion()) {
+      @for (o of questions()[0].options; track o.label) {
+        <button
+          class="btn small"
+          type="button"
+          [disabled]="busy()"
+          [title]="o.description || o.label"
+          (click)="pick(0, questions()[0], o.label)"
+        >
+          {{ o.label }}
+        </button>
+      }
+    } @else if (!canAct()) {
+      <span class="muted small">Answer in {{ surface() }}</span>
+    }
+    <span class="spacer"></span>
+    <a class="btn ghost small" [routerLink]="['/session', item().sessionId]">
+      {{ canAct() && item().kind !== 'permission' && !simpleQuestion() ? 'Answer' : 'Open' }}
+      <mc-icon name="chevronRight" [size]="14" />
+    </a>
+  </div>
+} @else {
+  <!-- ─────────────── Full card ─────────────── -->
+  @switch (item().kind) {
+    @case ('question') {
+      @for (q of questions(); track $index; let qi = $index) {
+        <fieldset class="question">
+          <legend>
+            @if (q.header) {
+              <span class="tag">{{ q.header }}</span>
+            }
+            <span class="qtext">{{ q.question }}</span>
+            @if (q.multiSelect) {
+              <span class="muted small">Pick any</span>
+            }
+          </legend>
+          <div class="options">
+            @for (o of q.options; track o.label) {
+              <button
+                type="button"
+                class="option"
+                [class.picked]="isPicked(qi, o.label)"
+                [attr.aria-pressed]="isPicked(qi, o.label)"
+                [disabled]="busy() || !canAct()"
+                (click)="pick(qi, q, o.label)"
+              >
+                <span class="mark" [class.round]="!q.multiSelect" aria-hidden="true">
+                  @if (isPicked(qi, o.label)) {
+                    <mc-icon name="check" [size]="14" />
+                  }
+                </span>
+                <span class="otext">
+                  <span class="olabel">{{ o.label }}</span>
+                  @if (o.description) {
+                    <span class="odesc">{{ o.description }}</span>
+                  }
+                </span>
+              </button>
+            }
+          </div>
+          @if (canAct()) {
+            <input
+              class="other"
+              [ngModel]="other()[qi]"
+              (ngModelChange)="setOther(qi, $event)"
+              [disabled]="busy()"
+              placeholder="Other… type your own answer"
+              [attr.aria-label]="'Other answer to: ' + q.question"
+            />
+          }
+        </fieldset>
+      }
+      @if (canAct()) {
+        <div class="actions">
+          <button
+            class="btn primary"
+            type="button"
+            [disabled]="busy() || !allAnswered()"
+            (click)="submitAnswers()"
+          >
+            <mc-icon name="send" [size]="15" /> Send
+            {{ questions().length > 1 ? 'answers' : 'answer' }}
+          </button>
+          <button class="btn ghost" type="button" [disabled]="busy()" (click)="deny()">Skip</button>
+        </div>
+      }
+    }
+
+    @case ('plan') {
+      <div class="plan md" [class.open]="planOpen() || !planLong()" [innerHTML]="planHtml()"></div>
+      @if (planLong()) {
+        <button class="btn ghost small" type="button" (click)="planOpen.set(!planOpen())">
+          {{ planOpen() ? 'Show less' : 'Show the whole plan' }}
+        </button>
+      }
+      @if (canAct()) {
+        @if (panel() === 'planFeedback') {
+          <div class="panel">
+            <textarea
+              rows="3"
+              [ngModel]="feedback()"
+              (ngModelChange)="feedback.set($event)"
+              placeholder="What should change in the plan?"
+              aria-label="Feedback for the plan"
+            ></textarea>
+            <div class="actions">
+              <button
+                class="btn primary"
+                type="button"
+                [disabled]="busy()"
+                (click)="keepPlanning()"
+              >
+                Send feedback
+              </button>
+              <button class="btn ghost" type="button" (click)="panel.set('main')">Cancel</button>
+            </div>
+          </div>
+        } @else {
+          <div class="actions stack-phone">
+            <button
+              class="btn primary"
+              type="button"
+              [disabled]="busy()"
+              (click)="approvePlan('acceptEdits')"
+            >
+              Approve &amp; auto-accept edits
+            </button>
+            <button class="btn" type="button" [disabled]="busy()" (click)="approvePlan('default')">
+              Approve &amp; review each edit
+            </button>
+            <button
+              class="btn ghost"
+              type="button"
+              [disabled]="busy()"
+              (click)="panel.set('planFeedback')"
+            >
+              Keep planning…
+            </button>
+          </div>
+        }
+      }
+    }
+
+    @default {
+      @if (item().detail) {
+        <pre class="detail">{{ item().detail }}</pre>
+      }
+      @if (inputJson() && inputJson() !== item().detail) {
+        <button class="btn ghost small" type="button" (click)="showInput.set(!showInput())">
+          <mc-icon [name]="showInput() ? 'chevronDown' : 'chevronRight'" [size]="14" />
+          {{ showInput() ? 'Hide' : 'Show' }} full input
+        </button>
+        @if (showInput()) {
+          <pre class="detail input">{{ inputJson() }}</pre>
+        }
+      }
+      @if (canAct()) {
+        @if (item().kind === 'elicitation') {
+          <div class="actions">
+            <button class="btn primary" type="button" [disabled]="busy()" (click)="allowOnce()">
+              Accept
+            </button>
+            <button class="btn" type="button" [disabled]="busy()" (click)="deny()">Decline</button>
+          </div>
+        } @else if (panel() === 'always') {
+          <div class="panel">
+            <p class="muted small">Allow now, and remember this choice:</p>
+            @for (s of item().suggestions; track s.index) {
+              <button
+                class="btn block suggestion"
+                type="button"
+                [disabled]="busy() || suggestionBlocked(s)"
+                (click)="allowAlways(s)"
+              >
+                <span class="slabel">{{ s.label }}</span>
+                @if (s.standing) {
+                  <span class="muted small">{{ destination(s.destination) }}</span>
+                }
+              </button>
+            }
+            @if (!canDangerous()) {
+              <p class="muted small">
+                Rules saved to settings need the desktop app, or a device the desktop allowed to
+                approve dangerous actions.
+              </p>
+            }
+            <button class="btn ghost" type="button" (click)="panel.set('main')">Cancel</button>
+          </div>
+        } @else if (panel() === 'feedback') {
+          <div class="panel">
+            <textarea
+              rows="3"
+              [ngModel]="feedback()"
+              (ngModelChange)="feedback.set($event)"
+              placeholder="Tell Claude what to do instead (optional)"
+              aria-label="Feedback for Claude"
+            ></textarea>
+            <label class="check">
+              <input
+                type="checkbox"
+                [ngModel]="stopTurn()"
+                (ngModelChange)="stopTurn.set($event)"
+              />
+              Also stop the current turn
+            </label>
+            <div class="actions">
+              <button
+                class="btn danger"
+                type="button"
+                [disabled]="busy()"
+                (click)="denyWithFeedback()"
+              >
+                Deny
+              </button>
+              <button class="btn ghost" type="button" (click)="panel.set('main')">Cancel</button>
+            </div>
+          </div>
+        } @else {
+          <div class="actions">
+            <button
+              class="btn primary"
+              type="button"
+              [disabled]="busy() || allowBlocked()"
+              (click)="allowOnce()"
+            >
+              <mc-icon name="check" [size]="15" /> Allow once
+            </button>
+            @if (item().suggestions.length) {
+              <button
+                class="btn"
+                type="button"
+                [disabled]="busy() || allowBlocked()"
+                (click)="panel.set('always')"
+              >
+                Always…
+              </button>
+            }
+            <button class="btn danger" type="button" [disabled]="busy()" (click)="deny()">
+              <mc-icon name="x" [size]="15" /> Deny
+            </button>
+            <button
+              class="btn ghost"
+              type="button"
+              [disabled]="busy()"
+              (click)="panel.set('feedback')"
+            >
+              Deny with feedback…
+            </button>
+          </div>
+          @if (allowBlocked()) {
+            <p class="muted small">
+              This is a dangerous action: approve it on the desktop, or allow this device to approve
+              dangerous actions (desktop → Remote → Devices). You can still deny it here.
+            </p>
+          }
+        }
+      }
+    }
+  }
+
+  @if (!canAct()) {
+    <p class="guidance">
+      <mc-icon name="info" [size]="15" />
+      <span>{{ guidance() }}</span>
+    </p>
+  }
+}
+
+@if (error()) {
+  <p class="error-text small" role="alert">{{ error() }}</p>
+}

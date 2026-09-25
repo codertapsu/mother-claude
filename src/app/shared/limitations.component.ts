@@ -19,8 +19,9 @@ import { Component } from '@angular/core';
         <span class="ico">🧩</span>
         <div>
           <strong>VS Code isn't synced live.</strong>
-          The dashboard reads the transcript files Claude writes. A live VS&nbsp;Code session may not
-          save its newest messages until it's idle or closed, so they might not show here yet — and
+          The dashboard reads the transcript files Claude writes. A live VS&nbsp;Code session may
+          not save its newest messages until it's idle or closed, so they might not show here yet —
+          and
           <em>“Continue here”</em> picks up from the last saved point. To capture the very latest,
           <strong>close and reopen VS&nbsp;Code (or its Claude panel)</strong> first.
         </div>
@@ -38,9 +39,11 @@ import { Component } from '@angular/core';
       <div class="note">
         <span class="ico">📶</span>
         <div>
-          <strong>Local network.</strong>
-          Built for your own trusted Wi-Fi. Pair your phone with the QR code in
-          <strong>Settings</strong>; nothing leaves your network.
+          <strong>Local first, internet when you choose.</strong>
+          Phones pair with a QR code from <strong>Remote</strong> on the desktop. On your own Wi-Fi
+          nothing leaves your network. Internet access is off until you turn it on and point a
+          tunnel (ngrok, Cloudflare, Tailscale) at it; every device still needs its own pairing, and
+          you can revoke any of them at any time.
         </div>
       </div>
     </div>
