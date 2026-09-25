@@ -50,7 +50,13 @@
                   "maximumError": "16kB"
                 }
               ],
-              "outputHashing": "all"
+              "outputHashing": "all",
+              "fileReplacements": [
+                {
+                  "replace": "src/app/core/mock/mock-loader.ts",
+                  "with": "src/app/core/mock/mock-loader.prod.ts"
+                }
+              ]
             },
             "development": {
               "optimization": false,
