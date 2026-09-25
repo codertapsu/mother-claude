@@ -1003,11 +1003,10 @@ pub async fn raise(
 ) -> (PendingGuard, oneshot::Receiver<Decision>) {
     let session_id = item.session_id.clone();
     // Classify against the session's cwd (relative paths, symlinks).
-    let cwd = state
-        .find_session(&session_id)
-        .await
-        .map(|s| s.cwd)
-        .filter(|c| !c.is_empty());
+    let cwd = match state.find_session(&session_id).await {
+        Some(s) if !s.cwd.is_empty() => Some(s.cwd),
+        _ => state.control.cwd_of(&session_id),
+    };
     if let Some(why) = classify_dangerous(&item, cwd.as_deref()) {
         item.dangerous = true;
         item.dangerous_reason.get_or_insert(why);

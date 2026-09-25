@@ -254,6 +254,8 @@ impl Inner {
     /// spawn/continue show up without waiting for the next refresh.
     pub async fn mark_owned(self: &Arc<Self>, id: &str, cwd: &str, started_at: i64) {
         self.owned.write().await.insert(id.to_string());
+        // Sync mirror for `claude::owned::is_owned` (hook short-circuit).
+        self.control.note_owned(id, true);
         let found = crate::server::ws::patch_session(self, id, |s| {
             s.owned = true;
             s.live = true;
@@ -279,6 +281,7 @@ impl Inner {
     /// driven. Its pending items are withdrawn.
     pub async fn unmark_owned(self: &Arc<Self>, id: &str) {
         self.owned.write().await.remove(id);
+        self.control.note_owned(id, false);
         crate::pending::withdraw_session(self, id, "session no longer owned").await;
         crate::server::ws::patch_session(self, id, |s| {
             s.owned = false;

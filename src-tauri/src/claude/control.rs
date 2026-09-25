@@ -1,53 +1,160 @@
 //! Two-way control of **owned** sessions — sessions Mother Claude launches and
-//! therefore can drive live.
+//! therefore can drive live (design §5.1).
 //!
-//! Path B (this module): a headless `claude -p --output-format stream-json
-//! --input-format stream-json` subprocess. We pick the `--session-id`, so the
-//! session id is known up front and registered as owned; Claude also writes the
-//! normal transcript file, which the monitor already tails for the live view.
-//! User messages and (later) permission decisions are written to the child's
-//! stdin as NDJSON.
+//! **Path B "full"** (the default): the installed `claude` in print mode with
+//! the stream-json control protocol, launched the way VS Code launches it:
 //!
-//! Path A (the Agent SDK sidecar with `canUseTool` / `ask_user`) is added in the
-//! remote-approval commit and is preferred for rich permission gating.
+//! ```text
+//! claude -p --output-format stream-json --input-format stream-json --verbose
+//!   --permission-prompt-tool stdio --include-partial-messages --replay-user-messages
+//!   --setting-sources user,project,local --permission-mode M [--model X] [--effort E]
+//!   [--allow-dangerously-skip-permissions]
+//!   (--session-id <uuid> | --resume <id> | --resume <id> --fork-session --session-id <new>)
+//! ```
+//!
+//! * The environment is scrubbed of the parent's Claude Code session variables
+//!   (an explicit denylist, [`SCRUBBED_ENV`]) and of `MOTHER_CLAUDE_TOKEN`;
+//!   `MOTHER_CLAUDE_OWNED=1` tells the foreign-control hook scripts to stay
+//!   out. `CLAUDE_CONFIG_DIR` is never set (only inherited when the user set
+//!   it) — setting it breaks the CLI's credential lookup.
+//! * An `initialize` control request goes first; its commands/models/agents
+//!   are cached.
+//! * The stdout reader answers every CLI → host control request:
+//!   `can_use_tool` becomes a pending item (permission, native AskUserQuestion
+//!   with `answers`, ExitPlanMode with a `setMode`), `elicitation` too when a
+//!   dashboard is connected (else declined), `request_user_dialog` is
+//!   cancelled, anything else gets `error: unsupported`.
+//!   `control_cancel_request` withdraws the card. Stream events become `stream`
+//!   frames and activity; `system/status` updates the permission mode;
+//!   `task_*` feed the agents view; `result` ends the turn (push trigger).
+//! * Outgoing control requests carry a request id and are awaited with a
+//!   timeout; CLI `error` replies surface as [`ControlError::Cli`] (a 422).
+//! * The reaper withdraws pending items, fails in-flight requests and clears
+//!   `owned` when the child exits.
+//!
+//! **Path A** (the Agent SDK sidecar, `sidecar/src/agent-bridge.ts`) is kept
+//! behind `MOTHER_CLAUDE_SIDECAR=1`; it only takes text and answers
+//! approvals over HTTP, so live control requests are refused for it.
 
-use std::collections::HashMap;
+mod protocol;
+
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
-use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex, MutexGuard};
+use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, Context, Result};
-use serde_json::json;
+use serde_json::{json, Value};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tokio::process::{Child, ChildStdin};
-use tokio::sync::Mutex as AsyncMutex;
+use tokio::process::{Child, ChildStdin, ChildStdout};
+use tokio::sync::{oneshot, Mutex as AsyncMutex, Notify};
 use uuid::Uuid;
 
+pub use protocol::{user_message_json, CliError};
+
+use super::model::{
+    Activity, ActivityKind, AgentInfo, AgentKind, AgentStatus, BackgroundTask, BackgroundTaskKind,
+    CommandInfo, Delivery, ImageInput, LastError, ModelInfo, NoticeLevel, QueueStatus, QueueVia,
+    QueuedMessage, SessionStatus, StreamFrame, StreamKind,
+};
+use crate::pending;
+use crate::server::ws;
 use crate::state::AppState;
 
-/// Options for launching an owned session. `None` for model/effort/thinking
-/// inherits the user's own Claude settings (~/.claude/settings.json) — i.e.
-/// whatever they last picked in VS Code or the CLI.
-#[derive(Debug, Clone)]
+/// How long a user-triggered control request waits for the CLI.
+pub const REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
+/// How long the first `initialize` may take (the CLI boots first).
+const INIT_TIMEOUT: Duration = Duration::from_secs(60);
+/// An owned approval is held at most this long, then denied.
+pub const PROMPT_TIMEOUT: Duration = Duration::from_secs(12 * 60 * 60);
+/// Text/thinking deltas are coalesced for this long before publishing.
+const DELTA_FLUSH: Duration = Duration::from_millis(60);
+/// Grace period between SIGTERM and SIGKILL when stopping a child.
+const KILL_GRACE: Duration = Duration::from_secs(3);
+/// VS Code's setting sources.
+pub const SETTING_SOURCES: &str = "user,project,local";
+/// stderr lines kept for the exit notice.
+const STDERR_TAIL: usize = 20;
+
+/// Inherited variables removed from every child Mother Claude spawns (an
+/// explicit denylist: provider and auth variables such as
+/// `CLAUDE_CODE_USE_BEDROCK` or `CLAUDE_CODE_OAUTH_TOKEN` must survive, or the
+/// child fails the way an exported `CLAUDE_CONFIG_DIR` does). Everything here
+/// identifies the *parent* Claude Code session (set when Mother Claude itself
+/// runs from a Claude Code terminal) or is our own credential.
+pub const SCRUBBED_ENV: [&str; 12] = [
+    "CLAUDECODE",
+    "CLAUDE_CODE_ENTRYPOINT",
+    "CLAUDE_CODE_SESSION_ID",
+    "CLAUDE_CODE_MESSAGING_SOCKET",
+    "CLAUDE_CODE_MESSAGING_TOKEN",
+    "CLAUDE_CODE_CHILD_SESSION",
+    "CLAUDE_CODE_SSE_PORT",
+    "CLAUDE_CODE_SESSION_ATTENDED",
+    "CLAUDE_CODE_EXECPATH",
+    "CLAUDE_PID",
+    "CLAUDE_AGENT_SDK_VERSION",
+    "MOTHER_CLAUDE_TOKEN",
+];
+
+/// Non-secret marker on every child Mother Claude spawns; the foreign-control
+/// hook scripts exit immediately when it is set (no double cards).
+pub const OWNED_ENV: &str = "MOTHER_CLAUDE_OWNED";
+
+/// Scrub a child's environment ([`SCRUBBED_ENV`]) and mark it owned. Used for
+/// the Path B `claude`, the Path A sidecar and the bridge host.
+pub fn apply_child_env(cmd: &mut tokio::process::Command) {
+    for key in SCRUBBED_ENV {
+        cmd.env_remove(key);
+    }
+    cmd.env(OWNED_ENV, "1");
+}
+
+/// Which machinery drives an owned child.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Driver {
+    /// Path B: `claude -p` stream-json with the control protocol.
+    #[default]
+    Stream,
+    /// Path A: the Agent SDK sidecar (text + approvals only).
+    Sidecar,
+}
+
+/// Options for launching an owned session.
+#[derive(Debug, Clone, Default)]
 pub struct SpawnOptions {
     pub cwd: String,
+    /// First message (may be empty).
     pub prompt: String,
     pub model: Option<String>,
     /// Reasoning effort: low | medium | high | xhigh | max.
     pub effort: Option<String>,
     /// Thinking override: "on" | "off" (None = model/settings default).
     pub thinking: Option<String>,
+    /// Always passed explicitly (`None` ⇒ `default`); never inherited.
     pub permission_mode: Option<String>,
-    /// Resume (fork) an existing conversation by id — used to "continue" a
-    /// foreign session (e.g. a VS Code one) as a fully-controllable owned session.
+    /// Continue an existing conversation by id.
     pub resume: Option<String>,
-}
-
-struct OwnedHandle {
-    stdin: AsyncMutex<Option<ChildStdin>>,
-    child: AsyncMutex<Child>,
-    cwd: String,
-    started_at: i64,
+    /// With `resume`: `--fork-session` under a new id (the original is left
+    /// untouched — never two writers on one transcript).
+    pub fork: bool,
+    /// The id to use (fresh: `--session-id`; fork: the new id). Generated when
+    /// `None`.
+    pub session_id: Option<String>,
+    /// Images on the first message (validated by the caller).
+    pub images: Vec<ImageInput>,
+    /// Pass `--allow-dangerously-skip-permissions` (the spawning caller may use
+    /// dangerous actions).
+    pub allow_bypass: bool,
+    /// Whether the spawning caller may use dangerous actions: if the session
+    /// still comes up in bypassPermissions without it, it is stopped.
+    pub caller_may_dangerous: bool,
+    /// `--setting-sources` (default [`SETTING_SOURCES`]; tests narrow it).
+    pub setting_sources: Option<String>,
+    /// Extra CLI arguments (tests only; never from a request).
+    pub extra_args: Vec<String>,
 }
 
 /// Lightweight metadata for a live owned session, so the registry can list it
@@ -59,12 +166,264 @@ pub struct OwnedSessionMeta {
     pub started_at: i64,
 }
 
+/// One background task / subagent the session reported (`task_*`).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct OwnedTask {
+    pub id: String,
+    pub tool_use_id: Option<String>,
+    pub description: String,
+    /// `local_bash` | `local_agent` | `remote_agent` | …
+    pub task_type: Option<String>,
+    pub subagent_type: Option<String>,
+    pub background: bool,
+    /// `running` | `completed` | `failed` | `stopped` | `killed` | `pending`.
+    pub status: String,
+    pub started_at: i64,
+    pub ended_at: Option<i64>,
+    pub tokens: Option<u64>,
+    pub tool_uses: Option<u64>,
+    pub last_tool: Option<String>,
+    pub summary: Option<String>,
+    pub output_file: Option<String>,
+    /// Claude Code's own housekeeping, not the session's work.
+    pub ambient: bool,
+}
+
+impl OwnedTask {
+    fn running(&self) -> bool {
+        matches!(self.status.as_str(), "running" | "pending")
+    }
+
+    /// As an agent row (subagents only).
+    pub fn agent(&self, session_id: &str) -> Option<AgentInfo> {
+        if self.task_type.as_deref() != Some("local_agent")
+            && self.task_type.as_deref() != Some("remote_agent")
+        {
+            return None;
+        }
+        let activity = self.last_tool.as_ref().map(|t| {
+            let mut a = Activity::new(ActivityKind::Tool, format!("Running {t}"));
+            a.tool = Some(t.clone());
+            a
+        });
+        Some(AgentInfo {
+            id: self.id.clone(),
+            kind: AgentKind::Subagent,
+            session_id: session_id.to_string(),
+            depth: 1,
+            agent_type: self.subagent_type.clone(),
+            label: self
+                .summary
+                .clone()
+                .unwrap_or_else(|| self.description.clone()),
+            status: task_status(&self.status),
+            background: self.background,
+            started_at: Some(self.started_at),
+            ended_at: self.ended_at,
+            activity: if self.running() { activity } else { None },
+            tokens: self.tokens,
+            tool_uses: self.tool_uses,
+            tool_use_id: self.tool_use_id.clone(),
+            task_id: Some(self.id.clone()),
+            can_stop: self.running(),
+            ..Default::default()
+        })
+    }
+
+    /// As a background task row.
+    pub fn background_task(&self) -> BackgroundTask {
+        BackgroundTask {
+            id: self.id.clone(),
+            kind: match self.task_type.as_deref() {
+                Some("local_agent" | "remote_agent") => BackgroundTaskKind::Agent,
+                Some("local_workflow" | "workflow") => BackgroundTaskKind::Workflow,
+                Some("monitor") => BackgroundTaskKind::Monitor,
+                _ => BackgroundTaskKind::Bash,
+            },
+            label: self.description.clone(),
+            status: self.status.clone(),
+            started_at: Some(self.started_at),
+            ended_at: self.ended_at,
+            output_available: self.output_file.as_deref().is_some_and(|f| !f.is_empty()),
+        }
+    }
+}
+
+fn task_status(s: &str) -> AgentStatus {
+    match s {
+        "running" | "pending" => AgentStatus::Running,
+        "completed" => AgentStatus::Done,
+        "failed" => AgentStatus::Failed,
+        "stopped" | "killed" => AgentStatus::Stopped,
+        _ => AgentStatus::Unknown,
+    }
+}
+
+/// What Mother Claude knows about an owned session right now (from the
+/// control protocol, not the transcript). Cloned out by [`ControlRegistry::state`].
+#[derive(Debug, Clone, Default)]
+pub struct OwnedLive {
+    pub driver: Driver,
+    pub cwd: String,
+    pub started_at: i64,
+    pub model: Option<String>,
+    pub permission_mode: Option<String>,
+    pub effort: Option<String>,
+    /// From `initialize` / `commands_changed` (`/`-prefixed).
+    pub commands: Vec<CommandInfo>,
+    /// `initialize.models` (raw).
+    pub models: Vec<Value>,
+    /// `initialize.agents` (raw).
+    pub agents: Vec<Value>,
+    /// `initialize` answered.
+    pub initialized: bool,
+    /// `system/init` arrived.
+    pub started: bool,
+    /// The id `system/init` reported (differs from ours only on an old CLI).
+    pub reported_session_id: Option<String>,
+    pub capabilities: Vec<String>,
+    pub turn_active: bool,
+    pub turn_started_at: Option<i64>,
+    pub activity: Activity,
+    /// Our messages written while a turn ran and not answered yet.
+    pub queued: Vec<QueuedMessage>,
+    pub tasks: Vec<OwnedTask>,
+    pub last_error: Option<LastError>,
+    /// Launched with `--allow-dangerously-skip-permissions`.
+    pub bypass_available: bool,
+}
+
+impl OwnedLive {
+    /// Running subagents and all tasks, for the agents views.
+    pub fn agents_of(&self, session_id: &str) -> Vec<AgentInfo> {
+        self.tasks
+            .iter()
+            .filter(|t| !t.ambient)
+            .filter_map(|t| t.agent(session_id))
+            .collect()
+    }
+
+    pub fn background_tasks(&self) -> Vec<BackgroundTask> {
+        self.tasks
+            .iter()
+            .filter(|t| !t.ambient && t.task_type.as_deref() != Some("local_agent"))
+            .map(OwnedTask::background_task)
+            .collect()
+    }
+}
+
+/// Why a control operation failed.
+#[derive(Debug, thiserror::Error)]
+pub enum ControlError {
+    #[error("session {0} is not an owned, controllable session")]
+    NotOwned(String),
+    #[error("{0}")]
+    NotSupported(String),
+    #[error("{}", .0.message)]
+    Cli(CliError),
+    #[error("the session did not answer within {}s", .0.as_secs())]
+    Timeout(Duration),
+    #[error("the session's process has exited")]
+    Closed,
+    #[error("could not write to the session: {0}")]
+    Io(#[from] std::io::Error),
+}
+
+type Reply = Result<Value, CliError>;
+
+/// A CLI → host request we are answering.
+struct Incoming {
+    cancel: Option<oneshot::Sender<()>>,
+}
+
+struct OwnedHandle {
+    id: String,
+    cwd: String,
+    started_at: i64,
+    driver: Driver,
+    caller_may_dangerous: bool,
+    stdin: AsyncMutex<Option<ChildStdin>>,
+    kill: Notify,
+    alive: AtomicBool,
+    live: Mutex<OwnedLive>,
+    outgoing: Mutex<HashMap<String, oneshot::Sender<Reply>>>,
+    incoming: Mutex<HashMap<String, Incoming>>,
+    stderr_tail: Mutex<VecDeque<String>>,
+}
+
+fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
+    m.lock().unwrap_or_else(|p| p.into_inner())
+}
+
+impl OwnedHandle {
+    fn live(&self) -> MutexGuard<'_, OwnedLive> {
+        lock(&self.live)
+    }
+
+    async fn write_line(&self, line: &str) -> std::io::Result<()> {
+        let mut guard = self.stdin.lock().await;
+        let stdin = guard.as_mut().ok_or_else(|| {
+            std::io::Error::new(std::io::ErrorKind::BrokenPipe, "stdin is closed")
+        })?;
+        stdin.write_all(line.as_bytes()).await?;
+        stdin.write_all(b"\n").await?;
+        stdin.flush().await
+    }
+
+    async fn write_json(&self, v: &Value) -> std::io::Result<()> {
+        self.write_line(&v.to_string()).await
+    }
+
+    /// Write a control request and return the receiver of its reply.
+    async fn send_request(
+        &self,
+        request: Value,
+    ) -> Result<(String, oneshot::Receiver<Reply>), ControlError> {
+        if self.driver == Driver::Sidecar {
+            return Err(ControlError::NotSupported(
+                "This session runs through the Agent SDK sidecar (MOTHER_CLAUDE_SIDECAR=1), \
+                 which does not take live control requests."
+                    .into(),
+            ));
+        }
+        if !self.alive.load(Ordering::SeqCst) {
+            return Err(ControlError::Closed);
+        }
+        let rid = format!("mc_{}", Uuid::new_v4().simple());
+        let (tx, rx) = oneshot::channel();
+        lock(&self.outgoing).insert(rid.clone(), tx);
+        if let Err(e) = self
+            .write_json(&protocol::control_request(&rid, request))
+            .await
+        {
+            lock(&self.outgoing).remove(&rid);
+            return Err(e.into());
+        }
+        Ok((rid, rx))
+    }
+
+    async fn request(&self, request: Value, timeout: Duration) -> Result<Value, ControlError> {
+        let (rid, rx) = self.send_request(request).await?;
+        match tokio::time::timeout(timeout, rx).await {
+            Ok(Ok(Ok(v))) => Ok(v),
+            Ok(Ok(Err(e))) => Err(ControlError::Cli(e)),
+            Ok(Err(_)) => Err(ControlError::Closed),
+            Err(_) => {
+                lock(&self.outgoing).remove(&rid);
+                Err(ControlError::Timeout(timeout))
+            }
+        }
+    }
+}
+
 type HandleMap = Arc<Mutex<HashMap<String, Arc<OwnedHandle>>>>;
 
 /// Registry of live owned-session subprocess handles.
 #[derive(Default)]
 pub struct ControlRegistry {
     handles: HandleMap,
+    /// Mirror of `state.owned` (bridge threads included) for sync lookups.
+    owned_mirror: Mutex<HashSet<String>>,
 }
 
 impl ControlRegistry {
@@ -74,69 +433,88 @@ impl ControlRegistry {
 
     /// True if we hold a live control handle for this id.
     pub fn controls(&self, id: &str) -> bool {
-        self.handles
-            .lock()
-            .map(|h| h.contains_key(id))
-            .unwrap_or(false)
+        lock(&self.handles).contains_key(id)
+    }
+
+    /// Owned by Mother Claude in any way: a control handle (Path A or B) or a
+    /// session marked owned (HTTP bridge conversations). Sync.
+    pub fn is_owned(&self, id: &str) -> bool {
+        self.controls(id) || lock(&self.owned_mirror).contains(id)
+    }
+
+    /// Record that `state.owned` gained / lost an id (called by
+    /// `Inner::mark_owned` / `unmark_owned`).
+    pub fn note_owned(&self, id: &str, owned: bool) {
+        let mut m = lock(&self.owned_mirror);
+        if owned {
+            m.insert(id.to_string());
+        } else {
+            m.remove(id);
+        }
     }
 
     /// Metadata for every live owned session (for registry inclusion).
     pub fn live(&self) -> Vec<OwnedSessionMeta> {
-        self.handles
-            .lock()
-            .map(|m| {
-                m.iter()
-                    .map(|(id, h)| OwnedSessionMeta {
-                        id: id.clone(),
-                        cwd: h.cwd.clone(),
-                        started_at: h.started_at,
-                    })
-                    .collect()
+        lock(&self.handles)
+            .iter()
+            .map(|(id, h)| OwnedSessionMeta {
+                id: id.clone(),
+                cwd: h.cwd.clone(),
+                started_at: h.started_at,
             })
-            .unwrap_or_default()
+            .collect()
     }
 
-    /// Launch a new owned session and return its id.
-    ///
-    /// Path A (the default when the Node sidecar is built/bundled): drive the
-    /// session via the Agent SDK bridge, which gates tools with `canUseTool` and
-    /// surfaces questions via `ask_user` to the dashboard. If the sidecar is
-    /// absent, can't start (e.g. `node` missing), or is disabled with
-    /// `MOTHER_CLAUDE_SIDECAR=0`, fall back to Path B: a headless `claude -p`
-    /// stream-json subprocess.
+    /// The working directory of an owned session.
+    pub fn cwd_of(&self, id: &str) -> Option<String> {
+        self.get(id).map(|h| h.cwd.clone())
+    }
+
+    /// What the control protocol told us about an owned session.
+    pub fn state(&self, id: &str) -> Option<OwnedLive> {
+        self.get(id).map(|h| h.live().clone())
+    }
+
+    /// Which machinery drives an owned session.
+    pub fn driver(&self, id: &str) -> Option<Driver> {
+        self.get(id).map(|h| h.driver)
+    }
+
+    fn get(&self, id: &str) -> Option<Arc<OwnedHandle>> {
+        lock(&self.handles).get(id).cloned()
+    }
+
+    fn handle(&self, id: &str) -> Result<Arc<OwnedHandle>, ControlError> {
+        self.get(id)
+            .ok_or_else(|| ControlError::NotOwned(id.to_string()))
+    }
+
+    /// Launch an owned session and return its id (the new id for a fork).
     pub async fn spawn(&self, state: &AppState, opts: SpawnOptions) -> Result<String> {
-        // Continuing a session resumes it *in place* (same id), so the existing
-        // dashboard row becomes owned and drivable and the same transcript keeps
-        // growing. Fresh sessions get a brand-new id.
-        let id = opts
-            .resume
-            .clone()
-            .unwrap_or_else(|| Uuid::new_v4().to_string());
+        let id = match (&opts.session_id, &opts.resume) {
+            (Some(sid), _) => sid.clone(),
+            (None, Some(resume)) if !opts.fork => resume.clone(),
+            _ => Uuid::new_v4().to_string(),
+        };
         let permission_mode = opts
             .permission_mode
-            .as_deref()
-            .unwrap_or("default")
-            .to_string();
+            .clone()
+            .unwrap_or_else(|| "default".into());
 
         // One controller per session: a second spawn/continue would clobber
         // this handle and its reaper would then orphan the original child.
-        if self
-            .handles
-            .lock()
-            .ok()
-            .is_some_and(|m| m.contains_key(&id))
-        {
+        if self.controls(&id) {
             anyhow::bail!("session {id} is already controlled by Mother Claude");
         }
 
-        // Resuming an existing conversation uses the headless path, whose
-        // --resume semantics are well-defined.
-        let entry = if opts.resume.is_some() {
-            None
-        } else {
+        // Path A only when explicitly requested, and only for plain fresh
+        // text sessions (it has no resume/fork/image support worth keeping).
+        let entry = if opts.resume.is_none() && opts.images.is_empty() {
             sidecar_entry()
+        } else {
+            None
         };
-        let mut used_sidecar = false;
+        let mut driver = Driver::Stream;
         let mut child = match entry {
             Some(entry) => {
                 tracing::info!(session = %id, "spawning owned session via sidecar (Path A)");
@@ -152,11 +530,11 @@ impl ControlRegistry {
                 .spawn()
                 {
                     Ok(child) => {
-                        used_sidecar = true;
+                        driver = Driver::Sidecar;
                         child
                     }
                     Err(e) => {
-                        tracing::warn!(error = %e, "sidecar failed to start; falling back to headless (Path B)");
+                        tracing::warn!(error = %e, "sidecar failed to start; using Path B");
                         headless_command(&id, &opts, &permission_mode)
                             .spawn()
                             .context("failed to spawn claude (Path B fallback)")?
@@ -171,149 +549,1066 @@ impl ControlRegistry {
         let stdin = child.stdin.take();
         let stdout = child.stdout.take();
         let stderr = child.stderr.take();
+        let started_at = crate::claude::registry::now_ms();
 
         let handle = Arc::new(OwnedHandle {
-            stdin: AsyncMutex::new(stdin),
-            child: AsyncMutex::new(child),
+            id: id.clone(),
             cwd: opts.cwd.clone(),
-            started_at: crate::claude::registry::now_ms(),
+            started_at,
+            driver,
+            caller_may_dangerous: opts.caller_may_dangerous,
+            stdin: AsyncMutex::new(stdin),
+            kill: Notify::new(),
+            alive: AtomicBool::new(true),
+            live: Mutex::new(OwnedLive {
+                driver,
+                cwd: opts.cwd.clone(),
+                started_at,
+                model: opts.model.clone(),
+                permission_mode: Some(permission_mode.clone()),
+                effort: opts.effort.clone(),
+                bypass_available: opts.allow_bypass,
+                activity: Activity {
+                    since: Some(started_at),
+                    ..Activity::new(ActivityKind::Starting, "Starting")
+                },
+                ..Default::default()
+            }),
+            outgoing: Mutex::new(HashMap::new()),
+            incoming: Mutex::new(HashMap::new()),
+            stderr_tail: Mutex::new(VecDeque::new()),
         });
 
-        if let Ok(mut map) = self.handles.lock() {
+        {
+            let mut map = lock(&self.handles);
+            if map.contains_key(&id) {
+                drop(map);
+                let _ = child.start_kill();
+                anyhow::bail!("session {id} is already controlled by Mother Claude");
+            }
             map.insert(id.clone(), handle.clone());
         }
+        // Owned before any output is read: a permission card or hook event
+        // for this id must already see it as ours (and find its row).
+        state.mark_owned(&id, &opts.cwd, started_at).await;
 
-        // Headless path: send the initial prompt over stdin (stream-json), the
-        // same way follow-ups go. Passing it as a positional argv token would
-        // let a prompt starting with '-' be parsed as a CLI flag — including
-        // permission-bypassing ones — by a remote (token-holding) client.
-        if !used_sidecar && !opts.prompt.trim().is_empty() {
-            let line = user_message_json(&opts.prompt);
-            let mut guard = handle.stdin.lock().await;
-            if let Some(stdin) = guard.as_mut() {
-                let _ = stdin.write_all(line.as_bytes()).await;
-                let _ = stdin.write_all(b"\n").await;
-                let _ = stdin.flush().await;
-            }
-            drop(guard);
-        }
-
-        // Register ownership + surface the session in the dashboard immediately.
-        state.mark_owned(&id, &opts.cwd, handle.started_at).await;
-        let verb = if opts.resume.is_some() {
-            "Continuing"
-        } else {
-            "Spawned"
-        };
-        state.notice(format!("{verb} owned session {id}"));
-
-        // Drain stdout/stderr so the child never blocks; the transcript file tail
-        // handles the live view, so here we mostly watch for completion.
-        if let Some(stdout) = stdout {
-            let st = state.clone();
-            let sid = id.clone();
-            tokio::spawn(async move {
-                let mut lines = BufReader::new(stdout).lines();
-                while let Ok(Some(line)) = lines.next_line().await {
-                    if let Ok(value) = serde_json::from_str::<serde_json::Value>(&line) {
-                        if value.get("type").and_then(|t| t.as_str()) == Some("result") {
-                            st.notice(format!("Session {sid} turn complete"));
-                        }
-                    }
-                }
-            });
-        }
         if let Some(stderr) = stderr {
-            let sid = id.clone();
+            let h = handle.clone();
             tokio::spawn(async move {
                 let mut lines = BufReader::new(stderr).lines();
                 while let Ok(Some(line)) = lines.next_line().await {
-                    tracing::debug!(session = %sid, "claude stderr: {line}");
-                }
-            });
-        }
-
-        // Reap the child when it exits and drop its control handle.
-        {
-            let registry_handle = handle.clone();
-            let st = state.clone();
-            let sid = id.clone();
-            let map = self.handles.clone();
-            tokio::spawn(async move {
-                let status = registry_handle.child.lock().await.wait().await;
-                tracing::info!(session = %sid, ?status, "owned session exited");
-                let mine = match map.lock() {
-                    // Only drop the entry if it is still OUR handle — a newer
-                    // controller for the same id must not be orphaned.
-                    Ok(mut m) => {
-                        let mine = m
-                            .get(&sid)
-                            .is_some_and(|h| Arc::ptr_eq(h, &registry_handle));
-                        if mine {
-                            m.remove(&sid);
-                        }
-                        mine
+                    tracing::debug!(session = %h.id, "claude stderr: {line}");
+                    let mut tail = lock(&h.stderr_tail);
+                    tail.push_back(line.chars().take(400).collect());
+                    while tail.len() > STDERR_TAIL {
+                        tail.pop_front();
                     }
-                    Err(_) => false,
-                };
-                if mine {
-                    // No longer drivable: clear ownership and withdraw its
-                    // pending prompts so no card waits on a dead process.
-                    st.unmark_owned(&sid).await;
                 }
-                st.notice(format!("Session {sid} exited"));
             });
         }
+        let reader =
+            stdout.map(|stdout| tokio::spawn(read_stdout(state.clone(), handle.clone(), stdout)));
+        self.spawn_reaper(state, handle.clone(), child, reader);
 
-        // The initial prompt is passed as argv above; follow-ups go through
-        // send_message.
+        // `initialize` goes first so the CLI processes it before any message.
+        if driver == Driver::Stream {
+            match handle
+                .send_request(json!({ "subtype": "initialize" }))
+                .await
+            {
+                Ok((rid, rx)) => {
+                    let h = handle.clone();
+                    tokio::spawn(async move {
+                        match tokio::time::timeout(INIT_TIMEOUT, rx).await {
+                            Ok(Ok(Ok(resp))) => on_initialized(&h, &resp),
+                            Ok(Ok(Err(e))) => {
+                                tracing::warn!(session = %h.id, error = %e.message, "initialize refused")
+                            }
+                            _ => {
+                                lock(&h.outgoing).remove(&rid);
+                                tracing::warn!(session = %h.id, "initialize got no answer");
+                            }
+                        }
+                    });
+                }
+                Err(e) => tracing::warn!(session = %id, error = %e, "could not send initialize"),
+            }
+        }
+
+        // The first message goes over stdin like every other (a prompt as
+        // argv could be parsed as a flag). The sidecar takes it from its env.
+        if driver == Driver::Stream && (!opts.prompt.trim().is_empty() || !opts.images.is_empty()) {
+            let uuid = Uuid::new_v4().to_string();
+            if let Err(e) = write_user(&handle, &opts.prompt, &opts.images, &uuid).await {
+                tracing::warn!(session = %id, error = %e, "could not write the first message");
+            }
+        } else if driver == Driver::Sidecar && !opts.prompt.trim().is_empty() {
+            start_turn(&handle);
+        }
+
+        let (model, mode) = {
+            let l = handle.live();
+            (l.model.clone(), l.permission_mode.clone())
+        };
+        ws::patch_session(state, &id, |s| {
+            s.permission_mode = mode;
+            if let Some(m) = model {
+                s.model = Some(model_info(&m));
+            }
+        })
+        .await;
+        let verb = match (&opts.resume, opts.fork) {
+            (Some(_), true) => "Forked",
+            (Some(_), false) => "Continuing",
+            (None, _) => "Spawned",
+        };
+        ws::publish_notice(
+            state,
+            NoticeLevel::Info,
+            format!("{verb} owned session {id}"),
+            Some(&id),
+        );
         Ok(id)
     }
 
-    /// Send a user message to an owned session's stdin (stream-json input).
-    pub async fn send_message(&self, id: &str, text: &str) -> Result<()> {
-        let handle = self
-            .get(id)
-            .ok_or_else(|| anyhow!("session {id} is not an owned, controllable session"))?;
-        let line = user_message_json(text);
-        let mut guard = handle.stdin.lock().await;
-        let stdin = guard
-            .as_mut()
-            .ok_or_else(|| anyhow!("session {id} stdin is closed"))?;
-        stdin.write_all(line.as_bytes()).await?;
-        stdin.write_all(b"\n").await?;
-        stdin.flush().await?;
-        Ok(())
+    fn spawn_reaper(
+        &self,
+        state: &AppState,
+        handle: Arc<OwnedHandle>,
+        mut child: Child,
+        reader: Option<tokio::task::JoinHandle<()>>,
+    ) {
+        let st = state.clone();
+        let map = self.handles.clone();
+        tokio::spawn(async move {
+            let status = tokio::select! {
+                s = child.wait() => s,
+                _ = handle.kill.notified() => {
+                    terminate(&mut child).await
+                }
+            };
+            // Let the reader drain what the child wrote before it exited (its
+            // last result), so nothing lands after the session is marked
+            // ended. Bounded: a grandchild could hold the pipe open.
+            if let Some(reader) = reader {
+                let _ = tokio::time::timeout(Duration::from_secs(2), reader).await;
+            }
+            let sid = handle.id.clone();
+            tracing::info!(session = %sid, ?status, "owned session exited");
+            handle.alive.store(false, Ordering::SeqCst);
+            handle.stdin.lock().await.take();
+            // Fail in-flight requests and stop waiting on CLI requests.
+            lock(&handle.outgoing).clear();
+            for (_, inc) in lock(&handle.incoming).drain() {
+                if let Some(c) = inc.cancel {
+                    let _ = c.send(());
+                }
+            }
+            {
+                let mut live = handle.live();
+                live.turn_active = false;
+                for q in &mut live.queued {
+                    q.status = QueueStatus::Failed;
+                    q.cancellable = false;
+                }
+                live.activity = Activity::new(ActivityKind::Ended, "Ended");
+            }
+            let mine = {
+                let mut m = lock(&map);
+                let mine = m.get(&sid).is_some_and(|h| Arc::ptr_eq(h, &handle));
+                if mine {
+                    m.remove(&sid);
+                }
+                mine
+            };
+            if mine {
+                // No longer drivable: clear ownership and withdraw its pending
+                // prompts so no card waits on a dead process.
+                st.unmark_owned(&sid).await;
+            }
+            let failed = status.as_ref().map(|s| !s.success()).unwrap_or(true);
+            let tail: Vec<String> = lock(&handle.stderr_tail).iter().cloned().collect();
+            let started = handle.live().started;
+            if failed && !started && !tail.is_empty() {
+                let text = tail.join("\n");
+                ws::publish_notice(
+                    &st,
+                    NoticeLevel::Error,
+                    format!("Session {sid} could not start: {text}"),
+                    Some(&sid),
+                );
+                crate::server::push::on_session_failed(&st, &sid, &text);
+            } else {
+                ws::publish_notice(
+                    &st,
+                    NoticeLevel::Info,
+                    format!("Session {sid} exited"),
+                    Some(&sid),
+                );
+            }
+        });
     }
 
-    /// Write a raw NDJSON control line to an owned session's stdin (used by the
-    /// permission/answer bridge).
+    /// Send a user message (text + images) to an owned session. Returns the
+    /// message id (its stream-json `uuid`) and whether it was sent now or
+    /// queued behind the running turn.
+    pub async fn send_user(
+        &self,
+        id: &str,
+        text: &str,
+        images: &[ImageInput],
+    ) -> Result<(String, Delivery), ControlError> {
+        let handle = self.handle(id)?;
+        if handle.driver == Driver::Sidecar && !images.is_empty() {
+            return Err(ControlError::NotSupported(
+                "Images are not supported by the Agent SDK sidecar.".into(),
+            ));
+        }
+        if !handle.alive.load(Ordering::SeqCst) {
+            return Err(ControlError::Closed);
+        }
+        let uuid = Uuid::new_v4().to_string();
+        let delivery = write_user(&handle, text, images, &uuid).await?;
+        Ok((uuid, delivery))
+    }
+
+    /// Send a text message to an owned session's stdin (stream-json input).
+    pub async fn send_message(&self, id: &str, text: &str) -> Result<()> {
+        self.send_user(id, text, &[])
+            .await
+            .map(|_| ())
+            .map_err(|e| anyhow!("{e}"))
+    }
+
+    /// Write a raw NDJSON line to an owned session's stdin.
     pub async fn send_raw(&self, id: &str, line: &str) -> Result<()> {
         let handle = self
             .get(id)
             .ok_or_else(|| anyhow!("session {id} is not controllable"))?;
-        let mut guard = handle.stdin.lock().await;
-        let stdin = guard
-            .as_mut()
-            .ok_or_else(|| anyhow!("session {id} stdin is closed"))?;
-        stdin.write_all(line.as_bytes()).await?;
-        stdin.write_all(b"\n").await?;
-        stdin.flush().await?;
+        handle.write_line(line).await?;
         Ok(())
     }
 
-    /// Terminate an owned session's subprocess (best effort).
+    /// Send a control request (`{"subtype":…,…}`) and await its reply.
+    pub async fn request(
+        &self,
+        id: &str,
+        request: Value,
+        timeout: Duration,
+    ) -> Result<Value, ControlError> {
+        self.handle(id)?.request(request, timeout).await
+    }
+
+    /// Update the cached live state after a successful control request.
+    pub fn update<F: FnOnce(&mut OwnedLive)>(&self, id: &str, f: F) {
+        if let Some(h) = self.get(id) {
+            f(&mut h.live());
+        }
+    }
+
+    /// Terminate an owned session's subprocess (SIGTERM, then SIGKILL after a
+    /// grace period). Returns immediately; the reaper cleans up.
     pub async fn kill(&self, id: &str) -> Result<()> {
         if let Some(handle) = self.get(id) {
-            let _ = handle.child.lock().await.start_kill();
+            handle.kill.notify_one();
         }
         Ok(())
     }
+}
 
-    fn get(&self, id: &str) -> Option<Arc<OwnedHandle>> {
-        self.handles.lock().ok().and_then(|m| m.get(id).cloned())
+/// SIGTERM, wait a little, then SIGKILL.
+async fn terminate(child: &mut Child) -> std::io::Result<std::process::ExitStatus> {
+    #[cfg(unix)]
+    if let Some(pid) = child.id().and_then(|p| i32::try_from(p).ok()) {
+        // SAFETY: plain syscall on our own child's pid; no memory is touched.
+        unsafe {
+            libc::kill(pid, libc::SIGTERM);
+        }
+        if let Ok(status) = tokio::time::timeout(KILL_GRACE, child.wait()).await {
+            return status;
+        }
+    }
+    let _ = child.start_kill();
+    child.wait().await
+}
+
+/// Write a user message line and do the queue/turn bookkeeping.
+async fn write_user(
+    h: &Arc<OwnedHandle>,
+    text: &str,
+    images: &[ImageInput],
+    uuid: &str,
+) -> Result<Delivery, ControlError> {
+    let line = match h.driver {
+        // The sidecar flattens content to text and has no uuid tracking.
+        Driver::Sidecar => protocol::user_message_json(text),
+        Driver::Stream => {
+            let mut content = Vec::with_capacity(1 + images.len());
+            if !text.trim().is_empty() {
+                content.push(protocol::text_block(text));
+            }
+            for img in images {
+                content.push(protocol::image_block(&img.media_type, &img.data));
+            }
+            protocol::user_message(content, Some(uuid)).to_string()
+        }
+    };
+    // Decide queued-vs-sent and record the message BEFORE writing, so a fast
+    // answer cannot race the bookkeeping.
+    let queued = {
+        let mut live = h.live();
+        let queued = live.turn_active || !live.queued.is_empty();
+        if h.driver == Driver::Stream && queued {
+            live.queued.push(QueuedMessage {
+                id: uuid.to_string(),
+                text: text.chars().take(2000).collect(),
+                created_at: crate::claude::registry::now_ms(),
+                via: QueueVia::Owned,
+                status: QueueStatus::Queued,
+                cancellable: true,
+            });
+        }
+        queued
+    };
+    if let Err(e) = h.write_line(&line).await {
+        h.live().queued.retain(|q| q.id != uuid);
+        return Err(e.into());
+    }
+    start_turn(h);
+    Ok(if queued {
+        Delivery::Queued
+    } else {
+        Delivery::Sent
+    })
+}
+
+fn start_turn(h: &OwnedHandle) {
+    let mut live = h.live();
+    if !live.turn_active {
+        live.turn_active = true;
+        live.turn_started_at = Some(crate::claude::registry::now_ms());
     }
 }
+
+// ─────────────────────────────── stdout reader ────────────────────────────────
+
+/// A text/thinking delta being coalesced.
+struct PendingDelta {
+    frame: StreamFrame,
+    since: Instant,
+}
+
+async fn read_stdout(state: AppState, h: Arc<OwnedHandle>, stdout: ChildStdout) {
+    let mut lines = BufReader::new(stdout).lines();
+    let mut tracker = protocol::StreamTracker::default();
+    let mut delta: Option<PendingDelta> = None;
+    loop {
+        let next = if delta.is_some() {
+            // `next_line` is cancel safe, so a timeout only flushes.
+            match tokio::time::timeout(DELTA_FLUSH, lines.next_line()).await {
+                Ok(r) => r,
+                Err(_) => {
+                    flush_delta(&state, &h, &mut delta);
+                    continue;
+                }
+            }
+        } else {
+            lines.next_line().await
+        };
+        let line = match next {
+            Ok(Some(line)) => line,
+            Ok(None) => break,
+            Err(e) => {
+                tracing::warn!(session = %h.id, error = %e, "owned session stdout failed");
+                break;
+            }
+        };
+        if line.trim().is_empty() {
+            continue;
+        }
+        let v: Value = match serde_json::from_str(&line) {
+            Ok(v) => v,
+            Err(e) => {
+                tracing::debug!(session = %h.id, error = %e, "non-JSON line from claude");
+                continue;
+            }
+        };
+        dispatch(&state, &h, v, &mut tracker, &mut delta).await;
+    }
+    flush_delta(&state, &h, &mut delta);
+}
+
+fn flush_delta(state: &AppState, h: &OwnedHandle, delta: &mut Option<PendingDelta>) {
+    if let Some(d) = delta.take() {
+        ws::publish_stream(state, &h.id, d.frame);
+    }
+}
+
+fn publish_frame(
+    state: &AppState,
+    h: &OwnedHandle,
+    frame: StreamFrame,
+    delta: &mut Option<PendingDelta>,
+) {
+    let coalescable =
+        matches!(frame.kind, StreamKind::Text | StreamKind::Thinking) && frame.delta.is_some();
+    if !coalescable {
+        flush_delta(state, h, delta);
+        ws::publish_stream(state, &h.id, frame);
+        return;
+    }
+    if let Some(d) = delta.as_mut() {
+        if d.frame.kind == frame.kind
+            && d.frame.message_id == frame.message_id
+            && d.frame.index == frame.index
+        {
+            if let (Some(acc), Some(more)) = (d.frame.delta.as_mut(), frame.delta.as_deref()) {
+                acc.push_str(more);
+            }
+            if d.since.elapsed() >= DELTA_FLUSH {
+                flush_delta(state, h, delta);
+            }
+            return;
+        }
+    }
+    flush_delta(state, h, delta);
+    *delta = Some(PendingDelta {
+        frame,
+        since: Instant::now(),
+    });
+}
+
+async fn dispatch(
+    state: &AppState,
+    h: &Arc<OwnedHandle>,
+    v: Value,
+    tracker: &mut protocol::StreamTracker,
+    delta: &mut Option<PendingDelta>,
+) {
+    let kind = v.get("type").and_then(Value::as_str).unwrap_or_default();
+    match kind {
+        "control_request" => {
+            flush_delta(state, h, delta);
+            let (st, hh) = (state.clone(), h.clone());
+            tokio::spawn(async move { handle_cli_request(&st, &hh, v).await });
+        }
+        "control_cancel_request" => {
+            if let Some(rid) = v.get("request_id").and_then(Value::as_str) {
+                if let Some(inc) = lock(&h.incoming).remove(rid) {
+                    if let Some(c) = inc.cancel {
+                        let _ = c.send(());
+                    }
+                }
+            }
+        }
+        "control_response" => {
+            if let Some((rid, reply)) = protocol::parse_control_response(&v) {
+                if let Some(tx) = lock(&h.outgoing).remove(&rid) {
+                    let _ = tx.send(reply);
+                }
+            }
+        }
+        "stream_event" => {
+            mark_answered(state, h, &v).await;
+            if let Some(event) = v.get("event") {
+                let out = tracker.on_event(event);
+                for frame in out.frames {
+                    publish_frame(state, h, frame, delta);
+                }
+                if let Some(a) = out.activity {
+                    note_activity(state, h, a).await;
+                }
+            }
+        }
+        "system" => {
+            flush_delta(state, h, delta);
+            on_system(state, h, &v).await;
+        }
+        "assistant" => {
+            flush_delta(state, h, delta);
+            mark_answered(state, h, &v).await;
+            on_assistant(state, h, &v).await;
+        }
+        "user" => {
+            // Tool results (and, with --replay-user-messages, our own message
+            // echoed back): the model is thinking again.
+            let is_tool_result = v
+                .pointer("/message/content")
+                .and_then(Value::as_array)
+                .is_some_and(|c| {
+                    c.iter()
+                        .any(|b| b.get("type").and_then(Value::as_str) == Some("tool_result"))
+                });
+            if is_tool_result && h.live().turn_active {
+                note_activity(state, h, Activity::new(ActivityKind::Thinking, "Thinking")).await;
+            }
+        }
+        "result" => {
+            flush_delta(state, h, delta);
+            mark_answered(state, h, &v).await;
+            on_result(state, h, &v).await;
+        }
+        _ => {}
+    }
+}
+
+/// Our messages a frame says it answers are no longer queued.
+async fn mark_answered(state: &AppState, h: &OwnedHandle, v: &Value) {
+    let answered = protocol::answered_uuids(v);
+    if answered.is_empty() {
+        return;
+    }
+    let changed = {
+        let mut live = h.live();
+        let before = live.queued.len();
+        live.queued.retain(|q| !answered.contains(&q.id));
+        before != live.queued.len()
+    };
+    if changed {
+        let n = h.live().queued.len() as u32;
+        ws::patch_session(state, &h.id, |s| s.queued = n).await;
+    }
+}
+
+async fn note_activity(state: &AppState, h: &OwnedHandle, mut a: Activity) {
+    let now = crate::claude::registry::now_ms();
+    let changed = {
+        let mut live = h.live();
+        let same = live.activity.kind == a.kind
+            && live.activity.label == a.label
+            && live.activity.tool == a.tool;
+        if same {
+            false
+        } else {
+            a.since = Some(now);
+            live.activity = a.clone();
+            true
+        }
+    };
+    if !changed {
+        return;
+    }
+    state.activity.note_owned(&h.id, a.clone());
+    let turn_active = h.live().turn_active;
+    ws::patch_session(state, &h.id, |s| {
+        if s.pending.iter().any(|p| p.answerable) {
+            return; // waiting on a human wins
+        }
+        s.activity = a;
+        s.status = if turn_active {
+            SessionStatus::Working
+        } else {
+            SessionStatus::Idle
+        };
+        s.last_activity_at = Some(now);
+    })
+    .await;
+}
+
+fn model_info(id: &str) -> ModelInfo {
+    ModelInfo {
+        id: id.to_string(),
+        label: id.to_string(),
+        context_window: None,
+    }
+}
+
+fn on_initialized(h: &OwnedHandle, resp: &Value) {
+    {
+        let mut live = h.live();
+        live.initialized = true;
+        let commands = protocol::commands_from(resp);
+        if !commands.is_empty() {
+            live.commands = commands;
+        }
+        if let Some(models) = resp.get("models").and_then(Value::as_array) {
+            live.models = models.clone();
+        }
+        if let Some(agents) = resp.get("agents").and_then(Value::as_array) {
+            live.agents = agents.clone();
+        }
+        if let Some(mode) = resp.get("current_permission_mode").and_then(Value::as_str) {
+            live.permission_mode = Some(mode.to_string());
+        }
+    }
+    tracing::debug!(session = %h.id, "owned session initialized");
+}
+
+async fn on_system(state: &AppState, h: &Arc<OwnedHandle>, v: &Value) {
+    let text = |k: &str| v.get(k).and_then(Value::as_str).map(str::to_string);
+    match v.get("subtype").and_then(Value::as_str).unwrap_or_default() {
+        "init" => {
+            let mode = text("permissionMode");
+            let model = text("model");
+            {
+                let mut live = h.live();
+                live.started = true;
+                if mode.is_some() {
+                    live.permission_mode = mode.clone();
+                }
+                if model.is_some() {
+                    live.model = model.clone();
+                }
+                live.reported_session_id = text("session_id");
+                if let Some(caps) = v.get("capabilities").and_then(Value::as_array) {
+                    live.capabilities = caps
+                        .iter()
+                        .filter_map(Value::as_str)
+                        .map(str::to_string)
+                        .collect();
+                }
+            }
+            if let Some(reported) = text("session_id").filter(|r| r != &h.id) {
+                tracing::warn!(session = %h.id, %reported, "the CLI reported a different session id");
+            }
+            // A caller without dangerous rights must never end up driving a
+            // session that runs tools unapproved (e.g. a user-settings
+            // defaultMode of bypassPermissions leaking through).
+            if mode.as_deref() == Some("bypassPermissions") && !h.caller_may_dangerous {
+                tracing::warn!(session = %h.id, "owned session came up in bypassPermissions; stopping it");
+                ws::publish_notice(
+                    state,
+                    NoticeLevel::Warning,
+                    "Stopped a session that started without permission prompts: the device \
+                     that launched it may not use dangerous actions.",
+                    Some(&h.id),
+                );
+                pending::withdraw_session(state, &h.id, "session stopped (bypassPermissions)")
+                    .await;
+                h.kill.notify_one();
+                return;
+            }
+            ws::patch_session(state, &h.id, |s| {
+                if let Some(m) = &mode {
+                    s.permission_mode = Some(m.clone());
+                }
+                if let Some(m) = &model {
+                    s.model = Some(model_info(m));
+                }
+                if let Some(v) = v.get("claude_code_version").and_then(Value::as_str) {
+                    s.version = Some(v.to_string());
+                }
+            })
+            .await;
+        }
+        "status" => {
+            let mode = text("permissionMode");
+            if let Some(m) = &mode {
+                h.live().permission_mode = Some(m.clone());
+                let m = m.clone();
+                ws::patch_session(state, &h.id, |s| s.permission_mode = Some(m)).await;
+            }
+            let status = text("status");
+            if status.as_deref() == Some("compacting") {
+                note_activity(
+                    state,
+                    h,
+                    Activity::new(ActivityKind::Compacting, "Compacting"),
+                )
+                .await;
+            } else if v.get("status").is_some_and(Value::is_null) && h.live().turn_active {
+                note_activity(state, h, Activity::new(ActivityKind::Thinking, "Thinking")).await;
+            }
+            let mut f = StreamFrame {
+                kind: StreamKind::Status,
+                ..Default::default()
+            };
+            f.status = Some(status.unwrap_or_else(|| "status".into()));
+            ws::publish_stream(state, &h.id, f);
+        }
+        "api_retry" => {
+            note_activity(state, h, Activity::new(ActivityKind::Retrying, "Retrying")).await;
+        }
+        "commands_changed" => {
+            let commands = protocol::commands_from(v);
+            if !commands.is_empty() {
+                h.live().commands = commands;
+            }
+        }
+        "thinking_tokens" => mark_answered(state, h, v).await,
+        sub @ ("task_started"
+        | "task_progress"
+        | "task_updated"
+        | "task_notification"
+        | "background_tasks_changed") => {
+            on_task(h, sub, v);
+            publish_agents(state, h);
+        }
+        _ => {}
+    }
+}
+
+/// Merge one `task_*` message into the task list.
+fn on_task(h: &OwnedHandle, sub: &str, v: &Value) {
+    let now = crate::claude::registry::now_ms();
+    let text = |k: &str| v.get(k).and_then(Value::as_str).map(str::to_string);
+    let mut live = h.live();
+    if sub == "background_tasks_changed" {
+        let listed: Vec<Value> = v
+            .get("tasks")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        for t in &listed {
+            let Some(id) = t.get("task_id").and_then(Value::as_str) else {
+                continue;
+            };
+            let entry = task_entry(&mut live.tasks, id, now);
+            if let Some(d) = t.get("description").and_then(Value::as_str) {
+                entry.description = d.to_string();
+            }
+            entry.ambient = t.get("ambient").and_then(Value::as_bool).unwrap_or(false);
+            entry.background = true;
+            if entry.status.is_empty() {
+                entry.status = "running".into();
+            }
+        }
+        return;
+    }
+    let Some(id) = text("task_id") else {
+        return;
+    };
+    let entry = task_entry(&mut live.tasks, &id, now);
+    if let Some(d) = text("description") {
+        entry.description = d;
+    }
+    if let Some(t) = text("tool_use_id") {
+        entry.tool_use_id = Some(t);
+    }
+    if let Some(a) = v.get("ambient").and_then(Value::as_bool) {
+        entry.ambient = a;
+    }
+    let usage = v.get("usage");
+    let num = |k: &str| usage.and_then(|u| u.get(k)).and_then(Value::as_u64);
+    match sub {
+        "task_started" => {
+            entry.task_type = text("task_type");
+            entry.background = v
+                .get("is_backgrounded")
+                .and_then(Value::as_bool)
+                .unwrap_or(false);
+            entry.status = "running".into();
+            entry.started_at = now;
+        }
+        "task_progress" => {
+            entry.subagent_type = text("subagent_type").or(entry.subagent_type.take());
+            entry.last_tool = text("last_tool_name").or(entry.last_tool.take());
+            entry.summary = text("summary").or(entry.summary.take());
+            entry.tokens = num("total_tokens").or(entry.tokens);
+            entry.tool_uses = num("tool_uses").or(entry.tool_uses);
+            if entry.status.is_empty() {
+                entry.status = "running".into();
+            }
+        }
+        "task_updated" => {
+            if let Some(patch) = v.get("patch") {
+                if let Some(s) = patch.get("status").and_then(Value::as_str) {
+                    entry.status = s.to_string();
+                }
+                if let Some(d) = patch.get("description").and_then(Value::as_str) {
+                    entry.description = d.to_string();
+                }
+                if let Some(b) = patch.get("is_backgrounded").and_then(Value::as_bool) {
+                    entry.background = b;
+                }
+                if let Some(e) = patch.get("end_time").and_then(Value::as_i64) {
+                    entry.ended_at = Some(e);
+                }
+            }
+        }
+        "task_notification" => {
+            entry.status = text("status").unwrap_or_else(|| "completed".into());
+            entry.summary = text("summary").or(entry.summary.take());
+            entry.output_file = text("output_file").filter(|f| !f.is_empty());
+            entry.tokens = num("total_tokens").or(entry.tokens);
+            entry.tool_uses = num("tool_uses").or(entry.tool_uses);
+            entry.ended_at.get_or_insert(now);
+        }
+        _ => {}
+    }
+    // Bound memory: keep every running task and the 50 most recent others.
+    if live.tasks.len() > 100 {
+        let mut finished: Vec<usize> = live
+            .tasks
+            .iter()
+            .enumerate()
+            .filter(|(_, t)| !t.running())
+            .map(|(i, _)| i)
+            .collect();
+        let excess = live.tasks.len() - 100;
+        finished.truncate(excess);
+        for i in finished.into_iter().rev() {
+            live.tasks.remove(i);
+        }
+    }
+}
+
+fn task_entry<'a>(tasks: &'a mut Vec<OwnedTask>, id: &str, now: i64) -> &'a mut OwnedTask {
+    if let Some(pos) = tasks.iter().position(|t| t.id == id) {
+        return &mut tasks[pos];
+    }
+    tasks.push(OwnedTask {
+        id: id.to_string(),
+        started_at: now,
+        ..Default::default()
+    });
+    let last = tasks.len() - 1;
+    &mut tasks[last]
+}
+
+/// Publish the session's agents: the data layer's view (from disk) merged with
+/// what the control protocol reported, so owned subagents show up live.
+fn publish_agents(state: &AppState, h: &OwnedHandle) {
+    let (mut agents, workflows) = state.agents.for_session(&h.id);
+    let mine = h.live().agents_of(&h.id);
+    for a in mine {
+        let dup = agents
+            .iter()
+            .any(|b| b.id == a.id || (a.tool_use_id.is_some() && b.tool_use_id == a.tool_use_id));
+        if !dup {
+            agents.push(a);
+        }
+    }
+    ws::publish_agents(state, &h.id, agents, workflows);
+}
+
+async fn on_assistant(state: &AppState, h: &OwnedHandle, v: &Value) {
+    if let Some(err) = v.get("error").and_then(Value::as_str) {
+        let text = v
+            .pointer("/message/content/0/text")
+            .and_then(Value::as_str)
+            .unwrap_or(err)
+            .chars()
+            .take(500)
+            .collect::<String>();
+        let at = crate::claude::registry::now_ms();
+        h.live().last_error = Some(LastError {
+            kind: err.to_string(),
+            text: text.clone(),
+            at,
+        });
+        let kind = err.to_string();
+        ws::patch_session(state, &h.id, |s| {
+            s.last_error = Some(LastError { kind, text, at });
+        })
+        .await;
+    }
+    // Without partial messages (the sidecar) this is the only activity hint.
+    let last_tool = v
+        .pointer("/message/content")
+        .and_then(Value::as_array)
+        .and_then(|c| {
+            c.iter()
+                .rev()
+                .find(|b| b.get("type").and_then(Value::as_str) == Some("tool_use"))
+        })
+        .and_then(|b| b.get("name").and_then(Value::as_str))
+        .map(str::to_string);
+    if let Some(name) = last_tool {
+        let mut a = Activity::new(ActivityKind::Tool, format!("Running {name}"));
+        a.tool = Some(name);
+        note_activity(state, h, a).await;
+    }
+    if let Some(m) = v.pointer("/message/model").and_then(Value::as_str) {
+        if m != "<synthetic>" {
+            h.live().model = Some(m.to_string());
+        }
+    }
+}
+
+async fn on_result(state: &AppState, h: &OwnedHandle, v: &Value) {
+    let now = crate::claude::registry::now_ms();
+    let (worked_ms, still_busy) = {
+        let mut live = h.live();
+        let started = live.turn_started_at.unwrap_or(now);
+        let worked = v
+            .get("duration_ms")
+            .and_then(Value::as_u64)
+            .unwrap_or_else(|| u64::try_from(now - started).unwrap_or(0));
+        // Messages still queued start the next turn right away.
+        let busy = !live.queued.is_empty();
+        live.turn_active = busy;
+        live.turn_started_at = busy.then_some(now);
+        (worked, busy)
+    };
+    let subtype = v.get("subtype").and_then(Value::as_str).unwrap_or_default();
+    let is_error = v.get("is_error").and_then(Value::as_bool).unwrap_or(false);
+    if is_error && subtype != "error_during_execution" {
+        let text = v
+            .get("result")
+            .and_then(Value::as_str)
+            .unwrap_or(subtype)
+            .chars()
+            .take(500)
+            .collect::<String>();
+        let kind = if subtype.is_empty() { "error" } else { subtype }.to_string();
+        let at = now;
+        h.live().last_error = Some(LastError {
+            kind: kind.clone(),
+            text: text.clone(),
+            at,
+        });
+        ws::patch_session(state, &h.id, |s| {
+            s.last_error = Some(LastError {
+                kind,
+                text: text.clone(),
+                at,
+            })
+        })
+        .await;
+        crate::server::push::on_session_failed(state, &h.id, &text);
+    }
+    crate::server::push::on_turn_finished(state, &h.id, worked_ms);
+    if still_busy {
+        note_activity(state, h, Activity::new(ActivityKind::Thinking, "Thinking")).await;
+    } else {
+        note_activity(state, h, Activity::new(ActivityKind::Idle, "Idle")).await;
+    }
+    let queued = h.live().queued.len() as u32;
+    ws::patch_session(state, &h.id, |s| s.queued = queued).await;
+    ws::publish_notice(
+        state,
+        NoticeLevel::Success,
+        format!("Session {} finished a turn", h.id),
+        Some(&h.id),
+    );
+}
+
+// ───────────────────────── CLI → host control requests ─────────────────────────
+
+enum Outcome {
+    Decided(pending::Decision),
+    Cancelled,
+    Gone,
+    TimedOut,
+}
+
+async fn handle_cli_request(state: &AppState, h: &Arc<OwnedHandle>, v: Value) {
+    let Some(rid) = v
+        .get("request_id")
+        .and_then(Value::as_str)
+        .map(str::to_string)
+    else {
+        return;
+    };
+    let req = v.get("request").cloned().unwrap_or(Value::Null);
+    let subtype = req
+        .get("subtype")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_string();
+    let reply = match subtype.as_str() {
+        "can_use_tool" => {
+            let item = protocol::item_from_can_use_tool(&h.id, &req);
+            let tool_use_id = req.get("tool_use_id").cloned();
+            match ask_human(state, h, &rid, item.clone()).await {
+                Some(Outcome::Decided(d)) => {
+                    let mut out = pending::permission_result(&item, &d);
+                    if let Some(t) = tool_use_id.filter(|t| !t.is_null()) {
+                        out["toolUseID"] = t;
+                    }
+                    Some(protocol::control_success(&rid, out))
+                }
+                Some(Outcome::TimedOut) => Some(protocol::control_success(
+                    &rid,
+                    json!({ "behavior": "deny", "message": "Nobody answered in time." }),
+                )),
+                Some(Outcome::Gone) => Some(protocol::control_success(
+                    &rid,
+                    json!({ "behavior": "deny", "message": "The request was withdrawn in Mother Claude." }),
+                )),
+                // The CLI cancelled it (or the process is gone): no reply.
+                Some(Outcome::Cancelled) | None => None,
+            }
+        }
+        "elicitation" => {
+            // Only worth a card when someone can see it.
+            if state.hub.client_count() == 0 {
+                Some(protocol::control_success(
+                    &rid,
+                    json!({ "action": "decline" }),
+                ))
+            } else {
+                let item = protocol::item_from_elicitation(&h.id, &req);
+                match ask_human(state, h, &rid, item.clone()).await {
+                    Some(Outcome::Decided(d)) => Some(protocol::control_success(
+                        &rid,
+                        pending::elicitation_result(&d),
+                    )),
+                    Some(Outcome::TimedOut | Outcome::Gone) => Some(protocol::control_success(
+                        &rid,
+                        json!({ "action": "decline" }),
+                    )),
+                    Some(Outcome::Cancelled) | None => None,
+                }
+            }
+        }
+        // Hosts must answer unknown dialog kinds with `cancelled`.
+        "request_user_dialog" => Some(protocol::control_success(
+            &rid,
+            json!({ "behavior": "cancelled" }),
+        )),
+        other => {
+            tracing::debug!(session = %h.id, subtype = %other, "unsupported CLI control request");
+            Some(protocol::control_error(&rid, "unsupported"))
+        }
+    };
+    if let Some(reply) = reply {
+        if let Err(e) = h.write_json(&reply).await {
+            tracing::debug!(session = %h.id, error = %e, "could not answer a control request");
+        }
+    }
+}
+
+/// Raise a pending item for CLI request `rid` and wait for a human. `None`
+/// when the request id is a duplicate delivery.
+async fn ask_human(
+    state: &AppState,
+    h: &Arc<OwnedHandle>,
+    rid: &str,
+    item: pending::PendingItem,
+) -> Option<Outcome> {
+    let (cancel_tx, cancel_rx) = oneshot::channel();
+    {
+        let mut incoming = lock(&h.incoming);
+        if incoming.contains_key(rid) {
+            return None; // duplicate delivery of an in-flight request
+        }
+        incoming.insert(
+            rid.to_string(),
+            Incoming {
+                cancel: Some(cancel_tx),
+            },
+        );
+    }
+    let (guard, rx) = pending::raise(state, item).await;
+    let pending_id = guard.id().to_string();
+    let outcome = tokio::select! {
+        d = tokio::time::timeout(PROMPT_TIMEOUT, rx) => match d {
+            Ok(Ok(d)) => Outcome::Decided(d),
+            Ok(Err(_)) => Outcome::Gone,
+            Err(_) => Outcome::TimedOut,
+        },
+        _ = cancel_rx => Outcome::Cancelled,
+    };
+    lock(&h.incoming).remove(rid);
+    match &outcome {
+        Outcome::Cancelled => {
+            pending::withdraw(state, &pending_id, "cancelled by the session").await;
+        }
+        Outcome::TimedOut => {
+            pending::withdraw(state, &pending_id, "timeout").await;
+        }
+        _ => {}
+    }
+    drop(guard);
+    if matches!(outcome, Outcome::Cancelled) && !h.alive.load(Ordering::SeqCst) {
+        return None;
+    }
+    Some(outcome)
+}
+
+// ────────────────────────────── spawn commands ───────────────────────────────
 
 /// Whether foreign-session injection (PTY-driving `claude attach`) is available.
 /// Requires the `experimental` capability to be compiled in (on by default) and
@@ -331,15 +1626,22 @@ pub fn foreign_injection_enabled() -> bool {
     }
 }
 
-/// Resolve the built sidecar entry point. Path A is used by default whenever the
-/// sidecar is present; set `MOTHER_CLAUDE_SIDECAR=0` to force the headless path.
+/// Whether Path A (the SDK sidecar) is requested: `MOTHER_CLAUDE_SIDECAR=1`.
+/// Path B is the default.
+pub fn sidecar_requested() -> bool {
+    std::env::var("MOTHER_CLAUDE_SIDECAR")
+        .map(|v| {
+            let v = v.trim().to_ascii_lowercase();
+            v == "1" || v == "true" || v == "on" || v == "yes"
+        })
+        .unwrap_or(false)
+}
+
+/// The built sidecar entry point, when Path A is requested.
 /// `MOTHER_CLAUDE_SIDECAR_PATH` (set at startup for packaged builds) wins.
 fn sidecar_entry() -> Option<PathBuf> {
-    if let Ok(v) = std::env::var("MOTHER_CLAUDE_SIDECAR") {
-        let v = v.trim().to_ascii_lowercase();
-        if v == "0" || v == "false" || v == "off" || v == "no" {
-            return None;
-        }
+    if !sidecar_requested() {
+        return None;
     }
     if let Ok(custom) = std::env::var("MOTHER_CLAUDE_SIDECAR_PATH") {
         let p = PathBuf::from(custom);
@@ -366,11 +1668,63 @@ fn server_url(state: &AppState) -> String {
 /// Shared stdio/env configuration for both spawn paths. No Mother Claude
 /// credential is ever inherited by a `claude` child (design §2.5).
 fn configure_common(cmd: &mut tokio::process::Command, cwd: &str) {
+    apply_child_env(cmd);
     cmd.current_dir(cwd)
-        .env_remove("MOTHER_CLAUDE_TOKEN")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
+        .stderr(Stdio::piped())
+        .kill_on_drop(true);
+}
+
+/// The Path B argument list (without the binary).
+pub fn headless_args(id: &str, opts: &SpawnOptions, permission_mode: &str) -> Vec<String> {
+    let mut a: Vec<String> = [
+        "-p",
+        "--output-format",
+        "stream-json",
+        "--input-format",
+        "stream-json",
+        "--verbose",
+        "--permission-prompt-tool",
+        "stdio",
+        "--include-partial-messages",
+        "--replay-user-messages",
+    ]
+    .iter()
+    .map(|s| s.to_string())
+    .collect();
+    a.push("--setting-sources".into());
+    a.push(
+        opts.setting_sources
+            .clone()
+            .unwrap_or_else(|| SETTING_SOURCES.into()),
+    );
+    a.push("--permission-mode".into());
+    a.push(permission_mode.to_string());
+    if opts.allow_bypass {
+        a.push("--allow-dangerously-skip-permissions".into());
+    }
+    if let Some(model) = &opts.model {
+        a.push("--model".into());
+        a.push(model.clone());
+    }
+    if let Some(effort) = &opts.effort {
+        a.push("--effort".into());
+        a.push(effort.clone());
+    }
+    match (&opts.resume, opts.fork) {
+        (Some(resume), true) => {
+            // The CLI: "--session-id can only be used with --continue or
+            // --resume if --fork-session is also specified" — so the new id is
+            // ours up front and marked owned before any hook fires.
+            a.extend(["--resume".into(), resume.clone(), "--fork-session".into()]);
+            a.extend(["--session-id".into(), id.to_string()]);
+        }
+        (Some(resume), false) => a.extend(["--resume".into(), resume.clone()]),
+        (None, _) => a.extend(["--session-id".into(), id.to_string()]),
+    }
+    a.extend(opts.extra_args.iter().cloned());
+    a
 }
 
 /// Path B: headless `claude -p` stream-json subprocess.
@@ -380,31 +1734,7 @@ fn headless_command(
     permission_mode: &str,
 ) -> tokio::process::Command {
     let mut c = tokio::process::Command::new(crate::claude::claude_bin());
-    c.arg("-p")
-        .arg("--output-format")
-        .arg("stream-json")
-        .arg("--input-format")
-        .arg("stream-json")
-        .arg("--verbose")
-        .arg("--include-partial-messages")
-        .arg("--permission-mode")
-        .arg(permission_mode);
-    match &opts.resume {
-        // Continue the existing conversation in place (same id, same transcript).
-        Some(resume) => {
-            c.arg("--resume").arg(resume);
-        }
-        // Fresh session: pin our chosen id.
-        None => {
-            c.arg("--session-id").arg(id);
-        }
-    }
-    if let Some(model) = &opts.model {
-        c.arg("--model").arg(model);
-    }
-    if let Some(effort) = &opts.effort {
-        c.arg("--effort").arg(effort);
-    }
+    c.args(headless_args(id, opts, permission_mode));
     // Thinking has no documented CLI flag; the MAX_THINKING_TOKENS env is what
     // the CLI reads (0 disables, a positive budget enables).
     match opts.thinking.as_deref() {
@@ -447,48 +1777,60 @@ fn sidecar_command(
     if let Some(thinking) = &opts.thinking {
         c.env("MC_THINKING", thinking);
     }
-    // Only a genuine continuation sets this: the sidecar pre-assigns the id for
-    // a fresh session and resumes only when told to.
     if let Some(resume) = &opts.resume {
         c.env("MC_RESUME", resume);
     }
     configure_common(&mut c, &opts.cwd);
     // The sidecar's own credential (`mcs_…`): valid only for
     // `/api/sessions/{id}/permission-request` from this machine. The sidecar
-    // removes it from its environment before starting the SDK, so the `claude`
-    // child never sees it.
+    // removes it from its environment and passes the SDK an explicit env
+    // without it, so the `claude` child never sees it.
     c.env("MOTHER_CLAUDE_TOKEN", sidecar_token);
     c
 }
 
-/// Run a documented lifecycle subcommand (`stop` / `respawn` / `rm`) against any
-/// session — owned or foreign. Returns combined stdout on success.
-pub async fn run_lifecycle(action: &str, id: &str) -> Result<String> {
-    let out = tokio::process::Command::new(crate::claude::claude_bin())
-        .arg(action)
-        .arg(id)
-        .output()
+// ──────────────────────────── background sessions ─────────────────────────────
+
+/// `claude stop|respawn|rm|logs` take only the SHORT background job id (8 hex
+/// chars, or a unique prefix of it); a session UUID never matches.
+pub fn is_short_job_id(id: &str) -> bool {
+    (6..=16).contains(&id.len()) && id.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
+}
+
+const LIFECYCLE_ACTIONS: [&str; 4] = ["stop", "respawn", "rm", "logs"];
+
+async fn run_job_command(action: &str, short_id: &str) -> Result<std::process::Output> {
+    if !LIFECYCLE_ACTIONS.contains(&action) {
+        anyhow::bail!("unknown lifecycle action {action:?}");
+    }
+    if !is_short_job_id(short_id) {
+        anyhow::bail!("{short_id:?} is not a background job id");
+    }
+    let mut cmd = tokio::process::Command::new(crate::claude::claude_bin());
+    cmd.arg(action)
+        .arg(short_id)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .kill_on_drop(true);
+    apply_child_env(&mut cmd);
+    tokio::time::timeout(Duration::from_secs(60), cmd.output())
         .await
-        .with_context(|| format!("failed to run `claude {action} {id}`"))?;
+        .map_err(|_| anyhow!("`claude {action} {short_id}` timed out"))?
+        .with_context(|| format!("failed to run `claude {action} {short_id}`"))
+}
+
+/// Run a documented lifecycle subcommand (`stop` / `respawn` / `rm`) against a
+/// background job by its SHORT id. Returns stdout on success.
+pub async fn run_lifecycle(action: &str, short_id: &str) -> Result<String> {
+    let out = run_job_command(action, short_id).await?;
     let stdout = String::from_utf8_lossy(&out.stdout).trim().to_string();
     let stderr = String::from_utf8_lossy(&out.stderr).trim().to_string();
     if out.status.success() {
         Ok(stdout)
     } else {
-        Err(anyhow!("`claude {action} {id}` failed: {stderr}"))
+        Err(anyhow!("`claude {action} {short_id}` failed: {stderr}"))
     }
-}
-
-/// Serialize a user message line for `--input-format stream-json`.
-pub fn user_message_json(text: &str) -> String {
-    json!({
-        "type": "user",
-        "message": {
-            "role": "user",
-            "content": [{ "type": "text", "text": text }]
-        }
-    })
-    .to_string()
 }
 
 #[cfg(test)]
@@ -496,19 +1838,97 @@ mod tests {
     use super::*;
 
     #[test]
-    fn user_message_is_stream_json_shape() {
-        let line = user_message_json("hello world");
-        let v: serde_json::Value = serde_json::from_str(&line).unwrap();
-        assert_eq!(v["type"], "user");
-        assert_eq!(v["message"]["role"], "user");
-        assert_eq!(v["message"]["content"][0]["type"], "text");
-        assert_eq!(v["message"]["content"][0]["text"], "hello world");
-    }
-
-    #[test]
     fn registry_starts_empty() {
         let r = ControlRegistry::new();
         assert!(!r.controls("anything"));
+        assert!(!r.is_owned("anything"));
+        r.note_owned("bridge-thread", true);
+        assert!(r.is_owned("bridge-thread"));
+        assert!(!r.controls("bridge-thread"));
+        r.note_owned("bridge-thread", false);
+        assert!(!r.is_owned("bridge-thread"));
+    }
+
+    #[test]
+    fn child_env_is_scrubbed_by_denylist() {
+        let mut cmd = tokio::process::Command::new("true");
+        cmd.env("CLAUDE_CODE_USE_BEDROCK", "1")
+            .env("CLAUDE_CODE_OAUTH_TOKEN", "x");
+        apply_child_env(&mut cmd);
+        let envs: HashMap<String, Option<String>> = cmd
+            .as_std()
+            .get_envs()
+            .map(|(k, v)| {
+                (
+                    k.to_string_lossy().into_owned(),
+                    v.map(|v| v.to_string_lossy().into_owned()),
+                )
+            })
+            .collect();
+        for key in SCRUBBED_ENV {
+            assert_eq!(envs.get(key), Some(&None), "{key} must be removed");
+        }
+        assert_eq!(envs.get(OWNED_ENV), Some(&Some("1".to_string())));
+        // Provider/auth variables survive; CLAUDE_CONFIG_DIR is never touched.
+        assert_eq!(
+            envs.get("CLAUDE_CODE_USE_BEDROCK"),
+            Some(&Some("1".to_string()))
+        );
+        assert_eq!(
+            envs.get("CLAUDE_CODE_OAUTH_TOKEN"),
+            Some(&Some("x".to_string()))
+        );
+        assert!(!envs.contains_key("CLAUDE_CONFIG_DIR"));
+    }
+
+    #[test]
+    fn headless_args_mirror_vs_code() {
+        let opts = SpawnOptions {
+            cwd: "/tmp".into(),
+            model: Some("haiku".into()),
+            effort: Some("low".into()),
+            ..Default::default()
+        };
+        let a = headless_args("11111111-2222-3333-4444-555555555555", &opts, "plan");
+        let s = a.join(" ");
+        assert!(
+            s.starts_with("-p --output-format stream-json --input-format stream-json --verbose")
+        );
+        assert!(s.contains("--permission-prompt-tool stdio"));
+        assert!(s.contains("--include-partial-messages --replay-user-messages"));
+        assert!(s.contains("--setting-sources user,project,local"));
+        assert!(s.contains("--permission-mode plan"));
+        assert!(s.contains("--model haiku --effort low"));
+        assert!(s.ends_with("--session-id 11111111-2222-3333-4444-555555555555"));
+        assert!(!s.contains("--allow-dangerously-skip-permissions"));
+
+        let fork = SpawnOptions {
+            resume: Some("old".into()),
+            fork: true,
+            allow_bypass: true,
+            ..Default::default()
+        };
+        let s = headless_args("new", &fork, "default").join(" ");
+        assert!(s.contains("--allow-dangerously-skip-permissions"));
+        assert!(s.contains("--resume old --fork-session --session-id new"));
+
+        let resume = SpawnOptions {
+            resume: Some("old".into()),
+            ..Default::default()
+        };
+        let s = headless_args("old", &resume, "default").join(" ");
+        assert!(s.ends_with("--resume old"));
+        assert!(!s.contains("--session-id"));
+    }
+
+    #[test]
+    fn short_job_ids() {
+        assert!(is_short_job_id("631b387d"));
+        assert!(is_short_job_id("631b38"));
+        assert!(!is_short_job_id("631b387d-a7e5-4e12-ab38-522cb612803b"));
+        assert!(!is_short_job_id("--help"));
+        assert!(!is_short_job_id("ABCDEF12"));
+        assert!(!is_short_job_id("abc"));
     }
 
     #[tokio::test]
@@ -516,9 +1936,71 @@ mod tests {
         // Stand in for `claude` with `echo` so we exercise the shell-out path
         // without touching real sessions.
         std::env::set_var("MOTHER_CLAUDE_CLI", "echo");
-        let out = run_lifecycle("stop", "abc-123").await.unwrap();
+        let out = run_lifecycle("stop", "631b387d").await;
+        let bad = run_lifecycle("stop", "abc-123").await;
+        let action = run_lifecycle("attach", "631b387d").await;
         std::env::remove_var("MOTHER_CLAUDE_CLI");
+        let out = out.unwrap();
         assert!(out.contains("stop"));
-        assert!(out.contains("abc-123"));
+        assert!(out.contains("631b387d"));
+        assert!(bad.is_err(), "a UUID-ish id never reaches the CLI");
+        assert!(action.is_err());
+    }
+
+    #[test]
+    fn tasks_become_agents_and_background_rows() {
+        let h = OwnedHandle {
+            id: "s".into(),
+            cwd: "/".into(),
+            started_at: 0,
+            driver: Driver::Stream,
+            caller_may_dangerous: false,
+            stdin: AsyncMutex::new(None),
+            kill: Notify::new(),
+            alive: AtomicBool::new(true),
+            live: Mutex::new(OwnedLive::default()),
+            outgoing: Mutex::new(HashMap::new()),
+            incoming: Mutex::new(HashMap::new()),
+            stderr_tail: Mutex::new(VecDeque::new()),
+        };
+        on_task(
+            &h,
+            "task_started",
+            &json!({ "task_id": "t1", "description": "Explore the repo",
+                     "task_type": "local_agent", "is_backgrounded": true, "tool_use_id": "toolu_1" }),
+        );
+        on_task(
+            &h,
+            "task_progress",
+            &json!({ "task_id": "t1", "subagent_type": "Explore", "last_tool_name": "Grep",
+                     "usage": { "total_tokens": 1200, "tool_uses": 3, "duration_ms": 10 } }),
+        );
+        on_task(
+            &h,
+            "task_started",
+            &json!({ "task_id": "b1", "description": "npm test", "task_type": "local_bash",
+                     "is_backgrounded": true }),
+        );
+        let live = h.live().clone();
+        let agents = live.agents_of("s");
+        assert_eq!(agents.len(), 1);
+        assert_eq!(agents[0].agent_type.as_deref(), Some("Explore"));
+        assert_eq!(agents[0].tokens, Some(1200));
+        assert!(agents[0].can_stop);
+        assert_eq!(
+            agents[0].activity.as_ref().unwrap().tool.as_deref(),
+            Some("Grep")
+        );
+        let tasks = live.background_tasks();
+        assert_eq!(tasks.len(), 1);
+        assert_eq!(tasks[0].kind, BackgroundTaskKind::Bash);
+        on_task(
+            &h,
+            "task_notification",
+            &json!({ "task_id": "t1", "status": "completed", "summary": "done", "output_file": "" }),
+        );
+        let agents = h.live().agents_of("s");
+        assert_eq!(agents[0].status, AgentStatus::Done);
+        assert!(!agents[0].can_stop);
     }
 }
