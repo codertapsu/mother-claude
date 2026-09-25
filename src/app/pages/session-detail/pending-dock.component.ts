@@ -10,9 +10,11 @@ import { SessionContext } from './session-context';
 /**
  * The session's pending requests, pinned above the composer: one card at a
  * time with a "1 of N" pager (J/K on a focused card moves too), the card body
- * capped at 45vh with its own scroll. While the composer has focus on a
- * phone it folds into a one-line "Claude needs you · Review" bar so the
- * conversation stays visible above the keyboard.
+ * capped with its own scroll (lower for plans, whose full text is in the
+ * transcript and the full-screen sheet, so the approve buttons stay in
+ * view). While the composer has focus on a phone it folds into a one-line
+ * "Claude needs you · Review" bar so the conversation stays visible above
+ * the keyboard.
  */
 @Component({
   selector: 'mc-pending-dock',
@@ -58,7 +60,7 @@ import { SessionContext } from './session-context';
             [item]="c.item"
             [session]="ctx.session()"
             [gone]="c.gone"
-            bodyMax="min(40vh, 20rem)"
+            [bodyMax]="c.item.kind === 'plan' ? 'min(22vh, 10rem)' : 'min(40vh, 20rem)'"
             (move)="step($event)"
             (sendAsMessage)="toComposer($event)"
           />
