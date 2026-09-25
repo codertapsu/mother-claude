@@ -17,7 +17,9 @@ import { UpdaterService } from '../core/updater.service';
       } @else {
         <div class="row top">
           <div class="info">
-            <div>Current version: <strong>{{ u.currentVersion() || '…' }}</strong></div>
+            <div>
+              Current version: <strong>{{ u.currentVersion() || '…' }}</strong>
+            </div>
             @switch (u.status()) {
               @case ('checking') {
                 <div class="muted">Checking for updates…</div>
@@ -46,7 +48,11 @@ import { UpdaterService } from '../core/updater.service';
           </div>
           <span class="spacer"></span>
           @if (u.available()) {
-            <button class="btn primary" [disabled]="u.status() !== 'available'" (click)="u.install()">
+            <button
+              class="btn primary"
+              [disabled]="u.status() !== 'available'"
+              (click)="u.install()"
+            >
               {{ u.status() === 'available' ? 'Download & install' : 'Working…' }}
             </button>
           } @else {

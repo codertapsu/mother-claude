@@ -24,9 +24,7 @@ const SKIP_KEY = 'mc_onboarding_skipped';
         <span class="spacer"></span>
         @if (perms.missingRequired()) {
           <button class="btn" (click)="skip()">Skip for now</button>
-          <button class="btn" disabled title="Grant the required permission first">
-            Continue
-          </button>
+          <button class="btn" disabled title="Grant the required permission first">Continue</button>
         } @else {
           <button class="btn primary" (click)="continue()">Continue to dashboard →</button>
         }
