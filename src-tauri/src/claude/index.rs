@@ -375,6 +375,13 @@ impl TranscriptIndex {
             })
             .collect();
         g.files.retain(|p, _| known.contains(p));
+        // Checkpoints of transcripts that are gone (Claude Code prunes them
+        // after 30 days) would otherwise be carried into every cache write.
+        let cached = g.cache.len();
+        g.cache.retain(|p, _| known.contains(p));
+        if g.cache.len() != cached {
+            g.dirty = true;
+        }
         g.jobs.retain(|j| known.contains(&j.path));
         let jobs_left: HashSet<PathBuf> = g.jobs.iter().map(|j| j.path.clone()).collect();
         g.queued = jobs_left;
@@ -1043,5 +1050,36 @@ mod tests {
         idx.discover(&home);
         idx.ensure(SID, false);
         assert!(idx.pending_jobs() > 0);
+    }
+
+    #[test]
+    fn checkpoints_of_pruned_transcripts_are_dropped() {
+        let tmp = tempfile::tempdir().unwrap();
+        let data = tempfile::tempdir().unwrap();
+        let home = ClaudeHome::with_base(tmp.path());
+        let (main, sdir) = layout(tmp.path());
+        {
+            let idx = TranscriptIndex::new(Some(data.path()));
+            idx.load_cache();
+            idx.discover(&home);
+            idx.queue_all();
+            idx.drain_jobs_blocking();
+            assert!(idx.persist(true));
+        }
+        let cache = data.path().join("index-cache.json");
+        let cached = || -> Vec<PathBuf> {
+            let c: CacheFile = serde_json::from_slice(&std::fs::read(&cache).unwrap()).unwrap();
+            c.files.into_iter().map(|f| f.path).collect()
+        };
+        assert!(cached().contains(&main));
+        // Claude Code prunes the transcript; the next run drops its
+        // checkpoints on the first discovery and rewrites the cache.
+        std::fs::remove_file(&main).unwrap();
+        std::fs::remove_dir_all(&sdir).unwrap();
+        let idx = TranscriptIndex::new(Some(data.path()));
+        idx.load_cache();
+        idx.discover(&home);
+        assert!(idx.persist(true), "pruning marks the cache dirty");
+        assert!(cached().is_empty());
     }
 }
