@@ -478,6 +478,23 @@ async fn cancels_elicitations_and_unknown_requests_are_answered() {
 }
 
 #[tokio::test]
+async fn a_cancel_buffered_behind_its_request_raises_no_card() {
+    let f = Fixture::new();
+    let mut rx = f.st.bus.subscribe();
+    let id = f.spawn_text("cancel-fast").await;
+    wait_turn_done(&f.st, &id).await;
+    wait_for("the log", || !f.logged("cancel_fast_reply").is_empty()).await;
+    // The cancel reached the request before its handler ran: no card was
+    // raised (or left behind), and nothing was answered.
+    assert!(f.st.pending.list(&id).is_empty());
+    assert!(!drain(&mut rx)
+        .iter()
+        .any(|e| matches!(&**e, ServerEvent::PendingResolved(r) if r.session == id)));
+    assert!(f.logged("cancel_fast_reply").pop().unwrap().is_null());
+    owned::kill(&f.st, &id).await.unwrap();
+}
+
+#[tokio::test]
 async fn live_control_requests_and_cli_errors() {
     let f = Fixture::new();
     // Launched by a caller without dangerous rights: no bypass available.

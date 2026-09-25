@@ -1001,8 +1001,24 @@ async fn dispatch(
     match kind {
         "control_request" => {
             flush_delta(state, h, delta);
+            // Register the cancel slot of a request that waits for a human
+            // *before* spawning its handler: a `control_cancel_request`
+            // buffered right behind it is dispatched before the spawned task
+            // first runs, and must still find it.
+            let cancel = match cli_request_ids(&v) {
+                Some((rid, true)) => {
+                    let mut incoming = lock(&h.incoming);
+                    if incoming.contains_key(&rid) {
+                        return; // duplicate delivery of an in-flight request
+                    }
+                    let (tx, rx) = oneshot::channel();
+                    incoming.insert(rid, Incoming { cancel: Some(tx) });
+                    Some(rx)
+                }
+                _ => None,
+            };
             let (st, hh) = (state.clone(), h.clone());
-            tokio::spawn(async move { handle_cli_request(&st, &hh, v).await });
+            tokio::spawn(async move { handle_cli_request(&st, &hh, v, cancel).await });
         }
         "control_cancel_request" => {
             if let Some(rid) = v.get("request_id").and_then(Value::as_str) {
@@ -1529,7 +1545,23 @@ enum Outcome {
     TimedOut,
 }
 
-async fn handle_cli_request(state: &AppState, h: &Arc<OwnedHandle>, v: Value) {
+/// The request id of a CLI → host `control_request`, and whether it waits
+/// for a human (`can_use_tool`, `elicitation`: those can be cancelled).
+fn cli_request_ids(v: &Value) -> Option<(String, bool)> {
+    let rid = v.get("request_id").and_then(Value::as_str)?.to_string();
+    let subtype = v
+        .pointer("/request/subtype")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    Some((rid, matches!(subtype, "can_use_tool" | "elicitation")))
+}
+
+async fn handle_cli_request(
+    state: &AppState,
+    h: &Arc<OwnedHandle>,
+    v: Value,
+    cancel: Option<oneshot::Receiver<()>>,
+) {
     let Some(rid) = v
         .get("request_id")
         .and_then(Value::as_str)
@@ -1543,11 +1575,11 @@ async fn handle_cli_request(state: &AppState, h: &Arc<OwnedHandle>, v: Value) {
         .and_then(Value::as_str)
         .unwrap_or_default()
         .to_string();
-    let reply = match subtype.as_str() {
-        "can_use_tool" => {
+    let reply = match (subtype.as_str(), cancel) {
+        ("can_use_tool", Some(cancel)) => {
             let item = protocol::item_from_can_use_tool(&h.id, &req);
             let tool_use_id = req.get("tool_use_id").cloned();
-            match ask_human(state, h, &rid, item.clone()).await {
+            match ask_human(state, h, &rid, item.clone(), cancel).await {
                 Some(Outcome::Decided(d)) => {
                     let mut out = pending::permission_result(&item, &d);
                     if let Some(t) = tool_use_id.filter(|t| !t.is_null()) {
@@ -1567,16 +1599,17 @@ async fn handle_cli_request(state: &AppState, h: &Arc<OwnedHandle>, v: Value) {
                 Some(Outcome::Cancelled) | None => None,
             }
         }
-        "elicitation" => {
+        ("elicitation", Some(cancel)) => {
             // Only worth a card when someone can see it.
             if state.hub.client_count() == 0 {
+                lock(&h.incoming).remove(&rid);
                 Some(protocol::control_success(
                     &rid,
                     json!({ "action": "decline" }),
                 ))
             } else {
                 let item = protocol::item_from_elicitation(&h.id, &req);
-                match ask_human(state, h, &rid, item.clone()).await {
+                match ask_human(state, h, &rid, item.clone(), cancel).await {
                     Some(Outcome::Decided(d)) => Some(protocol::control_success(
                         &rid,
                         pending::elicitation_result(&d),
@@ -1590,11 +1623,11 @@ async fn handle_cli_request(state: &AppState, h: &Arc<OwnedHandle>, v: Value) {
             }
         }
         // Hosts must answer unknown dialog kinds with `cancelled`.
-        "request_user_dialog" => Some(protocol::control_success(
+        ("request_user_dialog", _) => Some(protocol::control_success(
             &rid,
             json!({ "behavior": "cancelled" }),
         )),
-        other => {
+        (other, _) => {
             tracing::debug!(session = %h.id, subtype = %other, "unsupported CLI control request");
             Some(protocol::control_error(&rid, "unsupported"))
         }
@@ -1606,26 +1639,24 @@ async fn handle_cli_request(state: &AppState, h: &Arc<OwnedHandle>, v: Value) {
     }
 }
 
-/// Raise a pending item for CLI request `rid` and wait for a human. `None`
-/// when the request id is a duplicate delivery.
+/// Raise a pending item for CLI request `rid` and wait for a human.
+/// `cancel_rx` is the slot [`dispatch`] registered in `incoming` before this
+/// handler was spawned. `None` when the process is gone.
 async fn ask_human(
     state: &AppState,
     h: &Arc<OwnedHandle>,
     rid: &str,
     item: pending::PendingItem,
+    mut cancel_rx: oneshot::Receiver<()>,
 ) -> Option<Outcome> {
-    let (cancel_tx, cancel_rx) = oneshot::channel();
-    {
-        let mut incoming = lock(&h.incoming);
-        if incoming.contains_key(rid) {
-            return None; // duplicate delivery of an in-flight request
-        }
-        incoming.insert(
-            rid.to_string(),
-            Incoming {
-                cancel: Some(cancel_tx),
-            },
-        );
+    // Cancelled (or the process exited) before this task first ran: no card.
+    let already = !matches!(
+        cancel_rx.try_recv(),
+        Err(oneshot::error::TryRecvError::Empty)
+    );
+    if already || !h.alive.load(Ordering::SeqCst) {
+        lock(&h.incoming).remove(rid);
+        return h.alive.load(Ordering::SeqCst).then_some(Outcome::Cancelled);
     }
     let (guard, rx) = pending::raise(state, item).await;
     let pending_id = guard.id().to_string();
