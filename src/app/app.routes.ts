@@ -26,6 +26,11 @@ export const routes: Routes = [
     loadComponent: () =>
       import('./pages/agent-view/agent-view.component').then((m) => m.AgentViewComponent),
   },
+  {
+    path: 'new',
+    loadComponent: () =>
+      import('./pages/new-session/new-session.component').then((m) => m.NewSessionComponent),
+  },
   // Phone entry: #/pair?c=CODE from a QR code, or a typed code.
   {
     path: 'pair',
