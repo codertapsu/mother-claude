@@ -118,6 +118,7 @@ pub fn compute(input: &CapsInput) -> ControlCaps {
             } else {
                 Vec::new()
             },
+            ..Default::default()
         };
     }
 

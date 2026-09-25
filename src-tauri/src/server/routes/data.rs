@@ -1,21 +1,25 @@
-//! Read-only dashboard data (design §4.5 "Data").
+//! Read-only dashboard data (design §4.5 "Data", amended §10 B2).
 //!
-//! Owner: **B2 (data layer)**. The foundation implements what the existing
-//! registry supports (sessions, detail, naive transcript pages, diff,
-//! file-patch, defaults, inbox, services, daemon, projects, static command
-//! list) and answers `501 not_implemented` for the rest (media, task output,
-//! file search, per-agent transcripts, branch diffs).
+//! Every id from a URL, query or frame is validated with `claude::ids` before
+//! anything touches the disk, and files are located through the index (by
+//! session id), never built from request input. Binary and plain-text
+//! answers (media, task output) carry `X-Content-Type-Options: nosniff`,
+//! `Content-Security-Policy: default-src 'none'; sandbox` and
+//! `Cache-Control: private, no-store`.
 
 use std::collections::{BTreeMap, HashMap};
+use std::io::{Read, Seek, SeekFrom};
+use std::path::{Path as FsPath, PathBuf};
 
 use axum::extract::{Path, Query, State};
+use axum::http::{header, HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::Json;
 use serde::Deserialize;
 use serde_json::{json, Value};
 
-use crate::claude::model::{CommandInfo, PendingItem, ProjectInfo, SessionSummary};
-use crate::claude::{self, uievents};
+use crate::claude::model::{CommandInfo, PendingItem, ProjectInfo, SessionSummary, TranscriptPage};
+use crate::claude::{self, ids, uievents};
 use crate::server::auth::Authed;
 use crate::server::error::{ApiError, ApiResult};
 use crate::state::AppState;
@@ -67,6 +71,7 @@ pub async fn list_sessions(
 }
 
 async fn session_or_404(state: &AppState, id: &str) -> ApiResult<SessionSummary> {
+    ids::require_session_id(id)?;
     state
         .find_session(id)
         .await
@@ -87,50 +92,202 @@ pub async fn get_session(
 #[serde(rename_all = "camelCase", default)]
 pub struct TranscriptQuery {
     pub before: Option<String>,
+    /// Polling fallback: events after this cursor (bounded; `reset` when too
+    /// far behind).
+    pub after: Option<String>,
     pub limit: Option<usize>,
     pub agent: Option<String>,
 }
 
-/// `GET /api/sessions/{id}/transcript?before=&limit=&agent=` →
-/// `{events, before?, tail}`.
+fn cursor(v: Option<&str>, name: &str) -> ApiResult<Option<u64>> {
+    match v {
+        Some(b) => uievents::parse_cursor(b).map(Some).ok_or_else(|| {
+            ApiError::bad_request(format!("`{name}` must be a cursor from a previous page."))
+        }),
+        None => Ok(None),
+    }
+}
+
+/// The file behind a transcript request: the session's main transcript or,
+/// with `agent`, that subagent's file (validated id, located by discovery).
+async fn transcript_file(
+    state: &AppState,
+    id: &str,
+    agent: Option<&str>,
+) -> ApiResult<Option<PathBuf>> {
+    match agent {
+        Some(a) => {
+            if !ids::is_agent_id(a) {
+                return Err(ApiError::new(
+                    StatusCode::BAD_REQUEST,
+                    "invalid_id",
+                    "Not a valid agent id.",
+                ));
+            }
+            Ok(Some(state.index.subagent_path(id, a).ok_or_else(|| {
+                ApiError::not_found("agent_not_found", format!("No agent {a} in session {id}."))
+            })?))
+        }
+        None => Ok(state.transcript_path(id).await),
+    }
+}
+
+/// `GET /api/sessions/{id}/transcript?before=&after=&limit=&agent=` →
+/// `{events, before?, tail, reset?}`.
 pub async fn transcript(
     Authed(_ctx): Authed,
     State(state): State<AppState>,
     Path(id): Path<String>,
     Query(q): Query<TranscriptQuery>,
 ) -> ApiResult<Response> {
-    if q.agent.is_some() {
-        return Err(ApiError::not_implemented("Per-agent transcripts (B2)"));
+    ids::require_session_id(&id)?;
+    if state.find_session(&id).await.is_none() && state.index.session_files(&id).is_none() {
+        return Err(ApiError::no_such_session(&id));
     }
-    session_or_404(&state, &id).await?;
-    let Some(path) = state.transcript_path(&id).await else {
-        return Ok(Json(crate::claude::model::TranscriptPage {
+    let agent = q.agent.clone().filter(|a| !a.is_empty());
+    let Some(path) = transcript_file(&state, &id, agent.as_deref()).await? else {
+        return Ok(Json(TranscriptPage {
             tail: "0".into(),
             ..Default::default()
         })
         .into_response());
     };
-    let before = match q.before.as_deref() {
-        Some(b) => Some(uievents::parse_cursor(b).ok_or_else(|| {
-            ApiError::bad_request("`before` must be a cursor from a previous page.")
-        })?),
-        None => None,
-    };
+    let before = cursor(q.before.as_deref(), "before")?;
+    let after = cursor(q.after.as_deref(), "after")?;
     let limit = q.limit.unwrap_or(150);
     let sid = id.clone();
-    let page = tokio::task::spawn_blocking(move || uievents::read_page(&sid, &path, before, limit))
-        .await
-        .map_err(|e| ApiError::internal(e.to_string()))?
-        .map_err(|e| ApiError::internal(format!("Could not read the transcript: {e}")))?;
+    let agent_for_read = agent.clone();
+    let page = tokio::task::spawn_blocking(move || -> std::io::Result<TranscriptPage> {
+        match after {
+            Some(from) => {
+                let r = uievents::read_range(&sid, &path, from, None, agent_for_read.as_deref())?;
+                Ok(TranscriptPage {
+                    events: r.events,
+                    before: None,
+                    tail: r.tail.to_string(),
+                    reset: r.reset.then_some(true),
+                })
+            }
+            None => uievents::read_page_opts(
+                &sid,
+                &path,
+                uievents::PageOpts {
+                    before,
+                    limit,
+                    agent: agent_for_read.as_deref(),
+                },
+            ),
+        }
+    })
+    .await
+    .map_err(|e| ApiError::internal(e.to_string()))?
+    .map_err(|e| ApiError::internal(format!("Could not read the transcript: {e}")))?;
+    let mut page = page;
+    if agent.is_none() && after.is_none() {
+        state.timeline.merge_into(&id, &mut page, before.is_none());
+    }
     Ok(Json(page).into_response())
 }
 
-/// `GET /api/sessions/{id}/media/{uuid}/{idx}` — STUB (B2).
+/// Headers for anything served from transcripts or task files: never
+/// sniffed, never rendered as a document, never cached. B3/B4 use it for
+/// terminal text too.
+pub fn locked_down(mut resp: Response, content_type: &'static str) -> Response {
+    let h = resp.headers_mut();
+    h.insert(header::CONTENT_TYPE, HeaderValue::from_static(content_type));
+    h.insert(
+        header::X_CONTENT_TYPE_OPTIONS,
+        HeaderValue::from_static("nosniff"),
+    );
+    h.insert(
+        header::CONTENT_SECURITY_POLICY,
+        HeaderValue::from_static("default-src 'none'; sandbox"),
+    );
+    h.insert(
+        header::CACHE_CONTROL,
+        HeaderValue::from_static("private, no-store"),
+    );
+    resp
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(default)]
+pub struct AgentQuery {
+    pub agent: Option<String>,
+}
+
+/// `GET /api/sessions/{id}/media/{offset}/{uuid}/{block}?agent=` — one
+/// transcript image: PNG/JPEG/GIF/WebP only (by magic bytes), else 415.
 pub async fn media(
     Authed(_ctx): Authed,
-    Path((_id, _uuid, _idx)): Path<(String, String, String)>,
-) -> ApiError {
-    ApiError::not_implemented("Transcript images (B2)")
+    State(state): State<AppState>,
+    Path((id, offset, uuid, block)): Path<(String, String, String, String)>,
+    Query(q): Query<AgentQuery>,
+) -> ApiResult<Response> {
+    ids::require_session_id(&id)?;
+    let offset: u64 = offset
+        .parse()
+        .map_err(|_| ApiError::new(StatusCode::BAD_REQUEST, "invalid_id", "Bad media offset."))?;
+    if uuid != "_" && !ids::is_uuid(&uuid) && !ids::is_simple_id(&uuid) {
+        return Err(ApiError::new(
+            StatusCode::BAD_REQUEST,
+            "invalid_id",
+            "Bad record id.",
+        ));
+    }
+    let block_path = ids::parse_block_path(&block)
+        .ok_or_else(|| ApiError::new(StatusCode::BAD_REQUEST, "invalid_id", "Bad block path."))?;
+    let agent = q.agent.filter(|a| !a.is_empty());
+    let path = transcript_file(&state, &id, agent.as_deref())
+        .await?
+        .ok_or_else(|| ApiError::not_found("media_not_found", "No transcript for this session."))?;
+    let read = tokio::task::spawn_blocking(move || {
+        uievents::read_media(&path, offset, &uuid, &block_path)
+    })
+    .await
+    .map_err(|e| ApiError::internal(e.to_string()))?;
+    match read {
+        Ok((mime, bytes)) => Ok(locked_down(bytes.into_response(), mime)),
+        Err(uievents::MediaError::NotFound) => Err(ApiError::not_found(
+            "media_not_found",
+            "No image at that position.",
+        )),
+        Err(uievents::MediaError::Unsupported) => Err(ApiError::new(
+            StatusCode::UNSUPPORTED_MEDIA_TYPE,
+            "unsupported_media",
+            "Only PNG, JPEG, GIF and WebP images are served.",
+        )),
+        Err(uievents::MediaError::TooLarge) => Err(ApiError::new(
+            StatusCode::PAYLOAD_TOO_LARGE,
+            "media_too_large",
+            "The image is too large to serve.",
+        )),
+        Err(uievents::MediaError::Io(e)) => {
+            Err(ApiError::internal(format!("Could not read the image: {e}")))
+        }
+    }
+}
+
+/// Compute a session's agents if nobody has yet (history sessions).
+async fn ensure_agents(state: &AppState, s: &SessionSummary) {
+    if state.agents.has_session(&s.id) {
+        return;
+    }
+    let st = state.clone();
+    let (sid, live, owned, started) = (s.id.clone(), s.live, s.owned, s.started_at);
+    let _ = tokio::task::spawn_blocking(move || {
+        st.agents.recompute(
+            &st.index,
+            &sid,
+            &claude::agents::AgentCtx {
+                live,
+                process_started: started,
+                owned,
+                now: claude::registry::now_ms(),
+            },
+        )
+    })
+    .await;
 }
 
 /// `GET /api/sessions/{id}/agents` → `{agents, workflows}`.
@@ -139,22 +296,108 @@ pub async fn session_agents(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> ApiResult<Response> {
-    session_or_404(&state, &id).await?;
+    let s = session_or_404(&state, &id).await?;
+    ensure_agents(&state, &s).await;
     let (agents, workflows) = state.agents.for_session(&id);
     Ok(Json(json!({ "agents": agents, "workflows": workflows })).into_response())
 }
 
-/// `GET /api/agents` → `{sessions: FleetSession[]}`.
+/// `GET /api/agents` → `{sessions: FleetSession[], summary}`.
 pub async fn fleet(Authed(_ctx): Authed, State(state): State<AppState>) -> impl IntoResponse {
-    Json(json!({ "sessions": state.agents.fleet() }))
+    Json(json!({
+        "sessions": state.agents.fleet(),
+        "summary": state.agents.fleet_summary(),
+    }))
 }
 
-/// `GET /api/sessions/{id}/tasks/{taskId}/output` — STUB (B2).
+/// Largest task output tail served.
+const OUTPUT_TAIL: u64 = 16 * 1024;
+
+/// Directories background task output may live in: the CLI's per-user temp
+/// root (`/tmp/claude-<uid>`, also under `$TMPDIR`).
+fn claude_tmp_roots() -> Vec<PathBuf> {
+    #[cfg(unix)]
+    // SAFETY: getuid has no preconditions and cannot fail.
+    let uid = unsafe { libc::getuid() };
+    #[cfg(not(unix))]
+    let uid = 0u32;
+    let name = format!("claude-{uid}");
+    let mut roots = vec![
+        PathBuf::from("/tmp").join(&name),
+        std::env::temp_dir().join(&name),
+    ];
+    if let Ok(t) = std::env::var("CLAUDE_CODE_TMPDIR") {
+        roots.push(PathBuf::from(t).join(&name));
+    }
+    roots
+}
+
+/// Read the last `max` bytes of a file, returning (text, truncated, size).
+fn tail_file(path: &FsPath, max: u64) -> std::io::Result<(String, bool, u64)> {
+    let mut f = std::fs::File::open(path)?;
+    let size = f.metadata()?.len();
+    let start = size.saturating_sub(max);
+    f.seek(SeekFrom::Start(start))?;
+    let mut buf = Vec::with_capacity((size - start) as usize);
+    f.take(max).read_to_end(&mut buf)?;
+    let mut text = String::from_utf8_lossy(&buf).to_string();
+    if start > 0 {
+        // Start at a line boundary when one is near.
+        if let Some(i) = text.find('\n').filter(|i| *i < 1024) {
+            text = text[i + 1..].to_string();
+        }
+    }
+    Ok((text, start > 0, size))
+}
+
+/// `GET /api/sessions/{id}/tasks/{taskId}/output` → the last 16 KB of a
+/// background task's output, as `text/plain`. The file is the one the
+/// transcript names (`outputFile` / `<output-file>` / `task_status`), and it
+/// must lie under the CLI's temp root.
 pub async fn task_output(
     Authed(_ctx): Authed,
-    Path((_id, _task)): Path<(String, String)>,
-) -> ApiError {
-    ApiError::not_implemented("Background task output (B2)")
+    State(state): State<AppState>,
+    Path((id, task)): Path<(String, String)>,
+) -> ApiResult<Response> {
+    ids::require_session_id(&id)?;
+    if !ids::is_task_id(&task) {
+        return Err(ApiError::new(
+            StatusCode::BAD_REQUEST,
+            "invalid_id",
+            "Not a valid task id.",
+        ));
+    }
+    let recorded = state
+        .index
+        .with_main(&id, |f| {
+            f.agg
+                .tasks
+                .iter()
+                .find(|t| t.id == task)
+                .and_then(|t| t.output_file.clone())
+        })
+        .flatten()
+        .ok_or_else(|| ApiError::not_found("no_output", "No output is recorded for this task."))?;
+    let out = tokio::task::spawn_blocking(move || {
+        let candidate = PathBuf::from(&recorded);
+        let real = claude_tmp_roots()
+            .iter()
+            .find_map(|root| ids::under_root(root, &candidate))?;
+        tail_file(&real, OUTPUT_TAIL).ok()
+    })
+    .await
+    .map_err(|e| ApiError::internal(e.to_string()))?
+    .ok_or_else(|| ApiError::not_found("no_output", "The task's output file is not available."))?;
+    let (text, truncated, size) = out;
+    let mut resp = locked_down(text.into_response(), "text/plain; charset=utf-8");
+    if let Ok(v) = HeaderValue::from_str(&size.to_string()) {
+        resp.headers_mut().insert("x-output-size", v);
+    }
+    if truncated {
+        resp.headers_mut()
+            .insert("x-output-truncated", HeaderValue::from_static("true"));
+    }
+    Ok(resp)
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -172,20 +415,32 @@ pub async fn diff(
     Query(q): Query<DiffQuery>,
 ) -> ApiResult<Response> {
     let session = session_or_404(&state, &id).await?;
-    if q.base.as_deref() == Some("branch") {
-        return Err(ApiError::not_implemented("Branch-vs-default diffs (B2)"));
-    }
+    let branch = match q.base.as_deref() {
+        None | Some("working") => false,
+        Some("branch") => true,
+        Some(_) => {
+            return Err(ApiError::bad_request(
+                "`base` must be `working` or `branch`.",
+            ))
+        }
+    };
     if session.cwd.is_empty() {
         return Ok(Json(claude::GitOverview::default()).into_response());
     }
-    let cwd = std::path::PathBuf::from(session.cwd);
-    let overview = tokio::task::spawn_blocking(move || claude::git_overview(&cwd, 25))
-        .await
-        .unwrap_or_default();
+    let cwd = PathBuf::from(session.cwd);
+    let overview = tokio::task::spawn_blocking(move || {
+        if branch {
+            claude::git::branch_overview(&cwd, 25)
+        } else {
+            claude::git_overview(&cwd, 25)
+        }
+    })
+    .await
+    .unwrap_or_default();
     Ok(Json(overview).into_response())
 }
 
-/// `GET /api/sessions/{id}/file-patch?path=` → `{patch}`.
+/// `GET /api/sessions/{id}/file-patch?path=&base=` → `{patch}`.
 pub async fn file_patch(
     Authed(_ctx): Authed,
     State(state): State<AppState>,
@@ -197,17 +452,46 @@ pub async fn file_patch(
         .get("path")
         .cloned()
         .ok_or_else(|| ApiError::bad_request("Missing ?path=."))?;
-    let cwd = std::path::PathBuf::from(session.cwd);
-    let patch = tokio::task::spawn_blocking(move || claude::file_patch(&cwd, &rel, 256_000))
-        .await
-        .ok()
-        .flatten();
+    if !ids::is_safe_relative_path(&rel) {
+        return Err(ApiError::bad_request(
+            "`path` must be relative to the session's directory.",
+        ));
+    }
+    let branch = params.get("base").map(String::as_str) == Some("branch");
+    let cwd = PathBuf::from(session.cwd);
+    let patch = tokio::task::spawn_blocking(move || {
+        claude::git::file_patch_against(&cwd, &rel, 256_000, branch)
+    })
+    .await
+    .ok()
+    .flatten();
     Ok(Json(json!({ "patch": patch })).into_response())
 }
 
-/// `GET /api/sessions/{id}/files?q=` — STUB (B2).
-pub async fn files(Authed(_ctx): Authed, Path(_id): Path<String>) -> ApiError {
-    ApiError::not_implemented("File search (B2)")
+/// `GET /api/sessions/{id}/files?q=` → `{files}` (tracked files under the
+/// session's cwd, fuzzy matched, ≤ 50).
+pub async fn files(
+    Authed(_ctx): Authed,
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Query(params): Query<HashMap<String, String>>,
+) -> ApiResult<Response> {
+    let session = session_or_404(&state, &id).await?;
+    let q = params.get("q").cloned().unwrap_or_default();
+    if q.len() > 256 {
+        return Err(ApiError::bad_request("`q` is too long."));
+    }
+    if session.cwd.is_empty() {
+        return Ok(Json(json!({ "files": [] })).into_response());
+    }
+    let cwd = PathBuf::from(session.cwd);
+    let files = tokio::task::spawn_blocking(move || {
+        let all = claude::git::list_files(&cwd);
+        claude::git::fuzzy_files(&all, &q, 50)
+    })
+    .await
+    .unwrap_or_default();
+    Ok(Json(json!({ "files": files })).into_response())
 }
 
 /// Commands offered when the session cannot tell us its own list.
@@ -221,16 +505,20 @@ pub fn common_commands() -> Vec<CommandInfo> {
         ("clear", "Start a fresh conversation", None),
         ("context", "Show context usage", None),
         ("cost", "Show token usage and cost", None),
+        ("usage", "Show plan usage limits", None),
+        ("status", "Show version, model and account status", None),
         ("model", "Switch the model", Some("[model]")),
         (
             "effort",
             "Set reasoning effort",
             Some("[low|medium|high|xhigh|max]"),
         ),
+        ("rename", "Rename the session", Some("<name>")),
         ("review", "Review the current changes", None),
         ("init", "Create a CLAUDE.md for this project", None),
         ("memory", "Edit memory files", None),
         ("todos", "Show the todo list", None),
+        ("btw", "Ask a side question", Some("<question>")),
     ]
     .into_iter()
     .map(|(name, description, hint)| CommandInfo {
@@ -255,23 +543,60 @@ pub async fn commands(
     Ok(Json(json!({ "commands": commands })).into_response())
 }
 
-/// `GET /api/projects` → `{projects}` for the spawn picker. Foundation: the
-/// distinct working directories of known sessions, most recent first.
+/// Temp directories are not offered as projects.
+fn is_temp_dir(p: &str) -> bool {
+    p.starts_with("/private/var/folders/")
+        || p.starts_with("/var/folders/")
+        || p.starts_with("/private/tmp/")
+        || p.starts_with("/tmp/")
+}
+
+/// `GET /api/projects` → `{projects}` for the spawn picker: directories with
+/// sessions plus the ones trusted in the CLI, most recent first; only
+/// directories that still exist.
 pub async fn projects(Authed(_ctx): Authed, State(state): State<AppState>) -> impl IntoResponse {
-    let mut by_path: BTreeMap<String, ProjectInfo> = BTreeMap::new();
-    for s in state.sessions().await {
-        if s.cwd.is_empty() {
-            continue;
+    let sessions = state.sessions().await;
+    let st = state.clone();
+    let projects = tokio::task::spawn_blocking(move || {
+        let trusted: Vec<String> = claude::settings::trusted_projects(&st.home);
+        let mut by_path: BTreeMap<String, ProjectInfo> = BTreeMap::new();
+        for s in &sessions {
+            if s.cwd.is_empty() {
+                continue;
+            }
+            let entry = by_path.entry(s.cwd.clone()).or_insert_with(|| ProjectInfo {
+                path: s.cwd.clone(),
+                name: s.project_name.clone(),
+                last_activity_at: None,
+                trusted: None,
+                sessions: Some(0),
+            });
+            entry.last_activity_at = entry.last_activity_at.max(s.last_activity_at);
+            entry.sessions = Some(entry.sessions.unwrap_or(0) + 1);
         }
-        let entry = by_path.entry(s.cwd.clone()).or_insert_with(|| ProjectInfo {
-            path: s.cwd.clone(),
-            name: s.project_name.clone(),
-            last_activity_at: None,
-        });
-        entry.last_activity_at = entry.last_activity_at.max(s.last_activity_at);
-    }
-    let mut projects: Vec<ProjectInfo> = by_path.into_values().collect();
-    projects.sort_by_key(|p| std::cmp::Reverse(p.last_activity_at));
+        for t in &trusted {
+            let path = t.trim_end_matches('/').to_string();
+            let entry = by_path.entry(path.clone()).or_insert_with(|| ProjectInfo {
+                name: FsPath::new(&path)
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or(&path)
+                    .to_string(),
+                path,
+                ..Default::default()
+            });
+            entry.trusted = Some(true);
+        }
+        let mut projects: Vec<ProjectInfo> = by_path
+            .into_values()
+            .filter(|p| !is_temp_dir(&p.path))
+            .filter(|p| FsPath::new(&p.path).is_dir())
+            .collect();
+        projects.sort_by_key(|p| std::cmp::Reverse(p.last_activity_at));
+        projects
+    })
+    .await
+    .unwrap_or_default();
     Json(json!({ "projects": projects }))
 }
 
@@ -288,13 +613,11 @@ pub async fn defaults(Authed(_ctx): Authed, State(state): State<AppState>) -> im
     }))
 }
 
-/// `GET /api/inbox` → `{items}`: every pending item across sessions — the
-/// store's answerable ones plus observed ones from the snapshot.
+/// `GET /api/inbox` → `{items}`: every pending item across sessions in full —
+/// the store's answerable ones plus observed ones — oldest first.
 pub async fn inbox(Authed(_ctx): Authed, State(state): State<AppState>) -> impl IntoResponse {
     let mut items: Vec<PendingItem> = state.pending.all();
-    for s in state.sessions().await {
-        items.extend(s.pending.into_iter().filter(|p| !p.answerable));
-    }
+    items.extend(state.activity.observed_all());
     items.sort_by(|a, b| {
         a.created_at
             .cmp(&b.created_at)
@@ -311,8 +634,12 @@ pub async fn services(Authed(_ctx): Authed, State(state): State<AppState>) -> im
         .sessions()
         .await
         .iter()
-        .filter(|s| s.kind.as_deref() == Some("background"))
-        .map(|s| json!({ "id": s.id, "cwd": s.cwd, "state": s.status }))
+        .filter(|s| {
+            s.kind
+                .as_deref()
+                .is_some_and(|k| k == "background" || k == "bg")
+        })
+        .map(|s| json!({ "id": s.id, "jobId": s.job_id, "cwd": s.cwd, "state": s.status }))
         .collect();
     Json(json!({
         "mcpServers": mcp,
@@ -330,6 +657,7 @@ async fn daemon_status() -> Value {
     let out = tokio::process::Command::new(claude::claude_bin())
         .arg("daemon")
         .arg("status")
+        .stdin(std::process::Stdio::null())
         .output()
         .await;
     match out {
@@ -393,5 +721,31 @@ mod tests {
     #[test]
     fn common_commands_are_slash_prefixed() {
         assert!(common_commands().iter().all(|c| c.name.starts_with('/')));
+    }
+
+    #[test]
+    fn tails_files_at_a_line_boundary() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("t.output");
+        let mut s = String::new();
+        for i in 0..5000 {
+            s += &format!("line {i}\n");
+        }
+        std::fs::write(&p, &s).unwrap();
+        let (text, truncated, size) = tail_file(&p, 1024).unwrap();
+        assert!(truncated);
+        assert_eq!(size, s.len() as u64);
+        assert!(text.starts_with("line "));
+        assert!(text.ends_with("line 4999\n"));
+        let (small, truncated, _) = tail_file(&p, 1_000_000).unwrap();
+        assert!(!truncated);
+        assert_eq!(small, s);
+    }
+
+    #[test]
+    fn temp_dirs_are_not_projects() {
+        assert!(is_temp_dir("/private/var/folders/h5/x"));
+        assert!(is_temp_dir("/tmp/abc"));
+        assert!(!is_temp_dir("/Users/me/dev/app"));
     }
 }

@@ -59,8 +59,9 @@ pub async fn me(Authed(ctx): Authed, State(state): State<AppState>) -> impl Into
     Json(auth::me(&state, &ctx))
 }
 
-/// Largest body for routes that carry images (up to 10 × 5 MB, base64).
-pub const IMAGE_BODY_MAX: usize = 80 * 1024 * 1024;
+/// Largest body for routes that carry images (up to 10 × 5 MB, base64) and
+/// for hook payloads (a PostToolUse carries the whole tool output).
+pub const IMAGE_BODY_MAX: usize = 64 * 1024 * 1024;
 
 /// Build the `/api` router (nested at `/api` by `server::router_for`).
 pub fn api_router() -> Router<AppState> {
@@ -81,7 +82,7 @@ pub fn api_router() -> Router<AppState> {
         )
         .route("/sessions/{id}", get(data::get_session))
         .route("/sessions/{id}/transcript", get(data::transcript))
-        .route("/sessions/{id}/media/{uuid}/{idx}", get(data::media))
+        .route("/sessions/{id}/media/{offset}/{uuid}/{block}", get(data::media))
         .route("/sessions/{id}/agents", get(data::session_agents))
         .route("/agents", get(data::fleet))
         .route("/sessions/{id}/tasks/{task_id}/output", get(data::task_output))
@@ -107,7 +108,10 @@ pub fn api_router() -> Router<AppState> {
         .route("/sessions/{id}/rename", post(control::rename))
         .route("/sessions/{id}/tasks/{task_id}/stop", post(control::stop_task))
         .route("/sessions/{id}/respond", post(control::respond))
-        .route("/sessions/{id}/continue", post(control::continue_session))
+        .route(
+            "/sessions/{id}/continue",
+            post(control::continue_session).layer(DefaultBodyLimit::max(IMAGE_BODY_MAX)),
+        )
         .route("/sessions/{id}/stop", post(control::stop))
         .route("/sessions/{id}/respawn", post(control::respawn))
         .route("/sessions/{id}/rm", post(control::rm))

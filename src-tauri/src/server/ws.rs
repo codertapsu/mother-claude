@@ -3,15 +3,24 @@
 //! One socket per client, all fed from the single broadcast bus
 //! ([`crate::state::Inner::bus`]). Frames are JSON objects tagged with `t`.
 //!
-//! Client → server: `auth{token}`, `sub{session, since?}`, `unsub{session}`,
-//! `subFleet{}`, `unsubFleet{}`, `ping{}`, `pong{}`, `visible{v}`.
+//! Client → server: `auth{token}`, `sub{session, agent?, since?}`,
+//! `unsub{session, agent?}`, `subFleet{}`, `unsubFleet{}`, `subInbox{}`,
+//! `unsubInbox{}`, `ping{}`, `pong{}`, `visible{v}`.
 //!
 //! Server → client: `hello{v:2, me, serverTime}` after auth, then
 //! `sessions{full:true, sessions, seq}`, then `sessions{full:false, upsert,
 //! remove, seq}` diffs (content-hash per session, `active` scope only),
-//! `transcript` / `stream` / `agents` only for subscribed sessions, `fleet` for
+//! `transcript{session, agent?, events, tail}` / `transcriptReset{session,
+//! agent?}` for that exact subscription, `stream` / `agents` for subscribers
+//! of the session, `pending{item}` for session and inbox subscribers,
+//! `pendingResolved{id, session, outcome, by?, at}` for everyone, `fleet` for
 //! fleet subscribers, `notice`, desktop-only `devices` / `pairRequest`,
 //! `resync` (then a fresh full `sessions`), `ping` every 25 s, `pong`.
+//!
+//! `sub{since}` replays the file after the cursor, capped at 2 MB / 300
+//! events; beyond that the client gets `transcriptReset` and refetches the
+//! last page. The hub counts subscriptions so the monitor only reads the
+//! transcripts someone is watching.
 //!
 //! * Auth: the upgrade needs no token in the URL. A local client may still use
 //!   `?token=` (resolved by the context middleware), anyone may send
@@ -47,8 +56,8 @@ use tokio::sync::{watch, Notify};
 use super::context::{origin_is_local, ClientContext};
 use super::error::ApiError;
 use crate::claude::model::{
-    AgentInfo, FleetSession, NoticeLevel, SessionStatus, SessionSummary, StreamFrame, UiEvent,
-    WorkflowRun,
+    AgentInfo, FleetSession, FleetSummary, NoticeLevel, PendingItem, PendingPreview,
+    PendingResolved, SessionStatus, SessionSummary, StreamFrame, UiEvent, WorkflowRun,
 };
 use crate::state::AppState;
 
@@ -80,11 +89,28 @@ pub enum ServerEvent {
         remove: Option<Vec<String>>,
         seq: u64,
     },
-    /// Transcript appends for one session (subscribers only).
+    /// Transcript appends for one session, or one of its agents (that exact
+    /// subscription only).
     Transcript {
         session: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        agent: Option<String>,
         events: Vec<UiEvent>,
         tail: String,
+    },
+    /// The subscriber's cursor is too far behind for a bounded replay:
+    /// refetch the last page.
+    TranscriptReset {
+        session: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        agent: Option<String>,
+    },
+    /// A full pending item appeared (session and inbox subscribers).
+    Pending { item: PendingItem },
+    /// A pending item was resolved or withdrawn (everyone).
+    PendingResolved {
+        #[serde(flatten)]
+        resolved: PendingResolved,
     },
     /// Owned live deltas (subscribers only).
     Stream {
@@ -99,7 +125,11 @@ pub enum ServerEvent {
         workflows: Vec<WorkflowRun>,
     },
     /// Running agents across sessions (fleet subscribers only).
-    Fleet { sessions: Vec<FleetSession> },
+    Fleet {
+        sessions: Vec<FleetSession>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        summary: Option<FleetSummary>,
+    },
     /// Human-readable notice (everyone).
     Notice {
         level: NoticeLevel,
@@ -120,19 +150,30 @@ pub enum ServerEvent {
 pub enum Audience<'a> {
     All,
     Desktop,
+    /// Anyone subscribed to the session (main or any agent transcript).
     Session(&'a str),
+    /// That exact `(session, agent?)` subscription.
+    SessionKey(&'a str, Option<&'a str>),
+    /// Session subscribers plus inbox subscribers.
+    SessionOrInbox(&'a str),
     Fleet,
 }
 
 impl ServerEvent {
     pub fn audience(&self) -> Audience<'_> {
         match self {
-            ServerEvent::Sessions { .. } | ServerEvent::Notice { .. } | ServerEvent::Resync => {
-                Audience::All
+            ServerEvent::Sessions { .. }
+            | ServerEvent::Notice { .. }
+            | ServerEvent::Resync
+            | ServerEvent::PendingResolved { .. } => Audience::All,
+            ServerEvent::Transcript { session, agent, .. }
+            | ServerEvent::TranscriptReset { session, agent } => {
+                Audience::SessionKey(session, agent.as_deref())
             }
-            ServerEvent::Transcript { session, .. }
-            | ServerEvent::Stream { session, .. }
-            | ServerEvent::Agents { session, .. } => Audience::Session(session),
+            ServerEvent::Stream { session, .. } | ServerEvent::Agents { session, .. } => {
+                Audience::Session(session)
+            }
+            ServerEvent::Pending { item } => Audience::SessionOrInbox(&item.session_id),
             ServerEvent::Fleet { .. } => Audience::Fleet,
             ServerEvent::Devices | ServerEvent::PairRequest { .. } => Audience::Desktop,
         }
@@ -150,6 +191,8 @@ pub struct Snapshot {
     pub seq: u64,
     /// Content hash per in-scope session id, as last broadcast.
     hashes: HashMap<String, u64>,
+    /// Pending item ids already sent as `pending{item}` frames.
+    announced: HashSet<String>,
 }
 
 impl Snapshot {
@@ -280,13 +323,15 @@ where
     true
 }
 
-/// Refresh one session's `pending` (store items + kept observed items) and the
-/// status/activity it implies, then broadcast.
+/// Refresh one session's `pending` previews (store items + kept observed
+/// items) and the status/activity it implies, then broadcast. New store items
+/// also go out in full as `pending{item}` frames (session + inbox
+/// subscribers).
 pub async fn sync_pending(state: &AppState, session_id: &str) {
     let live = state.pending.list(session_id);
     patch_session(state, session_id, |s| {
-        let observed: Vec<_> = s.pending.drain(..).filter(|p| !p.answerable).collect();
-        s.pending = live;
+        let observed: Vec<PendingPreview> = s.pending.drain(..).filter(|p| !p.answerable).collect();
+        s.pending = live.iter().map(PendingPreview::from).collect();
         s.pending.extend(observed);
         if s.pending.iter().any(|p| p.answerable) {
             s.status = SessionStatus::Waiting;
@@ -300,18 +345,63 @@ pub async fn sync_pending(state: &AppState, session_id: &str) {
         s.activity = crate::claude::summaries::activity_for(s.status, &s.pending);
     })
     .await;
+    // Announce each store item once, whether or not the session is in the
+    // snapshot yet (a refresh may already have listed its preview).
+    let fresh: Vec<PendingItem> = {
+        let all: HashSet<String> = state.pending.all().into_iter().map(|p| p.id).collect();
+        let mut snap = state.snapshot.write().await;
+        snap.announced.retain(|id| all.contains(id));
+        live.into_iter()
+            .filter(|p| snap.announced.insert(p.id.clone()))
+            .collect()
+    };
+    for item in fresh {
+        publish_pending(state, item);
+    }
 }
 
-/// Transcript appends for subscribers of `session`.
+/// Transcript appends for subscribers of `session` (main transcript).
 pub fn publish_transcript(state: &AppState, session: &str, events: Vec<UiEvent>, tail: String) {
+    publish_agent_transcript(state, session, None, events, tail);
+}
+
+/// Transcript appends for subscribers of `session` / `agent`.
+pub fn publish_agent_transcript(
+    state: &AppState,
+    session: &str,
+    agent: Option<&str>,
+    events: Vec<UiEvent>,
+    tail: String,
+) {
     if events.is_empty() {
         return;
     }
     state.broadcast(ServerEvent::Transcript {
         session: session.to_string(),
+        agent: agent.map(str::to_string),
         events,
         tail,
     });
+}
+
+/// Tell subscribers of `session` / `agent` to refetch the last page.
+pub fn publish_transcript_reset(state: &AppState, session: &str, agent: Option<&str>) {
+    state.broadcast(ServerEvent::TranscriptReset {
+        session: session.to_string(),
+        agent: agent.map(str::to_string),
+    });
+}
+
+/// A full pending item, for subscribers of its session and inbox
+/// subscribers.
+pub fn publish_pending(state: &AppState, item: PendingItem) {
+    state.broadcast(ServerEvent::Pending { item });
+}
+
+/// Why a pending item went away (B3's pending store calls this on resolve /
+/// withdraw); forwarded to every client.
+pub fn publish_pending_resolved(state: &AppState, resolved: PendingResolved) {
+    state.broadcast(ServerEvent::PendingResolved { resolved });
 }
 
 /// An owned session's live delta, for subscribers of `session`.
@@ -338,7 +428,10 @@ pub fn publish_agents(
 
 /// Running agents across sessions, for fleet subscribers.
 pub fn publish_fleet(state: &AppState, sessions: Vec<FleetSession>) {
-    state.broadcast(ServerEvent::Fleet { sessions });
+    state.broadcast(ServerEvent::Fleet {
+        sessions,
+        summary: Some(state.agents.fleet_summary()),
+    });
 }
 
 /// A notice for everyone.
@@ -388,11 +481,18 @@ struct ClientEntry {
     close: watch::Sender<CloseSignal>,
 }
 
-/// Registry of connected sockets (for revocation, caps and stats).
+/// A subscription key: a session's main transcript (`None`) or one agent.
+pub type SubKey = (String, Option<String>);
+
+/// Registry of connected sockets (for revocation, caps and stats) and of
+/// what they subscribe to (so the monitor reads only watched transcripts).
 #[derive(Default)]
 pub struct Hub {
     next_id: AtomicU64,
     clients: Mutex<HashMap<u64, ClientEntry>>,
+    sub_counts: Mutex<HashMap<SubKey, usize>>,
+    fleet_subs: AtomicU64,
+    inbox_subs: AtomicU64,
 }
 
 impl std::fmt::Debug for Hub {
@@ -480,6 +580,45 @@ impl Hub {
             .values()
             .filter(|c| c.device_id.as_deref() == Some(device_id))
             .count()
+    }
+
+    fn counts(&self) -> std::sync::MutexGuard<'_, HashMap<SubKey, usize>> {
+        self.sub_counts.lock().unwrap_or_else(|p| p.into_inner())
+    }
+
+    fn add_sub(&self, key: &SubKey) {
+        *self.counts().entry(key.clone()).or_default() += 1;
+    }
+
+    fn remove_sub(&self, key: &SubKey) {
+        let mut g = self.counts();
+        if let Some(n) = g.get_mut(key) {
+            *n -= 1;
+            if *n == 0 {
+                g.remove(key);
+            }
+        }
+    }
+
+    /// Every `(session, agent?)` someone is subscribed to.
+    pub fn subscriptions(&self) -> Vec<SubKey> {
+        self.counts().keys().cloned().collect()
+    }
+
+    /// Whether anyone watches `(session, agent?)`.
+    pub fn is_subscribed(&self, session: &str, agent: Option<&str>) -> bool {
+        self.counts()
+            .contains_key(&(session.to_string(), agent.map(str::to_string)))
+    }
+
+    /// Whether any client subscribed to the fleet.
+    pub fn fleet_subscribed(&self) -> bool {
+        self.fleet_subs.load(Ordering::Relaxed) > 0
+    }
+
+    /// Whether any client subscribed to the inbox.
+    pub fn inbox_subscribed(&self) -> bool {
+        self.inbox_subs.load(Ordering::Relaxed) > 0
     }
 }
 
@@ -620,8 +759,15 @@ impl OutQueue {
 
 #[derive(Debug, Default)]
 struct Subs {
-    sessions: HashSet<String>,
+    sessions: HashSet<SubKey>,
     fleet: bool,
+    inbox: bool,
+}
+
+impl Subs {
+    fn has_session(&self, session: &str) -> bool {
+        self.sessions.iter().any(|(s, _)| s == session)
+    }
 }
 
 /// Frames a client may send.
@@ -635,13 +781,19 @@ enum ClientFrame {
     Sub {
         session: String,
         #[serde(default)]
+        agent: Option<String>,
+        #[serde(default)]
         since: Option<String>,
     },
     Unsub {
         session: String,
+        #[serde(default)]
+        agent: Option<String>,
     },
     SubFleet,
     UnsubFleet,
+    SubInbox,
+    UnsubInbox,
     Ping,
     Pong,
     Visible {
@@ -775,8 +927,18 @@ async fn run_client(mut socket: WebSocket, state: AppState, mut ctx: ClientConte
                             },
                             Audience::Desktop => desktop,
                             Audience::Session(s) => {
-                                subs.lock().map(|g| g.sessions.contains(s)).unwrap_or(false)
+                                subs.lock().map(|g| g.has_session(s)).unwrap_or(false)
                             }
+                            Audience::SessionKey(s, a) => subs
+                                .lock()
+                                .map(|g| {
+                                    g.sessions.contains(&(s.to_string(), a.map(str::to_string)))
+                                })
+                                .unwrap_or(false),
+                            Audience::SessionOrInbox(s) => subs
+                                .lock()
+                                .map(|g| g.inbox || g.has_session(s))
+                                .unwrap_or(false),
                             Audience::Fleet => subs.lock().map(|g| g.fleet).unwrap_or(false),
                         };
                         if wanted {
@@ -856,6 +1018,18 @@ async fn run_client(mut socket: WebSocket, state: AppState, mut ctx: ClientConte
     }
 
     pump.abort();
+    // Release this client's subscriptions.
+    if let Ok(g) = subs.lock() {
+        for key in &g.sessions {
+            state.hub.remove_sub(key);
+        }
+        if g.fleet {
+            state.hub.fleet_subs.fetch_sub(1, Ordering::Relaxed);
+        }
+        if g.inbox {
+            state.hub.inbox_subs.fetch_sub(1, Ordering::Relaxed);
+        }
+    }
     state.hub.unregister(client_id);
     if let Some(dev) = &device_id {
         state.presence.disconnect(dev, client_id);
@@ -877,34 +1051,78 @@ fn handle_frame(
     match frame {
         ClientFrame::Auth { .. } | ClientFrame::Pong => {}
         ClientFrame::Ping => out.push(Out::Text(r#"{"t":"pong"}"#.into())),
-        ClientFrame::Sub { session, since } => {
+        ClientFrame::Sub {
+            session,
+            agent,
+            since,
+        } => {
+            // Ids name files: only well-formed ones are accepted.
+            if session.is_empty()
+                || session.len() > 80
+                || agent
+                    .as_deref()
+                    .is_some_and(|a| !crate::claude::ids::is_agent_id(a))
+            {
+                return;
+            }
+            let key: SubKey = (session.clone(), agent.clone());
             if let Ok(mut g) = subs.lock() {
-                g.sessions.insert(session.clone());
+                if g.sessions.len() < MAX_SUBS_PER_CLIENT && g.sessions.insert(key.clone()) {
+                    state.hub.add_sub(&key);
+                }
             }
             if let Some(since) = since
                 .as_deref()
                 .and_then(crate::claude::uievents::parse_cursor)
             {
                 let (state, out) = (state.clone(), out.clone());
-                tokio::spawn(async move { replay(&state, &out, &session, since).await });
+                tokio::spawn(async move {
+                    replay(&state, &out, &session, agent.as_deref(), since).await
+                });
             }
         }
-        ClientFrame::Unsub { session } => {
+        ClientFrame::Unsub { session, agent } => {
+            let key: SubKey = (session, agent);
             if let Ok(mut g) = subs.lock() {
-                g.sessions.remove(&session);
+                if g.sessions.remove(&key) {
+                    state.hub.remove_sub(&key);
+                }
             }
         }
         ClientFrame::SubFleet => {
             if let Ok(mut g) = subs.lock() {
-                g.fleet = true;
+                if !g.fleet {
+                    g.fleet = true;
+                    state.hub.fleet_subs.fetch_add(1, Ordering::Relaxed);
+                }
             }
             out.push_event(&ServerEvent::Fleet {
                 sessions: state.agents.fleet(),
+                summary: Some(state.agents.fleet_summary()),
             });
         }
         ClientFrame::UnsubFleet => {
             if let Ok(mut g) = subs.lock() {
-                g.fleet = false;
+                if g.fleet {
+                    g.fleet = false;
+                    state.hub.fleet_subs.fetch_sub(1, Ordering::Relaxed);
+                }
+            }
+        }
+        ClientFrame::SubInbox => {
+            if let Ok(mut g) = subs.lock() {
+                if !g.inbox {
+                    g.inbox = true;
+                    state.hub.inbox_subs.fetch_add(1, Ordering::Relaxed);
+                }
+            }
+        }
+        ClientFrame::UnsubInbox => {
+            if let Ok(mut g) = subs.lock() {
+                if g.inbox {
+                    g.inbox = false;
+                    state.hub.inbox_subs.fetch_sub(1, Ordering::Relaxed);
+                }
             }
         }
         ClientFrame::Visible { v } => {
@@ -915,21 +1133,37 @@ fn handle_frame(
     }
 }
 
-/// `sub{since}`: send everything written after the client's cursor.
-async fn replay(state: &AppState, out: &OutQueue, session: &str, since: u64) {
-    let Some(path) = state.transcript_path(session).await else {
+/// Subscriptions one client may hold.
+const MAX_SUBS_PER_CLIENT: usize = 64;
+
+/// `sub{since}`: send everything written after the client's cursor, capped
+/// (2 MB / 300 events); beyond the cap send `transcriptReset`.
+async fn replay(state: &AppState, out: &OutQueue, session: &str, agent: Option<&str>, since: u64) {
+    // Paths come from the index (discovered on disk), never from the ids.
+    let path = match agent {
+        Some(a) => state.index.subagent_path(session, a),
+        None if crate::claude::ids::is_session_id(session) => state.transcript_path(session).await,
+        None => None,
+    };
+    let Some(path) = path else {
         return;
     };
     let sid = session.to_string();
+    let agent_owned = agent.map(str::to_string);
     let read = tokio::task::spawn_blocking(move || {
-        crate::claude::uievents::read_after(&sid, &path, since)
+        crate::claude::uievents::read_range(&sid, &path, since, None, agent_owned.as_deref())
     })
     .await;
     match read {
-        Ok(Ok((events, tail))) => out.push_event(&ServerEvent::Transcript {
+        Ok(Ok(r)) if r.reset => out.push_event(&ServerEvent::TranscriptReset {
             session: session.to_string(),
-            events,
-            tail: tail.to_string(),
+            agent: agent.map(str::to_string),
+        }),
+        Ok(Ok(r)) => out.push_event(&ServerEvent::Transcript {
+            session: session.to_string(),
+            agent: agent.map(str::to_string),
+            events: r.events,
+            tail: r.tail.to_string(),
         }),
         Ok(Err(e)) => tracing::debug!(error = %e, session, "transcript replay failed"),
         Err(e) => tracing::debug!(error = %e, session, "transcript replay task failed"),
@@ -992,6 +1226,63 @@ mod tests {
             serde_json::to_value(&notice).unwrap(),
             json!({ "t": "notice", "level": "warning", "text": "x" })
         );
+        let t = ServerEvent::Transcript {
+            session: "s".into(),
+            agent: Some("a1".into()),
+            events: vec![],
+            tail: "5".into(),
+        };
+        assert_eq!(
+            serde_json::to_value(&t).unwrap(),
+            json!({ "t": "transcript", "session": "s", "agent": "a1", "events": [], "tail": "5" })
+        );
+        assert_eq!(
+            serde_json::to_value(&ServerEvent::TranscriptReset {
+                session: "s".into(),
+                agent: None
+            })
+            .unwrap(),
+            json!({ "t": "transcriptReset", "session": "s" })
+        );
+        let r = ServerEvent::PendingResolved {
+            resolved: PendingResolved {
+                id: "p1".into(),
+                session: "s".into(),
+                outcome: "allowed".into(),
+                by: None,
+                at: 7,
+            },
+        };
+        assert_eq!(
+            serde_json::to_value(&r).unwrap(),
+            json!({ "t": "pendingResolved", "id": "p1", "session": "s", "outcome": "allowed", "at": 7 })
+        );
+        let p = ServerEvent::Pending {
+            item: PendingItem {
+                id: "p2".into(),
+                session_id: "s".into(),
+                ..Default::default()
+            },
+        };
+        let v = serde_json::to_value(&p).unwrap();
+        assert_eq!(v["t"], "pending");
+        assert_eq!(v["item"]["id"], "p2");
+        assert_eq!(p.audience(), Audience::SessionOrInbox("s"));
+    }
+
+    #[test]
+    fn hub_counts_subscriptions() {
+        let hub = Hub::new();
+        let k: SubKey = ("s".into(), None);
+        hub.add_sub(&k);
+        hub.add_sub(&k);
+        assert!(hub.is_subscribed("s", None));
+        assert!(!hub.is_subscribed("s", Some("a")));
+        hub.remove_sub(&k);
+        assert_eq!(hub.subscriptions(), vec![k.clone()]);
+        hub.remove_sub(&k);
+        assert!(hub.subscriptions().is_empty());
+        assert!(!hub.fleet_subscribed() && !hub.inbox_subscribed());
     }
 
     #[test]
@@ -999,8 +1290,15 @@ mod tests {
         let f: ClientFrame =
             serde_json::from_str(r#"{"t":"sub","session":"a","since":"12"}"#).unwrap();
         assert!(
-            matches!(f, ClientFrame::Sub { ref session, since: Some(ref s) } if session == "a" && s == "12")
+            matches!(f, ClientFrame::Sub { ref session, agent: None, since: Some(ref s) } if session == "a" && s == "12")
         );
+        let f: ClientFrame =
+            serde_json::from_str(r#"{"t":"sub","session":"a","agent":"a1"}"#).unwrap();
+        assert!(matches!(f, ClientFrame::Sub { agent: Some(ref a), .. } if a == "a1"));
+        assert!(matches!(
+            serde_json::from_str::<ClientFrame>(r#"{"t":"subInbox"}"#).unwrap(),
+            ClientFrame::SubInbox
+        ));
         assert!(matches!(
             serde_json::from_str::<ClientFrame>(r#"{"t":"subFleet"}"#).unwrap(),
             ClientFrame::SubFleet
