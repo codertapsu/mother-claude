@@ -53,6 +53,11 @@ pub const FALLBACK_WINDOW_MS: i64 = 5_000;
 /// `wake` stays true this long after a waiter's poll ended (it re-polls at
 /// once), so the capability does not flap every 50 s.
 const WAKE_GRACE_MS: i64 = 5_000;
+/// How long a finished tool call is remembered (a PermissionRequest for it
+/// may still be on its way to `hold`, answered at the desk meanwhile).
+const FINISHED_TTL_MS: i64 = 10_000;
+/// Finished tool calls remembered per session.
+const FINISHED_CAP: usize = 64;
 /// A pidfile transition must hold this long before it withdraws prompts.
 const LEAVE_CONFIRM_MS: i64 = 300;
 /// The pidfile must have been idle this long before it ends a turn.
@@ -94,6 +99,22 @@ struct PreTool {
     at_ms: i64,
     matched: bool,
 }
+
+/// A tool call that finished (PostToolUse / PostToolUseFailure /
+/// PermissionDenied).
+#[derive(Debug, Clone)]
+struct Finished {
+    tool_use_id: String,
+    agent_id: Option<String>,
+    tool_name: Option<String>,
+    input_key: Option<u64>,
+    at_ms: i64,
+}
+
+/// The tool call a PermissionRequest was about already finished: it was
+/// answered at the desk while the request made its way to `hold`.
+#[derive(Debug, PartialEq, Eq)]
+pub struct AlreadyFinished;
 
 /// A tool call between its PreToolUse and PostToolUse.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -160,6 +181,7 @@ pub struct SessionHooks {
     /// first relay).
     pub marker_announced: bool,
     pre_tools: VecDeque<PreTool>,
+    finished: VecDeque<Finished>,
     pub in_flight: HashMap<String, InFlight>,
     queue: Vec<Queued>,
     history: VecDeque<(String, QueueStatus)>,
@@ -194,6 +216,7 @@ impl SessionHooks {
         self.marker_announced = false;
         self.last_prompt_id = None;
         self.pre_tools.clear();
+        self.finished.clear();
         self.in_flight.clear();
         self.subagents.clear();
         self.pid_status = None;
@@ -217,6 +240,28 @@ impl SessionHooks {
         {
             self.pre_tools.pop_front();
         }
+        while self
+            .finished
+            .front()
+            .is_some_and(|f| now - f.at_ms > FINISHED_TTL_MS)
+            || self.finished.len() > FINISHED_CAP
+        {
+            self.finished.pop_front();
+        }
+    }
+
+    /// Whether the call a PermissionRequest that arrived at `arrived_ms` is
+    /// about has finished already: its correlated `tool_use_id`, or (it
+    /// being uncorrelated or mis-correlated) the same agent, tool and input
+    /// finishing after the request arrived.
+    fn finished_after(&self, h: &Held) -> bool {
+        self.finished.iter().any(|f| {
+            h.tool_use_id.as_deref() == Some(f.tool_use_id.as_str())
+                || (f.agent_id == h.agent_id
+                    && f.tool_name.as_deref() == Some(h.tool_name.as_str())
+                    && f.input_key == Some(h.input_key)
+                    && f.at_ms >= h.created_ms)
+        })
     }
 
     fn remember(&mut self, id: &str, status: QueueStatus) {
@@ -593,6 +638,17 @@ impl Hub {
                 if let Some(id) = ev.tool_use_id {
                     s.in_flight.remove(id);
                     s.pre_tools.retain(|p| p.tool_use_id != id);
+                    // A PermissionRequest for this call may still be on its
+                    // way to `hold` (process binding, raise): let it see
+                    // the call is over.
+                    s.prune_pre(now);
+                    s.finished.push_back(Finished {
+                        tool_use_id: id.to_string(),
+                        agent_id: ev.agent_id.map(str::to_string),
+                        tool_name: ev.tool_name.map(str::to_string),
+                        input_key: ev.input_key,
+                        at_ms: now,
+                    });
                     let mut ids =
                         held_where(held, ev.session, |h| h.tool_use_id.as_deref() == Some(id));
                     if ids.is_empty() {
@@ -784,20 +840,65 @@ impl Hub {
         })
     }
 
+    #[cfg(test)]
+    fn prune_session_for_test(&mut self, session: &str, now: i64) {
+        if let Some(s) = self.sessions.get_mut(session) {
+            s.prune_pre(now);
+        }
+    }
+
     /// Whether an interrupt is pending for the session's main thread.
     pub fn interrupt_pending(&self, session: &str) -> bool {
         self.sessions.get(session).is_some_and(|s| s.interrupt)
     }
 
-    /// Register a held PermissionRequest. If an interrupt for the session's
-    /// main thread was requested meanwhile, the interrupt sender comes back so
-    /// the caller answers at once.
-    pub fn hold(&mut self, pending_id: String, mut h: Held) -> Option<oneshot::Sender<()>> {
+    /// Whether the tool call of a PermissionRequest that arrived at
+    /// `arrived_ms` already finished (answered at the desk before we got to
+    /// it) — checked before raising a card for it.
+    pub fn already_finished(
+        &self,
+        session: &str,
+        agent_id: Option<&str>,
+        tool_use_id: Option<&str>,
+        tool_name: &str,
+        input_key: u64,
+        arrived_ms: i64,
+    ) -> bool {
+        self.sessions.get(session).is_some_and(|s| {
+            s.finished_after(&Held {
+                session: session.to_string(),
+                agent_id: agent_id.map(str::to_string),
+                tool_use_id: tool_use_id.map(str::to_string),
+                tool_name: tool_name.to_string(),
+                input_key,
+                created_ms: arrived_ms,
+                interrupt: None,
+            })
+        })
+    }
+
+    /// Register a held PermissionRequest (`created_ms` = when the request
+    /// arrived). If an interrupt for the session's main thread was requested
+    /// meanwhile, the interrupt sender comes back so the caller answers at
+    /// once. If its tool call finished in the meantime (answered at the
+    /// desk), nothing is held: [`AlreadyFinished`].
+    pub fn hold(
+        &mut self,
+        pending_id: String,
+        mut h: Held,
+    ) -> Result<Option<oneshot::Sender<()>>, AlreadyFinished> {
+        if self
+            .sessions
+            .get(&h.session)
+            .is_some_and(|s| s.finished_after(&h))
+        {
+            return Err(AlreadyFinished);
+        }
         let fire = (h.agent_id.is_none() && self.interrupt_pending(&h.session))
             .then(|| h.interrupt.take())
             .flatten();
         self.held.insert(pending_id, h);
-        fire
+        Ok(fire)
     }
 
     pub fn unhold(&mut self, pending_id: &str) {
@@ -1051,7 +1152,7 @@ mod tests {
     }
 
     fn held(hub: &mut Hub, id: &str, agent: Option<&str>, tool_use: Option<&str>, at: i64) {
-        hub.hold(
+        let _ = hub.hold(
             id.into(),
             Held {
                 session: S.into(),
@@ -1186,6 +1287,64 @@ mod tests {
             50,
         );
         assert_eq!(ids(&out), vec!["p3"]);
+    }
+
+    #[test]
+    fn a_prompt_answered_at_the_desk_before_it_was_held_is_not_held() {
+        let mut hub = Hub::new();
+        hub.mark_seen(S, 1);
+        let request = |at, tool_use: Option<&str>| Held {
+            session: S.into(),
+            agent_id: None,
+            tool_use_id: tool_use.map(str::to_string),
+            tool_name: "Bash".into(),
+            input_key: 7,
+            created_ms: at,
+            interrupt: None,
+        };
+        // The PermissionRequest arrives at 50; binding and raising take a
+        // while; meanwhile the user presses Enter and the tool runs.
+        pre(&mut hub, "t1", None, 7, 40);
+        hub.on_event(
+            &Event {
+                tool_use_id: Some("t1"),
+                tool_name: Some("Bash"),
+                input_key: Some(7),
+                ..ev("PostToolUse")
+            },
+            100,
+        );
+        // Correlation now finds nothing; the (agent, tool, input) match
+        // after the arrival says the call is over.
+        assert_eq!(hub.correlate(S, None, "Bash", 7, 120), None);
+        assert!(hub.already_finished(S, None, None, "Bash", 7, 50));
+        assert_eq!(
+            hub.hold("p1".into(), request(50, None)).unwrap_err(),
+            AlreadyFinished
+        );
+        assert_eq!(hub.held_count(S), 0);
+        // Correlated by id, even when it finished before the arrival.
+        assert!(hub.hold("p2".into(), request(150, Some("t1"))).is_err());
+        // The same command asked again later is a new call: held.
+        assert!(!hub.already_finished(S, None, None, "Bash", 7, 200));
+        assert!(hub.hold("p3".into(), request(200, None)).is_ok());
+        assert_eq!(hub.held_count(S), 1);
+        // Forgotten after a while.
+        hub.prune_session_for_test(S, 100 + FINISHED_TTL_MS + 1);
+        assert!(!hub.already_finished(S, None, Some("t1"), "Bash", 7, 150));
+    }
+
+    #[test]
+    fn a_hold_stamped_with_its_arrival_meets_the_pidfile_edge() {
+        let mut hub = Hub::new();
+        hub.mark_seen(S, 1);
+        // waiting at 20, the desk answers at 30 (busy); the card is raised
+        // at 60 but the request arrived at 25.
+        hub.observe_pidfile(S, "waiting", 20, 20);
+        hub.observe_pidfile(S, "busy", 30, 40);
+        held(&mut hub, "p", None, None, 25);
+        let out = hub.observe_pidfile(S, "busy", 30, 400);
+        assert_eq!(ids(&out), vec!["p"]);
     }
 
     #[test]
@@ -1481,7 +1640,7 @@ mod tests {
         );
         let (tx_main, mut rx_main) = oneshot::channel();
         let (tx_sub, mut rx_sub) = oneshot::channel();
-        hub.hold(
+        let _ = hub.hold(
             "main".into(),
             Held {
                 session: S.into(),
@@ -1493,7 +1652,7 @@ mod tests {
                 interrupt: Some(tx_main),
             },
         );
-        hub.hold(
+        let _ = hub.hold(
             "sub".into(),
             Held {
                 session: S.into(),
@@ -1551,7 +1710,7 @@ mod tests {
                 interrupt: Some(tx),
             },
         );
-        assert!(fire.is_some());
+        assert!(fire.unwrap().is_some());
         // Stop clears it: the next turn is not killed.
         hub.on_event(&ev("Stop"), 8);
         assert!(!hub.interrupt_pending(S));

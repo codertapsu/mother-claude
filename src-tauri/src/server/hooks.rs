@@ -554,6 +554,9 @@ pub async fn dispatch_from(
     pid: Option<u32>,
     peer: Option<SocketAddr>,
 ) -> Value {
+    // Stamped before anything slow (process binding runs ps + lsof): a
+    // PermissionRequest answered at the desk meanwhile is recognised by it.
+    let arrived_ms = now_ms();
     if !is_uuid(&p.session_id) {
         return relay::empty();
     }
@@ -621,7 +624,7 @@ pub async fn dispatch_from(
     let out = state.hooks.lock().on_event(&ev, now);
     let response = apply(state, &p.session_id, out).await;
     if name == "PermissionRequest" {
-        return permission_request(state, &p, agent, key.unwrap_or_default()).await;
+        return permission_request(state, &p, agent, key.unwrap_or_default(), arrived_ms).await;
     }
     response
 }
@@ -819,19 +822,31 @@ async fn permission_request(
     p: &HookPayload,
     agent: Option<&str>,
     key: u64,
+    arrived_ms: i64,
 ) -> Value {
     let session = p.session_id.as_str();
     let Some(tool_name) = p.tool_name.as_deref().filter(|t| !t.is_empty()) else {
         return relay::empty();
     };
     let now = now_ms();
-    let (tool_use_id, interrupted) = {
+    let (tool_use_id, interrupted, finished) = {
         let mut hub = state.hooks.lock();
         let t = hub.correlate(session, agent, tool_name, key, now);
-        (t, agent.is_none() && hub.interrupt_pending(session))
+        let finished =
+            hub.already_finished(session, agent, t.as_deref(), tool_name, key, arrived_ms);
+        (
+            t,
+            agent.is_none() && hub.interrupt_pending(session),
+            finished,
+        )
     };
     if interrupted {
         return relay::interrupt_decision();
+    }
+    // Answered at the desk while this request was being bound: no card, no
+    // push (the CLI ignores a late answer anyway).
+    if finished {
+        return relay::empty();
     }
     let Some(hold_for) = hold_policy(state, session).await else {
         return relay::empty();
@@ -843,7 +858,7 @@ async fn permission_request(
     // dangerous) is what the answer is built from.
     let item = state.pending.get(&id).unwrap_or(item);
     let (itx, irx) = oneshot::channel::<()>();
-    let fire_now = state.hooks.lock().hold(
+    let held = state.hooks.lock().hold(
         id.clone(),
         machine::Held {
             session: session.to_string(),
@@ -851,12 +866,23 @@ async fn permission_request(
             tool_use_id,
             tool_name: tool_name.to_string(),
             input_key: key,
-            created_ms: item.created_at,
+            // The arrival, not the card: a pidfile edge (waiting → busy)
+            // after the request arrived must still withdraw it.
+            created_ms: arrived_ms,
             interrupt: Some(itx),
         },
     );
-    if let Some(tx) = fire_now {
-        let _ = tx.send(());
+    match held {
+        Ok(Some(tx)) => {
+            let _ = tx.send(());
+        }
+        Ok(None) => {}
+        Err(machine::AlreadyFinished) => {
+            // The tool ran (answered at the desk) while the card was raised.
+            pending::withdraw(state, &id, "the tool ran (answered elsewhere)").await;
+            drop(guard);
+            return relay::empty();
+        }
     }
     let _held = HeldGuard {
         state: state.clone(),
