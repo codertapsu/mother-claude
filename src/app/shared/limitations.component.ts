@@ -20,12 +20,9 @@ import { IconComponent } from './icon.component';
       <div class="note">
         <span class="ico" aria-hidden="true"><mc-icon name="code" [size]="18" /></span>
         <div>
-          <strong>VS Code isn't synced live.</strong>
-          The dashboard reads the transcript files Claude writes. A live VS&nbsp;Code session may
-          not save its newest messages until it's idle or closed, so they might not show here yet —
-          and
-          <em>“Continue here”</em> picks up from the last saved point. To capture the very latest,
-          <strong>close and reopen VS&nbsp;Code (or its Claude panel)</strong> first.
+          <strong>VS Code and terminal sessions update message by message.</strong>
+          Their status (working, waiting for you) is live, but their text appears when each message
+          finishes rather than word by word. Sessions started here stream live.
         </div>
       </div>
 
@@ -33,8 +30,9 @@ import { IconComponent } from './icon.component';
         <span class="ico" aria-hidden="true"><mc-icon name="keyboard" [size]="18" /></span>
         <div>
           <strong>One driver at a time.</strong>
-          After taking a session over, drive it from one place. If you keep typing in the original
-          VS&nbsp;Code/terminal <em>and</em> here, the conversation can split into two branches.
+          <em>“Continue here”</em> on a session that is still open elsewhere starts a copy, so the
+          original is left alone. When you resume an ended session here, drive it from one place:
+          typing in VS&nbsp;Code/terminal <em>and</em> here can split the conversation in two.
         </div>
       </div>
 
