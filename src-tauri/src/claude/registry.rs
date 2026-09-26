@@ -1,16 +1,15 @@
-//! Unified session registry.
+//! Legacy session registry (v1 data model).
 //!
-//! Merges three views into one [`Session`] list:
-//!  - `claude agents --json [--all]` — the authoritative roster of *running*
-//!    sessions (pid, cwd, kind). On 2.1.185 this carries no state field.
-//!  - transcript files under `projects/` — captures **every** surface (CLI,
-//!    VS Code/JetBrains, Claude Desktop) and yields model, usage, activity,
-//!    title and message counts.
-//!  - `jobs/<id>/state.json` — an optional explicit state override.
+//! The live dashboard no longer builds its session list here: the roster comes
+//! from `sessions/<pid>.json` (`claude/live.rs`), transcript aggregates from the
+//! incremental index (`claude/index.rs`), and the v2 summaries from
+//! `claude/summaries.rs`.
 //!
-//! State is *derived* (working / needs-input / idle / completed / …) because the
-//! CLI does not report it. `owned` sessions (those Mother Claude spawned) and any
-//! live `pending` input are merged in from maps the higher layers maintain.
+//! What remains in use: [`stored_transcript`] (the HTTP bridge resolves a stored
+//! conversation by id), [`summarize_transcript`] (integration tests) and
+//! [`now_ms`]. The rest ([`build_registry`], [`read_state_jsons`],
+//! [`RegistryInputs`]) is the pre-v2 merge of `claude agents --json`, full
+//! transcript scans and `jobs/<id>/state.json`, kept only until it is removed.
 
 use std::collections::{HashMap, HashSet};
 use std::path::Path;

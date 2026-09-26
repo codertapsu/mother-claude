@@ -1,12 +1,15 @@
 //! EXPERIMENTAL, UNSANCTIONED foreign-session control (Stage 3).
 //!
-//! Compiled only with `--features experimental`. These paths use undocumented,
-//! unstable internals that break across Claude Code versions. They are OFF by
-//! default and gated in the UI behind an explicit "uses unstable, unsupported
-//! internals" confirmation. **Do not** rely on them.
+//! Compiled with the `experimental` Cargo feature (on by default). These paths
+//! use undocumented, unstable internals that break across Claude Code versions,
+//! are dangerous-gated (desktop, or a device granted dangerous actions), and can
+//! be switched off at runtime with `MOTHER_CLAUDE_FOREIGN_INJECTION=0`.
+//! **Do not** rely on them: hooks (`server/hooks.rs`) and tmux are the supported
+//! foreign-control channels.
 //!
-//! - PTY-drive `claude attach <id>`: Ink discards piped `\n`, so a real PTY is
-//!   required to inject keystrokes into a foreign live session.
+//! - PTY-drive `claude attach <short-id>`: only BACKGROUND (`--bg`) sessions have
+//!   the short job id `attach` accepts; VS Code and terminal sessions cannot be
+//!   attached. Ink discards piped `\n`, so a real PTY is required.
 //! - CCR v1 transport (reverse-engineered `--sdk-url` / `--sdk-server`,
 //!   `CLAUDE_CODE_USE_CCR_V2`): reportedly unauthenticated — **unverified**; not
 //!   implemented here beyond a status probe. We never speak the cc-daemon
