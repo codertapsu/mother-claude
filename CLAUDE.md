@@ -109,6 +109,8 @@ undocumented research-preview internals.
 | Worktrees | `<project>/.claude/worktrees/<name>` | per-session isolated edits |
 | tmux panes | pidfile `tmux` (`session:@win.%pane`) + `tmux list-panes -a` on the default socket, then `${TMUX_TMPDIR:-/tmp}/tmux-<uid>/*` | the pane to type into / capture (`claude/tmux.rs`) |
 | Live events | **Hooks plugin** (`mc-hook` → `POST /hooks/event`, `mc-wake` → `POST /hooks/wait?pid=`), installed via `claude plugin …`, status from `claude plugin list --json` | tool, prompt, permission, subagent, compaction, notification, stop and session events; held approvals; relays and wake-ups (`server/hooks.rs`, `claude/hooks.rs`) |
+| Session settings | transcript `perTurnEffort ?? effort` and `message.usage.speed`; `ultra_effort_enter`/`ultra_effort_exit` attachments; hook `effort.level`; launch argv (`--effort`, `--max-thinking-tokens`, `--thinking`, inline `--settings`); settings `alwaysThinkingEnabled`; owned sessions: `get_settings.applied` | effort, ultracode, thinking and fast mode, each with its source (`claude/summaries.rs` `derive_settings`, `claude/live.rs` `LaunchFlags`) |
+| Plan usage | owned streams' `rate_limit_event` (`unifiedWindows`: 0–1 fraction, epoch seconds); `get_usage {skip_behaviors:true}` through an owned session or a short-lived helper `claude -p` in `<app data dir>/usage-helper`; fallback `~/.claude.json` `cachedUsageUtilization` (≤ 1 h, same account, the account id compared in-process only) | 5-hour and weekly windows, reset times, extra usage (`claude/usage.rs`, `/api/usage*`, `planUsage` frame) |
 
 Key facts: `<encoded-cwd>` = absolute path with every non-alphanumeric char → `-`.
 The *same* `projects` store is written by CLI, VS Code/JetBrains, and Claude
@@ -130,6 +132,22 @@ and the transcript tail; summaries are built by `claude/summaries.rs` and
 published as WebSocket diffs by `server/monitor.rs`. Every id from a request is
 validated with `claude::ids` and files are found through the index, never built
 from request input.
+
+Ultracode of a session we don't own is in its transcript and, at most, its
+launch argv (`--effort ultracode`, an inline `--settings '{"ultracode":…}'`);
+hooks and pidfiles never carry it. On each regular human prompt Claude Code
+writes `ultra_effort_enter` (`full` when it turned on or the last marker is
+gone, e.g. after an auto-compaction; `sparse` about every 10 messages while it
+stays on) or `ultra_effort_exit` when it turned off, and nothing otherwise. So a
+regular prompt *without* a marker confirms the last state, and the value is as
+of the last message (`claude/index/agg.rs` `UltraReplay`; don't reduce it to
+"last marker wins" or "no marker means unknown"). Task notifications, relays,
+`/loop` and cron fires never get a marker, so they confirm nothing. A restart
+turns ultracode off (VS Code doesn't switch it back on), so for a live process
+started after the last message it is unknown (`restarted`, the earlier value
+only a hint) unless its argv says. Thinking is never reported back either:
+owned sessions show what we set, others their launch flags or
+`alwaysThinkingEnabled`.
 
 Claude's own Anthropic sign-in is read via `claude auth status --json` in
 `claude/auth.rs` and checked once at startup (`state.refresh_claude_auth`), so a
@@ -200,7 +218,13 @@ where an override is wanted. (Verified against SDK 0.3.186 / CLI 2.1.186.)
   through Claude Code itself on an explicit user action: `claude plugin
   install/uninstall` from the desktop, a standing grant the user chose, a
   transcript purge through the SDK. Tests and scripts must never run the plugin
-  installer against the real config.
+  installer against the real config. One exception runs without a user action:
+  the plan-usage helper (`claude/usage.rs`), a short-lived `claude -p` that gets
+  `initialize` and `get_usage` and never a message. It runs while a dashboard is
+  connected (or for a Refresh) when no owned session can answer, and while it
+  runs Claude Code writes its pidfile under `~/.claude/sessions` (removed on
+  exit) and refreshes its own caches in `~/.claude.json`. Our code still writes
+  nothing there.
 
 ## Build / lint / test commands
 
