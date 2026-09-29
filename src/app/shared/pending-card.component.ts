@@ -229,8 +229,7 @@ export class PendingCardComponent {
   protected readonly schemaFields = computed<SchemaField[]>(() => {
     const input = this.full()?.input as { requestedSchema?: unknown } | undefined;
     const schema = input?.requestedSchema as
-      | { properties?: Record<string, Record<string, unknown>>; required?: string[] }
-      | undefined;
+      { properties?: Record<string, Record<string, unknown>>; required?: string[] } | undefined;
     const props = schema?.properties;
     if (!props || typeof props !== 'object') return [];
     const required = new Set(Array.isArray(schema?.required) ? schema.required : []);

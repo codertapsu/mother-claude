@@ -9,13 +9,7 @@
 // ─────────────────────────────────────────────────────────── 4.1 Sessions
 
 export type SessionStatus =
-  | 'working'
-  | 'waiting'
-  | 'idle'
-  | 'starting'
-  | 'ended'
-  | 'failed'
-  | 'stopped';
+  'working' | 'waiting' | 'idle' | 'starting' | 'ended' | 'failed' | 'stopped';
 
 export type Surface =
   | 'vscode'
@@ -286,12 +280,7 @@ export type PendingRef = PendingPreview & { sessionId: string };
 
 /** Why a pending item went away (`pendingResolved` frame). */
 export type PendingOutcome =
-  | 'allowed'
-  | 'denied'
-  | 'answered'
-  | 'withdrawn'
-  | 'expired'
-  | 'cancelled';
+  'allowed' | 'denied' | 'answered' | 'withdrawn' | 'expired' | 'cancelled';
 
 export interface PendingResolvedBy {
   kind: 'device' | 'desktop' | 'host' | 'timeout';
@@ -300,12 +289,7 @@ export interface PendingResolvedBy {
 }
 
 export type PermissionMode =
-  | 'default'
-  | 'acceptEdits'
-  | 'plan'
-  | 'auto'
-  | 'bypassPermissions'
-  | 'dontAsk';
+  'default' | 'acceptEdits' | 'plan' | 'auto' | 'bypassPermissions' | 'dontAsk';
 
 /** `POST /api/sessions/{id}/respond` */
 export interface RespondBody {
@@ -596,20 +580,7 @@ export interface ContinueBody {
 }
 
 export type KeyName =
-  | 'Escape'
-  | 'Enter'
-  | 'Up'
-  | 'Down'
-  | 'Tab'
-  | '1'
-  | '2'
-  | '3'
-  | '4'
-  | '5'
-  | '6'
-  | '7'
-  | '8'
-  | '9';
+  'Escape' | 'Enter' | 'Up' | 'Down' | 'Tab' | '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9';
 
 export type LifecycleAction = 'stop' | 'respawn' | 'rm';
 

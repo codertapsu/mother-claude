@@ -17,14 +17,7 @@ import { PermissionsListComponent } from '../../shared/permissions-list.componen
 import { UpdaterComponent } from '../../shared/updater.component';
 
 type PrefKey =
-  | 'permission'
-  | 'question'
-  | 'plan'
-  | 'finished'
-  | 'failed'
-  | 'claude'
-  | 'idle'
-  | 'showDetails';
+  'permission' | 'question' | 'plan' | 'finished' | 'failed' | 'claude' | 'idle' | 'showDetails';
 
 const PREF_ROWS: { key: PrefKey; label: string; hint: string }[] = [
   { key: 'permission', label: 'Permission requests', hint: 'A tool call waits for approval' },
