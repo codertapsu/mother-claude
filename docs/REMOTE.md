@@ -295,6 +295,7 @@ fixes each limit (install the plugin, reload plugins, continue here).
 | Answer questions, review plans        | yes                           | yes                                                      | yes                   | with keys ¹           | —                        |
 | Interrupt                             | immediately                   | at the next tool call                                    | immediately (Esc)     | immediately (Esc)     | —                        |
 | Switch model or effort                | yes                           | no ²                                                     | `/model`, `/effort` ³ | `/model`, `/effort` ³ | —                        |
+| Switch ultracode or thinking          | yes                           | no ²                                                     | no ²                  | no ²                  | —                        |
 | Switch permission mode                | any time                      | only while approving (e.g. a plan)                       | only while approving  | —                     | —                        |
 | Slash commands                        | yes                           | no ²                                                     | yes ⁴                 | yes ⁴                 | —                        |
 | Rename                                | yes                           | —                                                        | yes (`/rename`)       | yes (`/rename`)       | —                        |
@@ -320,6 +321,67 @@ Two more rules apply everywhere:
   Code has already been trusted in on this Mac (opened there once, or with
   transcripts). Otherwise you get `untrusted_cwd`: open the folder once on the
   Mac first.
+
+### Effort, ultracode, thinking and fast mode
+
+Each session shows where these values come from, because Claude Code reports
+them differently for each kind of session:
+
+- **Sessions Mother Claude owns** ask Claude Code what it actually applies
+  (`get_settings`, no API call) after it starts, after every change and after
+  each turn. Ultracode and thinking are switched there as session-only
+  settings, never through `/effort`, which would also change your default for
+  new sessions. Ultracode shows **unavailable** when you asked for it but the
+  model or workspace can't run it; the request stands (it takes effect on a
+  model that can run it) until you switch it off. Until Claude Code confirms a
+  change, the new value shows as requested. A model without effort levels
+  (Haiku) shows no effort. Nothing reports thinking back, so the app shows
+  what it set.
+- **Other sessions** show the effort of their last message, or the effort the
+  plugin reported for a later turn — none once a message went out on a model
+  without effort levels, such as Haiku. Ultracode shows **as of the last
+  message** sent in the session: Claude Code notes it in the conversation
+  only when a message is sent (a marker when it changes, nothing while it
+  stays the same), so a switch made in VS Code shows after the next message
+  there. Until then it shows as unknown, with the reason: a new conversation
+  has no message yet, and a restarted session starts with ultracode off
+  (VS Code doesn't switch it back on), so what it was before the restart
+  says nothing about now. Thinking shows as launched, read from the process's
+  own arguments — VS Code can switch thinking later without anything
+  recording it.
+- **Fast mode** shows when the last message ran in fast mode.
+
+### Plan usage
+
+The sessions page shows your claude.ai plan's limits (the current 5-hour session
+and the weekly windows) with their reset times. It is read automatically only
+while a dashboard is connected (a manual Refresh reads even when none is):
+
+- when a dashboard connects and the numbers are older than the refresh
+  interval;
+- every **5 minutes** (Settings › Plan usage refresh: 3, 5 or 10 minutes, or
+  manually only) while some session is working, every 30 minutes otherwise;
+- once when a session hits a limit, and when you tap Refresh (at most once a
+  minute).
+
+Sessions Mother Claude owns report the 5-hour and weekly numbers for free
+whenever they change; the other windows and extra usage keep the time of the
+last full read. Otherwise the app asks Claude Code through an owned session, or
+starts a short-lived `claude -p` of its own for the read (no tools, no model
+call, no conversation saved; it never shows as a session). Until the first
+read, and while reads fail, it shows Claude Code's own last reading from
+`~/.claude.json` when it is less than an hour old and belongs to the signed-in
+account. Nothing is shown for API-key or third-party-provider sign-ins. An
+owned session started in a project whose settings sign in differently (its own
+`env` or `apiKeyHelper`) is never used for these numbers.
+
+The short-lived `claude -p` is the one exception to "Mother Claude never writes
+under `~/.claude`": the app itself still writes nothing there, but Claude Code,
+while it runs, writes its usual pidfile under `~/.claude/sessions` (removed when
+it exits) and refreshes its own usage and feature caches in `~/.claude.json`.
+It runs only when no owned session can answer: for the automatic reads above,
+which need a connected dashboard, and for a Refresh. With **Manually only**, it
+starts only for a Refresh.
 
 ## Notifications
 
