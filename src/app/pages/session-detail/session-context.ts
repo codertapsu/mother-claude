@@ -287,6 +287,22 @@ export class SessionContext {
     return this.run(() => this.api.setEffort(this.id(), effort), `Effort: ${effort}`, 'Effort');
   }
 
+  setUltracode(enabled: boolean): Promise<boolean> {
+    return this.run(
+      () => this.api.setUltracode(this.id(), enabled),
+      enabled ? 'Ultracode on.' : 'Ultracode off.',
+      'Ultracode',
+    );
+  }
+
+  setThinking(enabled: boolean): Promise<boolean> {
+    return this.run(
+      () => this.api.setThinking(this.id(), enabled),
+      enabled ? 'Thinking on.' : 'Thinking off.',
+      'Thinking',
+    );
+  }
+
   setMode(mode: PermissionMode, label: string): Promise<boolean> {
     const onPrompt = this.caps()?.setMode === 'on-prompt';
     return this.run(

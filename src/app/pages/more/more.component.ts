@@ -26,7 +26,7 @@ const ENTRIES: Entry[] = [
     path: '/settings',
     icon: 'settings',
     label: 'Settings',
-    hint: 'Notifications, theme, connection',
+    hint: 'Notifications, theme, plan usage, connection',
   },
   { path: '/api', icon: 'code', label: 'HTTP API', hint: 'Drive Claude from scripts and tools' },
   { path: '/services', icon: 'activity', label: 'Services', hint: 'Daemon and MCP servers' },

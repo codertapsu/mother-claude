@@ -4,9 +4,12 @@ import {
   ControlChannel,
   FileChange,
   PermissionMode,
+  PlanSeverity,
   SessionStatus,
   SessionSummary,
   Surface,
+  ThinkingState,
+  Usage,
 } from '../core/models';
 
 /** Tones map to the theme's status colours (see styles.scss). */
@@ -41,6 +44,39 @@ export function formatDuration(ms?: number): string {
   return `${Math.floor(h / 24)}d ${h % 24}h`;
 }
 
+/** Time left, rounded up to the minute: 45m · 2h 10m · 3d 4h · <1m. */
+export function formatCountdown(ms: number): string {
+  if (!Number.isFinite(ms) || ms <= 0) return '0m';
+  const mins = Math.ceil(ms / 60_000);
+  if (ms < 60_000) return '<1m';
+  if (mins < 60) return `${mins}m`;
+  const h = Math.floor(mins / 60);
+  if (h < 24) return mins % 60 ? `${h}h ${mins % 60}m` : `${h}h`;
+  const d = Math.floor(h / 24);
+  return h % 24 ? `${d}d ${h % 24}h` : `${d}d`;
+}
+
+/** "resets in 2h 10m" · "reset" (the time has passed) · '' (unknown). */
+export function resetsIn(resetsAt: number | undefined, now = Date.now()): string {
+  if (!resetsAt) return '';
+  if (resetsAt <= now) return 'reset';
+  return `resets in ${formatCountdown(resetsAt - now)}`;
+}
+
+/** A reset time people can place: "14:30" today, "Tue 14:30" this week,
+ * else "3 Oct, 14:30". */
+export function resetClock(resetsAt: number | undefined, now = Date.now()): string {
+  if (!resetsAt) return '';
+  const d = new Date(resetsAt);
+  const time = d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+  const today = new Date(now);
+  if (d.toDateString() === today.toDateString()) return time;
+  if (resetsAt - now < 6 * 24 * 3_600_000) {
+    return `${d.toLocaleDateString(undefined, { weekday: 'short' })} ${time}`;
+  }
+  return `${d.toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}, ${time}`;
+}
+
 // ─────────────────────────────────────────────────────────────── Numbers
 
 export function formatTokens(n?: number): string {
@@ -55,6 +91,20 @@ export function formatUsd(n?: number): string {
   if (n > 0 && n < 0.01) return '<$0.01';
   if (n < 100) return `$${n.toFixed(2)}`;
   return `$${Math.round(n).toLocaleString()}`;
+}
+
+/** An amount in minor units (cents) as money: `formatMinor(1240, 'USD', 2)`
+ * → "$12.40"; a plain "12.40" when the currency isn't known. */
+export function formatMinor(minor: number, currency: string | undefined, decimals: number): string {
+  const value = minor / 10 ** decimals;
+  const digits = { minimumFractionDigits: decimals, maximumFractionDigits: decimals };
+  try {
+    return currency
+      ? new Intl.NumberFormat(undefined, { style: 'currency', currency, ...digits }).format(value)
+      : new Intl.NumberFormat(undefined, digits).format(value);
+  } catch {
+    return currency ? `${value.toFixed(decimals)} ${currency}` : value.toFixed(decimals);
+  }
 }
 
 // ──────────────────────────────────────────────────────────────── Labels
@@ -170,6 +220,115 @@ export const EFFORT_LABELS: Record<string, string> = {
 export function effortLabel(effort: string | undefined): string {
   if (!effort) return '';
   return EFFORT_LABELS[effort] ?? effort;
+}
+
+/** Chip-sized effort labels (the list cards). */
+export const EFFORT_SHORT: Record<string, string> = {
+  low: 'Low',
+  medium: 'Med',
+  high: 'High',
+  xhigh: 'X-high',
+  max: 'Max',
+};
+
+export function effortShortLabel(effort: string | undefined): string {
+  if (!effort) return '';
+  return EFFORT_SHORT[effort] ?? effortLabel(effort);
+}
+
+/** How an effort value is known, as a phrase after the value. */
+export function effortSourceText(source: string | undefined): string {
+  switch (source) {
+    case 'applied':
+      return 'as Claude Code applies it';
+    case 'observed':
+      return 'as sent with the latest request';
+    case 'requested':
+      return 'requested, not confirmed yet';
+    case 'launch':
+      return 'set at launch';
+    default:
+      return '';
+  }
+}
+
+/** Where a session's own settings (ultracode, thinking…) are switched, as
+ * a phrase: "in VS Code", "in the terminal"; '' when there is no one place. */
+export function switchPlace(surface: Surface | string | undefined): string {
+  switch (surface) {
+    case 'vscode':
+      return 'in VS Code';
+    case 'terminal':
+    case 'tmux':
+      return 'in the terminal';
+    case 'jetbrains':
+      return 'in JetBrains';
+    case 'desktop':
+      return 'in Claude Desktop';
+    default:
+      return '';
+  }
+}
+
+export function ultracodeLabel(state: string | undefined): string {
+  switch (state) {
+    case 'on':
+      return 'On';
+    case 'off':
+      return 'Off';
+    case 'unavailable':
+      return 'Unavailable';
+    default:
+      return '';
+  }
+}
+
+export function thinkingModeLabel(mode: string | undefined): string {
+  switch (mode) {
+    case 'adaptive':
+      return 'Adaptive';
+    case 'on':
+      return 'On';
+    case 'off':
+      return 'Off';
+    default:
+      return '';
+  }
+}
+
+/** "On · 32k budget" / "Adaptive" / "Off". */
+export function thinkingText(t: ThinkingState | undefined): string {
+  if (!t) return '';
+  const mode = thinkingModeLabel(t.mode);
+  return t.mode === 'on' && t.budget ? `${mode} · ${formatTokens(t.budget)} budget` : mode;
+}
+
+/** How a thinking setting is known, as a phrase after the value. */
+export function thinkingSourceText(source: string | undefined): string {
+  switch (source) {
+    case 'control':
+      return 'set by Mother Claude';
+    case 'launch':
+      return 'at launch';
+    case 'default':
+      return "Claude Code's default";
+    default:
+      return '';
+  }
+}
+
+/** Thinking's share of the output tokens, in whole percent (null when no
+ * thinking was counted). Both totals include subagents. */
+export function thinkingShare(usage: Usage | undefined): number | null {
+  const thinking = usage?.thinking ?? 0;
+  const output = usage?.output ?? 0;
+  if (thinking <= 0 || output <= 0) return null;
+  return Math.min(100, Math.max(1, Math.round((thinking / output) * 100)));
+}
+
+/** A plan-usage meter's colour: amber near the limit, red at it. */
+export function severityTone(severity: PlanSeverity): Tone {
+  return severity === 'critical' ? 'red' : severity === 'warning' ? 'amber' : 'accent';
 }
 
 const ACTIVITY_VERBS: Record<ActivityKind, string> = {

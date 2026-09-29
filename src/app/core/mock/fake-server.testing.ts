@@ -37,27 +37,44 @@ export class FakeSocket implements WebSocketLike {
   }
 }
 
-export type Route = (
-  method: string,
-) => { status: number; body: unknown } | Promise<{ status: number; body: unknown }>;
+export interface RouteReply {
+  status: number;
+  body: unknown;
+  headers?: Record<string, string>;
+}
+
+/** Answers one path; gets the request's JSON body (undefined for none). */
+export type Route = (method: string, body?: unknown) => RouteReply | Promise<RouteReply>;
 
 export class FakeBackend implements MockBackend {
   readonly role = 'device' as const;
   readonly token = 'tok';
   readonly sockets: FakeSocket[] = [];
   readonly calls: string[] = [];
+  /** Every request's JSON body, in the order of `calls`. */
+  readonly bodies: unknown[] = [];
   readonly routes = new Map<string, Route>();
 
   async fetch(url: string, init?: RequestInit): Promise<Response> {
     const path = new URL(url).pathname.replace(/^\/api/, '');
     const method = init?.method ?? 'GET';
+    const sent = parseJson(init?.body);
     this.calls.push(`${method} ${path}`);
+    this.bodies.push(sent);
     const route = this.routes.get(path);
-    const { status, body } = route ? await route(method) : { status: 404, body: {} };
+    const { status, body, headers } = route
+      ? await route(method, sent)
+      : ({ status: 404, body: {} } as RouteReply);
     return new Response(JSON.stringify(body), {
       status,
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', ...headers },
     });
+  }
+
+  /** The body of the last `METHOD /path` request. */
+  bodyOf(call: string): unknown {
+    const i = this.calls.lastIndexOf(call);
+    return i < 0 ? undefined : this.bodies[i];
   }
 
   openSocket(): WebSocketLike {
@@ -68,6 +85,15 @@ export class FakeBackend implements MockBackend {
 
   get last(): FakeSocket {
     return this.sockets[this.sockets.length - 1];
+  }
+}
+
+function parseJson(body: BodyInit | null | undefined): unknown {
+  if (typeof body !== 'string') return undefined;
+  try {
+    return JSON.parse(body) as unknown;
+  } catch {
+    return body;
   }
 }
 

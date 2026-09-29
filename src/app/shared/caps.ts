@@ -51,6 +51,16 @@ export function capKeys(c: ControlCaps | undefined, s?: SessionSummary): boolean
   return c?.channel === 'tmux' || s?.surface === 'tmux';
 }
 
+/** Ultracode can be switched from here (an older server can't: no). */
+export function capUltracode(c: ControlCaps | undefined): boolean {
+  return c?.setUltracode === true;
+}
+
+/** Thinking can be switched from here (an older server can't: no). */
+export function capThinking(c: ControlCaps | undefined): boolean {
+  return c?.setThinking === true;
+}
+
 /** Idle sessions take a relayed message now (else at the next stop). */
 export function capWake(c: ControlCaps | undefined): boolean {
   if (typeof c?.wake === 'boolean') return c.wake;

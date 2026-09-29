@@ -10,23 +10,36 @@ import {
 
 import { ApiService } from '../../core/api.service';
 import { KeyName, LaunchOverrides, McpServerStatus } from '../../core/models';
+import { NowService } from '../../core/now.service';
+import { PlanUsageService } from '../../core/plan-usage.service';
 import { CapLimitsComponent } from '../../shared/cap-limits.component';
-import { capKeys, capRename, capTerminal } from '../../shared/caps';
+import { capKeys, capRename, capTerminal, capThinking } from '../../shared/caps';
 import { ChannelBadgeComponent } from '../../shared/channel-badge.component';
 import { ContextMeterComponent } from '../../shared/context-meter.component';
 import { CopyButtonComponent } from '../../shared/copy-button.component';
 import { CostComponent } from '../../shared/cost.component';
 import { IconComponent } from '../../shared/icon.component';
 import { LaunchOptionsComponent } from '../../shared/launch-options.component';
+import { PlanUsageComponent } from '../../shared/plan-usage.component';
+import {
+  fastText,
+  thinkingEvidence,
+  thinkingOffContradicted,
+  thinkingSettingText,
+  ultracodeUnknownText,
+  ultracodeWhen,
+} from '../../shared/session-settings';
 import { StatusPillComponent } from '../../shared/status-pill.component';
 import { TimeAgoComponent } from '../../shared/time-ago.component';
 import {
   channelLabel,
   effortLabel,
+  effortSourceText,
   formatTokens,
   modeLabel,
   shortPath,
   surfaceLabel,
+  ultracodeLabel,
 } from '../../shared/util';
 import { SessionContext } from './session-context';
 
@@ -43,11 +56,12 @@ const KEYS: { key: KeyName; label: string; aria: string }[] = [
 
 /**
  * Everything known about the session: ids, process, where it runs, model,
- * mode, effort, usage and cost, context, timestamps; what can be done with
- * it and why not (limits with their fixes); lifecycle (stop / respawn /
- * remove, remove confirmed); continue or fork as an owned session; rename;
- * the terminal view and keys for tmux; the resume command; MCP servers of
- * owned sessions.
+ * mode, effort, ultracode, thinking and fast mode (each with how it is
+ * known), usage and cost, context, timestamps; the Claude plan's usage;
+ * what can be done with it and why not (limits with their fixes); lifecycle
+ * (stop / respawn / remove, remove confirmed); continue or fork as an owned
+ * session; rename; the terminal view and keys for tmux; the resume command;
+ * MCP servers of owned sessions.
  */
 @Component({
   selector: 'mc-info-panel',
@@ -60,6 +74,7 @@ const KEYS: { key: KeyName; label: string; aria: string }[] = [
     CostComponent,
     IconComponent,
     LaunchOptionsComponent,
+    PlanUsageComponent,
     StatusPillComponent,
     TimeAgoComponent,
   ],
@@ -127,6 +142,10 @@ const KEYS: { key: KeyName; label: string; aria: string }[] = [
             <dt>Claude Code</dt>
             <dd>{{ s.version }}</dd>
           }
+          @if (s.cliName && s.cliName !== s.name) {
+            <dt>CLI name</dt>
+            <dd class="mono">{{ s.cliName }}</dd>
+          }
           @if (s.gitBranch) {
             <dt>Branch</dt>
             <dd class="mono">{{ s.gitBranch }}</dd>
@@ -166,12 +185,68 @@ const KEYS: { key: KeyName; label: string; aria: string }[] = [
           <dt>Permission mode</dt>
           <dd>{{ mode(s.permissionMode) }}</dd>
           <dt>Effort</dt>
-          <dd>{{ effort(s.effort) || 'Default' }}</dd>
+          <dd class="how-dd">
+            @if (s.effort) {
+              {{ effort(s.effort) }}
+              @if (effortHow()) {
+                <span class="muted small"><span class="dot">· </span>{{ effortHow() }}</span>
+              }
+            } @else if (s.effortSource === 'applied') {
+              None
+              <span class="muted small"
+                ><span class="dot">· </span>this model has no effort levels</span
+              >
+            } @else {
+              <span class="muted">Not reported</span>
+            }
+          </dd>
+          <dt>Ultracode</dt>
+          <dd class="how-dd">
+            @if (s.ultracode) {
+              {{ ultracodeLabel(s.ultracode) }}
+              @if (ultracodeHow()) {
+                <span class="muted small"><span class="dot">· </span>{{ ultracodeHow() }}</span>
+              }
+            } @else {
+              <span class="muted">{{ s.live ? 'Unknown' : 'Not recorded' }}</span>
+              @if (ultracodeUnknownHow()) {
+                <span class="muted small"
+                  ><span class="dot">· </span>{{ ultracodeUnknownHow() }}</span
+                >
+              }
+            }
+          </dd>
+          <dt>Thinking</dt>
+          <dd class="stack-dd">
+            <span>
+              @if (s.thinking) {
+                {{ thinkingSetting() }}
+              } @else if (thinkingSwitchable()) {
+                Claude Code's default <span class="muted">(not reported)</span>
+              } @else {
+                <span class="muted">Not reported</span>
+              }
+            </span>
+            <span class="muted small">{{ thinkingUsed() }}</span>
+          </dd>
+          <dt>Fast mode</dt>
+          <dd class="how-dd">
+            @if (s.fast) {
+              On
+              <span class="muted small"><span class="dot">· </span>{{ fastHow() }}</span>
+            } @else {
+              <span class="muted">Not seen</span>
+            }
+          </dd>
           <dt>Cost</dt>
           <dd>
             <mc-cost [usd]="s.costUsd" [final]="!!s.costFinal" />
             <span class="muted small">{{
-              s.costFinal ? ' (reported by Claude)' : ' (estimated)'
+              s.costFinal
+                ? ' (reported by Claude)'
+                : s.costEstimated
+                  ? ' (estimated: some requests ran in another speed tier or had no known price)'
+                  : ' (estimated)'
             }}</span>
           </dd>
           <dt>Input</dt>
@@ -182,9 +257,11 @@ const KEYS: { key: KeyName; label: string; aria: string }[] = [
           <dd>{{ tokens(s.usage.cacheRead) }} tokens</dd>
           <dt>Cache writes</dt>
           <dd>{{ tokens(s.usage.cacheWrite) }} tokens</dd>
-          @if (s.usage.thinking) {
-            <dt>Thinking</dt>
-            <dd>{{ tokens(s.usage.thinking) }} tokens</dd>
+          @if (s.usagePartial) {
+            <dt>Totals</dt>
+            <dd class="muted small">
+              Still counting: older parts of the transcript are being read.
+            </dd>
           }
           @if (s.context; as c) {
             <dt>Context</dt>
@@ -192,6 +269,16 @@ const KEYS: { key: KeyName; label: string; aria: string }[] = [
           }
         </dl>
       </section>
+
+      @if (plan.available()) {
+        <section class="card">
+          <h2 class="first">Plan usage</h2>
+          <p class="muted small plan-lede">
+            Your Claude plan: every session on this account shares it.
+          </p>
+          <mc-plan-usage />
+        </section>
+      }
 
       <section class="card">
         <h2 class="first">From here you can</h2>
@@ -334,6 +421,25 @@ const KEYS: { key: KeyName; label: string; aria: string }[] = [
         flex-wrap: wrap;
         gap: 0.35rem;
       }
+      .kv dd.stack-dd {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 0.1rem;
+      }
+      /* Phones: how a value is known goes under it, not after a dot. */
+      @media (max-width: 767px) {
+        .kv dd.how-dd {
+          flex-direction: column;
+          align-items: flex-start;
+          gap: 0.1rem;
+        }
+        .how-dd .dot {
+          display: none;
+        }
+      }
+      .plan-lede {
+        margin: -0.25rem 0 0.85rem;
+      }
       .actions,
       .keys {
         display: flex;
@@ -397,6 +503,8 @@ const KEYS: { key: KeyName; label: string; aria: string }[] = [
 export class InfoPanelComponent {
   protected readonly ctx = inject(SessionContext);
   private api = inject(ApiService);
+  private clock = inject(NowService);
+  protected readonly plan = inject(PlanUsageService);
 
   protected overrides: LaunchOverrides = {};
   protected readonly keyList = KEYS;
@@ -424,10 +532,47 @@ export class InfoPanelComponent {
       : '';
   });
 
+  protected readonly effortHow = computed(() => effortSourceText(this.ctx.session()?.effortSource));
+  protected readonly ultracodeHow = computed(() => {
+    const s = this.ctx.session();
+    if (!s) return '';
+    if (s.ultracode === 'unavailable') {
+      return "requested, but this model or workspace can't run it; it comes back on once it can";
+    }
+    return ultracodeWhen(s, this.clock.now());
+  });
+  /** Why ultracode isn't known, and when it will be. */
+  protected readonly ultracodeUnknownHow = computed(() => {
+    const s = this.ctx.session();
+    return s ? ultracodeUnknownText(s, this.clock.now()) : '';
+  });
+  protected readonly thinkingSetting = computed(() => {
+    const s = this.ctx.session();
+    if (!s) return '';
+    // "Off (at launch)" when the session has thought since is stale.
+    const since = thinkingOffContradicted(s) ? ', but used since' : '';
+    return `${thinkingSettingText(s)}${since}`;
+  });
+  /** An owned session whose thinking nobody set yet: its header offers on
+   * or off. */
+  protected readonly thinkingSwitchable = computed(() => {
+    const s = this.ctx.session();
+    return !!s?.live && capThinking(s.control);
+  });
+  protected readonly fastHow = computed(() => {
+    const s = this.ctx.session();
+    return s ? fastText(s) : '';
+  });
+  protected readonly thinkingUsed = computed(() => {
+    const s = this.ctx.session();
+    return s ? thinkingEvidence(s, this.clock.now()) : '';
+  });
+
   protected readonly short = shortPath;
   protected readonly surface = surfaceLabel;
   protected readonly mode = modeLabel;
   protected readonly effort = effortLabel;
+  protected readonly ultracodeLabel = ultracodeLabel;
   protected readonly tokens = formatTokens;
   protected readonly channel = (c: string) => {
     const label = channelLabel(c);

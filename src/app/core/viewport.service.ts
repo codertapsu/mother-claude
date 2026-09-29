@@ -1,5 +1,7 @@
 import { Injectable, NgZone, inject, signal } from '@angular/core';
 
+const NARROW = '(max-width: 359px)';
+
 function media(query: string): MediaQueryList | null {
   try {
     return typeof matchMedia === 'function' ? matchMedia(query) : null;
@@ -17,8 +19,8 @@ function media(query: string): MediaQueryList | null {
  * - `--vv-top`: how far the visual viewport is scrolled down inside the
  *   layout viewport (iOS scrolls the page when an input takes focus).
  *
- * Also exposes the pointer type (Enter behaviour in the composer) and a
- * phone-width flag.
+ * Also exposes the pointer type (Enter behaviour in the composer) and
+ * phone-width flags.
  */
 @Injectable({ providedIn: 'root' })
 export class ViewportService {
@@ -28,6 +30,9 @@ export class ViewportService {
   readonly coarse = signal(media('(pointer: coarse)')?.matches ?? false);
   /** Phone layout (< 768 px). */
   readonly phone = signal(media('(max-width: 767px)')?.matches ?? false);
+  /** The smallest phones (< 360 px, or a large display zoom): lists pack
+   * their chips tighter. */
+  readonly narrow = signal(media(NARROW)?.matches ?? false);
   /** The on-screen keyboard (or anything else) is covering a big part of the
    * layout viewport. */
   readonly keyboardOpen = signal(false);
@@ -58,5 +63,6 @@ export class ViewportService {
       q?.addEventListener?.('change', (e) => this.zone.run(() => set(e.matches)));
     watch(media('(pointer: coarse)'), (v) => this.coarse.set(v));
     watch(media('(max-width: 767px)'), (v) => this.phone.set(v));
+    watch(media(NARROW), (v) => this.narrow.set(v));
   }
 }

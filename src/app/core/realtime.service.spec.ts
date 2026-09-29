@@ -4,11 +4,18 @@ import { AuthService } from './auth.service';
 import { ConfigService } from './config.service';
 import { FakeBackend, FakeSocket, flush, me, useFakeServer } from './mock/fake-server.testing';
 import { setActiveMock } from './mock/mock-api';
-import { SessionSummary } from './models';
+import { PlanUsage, SessionSummary } from './models';
 import { RealtimeService } from './realtime.service';
 
 const session = (id: string, status: string): SessionSummary =>
   ({ id, status, live: true, pending: [] }) as unknown as SessionSummary;
+
+const plan = (pct: number): PlanUsage => ({
+  available: true,
+  windows: [{ key: 'five_hour', label: 'Current session', pct }],
+  refreshing: false,
+  intervalSecs: 300,
+});
 
 describe('RealtimeService', () => {
   let backend: FakeBackend;
@@ -129,6 +136,42 @@ describe('RealtimeService', () => {
     answer({ status: 200, body: { sessions: [session('s1', 'idle')] } });
     await flush();
     expect(rt.session('s1')()?.status).toBe('working');
+  });
+
+  it('keeps the plan usage from planUsage frames', () => {
+    const s = goLive();
+    expect(rt.planUsage()).toBeNull();
+    s.frame({ t: 'sessions', full: true, seq: 1, sessions: [] });
+    s.frame({ t: 'planUsage', usage: plan(42) });
+    expect(rt.planUsage()?.windows[0].pct).toBe(42);
+    // Something that isn't a plan usage leaves the known one alone.
+    s.frame({ t: 'planUsage', usage: 'garbage' });
+    expect(rt.planUsage()?.windows[0].pct).toBe(42);
+  });
+
+  it('drops a REST copy of the plan usage that a frame overtook', () => {
+    const s = goLive();
+    const mark = rt.planUsageMark();
+    s.frame({ t: 'planUsage', usage: plan(50) });
+    expect(rt.mergePlanUsage(plan(40), mark)).toBeFalse();
+    expect(rt.planUsage()?.windows[0].pct).toBe(50);
+    expect(rt.mergePlanUsage(plan(60), rt.planUsageMark())).toBeTrue();
+    expect(rt.planUsage()?.windows[0].pct).toBe(60);
+  });
+
+  it('fetches /usage at most every 5 minutes while polling', async () => {
+    backend.routes.set('/sessions', () => ({ status: 200, body: { sessions: [] } }));
+    backend.routes.set('/inbox', () => ({ status: 200, body: { items: [] } }));
+    backend.routes.set('/usage', () => ({ status: 200, body: plan(33) }));
+    const internals = rt as unknown as { startPolling(): void; pollOnce(): Promise<void> };
+    internals.startPolling();
+    await flush();
+    expect(rt.connection()).toBe('limited');
+    expect(rt.planUsage()?.windows[0].pct).toBe(33);
+    await internals.pollOnce();
+    await flush();
+    expect(backend.calls.filter((c) => c === 'GET /sessions').length).toBe(2);
+    expect(backend.calls.filter((c) => c === 'GET /usage').length).toBe(1);
   });
 
   it('does not poll through a tunnel pointed at the main port', async () => {

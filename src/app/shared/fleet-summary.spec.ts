@@ -1,5 +1,5 @@
-import { SessionSummary } from '../core/models';
-import { fleetCounts } from './fleet-summary.component';
+import { PlanUsage, SessionSummary } from '../core/models';
+import { compactPlan, fleetCounts } from './fleet-summary.component';
 
 const s = (over: Record<string, unknown>): SessionSummary =>
   ({ id: 'x', live: true, status: 'idle', pending: [], ...over }) as unknown as SessionSummary;
@@ -43,5 +43,51 @@ describe('fleetCounts', () => {
     );
     expect(unpriced.priced).toBeFalse();
     expect(unpriced.tokensToday).toBe(15);
+  });
+});
+
+describe('compactPlan', () => {
+  const NOW = 1_000_000_000_000;
+  const H = 3_600_000;
+  const u = (over: Partial<PlanUsage> = {}): PlanUsage => ({
+    available: true,
+    windows: [
+      { key: 'five_hour', label: 'Current session', pct: 42, resetsAt: NOW + 2 * H },
+      { key: 'seven_day', label: 'Weekly · all models', pct: 18, resetsAt: NOW + 80 * H },
+      { key: 'seven_day_opus', label: 'Weekly · Opus', pct: 12, resetsAt: NOW + 80 * H },
+    ],
+    refreshing: false,
+    intervalSecs: 300,
+    ...over,
+  });
+
+  it('shows the session (with its countdown) and the week', () => {
+    const p = compactPlan(u(), NOW);
+    expect(p?.meters.map((m) => [m.short, m.pct, m.left])).toEqual([
+      ['Session', 42, '2h'],
+      ['Week', 18, '3d 8h'],
+    ]);
+    expect(p?.tone).toBe('accent');
+    expect(p?.label).toBe(
+      'Plan usage: Current session 42%, resets in 2h; Weekly · all models 18%, resets in 3d 8h; Weekly · Opus 12%, resets in 3d 8h. Show details',
+    );
+  });
+
+  it('adds a window near its limit and takes the worst tone', () => {
+    const windows = u().windows.map((w) => (w.key === 'seven_day_opus' ? { ...w, pct: 93 } : w));
+    const p = compactPlan(u({ windows }), NOW);
+    expect(p?.meters.map((m) => [m.short, m.tone])).toEqual([
+      ['Session', 'accent'],
+      ['Week', 'accent'],
+      ['Opus', 'red'],
+    ]);
+    expect(p?.tone).toBe('red');
+  });
+
+  it('is hidden without plan usage, and reads 0 % after a reset', () => {
+    expect(compactPlan(null, NOW)).toBeNull();
+    expect(compactPlan(u({ available: false }), NOW)).toBeNull();
+    const later = compactPlan(u(), NOW + 3 * H);
+    expect(later?.meters[0]).toEqual(jasmine.objectContaining({ pct: 0, left: '' }));
   });
 });

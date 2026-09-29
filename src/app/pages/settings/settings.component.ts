@@ -8,6 +8,8 @@ import { ConfigService } from '../../core/config.service';
 import { DeviceService } from '../../core/device.service';
 import { PairCode, PushPrefs } from '../../core/models';
 import { PermissionsService } from '../../core/permissions.service';
+import { PLAN_INTERVALS, planIntervalLabel } from '../../core/plan-usage';
+import { PlanUsageService } from '../../core/plan-usage.service';
 import { PushService } from '../../core/push.service';
 import { RealtimeService, connectionLabel } from '../../core/realtime.service';
 import { ThemePref, ThemeService } from '../../core/theme.service';
@@ -49,7 +51,8 @@ const INGRESS: Record<string, string> = {
   'bridge-loopback': 'This computer (API port)',
 };
 
-/** Notifications, theme, connection details and about. */
+/** Notifications, theme, the plan-usage refresh interval (set on the
+ * desktop, shown read-only on phones), connection details and about. */
 @Component({
   selector: 'mc-settings',
   imports: [RouterLink, IconComponent, PermissionsListComponent, UpdaterComponent],
@@ -67,6 +70,15 @@ export class SettingsComponent {
   protected readonly theme = inject(ThemeService);
   protected readonly attention = inject(AttentionService);
   protected readonly updater = inject(UpdaterService);
+  protected readonly plan = inject(PlanUsageService);
+  protected readonly planIntervals = PLAN_INTERVALS;
+  protected readonly planIntervalLabel = planIntervalLabel;
+  protected readonly planSaving = signal(false);
+  /** The server's interval is one this app offers. */
+  protected readonly knownInterval = computed(() => {
+    const secs = this.plan.usage()?.intervalSecs;
+    return PLAN_INTERVALS.some((o) => o.secs === secs);
+  });
 
   protected readonly cfg = this.config.config;
   protected readonly me = this.auth.me;
@@ -105,6 +117,7 @@ export class SettingsComponent {
   constructor() {
     void this.permissions.refresh();
     void this.push.refresh();
+    void this.plan.ensureLoaded();
     if (!this.isDesktop()) void this.push.loadHint();
     // Per-event preferences exist once this device has push on.
     effect(() => {
@@ -114,6 +127,18 @@ export class SettingsComponent {
 
   protected setTheme(p: ThemePref): void {
     this.theme.set(p);
+  }
+
+  protected async setPlanInterval(e: Event): Promise<void> {
+    const sel = e.target as HTMLSelectElement;
+    const current = this.plan.usage()?.intervalSecs;
+    const secs = Number(sel.value);
+    if (!Number.isFinite(secs) || secs === current) return;
+    this.planSaving.set(true);
+    const ok = await this.plan.setIntervalSecs(secs);
+    this.planSaving.set(false);
+    // Refused: show what is really in effect again.
+    if (!ok && current !== undefined) sel.value = String(current);
   }
 
   protected async togglePref(key: PrefKey, on: boolean): Promise<void> {

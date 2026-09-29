@@ -22,7 +22,8 @@ import { IconComponent } from './icon.component';
         <div>
           <strong>VS Code and terminal sessions update message by message.</strong>
           Their status (working, waiting for you) is live, but their text appears when each message
-          finishes rather than word by word. Sessions started here stream live.
+          finishes rather than word by word. Ultracode switched there shows here after the next
+          message sent there. Sessions started here stream live.
         </div>
       </div>
 

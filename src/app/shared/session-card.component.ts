@@ -1,24 +1,41 @@
-import { ChangeDetectionStrategy, Component, computed, input } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject, input } from '@angular/core';
 import { RouterLink } from '@angular/router';
 
 import { PendingRef, SessionSummary } from '../core/models';
+import { NowService } from '../core/now.service';
+import { ViewportService } from '../core/viewport.service';
 import { ActivityLineComponent } from './activity-line.component';
 import { ChannelBadgeComponent } from './channel-badge.component';
 import { ChipComponent } from './chip.component';
 import { ContextMeterComponent } from './context-meter.component';
 import { CostComponent } from './cost.component';
-import { IconComponent } from './icon.component';
+import { IconComponent, IconName } from './icon.component';
 import { PendingCardComponent } from './pending-card.component';
+import { effortText, fastText, thinkingChip, ultracodeText } from './session-settings';
 import { StatusPillComponent } from './status-pill.component';
 import { TimeAgoComponent } from './time-ago.component';
-import { modeLabel, sessionName, shortPath } from './util';
+import { Tone, effortShortLabel, modeLabel, sessionName, shortPath } from './util';
+
+/** One part of the packed settings chip (the smallest screens). */
+interface PackedPart {
+  kind: 'effort' | 'ultracode' | 'fast';
+  text: string;
+  /** Said before `text` to screen readers only. */
+  sr: string;
+}
 
 /**
- * One session in a list: status, live activity line, chips (model, mode,
- * agents, todos, context, cost, branch, PR, surface/channel) and — when there
- * is exactly one pending request — a compact card with quick actions for the
- * simple cases (else "Review"). Only the title is a link, so the buttons
- * inside stay valid, separately focusable controls.
+ * One session in a list: status, live activity line, chips (model, effort,
+ * ultracode, thinking, fast, mode, agents, todos, context, cost, branch, PR,
+ * surface/channel) and — when there is exactly one pending request — a
+ * compact card with quick actions for the simple cases (else "Review").
+ * Only the title is a link, so the buttons inside stay valid, separately
+ * focusable controls. The setting chips stay short (how a value is known is
+ * in their tooltip and screen-reader text), and appear only when there is
+ * something to say: ultracode when on (not when off, unknown or unavailable:
+ * the session page says which), thinking when off or used. On the smallest
+ * screens effort, ultracode and fast share one chip and thinking shows only
+ * its figure, so the settings add at most one row of chips.
  */
 @Component({
   selector: 'mc-session-card',
@@ -54,6 +71,45 @@ import { modeLabel, sessionName, shortPath } from './util';
       <mc-channel-badge [surface]="s.surface" [control]="s.control" [session]="s" />
       @if (s.model) {
         <mc-chip>{{ s.model.label }}</mc-chip>
+      }
+      @if (viewport.narrow()) {
+        <!-- The smallest screens: effort, ultracode and fast share a chip and
+             thinking shows only its figure, so they add at most one row. -->
+        @if (packed(); as p) {
+          <mc-chip class="packed" [icon]="p.icon" [tone]="p.tone" [attr.title]="p.title">
+            @for (part of p.parts; track part.kind; let first = $first) {
+              @if (!first) {
+                <span class="sep" aria-hidden="true"> · </span>
+              }
+              <span [class]="part.kind"
+                ><span class="visually-hidden">{{ part.sr }}</span
+                >{{ part.text }}</span
+              >
+            }
+          </mc-chip>
+        }
+        @if (thinking(); as t) {
+          <mc-chip icon="lightbulb" [attr.title]="t.title"
+            ><span class="visually-hidden">Thinking </span>{{ t.short }}</mc-chip
+          >
+        }
+      } @else {
+        @if (s.effort) {
+          <mc-chip icon="gauge" [attr.title]="'Effort: ' + effort()"
+            ><span class="visually-hidden">Effort </span>{{ effortShort() }}</mc-chip
+          >
+        }
+        @if (s.ultracode === 'on') {
+          <mc-chip icon="workflow" tone="accent" [attr.title]="'Ultracode: ' + ultracode()"
+            >Ultracode</mc-chip
+          >
+        }
+        @if (thinking(); as t) {
+          <mc-chip icon="lightbulb" [attr.title]="t.title">{{ t.text }}</mc-chip>
+        }
+        @if (s.fast) {
+          <mc-chip icon="zap" tone="blue" [attr.title]="fast()">Fast</mc-chip>
+        }
       }
       @if (s.permissionMode && s.permissionMode !== 'default') {
         <mc-chip [tone]="s.permissionMode === 'bypassPermissions' ? 'red' : 'muted'">{{
@@ -165,6 +221,12 @@ import { modeLabel, sessionName, shortPath } from './util';
         gap: 0.3rem;
         align-items: center;
       }
+      .packed .ultracode {
+        color: var(--accent-text);
+      }
+      .packed .fast {
+        color: var(--blue);
+      }
       .where {
         display: flex;
         align-items: center;
@@ -188,9 +250,45 @@ import { modeLabel, sessionName, shortPath } from './util';
   ],
 })
 export class SessionCardComponent {
+  private clock = inject(NowService);
+  protected readonly viewport = inject(ViewportService);
   readonly session = input.required<SessionSummary>();
 
   protected readonly name = computed(() => sessionName(this.session()));
+  protected readonly effort = computed(() => effortText(this.session()));
+  protected readonly effortShort = computed(() => effortShortLabel(this.session().effort));
+  protected readonly ultracode = computed(() => {
+    const s = this.session();
+    if (s.ultracode !== 'on') return '';
+    // Only a transcript marker's age ("5m ago") needs the ticking clock.
+    return ultracodeText(s, s.ultracodeAt ? this.clock.now() : Date.now());
+  });
+  protected readonly thinking = computed(() => thinkingChip(this.session()));
+  protected readonly fast = computed(() => `Fast mode: ${fastText(this.session())}`);
+  /** Effort, ultracode and fast mode as one chip ("Max · Ultracode · Fast"),
+   * its title saying how each is known; null when none applies. */
+  protected readonly packed = computed(() => {
+    const s = this.session();
+    const parts: PackedPart[] = [];
+    const titles: string[] = [];
+    if (s.effort) {
+      parts.push({ kind: 'effort', text: this.effortShort(), sr: 'Effort ' });
+      titles.push(`Effort: ${this.effort()}`);
+    }
+    if (s.ultracode === 'on') {
+      parts.push({ kind: 'ultracode', text: 'Ultracode', sr: '' });
+      titles.push(`Ultracode: ${this.ultracode()}`);
+    }
+    if (s.fast) {
+      parts.push({ kind: 'fast', text: 'Fast', sr: '' });
+      titles.push(this.fast());
+    }
+    if (!parts.length) return null;
+    const icon: IconName = s.effort ? 'gauge' : s.ultracode === 'on' ? 'workflow' : 'zap';
+    const only = parts.length === 1 ? parts[0].kind : '';
+    const tone: Tone = only === 'ultracode' ? 'accent' : only === 'fast' ? 'blue' : 'muted';
+    return { parts, icon, tone, title: titles.join(' · ') };
+  });
   protected readonly single = computed<PendingRef | null>(() => {
     const s = this.session();
     return s.pending?.length === 1 ? { ...s.pending[0], sessionId: s.id } : null;

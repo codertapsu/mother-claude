@@ -7,6 +7,7 @@ import {
   FleetSession,
   PairCode,
   PendingItem,
+  PlanUsage,
   RespondBody,
   ServerFrame,
   SessionDetail,
@@ -31,6 +32,21 @@ export function createMockBackend(): MockBackend {
 /** `?mockws=fail`: the socket never connects (exercise the polling mode). */
 const WS_FAILS = urlParam('mockws') === 'fail';
 
+/** Plan usage states (`?mockusage=`):
+ * - `off`     an account without plan usage (an API key);
+ * - `none`    an older server without /usage and its frame;
+ * - `stream`  only a running session's report so far (5-hour and weekly);
+ * - `mixed`   a full read 12 min ago, and a running session's report of the
+ *             5-hour and weekly windows since (`streamAt`);
+ * - `error`   the last read failed: Claude Code's cached reading, the error,
+ *             and no scheduled read while the Mac backs off;
+ * - `empty`   plan usage exists but hasn't been read yet.
+ * A refresh (or a scheduled read) then reads the full set. */
+const USAGE_MODE = urlParam('mockusage');
+
+/** Intervals the server accepts for the plan-usage refresh (seconds). */
+const PLAN_INTERVALS = [0, 180, 300, 600];
+
 const STREAM_TEXT =
   "I cached the compiled pattern in a module-level constant and switched the tokenizer to a single pass. On the 40k-document fixture the build drops from **38.2 s** to **14.9 s** (2.6x). Next I'll check memory, since the cache keeps one regex per language.";
 
@@ -47,10 +63,69 @@ class FixtureBackend implements MockBackend {
   private streamPos = 0;
   private streamMsg = 0;
   private streamPause = 0;
+  /** The last read of the (fake) account: refreshes within 60 s get a 429. */
+  private lastUsageRead = 0;
+  /** What a full read of the (fake) account returns. */
+  private readonly fullUsage: PlanUsage;
 
   constructor(readonly role: MockRole) {
-    this.fx = buildFixtures(Date.now());
+    const now = Date.now();
+    this.fx = buildFixtures(now);
     this.token = role === 'unpaired' ? '' : TOKEN;
+    this.lastUsageRead = this.fx.planUsage.fetchedAt ?? 0;
+    this.fullUsage = this.fx.planUsage;
+    const u = this.fx.planUsage;
+    if (USAGE_MODE === 'off') {
+      this.fx.planUsage = {
+        available: false,
+        windows: [],
+        refreshing: false,
+        intervalSecs: 300,
+      };
+    } else if (USAGE_MODE === 'stream') {
+      this.lastUsageRead = 0;
+      this.fx.planUsage = {
+        available: true,
+        windows: u.windows.filter((w) => w.key === 'five_hour' || w.key === 'seven_day'),
+        fetchedAt: now - 40 * 1000,
+        source: 'stream',
+        refreshing: false,
+        nextRefreshAt: now + 4 * 60_000,
+        intervalSecs: u.intervalSecs,
+      };
+    } else if (USAGE_MODE === 'mixed') {
+      // As the server merges a report: the 5-hour window moved (the CLI's
+      // severity went with the old percentage), dated `streamAt`; the rest
+      // keeps the full read's time and source.
+      this.lastUsageRead = now - 12 * 60_000;
+      this.fx.planUsage = {
+        ...u,
+        windows: u.windows.map((w) =>
+          w.key === 'five_hour'
+            ? { key: w.key, label: w.label, pct: w.pct + 3, resetsAt: w.resetsAt }
+            : w,
+        ),
+        fetchedAt: now - 12 * 60_000,
+        streamAt: now - 30 * 1000,
+      };
+    } else if (USAGE_MODE === 'error') {
+      this.lastUsageRead = 0;
+      this.fx.planUsage = {
+        ...u,
+        fetchedAt: now - 50 * 60_000,
+        source: 'cache',
+        nextRefreshAt: undefined,
+        error: 'Usage endpoint is rate limited. Please try again in a moment.',
+      };
+    } else if (USAGE_MODE === 'empty') {
+      this.lastUsageRead = 0;
+      this.fx.planUsage = {
+        available: true,
+        windows: [],
+        refreshing: false,
+        intervalSecs: u.intervalSecs,
+      };
+    }
   }
 
   // ─────────────────────────────────────────────────────────────── REST
@@ -98,6 +173,37 @@ class FixtureBackend implements MockBackend {
     if (path === '/inbox') return json({ items: this.pending() });
     if (path === '/projects') return json({ projects: this.fx.projects });
     if (path === '/defaults') return json(this.fx.defaults);
+    if (path === '/usage' || path.startsWith('/usage/')) {
+      if (USAGE_MODE === 'none') {
+        return json(
+          { error: { code: 'not_found', message: `No mock for ${method} ${path}` } },
+          404,
+        );
+      }
+      if (path === '/usage' && method === 'GET') return json(this.fx.planUsage);
+      if (path === '/usage/refresh' && method === 'POST') return this.refreshUsage();
+      if (path === '/usage/settings' && method === 'PUT') {
+        if (!desktop) return deskOnly();
+        const secs = (body as { intervalSecs?: unknown }).intervalSecs;
+        if (typeof secs !== 'number' || !PLAN_INTERVALS.includes(secs)) {
+          return json(
+            {
+              error: {
+                code: 'invalid_interval',
+                message: 'intervalSecs must be 0, 180, 300 or 600.',
+                field: 'intervalSecs',
+              },
+            },
+            422,
+          );
+        }
+        this.setUsage({
+          intervalSecs: secs,
+          nextRefreshAt: secs ? Date.now() + secs * 1000 : undefined,
+        });
+        return json(this.fx.planUsage);
+      }
+    }
     if (path === '/services') {
       return json({
         mcpServers: { github: {}, linear: {}, playwright: {} },
@@ -180,8 +286,18 @@ class FixtureBackend implements MockBackend {
       }
       if (method === 'POST' && sub === 'model' && s) return empty();
       if (method === 'POST' && sub === 'effort' && s) {
-        this.patch(s.id, { effort: String((body as { effort?: string }).effort ?? '') });
+        const effort = String((body as { effort?: string }).effort ?? '');
+        if (!s.owned) {
+          this.patch(s.id, { effort });
+          return empty();
+        }
+        // Like the server: requested now, applied once Claude Code confirms.
+        this.patch(s.id, { effort, effortSource: 'requested' });
+        setTimeout(() => this.patch(s.id, { effortSource: 'applied' }), 1500);
         return empty();
+      }
+      if (method === 'POST' && (sub === 'ultracode' || sub === 'thinking') && s) {
+        return this.setSwitch(s, sub, (body as { enabled?: unknown }).enabled === true);
       }
       if (method === 'POST' && sub === 'rename' && s) {
         this.patch(s.id, { title: String((body as { name?: string }).name ?? s.title) });
@@ -361,6 +477,7 @@ class FixtureBackend implements MockBackend {
     }
     socket.emit({ t: 'hello', v: 2, me: this.me(), serverTime: Date.now() });
     socket.emit({ t: 'sessions', full: true, sessions: this.fx.sessions, seq: this.seq });
+    if (USAGE_MODE !== 'none') socket.emit({ t: 'planUsage', usage: this.fx.planUsage });
     this.ensureTicker();
   }
 
@@ -540,7 +657,135 @@ class FixtureBackend implements MockBackend {
       }
     }
 
+    // The server's scheduled plan-usage read comes due.
+    const u = this.fx.planUsage;
+    const due = !!u.nextRefreshAt && u.nextRefreshAt <= now && !u.refreshing;
+    if (USAGE_MODE !== 'none' && u.available && due) {
+      this.readUsage();
+    }
+
     if (this.tick % 10 === 0) this.broadcast({ t: 'ping' });
+  }
+
+  /** `POST /sessions/{id}/ultracode|thinking`, answered as the server does:
+   * 409 outside live owned sessions (by ownership, not by the caps), 422
+   * with Claude Code's refusal, 409 on a session that takes no control
+   * requests (the SDK sidecar). */
+  private async setSwitch(
+    s: SessionSummary,
+    sub: 'ultracode' | 'thinking',
+    on: boolean,
+  ): Promise<Response> {
+    const what = sub === 'ultracode' ? 'Ultracode' : 'Thinking';
+    if (!s.owned || !s.live) {
+      return json(
+        {
+          error: {
+            code: 'not_supported',
+            message: `${what} can only be switched in a session Mother Claude owns: continue this session here first.`,
+          },
+        },
+        409,
+      );
+    }
+    if (!s.control.setThinking) {
+      return json(
+        {
+          error: {
+            code: 'not_supported',
+            message: 'This session takes no control requests.',
+          },
+        },
+        409,
+      );
+    }
+    await delay(300);
+    if (sub === 'thinking') {
+      const adaptive = s.model?.id !== 'claude-haiku-4-5';
+      this.patch(s.id, {
+        thinking: on
+          ? adaptive
+            ? { mode: 'adaptive', source: 'control' }
+            : { mode: 'on', source: 'control', budget: 31_999 }
+          : { mode: 'off', source: 'control' },
+      });
+      return empty();
+    }
+    // Ultracode: turning it on needs a model and workspace that can run it
+    // (the ones whose caps offer the switch); withdrawing always works.
+    if (on && s.control.setUltracode === false) {
+      return json(
+        {
+          error: {
+            code: 'cli_error',
+            message: "Ultracode isn't available: it needs a model that supports it and workflows.",
+            errorCode: 'ultracode_unavailable',
+          },
+        },
+        422,
+      );
+    }
+    const cur = this.find(s.id) ?? s;
+    // A withdrawn request leaves nothing to switch on this setup.
+    const withdrawn = !on && cur.ultracode === 'unavailable';
+    // Like the server: requested now, applied once Claude Code confirms.
+    this.patch(s.id, {
+      ultracode: on ? 'on' : 'off',
+      ultracodeSource: 'requested',
+      ...(withdrawn ? { control: { ...cur.control, setUltracode: false } } : {}),
+    });
+    setTimeout(() => this.patch(s.id, { ultracodeSource: 'applied' }), 1200);
+    return empty();
+  }
+
+  // ──────────────────────────────────────────────────────── Plan usage
+
+  private refreshUsage(): Response {
+    const since = Date.now() - this.lastUsageRead;
+    if (since < 60_000) {
+      const wait = Math.ceil((60_000 - since) / 1000);
+      return json(
+        { error: { code: 'rate_limited', message: `Try again in ${wait}s.`, retryAfter: wait } },
+        429,
+        { 'retry-after': String(wait) },
+      );
+    }
+    this.setUsage({ refreshing: true });
+    setTimeout(() => this.readUsage(), 1200);
+    return json(this.fx.planUsage, 202);
+  }
+
+  /** A read of the (fake) account: every window (a report from a running
+   * session has only two), the session window creeping up. */
+  private readUsage(): void {
+    const now = Date.now();
+    this.lastUsageRead = now;
+    const u = this.fx.planUsage;
+    const full = this.fullUsage;
+    const windows = full.windows.map((w) => u.windows.find((c) => c.key === w.key) ?? w);
+    this.setUsage({
+      windows: windows.map((w) =>
+        w.key === 'five_hour' ? { ...w, pct: Math.min(100, w.pct + 1) } : w,
+      ),
+      extraUsage: u.extraUsage ?? full.extraUsage,
+      fetchedAt: now,
+      source: 'live',
+      // Every window is this fresh now (the server sends `streamAt` only
+      // while it is newer than `fetchedAt`).
+      streamAt: undefined,
+      refreshing: false,
+      nextRefreshAt: u.intervalSecs ? now + u.intervalSecs * 1000 : undefined,
+      error: undefined,
+    });
+  }
+
+  private setUsage(change: Partial<PlanUsage>): void {
+    const next: PlanUsage = { ...this.fx.planUsage, ...change };
+    for (const k of Object.keys(next) as (keyof PlanUsage)[]) {
+      if (next[k] === undefined) delete next[k];
+    }
+    this.fx.planUsage = next;
+    this.broadcast({ t: 'planUsage', usage: next });
   }
 
   // ───────────────────────────────────────────────────────────── State
@@ -773,6 +1018,9 @@ class FixtureBackend implements MockBackend {
       queued: 0,
       pending: [],
       control: ownedCaps(),
+      ultracode: 'off',
+      ultracodeSource: 'applied',
+      thinking: { mode: 'adaptive', source: 'control' },
       startedAt: now,
       lastActivityAt: now,
     };

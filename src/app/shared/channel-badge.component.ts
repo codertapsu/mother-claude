@@ -2,7 +2,16 @@ import { ChangeDetectionStrategy, Component, computed, input, signal } from '@an
 
 import { ControlCaps, SessionSummary, Surface } from '../core/models';
 import { CapLimitsComponent } from './cap-limits.component';
-import { capAttach, capKeys, capLimits, capRename, capTerminal, capWake } from './caps';
+import {
+  capAttach,
+  capKeys,
+  capLimits,
+  capRename,
+  capTerminal,
+  capThinking,
+  capUltracode,
+  capWake,
+} from './caps';
 import { IconComponent } from './icon.component';
 import { SheetComponent } from './sheet.component';
 import { channelHint, channelLabel, channelTone, surfaceLabel } from './util';
@@ -182,6 +191,8 @@ export class ChannelBadgeComponent {
           c.setMode === 'any' ? 'any time' : c.setMode === 'on-prompt' ? 'with a prompt' : 'no',
       },
       { label: 'Change effort', ok: c.setEffort, value: yes(c.setEffort) },
+      { label: 'Switch ultracode', ok: capUltracode(c), value: yes(capUltracode(c)) },
+      { label: 'Switch thinking', ok: capThinking(c), value: yes(capThinking(c)) },
       { label: 'Slash commands', ok: c.slashCommands, value: yes(c.slashCommands) },
       {
         label: 'Attachments',

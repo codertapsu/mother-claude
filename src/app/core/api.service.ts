@@ -29,6 +29,7 @@ import {
   PairExchangeResult,
   PairPendingStatus,
   PermissionMode,
+  PlanUsage,
   ProjectInfo,
   PushPrefs,
   PushPrefsUpdate,
@@ -78,10 +79,13 @@ import {
  *             getDefaults() · getInbox() · getServices()
  *   Control   spawnSession(body) · sendMessage(id, body) · uploadFile(id, f) ·
  *             cancelQueued(id, messageId) · interrupt(id) · setModel(id, m) ·
- *             setMode(id, mode) · setEffort(id, e) · rename(id, name) ·
+ *             setMode(id, mode) · setEffort(id, e) · setUltracode(id, on) ·
+ *             setThinking(id, on) · rename(id, name) ·
  *             stopTask(id, taskId) · respond(id, body) ·
  *             continueSession(id, body) · sendKey(id, key) ·
  *             lifecycle(id, action)
+ *   Usage     getPlanUsage() · refreshPlanUsage() ·
+ *             setPlanUsageSettings(intervalSecs)
  *   Pairing   createPairCode(req) · exchangePairCode(body) ·
  *             pollPairPending(pendingId, secret) · getMe() · unpairSelf()
  *   Devices   listDevices() · approvePair(id, fingerprint) · denyPair(id) ·
@@ -269,6 +273,17 @@ export class ApiService {
     return this.post(`/sessions/${enc(id)}/effort`, { effort });
   }
 
+  /** Owned sessions: ultracode on or off for the rest of the session (409
+   * `not_supported` elsewhere; 422 with the CLI's refusal). */
+  setUltracode(id: string, enabled: boolean): Promise<void> {
+    return this.post(`/sessions/${enc(id)}/ultracode`, { enabled });
+  }
+
+  /** Owned sessions: thinking on or off (409 `not_supported` elsewhere). */
+  setThinking(id: string, enabled: boolean): Promise<void> {
+    return this.post(`/sessions/${enc(id)}/thinking`, { enabled });
+  }
+
   rename(id: string, name: string): Promise<void> {
     return this.post(`/sessions/${enc(id)}/rename`, { name });
   }
@@ -296,6 +311,25 @@ export class ApiService {
 
   lifecycle(id: string, action: LifecycleAction): Promise<void> {
     return this.post(`/sessions/${enc(id)}/${action}`, {});
+  }
+
+  // ───────────────────────────────────────────────────────── Plan usage
+
+  /** The server's last known plan usage (never triggers a read). */
+  getPlanUsage(): Promise<PlanUsage> {
+    return this.req<PlanUsage>('/usage');
+  }
+
+  /** Ask for a fresh reading now. 202 with the current state (`refreshing`);
+   * the result arrives as a `planUsage` frame. Within a minute of the last
+   * read: 429 with `retryAfter`. */
+  refreshPlanUsage(): Promise<PlanUsage | null> {
+    return this.post('/usage/refresh', {});
+  }
+
+  /** Desktop only: seconds between reads, 0 (manual only), 180, 300 or 600. */
+  setPlanUsageSettings(intervalSecs: number): Promise<PlanUsage | null> {
+    return this.req('/usage/settings', { method: 'PUT', body: JSON.stringify({ intervalSecs }) });
   }
 
   // ────────────────────────────────────────────────────────────── Pairing
@@ -526,13 +560,15 @@ export class ApiService {
     }
     if (!res.ok) {
       const env = parseEnvelope(await res.text().catch(() => ''));
-      const retry = Number(res.headers.get('retry-after'));
+      // The header, else the body's copy (a proxy may drop the header).
+      const header = Number(res.headers.get('retry-after'));
+      const retry = Number.isFinite(header) && header > 0 ? header : env.retryAfter;
       throw new ApiError(
         env.message || `${res.status} ${res.statusText}`.trim(),
         res.status,
         'http',
         env.code,
-        Number.isFinite(retry) && retry > 0 ? retry : undefined,
+        retry,
         env.field,
       );
     }
@@ -675,18 +711,31 @@ async function readJson(res: Response): Promise<unknown> {
 }
 
 /** `{"error":{"code","message","field"}}`, `{"error":"…"}`, `{"message":"…"}` or text. */
-function parseEnvelope(text: string): { code?: string; message?: string; field?: string } {
+function parseEnvelope(text: string): {
+  code?: string;
+  message?: string;
+  field?: string;
+  retryAfter?: number;
+} {
   const trimmed = text.trim();
   if (!trimmed) return {};
   try {
     const body = JSON.parse(trimmed) as {
-      error?: string | { code?: string; message?: string; field?: string };
+      error?: string | { code?: string; message?: string; field?: string; retryAfter?: unknown };
       message?: string;
       code?: string;
     };
     if (typeof body.error === 'string') return { message: body.error, code: body.code };
     if (body.error && typeof body.error === 'object') {
-      return { code: body.error.code, message: body.error.message, field: body.error.field };
+      const retry = body.error.retryAfter;
+      return {
+        code: body.error.code,
+        message: body.error.message,
+        field: body.error.field,
+        ...(typeof retry === 'number' && Number.isFinite(retry) && retry > 0
+          ? { retryAfter: retry }
+          : {}),
+      };
     }
     if (typeof body.message === 'string') return { message: body.message, code: body.code };
   } catch {

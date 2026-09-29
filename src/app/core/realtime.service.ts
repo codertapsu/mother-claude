@@ -1,4 +1,13 @@
-import { DestroyRef, Injectable, NgZone, Signal, computed, inject, signal } from '@angular/core';
+import {
+  DestroyRef,
+  Injectable,
+  NgZone,
+  Signal,
+  computed,
+  inject,
+  signal,
+  untracked,
+} from '@angular/core';
 import { Observable, Subject } from 'rxjs';
 
 import { ApiError, ApiService } from './api.service';
@@ -15,6 +24,7 @@ import {
   PendingFrame,
   PendingRef,
   PendingResolvedFrame,
+  PlanUsage,
   ServerFrame,
   SessionSummary,
   SessionsDiffFrame,
@@ -23,6 +33,8 @@ import {
   TranscriptFrame,
   TranscriptResetFrame,
 } from './models';
+import { NowService } from './now.service';
+import { normalizePlanUsage } from './plan-usage';
 import { TranscriptStore, TranscriptStoreOptions } from './transcript-store';
 
 /**
@@ -111,6 +123,9 @@ const POLL_HIDDEN_MS = 15_000;
 const TRANSCRIPT_POLL_MS = 2_000;
 /** While limited, try the socket again this often. */
 const WS_RETRY_LIMITED_MS = 60_000;
+/** While limited, fetch the plan usage at most this often (the server reads
+ * the account itself; this only copies its last answer). */
+const USAGE_POLL_MS = 5 * 60_000;
 /** States a frame on an authed socket proves wrong. */
 const RESTORABLE: ReadonlySet<ConnectionState> = new Set<ConnectionState>([
   'connecting',
@@ -144,6 +159,9 @@ function subKey(session: string, agent?: string): string {
  * - `pendingItems`     every pending preview across the store (with its
  *                      session id), oldest first. Full items: PendingService.
  * - `session(id)`      a signal of one session from the store.
+ * - `planUsage`        the Claude plan's usage (account-wide): `planUsage`
+ *                      frames, or `GET /usage` at most every 5 min while
+ *                      Limited; null until known (or on an older server).
  *
  * Streams (RxJS; one emission per frame, never coalesced):
  * - `hello$`, `sessions$`, `transcript$`, `transcriptReset$`, `stream$`,
@@ -163,8 +181,9 @@ function subKey(session: string, agent?: string): string {
  * Polling fallback: after 3 socket attempts that never reached `hello`, if
  * REST `GET /me` works and this is not a tunnel client (polling would burn a
  * free tunnel's request quota), the service switches to `limited`: it polls
- * `/sessions` (ETag) and `/inbox` every 3 s (15 s hidden), ticks `pollTick$`
- * for open transcripts, and retries the socket every 60 s.
+ * `/sessions` (ETag) and `/inbox` every 3 s (15 s hidden) and `/usage` every
+ * 5 min, ticks `pollTick$` for open transcripts, and retries the socket
+ * every 60 s.
  */
 @Injectable({ providedIn: 'root' })
 export class RealtimeService {
@@ -172,6 +191,7 @@ export class RealtimeService {
   private auth = inject(AuthService);
   private api = inject(ApiService);
   private zone = inject(NgZone);
+  private clock = inject(NowService);
 
   private readonly connectionS = signal<ConnectionState>('idle');
   readonly connection = this.connectionS.asReadonly();
@@ -190,6 +210,18 @@ export class RealtimeService {
       .flatMap((s) => (s.pending ?? []).map((p) => ({ ...p, sessionId: s.id })))
       .sort((a, b) => a.createdAt - b.createdAt),
   );
+
+  private readonly planUsageS = signal<PlanUsage | null>(null);
+  readonly planUsage = this.planUsageS.asReadonly();
+  private readonly planUsageAtS = signal(0);
+  /** When the plan usage's current numbers (its `fetchedAt`) reached this
+   * device, on the shared clock ({@link NowService}); 0 before any. Stamped
+   * on arrival, whether or not a view shows them. */
+  readonly planUsageReceivedAt = this.planUsageAtS.asReadonly();
+  /** `planUsage` frames applied so far: a REST copy requested before the
+   * latest frame is older than it (see {@link mergePlanUsage}). */
+  private planUsageFrames = 0;
+  private lastUsagePollAt = 0;
 
   private readonly helloS = new Subject<HelloFrame>();
   private readonly sessionsS = new Subject<SessionsFrame>();
@@ -303,6 +335,37 @@ export class RealtimeService {
     if (this.connectionS() === 'open') return;
     if (!s?.id || !this.store().has(s.id)) return;
     this.store.update((prev) => new Map(prev).set(s.id, s));
+  }
+
+  /** Take before a plan-usage REST request; pass to {@link mergePlanUsage}. */
+  planUsageMark(): number {
+    return this.planUsageFrames;
+  }
+
+  /** Apply a REST copy of the plan usage (`GET /usage`, or the answer to a
+   * refresh or a settings change). A `planUsage` frame that arrived after
+   * `mark` was taken is at least as new, so the copy is then dropped.
+   * Returns whether it was applied. */
+  mergePlanUsage(raw: PlanUsage | null | undefined, mark = this.planUsageFrames): boolean {
+    const u = normalizePlanUsage(raw);
+    if (!u || mark !== this.planUsageFrames) return false;
+    this.setPlanUsage(u);
+    return true;
+  }
+
+  /** Change a few fields of the known plan usage in place (e.g. the
+   * interval the server just accepted). */
+  patchPlanUsage(change: Partial<PlanUsage>): void {
+    const cur = untracked(this.planUsageS);
+    if (cur) this.setPlanUsage({ ...cur, ...change });
+  }
+
+  /** Keep the plan usage, noting when new numbers arrived. */
+  private setPlanUsage(u: PlanUsage): void {
+    untracked(() => {
+      if (this.planUsageS()?.fetchedAt !== u.fetchedAt) this.planUsageAtS.set(this.clock.now());
+      this.planUsageS.set(u);
+    });
   }
 
   /** Ref-counted `sub`; call the returned function to release it. */
@@ -604,6 +667,10 @@ export class RealtimeService {
       this.lastDataAtS.set(Date.now());
       const inbox = await this.api.getInbox();
       for (const item of inbox.items ?? []) this.pendingS.next({ t: 'pending', item });
+      if (Date.now() - this.lastUsagePollAt >= USAGE_POLL_MS) {
+        this.lastUsagePollAt = Date.now();
+        void this.pollPlanUsage();
+      }
     } catch (e) {
       if (e instanceof ApiError && e.kind === 'network') {
         // REST is gone too; the socket retry decides what comes next.
@@ -620,6 +687,17 @@ export class RealtimeService {
     const wait = document.visibilityState === 'visible' ? POLL_VISIBLE_MS : POLL_HIDDEN_MS;
     clearTimeout(this.pollTimer);
     this.pollTimer = setTimeout(() => void this.pollOnce(), wait);
+  }
+
+  /** Copy the server's plan usage (Limited only; never on the 3 s loop). */
+  private async pollPlanUsage(): Promise<void> {
+    const mark = this.planUsageFrames;
+    try {
+      this.mergePlanUsage(await this.api.getPlanUsage(), mark);
+    } catch {
+      // An older server has no /usage (the UI stays hidden); a network
+      // failure is the sessions poll's business.
+    }
   }
 
   // ───────────────────────────────────────────────────────────── Frames
@@ -664,6 +742,14 @@ export class RealtimeService {
       case 'fleet':
         this.fleetS.next(frame);
         break;
+      case 'planUsage': {
+        const usage = normalizePlanUsage(frame.usage);
+        if (usage) {
+          this.planUsageFrames += 1;
+          this.setPlanUsage(usage);
+        }
+        break;
+      }
       case 'notice':
         this.noticeS.next(frame);
         break;

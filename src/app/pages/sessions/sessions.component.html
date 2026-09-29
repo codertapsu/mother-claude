@@ -5,7 +5,7 @@
     <a class="btn primary" routerLink="/new"><mc-icon name="plus" [size]="16" /> New session</a>
   </div>
 
-  @if (loaded() && all().length) {
+  @if (loaded()) {
     <mc-fleet-summary (filter)="setFilter($event)" />
   }
 

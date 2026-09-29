@@ -128,6 +128,12 @@ export interface ControlCaps {
   /** An idle session can be woken to take a message now (else it waits
    * for its next stopping point). */
   wake: boolean;
+  /** Ultracode can be switched on and off from here (live owned sessions
+   * whose model and workspace can run it). Absent on older servers. */
+  setUltracode?: boolean;
+  /** Thinking can be switched on and off from here (live owned sessions).
+   * Absent on older servers. */
+  setThinking?: boolean;
   /** What doesn't work, why, and the fix. */
   limits: CapLimit[];
   /** @deprecated pre-amendment free-text notes; read via capLimits(). */
@@ -152,6 +158,46 @@ export interface SessionError {
   at: number;
 }
 
+/** Where a session's `effort` came from:
+ * - `applied`   what Claude Code resolved and sends (owned sessions);
+ * - `observed`  the effort of the latest request (transcript or hooks);
+ * - `requested` what Mother Claude asked for, not confirmed yet (owned);
+ * - `launch`    the `--effort` flag the process was started with. */
+export type EffortSource = 'applied' | 'observed' | 'requested' | 'launch';
+
+/** `unavailable`: requested, but the model or workspace can't run it. */
+export type UltracodeState = 'on' | 'off' | 'unavailable';
+
+/** Where `ultracode` came from: Claude Code's resolved settings (owned),
+ * the transcript as of the last message sent (Claude Code notes ultracode
+ * only then), the launch flags, or what Mother Claude asked an owned session
+ * for and Claude Code hasn't confirmed yet (after a switch, or a model change
+ * it may not run with). */
+export type UltracodeSource = 'applied' | 'transcript' | 'launch' | 'requested';
+
+/** Why `ultracode` is not known:
+ * - `no-prompt`   no message sent yet (Claude Code notes it only then);
+ * - `restarted`   the session restarted since its last message: a restart
+ *                 turns ultracode off (VS Code doesn't switch it back on), so
+ *                 `ultracodeBefore` is only what it was before;
+ * - `reading`     the session's history is still being read;
+ * - `compacted`   a manual `/compact` hid what Claude Code noted;
+ * - `unsupported` the session's Claude Code version doesn't note it. */
+export type UltracodeUnknown = 'no-prompt' | 'restarted' | 'reading' | 'compacted' | 'unsupported';
+
+/** A session's thinking setting. Nothing in Claude Code reports it back, so
+ * `source` says how it is known:
+ * - `control`  what Mother Claude set (owned sessions);
+ * - `launch`   the process's launch flags (VS Code and the terminal can
+ *              switch it later without anyone seeing);
+ * - `default`  Claude Code's default for the model and the user's settings. */
+export interface ThinkingState {
+  mode: 'adaptive' | 'on' | 'off';
+  source: 'control' | 'launch' | 'default';
+  /** Token budget (`on`; adaptive models ignore it). */
+  budget?: number;
+}
+
 export interface SessionSummary {
   id: string;
   name: string;
@@ -167,7 +213,27 @@ export interface SessionSummary {
   waitingFor?: string;
   activity: Activity;
   model?: ModelRef;
+  /** The best-known effort level (`low`…`max`; see `effortSource`). */
   effort?: string;
+  effortSource?: EffortSource;
+  /** Absent = unknown (see `ultracodeUnknown`). */
+  ultracode?: UltracodeState;
+  ultracodeSource?: UltracodeSource;
+  /** `transcript`: when the last message was sent (ms); the value holds as
+   * of then. */
+  ultracodeAt?: number;
+  /** Why `ultracode` is unknown (absent when it is known; older servers
+   * never send it). */
+  ultracodeUnknown?: UltracodeUnknown;
+  /** `restarted`: the value as of the last message before the restart, and
+   * when that was (ms). */
+  ultracodeBefore?: 'on' | 'off';
+  ultracodeBeforeAt?: number;
+  thinking?: ThinkingState;
+  /** The last thinking block in the main transcript (ms). */
+  lastThinkingAt?: number;
+  /** True only when fast mode was seen on the latest request, or applied. */
+  fast?: boolean;
   permissionMode?: string;
   gitBranch?: string;
   prLink?: PrLink;
@@ -199,6 +265,14 @@ export interface SessionSummary {
   lastError?: SessionError;
   remoteControl?: boolean;
   control: ControlCaps;
+  /** `costUsd` is an estimate: some usage ran in another speed tier or had
+   * no known price. */
+  costEstimated?: boolean;
+  /** Lifetime usage and cost are still being counted (a live transcript was
+   * read from its tail first; the full pass runs in the background). */
+  usagePartial?: boolean;
+  /** The CLI's own session name (pidfile `name`). */
+  cliName?: string;
 }
 
 // ─────────────────────────────────────────── 4.2 Pending items & responding
@@ -510,6 +584,63 @@ export interface FleetSummary {
 export interface Fleet {
   sessions: FleetSession[];
   summary?: FleetSummary;
+}
+
+// ───────────────────── Plan usage (`GET /usage`, the `planUsage` frame)
+
+export type PlanSeverity = 'normal' | 'warning' | 'critical';
+
+/** One usage window of the Claude plan ("Current session", "Weekly · all
+ * models", …), in display order. */
+export interface PlanWindow {
+  key: string;
+  label: string;
+  /** Percent used, 0–100 (can pass 100 over the limit). */
+  pct: number;
+  /** When the window starts over (ms). Past ⇒ it has reset: 0 %. */
+  resetsAt?: number;
+  severity?: PlanSeverity;
+}
+
+/** Pay-as-you-go usage beyond the plan. Amounts are in minor units. */
+export interface PlanExtraUsage {
+  enabled: boolean;
+  usedMinor: number;
+  limitMinor?: number;
+  /** ISO 4217 code; absent when Claude Code sent none (or something else):
+   * the amounts then have no known currency. */
+  currency?: string;
+  /** Decimal places of the minor unit (2 for USD). */
+  decimals: number;
+  /** 0–100. */
+  utilization?: number;
+}
+
+/** The signed-in Claude account's plan usage (account-wide: every session
+ * shares it). `available: false` ⇒ there is none to show (an API key, a
+ * cloud provider, or a sign-in without the profile scope): hide the UI. */
+export interface PlanUsage {
+  available: boolean;
+  windows: PlanWindow[];
+  extraUsage?: PlanExtraUsage;
+  /** When the shown numbers were produced (ms). */
+  fetchedAt?: number;
+  /** `live` a read of the account, `stream` a running session's report,
+   * `cache` Claude Code's own last reading. */
+  source?: 'live' | 'stream' | 'cache';
+  /** A running session updated the 5-hour and weekly windows since (ms);
+   * the other windows and extra usage are as of `fetchedAt`. */
+  streamAt?: number;
+  refreshing: boolean;
+  /** The next scheduled read, the 30-minute one while nothing is active
+   * included (absent: manual only, no dashboard connected live, or no plan
+   * usage; older servers also leave it out while nothing is active). */
+  nextRefreshAt?: number;
+  /** Seconds between reads while a session is active: 0 (manual only),
+   * 180, 300 (default) or 600. */
+  intervalSecs: number;
+  /** The last failure, one short sentence. */
+  error?: string;
 }
 
 /** `GET /sessions/{id}/mcp` (owned sessions). */
@@ -991,6 +1122,13 @@ export interface FleetFrame {
   summary?: FleetSummary;
 }
 
+/** The plan usage changed (also sent right after the full `sessions` frame
+ * on connect). */
+export interface PlanUsageFrame {
+  t: 'planUsage';
+  usage: PlanUsage;
+}
+
 export interface NoticeFrame {
   t: 'notice';
   level: 'info' | 'success' | 'warning' | 'error' | string;
@@ -1032,6 +1170,7 @@ export type ServerFrame =
   | PendingResolvedFrame
   | AgentsFrame
   | FleetFrame
+  | PlanUsageFrame
   | NoticeFrame
   | DevicesFrame
   | PairRequestFrame
@@ -1066,6 +1205,9 @@ export interface LaunchDefaults {
   effort?: string;
   models: ModelOption[];
   efforts?: string[];
+  /** The user's `alwaysThinkingEnabled` setting (`false` turns thinking off
+   * by default); null or absent when it isn't set. */
+  alwaysThinkingEnabled?: boolean | null;
 }
 
 /** Launch/continue overrides; unset = the user's own Claude settings. */

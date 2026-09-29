@@ -123,6 +123,69 @@
     </div>
   </section>
 
+  <!-- ─────────────── Plan usage ─────────────── -->
+  @if (plan.usage(); as u) {
+    <h2>Plan usage</h2>
+    <section class="card">
+      <div class="list">
+        <div class="list-row plan-row">
+          <mc-icon name="gauge" />
+          <div class="grow">
+            @if (isDesktop()) {
+              <label for="plan-interval"><strong>Plan usage refresh</strong></label>
+            } @else {
+              <strong>Plan usage refresh</strong>
+            }
+            <span class="muted small"
+              >How often the Mac reads your Claude plan's usage while a dashboard is open and a
+              session is active.</span
+            >
+          </div>
+          @if (isDesktop()) {
+            <select
+              id="plan-interval"
+              class="plan-select"
+              [disabled]="planSaving()"
+              (change)="setPlanInterval($event)"
+            >
+              @for (o of planIntervals; track o.secs) {
+                <option [value]="o.secs" [selected]="o.secs === u.intervalSecs">
+                  {{ o.label }}
+                </option>
+              }
+              @if (!knownInterval()) {
+                <option [value]="u.intervalSecs" [selected]="true">
+                  {{ planIntervalLabel(u.intervalSecs) }}
+                </option>
+              }
+            </select>
+          } @else {
+            <span class="plan-value">{{ planIntervalLabel(u.intervalSecs) }}</span>
+          }
+        </div>
+      </div>
+      <p class="muted small plan-why">
+        Why 5 min: usage moves only a few points in that time and sessions started here report it
+        for free.
+        @if (u.intervalSecs > 0) {
+          While nothing is active it checks only every 30 min.
+        } @else {
+          Automatic checks are off: it is read when you tap Refresh, and by a session started here
+          when a dashboard connects or a limit is hit.
+        }
+      </p>
+      @if (!isDesktop()) {
+        <p class="muted small plan-why">Change it in the desktop app.</p>
+      }
+      @if (!u.available) {
+        <p class="muted small plan-why">
+          This Claude account has no plan usage to show (an API key or a cloud provider has no plan
+          limits).
+        </p>
+      }
+    </section>
+  }
+
   <!-- ─────────────── Connection ─────────────── -->
   <h2>Connection</h2>
   <section class="card">

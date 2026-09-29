@@ -36,6 +36,30 @@ section.card {
   flex-direction: row;
 }
 
+.plan-row mc-icon {
+  color: var(--accent-text);
+}
+.plan-select {
+  width: auto;
+  flex: 0 0 auto;
+}
+.plan-value {
+  white-space: nowrap;
+  font-size: 0.875rem;
+}
+.plan-why {
+  margin: 0.1rem 0 0.6rem;
+}
+@media (max-width: 480px) {
+  .plan-row {
+    flex-wrap: wrap;
+  }
+  .plan-row .plan-select {
+    flex: 1 1 100%;
+    max-width: none;
+  }
+}
+
 .self-code {
   font-size: 1.5rem;
   letter-spacing: 0.12em;

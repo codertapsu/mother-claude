@@ -9,7 +9,8 @@ import { RealtimeService } from '../../core/realtime.service';
 import { FleetSummaryComponent } from '../../shared/fleet-summary.component';
 import { IconComponent } from '../../shared/icon.component';
 import { SessionCardComponent } from '../../shared/session-card.component';
-import { surfaceLabel } from '../../shared/util';
+import { thinkingChip } from '../../shared/session-settings';
+import { effortLabel, effortShortLabel, surfaceLabel } from '../../shared/util';
 
 type Filter = 'live' | 'needs' | 'all';
 
@@ -81,19 +82,7 @@ export class SessionsComponent {
     return (s: SessionSummary): boolean => {
       if (surface && s.surface !== surface) return false;
       if (project && s.projectName !== project) return false;
-      if (!q) return true;
-      return [
-        s.title,
-        s.name,
-        s.projectName,
-        s.cwd,
-        s.gitBranch,
-        s.lastPrompt,
-        s.model?.label,
-        s.id,
-      ]
-        .filter(Boolean)
-        .some((v) => String(v).toLowerCase().includes(q));
+      return !q || sessionMatches(s, q);
     };
   });
 
@@ -193,4 +182,28 @@ function oldestPending(s: SessionSummary): number {
 function readFilter(): Filter {
   const v = storageGet(FILTER_KEY);
   return v === 'live' || v === 'needs' ? v : 'all';
+}
+
+/** The search box: `q` (lower case) appears in anything the card shows
+ * about the session, or in its id, folder or last prompt. */
+export function sessionMatches(s: SessionSummary, q: string): boolean {
+  return [
+    s.title,
+    s.name,
+    s.projectName,
+    s.cwd,
+    s.gitBranch,
+    s.lastPrompt,
+    s.model?.label,
+    s.effort,
+    effortLabel(s.effort),
+    // What the card's chips say ("X-high", "Thinking off").
+    effortShortLabel(s.effort),
+    thinkingChip(s)?.text,
+    s.ultracode === 'on' ? 'ultracode' : '',
+    s.fast ? 'fast' : '',
+    s.id,
+  ]
+    .filter(Boolean)
+    .some((v) => String(v).toLowerCase().includes(q));
 }
