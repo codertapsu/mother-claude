@@ -18,10 +18,11 @@ pub mod pairing;
 pub mod push;
 pub mod remote;
 pub mod uploads;
+pub mod usage;
 
 use axum::extract::{DefaultBodyLimit, FromRequest, Request, State};
 use axum::response::IntoResponse;
-use axum::routing::{delete, get, post};
+use axum::routing::{delete, get, post, put};
 use axum::{Json, Router};
 use serde::de::DeserializeOwned;
 
@@ -115,6 +116,9 @@ pub fn api_router() -> Router<AppState> {
         .route("/sessions/{id}/commands", get(data::commands))
         .route("/projects", get(data::projects))
         .route("/defaults", get(data::defaults))
+        .route("/usage", get(usage::get_usage))
+        .route("/usage/refresh", post(usage::refresh))
+        .route("/usage/settings", put(usage::put_settings))
         .route("/inbox", get(data::inbox))
         .route("/services", get(data::services))
         .route("/daemon", get(data::daemon))
@@ -132,6 +136,8 @@ pub fn api_router() -> Router<AppState> {
         .route("/sessions/{id}/model", post(control::set_model))
         .route("/sessions/{id}/mode", post(control::set_mode))
         .route("/sessions/{id}/effort", post(control::set_effort))
+        .route("/sessions/{id}/ultracode", post(control::set_ultracode))
+        .route("/sessions/{id}/thinking", post(control::set_thinking))
         .route("/sessions/{id}/rename", post(control::rename))
         .route("/sessions/{id}/tasks/{task_id}/stop", post(control::stop_task))
         .route("/sessions/{id}/respond", post(control::respond))

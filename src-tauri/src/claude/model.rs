@@ -271,6 +271,12 @@ pub struct ControlCaps {
     pub attach: AttachCap,
     /// Where approvals are answered from here.
     pub approve_via: ApproveVia,
+    /// Ultracode can be switched here (`POST /sessions/{id}/ultracode`): a
+    /// live owned Path B session whose model and workspace can run it.
+    pub set_ultracode: bool,
+    /// Thinking can be switched here (`POST /sessions/{id}/thinking`): a live
+    /// owned Path B session.
+    pub set_thinking: bool,
     /// Machine-readable limits with the action that lifts each one.
     pub limits: Vec<CapLimit>,
     /// Human-readable reasons/limits for the UI (the `text` of each limit;
@@ -306,6 +312,98 @@ pub struct LastError {
     pub at: i64,
 }
 
+/// Where a session's `effort` comes from (design2 §1).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum EffortSource {
+    /// An owned session's `get_settings.applied.effort`: what the CLI sends.
+    Applied,
+    /// The last main-thread hook report or transcript record.
+    Observed,
+    /// What Mother Claude asked an owned session for (not confirmed yet).
+    Requested,
+    /// The process's `--effort` argument.
+    Launch,
+}
+
+/// A session's ultracode state (absent = unknown).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum UltracodeState {
+    On,
+    Off,
+    /// Requested, but the model or workspace cannot run it (owned only).
+    Unavailable,
+}
+
+/// Why a session's `ultracode` is not known.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum UltracodeUnknown {
+    /// No message sent yet: Claude Code notes ultracode only then.
+    NoPrompt,
+    /// The session restarted since its last message: a restart turns
+    /// ultracode off (VS Code doesn't switch it back on), so what it was
+    /// before (`ultracodeBefore`) says nothing about now.
+    Restarted,
+    /// The transcript is still being read.
+    Reading,
+    /// A manual `/compact` may have hidden what Claude Code noted.
+    Compacted,
+    /// The session's Claude Code version doesn't note ultracode.
+    Unsupported,
+}
+
+/// Where a session's `ultracode` comes from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum UltracodeSource {
+    /// An owned session's `get_settings.applied`.
+    Applied,
+    /// The transcript, as of the last message sent: the marker Claude Code
+    /// wrote after it, or, without one, what its earlier markers said.
+    Transcript,
+    /// The process's `--effort ultracode` / inline `--settings`.
+    Launch,
+    /// What Mother Claude asked an owned session for, not confirmed by the
+    /// CLI yet (after a switch, or a model change that may leave it unable
+    /// to run).
+    Requested,
+}
+
+/// Thinking mode of a session.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ThinkingMode {
+    /// On, the model decides how much (adaptive-capable models).
+    Adaptive,
+    /// On with a token budget (`budget`).
+    On,
+    Off,
+}
+
+/// Where a session's `thinking` comes from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ThinkingSource {
+    /// What Mother Claude set on an owned session (spawn option or toggle).
+    Control,
+    /// The process's launch arguments (later in-app toggles are invisible).
+    Launch,
+    /// The CLI default for the model and the user's `alwaysThinkingEnabled`.
+    Default,
+}
+
+/// A session's thinking setting, with where it comes from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ThinkingInfo {
+    pub mode: ThinkingMode,
+    pub source: ThinkingSource,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub budget: Option<u32>,
+}
+
 /// One row of the session list (design §4.1).
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
@@ -329,8 +427,39 @@ pub struct SessionSummary {
     pub activity: Activity,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub model: Option<ModelInfo>,
+    /// The best-known effort level (see `effort_source`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub effort: Option<String>,
+    /// Where `effort` comes from. `applied` without an `effort`: the CLI
+    /// says the model has no effort levels (Haiku); both absent: unknown.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub effort_source: Option<EffortSource>,
+    /// Absent = unknown (see `ultracode_unknown`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ultracode: Option<UltracodeState>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ultracode_source: Option<UltracodeSource>,
+    /// `transcript`: epoch ms of the last message sent, as of which
+    /// `ultracode` holds.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ultracode_at: Option<i64>,
+    /// Why `ultracode` is unknown (absent when it is known).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ultracode_unknown: Option<UltracodeUnknown>,
+    /// `restarted`: the value as of the last message before the running
+    /// process started, and when that was.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ultracode_before: Option<UltracodeState>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ultracode_before_at: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub thinking: Option<ThinkingInfo>,
+    /// Epoch ms of the last thinking block in the main transcript.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_thinking_at: Option<i64>,
+    /// `Some(true)` only when fast mode was observed or applied.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fast: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub permission_mode: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1116,6 +1245,104 @@ pub struct Me {
     pub client_ip: Option<String>,
 }
 
+// ─────────────────────────── plan usage (design2 §3) ──────────────────────────
+
+/// Where the shown plan usage came from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum PlanUsageSource {
+    /// An active `get_usage` read (through an owned session or the helper).
+    Live,
+    /// An owned session's `rate_limit_event` (5-hour and weekly only).
+    Stream,
+    /// The CLI's own last-known snapshot in `~/.claude.json` (≤ 1 h old).
+    Cache,
+}
+
+/// The CLI's severity of a limit row.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum PlanSeverity {
+    Normal,
+    Warning,
+    Critical,
+}
+
+/// One plan-usage window (5-hour session, weekly, weekly per model).
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PlanWindow {
+    /// Stable id: `five_hour`, `seven_day`, `seven_day_<model>`.
+    pub key: String,
+    pub label: String,
+    /// Percent used, 0–100 (can exceed 100). 0 once `resetsAt` has passed.
+    pub pct: f64,
+    /// Epoch ms the window resets.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub resets_at: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub severity: Option<PlanSeverity>,
+}
+
+/// Paid usage beyond the plan.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct ExtraUsage {
+    pub enabled: bool,
+    /// Used this month, in minor units of `currency` (`decimals` places).
+    pub used_minor: i64,
+    /// Monthly limit in minor units, when one is set.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub limit_minor: Option<i64>,
+    /// ISO 4217 code (`USD`) as the CLI sent it; absent when it sent none
+    /// or something else — amounts then have no known currency.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub currency: Option<String>,
+    pub decimals: u32,
+    /// Percent of the limit used, 0–100.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub utilization: Option<f64>,
+}
+
+/// The claude.ai plan's usage limits (`GET /api/usage`, `planUsage` frame).
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PlanUsage {
+    /// `false`: no claude.ai plan usage (API key, third-party provider, a
+    /// token without the profile scope) — hide the UI.
+    pub available: bool,
+    /// Ordered for display.
+    pub windows: Vec<PlanWindow>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub extra_usage: Option<ExtraUsage>,
+    /// Epoch ms the shown data was produced: the last full read (a live read
+    /// or the CLI's snapshot), or the first stream update when there was
+    /// none yet.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fetched_at: Option<i64>,
+    /// Where `fetched_at`'s data came from (`stream` only for data that
+    /// came from the stream alone).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source: Option<PlanUsageSource>,
+    /// Epoch ms a running owned session last updated the 5-hour and weekly
+    /// windows (`rate_limit_event`), when that is newer than `fetched_at`;
+    /// the other windows and extra usage are as of `fetched_at`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stream_at: Option<i64>,
+    /// An active read is running.
+    pub refreshing: bool,
+    /// Epoch ms of the next scheduled active read, the 30-minute one while
+    /// nothing is active included (absent when reads are manual only,
+    /// nobody is connected, or the account has no plan usage).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_refresh_at: Option<i64>,
+    /// `0` (manual only) | `180` | `300` (default) | `600`.
+    pub interval_secs: u32,
+    /// The last failure, as short human text.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
 /// `GET /api/sessions/{id}/commands` entry.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
@@ -1228,6 +1455,96 @@ mod tests {
         .unwrap();
         assert_eq!(img["ref"], "/r");
         assert_eq!(img["mediaType"], "image/png");
+    }
+
+    #[test]
+    fn session_settings_use_the_contract_names() {
+        let s = SessionSummary {
+            id: "x".into(),
+            effort: Some("max".into()),
+            effort_source: Some(EffortSource::Applied),
+            ultracode: Some(UltracodeState::Unavailable),
+            ultracode_source: Some(UltracodeSource::Applied),
+            ultracode_at: Some(7),
+            thinking: Some(ThinkingInfo {
+                mode: ThinkingMode::On,
+                source: ThinkingSource::Control,
+                budget: Some(31_999),
+            }),
+            last_thinking_at: Some(8),
+            fast: Some(true),
+            control: ControlCaps {
+                set_ultracode: true,
+                set_thinking: true,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let v = serde_json::to_value(&s).unwrap();
+        assert_eq!(v["effort"], "max");
+        assert_eq!(v["effortSource"], "applied");
+        assert_eq!(v["ultracode"], "unavailable");
+        assert_eq!(v["ultracodeSource"], "applied");
+        assert_eq!(v["ultracodeAt"], 7);
+        assert_eq!(
+            v["thinking"],
+            json!({ "mode": "on", "source": "control", "budget": 31_999 })
+        );
+        assert_eq!(v["lastThinkingAt"], 8);
+        assert_eq!(v["fast"], true);
+        assert_eq!(v["control"]["setUltracode"], true);
+        assert_eq!(v["control"]["setThinking"], true);
+        let back: SessionSummary = serde_json::from_value(v).unwrap();
+        assert_eq!(back, s);
+        // Why it is unknown, and what it was before a restart.
+        let restarted = SessionSummary {
+            ultracode_unknown: Some(UltracodeUnknown::Restarted),
+            ultracode_before: Some(UltracodeState::On),
+            ultracode_before_at: Some(9),
+            ..Default::default()
+        };
+        let v = serde_json::to_value(&restarted).unwrap();
+        assert_eq!(v["ultracodeUnknown"], "restarted");
+        assert_eq!(v["ultracodeBefore"], "on");
+        assert_eq!(v["ultracodeBeforeAt"], 9);
+        assert!(v.get("ultracode").is_none());
+        for (e, s) in [
+            (UltracodeUnknown::NoPrompt, "no-prompt"),
+            (UltracodeUnknown::Reading, "reading"),
+            (UltracodeUnknown::Compacted, "compacted"),
+            (UltracodeUnknown::Unsupported, "unsupported"),
+        ] {
+            assert_eq!(json!(e), json!(s));
+        }
+        // Unknown settings are absent, not null.
+        let v = serde_json::to_value(SessionSummary::default()).unwrap();
+        for k in [
+            "effortSource",
+            "ultracode",
+            "ultracodeSource",
+            "ultracodeAt",
+            "ultracodeUnknown",
+            "ultracodeBefore",
+            "ultracodeBeforeAt",
+            "thinking",
+            "lastThinkingAt",
+            "fast",
+        ] {
+            assert!(v.get(k).is_none(), "{k}");
+        }
+        for (e, s) in [
+            (json!(EffortSource::Observed), "observed"),
+            (json!(EffortSource::Requested), "requested"),
+            (json!(EffortSource::Launch), "launch"),
+            (json!(UltracodeSource::Transcript), "transcript"),
+            (json!(UltracodeSource::Requested), "requested"),
+            (json!(ThinkingMode::Adaptive), "adaptive"),
+            (json!(ThinkingSource::Default), "default"),
+            (json!(PlanUsageSource::Cache), "cache"),
+            (json!(PlanSeverity::Critical), "critical"),
+        ] {
+            assert_eq!(e, json!(s));
+        }
     }
 
     #[test]

@@ -56,6 +56,8 @@ struct Hints {
     hook: HookHints,
     /// (mode, epoch ms, source) from hooks / owned control.
     mode: Option<(String, i64)>,
+    /// (effort level, epoch ms) from a main-thread hook payload.
+    effort: Option<(String, i64)>,
 }
 
 /// Live activity hints per session.
@@ -163,11 +165,30 @@ impl ActivityTracker {
         self.lock().get(session_id).and_then(|h| h.mode.clone())
     }
 
+    /// The effort level a main-thread hook payload reported (`effort.level`:
+    /// the level of the current turn, after any silent downgrade). Display
+    /// only; unknown levels are ignored.
+    pub fn note_effort(&self, session_id: &str, level: &str) {
+        if !super::owned::EFFORT_LEVELS.contains(&level) {
+            return;
+        }
+        self.lock()
+            .entry(session_id.to_string())
+            .or_default()
+            .effort = Some((level.to_string(), now_ms()));
+    }
+
+    /// `(effort, epoch ms)` last reported by a main-thread hook.
+    pub fn effort_note(&self, session_id: &str) -> Option<(String, i64)> {
+        self.lock().get(session_id).and_then(|h| h.effort.clone())
+    }
+
     /// Forget a session's live hints (process gone).
     pub fn forget(&self, session_id: &str) {
         if let Some(h) = self.lock().get_mut(session_id) {
             h.owned = None;
             h.hook = HookHints::default();
+            h.effort = None;
         }
     }
 

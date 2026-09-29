@@ -15,6 +15,10 @@
 //!   priced sum; `<synthetic>` records never count.
 //! * [`effective_permission_mode`] is the helper B1/B3/B4 call for bypass
 //!   gating.
+//! * Effort, ultracode, thinking and fast mode come from [`derive_settings`]
+//!   (transcript, main-thread hook reports, the process argv, the user's
+//!   `alwaysThinkingEnabled`), each with its source; an owned session's
+//!   control protocol then wins (`owned::overlay_settings`).
 //!
 //! Everything here is synchronous and in-memory (no disk reads besides the
 //! cheap caches of the index/agents), so the monitor can rebuild every
@@ -24,15 +28,222 @@ use std::collections::{HashMap, HashSet};
 
 use super::activity::{self, PendingLike};
 use super::caps::{self, CapsInput, SessionFacts};
-use super::index::{Aggregates, FileIndex, PendingTool, Totals};
-use super::live::LiveSession;
+use super::index::{notes_ultracode, Aggregates, FileIndex, PendingTool, Totals, UltraUnknown};
+use super::live::{LaunchFlags, LaunchThinking, LiveSession};
 use super::model::{
     Activity, ActivityKind, AgentCounts, BackgroundTask, BackgroundTaskKind, ContextFill,
-    FileChanged, LastError, ModelInfo, PendingItem, PendingKind, PendingPreview, PendingSource,
-    PrLink, SessionDetail, SessionStatus, SessionSummary, Surface, TodoStatus, TodoSummary, Usage,
+    EffortSource, FileChanged, LastError, ModelInfo, PendingItem, PendingKind, PendingPreview,
+    PendingSource, PrLink, SessionDetail, SessionStatus, SessionSummary, Surface, ThinkingInfo,
+    ThinkingMode, ThinkingSource, TodoStatus, TodoSummary, UltracodeSource, UltracodeState,
+    UltracodeUnknown, Usage,
 };
 use super::pricing;
 use crate::state::AppState;
+
+/// Records written this long before a pidfile's `startedAt` still belong to
+/// the process (the same slack the pending-tool and queue filters use).
+const START_SLACK_MS: i64 = 5_000;
+
+/// Everything the effort / ultracode / thinking / fast derivation of a
+/// session looks at (design2 §1). Owned sessions get these from their
+/// control protocol afterwards ([`super::owned::overlay_settings`]).
+#[derive(Debug, Clone, Default)]
+pub struct SettingsFacts<'a> {
+    pub live: bool,
+    /// Start of the live process (pidfile `startedAt`), when known.
+    pub process_started: Option<i64>,
+    pub agg: Option<&'a Aggregates>,
+    /// The main transcript exists but is not read in full yet (not indexed,
+    /// or only its tail).
+    pub transcript_partial: bool,
+    /// `(level, epoch ms)` of the last main-thread hook report.
+    pub hook_effort: Option<(String, i64)>,
+    /// What the live process's argv says.
+    pub launch: Option<LaunchFlags>,
+    /// The user's `alwaysThinkingEnabled`.
+    pub always_thinking: Option<bool>,
+    /// The model the session runs.
+    pub model: Option<&'a str>,
+}
+
+/// A session's derived settings, each with its source.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct SettingsView {
+    pub effort: Option<String>,
+    pub effort_source: Option<EffortSource>,
+    pub ultracode: Option<UltracodeState>,
+    pub ultracode_source: Option<UltracodeSource>,
+    pub ultracode_at: Option<i64>,
+    pub ultracode_unknown: Option<UltracodeUnknown>,
+    pub ultracode_before: Option<UltracodeState>,
+    pub ultracode_before_at: Option<i64>,
+    pub thinking: Option<ThinkingInfo>,
+    pub last_thinking_at: Option<i64>,
+    pub fast: Option<bool>,
+}
+
+/// Whether something recorded at `ts` belongs to the process that started at
+/// `started` (unknown start: yes; unknown time: no).
+fn of_current_process(ts: Option<i64>, started: Option<i64>) -> bool {
+    match (ts, started) {
+        (_, None) => true,
+        (Some(ts), Some(s)) => ts + START_SLACK_MS >= s,
+        (None, Some(_)) => false,
+    }
+}
+
+/// Thinking when nobody set it: off when the user's `alwaysThinkingEnabled`
+/// is false, adaptive on adaptive-capable models, else unknown.
+pub fn default_thinking(
+    always_thinking: Option<bool>,
+    adaptive: Option<bool>,
+) -> Option<ThinkingInfo> {
+    let mode = match (always_thinking, adaptive) {
+        (Some(false), _) => ThinkingMode::Off,
+        (_, Some(true)) => ThinkingMode::Adaptive,
+        _ => return None,
+    };
+    Some(ThinkingInfo {
+        mode,
+        source: ThinkingSource::Default,
+        budget: None,
+    })
+}
+
+/// Effort, ultracode, thinking and fast mode of a session from the files,
+/// hooks and argv (design2 §1):
+///
+/// * effort — the newer of the last main-thread hook report and the last
+///   main-chain transcript record (`observed`; for a live session a record
+///   older than the process yields to its `--effort`), else `--effort`
+///   (`launch`). A newer record sent without effort (a model that has none,
+///   e.g. after `/model haiku`) means no effort — neither an older hook
+///   report nor `--effort` stands in for it;
+/// * ultracode — the state as of the last message sent (`transcript`, dated
+///   to that message): the marker Claude Code wrote after it, or without
+///   one what its markers said until then ([`super::index::UltraReplay`]).
+///   A live session takes only a message of its own process: a restart
+///   turns ultracode off (VS Code doesn't switch it back on), so an earlier
+///   value is only what it was before (`restarted`). Else `--effort
+///   ultracode` / inline `--settings` (`launch`); else unknown, with why;
+/// * thinking (live only) — `--thinking` / `--max-thinking-tokens`
+///   (`launch`), else the default ([`default_thinking`]);
+/// * the last thinking block and fast mode as evidence, for every session.
+pub fn derive_settings(f: &SettingsFacts) -> SettingsView {
+    let mut v = SettingsView::default();
+    let launch = f.launch.as_ref().filter(|_| f.live);
+    let launch_effort = launch.and_then(|l| l.effort.clone());
+
+    // The last main-chain request's effort with its time; `(None, ts)` when
+    // that request carried none.
+    let transcript = f
+        .agg
+        .filter(|a| a.effort.is_some() || a.effort_ts.is_some())
+        .map(|a| (a.effort.clone(), a.effort_ts))
+        .filter(|(_, ts)| {
+            !f.live || launch_effort.is_none() || of_current_process(*ts, f.process_started)
+        });
+    let hook = f.hook_effort.clone().filter(|_| f.live);
+    // A hook report wins only when it is newer than the record (or the
+    // record has no time).
+    let observed: Option<Option<String>> = match (transcript, hook) {
+        (Some((e, ts)), Some((h, at))) => Some(if ts.is_none_or(|ts| at > ts) {
+            Some(h)
+        } else {
+            e
+        }),
+        (Some((e, _)), None) => Some(e),
+        (None, Some((h, _))) => Some(Some(h)),
+        (None, None) => None,
+    };
+    match observed {
+        Some(Some(e)) => {
+            v.effort = Some(e);
+            v.effort_source = Some(EffortSource::Observed);
+        }
+        // The latest request ran without effort: the model has none.
+        Some(None) => {}
+        None => {
+            if let Some(e) = launch_effort {
+                v.effort = Some(e);
+                v.effort_source = Some(EffortSource::Launch);
+            }
+        }
+    }
+
+    let state = |on: bool| {
+        if on {
+            UltracodeState::On
+        } else {
+            UltracodeState::Off
+        }
+    };
+    let latest = f.agg.and_then(|a| a.ultra.state.as_ref());
+    let unknown = match latest {
+        Some(st) if f.live && !of_current_process(st.at, f.process_started) => {
+            v.ultracode_before = st.on.map(state);
+            v.ultracode_before_at = st.at.filter(|_| st.on.is_some());
+            Some(UltracodeUnknown::Restarted)
+        }
+        Some(st) => match st.on {
+            Some(on) => {
+                v.ultracode = Some(state(on));
+                v.ultracode_source = Some(UltracodeSource::Transcript);
+                v.ultracode_at = st.at;
+                None
+            }
+            None => Some(match st.unknown {
+                Some(UltraUnknown::Compacted) => UltracodeUnknown::Compacted,
+                Some(UltraUnknown::Unsupported) => UltracodeUnknown::Unsupported,
+                Some(UltraUnknown::Reading) | None => UltracodeUnknown::Reading,
+            }),
+        },
+        None if f.transcript_partial => Some(UltracodeUnknown::Reading),
+        // A transcript of a version that notes nothing (its prompts may not
+        // even be told apart), else no message yet.
+        None if f
+            .agg
+            .and_then(|a| a.version.as_deref())
+            .is_some_and(|v| !notes_ultracode(v)) =>
+        {
+            Some(UltracodeUnknown::Unsupported)
+        }
+        None => Some(UltracodeUnknown::NoPrompt),
+    };
+    match launch
+        .and_then(|l| l.ultracode)
+        .filter(|_| unknown.is_some())
+    {
+        Some(on) => {
+            v.ultracode = Some(state(on));
+            v.ultracode_source = Some(UltracodeSource::Launch);
+            v.ultracode_before = None;
+            v.ultracode_before_at = None;
+        }
+        None => v.ultracode_unknown = unknown,
+    }
+
+    if f.live {
+        let adaptive = f.model.and_then(pricing::supports_adaptive_thinking);
+        let at_launch = |mode: ThinkingMode, budget: Option<u32>| ThinkingInfo {
+            mode,
+            source: ThinkingSource::Launch,
+            budget,
+        };
+        v.thinking = match launch.and_then(|l| l.thinking) {
+            Some(LaunchThinking::Off) => Some(at_launch(ThinkingMode::Off, None)),
+            Some(LaunchThinking::Adaptive) => Some(at_launch(ThinkingMode::Adaptive, None)),
+            Some(LaunchThinking::Budget(n)) => Some(match adaptive {
+                Some(true) => at_launch(ThinkingMode::Adaptive, None),
+                _ => at_launch(ThinkingMode::On, Some(n)),
+            }),
+            None => default_thinking(f.always_thinking, adaptive),
+        };
+    }
+    v.last_thinking_at = f.agg.and_then(|a| a.last_thinking_ts);
+    v.fast = f.agg.filter(|a| a.fast).map(|_| true);
+    v
+}
 
 /// A pidfile tmux target (`session:@win.%pane`), as the CLI's own surface
 /// classifier recognises it.
@@ -746,6 +957,19 @@ pub fn build_one(state: &AppState, id: &str, ctx: &BuildCtx) -> Option<SessionSu
         text: e.text.clone(),
         at: e.at,
     });
+    let settings = derive_settings(&SettingsFacts {
+        live,
+        process_started: process_started.or_else(|| ctx.owned_meta.get(id).map(|(_, t)| *t)),
+        agg,
+        transcript_partial: files.as_ref().is_some_and(|f| f.main.is_some())
+            && main.as_ref().is_none_or(|m| !m.complete),
+        hook_effort: live.then(|| state.activity.effort_note(id)).flatten(),
+        launch: live.then(|| state.live.launch_flags(id)).flatten(),
+        always_thinking: live
+            .then(|| super::settings::always_thinking_enabled(&state.home))
+            .flatten(),
+        model: model_id.as_deref(),
+    });
     let mut summary = SessionSummary {
         id: id.to_string(),
         name,
@@ -764,7 +988,17 @@ pub fn build_one(state: &AppState, id: &str, ctx: &BuildCtx) -> Option<SessionSu
             .and_then(|p| p.waiting_for.clone()),
         activity: act,
         model,
-        effort: agg.and_then(|a| a.effort.clone()),
+        effort: settings.effort,
+        effort_source: settings.effort_source,
+        ultracode: settings.ultracode,
+        ultracode_source: settings.ultracode_source,
+        ultracode_at: settings.ultracode_at,
+        ultracode_unknown: settings.ultracode_unknown,
+        ultracode_before: settings.ultracode_before,
+        ultracode_before_at: settings.ultracode_before_at,
+        thinking: settings.thinking,
+        last_thinking_at: settings.last_thinking_at,
+        fast: settings.fast,
         permission_mode,
         git_branch: agg.and_then(|a| a.git_branch.clone()),
         pr_link: agg.and_then(|a| a.pr_link.as_ref()).map(|p| PrLink {
@@ -809,8 +1043,8 @@ pub fn build_one(state: &AppState, id: &str, ctx: &BuildCtx) -> Option<SessionSu
         cli_name: pid.as_ref().and_then(|p| p.name.clone()),
     };
     if owned_handle {
-        // What the control protocol reported (model, mode, effort, queue,
-        // activity) wins over what the files say.
+        // What the control protocol reported (model, mode, effort,
+        // ultracode, thinking, queue, activity) wins over what the files say.
         super::owned::overlay(state, &mut summary);
     }
     Some(summary)
@@ -1157,6 +1391,461 @@ mod tests {
         assert_eq!(item.tool_name, None);
         assert_eq!(item.detail.as_deref(), Some("Explore the repo"));
         assert_eq!(s.activity.tool, None);
+    }
+
+    /// Aggregates whose last regular prompt (at `at`) says `on`.
+    fn ultra_as_of(on: Option<bool>, at: i64) -> crate::claude::index::UltraReplay {
+        use crate::claude::index::{UltraReplay, UltraSeen, UltraState};
+        UltraReplay {
+            seen: match on {
+                Some(true) => UltraSeen::Enter,
+                Some(false) => UltraSeen::Exit,
+                None => UltraSeen::Compacted,
+            },
+            state: Some(UltraState {
+                on,
+                at: Some(at),
+                unknown: on.is_none().then_some(UltraUnknown::Compacted),
+                ..Default::default()
+            }),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn settings_derivation_precedence() {
+        let agg = Aggregates {
+            effort: Some("xhigh".into()),
+            effort_ts: Some(1_000),
+            ultra: ultra_as_of(Some(true), 1_500),
+            last_thinking_ts: Some(1_200),
+            fast: true,
+            ..Default::default()
+        };
+        // Ended: the transcript only; no thinking state, just the evidence.
+        let v = derive_settings(&SettingsFacts {
+            agg: Some(&agg),
+            launch: Some(LaunchFlags {
+                effort: Some("low".into()),
+                ..Default::default()
+            }),
+            hook_effort: Some(("max".into(), 9_999)),
+            model: Some("claude-opus-5-5"),
+            ..Default::default()
+        });
+        assert_eq!(v.effort.as_deref(), Some("xhigh"));
+        assert_eq!(v.effort_source, Some(EffortSource::Observed));
+        assert_eq!(v.ultracode, Some(UltracodeState::On));
+        assert_eq!(v.ultracode_source, Some(UltracodeSource::Transcript));
+        assert_eq!(v.ultracode_at, Some(1_500));
+        assert_eq!(v.thinking, None);
+        assert_eq!(v.last_thinking_at, Some(1_200));
+        assert_eq!(v.fast, Some(true));
+
+        // Live: the newer of the hook report and the transcript.
+        let live = SettingsFacts {
+            live: true,
+            process_started: Some(500),
+            agg: Some(&agg),
+            model: Some("claude-opus-5-5"),
+            ..Default::default()
+        };
+        let v = derive_settings(&SettingsFacts {
+            hook_effort: Some(("max".into(), 2_000)),
+            ..live.clone()
+        });
+        assert_eq!(v.effort.as_deref(), Some("max"));
+        assert_eq!(v.effort_source, Some(EffortSource::Observed));
+        let v = derive_settings(&SettingsFacts {
+            hook_effort: Some(("max".into(), 900)),
+            ..live.clone()
+        });
+        assert_eq!(v.effort.as_deref(), Some("xhigh"));
+        // `/model haiku`: the newest request went without effort, so an
+        // older hook report of `max` (Haiku's hooks carry none) and the
+        // launch flag no longer stand — the model has no effort.
+        let haiku = Aggregates {
+            effort: None,
+            effort_ts: Some(2_000),
+            ..agg.clone()
+        };
+        let v = derive_settings(&SettingsFacts {
+            agg: Some(&haiku),
+            hook_effort: Some(("max".into(), 1_500)),
+            launch: Some(LaunchFlags {
+                effort: Some("low".into()),
+                ..Default::default()
+            }),
+            ..live.clone()
+        });
+        assert_eq!((v.effort, v.effort_source), (None, None));
+        // Ended, the same.
+        let v = derive_settings(&SettingsFacts {
+            agg: Some(&haiku),
+            ..Default::default()
+        });
+        assert_eq!((v.effort, v.effort_source), (None, None));
+        // Back on a model with effort, a newer hook report shows it.
+        let v = derive_settings(&SettingsFacts {
+            agg: Some(&haiku),
+            hook_effort: Some(("max".into(), 2_500)),
+            ..live.clone()
+        });
+        assert_eq!(v.effort.as_deref(), Some("max"));
+        assert_eq!(v.effort_source, Some(EffortSource::Observed));
+        // Default thinking: adaptive on adaptive-capable models …
+        assert_eq!(
+            v.thinking,
+            Some(ThinkingInfo {
+                mode: ThinkingMode::Adaptive,
+                source: ThinkingSource::Default,
+                budget: None
+            })
+        );
+        // … off when the user turned it off, unknown elsewhere.
+        let v = derive_settings(&SettingsFacts {
+            always_thinking: Some(false),
+            ..live.clone()
+        });
+        assert_eq!(v.thinking.map(|t| t.mode), Some(ThinkingMode::Off));
+        let v = derive_settings(&SettingsFacts {
+            model: Some("claude-haiku-4-5"),
+            ..live.clone()
+        });
+        assert_eq!(v.thinking, None);
+        let v = derive_settings(&SettingsFacts {
+            model: None,
+            ..live.clone()
+        });
+        assert_eq!(v.thinking, None);
+
+        // Launch flags: thinking at launch; a budget is adaptive on
+        // adaptive-capable models, on + budget elsewhere.
+        let flags = |thinking| LaunchFlags {
+            thinking: Some(thinking),
+            ..Default::default()
+        };
+        let v = derive_settings(&SettingsFacts {
+            launch: Some(flags(LaunchThinking::Budget(31_999))),
+            always_thinking: Some(false),
+            ..live.clone()
+        });
+        assert_eq!(
+            v.thinking,
+            Some(ThinkingInfo {
+                mode: ThinkingMode::Adaptive,
+                source: ThinkingSource::Launch,
+                budget: None
+            })
+        );
+        let v = derive_settings(&SettingsFacts {
+            launch: Some(flags(LaunchThinking::Budget(8_000))),
+            model: Some("claude-haiku-4-5"),
+            ..live.clone()
+        });
+        assert_eq!(
+            v.thinking,
+            Some(ThinkingInfo {
+                mode: ThinkingMode::On,
+                source: ThinkingSource::Launch,
+                budget: Some(8_000)
+            })
+        );
+        let v = derive_settings(&SettingsFacts {
+            launch: Some(flags(LaunchThinking::Off)),
+            ..live.clone()
+        });
+        assert_eq!(v.thinking.map(|t| t.mode), Some(ThinkingMode::Off));
+
+        // A resumed session: markers and effort from before this process
+        // yield to what this process was launched with.
+        let resumed = SettingsFacts {
+            process_started: Some(10_000),
+            launch: Some(LaunchFlags {
+                effort: Some("low".into()),
+                ultracode: Some(false),
+                ..Default::default()
+            }),
+            ..live.clone()
+        };
+        let v = derive_settings(&resumed);
+        assert_eq!(v.effort.as_deref(), Some("low"));
+        assert_eq!(v.effort_source, Some(EffortSource::Launch));
+        assert_eq!(v.ultracode, Some(UltracodeState::Off));
+        assert_eq!(v.ultracode_source, Some(UltracodeSource::Launch));
+        assert_eq!(v.ultracode_at, None);
+        assert_eq!(
+            (v.ultracode_unknown, v.ultracode_before),
+            (None, None),
+            "known at launch"
+        );
+        // Without launch flags the value from before the restart says
+        // nothing now (a restart turns ultracode off; VS Code doesn't turn
+        // it back on): unknown until the next message, with what it was.
+        // The old effort is still the last one observed.
+        let v = derive_settings(&SettingsFacts {
+            launch: None,
+            ..resumed.clone()
+        });
+        assert_eq!(v.ultracode, None);
+        assert_eq!(v.ultracode_source, None);
+        assert_eq!(v.ultracode_unknown, Some(UltracodeUnknown::Restarted));
+        assert_eq!(v.ultracode_before, Some(UltracodeState::On));
+        assert_eq!(v.ultracode_before_at, Some(1_500));
+        assert_eq!(v.effort.as_deref(), Some("xhigh"));
+        assert_eq!(v.effort_source, Some(EffortSource::Observed));
+        // A message of this process decides it again — here one that wrote
+        // no marker after the `enter` of the history: still on.
+        let confirmed = Aggregates {
+            ultra: ultra_as_of(Some(true), 12_000),
+            ..agg.clone()
+        };
+        let v = derive_settings(&SettingsFacts {
+            launch: None,
+            agg: Some(&confirmed),
+            ..resumed.clone()
+        });
+        assert_eq!(v.ultracode, Some(UltracodeState::On));
+        assert_eq!(v.ultracode_source, Some(UltracodeSource::Transcript));
+        assert_eq!(v.ultracode_at, Some(12_000));
+        assert_eq!((v.ultracode_unknown, v.ultracode_before), (None, None));
+        // …and it wins over the launch flags.
+        let v = derive_settings(&SettingsFacts {
+            agg: Some(&confirmed),
+            ..resumed.clone()
+        });
+        assert_eq!(v.ultracode_source, Some(UltracodeSource::Transcript));
+        // Within the start slack a message still counts.
+        let v = derive_settings(&SettingsFacts {
+            process_started: Some(6_000),
+            ..resumed
+        });
+        assert_eq!(v.ultracode_source, Some(UltracodeSource::Transcript));
+    }
+
+    #[test]
+    fn unknown_ultracode_says_why() {
+        let derive = |agg: Option<&Aggregates>, live: bool, partial: bool| {
+            derive_settings(&SettingsFacts {
+                live,
+                process_started: Some(500),
+                agg,
+                transcript_partial: partial,
+                ..Default::default()
+            })
+        };
+        // No message yet (a new VS Code conversation has no transcript).
+        let v = derive(None, true, false);
+        assert_eq!(v.ultracode, None);
+        assert_eq!(v.ultracode_unknown, Some(UltracodeUnknown::NoPrompt));
+        let empty = Aggregates::default();
+        assert_eq!(
+            derive(Some(&empty), false, false).ultracode_unknown,
+            Some(UltracodeUnknown::NoPrompt)
+        );
+        // A transcript of a version that notes nothing.
+        let old = Aggregates {
+            version: Some("2.1.200".into()),
+            prompts: 3,
+            ..Default::default()
+        };
+        assert_eq!(
+            derive(Some(&old), false, false).ultracode_unknown,
+            Some(UltracodeUnknown::Unsupported)
+        );
+        // Not read yet.
+        assert_eq!(
+            derive(None, true, true).ultracode_unknown,
+            Some(UltracodeUnknown::Reading)
+        );
+        assert_eq!(
+            derive(Some(&empty), true, true).ultracode_unknown,
+            Some(UltracodeUnknown::Reading)
+        );
+        // A manual `/compact` hid the marker.
+        let compacted = Aggregates {
+            ultra: ultra_as_of(None, 1_000),
+            ..Default::default()
+        };
+        let v = derive(Some(&compacted), true, false);
+        assert_eq!(v.ultracode, None);
+        assert_eq!(v.ultracode_unknown, Some(UltracodeUnknown::Compacted));
+        // An exit (or a message confirming off) is off, not unknown.
+        let off = Aggregates {
+            ultra: ultra_as_of(Some(false), 1_000),
+            ..Default::default()
+        };
+        let v = derive(Some(&off), true, false);
+        assert_eq!(v.ultracode, Some(UltracodeState::Off));
+        assert_eq!(v.ultracode_at, Some(1_000));
+        assert_eq!(v.ultracode_unknown, None);
+        // An ended session keeps its last value, however old.
+        let v = derive_settings(&SettingsFacts {
+            agg: Some(&off),
+            process_started: Some(99_000),
+            ..Default::default()
+        });
+        assert_eq!(v.ultracode, Some(UltracodeState::Off));
+    }
+
+    #[test]
+    fn a_live_session_shows_this_process_settings() {
+        let tmp = tempfile::tempdir().unwrap();
+        let home = crate::claude::ClaudeHome::with_base(tmp.path());
+        let sid = "5f0b9a1e-2c3d-4d4c-9d59-2d2e9c5e3a52";
+        let me = std::process::id();
+        let now = chrono::Utc::now().timestamp_millis();
+        let iso = |ms: i64| {
+            chrono::DateTime::from_timestamp_millis(ms)
+                .unwrap()
+                .to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
+        };
+        let proj = tmp.path().join("projects/-p");
+        std::fs::create_dir_all(&proj).unwrap();
+        // A message sent from VS Code, and the reply that follows its
+        // attachments.
+        let prompt = |ms: i64| {
+            format!(
+                r#"{{"type":"user","timestamp":"{}","version":"2.1.284","origin":{{"kind":"human"}},"promptSource":"sdk","message":{{"role":"user","content":"go on"}}}}"#,
+                iso(ms)
+            )
+        };
+        let reply = |ms: i64| {
+            format!(
+                r#"{{"type":"assistant","timestamp":"{}","effort":"xhigh","message":{{"id":"r{ms}","model":"claude-opus-5-5","content":[{{"type":"text","text":"ok"}}],"usage":{{"input_tokens":1,"output_tokens":1,"speed":"fast"}}}}}}"#,
+                iso(ms)
+            )
+        };
+        let exit = |ms: i64| {
+            format!(
+                r#"{{"type":"attachment","timestamp":"{}","attachment":{{"type":"ultra_effort_exit"}}}}"#,
+                iso(ms)
+            )
+        };
+        let transcript = |marker_ms: i64, after: &[String]| {
+            [
+                format!(
+                    r#"{{"type":"assistant","timestamp":"{}","effort":"xhigh","message":{{"id":"m1","model":"claude-opus-5-5","content":[{{"type":"thinking","thinking":""}},{{"type":"text","text":"hi"}}],"usage":{{"input_tokens":1,"output_tokens":1,"speed":"fast"}}}}}}"#,
+                    iso(now - 120_000)
+                ),
+                format!(
+                    r#"{{"type":"attachment","timestamp":"{}","attachment":{{"type":"ultra_effort_enter","reminderType":"sparse"}}}}"#,
+                    iso(marker_ms)
+                ),
+            ]
+            .iter()
+            .chain(after)
+            .cloned()
+            .collect::<Vec<_>>()
+            .join("\n")
+                + "\n"
+        };
+        let load = |started: i64, session: &str, text: Option<String>| {
+            if let Some(text) = text {
+                std::fs::write(proj.join(format!("{session}.jsonl")), text).unwrap();
+            }
+            std::fs::create_dir_all(tmp.path().join("sessions")).unwrap();
+            std::fs::write(
+                tmp.path().join(format!("sessions/{me}.json")),
+                format!(
+                    r#"{{"pid":{me},"sessionId":"{session}","cwd":"/p","startedAt":{started},"status":"idle"}}"#
+                ),
+            )
+            .unwrap();
+            let state = crate::state::Inner::new(
+                home.clone(),
+                crate::state::ServerConfig {
+                    host: "127.0.0.1".into(),
+                    port: 0,
+                },
+                crate::server::auth::Auth::ephemeral(),
+            );
+            state.live.refresh(&home);
+            state.index.discover(&home);
+            state.index.queue_all();
+            state.index.drain_jobs_blocking();
+            state
+        };
+        let ctx = BuildCtx {
+            now,
+            ..Default::default()
+        };
+        // The marker was written by this process.
+        let state = load(now - 60_000, sid, Some(transcript(now - 30_000, &[])));
+        let s = build_one(&state, sid, &ctx).unwrap();
+        assert!(s.live);
+        assert_eq!(s.effort.as_deref(), Some("xhigh"));
+        assert_eq!(s.effort_source, Some(EffortSource::Observed));
+        assert_eq!(s.ultracode, Some(UltracodeState::On));
+        assert_eq!(s.ultracode_source, Some(UltracodeSource::Transcript));
+        assert_eq!(s.ultracode_at, Some(now - 30_000));
+        assert_eq!(s.ultracode_unknown, None);
+        assert_eq!(s.fast, Some(true));
+        assert_eq!(s.last_thinking_at, Some(now - 120_000));
+        assert_eq!(
+            s.thinking.map(|t| (t.mode, t.source)),
+            Some((ThinkingMode::Adaptive, ThinkingSource::Default))
+        );
+        // A hook report newer than the transcript wins.
+        state.activity.note_effort(sid, "max");
+        let s = build_one(&state, sid, &ctx).unwrap();
+        assert_eq!(s.effort.as_deref(), Some("max"));
+        // Resumed by a newer process, no message since: what it was before
+        // the restart, not what it is.
+        let state = load(now - 10_000, sid, Some(transcript(now - 30_000, &[])));
+        let s = build_one(&state, sid, &ctx).unwrap();
+        assert_eq!(s.ultracode, None);
+        assert_eq!(s.ultracode_at, None);
+        assert_eq!(s.ultracode_unknown, Some(UltracodeUnknown::Restarted));
+        assert_eq!(s.ultracode_before, Some(UltracodeState::On));
+        assert_eq!(s.ultracode_before_at, Some(now - 30_000));
+        // A message after the restart that wrote no marker: switched back on
+        // (Claude Code sees the `enter` of its history and notes nothing).
+        let after = [prompt(now - 5_000), reply(now - 4_000)];
+        let state = load(now - 10_000, sid, Some(transcript(now - 30_000, &after)));
+        let s = build_one(&state, sid, &ctx).unwrap();
+        assert_eq!(s.ultracode, Some(UltracodeState::On));
+        assert_eq!(s.ultracode_source, Some(UltracodeSource::Transcript));
+        assert_eq!(s.ultracode_at, Some(now - 5_000));
+        assert_eq!(
+            (s.ultracode_unknown, s.ultracode_before),
+            (None, None),
+            "known again"
+        );
+        // One that got an `exit`: left off after the restart.
+        let after = [prompt(now - 5_000), exit(now - 5_000), reply(now - 4_000)];
+        let state = load(now - 10_000, sid, Some(transcript(now - 30_000, &after)));
+        let s = build_one(&state, sid, &ctx).unwrap();
+        assert_eq!(s.ultracode, Some(UltracodeState::Off));
+        assert_eq!(s.ultracode_at, Some(now - 5_000));
+        // The contract names.
+        let v = serde_json::to_value(build_one(
+            &load(now - 60_000, sid, Some(transcript(now - 30_000, &[]))),
+            sid,
+            &ctx,
+        ))
+        .unwrap();
+        assert_eq!(v["effortSource"], "observed");
+        assert_eq!(v["ultracode"], "on");
+        assert_eq!(v["ultracodeSource"], "transcript");
+        assert_eq!(v["ultracodeAt"], now - 30_000);
+        assert!(v.get("ultracodeUnknown").is_none());
+        assert_eq!(v["thinking"]["mode"], "adaptive");
+        assert_eq!(v["thinking"]["source"], "default");
+        assert!(v["thinking"].get("budget").is_none());
+        assert_eq!(v["lastThinkingAt"], now - 120_000);
+        assert_eq!(v["fast"], true);
+        assert_eq!(v["control"]["setUltracode"], false);
+        assert_eq!(v["control"]["setThinking"], false);
+        // A new conversation: no transcript until the first message.
+        let fresh = "7c2d0b3e-4f5a-4b6c-8d7e-9f0a1b2c3d4e";
+        let state = load(now - 10_000, fresh, None);
+        let s = build_one(&state, fresh, &ctx).unwrap();
+        assert!(s.live);
+        assert_eq!(s.ultracode, None);
+        assert_eq!(s.ultracode_unknown, Some(UltracodeUnknown::NoPrompt));
+        let v = serde_json::to_value(&s).unwrap();
+        assert_eq!(v["ultracodeUnknown"], "no-prompt");
     }
 
     #[test]

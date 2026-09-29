@@ -16,10 +16,12 @@ use std::time::Duration;
 use axum::http::HeaderMap;
 use base64::Engine as _;
 use mother_claude_lib::claude::model::{
-    Delivery, ImageInput, PendingKind, PendingOutcome, PendingSource, ResolverKind, SessionSummary,
-    StreamKind,
+    Delivery, EffortSource, ImageInput, PendingKind, PendingOutcome, PendingSource,
+    PlanUsageSource, ResolverKind, SessionSummary, StreamKind, ThinkingInfo, ThinkingMode,
+    ThinkingSource, UltracodeSource, UltracodeState,
 };
 use mother_claude_lib::claude::owned::{self, Caller, ContinueRequest, SpawnRequest};
+use mother_claude_lib::claude::usage;
 use mother_claude_lib::claude::ClaudeHome;
 use mother_claude_lib::pending::{self, Decision, RespondError};
 use mother_claude_lib::server::auth::Auth;
@@ -604,6 +606,174 @@ async fn live_control_requests_and_cli_errors() {
     );
 }
 
+/// The control requests (bodies) the fake received.
+fn requests(f: &Fixture) -> Vec<Value> {
+    f.received()
+        .into_iter()
+        .filter(|l| l["type"] == "control_request")
+        .map(|l| l["request"].clone())
+        .collect()
+}
+
+async fn session(st: &AppState, id: &str) -> SessionSummary {
+    st.find_session(id).await.unwrap()
+}
+
+#[tokio::test]
+async fn settings_are_read_back_and_switched_without_slash_commands() {
+    let f = Fixture::new();
+    let id = f
+        .spawn(
+            MAC,
+            SpawnRequest {
+                prompt: Some("hello".into()),
+                model: Some("opus".into()),
+                effort: Some("max".into()),
+                thinking: Some("off".into()),
+                ..Default::default()
+            },
+        )
+        .await;
+    wait_turn_done(&f.st, &id).await;
+    assert_eq!(f.log()[0]["env"]["MAX_THINKING_TOKENS"], "0");
+    // `get_settings` follows `initialize`: what the CLI really applies.
+    wait_for("the applied settings", || {
+        owned::live_state(&f.st, &id).is_some_and(|l| l.applied.is_some())
+    })
+    .await;
+    let mut s = session(&f.st, &id).await;
+    for _ in 0..100 {
+        if s.effort_source == Some(EffortSource::Applied) {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        s = session(&f.st, &id).await;
+    }
+    assert_eq!(s.effort.as_deref(), Some("max"));
+    assert_eq!(s.effort_source, Some(EffortSource::Applied));
+    assert_eq!(s.ultracode, Some(UltracodeState::Off));
+    assert_eq!(s.ultracode_source, Some(UltracodeSource::Applied));
+    assert_eq!(
+        s.thinking,
+        Some(ThinkingInfo {
+            mode: ThinkingMode::Off,
+            source: ThinkingSource::Control,
+            budget: None
+        })
+    );
+    assert!(s.control.set_thinking && s.control.set_ultracode);
+
+    // A model without `max` runs it as `high`, as the CLI applies it…
+    owned::set_model(&f.st, &id, "sonnet").await.unwrap();
+    let s = session(&f.st, &id).await;
+    assert_eq!(s.effort.as_deref(), Some("high"));
+    assert_eq!(s.effort_source, Some(EffortSource::Applied));
+    // …and the ultracode switch sends its key alone: the reduced level is
+    // never pinned over the `max` asked for.
+    owned::set_ultracode(&f.st, &id, true).await.unwrap();
+    assert!(
+        requests(&f).contains(&json!({ "subtype": "apply_flag_settings",
+        "settings": { "ultracode": true } }))
+    );
+    // This model cannot run it: requested but unavailable, and the switch
+    // stays to withdraw it.
+    let s = session(&f.st, &id).await;
+    assert_eq!(s.ultracode, Some(UltracodeState::Unavailable));
+    assert_eq!(s.ultracode_source, Some(UltracodeSource::Applied));
+    assert!(s.control.set_ultracode);
+    // Back on a model with both: max again, ultracode on.
+    owned::set_model(&f.st, &id, "opus").await.unwrap();
+    let s = session(&f.st, &id).await;
+    assert_eq!(
+        s.effort.as_deref(),
+        Some("max"),
+        "the level asked for stood"
+    );
+    assert_eq!(s.ultracode, Some(UltracodeState::On));
+    // An effort change keeps ultracode on (session flag layer, never /effort).
+    owned::set_effort(&f.st, &id, "high").await.unwrap();
+    assert!(
+        requests(&f).contains(&json!({ "subtype": "apply_flag_settings",
+        "settings": { "effortLevel": "high", "ultracode": true } }))
+    );
+    let s = session(&f.st, &id).await;
+    assert_eq!(s.effort.as_deref(), Some("high"));
+    assert_eq!(s.effort_source, Some(EffortSource::Applied));
+    assert_eq!(s.ultracode, Some(UltracodeState::On));
+
+    // Thinking on: adaptive on an adaptive-capable model; then off again.
+    owned::set_thinking(&f.st, &id, true).await.unwrap();
+    let s = session(&f.st, &id).await;
+    assert_eq!(
+        s.thinking,
+        Some(ThinkingInfo {
+            mode: ThinkingMode::Adaptive,
+            source: ThinkingSource::Control,
+            budget: None
+        })
+    );
+    owned::set_thinking(&f.st, &id, false).await.unwrap();
+    assert_eq!(
+        session(&f.st, &id).await.thinking.map(|t| t.mode),
+        Some(ThinkingMode::Off)
+    );
+    let sent = requests(&f);
+    assert!(sent.contains(&json!({ "subtype": "set_max_thinking_tokens",
+        "max_thinking_tokens": 31_999 })));
+    assert!(sent.contains(&json!({ "subtype": "set_max_thinking_tokens",
+        "max_thinking_tokens": 0 })));
+
+    // A model that cannot run ultracode leaves it requested but
+    // unavailable (the switch withdraws it), and it has no effort: the CLI
+    // says so (`applied`, no level).
+    owned::set_model(&f.st, &id, "haiku").await.unwrap();
+    let s = session(&f.st, &id).await;
+    assert_eq!(s.ultracode, Some(UltracodeState::Unavailable));
+    assert_eq!(s.effort, None);
+    assert_eq!(s.effort_source, Some(EffortSource::Applied));
+    let v = serde_json::to_value(&s).unwrap();
+    assert_eq!(v["effortSource"], "applied");
+    assert!(v.get("effort").is_none());
+    assert!(s.control.set_ultracode && s.control.set_thinking);
+    owned::set_ultracode(&f.st, &id, false).await.unwrap();
+    let s = session(&f.st, &id).await;
+    assert_eq!(s.ultracode, Some(UltracodeState::Off));
+    assert!(!s.control.set_ultracode, "nothing left to switch here");
+    // No slash command was ever typed.
+    assert!(!f
+        .received()
+        .iter()
+        .filter(|l| l["type"] == "user")
+        .any(|l| l.to_string().contains("\"/")));
+
+    // Plan usage for free from the stream…
+    owned::send(&f.st, &id, "limits", &[]).await.unwrap();
+    wait_turn_done(&f.st, &id).await;
+    let u = usage::current(&f.st);
+    assert_eq!(u.source, Some(PlanUsageSource::Stream));
+    assert_eq!(u.windows[0].key, "five_hour");
+    assert_eq!(u.windows[0].pct, 42.4);
+    assert_eq!(u.windows[0].resets_at, Some(4_070_908_800_000));
+    assert_eq!(u.windows[1].key, "seven_day");
+    // …and a refresh reads `get_usage` through this session.
+    usage::start(&f.st);
+    assert!(usage::request_refresh(&f.st).unwrap().refreshing);
+    for _ in 0..250 {
+        if usage::current(&f.st).source == Some(PlanUsageSource::Live) {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    let u = usage::current(&f.st);
+    assert_eq!(u.source, Some(PlanUsageSource::Live));
+    assert!(!u.refreshing);
+    assert_eq!(u.windows.len(), 2, "codename windows never come out");
+    assert_eq!(u.windows[0].pct, 42.0);
+    assert!(requests(&f).contains(&json!({ "subtype": "get_usage", "skip_behaviors": true })));
+    assert!(usage::request_refresh(&f.st).is_err(), "one read a minute");
+    owned::kill(&f.st, &id).await.unwrap();
+}
+
 #[tokio::test]
 async fn queued_messages_can_be_taken_back() {
     let f = Fixture::new();
@@ -1007,6 +1177,19 @@ async fn http_routes_drive_an_owned_session() {
         let r = post(&format!("/sessions/{id}/{path}"), body).await.unwrap();
         assert_eq!(r.status(), 200, "{path}");
     }
+    // Session-scoped switches answer 204; a malformed body is a 422.
+    for (path, body) in [
+        ("ultracode", json!({ "enabled": true })),
+        ("ultracode", json!({ "enabled": false })),
+        ("thinking", json!({ "enabled": false })),
+    ] {
+        let r = post(&format!("/sessions/{id}/{path}"), body).await.unwrap();
+        assert_eq!(r.status(), 204, "{path}");
+    }
+    let r = post(&format!("/sessions/{id}/thinking"), json!({ "on": "yes" }))
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 422);
     let r = post(&format!("/sessions/{id}/mode"), json!({ "mode": "auto" }))
         .await
         .unwrap();
@@ -1070,6 +1253,20 @@ async fn http_routes_drive_an_owned_session() {
         r.json::<Value>().await.unwrap()["error"]["code"],
         "not_a_background_session"
     );
+    // Ultracode and thinking switch only in sessions Mother Claude owns.
+    for path in ["ultracode", "thinking"] {
+        let r = post(
+            &format!("/sessions/{foreign}/{path}"),
+            json!({ "enabled": true }),
+        )
+        .await
+        .unwrap();
+        assert_eq!(r.status(), 409, "{path}");
+        assert_eq!(
+            r.json::<Value>().await.unwrap()["error"]["code"],
+            "not_supported"
+        );
+    }
     // With a job id it goes through `claude stop <short>`, and the terminal
     // view is the rendered `claude logs` screen.
     ws::patch_session(&f.st, foreign, |s| s.job_id = Some("2d2e9c5e".into())).await;
@@ -1197,6 +1394,123 @@ async fn live_haiku_approval_and_mode_switch() {
             .permission_mode
             .as_deref(),
         Some("plan")
+    );
+    owned::kill(&st, &id).await.unwrap();
+    for _ in 0..100 {
+        if !owned::has_handle(&st, &id) {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+}
+
+/// A $0 live check against the INSTALLED CLI (haiku, a temp dir, project
+/// settings only, nothing persisted, no user turn — control requests only):
+/// `get_settings` after `initialize`, and the session-only ultracode, effort
+/// and thinking switches read back. Run with
+/// `cargo test --test owned -- --ignored live_settings`.
+#[tokio::test]
+#[ignore]
+async fn live_settings_are_read_back_without_a_turn() {
+    std::env::remove_var("MOTHER_CLAUDE_CLI");
+    for key in [
+        "CLAUDECODE",
+        "CLAUDE_CODE_ENTRYPOINT",
+        "CLAUDE_CODE_SESSION_ID",
+        "CLAUDE_CODE_USE_BEDROCK",
+        "MOTHER_CLAUDE_TOKEN",
+    ] {
+        std::env::remove_var(key);
+    }
+    let home = tempfile::tempdir().unwrap();
+    let cwd = tempfile::tempdir().unwrap();
+    let st = Inner::new(
+        ClaudeHome::with_base(home.path()),
+        ServerConfig {
+            host: "127.0.0.1".into(),
+            port: 0,
+        },
+        Auth::ephemeral(),
+    );
+    let cwd_s = std::fs::canonicalize(cwd.path())
+        .unwrap()
+        .to_string_lossy()
+        .into_owned();
+    let id = st
+        .control
+        .spawn(
+            &st,
+            mother_claude_lib::claude::SpawnOptions {
+                cwd: cwd_s,
+                model: Some("haiku".into()),
+                permission_mode: Some("default".into()),
+                thinking: Some("off".into()),
+                setting_sources: Some("project".into()),
+                extra_args: vec![
+                    "--strict-mcp-config".into(),
+                    "--no-session-persistence".into(),
+                ],
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    for _ in 0..300 {
+        if owned::live_state(&st, &id).is_some_and(|l| l.applied.is_some()) {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    let live = owned::live_state(&st, &id).unwrap();
+    let applied = live
+        .applied
+        .expect("get_settings answered after initialize");
+    assert!(applied
+        .model
+        .as_deref()
+        .is_some_and(|m| m.contains("haiku")));
+    assert_eq!(applied.effort, None, "haiku has no effort");
+    assert!(!applied.ultracode_available);
+    assert!(
+        live.fast_mode_state.is_some(),
+        "initialize reports fast mode"
+    );
+    let s = st.find_session(&id).await.unwrap();
+    assert_eq!(s.ultracode, Some(UltracodeState::Off));
+    assert_eq!(s.ultracode_source, Some(UltracodeSource::Applied));
+    assert_eq!(
+        s.thinking.map(|t| (t.mode, t.source)),
+        Some((ThinkingMode::Off, ThinkingSource::Control))
+    );
+    assert!(s.control.set_thinking && !s.control.set_ultracode);
+
+    owned::set_ultracode(&st, &id, true).await.unwrap();
+    let s = st.find_session(&id).await.unwrap();
+    assert_eq!(
+        s.ultracode,
+        Some(UltracodeState::Unavailable),
+        "requested, but haiku cannot run it"
+    );
+    assert!(s.control.set_ultracode, "the request can be withdrawn");
+    assert_eq!(
+        s.effort_source,
+        Some(EffortSource::Applied),
+        "no effort levels"
+    );
+    owned::set_effort(&st, &id, "high").await.unwrap();
+    let applied = owned::live_state(&st, &id).unwrap().applied.unwrap();
+    assert!(applied.ultracode_requested, "the effort change kept it");
+    assert_eq!(applied.effort, None);
+    owned::set_ultracode(&st, &id, false).await.unwrap();
+    assert_eq!(
+        st.find_session(&id).await.unwrap().ultracode,
+        Some(UltracodeState::Off)
+    );
+    owned::set_thinking(&st, &id, true).await.unwrap();
+    owned::set_thinking(&st, &id, false).await.unwrap();
+    assert_eq!(
+        st.find_session(&id).await.unwrap().thinking.map(|t| t.mode),
+        Some(ThinkingMode::Off)
     );
     owned::kill(&st, &id).await.unwrap();
     for _ in 0..100 {

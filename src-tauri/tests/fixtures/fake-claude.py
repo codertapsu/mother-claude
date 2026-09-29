@@ -64,7 +64,23 @@ log({"argv": ARGS, "env": {k: os.environ.get(k) for k in ENV_KEYS}})
 SESSION = arg("--session-id") or arg("--resume") or str(uuidlib.uuid4())
 MODE = arg("--permission-mode") or "default"
 MODEL = arg("--model") or "claude-fake-1"
-STATE = {"mode": MODE, "started": False, "interrupted": False, "busy": None}
+STATE = {"mode": MODE, "started": False, "interrupted": False, "busy": None,
+         # What `get_settings` reports (CLI 2.1.284 shapes).
+         "model": MODEL, "effort": arg("--effort"), "ultracode": False,
+         "thinking": os.environ.get("MAX_THINKING_TOKENS")}
+
+
+def model_caps(model):
+    """(resolved id, has effort, can run ultracode, has max) like the CLI's
+    catalog."""
+    m = (model or "").lower()
+    if "haiku" in m:
+        return "claude-haiku-4-5-20251001", False, False, False
+    if "opus" in m:
+        return "claude-opus-5-5", True, True, True
+    if "sonnet" in m:
+        return "claude-sonnet-5", True, False, False
+    return model, True, False, True
 HELD = []  # user messages received while a turn runs
 TASKS = {}
 REPLIES = {}  # request_id -> host control_response
@@ -117,10 +133,37 @@ def handle_host_request(obj):
                 {"name": "compact", "description": "Compact the conversation", "argumentHint": "[instructions]"},
                 {"name": "review", "description": "Review changes", "argumentHint": ""},
             ],
-            "models": [{"value": "haiku", "displayName": "Haiku"}],
+            "models": [
+                {"value": "haiku", "resolvedModel": "claude-haiku-4-5-20251001", "displayName": "Haiku"},
+                {"value": "opus", "resolvedModel": "claude-opus-5-5", "displayName": "Opus",
+                 "supportsEffort": True, "supportsAdaptiveThinking": True},
+            ],
             "agents": [{"name": "Explore", "description": "Search"}],
             "current_permission_mode": STATE["mode"],
+            "fast_mode_state": "off",
         })
+    elif sub == "get_settings":
+        resolved, has_effort, can_ultra, has_max = model_caps(STATE["model"])
+        effort = STATE["effort"] or "high"
+        if effort in ("max", "xhigh") and not has_max:
+            effort = "high"  # the CLI runs it as high on such a model
+        ok(rid, {"effective": {}, "sources": [], "applied": {
+            "model": resolved,
+            "effort": effort if has_effort else None,
+            "advisor": None,
+            "ultracode": STATE["ultracode"] and can_ultra,
+            "ultracodeRequested": STATE["ultracode"],
+            "ultracodeAvailable": can_ultra,
+        }})
+    elif sub == "set_max_thinking_tokens":
+        STATE["thinking"] = req.get("max_thinking_tokens")
+        ok(rid, None)
+    elif sub == "get_usage":
+        ok(rid, {"session": {}, "subscription_type": "max", "rate_limits_available": True,
+                 "behaviors": None, "rate_limits": {
+                     "five_hour": {"utilization": 42, "resets_at": "2099-01-01T00:00:00.000000+00:00"},
+                     "seven_day": {"utilization": 7, "resets_at": "2099-01-05T00:00:00+00:00"},
+                     "amber_cistern": {"utilization": 99}, "spend": {"used": 1}}})
     elif sub == "set_permission_mode":
         if req.get("mode") == "auto":
             err(rid, "Auto mode is not available for this model.", "auto_mode_model")
@@ -128,10 +171,22 @@ def handle_host_request(obj):
             STATE["mode"] = req.get("mode")
             ok(rid, {})
             sys_msg("status", status=None, permissionMode=STATE["mode"])
-    elif sub in ("set_model", "rename_session"):
+    elif sub == "set_model":
+        STATE["model"] = req.get("model")
+        ok(rid, {})
+    elif sub == "rename_session":
         ok(rid, {})
     elif sub == "apply_flag_settings":
-        ok(rid, {"applied": req.get("settings")})
+        settings = req.get("settings") or {}
+        if "effortLevel" in settings:
+            # Like the CLI: a level that moves, sent without the ultracode
+            # key, turns ultracode off; the key alone leaves the level.
+            if settings["effortLevel"] != STATE["effort"] and "ultracode" not in settings:
+                STATE["ultracode"] = False
+            STATE["effort"] = settings["effortLevel"]
+        if "ultracode" in settings:
+            STATE["ultracode"] = bool(settings["ultracode"])
+        ok(rid, None)
     elif sub == "interrupt":
         ok(rid, {"still_queued": [m.get("uuid") for m in HELD]})
         if STATE["busy"]:
@@ -345,6 +400,16 @@ def run_turn(msg):
         result("task started", answered)
     elif text == "fail":
         result("API Error: overloaded", answered, "error_during_execution_api", True)
+    elif text == "limits":
+        # What the CLI emits when a window's rounded percentage moves.
+        out({"type": "rate_limit_event", "session_id": SESSION, "uuid": str(uuidlib.uuid4()),
+             "rate_limit_info": {"status": "allowed_warning", "rateLimitType": "five_hour",
+                                 "resetsAt": 4070908800, "isUsingOverage": False,
+                                 "unifiedWindows": {
+                                     "five_hour": {"utilization": 0.424, "resetsAt": 4070908800},
+                                     "seven_day": {"utilization": 0.07, "resetsAt": 4071254400}}}})
+        stream_text("limits", answered)
+        result("limits", answered)
     else:
         stream_text("ok", answered)
         result("ok", answered)

@@ -638,6 +638,15 @@ pub async fn dispatch_from(
         // The data layer's effective permission mode takes the latest report.
         state.activity.note_permission_mode(&p.session_id, mode);
     }
+    // The effort of the current turn (display only, so no binding check): a
+    // subagent's report says nothing about the session's own effort.
+    if let (None, Some(level)) = (agent, p.effort_level()) {
+        state.activity.note_effort(&p.session_id, level);
+    }
+    // A turn that died on a plan limit: worth one plan-usage read.
+    if name == "StopFailure" && p.error.is("rate_limit") {
+        crate::claude::usage::note_limit_hit(state);
+    }
     match name {
         "Notification" => crate::server::push::on_notification_hook(
             state,
@@ -1434,6 +1443,63 @@ mod tests {
 
     fn payload(v: Value) -> HookPayload {
         serde_json::from_value(v).unwrap()
+    }
+
+    #[tokio::test]
+    async fn effort_reports_and_limit_hits_are_routed() {
+        let st = crate::state::Inner::new(
+            crate::claude::ClaudeHome::with_base(std::env::temp_dir().join("mc-hooks-effort")),
+            crate::state::ServerConfig {
+                host: "127.0.0.1".into(),
+                port: 0,
+            },
+            crate::server::auth::Auth::ephemeral(),
+        );
+        let s = "0a1b2c3d-0000-4000-8000-00000000e0f1";
+        let event = |v: Value| payload(v);
+        // A subagent's effort says nothing about the session.
+        dispatch(
+            &st,
+            event(json!({ "hook_event_name": "PostToolUse", "session_id": s,
+                "agent_id": "a1", "tool_name": "Read", "effort": { "level": "low" } })),
+            None,
+        )
+        .await;
+        assert_eq!(st.activity.effort_note(s), None);
+        dispatch(
+            &st,
+            event(json!({ "hook_event_name": "PreToolUse", "session_id": s,
+                "tool_name": "Read", "effort": { "level": "xhigh" } })),
+            None,
+        )
+        .await;
+        assert_eq!(st.activity.effort_note(s).unwrap().0, "xhigh");
+        // Unknown levels are ignored.
+        dispatch(
+            &st,
+            event(json!({ "hook_event_name": "Stop", "session_id": s,
+                "effort": { "level": "ludicrous" } })),
+            None,
+        )
+        .await;
+        assert_eq!(st.activity.effort_note(s).unwrap().0, "xhigh");
+        // A turn that died on a plan limit asks for one plan-usage read.
+        dispatch(
+            &st,
+            event(json!({ "hook_event_name": "StopFailure", "session_id": s,
+                "error": "server_error" })),
+            None,
+        )
+        .await;
+        assert!(!st.usage.limit_hit_pending());
+        dispatch(
+            &st,
+            event(json!({ "hook_event_name": "StopFailure", "session_id": s,
+                "error": "rate_limit" })),
+            None,
+        )
+        .await;
+        assert!(st.usage.limit_hit_pending());
     }
 
     #[test]

@@ -28,21 +28,62 @@ pub struct LaunchDefaults {
     pub model: Option<String>,
     /// The user's current effort selection (settings.json `effortLevel`).
     pub effort: Option<String>,
+    /// settings.json `alwaysThinkingEnabled`: `false` turns thinking off for
+    /// new sessions; absent or `true` leaves it on for supported models. A
+    /// machine default only — never a session's live state.
+    pub always_thinking_enabled: Option<bool>,
     /// Models to offer: built-in aliases + account extras + the current pick.
     pub models: Vec<ModelOption>,
 }
 
-/// settings.json → (model, effortLevel), both optional.
-fn parse_settings(text: &str) -> (Option<String>, Option<String>) {
+/// The fields of the user's settings.json that are read.
+#[derive(Debug, Clone, Default, PartialEq)]
+struct UserSettings {
+    model: Option<String>,
+    effort: Option<String>,
+    always_thinking_enabled: Option<bool>,
+}
+
+/// settings.json → the fields above, all optional.
+fn parse_settings(text: &str) -> UserSettings {
     let Ok(v) = serde_json::from_str::<Value>(text) else {
-        return (None, None);
+        return UserSettings::default();
     };
-    let model = v.get("model").and_then(|m| m.as_str()).map(String::from);
-    let effort = v
-        .get("effortLevel")
-        .and_then(|e| e.as_str())
-        .map(String::from);
-    (model, effort)
+    UserSettings {
+        model: v.get("model").and_then(|m| m.as_str()).map(String::from),
+        effort: v
+            .get("effortLevel")
+            .and_then(|e| e.as_str())
+            .map(String::from),
+        always_thinking_enabled: v.get("alwaysThinkingEnabled").and_then(Value::as_bool),
+    }
+}
+
+/// The user's `alwaysThinkingEnabled` (settings.json), cached by mtime so the
+/// data layer can ask on every refresh.
+pub fn always_thinking_enabled(home: &ClaudeHome) -> Option<bool> {
+    use std::sync::{Mutex, OnceLock};
+    type Cached = Option<(std::path::PathBuf, i64, Option<bool>)>;
+    static CACHE: OnceLock<Mutex<Cached>> = OnceLock::new();
+    let path = home.user_settings();
+    let mtime = std::fs::metadata(&path)
+        .ok()
+        .map(|m| super::index::stamp_of(&m).mtime)?;
+    let cache = CACHE.get_or_init(|| Mutex::new(None));
+    if let Ok(g) = cache.lock() {
+        if let Some((p, m, v)) = g.as_ref() {
+            if *p == path && *m == mtime {
+                return *v;
+            }
+        }
+    }
+    let value = std::fs::read_to_string(&path)
+        .ok()
+        .and_then(|t| parse_settings(&t).always_thinking_enabled);
+    if let Ok(mut g) = cache.lock() {
+        *g = Some((path, mtime, value));
+    }
+    value
 }
 
 /// ~/.claude.json `additionalModelOptionsCache` (and `modelAccessCache`) →
@@ -118,9 +159,13 @@ fn merge_models(current: &Option<String>, cached: Vec<ModelOption>) -> Vec<Model
 
 /// Read the launch defaults, tolerantly, from the user's Claude config.
 pub fn read_launch_defaults(home: &ClaudeHome) -> LaunchDefaults {
-    let (model, effort) = std::fs::read_to_string(home.user_settings())
+    let UserSettings {
+        model,
+        effort,
+        always_thinking_enabled,
+    } = std::fs::read_to_string(home.user_settings())
         .map(|t| parse_settings(&t))
-        .unwrap_or((None, None));
+        .unwrap_or_default();
     let cached = std::fs::read_to_string(home.claude_json())
         .map(|t| parse_model_cache(&t))
         .unwrap_or_default();
@@ -128,6 +173,7 @@ pub fn read_launch_defaults(home: &ClaudeHome) -> LaunchDefaults {
     LaunchDefaults {
         model,
         effort,
+        always_thinking_enabled,
         models,
     }
 }
@@ -195,11 +241,34 @@ mod tests {
 
     #[test]
     fn parses_model_and_effort_from_settings() {
-        let (m, e) = parse_settings(r#"{"model":"claude-fable-5[1m]","effortLevel":"xhigh"}"#);
-        assert_eq!(m.as_deref(), Some("claude-fable-5[1m]"));
-        assert_eq!(e.as_deref(), Some("xhigh"));
-        assert_eq!(parse_settings("{}"), (None, None));
-        assert_eq!(parse_settings("not json"), (None, None));
+        let s = parse_settings(r#"{"model":"claude-fable-5[1m]","effortLevel":"xhigh"}"#);
+        assert_eq!(s.model.as_deref(), Some("claude-fable-5[1m]"));
+        assert_eq!(s.effort.as_deref(), Some("xhigh"));
+        assert_eq!(s.always_thinking_enabled, None);
+        assert_eq!(parse_settings("{}"), UserSettings::default());
+        assert_eq!(parse_settings("not json"), UserSettings::default());
+    }
+
+    #[test]
+    fn always_thinking_enabled_is_a_tolerant_machine_default() {
+        assert_eq!(
+            parse_settings(r#"{"alwaysThinkingEnabled":false}"#).always_thinking_enabled,
+            Some(false)
+        );
+        assert_eq!(
+            parse_settings(r#"{"alwaysThinkingEnabled":true}"#).always_thinking_enabled,
+            Some(true)
+        );
+        // A drifted type reads as absent.
+        assert_eq!(
+            parse_settings(r#"{"alwaysThinkingEnabled":"no"}"#).always_thinking_enabled,
+            None
+        );
+        let dir = tempfile::tempdir().unwrap();
+        let home = ClaudeHome::with_base(dir.path());
+        assert_eq!(always_thinking_enabled(&home), None, "no settings.json");
+        std::fs::write(home.user_settings(), r#"{"alwaysThinkingEnabled":false}"#).unwrap();
+        assert_eq!(always_thinking_enabled(&home), Some(false));
     }
 
     #[test]

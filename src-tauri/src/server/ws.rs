@@ -8,14 +8,16 @@
 //! `unsubInbox{}`, `ping{}`, `pong{}`, `visible{v}`.
 //!
 //! Server → client: `hello{v:2, me, serverTime}` after auth, then
-//! `sessions{full:true, sessions, seq}`, then `sessions{full:false, upsert,
-//! remove, seq}` diffs (content-hash per session, `active` scope only),
-//! `transcript{session, agent?, events, tail}` / `transcriptReset{session,
-//! agent?}` for that exact subscription, `stream` / `agents` for subscribers
-//! of the session, `pending{item}` for session and inbox subscribers,
-//! `pendingResolved{id, session, outcome, by?, at}` for everyone, `fleet` for
-//! fleet subscribers, `notice`, desktop-only `devices` / `pairRequest`,
-//! `resync` (then a fresh full `sessions`), `ping` every 25 s, `pong`.
+//! `sessions{full:true, sessions, seq}` and `planUsage{usage}`, then
+//! `sessions{full:false, upsert, remove, seq}` diffs (content-hash per
+//! session, `active` scope only), `planUsage` whenever the plan usage clients
+//! see changes, `transcript{session, agent?, events, tail}` /
+//! `transcriptReset{session, agent?}` for that exact subscription, `stream` /
+//! `agents` for subscribers of the session, `pending{item}` for session and
+//! inbox subscribers, `pendingResolved{id, session, outcome, by?, at}` for
+//! everyone, `fleet` for fleet subscribers, `notice`, desktop-only `devices` /
+//! `pairRequest`, `resync` (then a fresh full `sessions` and `planUsage`),
+//! `ping` every 25 s, `pong`.
 //!
 //! `sub{since}` replays the file after the cursor, capped at 2 MB / 300
 //! events; beyond that the client gets `transcriptReset` and refetches the
@@ -63,7 +65,7 @@ use super::context::{origin_is_local, ClientContext};
 use super::error::ApiError;
 use crate::claude::model::{
     AgentInfo, FleetSession, FleetSummary, NoticeLevel, PendingItem, PendingPreview,
-    PendingResolved, SessionStatus, SessionSummary, StreamFrame, UiEvent, WorkflowRun,
+    PendingResolved, PlanUsage, SessionStatus, SessionSummary, StreamFrame, UiEvent, WorkflowRun,
 };
 use crate::state::AppState;
 
@@ -157,6 +159,9 @@ pub enum ServerEvent {
     /// pending store (B3); `{t:"pendingResolved", id, session, outcome, by?,
     /// at, text?}`.
     PendingResolved(crate::claude::model::PendingResolved),
+    /// The claude.ai plan's usage changed (everyone; also sent right after
+    /// the full `sessions` frame): `{t:"planUsage", usage}`.
+    PlanUsage { usage: PlanUsage },
 }
 
 /// Who receives an event.
@@ -179,7 +184,8 @@ impl ServerEvent {
             ServerEvent::Sessions { .. }
             | ServerEvent::Notice { .. }
             | ServerEvent::Resync
-            | ServerEvent::PendingResolved(_) => Audience::All,
+            | ServerEvent::PendingResolved(_)
+            | ServerEvent::PlanUsage { .. } => Audience::All,
             ServerEvent::Transcript { session, agent, .. }
             | ServerEvent::TranscriptReset { session, agent } => {
                 Audience::SessionKey(session, agent.as_deref())
@@ -487,6 +493,19 @@ pub fn publish_pending_resolved(state: &AppState, resolved: PendingResolved) {
 /// Tell every client to refetch and resubscribe.
 pub fn publish_resync(state: &AppState) {
     state.broadcast(ServerEvent::Resync);
+}
+
+/// The plan usage changed, for everyone (`claude::usage` publishes only
+/// when what clients see changed).
+pub fn publish_plan_usage(state: &AppState, usage: PlanUsage) {
+    state.broadcast(ServerEvent::PlanUsage { usage });
+}
+
+/// The `planUsage` frame a client gets after its full `sessions` frame.
+fn plan_usage_frame(state: &AppState) -> ServerEvent {
+    ServerEvent::PlanUsage {
+        usage: crate::claude::usage::current(state),
+    }
 }
 
 /// Close every socket of a revoked device (4401). Returns how many.
@@ -977,6 +996,9 @@ async fn run_client(
         out.push_event(&full_frame(&snap));
         snap.seq
     };
+    out.push_event(&plan_usage_frame(&state));
+    // The first client may make stale plan usage worth a read.
+    crate::claude::usage::on_client_connected(&state, state.hub.client_count());
 
     // 3. Pump: bus → filter → this client's queue.
     let pump = {
@@ -1035,10 +1057,16 @@ async fn run_client(
                             let snap = state.snapshot.read().await;
                             serde_json::to_string(&full_frame(&snap)).unwrap_or_default()
                         };
-                        match socket.send(Message::Text(resync.into())).await {
-                            Ok(()) => socket.send(Message::Text(full.into())).await,
-                            Err(e) => Err(e),
+                        // A dropped backlog may have held a planUsage frame.
+                        let usage =
+                            serde_json::to_string(&plan_usage_frame(&state)).unwrap_or_default();
+                        let mut sent = socket.send(Message::Text(resync.into())).await;
+                        for text in [full, usage] {
+                            if sent.is_ok() {
+                                sent = socket.send(Message::Text(text.into())).await;
+                            }
                         }
+                        sent
                     }
                 };
                 if sent.is_err() {
@@ -1344,6 +1372,56 @@ mod tests {
         assert_eq!(v["t"], "pending");
         assert_eq!(v["item"]["id"], "p2");
         assert_eq!(p.audience(), Audience::SessionOrInbox("s"));
+
+        let u = ServerEvent::PlanUsage {
+            usage: PlanUsage {
+                available: true,
+                windows: vec![crate::claude::model::PlanWindow {
+                    key: "five_hour".into(),
+                    label: "Current session".into(),
+                    pct: 42.0,
+                    resets_at: Some(1_790_000_000_000),
+                    severity: Some(crate::claude::model::PlanSeverity::Warning),
+                }],
+                extra_usage: Some(crate::claude::model::ExtraUsage {
+                    enabled: true,
+                    used_minor: 1250,
+                    limit_minor: Some(5000),
+                    currency: Some("USD".into()),
+                    decimals: 2,
+                    utilization: Some(25.0),
+                }),
+                fetched_at: Some(5),
+                source: Some(crate::claude::model::PlanUsageSource::Live),
+                stream_at: Some(7),
+                refreshing: false,
+                next_refresh_at: Some(9),
+                interval_secs: 300,
+                error: None,
+            },
+        };
+        assert_eq!(
+            serde_json::to_value(&u).unwrap(),
+            json!({ "t": "planUsage", "usage": {
+                "available": true,
+                "windows": [{ "key": "five_hour", "label": "Current session", "pct": 42.0,
+                              "resetsAt": 1_790_000_000_000_i64, "severity": "warning" }],
+                "extraUsage": { "enabled": true, "usedMinor": 1250, "limitMinor": 5000,
+                                "currency": "USD", "decimals": 2, "utilization": 25.0 },
+                "fetchedAt": 5, "source": "live", "streamAt": 7, "refreshing": false,
+                "nextRefreshAt": 9, "intervalSecs": 300 } })
+        );
+        assert_eq!(u.audience(), Audience::All);
+        // Unknowns stay out of the frame.
+        let v = serde_json::to_value(ServerEvent::PlanUsage {
+            usage: PlanUsage::default(),
+        })
+        .unwrap();
+        assert_eq!(
+            v,
+            json!({ "t": "planUsage", "usage": { "available": false, "windows": [],
+                     "refreshing": false, "intervalSecs": 0 } })
+        );
     }
 
     #[test]

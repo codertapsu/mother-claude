@@ -26,6 +26,7 @@ use crate::claude::live::LiveRoster;
 use crate::claude::model::{NoticeLevel, SessionSummary};
 use crate::claude::tmux::TmuxState;
 use crate::claude::uievents::Timeline;
+use crate::claude::usage::UsageStore;
 use crate::claude::{AuthStatus, ClaudeHome, Session};
 use crate::pending::PendingStore;
 use crate::server::auth::Auth;
@@ -137,6 +138,9 @@ pub struct Inner {
     pub tmux: TmuxState,
     /// Web Push. B5 (`server/push.rs`).
     pub push: PushService,
+    /// The claude.ai plan's usage limits and their refresh scheduler
+    /// (`claude/usage.rs`).
+    pub usage: UsageStore,
 }
 
 impl std::fmt::Debug for Inner {
@@ -168,6 +172,11 @@ impl Inner {
         let (bus, _rx) = broadcast::channel(1024);
         let data_dir = auth.config_dir.clone();
         let data_dir = data_dir.as_deref();
+        let live = LiveRoster::new();
+        if let Some(dir) = data_dir {
+            // The plan-usage helper's `claude -p` is never a session.
+            live.ignore_cwd(&crate::claude::usage::helper_dir(dir));
+        }
         Arc::new(Inner {
             home,
             config,
@@ -188,7 +197,7 @@ impl Inner {
             devices: DeviceStore::load(data_dir),
             pairing: PairingState::new(data_dir),
             remote: RemoteState::new(data_dir),
-            live: LiveRoster::new(),
+            live,
             index: TranscriptIndex::new(data_dir),
             agents: AgentTracker::new(),
             activity: ActivityTracker::new(),
@@ -197,6 +206,7 @@ impl Inner {
             plugin: PluginManager::new(),
             tmux: TmuxState::new(),
             push: PushService::new(data_dir),
+            usage: UsageStore::new(data_dir),
             auth,
         })
     }

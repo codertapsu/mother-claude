@@ -32,6 +32,64 @@ pub struct CliError {
     pub code: Option<String>,
 }
 
+/// `get_settings.applied` — "runtime-resolved values … what will actually be
+/// sent to the API" (verified against CLI 2.1.284:
+/// `{model, effort: level|null, advisor, ultracode, ultracodeRequested,
+/// ultracodeAvailable}`).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct AppliedSettings {
+    pub model: Option<String>,
+    /// `None`: the model has no effort setting (Haiku).
+    pub effort: Option<String>,
+    /// In effect (requested and available).
+    pub ultracode: bool,
+    pub ultracode_requested: bool,
+    /// The model and workspace can run it.
+    pub ultracode_available: bool,
+}
+
+/// Parse a `get_settings` response (`None` without an `applied` object).
+pub fn applied_settings(resp: &Value) -> Option<AppliedSettings> {
+    let a = resp.get("applied")?.as_object()?;
+    let text = |k: &str| {
+        a.get(k)
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|s| !s.is_empty() && s.len() <= 128)
+            .map(str::to_string)
+    };
+    let flag = |k: &str| a.get(k).and_then(Value::as_bool).unwrap_or(false);
+    Some(AppliedSettings {
+        model: text("model"),
+        effort: text("effort").filter(|e| e.len() <= 20),
+        ultracode: flag("ultracode"),
+        ultracode_requested: flag("ultracodeRequested"),
+        ultracode_available: flag("ultracodeAvailable"),
+    })
+}
+
+/// Whether the model an `initialize` catalog entry describes is `model`
+/// (by `resolvedModel` or `value`, ignoring case and a `[1m]` suffix).
+fn catalog_matches(entry: &Value, model: &str) -> bool {
+    let norm = |s: &str| s.trim().to_ascii_lowercase().replace("[1m]", "");
+    let want = norm(model);
+    ["resolvedModel", "value"]
+        .iter()
+        .filter_map(|k| entry.get(*k).and_then(Value::as_str))
+        .any(|v| norm(v) == want)
+}
+
+/// `initialize.models[].supportsAdaptiveThinking` for `model` (an entry
+/// without the key does not support it); `None` when the catalog does not
+/// list the model.
+pub fn catalog_adaptive_thinking(models: &[Value], model: &str) -> Option<bool> {
+    models.iter().find(|m| catalog_matches(m, model)).map(|m| {
+        m.get("supportsAdaptiveThinking")
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
+    })
+}
+
 /// `{"type":"control_request","request_id":ID,"request":REQUEST}`.
 pub fn control_request(request_id: &str, request: Value) -> Value {
     json!({ "type": "control_request", "request_id": request_id, "request": request })
@@ -507,6 +565,49 @@ mod tests {
         assert_eq!(e.kind, PendingKind::Elicitation);
         assert_eq!(e.title, "gh asks for input");
         assert_eq!(e.input.unwrap()["requestedSchema"]["type"], "object");
+    }
+
+    #[test]
+    fn get_settings_applied_is_parsed_tolerantly() {
+        // The shape CLI 2.1.284 answers (haiku: no effort, no ultracode).
+        let a = applied_settings(&json!({
+            "effective": {}, "sources": [],
+            "applied": { "model": "claude-haiku-4-5-20251001", "effort": null, "advisor": null,
+                         "ultracode": false, "ultracodeRequested": true,
+                         "ultracodeAvailable": false }
+        }))
+        .unwrap();
+        assert_eq!(a.model.as_deref(), Some("claude-haiku-4-5-20251001"));
+        assert_eq!(a.effort, None);
+        assert!(!a.ultracode && a.ultracode_requested && !a.ultracode_available);
+        let a = applied_settings(&json!({ "applied": {
+            "model": "claude-opus-5-5", "effort": "max", "ultracode": true,
+            "ultracodeRequested": true, "ultracodeAvailable": true, "novel": 1 } }))
+        .unwrap();
+        assert_eq!(a.effort.as_deref(), Some("max"));
+        assert!(a.ultracode && a.ultracode_available);
+        // Drifted types degrade per field; no `applied` is no answer.
+        let a =
+            applied_settings(&json!({ "applied": { "effort": 5, "ultracode": "yes" } })).unwrap();
+        assert_eq!(a, AppliedSettings::default());
+        assert!(applied_settings(&json!({})).is_none());
+        assert!(applied_settings(&Value::Null).is_none());
+    }
+
+    #[test]
+    fn adaptive_thinking_from_the_initialize_catalog() {
+        let models = vec![
+            json!({ "value": "opus", "resolvedModel": "claude-opus-5-5",
+                    "supportsAdaptiveThinking": true }),
+            json!({ "value": "haiku", "resolvedModel": "claude-haiku-4-5-20251001" }),
+        ];
+        assert_eq!(
+            catalog_adaptive_thinking(&models, "claude-opus-5-5[1m]"),
+            Some(true)
+        );
+        assert_eq!(catalog_adaptive_thinking(&models, "opus"), Some(true));
+        assert_eq!(catalog_adaptive_thinking(&models, "haiku"), Some(false));
+        assert_eq!(catalog_adaptive_thinking(&models, "claude-x"), None);
     }
 
     #[test]

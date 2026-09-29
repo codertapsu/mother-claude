@@ -23,8 +23,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use super::loose::{
-    clip, parse_line, CapStr, Keys, LBool, LStr, LineCount, Obj, PatchCount, Present, Seq,
-    SmallValue, LF64, LU64,
+    clip, parse_line, CapStr, Keys, LBool, LStr, LineCount, Obj, PatchCount, Seq, SmallValue, LF64,
+    LU64,
 };
 use crate::claude::model::{Todo, TodoStatus};
 use crate::claude::pricing::{self, UsageDetail};
@@ -50,7 +50,12 @@ pub struct Rec {
     pub entrypoint: LStr,
     #[serde(rename = "permissionMode")]
     pub permission_mode: LStr,
+    /// `output_config.effort` actually sent with this API request.
     pub effort: LStr,
+    /// The per-turn effort layer (null before 2.1.282); the CLI rebuilds
+    /// history as `perTurnEffort ?? effort`, so it wins when set.
+    #[serde(rename = "perTurnEffort")]
+    pub per_turn_effort: LStr,
     pub message: Obj<Msg>,
     #[serde(rename = "toolUseResult")]
     pub tool_use_result: Obj<Tur>,
@@ -79,7 +84,7 @@ pub struct Rec {
     pub is_api_error: LBool,
     pub error: ErrField,
     #[serde(rename = "quotaLimits")]
-    pub quota_limits: Present,
+    pub quota_limits: QuotaField,
     #[serde(rename = "retryAttempt")]
     pub retry_attempt: LU64,
     #[serde(rename = "maxRetries")]
@@ -91,6 +96,55 @@ pub struct Rec {
     pub bridge_session_id: LStr,
     #[serde(rename = "agentId")]
     pub agent_id: LStr,
+    /// The summary a compaction left in place of the conversation.
+    #[serde(rename = "isCompactSummary")]
+    pub is_compact_summary: LBool,
+    /// A queued message delivered without the per-prompt attachments (task
+    /// notifications, relays).
+    #[serde(rename = "queueSkipAttachments")]
+    pub queue_skip_attachments: LBool,
+    #[serde(rename = "queueTranscriptOnly")]
+    pub queue_transcript_only: LBool,
+    /// `compact_boundary`: how it was triggered and what it kept.
+    #[serde(rename = "compactMetadata")]
+    pub compact_metadata: Obj<CompactMeta>,
+}
+
+/// `compactMetadata` of a `compact_boundary` record.
+#[derive(Debug, Default, Deserialize)]
+#[serde(default)]
+pub struct CompactMeta {
+    /// `auto` | `manual`.
+    pub trigger: LStr,
+    #[serde(rename = "preservedMessages")]
+    pub preserved_messages: Obj<PreservedMessages>,
+}
+
+/// The messages a compaction kept after its summary.
+#[derive(Debug, Default, Deserialize)]
+#[serde(default)]
+pub struct PreservedMessages {
+    pub uuids: Seq<LStr>,
+    #[serde(rename = "allUuids")]
+    pub all_uuids: Seq<LStr>,
+}
+
+impl CompactMeta {
+    /// Only `auto` is known to drop earlier markers; an unknown trigger is
+    /// treated like a manual `/compact`.
+    fn is_auto(&self) -> bool {
+        self.trigger.is("auto")
+    }
+
+    fn preserves(&self, uuid: &str) -> bool {
+        self.preserved_messages.get().is_some_and(|p| {
+            p.uuids
+                .0
+                .iter()
+                .chain(p.all_uuids.0.iter())
+                .any(|u| u.is(uuid))
+        })
+    }
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -328,6 +382,83 @@ pub struct Origin {
 pub struct SnapshotRec {
     #[serde(rename = "trackedFileBackups")]
     pub tracked_file_backups: Keys,
+}
+
+/// `quotaLimits` of a rejected request (written only when a plan limit is
+/// hit): present for any non-null value, with the fields the dashboard uses
+/// when it is an object.
+#[derive(Debug, Default)]
+pub struct QuotaField {
+    pub present: bool,
+    pub detail: Option<QuotaRec>,
+}
+
+/// The `quotaLimits` fields kept (the rest — overage, upgrade paths — is
+/// skipped).
+#[derive(Debug, Default, Deserialize)]
+#[serde(default)]
+pub struct QuotaRec {
+    /// `five_hour` | `seven_day` | …
+    #[serde(rename = "rateLimitType")]
+    pub rate_limit_type: LStr,
+    /// Epoch seconds.
+    #[serde(rename = "resetsAt")]
+    pub resets_at: LF64,
+    /// `rejected` | `allowed_warning` | …
+    pub status: LStr,
+}
+
+impl<'de> Deserialize<'de> for QuotaField {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        use serde::de::{self, IgnoredAny, MapAccess, SeqAccess, Visitor};
+        struct V;
+        const PRESENT: QuotaField = QuotaField {
+            present: true,
+            detail: None,
+        };
+        impl<'de> Visitor<'de> for V {
+            type Value = QuotaField;
+            fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                f.write_str("anything")
+            }
+            fn visit_map<A: MapAccess<'de>>(self, map: A) -> Result<QuotaField, A::Error> {
+                let detail = QuotaRec::deserialize(de::value::MapAccessDeserializer::new(map))?;
+                Ok(QuotaField {
+                    present: true,
+                    detail: Some(detail),
+                })
+            }
+            fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<QuotaField, A::Error> {
+                while seq.next_element::<IgnoredAny>()?.is_some() {}
+                Ok(PRESENT)
+            }
+            fn visit_bool<E: de::Error>(self, _: bool) -> Result<QuotaField, E> {
+                Ok(PRESENT)
+            }
+            fn visit_u64<E: de::Error>(self, _: u64) -> Result<QuotaField, E> {
+                Ok(PRESENT)
+            }
+            fn visit_i64<E: de::Error>(self, _: i64) -> Result<QuotaField, E> {
+                Ok(PRESENT)
+            }
+            fn visit_f64<E: de::Error>(self, _: f64) -> Result<QuotaField, E> {
+                Ok(PRESENT)
+            }
+            fn visit_str<E: de::Error>(self, _: &str) -> Result<QuotaField, E> {
+                Ok(PRESENT)
+            }
+            fn visit_none<E: de::Error>(self) -> Result<QuotaField, E> {
+                Ok(QuotaField::default())
+            }
+            fn visit_unit<E: de::Error>(self) -> Result<QuotaField, E> {
+                Ok(QuotaField::default())
+            }
+            fn visit_some<D: serde::Deserializer<'de>>(self, d: D) -> Result<QuotaField, D::Error> {
+                QuotaField::deserialize(d)
+            }
+        }
+        d.deserialize_any(V)
+    }
 }
 
 /// `error`: a string (`"rate_limit"`) or `{message, formatted, status}`.
@@ -794,6 +925,277 @@ pub struct LastErrorRec {
     pub at: i64,
 }
 
+// ─────────────────────────────── ultracode ───────────────────────────────
+//
+// Claude Code (verified in 2.1.282–2.1.284) decides what to note about
+// ultracode on each *regular* prompt of the main thread — a message someone
+// sent, not a task notification, a relay, a `/loop` or cron fire, a prompt
+// absorbed mid-turn or a local slash command. It walks back through its
+// conversation to the last `ultra_effort_enter` / `ultra_effort_exit`
+// attachment and writes, right after the prompt:
+//
+// * `ultra_effort_enter` "full" when ultracode is in effect and that last
+//   marker is not an `enter` (it turned on, or the marker is gone);
+// * `ultra_effort_enter` "sparse" when it stays on and about 10 messages
+//   passed since that `enter` (task notifications count);
+// * `ultra_effort_exit` when it is not in effect and that marker is `enter`;
+// * nothing otherwise — so a regular prompt without a marker confirms what
+//   the conversation already said (on after an `enter`, off after an `exit`
+//   or with no marker at all).
+//
+// An automatic compaction hides the earlier markers (the next prompt with
+// ultracode on writes "full" again); a manual `/compact` may keep them. A
+// resumed session sees the markers of its history, but the new process starts
+// with ultracode off (VS Code does not switch it back on), so the first
+// prompt after a restart writes an `exit` unless it was switched on again.
+
+/// The oldest Claude Code version seen writing ultracode markers: without a
+/// marker, an older version's prompt says nothing.
+const ULTRA_MIN_VERSION: (u32, u32, u32) = (2, 1, 246);
+
+/// This Claude Code version writes ultracode markers.
+pub fn notes_ultracode(version: &str) -> bool {
+    version_triple(version).is_some_and(|v| v >= ULTRA_MIN_VERSION)
+}
+
+/// `major.minor.patch` of a Claude Code version (`2.1.284`, `2.1.284-rc.1`).
+fn version_triple(v: &str) -> Option<(u32, u32, u32)> {
+    let mut parts = v.trim().splitn(3, '.');
+    let major = parts.next()?.parse().ok()?;
+    let minor = parts.next()?.parse().ok()?;
+    let patch: String = parts
+        .next()?
+        .chars()
+        .take_while(char::is_ascii_digit)
+        .collect();
+    Some((major, minor, patch.parse().ok()?))
+}
+
+/// The marker Claude Code sees as the last one of its conversation, which
+/// decides what it notes on the next regular prompt.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum UltraSeen {
+    /// No marker (none yet, or an automatic compaction hid it).
+    #[default]
+    None,
+    Enter,
+    Exit,
+    /// An `enter` followed by a manual `/compact`, which may or may not have
+    /// kept it.
+    Compacted,
+    /// Not known: the history before a tail window could not be read.
+    Unknown,
+    /// A tail window not seeded yet with what came before it
+    /// ([`UltraReplay::seed`]).
+    Seed,
+}
+
+/// Why a regular prompt could not tell whether ultracode was on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum UltraUnknown {
+    /// A manual `/compact` may have hidden the last marker.
+    Compacted,
+    /// The history before the tail window has not been read yet.
+    Reading,
+    /// The prompt's Claude Code version predates ultracode markers.
+    Unsupported,
+}
+
+/// Ultracode as of the latest regular prompt of the main chain.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct UltraState {
+    /// On or off as of `at`; `None` when that prompt could not tell.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub on: Option<bool>,
+    /// Epoch ms of the prompt.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub at: Option<i64>,
+    /// A marker at that prompt said so (else the prompt's silence did).
+    #[serde(skip_serializing_if = "is_false")]
+    pub marker: bool,
+    /// Why `on` is `None`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub unknown: Option<UltraUnknown>,
+    /// A silent prompt of a tail window not seeded yet: `on` follows the seed.
+    #[serde(skip_serializing_if = "is_false")]
+    pub seeded: bool,
+}
+
+/// A regular prompt whose attachments are still being read.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct UltraPrompt {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub at: Option<i64>,
+    /// Its Claude Code version writes ultracode markers.
+    #[serde(skip_serializing_if = "is_false")]
+    pub versioned: bool,
+}
+
+/// The ultracode replay of a main transcript (see the notes above): what
+/// Claude Code sees, and the state as of the latest regular prompt. Bounded:
+/// a few fields and one uuid.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct UltraReplay {
+    pub seen: UltraSeen,
+    /// uuid of the last marker (a compaction that preserved it keeps it).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub marker_uuid: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pending: Option<UltraPrompt>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub state: Option<UltraState>,
+}
+
+impl UltraReplay {
+    fn is_default(&self) -> bool {
+        *self == Self::default()
+    }
+
+    /// A regular prompt: Claude Code notes ultracode right after it, or
+    /// confirms what it sees by noting nothing.
+    fn prompt(&mut self, at: Option<i64>, version: Option<&str>) {
+        self.settle();
+        let versioned = version.is_some_and(notes_ultracode);
+        self.pending = Some(UltraPrompt { at, versioned });
+    }
+
+    /// A record past the pending prompt's attachments: it wrote no marker.
+    pub fn settle(&mut self) {
+        let Some(p) = self.pending.take() else { return };
+        let mut st = UltraState {
+            at: p.at,
+            ..Default::default()
+        };
+        if !p.versioned {
+            st.unknown = Some(UltraUnknown::Unsupported);
+        } else {
+            match self.seen {
+                UltraSeen::Enter => st.on = Some(true),
+                UltraSeen::Exit | UltraSeen::None => st.on = Some(false),
+                UltraSeen::Compacted => st.unknown = Some(UltraUnknown::Compacted),
+                UltraSeen::Unknown => st.unknown = Some(UltraUnknown::Reading),
+                UltraSeen::Seed => {
+                    st.unknown = Some(UltraUnknown::Reading);
+                    st.seeded = true;
+                }
+            }
+        }
+        self.state = Some(st);
+    }
+
+    /// An `ultra_effort_enter` (`on`) or `ultra_effort_exit` of the main
+    /// chain: the state as of the prompt it follows.
+    fn marker(&mut self, on: bool, ts: Option<i64>, uuid: Option<String>) {
+        let at = self.pending.take().and_then(|p| p.at).or(ts);
+        self.seen = if on {
+            UltraSeen::Enter
+        } else {
+            UltraSeen::Exit
+        };
+        self.marker_uuid = uuid;
+        self.state = Some(UltraState {
+            on: Some(on),
+            at,
+            marker: true,
+            ..Default::default()
+        });
+    }
+
+    /// A `compact_boundary` of the main chain. An automatic one hides the
+    /// last marker unless it kept it; a manual one may or may not (an `exit`
+    /// and no marker at all make Claude Code note the same, so only an
+    /// `enter` becomes uncertain).
+    fn compacted(&mut self, auto: bool, preserves: impl Fn(&str) -> bool) {
+        self.settle();
+        if self.marker_uuid.as_deref().is_some_and(preserves) {
+            return;
+        }
+        if auto {
+            self.seen = UltraSeen::None;
+            self.marker_uuid = None;
+        } else if matches!(self.seen, UltraSeen::Enter | UltraSeen::Seed) {
+            self.seen = UltraSeen::Compacted;
+        }
+    }
+
+    /// A tail window's replay still depends on the history before it.
+    pub fn needs_seed(&self) -> bool {
+        self.seen == UltraSeen::Seed || self.state.as_ref().is_none_or(|s| s.seeded)
+    }
+
+    /// Resolve a tail window's replay with `before`, the replay as of the
+    /// window start ([`scan_back_ultra`], or a checkpoint).
+    pub fn seed(&mut self, before: &UltraReplay) {
+        if self.seen == UltraSeen::Seed {
+            self.seen = before.seen;
+            self.marker_uuid = before.marker_uuid.clone();
+        }
+        match &mut self.state {
+            Some(st) if st.seeded => {
+                st.seeded = false;
+                (st.on, st.unknown) = match before.seen {
+                    UltraSeen::Enter => (Some(true), None),
+                    UltraSeen::Exit | UltraSeen::None => (Some(false), None),
+                    UltraSeen::Compacted => (None, Some(UltraUnknown::Compacted)),
+                    UltraSeen::Unknown | UltraSeen::Seed => (None, Some(UltraUnknown::Reading)),
+                };
+            }
+            None => self.state = before.state.clone(),
+            Some(_) => {}
+        }
+    }
+}
+
+/// The last request rejected by a plan limit (`quotaLimits`).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct QuotaHit {
+    /// The window that was hit (`five_hour`, `seven_day`, …).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rate_limit_type: Option<String>,
+    /// Epoch ms the window resets.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub resets_at: Option<i64>,
+    /// `rejected` | `allowed_warning` | …
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub status: Option<String>,
+    /// When the rejection was recorded.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ts: Option<i64>,
+}
+
+impl QuotaHit {
+    fn from_rec(q: &QuotaRec, ts: Option<i64>) -> Self {
+        let short = |s: Option<&str>| s.map(|s| clip_chars(s, 40)).filter(|s| !s.is_empty());
+        QuotaHit {
+            rate_limit_type: short(q.rate_limit_type.get()),
+            resets_at: q
+                .resets_at
+                .0
+                .filter(|s| *s > 0.0 && *s < 1e11)
+                .map(|s| (s * 1000.0) as i64),
+            status: short(q.status.get()),
+            ts,
+        }
+    }
+
+    /// One line for `lastError` when the rejected message carries no text.
+    pub fn describe(&self) -> String {
+        match self.rate_limit_type.as_deref() {
+            Some("five_hour") => "Plan usage limit reached (5-hour window).".to_string(),
+            Some(w) if w.starts_with("seven_day") => {
+                "Plan usage limit reached (weekly window).".to_string()
+            }
+            _ => "Plan usage limit reached.".to_string(),
+        }
+    }
+}
+
 /// The last meaningful record of the main chain (for "what is it doing").
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -897,8 +1299,26 @@ pub struct Aggregates {
     /// Latest non-synthetic `message.model`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
+    /// Effort of the last main-chain assistant record (`perTurnEffort ??
+    /// effort`); `None` when that record carried none (a model without
+    /// effort levels) or there is no such record.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub effort: Option<String>,
+    /// Timestamp of that record, set with or without an effort.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub effort_ts: Option<i64>,
+    /// The last main-chain API message ran in fast mode (`usage.speed`).
+    #[serde(skip_serializing_if = "is_false")]
+    pub fast: bool,
+    /// Ultracode as of the latest regular prompt (see [`UltraReplay`]).
+    #[serde(skip_serializing_if = "UltraReplay::is_default")]
+    pub ultra: UltraReplay,
+    /// Timestamp of the last main-chain thinking block.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_thinking_ts: Option<i64>,
+    /// The last request a plan limit rejected.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_quota: Option<QuotaHit>,
     /// `(mode, ts)`: latest human-prompt `permissionMode`, overridden by a
     /// later `permission-mode` record.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -988,6 +1408,47 @@ pub fn parse_task_notification(text: &str) -> Option<TaskNote> {
         summary: xml_tag(text, "summary").map(|s| clip_chars(s, TEXT_MAX)),
         output_file: xml_tag(text, "output-file").map(str::to_string),
     })
+}
+
+/// A regular prompt of the main chain: a message someone sent, after which
+/// Claude Code notes ultracode ([`UltraReplay`]). Task notifications, relays
+/// and wake-ups (`queueSkipAttachments`), `/loop` and cron fires (meta),
+/// compaction summaries, local commands, interruptions and tool results
+/// never make it check; prompts absorbed mid-turn have no record of their
+/// own.
+fn is_regular_prompt(rec: &Rec) -> bool {
+    if !rec.ty.is("user")
+        || rec.is_sidechain.yes()
+        || rec.is_meta.yes()
+        || rec.is_compact_summary.yes()
+        || rec.queue_skip_attachments.yes()
+        || rec.queue_transcript_only.yes()
+        || !rec.origin.get().is_some_and(|o| o.kind.is("human"))
+    {
+        return false;
+    }
+    let Some(msg) = rec.message.get() else {
+        return false;
+    };
+    let lead = match &msg.content {
+        Content::Text(t) => t.get().unwrap_or(""),
+        Content::Blocks(blocks) => {
+            if blocks.iter().any(|b| b.ty.is("tool_result")) {
+                return false;
+            }
+            blocks
+                .iter()
+                .filter(|b| b.ty.is("text"))
+                .filter_map(|b| b.text.get())
+                .find(|t| !t.trim().is_empty())
+                .unwrap_or("")
+        }
+        Content::None => "",
+    }
+    .trim_start();
+    !lead.starts_with("[Request interrupted")
+        && !lead.starts_with("<command-")
+        && !lead.starts_with("<local-command")
 }
 
 fn todos_of(v: &Value) -> Option<Vec<Todo>> {
@@ -1107,6 +1568,12 @@ impl Aggregates {
             if self.entrypoint.as_deref() != Some(e) {
                 self.entrypoint = Some(e.to_string());
             }
+        }
+        if !rec.is_sidechain.yes() && matches!(ty.as_str(), "assistant" | "user" | "system") {
+            // Past the attachments of a pending regular prompt (they follow
+            // it directly): no marker among them confirms what Claude Code
+            // saw. Settled before a compaction changes what it sees.
+            self.ultra.settle();
         }
         match ty.as_str() {
             "assistant" => self.apply_assistant(rec, ts),
@@ -1231,8 +1698,22 @@ impl Aggregates {
         let Some(msg) = rec.message.0 else { return };
         let model = msg.model.get().unwrap_or("").to_string();
         let synthetic = pricing::is_synthetic(&model);
-        if let Some(e) = rec.effort.get() {
-            self.effort = Some(e.to_string());
+        let main_chain = !rec.is_sidechain.yes();
+        // The effort actually sent with the last real API request, as the CLI
+        // itself rebuilds it (`perTurnEffort ?? effort`). A request without
+        // one (a model with no effort levels, e.g. after `/model haiku`)
+        // clears it: the session runs at no effort as of that record, which
+        // the summary weighs against newer hook reports by `effort_ts`.
+        // Subagents run at their own effort; placeholders and API errors
+        // were never sent.
+        if main_chain && !synthetic && !rec.is_api_error.yes() {
+            self.effort = rec
+                .per_turn_effort
+                .get()
+                .or(rec.effort.get())
+                .filter(|e| !e.is_empty() && e.len() <= 20)
+                .map(str::to_string);
+            self.effort_ts = ts.or(self.last_ts);
         }
         if rec.is_api_error.yes() {
             let text = match &msg.content {
@@ -1243,11 +1724,28 @@ impl Aggregates {
                 Content::Text(t) => t.text.clone().unwrap_or_default(),
                 Content::None => String::new(),
             };
-            let kind = if rec.quota_limits.0 {
+            let quota = rec
+                .quota_limits
+                .present
+                .then(|| match &rec.quota_limits.detail {
+                    Some(q) => QuotaHit::from_rec(q, ts.or(self.last_ts)),
+                    None => QuotaHit {
+                        ts: ts.or(self.last_ts),
+                        ..Default::default()
+                    },
+                });
+            let kind = if quota.is_some() {
                 "quota".to_string()
             } else {
                 rec.error.0.clone().unwrap_or_else(|| "api_error".into())
             };
+            let text = match &quota {
+                Some(q) if text.trim().is_empty() => q.describe(),
+                _ => text,
+            };
+            if quota.is_some() {
+                self.last_quota = quota;
+            }
             self.last_error = Some(LastErrorRec {
                 kind,
                 text: clip_chars(&text, TEXT_MAX),
@@ -1267,11 +1765,16 @@ impl Aggregates {
             self.model = Some(model.clone());
         }
         self.last_error = None;
+        if main_chain {
+            if let Some(u) = msg.usage.get() {
+                self.fast = u.speed.is("fast");
+            }
+        }
         if let (Some(id), Some(u)) = (msg.id.get(), msg.usage.get()) {
             let totals = Totals::of(&model, u);
             let after = self.cost_state.is_some();
             self.usage.record(id, totals, ts, after);
-            if !rec.is_sidechain.yes() {
+            if main_chain {
                 let used = u.input_tokens.n()
                     + u.cache_read_input_tokens.n()
                     + u.cache_creation_input_tokens.n();
@@ -1306,6 +1809,12 @@ impl Aggregates {
                             summary: None,
                             ts,
                         });
+                        if main_chain {
+                            if let Some(t) = ts.or(self.last_ts) {
+                                self.last_thinking_ts =
+                                    Some(self.last_thinking_ts.map_or(t, |p| p.max(t)));
+                            }
+                        }
                     }
                     Some("tool_use") | Some("server_tool_use") => {
                         ended_on_tool = true;
@@ -1387,6 +1896,10 @@ impl Aggregates {
     }
 
     fn apply_user(&mut self, rec: Rec, ts: Option<i64>) {
+        if is_regular_prompt(&rec) {
+            let version = rec.version.get().or(self.version.as_deref());
+            self.ultra.prompt(ts.or(self.last_ts), version);
+        }
         let origin = rec
             .origin
             .get()
@@ -1670,8 +2183,18 @@ impl Aggregates {
     }
 
     fn apply_attachment(&mut self, rec: Rec, ts: Option<i64>) {
+        let main_chain = !rec.is_sidechain.yes();
         let Some(att) = rec.attachment.0 else { return };
         match att.ty.get() {
+            // Standing ultracode (not the per-turn `ultrathink_effort` /
+            // `workflow_keyword_request` keywords): see [`UltraReplay`].
+            Some(kind @ ("ultra_effort_enter" | "ultra_effort_exit")) if main_chain => {
+                self.ultra.marker(
+                    kind == "ultra_effort_enter",
+                    ts.or(self.last_ts),
+                    rec.uuid.take(),
+                );
+            }
             Some("model") => {
                 if let Some(m) = att.identity.get().and_then(|i| i.model_id.get()) {
                     if !pricing::is_synthetic(m) {
@@ -1727,6 +2250,13 @@ impl Aggregates {
     fn apply_system(&mut self, rec: Rec, ts: Option<i64>) {
         match rec.subtype.get() {
             Some("compact_boundary") => {
+                if !rec.is_sidechain.yes() {
+                    let meta = rec.compact_metadata.get();
+                    self.ultra
+                        .compacted(meta.is_some_and(CompactMeta::is_auto), |u| {
+                            meta.is_some_and(|m| m.preserves(u))
+                        });
+                }
                 self.compactions += 1;
                 self.last_compact_ts = ts;
                 self.last_mark = Mark {
@@ -1798,6 +2328,11 @@ impl Aggregates {
             model_attachment: self.model_attachment.clone(),
             model: self.model.clone(),
             effort: self.effort.clone(),
+            effort_ts: self.effort_ts,
+            fast: self.fast,
+            ultra: self.ultra.clone(),
+            last_thinking_ts: self.last_thinking_ts,
+            last_quota: self.last_quota.clone(),
             permission_mode: self.permission_mode.clone(),
             custom_title: self.custom_title.clone(),
             ai_title: self.ai_title.clone(),
@@ -2083,8 +2618,246 @@ impl FileIndex {
         let n = reader.read_until(b'\n', &mut skipped)? as u64;
         self.offset = from.saturating_sub(1) + n;
         self.start = self.offset.max(1);
+        // What Claude Code saw before the window is not known yet.
+        self.agg.ultra.seen = UltraSeen::Seed;
         Ok(())
     }
+
+    /// Seed a main transcript's tail window with the ultracode history
+    /// before it, so the dashboard is right at once rather than after the
+    /// background full pass: a bounded backward scan from `window_start`
+    /// (down to `base`, a checkpoint of this file, whose replay covers the
+    /// rest). Nothing is read when the window alone decides it.
+    pub fn seed_ultra(&mut self, window_start: u64, base: Option<&FileIndex>) {
+        if self.kind != FileKind::Main || !self.agg.ultra.needs_seed() {
+            return;
+        }
+        let floor = base.map_or(0, |b| b.offset.min(window_start));
+        let before = match scan_back_ultra(&self.path, window_start, floor, ULTRA_SEED_BUDGET) {
+            Ok(back) => back.replay(base.map(|b| &b.agg.ultra)),
+            Err(e) => {
+                tracing::debug!(error = %e, path = %self.path.display(), "ultracode seed scan failed");
+                UltraReplay {
+                    seen: UltraSeen::Unknown,
+                    ..Default::default()
+                }
+            }
+        };
+        self.agg.ultra.seed(&before);
+    }
+}
+
+/// How far back [`scan_back_ultra`] reads before giving up (the background
+/// full pass settles the rest).
+pub const ULTRA_SEED_BUDGET: u64 = 128 * 1024 * 1024;
+/// Bytes read per step of the backward scan.
+const SEED_CHUNK: u64 = 1024 * 1024;
+/// How far a hit's line may reach before it (a prompt names its origin after
+/// its text) and after it; a longer line is skipped.
+const SEED_LINE_BACK: u64 = 1024 * 1024;
+const SEED_LINE_AHEAD: u64 = 256 * 1024;
+/// With their unescaped quotes these match JSON structure only, never text
+/// quoted inside a string (where every `"` is escaped).
+const MARKER_NEEDLE: &str = "\"type\":\"ultra_effort_";
+const BOUNDARY_NEEDLE: &str = "\"subtype\":\"compact_boundary\"";
+const PROMPT_NEEDLE: &str = "\"origin\":{\"kind\":\"human\"}";
+
+/// Where a backward scan stopped.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub enum BackStop {
+    /// At the last main-chain marker: `(on, ts, uuid)`.
+    Marker(bool, Option<i64>, Option<String>),
+    /// At the file start: no marker before.
+    #[default]
+    Start,
+    /// At the floor (a checkpoint's offset) without a marker.
+    Floor,
+    /// Out of budget.
+    Budget,
+}
+
+/// A record between the stop of a backward scan and its starting point.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum BackEvent {
+    /// A main-chain compaction: `(automatic, preserved uuids)`.
+    Compaction(bool, Vec<String>),
+    /// The last regular prompt: `(ts, version)`.
+    Prompt(Option<i64>, Option<String>),
+}
+
+/// What [`scan_back_ultra`] found before a point of a transcript.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct UltraBack {
+    pub stop: BackStop,
+    /// The compactions and the last regular prompt after the stop, oldest
+    /// first.
+    pub events: Vec<BackEvent>,
+}
+
+impl UltraBack {
+    /// The replay as of the scanned point; `base` is the checkpoint the
+    /// scan stopped at (its pending prompt wrote no marker, or the scan
+    /// would have stopped at it).
+    pub fn replay(&self, base: Option<&UltraReplay>) -> UltraReplay {
+        let mut r = match (&self.stop, base) {
+            (BackStop::Marker(on, ts, uuid), _) => {
+                let mut r = UltraReplay::default();
+                r.marker(*on, *ts, uuid.clone());
+                r
+            }
+            (BackStop::Start, _) => UltraReplay::default(),
+            (BackStop::Floor, Some(b)) => b.clone(),
+            (BackStop::Floor | BackStop::Budget, _) => UltraReplay {
+                seen: UltraSeen::Unknown,
+                ..Default::default()
+            },
+        };
+        r.settle();
+        for e in &self.events {
+            match e {
+                BackEvent::Compaction(auto, kept) => {
+                    r.compacted(*auto, |u| kept.iter().any(|k| k == u))
+                }
+                // Anything later than the prompt is past its attachments.
+                BackEvent::Prompt(at, version) => r.prompt(*at, version.as_deref()),
+            }
+        }
+        r.settle();
+        r
+    }
+}
+
+/// Scan a transcript backwards from `end` (a line start) for its last
+/// main-chain ultracode marker, collecting the compactions and the last
+/// regular prompt after it; stops at `floor` or after `budget` bytes. Reads
+/// 1 MB at a time, plus a bounded window around each hit's line.
+pub fn scan_back_ultra(
+    path: &Path,
+    end: u64,
+    floor: u64,
+    budget: u64,
+) -> std::io::Result<UltraBack> {
+    const NEEDLES: [&str; 3] = [MARKER_NEEDLE, BOUNDARY_NEEDLE, PROMPT_NEEDLE];
+    let mut f = File::open(path)?;
+    let size = f.metadata()?.len();
+    let end = end.min(size);
+    let overlap = NEEDLES.iter().map(|n| n.len()).max().unwrap_or(1) as u64 - 1;
+    let mut back = UltraBack::default();
+    let mut buf: Vec<u8> = Vec::new();
+    let mut line: Vec<u8> = Vec::new();
+    let mut prompt_seen = false;
+    // Every needle starting at `pos` or later was searched already.
+    let mut pos = end;
+    back.stop = loop {
+        if pos <= floor {
+            break if floor == 0 {
+                BackStop::Start
+            } else {
+                BackStop::Floor
+            };
+        }
+        if end - pos >= budget {
+            break BackStop::Budget;
+        }
+        let from = pos.saturating_sub(SEED_CHUNK).max(floor);
+        let to = (pos + overlap).min(end);
+        read_range(&mut f, from, to, &mut buf)?;
+        let mut hits: Vec<u64> = Vec::new();
+        let mut at = 0usize;
+        for chunk in buf.utf8_chunks() {
+            let text = chunk.valid();
+            for needle in NEEDLES {
+                if needle == PROMPT_NEEDLE && prompt_seen {
+                    continue;
+                }
+                hits.extend(
+                    text.match_indices(needle)
+                        .map(|(i, _)| from + (at + i) as u64)
+                        .filter(|h| *h < pos),
+                );
+            }
+            at += text.len() + chunk.invalid().len();
+        }
+        hits.sort_unstable_by(|a, b| b.cmp(a));
+        for hit in hits {
+            let Some(rec) = line_at(&mut f, hit, size, &mut line)? else {
+                continue;
+            };
+            if rec.is_sidechain.yes() {
+                continue;
+            }
+            match (rec.ty.get(), rec.subtype.get()) {
+                (Some("attachment"), _) => {
+                    let kind = rec.attachment.get().and_then(|a| a.ty.get());
+                    if let Some(k @ ("ultra_effort_enter" | "ultra_effort_exit")) = kind {
+                        back.events.reverse();
+                        back.stop = BackStop::Marker(
+                            k == "ultra_effort_enter",
+                            parse_ts(rec.timestamp.get()),
+                            rec.uuid.0.clone(),
+                        );
+                        return Ok(back);
+                    }
+                }
+                (Some("system"), Some("compact_boundary")) => {
+                    let meta = rec.compact_metadata.get();
+                    let kept = meta
+                        .and_then(|m| m.preserved_messages.get())
+                        .map(|p| {
+                            p.uuids
+                                .0
+                                .iter()
+                                .chain(p.all_uuids.0.iter())
+                                .filter_map(|u| u.get().map(str::to_string))
+                                .collect()
+                        })
+                        .unwrap_or_default();
+                    back.events.push(BackEvent::Compaction(
+                        meta.is_some_and(CompactMeta::is_auto),
+                        kept,
+                    ));
+                }
+                (Some("user"), _) if !prompt_seen && is_regular_prompt(&rec) => {
+                    prompt_seen = true;
+                    back.events.push(BackEvent::Prompt(
+                        parse_ts(rec.timestamp.get()),
+                        rec.version.0.clone(),
+                    ));
+                }
+                _ => {}
+            }
+        }
+        pos = from;
+    };
+    back.events.reverse();
+    Ok(back)
+}
+
+/// Read `[from, to)` of `f` into `buf`.
+fn read_range(f: &mut File, from: u64, to: u64, buf: &mut Vec<u8>) -> std::io::Result<()> {
+    use std::io::Read;
+    buf.clear();
+    buf.resize(to.saturating_sub(from) as usize, 0);
+    f.seek(SeekFrom::Start(from))?;
+    f.read_exact(buf)
+}
+
+/// The record on the line holding byte `hit`, when that line starts at most
+/// [`SEED_LINE_BACK`] before it and ends at most [`SEED_LINE_AHEAD`] after.
+fn line_at(f: &mut File, hit: u64, size: u64, buf: &mut Vec<u8>) -> std::io::Result<Option<Rec>> {
+    let lo = hit.saturating_sub(SEED_LINE_BACK);
+    let hi = (hit + SEED_LINE_AHEAD).min(size);
+    read_range(f, lo, hi, buf)?;
+    let at = (hit - lo) as usize;
+    let start = match buf[..at].iter().rposition(|b| *b == b'\n') {
+        Some(i) => i + 1,
+        None if lo == 0 => 0,
+        None => return Ok(None),
+    };
+    let Some(len) = buf[at..].iter().position(|b| *b == b'\n') else {
+        return Ok(None);
+    };
+    Ok(parse_line::<Rec>(&buf[start..at + len]))
 }
 
 /// Session id and agent id from a transcript path, if it is one we index.
@@ -2334,7 +3107,7 @@ mod tests {
             "\n",
             r#"{"type":"user","timestamp":"2026-09-25T10:00:02.000Z","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":"started"}]},"toolUseResult":{"stdout":"","backgroundTaskId":"bx9ov4bnx"}}"#,
             "\n",
-            r#"{"type":"assistant","timestamp":"2026-09-25T10:00:03.000Z","message":{"id":"m2","model":"claude-opus-5","stop_reason":"tool_use","content":[{"type":"tool_use","id":"t3","name":"Edit","input":{"file_path":"/p/a.rs","old_string":"x","new_string":"y"}}],"usage":{"input_tokens":1,"output_tokens":1}}}"#,
+            r#"{"type":"assistant","timestamp":"2026-09-25T10:00:03.000Z","effort":"xhigh","message":{"id":"m2","model":"claude-opus-5","stop_reason":"tool_use","content":[{"type":"tool_use","id":"t3","name":"Edit","input":{"file_path":"/p/a.rs","old_string":"x","new_string":"y"}}],"usage":{"input_tokens":1,"output_tokens":1}}}"#,
             "\n",
             r#"{"type":"user","timestamp":"2026-09-25T10:00:04.000Z","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t3","content":"ok"}]},"toolUseResult":{"filePath":"/p/a.rs","structuredPatch":[{"lines":["-x","+y","+z"]}],"originalFile":"HUGE"}}"#,
             "\n",
@@ -2391,6 +3164,513 @@ mod tests {
         assert_eq!(a.last_mark.kind, MarkKind::ApiError);
         assert_eq!(a.last_mark.retry, Some((1, 10)));
         assert_eq!(a.prompts, 1);
+    }
+
+    fn at(sec: u32) -> Option<i64> {
+        parse_ts(Some(&format!("2026-09-25T10:00:{sec:02}.000Z")))
+    }
+
+    #[test]
+    fn effort_ultracode_thinking_and_speed_evidence() {
+        let lines = concat!(
+            // perTurnEffort wins over effort (the CLI rebuilds history so).
+            r#"{"type":"assistant","timestamp":"2026-09-25T10:00:01.000Z","effort":"xhigh","perTurnEffort":"max","message":{"id":"m1","model":"claude-opus-5","content":[{"type":"thinking","thinking":"","signature":"s"},{"type":"text","text":"hi"}],"usage":{"input_tokens":1,"output_tokens":1,"speed":"fast","output_tokens_details":{"thinking_tokens":5}}}}"#,
+            "\n",
+            // A subagent's record says nothing about the session.
+            r#"{"type":"assistant","isSidechain":true,"timestamp":"2026-09-25T10:00:02.000Z","effort":"low","message":{"id":"s1","model":"claude-haiku-4-5","content":[{"type":"thinking","thinking":"x"}],"usage":{"input_tokens":1,"output_tokens":1,"speed":"standard"}}}"#,
+            "\n",
+            r#"{"type":"attachment","timestamp":"2026-09-25T10:00:03.000Z","attachment":{"type":"ultra_effort_enter","reminderType":"full"}}"#,
+            "\n",
+            // Per-turn keywords are not the standing setting.
+            r#"{"type":"attachment","timestamp":"2026-09-25T10:00:04.000Z","attachment":{"type":"ultrathink_effort"}}"#,
+            "\n",
+            r#"{"type":"attachment","timestamp":"2026-09-25T10:00:05.000Z","attachment":{"type":"workflow_keyword_request"}}"#,
+            "\n",
+            r#"{"type":"attachment","isSidechain":true,"timestamp":"2026-09-25T10:00:06.000Z","attachment":{"type":"ultra_effort_exit"}}"#,
+            "\n",
+        );
+        let fi = scan_str(lines);
+        let a = &fi.agg;
+        assert_eq!(a.effort.as_deref(), Some("max"));
+        assert_eq!(a.effort_ts, at(1));
+        assert!(a.fast);
+        // A marker with no prompt before it (in this excerpt) holds as of
+        // its own time.
+        assert_eq!(a.ultra.seen, UltraSeen::Enter);
+        assert_eq!(a.ultra.state, Some(marked(true, at(3))));
+        assert_eq!(a.last_thinking_ts, at(1), "main chain only");
+        // The light copy and a checkpoint keep all of it.
+        let light = a.light_clone();
+        assert_eq!(
+            (
+                &light.effort,
+                light.effort_ts,
+                light.fast,
+                &light.ultra,
+                light.last_thinking_ts
+            ),
+            (&a.effort, a.effort_ts, a.fast, &a.ultra, a.last_thinking_ts)
+        );
+        let back: Aggregates = serde_json::from_str(&serde_json::to_string(a).unwrap()).unwrap();
+        assert_eq!(&back, a);
+
+        // A null perTurnEffort (2.1.267–2.1.280) falls back to effort; the
+        // exit marker turns it off; standard speed clears fast.
+        let more = String::from(lines)
+            + r#"{"type":"assistant","timestamp":"2026-09-25T10:00:07.000Z","effort":"high","perTurnEffort":null,"message":{"id":"m2","model":"claude-opus-5","content":[{"type":"text","text":"ok"}],"usage":{"input_tokens":1,"output_tokens":1,"speed":"standard"}}}"#
+            + "\n"
+            + r#"{"type":"attachment","timestamp":"2026-09-25T10:00:08.000Z","attachment":{"type":"ultra_effort_exit"}}"#
+            + "\n";
+        let fi = scan_str(&more);
+        assert_eq!(fi.agg.effort.as_deref(), Some("high"));
+        assert_eq!(fi.agg.effort_ts, at(7));
+        assert!(!fi.agg.fast);
+        assert_eq!(fi.agg.ultra.state, Some(marked(false, at(8))));
+        assert_eq!(fi.agg.last_thinking_ts, at(1));
+        // A plan-limit rejection and a placeholder were never sent: the
+        // effort of the last real request stays.
+        let rejected = more.clone()
+            + r#"{"type":"assistant","timestamp":"2026-09-25T10:00:09.000Z","isApiErrorMessage":true,"error":"rate_limit","message":{"id":"e1","model":"<synthetic>","content":[{"type":"text","text":"limit"}]}}"#
+            + "\n";
+        let fi = scan_str(&rejected);
+        assert_eq!(fi.agg.effort.as_deref(), Some("high"));
+        assert_eq!(fi.agg.effort_ts, at(7));
+        // A request without effort (`/model haiku`: the model has none)
+        // clears it, stamped, so an older hook report cannot bring it back.
+        let haiku = more
+            + r#"{"type":"assistant","timestamp":"2026-09-25T10:00:09.000Z","message":{"id":"m3","model":"claude-haiku-4-5","content":[{"type":"text","text":"ok"}],"usage":{"input_tokens":1,"output_tokens":1}}}"#
+            + "\n";
+        let fi = scan_str(&haiku);
+        assert_eq!(fi.agg.effort, None);
+        assert_eq!(fi.agg.effort_ts, at(9));
+        // A subagent's record never touches it.
+        let sub = haiku
+            + r#"{"type":"assistant","isSidechain":true,"timestamp":"2026-09-25T10:00:10.000Z","effort":"max","message":{"id":"s2","model":"claude-opus-5","content":[{"type":"text","text":"ok"}],"usage":{"input_tokens":1,"output_tokens":1}}}"#
+            + "\n";
+        let fi = scan_str(&sub);
+        assert_eq!(fi.agg.effort, None);
+        assert_eq!(fi.agg.effort_ts, at(9));
+    }
+
+    // ── ultracode replay: record shapes as Claude Code 2.1.284 writes them ──
+
+    fn ts(sec: u32) -> String {
+        format!("2026-09-25T10:{:02}:{:02}.000Z", sec / 60, sec % 60)
+    }
+
+    fn secs(sec: u32) -> Option<i64> {
+        parse_ts(Some(&ts(sec)))
+    }
+
+    /// A message someone sent (VS Code: `promptSource` sdk).
+    fn prompt(sec: u32, version: &str) -> String {
+        format!(
+            r#"{{"type":"user","timestamp":"{}","version":"{version}","origin":{{"kind":"human"}},"promptSource":"sdk","message":{{"role":"user","content":"go on"}}}}"#,
+            ts(sec)
+        ) + "\n"
+    }
+
+    /// `full` | `sparse` (an `ultra_effort_enter`) or `exit`.
+    fn ultra(sec: u32, kind: &str, uuid: &str) -> String {
+        let body = match kind {
+            "exit" => r#""type":"ultra_effort_exit""#.to_string(),
+            r => format!(r#""type":"ultra_effort_enter","reminderType":"{r}""#),
+        };
+        format!(
+            r#"{{"type":"attachment","uuid":"{uuid}","timestamp":"{}","attachment":{{{body}}}}}"#,
+            ts(sec)
+        ) + "\n"
+    }
+
+    /// Another attachment of the prompt's block.
+    fn other_attachment(sec: u32) -> String {
+        format!(
+            r#"{{"type":"attachment","timestamp":"{}","attachment":{{"type":"date"}}}}"#,
+            ts(sec)
+        ) + "\n"
+    }
+
+    fn reply(sec: u32) -> String {
+        format!(
+            r#"{{"type":"assistant","timestamp":"{}","message":{{"id":"r{sec}","model":"claude-opus-5-5","content":[{{"type":"text","text":"ok"}}],"usage":{{"input_tokens":1,"output_tokens":1}}}}}}"#,
+            ts(sec)
+        ) + "\n"
+    }
+
+    fn boundary(sec: u32, trigger: &str, kept: &str) -> String {
+        format!(
+            r#"{{"type":"system","subtype":"compact_boundary","timestamp":"{}","compactMetadata":{{"trigger":"{trigger}","preTokens":1,"preservedSegment":{{"headUuid":"h","anchorUuid":"a","tailUuid":"t"}},"preservedMessages":{{"anchorUuid":"a","uuids":["{kept}"],"allUuids":["{kept}","z"]}}}}}}"#,
+            ts(sec)
+        ) + "\n"
+    }
+
+    fn marked(on: bool, at: Option<i64>) -> UltraState {
+        UltraState {
+            on: Some(on),
+            at,
+            marker: true,
+            ..Default::default()
+        }
+    }
+
+    fn confirmed(on: bool, at: Option<i64>) -> UltraState {
+        UltraState {
+            on: Some(on),
+            at,
+            ..Default::default()
+        }
+    }
+
+    fn unknown(why: UltraUnknown, at: Option<i64>) -> UltraState {
+        UltraState {
+            at,
+            unknown: Some(why),
+            ..Default::default()
+        }
+    }
+
+    const V: &str = "2.1.284";
+
+    #[test]
+    fn ultracode_holds_as_of_the_last_regular_prompt() {
+        // Switched on: the prompt gets a full `enter`, dated to the prompt.
+        let on = prompt(1, V) + &other_attachment(1) + &ultra(1, "full", "u1") + &reply(2);
+        let fi = scan_str(&on);
+        assert_eq!(fi.agg.ultra.state, Some(marked(true, secs(1))));
+        assert_eq!(fi.agg.ultra.seen, UltraSeen::Enter);
+        // Later prompts without a marker (fewer than ~10 messages since the
+        // `enter`) confirm it — also after a restart with the switch turned
+        // back on, where Claude Code sees the `enter` of its history.
+        let still = on.clone() + &prompt(60, V) + &other_attachment(60) + &reply(61);
+        assert_eq!(
+            scan_str(&still).agg.ultra.state,
+            Some(confirmed(true, secs(60)))
+        );
+        // A sparse reminder says the same.
+        let sparse = still.clone() + &prompt(90, V) + &ultra(90, "sparse", "u2") + &reply(91);
+        assert_eq!(
+            scan_str(&sparse).agg.ultra.state,
+            Some(marked(true, secs(90)))
+        );
+        // Switched off (or a restart left it off): the next prompt gets an
+        // `exit`; later prompts confirm off.
+        let off = still.clone() + &prompt(120, V) + &ultra(120, "exit", "u3") + &reply(121);
+        assert_eq!(
+            scan_str(&off).agg.ultra.state,
+            Some(marked(false, secs(120)))
+        );
+        let off = off + &prompt(150, V) + &reply(151);
+        assert_eq!(
+            scan_str(&off).agg.ultra.state,
+            Some(confirmed(false, secs(150)))
+        );
+        // Never switched on: every prompt confirms off.
+        let never = prompt(1, V) + &reply(2) + &prompt(3, V) + &reply(4);
+        assert_eq!(
+            scan_str(&never).agg.ultra.state,
+            Some(confirmed(false, secs(3)))
+        );
+        // A prompt whose attachments are not all written yet says nothing
+        // until something follows them.
+        let trailing = still.clone() + &prompt(200, V);
+        let fi = scan_str(&trailing);
+        assert_eq!(fi.agg.ultra.state, Some(confirmed(true, secs(60))));
+        assert!(fi.agg.ultra.pending.is_some());
+        // …and a checkpoint keeps it pending.
+        let back: Aggregates =
+            serde_json::from_str(&serde_json::to_string(&fi.agg).unwrap()).unwrap();
+        assert_eq!(back.ultra, fi.agg.ultra);
+        // No prompt at all: nothing known.
+        assert_eq!(scan_str(&reply(1)).agg.ultra.state, None);
+    }
+
+    #[test]
+    fn only_regular_prompts_make_claude_code_note_ultracode() {
+        let on = prompt(1, V) + &ultra(1, "full", "u1") + &reply(2);
+        let not_prompts = [
+            // A background task's notification (also Mother Claude's
+            // wake-ups): delivered without the per-prompt attachments.
+            r#"{"type":"user","timestamp":"T","version":"2.1.284","origin":{"kind":"task-notification","producer":"session-task"},"promptSource":"system","queueSkipAttachments":true,"message":{"role":"user","content":"<task-notification>\n<task-id>b1</task-id>\n<status>completed</status>\n</task-notification>"}}"#,
+            // A `/loop` or cron fire.
+            r#"{"type":"user","timestamp":"T","version":"2.1.284","isMeta":true,"origin":{"kind":"human"},"message":{"role":"user","content":"check the build"}}"#,
+            // A compaction's summary.
+            r#"{"type":"user","timestamp":"T","version":"2.1.284","isCompactSummary":true,"message":{"role":"user","content":"This session is being continued"}}"#,
+            // A local slash command and its output.
+            r#"{"type":"user","timestamp":"T","version":"2.1.284","origin":{"kind":"human"},"message":{"role":"user","content":"<command-name>/context</command-name>"}}"#,
+            r#"{"type":"user","timestamp":"T","version":"2.1.284","message":{"role":"user","content":"<local-command-stdout>ok</local-command-stdout>"}}"#,
+            // An interruption.
+            r#"{"type":"user","timestamp":"T","version":"2.1.284","origin":{"kind":"human"},"message":{"role":"user","content":[{"type":"text","text":"[Request interrupted by user]"}]}}"#,
+            // A tool result.
+            r#"{"type":"user","timestamp":"T","version":"2.1.284","origin":{"kind":"human"},"message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":"ok"}]}}"#,
+            // A subagent's prompt, and its markers.
+            r#"{"type":"user","isSidechain":true,"timestamp":"T","version":"2.1.284","origin":{"kind":"human"},"message":{"role":"user","content":"explore"}}"#,
+            r#"{"type":"attachment","isSidechain":true,"timestamp":"T","attachment":{"type":"ultra_effort_exit"}}"#,
+        ];
+        for (i, line) in not_prompts.iter().enumerate() {
+            let t = 10 + 2 * i as u32;
+            let text = on.clone()
+                + &line.replace("\"T\"", &format!("\"{}\"", ts(t)))
+                + "\n"
+                + &reply(t + 1);
+            let a = scan_str(&text).agg;
+            assert_eq!(a.ultra.state, Some(marked(true, secs(1))), "{line}");
+            assert_eq!(a.ultra.seen, UltraSeen::Enter, "{line}");
+        }
+    }
+
+    #[test]
+    fn compactions_hide_or_keep_the_marker() {
+        let on = prompt(1, V) + &ultra(1, "full", "u1") + &reply(2);
+        // An automatic compaction hides it: on, the next prompt writes a
+        // full `enter` again; off, it writes nothing, which now means off.
+        let auto = on.clone() + &boundary(3, "auto", "other");
+        assert_eq!(scan_str(&auto).agg.ultra.seen, UltraSeen::None);
+        let again = auto.clone() + &prompt(4, V) + &ultra(4, "full", "u2") + &reply(5);
+        assert_eq!(
+            scan_str(&again).agg.ultra.state,
+            Some(marked(true, secs(4)))
+        );
+        let silent = auto + &prompt(4, V) + &reply(5);
+        assert_eq!(
+            scan_str(&silent).agg.ultra.state,
+            Some(confirmed(false, secs(4)))
+        );
+        // Unless it kept the marker.
+        let kept = on.clone() + &boundary(3, "auto", "u1") + &prompt(4, V) + &reply(5);
+        assert_eq!(
+            scan_str(&kept).agg.ultra.state,
+            Some(confirmed(true, secs(4)))
+        );
+        // A manual `/compact` may keep it or not: a silent prompt can't tell,
+        // the next marker can.
+        let manual = on.clone() + &boundary(3, "manual", "other") + &prompt(4, V) + &reply(5);
+        let a = scan_str(&manual).agg;
+        assert_eq!(a.ultra.seen, UltraSeen::Compacted);
+        assert_eq!(
+            a.ultra.state,
+            Some(unknown(UltraUnknown::Compacted, secs(4)))
+        );
+        let told = manual + &prompt(6, V) + &ultra(6, "sparse", "u3") + &reply(7);
+        assert_eq!(scan_str(&told).agg.ultra.state, Some(marked(true, secs(6))));
+        // After an `exit` both ways end the same: off.
+        let off = prompt(1, V) + &ultra(1, "exit", "u1") + &reply(2);
+        let manual_off = off + &boundary(3, "manual", "x") + &prompt(4, V) + &reply(5);
+        assert_eq!(
+            scan_str(&manual_off).agg.ultra.state,
+            Some(confirmed(false, secs(4)))
+        );
+        // A compaction right after a prompt settles that prompt first, with
+        // what Claude Code saw before it.
+        let settled = on + &prompt(8, V) + &boundary(9, "auto", "x");
+        assert_eq!(
+            scan_str(&settled).agg.ultra.state,
+            Some(confirmed(true, secs(8)))
+        );
+    }
+
+    #[test]
+    fn versions_before_ultracode_markers_say_nothing_by_silence() {
+        let old = prompt(1, "2.1.240") + &reply(2);
+        assert_eq!(
+            scan_str(&old).agg.ultra.state,
+            Some(unknown(UltraUnknown::Unsupported, secs(1)))
+        );
+        // A marker always tells.
+        let marked_old = prompt(1, "2.1.245") + &ultra(1, "full", "u1") + &reply(2);
+        assert_eq!(
+            scan_str(&marked_old).agg.ultra.state,
+            Some(marked(true, secs(1)))
+        );
+        assert!(notes_ultracode("2.1.246") && notes_ultracode("2.2.0"));
+        assert!(!notes_ultracode("2.1.245") && !notes_ultracode("next"));
+        assert_eq!(version_triple("2.1.246"), Some((2, 1, 246)));
+        assert_eq!(version_triple("2.1.284-rc.1"), Some((2, 1, 284)));
+        assert_eq!(version_triple("2.1"), None);
+        assert_eq!(version_triple("x"), None);
+    }
+
+    /// A filler line of `len` bytes (at least ~300): an assistant message
+    /// whose text quotes a marker and a boundary (escaped, as JSON text is),
+    /// which are not ones.
+    fn filler(sec: u32, len: usize) -> String {
+        let quoted = r#"see \"type\":\"ultra_effort_exit\" and \"subtype\":\"compact_boundary\" "#;
+        let line = |pad: usize| {
+            format!(
+                r#"{{"type":"assistant","timestamp":"{}","message":{{"id":"f{sec}","model":"claude-opus-5-5","content":[{{"type":"text","text":"{quoted}{}"}}],"usage":{{"input_tokens":1,"output_tokens":1}}}}}}"#,
+                ts(sec),
+                "x".repeat(pad)
+            ) + "\n"
+        };
+        line(len.saturating_sub(line(0).len()))
+    }
+
+    fn write(dir: &Path, text: &str) -> PathBuf {
+        let path = dir.join("s.jsonl");
+        std::fs::write(&path, text).unwrap();
+        path
+    }
+
+    /// Index `text` from a tail window of `window` bytes, seeded.
+    fn window_scan(dir: &Path, text: &str, window: u64, base: Option<&FileIndex>) -> FileIndex {
+        let path = write(dir, text);
+        let mut fi = FileIndex::new(path, FileKind::Main, "s");
+        fi.seek_window(window).unwrap();
+        let start = fi.offset;
+        fi.scan(None).unwrap();
+        assert!(!fi.is_complete());
+        fi.seed_ultra(start, base);
+        fi
+    }
+
+    #[test]
+    fn tail_windows_are_seeded_with_the_marker_before_them() {
+        let dir = tempfile::tempdir().unwrap();
+        let head = prompt(1, V) + &ultra(1, "full", "u1") + &reply(2);
+        let fill: String = (0..40).map(|i| filler(3 + i, 2_000)).collect();
+        let tail = prompt(100, V) + &other_attachment(100) + &reply(101);
+        let text = head.clone() + &fill + &tail;
+        // Unseeded, the window can't tell…
+        let path = write(dir.path(), &text);
+        let mut fi = FileIndex::new(path, FileKind::Main, "s");
+        fi.seek_window(1_000).unwrap();
+        fi.scan(None).unwrap();
+        assert!(fi.agg.ultra.needs_seed());
+        assert_eq!(
+            fi.agg.ultra.state.as_ref().map(|s| (s.on, s.unknown)),
+            Some((None, Some(UltraUnknown::Reading)))
+        );
+        // …seeded, the `enter` far before it confirms on as of the prompt in
+        // the window, as the full pass says. The quoted markers in between
+        // are text, not markers.
+        let fi = window_scan(dir.path(), &text, 1_000, None);
+        assert_eq!(fi.agg.ultra.state, Some(confirmed(true, secs(100))));
+        assert_eq!(fi.agg.ultra.seen, UltraSeen::Enter);
+        assert_eq!(fi.agg.ultra.marker_uuid.as_deref(), Some("u1"));
+        assert_eq!(scan_str(&text).agg.ultra, fi.agg.ultra);
+        // An automatic compaction in between (before the window too) hid it:
+        // off.
+        let hidden = head.clone() + &fill + &boundary(90, "auto", "x") + &filler(95, 2_000) + &tail;
+        let fi = window_scan(dir.path(), &hidden, 1_000, None);
+        assert_eq!(fi.agg.ultra.state, Some(confirmed(false, secs(100))));
+        assert_eq!(scan_str(&hidden).agg.ultra, fi.agg.ultra);
+        // One that kept it: on.
+        let kept = head.clone() + &fill + &boundary(90, "auto", "u1") + &filler(95, 2_000) + &tail;
+        let fi = window_scan(dir.path(), &kept, 1_000, None);
+        assert_eq!(fi.agg.ultra.state, Some(confirmed(true, secs(100))));
+        // No marker anywhere before: off.
+        let never = prompt(1, V) + &reply(2) + &fill + &tail;
+        let fi = window_scan(dir.path(), &never, 1_000, None);
+        assert_eq!(fi.agg.ultra.state, Some(confirmed(false, secs(100))));
+        // No prompt in the window: the state as of the marker before it…
+        let quiet = head.clone() + &fill;
+        let fi = window_scan(dir.path(), &quiet, 1_000, None);
+        assert_eq!(fi.agg.ultra.state, Some(marked(true, secs(1))));
+        // …or as of the last prompt before the window, which confirmed it (a
+        // cron fire after it is no prompt).
+        let cron = format!(
+            r#"{{"type":"user","timestamp":"{}","version":"{V}","isMeta":true,"origin":{{"kind":"human"}},"message":{{"role":"user","content":"check"}}}}"#,
+            ts(52)
+        ) + "\n";
+        let quiet = head.clone() + &filler(3, 2_000) + &prompt(50, V) + &reply(51) + &cron + &fill;
+        let fi = window_scan(dir.path(), &quiet, 1_000, None);
+        assert_eq!(fi.agg.ultra.state, Some(confirmed(true, secs(50))));
+        assert_eq!(scan_str(&quiet).agg.ultra, fi.agg.ultra);
+        // The window decides alone: nothing is read before it.
+        let decided = head + &fill + &prompt(100, V) + &ultra(100, "exit", "u9") + &reply(101);
+        let fi = window_scan(dir.path(), &decided, 1_000, None);
+        assert!(!fi.agg.ultra.needs_seed());
+        assert_eq!(fi.agg.ultra.state, Some(marked(false, secs(100))));
+    }
+
+    #[test]
+    fn the_backward_scan_is_bounded_and_finds_markers_across_reads() {
+        let dir = tempfile::tempdir().unwrap();
+        let head = prompt(1, V) + &reply(2);
+        let mark = ultra(3, "full", "u1");
+        let needle_in_line = mark.find(MARKER_NEEDLE).unwrap();
+        // The needle straddles the start of the first 1 MB read back from
+        // `end`: found by the next read's overlap.
+        let fill_len = needle_in_line + SEED_CHUNK as usize + 5 - mark.len();
+        let text = head.clone() + &mark + &filler(4, fill_len);
+        assert_eq!(text.len(), head.len() + mark.len() + fill_len);
+        let end = text.len() as u64;
+        let path = write(dir.path(), &text);
+        let hit = (head.len() + needle_in_line) as u64;
+        assert!(hit < end - SEED_CHUNK && hit + MARKER_NEEDLE.len() as u64 > end - SEED_CHUNK);
+        let back = scan_back_ultra(&path, end, 0, ULTRA_SEED_BUDGET).unwrap();
+        assert_eq!(
+            back.stop,
+            BackStop::Marker(true, secs(3), Some("u1".into()))
+        );
+        // Out of budget: unknown, never "off".
+        let back = scan_back_ultra(&path, end, 0, 64 * 1024).unwrap();
+        assert_eq!(back.stop, BackStop::Budget);
+        assert_eq!(back.replay(None).seen, UltraSeen::Unknown);
+        // A floor (a checkpoint's end) with nothing after it: the
+        // checkpoint's replay, its pending prompt settled.
+        let back =
+            scan_back_ultra(&path, end, head.len() as u64 + mark.len() as u64, u64::MAX).unwrap();
+        assert_eq!(back.stop, BackStop::Floor);
+        let mut base = UltraReplay {
+            seen: UltraSeen::Enter,
+            ..Default::default()
+        };
+        base.prompt(secs(50), Some(V));
+        let r = back.replay(Some(&base));
+        assert_eq!(r.state, Some(confirmed(true, secs(50))));
+    }
+
+    #[test]
+    fn tail_windows_seed_from_a_checkpoint_far_behind() {
+        let dir = tempfile::tempdir().unwrap();
+        let first = prompt(1, V) + &ultra(1, "full", "u1") + &reply(2);
+        let path = write(dir.path(), &first);
+        let mut base = FileIndex::new(path, FileKind::Main, "s");
+        base.scan(None).unwrap();
+        assert!(base.is_complete());
+        // Grown since (no marker in the gap), then a prompt in the window.
+        let fill: String = (0..20).map(|i| filler(3 + i, 2_000)).collect();
+        let text = first + &fill + &prompt(100, V) + &reply(101);
+        let fi = window_scan(dir.path(), &text, 1_000, Some(&base));
+        assert_eq!(fi.agg.ultra.state, Some(confirmed(true, secs(100))));
+    }
+
+    #[test]
+    fn plan_limit_rejections_keep_their_detail() {
+        let reject = |text: &str, quota: &str| {
+            format!(
+                r#"{{"type":"assistant","timestamp":"2026-09-25T10:00:10.000Z","isApiErrorMessage":true,"error":"rate_limit","apiErrorStatus":429,"quotaLimits":{quota},"message":{{"id":"e1","model":"<synthetic>","content":[{{"type":"text","text":"{text}"}}]}}}}"#
+            ) + "\n"
+        };
+        let fi = scan_str(&reject(
+            "",
+            r#"{"status":"rejected","resetsAt":1790010000,"rateLimitType":"five_hour","overageStatus":"rejected","upgradePaths":["upgrade_plan"]}"#,
+        ));
+        let e = fi.agg.last_error.as_ref().unwrap();
+        assert_eq!(e.kind, "quota");
+        assert_eq!(e.text, "Plan usage limit reached (5-hour window).");
+        let q = fi.agg.last_quota.as_ref().unwrap();
+        assert_eq!(q.rate_limit_type.as_deref(), Some("five_hour"));
+        assert_eq!(q.resets_at, Some(1_790_010_000_000));
+        assert_eq!(q.status.as_deref(), Some("rejected"));
+        assert_eq!(q.ts, at(10));
+        // The CLI's own text wins; a non-object quotaLimits still counts.
+        let fi = scan_str(&reject("You've hit your limit · resets 3pm", "true"));
+        let e = fi.agg.last_error.as_ref().unwrap();
+        assert_eq!(e.kind, "quota");
+        assert_eq!(e.text, "You've hit your limit · resets 3pm");
+        let q = fi.agg.last_quota.as_ref().unwrap();
+        assert_eq!(q.rate_limit_type, None);
+        assert_eq!(q.ts, at(10));
+        // No quotaLimits (or null): an ordinary API error.
+        let fi = scan_str(&reject("Overloaded", "null"));
+        assert_eq!(fi.agg.last_error.as_ref().unwrap().kind, "rate_limit");
+        assert!(fi.agg.last_quota.is_none());
+        let weekly = scan_str(&reject("", r#"{"rateLimitType":"seven_day_opus"}"#));
+        assert_eq!(
+            weekly.agg.last_error.as_ref().unwrap().text,
+            "Plan usage limit reached (weekly window)."
+        );
     }
 
     #[test]

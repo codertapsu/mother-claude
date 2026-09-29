@@ -634,6 +634,7 @@ pub async fn defaults(Authed(_ctx): Authed, State(state): State<AppState>) -> im
     Json(json!({
         "model": d.model,
         "effort": d.effort,
+        "alwaysThinkingEnabled": d.always_thinking_enabled,
         "models": d.models,
         "efforts": EFFORT_LEVELS,
     }))

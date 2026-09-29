@@ -18,7 +18,14 @@
 //!   out. `CLAUDE_CONFIG_DIR` is never set (only inherited when the user set
 //!   it) — setting it breaks the CLI's credential lookup.
 //! * An `initialize` control request goes first; its commands/models/agents
-//!   are cached.
+//!   (and `fast_mode_state`, and what `account` says about the credentials)
+//!   are cached. `get_settings` (local, no API call) follows it, every
+//!   model/effort/ultracode change and each `result`, so the dashboard shows
+//!   the effort and ultracode the CLI really applies; an answer that predates
+//!   a change never speaks for it ([`SettingsSync`]: what was asked for shows
+//!   as requested until then).
+//! * `rate_limit_event` lines feed the plan usage (`claude::usage`) when the
+//!   session runs on the machine's own plan.
 //! * The stdout reader answers every CLI → host control request:
 //!   `can_use_tool` becomes a pending item (permission, native AskUserQuestion
 //!   with `answers`, ExitPlanMode with a `setMode`), `elicitation` too when a
@@ -36,7 +43,7 @@
 //! behind `MOTHER_CLAUDE_SIDECAR=1`; it only takes text and answers
 //! approvals over HTTP, so live control requests are refused for it.
 
-mod protocol;
+pub mod protocol;
 pub mod vt;
 
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -53,7 +60,8 @@ use tokio::process::{Child, ChildStdin, ChildStdout};
 use tokio::sync::{oneshot, Mutex as AsyncMutex, Notify};
 use uuid::Uuid;
 
-pub use protocol::{user_message_json, CliError};
+pub use protocol::{applied_settings, catalog_adaptive_thinking, user_message_json};
+pub use protocol::{AppliedSettings, CliError};
 
 use super::model::{
     Activity, ActivityKind, AgentInfo, AgentKind, AgentStatus, BackgroundTask, BackgroundTaskKind,
@@ -77,6 +85,11 @@ const DELTA_FLUSH: Duration = Duration::from_millis(60);
 const KILL_GRACE: Duration = Duration::from_secs(3);
 /// VS Code's setting sources.
 pub const SETTING_SOURCES: &str = "user,project,local";
+/// `MAX_THINKING_TOKENS` a spawn with thinking "on" gets.
+pub const SPAWN_THINKING_BUDGET: u32 = 16_000;
+/// `set_max_thinking_tokens` budget the thinking switch turns on with (VS
+/// Code's value; adaptive-capable models ignore the budget).
+pub const THINKING_ON_BUDGET: u32 = 31_999;
 /// stderr lines kept for the exit notice.
 const STDERR_TAIL: usize = 20;
 
@@ -271,6 +284,26 @@ fn task_status(s: &str) -> AgentStatus {
     }
 }
 
+/// Thinking as Mother Claude set it on an owned session. Nothing in the CLI
+/// reports it back, so this is what the host remembers it sent.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OwnedThinking {
+    Off,
+    /// On with this budget (adaptive-capable models ignore it).
+    On(u32),
+}
+
+impl OwnedThinking {
+    /// From a spawn/continue `thinking` option (`"on"` / `"off"`).
+    pub fn from_option(thinking: Option<&str>) -> Option<Self> {
+        match thinking {
+            Some("off") => Some(OwnedThinking::Off),
+            Some("on") => Some(OwnedThinking::On(SPAWN_THINKING_BUDGET)),
+            _ => None,
+        }
+    }
+}
+
 /// What Mother Claude knows about an owned session right now (from the
 /// control protocol, not the transcript). Cloned out by [`ControlRegistry::state`].
 #[derive(Debug, Clone, Default)]
@@ -280,7 +313,26 @@ pub struct OwnedLive {
     pub started_at: i64,
     pub model: Option<String>,
     pub permission_mode: Option<String>,
+    /// The effort Mother Claude last asked for (spawn option or change).
     pub effort: Option<String>,
+    /// The last `get_settings.applied` (`None` until the CLI answered one).
+    /// Parts of it are stale after a change it predates (see [`Self::sync`]).
+    pub applied: Option<AppliedSettings>,
+    /// Which of Mother Claude's setting changes `applied` reflects.
+    pub sync: SettingsSync,
+    /// The ultracode switch Mother Claude set that no `get_settings` answer
+    /// reflects yet (cleared by the first one that does).
+    pub ultracode_request: Option<bool>,
+    /// Whose plan the session's requests go to, per `initialize.account`.
+    pub account: Option<AccountFacts>,
+    /// The session answered `get_usage` without plan usage: it runs on other
+    /// credentials than the machine's plan (a project's own `env` or
+    /// `apiKeyHelper`), so plan-usage reads go elsewhere.
+    pub no_plan_usage: bool,
+    /// Thinking as Mother Claude set it (`None` = the CLI default).
+    pub thinking: Option<OwnedThinking>,
+    /// `initialize` / `system/init` `fast_mode_state` (`on|off|cooldown`).
+    pub fast_mode_state: Option<String>,
     /// From `initialize` / `commands_changed` (`/`-prefixed).
     pub commands: Vec<CommandInfo>,
     /// `initialize.models` (raw).
@@ -308,7 +360,136 @@ pub struct OwnedLive {
     pub bypass_available: bool,
 }
 
+/// Mother Claude's setting changes on an owned session, counted, so a
+/// `get_settings` answer that predates one is recognised: what was asked for
+/// shows as requested until the CLI confirms it, even when the follow-up
+/// `get_settings` fails or an older answer arrives late.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct SettingsSync {
+    /// Changes made so far.
+    pub changes: u64,
+    /// `changes` at the last model / effort / ultracode change.
+    pub model_at: u64,
+    pub effort_at: u64,
+    pub ultracode_at: u64,
+    /// `changes` when the `get_settings` behind `applied` was sent.
+    pub applied_as_of: u64,
+}
+
+/// A setting change the CLI accepted.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SettingChange {
+    /// `set_model`: the applied effort and ultracode availability follow it.
+    Model,
+    /// `apply_flag_settings {effortLevel}` (ultracode kept).
+    Effort,
+    /// `apply_flag_settings {ultracode}` (the effort left alone).
+    Ultracode,
+}
+
+/// What `initialize.account` says about an owned session's credentials. No
+/// raw value is kept: the email only as a fingerprint to compare with the
+/// machine's sign-in, in process.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct AccountFacts {
+    /// A third-party provider (`apiProvider` not `firstParty`) or an API key
+    /// (`apiKeySource` other than `none`): no claude.ai plan behind it.
+    pub not_plan: bool,
+    /// [`crate::claude::usage::email_key`] of `account.email`, when reported.
+    pub email_key: Option<u64>,
+}
+
+impl AccountFacts {
+    /// From an `initialize` response (`None` without an `account` object).
+    pub fn from_initialize(resp: &Value) -> Option<Self> {
+        let a = resp.get("account")?.as_object()?;
+        let text = |k: &str| a.get(k).and_then(Value::as_str).map(str::trim);
+        let provider = text("apiProvider").filter(|p| !p.is_empty());
+        let key_source = text("apiKeySource").filter(|s| !s.is_empty());
+        Some(Self {
+            not_plan: provider.is_some_and(|p| !p.eq_ignore_ascii_case("firstParty"))
+                || key_source.is_some_and(|s| !s.eq_ignore_ascii_case("none")),
+            email_key: text("email").and_then(crate::claude::usage::email_key),
+        })
+    }
+}
+
 impl OwnedLive {
+    /// Record a setting change the CLI accepted (before `get_settings` is
+    /// asked again).
+    pub fn note_change(&mut self, change: SettingChange) {
+        let s = &mut self.sync;
+        s.changes += 1;
+        match change {
+            SettingChange::Model => s.model_at = s.changes,
+            SettingChange::Effort => s.effort_at = s.changes,
+            SettingChange::Ultracode => s.ultracode_at = s.changes,
+        }
+    }
+
+    /// Keep a `get_settings` answer to a request sent after `as_of` changes.
+    /// An answer older than the one kept is dropped. Returns whether what
+    /// the summary shows may have changed.
+    pub fn store_applied(&mut self, applied: AppliedSettings, as_of: u64) -> bool {
+        if self.applied.is_some() && as_of < self.sync.applied_as_of {
+            return false;
+        }
+        let changed = self.applied.as_ref() != Some(&applied) || self.sync.applied_as_of != as_of;
+        self.applied = Some(applied);
+        self.sync.applied_as_of = as_of;
+        if as_of >= self.sync.ultracode_at {
+            self.ultracode_request = None;
+        }
+        changed
+    }
+
+    /// `applied` when it reflects every change made up to `at`.
+    fn applied_since(&self, at: u64) -> Option<&AppliedSettings> {
+        self.applied
+            .as_ref()
+            .filter(|_| self.sync.applied_as_of >= at)
+    }
+
+    /// `applied`, for its effort: confirmed after every model and effort
+    /// change.
+    pub fn applied_effort(&self) -> Option<&AppliedSettings> {
+        self.applied_since(self.sync.effort_at.max(self.sync.model_at))
+    }
+
+    /// `applied`, for ultracode: confirmed after every model change and
+    /// ultracode switch.
+    pub fn applied_ultracode(&self) -> Option<&AppliedSettings> {
+        self.applied_since(self.sync.ultracode_at.max(self.sync.model_at))
+    }
+
+    /// `applied`, for the model: confirmed after every model change.
+    pub fn applied_model(&self) -> Option<&AppliedSettings> {
+        self.applied_since(self.sync.model_at)
+    }
+
+    /// Ultracode is on or requested: an effort change must keep it (an
+    /// `effortLevel` sent without the key turns it off). That includes a
+    /// request the model cannot run — the switch stays offered to withdraw
+    /// it ([`Self::ultracode_switchable`]).
+    pub fn ultracode_wanted(&self) -> bool {
+        self.ultracode_request.unwrap_or_else(|| {
+            self.applied
+                .as_ref()
+                .is_some_and(|a| a.ultracode || a.ultracode_requested)
+        })
+    }
+
+    /// The ultracode switch has something to do: the CLI can run it, or it
+    /// is requested (a model that cannot run it leaves the request standing,
+    /// and only the switch withdraws it).
+    pub fn ultracode_switchable(&self) -> bool {
+        self.ultracode_request == Some(true)
+            || self
+                .applied
+                .as_ref()
+                .is_some_and(|a| a.ultracode_available || a.ultracode_requested)
+    }
+
     /// Running subagents and all tasks, for the agents views.
     pub fn agents_of(&self, session_id: &str) -> Vec<AgentInfo> {
         self.tasks
@@ -495,6 +676,39 @@ impl ControlRegistry {
         self.get(id).map(|h| h.driver)
     }
 
+    /// What the setting switches of an owned session depend on, without
+    /// cloning its whole state: `(driven by the sidecar, the ultracode switch
+    /// has something to do — see [`OwnedLive::ultracode_switchable`])`.
+    pub fn switch_facts(&self, id: &str) -> Option<(bool, bool)> {
+        self.get(id)
+            .map(|h| (h.driver == Driver::Sidecar, h.live().ultracode_switchable()))
+    }
+
+    /// A live, initialised Path B session that can answer a control request
+    /// on the account's behalf (plan usage), if any: the newest one whose
+    /// credentials `plan_ok` accepts and that never answered without plan
+    /// usage.
+    pub fn usage_session(&self, plan_ok: impl Fn(Option<AccountFacts>) -> bool) -> Option<String> {
+        let handles: Vec<Arc<OwnedHandle>> = lock(&self.handles).values().cloned().collect();
+        handles
+            .into_iter()
+            .filter(|h| h.driver == Driver::Stream && h.alive.load(Ordering::SeqCst))
+            .filter(|h| {
+                let live = h.live();
+                live.initialized && !live.no_plan_usage && plan_ok(live.account)
+            })
+            .max_by_key(|h| h.started_at)
+            .map(|h| h.id.clone())
+    }
+
+    /// Re-read an owned session's applied settings (`get_settings`) and
+    /// publish what changed. A no-op for the sidecar or a gone session.
+    pub async fn refresh_settings(&self, state: &AppState, id: &str) {
+        if let Some(h) = self.get(id) {
+            refresh_settings(state, &h).await;
+        }
+    }
+
     fn get(&self, id: &str) -> Option<Arc<OwnedHandle>> {
         lock(&self.handles).get(id).cloned()
     }
@@ -582,6 +796,7 @@ impl ControlRegistry {
                 model: opts.model.clone(),
                 permission_mode: Some(permission_mode.clone()),
                 effort: opts.effort.clone(),
+                thinking: OwnedThinking::from_option(opts.thinking.as_deref()),
                 bypass_available: opts.allow_bypass,
                 activity: Activity {
                     since: Some(started_at),
@@ -633,9 +848,15 @@ impl ControlRegistry {
             {
                 Ok((rid, rx)) => {
                     let h = handle.clone();
+                    let st = state.clone();
                     tokio::spawn(async move {
                         match tokio::time::timeout(INIT_TIMEOUT, rx).await {
-                            Ok(Ok(Ok(resp))) => on_initialized(&h, &resp),
+                            Ok(Ok(Ok(resp))) => {
+                                on_initialized(&h, &resp);
+                                // What the CLI will actually send (effort,
+                                // ultracode) — no API call.
+                                refresh_settings(&st, &h).await;
+                            }
                             Ok(Ok(Err(e))) => {
                                 tracing::warn!(session = %h.id, error = %e.message, "initialize refused")
                             }
@@ -661,15 +882,14 @@ impl ControlRegistry {
             start_turn(&handle);
         }
 
-        let (model, mode) = {
-            let l = handle.live();
-            (l.model.clone(), l.permission_mode.clone())
-        };
+        let live = handle.live().clone();
+        let always_thinking = crate::claude::settings::always_thinking_enabled(&state.home);
         ws::patch_session(state, &id, |s| {
-            s.permission_mode = mode;
-            if let Some(m) = model {
-                s.model = Some(model_info(&m));
+            s.permission_mode = live.permission_mode.clone();
+            if let Some(m) = &live.model {
+                s.model = Some(model_info(m));
             }
+            crate::claude::owned::overlay_settings(s, &live, always_thinking);
         })
         .await;
         let verb = match (&opts.resume, opts.fork) {
@@ -832,17 +1052,27 @@ impl ControlRegistry {
 }
 
 /// SIGTERM, wait a little, then SIGKILL.
-async fn terminate(child: &mut Child) -> std::io::Result<std::process::ExitStatus> {
+pub(crate) async fn terminate(child: &mut Child) -> std::io::Result<std::process::ExitStatus> {
+    terminate_within(child, KILL_GRACE).await
+}
+
+/// SIGTERM, wait up to `grace`, then SIGKILL.
+pub(crate) async fn terminate_within(
+    child: &mut Child,
+    grace: Duration,
+) -> std::io::Result<std::process::ExitStatus> {
     #[cfg(unix)]
     if let Some(pid) = child.id().and_then(|p| i32::try_from(p).ok()) {
         // SAFETY: plain syscall on our own child's pid; no memory is touched.
         unsafe {
             libc::kill(pid, libc::SIGTERM);
         }
-        if let Ok(status) = tokio::time::timeout(KILL_GRACE, child.wait()).await {
+        if let Ok(status) = tokio::time::timeout(grace, child.wait()).await {
             return status;
         }
     }
+    #[cfg(not(unix))]
+    let _ = grace;
     let _ = child.start_kill();
     child.wait().await
 }
@@ -1078,8 +1308,57 @@ async fn dispatch(
             flush_delta(state, h, delta);
             mark_answered(state, h, &v).await;
             on_result(state, h, &v).await;
+            // The turn may have changed what the CLI applies (a `/model`, the
+            // per-turn effort latch): re-read it off the reader task, which
+            // must keep draining stdout for the answer to arrive.
+            let (st, hh) = (state.clone(), h.clone());
+            tokio::spawn(async move { refresh_settings(&st, &hh).await });
+        }
+        // Plan usage for free: the CLI emits one when a window's rounded
+        // percentage or reset time moves (5-hour and weekly only) — from a
+        // session on the machine's own plan only.
+        "rate_limit_event" => {
+            if let Some(update) = crate::claude::usage::parse_rate_limit_event(&v) {
+                let account = h.live().account;
+                if crate::claude::usage::plan_session_ok(state, account) {
+                    crate::claude::usage::merge_stream(state, update);
+                } else {
+                    tracing::debug!(session = %h.id, "rate_limit_event from other credentials ignored");
+                }
+            }
         }
         _ => {}
+    }
+}
+
+/// Ask the CLI what it applies (`get_settings`: local, no API call), cache
+/// `applied` and publish the summary fields it changes. Must never run on the
+/// stdout reader task (it awaits a reply that task delivers).
+async fn refresh_settings(state: &AppState, h: &Arc<OwnedHandle>) {
+    if h.driver != Driver::Stream || !h.alive.load(Ordering::SeqCst) {
+        return;
+    }
+    // Every change counted now was answered by the CLI before this request
+    // goes out, so the answer reflects it (a failed or late answer leaves
+    // what was asked for showing as requested: `OwnedLive::sync`).
+    let as_of = h.live().sync.changes;
+    let resp = match h
+        .request(json!({ "subtype": "get_settings" }), REQUEST_TIMEOUT)
+        .await
+    {
+        Ok(resp) => resp,
+        Err(e) => {
+            tracing::debug!(session = %h.id, error = %e, "get_settings failed");
+            return;
+        }
+    };
+    let Some(applied) = protocol::applied_settings(&resp) else {
+        tracing::debug!(session = %h.id, "get_settings answered without `applied`");
+        return;
+    };
+    let changed = h.live().store_applied(applied, as_of);
+    if changed {
+        crate::claude::owned::publish_settings(state, &h.id).await;
     }
 }
 
@@ -1161,6 +1440,12 @@ fn on_initialized(h: &OwnedHandle, resp: &Value) {
         if let Some(mode) = resp.get("current_permission_mode").and_then(Value::as_str) {
             live.permission_mode = Some(mode.to_string());
         }
+        if let Some(fast) = resp.get("fast_mode_state").and_then(Value::as_str) {
+            live.fast_mode_state = Some(fast.chars().take(20).collect());
+        }
+        // A project's own credentials (`env`, `apiKeyHelper`) are not the
+        // machine's plan: plan usage never comes from such a session.
+        live.account = AccountFacts::from_initialize(resp);
     }
     tracing::debug!(session = %h.id, "owned session initialized");
 }
@@ -1181,6 +1466,9 @@ async fn on_system(state: &AppState, h: &Arc<OwnedHandle>, v: &Value) {
                     live.model = model.clone();
                 }
                 live.reported_session_id = text("session_id");
+                if let Some(fast) = text("fast_mode_state") {
+                    live.fast_mode_state = Some(fast.chars().take(20).collect());
+                }
                 if let Some(caps) = v.get("capabilities").and_then(Value::as_array) {
                     live.capabilities = caps
                         .iter()
@@ -1826,16 +2114,17 @@ fn headless_command(
 ) -> tokio::process::Command {
     let mut c = tokio::process::Command::new(crate::claude::claude_bin());
     c.args(headless_args(id, opts, permission_mode));
-    // Thinking has no documented CLI flag; the MAX_THINKING_TOKENS env is what
-    // the CLI reads (0 disables, a positive budget enables).
-    match opts.thinking.as_deref() {
-        Some("off") => {
+    // The MAX_THINKING_TOKENS env is what the CLI reads at startup (0
+    // disables, a positive budget enables; adaptive-capable models ignore
+    // the budget). Mid-session changes go through `set_max_thinking_tokens`.
+    match OwnedThinking::from_option(opts.thinking.as_deref()) {
+        Some(OwnedThinking::Off) => {
             c.env("MAX_THINKING_TOKENS", "0");
         }
-        Some("on") => {
-            c.env("MAX_THINKING_TOKENS", "16000");
+        Some(OwnedThinking::On(budget)) => {
+            c.env("MAX_THINKING_TOKENS", budget.to_string());
         }
-        _ => {}
+        None => {}
     }
     // NOTE: the initial prompt is deliberately NOT passed as argv — it goes
     // over stdin as the first stream-json user message (see spawn()).
@@ -2136,5 +2425,118 @@ mod tests {
         let agents = h.live().agents_of("s");
         assert_eq!(agents[0].status, AgentStatus::Done);
         assert!(!agents[0].can_stop);
+    }
+
+    fn applied(effort: Option<&str>, requested: bool, available: bool) -> AppliedSettings {
+        AppliedSettings {
+            model: Some("claude-opus-5-5".into()),
+            effort: effort.map(str::to_string),
+            ultracode: requested && available,
+            ultracode_requested: requested,
+            ultracode_available: available,
+        }
+    }
+
+    #[test]
+    fn applied_settings_older_than_a_change_are_stale() {
+        let mut live = OwnedLive::default();
+        assert!(live.store_applied(applied(Some("high"), false, true), 0));
+        assert!(live.applied_effort().is_some() && live.applied_ultracode().is_some());
+        // The same answer again changes nothing.
+        assert!(!live.store_applied(applied(Some("high"), false, true), 0));
+
+        // An effort change: its effort is unconfirmed until an answer to a
+        // request sent after it; ultracode and the model are unaffected.
+        live.note_change(SettingChange::Effort);
+        assert!(live.applied_effort().is_none());
+        assert!(live.applied_ultracode().is_some() && live.applied_model().is_some());
+        // An answer to a request sent before the change (late, or the only
+        // one when the follow-up failed) does not confirm it…
+        assert!(!live.store_applied(applied(Some("high"), false, true), 0));
+        assert!(live.applied_effort().is_none());
+        // …one sent after it does.
+        assert!(live.store_applied(applied(Some("high"), false, true), 1));
+        assert_eq!(
+            live.applied_effort().unwrap().effort.as_deref(),
+            Some("high")
+        );
+        // An answer older than the one kept is dropped.
+        assert!(!live.store_applied(applied(Some("low"), false, true), 0));
+        assert_eq!(
+            live.applied.as_ref().unwrap().effort.as_deref(),
+            Some("high")
+        );
+
+        // An ultracode switch: requested until confirmed, then cleared.
+        live.ultracode_request = Some(true);
+        live.note_change(SettingChange::Ultracode);
+        assert!(live.applied_ultracode().is_none());
+        assert!(live.applied_effort().is_some(), "the effort is left alone");
+        assert!(
+            live.ultracode_wanted(),
+            "an effort change keeps the request"
+        );
+        assert!(live.store_applied(applied(Some("high"), true, true), 2));
+        assert_eq!(live.ultracode_request, None);
+        assert!(live.applied_ultracode().unwrap().ultracode);
+
+        // A model change makes all three stale.
+        live.note_change(SettingChange::Model);
+        assert!(live.applied_effort().is_none());
+        assert!(live.applied_ultracode().is_none());
+        assert!(live.applied_model().is_none());
+        assert!(live.store_applied(applied(None, true, false), 3));
+        assert!(live.applied_effort().is_some_and(|a| a.effort.is_none()));
+    }
+
+    #[test]
+    fn a_standing_ultracode_request_stays_switchable_and_is_kept() {
+        let mut live = OwnedLive::default();
+        assert!(!live.ultracode_switchable() && !live.ultracode_wanted());
+        // Available: the switch turns it on.
+        live.store_applied(applied(Some("high"), false, true), 0);
+        assert!(live.ultracode_switchable() && !live.ultracode_wanted());
+        // Requested, but this model cannot run it: still switchable (to
+        // withdraw it), and an effort change keeps it.
+        live.store_applied(applied(Some("high"), true, false), 0);
+        assert!(live.ultracode_switchable() && live.ultracode_wanted());
+        // Withdrawn and confirmed: nothing to switch on a model without it.
+        live.ultracode_request = Some(false);
+        live.note_change(SettingChange::Ultracode);
+        assert!(!live.ultracode_wanted(), "the switch wins until confirmed");
+        live.store_applied(applied(Some("high"), false, false), 1);
+        assert!(!live.ultracode_switchable() && !live.ultracode_wanted());
+        // Just switched on, not confirmed yet: switchable either way.
+        live.ultracode_request = Some(true);
+        live.note_change(SettingChange::Ultracode);
+        assert!(live.ultracode_switchable() && live.ultracode_wanted());
+    }
+
+    #[test]
+    fn initialize_account_facts() {
+        let facts = |account: Value| AccountFacts::from_initialize(&json!({ "account": account }));
+        let plan = facts(json!({ "email": "Me@Example.test", "organization": "Me",
+            "subscriptionType": "max", "tokenSource": "claude.ai", "apiKeySource": "none",
+            "apiProvider": "firstParty" }))
+        .unwrap();
+        assert!(!plan.not_plan);
+        assert_eq!(
+            plan.email_key,
+            crate::claude::usage::email_key(" me@example.test ")
+        );
+        assert!(facts(json!({ "apiProvider": "bedrock" })).unwrap().not_plan);
+        assert!(
+            facts(json!({ "apiProvider": "firstParty", "apiKeySource": "apiKeyHelper" }))
+                .unwrap()
+                .not_plan
+        );
+        let unknown = facts(json!({})).unwrap();
+        assert!(!unknown.not_plan && unknown.email_key.is_none());
+        assert_eq!(
+            AccountFacts::from_initialize(&json!({ "commands": [] })),
+            None
+        );
+        // Nothing readable is kept.
+        assert!(!format!("{plan:?}").contains("example"));
     }
 }

@@ -253,6 +253,9 @@ pub fn run() {
                 // Keep the transcript index's progress for the next launch
                 // (it is otherwise checkpointed every 30 s while dirty).
                 exit_state.index.persist(true);
+                // A plan-usage helper mid-read exits cleanly (its pidfile
+                // goes with it) instead of being killed with the runtime.
+                claude::usage::shutdown(&exit_state);
             }
         });
 }

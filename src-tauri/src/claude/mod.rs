@@ -27,6 +27,7 @@ pub mod summaries;
 pub mod tmux;
 pub mod transcript;
 pub mod uievents;
+pub mod usage;
 pub mod watcher;
 
 /// Resolve the Claude Code binary: `$MOTHER_CLAUDE_CLI` if set, else `claude`.

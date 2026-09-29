@@ -14,7 +14,10 @@
 //!   scan (the last 8 MB: model, titles, pending tools, todos, context…); a
 //!   background worker (concurrency 1) then runs the full pass for lifetime
 //!   aggregates and swaps it in. Historical files are indexed by the same
-//!   worker, most recent first.
+//!   worker, most recent first. The one "now" value that depends on older
+//!   history, ultracode (the last marker Claude Code sees), is seeded right
+//!   away by a bounded backward scan for that marker when the window alone
+//!   does not decide it (`FileIndex::seed_ultra`).
 //! * **Streaming**: lines are read one at a time with a bounded buffer and
 //!   parsed into typed records that skip everything they do not need
 //!   (`loose.rs`); lines up to 64 MB are parsed, longer ones skipped.
@@ -37,8 +40,9 @@ use std::time::{Duration, Instant};
 use serde::{Deserialize, Serialize};
 
 pub use agg::{
-    classify_path, stamp_of, AgentCall, Aggregates, BgTask, FileIndex, FileKind, LastAct, Mark,
-    MarkKind, PendingTool, QueuedPrompt, Stamp, Totals,
+    classify_path, notes_ultracode, stamp_of, AgentCall, Aggregates, BgTask, FileIndex, FileKind,
+    LastAct, Mark, MarkKind, PendingTool, QueuedPrompt, QuotaHit, Stamp, Totals, UltraReplay,
+    UltraSeen, UltraState, UltraUnknown,
 };
 
 use super::home::ClaudeHome;
@@ -54,8 +58,18 @@ const CATCH_UP_INLINE_MAX: u64 = 32 * 1024 * 1024;
 const RECENT_SUBAGENT: Duration = Duration::from_secs(15 * 60);
 /// Bumped when checkpointed aggregates change meaning, so finished files
 /// (never re-scanned otherwise) are rebuilt once. 3: `UsageAcc::last_fold`
-/// and `UsageAcc::recent`, `Aggregates::first_cwd`.
-const CACHE_VERSION: u32 = 3;
+/// and `UsageAcc::recent`, `Aggregates::first_cwd`. 4: main-chain effort
+/// (`perTurnEffort ?? effort`) with its timestamp, `fast`, the ultracode
+/// marker, the last thinking block and the last `quotaLimits` — without the
+/// bump, ended sessions would show no ultracode and live ones resumed from a
+/// checkpoint none until their next marker. The re-index runs once, in the
+/// background worker, most recent files first. 5: a main-chain request
+/// without effort (a model that has none) clears the effort instead of
+/// keeping the previous one. 6: the ultracode marker became a replay of what
+/// Claude Code sees (`Aggregates::ultra`): a regular prompt without a marker
+/// confirms the state, dated to that prompt, and compactions hide markers —
+/// without the bump, ended sessions would keep no ultracode state at all.
+const CACHE_VERSION: u32 = 6;
 const PERSIST_EVERY: Duration = Duration::from_secs(30);
 
 /// A subagent / workflow-agent transcript of a session.
@@ -497,8 +511,9 @@ impl TranscriptIndex {
                 }
             }
             Some(c) => {
-                // Far behind and live: tail window now, catch-up in background.
-                self.bootstrap_window(path, kind, sid, st.size);
+                // Far behind and live: tail window now (seeded from the
+                // checkpoint), catch-up in background.
+                self.bootstrap_window(path, kind, sid, Some(&c));
                 self.queue(Job {
                     path: path.to_path_buf(),
                     kind,
@@ -510,7 +525,7 @@ impl TranscriptIndex {
             }
             None if now => {
                 if st.size > TAIL_WINDOW {
-                    self.bootstrap_window(path, kind, sid, st.size);
+                    self.bootstrap_window(path, kind, sid, None);
                     self.queue(Job {
                         path: path.to_path_buf(),
                         kind,
@@ -539,16 +554,20 @@ impl TranscriptIndex {
         }
     }
 
-    fn bootstrap_window(&self, path: &Path, kind: FileKind, sid: &str, size: u64) {
-        // `size` is only informative: the scan reads up to the current EOF.
+    /// Index the last [`TAIL_WINDOW`] of a live file now (the scan reads up
+    /// to the current EOF). `base`: a checkpoint of the file, far behind.
+    fn bootstrap_window(&self, path: &Path, kind: FileKind, sid: &str, base: Option<&FileIndex>) {
         let mut fi = FileIndex::new(path.to_path_buf(), kind, sid);
         if let Err(e) = fi.seek_window(TAIL_WINDOW) {
             tracing::debug!(error = %e, path = %path.display(), "tail window failed");
         }
+        let window_start = fi.offset;
         if let Err(e) = fi.scan(None) {
             tracing::debug!(error = %e, path = %path.display(), "tail window scan failed");
         }
-        let _ = size;
+        if !fi.is_complete() {
+            fi.seed_ultra(window_start, base);
+        }
         fi.ui_cursor = fi.offset;
         self.adopt(fi);
     }
@@ -1004,6 +1023,50 @@ mod tests {
         assert_eq!(msgs, i as u64);
         // Nothing new: no advance even though the index was replaced.
         assert!(idx.update(std::slice::from_ref(&main)).is_empty());
+    }
+
+    #[test]
+    fn a_live_tail_window_knows_ultracode_before_the_full_pass() {
+        let tmp = tempfile::tempdir().unwrap();
+        let home = ClaudeHome::with_base(tmp.path());
+        let proj = tmp.path().join("projects/-p");
+        std::fs::create_dir_all(&proj).unwrap();
+        let main = proj.join(format!("{SID}.jsonl"));
+        let prompt = |ts: &str| {
+            format!(
+                r#"{{"type":"user","timestamp":"{ts}","version":"2.1.284","origin":{{"kind":"human"}},"promptSource":"sdk","message":{{"role":"user","content":"go on"}}}}"#
+            ) + "\n"
+        };
+        // Switched on long ago (more than the tail window back)…
+        let mut text = prompt("2026-09-25T09:00:00.000Z")
+            + r#"{"type":"attachment","uuid":"u1","timestamp":"2026-09-25T09:00:00.000Z","attachment":{"type":"ultra_effort_enter","reminderType":"full"}}"#
+            + "\n";
+        let mut i = 0;
+        while (text.len() as u64) < TAIL_WINDOW + 1024 * 1024 {
+            text += &asst(&format!("m{i}"), 1);
+            i += 1;
+        }
+        // …and confirmed by a message in the window that wrote no marker.
+        text += &prompt("2026-09-25T10:00:05.000Z");
+        text += &asst("last", 1);
+        std::fs::write(&main, &text).unwrap();
+        let idx = TranscriptIndex::new(None);
+        idx.discover(&home);
+        idx.ensure(SID, true);
+        let at = agg::parse_ts(Some("2026-09-25T10:00:05.000Z"));
+        let now = idx
+            .with_main(SID, |f| (f.is_complete(), f.agg.ultra.state.clone()))
+            .unwrap();
+        assert!(!now.0, "still the tail window");
+        let state = now.1.unwrap();
+        assert_eq!((state.on, state.at, state.marker), (Some(true), at, false));
+        // The full pass says the same.
+        idx.drain_jobs_blocking();
+        let full = idx
+            .with_main(SID, |f| (f.is_complete(), f.agg.ultra.state.clone()))
+            .unwrap();
+        assert!(full.0);
+        assert_eq!(full.1, Some(state));
     }
 
     #[test]

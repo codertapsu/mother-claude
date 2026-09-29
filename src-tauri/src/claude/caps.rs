@@ -52,6 +52,12 @@ pub struct CapsInput {
     pub transcript_missing: bool,
     /// The effective permission mode is `bypassPermissions`.
     pub bypass: bool,
+    /// The owned handle is the Path A sidecar (no live control requests).
+    pub sidecar: bool,
+    /// The owned session's ultracode switch has something to do: the CLI
+    /// can run it, or it is requested and can be withdrawn
+    /// ([`super::control::OwnedLive::ultracode_switchable`]).
+    pub ultracode_switchable: bool,
 }
 
 /// What the data layer (B2) knows about a session when it builds a summary.
@@ -129,7 +135,13 @@ pub fn input_with(state: &AppState, facts: &SessionFacts, extra: &ExtraFacts) ->
         .as_deref()
         .and_then(pane_of_target)
         .filter(|_| !(hooks_active && state.tmux.unreachable(&facts.id, pid)));
+    let (sidecar, ultracode_switchable) = state
+        .control
+        .switch_facts(&facts.id)
+        .unwrap_or((false, false));
     CapsInput {
+        sidecar,
+        ultracode_switchable,
         owned: facts.owned && !facts.bridge_thread,
         bridge_thread: facts.bridge_thread,
         live: facts.live,
@@ -188,6 +200,17 @@ pub async fn refresh(state: &AppState, id: &str) {
     .await;
 }
 
+/// The session-setting switches of a live owned session: `(setUltracode,
+/// setThinking)`. Path B only (the sidecar takes no control requests).
+/// Ultracode also needs something to switch: a model and workspace that can
+/// run it (to turn it on), or a standing request (to withdraw it — a model
+/// that cannot run it leaves the request in place, and an effort change
+/// re-sends it).
+pub fn owned_switches(sidecar: bool, ultracode_switchable: bool) -> (bool, bool) {
+    let thinking = !sidecar;
+    (thinking && ultracode_switchable, thinking)
+}
+
 fn limit(code: &str, text: &str, action: Option<LimitAction>) -> CapLimit {
     CapLimit {
         code: code.to_string(),
@@ -212,6 +235,7 @@ pub mod codes {
     pub const BYPASS: &str = "bypass_permissions";
     pub const PTY_EXPERIMENTAL: &str = "pty_experimental";
     pub const NO_TRANSCRIPT: &str = "no_transcript";
+    pub const OWNED_SETTINGS: &str = "owned_only_settings";
 }
 
 /// Compute the capabilities for one session.
@@ -246,11 +270,15 @@ pub fn compute(input: &CapsInput) -> ControlCaps {
             approve_via: ApproveVia::Control,
             ..Default::default()
         };
+        (caps.set_ultracode, caps.set_thinking) =
+            owned_switches(input.sidecar, input.ultracode_switchable);
         if input.bridge_thread {
             // The bridge host takes text, model and mode changes, interrupts
             // and approvals; the dashboard dispatchers refuse the rest for a
             // bridge conversation, so never offer it.
             caps.set_effort = false;
+            caps.set_ultracode = false;
+            caps.set_thinking = false;
             caps.stop_task = false;
             caps.attach_images = false;
             caps.rename = RenameCap::None;
@@ -371,6 +399,12 @@ pub fn compute(input: &CapsInput) -> ControlCaps {
              sessions.",
             None,
         ));
+        caps.limits.push(limit(
+            codes::OWNED_SETTINGS,
+            "Ultracode and thinking can only be switched in a session Mother Claude owns: \
+             continue it here (a fork) to change them.",
+            continuable.then_some(LimitAction::Fork),
+        ));
         if !input.hooks_active {
             caps.limits.push(limit(
                 codes::APPROVE_WITH_KEYS,
@@ -413,7 +447,8 @@ pub fn compute(input: &CapsInput) -> ControlCaps {
         }
         caps.limits.push(limit(
             codes::NO_MODEL_CHANGE,
-            "The model, effort and slash commands can't be changed in this session from here.",
+            "The model, effort, ultracode, thinking and slash commands can't be changed in \
+             this session from here.",
             continuable.then_some(LimitAction::Fork),
         ));
         return finish(caps);
@@ -502,6 +537,74 @@ mod tests {
         assert!(!b.set_effort && !b.stop_task && !b.attach_images);
         assert_eq!(b.rename, RenameCap::None);
         assert_eq!(b.attach, AttachCap::None);
+    }
+
+    #[test]
+    fn setting_switches_need_a_path_b_owned_session() {
+        let owned = |sidecar: bool, ultracode_switchable: bool| {
+            compute(&CapsInput {
+                owned: true,
+                live: true,
+                sidecar,
+                ultracode_switchable,
+                ..Default::default()
+            })
+        };
+        let c = owned(false, false);
+        assert!(
+            c.set_thinking && !c.set_ultracode,
+            "ultracode neither available nor requested"
+        );
+        assert!(c.limits.is_empty(), "an owned session carries no limits");
+        let c = owned(false, true);
+        assert!(c.set_thinking && c.set_ultracode);
+        // The sidecar takes no control requests.
+        let c = owned(true, true);
+        assert!(!c.set_thinking && !c.set_ultracode);
+        // Neither do bridge conversations, nor ended sessions.
+        let b = compute(&CapsInput {
+            bridge_thread: true,
+            live: true,
+            ultracode_switchable: true,
+            ..Default::default()
+        });
+        assert!(!b.set_thinking && !b.set_ultracode);
+        let ended = compute(&CapsInput {
+            owned: true,
+            ultracode_switchable: true,
+            ..Default::default()
+        });
+        assert!(!ended.set_thinking && !ended.set_ultracode);
+        // Foreign sessions never, with the reason where effort is offered
+        // or explained.
+        let tmux = compute(&CapsInput {
+            live: true,
+            tmux_pane: Some("%3".into()),
+            hooks_active: true,
+            ultracode_switchable: true,
+            ..Default::default()
+        });
+        assert!(tmux.set_effort && !tmux.set_ultracode && !tmux.set_thinking);
+        assert_eq!(
+            action(&tmux, codes::OWNED_SETTINGS),
+            Some(LimitAction::Fork)
+        );
+        let hooks = compute(&CapsInput {
+            live: true,
+            hooks_active: true,
+            ..Default::default()
+        });
+        assert!(!hooks.set_ultracode && !hooks.set_thinking);
+        let text = &hooks
+            .limits
+            .iter()
+            .find(|l| l.code == codes::NO_MODEL_CHANGE)
+            .unwrap()
+            .text;
+        assert!(text.contains("ultracode") && text.contains("thinking"));
+        let v = serde_json::to_value(&tmux).unwrap();
+        assert_eq!(v["setUltracode"], false);
+        assert_eq!(v["setThinking"], false);
     }
 
     #[test]

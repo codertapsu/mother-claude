@@ -376,6 +376,52 @@ pub async fn set_effort(
     Ok(ok())
 }
 
+#[derive(Debug, Deserialize)]
+pub struct SwitchBody {
+    pub enabled: bool,
+}
+
+/// `409 not_supported` for a session-setting switch outside an owned session.
+fn owned_only(what: &str) -> ApiError {
+    ApiError::conflict(
+        "not_supported",
+        format!(
+            "{what} can only be switched in a session Mother Claude owns: continue this \
+             session here first."
+        ),
+    )
+}
+
+/// `POST /api/sessions/{id}/ultracode {enabled}` → 204 (owned Path B
+/// sessions; session-scoped, never persisted).
+pub async fn set_ultracode(
+    Authed(_ctx): Authed,
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Body(body): Body<SwitchBody>,
+) -> ApiResult<StatusCode> {
+    match route_for(&state, &id).await? {
+        Route::Owned => owned::set_ultracode(&state, &id, body.enabled).await?,
+        _ => return Err(owned_only("Ultracode")),
+    }
+    Ok(StatusCode::NO_CONTENT)
+}
+
+/// `POST /api/sessions/{id}/thinking {enabled}` → 204 (owned Path B
+/// sessions).
+pub async fn set_thinking(
+    Authed(_ctx): Authed,
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Body(body): Body<SwitchBody>,
+) -> ApiResult<StatusCode> {
+    match route_for(&state, &id).await? {
+        Route::Owned => owned::set_thinking(&state, &id, body.enabled).await?,
+        _ => return Err(owned_only("Thinking")),
+    }
+    Ok(StatusCode::NO_CONTENT)
+}
+
 /// Characters a name typed into a terminal (`/rename <name>`) may not carry.
 const SHELL_METACHARACTERS: [char; 8] = [';', '|', '&', '$', '`', '<', '>', '\\'];
 

@@ -276,12 +276,278 @@ struct RosterInner {
     jobs_files: HashMap<PathBuf, CachedJob>,
     /// `(pid, procStart)` → (same process?, checked at).
     proc_checks: HashMap<(u32, String), (bool, Instant)>,
-    /// `(pid, procStart)` → permission mode from the process argv.
-    argv_modes: HashMap<(u32, String), Option<String>>,
+    /// `(pid, procStart)` → what the process argv says (read once).
+    argv_flags: HashMap<(u32, String), LaunchFlags>,
     /// Live sessions by session id.
     live: HashMap<String, LiveSession>,
     /// Background job state by session id.
     jobs: HashMap<String, JobState>,
+    /// Working directories whose processes are never sessions (Mother
+    /// Claude's own plan-usage helper), without a trailing `/`.
+    ignored_cwds: Vec<String>,
+}
+
+/// Thinking as a process was launched with it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LaunchThinking {
+    /// `--thinking disabled`, `--max-thinking-tokens 0`.
+    Off,
+    /// `--thinking adaptive|enabled`.
+    Adaptive,
+    /// `--max-thinking-tokens N` with N > 0: on with a budget (the CLI
+    /// ignores the budget on adaptive-capable models).
+    Budget(u32),
+}
+
+/// What a live process's argv says about its settings. Spawn-time only: a
+/// later in-app change (VS Code's thinking toggle, `/effort`) is invisible
+/// here.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct LaunchFlags {
+    /// `--permission-mode X`, `--dangerously-skip-permissions`.
+    pub permission_mode: Option<String>,
+    /// `--effort <low|medium|high|xhigh|max>` (`ultracode` runs as xhigh).
+    pub effort: Option<String>,
+    /// `--thinking …` wins over `--max-thinking-tokens N`.
+    pub thinking: Option<LaunchThinking>,
+    /// `--effort ultracode`, or an inline `--settings '{"ultracode":…}'`.
+    pub ultracode: Option<bool>,
+}
+
+/// The value of `--name X` / `--name=X` in split argv words (the last one
+/// wins, like the CLI's parser).
+fn flag_value<'a>(words: &[&'a str], name: &str) -> Option<&'a str> {
+    let mut found = None;
+    let eq = format!("{name}=");
+    let mut i = 0;
+    while i < words.len() {
+        if words[i] == name {
+            if let Some(v) = words.get(i + 1) {
+                found = Some(*v);
+                i += 1;
+            }
+        } else if let Some(v) = words[i].strip_prefix(&eq) {
+            found = Some(v);
+        }
+        i += 1;
+    }
+    found
+}
+
+/// The JSON object an inline `--settings {…}` starts with in a raw command
+/// line (`ps` prints each argument as given, so the braces balance).
+fn inline_settings(cmdline: &str) -> Option<serde_json::Value> {
+    let mut rest = cmdline;
+    let mut found = None;
+    while let Some(at) = rest.find("--settings") {
+        let after = &rest[at + "--settings".len()..];
+        let value = after
+            .strip_prefix('=')
+            .or_else(|| after.strip_prefix(' '))
+            .map(str::trim_start);
+        if let Some(v) = value.filter(|v| v.starts_with('{')) {
+            if let Some(obj) = balanced_object(v) {
+                found = serde_json::from_str::<serde_json::Value>(obj)
+                    .ok()
+                    .filter(serde_json::Value::is_object)
+                    .or(found);
+            }
+        }
+        rest = after;
+    }
+    found
+}
+
+/// The leading `{…}` of `s` (JSON strings respected), if it closes.
+fn balanced_object(s: &str) -> Option<&str> {
+    let mut depth = 0usize;
+    let mut in_str = false;
+    let mut escaped = false;
+    for (i, c) in s.char_indices() {
+        if in_str {
+            match c {
+                _ if escaped => escaped = false,
+                '\\' => escaped = true,
+                '"' => in_str = false,
+                _ => {}
+            }
+            continue;
+        }
+        match c {
+            '"' => in_str = true,
+            '{' => depth += 1,
+            '}' => {
+                depth = depth.checked_sub(1)?;
+                if depth == 0 {
+                    return Some(&s[..=i]);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+/// Parse the settings a process was launched with from its argv, each
+/// argument whole as the process got it ([`process_argv`]): only an argument
+/// that is the flag itself (or `--flag=value`) counts, its value is the next
+/// argument, and nothing after `--` is a flag — so words inside a quoted
+/// prompt (`claude "explain --thinking disabled"`) never are. An inline
+/// `--settings` value is parsed as the JSON object it is.
+pub fn launch_flags_from_args<S: AsRef<str>>(args: &[S]) -> LaunchFlags {
+    let words: Vec<&str> = args
+        .iter()
+        .skip(1)
+        .map(AsRef::as_ref)
+        .take_while(|w| *w != "--")
+        .collect();
+    let settings = flag_value(&words, "--settings")
+        .map(str::trim)
+        .filter(|v| v.starts_with('{'))
+        .and_then(|v| serde_json::from_str::<serde_json::Value>(v).ok())
+        .filter(serde_json::Value::is_object);
+    flags_from_words(&words, settings)
+}
+
+/// [`launch_flags_from_args`] for a command line `ps` printed, where the
+/// argument boundaries are lost: split on whitespace, a best guess (a quoted
+/// prompt's words look like flags here). Only used when the real argv
+/// cannot be read.
+pub fn launch_flags_from_argv(cmdline: &str) -> LaunchFlags {
+    let head = cmdline.split(" -- ").next().unwrap_or(cmdline);
+    let words: Vec<&str> = head.split_whitespace().take_while(|w| *w != "--").collect();
+    flags_from_words(&words, inline_settings(head))
+}
+
+fn flags_from_words(words: &[&str], settings: Option<serde_json::Value>) -> LaunchFlags {
+    let mut flags = LaunchFlags::default();
+    // Permission mode: the last of `--permission-mode` and the bypass flag.
+    for (i, w) in words.iter().enumerate() {
+        if *w == "--dangerously-skip-permissions" {
+            flags.permission_mode = Some("bypassPermissions".to_string());
+        } else if *w == "--permission-mode" {
+            if let Some(m) = words.get(i + 1) {
+                flags.permission_mode = Some(m.to_string());
+            }
+        } else if let Some(m) = w.strip_prefix("--permission-mode=") {
+            flags.permission_mode = Some(m.to_string());
+        }
+    }
+    flags.permission_mode = flags
+        .permission_mode
+        .filter(|m| !m.is_empty() && m.len() <= 40);
+    match flag_value(words, "--effort").map(str::to_ascii_lowercase) {
+        Some(e) if e == "ultracode" => {
+            flags.effort = Some("xhigh".to_string());
+            flags.ultracode = Some(true);
+        }
+        Some(e) if e == "med" => flags.effort = Some("medium".to_string()),
+        Some(e) if super::owned::EFFORT_LEVELS.contains(&e.as_str()) => flags.effort = Some(e),
+        _ => {}
+    }
+    flags.thinking = match flag_value(words, "--thinking") {
+        Some("disabled") => Some(LaunchThinking::Off),
+        Some("adaptive" | "enabled") => Some(LaunchThinking::Adaptive),
+        _ => match flag_value(words, "--max-thinking-tokens").map(|n| n.parse::<u64>()) {
+            Some(Ok(0)) => Some(LaunchThinking::Off),
+            Some(Ok(n)) => Some(LaunchThinking::Budget(u32::try_from(n).unwrap_or(u32::MAX))),
+            _ => None,
+        },
+    };
+    if let Some(on) = settings
+        .as_ref()
+        .and_then(|s| s.get("ultracode"))
+        .and_then(serde_json::Value::as_bool)
+    {
+        flags.ultracode = Some(on);
+    }
+    flags
+}
+
+/// A process's argv with its argument boundaries: `KERN_PROCARGS2` on macOS,
+/// `/proc/<pid>/cmdline` on Linux; `None` elsewhere or when unreadable (the
+/// caller falls back to `ps`).
+#[cfg(target_os = "macos")]
+pub fn process_argv(pid: u32) -> Option<Vec<String>> {
+    let pid = libc::c_int::try_from(pid).ok().filter(|p| *p > 0)?;
+    let mut argmax: libc::c_int = 0;
+    let mut size = std::mem::size_of::<libc::c_int>();
+    let mut mib = [libc::CTL_KERN, libc::KERN_ARGMAX];
+    // SAFETY: sysctl writes at most `size` bytes (one c_int) into `argmax`.
+    let rc = unsafe {
+        libc::sysctl(
+            mib.as_mut_ptr(),
+            2,
+            (&mut argmax as *mut libc::c_int).cast(),
+            &mut size,
+            std::ptr::null_mut(),
+            0,
+        )
+    };
+    let argmax = usize::try_from(argmax).ok().filter(|n| rc == 0 && *n > 0)?;
+    let mut buf = vec![0u8; argmax];
+    let mut size = buf.len();
+    let mut mib = [libc::CTL_KERN, libc::KERN_PROCARGS2, pid];
+    // SAFETY: sysctl writes at most `size` bytes into `buf`, which is that long.
+    let rc = unsafe {
+        libc::sysctl(
+            mib.as_mut_ptr(),
+            3,
+            buf.as_mut_ptr().cast(),
+            &mut size,
+            std::ptr::null_mut(),
+            0,
+        )
+    };
+    if rc != 0 {
+        return None;
+    }
+    buf.truncate(size);
+    parse_procargs2(&buf)
+}
+
+#[cfg(target_os = "linux")]
+pub fn process_argv(pid: u32) -> Option<Vec<String>> {
+    let bytes = std::fs::read(format!("/proc/{pid}/cmdline")).ok()?;
+    let bytes = bytes.strip_suffix(&[0]).unwrap_or(&bytes);
+    (!bytes.is_empty()).then(|| {
+        bytes
+            .split(|b| *b == 0)
+            .map(|a| String::from_utf8_lossy(a).into_owned())
+            .collect()
+    })
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+pub fn process_argv(_pid: u32) -> Option<Vec<String>> {
+    None
+}
+
+/// The arguments in a `KERN_PROCARGS2` buffer: `argc` (a native int), the
+/// executable path, NUL padding, then `argc` NUL-terminated arguments (the
+/// environment follows and is never read).
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn parse_procargs2(buf: &[u8]) -> Option<Vec<String>> {
+    let argc = i32::from_ne_bytes(buf.get(..4)?.try_into().ok()?);
+    let argc = usize::try_from(argc).ok().filter(|n| *n <= 65_536)?;
+    let rest = &buf[4..];
+    let path_end = rest.iter().position(|b| *b == 0)?;
+    let rest = &rest[path_end..];
+    let first = rest.iter().position(|b| *b != 0)?;
+    let args: Vec<String> = rest[first..]
+        .split(|b| *b == 0)
+        .take(argc)
+        .map(|a| String::from_utf8_lossy(a).into_owned())
+        .collect();
+    (args.len() == argc).then_some(args)
+}
+
+/// A working directory as the roster compares it (no trailing `/`).
+fn cwd_key(cwd: &str) -> String {
+    match cwd.trim_end_matches('/') {
+        "" => "/".to_string(),
+        c => c.to_string(),
+    }
 }
 
 /// The live roster.
@@ -362,20 +628,7 @@ fn ps_field(_pid: u32, _field: &str) -> Option<String> {
 
 /// Extract the permission mode a process was launched with from its argv.
 pub fn permission_mode_from_argv(cmdline: &str) -> Option<String> {
-    let mut words = cmdline.split_whitespace();
-    let mut mode = None;
-    while let Some(w) = words.next() {
-        if w == "--dangerously-skip-permissions" {
-            mode = Some("bypassPermissions".to_string());
-        } else if w == "--permission-mode" {
-            if let Some(m) = words.next() {
-                mode = Some(m.to_string());
-            }
-        } else if let Some(m) = w.strip_prefix("--permission-mode=") {
-            mode = Some(m.to_string());
-        }
-    }
-    mode.filter(|m| !m.is_empty() && m.len() <= 40)
+    launch_flags_from_argv(cmdline).permission_mode
 }
 
 /// Read and parse one pidfile, retrying once after 50 ms on a torn read.
@@ -474,10 +727,33 @@ impl LiveRoster {
     /// Permission mode from the live process's argv (`--permission-mode X` /
     /// `--dangerously-skip-permissions`), when it was launched with one.
     pub fn argv_permission_mode(&self, session_id: &str) -> Option<String> {
+        self.launch_flags(session_id)
+            .and_then(|f| f.permission_mode)
+    }
+
+    /// What the live process's argv says (permission mode, effort, thinking,
+    /// ultracode), read once per process.
+    pub fn launch_flags(&self, session_id: &str) -> Option<LaunchFlags> {
         let g = self.lock();
         let s = g.live.get(session_id)?;
         let key = (s.pid?, s.proc_start.clone().unwrap_or_default());
-        g.argv_modes.get(&key).cloned().flatten()
+        g.argv_flags.get(&key).cloned()
+    }
+
+    /// Never list processes running in `dir` as sessions (Mother Claude's
+    /// own plan-usage helper). Both the path as given and its canonical form
+    /// are matched.
+    pub fn ignore_cwd(&self, dir: &Path) {
+        let mut keys = vec![cwd_key(&dir.to_string_lossy())];
+        if let Ok(canonical) = std::fs::canonicalize(dir) {
+            keys.push(cwd_key(&canonical.to_string_lossy()));
+        }
+        let mut g = self.lock();
+        for k in keys {
+            if !g.ignored_cwds.contains(&k) {
+                g.ignored_cwds.push(k);
+            }
+        }
     }
 
     /// Re-read the session's pidfile right now (not the cached record):
@@ -624,6 +900,7 @@ impl LiveRoster {
                 g.jobs_files.insert(p, c);
             }
             g.jobs_files.retain(|p, _| job_seen.contains(p));
+            let ignored = &g.ignored_cwds;
             g.files
                 .values()
                 .filter_map(|c| c.record.clone())
@@ -633,11 +910,16 @@ impl LiveRoster {
                         .as_deref()
                         .is_some_and(super::ids::is_session_id)
                 })
+                .filter(|r| {
+                    !r.cwd
+                        .as_deref()
+                        .is_some_and(|c| ignored.contains(&cwd_key(c)))
+                })
                 .collect()
         };
         let mut alive: Vec<LiveSession> = Vec::new();
         let mut new_checks: Vec<((u32, String), bool)> = Vec::new();
-        let mut new_argv: Vec<((u32, String), Option<String>)> = Vec::new();
+        let mut new_argv: Vec<((u32, String), LaunchFlags)> = Vec::new();
         for rec in candidates {
             let Some(pid) = rec.pid else { continue };
             if !pid_exists(pid) {
@@ -651,7 +933,7 @@ impl LiveRoster {
                         .get(&key)
                         .filter(|(_, at)| at.elapsed() < PROC_CHECK_TTL)
                         .map(|(ok, _)| *ok),
-                    g.argv_modes.contains_key(&key),
+                    g.argv_flags.contains_key(&key),
                 )
             };
             let same_process = match cached.0 {
@@ -674,8 +956,13 @@ impl LiveRoster {
                 continue;
             }
             if !cached.1 {
-                let mode = ps_field(pid, "command").and_then(|c| permission_mode_from_argv(&c));
-                new_argv.push((key, mode));
+                // The real argv, whole arguments; `ps`'s joined text only
+                // when that cannot be read.
+                let flags = process_argv(pid)
+                    .map(|args| launch_flags_from_args(&args))
+                    .or_else(|| ps_field(pid, "command").map(|c| launch_flags_from_argv(&c)))
+                    .unwrap_or_default();
+                new_argv.push((key, flags));
             }
             alive.push(rec);
         }
@@ -687,8 +974,8 @@ impl LiveRoster {
         for (k, ok) in new_checks {
             g.proc_checks.insert(k, (ok, now));
         }
-        for (k, m) in new_argv {
-            g.argv_modes.insert(k, m);
+        for (k, f) in new_argv {
+            g.argv_flags.insert(k, f);
         }
         let mut next: HashMap<String, LiveSession> = HashMap::new();
         for rec in alive {
@@ -774,7 +1061,7 @@ impl LiveRoster {
             .collect();
         let live_keys: HashSet<(u32, String)> = g.live.values().filter_map(key_of).collect();
         g.proc_checks.retain(|k, _| file_keys.contains(k));
-        g.argv_modes.retain(|k, _| live_keys.contains(k));
+        g.argv_flags.retain(|k, _| live_keys.contains(k));
         drop(g);
         change.appeared.sort();
         change.gone.sort();
@@ -921,6 +1208,219 @@ mod tests {
             Some("bypassPermissions")
         );
         assert_eq!(permission_mode_from_argv("claude -p hi"), None);
+    }
+
+    #[test]
+    fn launch_flags_from_argv_cover_effort_thinking_and_ultracode() {
+        // VS Code: no effort, thinking budget at launch.
+        let vs = launch_flags_from_argv(
+            "/x/claude --output-format stream-json --verbose --max-thinking-tokens 31999 \
+             --permission-prompt-tool stdio --permission-mode default",
+        );
+        assert_eq!(vs.permission_mode.as_deref(), Some("default"));
+        assert_eq!(vs.effort, None);
+        assert_eq!(vs.thinking, Some(LaunchThinking::Budget(31_999)));
+        assert_eq!(vs.ultracode, None);
+        // Terminal with explicit flags (`=` forms, the last one wins).
+        let t = launch_flags_from_argv(
+            "claude --effort=high --effort max --thinking disabled --max-thinking-tokens 8000",
+        );
+        assert_eq!(t.effort.as_deref(), Some("max"));
+        assert_eq!(
+            t.thinking,
+            Some(LaunchThinking::Off),
+            "--thinking wins over a budget"
+        );
+        assert_eq!(
+            launch_flags_from_argv("claude --thinking=adaptive").thinking,
+            Some(LaunchThinking::Adaptive)
+        );
+        assert_eq!(
+            launch_flags_from_argv("claude --thinking enabled").thinking,
+            Some(LaunchThinking::Adaptive)
+        );
+        assert_eq!(
+            launch_flags_from_argv("claude --max-thinking-tokens 0").thinking,
+            Some(LaunchThinking::Off)
+        );
+        assert_eq!(
+            launch_flags_from_argv("claude --max-thinking-tokens lots").thinking,
+            None
+        );
+        assert_eq!(
+            launch_flags_from_argv("claude --effort med")
+                .effort
+                .as_deref(),
+            Some("medium")
+        );
+        assert_eq!(launch_flags_from_argv("claude --effort auto").effort, None);
+        assert_eq!(launch_flags_from_argv("claude --effort turbo").effort, None);
+        // Ultracode: `--effort ultracode` (xhigh) or an inline --settings.
+        let u = launch_flags_from_argv("claude --effort ultracode");
+        assert_eq!(u.effort.as_deref(), Some("xhigh"));
+        assert_eq!(u.ultracode, Some(true));
+        assert_eq!(
+            launch_flags_from_argv(r#"claude --settings {"ultracode":true,"x":{"y":"}"}} -p"#)
+                .ultracode,
+            Some(true)
+        );
+        assert_eq!(
+            launch_flags_from_argv(r#"claude --settings={"ultracode": false} --verbose"#).ultracode,
+            Some(false)
+        );
+        // A settings file path is never opened; broken JSON is ignored.
+        assert_eq!(
+            launch_flags_from_argv("claude --settings /tmp/s.json").ultracode,
+            None
+        );
+        assert_eq!(
+            launch_flags_from_argv(r#"claude --settings {"ultracode":tru"#).ultracode,
+            None
+        );
+        assert_eq!(launch_flags_from_argv(""), LaunchFlags::default());
+        // The permission-mode reader keeps working through it.
+        assert_eq!(
+            permission_mode_from_argv("claude --dangerously-skip-permissions --effort max")
+                .as_deref(),
+            Some("bypassPermissions")
+        );
+        // Nothing after `--` is a flag, in the `ps` fallback too.
+        assert_eq!(
+            launch_flags_from_argv("claude --effort low -- --thinking disabled"),
+            LaunchFlags {
+                effort: Some("low".into()),
+                ..Default::default()
+            }
+        );
+    }
+
+    #[test]
+    fn real_argv_keeps_prompts_whole() {
+        let args = |a: &[&str]| launch_flags_from_args(a);
+        // A prompt that mentions flags is one argument: never a flag.
+        assert_eq!(
+            args(&[
+                "claude",
+                "document the --thinking disabled flag, --effort low"
+            ]),
+            LaunchFlags::default()
+        );
+        assert_eq!(
+            args(&[
+                "claude",
+                r#"why does --settings {"ultracode":true} fail?"#,
+                "--dangerously-skip-permissions-please"
+            ]),
+            LaunchFlags::default()
+        );
+        // Real flags: the value is the next argument, `=` forms too.
+        let f = args(&[
+            "/x/claude",
+            "fix it",
+            "--effort",
+            "max",
+            "--thinking=disabled",
+            "--permission-mode",
+            "plan",
+            "--settings",
+            r#"{ "ultracode": true, "x": "a b" }"#,
+        ]);
+        assert_eq!(f.effort.as_deref(), Some("max"));
+        assert_eq!(f.thinking, Some(LaunchThinking::Off));
+        assert_eq!(f.permission_mode.as_deref(), Some("plan"));
+        assert_eq!(f.ultracode, Some(true));
+        assert_eq!(
+            args(&[
+                "claude",
+                "--settings=/tmp/s.json",
+                "--max-thinking-tokens",
+                "0"
+            ]),
+            LaunchFlags {
+                thinking: Some(LaunchThinking::Off),
+                ..Default::default()
+            }
+        );
+        // After `--` everything is the prompt.
+        assert_eq!(
+            args(&["claude", "--effort", "high", "--", "--thinking", "disabled"]),
+            LaunchFlags {
+                effort: Some("high".into()),
+                ..Default::default()
+            }
+        );
+        // argv[0] is the program, never a flag.
+        assert_eq!(
+            args(&["--dangerously-skip-permissions"]),
+            LaunchFlags::default()
+        );
+        let bypass = args(&["claude", "-p", "--dangerously-skip-permissions"]);
+        assert_eq!(bypass.permission_mode.as_deref(), Some("bypassPermissions"));
+    }
+
+    #[test]
+    fn procargs2_buffers() {
+        let mut buf = 3i32.to_ne_bytes().to_vec();
+        buf.extend_from_slice(b"/usr/local/bin/claude\0\0\0\0");
+        buf.extend_from_slice(b"claude\0say --effort low\0\0HOME=/Users/me\0SECRET=x\0");
+        assert_eq!(
+            parse_procargs2(&buf),
+            Some(vec![
+                "claude".to_string(),
+                "say --effort low".to_string(),
+                String::new()
+            ]),
+            "the environment is never read"
+        );
+        assert_eq!(parse_procargs2(&[1, 0]), None);
+        let mut short = 5i32.to_ne_bytes().to_vec();
+        short.extend_from_slice(b"/bin/x\0x\0");
+        assert_eq!(parse_procargs2(&short), None, "fewer arguments than argc");
+        assert_eq!(parse_procargs2(&(-1i32).to_ne_bytes()), None);
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    #[test]
+    fn own_argv_is_read_whole() {
+        let ours: Vec<String> = std::env::args().collect();
+        assert_eq!(process_argv(std::process::id()), Some(ours));
+        assert_eq!(process_argv(0), None);
+    }
+
+    #[test]
+    fn processes_in_an_ignored_cwd_are_never_sessions() {
+        let tmp = tempfile::tempdir().unwrap();
+        let home = ClaudeHome::with_base(tmp.path());
+        let helper = tmp.path().join("app data/usage-helper");
+        std::fs::create_dir_all(&helper).unwrap();
+        let me = std::process::id();
+        let helper_cwd = std::fs::canonicalize(&helper).unwrap();
+        write(
+            &tmp.path().join("sessions"),
+            &format!("{me}.json"),
+            &format!(
+                r#"{{"pid":{me},"sessionId":"{SID}","cwd":"{}/","status":"idle","entrypoint":"sdk-cli"}}"#,
+                helper_cwd.display()
+            ),
+        );
+        let roster = LiveRoster::new();
+        roster.ignore_cwd(&helper);
+        let change = roster.refresh(&home);
+        assert!(change.appeared.is_empty(), "{change:?}");
+        assert!(!roster.is_live(SID));
+        // Any other directory is a session as usual.
+        write(
+            &tmp.path().join("sessions"),
+            &format!("{me}.json"),
+            &format!(r#"{{"pid":{me},"sessionId":"{SID}","cwd":"/work/app","status":"idle"}}"#),
+        );
+        roster.refresh(&home);
+        assert!(roster.is_live(SID));
+        // Launch flags are read for live sessions only.
+        assert!(roster.launch_flags(SID).is_some());
+        assert!(roster
+            .launch_flags("0a1b2c3d-0000-4000-8000-000000000000")
+            .is_none());
     }
 
     #[cfg(unix)]

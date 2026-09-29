@@ -20,6 +20,12 @@
 //! * **Images:** ≤ 10 per message, ≤ 5 MB decoded each, png/jpeg/gif/webp
 //!   verified by magic bytes.
 //! * **Background sessions** are driven by their SHORT job id only.
+//! * **Session settings** change through control requests only —
+//!   `apply_flag_settings {effortLevel, ultracode}` (a session-only flag
+//!   layer; ultracode rides along with an effort change) and
+//!   `set_max_thinking_tokens` — never a slash command (`/effort` persists to
+//!   the user's settings). What the CLI then applies is read back with
+//!   `get_settings` and overlaid on the summary ([`overlay_settings`]).
 //! * CLI `error` replies become `422 cli_error` with the CLI's message.
 
 use std::path::{Path, PathBuf};
@@ -28,10 +34,14 @@ use base64::Engine as _;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
-use super::control::{self, ControlError, Driver, OwnedLive, SpawnOptions, REQUEST_TIMEOUT};
+use super::control::{
+    self, ControlError, Driver, OwnedLive, OwnedThinking, SpawnOptions, REQUEST_TIMEOUT,
+    THINKING_ON_BUDGET,
+};
 use super::model::{
-    AgentInfo, BackgroundTask, CommandInfo, Delivery, ImageInput, MessageReceipt, ModelInfo,
-    QueuedMessage, SessionSummary,
+    AgentInfo, BackgroundTask, CommandInfo, ControlChannel, Delivery, EffortSource, ImageInput,
+    MessageReceipt, ModelInfo, QueuedMessage, SessionSummary, ThinkingInfo, ThinkingMode,
+    ThinkingSource, UltracodeSource, UltracodeState,
 };
 use crate::server::context::ClientContext;
 use crate::server::error::{ApiError, ApiResult};
@@ -278,6 +288,8 @@ pub fn overlay(state: &AppState, summary: &mut SessionSummary) {
     let Some(live) = live_state(state, &summary.id) else {
         return;
     };
+    let always_thinking = super::settings::always_thinking_enabled(&state.home);
+    overlay_settings(summary, &live, always_thinking);
     if let Some(mode) = live.permission_mode {
         summary.permission_mode = Some(mode);
     }
@@ -290,9 +302,6 @@ pub fn overlay(state: &AppState, summary: &mut SessionSummary) {
             });
         }
     }
-    if live.effort.is_some() {
-        summary.effort = live.effort;
-    }
     summary.queued = summary.queued.max(live.queued.len() as u32);
     if live.last_error.is_some() && summary.last_error.is_none() {
         summary.last_error = live.last_error;
@@ -300,6 +309,134 @@ pub fn overlay(state: &AppState, summary: &mut SessionSummary) {
     if !summary.pending.iter().any(|p| p.answerable) && live.started {
         summary.activity = live.activity;
     }
+}
+
+/// The model an owned session runs: what `get_settings` resolved (unless a
+/// model change is not confirmed yet), else the stream's report or what we
+/// switched to, else the summary's.
+fn current_model<'a>(summary: &'a SessionSummary, live: &'a OwnedLive) -> Option<&'a str> {
+    live.applied_model()
+        .and_then(|a| a.model.as_deref())
+        .or(live.model.as_deref())
+        .or(live.applied.as_ref().and_then(|a| a.model.as_deref()))
+        .or(summary.model.as_ref().map(|m| m.id.as_str()))
+}
+
+/// Effort, ultracode, thinking, fast mode and the matching switches of an
+/// owned session, from what its control protocol reported (design2 §1):
+///
+/// * effort: `get_settings.applied.effort` — a null there means the model
+///   has no effort levels (effort absent, source `applied`); until the CLI
+///   confirms a change, what we requested; else the transcript's (already
+///   set);
+/// * ultracode: `applied.ultracode` ⇒ on, requested but not available ⇒
+///   unavailable, else off; a switch not confirmed yet shows as `requested`;
+/// * thinking: what we set (spawn option or switch) — adaptive on
+///   adaptive-capable models, else on with the budget — or the CLI default;
+/// * fast: `fast_mode_state == "on"`;
+/// * the ultracode switch whenever it has something to do: the CLI can run
+///   it, or it is requested (so it can be withdrawn).
+pub fn overlay_settings(
+    summary: &mut SessionSummary,
+    live: &OwnedLive,
+    always_thinking: Option<bool>,
+) {
+    if let Some(a) = live.applied_effort() {
+        summary.effort = a.effort.clone();
+        summary.effort_source = Some(EffortSource::Applied);
+    } else if let Some(e) = &live.effort {
+        summary.effort = Some(e.clone());
+        summary.effort_source = Some(EffortSource::Requested);
+    } else if live.applied.is_some() {
+        // A model change the CLI has not confirmed: its effort is unknown.
+        summary.effort = None;
+        summary.effort_source = None;
+    }
+    let ultracode = if let Some(a) = live.applied_ultracode() {
+        Some((
+            if a.ultracode {
+                UltracodeState::On
+            } else if a.ultracode_requested {
+                UltracodeState::Unavailable
+            } else {
+                UltracodeState::Off
+            },
+            UltracodeSource::Applied,
+        ))
+    } else if let Some(on) = live.ultracode_request {
+        let state = if on {
+            UltracodeState::On
+        } else {
+            UltracodeState::Off
+        };
+        Some((state, UltracodeSource::Requested))
+    } else {
+        // A model change the CLI has not confirmed: the request stands, but
+        // whether the new model can run it is not known yet.
+        live.applied.as_ref().map(|a| {
+            if a.ultracode_requested {
+                (UltracodeState::On, UltracodeSource::Requested)
+            } else {
+                (UltracodeState::Off, UltracodeSource::Applied)
+            }
+        })
+    };
+    if let Some((state, source)) = ultracode {
+        summary.ultracode = Some(state);
+        summary.ultracode_source = Some(source);
+        summary.ultracode_at = None;
+        summary.ultracode_unknown = None;
+        summary.ultracode_before = None;
+        summary.ultracode_before_at = None;
+    }
+    let adaptive = current_model(summary, live).and_then(|m| {
+        control::catalog_adaptive_thinking(&live.models, m)
+            .or_else(|| super::pricing::supports_adaptive_thinking(m))
+    });
+    summary.thinking = match live.thinking {
+        Some(OwnedThinking::Off) => Some(ThinkingInfo {
+            mode: ThinkingMode::Off,
+            source: ThinkingSource::Control,
+            budget: None,
+        }),
+        Some(OwnedThinking::On(budget)) => Some(match adaptive {
+            Some(true) => ThinkingInfo {
+                mode: ThinkingMode::Adaptive,
+                source: ThinkingSource::Control,
+                budget: None,
+            },
+            _ => ThinkingInfo {
+                mode: ThinkingMode::On,
+                source: ThinkingSource::Control,
+                budget: Some(budget),
+            },
+        }),
+        None => super::summaries::default_thinking(always_thinking, adaptive),
+    };
+    if live.fast_mode_state.as_deref() == Some("on") {
+        summary.fast = Some(true);
+    }
+    if summary.live && summary.control.channel == ControlChannel::Owned {
+        let (ultracode, thinking) = super::caps::owned_switches(
+            live.driver == Driver::Sidecar,
+            live.ultracode_switchable(),
+        );
+        summary.control.set_ultracode = ultracode;
+        summary.control.set_thinking = thinking;
+    }
+}
+
+/// Publish an owned session's settings overlay on its summary now (after a
+/// `get_settings` answer or a settings change).
+pub async fn publish_settings(state: &AppState, id: &str) {
+    let Some(live) = live_state(state, id) else {
+        return;
+    };
+    let always_thinking = super::settings::always_thinking_enabled(&state.home);
+    ws::patch_session(state, id, move |s| {
+        overlay_settings(s, &live, always_thinking)
+    })
+    .await;
 }
 
 /// The effective permission mode of any session, for the "no unapproved
@@ -712,7 +849,10 @@ pub async fn interrupt(state: &AppState, id: &str) -> ApiResult<()> {
 pub async fn set_model(state: &AppState, id: &str, model: &str) -> ApiResult<()> {
     let model = validate_model(model)?;
     request(state, id, json!({ "subtype": "set_model", "model": model })).await?;
-    state.control.update(id, |l| l.model = Some(model.clone()));
+    state.control.update(id, |l| {
+        l.model = Some(model.clone());
+        l.note_change(control::SettingChange::Model);
+    });
     ws::patch_session(state, id, |s| {
         s.model = Some(ModelInfo {
             id: model.clone(),
@@ -721,6 +861,10 @@ pub async fn set_model(state: &AppState, id: &str, model: &str) -> ApiResult<()>
         })
     })
     .await;
+    // The applied effort and ultracode availability follow the model: not
+    // known until the CLI answers again.
+    publish_settings(state, id).await;
+    state.control.refresh_settings(state, id).await;
     Ok(())
 }
 
@@ -792,20 +936,83 @@ async fn withdraw_restricted_queued(state: &AppState, id: &str) {
     }
 }
 
-/// Switch effort live (`apply_flag_settings {effortLevel}`).
+/// Switch effort live (`apply_flag_settings {effortLevel}`, a session-only
+/// flag layer — never `/effort`, which persists to the user's settings).
+/// Ultracode rides along while it is on or requested
+/// ([`OwnedLive::ultracode_wanted`]): an effort change without the key
+/// turns it off.
 pub async fn set_effort(state: &AppState, id: &str, effort: &str) -> ApiResult<()> {
     validate_launch(Some(effort), None, None)?;
+    let mut settings = json!({ "effortLevel": effort });
+    if live_state(state, id).is_some_and(|l| l.ultracode_wanted()) {
+        settings["ultracode"] = json!(true);
+    }
     request(
         state,
         id,
-        json!({ "subtype": "apply_flag_settings", "settings": { "effortLevel": effort } }),
+        json!({ "subtype": "apply_flag_settings", "settings": settings }),
     )
     .await?;
-    state
-        .control
-        .update(id, |l| l.effort = Some(effort.to_string()));
-    let effort = effort.to_string();
-    ws::patch_session(state, id, |s| s.effort = Some(effort)).await;
+    state.control.update(id, |l| {
+        l.effort = Some(effort.to_string());
+        l.note_change(control::SettingChange::Effort);
+    });
+    // Shown as requested until `get_settings` says what the model actually
+    // runs at (`max` is `high` without it).
+    publish_settings(state, id).await;
+    state.control.refresh_settings(state, id).await;
+    Ok(())
+}
+
+/// Switch ultracode live (`apply_flag_settings {ultracode}`, session only),
+/// then re-read what the CLI applies. The key goes alone: it leaves the
+/// session's effort as it is (CLI 2.1.284), while an `effortLevel` — even
+/// the reduced one `get_settings` reports, `high` for a requested `max` —
+/// would set the session to that level. A model or workspace that cannot
+/// run it leaves it requested but `unavailable`.
+pub async fn set_ultracode(state: &AppState, id: &str, enabled: bool) -> ApiResult<()> {
+    if live_state(state, id).is_none() {
+        return Err(control_error(ControlError::NotOwned(id.to_string())));
+    }
+    request(
+        state,
+        id,
+        json!({ "subtype": "apply_flag_settings", "settings": ultracode_settings(enabled) }),
+    )
+    .await?;
+    state.control.update(id, |l| {
+        l.ultracode_request = Some(enabled);
+        l.note_change(control::SettingChange::Ultracode);
+    });
+    publish_settings(state, id).await;
+    state.control.refresh_settings(state, id).await;
+    Ok(())
+}
+
+/// The flag settings an ultracode switch sends: the `ultracode` key only.
+fn ultracode_settings(enabled: bool) -> Value {
+    json!({ "ultracode": enabled })
+}
+
+/// Switch thinking live (`set_max_thinking_tokens`: 0 = off, else on; the
+/// budget is ignored by adaptive-capable models). Nothing reports thinking
+/// back, so the new state is remembered here.
+pub async fn set_thinking(state: &AppState, id: &str, enabled: bool) -> ApiResult<()> {
+    let budget = if enabled { THINKING_ON_BUDGET } else { 0 };
+    request(
+        state,
+        id,
+        json!({ "subtype": "set_max_thinking_tokens", "max_thinking_tokens": budget }),
+    )
+    .await?;
+    state.control.update(id, |l| {
+        l.thinking = Some(if enabled {
+            OwnedThinking::On(THINKING_ON_BUDGET)
+        } else {
+            OwnedThinking::Off
+        })
+    });
+    publish_settings(state, id).await;
     Ok(())
 }
 
@@ -1266,5 +1473,124 @@ mod tests {
             control_error(ControlError::Closed).code,
             "owned_session_unavailable"
         );
+    }
+
+    fn applied(
+        model: &str,
+        effort: Option<&str>,
+        requested: bool,
+        available: bool,
+    ) -> control::AppliedSettings {
+        control::AppliedSettings {
+            model: Some(model.into()),
+            effort: effort.map(str::to_string),
+            ultracode: requested && available,
+            ultracode_requested: requested,
+            ultracode_available: available,
+        }
+    }
+
+    /// A live owned row as the data layer builds it (the transcript's
+    /// effort already on it).
+    fn owned_row() -> SessionSummary {
+        SessionSummary {
+            live: true,
+            owned: true,
+            effort: Some("xhigh".into()),
+            effort_source: Some(EffortSource::Observed),
+            control: super::super::caps::compute(&super::super::caps::CapsInput {
+                owned: true,
+                live: true,
+                ..Default::default()
+            }),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn an_owned_session_on_a_model_without_effort_says_so() {
+        let live = OwnedLive {
+            applied: Some(applied("claude-haiku-4-5", None, false, false)),
+            ..Default::default()
+        };
+        let mut s = owned_row();
+        overlay_settings(&mut s, &live, None);
+        assert_eq!(s.effort, None, "the transcript's level is gone");
+        assert_eq!(s.effort_source, Some(EffortSource::Applied));
+        let v = serde_json::to_value(&s).unwrap();
+        assert_eq!(v["effortSource"], "applied");
+        assert!(v.get("effort").is_none());
+        assert_eq!(s.ultracode, Some(UltracodeState::Off));
+        assert!(!s.control.set_ultracode && s.control.set_thinking);
+    }
+
+    #[test]
+    fn what_was_asked_for_shows_until_the_cli_confirms_it() {
+        let mut live = OwnedLive {
+            applied: Some(applied("claude-opus-5-5", Some("high"), false, true)),
+            effort: Some("high".into()),
+            ..Default::default()
+        };
+        let mut s = owned_row();
+        overlay_settings(&mut s, &live, None);
+        assert_eq!(
+            (s.effort.as_deref(), s.effort_source),
+            (Some("high"), Some(EffortSource::Applied))
+        );
+        // `max` accepted, but the follow-up `get_settings` failed: the old
+        // answer no longer speaks for the effort (every rebuild says so).
+        live.effort = Some("max".into());
+        live.note_change(control::SettingChange::Effort);
+        for _ in 0..2 {
+            overlay_settings(&mut s, &live, None);
+            assert_eq!(
+                (s.effort.as_deref(), s.effort_source),
+                (Some("max"), Some(EffortSource::Requested))
+            );
+            assert_eq!(s.ultracode, Some(UltracodeState::Off));
+            assert_eq!(s.ultracode_source, Some(UltracodeSource::Applied));
+        }
+        // An ultracode switch the CLI has not confirmed: on, as requested,
+        // and still switchable.
+        live.ultracode_request = Some(true);
+        live.note_change(control::SettingChange::Ultracode);
+        overlay_settings(&mut s, &live, None);
+        assert_eq!(s.ultracode, Some(UltracodeState::On));
+        assert_eq!(s.ultracode_source, Some(UltracodeSource::Requested));
+        assert!(s.control.set_ultracode);
+        // The answer to a request sent after both confirms them (max runs
+        // as max here).
+        let as_of = live.sync.changes;
+        live.store_applied(applied("claude-opus-5-5", Some("max"), true, true), as_of);
+        overlay_settings(&mut s, &live, None);
+        assert_eq!(s.effort_source, Some(EffortSource::Applied));
+        assert_eq!(s.ultracode_source, Some(UltracodeSource::Applied));
+        assert_eq!(s.ultracode, Some(UltracodeState::On));
+
+        // A model change not confirmed yet: the requested effort, ultracode
+        // requested (whether it can run is unknown), thinking labelled for
+        // the new model.
+        live.model = Some("claude-haiku-4-5".into());
+        live.thinking = Some(OwnedThinking::On(THINKING_ON_BUDGET));
+        live.note_change(control::SettingChange::Model);
+        overlay_settings(&mut s, &live, None);
+        assert_eq!(s.effort_source, Some(EffortSource::Requested));
+        assert_eq!(s.ultracode, Some(UltracodeState::On));
+        assert_eq!(s.ultracode_source, Some(UltracodeSource::Requested));
+        assert_eq!(
+            s.thinking.map(|t| (t.mode, t.budget)),
+            Some((ThinkingMode::On, Some(THINKING_ON_BUDGET))),
+            "haiku has no adaptive thinking"
+        );
+        // Nothing requested: the new model's effort is unknown until then.
+        live.effort = None;
+        overlay_settings(&mut s, &live, None);
+        assert_eq!((s.effort, s.effort_source), (None, None));
+    }
+
+    #[test]
+    fn ultracode_switches_send_the_key_alone() {
+        assert_eq!(ultracode_settings(true), json!({ "ultracode": true }));
+        assert_eq!(ultracode_settings(false), json!({ "ultracode": false }));
     }
 }

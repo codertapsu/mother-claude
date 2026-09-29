@@ -467,6 +467,11 @@ async fn websocket_auth_and_pending_diffs() {
     assert_eq!(hello["me"]["principal"], "desktop");
     let full = next_json(&mut ws).await.unwrap();
     assert_eq!(full["full"], true);
+    // The plan usage follows the full snapshot.
+    let usage = next_json(&mut ws).await.unwrap();
+    assert_eq!(usage["t"], "planUsage");
+    assert_eq!(usage["usage"]["intervalSecs"], 300);
+    assert!(usage["usage"]["windows"].is_array());
 
     // An owned session appears, then its pending prompt arrives as a diff,
     // then vanishes when withdrawn.

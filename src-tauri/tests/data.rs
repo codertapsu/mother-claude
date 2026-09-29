@@ -98,18 +98,19 @@ fn fixture(base: &Path) -> Cleanup {
             {"type":"image","source":{"type":"base64","media_type":"image/svg+xml","data":svg}}
         ]}}),
         // One API message split over three records (partial usage) ⇒ counted once, last usage.
+        // Every record of a request carries its effort, as the CLI writes them.
         json!({"type":"assistant","uuid":"a-1","timestamp":iso(t0+1000),"effort":"high","message":{"id":"msg_A","model":"claude-haiku-4-5-20251001","content":[{"type":"thinking","thinking":"hmm"}],"usage":usage(100, 8)}}),
-        json!({"type":"assistant","uuid":"a-2","timestamp":iso(t0+1100),"message":{"id":"msg_A","model":"claude-haiku-4-5-20251001","content":[{"type":"tool_use","id":"tu_agent","name":"Agent","input":{"description":"Explore the repo","subagent_type":"Explore"}}],"usage":usage(100, 50)}}),
-        json!({"type":"assistant","uuid":"a-3","timestamp":iso(t0+1200),"message":{"id":"msg_A","model":"claude-haiku-4-5-20251001","stop_reason":"tool_use","content":[{"type":"tool_use","id":"tu_sh","name":"Bash","input":{"command":"npm run dev","description":"Start dev server","run_in_background":true}}],"usage":usage(100, 200)}}),
+        json!({"type":"assistant","uuid":"a-2","timestamp":iso(t0+1100),"effort":"high","message":{"id":"msg_A","model":"claude-haiku-4-5-20251001","content":[{"type":"tool_use","id":"tu_agent","name":"Agent","input":{"description":"Explore the repo","subagent_type":"Explore"}}],"usage":usage(100, 50)}}),
+        json!({"type":"assistant","uuid":"a-3","timestamp":iso(t0+1200),"effort":"high","message":{"id":"msg_A","model":"claude-haiku-4-5-20251001","stop_reason":"tool_use","content":[{"type":"tool_use","id":"tu_sh","name":"Bash","input":{"command":"npm run dev","description":"Start dev server","run_in_background":true}}],"usage":usage(100, 200)}}),
         json!({"type":"user","uuid":"r-1","timestamp":iso(t0+1300),"message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"tu_sh","content":"started"}]},"toolUseResult":{"backgroundTaskId":"bsh1"}}),
         json!({"type":"attachment","uuid":"at-2","timestamp":iso(t0+1301),"attachment":{"type":"task_status","taskId":"bsh1","taskType":"local_bash","description":"Start dev server","status":"running","outputFilePath":out_file.to_string_lossy()}}),
         json!({"type":"attachment","uuid":"at-3","timestamp":iso(t0+1302),"attachment":{"type":"task_status","taskId":"bout","taskType":"local_bash","description":"Escapes","status":"running","outputFilePath":outside.to_string_lossy()}}),
-        json!({"type":"assistant","uuid":"a-4","timestamp":iso(t0+2000),"message":{"id":"msg_B","model":"claude-haiku-4-5-20251001","stop_reason":"tool_use","content":[
+        json!({"type":"assistant","uuid":"a-4","timestamp":iso(t0+2000),"effort":"high","message":{"id":"msg_B","model":"claude-haiku-4-5-20251001","stop_reason":"tool_use","content":[
             {"type":"tool_use","id":"tu_todo","name":"TodoWrite","input":{"todos":[{"content":"a","status":"completed"},{"content":"b","status":"in_progress","activeForm":"Building b"}]}},
             {"type":"tool_use","id":"tu_edit","name":"Edit","input":{"file_path":"/tmp/proj/src/a.rs","old_string":"x","new_string":"y"}}
         ],"usage":usage(10, 20)}}),
         json!({"type":"user","uuid":"r-2","timestamp":iso(t0+2100),"message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"tu_edit","content":"ok"}]},"toolUseResult":{"filePath":"/tmp/proj/src/a.rs","structuredPatch":[{"oldStart":1,"oldLines":1,"newStart":1,"newLines":2,"lines":["-x","+y","+z"]}]}}),
-        json!({"type":"assistant","uuid":"a-5","timestamp":iso(t0+3000),"message":{"id":"msg_C","model":"claude-haiku-4-5-20251001","stop_reason":"tool_use","content":[{"type":"tool_use","id":"tu_rm","name":"Bash","input":{"command":"rm -rf build","description":"Clean build"}}],"usage":usage(5, 5)}}),
+        json!({"type":"assistant","uuid":"a-5","timestamp":iso(t0+3000),"effort":"high","message":{"id":"msg_C","model":"claude-haiku-4-5-20251001","stop_reason":"tool_use","content":[{"type":"tool_use","id":"tu_rm","name":"Bash","input":{"command":"rm -rf build","description":"Clean build"}}],"usage":usage(5, 5)}}),
         json!({"type":"last-prompt","lastPrompt":"please build it"}),
         json!({"type":"ai-title","aiTitle":"Build the thing"}),
         json!({"type":"permission-mode","permissionMode":"acceptEdits"}),

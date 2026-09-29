@@ -13,9 +13,19 @@ use serde::de::IgnoredAny;
 use serde::Deserialize;
 use serde_json::Value;
 
+use crate::claude::index::loose::{LStr, Obj};
+
 /// An id in a hook payload failed validation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct InvalidId;
+
+/// The base hook input's `effort` (`{level}`): the active effort of the
+/// current turn, after any silent downgrade. Tool-use-context events only.
+#[derive(Debug, Default, Deserialize)]
+#[serde(default)]
+pub struct HookEffort {
+    pub level: LStr,
+}
 
 /// One hook event (`POST /hooks/event` body, also the `/hooks/wait` body).
 #[derive(Debug, Default, Deserialize)]
@@ -42,6 +52,20 @@ pub struct HookPayload {
     pub source: Option<String>,
     pub reason: Option<String>,
     pub mcp_server: Option<String>,
+    /// Display only (never a gate); tolerant of type drift.
+    pub effort: Obj<HookEffort>,
+    /// StopFailure: the API error kind (`rate_limit`, …); tolerant.
+    pub error: LStr,
+}
+
+impl HookPayload {
+    /// The effort level this event reports, if any.
+    pub fn effort_level(&self) -> Option<&str> {
+        self.effort
+            .get()
+            .and_then(|e| e.level.get())
+            .filter(|l| !l.is_empty())
+    }
 }
 
 impl HookPayload {
@@ -148,11 +172,32 @@ mod tests {
         let p = HookPayload::parse(&body).unwrap();
         assert_eq!(p.hook_event_name, "PostToolUse");
         assert_eq!(p.tool_use(), Some("toolu_01"));
+        assert_eq!(p.effort_level(), None);
         assert_eq!(p.tool_input.unwrap()["file_path"], "/x");
         assert!(HookPayload::parse(b"not json").is_none());
         assert!(HookPayload::parse(b"[]").is_none());
         let empty = HookPayload::parse(b"{}").unwrap();
         assert!(empty.session_id.is_empty());
+    }
+
+    #[test]
+    fn effort_and_error_are_read_tolerantly() {
+        let p = HookPayload::parse(
+            br#"{"hook_event_name":"Stop","session_id":"x","effort":{"level":"xhigh"},"error":"rate_limit"}"#,
+        )
+        .unwrap();
+        assert_eq!(p.effort_level(), Some("xhigh"));
+        assert_eq!(p.error.get(), Some("rate_limit"));
+        // Drifted types never fail the payload.
+        let p = HookPayload::parse(
+            br#"{"hook_event_name":"Stop","session_id":"x","effort":"max","error":{"type":"x"}}"#,
+        )
+        .unwrap();
+        assert_eq!(p.hook_event_name, "Stop");
+        assert_eq!(p.effort_level(), None);
+        assert_eq!(p.error.get(), None);
+        let p = HookPayload::parse(br#"{"effort":{"level":7}}"#).unwrap();
+        assert_eq!(p.effort_level(), Some("7"), "a number reads as text");
     }
 
     #[test]

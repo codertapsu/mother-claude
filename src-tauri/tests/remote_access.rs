@@ -666,6 +666,7 @@ async fn revoking_a_device_closes_its_sockets_and_kills_every_token() {
     assert_eq!(hello["t"], "hello");
     assert_eq!(hello["me"]["deviceId"], id.as_str());
     assert_eq!(next_frame(&mut ws).await.unwrap()["t"], "sessions");
+    assert_eq!(next_frame(&mut ws).await.unwrap()["t"], "planUsage");
 
     let listed = json_of(
         desk()

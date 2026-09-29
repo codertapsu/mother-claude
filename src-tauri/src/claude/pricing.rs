@@ -81,6 +81,38 @@ fn has(m: &str, prefix: &str) -> bool {
     m == prefix || m.starts_with(&format!("{prefix}-"))
 }
 
+/// Whether a model thinks adaptively when thinking is on (the CLI then sends
+/// `{type:"adaptive"}` and ignores any budget). Mirrors CLI 2.1.284's
+/// `initialize` catalog: Opus/Sonnet 4.6 and later, and every Fable, do;
+/// Haiku and the 3.x models do not. `None` when unknown (older 4.x ids,
+/// third-party names).
+pub fn supports_adaptive_thinking(model: &str) -> Option<bool> {
+    if is_synthetic(model) {
+        return None;
+    }
+    let m = normalize(model);
+    let m = m.as_str();
+    if has(m, "fable") || has(m, "mythos") {
+        return Some(true);
+    }
+    for family in ["opus", "sonnet"] {
+        if let Some(rest) = m.strip_prefix(family).and_then(|r| r.strip_prefix('-')) {
+            let mut parts = rest.split('-').map(|p| p.parse::<u32>().ok());
+            let major = parts.next().flatten();
+            let minor = parts.next().flatten().filter(|n| *n < 100);
+            return match (major, minor) {
+                (Some(major), _) if major >= 5 => Some(true),
+                (Some(4), Some(minor)) if minor >= 6 => Some(true),
+                _ => None,
+            };
+        }
+    }
+    if m.contains("haiku") || m.starts_with("3-") {
+        return Some(false);
+    }
+    None
+}
+
 /// Price for a model id, if known.
 pub fn price(model: &str) -> Option<Price> {
     if is_synthetic(model) {
@@ -231,6 +263,35 @@ mod tests {
         assert_eq!(model_label("claude-opus-5"), "Opus 5");
         assert_eq!(model_label("<synthetic>"), "<synthetic>");
         assert_eq!(model_label("gpt-x-y"), "gpt-x-y");
+    }
+
+    #[test]
+    fn adaptive_thinking_follows_the_cli_catalog() {
+        for yes in [
+            "claude-opus-5-5",
+            "claude-opus-5[1m]",
+            "claude-sonnet-5-5",
+            "claude-sonnet-5",
+            "claude-fable-5-1",
+            "claude-fable-5",
+            "claude-opus-4-8",
+            "claude-opus-4-6",
+            "claude-sonnet-4-6",
+        ] {
+            assert_eq!(supports_adaptive_thinking(yes), Some(true), "{yes}");
+        }
+        for no in ["claude-haiku-4-5-20251001", "claude-3-5-haiku-20241022"] {
+            assert_eq!(supports_adaptive_thinking(no), Some(false), "{no}");
+        }
+        for unknown in [
+            "claude-sonnet-4-5-20250929",
+            "claude-opus-4-1",
+            "gpt-x",
+            "<synthetic>",
+            "",
+        ] {
+            assert_eq!(supports_adaptive_thinking(unknown), None, "{unknown}");
+        }
     }
 
     #[test]
