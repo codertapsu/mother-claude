@@ -2,8 +2,6 @@
 //! flow. Everything here is a desktop-only OS concern, surfaced over Tauri
 //! `invoke` (the one sanctioned use of `invoke` — it is not dashboard data).
 
-use std::path::PathBuf;
-
 use serde::Serialize;
 
 /// One permission the user may need to grant, with guidance for doing so.
@@ -47,7 +45,8 @@ pub fn app_location() -> String {
     exe.to_string_lossy().to_string()
 }
 
-fn app_bundle_or_exe() -> PathBuf {
+#[cfg(target_os = "macos")]
+fn app_bundle_or_exe() -> std::path::PathBuf {
     let exe = std::env::current_exe().unwrap_or_default();
     for ancestor in exe.ancestors() {
         if ancestor.extension().and_then(|e| e.to_str()) == Some("app") {

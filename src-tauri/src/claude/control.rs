@@ -80,8 +80,8 @@ const INIT_TIMEOUT: Duration = Duration::from_secs(60);
 pub const PROMPT_TIMEOUT: Duration = Duration::from_secs(12 * 60 * 60);
 /// Text/thinking deltas are coalesced for this long before publishing.
 const DELTA_FLUSH: Duration = Duration::from_millis(60);
-/// Grace period between SIGTERM and SIGKILL when stopping a child.
-#[cfg(unix)]
+/// Grace period between SIGTERM and SIGKILL when stopping a child (on
+/// Windows, where there is no SIGTERM, `terminate_within` kills at once).
 const KILL_GRACE: Duration = Duration::from_secs(3);
 /// VS Code's setting sources.
 pub const SETTING_SOURCES: &str = "user,project,local";
