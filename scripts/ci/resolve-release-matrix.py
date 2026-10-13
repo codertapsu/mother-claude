@@ -1,24 +1,24 @@
 #!/usr/bin/env python3
 """Resolve the per-OS CI build matrix for .github/workflows/release.yml.
 
-Every target OS can be built two ways: LOCALLY (scripts/release/*, see
-docs/RELEASING.md) or in CI. These per-OS flags pick *CI* per OS; a manual
-`workflow_dispatch` run forces all of them on. Disabled OSes are omitted from
-the emitted matrix, so the `build` job provisions NO runner for them (the
-10x-billed macOS minutes stay unspent).
+Installers are built LOCALLY (scripts/release/*, see docs/RELEASING.md). These
+per-OS flags are the only way to have CI build an OS instead, and starting the
+workflow by hand does not count as one. Disabled OSes are omitted from the
+emitted matrix, so the `build` job provisions NO runner for them; with every OS
+disabled the run fails here, saying why, rather than succeeding at nothing.
 
 Prints two GitHub Actions step outputs to stdout (append to $GITHUB_OUTPUT):
   matrix=<json {"include":[...]}>   - the build matrix
   any=<true|false>                  - whether anything is selected
 
 Env:
-  MANUAL      "true" when the run is a workflow_dispatch (build everything)
   CI_MACOS    repo var RELEASE_CI_MACOS    (default: off -> macOS built locally)
   CI_WINDOWS  repo var RELEASE_CI_WINDOWS  (default: off -> Windows built locally)
 An unset/empty flag uses the default; "true" forces on, anything else forces off.
 """
 import json
 import os
+import sys
 
 # The build-matrix entries per OS (mirrors what release.yml's build job needs:
 # os / label / rust-target / tauri-args). Linux is intentionally omitted —
@@ -41,8 +41,6 @@ DEFAULTS = {"macos": False, "windows": False}
 
 
 def enabled(key: str) -> bool:
-    if os.environ.get("MANUAL", "").strip().lower() == "true":
-        return True
     raw = os.environ.get("CI_" + key.upper(), "").strip().lower()
     return DEFAULTS[key] if raw == "" else raw == "true"
 
@@ -52,6 +50,14 @@ def main() -> None:
     for key in ("macos", "windows"):
         if enabled(key):
             include.extend(OSES[key])
+    if not include:
+        print(
+            "::error::No operating system is switched on for CI builds "
+            "(RELEASE_CI_MACOS / RELEASE_CI_WINDOWS). Installers are built "
+            "locally; see docs/RELEASING.md.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
     print("matrix=" + json.dumps({"include": include}))
     print("any=" + ("true" if include else "false"))
 

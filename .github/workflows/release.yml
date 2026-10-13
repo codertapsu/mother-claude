@@ -1,11 +1,23 @@
-# Mother Claude — Release workflow
+# Mother Claude — Release workflow (DISABLED BY DEFAULT)
 # ==============================================================================
-# Builds the desktop installers (.dmg/.app on macOS, .exe/.msi on Windows) with
-# the embedded axum server + bundled Path A Node sidecar, code-signs/notarizes
-# the macOS build, and publishes a DRAFT GitHub Release.
+# Installers (.dmg / .app on macOS, -setup.exe / .msi on Windows) are built
+# LOCALLY, on the maintainer's own Mac and Windows desktop, and uploaded to a
+# draft GitHub Release by scripts/release/release-{macos.sh,windows.ps1}. See
+# docs/RELEASING.md for the runbook.
 #
-# Trigger: push a tag like `v0.1.0` (see docs/RELEASING.md). Manual re-runs are
-# possible via workflow_dispatch (which builds every OS).
+# This file exists so that decision is recorded and reversible, not so it runs.
+# Two independent brakes keep it inert:
+#
+#   1. No `push:` trigger. Tagging `v0.4.0` starts nothing here — no runner is
+#      provisioned, and no draft gets a second, CI-built copy of an installer
+#      the local legs already uploaded.
+#   2. The `setup` job refuses the run unless an operating system's switch is
+#      on, and a manual "Run workflow" does NOT count as a switch: somebody
+#      pressing a button is not the same thing as reversing a decision.
+#
+# If CI ever builds again, note that tauri-action writes its own latest.json;
+# the local legs' manifest merge (scripts/release/update-manifest.mjs) and
+# `release-upload.sh verify` are what the runbook relies on instead.
 #
 # ------------------------------------------------------------------------------
 # GitHub SECRETS (Settings -> Secrets and variables -> Actions -> Secrets)
@@ -33,23 +45,18 @@
 name: Release
 
 on:
-  # A `v*` tag push triggers this workflow; the `setup` job resolves which OSes
-  # actually build from per-OS repo variables (Settings → Secrets and variables
-  # → Actions → Variables), so a disabled OS provisions NO runner (10x-billed
-  # macOS minutes stay unspent). A manual `workflow_dispatch` run builds
-  # everything. Every OS defaults to a LOCAL build (CI is opt-in per OS); set a
-  # variable to "true" to build that OS in CI:
-  #   RELEASE_CI_MACOS    default false → macOS built locally
-  #   RELEASE_CI_WINDOWS  default false → Windows built locally
-  # Local-release runbook + how to toggle: docs/RELEASING.md.
-  push:
-    tags:
-      - "v*"
+  # Manual only (brake 1 above). The `setup` job then builds only the operating
+  # systems whose repository variable (Settings → Secrets and variables →
+  # Actions → Variables) is exactly "true", and refuses the run when none is
+  # (brake 2):
+  #   RELEASE_CI_MACOS    unset → macOS built locally
+  #   RELEASE_CI_WINDOWS  unset → Windows built locally
+  # Local-release runbook: docs/RELEASING.md.
   workflow_dispatch:
     inputs:
       tag:
-        description: "Tag/version to build (e.g. v0.1.0). Used only for manual runs."
-        required: false
+        description: "Tag to build, e.g. v0.4.0"
+        required: true
 
 permissions:
   contents: write
@@ -57,7 +64,8 @@ permissions:
 jobs:
   # Resolve which OSes build in CI from the per-OS RELEASE_CI_* flags. A tiny
   # ubuntu job so a disabled OS never reaches the build matrix and provisions no
-  # runner. scripts/ci/resolve-release-matrix.py owns the entries + default policy.
+  # runner, and so a run with every switch off fails here, saying why.
+  # scripts/ci/resolve-release-matrix.py owns the entries + the policy.
   setup:
     name: Resolve CI build matrix
     runs-on: ubuntu-latest
@@ -69,7 +77,6 @@ jobs:
       - id: m
         shell: bash
         env:
-          MANUAL: ${{ github.event_name == 'workflow_dispatch' }}
           CI_MACOS: ${{ vars.RELEASE_CI_MACOS }}
           CI_WINDOWS: ${{ vars.RELEASE_CI_WINDOWS }}
         run: python3 scripts/ci/resolve-release-matrix.py >> "$GITHUB_OUTPUT"
@@ -170,9 +177,9 @@ jobs:
         with:
           # The Tauri project (src-tauri/) is at the repo root.
           projectPath: "."
-          # Use the pushed tag (refs/tags/vX) or the manual input.
-          tagName: ${{ github.ref_type == 'tag' && github.ref_name || (github.event.inputs.tag || 'v__VERSION__') }}
-          releaseName: "Mother Claude ${{ github.ref_type == 'tag' && github.ref_name || github.event.inputs.tag }}"
+          # The tag the run was started for.
+          tagName: ${{ github.event.inputs.tag }}
+          releaseName: "Mother Claude ${{ github.event.inputs.tag }}"
           releaseBody: |
             Download the installer for your OS from the assets below.
 
