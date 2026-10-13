@@ -17,42 +17,51 @@ and nothing until a release **newer** than the running version is published.
 | Config | `bundle.createUpdaterArtifacts: true` + `plugins.updater` (endpoints + `pubkey`) in `src-tauri/tauri.conf.json` |
 | Endpoint | `https://github.com/codertapsu/mother-claude/releases/latest/download/latest.json` (always served from the latest published release) |
 | UI | `src/app/core/updater.service.ts` + `src/app/shared/updater.component.ts` (desktop-only) |
-| Manifest | `latest.json` assembled by `scripts/release/make-latest-json.sh` |
-| Signing key | `~/.tauri/mother-claude-updater.key` (private, **never committed**); its public half is `plugins.updater.pubkey` |
+| Manifest | `latest.json`, merged by both release legs (`scripts/release/update-manifest.mjs`) and checked before publishing (`release-upload.sh verify` → `check-manifest.mjs`) |
+| Signing key | `~/.tauri/mother-claude-updater.key` (private, **never committed**, key id `43FDB9942AC8CABC`); its public half is `plugins.updater.pubkey` |
 
 The updater verifies every download against `pubkey`, so the **same private key**
-must sign all platforms. It is provided as:
-- the GitHub **secret** `TAURI_SIGNING_PRIVATE_KEY` (+ `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`,
-  empty here) — used by the Windows CI build, and
-- the env var `TAURI_SIGNING_PRIVATE_KEY` exported locally for the macOS build.
-
-> One-time setup: add the private key (`cat ~/.tauri/mother-claude-updater.key`) as
-> the repo secret **`TAURI_SIGNING_PRIVATE_KEY`**, and leave
-> `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` unset (the key has no password). Keep the key
-> file backed up — losing it means existing installs can't verify future updates.
+must sign all platforms. Both release scripts load it from
+`~/.tauri/mother-claude-updater.key` (on Windows
+`%USERPROFILE%\.tauri\mother-claude-updater.key`), or take
+`TAURI_SIGNING_PRIVATE_KEY` from the environment; it has no password. Keep the
+key file backed up — losing it means no existing install can verify another
+update. (The `TAURI_SIGNING_PRIVATE_KEY` repository secret only matters if CI
+ever builds again.)
 
 ## How a release produces `latest.json`
 
-macOS is built locally and Windows in CI, so the manifest is assembled from both:
+Both halves of a release are built locally, on two machines, in either order
+([RELEASING.md](RELEASING.md)). Each leg signs its update artifacts and **merges**
+its entries into the `latest.json` already on the draft — never over it:
 
-1. **Windows CI** (`includeUpdaterJson: true`, `createUpdaterArtifacts: true`) builds
-   and uploads `…-setup.exe` + `…-setup.exe.sig` to the tag's draft release.
-2. **macOS local** (`scripts/release/macos-release.sh`, with `TAURI_SIGNING_PRIVATE_KEY`
-   exported) builds `…aarch64.app.tar.gz` + `.sig`, uploads it, then runs
-   `make-latest-json.sh`, which reads the real asset names off the release and writes
-   one `latest.json`:
-   ```json
-   {
-     "version": "0.1.0",
-     "pub_date": "…",
-     "platforms": {
-       "darwin-aarch64": { "signature": "<.app.tar.gz.sig contents>", "url": "https://github.com/codertapsu/mother-claude/releases/download/v0.1.0/Mother.Claude_0.1.0_aarch64.app.tar.gz" },
-       "windows-x86_64": { "signature": "<-setup.exe.sig contents>",  "url": "https://github.com/codertapsu/mother-claude/releases/download/v0.1.0/Mother.Claude_0.1.0_x64-setup.exe" }
-     }
-   }
-   ```
-   The script self-verifies (each platform has a signature and its referenced asset
-   exists on the release) before finishing.
+- **macOS** (`scripts/release/release-macos.sh`) adds `darwin-aarch64` →
+  `Mother.Claude.app.tar.gz`.
+- **Windows** (`scripts/release/release-windows.ps1`) adds `windows-x86_64-nsis`
+  and `windows-x86_64` → the `-setup.exe`, and `windows-x86_64-msi` → the `.msi`.
+  The updater looks up `{os}-{arch}-{installer}` before `{os}-{arch}`, so each
+  install is updated by the installer that made it.
+
+```json
+{
+  "version": "0.4.0",
+  "pub_date": "2026-10-13T06:00:00Z",
+  "notes": "What's new in 0.4.0: https://github.com/codertapsu/mother-claude/releases/tag/v0.4.0",
+  "platforms": {
+    "darwin-aarch64":      { "signature": "<.app.tar.gz.sig>", "url": "…/v0.4.0/Mother.Claude.app.tar.gz" },
+    "windows-x86_64":      { "signature": "<-setup.exe.sig>",  "url": "…/v0.4.0/Mother.Claude_0.4.0_x64-setup.exe" },
+    "windows-x86_64-msi":  { "signature": "<.msi.sig>",        "url": "…/v0.4.0/Mother.Claude_0.4.0_x64_en-US.msi" },
+    "windows-x86_64-nsis": { "signature": "<-setup.exe.sig>",  "url": "…/v0.4.0/Mother.Claude_0.4.0_x64-setup.exe" }
+  }
+}
+```
+
+`notes` is what **Settings → Software updates** shows under "update available".
+The merge refuses to write a signature that does not verify against its archive
+under `pubkey`, or one that records another version (tauri-plugin-updater 2.13
+refuses those), and drops every entry left from another version. Before
+publishing, `release-upload.sh verify` downloads the manifest and every asset it
+names and checks each signature the way the updater does.
 
 > The macOS updater downloads the **`.app.tar.gz`**, not the `.dmg` (the dmg is only
 > the first-install download). Both are on the release.
@@ -60,7 +69,7 @@ macOS is built locally and Windows in CI, so the manifest is assembled from both
 ## Rotating the key
 
 `npm run tauri -- signer generate -w ~/.tauri/mother-claude-updater.key -p ""`, put
-the new `.key.pub` contents in `plugins.updater.pubkey`, replace the
-`TAURI_SIGNING_PRIVATE_KEY` secret, and ship a release. Installs older than that
-release can no longer auto-update (they'd verify against the old key) — so rotate
-only when necessary.
+the new `.key.pub` contents in `plugins.updater.pubkey`, copy the new key to the
+Windows desktop, and ship a release. Installs older than that release can no
+longer auto-update (they'd verify against the old key) — so rotate only when
+necessary.

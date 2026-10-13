@@ -5,22 +5,23 @@ A macOS app downloaded from the internet is blocked by Gatekeeper unless it is
 This is the only part of releasing that needs paid Apple credentials. Without it,
 Mother Claude still builds — just **unsigned** (users right-click → **Open** once).
 
-`tauri-action` does the signing, notarization, and stapling for us when the six
-secrets below are present (see `.github/workflows/release.yml`). Mother Claude
-needs **no custom notarization script** — unlike apps that bundle frozen
-frameworks, its only extra payload is the Node sidecar, which the hardened-runtime
-[entitlements](../src-tauri/entitlements.plist) already cover.
+Releases are signed **on the Mac that builds them**
+([RELEASING.md](RELEASING.md)): `scripts/release/release-macos.sh` signs with the
+certificate in your login keychain, notarizes with the credentials in
+`scripts/apple-credentials.env`, then notarizes and staples the `.dmg` too. The
+bundle's only extra payload is the Node sidecar; its one native file, the Agent
+SDK's `claude` binary, arrives already signed by Anthropic's Developer ID with
+the hardened runtime and a secure timestamp, which notarization accepts. The
+hardened-runtime [entitlements](../src-tauri/entitlements.plist) cover the rest.
 
 ## What you need (one-time, requires the paid Apple Developer Program)
 
-1. **A Developer ID Application certificate.**
-   - Xcode → Settings → Accounts → Manage Certificates → **+** → *Developer ID
-     Application* (or create it at <https://developer.apple.com/account/resources/certificates>).
-   - In **Keychain Access**, find it, right-click → **Export** as a `.p12`, set a
-     password. Then base64-encode it:
-     ```bash
-     base64 -i DeveloperID_Application.p12 | pbcopy   # now in your clipboard
-     ```
+1. **A Developer ID Application certificate** in your login keychain —
+   Xcode → Settings → Accounts → Manage Certificates → **+** → *Developer ID
+   Application* (or create it at <https://developer.apple.com/account/resources/certificates>).
+   `security find-identity -v -p codesigning` lists it. (Only a CI build needs it
+   exported: Keychain Access → right-click → **Export** as a `.p12`, then
+   `base64 -i DeveloperID_Application.p12 | pbcopy`.)
 2. **The signing identity string** — exactly as Keychain shows it, e.g.
    `Developer ID Application: Your Name (AB12CD34EF)`.
 3. **Your Team ID** — the 10-character code in parentheses above (also at
@@ -28,7 +29,13 @@ frameworks, its only extra payload is the Node sidecar, which the hardened-runti
 4. **An app-specific password** for notarization — <https://appleid.apple.com> →
    Sign-In and Security → App-Specific Passwords. (Not your Apple ID password.)
 
-## The six GitHub secrets
+## Local credentials
+
+Copy `scripts/apple-credentials.env.example` to `scripts/apple-credentials.env`
+(git-ignored) and fill in `APPLE_SIGNING_IDENTITY`, `APPLE_ID`, `APPLE_PASSWORD`
+(app-specific) and `APPLE_TEAM_ID`. `source` it before running the macOS leg.
+
+## The six GitHub secrets (only if CI ever builds macOS)
 
 | Secret | Value |
 |---|---|
@@ -40,30 +47,21 @@ frameworks, its only extra payload is the Node sidecar, which the hardened-runti
 | `APPLE_TEAM_ID` | your 10-char Team ID |
 
 Add them under **Settings → Secrets and variables → Actions → Secrets**. When
-`APPLE_CERTIFICATE` is empty, the workflow skips signing and macOS ships unsigned
-(the release notes already tell users to right-click → Open).
+`APPLE_CERTIFICATE` is empty, the workflow skips signing and macOS ships unsigned.
 
 ## Local signed build
 
-To produce a signed + notarized `.dmg` from your own Mac (no CI), export the same
-values as environment variables, then build — Tauri picks them up automatically:
+The release leg is the supported way (`source scripts/apple-credentials.env &&
+RELEASE_TAG=v0.4.0 bash scripts/release/release-macos.sh`). By hand: with those
+variables exported and the certificate in the keychain (no `APPLE_CERTIFICATE`
+needed), `npx tauri build --target aarch64-apple-darwin` signs and notarizes the
+`.app`. Verify the result:
 
 ```bash
-export APPLE_CERTIFICATE="$(base64 -i DeveloperID_Application.p12)"
-export APPLE_CERTIFICATE_PASSWORD="…"
-export APPLE_SIGNING_IDENTITY="Developer ID Application: Your Name (AB12CD34EF)"
-export APPLE_ID="you@example.com"
-export APPLE_PASSWORD="abcd-efgh-ijkl-mnop"   # app-specific
-export APPLE_TEAM_ID="AB12CD34EF"
-npm run tauri:build
-```
-
-Verify the result:
-
-```bash
-codesign --verify --deep --strict --verbose=2 "src-tauri/target/release/bundle/macos/Mother Claude.app"
-spctl -a -vvv -t install "src-tauri/target/release/bundle/macos/Mother Claude.app"
-xcrun stapler validate src-tauri/target/release/bundle/dmg/*.dmg
+B=src-tauri/target/aarch64-apple-darwin/release/bundle
+codesign --verify --deep --strict --verbose=2 "$B/macos/Mother Claude.app"
+spctl -a -vvv -t exec "$B/macos/Mother Claude.app"
+xcrun stapler validate "$B"/dmg/*.dmg
 ```
 
 ### Notarize + staple the .dmg (not just the .app)
@@ -74,12 +72,14 @@ xcrun stapler validate src-tauri/target/release/bundle/dmg/*.dmg
 its own pass:
 
 ```bash
-xcrun notarytool submit "src-tauri/target/release/bundle/dmg/Mother Claude_0.1.0_aarch64.dmg" \
+DMG="src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/Mother Claude_0.4.0_aarch64.dmg"
+xcrun notarytool submit "$DMG" \
   --apple-id "$APPLE_ID" --password "$APPLE_PASSWORD" --team-id "$APPLE_TEAM_ID" --wait
-xcrun stapler staple "src-tauri/target/release/bundle/dmg/Mother Claude_0.1.0_aarch64.dmg"
+xcrun stapler staple "$DMG"
 ```
 
-`scripts/release/macos-release.sh` does this automatically after the build.
+`scripts/release/release-macos.sh` does this automatically after the build, and
+fails unless `stapler validate` and `spctl` accept the result.
 
 ## Windows Authenticode (optional)
 
@@ -91,5 +91,9 @@ To sign them, get a code-signing certificate (OV/EV from a CA) and either:
   `src-tauri/tauri.conf.json`, **or**
 - configure a custom `bundle.windows.signCommand` that invokes your signing tool.
 
-Then add the import/sign step to the Windows leg of `.github/workflows/release.yml`.
+`scripts/release/release-windows.ps1` runs `tauri build`, so a build that signs
+produces signed installers with no change to the script — then check
+`Get-AuthenticodeSignature` reports `Valid`, because a build that could not reach
+the signing service can still produce an unsigned installer. Authenticode is
+separate from the updater signature: a signed installer still needs its `.sig`.
 This is a deliberate later addition; it is not required to publish.

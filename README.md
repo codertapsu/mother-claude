@@ -27,14 +27,15 @@ without turning on Claude's own Remote Control.
 
 ## Download
 
-Prebuilt installers for **macOS** (Apple Silicon + Intel) and **Windows** (x64)
-are on the [Releases page](https://github.com/codertapsu/mother-claude/releases).
+Prebuilt installers for **macOS** (Apple silicon) and **Windows** (x64) are on
+the [Releases page](https://github.com/codertapsu/mother-claude/releases).
 
-- **macOS** — open the `.dmg` and drag the app to Applications. If a build is
-  unsigned, right-click the app → **Open** the first time. Grant **Full Disk
-  Access** when prompted (see [Permissions](#permissions-macos)).
-- **Windows** — run the `…-setup.exe`. The installer is currently unsigned, so
-  SmartScreen shows a warning → **More info → Run anyway**.
+- **macOS** — open the `.dmg` and drag the app to Applications. It is signed
+  and notarized. Grant **Full Disk Access** when prompted (see
+  [Permissions](#permissions-macos)). Intel Macs are not supported yet.
+- **Windows** — run the `…-setup.exe` (or the `.msi`, for managed installs). The
+  installers are currently unsigned, so SmartScreen shows a warning →
+  **More info → Run anyway**.
 
 **Requires the [Claude Code CLI](https://claude.com/claude-code)** (`claude`)
 installed and signed in on the same machine — Mother Claude reads `~/.claude` and

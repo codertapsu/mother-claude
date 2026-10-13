@@ -240,6 +240,10 @@ cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
 cargo test  --manifest-path src-tauri/Cargo.toml
 
 npm run sidecar:build      # builds BOTH agent-bridge.js and bridge-host.js
+npm run test:release       # release tooling: signatures, manifest merge, versions
+
+# Releases are built locally on the Mac and the Windows desktop, never in CI:
+# docs/RELEASING.md (scripts/release/release-{macos.sh,windows.ps1}).
 
 # The bridge's live tests spend tokens and need `claude` signed in; they are
 # #[ignore]d so `cargo test` never touches the network or starts the Node host.
