@@ -60,6 +60,15 @@ the wrong version misleads everyone who already downloaded it.
 
 ## One-time setup
 
+### The Mac's Rust targets
+
+```bash
+rustup target add aarch64-apple-darwin x86_64-pc-windows-msvc
+```
+
+The second is for the Windows type-check in the macOS leg's gate
+(`scripts/release/check-windows.sh`); nothing is built or linked for it.
+
 ### macOS signing
 
 You need a **Developer ID Application** certificate in your login keychain. An
@@ -179,6 +188,7 @@ node scripts/release/set-version.mjs 0.4.0
 # the same gate the macOS leg runs:
 cargo fmt --manifest-path src-tauri/Cargo.toml --check
 cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
+bash scripts/release/check-windows.sh          # the Windows build type-checks
 cargo test --manifest-path src-tauri/Cargo.toml
 npm run lint && npm test && npm run test:release
 git commit -am "chore(release): v0.4.0"
@@ -203,8 +213,9 @@ irreversible:
 1. preflight — the version spots against the tag, the signing identity, a clean
    tree at the tag's commit, write access to the repository;
 2. `npm ci`, then the full gate: `cargo fmt --check`, `cargo clippy
-   --all-targets -D warnings`, `cargo test`, `npm run lint`, `npm test`,
-   `npm run test:release`;
+   --all-targets -D warnings`, the Windows type-check
+   (`scripts/release/check-windows.sh`), `cargo test`, `npm run lint`,
+   `npm test`, `npm run test:release`;
 3. `tauri build --target aarch64-apple-darwin` — bundles the sidecar and the
    Angular app, signs with the hardened runtime, notarizes the `.app`, and signs
    the update archive;
@@ -290,8 +301,12 @@ their manifest entries (`windows-x86_64`, `windows-x86_64-nsis`,
 
 **Its gate is smaller than the Mac's, on purpose.** The Rust test suite assumes
 Unix — 48 `cfg(unix)` items, test files that use Unix-only APIs — and has never
-been run on Windows; the Mac runs the full gate on the same commit. The Windows
-leg runs what is known to hold there, and the build.
+been run on Windows; the Mac runs the full gate on the same commit, including
+`scripts/release/check-windows.sh`, which type-checks the app for
+`x86_64-pc-windows-msvc` with clippy. (v0.4.0's first Windows build failed on a
+constant that only Unix had; that check now finds such errors on the Mac before
+anything is tagged.) The Windows leg runs what is known to hold there, and the
+build.
 
 ```powershell
 pwsh scripts\release\release-windows.ps1 -SkipUpload   # stop before GitHub
@@ -494,6 +509,13 @@ Rust toolchain is the GNU build, not MSVC:
 rustup set default-host x86_64-pc-windows-msvc
 rustup toolchain install stable
 ```
+
+**The Windows build fails to compile, e.g. `cannot find value … in this
+scope`** — an item that exists only under `cfg(unix)` (or `target_os =
+"macos"`) is used from code every platform compiles. Reproduce it on the Mac
+with `bash scripts/release/check-windows.sh`, fix it, and redo the release (see
+"Redoing a release that has not been published"): the tag moves, and both legs
+build again.
 
 **A frontend fix is missing from the packaged app** — Tauri can re-bundle a
 stale embedded frontend when only the frontend changed. Run

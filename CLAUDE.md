@@ -241,6 +241,7 @@ cargo test  --manifest-path src-tauri/Cargo.toml
 
 npm run sidecar:build      # builds BOTH agent-bridge.js and bridge-host.js
 npm run test:release       # release tooling: signatures, manifest merge, versions
+bash scripts/release/check-windows.sh   # clippy for the Windows target, from the Mac
 
 # Releases are built locally on the Mac and the Windows desktop, never in CI:
 # docs/RELEASING.md (scripts/release/release-{macos.sh,windows.ps1}).

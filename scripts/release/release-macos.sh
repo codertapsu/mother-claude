@@ -139,6 +139,9 @@ else
   echo "==> the full quality gate"
   cargo fmt --manifest-path src-tauri/Cargo.toml --check
   cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
+  # The Windows leg compiles this commit too, on another machine, much later:
+  # a Unix-only item it trips over is found here instead (see the script).
+  bash scripts/release/check-windows.sh
   cargo test --manifest-path src-tauri/Cargo.toml
   npm run lint
   npm test
