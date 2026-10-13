@@ -1,0 +1,19 @@
+# Check out LF everywhere, on every machine.
+#
+# Without this, Git for Windows (core.autocrlf=true by default) checks text
+# files out with CRLF, and the Windows release leg breaks twice: the version
+# check cannot parse the files it reads, and — silently — the build embeds the
+# plugin's `#!/bin/sh` hook scripts byte for byte (include_str! in
+# src-tauri/src/claude/hooks.rs), which sh then refuses to run. Gitweaver hit
+# the same on the same desktop.
+#
+# `eol=lf` on the catch-all rather than a list of extensions, so a file type
+# nobody listed (mc-hook and mc-wake have no extension at all) cannot come out
+# CRLF on one machine. Nothing here needs CRLF: PowerShell, Node, Rust and git
+# are all content with LF on Windows.
+* text=auto eol=lf
+
+# Binaries: never diff, never munge.
+*.png   binary
+*.ico   binary
+*.icns  binary
