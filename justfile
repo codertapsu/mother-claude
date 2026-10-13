@@ -36,18 +36,22 @@ dev:
 bundle:
     npm run tauri:build
 
-# --- Release (see docs/RELEASING.md) ---
-# Sync the app version across package.json / tauri.conf.json / Cargo.toml.
-set-version version:
-    node scripts/release/set-version.mjs {{version}}
+# --- Release (see docs/RELEASING.md; installers are built locally, not in CI) ---
+# Write the version to every spot (package.json, the lockfiles, Cargo.toml,
+# tauri.conf.json), or check they agree: `just set-version --check`.
+set-version *args:
+    node scripts/release/set-version.mjs {{args}}
 
-# Upload locally-built installers to the draft GitHub release for a tag.
-# e.g. `just release-upload v0.2.0 src-tauri/target/release/bundle/dmg/*.dmg`
-release-upload tag *files:
-    RELEASE_TAG={{tag}} bash scripts/release/release-upload.sh upload {{files}}
+# The release tooling's own tests (signature checks, manifest merge, versions).
+test-release:
+    npm run test:release
 
-# Build + sign + notarize the macOS app and upload it to the tag's draft release.
-# Requires APPLE_SIGNING_IDENTITY / APPLE_ID / APPLE_PASSWORD / APPLE_TEAM_ID
-# exported (cert in the login keychain). e.g. `just macos-release v0.1.0`
-macos-release tag:
-    RELEASE_TAG={{tag}} bash scripts/release/macos-release.sh
+# The macOS leg: gate, build, sign, notarize, upload to the tag's draft release.
+# Run on the Mac with the tag checked out, after `source scripts/apple-credentials.env`.
+# e.g. `just release-macos v0.4.0`
+release-macos tag:
+    RELEASE_TAG={{tag}} bash scripts/release/release-macos.sh
+
+# Both legs finished, and every platform's update verifies? Run before publishing.
+release-verify tag:
+    RELEASE_TAG={{tag}} bash scripts/release/release-upload.sh verify
