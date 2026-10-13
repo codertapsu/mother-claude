@@ -502,3 +502,12 @@ again.
 
 **Uploads fail with 403 or 404** — the token cannot write to the repository.
 Run `preflight`; prefer `gh auth login`.
+
+**A second draft appears for the same version, or `verify` finds no release** —
+a draft edited through the API without `tag_name` loses its tag (GitHub then
+lists it as `untagged-…`; it happened setting v0.4.0's notes), and the scripts
+find a draft by its tag. Put the tag back, and pass it with every API edit:
+
+```bash
+gh api -X PATCH repos/codertapsu/mother-claude/releases/<id> -f tag_name=v0.4.0
+```
