@@ -891,6 +891,8 @@ fn schemas() -> Value {
                 "skills": {},
                 "agents": { "type": "object" },
                 "include_partial_messages": { "type": "boolean", "default": true },
+                "account": { "type": "string",
+                    "description": "The Claude account to run under (`default` or `acc_…`; GET /api/accounts lists them). Default: the bridge's start-time choice, the project's, then the accounts' bridge default. With `resume`, another account than the conversation's forks it." },
             },
         },
         "ThreadCreated": {

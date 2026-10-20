@@ -639,10 +639,15 @@ part of done. IDs are referenced from commit messages.
       per account; `GET /usage.accounts`; ~~`planUsage.accountId`~~ an
       `accountUsage` frame (§3); limit-hit offer (UI, P1.8). Done when two
       accounts show two meters and a limit hit names the right one.
-- [ ] **P1.7 Bridge per account.** `BridgeDefaults.account`, per-request
+- [x] **P1.7 Bridge per account.** `BridgeDefaults.account`, per-request
       `account`, sidecar `Options.env` per query, `ThreadRecord.account`,
       BRIDGE.md. Done when `/chat` with `account` runs under that account in
-      the live bridge test.
+      the live bridge test. *(Offline against a fake host: each
+      conversation's environment by kind, the fork and copy rules, the
+      refusals. Every conversation now gets an explicit `env` (the host's own
+      as it started, plus the account's part), so the host's store reads can
+      point `CLAUDE_CONFIG_DIR` at another account's directory, one at a
+      time, without reaching a conversation.)*
 - [ ] **P1.8 UI: Accounts page, picker, meter switcher, limit offer.**
 - [ ] **P1.9 Docs:** REMOTE.md, README, .env.example, SECURITY.md (§8).
 

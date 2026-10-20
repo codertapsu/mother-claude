@@ -803,6 +803,25 @@ impl AccountRegistry {
         self.read().account_for_cwd(cwd)
     }
 
+    /// The account a bridge conversation in `cwd` runs under when nothing
+    /// names one: the project's, else the bridge default.
+    pub fn account_for_bridge(&self, cwd: &str) -> String {
+        let reg = self.read();
+        let project = reg.account_for_cwd(cwd);
+        if reg.defaults.by_project.is_empty() || project == reg.defaults.new_session {
+            // No project rule matched (the answer is the new-session default).
+            let matched = reg
+                .defaults
+                .by_project
+                .keys()
+                .any(|dir| Path::new(cwd).starts_with(dir));
+            if !matched {
+                return reg.defaults.bridge.clone();
+            }
+        }
+        project
+    }
+
     pub fn defaults(&self) -> AccountDefaults {
         self.read().defaults.clone()
     }

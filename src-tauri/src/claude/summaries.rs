@@ -672,6 +672,7 @@ pub fn session_account(state: &AppState, id: &str) -> String {
     state
         .control
         .account_of(id)
+        .or_else(|| state.bridge.account_of(id))
         .unwrap_or_else(|| super::accounts::DEFAULT_ID.to_string())
 }
 

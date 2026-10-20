@@ -441,15 +441,36 @@ async fn resolve_chat_thread(
     ctx: crate::server::context::ClientContext,
     body: &ChatBody,
 ) -> BridgeResult<String> {
+    // An account named with the message: only a conversation of that account
+    // may take it.
+    let asked_account = body
+        .options
+        .account
+        .as_deref()
+        .map(str::trim)
+        .filter(|a| !a.is_empty());
+    let other_account = |id: &str| {
+        asked_account.is_some_and(|a| a != crate::claude::summaries::session_account(state, id))
+    };
     if let Some(id) = &body.thread_id {
         validate_id("thread_id", id)?;
+        if other_account(id) {
+            return Err(BridgeError::conflict(
+                "account_mismatch",
+                "That conversation runs under another account. Continue it on this one with \
+                 POST /threads {\"resume\": \"<id>\", \"account\": \"<account>\"}, which forks it.",
+            )
+            .with("thread_id", id.clone()));
+        }
         // Explicitly named: a failure to resume belongs to the caller.
         crate::bridge::ensure_thread_live(state, &ctx, id).await?;
         return Ok(id.clone());
     }
 
     if !body.create_new_chat {
-        if let Some(active) = state.bridge.active_thread.read().await.clone() {
+        let active = state.bridge.active_thread.read().await.clone();
+        // A message for another account starts its own conversation.
+        if let Some(active) = active.filter(|a| !other_account(a)) {
             match crate::bridge::ensure_thread_live(state, &ctx, &active).await {
                 Ok(()) => return Ok(active),
                 // The conversation we were pointing at is gone. That is not the
@@ -486,6 +507,7 @@ async fn resolve_chat_thread(
         thread_id: body.options.thread_id.clone(),
         resume: body.options.resume.clone(),
         fork: body.options.fork,
+        account: body.options.account.clone(),
     };
     let response = super::threads::create(State(state.clone()), ctx, Body(options)).await?;
     let created = thread_id_from(response).await?;

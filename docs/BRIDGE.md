@@ -51,6 +51,9 @@ Open Mother Claude → **API**. Choose:
 - **Model**, **Effort**, **Thinking** — leave any on *Default* to inherit your
   own Claude settings, exactly as VS Code or the CLI would.
 - **Permissions** — from *Ask me* through to *Don't ask*.
+- **Account** — which Claude account conversations run under, when there is
+  more than one ([ACCOUNTS.md](ACCOUNTS.md)). *Default* follows the project's
+  account, then the accounts' bridge default.
 - **Conversation** — which conversation messages join (see below).
 
 Press **Start**. The screen shows the URL, links to the reference and console,
@@ -135,6 +138,12 @@ reports it as `activeThread`.
 
 `/threads/{id}/turns` and `/run` are unaffected: they name their conversation
 explicitly and always have.
+
+With `account` in a `/chat` body, only a conversation of that account takes
+the message: the active conversation is joined when it runs under it, and a
+new one is opened when it does not. Naming a `thread_id` that runs under
+another account answers `409 account_mismatch` (continue it on this account
+with `POST /threads {"resume": …, "account": …}`, which forks it).
 
 ---
 
@@ -399,6 +408,7 @@ curl -sS http://127.0.0.1:5612/threads/$THREAD/run \
 | `output_schema` | JSON Schema; the result arrives as `structured_output`. |
 | `max_turns`, `max_budget_usd` | Hard stops. |
 | `skills`, `agents` | Skills and programmatic subagents. |
+| `account` | The Claude account to run under: `default` or an `acc_…` id from `GET /api/accounts`. Default: the start-time choice, then the project's account, then the accounts' bridge default. With `resume`, another account than the conversation's forks it; an account that keeps its own directory answers `409 account_needs_copy` until the conversation is copied there. A token account whose token is not on this machine answers `409 account_token_missing`. |
 
 `bypassPermissions` skips every approval prompt, so it is restricted to local
 clients and to devices granted dangerous actions. So are `mcp_servers`, a

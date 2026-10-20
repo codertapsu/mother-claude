@@ -51,6 +51,9 @@ pub struct BridgeDefaults {
     /// after it joins that one, which is what a client sending only
     /// `{"message": "…"}` almost always wants.
     pub default_thread: Option<String>,
+    /// The Claude account conversations run under (docs/ACCOUNTS.md §5.5);
+    /// `None`: the project's, else the accounts' bridge default.
+    pub account: Option<String>,
 }
 
 fn one_of(field: &str, value: &Option<String>, allowed: &[&str]) -> BridgeResult<()> {
@@ -113,6 +116,7 @@ impl BridgeDefaults {
         blank(&mut self.permission_mode);
         blank(&mut self.system_prompt_append);
         blank(&mut self.default_thread);
+        blank(&mut self.account);
         self
     }
 }
@@ -165,6 +169,14 @@ pub async fn start_with(
     }
     let defaults = defaults.normalized();
     defaults.validate()?;
+    if let Some(account) = &defaults.account {
+        if state.accounts.get(account).is_none() {
+            return Err(BridgeError::invalid_field(
+                "account",
+                format!("No account {account:?} — pick another, or leave it unset."),
+            ));
+        }
+    }
 
     // A nominated conversation must actually exist, or the first message would
     // fail in a way that looks like the bridge is broken rather than like a
@@ -541,6 +553,7 @@ mod tests {
             setting_sources: Some(vec!["user".into(), "project".into()]),
             system_prompt_append: Some("Be terse.".into()),
             default_thread: None,
+            account: None,
         };
         assert!(good.validate().is_ok());
     }

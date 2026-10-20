@@ -67,6 +67,11 @@ pub struct CreateThread {
     pub agents: Option<Value>,
     #[serde(default = "default_true")]
     pub include_partial_messages: bool,
+    /// The Claude account to run under (docs/ACCOUNTS.md §5.5): default the
+    /// bridge's start-time choice, else the project's, else the accounts'
+    /// bridge default. With `resume`, another account than the
+    /// conversation's always forks.
+    pub account: Option<String>,
 }
 
 fn default_true() -> bool {
@@ -115,6 +120,7 @@ impl CreateThread {
         self.system_prompt_append = self
             .system_prompt_append
             .or_else(|| defaults.system_prompt_append.clone());
+        self.account = self.account.or_else(|| defaults.account.clone());
         self
     }
 
@@ -235,7 +241,7 @@ impl CreateThread {
         Ok(())
     }
 
-    fn host_options(&self, cwd: &str) -> Value {
+    fn host_options(&self, cwd: &str, env: &crate::claude::accounts::AccountEnv) -> Value {
         let mut options = json!({
             "cwd": cwd,
             "permissionMode": self.permission_mode.clone().unwrap_or_else(|| "default".into()),
@@ -295,8 +301,81 @@ impl CreateThread {
         if self.fork {
             options["forkSession"] = json!(true);
         }
+        // The account's part of the conversation's environment; the host
+        // applies it to a copy of its own (never the host's itself).
+        if !env.is_inherit() {
+            options["env"] = json!(env.overrides());
+        }
         options
     }
+}
+
+/// The config directory a conversation lives in when it is not the Default
+/// account's: the host's store reads and writes look there.
+pub fn store_dir(state: &AppState, thread_id: &str) -> Option<String> {
+    let account = crate::claude::summaries::session_account(state, thread_id);
+    let home = state.accounts.home(&account)?;
+    (home.base() != state.home.base()).then(|| home.base().to_string_lossy().into_owned())
+}
+
+/// `params` with the conversation's config directory, when it needs one.
+fn in_store(state: &AppState, thread_id: &str, mut params: Value) -> Value {
+    if let Some(dir) = store_dir(state, thread_id) {
+        params["configDir"] = json!(dir);
+    }
+    params
+}
+
+/// Map an account refusal onto the bridge's error envelope.
+pub fn account_error(e: crate::claude::accounts::AccountError) -> BridgeError {
+    use crate::claude::accounts::AccountError as E;
+    match &e {
+        E::NotFound(_) => BridgeError::invalid_field("account", e.to_string()),
+        E::TokenMissing => BridgeError::conflict(e.code(), e.to_string()),
+        _ => BridgeError::invalid_field("account", e.to_string()),
+    }
+}
+
+/// The account a new conversation in `cwd` runs under, and how it may take
+/// over `resume`: another account than the conversation's always forks, and
+/// one that keeps its own directory needs the conversation copied there.
+fn conversation_account(
+    state: &AppState,
+    body: &mut CreateThread,
+    cwd: &str,
+) -> BridgeResult<(String, crate::claude::accounts::AccountEnv)> {
+    let asked = body
+        .account
+        .as_deref()
+        .map(str::trim)
+        .filter(|a| !a.is_empty())
+        .map(str::to_string);
+    let account = match (&asked, &body.resume) {
+        (Some(a), _) => a.clone(),
+        // Continuing keeps the conversation's own account.
+        (None, Some(resume)) => crate::claude::summaries::session_account(state, resume),
+        (None, None) => state.accounts.account_for_bridge(cwd),
+    };
+    let env = state.accounts.env(&account).map_err(account_error)?;
+    if let Some(resume) = &body.resume {
+        let source = crate::claude::summaries::session_account(state, resume);
+        let same_dir = match (state.accounts.home(&source), state.accounts.home(&account)) {
+            (Some(a), Some(b)) => a.base() == b.base(),
+            _ => true,
+        };
+        if !same_dir {
+            return Err(BridgeError::conflict(
+                "account_needs_copy",
+                "That account keeps its own directory: the conversation has to be copied \
+                 there before it can continue on it.",
+            )
+            .with("thread_id", resume.clone()));
+        }
+        if account != source {
+            body.fork = true;
+        }
+    }
+    Ok((account, env))
 }
 
 /// Whether a conversation runs with approvals switched off
@@ -423,6 +502,7 @@ pub async fn create(
     }
     body.require_safe_options(&state, &ctx, caller_cwd.as_deref())
         .await?;
+    let (account, env) = conversation_account(&state, &mut body, &cwd)?;
 
     // Continuing in place keeps the id (and the transcript); everything else
     // gets a fresh one the caller already holds.
@@ -436,7 +516,7 @@ pub async fn create(
 
     let params = json!({
         "sessionId": thread_id,
-        "options": body.host_options(&cwd),
+        "options": body.host_options(&cwd, &env),
     });
     let result = state
         .bridge
@@ -457,6 +537,7 @@ pub async fn create(
         title: body.title.clone(),
         persisted: body.resume.is_some(),
         active_turn: None,
+        account,
     };
     state.bridge.insert_thread(record.clone()).await;
 
@@ -500,24 +581,83 @@ pub async fn list(
         }
         // A bridge that has never started the host should still answer this,
         // so a runtime failure degrades to "live only" rather than a 503.
-        match state
-            .bridge
-            .host
-            .call(&state, "store.list", call, RPC_TIMEOUT)
-            .await
-        {
-            Ok(v) => v
-                .get("sessions")
-                .cloned()
-                .unwrap_or(Value::Array(Vec::new())),
-            Err(e) => {
-                tracing::warn!(error = %e, "bridge could not read the session store");
-                Value::Array(Vec::new())
+        let homes = state.accounts.homes();
+        if homes.len() == 1 {
+            match state
+                .bridge
+                .host
+                .call(&state, "store.list", call, RPC_TIMEOUT)
+                .await
+            {
+                Ok(v) => v
+                    .get("sessions")
+                    .cloned()
+                    .unwrap_or(Value::Array(Vec::new())),
+                Err(e) => {
+                    tracing::warn!(error = %e, "bridge could not read the session store");
+                    Value::Array(Vec::new())
+                }
             }
+        } else {
+            Value::Array(stored_across_homes(&state, &homes, call).await)
         }
     };
 
     Ok(ok(json!({ "data": live, "stored": stored })))
+}
+
+/// Every account's stored conversations, newest first, each with its
+/// `account`: one store read per config directory, the page cut from the
+/// merged list.
+async fn stored_across_homes(
+    state: &AppState,
+    homes: &[(String, crate::claude::ClaudeHome)],
+    call: Value,
+) -> Vec<Value> {
+    let offset = call.get("offset").and_then(Value::as_u64).unwrap_or(0) as usize;
+    let limit = call
+        .get("limit")
+        .and_then(Value::as_u64)
+        .map(|l| l as usize);
+    let mut all: Vec<Value> = Vec::new();
+    for (account, home) in homes {
+        let mut one = json!({});
+        if let Some(l) = limit {
+            one["limit"] = json!(offset + l);
+        }
+        if home.base() != state.home.base() {
+            one["configDir"] = json!(home.base().to_string_lossy());
+        }
+        match state
+            .bridge
+            .host
+            .call(state, "store.list", one, RPC_TIMEOUT)
+            .await
+        {
+            Ok(v) => {
+                for mut session in v
+                    .get("sessions")
+                    .and_then(Value::as_array)
+                    .cloned()
+                    .unwrap_or_default()
+                {
+                    session["account"] = json!(account);
+                    all.push(session);
+                }
+            }
+            Err(e) => {
+                tracing::warn!(error = %e, account, "bridge could not read a session store");
+            }
+        }
+    }
+    all.sort_by_key(|s| {
+        std::cmp::Reverse(s.get("lastModified").and_then(Value::as_i64).unwrap_or(0))
+    });
+    let page = all.into_iter().skip(offset);
+    match limit {
+        Some(l) => page.take(l).collect(),
+        None => page.collect(),
+    }
 }
 
 /// `GET /threads/{id}` — one conversation. `?include_messages=true` inlines its
@@ -536,7 +676,7 @@ pub async fn read(
         .call(
             &state,
             "store.info",
-            json!({ "sessionId": thread_id }),
+            in_store(&state, &thread_id, json!({ "sessionId": thread_id })),
             RPC_TIMEOUT,
         )
         .await
@@ -566,7 +706,7 @@ pub async fn read(
             .call(
                 &state,
                 "store.messages",
-                json!({ "sessionId": thread_id }),
+                in_store(&state, &thread_id, json!({ "sessionId": thread_id })),
                 RPC_TIMEOUT,
             )
             .await?;
@@ -595,6 +735,7 @@ pub async fn messages(
     if params.get("include_system_messages").map(String::as_str) == Some("true") {
         call["includeSystemMessages"] = json!(true);
     }
+    let call = in_store(&state, &thread_id, call);
     Ok(ok(state
         .bridge
         .host
@@ -645,7 +786,11 @@ pub async fn rename(
         .call(
             &state,
             "store.rename",
-            json!({ "sessionId": thread_id, "title": body.name }),
+            in_store(
+                &state,
+                &thread_id,
+                json!({ "sessionId": thread_id, "title": body.name }),
+            ),
             RPC_TIMEOUT,
         )
         .await?;
@@ -679,6 +824,7 @@ pub async fn fork(
     if let Some(title) = &body.title {
         call["title"] = json!(title);
     }
+    let call = in_store(&state, &thread_id, call);
     let result = state
         .bridge
         .host
@@ -817,6 +963,8 @@ pub async fn close(
             Duration::from_secs(30),
         )
         .await?;
+    // Where its transcript lives, before the conversation is forgotten.
+    let delete = in_store(&state, &thread_id, json!({ "sessionId": thread_id }));
     state.bridge.forget_thread(&thread_id).await;
     state.unmark_owned(&thread_id).await;
 
@@ -824,12 +972,7 @@ pub async fn close(
         state
             .bridge
             .host
-            .call(
-                &state,
-                "store.delete",
-                json!({ "sessionId": thread_id }),
-                RPC_TIMEOUT,
-            )
+            .call(&state, "store.delete", delete, RPC_TIMEOUT)
             .await?;
     }
     Ok(ok(json!({
@@ -889,6 +1032,7 @@ mod tests {
             title: None,
             persisted: true,
             active_turn: None,
+            account: crate::claude::accounts::DEFAULT_ID.into(),
         }
     }
 
@@ -1065,7 +1209,7 @@ mod tests {
             include_partial_messages: true,
             ..Default::default()
         };
-        let options = minimal.host_options("/tmp");
+        let options = minimal.host_options("/tmp", &crate::claude::accounts::AccountEnv::Inherit);
         assert_eq!(options["cwd"], "/tmp");
         assert_eq!(options["permissionMode"], "default");
         assert!(options.get("model").is_none());
@@ -1081,7 +1225,7 @@ mod tests {
             allowed_tools: Some(vec!["Read".into()]),
             ..Default::default()
         };
-        let options = full.host_options("/tmp");
+        let options = full.host_options("/tmp", &crate::claude::accounts::AccountEnv::Inherit);
         assert_eq!(options["model"], "haiku");
         assert_eq!(options["effort"], "low");
         assert_eq!(options["resume"], "abc");

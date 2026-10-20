@@ -182,10 +182,11 @@ impl RuntimeHost {
         // CLAUDE_CONFIG_DIR is deliberately NOT set here. Exporting it breaks
         // the CLI's credential resolution *even when it points at the default
         // `~/.claude`*: every turn then answers "Not logged in · Please run
-        // /login" (verified against 2.1.186). The child inherits the variable
+        // /login" (verified against 2.1.186). The host inherits the variable
         // when the user set one themselves, which is the only case where an
-        // override is wanted — so the bridge reads the same home the adapter
-        // does without ever naming it.
+        // override of the Default is wanted. Another account's conversations
+        // get their own part (its directory or its token) per conversation,
+        // in the options of `session.create` (docs/ACCOUNTS.md §5.5).
 
         let mut child = command.spawn().map_err(|e| {
             BridgeError::runtime_unavailable(format!(

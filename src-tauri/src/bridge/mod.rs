@@ -235,6 +235,8 @@ pub struct ThreadRecord {
     pub persisted: bool,
     /// The turn currently running, if any.
     pub active_turn: Option<String>,
+    /// The Claude account it runs under (docs/ACCOUNTS.md §5.5).
+    pub account: String,
 }
 
 /// Everything the bridge owns, hung off [`crate::state::Inner`].
@@ -255,6 +257,8 @@ pub struct BridgeState {
     /// The token policy the listener runs with — the configured one until a
     /// start from the API screen chooses otherwise ([`Self::token_policy`]).
     token: std::sync::RwLock<TokenPolicy>,
+    /// Each live conversation's account, for sync lookups (session rows).
+    accounts: std::sync::Mutex<HashMap<String, String>>,
 }
 
 impl BridgeState {
@@ -271,7 +275,17 @@ impl BridgeState {
             defaults: RwLock::new(control::BridgeDefaults::default()),
             active_thread: RwLock::new(None),
             token,
+            accounts: std::sync::Mutex::new(HashMap::new()),
         }
+    }
+
+    /// The account a live conversation runs under (sync).
+    pub fn account_of(&self, id: &str) -> Option<String> {
+        self.accounts
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(id)
+            .cloned()
     }
 
     /// The token policy of the listener's current (or last) run: the
@@ -308,6 +322,10 @@ impl BridgeState {
     }
 
     pub async fn insert_thread(&self, record: ThreadRecord) {
+        self.accounts
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(record.thread_id.clone(), record.account.clone());
         self.threads
             .write()
             .await
@@ -345,6 +363,10 @@ impl BridgeState {
     /// fresh conversation rather than fail against a dead id.
     pub async fn forget_thread(&self, id: &str) {
         self.threads.write().await.remove(id);
+        self.accounts
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(id);
         let mut active = self.active_thread.write().await;
         if active.as_deref() == Some(id) {
             *active = None;
@@ -895,12 +917,21 @@ pub async fn ensure_thread_live(
         .or_else(|| defaults.cwd.clone())
         .unwrap_or_else(routes::threads::default_cwd);
 
+    // It continues under the account whose directory holds it.
+    let account = crate::claude::summaries::session_account(state, thread_id);
+    let env = state
+        .accounts
+        .env(&account)
+        .map_err(routes::threads::account_error)?;
     let mut options = serde_json::json!({
         "cwd": cwd,
         "resume": thread_id,
         "permissionMode": defaults.permission_mode.clone().unwrap_or_else(|| "default".into()),
         "includePartialMessages": true,
     });
+    if !env.is_inherit() {
+        options["env"] = serde_json::json!(env.overrides());
+    }
     for (key, value) in [
         ("model", defaults.model.clone()),
         ("effort", defaults.effort.clone()),
@@ -939,6 +970,7 @@ pub async fn ensure_thread_live(
         title: stored.title.clone(),
         persisted: true,
         active_turn: None,
+        account,
     };
     state.bridge.insert_thread(record.clone()).await;
     state.mark_owned(thread_id, &cwd, record.created_at).await;
@@ -1042,6 +1074,7 @@ mod tests {
                     title: None,
                     persisted: false,
                     active_turn: None,
+                    account: crate::claude::accounts::DEFAULT_ID.into(),
                 })
                 .await;
         }

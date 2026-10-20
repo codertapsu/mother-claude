@@ -65,6 +65,53 @@ import { randomUUID } from 'node:crypto';
 delete process.env.MOTHER_CLAUDE_TOKEN;
 process.env.MOTHER_CLAUDE_OWNED = '1';
 
+/**
+ * The host's environment as it started. Every conversation's `claude` gets a
+ * copy of it plus its account's part (docs/ACCOUNTS.md D5: another config
+ * directory or a token, with the inherited sign-in overrides removed), so one
+ * host serves every account and a store read that points
+ * `CLAUDE_CONFIG_DIR` at another account for a moment can never leak into a
+ * conversation. The token arrives per conversation and is never logged.
+ */
+const BASE_ENV: Record<string, string | undefined> = { ...process.env };
+
+/** What an account changes in a conversation's environment. */
+interface AccountEnvSpec {
+  set?: Record<string, string>;
+  unset?: string[];
+}
+
+function conversationEnv(spec?: AccountEnvSpec): Record<string, string | undefined> {
+  const env = { ...BASE_ENV };
+  for (const key of spec?.unset ?? []) delete env[key];
+  for (const [key, value] of Object.entries(spec?.set ?? {})) env[key] = value;
+  return env;
+}
+
+/**
+ * Store reads and writes for another account's directory: the SDK finds the
+ * config directory through `process.env.CLAUDE_CONFIG_DIR` at call time, so
+ * every store operation runs one at a time, with it pointed where the
+ * conversation lives and put back afterwards.
+ */
+let storeQueue: Promise<unknown> = Promise.resolve();
+
+function inConfigDir<T>(configDir: unknown, fn: () => Promise<T>): Promise<T> {
+  const run = storeQueue.then(async () => {
+    if (typeof configDir !== 'string' || !configDir) return fn();
+    const before = process.env.CLAUDE_CONFIG_DIR;
+    process.env.CLAUDE_CONFIG_DIR = configDir;
+    try {
+      return await fn();
+    } finally {
+      if (before === undefined) delete process.env.CLAUDE_CONFIG_DIR;
+      else process.env.CLAUDE_CONFIG_DIR = before;
+    }
+  });
+  storeQueue = run.catch(() => undefined);
+  return run;
+}
+
 // --------------------------------------------------------------------------
 // Output framing
 // --------------------------------------------------------------------------
@@ -210,6 +257,8 @@ interface SessionOptions {
   title?: string;
   skills?: string[] | 'all';
   agents?: Record<string, unknown>;
+  /** The account's part of the environment (never logged). */
+  env?: AccountEnvSpec;
 }
 
 interface Session {
@@ -327,6 +376,9 @@ function buildOptions(sessionId: string, opts: SessionOptions, session: () => Se
   const permissionMode = (opts.permissionMode ?? 'default') as PermissionMode;
   const options: Options = {
     cwd: opts.cwd,
+    // Always explicit (it replaces the inherited environment): the host's own
+    // as it started, plus the account's part.
+    env: conversationEnv(opts.env),
     permissionMode,
     // Without this the SDK refuses to enter bypassPermissions at all, so
     // `POST /threads/{id}/permission-mode` would silently never take effect.
@@ -751,81 +803,94 @@ const handlers: Record<string, Handler> = {
   }),
 
   // --- offline: these read ~/.claude/projects without a subprocess ---------
+  // `configDir` names another account's config directory (inConfigDir).
 
-  'store.list': async (params) => ({
-    sessions: await listSessions({
-      ...dir(params),
-      ...(typeof params.limit === 'number' ? { limit: params.limit } : {}),
-      ...(typeof params.offset === 'number' ? { offset: params.offset } : {}),
-      ...(typeof params.includeWorktrees === 'boolean'
-        ? { includeWorktrees: params.includeWorktrees }
-        : {}),
+  'store.list': (params) =>
+    inConfigDir(params.configDir, async () => ({
+      sessions: await listSessions({
+        ...dir(params),
+        ...(typeof params.limit === 'number' ? { limit: params.limit } : {}),
+        ...(typeof params.offset === 'number' ? { offset: params.offset } : {}),
+        ...(typeof params.includeWorktrees === 'boolean'
+          ? { includeWorktrees: params.includeWorktrees }
+          : {}),
+      }),
+    })),
+
+  'store.info': (params) =>
+    inConfigDir(params.configDir, async () => {
+      const info = await getSessionInfo(String(params.sessionId), dir(params));
+      if (!info)
+        throw new HostError('thread_not_found', `No conversation ${String(params.sessionId)}.`);
+      return info;
     }),
-  }),
 
-  'store.info': async (params) => {
-    const info = await getSessionInfo(String(params.sessionId), dir(params));
-    if (!info)
-      throw new HostError('thread_not_found', `No conversation ${String(params.sessionId)}.`);
-    return info;
-  },
-
-  'store.messages': async (params) => ({
-    // Without this an unknown id answers 200 with an empty transcript, which
-    // reads as "this conversation has no messages" rather than "no such thing".
-    ...(await getSessionInfo(String(params.sessionId), dir(params)).then((info) => {
+  'store.messages': (params) =>
+    inConfigDir(params.configDir, async () => {
+      // Without this an unknown id answers 200 with an empty transcript, which
+      // reads as "this conversation has no messages" rather than "no such thing".
+      const info = await getSessionInfo(String(params.sessionId), dir(params));
       if (!info) {
         throw new HostError('thread_not_found', `No conversation ${String(params.sessionId)}.`);
       }
-      return {};
-    })),
-    messages: await getSessionMessages(String(params.sessionId), {
-      ...dir(params),
-      ...(typeof params.limit === 'number' ? { limit: params.limit } : {}),
-      ...(typeof params.offset === 'number' ? { offset: params.offset } : {}),
-      ...(typeof params.includeSystemMessages === 'boolean'
-        ? { includeSystemMessages: params.includeSystemMessages }
-        : {}),
+      return {
+        messages: await getSessionMessages(String(params.sessionId), {
+          ...dir(params),
+          ...(typeof params.limit === 'number' ? { limit: params.limit } : {}),
+          ...(typeof params.offset === 'number' ? { offset: params.offset } : {}),
+          ...(typeof params.includeSystemMessages === 'boolean'
+            ? { includeSystemMessages: params.includeSystemMessages }
+            : {}),
+        }),
+      };
     }),
-  }),
 
-  'store.subagents': async (params) => ({
-    subagents: await listSubagents(String(params.sessionId), dir(params)),
-  }),
+  'store.subagents': (params) =>
+    inConfigDir(params.configDir, async () => ({
+      subagents: await listSubagents(String(params.sessionId), dir(params)),
+    })),
 
-  'store.subagentMessages': async (params) => ({
-    messages: await getSubagentMessages(
-      String(params.sessionId),
-      String(params.agentId),
-      dir(params),
-    ),
-  }),
+  'store.subagentMessages': (params) =>
+    inConfigDir(params.configDir, async () => ({
+      messages: await getSubagentMessages(
+        String(params.sessionId),
+        String(params.agentId),
+        dir(params),
+      ),
+    })),
 
   'store.fork': (params) =>
-    forkSession(String(params.sessionId), {
-      ...dir(params),
-      ...(typeof params.upToMessageId === 'string' ? { upToMessageId: params.upToMessageId } : {}),
-      ...(typeof params.title === 'string' ? { title: params.title } : {}),
+    inConfigDir(params.configDir, () =>
+      forkSession(String(params.sessionId), {
+        ...dir(params),
+        ...(typeof params.upToMessageId === 'string'
+          ? { upToMessageId: params.upToMessageId }
+          : {}),
+        ...(typeof params.title === 'string' ? { title: params.title } : {}),
+      }),
+    ),
+
+  'store.rename': (params) =>
+    inConfigDir(params.configDir, async () => {
+      await renameSession(String(params.sessionId), String(params.title), dir(params));
+      return { ok: true };
     }),
 
-  'store.rename': async (params) => {
-    await renameSession(String(params.sessionId), String(params.title), dir(params));
-    return { ok: true };
-  },
+  'store.tag': (params) =>
+    inConfigDir(params.configDir, async () => {
+      await tagSession(
+        String(params.sessionId),
+        params.tag === null ? null : String(params.tag),
+        dir(params),
+      );
+      return { ok: true };
+    }),
 
-  'store.tag': async (params) => {
-    await tagSession(
-      String(params.sessionId),
-      params.tag === null ? null : String(params.tag),
-      dir(params),
-    );
-    return { ok: true };
-  },
-
-  'store.delete': async (params) => {
-    await deleteSession(String(params.sessionId), dir(params));
-    return { ok: true };
-  },
+  'store.delete': (params) =>
+    inConfigDir(params.configDir, async () => {
+      await deleteSession(String(params.sessionId), dir(params));
+      return { ok: true };
+    }),
 
   // --- human-in-the-loop --------------------------------------------------
 
