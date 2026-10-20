@@ -487,3 +487,141 @@ fn pushes_from_two_machines_merge_their_index() {
     let hosts: Vec<&str> = info.machines.iter().map(|m| m.host.as_str()).collect();
     assert_eq!(hosts, ["mbp-a", "mbp-b"]);
 }
+
+/// Every file under `dir`, relative, sorted.
+fn tree(dir: &Path) -> Vec<String> {
+    let mut all = Vec::new();
+    let _ = crate::claude::transfer::walk(dir, &mut all);
+    let mut out: Vec<String> = all
+        .iter()
+        .map(|p| p.strip_prefix(dir).unwrap().display().to_string())
+        .collect();
+    out.sort();
+    out
+}
+
+/// The security review's proof of concept: an index (forged by anyone who can
+/// write the folder) names a session `../../victim`; a pull or a restore must
+/// not follow it out of the target directory.
+#[test]
+fn a_session_id_from_the_index_never_names_a_path_outside_the_target() {
+    let w = world();
+    let (keys, _) = open_or_create(&w.set, "Work", &pass()).unwrap();
+    // <other>/.mc-restore-<job>/../../victim is <tmp>/victim.
+    let victim = w._tmp.path().join("victim");
+    std::fs::create_dir_all(victim.join("sub")).unwrap();
+    std::fs::write(victim.join("a.txt"), "user file A").unwrap();
+    std::fs::write(victim.join("sub/b.txt"), "user file B").unwrap();
+    let id = "../../victim";
+    let archive = seal(&keys.recipient, b"not even an archive").unwrap();
+    std::fs::write(
+        w.set.sessions_dir().join(format!("{id}.tar.gz.age")),
+        &archive,
+    )
+    .unwrap();
+    let entry = IndexEntry {
+        id: id.to_string(),
+        cwd: None,
+        transcript_bytes: 1,
+        newest_mtime: 1,
+        host: "evil".into(),
+        pushed_at: 1,
+        archive_sha256: crate::claude::secrets::sha256_hex(&archive),
+        archive_bytes: archive.len() as u64,
+        files: 0,
+    };
+    let mut index = SetIndex::default();
+    index.sessions.insert(id.to_string(), entry);
+    write_index(&w.set, &keys.recipient, &index).unwrap();
+
+    assert!(read_index(&w.set, &keys).unwrap().sessions.is_empty());
+    let (r, _) = pull_once(&w, &w.other, "mbp-b", &not_live, "20261021T130000-00000001");
+    assert!(r.restored.is_empty() && r.skipped.is_empty(), "{r:?}");
+    let (r, _) = restore(&RestoreInputs {
+        set: &w.set,
+        passphrase: &pass(),
+        target: &w.other,
+        ids: &[id.to_string()],
+        trust: false,
+        is_live: &not_live,
+        undo_root: &w.undo,
+        job_id: "20261021T130001-00000002",
+        progress: &Progress::default(),
+        kind: "restore",
+    })
+    .unwrap();
+    assert_eq!(r.skipped[0].code, "invalid_id");
+    assert_eq!(tree(&victim), ["a.txt", "sub/b.txt"]);
+    assert!(
+        tree(w.other.base()).is_empty(),
+        "{:?}",
+        tree(w.other.base())
+    );
+}
+
+/// A configuration bundle's name from the index is never a path: a push does
+/// not delete what it names and "Restore settings" does not unpack there.
+#[test]
+fn a_bundle_name_from_the_index_never_names_a_path_outside_config() {
+    let w = world();
+    config(w.home.base());
+    let (keys, _) = open_or_create(&w.set, "Work", &pass()).unwrap();
+    let precious = w._tmp.path().join("precious.txt");
+    std::fs::write(&precious, "important").unwrap();
+    let mut index = SetIndex::default();
+    for name in [
+        precious.display().to_string(),
+        "../...tar.gz.age".to_string(),
+        "2026-01-01T00-00-00Z.tar.gz.age/../../x.tar.gz.age".to_string(),
+    ] {
+        index.config.push(ConfigEntry {
+            name,
+            created_at: 1,
+            host: "x".into(),
+            fingerprint: "0".into(),
+        });
+    }
+    for i in 0..4 {
+        index.config.push(ConfigEntry {
+            name: format!("2026-01-0{}T00-00-00Z.tar.gz.age", i + 1),
+            created_at: 1,
+            host: "x".into(),
+            fingerprint: "0".into(),
+        });
+    }
+    write_index(&w.set, &keys.recipient, &index).unwrap();
+    assert_eq!(read_index(&w.set, &keys).unwrap().config.len(), 4);
+    push_once(&w, &not_live);
+    assert!(precious.exists(), "a push deletes only bundles of its own");
+
+    // Only the bundle this push wrote can be unpacked, and only inside `into`.
+    let into = w._tmp.path().join("appdata/restored-config/Work");
+    let dest = extract_config(&w.set, &pass(), &into).unwrap();
+    assert_eq!(dest.parent(), Some(into.as_path()));
+    // A second look replaces the first.
+    std::fs::write(dest.join("CLAUDE.md"), "edited").unwrap();
+    let again = extract_config(&w.set, &pass(), &into).unwrap();
+    assert_eq!(again, dest);
+    assert_eq!(
+        std::fs::read_to_string(dest.join("CLAUDE.md")).unwrap(),
+        "be kind"
+    );
+}
+
+#[test]
+fn only_the_names_a_push_writes_are_bundle_names() {
+    for (name, ok) in [
+        ("2026-10-21T03-09-00Z.tar.gz.age", true),
+        ("2026-10-21T03-09-00Z-0123456789ab.tar.gz.age", true),
+        ("2026-10-21T03-09-00Z-0123456789AB.tar.gz.age", false),
+        ("2026-10-21T03-09-00Z-0123456789a.tar.gz.age", false),
+        ("2026-10-21T03-09-00Z", false),
+        ("../2026-10-21T03-09-00Z.tar.gz.age", false),
+        ("/etc/passwd", false),
+        ("2026-10-21T03:09:00Z.tar.gz.age", false),
+        ("2026-10-21T03-09-00Zé.tar.gz.age", false),
+        ("", false),
+    ] {
+        assert_eq!(is_config_name(name), ok, "{name}");
+    }
+}

@@ -149,6 +149,65 @@ pub fn host_name() -> String {
         .unwrap_or_else(|_| "this-machine".to_string())
 }
 
+/// A configuration bundle's name, exactly as a push writes it:
+/// `YYYY-MM-DDTHH-MM-SSZ[-<12 hex>].tar.gz.age`. A set's folder is shared
+/// (a cloud folder), so an index naming anything else is never followed.
+pub fn is_config_name(name: &str) -> bool {
+    let Some(stem) = name.strip_suffix(".tar.gz.age") else {
+        return false;
+    };
+    if !stem.is_ascii() {
+        return false;
+    }
+    let (time, hash) = match stem.len() {
+        20 => (stem, None),
+        33 => (&stem[..20], Some(&stem[20..])),
+        _ => return false,
+    };
+    let t = time.as_bytes();
+    let digits = [0, 1, 2, 3, 5, 6, 8, 9, 11, 12, 14, 15, 17, 18];
+    digits.iter().all(|&i| t[i].is_ascii_digit())
+        && [
+            (4, b'-'),
+            (7, b'-'),
+            (10, b'T'),
+            (13, b'-'),
+            (16, b'-'),
+            (19, b'Z'),
+        ]
+        .iter()
+        .all(|&(i, c)| t[i] == c)
+        && hash.is_none_or(|h| {
+            h.as_bytes()[0] == b'-'
+                && h.bytes()
+                    .skip(1)
+                    .all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
+        })
+}
+
+/// Drop what an index may not name: session ids that are not session ids (or
+/// differ from their key), configuration bundles with any other name.
+fn sanitize_index(mut index: SetIndex) -> SetIndex {
+    index.sessions.retain(|key, e| {
+        let ok = super::ids::is_session_id(key) && e.id == *key;
+        if !ok {
+            tracing::warn!("a backup index names an invalid session id; ignored");
+        }
+        ok
+    });
+    index.config.retain(|c| {
+        let ok = is_config_name(&c.name);
+        if !ok {
+            tracing::warn!("a backup index names an invalid configuration bundle; ignored");
+        }
+        ok
+    });
+    for seen in index.seen.values_mut() {
+        seen.retain(|id, _| super::ids::is_session_id(id));
+    }
+    index
+}
+
 // ──────────────────────────────── the set ────────────────────────────────
 
 /// One account's backup set.
@@ -181,7 +240,13 @@ impl Set {
     }
     /// `sessions/<id>.tar.gz.age`.
     pub fn archive(&self, id: &str) -> PathBuf {
+        debug_assert!(super::ids::is_session_id(id));
         self.sessions_dir().join(format!("{id}.tar.gz.age"))
+    }
+    /// `config/<name>`, for a valid bundle name only (never a path out of
+    /// `config/`).
+    fn config_bundle(&self, name: &str) -> Option<PathBuf> {
+        is_config_name(name).then(|| self.config_dir().join(name))
     }
 
     pub fn exists(&self) -> bool {
@@ -452,7 +517,9 @@ pub fn read_index(set: &Set, keys: &Keys) -> Result<SetIndex, BackupError> {
         Err(e) => return Err(e),
     };
     let plain = open_sealed(&keys.identity, &sealed)?;
-    serde_json::from_slice(&plain).map_err(|e| BackupError::Invalid(format!("the index: {e}")))
+    serde_json::from_slice(&plain)
+        .map(sanitize_index)
+        .map_err(|e| BackupError::Invalid(format!("the index: {e}")))
 }
 
 fn write_index(
@@ -491,7 +558,9 @@ fn write_index_merged(
     merged.config.sort_by(|a, b| a.name.cmp(&b.name));
     while merged.config.len() > CONFIG_KEEP {
         let old = merged.config.remove(0);
-        let _ = std::fs::remove_file(set.config_dir().join(&old.name));
+        if let Some(path) = set.config_bundle(&old.name) {
+            let _ = std::fs::remove_file(path);
+        }
     }
     if let Some(seen) = mine.seen.get(host) {
         merged.seen.insert(host.to_string(), seen.clone());
@@ -861,7 +930,9 @@ pub fn push(inp: &PushInputs<'_>) -> Result<PushReport, BackupError> {
         });
         while index.config.len() > CONFIG_KEEP {
             let old = index.config.remove(0);
-            let _ = std::fs::remove_file(inp.set.config_dir().join(&old.name));
+            if let Some(path) = inp.set.config_bundle(&old.name) {
+                let _ = std::fs::remove_file(path);
+            }
         }
         report.config = Some(name);
     }
@@ -1078,12 +1149,51 @@ pub fn restore(inp: &RestoreInputs<'_>) -> Result<(RestoreReport, Manifest), Bac
         .target
         .base()
         .join(format!(".mc-restore-{}", inp.job_id));
+    // Ours alone: a stage that exists already (or a link planted there) is
+    // never written into.
+    std::fs::create_dir(&stage_root).map_err(|e| io("creating", &stage_root, e))?;
+    let result = restore_into(
+        inp,
+        &keys,
+        &index,
+        &stage_root,
+        &mut m,
+        &mut report,
+        now,
+        days,
+        &undo_dir,
+        &target_busy,
+    );
+    let _ = std::fs::remove_dir_all(&stage_root);
+    result.map(|()| (report, m))
+}
+
+/// The per-session part of [`restore`], staging under `stage_root`.
+#[allow(clippy::too_many_arguments)]
+fn restore_into(
+    inp: &RestoreInputs<'_>,
+    keys: &Keys,
+    index: &SetIndex,
+    stage_root: &Path,
+    m: &mut Manifest,
+    report: &mut RestoreReport,
+    now: i64,
+    days: i64,
+    undo_dir: &Path,
+    target_busy: &Option<transfer::TransferError>,
+) -> Result<(), BackupError> {
     for id in inp.ids {
         let skip = |code: &str, reason: String| Skip {
             id: id.clone(),
             code: code.to_string(),
             reason,
         };
+        if !super::ids::is_session_id(id) {
+            report
+                .skipped
+                .push(skip("invalid_id", "not a session id".into()));
+            continue;
+        }
         let Some(entry) = index.sessions.get(id) else {
             report
                 .skipped
@@ -1102,53 +1212,11 @@ pub fn restore(inp: &RestoreInputs<'_>) -> Result<(RestoreReport, Manifest), Bac
                 .push(skip("already_exists", "this account has it already".into()));
             continue;
         }
-        let (files_before, dirs_before) = (m.created.len(), m.created_dirs.len());
-        let one = (|| -> Result<Value, BackupError> {
-            let bytes = read_stalling(&inp.set.archive(id))?;
-            if super::secrets::sha256_hex(&bytes) != entry.archive_sha256 {
-                return Err(BackupError::Invalid(format!(
-                    "the archive of {id} is not the one the index names (truncated or changed)"
-                )));
-            }
-            let stage = stage_root.join(id);
-            std::fs::create_dir_all(&stage).map_err(|e| io("creating", &stage, e))?;
-            let meta = unpack(&bytes, &keys.identity, &stage, id)?;
-            let (files, dirs) = staged(&stage);
-            // Nothing may be in the way.
-            for rel in &files {
-                if inp.target.base().join(rel).exists() {
-                    return Err(BackupError::Transfer(
-                        transfer::TransferError::AlreadyExists(rel.display().to_string()),
-                    ));
-                }
-            }
-            for rel in &dirs {
-                for d in transfer::missing_dirs(&inp.target.base().join(rel), inp.target.base()) {
-                    std::fs::create_dir(&d).map_err(|e| io("creating", &d, e))?;
-                    m.created_dirs.push(d);
-                }
-            }
-            for rel in &files {
-                let dest = inp.target.base().join(rel);
-                if let Some(parent) = dest.parent() {
-                    for d in transfer::missing_dirs(parent, inp.target.base()) {
-                        std::fs::create_dir(&d).map_err(|e| io("creating", &d, e))?;
-                        m.created_dirs.push(d);
-                    }
-                }
-                std::fs::rename(stage.join(rel), &dest).map_err(|e| io("placing", &dest, e))?;
-                let (size, sha) =
-                    transfer::sha256_file(&dest).map_err(|e| io("verifying", &dest, e))?;
-                inp.progress.bytes_done.fetch_add(size, Ordering::Relaxed);
-                m.created.push(Created {
-                    path: dest,
-                    size,
-                    sha256: sha,
-                });
-            }
+        let one = stage_session(inp.set, keys, entry, stage_root).and_then(|st| {
+            place_staged(&st, inp.target, m, inp.progress)?;
             inp.progress.files_done.fetch_add(1, Ordering::Relaxed);
-            Ok(meta)
-        })();
+            Ok(st.meta)
+        });
         match one {
             Ok(meta) => {
                 m.sessions.push(id.clone());
@@ -1165,7 +1233,7 @@ pub fn restore(inp: &RestoreInputs<'_>) -> Result<(RestoreReport, Manifest), Bac
                     let cwd = meta.get("cwd").and_then(Value::as_str);
                     let entry = meta.get("projectEntry").filter(|e| e.is_object());
                     if let (Some(cwd), Some(project)) = (cwd, entry) {
-                        if let Some(busy) = &target_busy {
+                        if let Some(busy) = target_busy {
                             report.warnings.push(Warning {
                                 id: id.clone(),
                                 text: format!("The folder's trust was not restored: {busy}"),
@@ -1180,22 +1248,103 @@ pub fn restore(inp: &RestoreInputs<'_>) -> Result<(RestoreReport, Manifest), Bac
                     }
                 }
             }
-            Err(e) => {
-                // Nothing of a session that did not come back whole stays.
-                for c in m.created.drain(files_before..) {
-                    let _ = std::fs::remove_file(&c.path);
-                }
-                for d in m.created_dirs.drain(dirs_before..).rev() {
-                    let _ = std::fs::remove_dir(&d);
-                }
-                report.skipped.push(skip(e.code(), e.to_string()));
+            // Nothing of a session that did not come back whole stays.
+            Err(e) => report.skipped.push(skip(e.code(), e.to_string())),
+        }
+        crate::persist::write_json_private(&undo_dir.join("manifest.json"), &*m)
+            .map_err(|e| io("writing", undo_dir, e))?;
+    }
+    Ok(())
+}
+
+/// A session of the set: fetched, checked against the index and unpacked
+/// into its own directory under `stage_root`.
+struct Staged {
+    files: Vec<PathBuf>,
+    dirs: Vec<PathBuf>,
+    dir: PathBuf,
+    meta: Value,
+}
+
+fn stage_session(
+    set: &Set,
+    keys: &Keys,
+    entry: &IndexEntry,
+    stage_root: &Path,
+) -> Result<Staged, BackupError> {
+    let id = &entry.id;
+    let bytes = read_stalling(&set.archive(id))?;
+    if super::secrets::sha256_hex(&bytes) != entry.archive_sha256 {
+        return Err(BackupError::Invalid(format!(
+            "the archive of {id} is not the one the index names (truncated or changed)"
+        )));
+    }
+    let dir = stage_root.join(id);
+    std::fs::create_dir(&dir).map_err(|e| io("creating", &dir, e))?;
+    let meta = unpack(&bytes, &keys.identity, &dir, id)?;
+    let (files, dirs) = staged(&dir);
+    Ok(Staged {
+        files,
+        dirs,
+        dir,
+        meta,
+    })
+}
+
+/// Move a staged session into `target`, where nothing may be in the way,
+/// recording what it made in `m`. On failure what this made is removed again.
+fn place_staged(
+    st: &Staged,
+    target: &ClaudeHome,
+    m: &mut Manifest,
+    progress: &Progress,
+) -> Result<(), BackupError> {
+    let base = target.base();
+    let (files_before, dirs_before) = (m.created.len(), m.created_dirs.len());
+    let result = (|| -> Result<(), BackupError> {
+        for rel in &st.files {
+            // Not even a dangling link.
+            if std::fs::symlink_metadata(base.join(rel)).is_ok() {
+                return Err(BackupError::Transfer(
+                    transfer::TransferError::AlreadyExists(rel.display().to_string()),
+                ));
             }
         }
-        crate::persist::write_json_private(&undo_dir.join("manifest.json"), &m)
-            .map_err(|e| io("writing", &undo_dir, e))?;
+        for rel in &st.dirs {
+            for d in transfer::missing_dirs(&base.join(rel), base) {
+                std::fs::create_dir(&d).map_err(|e| io("creating", &d, e))?;
+                m.created_dirs.push(d);
+            }
+        }
+        for rel in &st.files {
+            let dest = base.join(rel);
+            if let Some(parent) = dest.parent() {
+                for d in transfer::missing_dirs(parent, base) {
+                    std::fs::create_dir(&d).map_err(|e| io("creating", &d, e))?;
+                    m.created_dirs.push(d);
+                }
+            }
+            std::fs::rename(st.dir.join(rel), &dest).map_err(|e| io("placing", &dest, e))?;
+            let (size, sha) =
+                transfer::sha256_file(&dest).map_err(|e| io("verifying", &dest, e))?;
+            progress.bytes_done.fetch_add(size, Ordering::Relaxed);
+            m.created.push(Created {
+                path: dest,
+                size,
+                sha256: sha,
+            });
+        }
+        Ok(())
+    })();
+    if result.is_err() {
+        for c in m.created.drain(files_before..) {
+            let _ = std::fs::remove_file(&c.path);
+        }
+        for d in m.created_dirs.drain(dirs_before..).rev() {
+            let _ = std::fs::remove_dir(&d);
+        }
     }
-    let _ = std::fs::remove_dir_all(&stage_root);
-    Ok((report, m))
+    result
 }
 
 // ──────────────────────────────── pulling ────────────────────────────────
@@ -1500,10 +1649,9 @@ fn bundle_history(
     keys: &Keys,
     index: &SetIndex,
 ) -> Result<Option<Vec<String>>, BackupError> {
-    let Some(last) = index.config.last() else {
+    let Some(path) = index.config.last().and_then(|c| set.config_bundle(&c.name)) else {
         return Ok(None);
     };
-    let path = set.config_dir().join(&last.name);
     if !path.is_file() {
         return Ok(None);
     }
@@ -1553,13 +1701,15 @@ fn conflict_copy(
             "the archive of {id} is not the one the index names"
         )));
     }
-    let stage = inp
+    let stage_root = inp
         .home
         .base()
-        .join(format!(".mc-restore-{}-c", inp.job_id))
-        .join(id);
-    std::fs::create_dir_all(&stage).map_err(|e| io("creating", &stage, e))?;
+        .join(format!(".mc-restore-{}-c", inp.job_id));
+    let stage = stage_root.join(id);
+    // Ours alone, like a restore's stage.
+    std::fs::create_dir(&stage_root).map_err(|e| io("creating", &stage_root, e))?;
     let result = (|| -> Result<Option<Created>, BackupError> {
+        std::fs::create_dir(&stage).map_err(|e| io("creating", &stage, e))?;
         unpack(&bytes, &keys.identity, &stage, id)?;
         let (files, _) = staged(&stage);
         let Some(main) = files
@@ -1583,7 +1733,7 @@ fn conflict_copy(
             })
             .collect();
         let dest = local.with_file_name(format!("{id}.conflict-{host}-{stamp}.jsonl"));
-        if dest.exists() {
+        if std::fs::symlink_metadata(&dest).is_ok() {
             return Ok(None);
         }
         std::fs::rename(stage.join(main), &dest).map_err(|e| io("placing", &dest, e))?;
@@ -1594,7 +1744,7 @@ fn conflict_copy(
             sha256: sha,
         }))
     })();
-    let _ = std::fs::remove_dir_all(stage.parent().unwrap_or(&stage));
+    let _ = std::fs::remove_dir_all(&stage_root);
     result
 }
 
@@ -1607,28 +1757,46 @@ pub fn extract_config(set: &Set, passphrase: &Secret, into: &Path) -> Result<Pat
         .config
         .last()
         .ok_or_else(|| BackupError::Invalid("this set has no configuration bundle".into()))?;
-    let bytes = read_stalling(&set.config_dir().join(&last.name))?;
+    let path = set
+        .config_bundle(&last.name)
+        .ok_or_else(|| BackupError::Invalid("the index names an invalid bundle".into()))?;
+    let bytes = read_stalling(&path)?;
     let dec =
         age::Decryptor::new_buffered(&bytes[..]).map_err(|e| BackupError::Io(e.to_string()))?;
     let r = dec
         .decrypt(std::iter::once(&keys.identity as &dyn age::Identity))
         .map_err(|e| BackupError::Io(format!("could not decrypt: {e}")))?;
-    let dest = into.join(last.name.trim_end_matches(".tar.gz.age"));
-    std::fs::create_dir_all(&dest).map_err(|e| io("creating", &dest, e))?;
-    transfer::private_dir(&dest);
-    let mut tar = tar::Archive::new(flate2::read::GzDecoder::new(BufReader::new(r)));
-    tar.set_overwrite(false);
-    for entry in tar.entries().map_err(|e| BackupError::Io(e.to_string()))? {
-        let mut entry = entry.map_err(|e| BackupError::Io(e.to_string()))?;
-        let kind = entry.header().entry_type();
-        if !(kind.is_file() || kind.is_dir()) {
-            continue;
+    // One plain component (the name is checked): `into/<time>`.
+    let stem = last.name.trim_end_matches(".tar.gz.age");
+    let dest = into.join(stem);
+    std::fs::create_dir_all(into).map_err(|e| io("creating", into, e))?;
+    transfer::private_dir(into);
+    // Unpacked beside it first, so a second look replaces the first whole.
+    let tmp = into.join(format!(".{stem}.mc-{}.tmp", uuid::Uuid::new_v4().simple()));
+    std::fs::create_dir(&tmp).map_err(|e| io("creating", &tmp, e))?;
+    transfer::private_dir(&tmp);
+    let result = (|| -> Result<(), BackupError> {
+        let mut tar = tar::Archive::new(flate2::read::GzDecoder::new(BufReader::new(r)));
+        tar.set_overwrite(false);
+        for entry in tar.entries().map_err(|e| BackupError::Io(e.to_string()))? {
+            let mut entry = entry.map_err(|e| BackupError::Io(e.to_string()))?;
+            let kind = entry.header().entry_type();
+            if !(kind.is_file() || kind.is_dir()) {
+                continue;
+            }
+            entry
+                .unpack_in(&tmp)
+                .map_err(|e| BackupError::Io(e.to_string()))?;
         }
-        entry
-            .unpack_in(&dest)
-            .map_err(|e| BackupError::Io(e.to_string()))?;
+        if std::fs::symlink_metadata(&dest).is_ok() {
+            std::fs::remove_dir_all(&dest).map_err(|e| io("replacing", &dest, e))?;
+        }
+        std::fs::rename(&tmp, &dest).map_err(|e| io("placing", &dest, e))
+    })();
+    if result.is_err() {
+        let _ = std::fs::remove_dir_all(&tmp);
     }
-    Ok(dest)
+    result.map(|()| dest)
 }
 
 pub mod ops;
