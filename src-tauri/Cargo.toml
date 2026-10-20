@@ -51,6 +51,9 @@ uuid = { version = "1.28.0", features = ["v4"] }
 qrcode = { version = "0.14.1", default-features = false, features = ["svg"] }
 directories = "6.0.0"
 sha2 = "0.11.1"
+# Authenticates a backup set's index (HMAC-SHA256, keyed from the set's key);
+# already in the dependency graph, the version that matches sha2 0.11.
+hmac = "0.13.0"
 # Random credentials (device / hook / sidecar tokens, pairing codes) and their
 # base64url encoding. Both are already in the dependency graph.
 getrandom = "0.4.3"

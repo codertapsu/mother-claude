@@ -532,7 +532,7 @@ fn a_session_id_from_the_index_never_names_a_path_outside_the_target() {
     };
     let mut index = SetIndex::default();
     index.sessions.insert(id.to_string(), entry);
-    write_index(&w.set, &keys.recipient, &index).unwrap();
+    write_index(&w.set, &keys, &index).unwrap();
 
     assert!(read_index(&w.set, &keys).unwrap().sessions.is_empty());
     let (r, _) = pull_once(&w, &w.other, "mbp-b", &not_live, "20261021T130000-00000001");
@@ -568,28 +568,28 @@ fn a_bundle_name_from_the_index_never_names_a_path_outside_config() {
     let (keys, _) = open_or_create(&w.set, "Work", &pass()).unwrap();
     let precious = w._tmp.path().join("precious.txt");
     std::fs::write(&precious, "important").unwrap();
+    let bundle = |name: String| ConfigEntry {
+        name,
+        created_at: 1,
+        host: "x".into(),
+        fingerprint: "0".into(),
+        archive_sha256: String::new(),
+        archive_bytes: 0,
+    };
     let mut index = SetIndex::default();
     for name in [
         precious.display().to_string(),
         "../...tar.gz.age".to_string(),
         "2026-01-01T00-00-00Z.tar.gz.age/../../x.tar.gz.age".to_string(),
     ] {
-        index.config.push(ConfigEntry {
-            name,
-            created_at: 1,
-            host: "x".into(),
-            fingerprint: "0".into(),
-        });
+        index.config.push(bundle(name));
     }
     for i in 0..4 {
-        index.config.push(ConfigEntry {
-            name: format!("2026-01-0{}T00-00-00Z.tar.gz.age", i + 1),
-            created_at: 1,
-            host: "x".into(),
-            fingerprint: "0".into(),
-        });
+        index
+            .config
+            .push(bundle(format!("2026-01-0{}T00-00-00Z.tar.gz.age", i + 1)));
     }
-    write_index(&w.set, &keys.recipient, &index).unwrap();
+    write_index(&w.set, &keys, &index).unwrap();
     assert_eq!(read_index(&w.set, &keys).unwrap().config.len(), 4);
     push_once(&w, &not_live);
     assert!(precious.exists(), "a push deletes only bundles of its own");
@@ -624,4 +624,183 @@ fn only_the_names_a_push_writes_are_bundle_names() {
     ] {
         assert_eq!(is_config_name(name), ok, "{name}");
     }
+}
+
+/// What anyone who can write the folder can do: encrypt to the public key in
+/// set.json. Such an index (no HMAC, or a wrong one) is refused everywhere,
+/// and a push never writes over it.
+#[test]
+fn an_index_not_written_with_the_sets_key_is_refused() {
+    let w = world();
+    session(w.home.base(), SID);
+    push_once(&w, &not_live);
+    let keys = open_keys(&w.set, &pass()).unwrap();
+    let recipient: age::x25519::Recipient = read_info(&w.set).unwrap().recipient.parse().unwrap();
+    let forged = serde_json::json!({ "sessions": {}, "config": [], "seen": {} });
+
+    // No HMAC line at all.
+    let plain = serde_json::to_vec(&forged).unwrap();
+    std::fs::write(w.set.index_path(), seal(&recipient, &plain).unwrap()).unwrap();
+    let err = read_index(&w.set, &keys).unwrap_err();
+    assert_eq!(err.code(), "backup_unauthenticated");
+    // A plausible line with a made-up HMAC.
+    let mut plain = format!("{INDEX_MAGIC} {}\n", "ab".repeat(32)).into_bytes();
+    plain.extend_from_slice(&serde_json::to_vec(&forged).unwrap());
+    let forged_bytes = seal(&recipient, &plain).unwrap();
+    std::fs::write(w.set.index_path(), &forged_bytes).unwrap();
+    assert_eq!(
+        read_index(&w.set, &keys).unwrap_err().code(),
+        "backup_unauthenticated"
+    );
+    // Encrypted to another key entirely.
+    let other = age::x25519::Identity::generate().to_public();
+    std::fs::write(w.set.index_path(), seal(&other, &plain).unwrap()).unwrap();
+    assert_eq!(
+        read_index(&w.set, &keys).unwrap_err().code(),
+        "backup_unauthenticated"
+    );
+
+    std::fs::write(w.set.index_path(), &forged_bytes).unwrap();
+    let err = pull(&PullInputs {
+        set: &w.set,
+        passphrase: &pass(),
+        home: &w.other,
+        host: "mbp-b",
+        ids: None,
+        trust: false,
+        is_live: &not_live,
+        undo_root: &w.undo,
+        job_id: "20261021T140000-00000001",
+        progress: &Progress::default(),
+    })
+    .unwrap_err();
+    assert_eq!(err.code(), "backup_unauthenticated");
+    let err = push(&PushInputs {
+        home: &w.home,
+        set: &w.set,
+        account_name: "Work",
+        passphrase: &pass(),
+        host: "mbp-a",
+        is_live: &not_live,
+        progress: &Progress::default(),
+    })
+    .unwrap_err();
+    assert_eq!(err.code(), "backup_unauthenticated");
+    assert_eq!(
+        std::fs::read(w.set.index_path()).unwrap(),
+        forged_bytes,
+        "a push never writes over an index it cannot trust"
+    );
+
+    // The genuine index, rewritten with the key, opens again.
+    write_index(&w.set, &keys, &SetIndex::default()).unwrap();
+    assert!(read_index(&w.set, &keys).is_ok());
+}
+
+/// set.json is display only: archives are encrypted to the key derived from
+/// identity.age, and a set.json naming another key stops a push.
+#[test]
+fn set_json_never_chooses_the_key_archives_are_encrypted_to() {
+    let w = world();
+    session(w.home.base(), SID);
+    push_once(&w, &not_live);
+    let mut info = read_info(&w.set).unwrap();
+    let attacker = age::x25519::Identity::generate();
+    info.recipient = attacker.to_public().to_string();
+    write_info(&w.set, &info).unwrap();
+    grow(&w.home, SID, "{\"type\":\"assistant\"}");
+    let err = push(&PushInputs {
+        home: &w.home,
+        set: &w.set,
+        account_name: "Work",
+        passphrase: &pass(),
+        host: "mbp-a",
+        is_live: &not_live,
+        progress: &Progress::default(),
+    })
+    .unwrap_err();
+    assert_eq!(err.code(), "backup_unauthenticated");
+
+    // A lost set.json is rebuilt from the key.
+    std::fs::remove_file(w.set.info_path()).unwrap();
+    let r = push_once(&w, &not_live);
+    assert_eq!(r.archived, vec![SID.to_string()]);
+    let keys = open_keys(&w.set, &pass()).unwrap();
+    assert_eq!(
+        read_info(&w.set).unwrap().recipient,
+        keys.recipient.to_string()
+    );
+    // The archive opens with the set's key, not the attacker's.
+    let bytes = std::fs::read(w.set.archive(SID)).unwrap();
+    assert!(open_sealed(&keys.identity, &bytes).is_ok());
+    assert!(open_sealed(&attacker, &bytes).is_err());
+}
+
+/// A set whose key is gone (or still in the cloud) is never replaced by a
+/// new one: its archives would be unreadable from then on.
+#[test]
+fn a_set_without_its_key_is_never_given_a_new_one() {
+    let w = world();
+    session(w.home.base(), SID);
+    push_once(&w, &not_live);
+    let index_before = std::fs::read(w.set.index_path()).unwrap();
+    let identity = std::fs::read(w.set.identity_path()).unwrap();
+
+    // Evicted by iCloud: only a placeholder is left.
+    std::fs::remove_file(w.set.identity_path()).unwrap();
+    std::fs::write(placeholder(&w.set.identity_path()), "bplist").unwrap();
+    for e in [
+        push(&PushInputs {
+            home: &w.home,
+            set: &w.set,
+            account_name: "Work",
+            passphrase: &pass(),
+            host: "mbp-a",
+            is_live: &not_live,
+            progress: &Progress::default(),
+        })
+        .unwrap_err(),
+        open_keys(&w.set, &pass()).err().unwrap(),
+    ] {
+        assert_eq!(e.code(), "set_key_missing");
+    }
+    // Gone for good, archives still there: the same.
+    std::fs::remove_file(placeholder(&w.set.identity_path())).unwrap();
+    assert!(w.set.key_missing());
+    assert_eq!(
+        open_or_create(&w.set, "Work", &pass())
+            .err()
+            .unwrap()
+            .code(),
+        "set_key_missing"
+    );
+    assert!(!w.set.identity_path().exists());
+    assert_eq!(std::fs::read(w.set.index_path()).unwrap(), index_before);
+
+    // Back from the cloud: everything opens as before.
+    std::fs::write(w.set.identity_path(), identity).unwrap();
+    assert_eq!(push_once(&w, &not_live).unchanged, 1);
+
+    // An empty folder is not a set: a new one is made there.
+    let fresh = Set::new(&w._tmp.path().join("iCloud/Mother Claude"), "Fresh");
+    std::fs::create_dir_all(fresh.dir.join("sessions")).unwrap();
+    std::fs::write(fresh.dir.join(".DS_Store"), "").unwrap();
+    assert!(!fresh.key_missing());
+    assert!(open_or_create(&fresh, "Fresh", &pass()).is_ok());
+}
+
+/// A bundle that is not the one the index names is never decrypted.
+#[test]
+fn a_changed_configuration_bundle_is_refused() {
+    let w = world();
+    config(w.home.base());
+    let r = push_once(&w, &not_live);
+    let name = r.config.unwrap();
+    let path = w.set.config_bundle(&name).unwrap();
+    let mut bytes = std::fs::read(&path).unwrap();
+    bytes.truncate(bytes.len() - 10);
+    std::fs::write(&path, bytes).unwrap();
+    let into = w._tmp.path().join("review");
+    let err = extract_config(&w.set, &pass(), &into).unwrap_err();
+    assert_eq!(err.code(), "invalid_backup", "{err}");
 }

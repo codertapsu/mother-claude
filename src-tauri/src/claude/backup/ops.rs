@@ -278,6 +278,23 @@ fn prerequisites(state: &AppState) -> Result<(PathBuf, Secret), BackupError> {
     Ok((folder, pass))
 }
 
+/// Why there is nothing to read in `set`: no set at all, or one without its
+/// key here.
+fn no_set_error(set: &Set, a: &Account, folder: &Path) -> Result<(), BackupError> {
+    if set.exists() {
+        return Ok(());
+    }
+    Err(if set.key_missing() {
+        BackupError::KeyMissing(set.dir.display().to_string())
+    } else {
+        BackupError::Invalid(format!(
+            "there is no backup of {} in {}",
+            a.name,
+            folder.display()
+        ))
+    })
+}
+
 fn account(state: &AppState, id: &str) -> Result<Account, BackupError> {
     state
         .accounts
@@ -393,18 +410,15 @@ pub async fn index(
         .home(&target.id)
         .ok_or_else(|| BackupError::Invalid("the account has no directory".into()))?;
     let set = Set::new(&folder, &a.name);
-    if !set.exists() {
-        return Err(BackupError::Invalid(format!(
-            "there is no backup of {} in {}",
-            a.name,
-            folder.display()
-        )));
-    }
+    no_set_error(&set, &a, &folder)?;
     let st = state.clone();
     tokio::task::spawn_blocking(move || {
         let keys = super::open_keys(&set, &pass)?;
         let index = super::read_index(&set, &keys)?;
-        let info = super::read_info(&set)?;
+        // Display only.
+        let machines = super::read_info(&set)
+            .map(|i| i.machines)
+            .unwrap_or_default();
         let live = |s: &str| is_live(&st, s);
         let sessions = super::compare(
             &index,
@@ -417,7 +431,7 @@ pub async fn index(
             account: a.id.clone(),
             name: a.name.clone(),
             set: set.dir.to_string_lossy().into_owned(),
-            machines: info.machines,
+            machines,
             sessions,
             config: index.config,
         })
@@ -524,13 +538,7 @@ pub async fn pull(
         .accounts
         .home(&a.id)
         .ok_or_else(|| BackupError::Invalid("the account has no directory".into()))?;
-    if !Set::new(&folder, &a.name).exists() {
-        return Err(BackupError::Invalid(format!(
-            "there is no backup of {} in {}",
-            a.name,
-            folder.display()
-        )));
-    }
+    no_set_error(&Set::new(&folder, &a.name), &a, &folder)?;
     let undo_root = transfer::ops::undo_root(state)
         .ok_or_else(|| BackupError::Invalid("this build has no data directory".into()))?;
     let job = transfer::new_job_id();

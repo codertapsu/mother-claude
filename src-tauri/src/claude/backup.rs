@@ -5,9 +5,9 @@
 //! **A set** is `<folder>/<account name>/`:
 //!
 //! ```text
-//! set.json                    plaintext: version, account name, the set's public key, machines
+//! set.json                    plaintext, display only: version, account name, the set's public key, machines
 //! identity.age                the set's X25519 key, encrypted with the backup passphrase (scrypt)
-//! index.json.age              what is in the set, encrypted to the set's key
+//! index.json.age              what is in the set, encrypted to the set's key and authenticated
 //! sessions/<id>.tar.gz.age    one archive per session (paths relative to the config directory)
 //! config/<time>.tar.gz.age    the configuration bundle, the last five
 //! ```
@@ -16,6 +16,16 @@
 //! `age -d -o key.txt identity.age && age -d -i key.txt sessions/<id>.tar.gz.age
 //! | tar xz`. The passphrase's work factor (about a second of scrypt) is paid
 //! once per run, for `identity.age`, not once per archive.
+//!
+//! **Nothing but `identity.age` is trusted on its own.** The folder is shared
+//! (a cloud folder) and age's X25519 encryption does not say who encrypted:
+//! anyone who can write the folder can encrypt an index or an archive to the
+//! public key in `set.json`. So the index's first line is an HMAC-SHA256 of the
+//! rest, keyed from the set's secret key (which only the passphrase opens), and
+//! an index without a valid one is refused; every archive and bundle is checked
+//! against the SHA-256 the authenticated index names before it is decrypted.
+//! `set.json`'s public key is never used: archives are encrypted to the key
+//! derived from the identity.
 //!
 //! A session is re-archived only when its transcript size or its newest file
 //! time changed; a live one waits until it is idle. Archives are written to a
@@ -39,8 +49,12 @@ use super::home::ClaudeHome;
 use super::secrets::Secret;
 use super::transfer::{self, Created, Manifest, Mode, Progress, What};
 
-/// The set format.
-pub const SET_VERSION: u32 = 1;
+/// The set format (2: the index is authenticated).
+pub const SET_VERSION: u32 = 2;
+/// The first word of an index's first line.
+const INDEX_MAGIC: &str = "MC-INDEX-2";
+/// What the index's HMAC key is derived with (from the set's secret key).
+const INDEX_MAC_LABEL: &[u8] = b"mother-claude backup set index v2";
 /// Configuration bundles kept per set.
 pub const CONFIG_KEEP: usize = 5;
 /// A read of the set's folder that makes no progress for this long fails
@@ -93,6 +107,17 @@ pub enum BackupError {
     NoPassphrase,
     #[error("the passphrase does not open this backup set")]
     WrongPassphrase,
+    /// The index (or `set.json`'s key) is not what this set's key wrote:
+    /// changed by someone without the passphrase, or made by another format.
+    #[error("{0}")]
+    Tampered(String),
+    /// A set is there but its key (`identity.age`) is not: never replaced by
+    /// a new one, which would make every archive in it unreadable.
+    #[error(
+        "the backup set in {0} has no key (identity.age) here; if the folder is in the cloud, \
+         wait until it has downloaded (or choose Keep Downloaded); to start over, move the set away"
+    )]
+    KeyMissing(String),
     #[error("{0}")]
     Invalid(String),
     #[error("{0}")]
@@ -107,6 +132,8 @@ impl BackupError {
             Self::NoFolder => "no_backup_folder",
             Self::NoPassphrase => "no_backup_passphrase",
             Self::WrongPassphrase => "wrong_passphrase",
+            Self::Tampered(_) => "backup_unauthenticated",
+            Self::KeyMissing(_) => "set_key_missing",
             Self::Invalid(_) => "invalid_backup",
             Self::Io(_) => "backup_io",
             Self::Transfer(e) => e.code(),
@@ -252,6 +279,26 @@ impl Set {
     pub fn exists(&self) -> bool {
         self.identity_path().is_file()
     }
+
+    /// Something of a set is in its folder (a file, or a cloud placeholder)
+    /// but not its key.
+    pub fn key_missing(&self) -> bool {
+        !self.exists() && has_files(&self.dir)
+    }
+}
+
+/// Whether `dir` holds any file (at any depth) but Finder's `.DS_Store`: an
+/// iCloud placeholder (`.<name>.icloud`) counts, an empty folder does not.
+fn has_files(dir: &Path) -> bool {
+    std::fs::read_dir(dir)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .any(|e| match e.file_type() {
+            Ok(t) if t.is_dir() => has_files(&e.path()),
+            Ok(_) => e.file_name() != ".DS_Store",
+            Err(_) => true,
+        })
 }
 
 /// A machine that pushed to the set.
@@ -306,6 +353,11 @@ pub struct ConfigEntry {
     pub created_at: i64,
     pub host: String,
     pub fingerprint: String,
+    /// The bundle file's SHA-256 and size, checked before it is decrypted.
+    #[serde(default)]
+    pub archive_sha256: String,
+    #[serde(default)]
+    pub archive_bytes: u64,
 }
 
 /// `index.json.age`.
@@ -324,10 +376,49 @@ pub struct SetIndex {
     pub extra: BTreeMap<String, Value>,
 }
 
-/// The set's key pair.
+/// The set's key pair, and the index's HMAC key derived from its secret.
 pub struct Keys {
     identity: age::x25519::Identity,
     recipient: age::x25519::Recipient,
+    mac_key: [u8; 32],
+}
+
+impl Keys {
+    fn from_identity(identity: age::x25519::Identity) -> Self {
+        let recipient = identity.to_public();
+        let mac_key = hmac_sha256(
+            identity.to_string().expose_secret().as_bytes(),
+            INDEX_MAC_LABEL,
+        );
+        Self {
+            identity,
+            recipient,
+            mac_key,
+        }
+    }
+}
+
+fn hmac_sha256(key: &[u8], msg: &[u8]) -> [u8; 32] {
+    use hmac::{Hmac, KeyInit, Mac};
+    let mut mac = Hmac::<sha2::Sha256>::new_from_slice(key).expect("HMAC takes a key of any size");
+    mac.update(msg);
+    let mut out = [0u8; 32];
+    out.copy_from_slice(&mac.finalize().into_bytes());
+    out
+}
+
+fn hex(bytes: &[u8]) -> String {
+    bytes.iter().map(|b| format!("{b:02x}")).collect()
+}
+
+fn unhex(text: &str) -> Option<Vec<u8>> {
+    if !text.len().is_multiple_of(2) || !text.is_ascii() {
+        return None;
+    }
+    (0..text.len())
+        .step_by(2)
+        .map(|i| u8::from_str_radix(&text[i..i + 2], 16).ok())
+        .collect()
 }
 
 fn secret(p: &Secret) -> SecretString {
@@ -396,7 +487,9 @@ fn open_sealed(identity: &age::x25519::Identity, bytes: &[u8]) -> Result<Vec<u8>
     Ok(out)
 }
 
-/// Open a set's key with the passphrase, or make a new set.
+/// Open a set's key with the passphrase, or make a new set: only in a folder
+/// with no file of a set in it (a set whose key is missing or not downloaded
+/// is never replaced; its archives would become unreadable).
 pub fn open_or_create(
     set: &Set,
     account_name: &str,
@@ -404,17 +497,54 @@ pub fn open_or_create(
 ) -> Result<(Keys, SetInfo), BackupError> {
     if set.exists() {
         let keys = open_keys(set, passphrase)?;
-        let info = read_info(set)?;
+        let info = match read_info(set) {
+            Ok(info) if info.recipient != keys.recipient.to_string() => {
+                return Err(BackupError::Tampered(format!(
+                    "set.json in {} names another key than the set's own; it was changed \
+                     by someone without the passphrase",
+                    set.dir.display()
+                )))
+            }
+            Ok(info) => info,
+            // Display only: rebuilt from the key when it is gone or broken.
+            Err(e) => {
+                tracing::warn!(error = %e, "a backup set's set.json is unreadable; rewritten");
+                new_info(account_name, &keys)
+            }
+        };
         return Ok((keys, info));
+    }
+    if set.key_missing() {
+        return Err(BackupError::KeyMissing(set.dir.display().to_string()));
     }
     std::fs::create_dir_all(set.sessions_dir()).map_err(|e| io("creating", &set.dir, e))?;
     std::fs::create_dir_all(set.config_dir()).map_err(|e| io("creating", &set.dir, e))?;
-    let identity = age::x25519::Identity::generate();
-    let recipient = identity.to_public();
+    let keys = Keys::from_identity(age::x25519::Identity::generate());
+    write_atomic(&set.identity_path(), &seal_identity(&keys, passphrase)?)?;
+    let info = new_info(account_name, &keys);
+    write_info(set, &info)?;
+    write_index(set, &keys, &SetIndex::default())?;
+    Ok((keys, info))
+}
+
+fn new_info(account_name: &str, keys: &Keys) -> SetInfo {
+    SetInfo {
+        version: SET_VERSION,
+        account: account_name.to_string(),
+        created_at: now_ms(),
+        recipient: keys.recipient.to_string(),
+        machines: Vec::new(),
+        extra: BTreeMap::new(),
+    }
+}
+
+/// `identity.age`: the set's secret key, encrypted with the passphrase.
+fn seal_identity(keys: &Keys, passphrase: &Secret) -> Result<Vec<u8>, BackupError> {
     let file = format!(
-        "# created: {}\n# public key: {recipient}\n{}\n",
+        "# created: {}\n# public key: {}\n{}\n",
         chrono::Utc::now().to_rfc3339(),
-        identity.to_string().expose_secret()
+        keys.recipient,
+        keys.identity.to_string().expose_secret()
     );
     let enc = passphrase_encryptor(passphrase);
     let mut sealed = Vec::new();
@@ -424,30 +554,19 @@ pub fn open_or_create(
     w.write_all(file.as_bytes())
         .map_err(|e| BackupError::Io(e.to_string()))?;
     w.finish().map_err(|e| BackupError::Io(e.to_string()))?;
-    write_atomic(&set.identity_path(), &sealed)?;
-    let info = SetInfo {
-        version: SET_VERSION,
-        account: account_name.to_string(),
-        created_at: now_ms(),
-        recipient: recipient.to_string(),
-        machines: Vec::new(),
-        extra: BTreeMap::new(),
-    };
-    write_info(set, &info)?;
-    write_index(set, &recipient, &SetIndex::default())?;
-    Ok((
-        Keys {
-            identity,
-            recipient,
-        },
-        info,
-    ))
+    Ok(sealed)
 }
 
 /// The set's key, decrypted with the passphrase.
 pub fn open_keys(set: &Set, passphrase: &Secret) -> Result<Keys, BackupError> {
-    let sealed =
-        std::fs::read(set.identity_path()).map_err(|e| io("reading", &set.identity_path(), e))?;
+    if !set.exists() {
+        return Err(if set.key_missing() {
+            BackupError::KeyMissing(set.dir.display().to_string())
+        } else {
+            BackupError::Invalid(format!("there is no backup set in {}", set.dir.display()))
+        });
+    }
+    let sealed = read_stalling(&set.identity_path())?;
     let dec = age::Decryptor::new_buffered(&sealed[..])
         .map_err(|e| BackupError::Invalid(format!("identity.age is not an age file: {e}")))?;
     let mut id = age::scrypt::Identity::new(secret(passphrase));
@@ -468,31 +587,13 @@ pub fn open_keys(set: &Set, passphrase: &Secret) -> Result<Keys, BackupError> {
     let identity: age::x25519::Identity = line
         .parse()
         .map_err(|_| BackupError::Invalid("identity.age holds no valid key".into()))?;
-    let recipient = identity.to_public();
-    Ok(Keys {
-        identity,
-        recipient,
-    })
+    Ok(Keys::from_identity(identity))
 }
 
 /// Re-encrypt the set's key with a new passphrase (the archives stay).
 pub fn rekey(set: &Set, old: &Secret, new: &Secret) -> Result<(), BackupError> {
     let keys = open_keys(set, old)?;
-    let file = format!(
-        "# created: {}\n# public key: {}\n{}\n",
-        chrono::Utc::now().to_rfc3339(),
-        keys.recipient,
-        keys.identity.to_string().expose_secret()
-    );
-    let enc = passphrase_encryptor(new);
-    let mut sealed = Vec::new();
-    let mut w = enc
-        .wrap_output(&mut sealed)
-        .map_err(|e| BackupError::Io(e.to_string()))?;
-    w.write_all(file.as_bytes())
-        .map_err(|e| BackupError::Io(e.to_string()))?;
-    w.finish().map_err(|e| BackupError::Io(e.to_string()))?;
-    write_atomic(&set.identity_path(), &sealed)
+    write_atomic(&set.identity_path(), &seal_identity(&keys, new)?)
 }
 
 pub fn read_info(set: &Set) -> Result<SetInfo, BackupError> {
@@ -506,29 +607,86 @@ fn write_info(set: &Set, info: &SetInfo) -> Result<(), BackupError> {
     write_atomic(&set.info_path(), &bytes)
 }
 
-/// The set's index (empty when there is none yet).
+/// An iCloud placeholder of `path` (`.<name>.icloud`): the file is in the
+/// cloud but not downloaded here.
+fn placeholder(path: &Path) -> PathBuf {
+    let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("file");
+    path.with_file_name(format!(".{name}.icloud"))
+}
+
+/// The set's index (empty when there is none yet), authenticated: an index
+/// without a valid HMAC from the set's key is refused, never used.
 pub fn read_index(set: &Set, keys: &Keys) -> Result<SetIndex, BackupError> {
-    let sealed = match read_stalling(&set.index_path()) {
-        Ok(b) => b,
-        Err(e) if !set.index_path().exists() => {
-            let _ = e;
-            return Ok(SetIndex::default());
+    let path = set.index_path();
+    if !path.exists() {
+        if placeholder(&path).exists() {
+            return Err(io(
+                "reading",
+                &path,
+                "it is in the cloud and not downloaded yet",
+            ));
         }
-        Err(e) => return Err(e),
+        return Ok(SetIndex::default());
+    }
+    let sealed = read_stalling(&path)?;
+    let tampered = || {
+        BackupError::Tampered(format!(
+            "the index of the backup set in {} is not authentic: it was not written with this \
+             set's key (changed by someone without the passphrase, or made by an older build)",
+            set.dir.display()
+        ))
     };
-    let plain = open_sealed(&keys.identity, &sealed)?;
-    serde_json::from_slice(&plain)
+    let plain = open_sealed(&keys.identity, &sealed).map_err(|_| tampered())?;
+    let nl = plain
+        .iter()
+        .position(|b| *b == b'\n')
+        .ok_or_else(tampered)?;
+    let tag = std::str::from_utf8(&plain[..nl])
+        .ok()
+        .and_then(|l| l.strip_prefix(INDEX_MAGIC))
+        .and_then(|l| l.strip_prefix(' '))
+        .and_then(unhex)
+        .ok_or_else(tampered)?;
+    let json = &plain[nl + 1..];
+    {
+        use hmac::{Hmac, KeyInit, Mac};
+        let mut mac =
+            Hmac::<sha2::Sha256>::new_from_slice(&keys.mac_key).expect("any key size works");
+        mac.update(json);
+        // Constant time.
+        mac.verify_slice(&tag).map_err(|_| tampered())?;
+    }
+    serde_json::from_slice(json)
         .map(sanitize_index)
         .map_err(|e| BackupError::Invalid(format!("the index: {e}")))
 }
 
-fn write_index(
-    set: &Set,
-    recipient: &age::x25519::Recipient,
-    index: &SetIndex,
-) -> Result<(), BackupError> {
-    let plain = serde_json::to_vec(index).map_err(|e| BackupError::Io(e.to_string()))?;
-    write_atomic(&set.index_path(), &seal(recipient, &plain)?)
+/// [`read_index`] for a write: an index that is missing while archives are
+/// in the set is an error (not downloaded yet, or lost), never an empty one
+/// that would drop every other machine's sessions.
+fn read_index_for_merge(set: &Set, keys: &Keys) -> Result<SetIndex, BackupError> {
+    if !set.index_path().exists()
+        && (has_files(&set.sessions_dir()) || has_files(&set.config_dir()))
+    {
+        return Err(BackupError::Invalid(format!(
+            "the backup set in {} has archives but no index here; if the folder is in the \
+             cloud, wait until it has downloaded",
+            set.dir.display()
+        )));
+    }
+    read_index(set, keys)
+}
+
+/// `index.json.age`: `MC-INDEX-2 <hmac>\n<json>`, encrypted to the set's key.
+fn write_index(set: &Set, keys: &Keys, index: &SetIndex) -> Result<(), BackupError> {
+    let json = serde_json::to_vec(index).map_err(|e| BackupError::Io(e.to_string()))?;
+    let mut plain = format!(
+        "{INDEX_MAGIC} {}\n",
+        hex(&hmac_sha256(&keys.mac_key, &json))
+    )
+    .into_bytes();
+    plain.extend_from_slice(&json);
+    write_atomic(&set.index_path(), &seal(&keys.recipient, &plain)?)
 }
 
 /// Write the index merged with what is in the set now: another machine may
@@ -540,7 +698,7 @@ fn write_index_merged(
     mine: &SetIndex,
     host: &str,
 ) -> Result<(), BackupError> {
-    let theirs = read_index(set, keys).unwrap_or_default();
+    let theirs = read_index_for_merge(set, keys)?;
     let mut merged = theirs.clone();
     for (id, e) in &mine.sessions {
         match merged.sessions.get(id) {
@@ -565,7 +723,7 @@ fn write_index_merged(
     if let Some(seen) = mine.seen.get(host) {
         merged.seen.insert(host.to_string(), seen.clone());
     }
-    write_index(set, &keys.recipient, &merged)
+    write_index(set, keys, &merged)
 }
 
 /// Read a file of the set, failing when the read makes no progress for
@@ -921,12 +1079,14 @@ pub fn push(inp: &PushInputs<'_>) -> Result<PushReport, BackupError> {
             chrono::Utc::now().format("%Y-%m-%dT%H-%M-%SZ")
         );
         let dest = inp.set.config_dir().join(&name);
-        write_archive(&dest, &keys.recipient, base, &files, &[], &[])?;
+        let (sha, bytes) = write_archive(&dest, &keys.recipient, base, &files, &[], &[])?;
         index.config.push(ConfigEntry {
             name: name.clone(),
             created_at: now_ms(),
             host: inp.host.to_string(),
             fingerprint,
+            archive_sha256: sha,
+            archive_bytes: bytes,
         });
         while index.config.len() > CONFIG_KEEP {
             let old = index.config.remove(0);
@@ -1592,30 +1752,13 @@ pub fn pull(inp: &PullInputs<'_>) -> Result<(PullReport, Manifest), BackupError>
     }
 
     // Prompt history from the newest configuration bundle, appended
-    // de-duplicated, and only while nothing here is writing it.
-    if let Some(lines) = bundle_history(inp.set, &keys, &index)? {
-        let have: std::collections::HashSet<(String, String)> =
-            std::fs::read_to_string(inp.home.history_file())
-                .unwrap_or_default()
-                .lines()
-                .filter_map(history_key)
-                .collect();
-        let fresh: Vec<String> = lines
-            .into_iter()
-            .filter(|l| history_key(l).is_some_and(|k| !have.contains(&k)))
-            .collect();
-        if !fresh.is_empty() {
-            if let Some(busy) = transfer::in_use(inp.home) {
-                report.warnings.push(Warning {
-                    id: String::new(),
-                    text: format!("Prompt history was not merged: {busy}"),
-                });
-            } else {
-                transfer::append_lines(&inp.home.history_file(), &fresh)?;
-                report.history_lines = fresh.len();
-                m.added_history = fresh;
-            }
-        }
+    // de-duplicated, and only while nothing here is writing it. It never
+    // fails the pull: what came back stays, with its undo.
+    if let Err(e) = merge_history(inp, &keys, &index, &mut m, &mut report) {
+        report.warnings.push(Warning {
+            id: String::new(),
+            text: format!("Prompt history was not merged: {e}"),
+        });
     }
 
     // What this machine now has, for the next comparison.
@@ -1643,19 +1786,55 @@ fn history_key(line: &str) -> Option<(String, String)> {
     ))
 }
 
+/// The newest bundle's prompt history appended to this machine's, without
+/// the lines it has (by time and text).
+fn merge_history(
+    inp: &PullInputs<'_>,
+    keys: &Keys,
+    index: &SetIndex,
+    m: &mut Manifest,
+    report: &mut PullReport,
+) -> Result<(), BackupError> {
+    let Some(lines) = bundle_history(inp.set, keys, index)? else {
+        return Ok(());
+    };
+    let path = inp.home.history_file();
+    let local = match std::fs::read(&path) {
+        Ok(b) => b,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Vec::new(),
+        Err(e) => return Err(io("reading", &path, e)),
+    };
+    let have: std::collections::HashSet<(String, String)> = local
+        .split(|b| *b == b'\n')
+        .filter_map(|l| std::str::from_utf8(l).ok())
+        .filter_map(history_key)
+        .collect();
+    let fresh: Vec<String> = lines
+        .into_iter()
+        .filter(|l| history_key(l).is_some_and(|k| !have.contains(&k)))
+        .collect();
+    if fresh.is_empty() {
+        return Ok(());
+    }
+    if let Some(busy) = transfer::in_use(inp.home) {
+        return Err(BackupError::Transfer(busy));
+    }
+    transfer::append_lines(&path, &fresh)?;
+    report.history_lines = fresh.len();
+    m.added_history = fresh;
+    Ok(())
+}
+
 /// `history.jsonl` from the newest configuration bundle, if it has one.
 fn bundle_history(
     set: &Set,
     keys: &Keys,
     index: &SetIndex,
 ) -> Result<Option<Vec<String>>, BackupError> {
-    let Some(path) = index.config.last().and_then(|c| set.config_bundle(&c.name)) else {
+    let Some(last) = index.config.last() else {
         return Ok(None);
     };
-    if !path.is_file() {
-        return Ok(None);
-    }
-    let bytes = read_stalling(&path)?;
+    let bytes = read_bundle(set, last)?;
     let dec =
         age::Decryptor::new_buffered(&bytes[..]).map_err(|e| BackupError::Io(e.to_string()))?;
     let r = dec
@@ -1669,14 +1848,38 @@ fn bundle_history(
             .map(|p| p == Path::new("history.jsonl"))
             .unwrap_or(false);
         if is_history {
-            let mut text = String::new();
+            let mut raw = Vec::new();
             entry
-                .read_to_string(&mut text)
+                .read_to_end(&mut raw)
                 .map_err(|e| BackupError::Io(e.to_string()))?;
-            return Ok(Some(text.lines().map(str::to_string).collect()));
+            // A line cut by a crash is left out, not the whole history.
+            let lines = raw
+                .split(|b| *b == b'\n')
+                .filter_map(|l| std::str::from_utf8(l).ok())
+                .map(|l| l.trim_end_matches('\r'))
+                .filter(|l| !l.is_empty())
+                .map(str::to_string)
+                .collect();
+            return Ok(Some(lines));
         }
     }
     Ok(None)
+}
+
+/// A configuration bundle's bytes, checked against the SHA-256 the
+/// (authenticated) index names.
+fn read_bundle(set: &Set, entry: &ConfigEntry) -> Result<Vec<u8>, BackupError> {
+    let path = set
+        .config_bundle(&entry.name)
+        .ok_or_else(|| BackupError::Invalid("the index names an invalid bundle".into()))?;
+    let bytes = read_stalling(&path)?;
+    if super::secrets::sha256_hex(&bytes) != entry.archive_sha256 {
+        return Err(BackupError::Invalid(format!(
+            "the configuration bundle {} is not the one the index names (truncated or changed)",
+            entry.name
+        )));
+    }
+    Ok(bytes)
 }
 
 /// The set's transcript of a session changed on both sides, written beside
@@ -1757,10 +1960,7 @@ pub fn extract_config(set: &Set, passphrase: &Secret, into: &Path) -> Result<Pat
         .config
         .last()
         .ok_or_else(|| BackupError::Invalid("this set has no configuration bundle".into()))?;
-    let path = set
-        .config_bundle(&last.name)
-        .ok_or_else(|| BackupError::Invalid("the index names an invalid bundle".into()))?;
-    let bytes = read_stalling(&path)?;
+    let bytes = read_bundle(set, last)?;
     let dec =
         age::Decryptor::new_buffered(&bytes[..]).map_err(|e| BackupError::Io(e.to_string()))?;
     let r = dec

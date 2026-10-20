@@ -38,7 +38,10 @@ use crate::state::AppState;
 
 fn backup_error(e: BackupError) -> ApiError {
     let status = match &e {
-        BackupError::NoFolder | BackupError::NoPassphrase => StatusCode::CONFLICT,
+        BackupError::NoFolder
+        | BackupError::NoPassphrase
+        | BackupError::Tampered(_)
+        | BackupError::KeyMissing(_) => StatusCode::CONFLICT,
         BackupError::WrongPassphrase => StatusCode::FORBIDDEN,
         BackupError::Invalid(_) => StatusCode::UNPROCESSABLE_ENTITY,
         BackupError::Io(_) => StatusCode::INTERNAL_SERVER_ERROR,
