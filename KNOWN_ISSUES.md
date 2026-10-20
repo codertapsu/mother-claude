@@ -201,6 +201,29 @@ which of these apply to it.
   HTTP hooks (which sent an empty token on 2.1.282) and the settings-editing
   hook installer are gone (`POST /api/hooks/install` answers `410`).
 
+## Accounts and backups (docs/ACCOUNTS.md, docs/BACKUP.md)
+
+- **One process reads one config directory.** "The shared `~/.claude` plus an
+  account's own directory" cannot be told to the CLI: a directory account's
+  conversations live in its directory, and continuing one elsewhere copies it.
+- **A token account's terminal sessions on macOS** are recognised only through
+  the hooks plugin: macOS 27 no longer shows another process's environment
+  (`KERN_PROCARGS2`, `ps -E`), so the hook hashes the token inside the session.
+  Without the plugin, or before its first hook, such a session shows the
+  Default's chip. On Windows it is always the Default's (§11.6).
+- **A token account's plan usage** comes from its sessions' own
+  `rate_limit_event`s: a `setup-token` token is inference-only, so the CLI's
+  `get_usage` is expected to answer "unavailable" for it, and the meter shows
+  nothing until the account's first turn.
+- **Removing an account** forgets it; its directory, its Keychain sign-in and
+  its backup set stay.
+- **Sync is not live.** Backups are pushed and pulled, not mirrored; a
+  conversation continued on two laptops is kept as two copies (a conflict file
+  beside the local one), never merged.
+- **A restored session older than `cleanupPeriodDays`** is deleted again by
+  Claude Code's next cleanup unless that setting is raised; the restore says
+  so first.
+
 ## Foreign-session injection (experimental PTY)
 
 The brief shipped PTY/CCR foreign control off by default; it is now compiled in

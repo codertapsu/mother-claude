@@ -41,7 +41,16 @@ is in [SECURITY.md](SECURITY.md), the phone and remote-access guide in
      `tmux` — typing into panes; `experimental` — PTY `claude attach` for
      background jobs;
    - `git` (libgit2 diffs, log, worktrees), `settings`, `auth` (Claude's own
-     sign-in), `watcher` (debounced `notify`).
+     sign-in), `watcher` (debounced `notify`);
+   - `accounts` — the Claude accounts sessions run under (the Default, directory
+     and token accounts; `accounts.json`), the child environment each one
+     composes, per-account sign-in, the `setup-token` capture and the accounts
+     view; `secrets` — tokens and the backup passphrase in the Keychain;
+     `transfer` — moving and copying sessions and projects between accounts'
+     directories, with an undo; `backup` — encrypted per-session backups to a
+     folder, restore and pull ([docs/ACCOUNTS.md](docs/ACCOUNTS.md),
+     [docs/BACKUP.md](docs/BACKUP.md)). The roster and the index cover every
+     account's directory at once.
 2. **Embedded axum server** (`src-tauri/src/server/`) — REST under `/api`,
    WebSocket v2 at `/ws`, the hook endpoints and the `/v1` bridge mount:
    - `context` (who is asking: ingress, `machine-local` / `local`, principal) and
@@ -50,7 +59,7 @@ is in [SECURITY.md](SECURITY.md), the phone and remote-access guide in
    - `routes/` — `data` (sessions, transcripts, agents, diffs, inbox),
      `control` (the dispatchers that route each action to the owned / hooks /
      tmux / PTY / bridge channel), `foreign`, `pairing`, `remote`, `push`,
-     `uploads`;
+     `uploads`, `accounts`, `transfers` (data moves and data jobs), `backup`;
    - `monitor` (the refresh pipeline), `ws` (the hub, per-client queues and
      subscriptions), `hooks` (the plugin's dispatcher), `devices`, `pairing`,
      `remote` (tunnel listener and detection), `listeners` + `tls` (LAN TLS),
