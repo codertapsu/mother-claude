@@ -1254,6 +1254,22 @@ export interface BridgeStatus {
   url?: string;
   startedAt?: number;
   requireToken: boolean;
+  /**
+   * `MOTHER_CLAUDE_BRIDGE_REQUIRE_TOKEN`: `required` (every call needs a token),
+   * `local` (the default: no token from this machine) or `never` (no token from
+   * anywhere the port is reachable, tunnels included).
+   */
+  tokenPolicy: 'required' | 'local' | 'never';
+  /**
+   * What `MOTHER_CLAUDE_BRIDGE_REQUIRE_TOKEN` says: the starting position of the
+   * API screen's "Open to tunnels" switch, and what the switch means when off
+   * (`never` then reads as `local`).
+   */
+  configuredTokenPolicy: 'required' | 'local' | 'never';
+  /** A detected tunnel points at the API port. */
+  exposedByTunnel: boolean;
+  /** That tunnel's public URL. */
+  tunnelUrl?: string;
   hostBuilt: boolean;
   hostRunning: boolean;
   messagesApi: boolean;

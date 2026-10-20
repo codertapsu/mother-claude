@@ -477,8 +477,13 @@ export class ApiService {
   }
 
   /** Start the API with these defaults. Returns the new status. */
-  startBridge(defaults: BridgeDefaults): Promise<BridgeStatus> {
-    return this.post<BridgeStatus>('/bridge/start', { defaults });
+  /**
+   * Start (or restart) the API. `openToTunnels`: true opens the port to
+   * callers without a token, tunnels included (desktop app only); false closes
+   * that opening; undefined keeps what `MOTHER_CLAUDE_BRIDGE_REQUIRE_TOKEN` says.
+   */
+  startBridge(defaults: BridgeDefaults, openToTunnels?: boolean): Promise<BridgeStatus> {
+    return this.post<BridgeStatus>('/bridge/start', { defaults, openToTunnels });
   }
 
   stopBridge(): Promise<BridgeStatus> {

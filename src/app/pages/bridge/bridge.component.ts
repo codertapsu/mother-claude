@@ -2,6 +2,7 @@ import { Component, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 
 import { ApiService, errorMessage } from '../../core/api.service';
+import { AuthService } from '../../core/auth.service';
 import { BridgeDefaults, BridgeStatus, LaunchDefaults, SessionSummary } from '../../core/models';
 import { EFFORT_LABELS, effortLabel, relativeTime, sessionName } from '../../shared/util';
 
@@ -69,9 +70,7 @@ const FRESH = '';
             }
           </dd>
           <dt>Authentication</dt>
-          <dd>
-            {{ s.requireToken ? 'bearer token required' : 'none — any local tool can call it' }}
-          </dd>
+          <dd [class.warn]="s.tokenPolicy === 'never'">{{ authLabel(s) }}</dd>
           @if (s.running) {
             <dt>Started</dt>
             <dd>{{ rel(s.startedAt) }}</dd>
@@ -79,6 +78,22 @@ const FRESH = '';
             <dd>{{ s.activeOperations }} operation{{ s.activeOperations === 1 ? '' : 's' }}</dd>
           }
         </dl>
+
+        @if (s.tokenPolicy === 'never') {
+          <p class="warn">
+            <strong>No token is required from anywhere.</strong>
+            @if (s.exposedByTunnel) {
+              A tunnel points at this port{{ s.tunnelUrl ? ' (' + s.tunnelUrl + ')' : '' }}: anyone
+              who finds that URL can start conversations here and approve Claude's ordinary tool
+              calls on this Mac.
+            } @else {
+              Anyone who can reach this port — through a tunnel you start later, too — can drive
+              Claude on this Mac.
+            }
+            Dangerous actions stay limited to callers on this Mac. Turn off
+            <em>Open to tunnels</em> below and restart to close it.
+          </p>
+        }
 
         @if (!s.claudeAuthenticated) {
           <p class="warn">
@@ -213,10 +228,46 @@ const FRESH = '';
         }
       </div>
 
+      <!-- ── Access ─────────────────────────────────────────────── -->
+      @if (s.port) {
+        <h2>Access</h2>
+        <div class="card form">
+          <label class="check">
+            <input
+              type="checkbox"
+              [ngModel]="openToTunnels()"
+              (ngModelChange)="openToTunnels.set($event)"
+              [disabled]="!isDesktop()"
+            />
+            <span
+              >Open to tunnels — accept calls without a token from anyone who can reach port
+              {{ s.port }}</span
+            >
+          </label>
+          <span class="hint">
+            @if (openToTunnels()) {
+              On: through ngrok, cloudflared or any tunnel to this port, whoever has its URL can
+              start conversations here and approve Claude's ordinary tool calls on this Mac.
+              Dangerous actions stay limited to this Mac.
+            } @else {
+              Off: {{ closedLabel(s) }}
+            }
+            @if (!isDesktop()) {
+              Only the desktop app can change this.
+            }
+          </span>
+          @if (openToTunnels() && s.exposedByTunnel) {
+            <p class="warn">
+              A tunnel points at this port now{{ s.tunnelUrl ? ': ' + s.tunnelUrl : '' }}.
+            </p>
+          }
+        </div>
+      }
+
       <!-- ── Action ─────────────────────────────────────────────── -->
       <div class="actions">
         <button class="btn primary" type="button" [disabled]="busy()" (click)="start()">
-          {{ busy() ? 'Working…' : s.running ? 'Restart with these defaults' : 'Start the API' }}
+          {{ busy() ? 'Working…' : s.running ? 'Restart with these settings' : 'Start the API' }}
         </button>
         @if (!s.running) {
           <span class="muted small">
@@ -364,6 +415,8 @@ const FRESH = '';
 })
 export class BridgeComponent {
   private api = inject(ApiService);
+  /** Only the desktop app may open the port to tunnels (the server enforces it). */
+  readonly isDesktop = inject(AuthService).isDesktop;
 
   readonly FRESH = FRESH;
   readonly permissionModes = PERMISSION_MODES;
@@ -382,6 +435,8 @@ export class BridgeComponent {
   readonly permissionMode = signal('default');
   readonly isolate = signal(false);
   readonly thread = signal(FRESH);
+  /** Access: no token from anyone who can reach the port, tunnels included. */
+  readonly openToTunnels = signal(false);
 
   readonly efforts = computed(() => this.launch()?.efforts ?? Object.keys(EFFORT_LABELS));
 
@@ -419,6 +474,7 @@ export class BridgeComponent {
     this.permissionMode.set(d.permissionMode ?? 'default');
     this.isolate.set(Array.isArray(d.settingSources) && d.settingSources.length === 0);
     this.thread.set(status.activeThread ?? FRESH);
+    this.openToTunnels.set(status.tokenPolicy === 'never');
   }
 
   private defaults(): BridgeDefaults {
@@ -453,7 +509,9 @@ export class BridgeComponent {
   }
 
   start(): Promise<void> {
-    return this.run(() => this.api.startBridge(this.defaults()));
+    // A phone cannot change access: it starts with whatever is configured.
+    const open = this.isDesktop() ? this.openToTunnels() : undefined;
+    return this.run(() => this.api.startBridge(this.defaults(), open));
   }
 
   stop(): Promise<void> {
@@ -481,10 +539,34 @@ export class BridgeComponent {
     return sessionName(session);
   }
 
+  /** What the port does with the switch off, given the configured policy. */
+  closedLabel(s: BridgeStatus): string {
+    return s.configuredTokenPolicy === 'required'
+      ? 'every call needs a token.'
+      : 'no token for programs on this Mac; through a tunnel a token is needed, and while a ' +
+          'tunnel points at this port, every call needs one.';
+  }
+
+  /** The Authentication line: who may call this port without a token. */
+  authLabel(s: BridgeStatus): string {
+    switch (s.tokenPolicy) {
+      case 'required':
+        return 'bearer token required';
+      case 'never':
+        return 'none — anyone who can reach the port, through a tunnel too';
+      default:
+        return s.exposedByTunnel
+          ? 'token required while a tunnel points at this port'
+          : 'none — any local tool can call it';
+    }
+  }
+
   /** The call to paste into a terminal, matching this listener's auth policy. */
   snippet(s: BridgeStatus): string {
     const url = s.url ?? '/v1';
-    const auth = s.requireToken ? ' \\\n  -H "Authorization: Bearer <token>"' : '';
+    // The default policy wants a token too while a tunnel points at the port.
+    const needsToken = s.requireToken || (s.tokenPolicy === 'local' && s.exposedByTunnel);
+    const auth = needsToken ? ' \\\n  -H "Authorization: Bearer <token>"' : '';
     return (
       `curl -sS ${url}/chat${auth} \\\n` +
       `  -H 'Content-Type: application/json' \\\n` +
