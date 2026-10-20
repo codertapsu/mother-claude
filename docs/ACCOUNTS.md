@@ -275,6 +275,26 @@ Hook events are not attributed by `transcript_path` (§5.7): the dispatcher
 never trusts a path a hook names, and every session that writes a pidfile is
 attributed by the directory it is in.
 
+*Changed after the review (D8, goal 7):* while no token account is
+registered, a session's own `CLAUDE_CODE_OAUTH_TOKEN` is ignored entirely (the
+hook's hash, `/proc`, the roster), so a terminal session that uses the user's
+own token behaves exactly as before accounts. Once one exists, a token nobody
+registered shows the *token (unregistered)* chip, and every decision — plan
+usage, fork or resume in place, copy consent — treats the session as the
+Default's. A session's account is resolved in this order: (1) its owned handle
+or bridge conversation; (2) the live process — the pidfile's directory, and its
+token only while token accounts exist (a live session whose token is not known
+yet shows the Default and is not remembered); (3) the account seen this run,
+or the token account remembered for it (`account-sessions.json`), but only
+while the index finds the transcript in that account's directory — so a moved
+session follows its transcript; (4) the index, then the Default. Registry
+entries a run cannot use (another `CLAUDE_CONFIG_DIR`, a newer version's
+kind) are written back unchanged on save, with their consents and defaults.
+A successful `claude auth login` counts as a new sign-in even with the same
+email, so it clears an "authentication failed" mark. The file watcher
+re-makes itself when a directory it watches appears (a new account's
+`projects/`).
+
 *Changed while building (D4, §5.9):* a write touches a shared file only
 when it must. A copy without the trust opt-in writes no `.claude.json` at all
 (the project's entry *is* the trust — `hasTrustDialogAccepted`, allowed
@@ -495,6 +515,20 @@ per-request `account` on `POST /threads` and `/chat`. The sidecar's
 Rust side sends with the session options (the sidecar process itself keeps the
 scrubbed environment; the token is handed per query so one host serves every
 account). `ThreadRecord.account` is persisted with the thread.
+
+*Changed after the review:* a conversation of a token account keeps its account
+across a restart through `<app data dir>/account-sessions.json` (0600, token
+accounts only, at most 2000 entries, pruned an hour after a transcript is
+gone; never written while only the Default exists). With only the Default the
+bridge answers as before accounts: a thread's `account` is left out when it is
+the Default's and the start-time defaults leave out an unset one. A folder's
+trust for a bridge call is checked in the conversation's account's
+`.claude.json`, not the Default's. Removing the account the running API uses
+as its start-time default is refused (`409 account_used_by_bridge`). The
+sidecar gives every conversation the environment the SDK would have built
+without `env` (it removes the same variables), and only store calls that
+point `CLAUDE_CONFIG_DIR` elsewhere run one at a time; the Default's never
+queue.
 
 ### 5.6 Plan usage per account (`claude/usage.rs`)
 
