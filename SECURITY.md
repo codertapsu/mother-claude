@@ -329,8 +329,17 @@ device, ingress and client address.
   choices) is never copied or restored without the explicit opt-in.
 - Backups are encrypted (age, X25519 per set, the set's key under the
   passphrase with scrypt); the only plaintext in a set is `set.json` (account
-  name, the set's public key, machine names and times). Credentials are never
-  backed up.
+  name, the set's public key, machine ids, names and times), and it is display
+  only. A backup folder is treated as untrusted input: the set's index carries
+  an HMAC-SHA256 keyed from the set's secret key, every archive and bundle is
+  checked against the authenticated index before it is opened, a set that
+  fails the check is refused and never written over, and no id or file name
+  from a set is used as a path before it is validated. Someone who can write
+  the folder can delete files or put older ones back, nothing more. Credentials
+  are never backed up.
+- A move, copy, restore or pull checks its preconditions again right before it
+  writes, never leaves a file it moved only in a deleted undo directory, and
+  never follows a symlink in a session's place.
 
 ## Reporting
 
