@@ -246,6 +246,15 @@ stored, logged or served. A token we do not know shows as *token
 (unregistered)*. Hook events also carry `transcript_path`, which names the
 directory, so events from the plugin are attributed the same way.
 
+*Changed while building (§4.4, §5.6):* the `planUsage` frame stays the
+Default account's, unchanged; every other account's usage travels as
+`{t:"accountUsage", accountId, usage}`. An older phone client ignores the new
+frame, where it would have shown another account's usage as the Default's had
+`planUsage` merely gained an `accountId`. A token account's `get_usage` is
+expected to answer "unavailable" (its token is inference-only), so its owned
+sessions' `rate_limit_event`s are its source and an "unavailable" read only
+stops further reads.
+
 *Changed while building (D3/§4.1):* `initialize.account` carries `email`,
 `organization`, `subscriptionType`, `tokenSource`, `apiKeySource` and
 `apiProvider` but no account id, so `accountUuid` is not learned from it. A
@@ -343,8 +352,8 @@ cwd>` folder is recreated as it was.
 Existing responses gain fields: `SessionSummary.account` (`{id, name, color,
 kind}`; absent only for a session in a directory nobody registered),
 `BridgeThread.account`, `BackgroundTask.account`; `GET /usage` keeps its shape
-for the Default account and adds `accounts: {<id>: PlanUsage}`; the
-`planUsage` frame gains `accountId`; `POST /sessions` (spawn), `POST
+for the Default account and adds `accounts: {<id>: PlanUsage}`; other
+accounts' usage comes as `accountUsage {accountId, usage}` frames (§3); `POST /sessions` (spawn), `POST
 /api/bridge/start` defaults and the bridge's own `POST /threads` / `/chat`
 accept `account`. A new `accounts` WebSocket frame carries the registry
 view when it changes.
@@ -626,10 +635,10 @@ part of done. IDs are referenced from commit messages.
       answers under the other account in the live test. *(Against the fake
       CLI: the fork's argv and its token's hash; the live run with a real
       second account is the maintainer's.)*
-- [ ] **P1.6 Plan usage per account.** `UsageStore` keyed by account; helper
-      per account; `GET /usage.accounts`; `planUsage.accountId`; limit-hit
-      offer. Done when two accounts show two meters and a limit hit names the
-      right one.
+- [x] **P1.6 Plan usage per account.** `UsageStore` keyed by account; helper
+      per account; `GET /usage.accounts`; ~~`planUsage.accountId`~~ an
+      `accountUsage` frame (§3); limit-hit offer (UI, P1.8). Done when two
+      accounts show two meters and a limit hit names the right one.
 - [ ] **P1.7 Bridge per account.** `BridgeDefaults.account`, per-request
       `account`, sidecar `Options.env` per query, `ThreadRecord.account`,
       BRIDGE.md. Done when `/chat` with `account` runs under that account in

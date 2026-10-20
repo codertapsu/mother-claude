@@ -1366,8 +1366,8 @@ async fn dispatch(
         "rate_limit_event" => {
             if let Some(update) = crate::claude::usage::parse_rate_limit_event(&v) {
                 let account = h.live().account;
-                if crate::claude::usage::plan_session_ok(state, account) {
-                    crate::claude::usage::merge_stream(state, update);
+                if crate::claude::usage::plan_session_ok_for(state, &h.account, account) {
+                    crate::claude::usage::merge_stream_for(state, &h.account, update);
                 } else {
                     tracing::debug!(session = %h.id, "rate_limit_event from other credentials ignored");
                 }

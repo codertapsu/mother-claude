@@ -67,6 +67,7 @@ use serde_json::{json, Map, Value};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::sync::Notify;
 
+use super::accounts::{AccountEnv, AccountKind, DEFAULT_ID};
 use super::control::{protocol, AccountFacts};
 use super::index::loose::{LStr, Obj, LF64};
 use super::model::{
@@ -663,12 +664,19 @@ struct Inner {
     /// Newest transcript `quotaLimits` already acted on.
     quota_seen: i64,
     last_published: Option<PlanUsage>,
+    /// A token account: `get_usage` cannot answer for an inference-only token,
+    /// so its owned sessions' stream is the source and an `Unavailable`
+    /// answer only stops the reads (docs/ACCOUNTS.md §5.6).
+    stream_only: bool,
 }
 
 /// Plan-usage state and the scheduler's bookkeeping. AppState: `state.usage`.
+/// One entry per account: the Default's is `inner` (exactly as before
+/// accounts), the others' are created when the scheduler first sees them.
 #[derive(Debug)]
 pub struct UsageStore {
     inner: Mutex<Inner>,
+    others: Mutex<std::collections::HashMap<String, Arc<Mutex<Inner>>>>,
     wake: Notify,
     settings_path: Option<PathBuf>,
     helper_dir: Option<PathBuf>,
@@ -690,14 +698,50 @@ impl UsageStore {
                 quota_seen: now_ms(),
                 ..Default::default()
             }),
+            others: Mutex::new(std::collections::HashMap::new()),
             wake: Notify::new(),
             settings_path,
             helper_dir: data_dir.map(helper_dir),
         }
     }
 
+    /// The Default account's entry.
     fn lock(&self) -> MutexGuard<'_, Inner> {
         self.inner.lock().unwrap_or_else(|p| p.into_inner())
+    }
+
+    /// Another account's entry, created on first use (`stream_only` for a
+    /// token account).
+    fn other(&self, account: &str, stream_only: bool) -> Arc<Mutex<Inner>> {
+        let mut map = self.others.lock().unwrap_or_else(|p| p.into_inner());
+        map.entry(account.to_string())
+            .or_insert_with(|| {
+                Arc::new(Mutex::new(Inner {
+                    interval_secs: self.interval_secs(),
+                    quota_seen: now_ms(),
+                    stream_only,
+                    ..Default::default()
+                }))
+            })
+            .clone()
+    }
+
+    /// Accounts with an entry besides the Default.
+    fn other_ids(&self) -> Vec<String> {
+        self.others
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .keys()
+            .cloned()
+            .collect()
+    }
+
+    /// Drop entries of accounts that no longer exist.
+    fn retain_others(&self, keep: &[String]) {
+        self.others
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .retain(|id, _| keep.contains(id));
     }
 
     /// The configured interval (seconds; 0 = manual only).
@@ -724,9 +768,11 @@ impl UsageStore {
 }
 
 fn snapshot_of(g: &Inner, now: i64) -> PlanUsage {
-    let data = g.data.as_ref().filter(|_| !g.unavailable);
+    // A token account shows what its sessions streamed even though reads
+    // cannot answer for it.
+    let data = g.data.as_ref().filter(|_| !g.unavailable || g.stream_only);
     PlanUsage {
-        available: !g.unavailable,
+        available: !g.unavailable || (g.stream_only && g.data.is_some()),
         windows: data
             .map(|d| {
                 d.windows
@@ -774,11 +820,65 @@ pub fn current(state: &AppState) -> PlanUsage {
     state.usage.snapshot(now_ms())
 }
 
+/// Run `f` on an account's entry (the Default's is the original one).
+fn with<R>(state: &AppState, account: &str, f: impl FnOnce(&mut Inner) -> R) -> R {
+    if account == DEFAULT_ID {
+        return f(&mut state.usage.lock());
+    }
+    let stream_only = state
+        .accounts
+        .get(account)
+        .is_some_and(|a| a.kind == AccountKind::Token);
+    let entry = state.usage.other(account, stream_only);
+    let mut g = entry.lock().unwrap_or_else(|p| p.into_inner());
+    f(&mut g)
+}
+
+/// [`publish`] for any account: the Default's as a `planUsage` frame
+/// (exactly as before), another's as `accountUsage {accountId, usage}` so an
+/// older client never shows one account's usage as the Default's.
+fn publish_for(state: &AppState, account: &str) {
+    if account == DEFAULT_ID {
+        return publish(state);
+    }
+    with(state, account, |g| {
+        let usage = snapshot_of(g, now_ms());
+        if g.last_published.as_ref() == Some(&usage) {
+            return;
+        }
+        g.last_published = Some(usage.clone());
+        crate::server::ws::publish_account_usage(state, account, usage);
+    });
+}
+
+/// [`current`] for any account.
+pub fn current_for(state: &AppState, account: &str) -> PlanUsage {
+    with(state, account, |g| snapshot_of(g, now_ms()))
+}
+
+/// Every other account's usage (`GET /api/usage` `accounts`, the connect
+/// frames); empty while only the Default exists.
+pub fn others(state: &AppState) -> std::collections::BTreeMap<String, PlanUsage> {
+    state
+        .accounts
+        .accounts()
+        .into_iter()
+        .filter(|a| !a.is_default())
+        .map(|a| {
+            let usage = current_for(state, &a.id);
+            (a.id, usage)
+        })
+        .collect()
+}
+
 /// A WebSocket client connected (`clients` now connected): the first one
 /// may trigger a read of stale data.
 pub fn on_client_connected(state: &AppState, clients: usize) {
     if clients == 1 {
         state.usage.lock().first_connect = true;
+        for id in state.usage.other_ids() {
+            with(state, &id, |g| g.first_connect = true);
+        }
         state.usage.wake.notify_one();
     }
 }
@@ -786,7 +886,12 @@ pub fn on_client_connected(state: &AppState, clients: usize) {
 /// A plan limit was hit somewhere (a `StopFailure` hook with `rate_limit`, a
 /// rejected owned request): read once, at most one read per minute.
 pub fn note_limit_hit(state: &AppState) {
-    state.usage.lock().limit_hit = Some(now_ms());
+    note_limit_hit_for(state, DEFAULT_ID);
+}
+
+/// [`note_limit_hit`] for the account the hit happened on.
+pub fn note_limit_hit_for(state: &AppState, account: &str) {
+    with(state, account, |g| g.limit_hit = Some(now_ms()));
     state.usage.wake.notify_one();
 }
 
@@ -794,9 +899,13 @@ pub fn note_limit_hit(state: &AppState) {
 /// last read (or of the last refresh asked for), else the usage with
 /// `refreshing: true` (the result arrives as a `planUsage` frame).
 pub fn request_refresh(state: &AppState) -> Result<PlanUsage, u64> {
+    request_refresh_for(state, DEFAULT_ID)
+}
+
+/// [`request_refresh`] for any account.
+pub fn request_refresh_for(state: &AppState, account: &str) -> Result<PlanUsage, u64> {
     let now = now_ms();
-    let usage = {
-        let mut g = state.usage.lock();
+    let usage = with(state, account, |g| {
         let since = [g.last_read, g.manual_at].into_iter().flatten().max();
         if let Some(wait) = since.map(|t| MIN_GAP_MS - (now - t)).filter(|w| *w > 0) {
             return Err(u64::try_from(wait).unwrap_or(0).div_ceil(1000).max(1));
@@ -806,10 +915,10 @@ pub fn request_refresh(state: &AppState) -> Result<PlanUsage, u64> {
             g.manual = true;
             g.refreshing = true;
         }
-        snapshot_of(&g, now)
-    };
+        Ok(snapshot_of(g, now))
+    })?;
     state.usage.wake.notify_one();
-    publish(state);
+    publish_for(state, account);
     Ok(usage)
 }
 
@@ -833,6 +942,17 @@ impl UsageStore {
             }
         }
         self.lock().interval_secs = secs;
+        for entry in self
+            .others
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .values()
+        {
+            entry
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .interval_secs = secs;
+        }
         self.wake.notify_one();
         Ok(())
     }
@@ -842,6 +962,9 @@ impl UsageStore {
 pub fn set_interval(state: &AppState, secs: u32) -> Result<PlanUsage, String> {
     state.usage.set_interval(secs)?;
     publish(state);
+    for id in state.usage.other_ids() {
+        publish_for(state, &id);
+    }
     Ok(current(state))
 }
 
@@ -873,15 +996,22 @@ fn apply_stream_windows(windows: &mut Vec<PlanWindow>, streamed: &[(String, f64,
 /// carries the 5-hour and weekly windows: the rest of a full read keeps its
 /// `fetchedAt` and source, and `streamAt` tells the two apart.
 pub fn merge_stream(state: &AppState, update: StreamUpdate) {
+    merge_stream_for(state, DEFAULT_ID, update);
+}
+
+/// [`merge_stream`] into the account the session runs under.
+pub fn merge_stream_for(state: &AppState, account: &str, update: StreamUpdate) {
     let now = now_ms();
-    {
-        let mut g = state.usage.lock();
+    with(state, account, |g| {
         if update.rejected {
             g.limit_hit = Some(now);
         }
         if !update.windows.is_empty() {
-            // Only accounts with plan limits send these.
-            g.unavailable = false;
+            // Only accounts with plan limits send these (a token account's
+            // reads stay off: they cannot answer for it).
+            if !g.stream_only {
+                g.unavailable = false;
+            }
             apply_stream_windows(&mut g.stream_windows, &update.windows);
             let data = g.data.get_or_insert_with(|| UsageData {
                 windows: Vec::new(),
@@ -901,11 +1031,11 @@ pub fn merge_stream(state: &AppState, update: StreamUpdate) {
             }
             g.stream_at = Some(now);
         }
-    }
+    });
     if update.rejected {
         state.usage.wake.notify_one();
     }
-    publish(state);
+    publish_for(state, account);
 }
 
 /// A fingerprint of Claude's sign-in (never the values themselves).
@@ -951,21 +1081,55 @@ async fn run(state: AppState) {
             _ = tick.tick() => {}
             _ = state.usage.wake.notified() => {}
         }
-        step(&state).await;
+        // The Default as always, every other account beside it (a read of
+        // one never holds up another's).
+        tokio::join!(step(&state), step_others(&state));
     }
+}
+
+/// One scheduler step for every account but the Default.
+async fn step_others(state: &AppState) {
+    let ids: Vec<String> = state
+        .accounts
+        .accounts()
+        .into_iter()
+        .filter(|a| !a.is_default())
+        .map(|a| a.id)
+        .collect();
+    state.usage.retain_others(&ids);
+    if ids.is_empty() {
+        return;
+    }
+    futures_util::future::join_all(ids.iter().map(|id| step_for(state, id))).await;
 }
 
 /// Read the CLI's snapshot when `~/.claude.json` changed and it is newer
 /// than the last full read.
 async fn adopt_cache(state: &AppState) {
-    let path = state.home.claude_json();
+    adopt_cache_for(state, DEFAULT_ID).await;
+}
+
+/// [`adopt_cache`] for an account: the Default's file, a directory
+/// account's own; a token account has no cache it could prove is its own.
+async fn adopt_cache_for(state: &AppState, account: &str) {
+    let path = if account == DEFAULT_ID {
+        state.home.claude_json()
+    } else {
+        match state.accounts.get(account) {
+            Some(a) if a.kind == AccountKind::Directory => match state.accounts.home(account) {
+                Some(home) => home.claude_json(),
+                None => return,
+            },
+            _ => return,
+        }
+    };
     let mtime = std::fs::metadata(&path)
         .ok()
         .map(|m| super::index::stamp_of(&m).mtime);
     let Some(mtime) = mtime else {
         return;
     };
-    if state.usage.lock().cache_mtime == Some(mtime) {
+    if with(state, account, |g| g.cache_mtime == Some(mtime)) {
         return;
     }
     let read = tokio::task::spawn_blocking(move || {
@@ -976,11 +1140,12 @@ async fn adopt_cache(state: &AppState) {
     .await
     .ok()
     .flatten();
-    let mut g = state.usage.lock();
-    g.cache_mtime = Some(mtime);
-    if let Some(data) = read {
-        adopt_snapshot(&mut g, data);
-    }
+    with(state, account, |g| {
+        g.cache_mtime = Some(mtime);
+        if let Some(data) = read {
+            adopt_snapshot(g, data);
+        }
+    });
 }
 
 /// Take the CLI's snapshot when it is newer than the last full read (stream
@@ -1015,18 +1180,27 @@ fn newest_quota_hit(state: &AppState, ids: &[String]) -> Option<i64> {
         .max()
 }
 
-/// Whether some session worked, waited or wrote after `since`, and the
-/// sessions active since `recent` (the only ones that can hold a new limit
-/// hit).
-async fn activity_since(state: &AppState, since: Option<i64>, recent: i64) -> (bool, Vec<String>) {
+/// Whether some session of `account` worked, waited or wrote after
+/// `since`, and its sessions active since `recent` (the only ones that can
+/// hold a new limit hit). A session without an account is the Default's.
+async fn activity_since(
+    state: &AppState,
+    account: &str,
+    since: Option<i64>,
+    recent: i64,
+) -> (bool, Vec<String>) {
     let snap = state.snapshot.read().await;
-    let active = snap.sessions.iter().any(|s| {
+    let mine = |s: &&crate::claude::model::SessionSummary| {
+        s.account.as_ref().map_or(DEFAULT_ID, |a| a.id.as_str()) == account
+    };
+    let active = snap.sessions.iter().filter(mine).any(|s| {
         (s.live && matches!(s.status, SessionStatus::Working | SessionStatus::Waiting))
             || since.is_some_and(|r| s.last_activity_at.is_some_and(|t| t > r))
     });
     let ids = snap
         .sessions
         .iter()
+        .filter(mine)
         .filter(|s| s.last_activity_at.is_some_and(|t| t >= recent))
         .map(|s| s.id.clone())
         .collect();
@@ -1071,10 +1245,31 @@ fn note_auth(g: &mut Inner, auth: &crate::claude::AuthStatus, now: i64) -> bool 
 
 /// One scheduler step: gather the inputs, decide, read.
 async fn step(state: &AppState) {
-    adopt_cache(state).await;
-    let auth = state.claude_auth.read().await.clone();
-    let full_at = state.usage.lock().full_at;
-    let (activity, recent_ids) = activity_since(state, full_at, now_ms() - LIMIT_HIT_TTL_MS).await;
+    step_for(state, DEFAULT_ID).await;
+}
+
+/// The sign-in a step of `account` goes by: the Default's from startup,
+/// another's from its last check (none yet: signed out, re-checked when it
+/// arrives).
+async fn auth_of(state: &AppState, account: &str) -> crate::claude::AuthStatus {
+    if account == DEFAULT_ID {
+        return state.claude_auth.read().await.clone();
+    }
+    state
+        .accounts
+        .runtime
+        .status(account)
+        .auth
+        .unwrap_or_default()
+}
+
+/// [`step`] for any account.
+async fn step_for(state: &AppState, account: &str) {
+    adopt_cache_for(state, account).await;
+    let auth = auth_of(state, account).await;
+    let full_at = with(state, account, |g| g.full_at);
+    let (activity, recent_ids) =
+        activity_since(state, account, full_at, now_ms() - LIMIT_HIT_TTL_MS).await;
     let st = state.clone();
     let quota = tokio::task::spawn_blocking(move || newest_quota_hit(&st, &recent_ids))
         .await
@@ -1082,10 +1277,9 @@ async fn step(state: &AppState) {
         .flatten();
     let now = now_ms();
     let clients = state.hub.client_count();
-    let inputs = {
-        let mut g = state.usage.lock();
-        note_quota(&mut g, quota, now);
-        let auth_changed = note_auth(&mut g, &auth, now);
+    let inputs = with(state, account, |g| {
+        note_quota(g, quota, now);
+        let auth_changed = note_auth(g, &auth, now);
         let inputs = Inputs {
             now,
             interval_ms: i64::from(g.interval_secs) * 1000,
@@ -1104,21 +1298,22 @@ async fn step(state: &AppState) {
         };
         g.next_refresh_at = next_due(&inputs);
         inputs
-    };
+    });
     let decided = decide(&inputs);
     let helper = helper_allowed(decided, inputs.interval_ms);
     // Nothing to read through (manual only, no owned session): no read.
-    let reason = decided.filter(|_| helper || owned_reader(state).is_some());
+    let reason = decided.filter(|_| helper || owned_reader_for(state, account).is_some());
     match reason {
-        Some(reason) => read(state, reason, helper).await,
+        Some(reason) => read(state, account, reason, helper).await,
         None => {
             if inputs.manual {
                 // Asked within the floor (another read just ran): done.
-                let mut g = state.usage.lock();
-                g.manual = false;
-                g.refreshing = false;
+                with(state, account, |g| {
+                    g.manual = false;
+                    g.refreshing = false;
+                });
             }
-            publish(state);
+            publish_for(state, account);
         }
     }
 }
@@ -1131,13 +1326,13 @@ fn helper_allowed(reason: Option<Reason>, interval_ms: i64) -> bool {
     reason == Some(Reason::Manual) || interval_ms > 0
 }
 
-/// The owned session a read goes through: live, initialised, on the
-/// machine's own plan.
-fn owned_reader(state: &AppState) -> Option<String> {
-    let machine = state.usage.lock().account_key;
+/// The owned session a read of `account` goes through: live, initialised,
+/// one of that account's, on its own plan.
+fn owned_reader_for(state: &AppState, account: &str) -> Option<String> {
+    let machine = with(state, account, |g| g.account_key);
     state
         .control
-        .usage_session(|account| account_ok(account, machine))
+        .usage_session_for(account, |facts| account_ok(facts, machine))
 }
 
 /// Book a read's result. `Ok(None)`: nothing conclusive (nothing changes).
@@ -1150,7 +1345,9 @@ fn apply_result(g: &mut Inner, result: Result<Option<UsageAnswer>, String>, now:
         Ok(Some(UsageAnswer::Unavailable)) => {
             g.unavailable = true;
             g.unavailable_since = Some(now);
-            g.data = None;
+            if !g.stream_only {
+                g.data = None;
+            }
             g.error = None;
             g.failures = 0;
             g.backoff_until = None;
@@ -1184,27 +1381,26 @@ fn apply_result(g: &mut Inner, result: Result<Option<UsageAnswer>, String>, now:
 }
 
 /// One active read and its bookkeeping.
-async fn read(state: &AppState, reason: Reason, allow_helper: bool) {
+async fn read(state: &AppState, account: &str, reason: Reason, allow_helper: bool) {
     let started = now_ms();
-    {
-        let mut g = state.usage.lock();
+    with(state, account, |g| {
         g.refreshing = true;
         g.last_read = Some(started);
         g.manual = false;
         g.limit_hit = None;
         g.next_refresh_at = None;
-    }
-    publish(state);
-    tracing::debug!(?reason, "reading plan usage");
-    let result = read_once(state, allow_helper).await;
+    });
+    publish_for(state, account);
+    tracing::debug!(?reason, account, "reading plan usage");
+    let result = read_once(state, account, allow_helper).await;
     if let Err(message) = &result {
-        tracing::info!(error = %message, "plan usage read failed");
+        tracing::info!(error = %message, account, "plan usage read failed");
     }
-    let failed = apply_result(&mut state.usage.lock(), result, now_ms());
+    let failed = with(state, account, |g| apply_result(g, result, now_ms()));
     if failed {
         // Fall back to the CLI's own snapshot while reads fail.
-        state.usage.lock().cache_mtime = None;
-        adopt_cache(state).await;
+        with(state, account, |g| g.cache_mtime = None);
+        adopt_cache_for(state, account).await;
     }
     // One more step right away: it schedules the next read and publishes
     // the result together with it.
@@ -1217,9 +1413,13 @@ async fn read(state: &AppState, reason: Reason, allow_helper: bool) {
 /// `apiKeyHelper`): it is not asked again, and only the helper, on the
 /// machine's own sign-in, may say the plan has none. `Ok(None)`: nothing
 /// conclusive.
-async fn read_once(state: &AppState, allow_helper: bool) -> Result<Option<UsageAnswer>, String> {
+async fn read_once(
+    state: &AppState,
+    account: &str,
+    allow_helper: bool,
+) -> Result<Option<UsageAnswer>, String> {
     let request = json!({ "subtype": "get_usage", "skip_behaviors": true });
-    if let Some(id) = owned_reader(state) {
+    if let Some(id) = owned_reader_for(state, account) {
         let resp = state
             .control
             .request(&id, request, USAGE_TIMEOUT)
@@ -1239,16 +1439,29 @@ async fn read_once(state: &AppState, allow_helper: bool) -> Result<Option<UsageA
     if !allow_helper {
         return Ok(None);
     }
-    let dir = state
+    let base = state
         .usage
         .helper_dir
         .clone()
         .ok_or_else(|| "No app data directory for the usage helper.".to_string())?;
+    // Another account's helper runs in its own directory, with its own
+    // environment (its config directory or its token).
+    let (dir, env) = if account == DEFAULT_ID {
+        (base, AccountEnv::Inherit)
+    } else {
+        let env = state.accounts.env(account).map_err(|e| e.to_string())?;
+        (base.join(account), env)
+    };
+    let sessions = state
+        .accounts
+        .home(account)
+        .unwrap_or_else(|| state.home.clone())
+        .sessions_dir();
     prepare_dir(&dir).map_err(|e| format!("Could not prepare the usage helper directory: {e}"))?;
     // Never listed as a session (its canonical path, now it exists).
     state.live.ignore_cwd(&dir);
-    let resp = helper_read(&crate::claude::claude_bin(), &dir).await?;
-    tracing::debug!("plan usage read through the helper");
+    let resp = helper_read_with(&crate::claude::claude_bin(), &dir, &env, &sessions).await?;
+    tracing::debug!(account, "plan usage read through the helper");
     parse_get_usage(&resp).map(Some)
 }
 
@@ -1284,7 +1497,13 @@ fn account_ok(account: Option<AccountFacts>, machine: Option<u64>) -> bool {
 /// [`account_ok`] against the machine's sign-in: may this owned session's
 /// `rate_limit_event`s feed the plan usage?
 pub fn plan_session_ok(state: &AppState, account: Option<AccountFacts>) -> bool {
-    account_ok(account, state.usage.lock().account_key)
+    plan_session_ok_for(state, DEFAULT_ID, account)
+}
+
+/// [`plan_session_ok`] against the sign-in of the account the session runs
+/// under.
+pub fn plan_session_ok_for(state: &AppState, account: &str, facts: Option<AccountFacts>) -> bool {
+    account_ok(facts, with(state, account, |g| g.account_key))
 }
 
 fn short_error(s: &str) -> String {
@@ -1309,10 +1528,11 @@ fn prepare_dir(dir: &Path) -> std::io::Result<()> {
     Ok(())
 }
 
-/// Helpers running right now (pids), for [`shutdown`].
-static HELPERS: Mutex<Vec<u32>> = Mutex::new(Vec::new());
+/// Helpers running right now (pid, the `sessions/` their pidfile is in),
+/// for [`shutdown`].
+static HELPERS: Mutex<Vec<(u32, PathBuf)>> = Mutex::new(Vec::new());
 
-fn helpers() -> MutexGuard<'static, Vec<u32>> {
+fn helpers() -> MutexGuard<'static, Vec<(u32, PathBuf)>> {
     HELPERS.lock().unwrap_or_else(|p| p.into_inner())
 }
 
@@ -1320,9 +1540,9 @@ fn helpers() -> MutexGuard<'static, Vec<u32>> {
 struct HelperPid(Option<u32>);
 
 impl HelperPid {
-    fn register(pid: Option<u32>) -> Self {
+    fn register(pid: Option<u32>, sessions: &Path) -> Self {
         if let Some(pid) = pid {
-            helpers().push(pid);
+            helpers().push((pid, sessions.to_path_buf()));
         }
         Self(pid)
     }
@@ -1331,7 +1551,7 @@ impl HelperPid {
 impl Drop for HelperPid {
     fn drop(&mut self) {
         if let Some(pid) = self.0 {
-            helpers().retain(|p| *p != pid);
+            helpers().retain(|(p, _)| *p != pid);
         }
     }
 }
@@ -1346,19 +1566,19 @@ const SHUTDOWN_GRACE: Duration = Duration::from_secs(2);
 /// read does — SIGTERM, so Claude Code removes its pidfile under
 /// `~/.claude/sessions` — and wait up to 2 s for that, rather than leave it
 /// to the runtime's teardown, whose SIGKILL would leave the pidfile behind.
-pub fn shutdown(state: &AppState) {
-    let pids = helpers().clone();
-    stop_helpers(&pids, &state.home.base().join("sessions"));
+pub fn shutdown(_state: &AppState) {
+    let helpers = helpers().clone();
+    stop_helpers(&helpers);
 }
 
 /// SIGTERM these helpers and wait (up to [`SHUTDOWN_GRACE`]) until none has
-/// a pidfile in `sessions` any more. Only ever reads that directory.
-fn stop_helpers(pids: &[u32], sessions: &Path) {
-    if pids.is_empty() {
+/// a pidfile in its `sessions` directory any more. Only ever reads those.
+fn stop_helpers(helpers: &[(u32, PathBuf)]) {
+    if helpers.is_empty() {
         return;
     }
     #[cfg(unix)]
-    for pid in pids {
+    for (pid, _) in helpers {
         if let Ok(pid) = i32::try_from(*pid) {
             // SAFETY: plain syscall on our own, not yet reaped, child's pid.
             unsafe {
@@ -1368,9 +1588,9 @@ fn stop_helpers(pids: &[u32], sessions: &Path) {
     }
     let deadline = std::time::Instant::now() + SHUTDOWN_GRACE;
     while std::time::Instant::now() < deadline
-        && pids
+        && helpers
             .iter()
-            .any(|pid| sessions.join(format!("{pid}.json")).exists())
+            .any(|(pid, sessions)| sessions.join(format!("{pid}.json")).exists())
     {
         std::thread::sleep(Duration::from_millis(50));
     }
@@ -1381,6 +1601,17 @@ fn stop_helpers(pids: &[u32], sessions: &Path) {
 /// the background (SIGTERM, SIGKILL only after [`HELPER_EXIT_GRACE`]).
 /// Returns the `get_usage` response body.
 pub async fn helper_read(bin: &str, dir: &Path) -> Result<Value, String> {
+    helper_read_with(bin, dir, &AccountEnv::Inherit, Path::new("")).await
+}
+
+/// [`helper_read`] under an account (`sessions`: where its pidfile goes,
+/// for [`shutdown`]).
+pub async fn helper_read_with(
+    bin: &str,
+    dir: &Path,
+    account: &AccountEnv,
+    sessions: &Path,
+) -> Result<Value, String> {
     prepare_dir(dir).map_err(|e| format!("Could not prepare the usage helper directory: {e}"))?;
     let mut cmd = tokio::process::Command::new(bin);
     cmd.args(HELPER_ARGS)
@@ -1389,13 +1620,13 @@ pub async fn helper_read(bin: &str, dir: &Path) -> Result<Value, String> {
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .kill_on_drop(true);
-    // The scrubbed child environment, marked owned; CLAUDE_CONFIG_DIR only
-    // when the user set it themselves.
-    super::control::apply_child_env(&mut cmd, &super::accounts::AccountEnv::Inherit);
+    // The scrubbed child environment, marked owned, with the account's part:
+    // for the Default, CLAUDE_CONFIG_DIR only when the user set it themselves.
+    super::control::apply_child_env(&mut cmd, account);
     let mut child = cmd
         .spawn()
         .map_err(|e| format!("Could not start `{bin}` for the plan usage: {e}"))?;
-    let registered = HelperPid::register(child.id());
+    let registered = HelperPid::register(child.id(), sessions);
     let tail: Arc<Mutex<VecDeque<String>>> = Arc::default();
     if let Some(stderr) = child.stderr.take() {
         let tail = tail.clone();

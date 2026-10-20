@@ -1181,12 +1181,13 @@ async fn a_helper_mid_read_is_stopped_cleanly_when_the_app_quits() {
         tokio::time::sleep(Duration::from_millis(25)).await;
     }
     let pid = pid.expect("the fake started");
-    assert!(helpers().contains(&pid));
+    let registered = || helpers().iter().any(|(p, _)| *p == pid);
+    assert!(registered());
     // Quitting: SIGTERM, and the wait ends once its pidfile is gone.
     let started = std::time::Instant::now();
     tokio::task::spawn_blocking({
         let sessions = sessions.clone();
-        move || stop_helpers(&[pid], &sessions)
+        move || stop_helpers(&[(pid, sessions)])
     })
     .await
     .unwrap();
@@ -1200,12 +1201,12 @@ async fn a_helper_mid_read_is_stopped_cleanly_when_the_app_quits() {
     let e = read.await.unwrap().unwrap_err();
     assert!(e.contains("exited"), "{e}");
     for _ in 0..200 {
-        if !helpers().contains(&pid) {
+        if !registered() {
             break;
         }
         tokio::time::sleep(Duration::from_millis(25)).await;
     }
-    assert!(!helpers().contains(&pid));
+    assert!(!registered());
 }
 
 #[tokio::test]
@@ -1237,5 +1238,117 @@ async fn steps_consume_first_connect_and_a_refresh_reads_without_clients() {
             .is_some_and(|e| e.contains("app data directory")),
         "{:?}",
         g.error
+    );
+}
+
+/// docs/ACCOUNTS.md §5.6: every account has its own usage; the Default's
+/// frames and responses stay what they were.
+#[tokio::test]
+async fn each_account_has_its_own_usage() {
+    use crate::claude::secrets::Secret;
+    let st = state();
+    let mut rx = st.bus.subscribe();
+    assert!(others(&st).is_empty(), "only the Default: nothing extra");
+    let dirs = tempfile::tempdir().unwrap();
+    let work = st
+        .accounts
+        .add_directory("Work", &dirs.path().join("w"), None)
+        .unwrap();
+    let pro = st
+        .accounts
+        .add_token(
+            "Pro",
+            Some(&Secret::new(
+                "sk-ant-oat01-AccountBTokenValue0123456789abcdefghij",
+            )),
+            None,
+        )
+        .unwrap();
+    let now = now_ms();
+    merge_stream_for(
+        &st,
+        &work.id,
+        StreamUpdate {
+            windows: vec![("five_hour".into(), 97.0, Some(now + 60 * MIN))],
+            rejected: false,
+        },
+    );
+    // Another account's frame is not a planUsage frame.
+    let ev = rx.try_recv().unwrap();
+    match &*ev {
+        crate::state::ServerEvent::AccountUsage { account_id, usage } => {
+            assert_eq!(account_id, &work.id);
+            assert_eq!(usage.windows[0].pct, 97.0);
+        }
+        other => panic!("{other:?}"),
+    }
+    assert!(current(&st).windows.is_empty(), "the Default is untouched");
+    let all = others(&st);
+    assert_eq!(all.len(), 2);
+    assert_eq!(all[&work.id].windows[0].pct, 97.0);
+    assert!(all[&pro.id].windows.is_empty());
+
+    // A token account: an `Unavailable` read (an inference-only token)
+    // stops the reads but keeps what its sessions streamed.
+    merge_stream_for(
+        &st,
+        &pro.id,
+        StreamUpdate {
+            windows: vec![("five_hour".into(), 40.0, None)],
+            rejected: false,
+        },
+    );
+    with(&st, &pro.id, |g| {
+        assert!(g.stream_only);
+        apply_result(g, Ok(Some(UsageAnswer::Unavailable)), now);
+        assert!(g.unavailable, "no more scheduled reads");
+    });
+    let u = current_for(&st, &pro.id);
+    assert!(u.available);
+    assert_eq!(u.windows[0].pct, 40.0);
+    // A directory account's `Unavailable` is the truth, as for the Default.
+    with(&st, &work.id, |g| {
+        assert!(!g.stream_only);
+        apply_result(g, Ok(Some(UsageAnswer::Unavailable)), now);
+    });
+    let u = current_for(&st, &work.id);
+    assert!(!u.available);
+    assert!(u.windows.is_empty());
+
+    // A limit hit lands on its account only.
+    note_limit_hit_for(&st, &pro.id);
+    assert!(st.usage.lock().limit_hit.is_none());
+    assert!(with(&st, &pro.id, |g| g.limit_hit.is_some()));
+
+    // The interval is everyone's.
+    st.usage.set_interval(600).unwrap();
+    assert_eq!(with(&st, &work.id, |g| g.interval_secs), 600);
+
+    // A removed account's entry goes on the next step.
+    st.accounts.remove(&work.id).unwrap();
+    step_others(&st).await;
+    assert!(!state_has(&st, &work.id));
+    assert!(state_has(&st, &pro.id));
+}
+
+fn state_has(st: &AppState, id: &str) -> bool {
+    st.usage.other_ids().iter().any(|o| o == id)
+}
+
+/// A refresh asked for another account reads that account only.
+#[tokio::test]
+async fn a_refresh_is_per_account() {
+    let st = state();
+    let dirs = tempfile::tempdir().unwrap();
+    let work = st
+        .accounts
+        .add_directory("Work", &dirs.path().join("w"), None)
+        .unwrap();
+    assert!(request_refresh_for(&st, &work.id).unwrap().refreshing);
+    assert!(!st.usage.lock().manual, "the Default was not asked");
+    assert!(request_refresh_for(&st, &work.id).is_err(), "one a minute");
+    assert!(
+        request_refresh(&st).is_ok(),
+        "the Default has its own minute"
     );
 }

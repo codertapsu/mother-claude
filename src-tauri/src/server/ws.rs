@@ -167,6 +167,13 @@ pub enum ServerEvent {
     Accounts {
         accounts: crate::claude::accounts::view::AccountsView,
     },
+    /// Another account's plan usage changed (everyone; sent on connect for
+    /// every account but the Default): `{t:"accountUsage", accountId, usage}`.
+    /// The Default's stays `planUsage`, which older clients know.
+    AccountUsage {
+        account_id: String,
+        usage: PlanUsage,
+    },
 }
 
 /// Who receives an event.
@@ -191,7 +198,8 @@ impl ServerEvent {
             | ServerEvent::Resync
             | ServerEvent::PendingResolved(_)
             | ServerEvent::PlanUsage { .. }
-            | ServerEvent::Accounts { .. } => Audience::All,
+            | ServerEvent::Accounts { .. }
+            | ServerEvent::AccountUsage { .. } => Audience::All,
             ServerEvent::Transcript { session, agent, .. }
             | ServerEvent::TranscriptReset { session, agent } => {
                 Audience::SessionKey(session, agent.as_deref())
@@ -510,6 +518,22 @@ pub fn publish_plan_usage(state: &AppState, usage: PlanUsage) {
 /// The accounts changed, for everyone.
 pub fn publish_accounts(state: &AppState, accounts: crate::claude::accounts::view::AccountsView) {
     state.broadcast(ServerEvent::Accounts { accounts });
+}
+
+/// Another account's plan usage changed, for everyone.
+pub fn publish_account_usage(state: &AppState, account: &str, usage: PlanUsage) {
+    state.broadcast(ServerEvent::AccountUsage {
+        account_id: account.to_string(),
+        usage,
+    });
+}
+
+/// Every other account's usage, as the frames a connecting client gets.
+fn account_usage_frames(state: &AppState) -> Vec<ServerEvent> {
+    crate::claude::usage::others(state)
+        .into_iter()
+        .map(|(account_id, usage)| ServerEvent::AccountUsage { account_id, usage })
+        .collect()
 }
 
 /// The `accounts` frame a client gets after its `planUsage` frame, once
@@ -1018,6 +1042,9 @@ async fn run_client(
     if let Some(frame) = accounts_frame(&state) {
         out.push_event(&frame);
     }
+    for frame in account_usage_frames(&state) {
+        out.push_event(&frame);
+    }
     // The first client may make stale plan usage worth a read.
     crate::claude::usage::on_client_connected(&state, state.hub.client_count());
 
@@ -1084,8 +1111,16 @@ async fn run_client(
                             serde_json::to_string(&plan_usage_frame(&state)).unwrap_or_default();
                         let accounts = accounts_frame(&state)
                             .and_then(|f| serde_json::to_string(&f).ok());
+                        let others: Vec<String> = account_usage_frames(&state)
+                            .iter()
+                            .filter_map(|f| serde_json::to_string(f).ok())
+                            .collect();
                         let mut sent = socket.send(Message::Text(resync.into())).await;
-                        for text in [Some(full), Some(usage), accounts].into_iter().flatten() {
+                        for text in [Some(full), Some(usage), accounts]
+                            .into_iter()
+                            .flatten()
+                            .chain(others)
+                        {
                             if sent.is_ok() {
                                 sent = socket.send(Message::Text(text.into())).await;
                             }
