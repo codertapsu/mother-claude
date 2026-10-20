@@ -19,12 +19,14 @@
  *
  * # Matching the verifier that matters
  *
- * The parsing follows `minisign-verify` 0.2.5, the crate tauri-plugin-updater
- * 2.13.0 verifies with: lines are split as Rust's `str::lines()` splits them,
- * base64 must be strict and canonical, and the decoded signature must be UTF-8.
- * The untrusted comment is never checked by that crate, so problems with it are
- * warnings here rather than failures. The point is to agree with the updater,
- * not to be stricter or looser than it.
+ * The parsing follows `minisign-verify` 0.3.0, the crate tauri-plugin-updater
+ * 2.14.0 verifies with: lines are split as Rust's `str::lines()` splits them,
+ * base64 must be strict and canonical, the decoded signature must be UTF-8, and
+ * (new in 0.3) each Ed25519 signature's scalar `S` must be canonical, below the
+ * group order — the one encoding of a valid signature a verifier must not
+ * accept twice. The untrusted comment is never checked by that crate, so
+ * problems with it are warnings here rather than failures. The point is to
+ * agree with the updater, not to be stricter or looser than it.
  *
  * Since 2.13 the updater also reads a `version:` field out of the trusted
  * comment, once the signature has verified, and refuses an update announced as
@@ -55,6 +57,9 @@
 
 import { Buffer, isUtf8 } from 'node:buffer';
 import { createHash, createPublicKey, verify as ed25519Verify } from 'node:crypto';
+
+/** The order of the Ed25519 group: a canonical signature's `S` is below it. */
+const GROUP_ORDER = (1n << 252n) + 27742317777372353535851937790883648493n;
 
 const ALG_RAW = Buffer.from('Ed', 'latin1'); // signature over the raw file
 const ALG_PREHASHED = Buffer.from('ED', 'latin1'); // signature over BLAKE2b-512(file)
@@ -221,6 +226,17 @@ export function verifyParsed(message, sig, pk) {
       `signed by key ${keyIdHex(sig.keyId)}, but the public key is ${keyIdHex(pk.keyId)}`,
     );
   }
+  // Checked here, not left to node:crypto: minisign-verify 0.3 refuses a
+  // non-canonical S outright, and this verifier must say what the updater
+  // will say, whatever OpenSSL happens to accept.
+  if (!canonicalScalar(sig.signature)) {
+    failures.push('the signature encodes its S value non-canonically, which the updater refuses');
+  }
+  if (!canonicalScalar(sig.globalSignature)) {
+    failures.push(
+      'the global signature encodes its S value non-canonically, which the updater refuses',
+    );
+  }
   const signatureHolds = ed25519Verify(null, message, pk.key, sig.signature);
   if (!signatureHolds) {
     failures.push('the signature does not match this file under this key');
@@ -242,6 +258,12 @@ export function verifyParsed(message, sig, pk) {
     );
   }
   return failures;
+}
+
+/** Whether a 64-byte Ed25519 signature's `S` (its last 32 bytes, little-endian) is below the group order. */
+function canonicalScalar(signature) {
+  const s = BigInt(`0x${Buffer.from(signature.subarray(32, 64)).reverse().toString('hex')}`);
+  return s < GROUP_ORDER;
 }
 
 /**

@@ -155,6 +155,35 @@ describe('minisign verification', () => {
     );
   });
 
+  /**
+   * minisign-verify 0.3 (tauri-plugin-updater 2.14) refuses a signature whose
+   * S is encoded above the group order — the same scalar, written once more
+   * — even where the curve arithmetic would accept it. So does this.
+   */
+  it('refuses a non-canonical S, as minisign-verify 0.3 does', () => {
+    const key = signer();
+    const file = randomBytes(512);
+    const L = (1n << 252n) + 27742317777372353535851937790883648493n;
+    const lines = Buffer.from(key.sign(file), 'base64').toString('utf8').split('\n');
+    const bin = Buffer.from(lines[1], 'base64');
+    // S is the last 32 bytes of the 64-byte signature, little-endian.
+    const s = BigInt(`0x${Buffer.from(bin.subarray(42, 74)).reverse().toString('hex')}`);
+    const above = Buffer.from((s + L).toString(16).padStart(64, '0'), 'hex').reverse();
+    above.copy(bin, 42);
+    lines[1] = bin.toString('base64');
+    const tampered = Buffer.from(lines.join('\n')).toString('base64');
+
+    const result = verify(file, tampered, key.publicKey);
+
+    assert.equal(result.valid, false);
+    assert.ok(
+      result.failures.some((f) => f.includes('non-canonically')),
+      result.failures.join('; '),
+    );
+    // The untouched original still passes: the check is on the encoding only.
+    assert.equal(verify(file, key.sign(file), key.publicKey).valid, true);
+  });
+
   it('rejects a signature made by a different key', () => {
     const ours = signer();
     const theirs = signer();
