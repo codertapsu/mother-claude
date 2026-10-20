@@ -102,7 +102,7 @@ undocumented research-preview internals.
 | **Transcripts (all surfaces)** | `~/.claude/projects/<encoded-cwd>/<id>.jsonl` | append-only NDJSON, tailable — indexed incrementally by `claude/index.rs` (checkpoint `index-cache.json` in the app data dir); found by session id, since the cwd can drift |
 | Subagents | `projects/<enc>/<id>/subagents/agent-<aid>.{jsonl,meta.json}` | per-agent transcripts (written per block, so live), type, parent tool use |
 | Workflows | `projects/<enc>/<id>/subagents/workflows/<run>/journal.jsonl`, `workflows/<run>.json` | running (`started` − `result`) / finished workflow agents |
-| Background task output | `<tmp>/claude-<uid>/<enc>/<id>/tasks/<task>.output` | shell output tail (read on demand, 16 KB) |
+| Background task output | owned sessions: `get_task_output` (the CLI's own 8 KiB tail, Monitor tasks too); else `<tmp>/claude-<uid>/<enc>/<id>/tasks/<task>.output` | shell output tail (read on demand, 16 KB) |
 | MCP inventory | `~/.claude.json` `mcpServers` | configured MCP servers (`env`/`headers` values redacted before serving) |
 | Trusted folders | `~/.claude.json` `projects[<dir>].hasTrustDialogAccepted` | where non-desktop callers may spawn/continue |
 | Claude sign-in | `claude auth status --json` | account, checked at startup (`claude/auth.rs`) |
@@ -158,7 +158,15 @@ string "Not logged in · Please run /login".
 breaks the CLI's credential resolution *even when it points at the default
 `~/.claude`*: every turn then answers "Not logged in · Please run /login".
 Children inherit it when the user set one themselves, which is the only case
-where an override is wanted. (Verified against SDK 0.3.186 / CLI 2.1.186.)
+where an override is wanted. The cause (verified on CLI 2.1.304): the CLI keeps
+its sign-in in a macOS Keychain item named per config directory —
+`Claude Code-credentials` when the variable is unset,
+`Claude Code-credentials-<hash of the directory>` when it is set, the default
+directory's own path included — so an explicit directory looks up an item that
+only a sign-in made under that same variable would have created. The same
+mechanism is what makes a second directory a second account (its own sign-in,
+`.claude.json`, settings, projects and sessions); `CLAUDE_CODE_OAUTH_TOKEN` in
+a child's environment selects an account without changing the directory.
 
 ## Architecture rules (enforced)
 
