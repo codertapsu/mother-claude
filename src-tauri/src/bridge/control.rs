@@ -316,7 +316,7 @@ pub async fn status(state: &AppState) -> Value {
         .await
         .into_iter()
         .map(|t| {
-            json!({
+            let mut v = json!({
                 "threadId": t.thread_id,
                 "cwd": t.cwd,
                 "createdAt": t.created_at,
@@ -326,7 +326,12 @@ pub async fn status(state: &AppState) -> Value {
                 "title": t.title,
                 "persisted": t.persisted,
                 "activeTurn": t.active_turn,
-            })
+            });
+            // Its account's chip, once there is more than the Default.
+            if let Some(account) = crate::claude::accounts::view::account_ref(state, &t.account) {
+                v["account"] = json!(account);
+            }
+            v
         })
         .collect();
     let active = state.bridge.active_thread.read().await.clone();
