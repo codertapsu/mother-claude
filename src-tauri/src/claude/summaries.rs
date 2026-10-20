@@ -672,8 +672,9 @@ pub struct BuildCtx {
 /// the token its environment or its hook names (`unregistered` for a token
 /// no account holds, and nothing at all while no token account exists: then
 /// a token is the user's own business, as before accounts); else the account
-/// last seen running it; else the one whose directory holds its transcript;
-/// else the Default's. This is the chip; decisions use [`acting_account`].
+/// last seen running it, while its transcript is still in that account's
+/// directory; else the one whose directory holds its transcript; else the
+/// Default's. This is the chip; decisions use [`acting_account`].
 pub fn session_account(state: &AppState, id: &str) -> String {
     use super::accounts::{DEFAULT_ID, UNREGISTERED_TOKEN_ID};
     let runtime = &state.accounts.runtime;
@@ -707,10 +708,29 @@ pub fn session_account(state: &AppState, id: &str) -> String {
         runtime.remember(id, &account);
         return account;
     }
-    runtime
-        .last_seen(id)
-        .or_else(|| state.index.account_of(id))
-        .unwrap_or_else(|| DEFAULT_ID.to_string())
+    let indexed = state.index.home_account_of(id);
+    if let Some(seen) = runtime.last_seen(id) {
+        // Only while the transcript is where that account keeps it: a move
+        // or a restore since put it in another account's directory.
+        if indexed
+            .as_deref()
+            .is_none_or(|dir| same_directory(state, &seen, dir))
+        {
+            return seen;
+        }
+    }
+    indexed.unwrap_or_else(|| DEFAULT_ID.to_string())
+}
+
+/// Whether two accounts keep their data in the same directory (a token
+/// account, the unregistered pseudo-account and the Default all use the
+/// Default's). A removed account shares nobody's.
+fn same_directory(state: &AppState, a: &str, b: &str) -> bool {
+    a == b
+        || matches!(
+            (state.accounts.home(a), state.accounts.home(b)),
+            (Some(x), Some(y)) if x.base() == y.base()
+        )
 }
 
 /// The account to act as for a session — usage reads, fork-or-resume, copy

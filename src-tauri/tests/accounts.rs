@@ -805,6 +805,86 @@ async fn sessions_move_between_accounts_with_an_undo() {
     assert_eq!(v["error"]["code"], "same_directory");
 }
 
+/// The account a session was last seen running under counts only while its
+/// transcript is still in that account's directory: one moved to Work since
+/// is Work's (its chip, and what Continue resumes it with), while a token
+/// account's session keeps its account in the Default's directory.
+#[tokio::test]
+async fn a_moved_session_belongs_to_the_account_that_has_it_now() {
+    use mother_claude_lib::claude::encode_cwd;
+    use mother_claude_lib::claude::summaries::session_account;
+    use mother_claude_lib::server::monitor::refresh_once;
+    let f = boot().await;
+    let cwd = f.scratch.path().join("proj");
+    std::fs::create_dir_all(&cwd).unwrap();
+    let cwd = cwd.to_string_lossy().into_owned();
+    let work_dir = f.scratch.path().join("claude-work");
+    let work =
+        f.st.accounts
+            .add_directory("Work", &work_dir, None)
+            .unwrap();
+    let pro =
+        f.st.accounts
+            .add_token(
+                "Pro",
+                Some(&mother_claude_lib::claude::secrets::Secret::new(TOKEN)),
+                None,
+            )
+            .unwrap();
+    let (moved, tokened) = (
+        "66666666-6666-4666-8666-666666666666",
+        "77777777-7777-4777-8777-777777777777",
+    );
+    let pidfile = f
+        ._home
+        .path()
+        .join("sessions")
+        .join(format!("{}.json", std::process::id()));
+
+    // Both ran in the Default's directory (this process's pid is alive).
+    write_session(f._home.path(), &cwd, moved, Some(std::process::id()));
+    refresh_once(&f.st).await;
+    assert_eq!(session_account(&f.st, moved), "default");
+    std::fs::remove_file(&pidfile).unwrap();
+    write_session(f._home.path(), &cwd, tokened, Some(std::process::id()));
+    f.st.activity.note_token_sha256(
+        tokened,
+        &mother_claude_lib::claude::secrets::sha256_hex(TOKEN.as_bytes()),
+    );
+    refresh_once(&f.st).await;
+    assert_eq!(session_account(&f.st, tokened), pro.id);
+    std::fs::remove_file(&pidfile).unwrap();
+
+    // Both ended; the desktop moved the first one to Work.
+    let to = work_dir.join("projects").join(encode_cwd(&cwd));
+    std::fs::create_dir_all(&to).unwrap();
+    std::fs::rename(
+        f._home
+            .path()
+            .join("projects")
+            .join(encode_cwd(&cwd))
+            .join(format!("{moved}.jsonl")),
+        to.join(format!("{moved}.jsonl")),
+    )
+    .unwrap();
+    refresh_once(&f.st).await;
+    assert!(f.st.live.get(moved).is_none() && f.st.live.get(tokened).is_none());
+    assert_eq!(
+        session_account(&f.st, moved),
+        work.id,
+        "it follows the move"
+    );
+    assert_eq!(
+        f.st.find_session(moved).await.unwrap().account.unwrap().id,
+        work.id
+    );
+    assert_eq!(
+        session_account(&f.st, tokened),
+        pro.id,
+        "the Default's directory is the token account's too"
+    );
+}
+
 /// P4.3/P4.2: a backup set over HTTP — folder, generated passphrase (shown
 /// once), push, the index, a restore with its undo — and a phone only looks.
 #[tokio::test]

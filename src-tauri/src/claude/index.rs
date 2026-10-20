@@ -288,6 +288,17 @@ impl TranscriptIndex {
             .and_then(|s| s.account.clone())
     }
 
+    /// [`Self::account_of`] that tells the two `None`s apart: `Some("default")`
+    /// for a transcript in the Default's directory, `None` when the session
+    /// is not indexed at all.
+    pub fn home_account_of(&self, session_id: &str) -> Option<String> {
+        self.lock().sessions.get(session_id).map(|s| {
+            s.account
+                .clone()
+                .unwrap_or_else(|| super::accounts::DEFAULT_ID.to_string())
+        })
+    }
+
     /// The main transcript of a session, located by id (independent of cwd).
     pub fn transcript_path(&self, session_id: &str) -> Option<PathBuf> {
         self.lock()
