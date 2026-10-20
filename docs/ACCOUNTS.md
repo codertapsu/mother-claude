@@ -290,6 +290,29 @@ a copied conversation that was continued is not taken back), puts moved files
 back, and removes exactly the `.claude.json` entry and the `history.jsonl`
 lines that were added.
 
+*Changed after the review (D4, §5.9):* a move never loses a file and nothing
+acts on a stale plan. A job checks its plan again once it holds the jobs lock
+(it may have waited behind a backup), again before it writes shared files and
+again before the source moves: a session that started meanwhile
+(`session_live`) or wrote a file since its copy verified (`session_changed`)
+stops the move before anything leaves the source, and a session's folders
+lose only what is empty. A run that fails after files moved puts them back
+first, then removes its copies; if even that fails the undo directory and its
+manifest stay, the job says `transfer_incomplete` and offers Undo. Undo
+refuses while a session of the job runs or (when it changes shared files back)
+while their directory is in use, puts the moved files back before deleting the
+copies, and can be retried. A project **move without the trust opt-in leaves
+the source's `.claude.json` entry where it is** (it holds the project's MCP
+servers and allowed tools; only an entry carried to the target leaves the
+source); its prompt history still moves. Each shared file is kept in
+`undo/<job>/shared/` before the job's first change to it, for recovery by
+hand. `history.jsonl` is edited as bytes and an unreadable one is an error,
+never an empty file to write over; symlinks in a session's place are never
+followed; "continue on" never waits behind another data job
+(`data_job_running`). Job views name their accounts (`from`, `to`; `account`
+for backup jobs) and `GET /data/jobs` adds earlier runs' jobs that can still
+be undone, from their manifests.
+
 *Changed while building (§5.4, P3.3):* "continue on" a directory account
 copies a **snapshot**: the conversation usually still has a process (it
 stopped at its limit), so the copy is of what is there now, an unfinished
@@ -409,7 +432,7 @@ cwd>` folder is recreated as it was.
 
 Existing responses gain fields: `SessionSummary.account` (`{id, name, color,
 kind}`; absent only for a session in a directory nobody registered),
-`BridgeThread.account`, `BackgroundTask.account`; `GET /usage` keeps its shape
+`BridgeThread.account` (a background task shows its session's); `GET /usage` keeps its shape
 for the Default account and adds `accounts: {<id>: PlanUsage}`; other
 accounts' usage comes as `accountUsage {accountId, usage}` frames (§3); `POST /sessions` (spawn), `POST
 /api/bridge/start` defaults and the bridge's own `POST /threads` / `/chat`
@@ -731,7 +754,12 @@ part of done. IDs are referenced from commit messages.
       same path as the Default's; the live check is the maintainer's.)*
 - [x] **P2.5 Background jobs per home** (`jobs/`, `claude logs/stop/respawn/
       rm` with the environment).
-- [ ] **P2.6 UI: badges, filters, fleet per account, Inbox and Agents.**
+- [x] **P2.6 UI: badges, filters, fleet per account, Inbox and Agents.**
+      *(Chips on Inbox cards, Agents groups and Services' background jobs —
+      a background task shows its session's account, so no
+      `BackgroundTask.account` field is served; account filters on Sessions
+      and Inbox; per-account counts under the fleet summary. None of it
+      shows with only the Default.)*
 
 ### Phase 3 — move and copy
 
@@ -743,7 +771,10 @@ part of done. IDs are referenced from commit messages.
       (`DesktopOnly`), the job model.
 - [x] **P3.3 "Continue on" for directory accounts** uses copy-then-fork
       (closes the gap left in P1.5).
-- [ ] **P3.4 UI: move/copy dialog with dry run and Undo.**
+- [x] **P3.4 UI: move/copy dialog with dry run and Undo.** *(From the
+      session menu and the Info tab's folder row, desktop only; the Accounts
+      page lists recent moves and copies with their Undo, also after a
+      restart.)*
 
 ### Phase 4 — backup
 
@@ -756,7 +787,10 @@ part of done. IDs are referenced from commit messages.
       trust opt-in.
 - [x] **P4.3 Routes and schedule** (`/backup*`, `everyHours`, idle rule,
       passphrase in the Keychain, iCloud/Drive folder suggestions).
-- [ ] **P4.4 UI: Backup & sync page** (without pull).
+- [x] **P4.4 UI: Backup & sync page** (without pull). *(A generated
+      passphrase is shown once and must be confirmed as written down; the
+      restore dialog says which sessions Claude Code would prune again before
+      it starts, §11.7.)*
 - [x] **P4.5 Docs:** a section in REMOTE.md or a new `docs/BACKUP.md` with the
       folder advice ("Keep Downloaded" on iCloud, Drive streaming).
 
@@ -767,7 +801,7 @@ part of done. IDs are referenced from commit messages.
       the date and CLI version. *(The maintainer's: it needs both Macs, a real
       cloud folder and real accounts — see "Checks that need real accounts"
       below.)*
-- [ ] **P5.3 UI: Pull… with the session list and conflicts.**
+- [x] **P5.3 UI: Pull… with the session list and conflicts.**
 
 ### Checks that need real accounts
 
