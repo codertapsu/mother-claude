@@ -8,17 +8,29 @@ import {
   serveAccounts,
   useFakeServer,
 } from '../../core/mock/fake-server.testing';
-import { MOCK_ACCOUNT_WORK, buildAccounts } from '../../core/mock/fixtures';
+import { MOCK_ACCOUNT_PRO, MOCK_ACCOUNT_WORK, buildAccounts } from '../../core/mock/fixtures';
 import { setActiveMock } from '../../core/mock/mock-api';
 import { BackupSet, JobView } from '../../core/models';
 import { PullSheetComponent } from './pull-sheet.component';
 
 const H = 3_600_000;
 
+const set = (account: string, name: string, over: Partial<BackupSet> = {}): BackupSet => ({
+  account,
+  name,
+  dir: `/b/${name}`,
+  exists: true,
+  keyMissing: false,
+  machines: [],
+  ...over,
+});
+
 const sets: BackupSet[] = [
-  { account: 'default', name: 'Default', dir: '/b/Default', exists: true, machines: [] },
-  { account: MOCK_ACCOUNT_WORK, name: 'Work', dir: '/b/Work', exists: true, machines: [] },
-  { account: 'acc_9b02d3e6c1f8', name: 'Marcus (Pro)', dir: '/b/Pro', exists: false, machines: [] },
+  set('default', 'Default'),
+  set(MOCK_ACCOUNT_WORK, 'Work'),
+  // A token account's set is the Default's (the server lists it, with the
+  // Default's details).
+  set(MOCK_ACCOUNT_PRO, 'Marcus (Pro)', { dir: '/b/Default', sharedWith: 'default' }),
 ];
 
 const s = (id: string, action: string) => ({
@@ -57,10 +69,11 @@ const indexOf = (account: string) =>
         sessions: [s('w0000001', 'new'), s('w0000002', 'localNewer')],
       };
 
-const pullJob = (id: string, result: unknown): JobView => ({
+const pullJob = (id: string, result: unknown, account = 'default'): JobView => ({
   id,
   kind: 'pull',
   state: 'done',
+  account,
   startedAt: Date.now(),
   finishedAt: Date.now(),
   filesDone: 0,
@@ -151,17 +164,22 @@ describe('PullSheetComponent', () => {
     }));
     backend.routes.set('/data/jobs/job_p2', () => ({
       status: 200,
-      body: pullJob('job_p2', {
-        restored: ['w0000001'],
-        updated: [],
-        conflicts: [],
-        skipped: [],
-        warnings: [],
-        historyLines: 0,
-      }),
+      body: pullJob(
+        'job_p2',
+        {
+          restored: ['w0000001'],
+          updated: [],
+          conflicts: [],
+          skipped: [],
+          warnings: [],
+          historyLines: 0,
+        },
+        MOCK_ACCOUNT_WORK,
+      ),
     }));
     const el = await open(null);
-    // Only the sets that exist; each under its account's name.
+    // Each set of its own once (the token account's is the Default's),
+    // under its account's name.
     expect(backend.urls.filter((u) => u.startsWith('/backup/index')).length).toBe(2);
     expect([...el.querySelectorAll('.grp h3')].map((h) => text(h))).toEqual(['Default', 'Work']);
     expect(text(button(el, 'Pull'))).toBe('Pull 4 sessions');
@@ -189,6 +207,65 @@ describe('PullSheetComponent', () => {
       'a0000003 → ~/.claude/projects/x/a0000003.conflict-marcus-air-17.jsonl',
     );
     expect(text(rows[1])).toContain('Pull of Work');
+  });
+
+  it("says why a set can't be pulled: its key isn't here", async () => {
+    backend.routes.set('/backup/index', () => {
+      const url = backend.urls[backend.urls.length - 1];
+      const account = new URLSearchParams(url.split('?')[1]).get('account') ?? '';
+      return account === MOCK_ACCOUNT_WORK
+        ? {
+            status: 409,
+            body: {
+              error: { code: 'set_key_missing', message: 'the backup set in /b/Work has no key' },
+            },
+          }
+        : { status: 200, body: indexOf(account) };
+    });
+    fixture = TestBed.createComponent(PullSheetComponent);
+    fixture.componentRef.setInput('sets', [
+      sets[0],
+      set(MOCK_ACCOUNT_WORK, 'Work', { exists: false, keyMissing: true }),
+      sets[2],
+    ]);
+    fixture.componentRef.setInput('account', null);
+    fixture.componentRef.setInput('open', true);
+    fixture.detectChanges();
+    await settle();
+    const el = fixture.nativeElement as HTMLElement;
+    const groups = [...el.querySelectorAll('.grp')];
+    expect(groups.map((g) => text(g.querySelector('h3')))).toEqual(['Default', 'Work']);
+    expect(text(groups[1].querySelector('.notice.error'))).toContain(
+      "The backup's key (identity.age) isn't in the folder on this Mac",
+    );
+    // The Default's sessions can still be pulled.
+    expect(text(button(el, 'Pull'))).toBe('Pull 3 sessions');
+  });
+
+  it("names the sets a pull passed over, from the server's objects or its sentences", async () => {
+    backend.routes.set('/backup/pull', () => ({
+      status: 202,
+      body: {
+        jobs: ['job_y'],
+        skipped: [
+          {
+            account: MOCK_ACCOUNT_WORK,
+            code: 'invalid_backup',
+            message: 'there is no backup of Work',
+          },
+          'an older server said this',
+        ],
+      },
+    }));
+    backend.routes.set('/data/jobs/job_y', () => ({
+      status: 200,
+      body: pullJob('job_y', { restored: [], updated: [], conflicts: [] }),
+    }));
+    const el = await open('default');
+    button(el, 'Pull 3 sessions')?.click();
+    await settle(5);
+    const lines = [...el.querySelectorAll('.runs ~ p.muted')].map((p) => text(p));
+    expect(lines).toEqual(['Work: There is no backup of Work.', 'An older server said this.']);
   });
 
   it('sends only what stays ticked', async () => {

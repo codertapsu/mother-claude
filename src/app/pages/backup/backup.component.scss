@@ -5,6 +5,18 @@
 .phone-note {
   margin: 0 0 0.75rem;
 }
+.unfinished {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem 0.75rem;
+  margin: 0 0 0.75rem;
+}
+.unfinished p {
+  flex: 1 1 16rem;
+  margin: 0;
+  line-height: 1.5;
+}
 section.card {
   padding-top: 0.6rem;
   padding-bottom: 0.6rem;
@@ -111,6 +123,10 @@ section.card {
 }
 .cfg {
   margin-top: 0.4rem;
+}
+.nokey {
+  margin: 0.35rem 0 0.1rem;
+  line-height: 1.5;
 }
 .cfg p {
   margin: 0 0 0.35rem;

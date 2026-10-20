@@ -38,10 +38,12 @@ import {
   PairExchangeBody,
   PairExchangeResult,
   PairPendingStatus,
+  PassphraseChange,
   PermissionMode,
   PlanUsage,
   PlanUsageReply,
   ProjectInfo,
+  PullSkip,
   PushPrefs,
   PushPrefsUpdate,
   PushSubscriptionBody,
@@ -500,17 +502,24 @@ export class ApiService {
   }
 
   /** Desktop only: a generated passphrase, answered this once and then only
-   * in the Mac's Keychain. The caller shows it and forgets it. */
-  generateBackupPassphrase(): Promise<{ passphrase: string | null }> {
+   * in the Mac's Keychain. The caller shows it and forgets it. Every set in
+   * the folder is re-keyed (`rekeyed`; `left`: sets of no account here it
+   * could not open). A failure after some set has the new one carries
+   * `error.applied: true` and, for a generated one, `error.passphrase`
+   * ({@link ApiError.extra}). */
+  generateBackupPassphrase(): Promise<PassphraseChange> {
     return this.post('/backup/passphrase', { generate: true });
   }
 
-  /** Desktop only: the user's own passphrase (at least 12 characters). */
-  setBackupPassphrase(passphrase: string): Promise<{ passphrase: string | null }> {
+  /** Desktop only: the user's own passphrase (one line, at least 12
+   * characters); answered and refused like {@link generateBackupPassphrase}. */
+  setBackupPassphrase(passphrase: string): Promise<PassphraseChange> {
     return this.post('/backup/passphrase', { passphrase });
   }
 
-  /** Desktop only: back up one account, or all (202 with the job ids). */
+  /** Desktop only: back up one set, or every set (202 with the job ids; a
+   * token account's set is the Default's, and a set being backed up
+   * already answers the running job's id). */
   pushBackup(account?: string): Promise<{ jobs: string[] }> {
     return this.post('/backup/push', account ? { account } : {});
   }
@@ -541,7 +550,7 @@ export class ApiService {
     account?: string;
     ids?: string[];
     trust?: boolean;
-  }): Promise<{ jobs: (JobView | string)[]; skipped?: string[] }> {
+  }): Promise<{ jobs: (JobView | string)[]; skipped?: (PullSkip | string)[] }> {
     return this.post('/backup/pull', body);
   }
 

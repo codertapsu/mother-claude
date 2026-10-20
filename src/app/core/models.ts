@@ -869,6 +869,10 @@ export interface BackupSettings {
 
 /** A machine that pushed to a backup set. */
 export interface BackupMachine {
+  /** Its per-install id (machines are told apart by it, never by name;
+   * absent in sets an older build wrote). */
+  id?: string;
+  /** Its host name: display only (two Macs may share one). */
   host: string;
   lastPush?: number;
 }
@@ -879,6 +883,13 @@ export interface BackupSet {
   name: string;
   dir: string;
   exists: boolean;
+  /** A token account's sessions are in the Default's directory, so in the
+   * Default's set: that account's id (the details are that set's). */
+  sharedWith?: string;
+  /** The set is in the folder but its key (`identity.age`) is not —
+   * deleted, or still a cloud placeholder: nothing can be pushed or read
+   * until it is back. */
+  keyMissing: boolean;
   lastPush?: number;
   lastError?: string;
   sessions?: number;
@@ -894,7 +905,10 @@ export interface BackupSuggestion {
 export interface BackupView {
   settings: BackupSettings;
   passphraseSet: boolean;
-  /** This Mac's name in the sets. */
+  /** A passphrase change did not finish (some sets may have the new one):
+   * setting the passphrase again finishes it. */
+  passphraseChangeUnfinished: boolean;
+  /** This Mac's name in the sets (display only). */
   host: string;
   sets: BackupSet[];
   suggestions: BackupSuggestion[];
@@ -909,6 +923,8 @@ export interface BackupIndexSession {
   id: string;
   action: BackupAction;
   cwd?: string;
+  /** What the session list called it when it was pushed. */
+  title?: string;
   remoteBytes: number;
   localBytes?: number;
   host: string;
@@ -922,6 +938,11 @@ export interface BackupConfigEntry {
   name: string;
   createdAt: number;
   host: string;
+  /** The machine (its id) whose configuration it is. */
+  machine: string;
+  /** The bundle file's SHA-256 and size (checked before it is opened). */
+  archiveSha256: string;
+  archiveBytes: number;
 }
 
 /** `GET /backup/index?account=&into=`. */
@@ -967,8 +988,37 @@ export interface PushResult {
   unchanged: number;
   skippedLive: string[];
   failed: [string, string][];
+  /** Changed here and, since this Mac last had them, by another machine:
+   * not pushed (a Pull brings the other copy beside this one). */
+  conflicts: string[];
+  /** Newer in the set (another machine pushed them): a Pull brings them.
+   * Counted in `unchanged` too. */
+  newerInSet: string[];
   config?: string | null;
   bytes: number;
+  /** What was left out without failing the backup. */
+  warnings: string[];
+  /** Files no index names any more, removed. */
+  removed: number;
+}
+
+/** `POST /backup/passphrase`. */
+export interface PassphraseChange {
+  /** A generated passphrase, shown this once (null for the user's own). */
+  passphrase: string | null;
+  /** The sets now under the new passphrase. */
+  rekeyed: string[];
+  /** Sets of no account here that open with none of this Mac's
+   * passphrases: left as they are. */
+  left: string[];
+}
+
+/** A set a pull of every set could not start (`POST /backup/pull`
+ * `skipped`). */
+export interface PullSkip {
+  account: string;
+  code: string;
+  message: string;
 }
 
 /** `GET /sessions/{id}/mcp` (owned sessions). */
@@ -1596,6 +1646,9 @@ export interface BridgeThread {
   title?: string;
   persisted: boolean;
   activeTurn?: string;
+  /** The Claude account it runs under, while there are several (absent:
+   * the Default's). */
+  account?: AccountRef;
 }
 
 /** Everything the API screen needs: `GET /api/bridge`. */

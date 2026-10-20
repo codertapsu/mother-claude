@@ -9,7 +9,7 @@ import {
   serveAccounts,
   useFakeServer,
 } from '../../core/mock/fake-server.testing';
-import { MOCK_ACCOUNT_WORK, buildAccounts } from '../../core/mock/fixtures';
+import { MOCK_ACCOUNT_PRO, MOCK_ACCOUNT_WORK, buildAccounts } from '../../core/mock/fixtures';
 import { setActiveMock } from '../../core/mock/mock-api';
 import { BackupView, JobView } from '../../core/models';
 import { BackupComponent } from './backup.component';
@@ -20,6 +20,7 @@ const ICLOUD = '/Users/me/Library/Mobile Documents/com~apple~CloudDocs/Mother Cl
 const view = (over: Partial<BackupView> = {}): BackupView => ({
   settings: { folder: null, everyHours: 0, pullOnLaunch: false },
   passphraseSet: false,
+  passphraseChangeUnfinished: false,
   host: 'marcus-mbp',
   sets: [],
   suggestions: [{ label: 'iCloud Drive', path: ICLOUD }],
@@ -37,11 +38,12 @@ const ready = (): BackupView =>
         name: 'Default',
         dir: `${ICLOUD}/Default`,
         exists: true,
+        keyMissing: false,
         lastPush: Date.now() - 2 * H,
         sessions: 143,
         machines: [
-          { host: 'marcus-mbp', lastPush: Date.now() - 2 * H },
-          { host: 'marcus-air', lastPush: Date.now() - 5 * H },
+          { id: 'm-this', host: 'marcus-mbp', lastPush: Date.now() - 2 * H },
+          { id: 'm-air', host: 'marcus-air', lastPush: Date.now() - 5 * H },
         ],
       },
       {
@@ -49,13 +51,26 @@ const ready = (): BackupView =>
         name: 'Work',
         dir: `${ICLOUD}/Work`,
         exists: false,
+        keyMissing: false,
         lastError: 'no backup passphrase is set',
         machines: [],
+      },
+      // A token account: its sessions are the Default's, so is its set.
+      {
+        account: MOCK_ACCOUNT_PRO,
+        name: 'Marcus (Pro)',
+        dir: `${ICLOUD}/Default`,
+        exists: true,
+        sharedWith: 'default',
+        keyMissing: false,
+        lastPush: Date.now() - 2 * H,
+        sessions: 143,
+        machines: [{ id: 'm-this', host: 'marcus-mbp', lastPush: Date.now() - 2 * H }],
       },
     ],
   });
 
-const backupJob = (id: string, state: JobView['state']): JobView => ({
+const backupJob = (id: string, state: JobView['state'], account = 'default'): JobView => ({
   id,
   kind: 'backup',
   state,
@@ -65,6 +80,7 @@ const backupJob = (id: string, state: JobView['state']): JobView => ({
   bytesDone: 0,
   bytesTotal: 0,
   sessions: [],
+  account,
   ...(state === 'done'
     ? {
         result: {
@@ -72,8 +88,12 @@ const backupJob = (id: string, state: JobView['state']): JobView => ({
           unchanged: 3,
           skippedLive: [],
           failed: [],
+          conflicts: [],
+          newerInSet: [],
           config: null,
           bytes: 1,
+          warnings: [],
+          removed: 0,
         },
       }
     : {}),
@@ -123,11 +143,89 @@ describe('BackupComponent', () => {
     // Other Macs that pushed, not this one.
     expect(text(el.querySelector('.sets'))).toContain('Also from marcus-air');
     expect(text(el.querySelector('.sets'))).not.toContain('Also from marcus-mbp');
-    expect(text(el.querySelector('.sets'))).toContain('no backup passphrase is set');
+    expect(text(el.querySelector('.sets'))).toContain('No backup passphrase is set.');
+    // A token account's sessions are in the Default's set.
+    const pro = [...el.querySelectorAll('.setrow')].find(
+      (r) => text(r.querySelector('.sname')) === 'Marcus (Pro)',
+    );
+    expect(text(pro?.querySelector('.smain > span'))).toBe(
+      "Its sessions are in Default's backup: a token account uses the Default account's directory.",
+    );
+    expect(text(pro)).not.toContain('143 sessions');
     // Nothing that changes anything.
     expect(el.querySelectorAll('button').length).toBe(0);
     expect(el.querySelector('select')).toBeNull();
     expect(el.querySelector('input')).toBeNull();
+  });
+
+  it("gives a token account's row no buttons: its set is the Default's", async () => {
+    asDesktop();
+    current = ready();
+    const el = await render();
+    const labels = [...el.querySelectorAll('.sacts .btn')].map((b) => b.getAttribute('aria-label'));
+    expect(labels).toContain('Back up Default');
+    expect(labels).toContain('Back up Work');
+    expect(labels.some((l) => (l ?? '').includes('Marcus (Pro)'))).toBeFalse();
+  });
+
+  it("says when a set's key is not in the folder here, and checks again", async () => {
+    asDesktop();
+    current = ready();
+    current.sets[1] = { ...current.sets[1], keyMissing: true, lastError: undefined };
+    const el = await render();
+    const work = [...el.querySelectorAll('.setrow')].find(
+      (r) => text(r.querySelector('.sname')) === 'Work',
+    )!;
+    expect(text(work.querySelector('.nokey'))).toContain(
+      "Its key (identity.age) isn't in the folder on this Mac",
+    );
+    expect(text(work.querySelector('.nokey'))).toContain('choose Keep Downloaded');
+    // Nothing to back up to it or read from it: only a fresh look.
+    expect(text(work.querySelector('.sacts'))).toBe('Check again');
+    expect(text(work)).not.toContain('No backup yet');
+    const before = backend.calls.filter((c) => c === 'GET /backup').length;
+    (work.querySelector('.sacts .btn') as HTMLButtonElement).click();
+    await settle();
+    expect(backend.calls.filter((c) => c === 'GET /backup').length).toBe(before + 1);
+  });
+
+  it('asks to finish a passphrase change that did not finish', async () => {
+    asDesktop();
+    current = { ...ready(), passphraseChangeUnfinished: true };
+    const el = await render();
+    expect(text(el.querySelector('.unfinished'))).toContain(
+      'A passphrase change did not finish, so some backups may open only with the new passphrase.',
+    );
+    button(el, 'Set the passphrase again')?.click();
+    await settle();
+    const dialog = el.querySelector('mc-passphrase-sheet dialog') as HTMLDialogElement;
+    expect(dialog.open).toBeTrue();
+    expect(text(dialog.querySelector('.title'))).toBe('Finish the passphrase change');
+  });
+
+  it('tells a phone to finish the passphrase change on the Mac', async () => {
+    current = { ...ready(), passphraseChangeUnfinished: true };
+    const el = await render();
+    expect(text(el.querySelector('.unfinished'))).toContain(
+      'Set the passphrase again on the Mac to finish it.',
+    );
+    expect(el.querySelector('.unfinished button')).toBeNull();
+  });
+
+  it('tells machines apart by id, and says when another Mac has this name', async () => {
+    current = ready();
+    current.sets[0] = {
+      ...current.sets[0],
+      machines: [
+        { id: 'm-this', host: 'marcus-mbp', lastPush: Date.now() - 2 * H },
+        { id: 'm-copy', host: 'marcus-mbp', lastPush: Date.now() - 3 * H },
+        { id: 'm-air', host: 'marcus-air', lastPush: Date.now() - 5 * H },
+      ],
+    };
+    const el = await render();
+    const def = text(el.querySelector('.setrow'));
+    expect(def).toContain('Also from marcus-air');
+    expect(def).toContain('Also from another Mac named marcus-mbp');
   });
 
   it('lets the desktop pick a suggested folder in one click', async () => {
@@ -171,22 +269,27 @@ describe('BackupComponent', () => {
     expect(backend.bodyOf('PUT /backup/settings')).toEqual({ pullOnLaunch: true });
   });
 
-  it('backs every account up now and follows each job', async () => {
+  it('backs every set up now and follows each job, which names its account', async () => {
     asDesktop();
     current = ready();
     const polls = new Map<string, number>();
     backend.routes.set('/backup/push', () => ({ status: 202, body: { jobs: ['jb1', 'jb2'] } }));
-    for (const id of ['jb1', 'jb2']) {
+    for (const [id, account] of [
+      ['jb1', 'default'],
+      ['jb2', MOCK_ACCOUNT_WORK],
+    ]) {
       backend.routes.set(`/data/jobs/${id}`, () => {
         const n = (polls.get(id) ?? 0) + 1;
         polls.set(id, n);
-        return { status: 200, body: backupJob(id, n < 2 ? 'running' : 'done') };
+        return { status: 200, body: backupJob(id, n < 2 ? 'running' : 'done', account) };
       });
     }
     const el = await render();
     button(el, 'Back up now')?.click();
     await settle();
     expect(backend.bodyOf('POST /backup/push')).toEqual({});
+    // One set per directory: the token account's is the Default's.
+    expect(text(el.querySelector('.notice.ok'))).toBe('Backing up Default and Work…');
     await new Promise((r) => setTimeout(r, 30));
     await settle();
     const rows = [...el.querySelectorAll('mc-data-job')];
@@ -198,6 +301,25 @@ describe('BackupComponent', () => {
     expect(text(rows[0])).toContain('1 session backed up · 3 unchanged');
     // Once they ended the view is read again (last backups, machines).
     expect(backend.calls.filter((c) => c === 'GET /backup').length).toBeGreaterThan(1);
+  });
+
+  it('follows a set being backed up already once, and says so', async () => {
+    asDesktop();
+    current = ready();
+    backend.routes.set('/backup/push', () => ({ status: 202, body: { jobs: ['jb1'] } }));
+    backend.routes.set('/data/jobs/jb1', () => ({
+      status: 200,
+      body: backupJob('jb1', 'running'),
+    }));
+    const el = await render();
+    (el.querySelector('[aria-label="Back up Default"]') as HTMLButtonElement).click();
+    await settle();
+    expect(text(el.querySelector('.notice.ok'))).toBe('Backing up Default…');
+    (el.querySelector('[aria-label="Back up Default"]') as HTMLButtonElement).click();
+    await settle();
+    // The server answers the running job's id: the same row, followed once.
+    expect(text(el.querySelector('.notice.ok'))).toBe('Default is being backed up already.');
+    expect(el.querySelectorAll('mc-data-job').length).toBe(1);
   });
 
   it("says why nothing was backed up, in the app's words", async () => {

@@ -17,6 +17,7 @@ import {
   PRUNE_WARNING,
   backupErrorText,
   normalizeBackupIndex,
+  ownSets,
   preselect,
   prunedOf,
 } from '../../core/backup';
@@ -33,8 +34,10 @@ export type RestoreStep = 'loading' | 'list' | 'confirm' | 'run' | 'error';
 
 /**
  * Desktop: bring sessions back from a backup set (docs/BACKUP.md). Choose
- * the set and the account to restore into (the same by default); the set's
- * sessions are listed with how each compares (new ones start selected) and
+ * the set (one per directory: a token account's sessions are in the
+ * Default's) and the account to restore into (the same by default); the
+ * set's sessions are listed by title with how each compares (new ones
+ * start selected) and
  * Claude Code's pruning warning next to those it would delete again. If any
  * selected one has it, the dialog says so before it starts. A folder's
  * trust comes back only when ticked. Restoring writes only new files and
@@ -149,7 +152,7 @@ export type RestoreStep = 'loading' | 'list' | 'confirm' | 'run' | 'error';
           }
           @case ('run') {
             @if (job(); as j) {
-              <mc-data-job [job]="j" [label]="jobLabel()" (changed)="job.set($event)">
+              <mc-data-job [job]="j" (changed)="job.set($event)">
                 <mc-job-details [job]="j" />
               </mc-data-job>
             }
@@ -210,11 +213,11 @@ export class RestoreSheetComponent {
 
   /** The account whose set to restore from (null: closed). */
   readonly account = input<string | null>(null);
-  /** Every account's set (those that exist can be chosen). */
+  /** Every account's set (those of their own that exist can be chosen). */
   readonly sets = input<BackupSet[]>([]);
   readonly closed = output<void>();
-  /** A restore started (its job id), for the page's list. */
-  readonly started = output<{ id: string; label: string }>();
+  /** A restore started: its job id, for the page's list. */
+  readonly started = output<string>();
 
   protected readonly step = signal<RestoreStep>('loading');
   protected readonly busy = signal(false);
@@ -233,8 +236,9 @@ export class RestoreSheetComponent {
   protected readonly plural = plural;
 
   protected readonly choosable = computed(() => {
-    const list = this.sets().filter((s) => s.exists);
-    const cur = this.sets().find((s) => s.account === this.setId());
+    const own = ownSets(this.sets());
+    const list = own.filter((s) => s.exists);
+    const cur = own.find((s) => s.account === this.setId());
     return cur && !list.includes(cur) ? [cur, ...list] : list;
   });
   /** Restoring needs a directory: a token account's is the Default's. */
@@ -244,16 +248,8 @@ export class RestoreSheetComponent {
   protected readonly intoName = computed(
     () => this.accounts.byId(this.intoId())?.name ?? 'the account',
   );
-  private readonly setName = computed(
-    () => this.sets().find((s) => s.account === this.setId())?.name ?? 'the backup',
-  );
   protected readonly pruneCount = computed(
     () => prunedOf(this.index()?.sessions ?? [], this.selected()).length,
-  );
-  protected readonly jobLabel = computed(() =>
-    this.setId() === this.intoId()
-      ? `Restore of ${this.setName()}`
-      : `Restore of ${this.setName()} into ${this.intoName()}`,
   );
 
   constructor() {
@@ -363,7 +359,7 @@ export class RestoreSheetComponent {
     this.busy.set(false);
     this.job.set(typeof first === 'string' ? null : first);
     this.step.set('run');
-    this.started.emit({ id: typeof first === 'string' ? first : first.id, label: this.jobLabel() });
+    this.started.emit(typeof first === 'string' ? first : first.id);
     this.following?.abort();
     const ctrl = new AbortController();
     this.following = ctrl;

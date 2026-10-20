@@ -578,11 +578,34 @@ class FixtureBackend implements MockBackend {
           422,
         );
       }
-      this.fx.bridge = { ...this.fx.bridge, running: true, startedAt: Date.now(), defaults };
+      // One running conversation, under the start-time account (else the
+      // accounts' API default); like the server it names its account only
+      // while there are several.
+      const ref = this.multi()
+        ? this.accountRef(defaults.account || this.fx.accounts.defaults.bridge)
+        : undefined;
+      const threads = [
+        {
+          threadId: 'b7d3e9a1-4c2f-4e8a-9b6d-1f3a5c7e9b2d',
+          cwd: defaults.cwd || '/Users/marcus',
+          createdAt: Date.now(),
+          permissionMode: defaults.permissionMode || 'default',
+          title: 'Release checklist',
+          persisted: true,
+          ...(ref ? { account: ref } : {}),
+        },
+      ];
+      this.fx.bridge = {
+        ...this.fx.bridge,
+        running: true,
+        startedAt: Date.now(),
+        defaults,
+        threads,
+      };
       return json(this.fx.bridge);
     }
     if (path === '/bridge/stop') {
-      this.fx.bridge = { ...this.fx.bridge, running: false };
+      this.fx.bridge = { ...this.fx.bridge, running: false, threads: [] };
       return json(this.fx.bridge);
     }
     if (path === '/bridge/active-thread') return json(this.fx.bridge);
@@ -1539,6 +1562,20 @@ class FixtureBackend implements MockBackend {
             },
           },
           422,
+        );
+      }
+      // Like the server: not while the API runs with it as its start-time
+      // account.
+      if (this.fx.bridge.running && this.fx.bridge.defaults?.account === a.id) {
+        return json(
+          {
+            error: {
+              code: 'account_used_by_bridge',
+              message:
+                'The API runs with this account as its default for new conversations. Stop the API, or start it again with another account, first.',
+            },
+          },
+          409,
         );
       }
       const running = this.fx.sessions.filter(

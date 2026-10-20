@@ -12,7 +12,9 @@ import {
   BackupView,
   BackupWarning,
   JobView,
+  PassphraseChange,
   PullResult,
+  PullSkip,
   PushResult,
   RestoreResult,
 } from './models';
@@ -75,18 +77,29 @@ function list<T>(v: unknown, read: (x: unknown) => T | null): T[] {
   return Array.isArray(v) ? v.map(read).filter((x): x is T => x !== null) : [];
 }
 
+/** Non-empty strings of a list (anything else is dropped). */
+function texts(v: unknown): string[] {
+  return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string' && !!x.trim()) : [];
+}
+
 function machine(raw: unknown): BackupMachine | null {
   const r = obj(raw);
   const host = str(r?.['host']);
   if (!r || !host) return null;
+  const id = str(r['id']);
   const lastPush = num(r['lastPush']);
-  return { host, ...(lastPush !== undefined ? { lastPush } : {}) };
+  return {
+    ...(id ? { id } : {}),
+    host,
+    ...(lastPush !== undefined ? { lastPush } : {}),
+  };
 }
 
 function backupSet(raw: unknown): BackupSet | null {
   const r = obj(raw);
   const account = str(r?.['account']);
   if (!r || !account) return null;
+  const sharedWith = str(r['sharedWith']);
   const lastPush = num(r['lastPush']);
   const lastError = str(r['lastError']);
   const sessions = num(r['sessions']);
@@ -95,12 +108,43 @@ function backupSet(raw: unknown): BackupSet | null {
     name: str(r['name']) ?? account,
     dir: str(r['dir']) ?? '',
     exists: r['exists'] === true,
+    ...(sharedWith && sharedWith !== account ? { sharedWith } : {}),
+    keyMissing: r['keyMissing'] === true,
     ...(lastPush !== undefined ? { lastPush } : {}),
     ...(lastError ? { lastError } : {}),
     ...(sessions !== undefined ? { sessions } : {}),
     machines: list(r['machines'], machine),
   };
 }
+
+/** The sets of their own: a token account's is the Default's (`sharedWith`),
+ * so it is backed up, restored and pulled there. */
+export function ownSets(sets: readonly BackupSet[]): BackupSet[] {
+  return sets.filter((s) => !s.sharedWith);
+}
+
+/** The other machines that pushed to a set, as far as the view tells them
+ * apart: it names this Mac only by its host name, so the machines named
+ * otherwise, and whether another Mac has this Mac's name too. */
+export function otherMachines(
+  machines: readonly BackupMachine[],
+  host: string,
+): { others: BackupMachine[]; sameName: boolean } {
+  return {
+    others: machines.filter((m) => m.host !== host),
+    sameName: machines.filter((m) => m.host === host).length > 1,
+  };
+}
+
+/** `Default`, `Default and Work`, `Default, Work and Personal`. */
+export function andList(names: readonly string[]): string {
+  if (names.length <= 1) return names[0] ?? '';
+  return `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
+}
+
+/** What the page says about a set whose key is not in the folder here. */
+export const KEY_MISSING_TEXT =
+  "Its key (identity.age) isn't in the folder on this Mac — deleted, or not downloaded yet — so nothing can be backed up to it or read from it until it is back. On iCloud Drive, right-click the Mother Claude folder and choose Keep Downloaded; to start over instead, move the set's folder away.";
 
 function suggestion(raw: unknown): BackupSuggestion | null {
   const r = obj(raw);
@@ -123,6 +167,7 @@ export function normalizeBackupView(raw: unknown): BackupView | null {
       pullOnLaunch: s['pullOnLaunch'] === true,
     },
     passphraseSet: r['passphraseSet'] === true,
+    passphraseChangeUnfinished: r['passphraseChangeUnfinished'] === true,
     host: str(r['host']) ?? '',
     sets: list(r['sets'], backupSet),
     suggestions: list(r['suggestions'], suggestion),
@@ -137,12 +182,14 @@ function indexSession(raw: unknown): BackupIndexSession | null {
   const action = ACTIONS.find((a) => a === r?.['action']);
   if (!r || !id || !action) return null;
   const cwd = str(r['cwd']);
+  const title = str(r['title']);
   const localBytes = num(r['localBytes']);
   const pruneWarning = str(r['pruneWarning']);
   return {
     id,
     action,
     ...(cwd ? { cwd } : {}),
+    ...(title ? { title: title.trim() } : {}),
     remoteBytes: count(r['remoteBytes']),
     ...(localBytes !== undefined ? { localBytes } : {}),
     host: str(r['host']) ?? '',
@@ -156,7 +203,14 @@ function configEntry(raw: unknown): BackupConfigEntry | null {
   const r = obj(raw);
   const name = str(r?.['name']);
   if (!r || !name) return null;
-  return { name, createdAt: num(r['createdAt']) ?? 0, host: str(r['host']) ?? '' };
+  return {
+    name,
+    createdAt: num(r['createdAt']) ?? 0,
+    host: str(r['host']) ?? '',
+    machine: str(r['machine']) ?? '',
+    archiveSha256: str(r['archiveSha256']) ?? '',
+    archiveBytes: count(r['archiveBytes']),
+  };
 }
 
 /** `GET /backup/index` made safe to render, or null when it isn't one. */
@@ -294,14 +348,52 @@ export function normalizePushResult(raw: unknown): PushResult | null {
     unchanged: count(r['unchanged']),
     skippedLive: ids(r['skippedLive']),
     failed,
+    conflicts: ids(r['conflicts']),
+    newerInSet: ids(r['newerInSet']),
     config: str(r['config']) ?? null,
     bytes: count(r['bytes']),
+    warnings: texts(r['warnings']),
+    removed: count(r['removed']),
   };
+}
+
+/** `POST /backup/passphrase`'s answer. */
+export function normalizePassphraseChange(raw: unknown): PassphraseChange {
+  const r = obj(raw) ?? {};
+  return {
+    passphrase: str(r['passphrase']) ?? null,
+    rekeyed: texts(r['rekeyed']),
+    left: texts(r['left']),
+  };
+}
+
+/** What a refused passphrase change left behind: whether some set has the
+ * new passphrase already (then the change did not finish, and setting the
+ * passphrase again finishes it) and, for a generated one, that passphrase —
+ * shown, so it is never lost. */
+export function passphraseFailure(e: unknown): { applied: boolean; passphrase: string } {
+  if (!(e instanceof ApiError)) return { applied: false, passphrase: '' };
+  return { applied: e.extra['applied'] === true, passphrase: e.detail('passphrase') };
+}
+
+/** The sets a pull of every set could not start (`{account, code,
+ * message}`; an older server sent a sentence). */
+export function normalizePullSkips(raw: unknown): PullSkip[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((x): PullSkip | null => {
+      if (typeof x === 'string') return x.trim() ? { account: '', code: '', message: x } : null;
+      const r = obj(x);
+      const message = str(r?.['message']);
+      if (!r || !message) return null;
+      return { account: str(r['account']) ?? '', code: str(r['code']) ?? '', message };
+    })
+    .filter((x): x is PullSkip => x !== null);
 }
 
 /** One line about a finished job ('' when there is nothing to say). */
 export function jobSummary(job: JobView): string {
-  if (job.state === 'failed') return sentence(job.error) || 'It failed.';
+  if (job.state === 'failed') return backupJobErrorText(job.errorCode, job.error) || 'It failed.';
   if (job.state === 'undone') return 'Undone: everything is back as it was.';
   if (job.state !== 'done') return '';
   switch (job.kind) {
@@ -313,8 +405,11 @@ export function jobSummary(job: JobView): string {
           ? `${plural(r.archived.length, 'session')} backed up`
           : 'Nothing new to back up',
         r.unchanged ? `${r.unchanged} unchanged` : '',
+        r.conflicts.length ? plural(r.conflicts.length, 'conflict') : '',
+        r.newerInSet.length ? `${r.newerInSet.length} newer in the backup` : '',
         r.skippedLive.length ? `${r.skippedLive.length} running, skipped` : '',
         r.failed.length ? `${r.failed.length} failed` : '',
+        r.warnings.length ? plural(r.warnings.length, 'warning') : '',
         r.config ? 'settings saved' : '',
       ];
       return parts.filter(Boolean).join(' · ');
@@ -351,23 +446,38 @@ const BACKUP_TEXT: Record<string, string> = {
   no_backup_passphrase: 'Set a passphrase first.',
   wrong_passphrase:
     'The passphrase on this Mac does not open this backup. Set the passphrase it was made with (Passphrase › Change), then try again.',
+  backup_unauthenticated:
+    "This backup failed its check: its index was not written with this passphrase's key — someone changed it, or an older build of Mother Claude made it. Nothing was read from it.",
+  set_key_missing:
+    "The backup's key (identity.age) isn't in the folder on this Mac — deleted, or not downloaded yet. Nothing can be backed up or read until it is back: on iCloud Drive, choose Keep Downloaded for the Mother Claude folder.",
   invalid_backup: 'There is no backup to read there.',
   backup_io: 'The backup folder could not be read or written.',
   invalid_schedule: 'Back up at least once a week, or by hand only.',
   invalid_folder: 'That folder can’t be used.',
 };
 
+/** Said our way, whatever the server's words: the prerequisites, and the
+ * refusals whose message names paths and file formats. */
+const OUR_WORDS = new Set([
+  'no_backup_folder',
+  'no_backup_passphrase',
+  'wrong_passphrase',
+  'backup_unauthenticated',
+  'set_key_missing',
+]);
+
 /** A refusal of a backup, restore, pull or settings change, in words. */
 export function backupErrorText(e: unknown): string {
-  if (e instanceof ApiError && e.code === 'wrong_passphrase')
-    return BACKUP_TEXT['wrong_passphrase'];
-  if (e instanceof ApiError && e.code && e.code in BACKUP_TEXT) {
-    // The two prerequisites are said our way; the rest in the server's words.
-    if (e.code === 'no_backup_folder' || e.code === 'no_backup_passphrase') {
-      return BACKUP_TEXT[e.code];
-    }
-    return sentence(e.message) || BACKUP_TEXT[e.code];
+  const code = e instanceof ApiError ? (e.code ?? '') : '';
+  if (OUR_WORDS.has(code)) return BACKUP_TEXT[code];
+  if (e instanceof ApiError && code in BACKUP_TEXT) {
+    return sentence(e.message) || BACKUP_TEXT[code];
   }
   if (isTransferRefusal(e)) return transferErrorText(e);
   return describeError(e).text;
+}
+
+/** The same refusal said about a job that ended with it (`errorCode`). */
+export function backupJobErrorText(code: string | undefined, message: string | undefined): string {
+  return code && OUR_WORDS.has(code) ? BACKUP_TEXT[code] : sentence(message);
 }

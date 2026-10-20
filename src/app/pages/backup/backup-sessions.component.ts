@@ -22,8 +22,9 @@ const TONES: Record<BackupAction, string> = {
 /**
  * The sessions of a backup set with what a restore or a pull would do with
  * each (docs/BACKUP.md): a checkbox per session (sessions it can't take are
- * shown, not offered), its folder, where and when it was backed up, its
- * size and Claude Code's pruning warning. What it would bring is listed
+ * shown, not offered), its title (what the session list called it when it
+ * was backed up; else its id), its id and folder, where and when it was
+ * backed up, its size and Claude Code's pruning warning. What it would bring is listed
  * open; the rest (the same, newer here, already there, running) folded
  * below it.
  */
@@ -70,16 +71,26 @@ const TONES: Record<BackupAction, string> = {
             type="checkbox"
             [checked]="selected().has(s.id)"
             [disabled]="!takesAction(s.action) || disabled()"
-            [attr.aria-label]="'Session ' + s.id.slice(0, 8) + ': ' + text(s.action)"
+            [attr.aria-label]="'Session ' + (s.title || s.id.slice(0, 8)) + ': ' + text(s.action)"
             (change)="flip.emit(s.id)"
           />
           <span class="sbody">
-            <span class="sline">
-              <span class="mono">{{ s.id.slice(0, 8) }}</span>
-              @if (s.cwd) {
-                <span class="small">{{ short(s.cwd) }}</span>
-              }
-            </span>
+            @if (s.title) {
+              <span class="stitle">{{ s.title }}</span>
+              <span class="sline muted small">
+                <span class="mono">{{ s.id.slice(0, 8) }}</span>
+                @if (s.cwd) {
+                  <span>{{ short(s.cwd) }}</span>
+                }
+              </span>
+            } @else {
+              <span class="sline">
+                <span class="mono">{{ s.id.slice(0, 8) }}</span>
+                @if (s.cwd) {
+                  <span class="small">{{ short(s.cwd) }}</span>
+                }
+              </span>
+            }
             <span class="act small">{{ text(s.action) }}</span>
             <span class="muted small">
               From {{ s.host || 'another Mac' }} <mc-time [ms]="s.pushedAt" /> ·
@@ -139,6 +150,10 @@ const TONES: Record<BackupAction, string> = {
         flex-wrap: wrap;
         align-items: baseline;
         gap: 0.2rem 0.6rem;
+      }
+      .stitle {
+        font-weight: 500;
+        line-height: 1.35;
       }
       .act {
         color: var(--muted);

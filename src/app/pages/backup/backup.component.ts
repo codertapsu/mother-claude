@@ -7,11 +7,15 @@ import { ApiService } from '../../core/api.service';
 import { AuthService } from '../../core/auth.service';
 import {
   BACKUP_SCHEDULES,
+  KEY_MISSING_TEXT,
+  andList,
   backupErrorText,
   normalizeBackupView,
+  otherMachines,
+  ownSets,
   scheduleLabel,
 } from '../../core/backup';
-import { jobIdOf, plural } from '../../core/data-jobs';
+import { jobIdOf, plural, sentence } from '../../core/data-jobs';
 import { DataJobsService } from '../../core/data-jobs.service';
 import { BackupMachine, BackupSet, BackupView, JobView } from '../../core/models';
 import { RealtimeService } from '../../core/realtime.service';
@@ -32,6 +36,13 @@ interface SetRow {
   set: BackupSet;
   /** The other machines that pushed to it. */
   others: BackupMachine[];
+  /** Another Mac with this Mac's name pushed to it too. */
+  sameName: boolean;
+  /** A token account's row: the name of the account whose set has its
+   * sessions ('' for a set of its own). */
+  sharedWith: string;
+  /** Its last backup's trouble, as a sentence ('' for none). */
+  lastError: string;
 }
 
 /**
@@ -43,7 +54,10 @@ interface SetRow {
  * Keychain), the schedule, Back up now, each account's last backup and the
  * other machines that pushed to it, Restore… and Pull… with their session
  * lists, Restore settings, Pull on launch, and the recent jobs with Undo.
- * Everything that changes something is the desktop's; phones see it all.
+ * One set per directory: a token account's sessions are in the Default's.
+ * A passphrase change that did not finish, and a set whose key is not in
+ * the folder here, are said up front. Everything that changes something is
+ * the desktop's; phones see it all.
  */
 @Component({
   selector: 'mc-backup',
@@ -85,16 +99,16 @@ export class BackupComponent {
   /** "Restore settings": where each account's bundle was unpacked. */
   protected readonly configFolders = signal<ReadonlyMap<string, string>>(new Map());
   protected readonly configBusy = signal<string | null>(null);
-  /** Jobs followed from here (newer than the view's copy). */
+  /** Jobs followed from here (newer than the view's copy; each names its
+   * accounts, so its row titles itself). */
   private readonly live = signal<ReadonlyMap<string, JobView>>(new Map());
-  /** What this page calls the jobs it started ("Backup of Work"). */
-  private readonly labels = signal<ReadonlyMap<string, string>>(new Map());
   private readonly following = new Set<string>();
   private readonly abort = new AbortController();
 
   protected readonly schedules = BACKUP_SCHEDULES;
   protected readonly scheduleLabel = scheduleLabel;
   protected readonly plural = plural;
+  protected readonly keyMissingText = KEY_MISSING_TEXT;
 
   protected readonly settings = computed(() => this.view()?.settings ?? null);
   protected readonly ready = computed(() => {
@@ -120,10 +134,15 @@ export class BackupComponent {
     if (!v) return [];
     return v.sets.map((set) => ({
       set,
-      others: set.machines.filter((m) => m.host && m.host !== v.host),
+      ...otherMachines(set.machines, v.host),
+      sharedWith: set.sharedWith ? this.nameOf(set.sharedWith) || 'Default' : '',
+      lastError: sentence(set.lastError),
     }));
   });
-  protected readonly anySet = computed(() => (this.view()?.sets ?? []).some((s) => s.exists));
+  /** Some set of its own is there to restore or pull from. */
+  protected readonly anySet = computed(() =>
+    ownSets(this.view()?.sets ?? []).some((s) => s.exists),
+  );
   protected readonly jobList = computed<JobView[]>(() => {
     const merged = new Map((this.view()?.jobs ?? []).map((j) => [j.id, j]));
     for (const [id, j] of this.live()) merged.set(id, j);
@@ -143,10 +162,6 @@ export class BackupComponent {
 
   protected short(p: string | null | undefined): string {
     return shortPath(p ?? '');
-  }
-
-  protected labelOf(j: JobView): string {
-    return this.labels().get(j.id) ?? '';
   }
 
   async load(): Promise<void> {
@@ -217,7 +232,8 @@ export class BackupComponent {
 
   // ─────────────────────────────────────────────── Backing up (desktop)
 
-  /** Back up one account, or every account (`account` omitted). */
+  /** Back up one set, or every set (`account` omitted). A set that is
+   * being backed up already answers that job, which is followed once. */
   protected async push(account?: string): Promise<void> {
     if (this.pushing()) return;
     this.pushing.set(account ?? 'all');
@@ -225,18 +241,19 @@ export class BackupComponent {
     this.notice.set('');
     try {
       const res = await this.api.pushBackup(account);
-      const ids = (res?.jobs ?? []).map(jobIdOf).filter(Boolean);
-      // "Back up now" answers one job per account, in the accounts' order
-      // (the order the sets are listed in).
-      const names = account ? [this.nameOf(account)] : (this.view()?.sets ?? []).map((s) => s.name);
-      ids.forEach((id, i) => {
-        const name = names[account ? 0 : i];
-        this.label(id, name ? `Backup of ${name}` : 'Backup');
-        this.follow(id);
-      });
-      this.notice.set(
-        ids.length > 1 ? `Backing up ${plural(ids.length, 'account')}…` : 'Backing up…',
-      );
+      const ids = [...new Set((res?.jobs ?? []).map(jobIdOf).filter(Boolean))];
+      const already = ids.filter((id) => this.following.has(id)).length;
+      for (const id of ids) this.follow(id);
+      const names = account
+        ? [this.nameOf(account)]
+        : ownSets(this.view()?.sets ?? []).map((s) => s.name);
+      const who = andList(names.filter(Boolean)) || 'the accounts';
+      if (!ids.length) this.notice.set('Nothing to back up.');
+      else if (already === ids.length) {
+        this.notice.set(
+          account ? `${who} is being backed up already.` : 'Every backup is running already.',
+        );
+      } else this.notice.set(`Backing up ${who}…`);
     } catch (e) {
       this.error.set(backupErrorText(e));
     } finally {
@@ -262,9 +279,13 @@ export class BackupComponent {
   }
 
   /** A restore or pull started in its dialog. */
-  protected tracked(e: { id: string; label: string }): void {
-    this.label(e.id, e.label);
-    this.follow(e.id);
+  protected tracked(id: string): void {
+    this.follow(id);
+  }
+
+  /** Open the passphrase dialog (also to finish an unfinished change). */
+  protected openPassphrase(): void {
+    this.passOpen.set(true);
   }
 
   protected jobChanged(j: JobView): void {
@@ -281,10 +302,6 @@ export class BackupComponent {
       this.accounts.byId(account)?.name ??
       ''
     );
-  }
-
-  private label(id: string, label: string): void {
-    this.labels.update((prev) => new Map(prev).set(id, label));
   }
 
   /** Follow a job until it ends, then read the view again (last backups,

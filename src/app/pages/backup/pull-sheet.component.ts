@@ -16,11 +16,13 @@ import {
   PRUNE_WARNING,
   backupErrorText,
   normalizeBackupIndex,
+  normalizePullSkips,
+  ownSets,
   preselect,
   prunedOf,
   pullTakes,
 } from '../../core/backup';
-import { jobIdOf, normalizeJob, plural } from '../../core/data-jobs';
+import { jobIdOf, normalizeJob, plural, sentence } from '../../core/data-jobs';
 import { DataJobsService } from '../../core/data-jobs.service';
 import { BackupIndex, BackupSet, JobView } from '../../core/models';
 import { DataJobComponent } from '../../shared/data-job.component';
@@ -49,8 +51,10 @@ interface PullRun {
 
 /**
  * Desktop: bring this Mac up to date from the backup sets (docs/BACKUP.md
- * "Carrying sessions to another laptop") — one account's set, or every
- * account's. Before anything is written it lists what will happen to each
+ * "Carrying sessions to another laptop") — one account's set, or every set
+ * (one per directory: a token account's sessions are in the Default's; a
+ * set whose key is not here says so). Before anything is written it lists
+ * what will happen to each
  * session: new here; newer in the backup (this Mac's copy is replaced and
  * kept for undo); changed on both (kept side by side, never merged);
  * running here (skipped); newer here. Afterwards each account's result,
@@ -128,7 +132,7 @@ interface PullRun {
             <div class="runs">
               @for (r of runs(); track r.account) {
                 @if (r.job; as j) {
-                  <mc-data-job [job]="j" [label]="r.label" (changed)="setJob(r.account, $event)">
+                  <mc-data-job [job]="j" (changed)="setJob(r.account, $event)">
                     <mc-job-details [job]="j" />
                   </mc-data-job>
                 } @else {
@@ -195,11 +199,11 @@ export class PullSheetComponent {
   readonly open = input(false);
   /** One account's set; null: every account's. */
   readonly account = input<string | null>(null);
-  /** Every account's set (those that exist are pulled from). */
+  /** Every account's set (those of their own are pulled from). */
   readonly sets = input<BackupSet[]>([]);
   readonly closed = output<void>();
-  /** A pull started (its job id), for the page's list. */
-  readonly started = output<{ id: string; label: string }>();
+  /** A pull started: its job id, for the page's list. */
+  readonly started = output<string>();
 
   protected readonly step = signal<PullStep>('loading');
   protected readonly busy = signal(false);
@@ -209,7 +213,7 @@ export class PullSheetComponent {
   protected readonly trust = signal(false);
   protected readonly expanded = signal<ReadonlySet<string>>(new Set());
   protected readonly runs = signal<PullRun[]>([]);
-  /** Accounts a pull of every account passed over, in the server's words. */
+  /** Sets a pull passed over, in the server's words. */
   protected readonly skipped = signal<string[]>([]);
   private following?: AbortController;
   private loadSeq = 0;
@@ -280,7 +284,11 @@ export class PullSheetComponent {
     this.step.set('loading');
     this.expanded.set(new Set());
     const id = this.account();
-    const sets = this.sets().filter((s) => (id ? s.account === id : s.exists));
+    // Every set of its own that is there; one whose key is missing too, so
+    // its group says why it can't be pulled.
+    const sets = ownSets(this.sets()).filter((s) =>
+      id ? s.account === id : s.exists || s.keyMissing,
+    );
     const groups = await Promise.all(
       sets.map(async (s): Promise<PullGroup> => {
         try {
@@ -328,13 +336,16 @@ export class PullSheetComponent {
           ids,
           ...(this.trust() ? { trust: true } : {}),
         });
-        for (const m of res?.skipped ?? []) if (typeof m === 'string' && m) skipped.push(m);
+        for (const m of normalizePullSkips(res?.skipped)) {
+          const name = this.sets().find((s) => s.account === m.account)?.name;
+          skipped.push(name ? `${name}: ${sentence(m.message)}` : sentence(m.message));
+        }
         const raw = (res?.jobs ?? [])[0];
         const first = normalizeJob(raw) ?? jobIdOf(raw);
         if (!first) continue;
         runs.push({ account: g.account, label, job: typeof first === 'string' ? null : first });
         firsts.push(first);
-        this.started.emit({ id: typeof first === 'string' ? first : first.id, label });
+        this.started.emit(typeof first === 'string' ? first : first.id);
       } catch (e) {
         failures.push(`${g.name}: ${backupErrorText(e)}`);
       }

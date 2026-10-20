@@ -9,7 +9,7 @@ import {
   serveAccounts,
   useFakeServer,
 } from '../../core/mock/fake-server.testing';
-import { MOCK_ACCOUNT_WORK, buildAccounts } from '../../core/mock/fixtures';
+import { MOCK_ACCOUNT_PRO, MOCK_ACCOUNT_WORK, buildAccounts } from '../../core/mock/fixtures';
 import { setActiveMock } from '../../core/mock/mock-api';
 import { BackupSet, JobView } from '../../core/models';
 import { RestoreSheetComponent } from './restore-sheet.component';
@@ -18,9 +18,21 @@ const H = 3_600_000;
 const PRUNE =
   'Claude Code will delete this again at its next cleanup unless cleanupPeriodDays (now 30) is raised.';
 
+const set = (account: string, name: string, over: Partial<BackupSet> = {}): BackupSet => ({
+  account,
+  name,
+  dir: `/b/${name}`,
+  exists: true,
+  keyMissing: false,
+  machines: [],
+  ...over,
+});
+
 const sets: BackupSet[] = [
-  { account: 'default', name: 'Default', dir: '/b/Default', exists: true, machines: [] },
-  { account: MOCK_ACCOUNT_WORK, name: 'Work', dir: '/b/Work', exists: true, machines: [] },
+  set('default', 'Default'),
+  set(MOCK_ACCOUNT_WORK, 'Work'),
+  // A token account's sessions are in the Default's set.
+  set(MOCK_ACCOUNT_PRO, 'Marcus (Pro)', { dir: '/b/Default', sharedWith: 'default' }),
 ];
 
 const index = () => {
@@ -42,7 +54,7 @@ const index = () => {
     machines: [],
     config: [],
     sessions: [
-      s('aaaaaaaa-0001', 'new'),
+      s('aaaaaaaa-0001', 'new', { title: 'Refactor auth middleware' }),
       s('bbbbbbbb-0002', 'new', { cwd: '/Users/me/dev/old', pruneWarning: PRUNE }),
       s('cccccccc-0003', 'same', { localBytes: 2048 }),
       s('dddddddd-0004', 'live', { localBytes: 1024 }),
@@ -50,10 +62,12 @@ const index = () => {
   };
 };
 
-const doneJob = (): JobView => ({
+const doneJob = (to = 'default'): JobView => ({
   id: 'job_r',
   kind: 'restore',
   state: 'done',
+  account: 'default',
+  to,
   startedAt: Date.now(),
   finishedAt: Date.now(),
   filesDone: 2,
@@ -128,6 +142,21 @@ describe('RestoreSheetComponent', () => {
     // The pruning warning sits next to its session.
     expect(text(rows[1].querySelector('.prune'))).toBe(PRUNE);
     expect(text(button(el, 'Restore'))).toBe('Restore 2 sessions');
+    // What the session list called it is the main line; else its id.
+    expect(text(rows[0].querySelector('.stitle'))).toBe('Refactor auth middleware');
+    const parts = (r: Element) => [...r.querySelectorAll('.sline > span')].map((x) => text(x));
+    expect(parts(rows[0])).toEqual(['aaaaaaaa', '~/dev/api']);
+    expect(boxes(el)[0].getAttribute('aria-label')).toBe(
+      'Session Refactor auth middleware: New here',
+    );
+    expect(rows[1].querySelector('.stitle')).toBeNull();
+    expect(parts(rows[1])).toEqual(['bbbbbbbb', '~/dev/old']);
+  });
+
+  it("offers the sets of their own: a token account's is the Default's", async () => {
+    const el = await open();
+    const from = el.querySelectorAll<HTMLSelectElement>('.pick select')[0];
+    expect([...from.options].map((o) => o.text.trim())).toEqual(['Default', 'Work']);
   });
 
   it('says before it starts that Claude Code would prune some again, then restores', async () => {
@@ -156,7 +185,10 @@ describe('RestoreSheetComponent', () => {
   });
 
   it('restores into another account, with the trust only when ticked', async () => {
-    backend.routes.set('/backup/restore', () => ({ status: 202, body: { job: doneJob() } }));
+    backend.routes.set('/backup/restore', () => ({
+      status: 202,
+      body: { job: doneJob(MOCK_ACCOUNT_WORK) },
+    }));
     const el = await open();
     const into = el.querySelectorAll<HTMLSelectElement>('.pick select')[1];
     into.value = MOCK_ACCOUNT_WORK;
@@ -178,6 +210,28 @@ describe('RestoreSheetComponent', () => {
       ids: ['aaaaaaaa-0001'],
       trust: true,
     });
+    // The job names both accounts.
+    expect(text(el.querySelector('mc-data-job .jtitle'))).toBe('Restore of Default into Work');
+  });
+
+  it("says in plain words that a set failed its check, or that its key isn't here", async () => {
+    let code = 'backup_unauthenticated';
+    backend.routes.set('/backup/index', () => ({
+      status: 409,
+      body: {
+        error: { code, message: 'the index of the backup set in /b/Default is not authentic' },
+      },
+    }));
+    let el = await open();
+    expect(text(el.querySelector('.notice.error'))).toBe(
+      "This backup failed its check: its index was not written with this passphrase's key — someone changed it, or an older build of Mother Claude made it. Nothing was read from it.",
+    );
+    fixture.destroy();
+    code = 'set_key_missing';
+    el = await open();
+    expect(text(el.querySelector('.notice.error'))).toContain(
+      "The backup's key (identity.age) isn't in the folder on this Mac",
+    );
   });
 
   it('says when the passphrase on this Mac does not open the set', async () => {
