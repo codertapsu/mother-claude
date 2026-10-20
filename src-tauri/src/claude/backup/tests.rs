@@ -73,6 +73,10 @@ fn not_live(_: &str) -> bool {
     false
 }
 
+fn no_title(_: &str) -> Option<String> {
+    None
+}
+
 /// The archive the set's index names for `id` now.
 fn archive_of(w: &World, id: &str) -> PathBuf {
     let keys = open_keys(&w.set, &pass()).unwrap();
@@ -102,7 +106,8 @@ fn push_once(w: &World, live: &dyn Fn(&str) -> bool) -> PushReport {
         home: &w.home,
         set: &w.set,
         account_name: "Work",
-        passphrase: &pass(),
+        title_of: &no_title,
+        passphrases: &[pass()],
         machine: &machine("mbp-a"),
         is_live: live,
         progress: &Progress::default(),
@@ -148,7 +153,7 @@ fn a_round_trip_is_byte_identical_and_the_second_run_archives_nothing() {
     // Restore into another directory: the same bytes and mtimes.
     let (report, m) = restore(&RestoreInputs {
         set: &w.set,
-        passphrase: &pass(),
+        passphrases: &[pass()],
         target: &w.other,
         ids: &[SID.to_string()],
         trust: false,
@@ -204,7 +209,7 @@ fn the_configuration_bundle_leaves_out_what_d6_excludes() {
     );
     push_once(&w, &not_live);
     let out = w._tmp.path().join("review");
-    let dest = extract_config(&w.set, &pass(), &out, None).unwrap();
+    let dest = extract_config(&w.set, &[pass()], &out, None).unwrap();
     assert_eq!(
         std::fs::read_to_string(dest.join("CLAUDE.md")).unwrap(),
         "be kind"
@@ -226,7 +231,8 @@ fn a_wrong_passphrase_opens_nothing() {
         home: &w.home,
         set: &w.set,
         account_name: "Work",
-        passphrase: &wrong,
+        title_of: &no_title,
+        passphrases: std::slice::from_ref(&wrong),
         machine: &machine("mbp-a"),
         is_live: &not_live,
         progress: &Progress::default(),
@@ -253,7 +259,7 @@ fn a_live_session_waits_and_a_truncated_archive_is_refused() {
     std::fs::write(archive_of(&w, SID), &bytes[..bytes.len() / 2]).unwrap();
     let (report, _) = restore(&RestoreInputs {
         set: &w.set,
-        passphrase: &pass(),
+        passphrases: &[pass()],
         target: &w.other,
         ids: &[
             SID.to_string(),
@@ -364,7 +370,7 @@ fn pull_once(
 ) -> (PullReport, Manifest) {
     pull(&PullInputs {
         set: &w.set,
-        passphrase: &pass(),
+        passphrases: &[pass()],
         home,
         machine: &machine(host),
         ids: None,
@@ -400,7 +406,8 @@ fn push_from(w: &World, home: &ClaudeHome, host: &str) -> PushReport {
         home,
         set: &w.set,
         account_name: "Work",
-        passphrase: &pass(),
+        title_of: &no_title,
+        passphrases: &[pass()],
         machine: &machine(host),
         is_live: &not_live,
         progress: &Progress::default(),
@@ -533,7 +540,7 @@ fn tree(dir: &Path) -> Vec<String> {
 #[test]
 fn a_session_id_from_the_index_never_names_a_path_outside_the_target() {
     let w = world();
-    let (keys, _) = open_or_create(&w.set, "Work", &pass()).unwrap();
+    let (keys, _) = open_or_create(&w.set, "Work", &[pass()]).unwrap();
     // <other>/.mc-restore-<job>/../../victim is <tmp>/victim.
     let victim = w._tmp.path().join("victim");
     std::fs::create_dir_all(victim.join("sub")).unwrap();
@@ -546,6 +553,7 @@ fn a_session_id_from_the_index_never_names_a_path_outside_the_target() {
     let entry = IndexEntry {
         id: id.to_string(),
         cwd: None,
+        title: None,
         transcript_bytes: 1,
         newest_mtime: 1,
         host: "evil".into(),
@@ -565,7 +573,7 @@ fn a_session_id_from_the_index_never_names_a_path_outside_the_target() {
     assert!(r.restored.is_empty() && r.skipped.is_empty(), "{r:?}");
     let (r, _) = restore(&RestoreInputs {
         set: &w.set,
-        passphrase: &pass(),
+        passphrases: &[pass()],
         target: &w.other,
         ids: &[id.to_string()],
         trust: false,
@@ -591,7 +599,7 @@ fn a_session_id_from_the_index_never_names_a_path_outside_the_target() {
 fn a_bundle_name_from_the_index_never_names_a_path_outside_config() {
     let w = world();
     config(w.home.base());
-    let (keys, _) = open_or_create(&w.set, "Work", &pass()).unwrap();
+    let (keys, _) = open_or_create(&w.set, "Work", &[pass()]).unwrap();
     let precious = w._tmp.path().join("precious.txt");
     std::fs::write(&precious, "important").unwrap();
     let bundle = |name: String| ConfigEntry {
@@ -624,11 +632,11 @@ fn a_bundle_name_from_the_index_never_names_a_path_outside_config() {
 
     // Only the bundle this push wrote can be unpacked, and only inside `into`.
     let into = w._tmp.path().join("appdata/restored-config/Work");
-    let dest = extract_config(&w.set, &pass(), &into, None).unwrap();
+    let dest = extract_config(&w.set, &[pass()], &into, None).unwrap();
     assert_eq!(dest.parent(), Some(into.as_path()));
     // A second look replaces the first.
     std::fs::write(dest.join("CLAUDE.md"), "edited").unwrap();
-    let again = extract_config(&w.set, &pass(), &into, None).unwrap();
+    let again = extract_config(&w.set, &[pass()], &into, None).unwrap();
     assert_eq!(again, dest);
     assert_eq!(
         std::fs::read_to_string(dest.join("CLAUDE.md")).unwrap(),
@@ -691,7 +699,7 @@ fn an_index_not_written_with_the_sets_key_is_refused() {
     std::fs::write(w.set.index_path(), &forged_bytes).unwrap();
     let err = pull(&PullInputs {
         set: &w.set,
-        passphrase: &pass(),
+        passphrases: &[pass()],
         home: &w.other,
         machine: &machine("mbp-b"),
         ids: None,
@@ -707,7 +715,8 @@ fn an_index_not_written_with_the_sets_key_is_refused() {
         home: &w.home,
         set: &w.set,
         account_name: "Work",
-        passphrase: &pass(),
+        title_of: &no_title,
+        passphrases: &[pass()],
         machine: &machine("mbp-a"),
         is_live: &not_live,
         progress: &Progress::default(),
@@ -741,7 +750,8 @@ fn set_json_never_chooses_the_key_archives_are_encrypted_to() {
         home: &w.home,
         set: &w.set,
         account_name: "Work",
-        passphrase: &pass(),
+        title_of: &no_title,
+        passphrases: &[pass()],
         machine: &machine("mbp-a"),
         is_live: &not_live,
         progress: &Progress::default(),
@@ -782,7 +792,8 @@ fn a_set_without_its_key_is_never_given_a_new_one() {
             home: &w.home,
             set: &w.set,
             account_name: "Work",
-            passphrase: &pass(),
+            title_of: &no_title,
+            passphrases: &[pass()],
             machine: &machine("mbp-a"),
             is_live: &not_live,
             progress: &Progress::default(),
@@ -796,7 +807,7 @@ fn a_set_without_its_key_is_never_given_a_new_one() {
     std::fs::remove_file(placeholder(&w.set.identity_path())).unwrap();
     assert!(w.set.key_missing());
     assert_eq!(
-        open_or_create(&w.set, "Work", &pass())
+        open_or_create(&w.set, "Work", &[pass()])
             .err()
             .unwrap()
             .code(),
@@ -814,7 +825,7 @@ fn a_set_without_its_key_is_never_given_a_new_one() {
     std::fs::create_dir_all(fresh.dir.join("sessions")).unwrap();
     std::fs::write(fresh.dir.join(".DS_Store"), "").unwrap();
     assert!(!fresh.key_missing());
-    assert!(open_or_create(&fresh, "Fresh", &pass()).is_ok());
+    assert!(open_or_create(&fresh, "Fresh", &[pass()]).is_ok());
 }
 
 /// A bundle that is not the one the index names is never decrypted.
@@ -829,7 +840,7 @@ fn a_changed_configuration_bundle_is_refused() {
     bytes.truncate(bytes.len() - 10);
     std::fs::write(&path, bytes).unwrap();
     let into = w._tmp.path().join("review");
-    let err = extract_config(&w.set, &pass(), &into, None).unwrap_err();
+    let err = extract_config(&w.set, &[pass()], &into, None).unwrap_err();
     assert_eq!(err.code(), "invalid_backup", "{err}");
 }
 
@@ -848,7 +859,8 @@ fn two_machines_with_one_name_stay_apart() {
             home,
             set: &w.set,
             account_name: "Work",
-            passphrase: &pass(),
+            title_of: &no_title,
+            passphrases: &[pass()],
             machine: m,
             is_live: &not_live,
             progress: &Progress::default(),
@@ -858,7 +870,7 @@ fn two_machines_with_one_name_stay_apart() {
     let pull_as = |home: &ClaudeHome, m: &ThisMachine, job: &str| {
         pull(&PullInputs {
             set: &w.set,
-            passphrase: &pass(),
+            passphrases: &[pass()],
             home,
             machine: m,
             ids: None,
@@ -1019,7 +1031,8 @@ fn a_push_made_from_an_old_entry_never_replaces_a_newer_one() {
         home: a,
         set: &w.set,
         account_name: "Work",
-        passphrase: &pass(),
+        title_of: &no_title,
+        passphrases: &[pass()],
         machine: &ma,
         is_live: &not_live,
         progress: &Progress::default(),
@@ -1069,7 +1082,7 @@ fn an_unreadable_configuration_file_never_costs_the_index() {
     assert!(archive_of(&w, SID).is_file());
     let (report, _) = restore(&RestoreInputs {
         set: &w.set,
-        passphrase: &pass(),
+        passphrases: &[pass()],
         target: &w.other,
         ids: &[SID.to_string()],
         trust: false,
@@ -1240,7 +1253,7 @@ fn a_restored_and_continued_session_is_pushed_when_it_came_from_the_set() {
     push_from(&w, a, "mbp-a");
     restore(&RestoreInputs {
         set: &w.set,
-        passphrase: &pass(),
+        passphrases: &[pass()],
         target: b,
         ids: &[SID.to_string()],
         trust: false,
@@ -1266,4 +1279,141 @@ fn a_restored_and_continued_session_is_pushed_when_it_came_from_the_set() {
     .unwrap();
     let r = push_from(&w, b, "mbp-b");
     assert_eq!(r.conflicts, vec![other_sid.to_string()], "{r:?}");
+}
+
+/// Whether `set` opens with one of `passphrases`.
+fn opens(set: &Set, passphrases: &[Secret]) -> bool {
+    open_keys_any(set, passphrases).is_ok()
+}
+
+/// The correctness review's third case and the security review's tenth: a
+/// passphrase change that fails half-way leaves every set openable (the new
+/// passphrase is kept as pending meanwhile, an earlier pending one too), and
+/// the next change finishes it.
+#[cfg(unix)]
+#[test]
+fn a_passphrase_change_that_fails_half_way_leaves_every_set_openable() {
+    use crate::claude::secrets::{MemoryStore, SecretName, SecretStore};
+    use std::os::unix::fs::PermissionsExt;
+    let tmp = tempfile::tempdir().unwrap();
+    let folder = tmp.path().join("Mother Claude");
+    let p0 = Secret::new("the passphrase of old");
+    let (p1, p2, p3) = (
+        Secret::new("a new passphrase, one"),
+        Secret::new("a new passphrase, two"),
+        Secret::new("a new passphrase, three"),
+    );
+    let home = Set::new(&folder, "Home");
+    let work = Set::new(&folder, "Work");
+    open_or_create(&home, "Home", std::slice::from_ref(&p0)).unwrap();
+    open_or_create(&work, "Work", std::slice::from_ref(&p0)).unwrap();
+    let store = MemoryStore::default();
+    store.set(&SecretName::BackupPassphrase, &p0).unwrap();
+    let ours = ["Home".to_string(), "Work".to_string()];
+    let lock = |set: &Set, mode: u32| {
+        std::fs::set_permissions(&set.dir, std::fs::Permissions::from_mode(mode)).unwrap()
+    };
+    // Home is re-keyed first (by name), then Work cannot be written.
+    lock(&work, 0o500);
+    if std::fs::write(work.dir.join("probe"), "").is_ok() {
+        lock(&work, 0o700);
+        return; // root: nothing is read-only
+    }
+    let err = ops::change_passphrase(&store, Some(&folder), &ours, &p1).unwrap_err();
+    assert!(err.applied, "Home has it: {:?}", err.error);
+    let kept = ops::passphrases_in(&store).unwrap();
+    assert!(opens(&home, &kept) && opens(&work, &kept));
+    assert!(opens(&home, std::slice::from_ref(&p1)));
+    assert!(opens(&work, std::slice::from_ref(&p0)));
+
+    // A second change that fails too still keeps every one a set may need.
+    let err = ops::change_passphrase(&store, Some(&folder), &ours, &p2).unwrap_err();
+    assert!(err.applied);
+    let kept = ops::passphrases_in(&store).unwrap();
+    assert!(opens(&home, &kept) && opens(&work, &kept));
+
+    // Writable again: the next change goes through and keeps only the new one.
+    lock(&work, 0o700);
+    let done = ops::change_passphrase(&store, Some(&folder), &ours, &p3).unwrap();
+    assert_eq!(done.rekeyed, ["Home", "Work"]);
+    assert_eq!(ops::passphrases_in(&store).unwrap(), vec![p3.clone()]);
+    assert!(store
+        .get(&SecretName::BackupPassphrasePending)
+        .unwrap()
+        .is_none());
+    assert!(opens(&home, std::slice::from_ref(&p3)) && opens(&work, std::slice::from_ref(&p3)));
+}
+
+/// A set of this machine's accounts that opens with none of its passphrases
+/// stops the change before anything changes; another machine's set in the
+/// folder is left as it is.
+#[test]
+fn a_passphrase_change_changes_nothing_unless_every_set_opens() {
+    use crate::claude::secrets::{MemoryStore, SecretName, SecretStore};
+    let tmp = tempfile::tempdir().unwrap();
+    let folder = tmp.path().join("Mother Claude");
+    let p0 = Secret::new("the passphrase of old");
+    let elsewhere = Secret::new("another machine's own one");
+    let new = Secret::new("the new passphrase here");
+    let home = Set::new(&folder, "Home");
+    let theirs = Set::new(&folder, "Theirs");
+    let work = Set::new(&folder, "Work");
+    open_or_create(&home, "Home", std::slice::from_ref(&p0)).unwrap();
+    open_or_create(&theirs, "Theirs", std::slice::from_ref(&elsewhere)).unwrap();
+    open_or_create(&work, "Work", std::slice::from_ref(&elsewhere)).unwrap();
+    let store = MemoryStore::default();
+    store.set(&SecretName::BackupPassphrase, &p0).unwrap();
+
+    let err = ops::change_passphrase(
+        &store,
+        Some(&folder),
+        &["Home".to_string(), "Work".to_string()],
+        &new,
+    )
+    .unwrap_err();
+    assert!(!err.applied);
+    assert!(err.error.to_string().contains("Work"), "{}", err.error);
+    assert!(opens(&home, std::slice::from_ref(&p0)), "nothing changed");
+    assert!(store
+        .get(&SecretName::BackupPassphrasePending)
+        .unwrap()
+        .is_none());
+
+    let done = ops::change_passphrase(&store, Some(&folder), &["Home".to_string()], &new).unwrap();
+    assert_eq!(done.rekeyed, ["Home"]);
+    assert_eq!(done.left, ["Theirs", "Work"]);
+    assert!(opens(&theirs, std::slice::from_ref(&elsewhere)));
+}
+
+/// The index keeps what the session list calls a session (clipped), and a
+/// pull or restore list shows it.
+#[test]
+fn the_index_keeps_what_the_session_list_calls_a_session() {
+    let w = world();
+    session(w.home.base(), SID);
+    let long = format!("Fix the   flaky\nlogin test {}", "and more ".repeat(40));
+    let title_of = |id: &str| (id == SID).then(|| long.clone());
+    push(&PushInputs {
+        home: &w.home,
+        set: &w.set,
+        account_name: "Work",
+        title_of: &title_of,
+        passphrases: &[pass()],
+        machine: &machine("mbp-a"),
+        is_live: &not_live,
+        progress: &Progress::default(),
+    })
+    .unwrap();
+    let keys = open_keys(&w.set, &pass()).unwrap();
+    let index = read_index(&w.set, &keys).unwrap();
+    let title = index.sessions[SID].title.clone().unwrap();
+    assert_eq!(title.chars().count(), TITLE_MAX);
+    assert!(title.starts_with("Fix the flaky login test and more"));
+    assert!(title.ends_with('…'));
+    let items = compare(&index, &w.other, &machine("mbp-b").id, &not_live, now_ms());
+    assert_eq!(items[0].title.as_deref(), Some(title.as_str()));
+    // Never in the plaintext.
+    assert!(!std::fs::read_to_string(w.set.info_path())
+        .unwrap()
+        .contains("flaky"));
 }

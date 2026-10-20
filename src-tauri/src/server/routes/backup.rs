@@ -5,10 +5,15 @@
 //!   recent jobs.
 //! * `PUT /api/backup/settings {folder?, everyHours?, pullOnLaunch?}`
 //!   (DesktopOnly).
-//! * `POST /api/backup/passphrase {generate: true}` → `{passphrase}` shown
-//!   this once, or `{passphrase}` of the user's own (DesktopOnly). Existing
-//!   sets are re-keyed; the passphrase is kept in the Keychain.
-//! * `POST /api/backup/push {account?}` (DesktopOnly) → `202 {jobs}`.
+//! * `POST /api/backup/passphrase {generate: true}` → `{passphrase, rekeyed,
+//!   left}` shown this once, or `{passphrase}` of the user's own
+//!   (DesktopOnly). Every set in the folder is re-keyed, all or nothing as
+//!   far as it can be (`ops::set_passphrase`); the passphrase is kept in the
+//!   Keychain. A failure after some set has it already carries
+//!   `error.applied: true` and, for a generated one, `error.passphrase`.
+//! * `POST /api/backup/push {account?}` (DesktopOnly) → `202 {jobs}`; without
+//!   `account`, one job per set (a token account's is the Default's); a set
+//!   being backed up already gives that job's id.
 //! * `GET /api/backup/index?account=&into=` (Authed): the set's sessions
 //!   compared with an account's directory, each with what a pull or restore
 //!   would do and the pruning warning.
@@ -16,7 +21,9 @@
 //!   `{account, config: true}` → `{folder}` (the configuration bundle unpacked
 //!   for review, never over the live one) (DesktopOnly).
 //! * `POST /api/backup/pull {account?, ids?, trust?}` (DesktopOnly) →
-//!   `202 {jobs}`.
+//!   `202 {jobs, skipped: [{account, code, message}]}`: without `account`,
+//!   every set, a set that cannot be read named in `skipped` and the rest
+//!   pulled.
 //!
 //! The passphrase never reaches a log, a frame or the audit line.
 
@@ -152,18 +159,39 @@ pub async fn post_passphrase(
         }
     };
     let st = state.clone();
-    tokio::task::spawn_blocking(move || ops::set_passphrase(&st, &new))
+    let result = tokio::task::spawn_blocking(move || ops::set_passphrase(&st, &new))
         .await
-        .map_err(|e| ApiError::internal(e.to_string()))?
-        .map_err(backup_error)?;
+        .map_err(|e| ApiError::internal(e.to_string()))?;
+    let change = match result {
+        Ok(change) => change,
+        Err(failure) => {
+            audit(
+                &state,
+                &ctx,
+                "backup.passphrase.failed",
+                json!({ "generated": shown.is_some(), "applied": failure.applied }),
+            );
+            let err = backup_error(failure.error).with("applied", failure.applied);
+            // Some set has it already: a generated one is never lost.
+            return Err(match (failure.applied, shown) {
+                (true, Some(p)) => err.with("passphrase", p),
+                _ => err,
+            });
+        }
+    };
     audit(
         &state,
         &ctx,
         "backup.passphrase",
-        json!({ "generated": shown.is_some() }),
+        json!({ "generated": shown.is_some(), "rekeyed": change.rekeyed.len() }),
     );
     // Shown this once; it is in the Keychain from now on.
-    Ok(Json(json!({ "passphrase": shown })).into_response())
+    Ok(Json(json!({
+        "passphrase": shown,
+        "rekeyed": change.rekeyed,
+        "left": change.left,
+    }))
+    .into_response())
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -280,22 +308,28 @@ pub async fn post_pull(
     State(state): State<AppState>,
     Body(body): Body<PullBody>,
 ) -> ApiResult<Response> {
+    // Everything: each set once (a token account's is the Default's).
     let accounts: Vec<String> = match &body.account {
         Some(a) => vec![a.clone()],
-        None => state
-            .accounts
-            .accounts()
-            .into_iter()
-            .map(|a| a.id)
-            .collect(),
+        None => ops::set_owner_ids(&state),
     };
     let mut jobs = Vec::new();
     let mut skipped = Vec::new();
     for a in &accounts {
         match ops::pull(&state, a, body.ids.clone(), body.trust).await {
             Ok(j) => jobs.push(j),
-            // Pulling everything: an account without a set has nothing to pull.
-            Err(BackupError::Invalid(m)) if body.account.is_none() => skipped.push(m),
+            // No folder or passphrase: nothing can be pulled at all.
+            Err(e @ (BackupError::NoFolder | BackupError::NoPassphrase)) => {
+                return Err(backup_error(e))
+            }
+            // Pulling everything: a set that cannot be read (none, its key
+            // missing…) is named and the others go ahead. A wrong passphrase
+            // or an unreadable index shows on that set's job.
+            Err(e) if body.account.is_none() => skipped.push(json!({
+                "account": a,
+                "code": e.code(),
+                "message": e.to_string(),
+            })),
             Err(e) => return Err(backup_error(e)),
         }
     }

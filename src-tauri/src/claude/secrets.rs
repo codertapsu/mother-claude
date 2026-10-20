@@ -74,6 +74,9 @@ pub enum SecretName {
     AccountToken(String),
     /// The passphrase the backup sets are encrypted with.
     BackupPassphrase,
+    /// A new backup passphrase while the sets are re-keyed with it: every set
+    /// opens with one of the two until the change is through.
+    BackupPassphrasePending,
 }
 
 impl SecretName {
@@ -82,6 +85,7 @@ impl SecretName {
         match self {
             Self::AccountToken(id) => id.clone(),
             Self::BackupPassphrase => "backup-passphrase".to_string(),
+            Self::BackupPassphrasePending => "backup-passphrase-pending".to_string(),
         }
     }
 
@@ -90,6 +94,7 @@ impl SecretName {
         match self {
             Self::AccountToken(id) => format!("{id}.token"),
             Self::BackupPassphrase => "backup-passphrase".to_string(),
+            Self::BackupPassphrasePending => "backup-passphrase-pending".to_string(),
         }
     }
 
@@ -97,7 +102,7 @@ impl SecretName {
     fn is_valid(&self) -> bool {
         match self {
             Self::AccountToken(id) => super::accounts::is_account_id(id),
-            Self::BackupPassphrase => true,
+            Self::BackupPassphrase | Self::BackupPassphrasePending => true,
         }
     }
 }

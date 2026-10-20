@@ -11,7 +11,7 @@ use serde_json::Value;
 
 use super::{BackupError, PullItem, Set};
 use crate::claude::accounts::{Account, BackupSettings};
-use crate::claude::secrets::{Secret, SecretName};
+use crate::claude::secrets::{Secret, SecretName, SecretStore};
 use crate::claude::transfer::{self, JobState};
 use crate::state::AppState;
 
@@ -62,15 +62,52 @@ fn save(state: &AppState, s: &LocalState) {
     }
 }
 
+fn stored(store: &dyn SecretStore, name: &SecretName) -> Option<Secret> {
+    store.get(name).ok().flatten().filter(|p| !p.is_empty())
+}
+
 /// The backup passphrase, if one is set.
 pub fn passphrase(state: &AppState) -> Option<Secret> {
-    state
-        .accounts
-        .secret_store()
-        .get(&SecretName::BackupPassphrase)
-        .ok()
-        .flatten()
-        .filter(|p| !p.is_empty())
+    stored(
+        state.accounts.secret_store().as_ref(),
+        &SecretName::BackupPassphrase,
+    )
+}
+
+/// The new passphrases unfinished changes left pending (one per line): some
+/// sets may have one of them already.
+fn pending_in(store: &dyn SecretStore) -> Vec<Secret> {
+    stored(store, &SecretName::BackupPassphrasePending)
+        .map(|p| {
+            p.expose()
+                .lines()
+                .filter(|l| !l.is_empty())
+                .map(Secret::new)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// What sets open with: the passphrase, then those unfinished changes left
+/// pending.
+pub fn passphrases_in(store: &dyn SecretStore) -> Option<Vec<Secret>> {
+    let mut out = vec![stored(store, &SecretName::BackupPassphrase)?];
+    for p in pending_in(store) {
+        if !out.contains(&p) {
+            out.push(p);
+        }
+    }
+    Some(out)
+}
+
+pub fn passphrases(state: &AppState) -> Option<Vec<Secret>> {
+    passphrases_in(state.accounts.secret_store().as_ref())
+}
+
+/// A passphrase change did not finish: until one does, sets may need a
+/// pending passphrase (the UI asks to set it again).
+pub fn passphrase_change_unfinished(state: &AppState) -> bool {
+    !pending_in(state.accounts.secret_store().as_ref()).is_empty()
 }
 
 /// A passphrase to write down: eight groups of four from an alphabet without
@@ -173,35 +210,196 @@ pub fn this_machine(state: &AppState) -> Result<super::ThisMachine, BackupError>
     Ok(super::ThisMachine { id, name })
 }
 
-/// Every account's set in the folder.
-fn sets(folder: &Path, accounts: &[Account]) -> Vec<(Account, Set)> {
-    accounts
-        .iter()
-        .map(|a| (a.clone(), Set::new(folder, &a.name)))
+/// The accounts with a set of their own: the Default and each directory
+/// account. A token account's sessions are in the Default's directory, so
+/// in the Default's set.
+fn set_owners(state: &AppState) -> Vec<Account> {
+    state
+        .accounts
+        .homes()
+        .into_iter()
+        .filter_map(|(id, _)| state.accounts.get(&id))
         .collect()
 }
 
-/// Set (or change) the passphrase. Existing sets are re-keyed with it, so
-/// nothing already backed up becomes unreadable.
-pub fn set_passphrase(state: &AppState, new: &Secret) -> Result<(), BackupError> {
+/// The account whose set holds `a`'s sessions: itself, or the Default for a
+/// token account.
+fn set_owner(state: &AppState, a: Account) -> Account {
+    match a.kind {
+        crate::claude::accounts::AccountKind::Token => state
+            .accounts
+            .get(crate::claude::accounts::DEFAULT_ID)
+            .unwrap_or(a),
+        crate::claude::accounts::AccountKind::Directory => a,
+    }
+}
+
+/// Why a passphrase change did not go through.
+#[derive(Debug)]
+pub struct PassphraseFailure {
+    pub error: BackupError,
+    /// Some set has the new passphrase already: whoever asked for the change
+    /// must learn it (a generated one is shown with the error), and it stays
+    /// kept as pending, so every set still opens.
+    pub applied: bool,
+}
+
+impl From<BackupError> for PassphraseFailure {
+    fn from(error: BackupError) -> Self {
+        Self {
+            error,
+            applied: false,
+        }
+    }
+}
+
+/// What a passphrase change did.
+#[derive(Debug, Clone, Default, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PassphraseChange {
+    /// Sets now under the new passphrase.
+    pub rekeyed: Vec<String>,
+    /// Sets in the folder of no account here that open with none of this
+    /// machine's passphrases: left as they are.
+    pub left: Vec<String>,
+}
+
+/// Every set in the folder, by folder name.
+fn folder_sets(folder: &Path) -> Vec<(String, Set)> {
+    let mut out: Vec<(String, Set)> = std::fs::read_dir(folder)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter(|e| e.file_type().is_ok_and(|t| t.is_dir()))
+        .filter_map(|e| {
+            let name = e.file_name().to_string_lossy().into_owned();
+            let set = Set::new(folder, &name);
+            (set.exists() || set.key_missing()).then_some((name, set))
+        })
+        .collect();
+    out.sort_by(|a, b| a.0.cmp(&b.0));
+    out
+}
+
+/// Set (or change) the passphrase. Every set in the folder is re-keyed with
+/// it, so nothing already backed up becomes unreadable, and the change is
+/// all or nothing as far as it can be:
+///
+/// 1. every set is opened first (with the new passphrase: done already; else
+///    with the current one or a pending one) and nothing changes if a set of
+///    an account here opens with none;
+/// 2. the new passphrase is kept as *pending* while the sets are re-keyed,
+///    so a crash or a failed write leaves every set openable with one of the
+///    two kept;
+/// 3. only then does it become the passphrase.
+pub fn set_passphrase(
+    state: &AppState,
+    new: &Secret,
+) -> Result<PassphraseChange, PassphraseFailure> {
+    let ours: Vec<String> = set_owners(state).into_iter().map(|a| a.name).collect();
+    change_passphrase(
+        state.accounts.secret_store().as_ref(),
+        state.accounts.backup_settings().folder.as_deref(),
+        &ours,
+        new,
+    )
+}
+
+/// [`set_passphrase`] on a secret store and a folder; `ours`: the names of
+/// the sets of this machine's accounts (the others are left as they are when
+/// they open with none of its passphrases).
+pub fn change_passphrase(
+    store: &dyn SecretStore,
+    folder: Option<&Path>,
+    ours: &[String],
+    new: &Secret,
+) -> Result<PassphraseChange, PassphraseFailure> {
     if new.expose().chars().count() < PASSPHRASE_MIN {
         return Err(BackupError::Invalid(format!(
             "a passphrase has at least {PASSPHRASE_MIN} characters"
-        )));
+        ))
+        .into());
     }
-    if let (Some(old), Some(folder)) = (passphrase(state), state.accounts.backup_settings().folder)
-    {
-        for (_, set) in sets(&folder, &state.accounts.accounts()) {
-            if set.exists() {
-                super::rekey(&set, &old, new)?;
+    if new.expose().contains(['\n', '\r']) {
+        return Err(BackupError::Invalid("a passphrase is one line".into()).into());
+    }
+    let earlier = pending_in(store);
+    let mut known: Vec<Secret> = passphrases_in(store).unwrap_or_default();
+    for p in &earlier {
+        if !known.contains(p) {
+            known.push(p.clone());
+        }
+    }
+    let mut change = PassphraseChange::default();
+    // Some set has the new one already (an earlier attempt).
+    let mut had_new = false;
+    let mut todo = Vec::new();
+    if let Some(folder) = folder {
+        for (name, set) in folder_sets(folder) {
+            let mine = ours.contains(&name);
+            if set.key_missing() {
+                if mine {
+                    return Err(BackupError::KeyMissing(set.dir.display().to_string()).into());
+                }
+                change.left.push(name);
+                continue;
+            }
+            match super::open_keys(&set, new) {
+                Ok(_) => {
+                    had_new = true;
+                    continue;
+                }
+                Err(BackupError::WrongPassphrase) => {}
+                Err(e) => return Err(e.into()),
+            }
+            match super::open_keys_any(&set, &known) {
+                Ok(keys) => todo.push((name, set, keys)),
+                Err(BackupError::WrongPassphrase) | Err(BackupError::NoPassphrase) if !mine => {
+                    change.left.push(name)
+                }
+                Err(BackupError::WrongPassphrase) | Err(BackupError::NoPassphrase) => {
+                    return Err(BackupError::Invalid(format!(
+                        "the backup set {name} opens with neither this machine's passphrase nor \
+                         the new one; enter the passphrase it was made with"
+                    ))
+                    .into())
+                }
+                Err(e) => return Err(e.into()),
             }
         }
     }
-    state
-        .accounts
-        .secret_store()
+    // Kept with any an earlier unfinished change left: until this one is
+    // through, a set may still need one of those.
+    let mut keep: Vec<&str> = earlier.iter().map(Secret::expose).collect();
+    if !keep.contains(&new.expose()) {
+        keep.push(new.expose());
+    }
+    store
+        .set(
+            &SecretName::BackupPassphrasePending,
+            &Secret::new(keep.join("\n")),
+        )
+        .map_err(|e| BackupError::Io(e.to_string()))?;
+    for (name, set, keys) in &todo {
+        if let Err(error) = super::write_identity(set, keys, new) {
+            return Err(PassphraseFailure {
+                error,
+                applied: had_new || !change.rekeyed.is_empty(),
+            });
+        }
+        change.rekeyed.push(name.clone());
+    }
+    let applied = had_new || !change.rekeyed.is_empty();
+    store
         .set(&SecretName::BackupPassphrase, new)
-        .map_err(|e| BackupError::Io(e.to_string()))
+        .map_err(|e| PassphraseFailure {
+            error: BackupError::Io(e.to_string()),
+            applied,
+        })?;
+    if let Err(e) = store.delete(&SecretName::BackupPassphrasePending) {
+        tracing::warn!(error = %e, "could not forget the pending backup passphrase");
+    }
+    Ok(change)
 }
 
 /// A folder the UI offers.
@@ -280,6 +478,14 @@ pub struct SetView {
     pub name: String,
     pub dir: String,
     pub exists: bool,
+    /// A token account's sessions are in the Default's directory, so in the
+    /// Default's set: its id here (and that set's details above).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub shared_with: Option<String>,
+    /// A set is in the folder but its key is not (deleted, or not downloaded
+    /// yet): nothing can be pushed or read until it is back.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub key_missing: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_push: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -296,6 +502,9 @@ pub struct SetView {
 pub struct BackupView {
     pub settings: BackupSettings,
     pub passphrase_set: bool,
+    /// A passphrase change did not finish (some sets may have the new one):
+    /// set the passphrase again.
+    pub passphrase_change_unfinished: bool,
     pub host: String,
     pub sets: Vec<SetView>,
     pub suggestions: Vec<Suggestion>,
@@ -310,10 +519,14 @@ pub fn view(state: &AppState) -> BackupView {
     let local = load(state);
     let host = super::host_name();
     let sets = match &settings.folder {
-        Some(folder) => sets(folder, &state.accounts.accounts())
+        Some(folder) => state
+            .accounts
+            .accounts()
             .into_iter()
-            .map(|(a, set)| {
-                let mine = local.accounts.get(&a.id).cloned().unwrap_or_default();
+            .map(|a| {
+                let owner = set_owner(state, a.clone());
+                let set = Set::new(folder, &owner.name);
+                let mine = local.accounts.get(&owner.id).cloned().unwrap_or_default();
                 let machines = super::read_info(&set)
                     .map(|i| i.machines)
                     .unwrap_or_default();
@@ -322,6 +535,8 @@ pub fn view(state: &AppState) -> BackupView {
                     name: a.name.clone(),
                     dir: set.dir.to_string_lossy().into_owned(),
                     exists: set.exists(),
+                    shared_with: (owner.id != a.id).then(|| owner.id.clone()),
+                    key_missing: set.key_missing(),
                     last_push: mine.last_push,
                     last_error: mine.last_error,
                     sessions: mine.sessions,
@@ -334,6 +549,7 @@ pub fn view(state: &AppState) -> BackupView {
     BackupView {
         settings,
         passphrase_set: passphrase(state).is_some(),
+        passphrase_change_unfinished: passphrase_change_unfinished(state),
         host,
         sets,
         suggestions: suggestions(),
@@ -351,14 +567,14 @@ fn is_live(state: &AppState, id: &str) -> bool {
     state.live.is_live(id) || state.control.controls(id) || state.bridge.account_of(id).is_some()
 }
 
-/// What every backup job needs first.
-fn prerequisites(state: &AppState) -> Result<(PathBuf, Secret), BackupError> {
+/// What every backup job needs first: the folder, and what sets open with.
+fn prerequisites(state: &AppState) -> Result<(PathBuf, Vec<Secret>), BackupError> {
     let folder = state
         .accounts
         .backup_settings()
         .folder
         .ok_or(BackupError::NoFolder)?;
-    let pass = passphrase(state).ok_or(BackupError::NoPassphrase)?;
+    let pass = passphrases(state).ok_or(BackupError::NoPassphrase)?;
     Ok((folder, pass))
 }
 
@@ -386,6 +602,12 @@ fn account(state: &AppState, id: &str) -> Result<Account, BackupError> {
         .ok_or_else(|| BackupError::Invalid(format!("no account {id:?}")))
 }
 
+/// The ids of the accounts with a set of their own (what "back up all" and
+/// "pull all" go through).
+pub fn set_owner_ids(state: &AppState) -> Vec<String> {
+    set_owners(state).into_iter().map(|a| a.id).collect()
+}
+
 fn finish(state: &AppState, job: &str, result: Result<Value, BackupError>) {
     let at = chrono::Utc::now().timestamp_millis();
     state.jobs.update(job, |v| {
@@ -404,33 +626,96 @@ fn finish(state: &AppState, job: &str, result: Result<Value, BackupError>) {
     });
 }
 
-/// Back up one account (a data job; one backup job at a time with the rest).
+/// Backups and pulls running or waiting for their turn, per set: a second
+/// one of a set gets the first's job id instead of a queue of its own (the
+/// schedule ticks every five minutes; a first push to iCloud takes longer).
+static IN_FLIGHT: std::sync::LazyLock<std::sync::Mutex<BTreeMap<String, String>>> =
+    std::sync::LazyLock::new(Default::default);
+
+fn in_flight() -> std::sync::MutexGuard<'static, BTreeMap<String, String>> {
+    IN_FLIGHT.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+/// A set's claim on its one backup (or pull) job: released when the job's
+/// task ends, however it ends.
+struct Flight(String);
+
+impl Drop for Flight {
+    fn drop(&mut self) {
+        in_flight().remove(&self.0);
+    }
+}
+
+/// `Err(job)`: the job running or queued for `key`; else `job` is it now.
+fn claim(key: &str, job: &str) -> Result<Flight, String> {
+    let mut map = in_flight();
+    if let Some(running) = map.get(key) {
+        return Err(running.clone());
+    }
+    map.insert(key.to_string(), job.to_string());
+    Ok(Flight(key.to_string()))
+}
+
+fn flight_key(kind: &str, set: &Set) -> String {
+    format!("{kind}:{}", set.dir.display())
+}
+
+/// What the session list calls each session, for the index.
+async fn titles(state: &AppState) -> BTreeMap<String, String> {
+    state
+        .sessions()
+        .await
+        .into_iter()
+        .filter_map(|s| {
+            let named = Some(s.name.clone()).filter(|n| !n.is_empty() && *n != s.project_name);
+            let title = s
+                .title
+                .clone()
+                .or(named)
+                .or_else(|| s.last_prompt.clone())?;
+            Some((s.id, super::clip_title(&title, super::TITLE_MAX)))
+        })
+        .collect()
+}
+
+/// Back up an account (a data job; one backup job at a time with the rest).
+/// A token account is backed up with the Default, whose directory it uses;
+/// a set that is being backed up already returns that job.
 pub async fn push(state: &AppState, account_id: &str) -> Result<String, BackupError> {
     let (folder, pass) = prerequisites(state)?;
-    let a = account(state, account_id)?;
+    let a = set_owner(state, account(state, account_id)?);
     let home = state
         .accounts
         .home(&a.id)
         .ok_or_else(|| BackupError::Invalid("the account has no directory".into()))?;
     let machine = this_machine(state)?;
+    let set = Set::new(&folder, &a.name);
+    let key = flight_key("backup", &set);
     let job = transfer::new_job_id();
+    let flight = match claim(&key, &job) {
+        Ok(f) => f,
+        Err(running) => return Ok(running),
+    };
     let progress = state.jobs.start(&job, "backup", 0, 0);
     let st = state.clone();
     let id = job.clone();
     tokio::spawn(async move {
+        let _flight = flight;
         let _one = st.jobs.lock.lock().await;
-        let set = Set::new(&folder, &a.name);
+        let titles = titles(&st).await;
         let st2 = st.clone();
         let account_id = a.id.clone();
         let result = tokio::task::spawn_blocking(move || {
             let live = |s: &str| is_live(&st2, s);
+            let title_of = |s: &str| titles.get(s).cloned();
             super::push(&super::PushInputs {
                 home: &home,
                 set: &set,
                 account_name: &a.name,
-                passphrase: &pass,
+                passphrases: &pass,
                 machine: &machine,
                 is_live: &live,
+                title_of: &title_of,
                 progress: &progress,
             })
         })
@@ -457,12 +742,13 @@ pub async fn push(state: &AppState, account_id: &str) -> Result<String, BackupEr
     Ok(job)
 }
 
-/// Back up every account (the schedule's and "Back up now"'s).
+/// Back up every set (the schedule's and "Back up now"'s): the Default and
+/// each directory account, never the Default's directory twice.
 pub async fn push_all(state: &AppState) -> Result<Vec<String>, BackupError> {
     prerequisites(state)?;
     let mut jobs = Vec::new();
-    for a in state.accounts.accounts() {
-        jobs.push(push(state, &a.id).await?);
+    for id in set_owner_ids(state) {
+        jobs.push(push(state, &id).await?);
     }
     Ok(jobs)
 }
@@ -479,8 +765,8 @@ pub struct IndexView {
     pub config: Vec<super::ConfigEntry>,
 }
 
-/// `GET /api/backup/index`: the set of `account`, compared with `into`'s
-/// directory (default: the same account).
+/// `GET /api/backup/index`: the set of `account` (a token account's: the
+/// Default's), compared with `into`'s directory (default: the same account).
 pub async fn index(
     state: &AppState,
     account_id: &str,
@@ -488,17 +774,23 @@ pub async fn index(
 ) -> Result<IndexView, BackupError> {
     let (folder, pass) = prerequisites(state)?;
     let a = account(state, account_id)?;
+    let owner = set_owner(state, a.clone());
     let target = account(state, into.unwrap_or(account_id))?;
     let home = state
         .accounts
         .home(&target.id)
         .ok_or_else(|| BackupError::Invalid("the account has no directory".into()))?;
-    let set = Set::new(&folder, &a.name);
-    no_set_error(&set, &a, &folder)?;
+    let set = Set::new(&folder, &owner.name);
+    no_set_error(&set, &owner, &folder)?;
     let machine = this_machine(state)?;
+    // What this machine had is about the set's own directory only.
+    let same_dir = state
+        .accounts
+        .home(&owner.id)
+        .is_some_and(|h| h.base() == home.base());
     let st = state.clone();
     tokio::task::spawn_blocking(move || {
-        let keys = super::open_keys(&set, &pass)?;
+        let keys = super::open_keys_any(&set, &pass)?;
         let index = super::read_index(&set, &keys)?;
         // Display only.
         let machines = super::read_info(&set)
@@ -508,7 +800,7 @@ pub async fn index(
         let sessions = super::compare(
             &index,
             &home,
-            &machine.id,
+            if same_dir { &machine.id } else { "" },
             &live,
             chrono::Utc::now().timestamp_millis(),
         );
@@ -525,8 +817,8 @@ pub async fn index(
     .map_err(|e| BackupError::Io(e.to_string()))?
 }
 
-/// Restore sessions of `account`'s set into `into`'s directory (a data job
-/// with an undo).
+/// Restore sessions of `account`'s set (a token account's: the Default's)
+/// into `into`'s directory (a data job with an undo).
 pub async fn restore(
     state: &AppState,
     account_id: &str,
@@ -535,7 +827,7 @@ pub async fn restore(
     trust: bool,
 ) -> Result<String, BackupError> {
     let (folder, pass) = prerequisites(state)?;
-    let a = account(state, account_id)?;
+    let a = set_owner(state, account(state, account_id)?);
     let target = account(state, into)?;
     let home = state
         .accounts
@@ -556,7 +848,7 @@ pub async fn restore(
             let live = |s: &str| is_live(&st2, s);
             super::restore(&super::RestoreInputs {
                 set: &set,
-                passphrase: &pass,
+                passphrases: &pass,
                 target: &home,
                 ids: &ids,
                 trust,
@@ -592,10 +884,11 @@ pub async fn restore(
     Ok(job)
 }
 
-/// Unpack the newest configuration bundle of `account`'s set for review.
+/// Unpack the newest configuration bundle of `account`'s set for review
+/// (this machine's own, else the newest of any machine).
 pub async fn extract_config(state: &AppState, account_id: &str) -> Result<PathBuf, BackupError> {
     let (folder, pass) = prerequisites(state)?;
-    let a = account(state, account_id)?;
+    let a = set_owner(state, account(state, account_id)?);
     let into = state
         .auth
         .config_dir
@@ -611,7 +904,8 @@ pub async fn extract_config(state: &AppState, account_id: &str) -> Result<PathBu
 }
 
 /// Pull `account`'s set into its own directory (§5.11; a data job with an
-/// undo). `ids`: only these sessions.
+/// undo; a token account's is the Default's). `ids`: only these sessions. A
+/// set that is being pulled already returns that job.
 pub async fn pull(
     state: &AppState,
     account_id: &str,
@@ -619,29 +913,35 @@ pub async fn pull(
     trust: bool,
 ) -> Result<String, BackupError> {
     let (folder, pass) = prerequisites(state)?;
-    let a = account(state, account_id)?;
+    let a = set_owner(state, account(state, account_id)?);
     let home = state
         .accounts
         .home(&a.id)
         .ok_or_else(|| BackupError::Invalid("the account has no directory".into()))?;
-    no_set_error(&Set::new(&folder, &a.name), &a, &folder)?;
+    let set = Set::new(&folder, &a.name);
+    no_set_error(&set, &a, &folder)?;
     let undo_root = transfer::ops::undo_root(state)
         .ok_or_else(|| BackupError::Invalid("this build has no data directory".into()))?;
     let machine = this_machine(state)?;
+    let key = flight_key("pull", &set);
     let job = transfer::new_job_id();
+    let flight = match claim(&key, &job) {
+        Ok(f) => f,
+        Err(running) => return Ok(running),
+    };
     let progress = state.jobs.start(&job, "pull", 0, 0);
     let st = state.clone();
     let id = job.clone();
     tokio::spawn(async move {
+        let _flight = flight;
         let _one = st.jobs.lock.lock().await;
-        let set = Set::new(&folder, &a.name);
         let st2 = st.clone();
         let id2 = id.clone();
         let result = tokio::task::spawn_blocking(move || {
             let live = |s: &str| is_live(&st2, s);
             super::pull(&super::PullInputs {
                 set: &set,
-                passphrase: &pass,
+                passphrases: &pass,
                 home: &home,
                 machine: &machine,
                 ids: ids.as_deref(),
@@ -691,22 +991,29 @@ async fn rediscover(state: &AppState) {
     crate::server::monitor::tick_once(state).await;
 }
 
-/// Whether no session of `account` was active in the last ten minutes.
-async fn idle(state: &AppState, account: &str, now: i64) -> bool {
+/// Whether no session in `owner`'s directory (its own and, for the Default,
+/// its token accounts') was active in the last ten minutes.
+async fn idle(state: &AppState, owner: &str, now: i64) -> bool {
+    let Some(dir) = state.accounts.home(owner).map(|h| h.base().to_path_buf()) else {
+        return true;
+    };
     let sessions = state.sessions().await;
     !sessions.iter().any(|s| {
-        let mine = s
+        let account = s
             .account
             .as_ref()
-            .map_or(crate::claude::accounts::DEFAULT_ID, |a| a.id.as_str())
-            == account;
-        mine && (s.last_activity_at.is_some_and(|t| now - t < IDLE_FOR_MS)
+            .map_or(crate::claude::accounts::DEFAULT_ID, |a| a.id.as_str());
+        let here = state
+            .accounts
+            .home(account)
+            .is_some_and(|h| h.base() == dir.as_path());
+        here && (s.last_activity_at.is_some_and(|t| now - t < IDLE_FOR_MS)
             || (s.live && s.status == crate::claude::model::SessionStatus::Working))
     })
 }
 
-/// The schedule: every `everyHours`, each idle account is backed up; at
-/// launch, with "pull on launch" and nothing live, every account is pulled.
+/// The schedule: every `everyHours`, each idle set is backed up; at launch,
+/// with "pull on launch" and nothing live, every set is pulled.
 pub fn start(state: &AppState) {
     let st = state.clone();
     tokio::spawn(async move {
@@ -718,9 +1025,9 @@ pub fn start(state: &AppState) {
             && passphrase(&st).is_some()
             && !st.sessions().await.iter().any(|s| s.live)
         {
-            for a in st.accounts.accounts() {
-                if let Err(e) = pull(&st, &a.id, None, false).await {
-                    tracing::info!(account = %a.id, error = %e, "pull on launch skipped");
+            for id in set_owner_ids(&st) {
+                if let Err(e) = pull(&st, &id, None, false).await {
+                    tracing::info!(account = %id, error = %e, "pull on launch skipped");
                 }
             }
         }
@@ -735,15 +1042,16 @@ pub fn start(state: &AppState) {
             let every = i64::from(settings.every_hours) * 3600 * 1000;
             let now = chrono::Utc::now().timestamp_millis();
             let local = load(&st);
-            for a in st.accounts.accounts() {
+            for id in set_owner_ids(&st) {
                 let due = local
                     .accounts
-                    .get(&a.id)
+                    .get(&id)
                     .and_then(|s| s.last_push)
                     .is_none_or(|t| now - t >= every);
-                if due && idle(&st, &a.id, now).await {
-                    if let Err(e) = push(&st, &a.id).await {
-                        tracing::info!(account = %a.id, error = %e, "scheduled backup skipped");
+                // A set still being backed up is not queued again (`push`).
+                if due && idle(&st, &id, now).await {
+                    if let Err(e) = push(&st, &id).await {
+                        tracing::info!(account = %id, error = %e, "scheduled backup skipped");
                     }
                 }
             }

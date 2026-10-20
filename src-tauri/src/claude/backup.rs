@@ -373,6 +373,11 @@ pub struct IndexEntry {
     pub id: String,
     #[serde(default)]
     pub cwd: Option<String>,
+    /// What the session list calls it when it was archived (its title or
+    /// name, else its last prompt; at most 120 characters). Only ever inside
+    /// the encrypted index.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
     /// Size of its transcript(s) when archived.
     pub transcript_bytes: u64,
     /// Its newest file's mtime (epoch ms) when archived.
@@ -592,16 +597,18 @@ fn open_sealed(identity: &age::x25519::Identity, bytes: &[u8]) -> Result<Vec<u8>
     Ok(out)
 }
 
-/// Open a set's key with the passphrase, or make a new set: only in a folder
-/// with no file of a set in it (a set whose key is missing or not downloaded
-/// is never replaced; its archives would become unreadable).
+/// Open a set's key with the passphrases (the current one first), or make a
+/// new set with the current one: only in a folder with no file of a set in
+/// it (a set whose key is missing or not downloaded is never replaced; its
+/// archives would become unreadable).
 pub fn open_or_create(
     set: &Set,
     account_name: &str,
-    passphrase: &Secret,
+    passphrases: &[Secret],
 ) -> Result<(Keys, SetInfo), BackupError> {
+    let passphrase = passphrases.first().ok_or(BackupError::NoPassphrase)?;
     if set.exists() {
-        let keys = open_keys(set, passphrase)?;
+        let keys = open_keys_any(set, passphrases)?;
         let info = match read_info(set) {
             Ok(info) if info.recipient != keys.recipient.to_string() => {
                 return Err(BackupError::Tampered(format!(
@@ -695,10 +702,29 @@ pub fn open_keys(set: &Set, passphrase: &Secret) -> Result<Keys, BackupError> {
     Ok(Keys::from_identity(identity))
 }
 
+/// The set's key, with the first of `passphrases` that opens it (the current
+/// one, then one a change left pending).
+pub fn open_keys_any(set: &Set, passphrases: &[Secret]) -> Result<Keys, BackupError> {
+    let mut last = BackupError::NoPassphrase;
+    for p in passphrases {
+        match open_keys(set, p) {
+            Ok(keys) => return Ok(keys),
+            Err(BackupError::WrongPassphrase) => last = BackupError::WrongPassphrase,
+            Err(e) => return Err(e),
+        }
+    }
+    Err(last)
+}
+
+/// Encrypt the set's key with `passphrase` (the archives stay as they are).
+pub fn write_identity(set: &Set, keys: &Keys, passphrase: &Secret) -> Result<(), BackupError> {
+    write_atomic(&set.identity_path(), &seal_identity(keys, passphrase)?)
+}
+
 /// Re-encrypt the set's key with a new passphrase (the archives stay).
 pub fn rekey(set: &Set, old: &Secret, new: &Secret) -> Result<(), BackupError> {
     let keys = open_keys(set, old)?;
-    write_atomic(&set.identity_path(), &seal_identity(&keys, new)?)
+    write_identity(set, &keys, new)
 }
 
 pub fn read_info(set: &Set) -> Result<SetInfo, BackupError> {
@@ -1033,10 +1059,27 @@ pub struct PushInputs<'a> {
     pub home: &'a ClaudeHome,
     pub set: &'a Set,
     pub account_name: &'a str,
-    pub passphrase: &'a Secret,
+    /// The current passphrase, then one a change left pending.
+    pub passphrases: &'a [Secret],
     pub machine: &'a ThisMachine,
     pub is_live: &'a dyn Fn(&str) -> bool,
+    /// What the session list calls a session, for the index.
+    pub title_of: &'a dyn Fn(&str) -> Option<String>,
     pub progress: &'a Progress,
+}
+
+/// The longest title an index keeps.
+pub const TITLE_MAX: usize = 120;
+
+/// `text` cut to at most `max` characters (an ellipsis marks the cut).
+pub fn clip_title(text: &str, max: usize) -> String {
+    let text = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    if text.chars().count() <= max {
+        return text;
+    }
+    let mut out: String = text.chars().take(max.saturating_sub(1)).collect();
+    out.push('…');
+    out
 }
 
 /// Every session id with a transcript in a config directory.
@@ -1391,7 +1434,7 @@ fn config_fingerprint(files: &[(PathBuf, PathBuf)]) -> String {
 /// so the set always opens as of its last index. Nothing after the archives
 /// (the configuration bundle, `set.json`) can cost the index.
 pub fn push(inp: &PushInputs<'_>) -> Result<PushReport, BackupError> {
-    let (keys, mut info) = open_or_create(inp.set, inp.account_name, inp.passphrase)?;
+    let (keys, mut info) = open_or_create(inp.set, inp.account_name, inp.passphrases)?;
     let index = read_index(inp.set, &keys)?;
     let mut report = PushReport::default();
     let mut seen = index.seen.get(&inp.machine.id).cloned().unwrap_or_default();
@@ -1510,6 +1553,9 @@ fn archive_session(
     Ok(IndexEntry {
         id: id.to_string(),
         cwd: now.cwd.clone(),
+        title: (inp.title_of)(id)
+            .map(|t| clip_title(&t, TITLE_MAX))
+            .filter(|t| !t.is_empty()),
         transcript_bytes: now.transcript_bytes,
         newest_mtime: now.newest_mtime,
         host: inp.machine.name.clone(),
@@ -1624,7 +1670,8 @@ pub struct RestoreReport {
 /// What a restore needs.
 pub struct RestoreInputs<'a> {
     pub set: &'a Set,
-    pub passphrase: &'a Secret,
+    /// The current passphrase, then one a change left pending.
+    pub passphrases: &'a [Secret],
     pub target: &'a ClaudeHome,
     pub ids: &'a [String],
     /// Bring the project's trust (its `.claude.json` entry) back too.
@@ -1757,7 +1804,7 @@ fn staged(stage: &Path) -> (Vec<PathBuf>, Vec<PathBuf>) {
 /// Bring sessions back from a set into a config directory. Only new files
 /// are written; an undo manifest is kept like a transfer's. Blocking.
 pub fn restore(inp: &RestoreInputs<'_>) -> Result<(RestoreReport, Manifest), BackupError> {
-    let keys = open_keys(inp.set, inp.passphrase)?;
+    let keys = open_keys_any(inp.set, inp.passphrases)?;
     let index = read_index(inp.set, &keys)?;
     restore_open(inp, &keys, &index)
 }
@@ -2041,6 +2088,9 @@ pub struct PullItem {
     pub action: PullAction,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cwd: Option<String>,
+    /// What the session list called it when it was pushed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
     pub remote_bytes: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub local_bytes: Option<u64>,
@@ -2079,6 +2129,7 @@ pub fn compare(
                 id: e.id.clone(),
                 action,
                 cwd: e.cwd.clone(),
+                title: e.title.clone(),
                 remote_bytes: e.transcript_bytes,
                 local_bytes: local.as_ref().map(|l| l.transcript_bytes),
                 host: e.host.clone(),
@@ -2132,7 +2183,8 @@ fn pull_action(l: &SessionNow, e: &IndexEntry, seen: Option<&Seen>) -> PullActio
 /// What a pull needs.
 pub struct PullInputs<'a> {
     pub set: &'a Set,
-    pub passphrase: &'a Secret,
+    /// The current passphrase, then one a change left pending.
+    pub passphrases: &'a [Secret],
     pub home: &'a ClaudeHome,
     pub machine: &'a ThisMachine,
     /// Only these sessions (`None`: every one the plan offers).
@@ -2166,7 +2218,7 @@ pub struct PullReport {
 /// moves, the undo lists what will move before it does, and on any error the
 /// local copy is put back.
 pub fn pull(inp: &PullInputs<'_>) -> Result<(PullReport, Manifest), BackupError> {
-    let keys = open_keys(inp.set, inp.passphrase)?;
+    let keys = open_keys_any(inp.set, inp.passphrases)?;
     let index = read_index(inp.set, &keys)?;
     let now = now_ms();
     let plan = compare(&index, inp.home, &inp.machine.id, inp.is_live, now);
@@ -2183,7 +2235,7 @@ pub fn pull(inp: &PullInputs<'_>) -> Result<(PullReport, Manifest), BackupError>
     let (restored, mut m) = restore_open(
         &RestoreInputs {
             set: inp.set,
-            passphrase: inp.passphrase,
+            passphrases: inp.passphrases,
             target: inp.home,
             ids: &new,
             trust: inp.trust,
@@ -2622,11 +2674,11 @@ fn file_is_prefix_of_file(mine: &Path, theirs: &Path) -> Result<bool, BackupErro
 /// has one, else the newest of any machine. Returns the folder.
 pub fn extract_config(
     set: &Set,
-    passphrase: &Secret,
+    passphrases: &[Secret],
     into: &Path,
     machine: Option<&str>,
 ) -> Result<PathBuf, BackupError> {
-    let keys = open_keys(set, passphrase)?;
+    let keys = open_keys_any(set, passphrases)?;
     let index = read_index(set, &keys)?;
     let last = machine
         .and_then(|m| index.config.iter().rev().find(|c| c.machine == m))

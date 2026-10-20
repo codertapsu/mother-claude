@@ -40,6 +40,17 @@ struct Fixture {
 }
 
 async fn boot() -> Fixture {
+    boot_with(|home| ClaudeHome::with_base(home)).await
+}
+
+/// A Default whose `.claude.json` is inside its temp directory (with
+/// `with_base` it would be the real `~/.claude.json`): for tests that back
+/// the Default up.
+async fn boot_inside() -> Fixture {
+    boot_with(|home| ClaudeHome::for_account_dir(home.to_path_buf())).await
+}
+
+async fn boot_with(make_home: impl FnOnce(&std::path::Path) -> ClaudeHome) -> Fixture {
     setup();
     let home = tempfile::tempdir().unwrap();
     let scratch = tempfile::tempdir().unwrap();
@@ -48,7 +59,7 @@ async fn boot() -> Fixture {
     auth.config_dir = Some(scratch.path().join("app-data"));
     // A bridge that never binds a port of its own (the `/v1` mount only).
     let st = Inner::with_bridge_config(
-        ClaudeHome::with_base(home.path()),
+        make_home(home.path()),
         ServerConfig {
             host: "127.0.0.1".into(),
             port: 0,
@@ -1244,4 +1255,121 @@ async fn an_account_is_backed_up_and_restored_over_http() {
     let audit = serde_json::to_string(&f.st.devices.audit.recent(100)).unwrap();
     assert!(!audit.contains(&pass));
     assert!(audit.contains("backup.passphrase"));
+}
+
+/// A token account uses the Default's directory, so it is backed up in the
+/// Default's set (never a second copy of that directory); a set that is
+/// being backed up already is never queued again; pulling everything names a
+/// set that cannot be read and pulls the others.
+#[tokio::test]
+async fn sets_are_per_directory_and_a_set_is_never_queued_twice() {
+    let f = boot_inside().await;
+    let desk = f.desktop();
+    let cwd = f.scratch.path().join("proj");
+    std::fs::create_dir_all(&cwd).unwrap();
+    let cwd = cwd.to_string_lossy().into_owned();
+    let tok = f.st.accounts.add_token("Tok", None, None).unwrap();
+    let work_dir = f.scratch.path().join("claude-work");
+    let work =
+        f.st.accounts
+            .add_directory("Work", &work_dir, None)
+            .unwrap();
+    write_session(
+        f._home.path(),
+        &cwd,
+        "77777777-7777-4777-8777-777777777777",
+        None,
+    );
+    write_session(
+        &work_dir,
+        &cwd,
+        "88888888-8888-4888-8888-888888888888",
+        None,
+    );
+    let folder = f.scratch.path().join("iCloud/Mother Claude");
+    let (s, v) = f
+        .call(
+            "PUT",
+            "/backup/settings",
+            &desk,
+            Some(json!({ "folder": folder })),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    let (s, v) = f
+        .call(
+            "POST",
+            "/backup/passphrase",
+            &desk,
+            Some(json!({"generate": true})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+
+    // Hold the data jobs' turn: the pushes queue.
+    let held = f.st.jobs.lock.lock().await;
+    let (s, v) = f.call("POST", "/backup/push", &desk, Some(json!({}))).await;
+    assert_eq!(s, StatusCode::ACCEPTED, "{v}");
+    let jobs: Vec<String> = v["jobs"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|j| j.as_str().unwrap().to_string())
+        .collect();
+    assert_eq!(jobs.len(), 2, "the Default and Work, not Tok: {v}");
+    let (_, again) = f.call("POST", "/backup/push", &desk, Some(json!({}))).await;
+    assert_eq!(again["jobs"], v["jobs"], "queued already: the same jobs");
+    let (_, one) = f
+        .call(
+            "POST",
+            "/backup/push",
+            &desk,
+            Some(json!({ "account": tok.id })),
+        )
+        .await;
+    assert!(jobs.contains(&one["jobs"][0].as_str().unwrap().to_string()));
+    drop(held);
+    for job in &jobs {
+        for _ in 0..400 {
+            let (_, j) = f
+                .call("GET", &format!("/data/jobs/{job}"), &desk, None)
+                .await;
+            if j["state"] != "running" {
+                assert_eq!(j["state"], "done", "{j}");
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        }
+    }
+    let mut sets: Vec<String> = std::fs::read_dir(&folder)
+        .unwrap()
+        .flatten()
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .collect();
+    sets.sort();
+    assert_eq!(sets, ["Default", "Work"]);
+    let (_, v) = f.call("GET", "/backup", &desk, None).await;
+    let tok_view = v["sets"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|s| s["account"] == tok.id.as_str())
+        .unwrap()
+        .clone();
+    assert_eq!(tok_view["sharedWith"], "default");
+    assert!(tok_view["dir"].as_str().unwrap().ends_with("Default"));
+    assert_eq!(tok_view["exists"], true);
+
+    // Pull everything: a set that cannot be read is named, the rest pulled.
+    let empty =
+        f.st.accounts
+            .add_directory("Empty", &f.scratch.path().join("claude-empty"), None)
+            .unwrap();
+    let (s, v) = f.call("POST", "/backup/pull", &desk, Some(json!({}))).await;
+    assert_eq!(s, StatusCode::ACCEPTED, "{v}");
+    assert_eq!(v["jobs"].as_array().unwrap().len(), 2, "{v}");
+    assert_eq!(v["skipped"][0]["account"], empty.id.as_str(), "{v}");
+    assert_eq!(v["skipped"][0]["code"], "invalid_backup");
+    assert!(v["skipped"][0]["message"].as_str().is_some());
+    let _ = work;
 }
