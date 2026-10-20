@@ -804,6 +804,12 @@ export interface JobView {
   undoUntil?: number;
   /** The sessions it moved, copied or restored. */
   sessions: string[];
+  /** The account whose backup set it used (backup, restore, pull). */
+  account?: string;
+  /** The accounts it moved or copied from and to (a restore: `to` is the
+   * account it restored into). */
+  from?: string;
+  to?: string;
   /** Per kind: what a backup archived, what a restore or pull did. */
   result?: unknown;
 }

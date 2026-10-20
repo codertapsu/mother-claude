@@ -4,6 +4,7 @@ import {
   formatBytes,
   jobFraction,
   jobIdOf,
+  jobTitle,
   normalizeJob,
   normalizePlan,
   sentence,
@@ -138,5 +139,26 @@ describe('data job helpers', () => {
     });
     expect(normalizePlan({ what: { what: 'session' }, mode: 'copy' })).toBeNull();
     expect(normalizePlan({ what: { what: 'session', id: 'x' }, mode: 'teleport' })).toBeNull();
+  });
+
+  it('names the accounts a job moved between, when they are known', () => {
+    const names: Record<string, string> = { default: 'Default', acc_w: 'Work', acc_p: 'Personal' };
+    const nameOf = (id: string) => names[id];
+    const job = (extra: Record<string, unknown>) =>
+      normalizeJob({ id: 'j', kind: 'move', state: 'done', ...extra })!;
+    expect(job({ from: 'default', to: 'acc_w' }).from).toBe('default');
+    expect(jobTitle(job({ from: 'default', to: 'acc_w' }), nameOf)).toBe(
+      'Move from Default to Work',
+    );
+    expect(jobTitle(job({ to: 'acc_w' }), nameOf)).toBe('Move to Work');
+    expect(jobTitle(job({ from: 'gone', to: 'acc_gone' }), nameOf)).toBe('Move');
+    expect(jobTitle(job({ kind: 'backup', account: 'acc_w' }), nameOf)).toBe('Backup of Work');
+    expect(jobTitle(job({ kind: 'restore', account: 'acc_w', to: 'acc_p' }), nameOf)).toBe(
+      'Restore of Work into Personal',
+    );
+    expect(jobTitle(job({ kind: 'restore', account: 'acc_w', to: 'acc_w' }), nameOf)).toBe(
+      'Restore of Work',
+    );
+    expect(jobTitle(job({ kind: 'pull' }), nameOf)).toBe('Pull');
   });
 });

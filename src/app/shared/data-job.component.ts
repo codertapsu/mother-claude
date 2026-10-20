@@ -9,6 +9,7 @@ import {
   signal,
 } from '@angular/core';
 
+import { AccountsService } from '../core/accounts.service';
 import { ApiService } from '../core/api.service';
 import { AuthService } from '../core/auth.service';
 import { jobSummary } from '../core/backup';
@@ -16,8 +17,8 @@ import {
   canUndo,
   formatBytes,
   jobFraction,
-  jobKindLabel,
   jobStateLabel,
+  jobTitle,
   normalizeJob,
   transferErrorText,
 } from '../core/data-jobs';
@@ -177,6 +178,7 @@ function dateTime(ms: number): string {
 export class DataJobComponent {
   private api = inject(ApiService);
   private clock = inject(NowService);
+  private accounts = inject(AccountsService);
   protected readonly isDesktop = inject(AuthService).isDesktop;
 
   readonly job = input.required<JobView>();
@@ -197,7 +199,10 @@ export class DataJobComponent {
   private confirmTimer?: ReturnType<typeof setTimeout>;
 
   protected readonly icon = computed(() => ICONS[this.job().kind]);
-  protected readonly kindLabel = computed(() => jobKindLabel(this.job().kind));
+  /** Its kind and the accounts it names (when a page gives no label). */
+  protected readonly kindLabel = computed(() =>
+    jobTitle(this.job(), (id) => this.accounts.byId(id)?.name),
+  );
   protected readonly stateLabel = computed(() => jobStateLabel(this.job().state));
   protected readonly pct = computed(() => {
     const f = jobFraction(this.job());

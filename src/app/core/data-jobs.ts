@@ -47,6 +47,9 @@ export function normalizeJob(raw: unknown): JobView | null {
   const undoUntil = num(r['undoUntil']);
   const error = str(r['error']);
   const errorCode = str(r['errorCode']);
+  const account = str(r['account']);
+  const from = str(r['from']);
+  const to = str(r['to']);
   return {
     id,
     kind,
@@ -63,6 +66,9 @@ export function normalizeJob(raw: unknown): JobView | null {
     sessions: Array.isArray(r['sessions'])
       ? r['sessions'].filter((s): s is string => typeof s === 'string')
       : [],
+    ...(account ? { account } : {}),
+    ...(from ? { from } : {}),
+    ...(to ? { to } : {}),
     ...(r['result'] !== undefined && r['result'] !== null ? { result: r['result'] } : {}),
   };
 }
@@ -118,6 +124,29 @@ const KIND_LABELS: Record<DataJobKind, string> = {
 
 export function jobKindLabel(kind: DataJobKind): string {
   return KIND_LABELS[kind];
+}
+
+/** What a job did, with the accounts it names: "Move from Default to Work",
+ * "Backup of Work", "Restore of Work into Personal". `nameOf` gives an
+ * account's name (undefined when unknown: then only what is known is said). */
+export function jobTitle(j: JobView, nameOf: (id: string) => string | undefined): string {
+  const kind = jobKindLabel(j.kind);
+  const name = (id: string | undefined) => (id ? nameOf(id) : undefined);
+  const from = name(j.from);
+  const to = name(j.to);
+  const set = name(j.account);
+  switch (j.kind) {
+    case 'move':
+    case 'copy':
+      if (from && to) return `${kind} from ${from} to ${to}`;
+      if (to) return `${kind} to ${to}`;
+      return kind;
+    case 'restore':
+      if (set && to && j.to !== j.account) return `${kind} of ${set} into ${to}`;
+      return set ? `${kind} of ${set}` : kind;
+    default:
+      return set ? `${kind} of ${set}` : kind;
+  }
 }
 
 /** "Running", "Done", "Failed", "Undone". */
