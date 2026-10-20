@@ -806,6 +806,7 @@ pub fn fleet_entry(
         name: name.to_string(),
         agents: running,
         workflows: wf,
+        account: None,
     })
 }
 

@@ -21,6 +21,12 @@
 //! * The `claude agents --json` spawn of the old monitor is gone.
 //! * Status transitions (`idle`/`busy`/`waiting`) are broadcast on
 //!   [`LiveRoster::subscribe`] (B4 uses them for edge-triggered withdrawal).
+//! * **Accounts** (docs/ACCOUNTS.md §5.2): [`LiveRoster::refresh_homes`]
+//!   scans every account's `sessions/` and `jobs/` and tags each record with
+//!   the account whose directory holds it. With the argv, a process's
+//!   `CLAUDE_CODE_OAUTH_TOKEN` is hashed where the platform still exposes
+//!   another process's environment (Linux); macOS 27 does not, and there the
+//!   hooks plugin reports the hash.
 //!
 //! AppState field: `state.live`. Reading happens in [`LiveRoster::refresh`]
 //! (blocking I/O — call it from `spawn_blocking`); the accessors are cheap.
@@ -95,6 +101,18 @@ pub struct LiveSession {
     pub peer_features: Option<Vec<String>>,
     #[serde(flatten)]
     pub extra: Map<String, Value>,
+    /// The account whose config directory holds the pidfile (set by a
+    /// refresh; docs/ACCOUNTS.md §5.2).
+    #[serde(skip)]
+    pub home_account: Option<String>,
+    /// SHA-256 of the process's `CLAUDE_CODE_OAUTH_TOKEN`, when its
+    /// environment has one (D8: read once per process, hashed, the value
+    /// dropped). Never serialized.
+    #[serde(skip)]
+    pub token_sha256: Option<String>,
+    /// The pidfile the record was read from.
+    #[serde(skip)]
+    pub source: Option<PathBuf>,
 }
 
 impl LiveSession {
@@ -147,6 +165,9 @@ pub struct JobState {
     pub cli_version: Option<String>,
     #[serde(deserialize_with = "loose_i64")]
     pub tokens: Option<i64>,
+    /// The account whose config directory holds the job (set by a refresh).
+    #[serde(skip)]
+    pub account: Option<String>,
 }
 
 impl JobState {
@@ -244,6 +265,8 @@ struct CachedFile {
     record: Option<LiveSession>,
     /// Consecutive read/parse failures (reset by a good read).
     failures: u8,
+    /// The account whose `sessions/` holds it.
+    account: String,
 }
 
 /// A stamp no file has: the entry is re-read on the next refresh.
@@ -269,6 +292,9 @@ struct CachedJob {
     state: Option<JobState>,
 }
 
+/// The Default account's id, for a roster refreshed with one home.
+const DEFAULT_ACCOUNT: &str = super::accounts::DEFAULT_ID;
+
 #[derive(Debug, Default)]
 struct RosterInner {
     sessions_dir_seen: bool,
@@ -278,6 +304,9 @@ struct RosterInner {
     proc_checks: HashMap<(u32, String), (bool, Instant)>,
     /// `(pid, procStart)` → what the process argv says (read once).
     argv_flags: HashMap<(u32, String), LaunchFlags>,
+    /// `(pid, procStart)` → the SHA-256 of its OAuth token, if any (read
+    /// with the argv).
+    proc_tokens: HashMap<(u32, String), Option<String>>,
     /// Live sessions by session id.
     live: HashMap<String, LiveSession>,
     /// Background job state by session id.
@@ -469,6 +498,85 @@ fn flags_from_words(words: &[&str], settings: Option<serde_json::Value>) -> Laun
 /// caller falls back to `ps`).
 #[cfg(target_os = "macos")]
 pub fn process_argv(pid: u32) -> Option<Vec<String>> {
+    parse_procargs2(&procargs2(pid)?)
+}
+
+/// What a process was started with, read once: its argv and, for D8, the
+/// SHA-256 of its `CLAUDE_CODE_OAUTH_TOKEN` (the value itself is hashed where
+/// it lies and never copied out). Our own user's processes only: the kernel
+/// refuses anyone else's.
+#[derive(Debug, Default)]
+pub struct ProcFacts {
+    pub args: Option<Vec<String>>,
+    pub token_sha256: Option<String>,
+}
+
+#[cfg(target_os = "macos")]
+pub fn process_facts(pid: u32) -> ProcFacts {
+    match procargs2(pid) {
+        Some(buf) => ProcFacts {
+            args: parse_procargs2(&buf),
+            token_sha256: env_sha256_in_procargs2(&buf, OAUTH_TOKEN_ENV),
+        },
+        None => ProcFacts::default(),
+    }
+}
+
+#[cfg(target_os = "linux")]
+pub fn process_facts(pid: u32) -> ProcFacts {
+    let token_sha256 = std::fs::read(format!("/proc/{pid}/environ"))
+        .ok()
+        .and_then(|bytes| env_sha256_in(bytes.split(|b| *b == 0), OAUTH_TOKEN_ENV));
+    ProcFacts {
+        args: process_argv(pid),
+        token_sha256,
+    }
+}
+
+/// No environment read on other platforms (Windows: "unknown", §11.6).
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+pub fn process_facts(pid: u32) -> ProcFacts {
+    ProcFacts {
+        args: process_argv(pid),
+        token_sha256: None,
+    }
+}
+
+/// The variable D8 looks for.
+#[cfg_attr(not(any(target_os = "macos", target_os = "linux")), allow(dead_code))]
+const OAUTH_TOKEN_ENV: &str = "CLAUDE_CODE_OAUTH_TOKEN";
+
+/// SHA-256 of `name`'s value among `NAME=value` strings (empty values count
+/// as unset). The value is hashed in place.
+#[cfg_attr(not(any(target_os = "macos", target_os = "linux")), allow(dead_code))]
+fn env_sha256_in<'a>(vars: impl Iterator<Item = &'a [u8]>, name: &str) -> Option<String> {
+    let prefix = format!("{name}=");
+    vars.filter_map(|v| v.strip_prefix(prefix.as_bytes()))
+        .find(|value| !value.is_empty())
+        .map(super::secrets::sha256_hex)
+}
+
+/// The environment after the arguments of a `KERN_PROCARGS2` buffer, as D8
+/// needs it: the hash of one variable.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn env_sha256_in_procargs2(buf: &[u8], name: &str) -> Option<String> {
+    let argc = i32::from_ne_bytes(buf.get(..4)?.try_into().ok()?);
+    let argc = usize::try_from(argc).ok().filter(|n| *n <= 65_536)?;
+    let rest = &buf[4..];
+    let path_end = rest.iter().position(|b| *b == 0)?;
+    let rest = &rest[path_end..];
+    let first = rest.iter().position(|b| *b != 0)?;
+    // The environment ends at the first empty string after the arguments.
+    let vars = rest[first..]
+        .split(|b| *b == 0)
+        .skip(argc)
+        .take_while(|v| !v.is_empty());
+    env_sha256_in(vars, name)
+}
+
+/// The raw `KERN_PROCARGS2` buffer of a process.
+#[cfg(target_os = "macos")]
+fn procargs2(pid: u32) -> Option<Vec<u8>> {
     let pid = libc::c_int::try_from(pid).ok().filter(|p| *p > 0)?;
     let mut argmax: libc::c_int = 0;
     let mut size = std::mem::size_of::<libc::c_int>();
@@ -503,7 +611,7 @@ pub fn process_argv(pid: u32) -> Option<Vec<String>> {
         return None;
     }
     buf.truncate(size);
-    parse_procargs2(&buf)
+    Some(buf)
 }
 
 #[cfg(target_os = "linux")]
@@ -524,8 +632,9 @@ pub fn process_argv(_pid: u32) -> Option<Vec<String>> {
 }
 
 /// The arguments in a `KERN_PROCARGS2` buffer: `argc` (a native int), the
-/// executable path, NUL padding, then `argc` NUL-terminated arguments (the
-/// environment follows and is never read).
+/// executable path, NUL padding, then `argc` NUL-terminated arguments. The
+/// environment that may follow is never copied out: only
+/// [`env_sha256_in_procargs2`] looks at it, for one variable's hash.
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 fn parse_procargs2(buf: &[u8]) -> Option<Vec<String>> {
     let argc = i32::from_ne_bytes(buf.get(..4)?.try_into().ok()?);
@@ -766,8 +875,12 @@ impl LiveRoster {
         home: &ClaudeHome,
         session_id: &str,
     ) -> Option<(Option<String>, Option<String>)> {
-        let pid = self.lock().live.get(session_id)?.pid?;
-        let path = home.base().join("sessions").join(format!("{pid}.json"));
+        let (pid, source) = {
+            let g = self.lock();
+            let rec = g.live.get(session_id)?;
+            (rec.pid?, rec.source.clone())
+        };
+        let path = source.unwrap_or_else(|| home.sessions_dir().join(format!("{pid}.json")));
         let PidfileRead::Parsed(rec) = read_pidfile(&path) else {
             return None;
         };
@@ -785,15 +898,23 @@ impl LiveRoster {
     /// changed are parsed), re-check liveness, and report what changed.
     /// Blocking: call from `spawn_blocking`.
     pub fn refresh(&self, home: &ClaudeHome) -> LiveChange {
-        let sessions_dir = home.base().join("sessions");
-        let jobs_dir = home.jobs_dir();
+        self.refresh_homes(&[(DEFAULT_ACCOUNT.to_string(), home.clone())])
+    }
 
+    /// [`Self::refresh`] over every account's config directory (the Default
+    /// first): each record and job is tagged with the account it was found
+    /// under (docs/ACCOUNTS.md §5.2).
+    pub fn refresh_homes(&self, homes: &[(String, ClaudeHome)]) -> LiveChange {
         // 1. Pidfiles (outside the lock: may sleep 50 ms on a torn read).
-        let listing = std::fs::read_dir(&sessions_dir).ok();
-        let dir_seen = listing.is_some();
+        let mut dir_seen = false;
         let mut seen_paths: HashSet<PathBuf> = HashSet::new();
-        let mut to_parse: Vec<(PathBuf, (u64, i64))> = Vec::new();
-        {
+        let mut to_parse: Vec<(PathBuf, (u64, i64), String)> = Vec::new();
+        for (index, (account, home)) in homes.iter().enumerate() {
+            let listing = std::fs::read_dir(home.sessions_dir()).ok();
+            if index == 0 {
+                // Old CLIs without pidfiles: judged by the Default's.
+                dir_seen = listing.is_some();
+            }
             let g = self.lock();
             for entry in listing.into_iter().flatten().flatten() {
                 let name = entry.file_name();
@@ -812,25 +933,31 @@ impl LiveRoster {
                 }
                 let st = stamp(&meta);
                 seen_paths.insert(path.clone());
-                if g.files.get(&path).map(|c| c.stamp) != Some(st) {
-                    to_parse.push((path, st));
+                if g.files.get(&path).map(|c| (c.stamp, c.account.as_str()))
+                    != Some((st, account.as_str()))
+                {
+                    to_parse.push((path, st, account.clone()));
                 }
             }
         }
-        let parsed: Vec<(PathBuf, (u64, i64), PidfileRead)> = to_parse
+        let parsed: Vec<(PathBuf, (u64, i64), String, PidfileRead)> = to_parse
             .into_iter()
-            .map(|(path, st)| {
+            .map(|(path, st, account)| {
                 let read = read_pidfile(&path);
-                (path, st, read)
+                (path, st, account, read)
             })
             .collect();
 
         // 2. Jobs.
         let mut job_seen: HashSet<PathBuf> = HashSet::new();
-        let mut job_parse: Vec<(PathBuf, String, (u64, i64))> = Vec::new();
-        {
+        let mut job_parse: Vec<(PathBuf, String, (u64, i64), String)> = Vec::new();
+        for (account, home) in homes {
             let g = self.lock();
-            for entry in std::fs::read_dir(&jobs_dir).into_iter().flatten().flatten() {
+            for entry in std::fs::read_dir(home.jobs_dir())
+                .into_iter()
+                .flatten()
+                .flatten()
+            {
                 let short = entry.file_name().to_string_lossy().to_string();
                 if !super::ids::is_short_job_id(&short) {
                     continue;
@@ -842,14 +969,17 @@ impl LiveRoster {
                 let st = stamp(&meta);
                 job_seen.insert(path.clone());
                 if g.jobs_files.get(&path).map(|c| c.stamp) != Some(st) {
-                    job_parse.push((path, short, st));
+                    job_parse.push((path, short, st, account.clone()));
                 }
             }
         }
         let jobs_parsed: Vec<(PathBuf, CachedJob)> = job_parse
             .into_iter()
-            .map(|(path, short, st)| {
-                let state = read_job(&path, &short);
+            .map(|(path, short, st, account)| {
+                let state = read_job(&path, &short).map(|mut j| {
+                    j.account = Some(account);
+                    j
+                });
                 (path, CachedJob { stamp: st, state })
             })
             .collect();
@@ -858,15 +988,19 @@ impl LiveRoster {
         let candidates: Vec<LiveSession> = {
             let mut g = self.lock();
             g.sessions_dir_seen = dir_seen;
-            for (p, st, read) in parsed {
+            for (p, st, account, read) in parsed {
                 match read {
                     PidfileRead::Parsed(rec) => {
+                        let mut rec = *rec;
+                        rec.home_account = Some(account.clone());
+                        rec.source = Some(p.clone());
                         g.files.insert(
                             p,
                             CachedFile {
                                 stamp: st,
-                                record: Some(*rec),
+                                record: Some(rec),
                                 failures: 0,
+                                account,
                             },
                         );
                     }
@@ -890,6 +1024,7 @@ impl LiveRoster {
                                 stamp,
                                 record: prior.and_then(|c| c.record),
                                 failures,
+                                account,
                             },
                         );
                     }
@@ -919,8 +1054,8 @@ impl LiveRoster {
         };
         let mut alive: Vec<LiveSession> = Vec::new();
         let mut new_checks: Vec<((u32, String), bool)> = Vec::new();
-        let mut new_argv: Vec<((u32, String), LaunchFlags)> = Vec::new();
-        for rec in candidates {
+        let mut new_argv: Vec<((u32, String), LaunchFlags, Option<String>)> = Vec::new();
+        for mut rec in candidates {
             let Some(pid) = rec.pid else { continue };
             if !pid_exists(pid) {
                 continue;
@@ -955,14 +1090,20 @@ impl LiveRoster {
             if !same_process {
                 continue;
             }
-            if !cached.1 {
+            if cached.1 {
+                rec.token_sha256 = self.lock().proc_tokens.get(&key).cloned().flatten();
+            } else {
                 // The real argv, whole arguments; `ps`'s joined text only
-                // when that cannot be read.
-                let flags = process_argv(pid)
+                // when that cannot be read. The environment's token (D8) in
+                // the same read.
+                let facts = process_facts(pid);
+                let flags = facts
+                    .args
                     .map(|args| launch_flags_from_args(&args))
                     .or_else(|| ps_field(pid, "command").map(|c| launch_flags_from_argv(&c)))
                     .unwrap_or_default();
-                new_argv.push((key, flags));
+                rec.token_sha256 = facts.token_sha256.clone();
+                new_argv.push((key, flags, facts.token_sha256));
             }
             alive.push(rec);
         }
@@ -974,7 +1115,8 @@ impl LiveRoster {
         for (k, ok) in new_checks {
             g.proc_checks.insert(k, (ok, now));
         }
-        for (k, f) in new_argv {
+        for (k, f, token) in new_argv {
+            g.proc_tokens.insert(k.clone(), token);
             g.argv_flags.insert(k, f);
         }
         let mut next: HashMap<String, LiveSession> = HashMap::new();
@@ -1062,6 +1204,7 @@ impl LiveRoster {
         let live_keys: HashSet<(u32, String)> = g.live.values().filter_map(key_of).collect();
         g.proc_checks.retain(|k, _| file_keys.contains(k));
         g.argv_flags.retain(|k, _| live_keys.contains(k));
+        g.proc_tokens.retain(|k, _| live_keys.contains(k));
         drop(g);
         change.appeared.sort();
         change.gone.sort();
@@ -1356,6 +1499,107 @@ mod tests {
         );
         let bypass = args(&["claude", "-p", "--dangerously-skip-permissions"]);
         assert_eq!(bypass.permission_mode.as_deref(), Some("bypassPermissions"));
+    }
+
+    #[test]
+    fn the_token_in_a_process_environment_is_only_hashed() {
+        let mut buf = 2i32.to_ne_bytes().to_vec();
+        buf.extend_from_slice(b"/usr/local/bin/claude\0\0\0");
+        buf.extend_from_slice(
+            b"claude\0-p\0HOME=/Users/me\0CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat01-x\0\0",
+        );
+        buf.extend_from_slice(b"ptr_munge=abc\0CLAUDE_CODE_OAUTH_TOKEN=apple-string\0");
+        assert_eq!(
+            env_sha256_in_procargs2(&buf, OAUTH_TOKEN_ENV),
+            Some(crate::claude::secrets::sha256_hex(b"sk-ant-oat01-x")),
+            "the environment ends at the empty string; the apple strings after it are not read"
+        );
+        // An argument that merely looks like the variable is not the environment.
+        let mut args_only = 2i32.to_ne_bytes().to_vec();
+        args_only.extend_from_slice(b"/bin/claude\0claude\0CLAUDE_CODE_OAUTH_TOKEN=nope\0\0");
+        assert_eq!(env_sha256_in_procargs2(&args_only, OAUTH_TOKEN_ENV), None);
+        // Unset or empty.
+        let mut none = 1i32.to_ne_bytes().to_vec();
+        none.extend_from_slice(b"/bin/claude\0claude\0CLAUDE_CODE_OAUTH_TOKEN=\0HOME=/x\0\0");
+        assert_eq!(env_sha256_in_procargs2(&none, OAUTH_TOKEN_ENV), None);
+        assert_eq!(env_sha256_in_procargs2(&[1, 0], OAUTH_TOKEN_ENV), None);
+    }
+
+    /// D8 on a real process: on Linux a child started with a token in its
+    /// environment is recognised by the token's hash. (macOS 27 no longer
+    /// returns another process's environment from KERN_PROCARGS2, our own
+    /// children's included; there the hooks plugin reports the hash.)
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn a_childs_token_is_read_from_its_environment() {
+        let mut child = std::process::Command::new("sleep")
+            .arg("30")
+            .env("CLAUDE_CODE_OAUTH_TOKEN", "sk-ant-oat01-child-dummy")
+            .spawn()
+            .unwrap();
+        let mut facts = ProcFacts::default();
+        for _ in 0..50 {
+            facts = process_facts(child.id());
+            if facts.token_sha256.is_some() {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        let _ = child.kill();
+        let _ = child.wait();
+        assert_eq!(
+            facts.token_sha256,
+            Some(crate::claude::secrets::sha256_hex(
+                b"sk-ant-oat01-child-dummy"
+            ))
+        );
+        assert_eq!(facts.args.unwrap()[1], "30");
+    }
+
+    #[test]
+    fn records_from_several_homes_carry_their_account() {
+        let a = tempfile::tempdir().unwrap();
+        let b = tempfile::tempdir().unwrap();
+        let me = std::process::id();
+        let sid_b = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
+        for (dir, sid) in [(a.path(), SID), (b.path(), sid_b)] {
+            std::fs::create_dir_all(dir.join("sessions")).unwrap();
+            std::fs::write(
+                dir.join("sessions").join(format!("{me}.json")),
+                format!(r#"{{"pid":{me},"sessionId":"{sid}","cwd":"/x","status":"idle"}}"#),
+            )
+            .unwrap();
+            std::fs::create_dir_all(dir.join("jobs/abcd1234")).unwrap();
+            std::fs::write(
+                dir.join("jobs/abcd1234/state.json"),
+                format!(r#"{{"sessionId":"{sid}","state":"working"}}"#),
+            )
+            .unwrap();
+        }
+        let roster = LiveRoster::new();
+        let change = roster.refresh_homes(&[
+            ("default".into(), ClaudeHome::with_base(a.path())),
+            (
+                "acc_0123456789ab".into(),
+                ClaudeHome::for_account_dir(b.path()),
+            ),
+        ]);
+        assert_eq!(change.appeared.len(), 2);
+        let one = roster.get(SID).unwrap();
+        assert_eq!(one.home_account.as_deref(), Some("default"));
+        assert!(one.source.unwrap().starts_with(a.path()));
+        assert_eq!(
+            roster.get(sid_b).unwrap().home_account.as_deref(),
+            Some("acc_0123456789ab")
+        );
+        assert_eq!(
+            roster.job(sid_b).unwrap().account.as_deref(),
+            Some("acc_0123456789ab")
+        );
+        // A home that goes away takes its sessions with it.
+        let change = roster.refresh_homes(&[("default".into(), ClaudeHome::with_base(a.path()))]);
+        assert_eq!(change.gone, vec![sid_b.to_string()]);
+        assert!(roster.job(sid_b).is_none());
     }
 
     #[test]

@@ -605,7 +605,15 @@ pub async fn projects(Authed(_ctx): Authed, State(state): State<AppState>) -> im
     let sessions = state.sessions().await;
     let st = state.clone();
     let projects = tokio::task::spawn_blocking(move || {
-        let trusted: Vec<String> = claude::settings::trusted_projects(&st.home);
+        // Trusted in any account's directory (docs/ACCOUNTS.md P2.1).
+        let mut trusted: Vec<String> = Vec::new();
+        for (_, home) in st.accounts.homes() {
+            for p in claude::settings::trusted_projects(&home) {
+                if !trusted.contains(&p) {
+                    trusted.push(p);
+                }
+            }
+        }
         let mut by_path: BTreeMap<String, ProjectInfo> = BTreeMap::new();
         for s in &sessions {
             if s.cwd.is_empty() {

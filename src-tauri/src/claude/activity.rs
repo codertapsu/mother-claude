@@ -58,6 +58,9 @@ struct Hints {
     mode: Option<(String, i64)>,
     /// (effort level, epoch ms) from a main-thread hook payload.
     effort: Option<(String, i64)>,
+    /// SHA-256 of the session's `CLAUDE_CODE_OAUTH_TOKEN`, as its hook
+    /// reported it (docs/ACCOUNTS.md D8; never the token).
+    token_sha256: Option<String>,
 }
 
 /// Live activity hints per session.
@@ -183,12 +186,35 @@ impl ActivityTracker {
         self.lock().get(session_id).and_then(|h| h.effort.clone())
     }
 
+    /// The token hash a session's hook reported (64 lowercase hex only).
+    pub fn note_token_sha256(&self, session_id: &str, sha: &str) {
+        if sha.len() != 64
+            || !sha
+                .bytes()
+                .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+        {
+            return;
+        }
+        self.lock()
+            .entry(session_id.to_string())
+            .or_default()
+            .token_sha256 = Some(sha.to_string());
+    }
+
+    /// The token hash a session's hook last reported.
+    pub fn token_sha256(&self, session_id: &str) -> Option<String> {
+        self.lock()
+            .get(session_id)
+            .and_then(|h| h.token_sha256.clone())
+    }
+
     /// Forget a session's live hints (process gone).
     pub fn forget(&self, session_id: &str) {
         if let Some(h) = self.lock().get_mut(session_id) {
             h.owned = None;
             h.hook = HookHints::default();
             h.effort = None;
+            h.token_sha256 = None;
         }
     }
 

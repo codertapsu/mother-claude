@@ -103,6 +103,10 @@ pub struct SessionFiles {
     pub journals: BTreeMap<String, PathBuf>,
     /// `workflows/<run>.json` (written when a run finishes) by run id.
     pub run_files: BTreeMap<String, PathBuf>,
+    /// The account whose config directory holds it (`None`: the Default's).
+    /// A session id in two directories (a copied session) is the most
+    /// recently written one (docs/ACCOUNTS.md §5.3).
+    pub account: Option<String>,
 }
 
 /// New bytes consumed from a file by [`TranscriptIndex::update`].
@@ -137,9 +141,21 @@ struct CacheFile {
 
 type Shared = Arc<Mutex<FileIndex>>;
 
+/// One config directory the index covers.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct HomeDir {
+    /// `default` or the directory account's id.
+    account: String,
+    projects: PathBuf,
+}
+
 #[derive(Debug, Default)]
 struct Idx {
     cache_loaded: bool,
+    /// The homes of the last discovery (the Default first).
+    homes: Vec<HomeDir>,
+    /// Checkpoint files read so far, by account.
+    caches_read: HashSet<String>,
     /// Checkpoints not yet adopted.
     cache: HashMap<PathBuf, FileIndex>,
     sessions: HashMap<String, SessionFiles>,
@@ -203,25 +219,73 @@ impl TranscriptIndex {
         if self.lock().cache_loaded {
             return;
         }
-        let mut cache = HashMap::new();
-        if let Some(path) = &self.cache_path {
-            match std::fs::read(path) {
-                Ok(bytes) => match serde_json::from_slice::<CacheFile>(&bytes) {
-                    Ok(c) if c.version == CACHE_VERSION => {
-                        for f in c.files {
-                            cache.insert(f.path.clone(), f);
-                        }
-                    }
-                    Ok(_) => tracing::info!("index cache from another version ignored"),
-                    Err(e) => tracing::warn!(error = %e, "index cache unreadable; rebuilding"),
-                },
-                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-                Err(e) => tracing::warn!(error = %e, "index cache unreadable; rebuilding"),
-            }
-        }
+        let cache = self
+            .cache_path
+            .as_deref()
+            .map(read_cache_file)
+            .unwrap_or_default();
         let mut g = self.lock();
         g.cache_loaded = true;
+        g.caches_read
+            .insert(super::accounts::DEFAULT_ID.to_string());
         g.cache = cache;
+    }
+
+    /// The checkpoint file of an account: `index-cache.json` for the
+    /// Default, `index-cache-<acc_…>.json` for a directory account.
+    fn cache_path_for(&self, account: &str) -> Option<PathBuf> {
+        let base = self.cache_path.as_ref()?;
+        if account == super::accounts::DEFAULT_ID {
+            return Some(base.clone());
+        }
+        super::accounts::is_account_id(account)
+            .then(|| base.with_file_name(format!("index-cache-{account}.json")))
+    }
+
+    /// Read the checkpoints of homes that joined since the last discovery.
+    fn load_caches_for(&self, homes: &[HomeDir]) {
+        let wanted: Vec<String> = {
+            let g = self.lock();
+            if !g.cache_loaded {
+                return;
+            }
+            homes
+                .iter()
+                .map(|h| h.account.clone())
+                .filter(|a| !g.caches_read.contains(a))
+                .collect()
+        };
+        for account in wanted {
+            let files = self
+                .cache_path_for(&account)
+                .map(|p| read_cache_file(&p))
+                .unwrap_or_default();
+            let mut g = self.lock();
+            g.caches_read.insert(account);
+            for (path, f) in files {
+                g.cache.entry(path).or_insert(f);
+            }
+        }
+    }
+
+    /// Delete a removed account's checkpoint file (our own app data).
+    pub fn forget_checkpoint(&self, account: &str) {
+        if account == super::accounts::DEFAULT_ID {
+            return;
+        }
+        if let Some(path) = self.cache_path_for(account) {
+            let _ = std::fs::remove_file(path);
+        }
+        self.lock().caches_read.remove(account);
+    }
+
+    /// The account whose directory holds a session's transcript (`None`:
+    /// the Default's, or unknown).
+    pub fn account_of(&self, session_id: &str) -> Option<String> {
+        self.lock()
+            .sessions
+            .get(session_id)
+            .and_then(|s| s.account.clone())
     }
 
     /// The main transcript of a session, located by id (independent of cwd).
@@ -315,10 +379,94 @@ impl TranscriptIndex {
     /// List `projects/` and rebuild the session → files map. Returns the ids
     /// of sessions whose files changed. Blocking.
     pub fn discover(&self, home: &ClaudeHome) -> Vec<String> {
-        let projects = home.projects_dir();
+        self.discover_homes(&[(super::accounts::DEFAULT_ID.to_string(), home.clone())])
+    }
+
+    /// [`Self::discover`] over every account's config directory (the Default
+    /// first). A session id found in two directories (a copied session) is
+    /// the one written most recently; its files in the other are not used.
+    pub fn discover_homes(&self, homes: &[(String, ClaudeHome)]) -> Vec<String> {
+        let dirs: Vec<HomeDir> = homes
+            .iter()
+            .map(|(account, home)| HomeDir {
+                account: account.clone(),
+                projects: home.projects_dir(),
+            })
+            .collect();
+        self.load_caches_for(&dirs);
         let mut found: HashMap<String, SessionFiles> = HashMap::new();
-        let Ok(dirs) = std::fs::read_dir(&projects) else {
+        let mut any = false;
+        for home in &dirs {
+            let mut one: HashMap<String, SessionFiles> = HashMap::new();
+            if !discover_projects(&home.projects, &mut one) {
+                continue;
+            }
+            any = true;
+            let account =
+                (home.account != super::accounts::DEFAULT_ID).then(|| home.account.clone());
+            for (sid, mut files) in one {
+                files.account = account.clone();
+                match found.get(&sid) {
+                    Some(prev) if prev.main_mtime >= files.main_mtime => {}
+                    _ => {
+                        found.insert(sid, files);
+                    }
+                }
+            }
+        }
+        if !any {
             return Vec::new();
+        }
+        self.lock().homes = dirs;
+        self.install_discovery(found)
+    }
+
+    /// Swap in a discovery's session map; the ids whose files changed.
+    fn install_discovery(&self, found: HashMap<String, SessionFiles>) -> Vec<String> {
+        let mut g = self.lock();
+        let mut changed: Vec<String> = found
+            .iter()
+            .filter(|(sid, s)| g.sessions.get(*sid) != Some(*s))
+            .map(|(sid, _)| sid.clone())
+            .collect();
+        changed.extend(
+            g.sessions
+                .keys()
+                .filter(|sid| !found.contains_key(*sid))
+                .cloned(),
+        );
+        // Forget files that disappeared.
+        let known: HashSet<PathBuf> = found
+            .values()
+            .flat_map(|s| {
+                s.main
+                    .iter()
+                    .cloned()
+                    .chain(s.subagents.values().map(|a| a.path.clone()))
+            })
+            .collect();
+        g.files.retain(|p, _| known.contains(p));
+        // Checkpoints of transcripts that are gone (Claude Code prunes them
+        // after 30 days) would otherwise be carried into every cache write.
+        let cached = g.cache.len();
+        g.cache.retain(|p, _| known.contains(p));
+        if g.cache.len() != cached {
+            g.dirty = true;
+        }
+        g.jobs.retain(|j| known.contains(&j.path));
+        let jobs_left: HashSet<PathBuf> = g.jobs.iter().map(|j| j.path.clone()).collect();
+        g.queued = jobs_left;
+        g.sessions = found;
+        changed.sort();
+        changed
+    }
+}
+
+/// List one `projects/` into `found`: `false` when it cannot be read.
+fn discover_projects(projects: &Path, found: &mut HashMap<String, SessionFiles>) -> bool {
+    {
+        let Ok(dirs) = std::fs::read_dir(projects) else {
+            return false;
         };
         let mut session_dirs: Vec<(String, PathBuf)> = Vec::new();
         for dir in dirs.flatten() {
@@ -367,44 +515,11 @@ impl TranscriptIndex {
             scan_session_dir(entry, &dir);
             entry.session_dirs.push(dir);
         }
-        let mut g = self.lock();
-        let mut changed: Vec<String> = found
-            .iter()
-            .filter(|(sid, s)| g.sessions.get(*sid) != Some(*s))
-            .map(|(sid, _)| sid.clone())
-            .collect();
-        changed.extend(
-            g.sessions
-                .keys()
-                .filter(|sid| !found.contains_key(*sid))
-                .cloned(),
-        );
-        // Forget files that disappeared.
-        let known: HashSet<PathBuf> = found
-            .values()
-            .flat_map(|s| {
-                s.main
-                    .iter()
-                    .cloned()
-                    .chain(s.subagents.values().map(|a| a.path.clone()))
-            })
-            .collect();
-        g.files.retain(|p, _| known.contains(p));
-        // Checkpoints of transcripts that are gone (Claude Code prunes them
-        // after 30 days) would otherwise be carried into every cache write.
-        let cached = g.cache.len();
-        g.cache.retain(|p, _| known.contains(p));
-        if g.cache.len() != cached {
-            g.dirty = true;
-        }
-        g.jobs.retain(|j| known.contains(&j.path));
-        let jobs_left: HashSet<PathBuf> = g.jobs.iter().map(|j| j.path.clone()).collect();
-        g.queued = jobs_left;
-        g.sessions = found;
-        changed.sort();
-        changed
     }
+    true
+}
 
+impl TranscriptIndex {
     /// Re-list one session's directories (after a watcher event named a file
     /// we did not know). Blocking.
     pub fn rediscover_session(&self, session_id: &str) {
@@ -738,7 +853,7 @@ impl TranscriptIndex {
     /// Write `index-cache.json` when dirty and due (or `force`). Only complete
     /// files are checkpointed. Blocking.
     pub fn persist(&self, force: bool) -> bool {
-        let Some(path) = self.cache_path.clone() else {
+        let Some(default_path) = self.cache_path.clone() else {
             return false;
         };
         let shared: Vec<Shared> = {
@@ -780,19 +895,66 @@ impl TranscriptIndex {
             drop(adopted);
             files.extend(extra);
         }
-        let body = CacheFile {
-            version: CACHE_VERSION,
-            files,
-        };
-        match crate::persist::write_json_private(&path, &body) {
-            Ok(()) => true,
-            Err(e) => {
-                tracing::warn!(error = %e, "could not write the index cache");
-                self.lock().dirty = true;
-                false
+        // One file per home: the Default's `index-cache.json` holds exactly
+        // what it always held; a directory account's files go to its own.
+        let homes = self.lock().homes.clone();
+        let mut parts: BTreeMap<String, Vec<FileIndex>> = BTreeMap::new();
+        parts.insert(super::accounts::DEFAULT_ID.to_string(), Vec::new());
+        for f in files {
+            let account = homes
+                .iter()
+                .skip(1)
+                .find(|h| f.path.starts_with(&h.projects))
+                .map_or(super::accounts::DEFAULT_ID, |h| h.account.as_str())
+                .to_string();
+            parts.entry(account).or_default().push(f);
+        }
+        for h in homes.iter().skip(1) {
+            parts.entry(h.account.clone()).or_default();
+        }
+        let mut ok = true;
+        for (account, files) in parts {
+            let Some(path) = self.cache_path_for(&account) else {
+                continue;
+            };
+            let path = if account == super::accounts::DEFAULT_ID {
+                default_path.clone()
+            } else {
+                path
+            };
+            let body = CacheFile {
+                version: CACHE_VERSION,
+                files,
+            };
+            if let Err(e) = crate::persist::write_json_private(&path, &body) {
+                tracing::warn!(error = %e, account, "could not write the index cache");
+                ok = false;
             }
         }
+        if !ok {
+            self.lock().dirty = true;
+        }
+        ok
     }
+}
+
+/// One checkpoint file's entries by path (tolerant: missing/corrupt ⇒ empty).
+fn read_cache_file(path: &Path) -> HashMap<PathBuf, FileIndex> {
+    let mut cache = HashMap::new();
+    match std::fs::read(path) {
+        Ok(bytes) => match serde_json::from_slice::<CacheFile>(&bytes) {
+            Ok(c) if c.version == CACHE_VERSION => {
+                for f in c.files {
+                    cache.insert(f.path.clone(), f);
+                }
+            }
+            Ok(_) => tracing::info!("index cache from another version ignored"),
+            Err(e) => tracing::warn!(error = %e, "index cache unreadable; rebuilding"),
+        },
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(e) => tracing::warn!(error = %e, "index cache unreadable; rebuilding"),
+    }
+    cache
 }
 
 /// Fill `entry` from one `projects/<enc>/<sid>/` directory.
@@ -909,6 +1071,91 @@ mod tests {
         std::fs::write(proj.join("agent-old.jsonl"), asst("x", 1)).unwrap();
         std::fs::write(proj.join("not-a-session.jsonl"), asst("x", 1)).unwrap();
         (main, sdir)
+    }
+
+    /// docs/ACCOUNTS.md §5.3: one index over every account's directory, a
+    /// duplicated session id resolved to its most recent copy, and one
+    /// checkpoint file per directory.
+    #[test]
+    fn several_homes_are_one_index_with_a_checkpoint_each() {
+        let tmp = tempfile::tempdir().unwrap();
+        let default = tmp.path().join("default");
+        let work = tmp.path().join("work");
+        let data = tmp.path().join("data");
+        std::fs::create_dir_all(&data).unwrap();
+        let (main_default, _) = layout(&default);
+        let stays = "cccccccc-dddd-4eee-8fff-000000000000";
+        std::fs::write(
+            default.join(format!("projects/-p-app/{stays}.jsonl")),
+            asst("d1", 5),
+        )
+        .unwrap();
+        let other = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
+        let work_proj = work.join("projects/-p-app");
+        std::fs::create_dir_all(&work_proj).unwrap();
+        std::fs::write(work_proj.join(format!("{other}.jsonl")), asst("w1", 7)).unwrap();
+        let homes = vec![
+            ("default".to_string(), ClaudeHome::with_base(&default)),
+            (
+                "acc_0123456789ab".to_string(),
+                ClaudeHome::for_account_dir(&work),
+            ),
+        ];
+        let idx = TranscriptIndex::new(Some(&data));
+        idx.load_cache();
+        let mut changed = idx.discover_homes(&homes);
+        changed.sort();
+        assert_eq!(changed.len(), 3);
+        assert_eq!(idx.account_of(SID), None, "the Default's");
+        assert_eq!(idx.account_of(other).as_deref(), Some("acc_0123456789ab"));
+
+        // A copy of the Default's session in Work, written later: Work's
+        // copy is the one used.
+        std::thread::sleep(Duration::from_millis(20));
+        let copy = work_proj.join(format!("{SID}.jsonl"));
+        std::fs::copy(&main_default, &copy).unwrap();
+        let later = std::time::SystemTime::now() + Duration::from_secs(5);
+        std::fs::File::options()
+            .write(true)
+            .open(&copy)
+            .unwrap()
+            .set_modified(later)
+            .unwrap();
+        idx.discover_homes(&homes);
+        assert_eq!(idx.account_of(SID).as_deref(), Some("acc_0123456789ab"));
+        assert_eq!(idx.transcript_path(SID).as_deref(), Some(copy.as_path()));
+
+        // Checkpoints: each home's files in its own file.
+        idx.queue_all();
+        idx.drain_jobs_blocking();
+        assert!(idx.persist(true));
+        let read = |name: &str| -> Vec<PathBuf> {
+            let c: CacheFile =
+                serde_json::from_slice(&std::fs::read(data.join(name)).unwrap()).unwrap();
+            c.files.into_iter().map(|f| f.path).collect()
+        };
+        let default_files = read("index-cache.json");
+        let work_files = read("index-cache-acc_0123456789ab.json");
+        assert!(default_files
+            .iter()
+            .any(|p| p.ends_with(format!("{stays}.jsonl"))));
+        assert!(default_files.iter().all(|p| p.starts_with(&default)));
+        assert!(work_files.iter().all(|p| p.starts_with(&work)));
+        assert!(work_files
+            .iter()
+            .any(|p| p.ends_with(format!("{other}.jsonl"))));
+
+        // A fresh index (a restart) reads both checkpoints back.
+        let again = TranscriptIndex::new(Some(&data));
+        again.load_cache();
+        again.discover_homes(&homes);
+        again.ensure(other, false);
+        assert_eq!(
+            again.with_main(other, |f| f.agg.usage.total().output),
+            Some(7),
+            "adopted from its own checkpoint without a scan job"
+        );
+        assert_eq!(again.pending_jobs(), 0);
     }
 
     #[test]

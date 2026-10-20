@@ -215,17 +215,18 @@ pub fn connect_frame(state: &AppState) -> Option<AccountsView> {
 /// A session's account chip. `None` while only the Default exists (goal 7:
 /// every response as before).
 pub fn account_ref(state: &AppState, id: &str) -> Option<AccountRef> {
-    let reg = state.accounts.snapshot();
-    if reg.is_default_only() {
-        return None;
+    let refs = account_refs(state);
+    refs.get(id).or_else(|| refs.get(DEFAULT_ID)).cloned()
+}
+
+/// The chip of a session that runs with a token no account holds.
+fn unregistered_ref() -> AccountRef {
+    AccountRef {
+        id: super::UNREGISTERED_TOKEN_ID.to_string(),
+        name: "Token (unregistered)".to_string(),
+        color: "#94a3b8".to_string(),
+        kind: AccountKind::Token,
     }
-    let a = reg.get(id).or_else(|| reg.get(DEFAULT_ID))?;
-    Some(AccountRef {
-        id: a.id.clone(),
-        name: a.name.clone(),
-        color: a.color_or_default().to_string(),
-        kind: a.kind,
-    })
 }
 
 /// Every account's chip by account id, for labelling many sessions at once.
@@ -235,7 +236,8 @@ pub fn account_refs(state: &AppState) -> BTreeMap<String, AccountRef> {
     if reg.is_default_only() {
         return BTreeMap::new();
     }
-    reg.accounts
+    let mut refs: BTreeMap<String, AccountRef> = reg
+        .accounts
         .iter()
         .map(|a| {
             (
@@ -248,5 +250,7 @@ pub fn account_refs(state: &AppState) -> BTreeMap<String, AccountRef> {
                 },
             )
         })
-        .collect()
+        .collect();
+    refs.insert(super::UNREGISTERED_TOKEN_ID.to_string(), unregistered_ref());
+    refs
 }

@@ -43,6 +43,9 @@ pub struct AccountRuntime {
     watching: Mutex<HashSet<String>>,
     /// Whether a token account's token is in the secret store (asked once).
     pub(super) tokens: Mutex<HashMap<String, bool>>,
+    /// The account a session was last seen running under (live sources
+    /// only), so an ended one keeps its chip until the app restarts.
+    seen: Mutex<HashMap<String, String>>,
     /// Hash of the last `accounts` frame sent.
     pub(super) last_published: Mutex<Option<u64>>,
 }
@@ -77,6 +80,19 @@ impl AccountRuntime {
         if let Some(job) = lock(&self.captures).remove(id) {
             job.cancel();
         }
+    }
+
+    /// Remember the account a live session runs under.
+    pub fn remember(&self, session_id: &str, account: &str) {
+        let mut seen = lock(&self.seen);
+        if seen.get(session_id).map(String::as_str) != Some(account) {
+            seen.insert(session_id.to_string(), account.to_string());
+        }
+    }
+
+    /// The account a session was last seen running under.
+    pub fn last_seen(&self, session_id: &str) -> Option<String> {
+        lock(&self.seen).get(session_id).cloned()
     }
 
     /// Record a sign-in check made elsewhere (the Default's at startup).

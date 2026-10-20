@@ -959,6 +959,24 @@ async fn mc_hook_forwards_and_answers_only_when_deciding() {
     .await;
     assert_eq!((r.code, r.stdout.as_str()), (0, ""));
     assert!(st.hooks.last_event_at(S).unwrap() > before);
+    assert_eq!(st.activity.token_sha256(S), None, "no token, no hash");
+
+    // A session run with a long-lived token (a token account): the hook
+    // sends the token's SHA-256, never the token (docs/ACCOUNTS.md D8).
+    let r = run_script(
+        hook_sh,
+        &["PostToolUse", "2", "observe"],
+        &payload("PostToolUse"),
+        &[("CLAUDE_CODE_OAUTH_TOKEN", "sk-ant-oat01-hooked-session")],
+    )
+    .await;
+    assert_eq!((r.code, r.stdout.as_str()), (0, ""));
+    assert_eq!(
+        st.activity.token_sha256(S),
+        Some(mother_claude_lib::claude::secrets::sha256_hex(
+            b"sk-ant-oat01-hooked-session"
+        ))
+    );
 
     // Owned children: exit at once, nothing sent.
     let before = st.hooks.last_event_at(S).unwrap();

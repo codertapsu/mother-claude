@@ -559,3 +559,115 @@ async fn setup_token_is_captured_into_the_secret_store() {
     assert_eq!(v["capture"]["state"], "cancelled");
     std::env::remove_var("FAKE_SETUP_TOKEN");
 }
+
+fn transcript(cwd: &str, sid: &str) -> String {
+    let user = json!({
+        "type": "user", "sessionId": sid, "cwd": cwd, "uuid": "u-1",
+        "timestamp": "2026-10-21T09:00:00.000Z",
+        "message": {"role": "user", "content": "hello"}
+    });
+    let assistant = json!({
+        "type": "assistant", "sessionId": sid, "cwd": cwd, "uuid": "a-1", "parentUuid": "u-1",
+        "timestamp": "2026-10-21T09:00:05.000Z",
+        "message": {"id": "msg_1", "role": "assistant", "model": "claude-haiku-4-5",
+                    "content": [{"type": "text", "text": "hi"}],
+                    "usage": {"input_tokens": 1, "output_tokens": 2}}
+    });
+    format!("{user}\n{assistant}\n")
+}
+
+fn write_session(home: &std::path::Path, cwd: &str, sid: &str, live_pid: Option<u32>) {
+    let dir = home
+        .join("projects")
+        .join(mother_claude_lib::claude::encode_cwd(cwd));
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join(format!("{sid}.jsonl")), transcript(cwd, sid)).unwrap();
+    if let Some(pid) = live_pid {
+        std::fs::create_dir_all(home.join("sessions")).unwrap();
+        std::fs::write(
+            home.join("sessions").join(format!("{pid}.json")),
+            json!({"pid": pid, "sessionId": sid, "cwd": cwd, "status": "idle",
+                   "kind": "interactive", "entrypoint": "cli"})
+            .to_string(),
+        )
+        .unwrap();
+    }
+}
+
+/// P2.1/P2.2: sessions in every account's directory are listed, each with its
+/// account; one in the Default directory that runs with a registered token
+/// (its hook reported the hash) is that token account's; an unknown token is
+/// "unregistered".
+#[tokio::test]
+async fn every_accounts_sessions_are_listed_with_their_account() {
+    let f = boot().await;
+    let default_home = f._home.path().to_path_buf();
+    let cwd = f.scratch.path().join("proj");
+    std::fs::create_dir_all(&cwd).unwrap();
+    let cwd = cwd.to_string_lossy().into_owned();
+    let (plain, tokened, stranger, worked) = (
+        "11111111-1111-4111-8111-111111111111",
+        "22222222-2222-4222-8222-222222222222",
+        "33333333-3333-4333-8333-333333333333",
+        "44444444-4444-4444-8444-444444444444",
+    );
+    write_session(&default_home, &cwd, plain, None);
+    // Two live sessions of this very process (its pid is alive), in the
+    // Default's directory, one per pidfile directory below.
+    write_session(&default_home, &cwd, tokened, Some(std::process::id()));
+    let work_dir = f.scratch.path().join("claude-work");
+    let work =
+        f.st.accounts
+            .add_directory("Work", &work_dir, None)
+            .unwrap();
+    write_session(&work_dir, &cwd, worked, Some(std::process::id()));
+    write_session(&default_home, &cwd, stranger, None);
+    let pro =
+        f.st.accounts
+            .add_token(
+                "Pro",
+                Some(&mother_claude_lib::claude::secrets::Secret::new(TOKEN)),
+                None,
+            )
+            .unwrap();
+    f.st.activity.note_token_sha256(
+        tokened,
+        &mother_claude_lib::claude::secrets::sha256_hex(TOKEN.as_bytes()),
+    );
+
+    mother_claude_lib::server::monitor::refresh_once(&f.st).await;
+    let account_of = |id: &str| {
+        let st = f.st.clone();
+        let id = id.to_string();
+        async move {
+            st.find_session(&id)
+                .await
+                .and_then(|s| s.account)
+                .map(|a| a.id)
+        }
+    };
+    assert_eq!(account_of(plain).await.as_deref(), Some("default"));
+    assert_eq!(account_of(worked).await.as_deref(), Some(work.id.as_str()));
+    assert_eq!(account_of(tokened).await.as_deref(), Some(pro.id.as_str()));
+    // The live roster knows where each pidfile lives.
+    assert_eq!(
+        f.st.live.get(worked).unwrap().home_account.as_deref(),
+        Some(work.id.as_str())
+    );
+
+    // A token no account holds.
+    f.st.activity.note_token_sha256(tokened, &"0".repeat(64));
+    mother_claude_lib::server::monitor::tick_once(&f.st).await;
+    assert_eq!(account_of(tokened).await.as_deref(), Some("unregistered"));
+
+    // The fleet header counts per account.
+    let (_, fleet) = f.call("GET", "/agents", &f.desktop(), None).await;
+    let per = &fleet["summary"]["accounts"];
+    assert!(per.get(&work.id).is_some(), "{fleet}");
+
+    // With only the Default again, no session names an account.
+    f.st.accounts.remove(&work.id).unwrap();
+    f.st.accounts.remove(&pro.id).unwrap();
+    mother_claude_lib::server::monitor::refresh_once(&f.st).await;
+    assert!(f.st.sessions().await.iter().all(|s| s.account.is_none()));
+}

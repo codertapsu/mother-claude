@@ -65,6 +65,10 @@ pub const ACCOUNT_OVERRIDE_ENV: [&str; 6] = [
     "CLAUDE_CODE_USE_FOUNDRY",
 ];
 
+/// The pseudo-account of a session that runs with a token no account holds
+/// (D8: "token (unregistered)"). Never a real id: nothing runs under it.
+pub const UNREGISTERED_TOKEN_ID: &str = "unregistered";
+
 /// The variable a directory account sets.
 pub const CONFIG_DIR_ENV: &str = "CLAUDE_CONFIG_DIR";
 /// The variable a token account sets.

@@ -87,23 +87,31 @@ fn run_file_of(projects: &Path, path: &Path, sid: &str) -> Option<(String, bool)
     crate::claude::ids::is_run_id(run).then(|| (run.to_string(), is_run_file))
 }
 
-pub async fn run(state: AppState) {
-    let (idx_tx, mut idx_rx) = mpsc::unbounded_channel::<String>();
-    let (tx, mut rx) = mpsc::unbounded_channel();
-    let base = state.home.base().to_path_buf();
-    let paths = vec![
-        state.home.projects_dir(),
-        base.join("sessions"),
-        state.home.jobs_dir(),
-    ];
-    let watcher = match FsWatcher::spawn(&paths, tx) {
+/// What the watcher watches: every home's `projects/`, `sessions/`, `jobs/`.
+fn watch_paths(homes: &[(String, crate::claude::ClaudeHome)]) -> Vec<PathBuf> {
+    homes
+        .iter()
+        .flat_map(|(_, h)| [h.projects_dir(), h.sessions_dir(), h.jobs_dir()])
+        .collect()
+}
+
+fn spawn_watcher(paths: &[PathBuf], tx: &mpsc::UnboundedSender<Vec<PathBuf>>) -> Option<FsWatcher> {
+    match FsWatcher::spawn(paths, tx.clone()) {
         Ok(w) => Some(w),
         Err(e) => {
             tracing::warn!(error = %e, "filesystem watcher unavailable; polling only");
             None
         }
-    };
-    let _watcher = watcher;
+    }
+}
+
+pub async fn run(state: AppState) {
+    let (idx_tx, mut idx_rx) = mpsc::unbounded_channel::<String>();
+    let (tx, mut rx) = mpsc::unbounded_channel();
+    // Every account's directory (docs/ACCOUNTS.md §5.3); re-watched when the
+    // set of directories changes.
+    let mut watched = watch_paths(&state.accounts.homes());
+    let mut watcher = spawn_watcher(&watched, &tx);
 
     let mut cycle = Cycle::default();
     run_cycle(
@@ -164,6 +172,24 @@ pub async fn run(state: AppState) {
         last_run = Instant::now();
         let st = state.clone();
         let _ = tokio::task::spawn_blocking(move || st.index.persist(false)).await;
+        let now_watched = watch_paths(&state.accounts.homes());
+        if now_watched != watched {
+            drop(watcher.take());
+            watcher = spawn_watcher(&now_watched, &tx);
+            watched = now_watched;
+            // A directory joined (or left): discover it now, not at the next
+            // sweep.
+            run_cycle(
+                &state,
+                &mut cycle,
+                Trigger {
+                    sweep: true,
+                    tick: true,
+                    ..Default::default()
+                },
+            )
+            .await;
+        }
     }
 }
 
@@ -203,7 +229,7 @@ pub async fn refresh_once(state: &AppState) {
     let st = state.clone();
     let _ = tokio::task::spawn_blocking(move || {
         st.index.load_cache();
-        st.index.discover(&st.home);
+        st.index.discover_homes(&st.accounts.homes());
         st.index.queue_all();
         st.index.drain_jobs_blocking();
     })
@@ -292,8 +318,9 @@ async fn run_cycle(state: &AppState, cycle: &mut Cycle, trigger: Trigger) {
     // Blocking part: roster, discovery, index updates, agents, summaries.
     let work = tokio::task::spawn_blocking(move || {
         let state = st;
-        let projects = state.home.projects_dir();
-        let change = state.live.refresh(&state.home);
+        let homes = state.accounts.homes();
+        let projects: Vec<PathBuf> = homes.iter().map(|(_, h)| h.projects_dir()).collect();
+        let change = state.live.refresh_homes(&homes);
         for gone in &change.gone {
             state.activity.forget(gone);
         }
@@ -303,18 +330,21 @@ async fn run_cycle(state: &AppState, cycle: &mut Cycle, trigger: Trigger) {
         let mut touched_sessions: HashSet<String> = trigger.indexed.clone();
         let mut rediscover: HashSet<String> = HashSet::new();
         for p in &trigger.paths {
-            let Some(sid) = session_of_path(&projects, p) else {
+            let Some((projects, sid)) = projects
+                .iter()
+                .find_map(|dir| session_of_path(dir, p).map(|sid| (dir, sid)))
+            else {
                 continue;
             };
             touched_sessions.insert(sid.clone());
-            if classify_path(&projects, p).is_some() && state.index.with_file(p, |_| ()).is_none() {
+            if classify_path(projects, p).is_some() && state.index.with_file(p, |_| ()).is_none() {
                 match state.index.session_files(&sid) {
                     Some(_) => {
                         rediscover.insert(sid);
                     }
                     None => discover = true,
                 }
-            } else if let Some((run, is_run_file)) = run_file_of(&projects, p, &sid) {
+            } else if let Some((run, is_run_file)) = run_file_of(projects, p, &sid) {
                 // A finished run's file otherwise waits for the next sweep,
                 // and the run keeps showing as running until then.
                 let known = state.index.session_files(&sid).is_some_and(|f| {
@@ -334,7 +364,7 @@ async fn run_cycle(state: &AppState, cycle: &mut Cycle, trigger: Trigger) {
             state.index.load_cache();
         }
         if discover {
-            let changed = state.index.discover(&state.home);
+            let changed = state.index.discover_homes(&homes);
             touched_sessions.extend(changed);
         }
         for sid in &rediscover {
@@ -470,29 +500,44 @@ async fn run_cycle(state: &AppState, cycle: &mut Cycle, trigger: Trigger) {
     let mut fleet = Vec::new();
     let mut summary = FleetSummary::default();
     for s in &summaries {
-        if s.live && s.status == SessionStatus::Working {
+        let working = s.live && s.status == SessionStatus::Working;
+        let need_you = s.pending.iter().any(|p| p.answerable);
+        if working {
             summary.working += 1;
         }
-        if s.pending.iter().any(|p| p.answerable) {
+        if need_you {
             summary.need_you += 1;
         }
         summary.cost_today += s.cost_today.unwrap_or(0.0);
         summary.agents_running += s.agents.running;
         summary.workflows_running += s.agents.workflows_running;
         summary.background_running += s.agents.background_running;
+        // Per account, once there is more than the Default (every session
+        // then names its account).
+        if let Some(account) = &s.account {
+            let a = summary.accounts.entry(account.id.clone()).or_default();
+            a.working += u32::from(working);
+            a.need_you += u32::from(need_you);
+            a.live += u32::from(s.live);
+            a.cost_today += s.cost_today.unwrap_or(0.0);
+        }
         if s.live {
             let (agents, workflows) = state.agents.for_session(&s.id);
-            if let Some(f) = fleet_entry(
+            if let Some(mut f) = fleet_entry(
                 &s.id,
                 names.get(s.id.as_str()).copied().unwrap_or(""),
                 &agents,
                 &workflows,
             ) {
+                f.account = s.account.clone();
                 fleet.push(f);
             }
         }
     }
     summary.cost_today = (summary.cost_today * 100.0).round() / 100.0;
+    for a in summary.accounts.values_mut() {
+        a.cost_today = (a.cost_today * 100.0).round() / 100.0;
+    }
     let fleet_changed = state.agents.set_fleet(fleet.clone(), summary);
 
     ws::publish_sessions(state, summaries).await;

@@ -795,3 +795,55 @@ fn measure_tail_window_markers() {
         );
     }
 }
+
+/// docs/ACCOUNTS.md P2.3: the steady tick with the real Default home plus two
+/// directory accounts stays under 100 ms. The two extra homes are temp dirs
+/// with a few synthetic sessions each (nothing is written to the real home;
+/// the registry is in memory).
+#[tokio::test(flavor = "multi_thread")]
+#[ignore]
+async fn measure_three_homes_tick() {
+    let home = ClaudeHome::resolve().unwrap();
+    let st = Inner::new(
+        home,
+        ServerConfig {
+            host: "127.0.0.1".into(),
+            port: 0,
+        },
+        Auth::ephemeral(),
+    );
+    async fn median_tick(st: &mother_claude_lib::state::AppState) -> Duration {
+        monitor::refresh_once(st).await;
+        let mut ticks = Vec::new();
+        for _ in 0..20 {
+            let t = Instant::now();
+            monitor::tick_once(st).await;
+            ticks.push(t.elapsed());
+        }
+        ticks.sort();
+        ticks[ticks.len() / 2]
+    }
+    let one = median_tick(&st).await;
+    let extra = tempfile::tempdir().unwrap();
+    for name in ["work", "personal"] {
+        let dir = extra.path().join(name);
+        for i in 0..20 {
+            let proj = dir.join(format!("projects/-tmp-{name}-{i}"));
+            std::fs::create_dir_all(&proj).unwrap();
+            let sid = format!("{:08x}-0000-4000-8000-{:012x}", i, i);
+            std::fs::write(
+                proj.join(format!("{sid}.jsonl")),
+                format!(
+                    "{{\"type\":\"user\",\"sessionId\":\"{sid}\",\"cwd\":\"/tmp/{name}\",\"timestamp\":\"2026-10-21T09:00:00.000Z\",\"message\":{{\"role\":\"user\",\"content\":\"hi\"}}}}\n"
+                ),
+            )
+            .unwrap();
+        }
+        std::fs::create_dir_all(dir.join("sessions")).unwrap();
+        std::fs::create_dir_all(dir.join("jobs")).unwrap();
+        st.accounts.add_directory(name, &dir, None).unwrap();
+    }
+    let three = median_tick(&st).await;
+    println!("steady tick, one home: {one:?}; three homes: {three:?}");
+    assert!(three < Duration::from_millis(100), "{three:?}");
+}

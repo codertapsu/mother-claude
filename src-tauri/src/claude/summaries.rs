@@ -666,14 +666,57 @@ pub struct BuildCtx {
     pub accounts: std::collections::BTreeMap<String, super::model::AccountRef>,
 }
 
-/// The account a session runs (or ran) under: an owned session's own, a
-/// bridge conversation's, else the Default's.
+/// The account a session runs (or ran) under (docs/ACCOUNTS.md D8): an owned
+/// session's or a bridge conversation's own; else a live process's — the
+/// account whose directory holds its pidfile, and in the Default's directory
+/// the token its environment or its hook names (`unregistered` for a token
+/// no account holds); else the account last seen running it; else the one
+/// whose directory holds its transcript; else the Default's.
 pub fn session_account(state: &AppState, id: &str) -> String {
-    state
+    use super::accounts::{DEFAULT_ID, UNREGISTERED_TOKEN_ID};
+    let runtime = &state.accounts.runtime;
+    if let Some(a) = state
         .control
         .account_of(id)
         .or_else(|| state.bridge.account_of(id))
-        .unwrap_or_else(|| super::accounts::DEFAULT_ID.to_string())
+    {
+        runtime.remember(id, &a);
+        return a;
+    }
+    if let Some(live) = state.live.get(id) {
+        let home = live
+            .home_account
+            .clone()
+            .unwrap_or_else(|| DEFAULT_ID.to_string());
+        let account = if home != DEFAULT_ID {
+            home
+        } else {
+            match live
+                .token_sha256
+                .or_else(|| state.activity.token_sha256(id))
+            {
+                Some(sha) => state
+                    .accounts
+                    .account_for_token_sha256(&sha)
+                    .unwrap_or_else(|| UNREGISTERED_TOKEN_ID.to_string()),
+                None => DEFAULT_ID.to_string(),
+            }
+        };
+        runtime.remember(id, &account);
+        return account;
+    }
+    runtime
+        .last_seen(id)
+        .or_else(|| state.index.account_of(id))
+        .unwrap_or_else(|| DEFAULT_ID.to_string())
+}
+
+/// The config directory a session's account uses (its settings, its trust).
+pub fn session_home(state: &AppState, id: &str) -> super::ClaudeHome {
+    state
+        .accounts
+        .home(&session_account(state, id))
+        .unwrap_or_else(|| state.home.clone())
 }
 
 /// The chip for a session, from [`BuildCtx::accounts`].
@@ -991,7 +1034,7 @@ pub fn build_one(state: &AppState, id: &str, ctx: &BuildCtx) -> Option<SessionSu
         hook_effort: live.then(|| state.activity.effort_note(id)).flatten(),
         launch: live.then(|| state.live.launch_flags(id)).flatten(),
         always_thinking: live
-            .then(|| super::settings::always_thinking_enabled(&state.home))
+            .then(|| super::settings::always_thinking_enabled(&session_home(state, id)))
             .flatten(),
         model: model_id.as_deref(),
     });

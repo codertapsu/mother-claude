@@ -294,7 +294,9 @@ pub fn overlay(state: &AppState, summary: &mut SessionSummary) {
     let Some(live) = live_state(state, &summary.id) else {
         return;
     };
-    let always_thinking = super::settings::always_thinking_enabled(&state.home);
+    let always_thinking = super::settings::always_thinking_enabled(
+        &super::summaries::session_home(state, &summary.id),
+    );
     overlay_settings(summary, &live, always_thinking);
     if let Some(mode) = live.permission_mode {
         summary.permission_mode = Some(mode);
@@ -438,7 +440,8 @@ pub async fn publish_settings(state: &AppState, id: &str) {
     let Some(live) = live_state(state, id) else {
         return;
     };
-    let always_thinking = super::settings::always_thinking_enabled(&state.home);
+    let always_thinking =
+        super::settings::always_thinking_enabled(&super::summaries::session_home(state, id));
     ws::patch_session(state, id, move |s| {
         overlay_settings(s, &live, always_thinking)
     })
@@ -1237,9 +1240,15 @@ pub async fn short_job_id(state: &AppState, id: &str) -> Option<String> {
     if !is_uuid(id) {
         return None;
     }
-    let jobs = state.home.jobs_dir();
+    // Every account's `jobs/` (docs/ACCOUNTS.md P2.5).
+    let jobs: Vec<PathBuf> = state
+        .accounts
+        .homes()
+        .into_iter()
+        .map(|(_, h)| h.jobs_dir())
+        .collect();
     let id = id.to_string();
-    tokio::task::spawn_blocking(move || job_for_session(&jobs, &id))
+    tokio::task::spawn_blocking(move || jobs.iter().find_map(|dir| job_for_session(dir, &id)))
         .await
         .ok()
         .flatten()
@@ -1291,7 +1300,8 @@ pub fn not_background() -> ApiError {
 /// Run `claude stop|respawn|rm <short>` for session `id`.
 pub async fn lifecycle(state: &AppState, action: &str, id: &str) -> ApiResult<String> {
     let short = short_job_id(state, id).await.ok_or_else(not_background)?;
-    control::run_lifecycle(action, &short)
+    let env = job_env(state, id)?;
+    control::run_lifecycle_for(action, &short, &env)
         .await
         .map_err(|e| ApiError::unprocessable("lifecycle_failed", format!("{e:#}")))
 }
@@ -1300,9 +1310,30 @@ pub async fn lifecycle(state: &AppState, action: &str, id: &str) -> ApiResult<St
 /// rendered to plain text lines.
 pub async fn background_screen(state: &AppState, id: &str) -> ApiResult<control::vt::Screen> {
     let short = short_job_id(state, id).await.ok_or_else(not_background)?;
-    control::logs_screen(&short)
+    let env = job_env(state, id)?;
+    control::logs_screen_for(&short, &env)
         .await
         .map_err(|e| ApiError::unprocessable("terminal_failed", format!("{e:#}")))
+}
+
+/// The environment a background job's lifecycle commands run with: the
+/// account whose directory holds the job (docs/ACCOUNTS.md D5, P2.5). A job
+/// of a token account the CLI found in the Default's directory needs no
+/// token to be stopped or read, so only the directory matters.
+fn job_env(state: &AppState, id: &str) -> ApiResult<crate::claude::accounts::AccountEnv> {
+    use crate::claude::accounts::{AccountEnv, AccountKind};
+    let home_account = state
+        .live
+        .job(id)
+        .and_then(|j| j.account)
+        .or_else(|| state.live.get(id).and_then(|l| l.home_account))
+        .unwrap_or_else(|| crate::claude::accounts::DEFAULT_ID.to_string());
+    match state.accounts.get(&home_account) {
+        Some(a) if !a.is_default() && a.kind == AccountKind::Directory => {
+            state.accounts.env(&home_account).map_err(account_error)
+        }
+        _ => Ok(AccountEnv::Inherit),
+    }
 }
 
 #[cfg(test)]

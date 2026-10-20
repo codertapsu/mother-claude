@@ -851,7 +851,7 @@ async fn stored_thread(
     let state = state.clone();
     let id = thread_id.to_string();
     tokio::task::spawn_blocking(move || {
-        crate::claude::stored_transcript(&state.index, &state.home, &id)
+        crate::claude::registry::stored_transcript_in(&state.index, &state.accounts.homes(), &id)
     })
     .await
     .ok()

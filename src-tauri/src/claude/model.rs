@@ -1012,6 +1012,9 @@ pub struct FleetSession {
     pub agents: Vec<AgentInfo>,
     /// Running workflow runs of the session.
     pub workflows: Vec<WorkflowRun>,
+    /// The session's account (absent while only the Default exists).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub account: Option<AccountRef>,
 }
 
 /// Cross-session counts for the fleet header (`GET /agents`, `fleet` frame).
@@ -1030,6 +1033,19 @@ pub struct FleetSummary {
     pub need_you: u32,
     /// Priced cost written since local midnight, across sessions (the sum
     /// of their `costToday`, not of their lifetime `costUsd`).
+    pub cost_today: f64,
+    /// The same per account (absent while only the Default exists).
+    #[serde(skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub accounts: std::collections::BTreeMap<String, AccountFleet>,
+}
+
+/// One account's part of the fleet header.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct AccountFleet {
+    pub working: u32,
+    pub need_you: u32,
+    pub live: u32,
     pub cost_today: f64,
 }
 

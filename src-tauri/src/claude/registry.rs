@@ -632,6 +632,20 @@ pub fn stored_transcript(
     home: &ClaudeHome,
     id: &str,
 ) -> Option<TranscriptSummary> {
+    stored_transcript_in(
+        index,
+        &[(super::accounts::DEFAULT_ID.to_string(), home.clone())],
+        id,
+    )
+}
+
+/// [`stored_transcript`] across every account's directory (a re-list, when
+/// one is needed, covers all of them, so no account's sessions drop out).
+pub fn stored_transcript_in(
+    index: &super::index::TranscriptIndex,
+    homes: &[(String, ClaudeHome)],
+    id: &str,
+) -> Option<TranscriptSummary> {
     if !super::ids::is_session_id(id) {
         return None;
     }
@@ -639,15 +653,17 @@ pub fn stored_transcript(
         // Written since the last discovery pass? One stat per project dir
         // decides before paying for a full re-list.
         let name = format!("{id}.jsonl");
-        let on_disk = std::fs::read_dir(home.projects_dir())
-            .into_iter()
-            .flatten()
-            .flatten()
-            .any(|d| d.path().join(&name).is_file());
+        let on_disk = homes.iter().any(|(_, home)| {
+            std::fs::read_dir(home.projects_dir())
+                .into_iter()
+                .flatten()
+                .flatten()
+                .any(|d| d.path().join(&name).is_file())
+        });
         if !on_disk {
             return None;
         }
-        index.discover(home);
+        index.discover_homes(homes);
     }
     let files = index.session_files(id)?;
     files.main.as_ref()?;

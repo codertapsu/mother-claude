@@ -210,6 +210,7 @@ pub async fn remove(
         ));
     }
     let account = state.accounts.remove(&id).map_err(account_error)?;
+    state.index.forget_checkpoint(&id);
     audit(
         &state,
         &ctx,

@@ -929,7 +929,12 @@ impl ControlRegistry {
         }
 
         let live = handle.live().clone();
-        let always_thinking = crate::claude::settings::always_thinking_enabled(&state.home);
+        let always_thinking = crate::claude::settings::always_thinking_enabled(
+            &state
+                .accounts
+                .home(&handle.account)
+                .unwrap_or_else(|| state.home.clone()),
+        );
         ws::patch_session(state, &id, |s| {
             s.permission_mode = live.permission_mode.clone();
             if let Some(m) = &live.model {
@@ -2242,7 +2247,11 @@ pub fn is_short_job_id(id: &str) -> bool {
 
 const LIFECYCLE_ACTIONS: [&str; 4] = ["stop", "respawn", "rm", "logs"];
 
-async fn run_job_command(action: &str, short_id: &str) -> Result<std::process::Output> {
+async fn run_job_command(
+    action: &str,
+    short_id: &str,
+    account: &AccountEnv,
+) -> Result<std::process::Output> {
     if !LIFECYCLE_ACTIONS.contains(&action) {
         anyhow::bail!("unknown lifecycle action {action:?}");
     }
@@ -2256,8 +2265,9 @@ async fn run_job_command(action: &str, short_id: &str) -> Result<std::process::O
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .kill_on_drop(true);
-    // Not owned: never mark a lifecycle command (see `scrub_child_env`).
-    scrub_child_env(&mut cmd, &AccountEnv::Inherit);
+    // Not owned: never mark a lifecycle command (see `scrub_child_env`). The
+    // job's account: a directory account's jobs are in its own directory.
+    scrub_child_env(&mut cmd, account);
     tokio::time::timeout(Duration::from_secs(60), cmd.output())
         .await
         .map_err(|_| anyhow!("`claude {action} {short_id}` timed out"))?
@@ -2267,7 +2277,16 @@ async fn run_job_command(action: &str, short_id: &str) -> Result<std::process::O
 /// Run a documented lifecycle subcommand (`stop` / `respawn` / `rm`) against a
 /// background job by its SHORT id. Returns stdout on success.
 pub async fn run_lifecycle(action: &str, short_id: &str) -> Result<String> {
-    let out = run_job_command(action, short_id).await?;
+    run_lifecycle_for(action, short_id, &AccountEnv::Inherit).await
+}
+
+/// [`run_lifecycle`] for a job of an account (its environment composed).
+pub async fn run_lifecycle_for(
+    action: &str,
+    short_id: &str,
+    account: &AccountEnv,
+) -> Result<String> {
+    let out = run_job_command(action, short_id, account).await?;
     let stdout = String::from_utf8_lossy(&out.stdout).trim().to_string();
     let stderr = String::from_utf8_lossy(&out.stderr).trim().to_string();
     if out.status.success() {
@@ -2284,7 +2303,12 @@ pub const LOGS_ROWS: usize = 50;
 /// The current screen of a background job (`claude logs <short>`), rendered
 /// to plain lines (never raw terminal bytes).
 pub async fn logs_screen(short_id: &str) -> Result<vt::Screen> {
-    let out = run_job_command("logs", short_id).await?;
+    logs_screen_for(short_id, &AccountEnv::Inherit).await
+}
+
+/// [`logs_screen`] for a job of an account.
+pub async fn logs_screen_for(short_id: &str, account: &AccountEnv) -> Result<vt::Screen> {
+    let out = run_job_command("logs", short_id, account).await?;
     if !out.status.success() {
         let stderr = String::from_utf8_lossy(&out.stderr).trim().to_string();
         anyhow::bail!("`claude logs {short_id}` failed: {stderr}");

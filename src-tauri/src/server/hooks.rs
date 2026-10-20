@@ -526,6 +526,18 @@ pub async fn post_event(
         .and_then(|v| v.to_str().ok())
         .and_then(|v| v.trim().parse::<u32>().ok())
         .filter(|p| *p > 1);
+    // The SHA-256 of the session's CLAUDE_CODE_OAUTH_TOKEN, computed by the
+    // hook inside the session (docs/ACCOUNTS.md D8): which token account it
+    // runs under. Display and usage attribution only.
+    if let Some(sha) = headers
+        .get("x-mc-token-sha256")
+        .and_then(|v| v.to_str().ok())
+        .map(str::trim)
+    {
+        if is_uuid(&p.session_id) {
+            state.activity.note_token_sha256(&p.session_id, sha);
+        }
+    }
     Json(dispatch_from(&state, p, pid, Some(ctx.peer)).await).into_response()
 }
 
@@ -643,9 +655,11 @@ pub async fn dispatch_from(
     if let (None, Some(level)) = (agent, p.effort_level()) {
         state.activity.note_effort(&p.session_id, level);
     }
-    // A turn that died on a plan limit: worth one plan-usage read.
+    // A turn that died on a plan limit: worth one plan-usage read, of the
+    // account the session runs under.
     if name == "StopFailure" && p.error.is("rate_limit") {
-        crate::claude::usage::note_limit_hit(state);
+        let account = crate::claude::summaries::session_account(state, &p.session_id);
+        crate::claude::usage::note_limit_hit_for(state, &account);
     }
     match name {
         "Notification" => crate::server::push::on_notification_hook(

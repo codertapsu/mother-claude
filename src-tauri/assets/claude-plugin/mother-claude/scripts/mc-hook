@@ -36,9 +36,28 @@ case "${2:-}" in
     *) max=$2 ;;
 esac
 
+# A session run with a long-lived token (a Mother Claude token account):
+# send only the token's SHA-256, so the app can tell which account it is. The
+# token itself never leaves this process tree (printf is a shell builtin).
+acct=''
+if [ -n "${CLAUDE_CODE_OAUTH_TOKEN:-}" ]; then
+    if command -v openssl >/dev/null 2>&1; then
+        acct=$(printf '%s' "$CLAUDE_CODE_OAUTH_TOKEN" | openssl dgst -sha256 -r 2>/dev/null)
+    elif command -v sha256sum >/dev/null 2>&1; then
+        acct=$(printf '%s' "$CLAUDE_CODE_OAUTH_TOKEN" | sha256sum 2>/dev/null)
+    elif command -v shasum >/dev/null 2>&1; then
+        acct=$(printf '%s' "$CLAUDE_CODE_OAUTH_TOKEN" | shasum -a 256 2>/dev/null)
+    fi
+    acct=$(printf '%s' "$acct" | cut -c1-64)
+    case "$acct" in
+        *[!0-9a-f]* | '') acct='' ;;
+    esac
+fi
+
 # -q must come first: never read ~/.curlrc. No proxy: this is loopback.
 out=$(curl -q --noproxy '*' -sf --max-time "$max" -K "$MC_DATA/hook.curlrc" \
     -H 'Content-Type: application/json' -H "X-MC-Pid: $PPID" \
+    ${acct:+-H X-MC-Token-Sha256:$acct} \
     --data-binary @- "$base/hooks/event" 2>/dev/null) &&
     [ "${3:-observe}" != observe ] && printf '%s' "$out"
 exit 0
