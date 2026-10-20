@@ -156,7 +156,23 @@ fn mtime_ms(meta: &std::fs::Metadata) -> i64 {
         .map_or(0, |d| d.as_millis() as i64)
 }
 
-/// This machine's name, for `set.json` and the index.
+/// This machine as sets know it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ThisMachine {
+    /// Random, made once per install (`ops::machine_id`): what each set's
+    /// `seen` and machine list are keyed by. Never the host name, which two
+    /// Macs set up from one another (or left on the default) share.
+    pub id: String,
+    /// The host name: display only (the machine list, conflict copies).
+    pub name: String,
+}
+
+/// A machine id: 32 lowercase hex characters.
+pub fn is_machine_id(s: &str) -> bool {
+    s.len() == 32 && s.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
+}
+
+/// This machine's name, for display in `set.json` and the index.
 pub fn host_name() -> String {
     #[cfg(unix)]
     {
@@ -229,6 +245,7 @@ fn sanitize_index(mut index: SetIndex) -> SetIndex {
         }
         ok
     });
+    index.seen.retain(|machine, _| is_machine_id(machine));
     for seen in index.seen.values_mut() {
         seen.retain(|id, _| super::ids::is_session_id(id));
     }
@@ -305,6 +322,10 @@ fn has_files(dir: &Path) -> bool {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Machine {
+    /// Its [`ThisMachine::id`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    /// Its host name (display only).
     pub host: String,
     #[serde(default)]
     pub last_push: Option<i64>,
@@ -336,8 +357,11 @@ pub struct IndexEntry {
     pub transcript_bytes: u64,
     /// Its newest file's mtime (epoch ms) when archived.
     pub newest_mtime: i64,
-    /// The machine that pushed it.
+    /// The host name of the machine that pushed it (display only).
     pub host: String,
+    /// That machine's id.
+    #[serde(default)]
+    pub machine: String,
     pub pushed_at: i64,
     pub archive_sha256: String,
     pub archive_bytes: u64,
@@ -368,8 +392,8 @@ pub struct SetIndex {
     pub sessions: BTreeMap<String, IndexEntry>,
     #[serde(default)]
     pub config: Vec<ConfigEntry>,
-    /// What each machine last saw of each session (`transcriptBytes`), for
-    /// pull's "changed on both sides" rule (§5.11).
+    /// What each machine (by id) last saw of each session
+    /// (`transcriptBytes`), for pull's "changed on both sides" rule (§5.11).
     #[serde(default)]
     pub seen: BTreeMap<String, BTreeMap<String, u64>>,
     #[serde(flatten, default)]
@@ -696,7 +720,7 @@ fn write_index_merged(
     set: &Set,
     keys: &Keys,
     mine: &SetIndex,
-    host: &str,
+    machine: &str,
 ) -> Result<(), BackupError> {
     let theirs = read_index_for_merge(set, keys)?;
     let mut merged = theirs.clone();
@@ -720,8 +744,8 @@ fn write_index_merged(
             let _ = std::fs::remove_file(path);
         }
     }
-    if let Some(seen) = mine.seen.get(host) {
-        merged.seen.insert(host.to_string(), seen.clone());
+    if let Some(seen) = mine.seen.get(machine) {
+        merged.seen.insert(machine.to_string(), seen.clone());
     }
     write_index(set, keys, &merged)
 }
@@ -796,7 +820,7 @@ pub struct PushInputs<'a> {
     pub set: &'a Set,
     pub account_name: &'a str,
     pub passphrase: &'a Secret,
-    pub host: &'a str,
+    pub machine: &'a ThisMachine,
     pub is_live: &'a dyn Fn(&str) -> bool,
     pub progress: &'a Progress,
 }
@@ -1053,7 +1077,8 @@ pub fn push(inp: &PushInputs<'_>) -> Result<PushReport, BackupError> {
                         cwd: now.cwd.clone(),
                         transcript_bytes: now.transcript_bytes,
                         newest_mtime: now.newest_mtime,
-                        host: inp.host.to_string(),
+                        host: inp.machine.name.clone(),
+                        machine: inp.machine.id.clone(),
                         pushed_at: now_ms(),
                         archive_sha256: sha,
                         archive_bytes: bytes,
@@ -1062,7 +1087,7 @@ pub fn push(inp: &PushInputs<'_>) -> Result<PushReport, BackupError> {
                 );
                 index
                     .seen
-                    .entry(inp.host.to_string())
+                    .entry(inp.machine.id.clone())
                     .or_default()
                     .insert(id.clone(), now.transcript_bytes);
                 report.archived.push(id);
@@ -1083,7 +1108,7 @@ pub fn push(inp: &PushInputs<'_>) -> Result<PushReport, BackupError> {
         index.config.push(ConfigEntry {
             name: name.clone(),
             created_at: now_ms(),
-            host: inp.host.to_string(),
+            host: inp.machine.name.clone(),
             fingerprint,
             archive_sha256: sha,
             archive_bytes: bytes,
@@ -1096,16 +1121,30 @@ pub fn push(inp: &PushInputs<'_>) -> Result<PushReport, BackupError> {
         }
         report.config = Some(name);
     }
-    write_index_merged(inp.set, &keys, &index, inp.host)?;
-    match info.machines.iter_mut().find(|m| m.host == inp.host) {
-        Some(m) => m.last_push = Some(now_ms()),
-        None => info.machines.push(Machine {
-            host: inp.host.to_string(),
-            last_push: Some(now_ms()),
-        }),
-    }
+    write_index_merged(inp.set, &keys, &index, &inp.machine.id)?;
+    note_push(&mut info, inp.machine);
     write_info(inp.set, &info)?;
     Ok(report)
+}
+
+/// This machine's line in `set.json`: by id; its name as it is now.
+fn note_push(info: &mut SetInfo, machine: &ThisMachine) {
+    let at = Some(now_ms());
+    match info
+        .machines
+        .iter_mut()
+        .find(|m| m.id.as_deref() == Some(machine.id.as_str()))
+    {
+        Some(m) => {
+            m.host = machine.name.clone();
+            m.last_push = at;
+        }
+        None => info.machines.push(Machine {
+            id: Some(machine.id.clone()),
+            host: machine.name.clone(),
+            last_push: at,
+        }),
+    }
 }
 
 // ─────────────────────────────── restoring ───────────────────────────────
@@ -1547,16 +1586,17 @@ pub struct PullItem {
     pub prune_warning: Option<String>,
 }
 
-/// What the set holds, compared with this machine's directory.
+/// What the set holds, compared with this machine's directory (`machine`:
+/// this machine's id).
 pub fn compare(
     index: &SetIndex,
     home: &ClaudeHome,
-    host: &str,
+    machine: &str,
     is_live: &dyn Fn(&str) -> bool,
     now: i64,
 ) -> Vec<PullItem> {
     let days = cleanup_days(home);
-    let seen = index.seen.get(host);
+    let seen = index.seen.get(machine);
     let mut out: Vec<PullItem> = index
         .sessions
         .values()
@@ -1610,7 +1650,7 @@ pub struct PullInputs<'a> {
     pub set: &'a Set,
     pub passphrase: &'a Secret,
     pub home: &'a ClaudeHome,
-    pub host: &'a str,
+    pub machine: &'a ThisMachine,
     /// Only these sessions (`None`: every one the plan offers).
     pub ids: Option<&'a [String]>,
     pub trust: bool,
@@ -1639,7 +1679,7 @@ pub fn pull(inp: &PullInputs<'_>) -> Result<(PullReport, Manifest), BackupError>
     let keys = open_keys(inp.set, inp.passphrase)?;
     let mut index = read_index(inp.set, &keys)?;
     let now = now_ms();
-    let plan = compare(&index, inp.home, inp.host, inp.is_live, now);
+    let plan = compare(&index, inp.home, &inp.machine.id, inp.is_live, now);
     let wanted = |id: &str| inp.ids.is_none_or(|ids| ids.iter().any(|i| i == id));
     let mut report = PullReport::default();
 
@@ -1762,14 +1802,14 @@ pub fn pull(inp: &PullInputs<'_>) -> Result<(PullReport, Manifest), BackupError>
     }
 
     // What this machine now has, for the next comparison.
-    let seen = index.seen.entry(inp.host.to_string()).or_default();
+    let seen = index.seen.entry(inp.machine.id.clone()).or_default();
     for id in report.restored.iter().chain(&report.updated) {
         if let Some(e) = index.sessions.get(id) {
             seen.insert(id.clone(), e.transcript_bytes);
         }
     }
     let snapshot = index.clone();
-    write_index_merged(inp.set, &keys, &snapshot, inp.host)?;
+    write_index_merged(inp.set, &keys, &snapshot, &inp.machine.id)?;
     crate::persist::write_json_private(&undo_dir.join("manifest.json"), &m)
         .map_err(|e| io("writing", &undo_dir, e))?;
     Ok((report, m))

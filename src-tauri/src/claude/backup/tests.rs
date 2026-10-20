@@ -73,13 +73,26 @@ fn not_live(_: &str) -> bool {
     false
 }
 
+/// A machine named `name`, with an id of its own (two machines may share a
+/// name: see `two_machines_with_one_name_stay_apart`).
+fn machine(name: &str) -> ThisMachine {
+    named_machine(name, name)
+}
+
+fn named_machine(name: &str, seed: &str) -> ThisMachine {
+    ThisMachine {
+        id: crate::claude::secrets::sha256_hex(seed.as_bytes())[..32].to_string(),
+        name: name.to_string(),
+    }
+}
+
 fn push_once(w: &World, live: &dyn Fn(&str) -> bool) -> PushReport {
     push(&PushInputs {
         home: &w.home,
         set: &w.set,
         account_name: "Work",
         passphrase: &pass(),
-        host: "mbp-a",
+        machine: &machine("mbp-a"),
         is_live: live,
         progress: &Progress::default(),
     })
@@ -203,7 +216,7 @@ fn a_wrong_passphrase_opens_nothing() {
         set: &w.set,
         account_name: "Work",
         passphrase: &wrong,
-        host: "mbp-a",
+        machine: &machine("mbp-a"),
         is_live: &not_live,
         progress: &Progress::default(),
     })
@@ -342,7 +355,7 @@ fn pull_once(
         set: &w.set,
         passphrase: &pass(),
         home,
-        host,
+        machine: &machine(host),
         ids: None,
         trust: false,
         is_live: live,
@@ -377,7 +390,7 @@ fn push_from(w: &World, home: &ClaudeHome, host: &str) -> PushReport {
         set: &w.set,
         account_name: "Work",
         passphrase: &pass(),
-        host,
+        machine: &machine(host),
         is_live: &not_live,
         progress: &Progress::default(),
     })
@@ -400,7 +413,7 @@ fn pull_brings_new_and_newer_sessions_and_never_merges_a_conflict() {
     // B has nothing: the session comes, and the prompt history with it.
     let keys = open_keys(&w.set, &pass()).unwrap();
     let index = read_index(&w.set, &keys).unwrap();
-    let plan = compare(&index, b, "mbp-b", &not_live, now_ms());
+    let plan = compare(&index, b, &machine("mbp-b").id, &not_live, now_ms());
     assert_eq!(plan[0].action, PullAction::New);
     let (r, _) = pull_once(&w, b, "mbp-b", &not_live, "20261021T120000-00000001");
     assert_eq!(r.restored, vec![SID.to_string()]);
@@ -465,7 +478,7 @@ fn pull_brings_new_and_newer_sessions_and_never_merges_a_conflict() {
     let live = |id: &str| id == SID;
     let index = read_index(&w.set, &keys).unwrap();
     assert_eq!(
-        compare(&index, b, "mbp-b", &live, now_ms())[0].action,
+        compare(&index, b, &machine("mbp-b").id, &live, now_ms())[0].action,
         PullAction::Live
     );
 }
@@ -482,7 +495,10 @@ fn pushes_from_two_machines_merge_their_index() {
     let keys = open_keys(&w.set, &pass()).unwrap();
     let index = read_index(&w.set, &keys).unwrap();
     assert_eq!(index.sessions.len(), 2);
-    assert!(index.seen.contains_key("mbp-a") && index.seen.contains_key("mbp-b"));
+    assert!(
+        index.seen.contains_key(&machine("mbp-a").id)
+            && index.seen.contains_key(&machine("mbp-b").id)
+    );
     let info = read_info(&w.set).unwrap();
     let hosts: Vec<&str> = info.machines.iter().map(|m| m.host.as_str()).collect();
     assert_eq!(hosts, ["mbp-a", "mbp-b"]);
@@ -525,6 +541,7 @@ fn a_session_id_from_the_index_never_names_a_path_outside_the_target() {
         transcript_bytes: 1,
         newest_mtime: 1,
         host: "evil".into(),
+        machine: String::new(),
         pushed_at: 1,
         archive_sha256: crate::claude::secrets::sha256_hex(&archive),
         archive_bytes: archive.len() as u64,
@@ -665,7 +682,7 @@ fn an_index_not_written_with_the_sets_key_is_refused() {
         set: &w.set,
         passphrase: &pass(),
         home: &w.other,
-        host: "mbp-b",
+        machine: &machine("mbp-b"),
         ids: None,
         trust: false,
         is_live: &not_live,
@@ -680,7 +697,7 @@ fn an_index_not_written_with_the_sets_key_is_refused() {
         set: &w.set,
         account_name: "Work",
         passphrase: &pass(),
-        host: "mbp-a",
+        machine: &machine("mbp-a"),
         is_live: &not_live,
         progress: &Progress::default(),
     })
@@ -714,7 +731,7 @@ fn set_json_never_chooses_the_key_archives_are_encrypted_to() {
         set: &w.set,
         account_name: "Work",
         passphrase: &pass(),
-        host: "mbp-a",
+        machine: &machine("mbp-a"),
         is_live: &not_live,
         progress: &Progress::default(),
     })
@@ -755,7 +772,7 @@ fn a_set_without_its_key_is_never_given_a_new_one() {
             set: &w.set,
             account_name: "Work",
             passphrase: &pass(),
-            host: "mbp-a",
+            machine: &machine("mbp-a"),
             is_live: &not_live,
             progress: &Progress::default(),
         })
@@ -803,4 +820,95 @@ fn a_changed_configuration_bundle_is_refused() {
     let into = w._tmp.path().join("review");
     let err = extract_config(&w.set, &pass(), &into).unwrap_err();
     assert_eq!(err.code(), "invalid_backup", "{err}");
+}
+
+/// Two Macs with one host name (set up from one another, or left on the
+/// default) keep their own `seen`: a change on both is a conflict, never an
+/// update that replaces one of them.
+#[test]
+fn two_machines_with_one_name_stay_apart() {
+    let w = world();
+    let (a, b) = (&w.home, &w.other);
+    let ma = named_machine("MacBook-Pro", "first");
+    let mb = named_machine("MacBook-Pro", "second");
+    assert_ne!(ma.id, mb.id);
+    let push_as = |home: &ClaudeHome, m: &ThisMachine| {
+        push(&PushInputs {
+            home,
+            set: &w.set,
+            account_name: "Work",
+            passphrase: &pass(),
+            machine: m,
+            is_live: &not_live,
+            progress: &Progress::default(),
+        })
+        .unwrap()
+    };
+    let pull_as = |home: &ClaudeHome, m: &ThisMachine, job: &str| {
+        pull(&PullInputs {
+            set: &w.set,
+            passphrase: &pass(),
+            home,
+            machine: m,
+            ids: None,
+            trust: false,
+            is_live: &not_live,
+            undo_root: &w.undo,
+            job_id: job,
+            progress: &Progress::default(),
+        })
+        .unwrap()
+    };
+    session(a.base(), SID);
+    push_as(a, &ma);
+    let (r, _) = pull_as(b, &mb, "20261021T150000-00000001");
+    assert_eq!(r.restored, vec![SID.to_string()]);
+    grow(b, SID, "{\"type\":\"user\",\"on\":\"b\"}");
+    grow(a, SID, "{\"type\":\"user\",\"on\":\"a, which is longer\"}");
+    push_as(a, &ma);
+    let keys = open_keys(&w.set, &pass()).unwrap();
+    let index = read_index(&w.set, &keys).unwrap();
+    assert_eq!(
+        compare(&index, b, &mb.id, &not_live, now_ms())[0].action,
+        PullAction::Conflict
+    );
+    let (r, _) = pull_as(b, &mb, "20261021T150001-00000002");
+    assert!(r.updated.is_empty(), "{r:?}");
+    assert_eq!(r.conflicts.len(), 1);
+    let info = read_info(&w.set).unwrap();
+    assert_eq!(info.machines.len(), 1, "only A pushed");
+    assert_eq!(info.machines[0].id.as_deref(), Some(ma.id.as_str()));
+}
+
+/// The machine id is made once and kept; a copy of the app's data on other
+/// hardware (Migration Assistant, a restored backup) gets an id of its own.
+#[test]
+fn the_machine_id_is_kept_and_a_copy_on_other_hardware_gets_its_own() {
+    let tmp = tempfile::tempdir().unwrap();
+    let hw = Some("aa".repeat(32));
+    let first = ops::machine_id_in(tmp.path(), hw.clone()).unwrap();
+    assert!(is_machine_id(&first));
+    assert_eq!(ops::machine_id_in(tmp.path(), hw.clone()).unwrap(), first);
+    // No hardware id on this platform: the stored one stays.
+    assert_eq!(ops::machine_id_in(tmp.path(), None).unwrap(), first);
+    let moved = ops::machine_id_in(tmp.path(), Some("bb".repeat(32))).unwrap();
+    assert_ne!(moved, first);
+    assert_eq!(
+        ops::machine_id_in(tmp.path(), Some("bb".repeat(32))).unwrap(),
+        moved
+    );
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = std::fs::metadata(tmp.path().join("backup-machine.json"))
+            .unwrap()
+            .permissions()
+            .mode();
+        assert_eq!(mode & 0o777, 0o600);
+    }
+    // The hardware's id itself is never stored.
+    #[cfg(target_os = "macos")]
+    if let Some(h) = ops::hardware_fingerprint() {
+        assert_eq!(h.len(), 64);
+    }
 }

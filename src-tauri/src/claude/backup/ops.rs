@@ -89,6 +89,90 @@ pub fn generate_passphrase() -> String {
         .join("-")
 }
 
+/// `<app data dir>/backup-machine.json`: this install's machine id.
+const MACHINE_FILE: &str = "backup-machine.json";
+
+#[derive(Debug, Serialize, Deserialize)]
+struct StoredMachine {
+    id: String,
+    /// A hash of the hardware's own id, when the platform has one: a copy of
+    /// the app's data made by Migration Assistant or a backup on another Mac
+    /// keeps this file but not the hardware, and gets an id of its own.
+    #[serde(default)]
+    hardware: Option<String>,
+}
+
+/// This install's machine id: random, made once, kept in the app data dir
+/// (0600). A copy of it on other hardware is replaced (§ machine identity
+/// in docs/BACKUP.md).
+pub fn machine_id_in(data_dir: &Path, hardware: Option<String>) -> Result<String, BackupError> {
+    let path = data_dir.join(MACHINE_FILE);
+    if let Some(s) = crate::persist::read_json::<StoredMachine>(&path) {
+        let same_hardware = match (&s.hardware, &hardware) {
+            (Some(a), Some(b)) => a == b,
+            _ => true,
+        };
+        if super::is_machine_id(&s.id) && same_hardware {
+            return Ok(s.id);
+        }
+    }
+    let id: String = crate::server::auth::random_bytes(16)
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect();
+    crate::persist::write_json_private(
+        &path,
+        &StoredMachine {
+            id: id.clone(),
+            hardware,
+        },
+    )
+    .map_err(|e| BackupError::Io(format!("writing {}: {e}", path.display())))?;
+    Ok(id)
+}
+
+/// A hash of the hardware's id (macOS: the host UUID; Linux: the machine
+/// id), never the id itself.
+pub fn hardware_fingerprint() -> Option<String> {
+    let raw: Option<String> = {
+        #[cfg(target_os = "macos")]
+        {
+            let mut uuid = [0u8; 16];
+            let wait = libc::timespec {
+                tv_sec: 1,
+                tv_nsec: 0,
+            };
+            // SAFETY: gethostuuid writes exactly 16 bytes into `uuid`.
+            let rc = unsafe { libc::gethostuuid(uuid.as_mut_ptr(), &wait) };
+            (rc == 0 && uuid != [0u8; 16])
+                .then(|| uuid.iter().map(|b| format!("{b:02x}")).collect())
+        }
+        #[cfg(target_os = "linux")]
+        {
+            std::fs::read_to_string("/etc/machine-id")
+                .ok()
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+        }
+        #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+        {
+            None
+        }
+    };
+    raw.map(|r| crate::claude::secrets::sha256_hex(format!("mother-claude machine:{r}").as_bytes()))
+}
+
+/// This machine as the sets know it.
+pub fn this_machine(state: &AppState) -> Result<super::ThisMachine, BackupError> {
+    let name = super::host_name();
+    let id = match state.auth.config_dir.as_deref() {
+        Some(dir) => machine_id_in(dir, hardware_fingerprint())?,
+        // No data dir (some tests): a stable id from the name.
+        None => crate::claude::secrets::sha256_hex(name.as_bytes())[..32].to_string(),
+    };
+    Ok(super::ThisMachine { id, name })
+}
+
 /// Every account's set in the folder.
 fn sets(folder: &Path, accounts: &[Account]) -> Vec<(Account, Set)> {
     accounts
@@ -328,6 +412,7 @@ pub async fn push(state: &AppState, account_id: &str) -> Result<String, BackupEr
         .accounts
         .home(&a.id)
         .ok_or_else(|| BackupError::Invalid("the account has no directory".into()))?;
+    let machine = this_machine(state)?;
     let job = transfer::new_job_id();
     let progress = state.jobs.start(&job, "backup", 0, 0);
     let st = state.clone();
@@ -335,7 +420,6 @@ pub async fn push(state: &AppState, account_id: &str) -> Result<String, BackupEr
     tokio::spawn(async move {
         let _one = st.jobs.lock.lock().await;
         let set = Set::new(&folder, &a.name);
-        let host = super::host_name();
         let st2 = st.clone();
         let account_id = a.id.clone();
         let result = tokio::task::spawn_blocking(move || {
@@ -345,7 +429,7 @@ pub async fn push(state: &AppState, account_id: &str) -> Result<String, BackupEr
                 set: &set,
                 account_name: &a.name,
                 passphrase: &pass,
-                host: &host,
+                machine: &machine,
                 is_live: &live,
                 progress: &progress,
             })
@@ -411,6 +495,7 @@ pub async fn index(
         .ok_or_else(|| BackupError::Invalid("the account has no directory".into()))?;
     let set = Set::new(&folder, &a.name);
     no_set_error(&set, &a, &folder)?;
+    let machine = this_machine(state)?;
     let st = state.clone();
     tokio::task::spawn_blocking(move || {
         let keys = super::open_keys(&set, &pass)?;
@@ -423,7 +508,7 @@ pub async fn index(
         let sessions = super::compare(
             &index,
             &home,
-            &super::host_name(),
+            &machine.id,
             &live,
             chrono::Utc::now().timestamp_millis(),
         );
@@ -541,6 +626,7 @@ pub async fn pull(
     no_set_error(&Set::new(&folder, &a.name), &a, &folder)?;
     let undo_root = transfer::ops::undo_root(state)
         .ok_or_else(|| BackupError::Invalid("this build has no data directory".into()))?;
+    let machine = this_machine(state)?;
     let job = transfer::new_job_id();
     let progress = state.jobs.start(&job, "pull", 0, 0);
     let st = state.clone();
@@ -556,7 +642,7 @@ pub async fn pull(
                 set: &set,
                 passphrase: &pass,
                 home: &home,
-                host: &super::host_name(),
+                machine: &machine,
                 ids: ids.as_deref(),
                 trust,
                 is_live: &live,
