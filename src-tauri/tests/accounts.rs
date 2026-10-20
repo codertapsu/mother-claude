@@ -43,13 +43,16 @@ async fn boot() -> Fixture {
     setup();
     let home = tempfile::tempdir().unwrap();
     let scratch = tempfile::tempdir().unwrap();
+    // A data dir of its own (secrets in 0600 files there, undo for moves).
+    let mut auth = Auth::ephemeral();
+    auth.config_dir = Some(scratch.path().join("app-data"));
     let st = Inner::new(
         ClaudeHome::with_base(home.path()),
         ServerConfig {
             host: "127.0.0.1".into(),
             port: 0,
         },
-        Auth::ephemeral(),
+        auth,
     );
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
@@ -670,4 +673,112 @@ async fn every_accounts_sessions_are_listed_with_their_account() {
     f.st.accounts.remove(&pro.id).unwrap();
     mother_claude_lib::server::monitor::refresh_once(&f.st).await;
     assert!(f.st.sessions().await.iter().all(|s| s.account.is_none()));
+}
+
+/// P3.2: moving a session between two directory accounts over HTTP — a dry
+/// run, the job, its undo — and a phone may watch but not move.
+#[tokio::test]
+async fn sessions_move_between_accounts_with_an_undo() {
+    let f = boot().await;
+    let desk = f.desktop();
+    let cwd = f.scratch.path().join("proj");
+    std::fs::create_dir_all(&cwd).unwrap();
+    let cwd = cwd.to_string_lossy().into_owned();
+    let sid = "55555555-5555-4555-8555-555555555555";
+    write_session(f._home.path(), &cwd, sid, None);
+    let work_dir = f.scratch.path().join("claude-work");
+    let work =
+        f.st.accounts
+            .add_directory("Work", &work_dir, None)
+            .unwrap();
+    let body = |dry: bool| {
+        json!({"what": "session", "id": sid, "from": "default", "to": work.id,
+               "mode": "move", "dryRun": dry})
+    };
+
+    let phone = f.phone();
+    let (s, _) = f.call("POST", "/data/move", &phone, Some(body(true))).await;
+    assert_eq!(s, StatusCode::FORBIDDEN);
+
+    let (s, v) = f.call("POST", "/data/move", &desk, Some(body(true))).await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    assert_eq!(v["plan"]["files"], 1);
+    assert_eq!(v["plan"]["writesShared"], false);
+    assert!(
+        work_dir.join("projects").read_dir().is_err(),
+        "a dry run writes nothing"
+    );
+
+    let (s, v) = f.call("POST", "/data/move", &desk, Some(body(false))).await;
+    assert_eq!(s, StatusCode::ACCEPTED, "{v}");
+    let job = v["job"]["id"].as_str().unwrap().to_string();
+    let mut done = Value::Null;
+    for _ in 0..200 {
+        let (_, j) = f
+            .call("GET", &format!("/data/jobs/{job}"), &phone, None)
+            .await;
+        if j["state"] != "running" {
+            done = j;
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    assert_eq!(done["state"], "done", "{done}");
+    assert!(done["undoUntil"].as_i64().is_some());
+    let moved = work_dir
+        .join("projects")
+        .join(mother_claude_lib::claude::encode_cwd(&cwd))
+        .join(format!("{sid}.jsonl"));
+    assert!(moved.is_file());
+    // The list shows it under Work now.
+    let row = f.st.find_session(sid).await.unwrap();
+    assert_eq!(row.account.unwrap().id, work.id);
+
+    // Moving it again is refused: Work has it now.
+    let (s, v) = f.call("POST", "/data/move", &desk, Some(body(true))).await;
+    assert_eq!(s, StatusCode::CONFLICT, "{v}");
+    assert_eq!(v["error"]["code"], "already_exists");
+
+    // A phone cannot undo; the desktop can.
+    let (s, _) = f
+        .call(
+            "POST",
+            &format!("/data/jobs/{job}/undo"),
+            &phone,
+            Some(json!({})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::FORBIDDEN);
+    let (s, v) = f
+        .call(
+            "POST",
+            &format!("/data/jobs/{job}/undo"),
+            &desk,
+            Some(json!({})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    assert_eq!(v["state"], "undone");
+    assert!(!moved.exists());
+    let row = f.st.find_session(sid).await.unwrap();
+    assert_eq!(row.account.unwrap().id, "default");
+    let audit = f.st.devices.audit.recent(50);
+    assert!(audit.iter().any(|e| e.action == "data.move"));
+    assert!(audit.iter().any(|e| e.action == "data.undo"));
+
+    // Same directory (a token account shares the Default's): nothing to do.
+    let pro = f.st.accounts.add_token("Pro", None, None).unwrap();
+    let (s, v) = f
+        .call(
+            "POST",
+            "/data/move",
+            &desk,
+            Some(
+                json!({"what": "session", "id": sid, "from": "default", "to": pro.id,
+                        "mode": "copy", "dryRun": true}),
+            ),
+        )
+        .await;
+    assert_eq!(s, StatusCode::UNPROCESSABLE_ENTITY, "{v}");
+    assert_eq!(v["error"]["code"], "same_directory");
 }

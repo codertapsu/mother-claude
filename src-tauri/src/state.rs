@@ -145,6 +145,9 @@ pub struct Inner {
     /// The Claude accounts sessions can run under, and their secrets
     /// (`claude/accounts.rs`, docs/ACCOUNTS.md).
     pub accounts: AccountRegistry,
+    /// Data jobs: moves and copies between accounts, backups, restores and
+    /// pulls (`claude/transfer.rs`).
+    pub jobs: crate::claude::transfer::Jobs,
 }
 
 impl std::fmt::Debug for Inner {
@@ -217,6 +220,7 @@ impl Inner {
             push: PushService::new(data_dir),
             usage: UsageStore::new(data_dir),
             accounts,
+            jobs: crate::claude::transfer::Jobs::default(),
             auth,
         })
     }

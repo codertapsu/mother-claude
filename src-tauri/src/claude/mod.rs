@@ -28,6 +28,7 @@ pub mod settings;
 pub mod summaries;
 pub mod tmux;
 pub mod transcript;
+pub mod transfer;
 pub mod uievents;
 pub mod usage;
 pub mod watcher;

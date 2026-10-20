@@ -135,6 +135,10 @@ pub async fn serve(state: AppState) -> anyhow::Result<()> {
     if !auth.logged_in {
         tracing::warn!(status = %auth.summary(), "Claude is not signed in");
     }
+    // Undo copies of moves older than a week go.
+    if let Some(root) = crate::claude::transfer::ops::undo_root(&state) {
+        tokio::task::spawn_blocking(move || crate::claude::transfer::prune_undo(&root));
+    }
     // The other accounts' sign-ins, in parallel, without holding up the start.
     if !state.accounts.is_default_only() {
         let st = state.clone();

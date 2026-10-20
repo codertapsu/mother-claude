@@ -18,6 +18,7 @@ pub mod foreign;
 pub mod pairing;
 pub mod push;
 pub mod remote;
+pub mod transfers;
 pub mod uploads;
 pub mod usage;
 
@@ -135,6 +136,11 @@ pub fn api_router() -> Router<AppState> {
                 .post(accounts::token)
                 .delete(accounts::cancel_token),
         )
+        // ── moving data between accounts, data jobs (docs/ACCOUNTS.md) ──
+        .route("/data/move", post(transfers::post_move))
+        .route("/data/jobs", get(transfers::list_jobs))
+        .route("/data/jobs/{id}", get(transfers::get_job))
+        .route("/data/jobs/{id}/undo", post(transfers::undo_job))
         .route("/usage", get(usage::get_usage))
         .route("/usage/refresh", post(usage::refresh))
         .route("/usage/settings", put(usage::put_settings))
