@@ -242,7 +242,7 @@
               }
               @for (m of r.others; track m.id ?? m.host) {
                 <span class="muted small"
-                  >Also from {{ m.host }}
+                  >Also from {{ m.host === v.host ? 'another Mac named ' + m.host : m.host }}
                   @if (m.lastPush) {
                     <mc-time [ms]="m.lastPush" />
                   }

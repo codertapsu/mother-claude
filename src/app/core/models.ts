@@ -910,6 +910,9 @@ export interface BackupView {
   passphraseChangeUnfinished: boolean;
   /** This Mac's name in the sets (display only). */
   host: string;
+  /** This Mac's id in the sets' machine lists, once it has pushed or
+   * pulled: another Mac with the same name is not this one. */
+  machine?: string;
   sets: BackupSet[];
   suggestions: BackupSuggestion[];
   lastPull?: number;

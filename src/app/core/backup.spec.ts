@@ -335,6 +335,11 @@ describe('backup helpers', () => {
     });
     // Two entries with this Mac's name: another Mac has it too.
     expect(otherMachines([m('a', 'mbp'), m('c', 'mbp')], 'mbp').sameName).toBeTrue();
+    // With this Mac's id, the other Mac of the same name is listed itself.
+    expect(otherMachines([m('a', 'mbp'), m('c', 'mbp'), m('b', 'air')], 'mbp', 'a')).toEqual({
+      others: [m('c', 'mbp'), m('b', 'air')],
+      sameName: false,
+    });
     expect(andList([])).toBe('');
     expect(andList(['Default'])).toBe('Default');
     expect(andList(['Default', 'Work', 'Personal'])).toBe('Default, Work and Personal');

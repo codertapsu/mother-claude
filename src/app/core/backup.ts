@@ -123,13 +123,21 @@ export function ownSets(sets: readonly BackupSet[]): BackupSet[] {
   return sets.filter((s) => !s.sharedWith);
 }
 
-/** The other machines that pushed to a set, as far as the view tells them
- * apart: it names this Mac only by its host name, so the machines named
- * otherwise, and whether another Mac has this Mac's name too. */
+/** The other machines that pushed to a set. With this Mac's id (`machine`,
+ * known once it has pushed or pulled) every other machine is told apart, also
+ * one with this Mac's name; without it only by name, and `sameName` says
+ * whether another Mac has this Mac's name too. */
 export function otherMachines(
   machines: readonly BackupMachine[],
   host: string,
+  machine?: string,
 ): { others: BackupMachine[]; sameName: boolean } {
+  if (machine) {
+    return {
+      others: machines.filter((m) => (m.id ? m.id !== machine : m.host !== host)),
+      sameName: false,
+    };
+  }
   return {
     others: machines.filter((m) => m.host !== host),
     sameName: machines.filter((m) => m.host === host).length > 1,
@@ -160,6 +168,7 @@ export function normalizeBackupView(raw: unknown): BackupView | null {
   if (!r || !s) return null;
   const hours = num(s['everyHours']);
   const lastPull = num(r['lastPull']);
+  const machine = str(r['machine']);
   return {
     settings: {
       folder: str(s['folder']) ?? null,
@@ -169,6 +178,7 @@ export function normalizeBackupView(raw: unknown): BackupView | null {
     passphraseSet: r['passphraseSet'] === true,
     passphraseChangeUnfinished: r['passphraseChangeUnfinished'] === true,
     host: str(r['host']) ?? '',
+    ...(machine ? { machine } : {}),
     sets: list(r['sets'], backupSet),
     suggestions: list(r['suggestions'], suggestion),
     ...(lastPull !== undefined ? { lastPull } : {}),

@@ -134,7 +134,7 @@ export class BackupComponent {
     if (!v) return [];
     return v.sets.map((set) => ({
       set,
-      ...otherMachines(set.machines, v.host),
+      ...otherMachines(set.machines, v.host, v.machine),
       sharedWith: set.sharedWith ? this.nameOf(set.sharedWith) || 'Default' : '',
       lastError: sentence(set.lastError),
     }));
