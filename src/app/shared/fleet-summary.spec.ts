@@ -1,5 +1,13 @@
+import { TestBed } from '@angular/core/testing';
+import { provideRouter } from '@angular/router';
+
+import { FakeBackend, serveAccounts, useFakeServer } from '../core/mock/fake-server.testing';
+import { MOCK_ACCOUNT_WORK, buildAccounts } from '../core/mock/fixtures';
+import { setActiveMock } from '../core/mock/mock-api';
 import { PlanUsage, SessionSummary } from '../core/models';
-import { compactPlan, fleetCounts } from './fleet-summary.component';
+import { storageGet, storageRemove } from '../core/platform';
+import { RealtimeService } from '../core/realtime.service';
+import { FleetSummaryComponent, compactPlan, fleetCounts } from './fleet-summary.component';
 
 const s = (over: Record<string, unknown>): SessionSummary =>
   ({ id: 'x', live: true, status: 'idle', pending: [], ...over }) as unknown as SessionSummary;
@@ -89,5 +97,60 @@ describe('compactPlan', () => {
     expect(compactPlan(u({ available: false }), NOW)).toBeNull();
     const later = compactPlan(u(), NOW + 3 * H);
     expect(later?.meters[0]).toEqual(jasmine.objectContaining({ pct: 0, left: '' }));
+  });
+});
+
+describe('FleetSummaryComponent plan meter', () => {
+  let backend: FakeBackend;
+  const H = 3_600_000;
+  const plan = (pct: number): PlanUsage => ({
+    available: true,
+    windows: [{ key: 'five_hour', label: 'Current session', pct, resetsAt: Date.now() + H }],
+    refreshing: false,
+    intervalSecs: 300,
+  });
+
+  beforeEach(() => {
+    backend = new FakeBackend();
+    useFakeServer(backend, [provideRouter([])]);
+    TestBed.inject(RealtimeService).mergePlanUsage(plan(42));
+  });
+
+  afterEach(() => {
+    storageRemove('mc_plan_account');
+    setActiveMock(null);
+  });
+
+  const render = () => {
+    const fixture = TestBed.createComponent(FleetSummaryComponent);
+    fixture.detectChanges();
+    return { fixture, el: fixture.nativeElement as HTMLElement };
+  };
+  const planButton = (el: HTMLElement) => el.querySelector('.seg.plan') as HTMLButtonElement;
+
+  it('has no switcher with only the Default account', () => {
+    serveAccounts(backend, buildAccounts(Date.now(), false));
+    const { el } = render();
+    expect(el.querySelector('select')).toBeNull();
+    expect(planButton(el).getAttribute('aria-label')).toMatch(/^Plan usage: Current session 42%/);
+  });
+
+  it("switches the meter to another account's usage and remembers the pick", () => {
+    serveAccounts(backend, buildAccounts(Date.now(), true));
+    TestBed.inject(RealtimeService).mergeAccountUsages({
+      accounts: { [MOCK_ACCOUNT_WORK]: plan(77) },
+    });
+    const { fixture, el } = render();
+    const sel = el.querySelector('.seg.acct select') as HTMLSelectElement;
+    expect(sel).not.toBeNull();
+    expect((el.querySelector('.aname')?.textContent ?? '').trim()).toBe('Default');
+    expect(planButton(el).textContent).toContain('42%');
+    sel.value = MOCK_ACCOUNT_WORK;
+    sel.dispatchEvent(new Event('change'));
+    fixture.detectChanges();
+    expect((el.querySelector('.aname')?.textContent ?? '').trim()).toBe('Work');
+    expect(planButton(el).textContent).toContain('77%');
+    expect(planButton(el).getAttribute('aria-label')).toMatch(/^Plan usage of Work: /);
+    expect(storageGet('mc_plan_account')).toBe(MOCK_ACCOUNT_WORK);
   });
 });

@@ -1,0 +1,233 @@
+:host {
+  display: block;
+}
+
+.phone-note {
+  margin: 0 0 0.75rem;
+}
+
+/* ─────────────────────────────── The list */
+
+.accts {
+  padding-top: 0;
+  padding-bottom: 0;
+}
+.acct {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 0.5rem 0.75rem;
+  padding: 0.8rem 0;
+}
+.adot {
+  flex: 0 0 auto;
+  width: 0.85rem;
+  height: 0.85rem;
+  margin-top: 0.3rem;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.18);
+}
+.amain {
+  flex: 1 1 16rem;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+.aline {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+.aname {
+  overflow-wrap: anywhere;
+}
+.dir {
+  overflow-wrap: anywhere;
+}
+.state {
+  color: var(--tone, var(--text));
+}
+.aacts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-left: auto;
+}
+
+/* The compact plan meter (as on the sessions page). */
+.usage {
+  appearance: none;
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.2rem 0.7rem;
+  max-width: 100%;
+  margin-top: 0.3rem;
+  min-height: 32px;
+  padding: 0.2rem 0.65rem;
+  border: 1px solid var(--border);
+  border-radius: 1.2rem;
+  background: var(--panel);
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+.usage:hover {
+  border-color: var(--accent);
+}
+.usage[data-tone='amber'],
+.usage[data-tone='red'] {
+  border-color: var(--tone-border);
+  background: var(--tone-soft);
+}
+.pm {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  white-space: nowrap;
+}
+.pm strong {
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+.pm strong[data-tone='amber'],
+.pm strong[data-tone='red'] {
+  color: var(--tone);
+}
+.pbar {
+  width: 1.9rem;
+  height: 0.35rem;
+  border-radius: 0.2rem;
+  background: var(--panel-3);
+  overflow: hidden;
+}
+.pfill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--tone);
+}
+.details {
+  margin-top: 0.6rem;
+  padding: 0.75rem 0.85rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--panel-2);
+}
+
+/* ─────────────────────────────── Defaults */
+
+.defaults {
+  padding-top: 0.35rem;
+}
+h3 {
+  margin: 1rem 0 0.3rem;
+  font-size: 0.9rem;
+}
+.grow {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+.dsel {
+  width: auto;
+  flex: 0 1 14rem;
+  min-width: 9rem;
+}
+.dval {
+  font-size: 0.875rem;
+  white-space: nowrap;
+}
+.prow {
+  gap: 0.5rem;
+}
+.prow > mc-icon {
+  color: var(--faint);
+}
+.pdir {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.psel {
+  width: auto;
+  flex: 0 1 12rem;
+  min-width: 8rem;
+}
+.pname {
+  font-size: 0.875rem;
+}
+.none {
+  margin: 0.4rem 0;
+}
+.padd {
+  display: flex;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin: 0.6rem 0 0.4rem;
+}
+.pfield {
+  flex: 1 1 14rem;
+}
+.padd select {
+  width: auto;
+  min-width: 9rem;
+}
+
+/* ─────────────────────────────── The rest */
+
+.first {
+  margin-top: 0.1rem;
+}
+.secrets {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.4rem;
+  margin: 1rem 0 2rem;
+}
+.secrets mc-icon {
+  margin-top: 0.15rem;
+}
+.retry {
+  margin-top: 0.75rem;
+}
+
+@media (max-width: 767px) {
+  .aacts {
+    flex: 1 1 100%;
+    margin-left: calc(0.85rem + 0.75rem);
+  }
+  .drow {
+    flex-wrap: wrap;
+  }
+  .drow .dsel {
+    flex: 1 1 100%;
+    max-width: none;
+  }
+  .prow {
+    flex-wrap: wrap;
+  }
+  .prow .pdir {
+    flex-basis: calc(100% - 2rem);
+  }
+  .prow .psel {
+    flex: 1 1 auto;
+    margin-left: calc(15px + 0.5rem);
+  }
+  .padd {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .padd select {
+    width: 100%;
+  }
+}

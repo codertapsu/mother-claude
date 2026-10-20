@@ -8,6 +8,8 @@ import {
 } from '@angular/core';
 import { RouterLink } from '@angular/router';
 
+import { isAccountColor } from '../core/accounts';
+import { AccountsService } from '../core/accounts.service';
 import { FleetSummary, PlanUsage, SessionSummary } from '../core/models';
 import { NowService } from '../core/now.service';
 import { compactWindows, windowPct, windowSeverity, worstSeverity } from '../core/plan-usage';
@@ -113,14 +115,16 @@ export function compactPlan(
  * since local midnight (each session's `costToday`, not its lifetime cost),
  * falling back to tokens when no session's price is known. Counted like the
  * server's fleet summary ({@link fleetCounts}), so the phone and the fleet
- * agree. The plan part is hidden when the account has no plan usage.
+ * agree. The plan part is hidden when the account has no plan usage. With
+ * several Claude accounts a switcher in front of it picks whose usage it
+ * shows (the Default's until another is picked; the sheet lists them all).
  */
 @Component({
   selector: 'mc-fleet-summary',
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [RouterLink, IconComponent, PlanUsageSheetComponent],
   template: `
-    @if (hasSessions() || plan()) {
+    @if (hasSessions() || plan() || multi()) {
       <div class="fleet" role="group" aria-label="Right now">
         @if (hasSessions()) {
           <button type="button" class="seg" (click)="filter.emit('live')">
@@ -145,29 +149,51 @@ export function compactPlan(
             <strong>{{ today() }}</strong> today
           </span>
         }
-        @if (plan(); as p) {
-          <button
-            type="button"
-            class="seg plan"
-            [attr.data-tone]="p.tone"
-            [attr.aria-label]="p.label"
-            (click)="sheetOpen.set(true)"
-          >
-            @for (m of p.meters; track m.key; let first = $first) {
-              <span class="pm">
-                <span class="pbar" [attr.data-tone]="m.tone" aria-hidden="true"
-                  ><span class="pfill" [style.width.%]="m.bar"></span
-                ></span>
-                {{ m.short }} <strong [attr.data-tone]="m.tone">{{ m.pct }}%</strong>
-                @if (first && m.left) {
-                  <span class="left"><mc-icon name="clock" [size]="11" />{{ m.left }}</span>
+        <!-- With one account the group is no box at all (display: contents):
+             the meter sits in the row exactly as it always did. With several,
+             the switcher and its meter wrap as one. -->
+        <span class="pgroup" [class.solo]="!multi()">
+          @if (multi()) {
+            <label class="seg acct" [title]="'Plan usage of ' + meterName()">
+              <span class="adot" aria-hidden="true" [style.background]="meterColor()"></span>
+              <span class="aname">{{ meterName() }}</span>
+              <mc-icon name="chevronDown" [size]="12" />
+              <select aria-label="Show the plan usage of" (change)="pickMeter($event)">
+                @for (a of accountList(); track a.id) {
+                  <option [value]="a.id" [selected]="a.id === meterAccount()">{{ a.name }}</option>
                 }
-              </span>
-            } @empty {
-              <mc-icon name="gauge" [size]="14" /> Plan usage
+              </select>
+            </label>
+            @if (!plan()) {
+              <button type="button" class="seg" (click)="sheetOpen.set(true)">
+                <mc-icon name="gauge" [size]="14" /> No plan usage to show
+              </button>
             }
-          </button>
-        }
+          }
+          @if (plan(); as p) {
+            <button
+              type="button"
+              class="seg plan"
+              [attr.data-tone]="p.tone"
+              [attr.aria-label]="planLabel()"
+              (click)="sheetOpen.set(true)"
+            >
+              @for (m of p.meters; track m.key; let first = $first) {
+                <span class="pm">
+                  <span class="pbar" [attr.data-tone]="m.tone" aria-hidden="true"
+                    ><span class="pfill" [style.width.%]="m.bar"></span
+                  ></span>
+                  {{ m.short }} <strong [attr.data-tone]="m.tone">{{ m.pct }}%</strong>
+                  @if (first && m.left) {
+                    <span class="left"><mc-icon name="clock" [size]="11" />{{ m.left }}</span>
+                  }
+                </span>
+              } @empty {
+                <mc-icon name="gauge" [size]="14" /> Plan usage
+              }
+            </button>
+          }
+        </span>
       </div>
       <mc-plan-usage-sheet [open]="sheetOpen()" (closed)="sheetOpen.set(false)" />
     }
@@ -257,11 +283,62 @@ export function compactPlan(
         color: var(--faint);
         font-variant-numeric: tabular-nums;
       }
+      .pgroup {
+        display: inline-flex;
+        flex-wrap: wrap;
+        gap: 0.35rem;
+        max-width: 100%;
+        min-width: 0;
+      }
+      .pgroup.solo {
+        display: contents;
+      }
+      .seg.acct {
+        position: relative;
+        color: var(--text);
+        max-width: 12rem;
+      }
+      .seg.acct:hover {
+        border-color: var(--accent);
+      }
+      .seg.acct:focus-within {
+        outline: 2px solid var(--focus);
+        outline-offset: 1px;
+      }
+      .adot {
+        flex: 0 0 auto;
+        width: 0.55rem;
+        height: 0.55rem;
+        border-radius: 50%;
+      }
+      .aname {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .seg.acct select {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        min-height: 0;
+        opacity: 0;
+        cursor: pointer;
+        font-size: 16px;
+      }
       @media (max-width: 767px) {
         .seg.plan {
           flex: 1 1 100%;
           justify-content: center;
           padding-block: 0.3rem;
+        }
+        .pgroup:not(.solo) {
+          flex: 1 1 100%;
+          flex-wrap: nowrap;
+        }
+        .pgroup:not(.solo) .seg.plan {
+          flex: 1 1 auto;
+          min-width: 0;
         }
         .pbar {
           width: 1.4rem;
@@ -274,6 +351,7 @@ export class FleetSummaryComponent {
   private realtime = inject(RealtimeService);
   private clock = inject(NowService);
   private planUsage = inject(PlanUsageService);
+  private accounts = inject(AccountsService);
 
   readonly filter = output<'live' | 'needs'>();
   protected readonly sheetOpen = signal(false);
@@ -295,5 +373,29 @@ export class FleetSummaryComponent {
     () =>
       `Spent since midnight across ${this.counts().todaySessions} sessions active today (estimated)`,
   );
-  protected readonly plan = computed(() => compactPlan(this.planUsage.usage(), this.clock.now()));
+  /** More than the Default account: the meter gets its switcher. */
+  protected readonly multi = this.accounts.multi;
+  protected readonly accountList = this.accounts.list;
+  protected readonly meterAccount = this.planUsage.meterAccount;
+  private readonly meter = computed(() => this.accounts.byId(this.meterAccount()));
+  protected readonly meterName = computed(() => this.meter()?.name ?? 'Default');
+  protected readonly meterColor = computed(() => {
+    const c = this.meter()?.color;
+    return isAccountColor(c) ? c : 'var(--accent)';
+  });
+  protected readonly plan = computed(() =>
+    compactPlan(this.planUsage.usageOf(this.meterAccount()), this.clock.now()),
+  );
+  /** The meter's spoken label names the account once there are several. */
+  protected readonly planLabel = computed(() => {
+    const label = this.plan()?.label ?? '';
+    return this.multi()
+      ? label.replace(/^Plan usage:/, `Plan usage of ${this.meterName()}:`)
+      : label;
+  });
+
+  protected pickMeter(e: Event): void {
+    const id = (e.target as HTMLSelectElement).value;
+    if (id) this.planUsage.selectMeter(id);
+  }
 }

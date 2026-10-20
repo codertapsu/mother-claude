@@ -4,6 +4,7 @@ import { RouterLink } from '@angular/router';
 import { PendingRef, SessionSummary } from '../core/models';
 import { NowService } from '../core/now.service';
 import { ViewportService } from '../core/viewport.service';
+import { AccountChipComponent } from './account-chip.component';
 import { ActivityLineComponent } from './activity-line.component';
 import { ChannelBadgeComponent } from './channel-badge.component';
 import { ChipComponent } from './chip.component';
@@ -25,9 +26,10 @@ interface PackedPart {
 }
 
 /**
- * One session in a list: status, live activity line, chips (model, effort,
- * ultracode, thinking, fast, mode, agents, todos, context, cost, branch, PR,
- * surface/channel) and — when there is exactly one pending request — a
+ * One session in a list: status, live activity line, chips (surface/channel,
+ * the Claude account while there are several, model, effort, ultracode,
+ * thinking, fast, mode, agents, todos, context, cost, branch, PR) and —
+ * when there is exactly one pending request — a
  * compact card with quick actions for the simple cases (else "Review").
  * Only the title is a link, so the buttons inside stay valid, separately
  * focusable controls. The setting chips stay short (how a value is known is
@@ -42,6 +44,7 @@ interface PackedPart {
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
     RouterLink,
+    AccountChipComponent,
     ActivityLineComponent,
     ChannelBadgeComponent,
     ChipComponent,
@@ -69,6 +72,9 @@ interface PackedPart {
 
     <div class="chips">
       <mc-channel-badge [surface]="s.surface" [control]="s.control" [session]="s" />
+      @if (s.account; as a) {
+        <mc-account-chip [account]="a" />
+      }
       @if (s.model) {
         <mc-chip>{{ s.model.label }}</mc-chip>
       }

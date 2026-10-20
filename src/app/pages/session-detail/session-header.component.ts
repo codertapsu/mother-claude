@@ -10,12 +10,15 @@ import {
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 
+import { AccountsService } from '../../core/accounts.service';
 import { NoticeService } from '../../core/notice.service';
 import { PushService } from '../../core/push.service';
 import { RealtimeService, connectionDetail, connectionLabel } from '../../core/realtime.service';
 import { SessionPushPref } from '../../core/models';
+import { AccountChipComponent } from '../../shared/account-chip.component';
 import { ActivityLineComponent } from '../../shared/activity-line.component';
 import { capRename, capTerminal } from '../../shared/caps';
+import { ContinueOnSheetComponent, canContinue } from '../../shared/continue-on-sheet.component';
 import { CopyButtonComponent } from '../../shared/copy-button.component';
 import { IconComponent } from '../../shared/icon.component';
 import { SheetComponent } from '../../shared/sheet.component';
@@ -25,10 +28,11 @@ import { sessionName } from '../../shared/util';
 import { SessionContext } from './session-context';
 
 /**
- * The session page's sticky top row: back, name, status and what it is
- * doing right now (with elapsed time), the connection state when it isn't
- * Live, and a ⋯ menu (rename, continue/fork, terminal, notifications,
- * resume command, stop/respawn/remove). 48 px tall on phones.
+ * The session page's sticky top row: back, name, status, the Claude
+ * account (while there are several) and what it is doing right now (with
+ * elapsed time), the connection state when it isn't Live, and a ⋯ menu
+ * (rename, continue/fork, continue on another account, terminal,
+ * notifications, resume command, stop/respawn/remove). 48 px tall on phones.
  */
 @Component({
   selector: 'mc-session-header',
@@ -36,7 +40,9 @@ import { SessionContext } from './session-context';
   imports: [
     FormsModule,
     RouterLink,
+    AccountChipComponent,
     ActivityLineComponent,
+    ContinueOnSheetComponent,
     CopyButtonComponent,
     IconComponent,
     SheetComponent,
@@ -53,6 +59,9 @@ import { SessionContext } from './session-context';
           <div class="nameline">
             <h1 class="name">{{ name() }}</h1>
             <mc-status-pill class="pill" [status]="s.status" [live]="s.live" />
+            @if (s.account; as a) {
+              <mc-account-chip class="acct" [account]="a" />
+            }
           </div>
           <mc-activity-line class="act" [activity]="s.activity" />
         </div>
@@ -97,6 +106,12 @@ import { SessionContext } from './session-context';
             <button class="item" type="button" (click)="continueHere()">
               <mc-icon name="play" [size]="18" />
               <span>{{ s.live ? 'Continue here (fork)' : 'Continue here' }}</span>
+            </button>
+          }
+          @if (continueOnOffered()) {
+            <button class="item" type="button" (click)="openContinueOn()">
+              <mc-icon name="user" [size]="18" />
+              <span>Continue on another account…</span>
             </button>
           }
           @if (terminal()) {
@@ -230,6 +245,13 @@ import { SessionContext } from './session-context';
           <mc-icon name="refresh" [size]="15" /> Reconnect now
         </button>
       </mc-sheet>
+
+      <mc-continue-on-sheet
+        [open]="continueOn()"
+        [sessions]="continueOnSessions()"
+        [suggested]="continueOnSuggestion()"
+        (closed)="continueOn.set(false)"
+      />
     }
   `,
   styles: [
@@ -265,6 +287,11 @@ import { SessionContext } from './session-context';
         text-overflow: ellipsis;
         white-space: nowrap;
         min-width: 0;
+      }
+      /* The title gives way first; a long account name ellipses at 45 %. */
+      .acct {
+        flex: 0 0 auto;
+        max-width: 45%;
       }
       .act {
         font-size: 0.75rem;
@@ -387,8 +414,11 @@ export class SessionHeaderComponent {
   private realtime = inject(RealtimeService);
   private push = inject(PushService);
   private notices = inject(NoticeService);
+  private accounts = inject(AccountsService);
 
   protected readonly menu = signal(false);
+  /** The "Continue on another account" choice is open. */
+  protected readonly continueOn = signal(false);
   protected readonly renaming = signal(false);
   protected readonly renameText = signal('');
   protected readonly confirmRm = signal(false);
@@ -423,6 +453,19 @@ export class SessionHeaderComponent {
       ? `vscode://anthropic.claude-code/open?session=${encodeURIComponent(s.id)}`
       : '';
   });
+  /** Sessions name an account only while more than the Default exists. */
+  protected readonly continueOnOffered = computed(() => {
+    const s = this.ctx.session();
+    return !!s?.account && canContinue(s);
+  });
+  protected readonly continueOnSessions = computed(() => {
+    const s = this.ctx.session();
+    return s ? [s] : [];
+  });
+  protected readonly continueOnSuggestion = computed(() => {
+    const a = this.ctx.session()?.account;
+    return a ? (this.accounts.suggestionFor(a)?.id ?? null) : null;
+  });
 
   constructor() {
     // The composer's `/rename` lands here.
@@ -456,6 +499,11 @@ export class SessionHeaderComponent {
   protected continueHere(): void {
     this.menu.set(false);
     void this.ctx.continueHere();
+  }
+
+  protected openContinueOn(): void {
+    this.menu.set(false);
+    this.continueOn.set(true);
   }
 
   protected openTerminal(): void {

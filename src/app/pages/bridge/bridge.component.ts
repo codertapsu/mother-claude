@@ -1,6 +1,7 @@
 import { Component, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 
+import { AccountsService } from '../../core/accounts.service';
 import { ApiService, errorMessage } from '../../core/api.service';
 import { AuthService } from '../../core/auth.service';
 import { BridgeDefaults, BridgeStatus, LaunchDefaults, SessionSummary } from '../../core/models';
@@ -162,6 +163,24 @@ const FRESH = '';
             </select>
           </label>
         </div>
+
+        @if (accounts.multi()) {
+          <label class="wide">
+            <span class="lbl">Account</span>
+            <select [ngModel]="account()" (ngModelChange)="account.set($event)">
+              <option value="">
+                Automatic — the project's account, else {{ bridgeDefaultName() }}
+              </option>
+              @for (a of accounts.list(); track a.id) {
+                <option [value]="a.id">{{ a.name }}{{ a.email ? ' — ' + a.email : '' }}</option>
+              }
+            </select>
+            <span class="hint">
+              The Claude account conversations run under. Automatic takes the project's account,
+              else the one Settings › Accounts sets for the API. A request can still name another.
+            </span>
+          </label>
+        }
 
         <label class="wide">
           <span class="lbl">Permissions</span>
@@ -417,6 +436,7 @@ export class BridgeComponent {
   private api = inject(ApiService);
   /** Only the desktop app may open the port to tunnels (the server enforces it). */
   readonly isDesktop = inject(AuthService).isDesktop;
+  readonly accounts = inject(AccountsService);
 
   readonly FRESH = FRESH;
   readonly permissionModes = PERMISSION_MODES;
@@ -437,11 +457,20 @@ export class BridgeComponent {
   readonly thread = signal(FRESH);
   /** Access: no token from anyone who can reach the port, tunnels included. */
   readonly openToTunnels = signal(false);
+  /** The account conversations run under ('' = the project's, else the
+   * accounts' API default). */
+  readonly account = signal('');
 
   readonly efforts = computed(() => this.launch()?.efforts ?? Object.keys(EFFORT_LABELS));
+  readonly bridgeDefaultName = computed(() => {
+    const id = this.accounts.view()?.defaults.bridge;
+    return this.accounts.byId(id)?.name ?? 'Default';
+  });
 
   constructor() {
     void this.load();
+    // The picker needs the accounts: with only the Default nothing sent them.
+    void this.accounts.ensureLoaded();
   }
 
   private async load(): Promise<void> {
@@ -475,6 +504,7 @@ export class BridgeComponent {
     this.isolate.set(Array.isArray(d.settingSources) && d.settingSources.length === 0);
     this.thread.set(status.activeThread ?? FRESH);
     this.openToTunnels.set(status.tokenPolicy === 'never');
+    this.account.set(d.account ?? '');
   }
 
   private defaults(): BridgeDefaults {
@@ -488,6 +518,8 @@ export class BridgeComponent {
       // collapsed to "unset" the way an empty string is.
       settingSources: this.isolate() ? [] : undefined,
       defaultThread: this.thread() || undefined,
+      // Only while several accounts exist: the request is unchanged otherwise.
+      account: (this.accounts.multi() && this.account()) || undefined,
     };
   }
 

@@ -1,6 +1,7 @@
 import { Component, computed, effect, inject, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
 
+import { AccountsService } from '../../core/accounts.service';
 import { ApiService, errorMessage } from '../../core/api.service';
 import { AttentionService } from '../../core/attention.service';
 import { AuthService } from '../../core/auth.service';
@@ -51,8 +52,9 @@ const INGRESS: Record<string, string> = {
   'bridge-loopback': 'This computer (API port)',
 };
 
-/** Notifications, theme, the plan-usage refresh interval (set on the
- * desktop, shown read-only on phones), connection details and about. */
+/** Notifications, theme, the Claude accounts (a page of their own), the
+ * plan-usage refresh interval (set on the desktop, shown read-only on
+ * phones), connection details and about. */
 @Component({
   selector: 'mc-settings',
   imports: [RouterLink, IconComponent, PermissionsListComponent, UpdaterComponent],
@@ -71,6 +73,18 @@ export class SettingsComponent {
   protected readonly attention = inject(AttentionService);
   protected readonly updater = inject(UpdaterService);
   protected readonly plan = inject(PlanUsageService);
+  private readonly accounts = inject(AccountsService);
+  /** What the Accounts entry says (only what is already known: opening
+   * Settings fetches nothing new). */
+  protected readonly accountsHint = computed(() => {
+    const list = this.accounts.list();
+    if (list.length > 1) {
+      const d = this.accounts.view()?.defaults;
+      const next = this.accounts.byId(d?.newSession)?.name ?? 'Default';
+      return `${list.length} accounts · new sessions run under ${next}`;
+    }
+    return 'Several Claude accounts side by side, e.g. to carry on when one reaches its limit';
+  });
   protected readonly planIntervals = PLAN_INTERVALS;
   protected readonly planIntervalLabel = planIntervalLabel;
   protected readonly planSaving = signal(false);

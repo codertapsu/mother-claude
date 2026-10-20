@@ -8,10 +8,13 @@ import {
   untracked,
 } from '@angular/core';
 
+import { DEFAULT_ACCOUNT } from '../../core/accounts';
 import { ApiService } from '../../core/api.service';
 import { KeyName, LaunchOverrides, McpServerStatus } from '../../core/models';
 import { NowService } from '../../core/now.service';
 import { PlanUsageService } from '../../core/plan-usage.service';
+import { AccountChipComponent } from '../../shared/account-chip.component';
+import { accountKindLabel } from '../../shared/accounts';
 import { CapLimitsComponent } from '../../shared/cap-limits.component';
 import { capKeys, capRename, capTerminal, capThinking } from '../../shared/caps';
 import { ChannelBadgeComponent } from '../../shared/channel-badge.component';
@@ -67,6 +70,7 @@ const KEYS: { key: KeyName; label: string; aria: string }[] = [
   selector: 'mc-info-panel',
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
+    AccountChipComponent,
     CapLimitsComponent,
     ChannelBadgeComponent,
     ContextMeterComponent,
@@ -123,6 +127,13 @@ const KEYS: { key: KeyName; label: string; aria: string }[] = [
           @if (s.entrypoint) {
             <dt>Entry point</dt>
             <dd class="mono">{{ s.entrypoint }}</dd>
+          }
+          @if (s.account; as a) {
+            <dt>Claude account</dt>
+            <dd>
+              <mc-account-chip [account]="a" />
+              <span class="muted small">{{ kindLabel(a) }}</span>
+            </dd>
           }
           <dt>Owned</dt>
           <dd>{{ s.owned ? 'Yes: started or taken over by Mother Claude' : 'No' }}</dd>
@@ -270,13 +281,17 @@ const KEYS: { key: KeyName; label: string; aria: string }[] = [
         </dl>
       </section>
 
-      @if (plan.available()) {
+      @if (plan.availableOf(planAccount())) {
         <section class="card">
           <h2 class="first">Plan usage</h2>
           <p class="muted small plan-lede">
-            Your Claude plan: every session on this account shares it.
+            @if (s.account; as a) {
+              The plan of {{ a.name }}: every session on this account shares it.
+            } @else {
+              Your Claude plan: every session on this account shares it.
+            }
           </p>
-          <mc-plan-usage />
+          <mc-plan-usage [account]="planAccount()" />
         </section>
       }
 
@@ -517,6 +532,11 @@ export class InfoPanelComponent {
     const s = this.ctx.session();
     return capRename(s?.control, s?.owned);
   });
+  /** Whose plan this session uses (the Default's when it names none). */
+  protected readonly planAccount = computed(
+    () => this.ctx.session()?.account?.id ?? DEFAULT_ACCOUNT,
+  );
+  protected readonly kindLabel = accountKindLabel;
   protected readonly terminal = computed(() => {
     const s = this.ctx.session();
     return capTerminal(s?.control, s);

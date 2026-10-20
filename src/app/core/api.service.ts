@@ -4,8 +4,13 @@ import { AuthService } from './auth.service';
 import { ConfigService } from './config.service';
 import { activeMock } from './mock/mock-api';
 import {
+  AccountDefaults,
+  AccountPatch,
+  AccountView,
+  AccountsView,
   BridgeDefaults,
   BridgeStatus,
+  CaptureView,
   CommandInfo,
   ContinueBody,
   DeviceInfo,
@@ -23,6 +28,7 @@ import {
   MeInfo,
   MessageBody,
   MessageResult,
+  NewAccount,
   PairCode,
   PairCodeRequest,
   PairExchangeBody,
@@ -30,6 +36,7 @@ import {
   PairPendingStatus,
   PermissionMode,
   PlanUsage,
+  PlanUsageReply,
   ProjectInfo,
   PushPrefs,
   PushPrefsUpdate,
@@ -45,6 +52,7 @@ import {
   SessionsQuery,
   SpawnBody,
   TerminalText,
+  TokenStatus,
   TranscriptPage,
   TranscriptQuery,
   UploadResult,
@@ -84,8 +92,14 @@ import {
  *             stopTask(id, taskId) · respond(id, body) ·
  *             continueSession(id, body) · sendKey(id, key) ·
  *             lifecycle(id, action)
- *   Usage     getPlanUsage() · refreshPlanUsage() ·
+ *   Usage     getPlanUsage() · refreshPlanUsage(account?) ·
  *             setPlanUsageSettings(intervalSecs)
+ *   Accounts  getAccounts() · addAccount(body) · updateAccount(id, patch) ·
+ *             removeAccount(id) · setAccountDefaults(d) ·
+ *             setCopyConsent(from, to, granted) · recheckAccount(id) ·
+ *             loginAccount(id, consoleAccount?) · getAccountToken(id) ·
+ *             startTokenCapture(id) · sendTokenCode(id, code) ·
+ *             pasteAccountToken(id, token) · cancelTokenCapture(id)
  *   Pairing   createPairCode(req) · exchangePairCode(body) ·
  *             pollPairPending(pendingId, secret) · getMe() · unpairSelf()
  *   Devices   listDevices() · approvePair(id, fingerprint) · denyPair(id) ·
@@ -315,21 +329,108 @@ export class ApiService {
 
   // ───────────────────────────────────────────────────────── Plan usage
 
-  /** The server's last known plan usage (never triggers a read). */
-  getPlanUsage(): Promise<PlanUsage> {
-    return this.req<PlanUsage>('/usage');
+  /** The server's last known plan usage (never triggers a read): the
+   * Default account's, plus every other account's under `accounts`. */
+  getPlanUsage(): Promise<PlanUsageReply> {
+    return this.req<PlanUsageReply>('/usage');
   }
 
-  /** Ask for a fresh reading now. 202 with the current state (`refreshing`);
-   * the result arrives as a `planUsage` frame. Within a minute of the last
-   * read: 429 with `retryAfter`. */
-  refreshPlanUsage(): Promise<PlanUsage | null> {
-    return this.post('/usage/refresh', {});
+  /** Ask for a fresh reading now (the Default account's unless `account`
+   * names another). 202 with the current state (`refreshing`); the result
+   * arrives as a `planUsage` (or `accountUsage`) frame. Within a minute of
+   * the last read: 429 with `retryAfter`. */
+  refreshPlanUsage(account?: string): Promise<PlanUsage | null> {
+    return this.post('/usage/refresh', account && account !== 'default' ? { account } : {});
   }
 
   /** Desktop only: seconds between reads, 0 (manual only), 180, 300 or 600. */
   setPlanUsageSettings(intervalSecs: number): Promise<PlanUsage | null> {
     return this.req('/usage/settings', { method: 'PUT', body: JSON.stringify({ intervalSecs }) });
+  }
+
+  // ───────────────────────────────────────────────────────────── Accounts
+
+  /** Every Claude account, the defaults, copy consent and where secrets live
+   * (any signed-in client; the desktop also gets a running sign-in's URL). */
+  getAccounts(): Promise<AccountsView> {
+    return this.req<AccountsView>('/accounts');
+  }
+
+  /** Desktop only: add an account (201). A pasted token travels once, in
+   * this body, and goes straight to the Mac's secret store. */
+  addAccount(body: NewAccount): Promise<AccountView> {
+    return this.post<AccountView>('/accounts', body);
+  }
+
+  /** Desktop only: rename or recolour. */
+  updateAccount(id: string, patch: AccountPatch): Promise<AccountView> {
+    return this.req<AccountView>(`/accounts/${enc(id)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(patch),
+    });
+  }
+
+  /** Desktop only: forget an account (never its directory or its Anthropic
+   * sign-in). 409 `account_in_use` while sessions Mother Claude started run
+   * under it; 422 `default_account_fixed` for the Default. */
+  removeAccount(id: string): Promise<void> {
+    return this.req(`/accounts/${enc(id)}`, { method: 'DELETE' });
+  }
+
+  /** Desktop only: which account new sessions, the API and projects use. */
+  setAccountDefaults(defaults: AccountDefaults): Promise<AccountDefaults> {
+    return this.req<AccountDefaults>('/accounts/defaults', {
+      method: 'PUT',
+      body: JSON.stringify(defaults),
+    });
+  }
+
+  /** Desktop only: remember (or forget) "copy from → to without asking". */
+  setCopyConsent(from: string, to: string, granted: boolean): Promise<AccountsView> {
+    return this.req<AccountsView>('/accounts/copy-consent', {
+      method: 'PUT',
+      body: JSON.stringify({ from, to, granted }),
+    });
+  }
+
+  /** Check an account's sign-in again. */
+  recheckAccount(id: string): Promise<AccountView> {
+    return this.post<AccountView>(`/accounts/${enc(id)}/refresh`, {});
+  }
+
+  /** Desktop only: a browser sign-in for a directory account (or the
+   * Default), opened on the Mac (202; `signingIn` until it lands).
+   * `consoleAccount`: an Anthropic Console (API billing) sign-in. */
+  loginAccount(id: string, consoleAccount = false): Promise<AccountView> {
+    return this.post<AccountView>(
+      `/accounts/${enc(id)}/login`,
+      consoleAccount ? { console: true } : {},
+    );
+  }
+
+  /** Desktop only: a token account's `setup-token` run (with its URL). */
+  getAccountToken(id: string): Promise<TokenStatus> {
+    return this.req<TokenStatus>(`/accounts/${enc(id)}/token`);
+  }
+
+  /** Desktop only: start `claude setup-token` (the browser opens on the Mac). */
+  startTokenCapture(id: string): Promise<{ capture?: CaptureView }> {
+    return this.post(`/accounts/${enc(id)}/token`, {});
+  }
+
+  /** Desktop only: type the code the browser shows into a running capture. */
+  sendTokenCode(id: string, code: string): Promise<{ capture?: CaptureView }> {
+    return this.post(`/accounts/${enc(id)}/token`, { code });
+  }
+
+  /** Desktop only: store a pasted token (sent once, in the body). */
+  pasteAccountToken(id: string, token: string): Promise<AccountView> {
+    return this.post<AccountView>(`/accounts/${enc(id)}/token`, { token });
+  }
+
+  /** Desktop only: stop a running capture. */
+  cancelTokenCapture(id: string): Promise<{ capture?: CaptureView }> {
+    return this.req(`/accounts/${enc(id)}/token`, { method: 'DELETE' });
   }
 
   // ────────────────────────────────────────────────────────────── Pairing

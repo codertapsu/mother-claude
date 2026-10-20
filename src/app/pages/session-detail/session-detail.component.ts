@@ -3,6 +3,7 @@ import { ActivatedRoute, ParamMap, Router, RouterLink } from '@angular/router';
 
 import { ViewportService } from '../../core/viewport.service';
 import { IconComponent } from '../../shared/icon.component';
+import { LimitOfferComponent } from '../../shared/limit-offer.component';
 import { AgentsPanelComponent } from './agents-panel.component';
 import { ChangesPanelComponent } from './changes-panel.component';
 import { ComposerComponent } from './composer.component';
@@ -48,6 +49,7 @@ const TABS: TabDef[] = [
     ComposerComponent,
     IconComponent,
     InfoPanelComponent,
+    LimitOfferComponent,
     PendingDockComponent,
     SessionChipsComponent,
     SessionHeaderComponent,

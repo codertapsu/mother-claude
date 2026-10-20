@@ -3,7 +3,21 @@
 // screenshot without the Rust server. Never bundled in production builds.
 
 import {
+  ACCOUNT_COLORS,
+  DEFAULT_ACCOUNT,
+  accountForCwd,
+  accountNameProblem,
+  isAccountColor,
+  needsCopy,
+} from '../accounts';
+import {
+  AccountDefaults,
+  AccountRef,
+  AccountView,
+  AccountsView,
   AgentInfo,
+  BridgeDefaults,
+  CaptureView,
   FleetSession,
   PairCode,
   PendingItem,
@@ -14,7 +28,16 @@ import {
   SessionSummary,
   UiEvent,
 } from '../models';
-import { Fixtures, buildFixtures, ev, ownedCaps, toPreview } from './fixtures';
+import {
+  Fixtures,
+  MOCK_SESSION_ACCOUNTS,
+  buildAccountUsage,
+  buildAccounts,
+  buildFixtures,
+  ev,
+  ownedCaps,
+  toPreview,
+} from './fixtures';
 import { MockBackend, MockRole, WebSocketLike, mockRole } from './mock-api';
 import { urlParam } from '../platform';
 
@@ -47,6 +70,18 @@ const USAGE_MODE = urlParam('mockusage');
 /** Intervals the server accepts for the plan-usage refresh (seconds). */
 const PLAN_INTERVALS = [0, 180, 300, 600];
 
+/** Claude accounts (`?mockaccounts=`):
+ * - absent  only the Default account (every setup before accounts);
+ * - `1`     plus "Work" (its own directory) and "Marcus (Pro)" (a token);
+ * - `limit` the same, with the Default at its 5-hour limit (the offer to
+ *           continue on another account shows).
+ * `?mockcapture=code|fail`: the token sign-in asks for the browser's code,
+ * or ends without a token. */
+const ACCOUNTS_MODE = urlParam('mockaccounts');
+const CAPTURE_MODE = urlParam('mockcapture');
+/** What a token looks like (a pasted one is "checked" against it). */
+const TOKEN_RE = /^sk-ant-oat\d\d-[\w-]{8,}$/;
+
 const STREAM_TEXT =
   "I cached the compiled pattern in a module-level constant and switched the tokenizer to a single pass. On the 40k-document fixture the build drops from **38.2 s** to **14.9 s** (2.6x). Next I'll check memory, since the cache keeps one regex per language.";
 
@@ -67,10 +102,32 @@ class FixtureBackend implements MockBackend {
   private lastUsageRead = 0;
   /** What a full read of the (fake) account returns. */
   private readonly fullUsage: PlanUsage;
+  /** Which account each session runs under (absent: the Default). */
+  private readonly sessionAccounts = new Map<string, string>();
+  /** Token accounts' `setup-token` runs. */
+  private readonly captures = new Map<string, CaptureView>();
+  /** When each other account's usage was last read (429 within a minute). */
+  private readonly accountReads = new Map<string, number>();
 
   constructor(readonly role: MockRole) {
     const now = Date.now();
     this.fx = buildFixtures(now);
+    if (ACCOUNTS_MODE === '1' || ACCOUNTS_MODE === 'limit') {
+      this.fx.accounts = buildAccounts(now, true);
+      this.fx.accountUsage = buildAccountUsage(now);
+      for (const [sid, acc] of Object.entries(MOCK_SESSION_ACCOUNTS)) {
+        this.sessionAccounts.set(sid, acc);
+      }
+      if (ACCOUNTS_MODE === 'limit') {
+        this.fx.planUsage = {
+          ...this.fx.planUsage,
+          windows: this.fx.planUsage.windows.map((w) =>
+            w.key === 'five_hour' ? { ...w, pct: 100, severity: 'critical' } : w,
+          ),
+        };
+      }
+    }
+    this.syncSessionAccounts(false);
     this.token = role === 'unpaired' ? '' : TOKEN;
     this.lastUsageRead = this.fx.planUsage.fetchedAt ?? 0;
     this.fullUsage = this.fx.planUsage;
@@ -168,7 +225,10 @@ class FixtureBackend implements MockBackend {
       if (headers.get('If-None-Match') === etag) return new Response(null, { status: 304 });
       return json({ sessions: this.fx.sessions }, 200, { etag });
     }
-    if (path === '/sessions' && method === 'POST') return json(this.spawn(body), 201);
+    if (path === '/sessions' && method === 'POST') {
+      const refusal = this.accountRefusal((body as { account?: unknown }).account);
+      return refusal ?? json(this.spawn(body), 201);
+    }
     if (path === '/agents') return json({ sessions: this.fleet() });
     if (path === '/inbox') return json({ items: this.pending() });
     if (path === '/projects') return json({ projects: this.fx.projects });
@@ -180,8 +240,17 @@ class FixtureBackend implements MockBackend {
           404,
         );
       }
-      if (path === '/usage' && method === 'GET') return json(this.fx.planUsage);
-      if (path === '/usage/refresh' && method === 'POST') return this.refreshUsage();
+      if (path === '/usage' && method === 'GET') {
+        return json(
+          this.multi() ? { ...this.fx.planUsage, accounts: this.otherUsage() } : this.fx.planUsage,
+        );
+      }
+      if (path === '/usage/refresh' && method === 'POST') {
+        const account = (body as { account?: unknown }).account;
+        return typeof account === 'string' && account && account !== DEFAULT_ACCOUNT
+          ? this.refreshAccountUsage(account)
+          : this.refreshUsage();
+      }
       if (path === '/usage/settings' && method === 'PUT') {
         if (!desktop) return deskOnly();
         const secs = (body as { intervalSecs?: unknown }).intervalSecs;
@@ -274,8 +343,7 @@ class FixtureBackend implements MockBackend {
       }
       if (method === 'POST' && sub === 'respond' && s) return this.respond(s, body as RespondBody);
       if (method === 'POST' && sub === 'message' && s) return json(this.message(s, body));
-      if (method === 'POST' && sub === 'continue' && s)
-        return json({ id: s.live ? this.fork(s) : s.id });
+      if (method === 'POST' && sub === 'continue' && s) return this.continueSession(s, body);
       if (method === 'POST' && sub === 'interrupt' && s) {
         this.patch(s.id, { status: 'idle', activity: { kind: 'idle', label: 'Interrupted' } });
         return empty();
@@ -314,8 +382,35 @@ class FixtureBackend implements MockBackend {
         this.patch(id, { queued: this.fx.queued[id].length });
         return empty();
       }
+      if (method === 'POST' && sub === 'stop' && s?.owned && s.live) {
+        // Like the server: the process goes, and the session is let go of.
+        setTimeout(
+          () =>
+            this.patch(s.id, {
+              live: false,
+              status: 'stopped',
+              activity: { kind: 'ended', label: 'Stopped' },
+            }),
+          400,
+        );
+        return empty();
+      }
       if (method === 'POST' && ['stop', 'respawn', 'rm', 'keys'].includes(sub)) return empty();
       return json({ error: { code: 'not_found', message: `No mock for ${method} ${path}` } }, 404);
+    }
+
+    // Accounts
+    if (path === '/accounts' && method === 'GET') return json(this.accountsView(desktop, true));
+    if (path === '/accounts' && method === 'POST')
+      return desktop ? this.addAccount(body) : deskOnly();
+    if (path === '/accounts/defaults' && method === 'PUT') {
+      return desktop ? this.putAccountDefaults(body) : deskOnly();
+    }
+    if (path === '/accounts/copy-consent' && method === 'PUT') {
+      return desktop ? this.putCopyConsent(body) : deskOnly();
+    }
+    if (seg[0] === 'accounts' && seg[1]) {
+      return this.accountRoute(decodeURIComponent(seg[1]), seg.slice(2).join('/'), method, body);
     }
 
     // Pairing
@@ -449,7 +544,20 @@ class FixtureBackend implements MockBackend {
     // Bridge
     if (path === '/bridge') return json(this.fx.bridge);
     if (path === '/bridge/start') {
-      this.fx.bridge = { ...this.fx.bridge, running: true, startedAt: Date.now() };
+      const defaults = (body as { defaults?: BridgeDefaults }).defaults ?? {};
+      if (defaults.account && !this.account(defaults.account)) {
+        return json(
+          {
+            error: {
+              code: 'invalid_field',
+              message: `No account "${defaults.account}" — pick another, or leave it unset.`,
+              field: 'account',
+            },
+          },
+          422,
+        );
+      }
+      this.fx.bridge = { ...this.fx.bridge, running: true, startedAt: Date.now(), defaults };
       return json(this.fx.bridge);
     }
     if (path === '/bridge/stop') {
@@ -478,6 +586,13 @@ class FixtureBackend implements MockBackend {
     socket.emit({ t: 'hello', v: 2, me: this.me(), serverTime: Date.now() });
     socket.emit({ t: 'sessions', full: true, sessions: this.fx.sessions, seq: this.seq });
     if (USAGE_MODE !== 'none') socket.emit({ t: 'planUsage', usage: this.fx.planUsage });
+    // Like the server: accounts only once there is more than the Default.
+    if (this.multi()) {
+      socket.emit({ t: 'accounts', accounts: this.accountsView(false, false) });
+      for (const [accountId, usage] of Object.entries(this.otherUsage())) {
+        socket.emit({ t: 'accountUsage', accountId, usage });
+      }
+    }
     this.ensureTicker();
   }
 
@@ -996,9 +1111,14 @@ class FixtureBackend implements MockBackend {
   }
 
   private spawn(body: unknown): { id: string } {
-    const b = (body ?? {}) as { cwd?: string; prompt?: string };
+    const b = (body ?? {}) as { cwd?: string; prompt?: string; account?: string };
     const id = `s-new-${Date.now()}`;
     const cwd = b.cwd || '/Users/marcus/dev/project';
+    // The account asked for, else the project's, else the default.
+    const account =
+      b.account && this.account(b.account) ? b.account : accountForCwd(this.fx.accounts, cwd).id;
+    this.sessionAccounts.set(id, account);
+    const ref = this.multi() ? this.accountRef(account) : undefined;
     const name = cwd.split('/').filter(Boolean).pop() ?? 'project';
     const now = Date.now();
     const s: SessionSummary = {
@@ -1023,6 +1143,7 @@ class FixtureBackend implements MockBackend {
       thinking: { mode: 'adaptive', source: 'control' },
       startedAt: now,
       lastActivityAt: now,
+      ...(ref ? { account: ref } : {}),
     };
     this.fx.sessions.unshift(s);
     this.fx.transcripts[id] = b.prompt
@@ -1033,14 +1154,594 @@ class FixtureBackend implements MockBackend {
     return { id };
   }
 
-  private fork(s: SessionSummary): string {
-    const { id } = this.spawn({ cwd: s.cwd, prompt: '' });
+  /** A copy of `s` driven from here: under `account` when given, else
+   * under the same account as `s`. */
+  private fork(s: SessionSummary, account?: AccountView): string {
+    const source = this.sessionAccounts.get(s.id) ?? DEFAULT_ACCOUNT;
+    const { id } = this.spawn({ cwd: s.cwd, prompt: '', account: account?.id ?? source });
     this.patch(id, {
-      title: `${s.title ?? s.name} (fork)`,
+      title: `${s.title ?? s.name} (${account ? `on ${account.name}` : 'fork'})`,
       status: 'idle',
       activity: { kind: 'idle', label: 'Idle' },
     });
     return id;
+  }
+
+  /** `POST /sessions/{id}/continue`, with the server's account rules. */
+  private continueSession(s: SessionSummary, body: unknown): Response {
+    const asked = (body as { account?: unknown }).account;
+    const source = this.sessionAccounts.get(s.id) ?? DEFAULT_ACCOUNT;
+    if (asked === undefined || asked === source) {
+      return json({ id: s.live ? this.fork(s) : s.id });
+    }
+    const refusal = this.accountRefusal(asked);
+    if (refusal) return refusal;
+    const target = this.account(String(asked)) as AccountView;
+    const from = this.account(source) ?? { id: source, kind: 'directory' };
+    if (needsCopy(from, target)) {
+      return json(
+        {
+          error: {
+            code: 'account_needs_copy',
+            message:
+              'That account keeps its own directory: the conversation has to be copied there before it can continue on it, which this version cannot do yet.',
+          },
+        },
+        409,
+      );
+    }
+    if (s.owned && s.live) {
+      return json(
+        {
+          error: {
+            code: 'already_owned',
+            message: 'This session is already driven by Mother Claude.',
+          },
+        },
+        409,
+      );
+    }
+    return json({ id: this.fork(s, target), forked: true }, 201);
+  }
+
+  // ────────────────────────────────────────────────────────── Accounts
+
+  private multi(): boolean {
+    return this.fx.accounts.accounts.length > 1;
+  }
+
+  private account(id: string | undefined): AccountView | undefined {
+    return id ? this.fx.accounts.accounts.find((a) => a.id === id) : undefined;
+  }
+
+  private accountRef(id: string): AccountRef | undefined {
+    const a = this.account(id) ?? this.account(DEFAULT_ACCOUNT);
+    return a ? { id: a.id, name: a.name, color: a.color, kind: a.kind } : undefined;
+  }
+
+  /** The registry as clients see it: the sign-in link only for the
+   * desktop, live counts only in REST answers. */
+  private accountsView(desktop: boolean, withLive: boolean): AccountsView {
+    const live = new Map<string, number>();
+    for (const s of this.fx.sessions) {
+      if (!s.live) continue;
+      const id = this.sessionAccounts.get(s.id) ?? DEFAULT_ACCOUNT;
+      live.set(id, (live.get(id) ?? 0) + 1);
+    }
+    const view = structuredClone(this.fx.accounts);
+    for (const a of view.accounts) {
+      const capture = this.captures.get(a.id);
+      if (capture) {
+        a.capture = { ...capture };
+        if (!desktop) delete a.capture.url;
+      }
+      if (withLive) a.live = live.get(a.id) ?? 0;
+    }
+    return view;
+  }
+
+  /** Every other account's usage (the accounts that still exist). */
+  private otherUsage(): Record<string, PlanUsage> {
+    const out: Record<string, PlanUsage> = {};
+    for (const a of this.fx.accounts.accounts) {
+      const u = this.fx.accountUsage[a.id];
+      if (!a.isDefault && u) out[a.id] = u;
+    }
+    return out;
+  }
+
+  /** Something about the accounts changed: tell everyone (sessions name
+   * their account only while there is more than the Default). */
+  private publishAccounts(): void {
+    this.syncSessionAccounts(true);
+    this.broadcast({ t: 'accounts', accounts: this.accountsView(false, false) });
+  }
+
+  private syncSessionAccounts(broadcast: boolean): void {
+    const multi = this.multi();
+    const changed: SessionSummary[] = [];
+    const sync = (list: SessionSummary[], track: boolean) => {
+      list.forEach((s, i) => {
+        const ref = multi
+          ? this.accountRef(this.sessionAccounts.get(s.id) ?? DEFAULT_ACCOUNT)
+          : undefined;
+        if (JSON.stringify(s.account) === JSON.stringify(ref)) return;
+        const next = { ...s };
+        if (ref) next.account = ref;
+        else delete next.account;
+        list[i] = next;
+        if (track) changed.push(next);
+      });
+    };
+    sync(this.fx.sessions, true);
+    sync(this.fx.history, false);
+    if (broadcast && changed.length) {
+      this.seq += 1;
+      this.broadcast({ t: 'sessions', full: false, upsert: changed, seq: this.seq });
+    }
+  }
+
+  /** A launch or continue that names an account it can't run under. */
+  private accountRefusal(asked: unknown): Response | null {
+    if (asked === undefined || asked === null || asked === '') return null;
+    const a = typeof asked === 'string' ? this.account(asked) : undefined;
+    if (!a) {
+      return json(
+        { error: { code: 'unknown_account', message: `no account ${JSON.stringify(asked)}` } },
+        422,
+      );
+    }
+    if (a.kind === 'token' && !a.tokenStored) {
+      return json(
+        {
+          error: {
+            code: 'account_token_missing',
+            message: "the account's token is not stored on this machine; enter it again",
+          },
+        },
+        409,
+      );
+    }
+    return null;
+  }
+
+  private updateAccount(id: string, change: Partial<AccountView>): void {
+    this.fx.accounts.accounts = this.fx.accounts.accounts.map((a) => {
+      if (a.id !== id) return a;
+      const next = { ...a, ...change };
+      for (const k of Object.keys(next) as (keyof AccountView)[]) {
+        if (next[k] === undefined) delete next[k];
+      }
+      return next;
+    });
+  }
+
+  /** The account as signed in after a sign-in or a token landed. */
+  private signedIn(a: AccountView): Partial<AccountView> {
+    const slug = a.name
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '.')
+      .replace(/^\.|\.$/g, '');
+    return {
+      signedIn: true,
+      attention: undefined,
+      authError: undefined,
+      email: a.email ?? `${slug || 'account'}@example.com`,
+      subscription: a.subscription ?? (a.kind === 'token' ? 'pro' : 'max'),
+      authMethod: a.kind === 'token' ? 'oauth_token' : 'claude.ai',
+    };
+  }
+
+  private accountJson(id: string, status = 200): Response {
+    const a = this.accountsView(this.role === 'desktop', true).accounts.find((x) => x.id === id);
+    return json(a ?? null, status);
+  }
+
+  private addAccount(body: unknown): Response {
+    const b = (body ?? {}) as Record<string, unknown>;
+    const name = typeof b['name'] === 'string' ? b['name'].trim() : '';
+    const problem = accountNameProblem(name, this.fx.accounts.accounts);
+    if (problem) {
+      const taken = problem.startsWith('Another');
+      return json(
+        { error: { code: taken ? 'account_name_taken' : 'invalid_account', message: problem } },
+        taken ? 409 : 422,
+      );
+    }
+    const used = new Set(this.fx.accounts.accounts.map((a) => a.color));
+    const asked = b['color'];
+    const color = isAccountColor(asked)
+      ? asked.toLowerCase()
+      : (ACCOUNT_COLORS.find((c) => !used.has(c)) ?? ACCOUNT_COLORS[1]);
+    const id = `acc_${randomHex(12)}`;
+    const base = {
+      id,
+      name,
+      isDefault: false,
+      color,
+      createdAt: Date.now(),
+      checking: false,
+      signingIn: false,
+    };
+    let account: AccountView;
+    if (b['kind'] === 'directory') {
+      let dir = typeof b['dir'] === 'string' ? b['dir'].trim() : '';
+      if (dir.startsWith('~/')) dir = `/Users/marcus/${dir.slice(2)}`;
+      dir = dir.replace(/\/+$/, '');
+      if (!dir.startsWith('/')) {
+        return json(
+          { error: { code: 'invalid_account', message: 'A directory account needs `dir`.' } },
+          422,
+        );
+      }
+      if (this.fx.accounts.accounts.some((a) => a.dir === dir)) {
+        return json(
+          {
+            error: {
+              code: 'account_dir_unavailable',
+              message: `${dir} is already another account's directory`,
+            },
+          },
+          422,
+        );
+      }
+      // A fresh directory is signed out.
+      account = {
+        ...base,
+        kind: 'directory',
+        dir,
+        signedIn: false,
+        attention: 'signedOut',
+        tokenStored: false,
+      };
+    } else if (b['kind'] === 'token') {
+      const token = typeof b['token'] === 'string' ? b['token'].trim() : '';
+      if (token && !TOKEN_RE.test(token)) {
+        return json(
+          { error: { code: 'token_rejected', message: 'Claude Code does not accept this token.' } },
+          422,
+        );
+      }
+      account = token
+        ? { ...base, kind: 'token', signedIn: false, tokenStored: true }
+        : {
+            ...base,
+            kind: 'token',
+            signedIn: false,
+            attention: 'tokenMissing',
+            tokenStored: false,
+          };
+      if (token) account = { ...account, ...this.signedIn(account) };
+    } else {
+      return json(
+        { error: { code: 'invalid_account', message: 'kind is "directory" or "token".' } },
+        422,
+      );
+    }
+    for (const k of Object.keys(account) as (keyof AccountView)[]) {
+      if (account[k] === undefined) delete account[k];
+    }
+    this.fx.accounts.accounts.push(account);
+    this.fx.accountUsage[id] = {
+      available: account.kind === 'directory',
+      windows: [],
+      refreshing: false,
+      intervalSecs: this.fx.planUsage.intervalSecs,
+    };
+    this.publishAccounts();
+    this.broadcast({ t: 'accountUsage', accountId: id, usage: this.fx.accountUsage[id] });
+    return this.accountJson(id, 201);
+  }
+
+  private async accountRoute(
+    id: string,
+    sub: string,
+    method: string,
+    body: unknown,
+  ): Promise<Response> {
+    const desktop = this.role === 'desktop';
+    const deskOnly = () =>
+      json({ error: { code: 'desktop_only', message: 'Only the desktop app can do this.' } }, 403);
+    const a = this.account(id);
+    if (!a) {
+      return json(
+        { error: { code: 'account_not_found', message: `No account ${JSON.stringify(id)}.` } },
+        404,
+      );
+    }
+    const b = (body ?? {}) as Record<string, unknown>;
+
+    if (!sub && method === 'PATCH') {
+      if (!desktop) return deskOnly();
+      const change: Partial<AccountView> = {};
+      if (typeof b['name'] === 'string') {
+        const problem = accountNameProblem(b['name'], this.fx.accounts.accounts, a.id);
+        if (problem) {
+          const taken = problem.startsWith('Another');
+          return json(
+            { error: { code: taken ? 'account_name_taken' : 'invalid_account', message: problem } },
+            taken ? 409 : 422,
+          );
+        }
+        change.name = b['name'].trim();
+      }
+      if (b['color'] !== undefined) {
+        if (!isAccountColor(b['color'])) {
+          return json({ error: { code: 'invalid_account', message: 'a colour is #rrggbb' } }, 422);
+        }
+        change.color = b['color'].toLowerCase();
+      }
+      this.updateAccount(a.id, change);
+      this.publishAccounts();
+      return this.accountJson(a.id);
+    }
+
+    if (!sub && method === 'DELETE') {
+      if (!desktop) return deskOnly();
+      if (a.isDefault) {
+        return json(
+          {
+            error: {
+              code: 'default_account_fixed',
+              message: 'the Default account cannot be removed',
+            },
+          },
+          422,
+        );
+      }
+      const running = this.fx.sessions.filter(
+        (s) => s.owned && s.live && this.sessionAccounts.get(s.id) === a.id,
+      ).length;
+      if (running) {
+        return json(
+          {
+            error: {
+              code: 'account_in_use',
+              message: `${running} session(s) Mother Claude started still run under this account.`,
+            },
+          },
+          409,
+        );
+      }
+      const reg = this.fx.accounts;
+      reg.accounts = reg.accounts.filter((x) => x.id !== a.id);
+      if (reg.defaults.newSession === a.id) reg.defaults.newSession = DEFAULT_ACCOUNT;
+      if (reg.defaults.bridge === a.id) reg.defaults.bridge = DEFAULT_ACCOUNT;
+      reg.defaults.byProject = Object.fromEntries(
+        Object.entries(reg.defaults.byProject).filter(([, acc]) => acc !== a.id),
+      );
+      reg.copyConsent = reg.copyConsent.filter((c) => c.from !== a.id && c.to !== a.id);
+      for (const [sid, acc] of [...this.sessionAccounts]) {
+        if (acc === a.id) this.sessionAccounts.delete(sid);
+      }
+      delete this.fx.accountUsage[a.id];
+      this.captures.delete(a.id);
+      this.publishAccounts();
+      return empty();
+    }
+
+    if (sub === 'refresh' && method === 'POST') {
+      this.updateAccount(a.id, { checking: true });
+      this.publishAccounts();
+      setTimeout(() => {
+        this.updateAccount(a.id, { checking: false });
+        this.publishAccounts();
+      }, 700);
+      return this.accountJson(a.id);
+    }
+
+    if (sub === 'login' && method === 'POST') {
+      if (!desktop) return deskOnly();
+      if (a.kind === 'token') {
+        return json(
+          {
+            error: {
+              code: 'login_failed',
+              message: 'A token account signs in with its token: get one, or paste one.',
+            },
+          },
+          422,
+        );
+      }
+      this.updateAccount(a.id, { signingIn: true });
+      this.publishAccounts();
+      setTimeout(() => {
+        const cur = this.account(a.id);
+        if (!cur) return;
+        this.updateAccount(a.id, { signingIn: false, ...this.signedIn(cur) });
+        this.publishAccounts();
+      }, 3_500);
+      return this.accountJson(a.id, 202);
+    }
+
+    if (sub === 'token') {
+      if (!desktop) return deskOnly();
+      if (method === 'GET') {
+        return json({
+          available: true,
+          ...(this.captures.get(a.id) ? { capture: this.captures.get(a.id) } : {}),
+          tokenStored: a.tokenStored,
+        });
+      }
+      if (method === 'DELETE') {
+        const cap = this.captures.get(a.id);
+        if (cap?.state === 'running') this.finishCapture(a.id, 'cancelled');
+        this.publishAccounts();
+        return json({ capture: this.captures.get(a.id) ?? null });
+      }
+      if (method === 'POST') {
+        if (a.kind !== 'token') {
+          return json(
+            { error: { code: 'not_a_token_account', message: 'this is not a token account' } },
+            422,
+          );
+        }
+        const token = typeof b['token'] === 'string' ? b['token'].trim() : '';
+        const code = typeof b['code'] === 'string' ? b['code'].trim() : '';
+        if (token && code) {
+          return json(
+            {
+              error: { code: 'invalid_body', message: 'Send either `token` or `code`, not both.' },
+            },
+            422,
+          );
+        }
+        if (token) {
+          await delay(500);
+          if (!TOKEN_RE.test(token)) {
+            return json(
+              {
+                error: {
+                  code: 'token_rejected',
+                  message: 'Claude Code does not accept this token.',
+                },
+              },
+              422,
+            );
+          }
+          this.updateAccount(a.id, { tokenStored: true, ...this.signedIn(a) });
+          this.publishAccounts();
+          return this.accountJson(a.id);
+        }
+        if (code) {
+          const cap = this.captures.get(a.id);
+          if (cap?.state !== 'running') {
+            return json(
+              {
+                error: {
+                  code: 'capture_not_running',
+                  message: 'No sign-in is waiting for a code.',
+                },
+              },
+              409,
+            );
+          }
+          this.captures.set(a.id, { ...cap, asksForCode: false });
+          setTimeout(() => this.finishCapture(a.id, 'captured'), 1_200);
+          return json({ capture: this.captures.get(a.id) });
+        }
+        const capture: CaptureView = {
+          state: 'running',
+          url: 'https://claude.ai/oauth/authorize?code=true&client_id=mock-client&response_type=code&scope=user%3Ainference',
+          asksForCode: CAPTURE_MODE === 'code',
+          startedAt: Date.now(),
+        };
+        this.captures.set(a.id, capture);
+        this.publishAccounts();
+        if (CAPTURE_MODE === 'fail') {
+          setTimeout(
+            () => this.finishCapture(a.id, 'failed', 'setup-token exited before it showed a token'),
+            3_000,
+          );
+        } else if (CAPTURE_MODE !== 'code') {
+          setTimeout(() => this.finishCapture(a.id, 'captured'), 4_000);
+        }
+        return json({ capture }, 202);
+      }
+    }
+
+    return json({ error: { code: 'not_found', message: `No mock for ${method} ${sub}` } }, 404);
+  }
+
+  private finishCapture(id: string, state: CaptureView['state'], error?: string): void {
+    const cap = this.captures.get(id);
+    if (!cap || cap.state !== 'running') return;
+    this.captures.set(id, {
+      ...cap,
+      state,
+      asksForCode: false,
+      finishedAt: Date.now(),
+      ...(error ? { error } : {}),
+    });
+    const a = this.account(id);
+    if (state === 'captured' && a) {
+      this.updateAccount(id, { tokenStored: true, ...this.signedIn(a) });
+    }
+    this.publishAccounts();
+  }
+
+  private putAccountDefaults(body: unknown): Response {
+    const b = (body ?? {}) as Partial<AccountDefaults>;
+    const ids = [b.newSession, b.bridge, ...Object.values(b.byProject ?? {})];
+    const unknown = ids.find((id) => !id || !this.account(id));
+    if (unknown !== undefined) {
+      return json(
+        { error: { code: 'account_not_found', message: `no account ${JSON.stringify(unknown)}` } },
+        404,
+      );
+    }
+    const byProject: Record<string, string> = {};
+    for (const [dir, id] of Object.entries(b.byProject ?? {})) {
+      if (!dir.startsWith('/') || dir.split('/').some((p) => p === '.' || p === '..')) {
+        return json(
+          {
+            error: {
+              code: 'invalid_account',
+              message: `${JSON.stringify(dir)} is not an absolute project directory`,
+            },
+          },
+          422,
+        );
+      }
+      byProject[dir.replace(/\/+$/, '') || '/'] = id;
+    }
+    this.fx.accounts.defaults = {
+      newSession: b.newSession as string,
+      bridge: b.bridge as string,
+      byProject,
+    };
+    this.publishAccounts();
+    return json(this.fx.accounts.defaults);
+  }
+
+  private putCopyConsent(body: unknown): Response {
+    const b = (body ?? {}) as { from?: string; to?: string; granted?: boolean };
+    if (!this.account(b.from) || !this.account(b.to)) {
+      return json({ error: { code: 'account_not_found', message: 'no such account' } }, 404);
+    }
+    const reg = this.fx.accounts;
+    reg.copyConsent = reg.copyConsent.filter((c) => !(c.from === b.from && c.to === b.to));
+    if (b.granted) reg.copyConsent.push({ from: b.from as string, to: b.to as string });
+    this.publishAccounts();
+    return json(this.accountsView(true, true));
+  }
+
+  /** `POST /usage/refresh {account}` for an account other than the Default. */
+  private refreshAccountUsage(id: string): Response {
+    const u = this.fx.accountUsage[id];
+    if (!this.account(id) || !u) {
+      return json(
+        { error: { code: 'account_not_found', message: `No account ${JSON.stringify(id)}.` } },
+        404,
+      );
+    }
+    const since = Date.now() - (this.accountReads.get(id) ?? 0);
+    if (since < 60_000) {
+      const wait = Math.ceil((60_000 - since) / 1000);
+      return json(
+        { error: { code: 'rate_limited', message: `Try again in ${wait}s.`, retryAfter: wait } },
+        429,
+        { 'retry-after': String(wait) },
+      );
+    }
+    this.accountReads.set(id, Date.now());
+    const set = (change: Partial<PlanUsage>) => {
+      const next = { ...this.fx.accountUsage[id], ...change };
+      this.fx.accountUsage[id] = next;
+      this.broadcast({ t: 'accountUsage', accountId: id, usage: next });
+    };
+    set({ refreshing: true });
+    setTimeout(() => {
+      if (!this.fx.accountUsage[id]) return;
+      // A token is inference-only: nothing new to read.
+      const token = this.account(id)?.kind === 'token';
+      set(
+        token
+          ? { refreshing: false }
+          : { refreshing: false, fetchedAt: Date.now(), source: 'live' },
+      );
+    }, 1_200);
+    return json(this.fx.accountUsage[id], 202);
   }
 
   private stopAgent(sessionId: string, taskId: string): void {
@@ -1181,6 +1882,12 @@ function svgImage(): Response {
   const svg =
     '<svg xmlns="http://www.w3.org/2000/svg" width="320" height="200"><rect width="320" height="200" fill="#7c5cc9"/><text x="160" y="108" font-size="20" text-anchor="middle" fill="#fff">screenshot.png</text></svg>';
   return new Response(svg, { status: 200, headers: { 'content-type': 'image/svg+xml' } });
+}
+
+function randomHex(n: number): string {
+  let out = '';
+  for (let i = 0; i < n; i++) out += Math.floor(Math.random() * 16).toString(16);
+  return out;
 }
 
 const CROCKFORD = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';

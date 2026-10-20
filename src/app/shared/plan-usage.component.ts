@@ -1,6 +1,7 @@
 import { ChangeDetectionStrategy, Component, computed, inject, input } from '@angular/core';
 import { RouterLink } from '@angular/router';
 
+import { DEFAULT_ACCOUNT } from '../core/accounts';
 import { AuthService } from '../core/auth.service';
 import { NowService } from '../core/now.service';
 import { planIntervalLabel } from '../core/plan-usage';
@@ -16,14 +17,15 @@ import { formatCountdown, formatMinor, relativeTime } from './util';
  * the next check is due, and a Refresh button that counts down while the
  * server would refuse. On the desktop it links to the refresh interval in
  * Settings; phones show the interval read-only. Renders nothing until the
- * server has reported plan usage.
+ * server has reported plan usage. `account` picks whose usage (the Default
+ * account's unless it names another).
  */
 @Component({
   selector: 'mc-plan-usage',
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [RouterLink, IconComponent, PlanMeterComponent],
   template: `
-    @if (plan.usage(); as u) {
+    @if (usage(); as u) {
       @if (!u.available) {
         <p class="muted small">
           This Claude account has no plan usage to show (an API key or a cloud provider has no plan
@@ -54,15 +56,15 @@ import { formatCountdown, formatMinor, relativeTime } from './util';
           <button
             class="btn small"
             type="button"
-            [disabled]="plan.refreshing() || plan.waitSecs() > 0"
-            (click)="plan.refresh()"
+            [disabled]="refreshing() || waitSecs() > 0"
+            (click)="plan.refresh(account())"
           >
             <mc-icon name="refresh" [size]="14" />
             {{
-              plan.refreshing()
+              refreshing()
                 ? 'Checking…'
-                : plan.waitSecs() > 0
-                  ? 'Refresh in ' + plan.waitSecs() + 's'
+                : waitSecs() > 0
+                  ? 'Refresh in ' + waitSecs() + 's'
                   : 'Refresh'
             }}
           </button>
@@ -128,9 +130,15 @@ export class PlanUsageComponent {
 
   /** Say how often it checks (and link to Settings on the desktop). */
   readonly settingsLink = input(true);
+  /** Whose plan usage: an account id (the Default's by default). */
+  readonly account = input<string>(DEFAULT_ACCOUNT);
+
+  protected readonly usage = computed(() => this.plan.usageOf(this.account()));
+  protected readonly refreshing = computed(() => this.plan.isRefreshing(this.account()));
+  protected readonly waitSecs = computed(() => this.plan.waitSecsOf(this.account()));
 
   protected readonly extra = computed(() => {
-    const x = this.plan.usage()?.extraUsage;
+    const x = this.usage()?.extraUsage;
     if (!x) return '';
     if (!x.enabled) return 'Off';
     const used = formatMinor(x.usedMinor, x.currency, x.decimals);
@@ -141,7 +149,7 @@ export class PlanUsageComponent {
   });
 
   protected readonly status = computed(() => {
-    const u = this.plan.usage();
+    const u = this.usage();
     if (!u) return '';
     const now = this.clock.now();
     const ago = (ms: number) => relativeTime(ms, now);
@@ -158,7 +166,7 @@ export class PlanUsageComponent {
       updated = `Updated ${ago(u.fetchedAt)}${from}${cached}`;
     }
     let next: string;
-    if (this.plan.refreshing()) next = 'checking now…';
+    if (this.refreshing()) next = 'checking now…';
     else if (u.intervalSecs <= 0) next = 'automatic checks are off';
     else if (!u.nextRefreshAt) {
       // No read scheduled: the Mac reads only while a dashboard is connected
@@ -175,7 +183,7 @@ export class PlanUsageComponent {
   });
 
   protected readonly interval = computed(() => {
-    const secs = this.plan.usage()?.intervalSecs ?? 0;
+    const secs = this.usage()?.intervalSecs ?? 0;
     return secs > 0
       ? `Checks ${planIntervalLabel(secs).toLowerCase()} while a session is active, and every 30 min otherwise.`
       : 'Automatic checks are off: it is read when you tap Refresh, and by a session started here when a dashboard connects or a limit is hit.';

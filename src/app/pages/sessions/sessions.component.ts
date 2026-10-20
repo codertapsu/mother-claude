@@ -8,6 +8,7 @@ import { storageGet, storageSet } from '../../core/platform';
 import { RealtimeService } from '../../core/realtime.service';
 import { FleetSummaryComponent } from '../../shared/fleet-summary.component';
 import { IconComponent } from '../../shared/icon.component';
+import { LimitOfferComponent } from '../../shared/limit-offer.component';
 import { SessionCardComponent } from '../../shared/session-card.component';
 import { thinkingChip } from '../../shared/session-settings';
 import { effortLabel, effortShortLabel, surfaceLabel } from '../../shared/util';
@@ -39,7 +40,14 @@ function byRecent(a: SessionSummary, b: SessionSummary): number {
  */
 @Component({
   selector: 'mc-sessions',
-  imports: [RouterLink, FormsModule, FleetSummaryComponent, IconComponent, SessionCardComponent],
+  imports: [
+    RouterLink,
+    FormsModule,
+    FleetSummaryComponent,
+    IconComponent,
+    LimitOfferComponent,
+    SessionCardComponent,
+  ],
   templateUrl: './sessions.component.html',
   styleUrl: './sessions.component.scss',
 })

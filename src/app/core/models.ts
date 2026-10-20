@@ -273,6 +273,9 @@ export interface SessionSummary {
   usagePartial?: boolean;
   /** The CLI's own session name (pidfile `name`). */
   cliName?: string;
+  /** The Claude account it runs (or ran) under. Absent while only the
+   * Default account exists (docs/ACCOUNTS.md §4.4). */
+  account?: AccountRef;
 }
 
 // ─────────────────────────────────────────── 4.2 Pending items & responding
@@ -643,6 +646,121 @@ export interface PlanUsage {
   error?: string;
 }
 
+/** `GET /usage`: the Default account's usage as always, plus every other
+ * account's under `accounts` (absent while only the Default exists). */
+export type PlanUsageReply = PlanUsage & { accounts?: Record<string, PlanUsage> };
+
+// ─────────────────────── Accounts (`GET /accounts`, the `accounts` frame)
+
+/** `directory`: its own config directory and its own sign-in; `token`: a
+ * long-lived token used with the Default account's directory
+ * (docs/ACCOUNTS.md D1). The Default is a directory account. */
+export type AccountKind = 'directory' | 'token';
+
+/** What needs the user's attention on an account. */
+export type AccountAttention = 'tokenMissing' | 'authFailed' | 'signedOut' | 'checkFailed';
+
+/** Where a token account's `claude setup-token` run is. */
+export type CaptureState = 'running' | 'captured' | 'failed' | 'timedOut' | 'cancelled';
+
+/** A `setup-token` run as clients see it (never the token). */
+export interface CaptureView {
+  state: CaptureState;
+  /** The sign-in page the CLI showed (only in the desktop's own reads). */
+  url?: string;
+  /** The terminal asks for the code the browser shows. */
+  asksForCode: boolean;
+  error?: string;
+  startedAt: number;
+  finishedAt?: number;
+}
+
+export interface AccountView {
+  /** `default` or `acc_` + 12 hex. */
+  id: string;
+  name: string;
+  kind: AccountKind;
+  isDefault: boolean;
+  /** Its config directory (the Default's as resolved; none for a token
+   * account, which uses the Default's). */
+  dir?: string;
+  /** `#rrggbb`. */
+  color: string;
+  createdAt: number;
+  signedIn: boolean;
+  email?: string;
+  subscription?: string;
+  authMethod?: string;
+  authError?: string;
+  attention?: AccountAttention;
+  checking: boolean;
+  /** A browser sign-in (`claude auth login`) is being watched. */
+  signingIn: boolean;
+  /** A token account's token is in this Mac's secret store. */
+  tokenStored: boolean;
+  /** The hooks plugin in this account's directory, as last seen. */
+  hooksPlugin?: string;
+  /** Live sessions (only in `GET /accounts` answers). */
+  live?: number;
+  capture?: CaptureView;
+}
+
+/** Which account new work runs under when nobody says. */
+export interface AccountDefaults {
+  newSession: string;
+  bridge: string;
+  /** Absolute project directory → account id; the longest match wins. */
+  byProject: Record<string, string>;
+}
+
+/** "Copy sessions from `from` to `to` for Continue on without asking." */
+export interface CopyConsent {
+  from: string;
+  to: string;
+}
+
+export type SecretStoreKind = 'keychain' | 'files' | 'memory';
+
+/** `GET /accounts` and the `accounts` frame. */
+export interface AccountsView {
+  accounts: AccountView[];
+  defaults: AccountDefaults;
+  copyConsent: CopyConsent[];
+  /** Where tokens are kept on the Mac (absent when the value is unknown). */
+  secretStore?: SecretStoreKind;
+  /** The Mac can run `claude setup-token` itself. */
+  tokenCapture: boolean;
+}
+
+/** The account chip a session carries. */
+export interface AccountRef {
+  id: string;
+  name: string;
+  /** `#rrggbb`. */
+  color: string;
+  kind: AccountKind;
+}
+
+/** `POST /accounts` (desktop only). A token is sent once, here or through
+ * `POST /accounts/{id}/token`, and never comes back. */
+export type NewAccount =
+  | { name: string; kind: 'directory'; dir: string; color?: string }
+  | { name: string; kind: 'token'; token?: string; color?: string };
+
+/** `PATCH /accounts/{id}` (desktop only). */
+export interface AccountPatch {
+  name?: string;
+  color?: string;
+}
+
+/** `GET /accounts/{id}/token` (desktop only). */
+export interface TokenStatus {
+  /** This build can run `claude setup-token`. */
+  available: boolean;
+  capture?: CaptureView;
+  tokenStored: boolean;
+}
+
 /** `GET /sessions/{id}/mcp` (owned sessions). */
 export interface McpServerStatus {
   name: string;
@@ -690,6 +808,9 @@ export interface SpawnBody {
   effort?: string;
   permissionMode?: PermissionMode;
   images?: ImageAttachment[];
+  /** The account to run under (default: the project's, else the default for
+   * new sessions). Sent only while more than the Default exists. */
+  account?: string;
 }
 
 export interface MessageBody {
@@ -708,6 +829,8 @@ export interface ContinueBody {
   model?: string;
   effort?: string;
   permissionMode?: PermissionMode;
+  /** "Continue on another account": always a fork under that account. */
+  account?: string;
 }
 
 export type KeyName =
@@ -1123,9 +1246,23 @@ export interface FleetFrame {
 }
 
 /** The plan usage changed (also sent right after the full `sessions` frame
- * on connect). */
+ * on connect). Always the Default account's. */
 export interface PlanUsageFrame {
   t: 'planUsage';
+  usage: PlanUsage;
+}
+
+/** The accounts changed (also sent on connect once more than the Default
+ * exists). Carries no live counts and no sign-in URL. */
+export interface AccountsFrame {
+  t: 'accounts';
+  accounts: AccountsView;
+}
+
+/** Another account's plan usage changed (also sent on connect). */
+export interface AccountUsageFrame {
+  t: 'accountUsage';
+  accountId: string;
   usage: PlanUsage;
 }
 
@@ -1171,6 +1308,8 @@ export type ServerFrame =
   | AgentsFrame
   | FleetFrame
   | PlanUsageFrame
+  | AccountsFrame
+  | AccountUsageFrame
   | NoticeFrame
   | DevicesFrame
   | PairRequestFrame
@@ -1231,6 +1370,9 @@ export interface BridgeDefaults {
   systemPromptAppend?: string;
   /** The conversation unaddressed messages join. */
   defaultThread?: string;
+  /** The Claude account conversations run under; unset: the project's,
+   * else the accounts' API default. */
+  account?: string;
 }
 
 /** A conversation the bridge is running. */

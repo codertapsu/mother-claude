@@ -118,6 +118,32 @@ describe('SessionCardComponent chips', () => {
     expect(earlier.map((c) => c.text)).toContain('Thinking off');
   });
 
+  it('names the Claude account only when the session carries one', () => {
+    const render = (s: SessionSummary) => {
+      const fixture = TestBed.createComponent(SessionCardComponent);
+      fixture.componentRef.setInput('session', s);
+      fixture.detectChanges();
+      return fixture.nativeElement as HTMLElement;
+    };
+    // Only the Default exists: no account anywhere on the card.
+    expect(render(base({})).querySelector('mc-account-chip')).toBeNull();
+    const el = render(
+      base({
+        account: { id: 'acc_9b02d3e6c1f8', name: 'Marcus (Pro)', color: '#f59e0b', kind: 'token' },
+      }),
+    );
+    const chip = el.querySelector('.chips mc-account-chip') as HTMLElement;
+    expect((chip.textContent ?? '').replace(/\s+/g, ' ').trim()).toBe('Account Marcus (Pro)');
+    expect(chip.getAttribute('title')).toBe('Claude account: Marcus (Pro) (token)');
+    expect((chip.querySelector('.dot') as HTMLElement).style.background).toContain('245, 158, 11');
+    // The setting chips are unchanged by it.
+    expect(
+      chips(
+        base({ account: { id: 'default', name: 'Default', color: '#8b5cf6', kind: 'directory' } }),
+      ).map((c) => c.text),
+    ).toEqual(['Opus 5.5']);
+  });
+
   it('packs the setting chips on the smallest screens', () => {
     TestBed.inject(ViewportService).narrow.set(true);
     const list = chips(

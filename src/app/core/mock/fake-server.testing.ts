@@ -3,7 +3,8 @@ import { TestBed } from '@angular/core/testing';
 
 import { AuthService } from '../auth.service';
 import { ConfigService } from '../config.service';
-import { MeInfo } from '../models';
+import { AccountsView, MeInfo } from '../models';
+import { RealtimeService } from '../realtime.service';
 import { MockBackend, WebSocketLike, setActiveMock } from './mock-api';
 
 /**
@@ -104,6 +105,20 @@ export const me = (over: Partial<MeInfo> = {}): MeInfo => ({
   allowDangerous: false,
   ...over,
 });
+
+/** Treat this client as the desktop app (`me.principal: desktop`). */
+export function asDesktop(): void {
+  TestBed.inject(AuthService).me.set(
+    me({ principal: 'desktop', ingress: 'loopback', local: true, allowDangerous: true }),
+  );
+}
+
+/** Serve `view` as `GET /accounts`, and put it in the realtime store as an
+ * `accounts` frame would. */
+export function serveAccounts(backend: FakeBackend, view: AccountsView): void {
+  backend.routes.set('/accounts', () => ({ status: 200, body: view }));
+  TestBed.inject(RealtimeService).mergeAccounts(view);
+}
 
 /** Let pending promises and zero-delay timers run. */
 export const flush = async (times = 5) => {

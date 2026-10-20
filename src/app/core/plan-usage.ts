@@ -105,6 +105,21 @@ export function normalizePlanUsage(raw: unknown): PlanUsage | null {
   };
 }
 
+/** Every other account's plan usage from a `GET /usage` answer (its
+ * `accounts`), each made safe to render; empty when there is none (only the
+ * Default account, or an older server). */
+export function normalizeAccountUsages(raw: unknown): Map<string, PlanUsage> {
+  const out = new Map<string, PlanUsage>();
+  if (!raw || typeof raw !== 'object') return out;
+  const map = (raw as Record<string, unknown>)['accounts'];
+  if (!map || typeof map !== 'object' || Array.isArray(map)) return out;
+  for (const [id, value] of Object.entries(map as Record<string, unknown>)) {
+    const u = id ? normalizePlanUsage(value) : null;
+    if (u) out.set(id, u);
+  }
+  return out;
+}
+
 /** The window's reset time has passed: a new window starts with the next
  * message, so it counts as 0 % until the server says otherwise. */
 export function hasReset(w: PlanWindow, now: number): boolean {
@@ -180,6 +195,31 @@ export function compactWindows(windows: readonly PlanWindow[], now: number): Pri
     .filter((w) => !shown.has(w) && windowSeverity(w, now) !== 'normal')
     .map((w) => ({ window: w, short: scopeLabel(w.label) }));
   return [...primary, ...urgent];
+}
+
+/** The window an account has reached the limit of right now (100 % or
+ * more, not reset): the 5-hour one first, then the weekly all-models one,
+ * then any other weekly one; null when none is at its limit. */
+export function limitWindow(windows: readonly PlanWindow[], now: number): PlanWindow | null {
+  const hit = windows.filter((w) => windowPct(w, now) >= 100);
+  if (!hit.length) return null;
+  return hit.find(isSession) ?? hit.find(isWeeklyAll) ?? hit.find(isWeekly) ?? hit[0];
+}
+
+/** What a limit is called in a sentence: "5-hour limit", "weekly limit",
+ * "weekly Fable limit", else "<label> limit". */
+export function limitName(w: PlanWindow): string {
+  if (isSession(w)) return '5-hour limit';
+  if (isWeeklyAll(w)) return 'weekly limit';
+  if (isWeekly(w)) {
+    const parts = w.label
+      .split('·')
+      .map((p) => p.trim())
+      .filter(Boolean);
+    const scope = parts.length > 1 ? parts[parts.length - 1] : '';
+    return scope ? `weekly ${scope} limit` : 'weekly limit';
+  }
+  return `${w.label} limit`;
 }
 
 function shortWindowLabel(label: string): string {

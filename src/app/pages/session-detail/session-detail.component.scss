@@ -22,6 +22,16 @@
   padding: 0 max(0.35rem, env(safe-area-inset-right)) 0 max(0.35rem, env(safe-area-inset-left));
 }
 
+.sd-offer {
+  flex: 0 0 auto;
+}
+.sd-offer.has-offers {
+  padding: 0.45rem max(0.6rem, env(safe-area-inset-right)) 0.45rem
+    max(0.6rem, env(safe-area-inset-left));
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+}
+
 .sd-tabs {
   flex: 0 0 auto;
   display: flex;

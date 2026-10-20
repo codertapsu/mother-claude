@@ -2,6 +2,8 @@
 // (mock-loader.ts is swapped for mock-loader.prod.ts).
 
 import {
+  AccountView,
+  AccountsView,
   AgentInfo,
   BackgroundTask,
   BridgeStatus,
@@ -45,6 +47,123 @@ export interface Fixtures {
   bridge: BridgeStatus;
   diff: GitOverview;
   planUsage: PlanUsage;
+  /** The Claude accounts (only the Default unless the mock asks for more). */
+  accounts: AccountsView;
+  /** Every other account's plan usage, by account id. */
+  accountUsage: Record<string, PlanUsage>;
+}
+
+// ───────────────────────────────────────────────────────────── Accounts
+
+/** The demo's directory account ("Work") and token account ("Marcus (Pro)"). */
+export const MOCK_ACCOUNT_WORK = 'acc_5f1c9e2b7a40';
+export const MOCK_ACCOUNT_PRO = 'acc_9b02d3e6c1f8';
+
+/** Which account demo sessions run under while there are several (the
+ * rest: the Default). */
+export const MOCK_SESSION_ACCOUNTS: Readonly<Record<string, string>> = {
+  's-auth': MOCK_ACCOUNT_PRO,
+  's-haiku': MOCK_ACCOUNT_WORK,
+};
+
+/** An account as `GET /accounts` reports it. */
+export function accountFixture(over: Partial<AccountView> & Pick<AccountView, 'id'>): AccountView {
+  return {
+    name: over.id,
+    kind: 'directory',
+    isDefault: false,
+    color: '#0ea5e9',
+    createdAt: 0,
+    signedIn: true,
+    checking: false,
+    signingIn: false,
+    tokenStored: false,
+    ...over,
+  };
+}
+
+/** The registry: only the Default (as every setup before accounts), or
+ * with "Work" (its own directory) and "Marcus (Pro)" (a token). */
+export function buildAccounts(now: number, multi: boolean): AccountsView {
+  const accounts: AccountView[] = [
+    accountFixture({
+      id: 'default',
+      name: 'Default',
+      isDefault: true,
+      dir: '/Users/marcus/.claude',
+      color: '#8b5cf6',
+      email: 'marcus@example.com',
+      subscription: 'max',
+      authMethod: 'claude.ai',
+      hooksPlugin: 'installed',
+    }),
+  ];
+  if (multi) {
+    accounts.push(
+      accountFixture({
+        id: MOCK_ACCOUNT_WORK,
+        name: 'Work',
+        dir: '/Users/marcus/.claude-work',
+        color: '#0ea5e9',
+        createdAt: now - 9 * D,
+        email: 'marcus@acme.dev',
+        subscription: 'team',
+        authMethod: 'claude.ai',
+      }),
+      accountFixture({
+        id: MOCK_ACCOUNT_PRO,
+        name: 'Marcus (Pro)',
+        kind: 'token',
+        color: '#f59e0b',
+        createdAt: now - 2 * D,
+        email: 'marcus.pro@example.com',
+        subscription: 'pro',
+        authMethod: 'oauth_token',
+        tokenStored: true,
+      }),
+    );
+  }
+  return {
+    accounts,
+    defaults: {
+      newSession: 'default',
+      bridge: 'default',
+      byProject: multi ? { '/Users/marcus/dev/analytics': MOCK_ACCOUNT_WORK } : {},
+    },
+    copyConsent: [],
+    secretStore: 'keychain',
+    tokenCapture: true,
+  };
+}
+
+/** The other demo accounts' plan usage (`GET /usage` `accounts`). */
+export function buildAccountUsage(now: number): Record<string, PlanUsage> {
+  return {
+    [MOCK_ACCOUNT_WORK]: {
+      available: true,
+      windows: [
+        { key: 'five_hour', label: 'Current session', pct: 63, resetsAt: now + 3 * H + 5 * M },
+        { key: 'seven_day', label: 'Weekly · all models', pct: 34, resetsAt: now + 5 * D },
+      ],
+      fetchedAt: now - 4 * M,
+      source: 'live',
+      refreshing: false,
+      nextRefreshAt: now + M,
+      intervalSecs: 300,
+    },
+    // A token is inference-only: its usage comes from its running sessions.
+    [MOCK_ACCOUNT_PRO]: {
+      available: true,
+      windows: [
+        { key: 'five_hour', label: 'Current session', pct: 12, resetsAt: now + 4 * H },
+        { key: 'seven_day', label: 'Weekly · all models', pct: 6, resetsAt: now + 6 * D },
+      ],
+      fetchedAt: now - 90 * S,
+      source: 'stream',
+      refreshing: false,
+      intervalSecs: 300,
+    },
+  };
 }
 
 const S = 1000;
@@ -1607,6 +1726,8 @@ export function buildFixtures(now: number): Fixtures {
       nextRefreshAt: now + 3 * M,
       intervalSecs: 300,
     },
+    accounts: buildAccounts(now, false),
+    accountUsage: {},
   };
 }
 

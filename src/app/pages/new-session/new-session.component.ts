@@ -1,10 +1,13 @@
-import { Component, computed, inject, signal, viewChild } from '@angular/core';
+import { Component, computed, inject, linkedSignal, signal, viewChild } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
 
-import { ApiService, errorMessage } from '../../core/api.service';
+import { accountCanRun } from '../../core/accounts';
+import { AccountsService } from '../../core/accounts.service';
+import { ApiError, ApiService, errorMessage } from '../../core/api.service';
 import { AuthService } from '../../core/auth.service';
-import { ImageAttachment, ProjectInfo } from '../../core/models';
+import { AccountView, ImageAttachment, ProjectInfo } from '../../core/models';
+import { accountErrorText, cannotRunReason } from '../../shared/accounts';
 import { IconComponent } from '../../shared/icon.component';
 import { MAX_IMAGES, prepareImage } from '../../shared/images';
 import { LaunchOptionsComponent } from '../../shared/launch-options.component';
@@ -19,8 +22,10 @@ interface Attachment extends ImageAttachment {
 
 /**
  * Start an owned session: pick a project (recent projects from the server;
- * the desktop may also type any path), model / effort / permission mode, a
- * first prompt and optional images.
+ * the desktop may also type any path), the Claude account (while there are
+ * several: the project's, else the default for new sessions, unless picked
+ * here), model / effort / permission mode, a first prompt and optional
+ * images.
  */
 @Component({
   selector: 'mc-new-session',
@@ -83,6 +88,24 @@ interface Attachment extends ImageAttachment {
           </label>
         }
       </section>
+
+      @if (accounts.multi()) {
+        <section class="card">
+          <h2 class="first">Account</h2>
+          <label class="field">
+            <span class="field-label">Runs under</span>
+            <select [ngModel]="account()" (ngModelChange)="account.set($event)">
+              @for (a of accounts.list(); track a.id) {
+                <option [value]="a.id" [disabled]="!canRun(a)">{{ accountOption(a) }}</option>
+              }
+            </select>
+          </label>
+          <p class="field-hint">{{ accountHint() }}</p>
+          @if (accountWarning(); as w) {
+            <p class="notice warn small">{{ w }}</p>
+          }
+        </section>
+      }
 
       <section class="card">
         <h2 class="first">Options</h2>
@@ -290,6 +313,7 @@ export class NewSessionComponent {
   private api = inject(ApiService);
   private auth = inject(AuthService);
   private router = inject(Router);
+  protected readonly accounts = inject(AccountsService);
   private readonly options = viewChild.required(LaunchOptionsComponent);
 
   protected readonly isDesktop = this.auth.isDesktop;
@@ -312,8 +336,62 @@ export class NewSessionComponent {
 
   protected readonly short = shortPath;
 
+  /** Who the session runs under unless picked here: the project's
+   * account, else the default for new sessions (as the server decides). */
+  private readonly autoAccount = computed(() => this.accounts.accountFor(this.cwd()));
+  private readonly autoAccountId = computed(() => this.autoAccount().id);
+  /** The account picked; follows the project until one is chosen here (and
+   * again once another project brings another account). */
+  protected readonly account = linkedSignal(() => this.autoAccountId());
+  protected readonly accountHint = computed(() => {
+    const auto = this.autoAccount();
+    const a = this.accounts.byId(this.account());
+    const why =
+      this.account() !== auto.id
+        ? 'Chosen here, for this session.'
+        : auto.via === 'project'
+          ? `The account of ${shortPath(auto.dir)}, set on the Accounts page.`
+          : 'The default for new sessions.';
+    if (!a) return why;
+    const what =
+      a.kind === 'token'
+        ? "It shares this Mac's projects and conversations."
+        : a.isDefault
+          ? "It uses this Mac's own Claude Code setup."
+          : `It uses its own Claude Code setup${a.dir ? ` in ${shortPath(a.dir)}` : ''}.`;
+    return `${why} ${what}`;
+  });
+  protected readonly accountWarning = computed(() => {
+    const a = this.accounts.byId(this.account());
+    if (!a) return '';
+    const reason = cannotRunReason(a);
+    if (reason) return `${a.name}: ${reason}. ${this.fixWhere()}`;
+    if (a.attention === 'authFailed') {
+      return `A session of ${a.name} could not sign in lately: it may need signing in again.`;
+    }
+    return '';
+  });
+
   constructor() {
     void this.loadProjects();
+    // A picker needs the accounts: with only the Default nothing sent them.
+    void this.accounts.ensureLoaded();
+  }
+
+  protected canRun(a: AccountView): boolean {
+    return accountCanRun(a);
+  }
+
+  protected accountOption(a: AccountView): string {
+    const reason = cannotRunReason(a);
+    const who = a.email ? ` — ${a.email}` : '';
+    return reason ? `${a.name} (${reason})` : `${a.name}${who}`;
+  }
+
+  private fixWhere(): string {
+    return this.isDesktop()
+      ? 'Fix it on the Accounts page (Settings › Accounts).'
+      : 'Fix it on the Accounts page of the desktop app.';
   }
 
   protected async onFiles(event: Event): Promise<void> {
@@ -359,6 +437,8 @@ export class NewSessionComponent {
     }
     this.starting.set(true);
     this.error.set('');
+    // Only while several accounts exist: the request is unchanged otherwise.
+    const account = this.accounts.multi() ? this.account() : '';
     try {
       const prompt = this.prompt().trim();
       const images = this.images().map(({ mediaType, data }) => ({ mediaType, data }));
@@ -367,11 +447,23 @@ export class NewSessionComponent {
         ...(prompt ? { prompt } : {}),
         ...opts.value(),
         ...(images.length ? { images } : {}),
+        ...(account ? { account } : {}),
       });
       if (res?.id) void this.router.navigate(['/session', res.id]);
       else void this.router.navigate(['/']);
     } catch (e) {
-      this.error.set(`Could not start the session: ${errorMessage(e)}`);
+      const code = e instanceof ApiError ? (e.code ?? '') : '';
+      const accountRefused = [
+        'account_token_missing',
+        'unknown_account',
+        'account_needs_copy',
+      ].includes(code);
+      if (code === 'unknown_account') void this.accounts.refresh();
+      this.error.set(
+        `Could not start the session: ${
+          accountRefused ? accountErrorText(e, this.accounts.byId(account)?.name) : errorMessage(e)
+        }`,
+      );
     } finally {
       this.starting.set(false);
     }

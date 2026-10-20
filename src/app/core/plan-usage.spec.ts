@@ -1,6 +1,9 @@
 import { PlanWindow } from './models';
 import {
   compactWindows,
+  limitName,
+  limitWindow,
+  normalizeAccountUsages,
   normalizePlanUsage,
   planIntervalLabel,
   primaryWindows,
@@ -129,5 +132,38 @@ describe('plan usage helpers', () => {
     expect(planIntervalLabel(0)).toBe('Manually only');
     expect(planIntervalLabel(420)).toBe('Every 7 min');
     expect(planIntervalLabel(undefined)).toBe('Every 5 min');
+  });
+
+  it('reads the other accounts’ usage from GET /usage, dropping what is not usage', () => {
+    const m = normalizeAccountUsages({
+      available: true,
+      windows: [],
+      accounts: {
+        acc_5f1c9e2b7a40: { available: true, windows: [{ key: 'five_hour', pct: 12 }] },
+        acc_9b02d3e6c1f8: 'nope',
+      },
+    });
+    expect([...m.keys()]).toEqual(['acc_5f1c9e2b7a40']);
+    expect(m.get('acc_5f1c9e2b7a40')?.windows[0].pct).toBe(12);
+    // Only the Default (or an older server): no `accounts` at all.
+    expect(normalizeAccountUsages({ available: true, windows: [] }).size).toBe(0);
+    expect(normalizeAccountUsages({ accounts: [1, 2] }).size).toBe(0);
+    expect(normalizeAccountUsages(null).size).toBe(0);
+  });
+
+  it('finds the limit an account has reached, the 5-hour one first', () => {
+    const week = w({ key: 'seven_day', label: 'Weekly · all models', pct: 100, resetsAt: NOW + 9 });
+    const fable = w({ key: 'seven_day_fable', label: 'Weekly · Fable', pct: 104 });
+    const session = w({ key: 'five_hour', label: 'Current session', pct: 100, resetsAt: NOW + 5 });
+    expect(limitWindow([w({ key: 'five_hour', pct: 99.4 })], NOW)).toBeNull();
+    expect(limitWindow([fable, week, session], NOW)).toBe(session);
+    expect(limitWindow([fable, week], NOW)).toBe(week);
+    expect(limitWindow([fable], NOW)).toBe(fable);
+    // A window whose reset time has passed is not at its limit any more.
+    expect(limitWindow([{ ...session, resetsAt: NOW - 1 }], NOW)).toBeNull();
+    expect(limitName(session)).toBe('5-hour limit');
+    expect(limitName(week)).toBe('weekly limit');
+    expect(limitName(fable)).toBe('weekly Fable limit');
+    expect(limitName(w({ key: 'daily', label: 'Daily · Opus' }))).toBe('Daily · Opus limit');
   });
 });

@@ -10,11 +10,13 @@ import {
 } from '@angular/core';
 import { Observable, Subject } from 'rxjs';
 
+import { normalizeAccounts } from './accounts';
 import { ApiError, ApiService } from './api.service';
 import { AuthService } from './auth.service';
 import { ConfigService } from './config.service';
 import { WebSocketLike, activeMock } from './mock/mock-api';
 import {
+  AccountsView,
   AgentsFrame,
   ClientFrame,
   FleetFrame,
@@ -34,7 +36,7 @@ import {
   TranscriptResetFrame,
 } from './models';
 import { NowService } from './now.service';
-import { normalizePlanUsage } from './plan-usage';
+import { normalizeAccountUsages, normalizePlanUsage } from './plan-usage';
 import { TranscriptStore, TranscriptStoreOptions } from './transcript-store';
 
 /**
@@ -162,6 +164,13 @@ function subKey(session: string, agent?: string): string {
  * - `planUsage`        the Claude plan's usage (account-wide): `planUsage`
  *                      frames, or `GET /usage` at most every 5 min while
  *                      Limited; null until known (or on an older server).
+ *                      Always the Default account's.
+ * - `accountUsage`     every other account's plan usage, by account id:
+ *                      `accountUsage` frames, or `GET /usage` `accounts`.
+ * - `accounts`         the Claude accounts: `accounts` frames (sent on
+ *                      connect only once more than the Default exists), or
+ *                      a REST copy merged by AccountsService; null until
+ *                      known.
  *
  * Streams (RxJS; one emission per frame, never coalesced):
  * - `hello$`, `sessions$`, `transcript$`, `transcriptReset$`, `stream$`,
@@ -222,6 +231,20 @@ export class RealtimeService {
    * latest frame is older than it (see {@link mergePlanUsage}). */
   private planUsageFrames = 0;
   private lastUsagePollAt = 0;
+
+  private readonly accountUsageS = signal<ReadonlyMap<string, PlanUsage>>(new Map());
+  readonly accountUsage = this.accountUsageS.asReadonly();
+  private readonly accountUsageAtS = signal<ReadonlyMap<string, number>>(new Map());
+  /** Per account: when its current numbers reached this device (the shared
+   * clock), like {@link planUsageReceivedAt}. */
+  readonly accountUsageReceivedAt = this.accountUsageAtS.asReadonly();
+  /** `accountUsage` frames applied so far, per account. */
+  private readonly accountUsageFrames = new Map<string, number>();
+
+  private readonly accountsS = signal<AccountsView | null>(null);
+  readonly accounts = this.accountsS.asReadonly();
+  /** `accounts` frames applied so far. */
+  private accountsFrames = 0;
 
   private readonly helloS = new Subject<HelloFrame>();
   private readonly sessionsS = new Subject<SessionsFrame>();
@@ -366,6 +389,48 @@ export class RealtimeService {
       if (this.planUsageS()?.fetchedAt !== u.fetchedAt) this.planUsageAtS.set(this.clock.now());
       this.planUsageS.set(u);
     });
+  }
+
+  /** Take before a `GET /usage`; pass to {@link mergeAccountUsages}. */
+  accountUsageMark(): ReadonlyMap<string, number> {
+    return new Map(this.accountUsageFrames);
+  }
+
+  /** Apply the other accounts' usage from a `GET /usage` answer (its
+   * `accounts`). An account whose `accountUsage` frame arrived after `mark`
+   * was taken keeps the frame's copy. */
+  mergeAccountUsages(
+    reply: unknown,
+    mark: ReadonlyMap<string, number> = this.accountUsageFrames,
+  ): void {
+    for (const [id, u] of normalizeAccountUsages(reply)) {
+      if ((mark.get(id) ?? 0) !== (this.accountUsageFrames.get(id) ?? 0)) continue;
+      this.setAccountUsage(id, u);
+    }
+  }
+
+  private setAccountUsage(id: string, u: PlanUsage): void {
+    untracked(() => {
+      if (this.accountUsageS().get(id)?.fetchedAt !== u.fetchedAt) {
+        this.accountUsageAtS.update((prev) => new Map(prev).set(id, this.clock.now()));
+      }
+      this.accountUsageS.update((prev) => new Map(prev).set(id, u));
+    });
+  }
+
+  /** Take before a `GET /accounts`; pass to {@link mergeAccounts}. */
+  accountsMark(): number {
+    return this.accountsFrames;
+  }
+
+  /** Apply a REST copy of the accounts. An `accounts` frame that arrived
+   * after `mark` was taken is at least as new, so the copy is then dropped.
+   * Returns whether it was applied. */
+  mergeAccounts(raw: unknown, mark = this.accountsFrames): boolean {
+    const view = normalizeAccounts(raw);
+    if (!view || mark !== this.accountsFrames) return false;
+    this.accountsS.set(view);
+    return true;
   }
 
   /** Ref-counted `sub`; call the returned function to release it. */
@@ -692,8 +757,11 @@ export class RealtimeService {
   /** Copy the server's plan usage (Limited only; never on the 3 s loop). */
   private async pollPlanUsage(): Promise<void> {
     const mark = this.planUsageFrames;
+    const accountsMark = this.accountUsageMark();
     try {
-      this.mergePlanUsage(await this.api.getPlanUsage(), mark);
+      const reply = await this.api.getPlanUsage();
+      this.mergePlanUsage(reply, mark);
+      this.mergeAccountUsages(reply, accountsMark);
     } catch {
       // An older server has no /usage (the UI stays hidden); a network
       // failure is the sessions poll's business.
@@ -747,6 +815,24 @@ export class RealtimeService {
         if (usage) {
           this.planUsageFrames += 1;
           this.setPlanUsage(usage);
+        }
+        break;
+      }
+      case 'accountUsage': {
+        // Another account's usage: never the Default's `planUsage`.
+        const usage = normalizePlanUsage(frame.usage);
+        const id = typeof frame.accountId === 'string' ? frame.accountId : '';
+        if (usage && id) {
+          this.accountUsageFrames.set(id, (this.accountUsageFrames.get(id) ?? 0) + 1);
+          this.setAccountUsage(id, usage);
+        }
+        break;
+      }
+      case 'accounts': {
+        const view = normalizeAccounts(frame.accounts);
+        if (view) {
+          this.accountsFrames += 1;
+          this.accountsS.set(view);
         }
         break;
       }

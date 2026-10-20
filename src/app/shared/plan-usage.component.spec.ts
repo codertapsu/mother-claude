@@ -175,6 +175,8 @@ describe('PlanUsageComponent', () => {
     await flush();
     fixture.detectChanges();
     expect(backend.calls).toContain('POST /usage/refresh');
+    // The Default's refresh is the request it always was.
+    expect(backend.bodyOf('POST /usage/refresh')).toEqual({});
     expect(button().disabled).toBeTrue();
     expect(text(button())).toContain('Refresh in 42s');
     now.set(NOW + 43_000);
@@ -242,6 +244,38 @@ describe('PlanUsageComponent', () => {
     expect(rt.planUsage()?.intervalSecs).toBe(600);
     expect(rt.planUsage()?.nextRefreshAt).toBe(NOW + 10 * M);
     expect(backend.bodyOf('PUT /usage/settings')).toEqual({ intervalSecs: 600 });
+  });
+
+  it("shows another account's usage and refreshes that account", async () => {
+    const rt = TestBed.inject(RealtimeService);
+    const work = 'acc_5f1c9e2b7a40';
+    rt.mergePlanUsage(usage());
+    rt.mergeAccountUsages({
+      accounts: {
+        [work]: usage({
+          windows: [{ key: 'five_hour', label: 'Current session', pct: 77, resetsAt: NOW + H }],
+        }),
+      },
+    });
+    backend.routes.set('/usage/refresh', () => ({
+      status: 202,
+      body: usage({ refreshing: true }),
+    }));
+    fixture = TestBed.createComponent(PlanUsageComponent);
+    fixture.componentRef.setInput('account', work);
+    fixture.detectChanges();
+    const el = fixture.nativeElement as HTMLElement;
+    const meters = el.querySelectorAll('[role="meter"]');
+    expect(meters.length).toBe(1);
+    expect(meters[0].getAttribute('aria-valuenow')).toBe('77');
+    (el.querySelector('.status button') as HTMLButtonElement).click();
+    await flush();
+    fixture.detectChanges();
+    expect(backend.bodyOf('POST /usage/refresh')).toEqual({ account: work });
+    // The answer is that account's, not the Default's.
+    expect(rt.accountUsage().get(work)?.refreshing).toBeTrue();
+    expect(rt.planUsage()?.refreshing).toBeFalse();
+    expect(text(el)).toContain('Checking…');
   });
 
   it('holds Refresh for a minute after a read of the account', () => {

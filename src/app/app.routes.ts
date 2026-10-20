@@ -67,6 +67,12 @@ const pages: Routes = [
     loadComponent: () =>
       import('./pages/settings/settings.component').then((m) => m.SettingsComponent),
   },
+  // Settings › Accounts: the Claude accounts (read-only on phones).
+  {
+    path: 'accounts',
+    loadComponent: () =>
+      import('./pages/accounts/accounts.component').then((m) => m.AccountsComponent),
+  },
   {
     path: 'more',
     loadComponent: () => import('./pages/more/more.component').then((m) => m.MoreComponent),

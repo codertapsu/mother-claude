@@ -2,6 +2,7 @@
   <mc-session-header class="sd-head" />
 
   @if (ctx.session(); as s) {
+    <mc-limit-offer class="sd-offer" [session]="s" />
     <div class="sd-tabs" role="tablist" aria-label="Session views">
       @for (t of tabs; track t.id; let i = $index) {
         <button

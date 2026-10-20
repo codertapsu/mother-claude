@@ -123,6 +123,21 @@
     </div>
   </section>
 
+  <!-- ─────────────── Accounts ─────────────── -->
+  <h2>Claude accounts</h2>
+  <section class="card">
+    <div class="list">
+      <a class="list-row link" routerLink="/accounts">
+        <mc-icon name="user" />
+        <span class="grow">
+          <span>Accounts</span>
+          <span class="muted small">{{ accountsHint() }}</span>
+        </span>
+        <mc-icon name="chevronRight" [size]="16" />
+      </a>
+    </div>
+  </section>
+
   <!-- ─────────────── Plan usage ─────────────── -->
   @if (plan.usage(); as u) {
     <h2>Plan usage</h2>
