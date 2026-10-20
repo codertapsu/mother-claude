@@ -275,6 +275,29 @@ Hook events are not attributed by `transcript_path` (§5.7): the dispatcher
 never trusts a path a hook names, and every session that writes a pidfile is
 attributed by the directory it is in.
 
+*Changed while building (D4, §5.9):* a write touches a shared file only
+when it must. A copy without the trust opt-in writes no `.claude.json` at all
+(the project's entry *is* the trust — `hasTrustDialogAccepted`, allowed
+tools, MCP choices — and the CLI resumes a conversation by its id without
+it), so it touches only new files and runs while the target account has live
+sessions; a project's `history.jsonl` lines, a trusted entry, and a project
+move's removals from the source still refuse while a live process uses the
+directory they would write. A session move needs no idle source: only the
+moved session's own files are removed, and only after every copy verified —
+renamed into the undo directory, so a move costs no extra space on one
+volume. Undo deletes what was created (refusing when any of it changed since:
+a copied conversation that was continued is not taken back), puts moved files
+back, and removes exactly the `.claude.json` entry and the `history.jsonl`
+lines that were added.
+
+*Changed while building (§5.4, P3.3):* "continue on" a directory account
+copies a **snapshot**: the conversation usually still has a process (it
+stopped at its limit), so the copy is of what is there now, an unfinished
+last transcript line is left out, and each file is verified against the
+source's first bytes. The account pair's copy consent is given on the desktop;
+after that a continue-on from any surface may copy for that pair, as §11.2
+intends. A second continue-on forks the copy that is already there.
+
 **D9 — Account choice is not a dangerous action; account administration is.**
 Picking an account for a new session or a bridge conversation is allowed to
 any principal that may start sessions (it is the user's own account either
@@ -690,13 +713,13 @@ part of done. IDs are referenced from commit messages.
 
 ### Phase 3 — move and copy
 
-- [ ] **P3.1 Transfer engine** (`claude/transfer.rs`): session and project,
+- [x] **P3.1 Transfer engine** (`claude/transfer.rs`): session and project,
       copy and move, every precondition, undo copy, atomic `.claude.json`
       edit, verification, index rescan, audit. Done when the §9 engine tests
       pass, including every refusal.
-- [ ] **P3.2 Routes** `/data/move`, `/data/jobs/{id}`, `/data/jobs/{id}/undo`
+- [x] **P3.2 Routes** `/data/move`, `/data/jobs/{id}`, `/data/jobs/{id}/undo`
       (`DesktopOnly`), the job model.
-- [ ] **P3.3 "Continue on" for directory accounts** uses copy-then-fork
+- [x] **P3.3 "Continue on" for directory accounts** uses copy-then-fork
       (closes the gap left in P1.5).
 - [ ] **P3.4 UI: move/copy dialog with dry run and Undo.**
 

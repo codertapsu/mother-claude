@@ -21,13 +21,15 @@ async fn boot(log: &std::path::Path) -> (String, AppState, tempfile::TempDir) {
     std::env::set_var("MOTHER_CLAUDE_BRIDGE_HOST_PATH", &fake);
     std::env::set_var("FAKE_BRIDGE_LOG", log);
     let home = tempfile::tempdir().unwrap();
+    let mut auth = Auth::ephemeral();
+    auth.config_dir = Some(home.path().join("app-data"));
     let state = Inner::with_bridge_config(
         ClaudeHome::with_base(home.path()),
         ServerConfig {
             host: "127.0.0.1".into(),
             port: 0,
         },
-        Auth::ephemeral(),
+        auth,
         BridgeConfig {
             enabled: true,
             port: None,
@@ -154,7 +156,33 @@ async fn conversations_run_under_their_account() {
     assert_eq!(r["forkSession"], true);
     let (s, v) = post(&base, json!({"resume": resume, "account": work.id})).await;
     assert_eq!(s, reqwest::StatusCode::CONFLICT, "{v}");
-    assert_eq!(v["error"]["code"], "account_needs_copy");
+    assert_eq!(v["error"]["code"], "copy_consent_required");
+    // Allowed: the conversation is copied into Work's directory and forked
+    // there.
+    let proj = _home.path().join("projects/-tmp");
+    std::fs::create_dir_all(&proj).unwrap();
+    std::fs::write(
+        proj.join(format!("{resume}.jsonl")),
+        format!("{{\"type\":\"user\",\"cwd\":\"/tmp\",\"sessionId\":\"{resume}\"}}\n"),
+    )
+    .unwrap();
+    st.accounts
+        .set_copy_consent("default", &work.id, true)
+        .unwrap();
+    let (s, v) = post(&base, json!({"resume": resume, "account": work.id})).await;
+    assert_eq!(s, reqwest::StatusCode::CREATED, "{v}");
+    assert_eq!(v["forked"], true);
+    assert!(work
+        .dir
+        .as_ref()
+        .unwrap()
+        .join(format!("projects/-tmp/{resume}.jsonl"))
+        .is_file());
+    let r = created(&log, v["thread_id"].as_str().unwrap());
+    assert_eq!(
+        r["env"]["configDir"].as_str().map(PathBuf::from),
+        work.dir.clone()
+    );
 
     // Refusals.
     let (s, v) = post(&base, json!({"account": "acc_000000000000"})).await;

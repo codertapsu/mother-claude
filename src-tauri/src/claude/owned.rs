@@ -498,6 +498,30 @@ fn launch_mode(requested: Option<&str>, caller: Caller) -> ApiResult<String> {
     Ok(mode)
 }
 
+/// "Continue on" a directory account: copy the conversation into its
+/// directory first.
+pub(crate) async fn copy_for_continue(
+    state: &AppState,
+    from: &str,
+    to: &str,
+    id: &str,
+) -> ApiResult<()> {
+    use crate::claude::transfer::ops::{self, ContinueCopyError};
+    match ops::copy_for_continue(state, from, to, id).await {
+        Ok(_) => Ok(()),
+        Err(ContinueCopyError::ConsentRequired) => Err(ApiError::conflict(
+            "copy_consent_required",
+            "That account keeps its own directory: the conversation has to be copied there \
+             first. Allow copies between these two accounts (on the desktop), then try again.",
+        )
+        .with("from", from.to_string())
+        .with("to", to.to_string())),
+        Err(ContinueCopyError::Transfer(e)) => {
+            Err(crate::server::routes::transfers::transfer_error(e))
+        }
+    }
+}
+
 /// Map an account refusal onto the API envelope.
 pub fn account_error(e: crate::claude::accounts::AccountError) -> ApiError {
     use crate::claude::accounts::AccountError as E;
@@ -810,14 +834,14 @@ pub async fn continue_as(
     let same_dir = source_home
         .as_ref()
         .is_none_or(|h| h.base() == target_home.base());
-    if !same_dir {
-        return Err(ApiError::conflict(
-            "account_needs_copy",
-            "That account keeps its own directory: the conversation has to be copied \
-             there before it can continue on it, which this version cannot do yet.",
-        ));
-    }
+    // The cwd is checked before anything is copied.
     let cwd = launch_cwd(&target_home, cwd, caller)?;
+    if !same_dir {
+        // A directory account keeps its own data: the conversation is copied
+        // there first (once the desktop allowed copies between the two),
+        // then forked under it (docs/ACCOUNTS.md P3.3).
+        copy_for_continue(state, &source, &account, id).await?;
+    }
     let model = req.model.as_deref().map(validate_model).transpose()?;
     let images = validate_images(&req.images)?;
     let fork = req.fork.unwrap_or(false) || account != source || live_elsewhere(state, id).await;

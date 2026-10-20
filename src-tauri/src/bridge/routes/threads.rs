@@ -339,7 +339,7 @@ pub fn account_error(e: crate::claude::accounts::AccountError) -> BridgeError {
 /// The account a new conversation in `cwd` runs under, and how it may take
 /// over `resume`: another account than the conversation's always forks, and
 /// one that keeps its own directory needs the conversation copied there.
-fn conversation_account(
+async fn conversation_account(
     state: &AppState,
     body: &mut CreateThread,
     cwd: &str,
@@ -364,12 +364,24 @@ fn conversation_account(
             _ => true,
         };
         if !same_dir {
-            return Err(BridgeError::conflict(
-                "account_needs_copy",
-                "That account keeps its own directory: the conversation has to be copied \
-                 there before it can continue on it.",
-            )
-            .with("thread_id", resume.clone()));
+            // Copied into the account's directory first, then forked there.
+            use crate::claude::transfer::ops::{copy_for_continue, ContinueCopyError};
+            match copy_for_continue(state, &source, &account, resume).await {
+                Ok(_) => {}
+                Err(ContinueCopyError::ConsentRequired) => {
+                    return Err(BridgeError::conflict(
+                        "copy_consent_required",
+                        "That account keeps its own directory: the conversation has to be \
+                         copied there first. Allow copies between these two accounts on the \
+                         Mother Claude desktop, then try again.",
+                    )
+                    .with("thread_id", resume.clone()));
+                }
+                Err(ContinueCopyError::Transfer(e)) => {
+                    return Err(BridgeError::conflict(e.code(), e.to_string())
+                        .with("thread_id", resume.clone()));
+                }
+            }
         }
         if account != source {
             body.fork = true;
@@ -502,7 +514,7 @@ pub async fn create(
     }
     body.require_safe_options(&state, &ctx, caller_cwd.as_deref())
         .await?;
-    let (account, env) = conversation_account(&state, &mut body, &cwd)?;
+    let (account, env) = conversation_account(&state, &mut body, &cwd).await?;
 
     // Continuing in place keeps the id (and the transcript); everything else
     // gets a fresh one the caller already holds.

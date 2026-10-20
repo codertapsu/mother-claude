@@ -1705,24 +1705,96 @@ async fn continuing_on_another_account_forks_it() {
         Some(pro.id.as_str())
     );
     f.st.control.kill(&forked).await.unwrap();
+}
 
-    // A directory account keeps its own data: not yet.
-    let dirs = tempfile::tempdir().unwrap();
-    let work =
-        f.st.accounts
-            .add_directory("Work", &dirs.path().join("claude-work"), None)
-            .unwrap();
-    let err = owned::continue_as(
-        &f.st,
-        MAC,
-        &id,
-        &f.cwd(),
-        ContinueRequest {
-            account: Some(work.id.clone()),
-            ..Default::default()
+/// "Continue on" a directory account (P3.3): the conversation is copied into
+/// its directory — once the desktop allowed copies between the two — and
+/// forked there.
+#[tokio::test]
+async fn continuing_on_a_directory_account_copies_then_forks() {
+    setup();
+    let home = tempfile::tempdir().unwrap();
+    let cwd = tempfile::tempdir().unwrap();
+    let data = tempfile::tempdir().unwrap();
+    let mut auth = Auth::ephemeral();
+    auth.config_dir = Some(data.path().to_path_buf());
+    let st = Inner::new(
+        ClaudeHome::with_base(home.path()),
+        ServerConfig {
+            host: "127.0.0.1".into(),
+            port: 0,
         },
+        auth,
+    );
+    let cwd_s = cwd.path().to_string_lossy().into_owned();
+    // A finished conversation in the Default's directory.
+    let id = "6b0b2a3c-1d2e-4f50-8a9b-0c1d2e3f4a5b";
+    let proj = home
+        .path()
+        .join("projects")
+        .join(mother_claude_lib::claude::encode_cwd(&cwd_s));
+    std::fs::create_dir_all(&proj).unwrap();
+    std::fs::write(
+        proj.join(format!("{id}.jsonl")),
+        format!("{{\"type\":\"user\",\"cwd\":\"{cwd_s}\",\"sessionId\":\"{id}\"}}\n"),
     )
-    .await
-    .unwrap_err();
-    assert_eq!(err.code, "account_needs_copy");
+    .unwrap();
+    let dirs = tempfile::tempdir().unwrap();
+    let work = st
+        .accounts
+        .add_directory("Work", &dirs.path().join("claude-work"), None)
+        .unwrap();
+    let ask = || ContinueRequest {
+        prompt: Some("go on".into()),
+        account: Some(work.id.clone()),
+        ..Default::default()
+    };
+    let err = owned::continue_as(&st, MAC, id, &cwd_s, ask())
+        .await
+        .unwrap_err();
+    assert_eq!(err.code, "copy_consent_required");
+    assert!(
+        !work.dir.as_ref().unwrap().join("projects").exists(),
+        "nothing copied"
+    );
+
+    st.accounts
+        .set_copy_consent("default", &work.id, true)
+        .unwrap();
+    let forked = owned::continue_as(&st, MAC, id, &cwd_s, ask())
+        .await
+        .unwrap();
+    assert_ne!(forked, id);
+    let copy = work
+        .dir
+        .as_ref()
+        .unwrap()
+        .join("projects")
+        .join(mother_claude_lib::claude::encode_cwd(&cwd_s))
+        .join(format!("{id}.jsonl"));
+    assert!(copy.is_file(), "copied into Work's directory");
+    wait_turn_done(&st, &forked).await;
+    let line = read_log(cwd.path())
+        .into_iter()
+        .rfind(|l| l.get("argv").is_some())
+        .unwrap();
+    assert_eq!(
+        line["account"]["configDir"].as_str().map(PathBuf::from),
+        work.dir.clone()
+    );
+    assert!(line["argv"].to_string().contains("--fork-session"));
+    // The copy is a data job with an undo.
+    let jobs = st.jobs.list();
+    assert_eq!(jobs[0].kind, "copy");
+    assert!(jobs[0].undo_until.is_some());
+    st.control.kill(&forked).await.unwrap();
+
+    // A second continue-on reuses the copy.
+    wait_for("the fork to end", || !owned::has_handle(&st, &forked)).await;
+    let again = owned::continue_as(&st, MAC, id, &cwd_s, ask())
+        .await
+        .unwrap();
+    assert_ne!(again, forked);
+    assert_eq!(st.jobs.list().len(), 1, "no second copy");
+    st.control.kill(&again).await.unwrap();
 }
