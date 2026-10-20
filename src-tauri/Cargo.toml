@@ -61,6 +61,11 @@ libc = "0.2.191"
 # through our own reqwest client.
 web-push-native = "0.5.0"
 portable-pty = { version = "0.9.0", optional = true }
+# Backups of each account's data (docs/ACCOUNTS.md D6): tar + gzip archives
+# encrypted with age, so every archive opens with standard tools.
+age = { version = "0.12.1", default-features = false }
+tar = { version = "0.4.46", default-features = false }
+flate2 = "1.1.10"
 
 # The accounts feature keeps token accounts' tokens and the backup passphrase
 # in the login Keychain (docs/ACCOUNTS.md D3). Already in the tree through

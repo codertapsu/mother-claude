@@ -8,6 +8,7 @@ pub mod accounts;
 pub mod activity;
 pub mod agents;
 pub mod auth;
+pub mod backup;
 pub mod caps;
 pub mod control;
 #[cfg(feature = "experimental")]

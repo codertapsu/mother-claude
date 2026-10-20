@@ -156,6 +156,12 @@ pub struct Plan {
     from: PathBuf,
     #[serde(skip)]
     to: PathBuf,
+    /// The two `.claude.json` files (the Default's is `~/.claude.json`,
+    /// beside its directory, unless `CLAUDE_CONFIG_DIR` is set).
+    #[serde(skip)]
+    from_config: PathBuf,
+    #[serde(skip)]
+    to_config: PathBuf,
     #[serde(skip)]
     entry: Option<(String, Value)>,
     #[serde(skip)]
@@ -192,7 +198,7 @@ pub struct Request {
 }
 
 /// The transcripts a session id has under `projects/*/`.
-fn transcripts_of(home: &ClaudeHome, id: &str) -> Vec<PathBuf> {
+pub(crate) fn transcripts_of(home: &ClaudeHome, id: &str) -> Vec<PathBuf> {
     let name = format!("{id}.jsonl");
     let mut out: Vec<PathBuf> = std::fs::read_dir(home.projects_dir())
         .into_iter()
@@ -219,7 +225,7 @@ pub fn recorded_cwd(transcript: &Path) -> Option<String> {
 }
 
 /// Every regular file under `dir` (symlinks are never followed).
-fn walk(dir: &Path, out: &mut Vec<PathBuf>) -> std::io::Result<()> {
+pub(crate) fn walk(dir: &Path, out: &mut Vec<PathBuf>) -> std::io::Result<()> {
     for e in std::fs::read_dir(dir)? {
         let e = e?;
         let ft = e.file_type()?;
@@ -233,7 +239,7 @@ fn walk(dir: &Path, out: &mut Vec<PathBuf>) -> std::io::Result<()> {
 }
 
 /// The files of one session in `from`, mapped into `to`.
-fn plan_session(
+pub(crate) fn plan_session(
     from: &ClaudeHome,
     to: &ClaudeHome,
     id: &str,
@@ -319,14 +325,14 @@ fn plan_session(
 }
 
 /// A project's entry in a `.claude.json` (`projects[<cwd>]`).
-fn project_entry(claude_json: &Path, cwd: &str) -> Option<Value> {
+pub(crate) fn project_entry(claude_json: &Path, cwd: &str) -> Option<Value> {
     let text = std::fs::read_to_string(claude_json).ok()?;
     let v: Value = serde_json::from_str(&text).ok()?;
     v.get("projects")?.get(cwd).cloned()
 }
 
 /// `history.jsonl` lines whose `project` is `cwd`.
-fn history_lines(history: &Path, cwd: &str) -> Vec<String> {
+pub(crate) fn history_lines(history: &Path, cwd: &str) -> Vec<String> {
     let Ok(file) = std::fs::File::open(history) else {
         return Vec::new();
     };
@@ -500,6 +506,8 @@ pub fn plan(ctx: &Context<'_>, req: &Request) -> Result<Plan, TransferError> {
         writes_shared,
         from: ctx.from.base().to_path_buf(),
         to: ctx.to.base().to_path_buf(),
+        from_config: ctx.from.claude_json(),
+        to_config: ctx.to.claude_json(),
         entry,
         history,
         snapshot: req.snapshot,
@@ -515,6 +523,22 @@ pub struct Created {
     pub path: PathBuf,
     pub size: u64,
     pub sha256: String,
+}
+
+impl Manifest {
+    /// The source's `.claude.json` (older manifests: inside its directory).
+    pub fn from_config(&self) -> PathBuf {
+        self.from_config
+            .clone()
+            .unwrap_or_else(|| self.from_dir.join(".claude.json"))
+    }
+
+    /// The target's `.claude.json`.
+    pub fn to_config(&self) -> PathBuf {
+        self.to_config
+            .clone()
+            .unwrap_or_else(|| self.to_dir.join(".claude.json"))
+    }
 }
 
 /// A source file moved into the undo directory.
@@ -536,6 +560,11 @@ pub struct Manifest {
     pub what: What,
     pub from_dir: PathBuf,
     pub to_dir: PathBuf,
+    /// The `.claude.json` files the entries were added to / removed from.
+    #[serde(default)]
+    pub from_config: Option<PathBuf>,
+    #[serde(default)]
+    pub to_config: Option<PathBuf>,
     pub sessions: Vec<String>,
     pub created: Vec<Created>,
     /// Directories created in the target (removed by undo when empty).
@@ -545,6 +574,9 @@ pub struct Manifest {
     pub moved_dirs: Vec<PathBuf>,
     /// `(cwd, entry)` added to the target's `.claude.json`.
     pub added_entry: Option<(String, Value)>,
+    /// More of them (a restore of sessions from several projects).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub added_entries: Vec<(String, Value)>,
     /// `(cwd, entry)` removed from the source's `.claude.json`.
     pub removed_entry: Option<(String, Value)>,
     /// Lines appended to the target's `history.jsonl`.
@@ -553,6 +585,9 @@ pub struct Manifest {
     pub removed_history: Vec<String>,
     #[serde(default)]
     pub undone_at: Option<i64>,
+    /// What made it, when not a move or copy (`restore`, `pull`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kind: Option<String>,
 }
 
 /// Progress of a running transfer.
@@ -562,7 +597,7 @@ pub struct Progress {
     pub bytes_done: AtomicU64,
 }
 
-fn sha256_file(path: &Path) -> std::io::Result<(u64, String)> {
+pub(crate) fn sha256_file(path: &Path) -> std::io::Result<(u64, String)> {
     use sha2::{Digest, Sha256};
     let mut f = std::fs::File::open(path)?;
     let mut h = Sha256::new();
@@ -665,12 +700,12 @@ fn tmp_is_jsonl(dest: &Path) -> bool {
 }
 
 /// Rewrite a JSON file atomically (temp + rename), keeping its mode.
-fn rewrite_json(path: &Path, value: &Value) -> Result<(), TransferError> {
+pub(crate) fn rewrite_json(path: &Path, value: &Value) -> Result<(), TransferError> {
     let bytes = serde_json::to_vec_pretty(value).map_err(|e| TransferError::Io(e.to_string()))?;
     rewrite(path, &bytes)
 }
 
-fn rewrite(path: &Path, bytes: &[u8]) -> Result<(), TransferError> {
+pub(crate) fn rewrite(path: &Path, bytes: &[u8]) -> Result<(), TransferError> {
     let dir = path
         .parent()
         .ok_or_else(|| TransferError::Invalid(format!("{} has no parent", path.display())))?;
@@ -698,7 +733,7 @@ fn rewrite(path: &Path, bytes: &[u8]) -> Result<(), TransferError> {
 }
 
 /// `.claude.json` with `projects[cwd]` changed by `f` (the rest as it is).
-fn edit_projects(
+pub(crate) fn edit_projects(
     claude_json: &Path,
     f: impl FnOnce(&mut serde_json::Map<String, Value>),
 ) -> Result<(), TransferError> {
@@ -726,7 +761,7 @@ fn edit_projects(
 }
 
 /// Append lines to a JSONL file (atomically: the whole file rewritten).
-fn append_lines(path: &Path, lines: &[String]) -> Result<(), TransferError> {
+pub(crate) fn append_lines(path: &Path, lines: &[String]) -> Result<(), TransferError> {
     let mut text = std::fs::read_to_string(path).unwrap_or_default();
     if !text.is_empty() && !text.ends_with('\n') {
         text.push('\n');
@@ -793,16 +828,20 @@ pub fn run(
         what: plan.what.clone(),
         from_dir: plan.from.clone(),
         to_dir: plan.to.clone(),
+        from_config: Some(plan.from_config.clone()),
+        to_config: Some(plan.to_config.clone()),
         sessions: plan.sessions.iter().map(|s| s.id.clone()).collect(),
         created: Vec::new(),
         created_dirs: Vec::new(),
         moved: Vec::new(),
         moved_dirs: Vec::new(),
         added_entry: None,
+        added_entries: Vec::new(),
         removed_entry: None,
         added_history: Vec::new(),
         removed_history: Vec::new(),
         undone_at: None,
+        kind: None,
     };
     let save = |m: &Manifest| -> Result<(), TransferError> {
         crate::persist::write_json_private(&undo_dir.join("manifest.json"), m)
@@ -842,7 +881,7 @@ pub fn run(
         let to = ClaudeHome::for_account_dir(&plan.to);
         if let Some((cwd, entry)) = &plan.entry {
             let mut added = false;
-            edit_projects(&to.claude_json(), |p| {
+            edit_projects(&plan.to_config, |p| {
                 if !p.contains_key(cwd) {
                     p.insert(cwd.clone(), entry.clone());
                     added = true;
@@ -876,7 +915,7 @@ pub fn run(
             if let (What::Project { cwd }, Some(_)) = (&plan.what, &plan.removes_project_entry) {
                 let from = ClaudeHome::for_account_dir(&plan.from);
                 let mut removed = None;
-                edit_projects(&from.claude_json(), |p| removed = p.remove(cwd))?;
+                edit_projects(&plan.from_config, |p| removed = p.remove(cwd))?;
                 m.removed_entry = removed.map(|e| (cwd.clone(), e));
                 let lines = history_lines(&from.history_file(), cwd);
                 if !lines.is_empty() {
@@ -925,8 +964,11 @@ pub fn undo(undo_root: &Path, job_id: &str) -> Result<Manifest, TransferError> {
             Err(e) => return Err(io("reading", &c.path, e)),
         }
     }
+    // A moved file's place may hold only what this job put there (a pull
+    // that replaced it), which the rollback removes first.
+    let ours: HashSet<&PathBuf> = m.created.iter().map(|c| &c.path).collect();
     for mv in &m.moved {
-        if mv.original.exists() {
+        if mv.original.exists() && !ours.contains(&mv.original) {
             return Err(TransferError::UndoConflict(format!(
                 "{} exists again",
                 mv.original.display()
@@ -949,8 +991,7 @@ pub fn undo(undo_root: &Path, job_id: &str) -> Result<Manifest, TransferError> {
         }
     }
     if let Some((cwd, entry)) = &m.removed_entry {
-        let from = ClaudeHome::for_account_dir(&m.from_dir);
-        edit_projects(&from.claude_json(), |p| {
+        edit_projects(&m.from_config(), |p| {
             p.entry(cwd.clone()).or_insert_with(|| entry.clone());
         })?;
     }
@@ -985,10 +1026,13 @@ fn rollback(m: &Manifest) -> Result<(), TransferError> {
         let _ = std::fs::remove_dir(d);
     }
     let to = ClaudeHome::for_account_dir(&m.to_dir);
-    if let Some((cwd, entry)) = &m.added_entry {
-        edit_projects(&to.claude_json(), |p| {
-            if p.get(cwd) == Some(entry) {
-                p.remove(cwd);
+    let added: Vec<&(String, Value)> = m.added_entry.iter().chain(&m.added_entries).collect();
+    if !added.is_empty() {
+        edit_projects(&m.to_config(), |p| {
+            for (cwd, entry) in added {
+                if p.get(cwd) == Some(entry) {
+                    p.remove(cwd);
+                }
             }
         })?;
     }
@@ -1000,7 +1044,7 @@ fn rollback(m: &Manifest) -> Result<(), TransferError> {
 
 /// The directories from `stop` (exclusive, which exists) down to `dir` that
 /// do not exist yet, outermost first.
-fn missing_dirs(dir: &Path, stop: &Path) -> Vec<PathBuf> {
+pub(crate) fn missing_dirs(dir: &Path, stop: &Path) -> Vec<PathBuf> {
     let mut out = Vec::new();
     let mut cur = Some(dir);
     while let Some(d) = cur {
@@ -1026,7 +1070,7 @@ fn collect_dirs(dir: &Path, out: &mut Vec<PathBuf>) -> std::io::Result<()> {
 }
 
 /// chmod 0700 (no-op off unix): our own directories, owner only.
-fn private_dir(dir: &Path) {
+pub(crate) fn private_dir(dir: &Path) {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
@@ -1205,11 +1249,13 @@ impl Jobs {
 pub fn view_from_manifest(m: &Manifest) -> JobView {
     JobView {
         id: m.job_id.clone(),
-        kind: match m.mode {
-            Mode::Move => "move",
-            Mode::Copy => "copy",
-        }
-        .to_string(),
+        kind: m.kind.clone().unwrap_or_else(|| {
+            match m.mode {
+                Mode::Move => "move",
+                Mode::Copy => "copy",
+            }
+            .to_string()
+        }),
         state: if m.undone_at.is_some() {
             JobState::Undone
         } else {
