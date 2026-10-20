@@ -204,12 +204,27 @@ pub async fn remove(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> ApiResult<StatusCode> {
+    let bridge_default = state.bridge.defaults().await.account == Some(id.clone());
+    if bridge_default && state.bridge.is_running().await {
+        return Err(ApiError::conflict(
+            "account_used_by_bridge",
+            "The API runs with this account as its default for new conversations. Stop the \
+             API, or start it again with another account, first.",
+        ));
+    }
     let live = state
         .control
         .accounts()
         .into_iter()
         .filter(|(_, a)| *a == id)
-        .count();
+        .count()
+        + state
+            .bridge
+            .threads()
+            .await
+            .iter()
+            .filter(|t| t.account == id)
+            .count();
     if live > 0 {
         return Err(ApiError::conflict(
             "account_in_use",
@@ -217,6 +232,18 @@ pub async fn remove(
         ));
     }
     let account = state.accounts.remove(&id).map_err(account_error)?;
+    if bridge_default {
+        // The stopped API's remembered choice: the next start takes the
+        // project's account, else the accounts' bridge default.
+        state
+            .bridge
+            .update_defaults(|d| {
+                if d.account.as_deref() == Some(id.as_str()) {
+                    d.account = None;
+                }
+            })
+            .await;
+    }
     state.index.forget_checkpoint(&id);
     audit(
         &state,

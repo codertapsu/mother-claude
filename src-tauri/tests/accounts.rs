@@ -46,13 +46,21 @@ async fn boot() -> Fixture {
     // A data dir of its own (secrets in 0600 files there, undo for moves).
     let mut auth = Auth::ephemeral();
     auth.config_dir = Some(scratch.path().join("app-data"));
-    let st = Inner::new(
+    // A bridge that never binds a port of its own (the `/v1` mount only).
+    let st = Inner::with_bridge_config(
         ClaudeHome::with_base(home.path()),
         ServerConfig {
             host: "127.0.0.1".into(),
             port: 0,
         },
         auth,
+        mother_claude_lib::bridge::BridgeConfig {
+            enabled: true,
+            port: None,
+            token: mother_claude_lib::bridge::TokenPolicy::Required,
+            api_key: None,
+            allowed_origins: Vec::new(),
+        },
     );
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
@@ -417,6 +425,42 @@ async fn only_the_default_sends_no_accounts_frames() {
     );
     status::note_auth_ok(&f.st, "default").await;
     assert_eq!(accounts_frames(&mut ws, 500).await, 0, "then none again");
+}
+
+/// The account the running API starts its conversations under cannot be
+/// removed (every new conversation would fail); once the API is stopped it
+/// can, and the API's remembered choice goes with it.
+#[tokio::test]
+async fn the_apis_default_account_is_not_removed_under_it() {
+    use mother_claude_lib::bridge::control::{self, BridgeDefaults};
+    let f = boot().await;
+    let desk = f.desktop();
+    let work =
+        f.st.accounts
+            .add_directory("Work", &f.scratch.path().join("claude-work"), None)
+            .unwrap();
+    control::start(
+        &f.st,
+        BridgeDefaults {
+            account: Some(work.id.clone()),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+    let path = format!("/accounts/{}", work.id);
+    let (s, v) = f.call("DELETE", &path, &desk, None).await;
+    assert_eq!(s, StatusCode::CONFLICT, "{v}");
+    assert_eq!(v["error"]["code"], "account_used_by_bridge");
+    assert!(f.st.accounts.get(&work.id).is_some());
+
+    control::stop(&f.st).await.unwrap();
+    let (s, v) = f.call("DELETE", &path, &desk, None).await;
+    assert_eq!(s, StatusCode::NO_CONTENT, "{v}");
+    assert!(f.st.bridge.defaults().await.account.is_none());
+    control::start(&f.st, f.st.bridge.defaults().await)
+        .await
+        .unwrap();
 }
 
 #[tokio::test]
