@@ -258,6 +258,9 @@ fn restore_warns_when_claude_code_would_prune_it_again() {
         .contains("cleanupPeriodDays"));
     assert!(prune_warning(now - 29 * day, 30, now).is_none());
     assert!(prune_warning(now - 31 * day, 60, now).is_none());
+    // A "keep forever" setting does not overflow into a warning.
+    assert!(prune_warning(0, 999_999_999_999, now).is_none());
+    assert!(prune_warning(1, i64::MAX, now).is_none());
     let w = world();
     assert_eq!(cleanup_days(&w.other), DEFAULT_CLEANUP_DAYS);
     std::fs::write(w.other.user_settings(), "{\"cleanupPeriodDays\": 90}").unwrap();

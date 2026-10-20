@@ -932,7 +932,9 @@ pub fn cleanup_days(home: &ClaudeHome) -> i64 {
 
 /// The §11.7 warning, when Claude Code would prune the session again.
 pub fn prune_warning(newest_mtime: i64, days: i64, now: i64) -> Option<String> {
-    (newest_mtime < now - days * 24 * 3600 * 1000).then(|| {
+    // Any positive integer is a valid setting: "keep forever" may be 10^12.
+    let cutoff = now.saturating_sub(days.saturating_mul(24 * 3600 * 1000));
+    (newest_mtime < cutoff).then(|| {
         format!(
             "Claude Code will delete this again at its next cleanup unless \
              cleanupPeriodDays (now {days}) is raised."
