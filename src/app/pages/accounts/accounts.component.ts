@@ -1,5 +1,6 @@
 import {
   Component,
+  DestroyRef,
   computed,
   effect,
   inject,
@@ -9,27 +10,34 @@ import {
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 
-import { DEFAULT_ACCOUNT, isAccountColor } from '../../core/accounts';
+import { DEFAULT_ACCOUNT, isAccountColor, needsCopy } from '../../core/accounts';
 import { AccountsService } from '../../core/accounts.service';
 import { ApiService, describeError } from '../../core/api.service';
 import { AuthService } from '../../core/auth.service';
-import { AccountDefaults, AccountView, ProjectInfo } from '../../core/models';
+import { normalizeJob } from '../../core/data-jobs';
+import { DataJobsService } from '../../core/data-jobs.service';
+import { AccountDefaults, AccountView, JobView, ProjectInfo } from '../../core/models';
 import { NowService } from '../../core/now.service';
 import { PlanUsageService } from '../../core/plan-usage.service';
 import {
   SignInLine,
   TOKEN_NO_USAGE,
   accountKindLabel,
+  hooksPluginText,
   secretStoreText,
   signInLine,
   usageLine,
 } from '../../shared/accounts';
+import { DataJobComponent } from '../../shared/data-job.component';
 import { CompactMeter, compactPlan } from '../../shared/fleet-summary.component';
 import { IconComponent } from '../../shared/icon.component';
 import { PlanUsageComponent } from '../../shared/plan-usage.component';
 import { Tone, shortPath } from '../../shared/util';
 import { AccountAddSheetComponent } from './account-add-sheet.component';
 import { AccountSheetComponent } from './account-sheet.component';
+
+/** Recent moves and copies listed (their Undo lasts seven days). */
+const MOVES_SHOWN = 6;
 
 /** While a sign-in is being watched (or a check runs), ask this often:
  * `accounts` frames bring the change too, but not while polling. */
@@ -50,6 +58,20 @@ interface Row {
   hasUsage: boolean;
   /** The one thing it needs from the desktop now. */
   action: 'signin' | 'token' | null;
+  /** Its hooks plugin in a few words ('' for a token account: it uses the
+   * Default's). */
+  hooks: string;
+  /** A directory account other than the Default: its plugin is its own to
+   * install (the Default's is foreign control's, on the Remote page). */
+  ownPlugin: boolean;
+}
+
+/** A pair of accounts whose copies the desktop may allow. */
+interface ConsentPair {
+  key: string;
+  from: string;
+  to: string;
+  label: string;
 }
 
 interface ProjectRow {
@@ -64,10 +86,12 @@ interface ProjectRow {
  * Settings › Accounts (docs/ACCOUNTS.md §6.1): every Claude account with
  * its kind, directory, sign-in, live sessions and plan usage; on the
  * desktop adding, renaming, recolouring, signing in (a browser login or a
- * token), re-checking and removing them, the defaults (new sessions, the
- * API, per project) and the copy consents. Phones see all of it read-only:
- * their one account action is the picker when starting or continuing a
- * session (D9).
+ * token), re-checking and removing them, the hooks plugin in a directory
+ * account's own directory (the Default's is foreign control's), the
+ * defaults (new sessions, the API, per project) and the copy consents —
+ * allowed ahead of time, or revoked. Phones see all of it read-only: their
+ * one account action is the picker when starting or continuing a session
+ * (D9).
  */
 @Component({
   selector: 'mc-accounts',
@@ -75,6 +99,7 @@ interface ProjectRow {
     FormsModule,
     AccountAddSheetComponent,
     AccountSheetComponent,
+    DataJobComponent,
     IconComponent,
     PlanUsageComponent,
   ],
@@ -130,6 +155,8 @@ export class AccountsComponent {
         usageText: usageLine(usage, now) || 'not read yet',
         hasUsage: !!compact,
         action: needs(a),
+        hooks: hooksPluginText(a),
+        ownPlugin: a.kind === 'directory' && !a.isDefault,
       };
     });
   });
@@ -153,6 +180,35 @@ export class AccountsComponent {
   protected readonly secretText = computed(() =>
     secretStoreText(this.accounts.view()?.secretStore),
   );
+  /** Pairs of accounts in different directories not allowed yet: what the
+   * desktop may allow before anyone continues a conversation across them. */
+  protected readonly consentPairs = computed<ConsentPair[]>(() => {
+    const list = this.accounts.list();
+    const out: ConsentPair[] = [];
+    for (const from of list) {
+      for (const to of list) {
+        if (from.id === to.id || !needsCopy(from, to)) continue;
+        if (this.accounts.hasCopyConsent(from.id, to.id)) continue;
+        out.push({
+          key: `${from.id}>${to.id}`,
+          from: from.id,
+          to: to.id,
+          label: `${from.name} → ${to.name}`,
+        });
+      }
+    }
+    return out;
+  });
+  /** The pair the form would allow: the first until another is picked. */
+  protected readonly newPair = linkedSignal(() => this.consentPairs()[0]?.key ?? '');
+  /** `<account id>:install|uninstall` while the hooks plugin changes. */
+  protected readonly hooksBusy = signal<string | null>(null);
+  protected readonly notice = signal('');
+  /** Recent moves and copies (`GET /data/jobs`), newest first: Undo stays
+   * here once the Move/Copy dialog is closed. */
+  protected readonly moves = signal<JobView[]>([]);
+  private readonly jobs = inject(DataJobsService);
+  private readonly stopFollowing = new AbortController();
 
   constructor() {
     // Always fresh on opening (the desktop's read carries a sign-in link).
@@ -169,6 +225,12 @@ export class AccountsComponent {
       const timer = setInterval(() => void this.accounts.refresh(), WATCH_MS);
       onCleanup(() => clearInterval(timer));
     });
+    void this.loadMoves();
+    inject(DestroyRef).onDestroy(() => this.stopFollowing.abort());
+  }
+
+  protected moveChanged(j: JobView): void {
+    this.moves.update((list) => list.map((x) => (x.id === j.id ? j : x)));
   }
 
   protected short(p: string | undefined): string {
@@ -267,14 +329,44 @@ export class AccountsComponent {
   }
 
   protected async revoke(from: string, to: string): Promise<void> {
+    await this.consentChange(from, to, false);
+  }
+
+  protected async allowPair(e: Event): Promise<void> {
+    e.preventDefault();
+    const p = this.consentPairs().find((x) => x.key === this.newPair());
+    if (p) await this.consentChange(p.from, p.to, true);
+  }
+
+  private async consentChange(from: string, to: string, granted: boolean): Promise<void> {
     this.saving.set(true);
     this.error.set('');
     try {
-      await this.accounts.setCopyConsent(from, to, false);
+      await this.accounts.setCopyConsent(from, to, granted);
     } catch (e) {
       this.error.set(describeError(e).text);
     } finally {
       this.saving.set(false);
+    }
+  }
+
+  /** Desktop: the hooks plugin in a directory account's own directory. */
+  protected async setHooks(a: AccountView, install: boolean): Promise<void> {
+    if (this.hooksBusy()) return;
+    this.hooksBusy.set(`${a.id}:${install ? 'install' : 'uninstall'}`);
+    this.error.set('');
+    this.notice.set('');
+    try {
+      await this.accounts.setHooksPlugin(a.id, install);
+      this.notice.set(
+        install
+          ? `The hooks plugin is in ${a.name}'s directory now. Its sessions started before need /reload-plugins.`
+          : `The hooks plugin is no longer in ${a.name}'s directory.`,
+      );
+    } catch (e) {
+      this.error.set(`${a.name}: ${describeError(e).text}`);
+    } finally {
+      this.hooksBusy.set(null);
     }
   }
 
@@ -289,6 +381,29 @@ export class AccountsComponent {
       return false;
     } finally {
       this.saving.set(false);
+    }
+  }
+
+  /** The moves and copies the Mac still knows of; a running one is followed. */
+  private async loadMoves(): Promise<void> {
+    let list: JobView[];
+    try {
+      const { jobs } = await this.api.listDataJobs();
+      list = (Array.isArray(jobs) ? jobs : [])
+        .map(normalizeJob)
+        .filter((j): j is JobView => !!j && (j.kind === 'move' || j.kind === 'copy'))
+        .sort((a, b) => b.startedAt - a.startedAt)
+        .slice(0, MOVES_SHOWN);
+    } catch {
+      // Only a convenience: the Move/Copy dialog has its own.
+      return;
+    }
+    this.moves.set(list);
+    for (const j of list) {
+      if (j.state !== 'running') continue;
+      void this.jobs
+        .follow(j, (next) => this.moveChanged(next), this.stopFollowing.signal)
+        .catch(() => undefined);
     }
   }
 

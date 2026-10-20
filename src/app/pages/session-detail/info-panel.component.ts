@@ -8,7 +8,8 @@ import {
   untracked,
 } from '@angular/core';
 
-import { DEFAULT_ACCOUNT } from '../../core/accounts';
+import { DEFAULT_ACCOUNT, transferTargets } from '../../core/accounts';
+import { AccountsService } from '../../core/accounts.service';
 import { ApiService } from '../../core/api.service';
 import { KeyName, LaunchOverrides, McpServerStatus } from '../../core/models';
 import { NowService } from '../../core/now.service';
@@ -109,7 +110,16 @@ const KEYS: { key: KeyName; label: string; aria: string }[] = [
           <dt>Project</dt>
           <dd>{{ s.projectName }}</dd>
           <dt>Folder</dt>
-          <dd class="mono">{{ short(s.cwd) }}</dd>
+          @if (moveOffered()) {
+            <dd>
+              <span class="mono">{{ short(s.cwd) }}</span>
+              <button class="btn ghost small" type="button" (click)="ctx.moveCopy.set('project')">
+                <mc-icon name="move" [size]="13" /> Move or copy…
+              </button>
+            </dd>
+          } @else {
+            <dd class="mono">{{ short(s.cwd) }}</dd>
+          }
           <dt>Runs in</dt>
           <dd>
             {{ surface(s.surface) }}
@@ -519,6 +529,7 @@ export class InfoPanelComponent {
   protected readonly ctx = inject(SessionContext);
   private api = inject(ApiService);
   private clock = inject(NowService);
+  private accounts = inject(AccountsService);
   protected readonly plan = inject(PlanUsageService);
 
   protected overrides: LaunchOverrides = {};
@@ -536,6 +547,12 @@ export class InfoPanelComponent {
   protected readonly planAccount = computed(
     () => this.ctx.session()?.account?.id ?? DEFAULT_ACCOUNT,
   );
+  /** The desktop may move or copy the project to another account's
+   * directory (the header's dialog). */
+  protected readonly moveOffered = computed(() => {
+    const a = this.ctx.session()?.account;
+    return !!a && this.ctx.isDesktop() && transferTargets(this.accounts.list(), a).length > 0;
+  });
   protected readonly kindLabel = accountKindLabel;
   protected readonly terminal = computed(() => {
     const s = this.ctx.session();

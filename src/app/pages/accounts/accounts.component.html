@@ -23,6 +23,9 @@
   @if (error()) {
     <p class="notice error small" role="alert">{{ error() }}</p>
   }
+  @if (notice()) {
+    <p class="notice ok small" role="status">{{ notice() }}</p>
+  }
 
   @if (accounts.view()) {
     <section class="card list accts" aria-label="Claude accounts">
@@ -45,10 +48,41 @@
             <span class="small state" [attr.data-tone]="r.signIn.tone">{{ r.signIn.text }}</span>
             <span class="muted small"
               >{{ liveText(r.live) }}
-              @if (r.a.hooksPlugin) {
-                · Hooks plugin {{ r.a.hooksPlugin }}
+              @if (r.hooks) {
+                · {{ r.hooks }}
               }
             </span>
+            @if (isDesktop() && r.ownPlugin) {
+              <!-- A directory account's own plugin (the Default's is the
+                   foreign-session control on the Remote page). -->
+              <span class="hooks">
+                @if (r.a.hooksPlugin !== 'installed') {
+                  <button
+                    class="btn small ghost"
+                    type="button"
+                    [disabled]="!!hooksBusy()"
+                    [attr.aria-label]="'Install the hooks plugin for ' + r.a.name"
+                    (click)="setHooks(r.a, true)"
+                  >
+                    <mc-icon name="plug" [size]="14" />
+                    {{
+                      hooksBusy() === r.a.id + ':install' ? 'Installing…' : 'Install hooks plugin'
+                    }}
+                  </button>
+                }
+                @if (r.a.hooksPlugin && r.a.hooksPlugin !== 'missing') {
+                  <button
+                    class="btn small ghost"
+                    type="button"
+                    [disabled]="!!hooksBusy()"
+                    [attr.aria-label]="'Uninstall the hooks plugin of ' + r.a.name"
+                    (click)="setHooks(r.a, false)"
+                  >
+                    {{ hooksBusy() === r.a.id + ':uninstall' ? 'Uninstalling…' : 'Uninstall' }}
+                  </button>
+                }
+              </span>
+            }
             @if (r.hasUsage) {
               <button
                 type="button"
@@ -264,29 +298,60 @@
       }
     }
 
-    @if (consent().length) {
+    @if (consent().length || (isDesktop() && consentPairs().length)) {
       <h2>Copy for Continue on</h2>
       <section class="card" aria-label="Copy consents">
         <p class="muted small first">
-          Continue on copies conversations between these accounts' directories without asking first.
-        </p>
-        <div class="list">
-          @for (c of consent(); track c.from + '>' + c.to) {
-            <div class="list-row">
-              <span class="grow">{{ c.fromName }} → {{ c.toName }}</span>
-              @if (isDesktop()) {
-                <button
-                  class="btn small"
-                  type="button"
-                  [disabled]="saving()"
-                  (click)="revoke(c.from, c.to)"
-                >
-                  Revoke
-                </button>
-              }
-            </div>
+          Continuing a conversation on an account with its own directory copies it there first.
+          @if (consent().length) {
+            Between these accounts that happens without asking.
+          } @else {
+            The desktop asks once for each pair of accounts.
           }
-        </div>
+        </p>
+        @if (consent().length) {
+          <div class="list">
+            @for (c of consent(); track c.from + '>' + c.to) {
+              <div class="list-row">
+                <span class="grow">{{ c.fromName }} → {{ c.toName }}</span>
+                @if (isDesktop()) {
+                  <button
+                    class="btn small"
+                    type="button"
+                    [disabled]="saving()"
+                    (click)="revoke(c.from, c.to)"
+                  >
+                    Revoke
+                  </button>
+                }
+              </div>
+            }
+          </div>
+        }
+        @if (isDesktop() && consentPairs().length) {
+          <form class="padd" (submit)="allowPair($event)">
+            <label class="field pfield">
+              <span class="field-label">Allow copies</span>
+              <select name="pair" [ngModel]="newPair()" (ngModelChange)="newPair.set($event)">
+                @for (p of consentPairs(); track p.key) {
+                  <option [value]="p.key">{{ p.label }}</option>
+                }
+              </select>
+            </label>
+            <button class="btn" type="submit" [disabled]="saving()">
+              <mc-icon name="check" [size]="15" /> Allow
+            </button>
+          </form>
+        }
+      </section>
+    }
+
+    @if (moves().length) {
+      <h2>Moves and copies</h2>
+      <section class="card list moves" aria-label="Recent moves and copies">
+        @for (j of moves(); track j.id) {
+          <mc-data-job class="mrow" [job]="j" (changed)="moveChanged($event)" />
+        }
       </section>
     }
 

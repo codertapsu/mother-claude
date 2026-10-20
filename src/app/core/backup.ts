@@ -1,0 +1,373 @@
+import { ApiError, describeError } from './api.service';
+import { isTransferRefusal, normalizeJob, plural, sentence, transferErrorText } from './data-jobs';
+import {
+  BackupAction,
+  BackupConfigEntry,
+  BackupIndex,
+  BackupIndexSession,
+  BackupMachine,
+  BackupSet,
+  BackupSkip,
+  BackupSuggestion,
+  BackupView,
+  BackupWarning,
+  JobView,
+  PullResult,
+  PushResult,
+  RestoreResult,
+} from './models';
+
+/**
+ * Pure helpers for Backup & sync (`/backup*`, docs/BACKUP.md): the view
+ * and a set's index read tolerantly, what a restore or pull does with each
+ * session in words, which sessions start selected, and the results.
+ */
+
+/** Longest schedule the server takes (a week). */
+export const BACKUP_MAX_HOURS = 168;
+
+/** Shortest passphrase of the user's own (the server's rule). */
+export const PASSPHRASE_MIN = 12;
+
+/** The schedules offered (0: by hand only). */
+export const BACKUP_SCHEDULES: readonly { hours: number; label: string }[] = [
+  { hours: 0, label: 'By hand only' },
+  { hours: 1, label: 'Every hour' },
+  { hours: 3, label: 'Every 3 hours' },
+  { hours: 6, label: 'Every 6 hours' },
+  { hours: 12, label: 'Every 12 hours' },
+  { hours: 24, label: 'Every 24 hours' },
+];
+
+export function scheduleLabel(hours: number): string {
+  const known = BACKUP_SCHEDULES.find((s) => s.hours === hours);
+  if (known) return known.label;
+  return hours === 1 ? 'Every hour' : `Every ${hours} hours`;
+}
+
+const ACTIONS: readonly BackupAction[] = [
+  'new',
+  'update',
+  'conflict',
+  'same',
+  'localNewer',
+  'live',
+];
+
+function str(v: unknown): string | undefined {
+  return typeof v === 'string' && v.trim() ? v : undefined;
+}
+
+function num(v: unknown): number | undefined {
+  return typeof v === 'number' && Number.isFinite(v) ? v : undefined;
+}
+
+function count(v: unknown): number {
+  const n = num(v);
+  return n !== undefined && n > 0 ? n : 0;
+}
+
+function obj(v: unknown): Record<string, unknown> | null {
+  return v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : null;
+}
+
+function list<T>(v: unknown, read: (x: unknown) => T | null): T[] {
+  return Array.isArray(v) ? v.map(read).filter((x): x is T => x !== null) : [];
+}
+
+function machine(raw: unknown): BackupMachine | null {
+  const r = obj(raw);
+  const host = str(r?.['host']);
+  if (!r || !host) return null;
+  const lastPush = num(r['lastPush']);
+  return { host, ...(lastPush !== undefined ? { lastPush } : {}) };
+}
+
+function backupSet(raw: unknown): BackupSet | null {
+  const r = obj(raw);
+  const account = str(r?.['account']);
+  if (!r || !account) return null;
+  const lastPush = num(r['lastPush']);
+  const lastError = str(r['lastError']);
+  const sessions = num(r['sessions']);
+  return {
+    account,
+    name: str(r['name']) ?? account,
+    dir: str(r['dir']) ?? '',
+    exists: r['exists'] === true,
+    ...(lastPush !== undefined ? { lastPush } : {}),
+    ...(lastError ? { lastError } : {}),
+    ...(sessions !== undefined ? { sessions } : {}),
+    machines: list(r['machines'], machine),
+  };
+}
+
+function suggestion(raw: unknown): BackupSuggestion | null {
+  const r = obj(raw);
+  const label = str(r?.['label']);
+  const path = str(r?.['path']);
+  return label && path ? { label, path } : null;
+}
+
+/** `GET /backup` made safe to render, or null when it isn't one. */
+export function normalizeBackupView(raw: unknown): BackupView | null {
+  const r = obj(raw);
+  const s = obj(r?.['settings']);
+  if (!r || !s) return null;
+  const hours = num(s['everyHours']);
+  const lastPull = num(r['lastPull']);
+  return {
+    settings: {
+      folder: str(s['folder']) ?? null,
+      everyHours: hours !== undefined && hours >= 0 ? Math.round(hours) : 0,
+      pullOnLaunch: s['pullOnLaunch'] === true,
+    },
+    passphraseSet: r['passphraseSet'] === true,
+    host: str(r['host']) ?? '',
+    sets: list(r['sets'], backupSet),
+    suggestions: list(r['suggestions'], suggestion),
+    ...(lastPull !== undefined ? { lastPull } : {}),
+    jobs: list(r['jobs'], normalizeJob),
+  };
+}
+
+function indexSession(raw: unknown): BackupIndexSession | null {
+  const r = obj(raw);
+  const id = str(r?.['id']);
+  const action = ACTIONS.find((a) => a === r?.['action']);
+  if (!r || !id || !action) return null;
+  const cwd = str(r['cwd']);
+  const localBytes = num(r['localBytes']);
+  const pruneWarning = str(r['pruneWarning']);
+  return {
+    id,
+    action,
+    ...(cwd ? { cwd } : {}),
+    remoteBytes: count(r['remoteBytes']),
+    ...(localBytes !== undefined ? { localBytes } : {}),
+    host: str(r['host']) ?? '',
+    pushedAt: num(r['pushedAt']) ?? 0,
+    newestMtime: num(r['newestMtime']) ?? 0,
+    ...(pruneWarning ? { pruneWarning } : {}),
+  };
+}
+
+function configEntry(raw: unknown): BackupConfigEntry | null {
+  const r = obj(raw);
+  const name = str(r?.['name']);
+  if (!r || !name) return null;
+  return { name, createdAt: num(r['createdAt']) ?? 0, host: str(r['host']) ?? '' };
+}
+
+/** `GET /backup/index` made safe to render, or null when it isn't one. */
+export function normalizeBackupIndex(raw: unknown): BackupIndex | null {
+  const r = obj(raw);
+  const account = str(r?.['account']);
+  if (!r || !account || !Array.isArray(r['sessions'])) return null;
+  return {
+    account,
+    name: str(r['name']) ?? account,
+    set: str(r['set']) ?? '',
+    machines: list(r['machines'], machine),
+    sessions: list(r['sessions'], indexSession),
+    config: list(r['config'], configEntry),
+  };
+}
+
+/** What a pull does with a session, in words. */
+const PULL_TEXT: Record<BackupAction, string> = {
+  new: 'New here',
+  update: "Newer in the backup — replaces this Mac's copy, kept for undo",
+  conflict: 'Changed on both — kept side by side',
+  live: 'Running here — skipped',
+  localNewer: 'Newer here',
+  same: 'Same',
+};
+
+/** How a session of the set compares with the account it would go into. */
+const RESTORE_TEXT: Record<BackupAction, string> = {
+  new: 'New here',
+  update: 'Newer in the backup — the account has it already',
+  conflict: 'Changed on both — the account has it already',
+  live: 'Running here',
+  localNewer: 'Newer here',
+  same: 'Same',
+};
+
+export function actionText(action: BackupAction, mode: 'pull' | 'restore'): string {
+  return (mode === 'pull' ? PULL_TEXT : RESTORE_TEXT)[action];
+}
+
+/** A pull does something with these (the rest stay as they are). */
+export function pullTakes(action: BackupAction): boolean {
+  return action === 'new' || action === 'update' || action === 'conflict';
+}
+
+/** A session that runs here is never touched. */
+export function restoreTakes(action: BackupAction): boolean {
+  return action !== 'live';
+}
+
+/** Which sessions start selected: new ones for a restore, everything a pull
+ * would bring for a pull. */
+export function preselect(
+  sessions: readonly BackupIndexSession[],
+  mode: 'pull' | 'restore',
+): Set<string> {
+  return new Set(
+    sessions
+      .filter((s) => (mode === 'pull' ? pullTakes(s.action) : s.action === 'new'))
+      .map((s) => s.id),
+  );
+}
+
+/** The selected sessions Claude Code would prune again. */
+export function prunedOf(
+  sessions: readonly BackupIndexSession[],
+  selected: ReadonlySet<string>,
+): BackupIndexSession[] {
+  return sessions.filter((s) => selected.has(s.id) && !!s.pruneWarning);
+}
+
+/** The warning restore and pull give about pruning (docs/ACCOUNTS.md §11.7). */
+export const PRUNE_WARNING =
+  'Claude Code will delete this again at its next cleanup unless cleanupPeriodDays is raised.';
+
+function skip(raw: unknown): BackupSkip | null {
+  const r = obj(raw);
+  const id = typeof r?.['id'] === 'string' ? (r['id'] as string) : undefined;
+  if (!r || id === undefined) return null;
+  return { id, code: str(r['code']) ?? '', reason: str(r['reason']) ?? '' };
+}
+
+function warning(raw: unknown): BackupWarning | null {
+  const r = obj(raw);
+  const text = str(r?.['text']);
+  if (!r || !text) return null;
+  return { id: typeof r['id'] === 'string' ? r['id'] : '', text };
+}
+
+function ids(v: unknown): string[] {
+  return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string' && !!x) : [];
+}
+
+/** A restore job's `result`. */
+export function normalizeRestoreResult(raw: unknown): RestoreResult {
+  const r = obj(raw) ?? {};
+  return {
+    restored: ids(r['restored']),
+    skipped: list(r['skipped'], skip),
+    warnings: list(r['warnings'], warning),
+  };
+}
+
+/** A pull job's `result`. */
+export function normalizePullResult(raw: unknown): PullResult {
+  const r = obj(raw) ?? {};
+  const conflicts: [string, string][] = Array.isArray(r['conflicts'])
+    ? r['conflicts']
+        .filter(
+          (c): c is [string, string] =>
+            Array.isArray(c) && typeof c[0] === 'string' && typeof c[1] === 'string',
+        )
+        .map(([id, path]) => [id, path])
+    : [];
+  return {
+    ...normalizeRestoreResult(raw),
+    updated: ids(r['updated']),
+    conflicts,
+    historyLines: count(r['historyLines']),
+  };
+}
+
+/** A backup job's `result`, or null when it has none. */
+export function normalizePushResult(raw: unknown): PushResult | null {
+  const r = obj(raw);
+  if (!r) return null;
+  const failed: [string, string][] = Array.isArray(r['failed'])
+    ? r['failed']
+        .filter((f): f is [string, string] => Array.isArray(f) && typeof f[0] === 'string')
+        .map(([id, why]) => [id, typeof why === 'string' ? why : ''])
+    : [];
+  return {
+    archived: ids(r['archived']),
+    unchanged: count(r['unchanged']),
+    skippedLive: ids(r['skippedLive']),
+    failed,
+    config: str(r['config']) ?? null,
+    bytes: count(r['bytes']),
+  };
+}
+
+/** One line about a finished job ('' when there is nothing to say). */
+export function jobSummary(job: JobView): string {
+  if (job.state === 'failed') return sentence(job.error) || 'It failed.';
+  if (job.state === 'undone') return 'Undone: everything is back as it was.';
+  if (job.state !== 'done') return '';
+  switch (job.kind) {
+    case 'backup': {
+      const r = normalizePushResult(job.result);
+      if (!r) return 'Backed up.';
+      const parts = [
+        r.archived.length
+          ? `${plural(r.archived.length, 'session')} backed up`
+          : 'Nothing new to back up',
+        r.unchanged ? `${r.unchanged} unchanged` : '',
+        r.skippedLive.length ? `${r.skippedLive.length} running, skipped` : '',
+        r.failed.length ? `${r.failed.length} failed` : '',
+        r.config ? 'settings saved' : '',
+      ];
+      return parts.filter(Boolean).join(' · ');
+    }
+    case 'restore': {
+      const r = normalizeRestoreResult(job.result);
+      const parts = [
+        `${plural(r.restored.length, 'session')} restored`,
+        r.skipped.length ? `${r.skipped.length} skipped` : '',
+      ];
+      return parts.filter(Boolean).join(' · ');
+    }
+    case 'pull': {
+      const r = normalizePullResult(job.result);
+      const parts = [
+        r.restored.length ? `${r.restored.length} new` : '',
+        r.updated.length ? `${r.updated.length} updated` : '',
+        r.conflicts.length ? plural(r.conflicts.length, 'conflict') : '',
+        r.skipped.length ? `${r.skipped.length} skipped` : '',
+        r.historyLines ? `${plural(r.historyLines, 'prompt-history line')} added` : '',
+      ];
+      return parts.filter(Boolean).join(' · ') || 'Already up to date.';
+    }
+    default: {
+      const n = job.sessions.length;
+      return `${job.kind === 'move' ? 'Moved' : 'Copied'} ${plural(n, 'session')}.`;
+    }
+  }
+}
+
+/** What each backup refusal means, when the server says nothing. */
+const BACKUP_TEXT: Record<string, string> = {
+  no_backup_folder: 'Choose a backup folder first.',
+  no_backup_passphrase: 'Set a passphrase first.',
+  wrong_passphrase:
+    'The passphrase on this Mac does not open this backup. Set the passphrase it was made with (Passphrase › Change), then try again.',
+  invalid_backup: 'There is no backup to read there.',
+  backup_io: 'The backup folder could not be read or written.',
+  invalid_schedule: 'Back up at least once a week, or by hand only.',
+  invalid_folder: 'That folder can’t be used.',
+};
+
+/** A refusal of a backup, restore, pull or settings change, in words. */
+export function backupErrorText(e: unknown): string {
+  if (e instanceof ApiError && e.code === 'wrong_passphrase')
+    return BACKUP_TEXT['wrong_passphrase'];
+  if (e instanceof ApiError && e.code && e.code in BACKUP_TEXT) {
+    // The two prerequisites are said our way; the rest in the server's words.
+    if (e.code === 'no_backup_folder' || e.code === 'no_backup_passphrase') {
+      return BACKUP_TEXT[e.code];
+    }
+    return sentence(e.message) || BACKUP_TEXT[e.code];
+  }
+  if (isTransferRefusal(e)) return transferErrorText(e);
+  return describeError(e).text;
+}

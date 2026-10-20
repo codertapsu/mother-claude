@@ -116,4 +116,114 @@ describe('AccountsComponent', () => {
     expect(backend.calls).not.toContain('PUT /accounts/defaults');
     expect(text(el.querySelector('form.padd + .error-text'))).toContain('starting with /');
   });
+
+  it("installs and removes the hooks plugin in a directory account's own directory", async () => {
+    asDesktop();
+    serveAccounts(backend, buildAccounts(Date.now(), true));
+    backend.routes.set(`/accounts/${MOCK_ACCOUNT_WORK}/hooks/install`, () => {
+      const view = buildAccounts(Date.now(), true);
+      view.accounts = view.accounts.map((a) =>
+        a.id === MOCK_ACCOUNT_WORK ? { ...a, hooksPlugin: 'installed' } : a,
+      );
+      serveAccounts(backend, view);
+      return { status: 200, body: view.accounts[1] };
+    });
+    const el = await render();
+    const rows = [...el.querySelectorAll('.acct')];
+    // The Default's plugin is foreign control's; a token account has none.
+    expect(text(rows[0])).toContain('Hooks plugin installed');
+    expect(rows[0].querySelector('.hooks')).toBeNull();
+    expect(text(rows[2])).not.toContain('Hooks plugin');
+    expect(text(rows[1])).toContain('Hooks plugin not installed');
+    const install = rows[1].querySelector('.hooks .btn') as HTMLButtonElement;
+    expect(text(install)).toBe('Install hooks plugin');
+    install.click();
+    await flush();
+    fixture.detectChanges();
+    expect(backend.calls).toContain(`POST /accounts/${MOCK_ACCOUNT_WORK}/hooks/install`);
+    const after = el.querySelectorAll('.acct')[1];
+    expect(text(after)).toContain('Hooks plugin installed');
+    expect(text(after.querySelector('.hooks'))).toBe('Uninstall');
+    expect(text(el.querySelector('.notice.ok'))).toContain('/reload-plugins');
+  });
+
+  it('lets the desktop allow copies between two accounts ahead of time', async () => {
+    asDesktop();
+    serveAccounts(backend, buildAccounts(Date.now(), true));
+    backend.routes.set('/accounts/copy-consent', (_m, body) => ({
+      status: 200,
+      body: { ...buildAccounts(Date.now(), true), copyConsent: [body] },
+    }));
+    const el = await render();
+    const sel = el.querySelector('select[name="pair"]') as HTMLSelectElement;
+    // Only pairs in different directories: the token account shares the Default's.
+    expect([...sel.options].map((o) => o.text.trim())).toEqual([
+      'Default → Work',
+      'Work → Default',
+      'Work → Marcus (Pro)',
+      'Marcus (Pro) → Work',
+    ]);
+    sel.value = sel.options[1].value;
+    sel.dispatchEvent(new Event('change'));
+    fixture.detectChanges();
+    const forms = [...el.querySelectorAll('form.padd')];
+    const consentForm = forms.find((f) =>
+      f.querySelector('select[name="pair"]'),
+    ) as HTMLFormElement;
+    (consentForm.querySelector('button[type="submit"]') as HTMLButtonElement).click();
+    await flush();
+    expect(backend.bodyOf('PUT /accounts/copy-consent')).toEqual({
+      from: MOCK_ACCOUNT_WORK,
+      to: 'default',
+      granted: true,
+    });
+  });
+
+  it('shows a phone no hooks or copy buttons', async () => {
+    serveAccounts(backend, buildAccounts(Date.now(), true));
+    const el = await render();
+    expect(el.querySelector('.hooks')).toBeNull();
+    expect(el.querySelector('select[name="pair"]')).toBeNull();
+  });
+
+  it('keeps the Undo of recent moves and copies at hand', async () => {
+    asDesktop();
+    serveAccounts(backend, buildAccounts(Date.now(), true));
+    const job = (id: string, kind: string, over: Record<string, unknown> = {}) => ({
+      id,
+      kind,
+      state: 'done',
+      startedAt: Date.now() - 60_000,
+      finishedAt: Date.now() - 50_000,
+      filesDone: 3,
+      filesTotal: 3,
+      bytesDone: 10,
+      bytesTotal: 10,
+      sessions: ['s1'],
+      undoUntil: Date.now() + 86_400_000,
+      ...over,
+    });
+    backend.routes.set('/data/jobs', () => ({
+      status: 200,
+      body: {
+        jobs: [
+          job('j_backup', 'backup'),
+          job('j_copy', 'copy'),
+          job('j_move', 'move', {
+            startedAt: Date.now() - 10_000,
+            state: 'undone',
+            undoUntil: undefined,
+          }),
+        ],
+      },
+    }));
+    const el = await render();
+    const rows = [...el.querySelectorAll('.moves mc-data-job')];
+    // Backups live on the Backup & sync page; the newest first.
+    expect(rows.map((r) => text(r.querySelector('.jtitle')))).toEqual(['Move', 'Copy']);
+    expect(text(rows[0])).toContain('Undone');
+    expect(rows[0].querySelector('.undo')).toBeNull();
+    expect(text(rows[1])).toContain('Copied 1 session.');
+    expect(text(rows[1].querySelector('.undo .btn'))).toBe('Undo');
+  });
 });

@@ -10,17 +10,19 @@ import {
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 
+import { transferTargets } from '../../core/accounts';
 import { AccountsService } from '../../core/accounts.service';
 import { NoticeService } from '../../core/notice.service';
 import { PushService } from '../../core/push.service';
 import { RealtimeService, connectionDetail, connectionLabel } from '../../core/realtime.service';
-import { SessionPushPref } from '../../core/models';
+import { SessionPushPref, TransferWhat } from '../../core/models';
 import { AccountChipComponent } from '../../shared/account-chip.component';
 import { ActivityLineComponent } from '../../shared/activity-line.component';
 import { capRename, capTerminal } from '../../shared/caps';
 import { ContinueOnSheetComponent, canContinue } from '../../shared/continue-on-sheet.component';
 import { CopyButtonComponent } from '../../shared/copy-button.component';
 import { IconComponent } from '../../shared/icon.component';
+import { MoveCopySheetComponent } from '../../shared/move-copy-sheet.component';
 import { SheetComponent } from '../../shared/sheet.component';
 import { StatusPillComponent } from '../../shared/status-pill.component';
 import { TimeAgoComponent } from '../../shared/time-ago.component';
@@ -31,8 +33,10 @@ import { SessionContext } from './session-context';
  * The session page's sticky top row: back, name, status, the Claude
  * account (while there are several) and what it is doing right now (with
  * elapsed time), the connection state when it isn't Live, and a ⋯ menu
- * (rename, continue/fork, continue on another account, terminal,
- * notifications, resume command, stop/respawn/remove). 48 px tall on phones.
+ * (rename, continue/fork, continue on another account, on the desktop
+ * moving or copying it or its project to another account's directory,
+ * terminal, notifications, resume command, stop/respawn/remove). 48 px tall
+ * on phones.
  */
 @Component({
   selector: 'mc-session-header',
@@ -45,6 +49,7 @@ import { SessionContext } from './session-context';
     ContinueOnSheetComponent,
     CopyButtonComponent,
     IconComponent,
+    MoveCopySheetComponent,
     SheetComponent,
     StatusPillComponent,
     TimeAgoComponent,
@@ -112,6 +117,16 @@ import { SessionContext } from './session-context';
             <button class="item" type="button" (click)="openContinueOn()">
               <mc-icon name="user" [size]="18" />
               <span>Continue on another account…</span>
+            </button>
+          }
+          @if (moveOffered()) {
+            <button class="item" type="button" (click)="openMoveCopy('session')">
+              <mc-icon name="move" [size]="18" />
+              <span>Move or copy to another account…</span>
+            </button>
+            <button class="item" type="button" (click)="openMoveCopy('project')">
+              <mc-icon name="folder" [size]="18" />
+              <span>Move or copy this project…</span>
             </button>
           }
           @if (terminal()) {
@@ -252,6 +267,16 @@ import { SessionContext } from './session-context';
         [suggested]="continueOnSuggestion()"
         (closed)="continueOn.set(false)"
       />
+
+      @if (moveOffered()) {
+        <mc-move-copy-sheet
+          [open]="!!ctx.moveCopy()"
+          [what]="moveWhat()"
+          [source]="s.account"
+          [live]="s.live"
+          (closed)="ctx.moveCopy.set(null)"
+        />
+      }
     }
   `,
   styles: [
@@ -466,6 +491,21 @@ export class SessionHeaderComponent {
     const a = this.ctx.session()?.account;
     return a ? (this.accounts.suggestionFor(a)?.id ?? null) : null;
   });
+  /** Desktop, several accounts, and one of them in another directory. */
+  protected readonly moveOffered = computed(() => {
+    const s = this.ctx.session();
+    return (
+      !!s?.account &&
+      this.ctx.isDesktop() &&
+      transferTargets(this.accounts.list(), s.account).length > 0
+    );
+  });
+  protected readonly moveWhat = computed<TransferWhat | null>(() => {
+    const s = this.ctx.session();
+    const kind = this.ctx.moveCopy();
+    if (!s || !kind) return null;
+    return kind === 'project' ? { what: 'project', cwd: s.cwd } : { what: 'session', id: s.id };
+  });
 
   constructor() {
     // The composer's `/rename` lands here.
@@ -504,6 +544,11 @@ export class SessionHeaderComponent {
   protected openContinueOn(): void {
     this.menu.set(false);
     this.continueOn.set(true);
+  }
+
+  protected openMoveCopy(kind: 'session' | 'project'): void {
+    this.menu.set(false);
+    this.ctx.moveCopy.set(kind);
   }
 
   protected openTerminal(): void {

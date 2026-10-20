@@ -55,6 +55,12 @@
   gap: 0.4rem;
   margin-left: auto;
 }
+.hooks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  margin: 0.15rem 0 0 -0.5rem;
+}
 
 /* The compact plan meter (as on the sessions page). */
 .usage {
@@ -185,6 +191,14 @@ h3 {
 
 /* ─────────────────────────────── The rest */
 
+.moves {
+  padding-top: 0;
+  padding-bottom: 0;
+}
+.mrow {
+  padding: 0.7rem 0;
+}
+
 .first {
   margin-top: 0.1rem;
 }
@@ -226,6 +240,10 @@ h3 {
   .padd {
     flex-direction: column;
     align-items: stretch;
+  }
+  /* In a column the field's 14rem basis would be its height. */
+  .padd .pfield {
+    flex: 0 0 auto;
   }
   .padd select {
     width: 100%;
