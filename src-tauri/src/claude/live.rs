@@ -1220,6 +1220,11 @@ impl LiveRoster {
             self.lock().live.insert(sid, rec);
         }
     }
+
+    /// Test/dev hook: the process of a session ended.
+    pub fn remove_for_test(&self, session_id: &str) {
+        self.lock().live.remove(session_id);
+    }
 }
 
 #[cfg(test)]

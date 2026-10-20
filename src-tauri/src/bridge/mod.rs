@@ -874,11 +874,14 @@ pub async fn thread_exists(state: &AppState, thread_id: &str) -> bool {
 /// the default before the bridge has ever run it — and simply keep talking.
 /// `ctx` is the caller: resuming into a default permission mode that removes
 /// the human from the loop (bypassPermissions / dontAsk) is refused for a
-/// caller that may not perform dangerous actions (design G1).
+/// caller that may not perform dangerous actions (design G1). `account` is
+/// the one the caller named, already checked to be the conversation's own
+/// ([`crate::claude::summaries::acting_account`]).
 pub async fn ensure_thread_live(
     state: &AppState,
     ctx: &crate::server::context::ClientContext,
     thread_id: &str,
+    account: Option<&str>,
 ) -> error::BridgeResult<()> {
     if state.bridge.thread(thread_id).await.is_some() {
         return Ok(());
@@ -917,13 +920,14 @@ pub async fn ensure_thread_live(
         .or_else(|| defaults.cwd.clone())
         .unwrap_or_else(routes::threads::default_cwd);
 
-    // It continues under the account whose directory holds it (one that ran
-    // with a token no account holds, under the bridge's).
-    let account = crate::claude::summaries::session_account(state, thread_id);
-    let account = if state.accounts.is_usable(&account) {
-        account
-    } else {
-        state.accounts.account_for_bridge(&cwd)
+    // It continues under the account the caller named, else the one whose
+    // directory holds it (one that ran with a token no account holds, under
+    // the bridge's).
+    let own = crate::claude::summaries::session_account(state, thread_id);
+    let account = match account {
+        Some(asked) => asked.to_string(),
+        None if state.accounts.is_usable(&own) => own,
+        None => state.accounts.account_for_bridge(&cwd),
     };
     let env = state
         .accounts

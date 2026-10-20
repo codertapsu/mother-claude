@@ -802,6 +802,10 @@ pub async fn continue_as(
             "Only Claude Code sessions (UUID ids) can be continued.",
         ));
     }
+    // The session's own account; one that ran with a token no account holds
+    // is the Default's for every decision below (its chip says otherwise).
+    let shown = crate::claude::summaries::session_account(state, id);
+    let source = crate::claude::summaries::acting_account(state, id);
     // "Continue on B" forks, so it may start from a conversation Mother Claude
     // drives right now (the usual case: it stopped at A's limit); the original
     // keeps running as it was. Continuing on the same account is a message.
@@ -810,7 +814,7 @@ pub async fn continue_as(
         .as_deref()
         .map(str::trim)
         .filter(|a| !a.is_empty())
-        .is_some_and(|a| a != crate::claude::summaries::session_account(state, id));
+        .is_some_and(|a| a != source);
     if !other_account && (has_handle(state, id) || state.bridge.thread(id).await.is_some()) {
         return Err(ApiError::conflict(
             "already_owned",
@@ -825,11 +829,10 @@ pub async fn continue_as(
     // Never inherit a mode on resume or fork: always explicit.
     let mode = launch_mode(req.permission_mode.as_deref(), caller)?;
     // The session's own account unless another one is asked for ("continue
-    // on B"), which always forks: the original stays as it was.
-    let source = crate::claude::summaries::session_account(state, id);
-    // A session that ran with a token no account holds continues under the
-    // project's account (or the default) unless one is named.
-    let fallback = if state.accounts.is_usable(&source) {
+    // on B"), which always forks: the original stays as it was. One that ran
+    // with a token no account holds (or under a removed account) continues
+    // under the project's account (or the default) unless one is named.
+    let fallback = if shown == source && state.accounts.is_usable(&source) {
         source.clone()
     } else {
         state.accounts.account_for_cwd(cwd)

@@ -658,7 +658,7 @@ pub async fn dispatch_from(
     // A turn that died on a plan limit: worth one plan-usage read, of the
     // account the session runs under.
     if name == "StopFailure" && p.error.is("rate_limit") {
-        let account = crate::claude::summaries::session_account(state, &p.session_id);
+        let account = crate::claude::summaries::acting_account(state, &p.session_id);
         crate::claude::usage::note_limit_hit_for(state, &account);
     }
     match name {
@@ -1514,6 +1514,59 @@ mod tests {
         )
         .await;
         assert!(st.usage.limit_hit_pending());
+    }
+
+    /// A session that runs with a token no account holds: while no token
+    /// account exists the token says nothing (v0.4), and with one the chip
+    /// says "unregistered" while the plan read stays the Default's.
+    #[tokio::test]
+    async fn a_token_nobody_registered_reads_the_defaults_plan() {
+        use crate::claude::summaries::{acting_account, session_account};
+        let state = || {
+            crate::state::Inner::new(
+                crate::claude::ClaudeHome::with_base(std::env::temp_dir().join("mc-hooks-token")),
+                crate::state::ServerConfig {
+                    host: "127.0.0.1".into(),
+                    port: 0,
+                },
+                crate::server::auth::Auth::ephemeral(),
+            )
+        };
+        let s = "0a1b2c3d-0000-4000-8000-00000000e0f2";
+        let live = || crate::claude::live::LiveSession {
+            pid: Some(std::process::id()),
+            session_id: Some(s.into()),
+            home_account: Some("default".into()),
+            token_sha256: Some("0".repeat(64)),
+            ..Default::default()
+        };
+        let limit = || {
+            payload(json!({ "hook_event_name": "StopFailure", "session_id": s,
+                "error": "rate_limit" }))
+        };
+
+        let st = state();
+        st.live.insert_for_test(live());
+        st.activity.note_token_sha256(s, &"1".repeat(64));
+        assert_eq!(session_account(&st, s), "default");
+        dispatch(&st, limit(), None).await;
+        assert!(st.usage.limit_hit_pending(), "the Default's plan is read");
+
+        let st = state();
+        st.accounts
+            .add_token(
+                "Pro",
+                Some(&crate::claude::secrets::Secret::new(
+                    "sk-ant-oat01-RegisteredTokenValue0123456789abcdefgh",
+                )),
+                None,
+            )
+            .unwrap();
+        st.live.insert_for_test(live());
+        assert_eq!(session_account(&st, s), "unregistered");
+        assert_eq!(acting_account(&st, s), "default");
+        dispatch(&st, limit(), None).await;
+        assert!(st.usage.limit_hit_pending(), "still the Default's plan");
     }
 
     #[test]

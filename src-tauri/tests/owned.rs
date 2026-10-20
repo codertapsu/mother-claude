@@ -1881,3 +1881,120 @@ async fn an_unregistered_token_session_continues_under_the_default() {
     wait_turn_done(&f.st, &forked).await;
     f.st.control.kill(&forked).await.unwrap();
 }
+
+/// A terminal session that runs with a token of its own. While no token
+/// account exists that token says nothing about it (goal 7): it is the
+/// Default's, and Continue after it ended resumes it in place, as in v0.4.
+/// With a token account registered its chip says "unregistered", but for
+/// every decision it is still the Default's: Continue resumes it in place,
+/// and continuing on a directory account asks for the (Default, that
+/// account) copy consent — one the desktop can grant.
+#[tokio::test]
+async fn a_session_with_a_token_of_its_own_is_the_defaults_for_decisions() {
+    use mother_claude_lib::claude::live::LiveSession;
+    use mother_claude_lib::claude::secrets::Secret;
+    use mother_claude_lib::claude::summaries::{acting_account, session_account};
+    setup();
+    let home = tempfile::tempdir().unwrap();
+    let cwd = tempfile::tempdir().unwrap();
+    let data = tempfile::tempdir().unwrap();
+    let mut auth = Auth::ephemeral();
+    auth.config_dir = Some(data.path().to_path_buf());
+    let st = Inner::new(
+        ClaudeHome::with_base(home.path()),
+        ServerConfig {
+            host: "127.0.0.1".into(),
+            port: 0,
+        },
+        auth,
+    );
+    let cwd_s = cwd.path().to_string_lossy().into_owned();
+    let proj = home
+        .path()
+        .join("projects")
+        .join(mother_claude_lib::claude::encode_cwd(&cwd_s));
+    std::fs::create_dir_all(&proj).unwrap();
+    // It ran in a terminal with CLAUDE_CODE_OAUTH_TOKEN set, then ended.
+    let ran_with_a_token = |id: &str| {
+        std::fs::write(
+            proj.join(format!("{id}.jsonl")),
+            format!("{{\"type\":\"user\",\"cwd\":\"{cwd_s}\",\"sessionId\":\"{id}\"}}\n"),
+        )
+        .unwrap();
+        st.live.insert_for_test(LiveSession {
+            pid: Some(std::process::id()),
+            session_id: Some(id.into()),
+            cwd: Some(cwd_s.clone()),
+            home_account: Some("default".into()),
+            token_sha256: Some("0".repeat(64)),
+            ..Default::default()
+        });
+        let seen = session_account(&st, id);
+        st.live.remove_for_test(id);
+        seen
+    };
+    let go_on = |account: Option<&str>| ContinueRequest {
+        prompt: Some("go on".into()),
+        account: account.map(str::to_string),
+        ..Default::default()
+    };
+    let finish = |id: String| {
+        let st = st.clone();
+        async move {
+            wait_turn_done(&st, &id).await;
+            st.control.kill(&id).await.unwrap();
+            wait_for("it to end", || !owned::has_handle(&st, &id)).await;
+        }
+    };
+
+    let a = "8b0b2a3c-1d2e-4f50-8a9b-0c1d2e3f4a5b";
+    assert_eq!(ran_with_a_token(a), "default", "only the Default: no chip");
+    let resumed = owned::continue_as(&st, MAC, a, &cwd_s, go_on(None))
+        .await
+        .unwrap();
+    assert_eq!(resumed, a, "resumed in place, as in v0.4");
+    finish(resumed).await;
+
+    st.accounts
+        .add_token(
+            "Pro",
+            Some(&Secret::new(
+                "sk-ant-oat01-AccountProTokenValue0123456789abcdefghij",
+            )),
+            None,
+        )
+        .unwrap();
+    let b = "9b0b2a3c-1d2e-4f50-8a9b-0c1d2e3f4a5b";
+    assert_eq!(ran_with_a_token(b), "unregistered");
+    assert_eq!(acting_account(&st, b), "default");
+    let resumed = owned::continue_as(&st, MAC, b, &cwd_s, go_on(None))
+        .await
+        .unwrap();
+    assert_eq!(resumed, b, "the Default's: resumed in place");
+    assert_eq!(st.control.account_of(&resumed).as_deref(), Some("default"));
+    finish(resumed).await;
+
+    let dirs = tempfile::tempdir().unwrap();
+    let work = st
+        .accounts
+        .add_directory("Work", &dirs.path().join("claude-work"), None)
+        .unwrap();
+    let c = "ab0b2a3c-1d2e-4f50-8a9b-0c1d2e3f4a5b";
+    assert_eq!(ran_with_a_token(c), "unregistered");
+    let err = owned::continue_as(&st, MAC, c, &cwd_s, go_on(Some(&work.id)))
+        .await
+        .unwrap_err();
+    assert_eq!(err.code, "copy_consent_required");
+    st.accounts
+        .set_copy_consent("default", &work.id, true)
+        .unwrap();
+    let forked = owned::continue_as(&st, MAC, c, &cwd_s, go_on(Some(&work.id)))
+        .await
+        .unwrap();
+    assert_ne!(forked, c, "another account: a fork of the copy");
+    assert_eq!(
+        st.control.account_of(&forked).as_deref(),
+        Some(work.id.as_str())
+    );
+    finish(forked).await;
+}

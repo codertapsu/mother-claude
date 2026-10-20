@@ -449,8 +449,10 @@ async fn resolve_chat_thread(
         .as_deref()
         .map(str::trim)
         .filter(|a| !a.is_empty());
+    // (A conversation that ran with a token no account holds is the
+    // Default's.)
     let other_account = |id: &str| {
-        asked_account.is_some_and(|a| a != crate::claude::summaries::session_account(state, id))
+        asked_account.is_some_and(|a| a != crate::claude::summaries::acting_account(state, id))
     };
     if let Some(id) = &body.thread_id {
         validate_id("thread_id", id)?;
@@ -463,7 +465,7 @@ async fn resolve_chat_thread(
             .with("thread_id", id.clone()));
         }
         // Explicitly named: a failure to resume belongs to the caller.
-        crate::bridge::ensure_thread_live(state, &ctx, id).await?;
+        crate::bridge::ensure_thread_live(state, &ctx, id, asked_account).await?;
         return Ok(id.clone());
     }
 
@@ -471,7 +473,7 @@ async fn resolve_chat_thread(
         let active = state.bridge.active_thread.read().await.clone();
         // A message for another account starts its own conversation.
         if let Some(active) = active.filter(|a| !other_account(a)) {
-            match crate::bridge::ensure_thread_live(state, &ctx, &active).await {
+            match crate::bridge::ensure_thread_live(state, &ctx, &active, asked_account).await {
                 Ok(()) => return Ok(active),
                 // The conversation we were pointing at is gone. That is not the
                 // caller's problem — open a new one rather than failing a

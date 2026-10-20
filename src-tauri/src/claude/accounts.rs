@@ -284,6 +284,12 @@ impl Registry {
         self.accounts.len() == 1
     }
 
+    /// A token account is registered: only then does a token in a session's
+    /// environment say anything about its account.
+    pub fn has_token_accounts(&self) -> bool {
+        self.accounts.iter().any(|a| a.kind == AccountKind::Token)
+    }
+
     /// The account a token belongs to, by the token's SHA-256 (D8).
     pub fn by_token_sha256(&self, sha: &str) -> Option<&Account> {
         self.accounts
@@ -880,6 +886,11 @@ impl AccountRegistry {
             let base = normalize_dir(home.base()).unwrap_or_else(|_| home.base().to_path_buf());
             (base == dir).then_some(id)
         })
+    }
+
+    /// See [`Registry::has_token_accounts`].
+    pub fn has_token_accounts(&self) -> bool {
+        self.read().has_token_accounts()
     }
 
     /// The account a token belongs to, by the token's SHA-256 (D8).

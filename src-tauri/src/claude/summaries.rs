@@ -670,8 +670,10 @@ pub struct BuildCtx {
 /// session's or a bridge conversation's own; else a live process's — the
 /// account whose directory holds its pidfile, and in the Default's directory
 /// the token its environment or its hook names (`unregistered` for a token
-/// no account holds); else the account last seen running it; else the one
-/// whose directory holds its transcript; else the Default's.
+/// no account holds, and nothing at all while no token account exists: then
+/// a token is the user's own business, as before accounts); else the account
+/// last seen running it; else the one whose directory holds its transcript;
+/// else the Default's. This is the chip; decisions use [`acting_account`].
 pub fn session_account(state: &AppState, id: &str) -> String {
     use super::accounts::{DEFAULT_ID, UNREGISTERED_TOKEN_ID};
     let runtime = &state.accounts.runtime;
@@ -688,7 +690,7 @@ pub fn session_account(state: &AppState, id: &str) -> String {
             .home_account
             .clone()
             .unwrap_or_else(|| DEFAULT_ID.to_string());
-        let account = if home != DEFAULT_ID {
+        let account = if home != DEFAULT_ID || !state.accounts.has_token_accounts() {
             home
         } else {
             match live
@@ -709,6 +711,19 @@ pub fn session_account(state: &AppState, id: &str) -> String {
         .last_seen(id)
         .or_else(|| state.index.account_of(id))
         .unwrap_or_else(|| DEFAULT_ID.to_string())
+}
+
+/// The account to act as for a session — usage reads, fork-or-resume, copy
+/// consent: [`session_account`], with a token no account holds counting as
+/// the Default's (it lives in the Default's directory, and nothing can run
+/// under the pseudo-account). The chip still says "unregistered".
+pub fn acting_account(state: &AppState, id: &str) -> String {
+    let account = session_account(state, id);
+    if account == super::accounts::UNREGISTERED_TOKEN_ID {
+        super::accounts::DEFAULT_ID.to_string()
+    } else {
+        account
+    }
 }
 
 /// The config directory a session's account uses (its settings, its trust).

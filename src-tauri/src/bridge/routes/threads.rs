@@ -366,7 +366,9 @@ async fn conversation_account(
     };
     let env = state.accounts.env(&account).map_err(account_error)?;
     if let Some(resume) = &body.resume {
-        let source = crate::claude::summaries::session_account(state, resume);
+        // A conversation that ran with a token no account holds is the
+        // Default's here: it lives in the Default's directory.
+        let source = crate::claude::summaries::acting_account(state, resume);
         let same_dir = match (state.accounts.home(&source), state.accounts.home(&account)) {
             (Some(a), Some(b)) => a.base() == b.base(),
             _ => true,
