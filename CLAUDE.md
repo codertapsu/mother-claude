@@ -44,7 +44,8 @@ a rotating key and an undocumented protocol).
   stop-task / cancel-queued-message sent as control requests (CLI errors are a
   422). Children get a scrubbed environment (`control::SCRUBBED_ENV`: the
   parent session's `CLAUDECODE`/`CLAUDE_CODE_*` identity and our token — not
-  provider or auth variables) plus `MOTHER_CLAUDE_OWNED=1`. Continuing a
+  provider or auth variables), their account's part (`accounts::AccountEnv`,
+  below) and `MOTHER_CLAUDE_OWNED=1`. Continuing a
   session another process holds **forks** it (`--resume --fork-session
   --session-id <new>`); never two writers on one transcript. The Agent SDK
   sidecar (Path A) stays behind `MOTHER_CLAUDE_SIDECAR=1`. Background jobs are
@@ -110,6 +111,7 @@ undocumented research-preview internals.
 | tmux panes | pidfile `tmux` (`session:@win.%pane`) + `tmux list-panes -a` on the default socket, then `${TMUX_TMPDIR:-/tmp}/tmux-<uid>/*` | the pane to type into / capture (`claude/tmux.rs`) |
 | Live events | **Hooks plugin** (`mc-hook` → `POST /hooks/event`, `mc-wake` → `POST /hooks/wait?pid=`), installed via `claude plugin …`, status from `claude plugin list --json` | tool, prompt, permission, subagent, compaction, notification, stop and session events; held approvals; relays and wake-ups (`server/hooks.rs`, `claude/hooks.rs`) |
 | Session settings | transcript `perTurnEffort ?? effort` and `message.usage.speed`; `ultra_effort_enter`/`ultra_effort_exit` attachments; hook `effort.level`; launch argv (`--effort`, `--max-thinking-tokens`, `--thinking`, inline `--settings`); settings `alwaysThinkingEnabled`; owned sessions: `get_settings.applied` | effort, ultracode, thinking and fast mode, each with its source (`claude/summaries.rs` `derive_settings`, `claude/live.rs` `LaunchFlags`) |
+| Accounts | `<app data dir>/accounts.json` (ours, 0600), secrets in the Keychain (`dev.motherclaude.desktop`) | the Default, directory and token accounts, defaults per project, copy consent, backup settings (`claude/accounts.rs`, `claude/secrets.rs`) |
 | Plan usage | owned streams' `rate_limit_event` (`unifiedWindows`: 0–1 fraction, epoch seconds); `get_usage {skip_behaviors:true}` through an owned session or a short-lived helper `claude -p` in `<app data dir>/usage-helper`; fallback `~/.claude.json` `cachedUsageUtilization` (≤ 1 h, same account, the account id compared in-process only) | 5-hour and weekly windows, reset times, extra usage (`claude/usage.rs`, `/api/usage*`, `planUsage` frame) |
 
 Key facts: `<encoded-cwd>` = absolute path with every non-alphanumeric char → `-`.
@@ -154,11 +156,12 @@ Claude's own Anthropic sign-in is read via `claude auth status --json` in
 signed-out account is one line in the banner rather than every turn returning the
 string "Not logged in · Please run /login".
 
-**Never export `CLAUDE_CONFIG_DIR` onto a child process you spawn.** Setting it
-breaks the CLI's credential resolution *even when it points at the default
-`~/.claude`*: every turn then answers "Not logged in · Please run /login".
-Children inherit it when the user set one themselves, which is the only case
-where an override is wanted. The cause (verified on CLI 2.1.304): the CLI keeps
+**Set `CLAUDE_CONFIG_DIR` on a child only to a directory account's own
+directory, never for the Default account.** Setting it breaks the CLI's
+credential resolution *even when it points at the default `~/.claude`*: every
+turn then answers "Not logged in · Please run /login". Default-account children
+inherit it when the user set one themselves, which is the only case where an
+override of the Default is wanted. The cause (verified on CLI 2.1.304): the CLI keeps
 its sign-in in a macOS Keychain item named per config directory —
 `Claude Code-credentials` when the variable is unset,
 `Claude Code-credentials-<hash of the directory>` when it is set, the default
@@ -167,6 +170,23 @@ only a sign-in made under that same variable would have created. The same
 mechanism is what makes a second directory a second account (its own sign-in,
 `.claude.json`, settings, projects and sessions); `CLAUDE_CODE_OAUTH_TOKEN` in
 a child's environment selects an account without changing the directory.
+
+**Accounts** ([docs/ACCOUNTS.md](docs/ACCOUNTS.md)) build on exactly that. The
+registry is `<app data dir>/accounts.json` (`claude/accounts.rs`, written only
+when the user changes it): the **Default** account (the directory resolved at
+startup, never removable), **directory** accounts (their own config directory
+and sign-in) and **token** accounts (a `claude setup-token` token used with the
+Default's directory). Tokens and the backup passphrase live in the Keychain
+(service `dev.motherclaude.desktop`; `0600` files under `<app data
+dir>/secrets/` elsewhere, `claude/secrets.rs`) and never in the registry, a
+log, a frame, an error, an audit line or a backup; the registry keeps a token's
+SHA-256 only. Every child's environment is composed from its account
+(`accounts::AccountEnv`, D5): the Default inherits ours unchanged; a directory
+account gets `CLAUDE_CONFIG_DIR=<its dir>`, a token account
+`CLAUDE_CODE_OAUTH_TOKEN`, and both lose `accounts::ACCOUNT_OVERRIDE_ENV` (the
+inherited token, API key and provider switches). A token account whose token is
+not on this machine fails with `account_token_missing`; it never falls back to
+the Default sign-in.
 
 ## Architecture rules (enforced)
 
@@ -230,11 +250,21 @@ a child's environment selects an account without changing the directory.
 - TLS + token auth are **mandatory** whenever the bind address is non-loopback.
   Dangerous actions are desktop-only by default; a device gets them only through
   a per-device grant set from the desktop (LAN and internet separately).
-- **Never write under `~/.claude` from our code.** Changes there happen only
-  through Claude Code itself on an explicit user action: `claude plugin
-  install/uninstall` from the desktop, a standing grant the user chose, a
-  transcript purge through the SDK. Tests and scripts must never run the plugin
-  installer against the real config. One exception runs without a user action:
+- **Never write under `~/.claude` (or any account's config directory) from our
+  code.** Changes there happen only through Claude Code itself on an explicit
+  user action: `claude plugin install/uninstall` from the desktop, a standing
+  grant the user chose, a transcript purge through the SDK. Tests and scripts
+  must never run the plugin installer against the real config. Our own code
+  writes into a config directory in exactly four explicit desktop actions
+  (docs/ACCOUNTS.md D4): creating a new directory account's empty directory
+  (mode 0700), **move/copy** of sessions or projects between directory accounts
+  (`claude/transfer.rs`), **restore** from a backup and **pull** from a backup
+  set (`claude/backup.rs`). Each of them is `DesktopOnly`; refuses while a live
+  process uses the directory it would write (a pidfile with a living pid in its
+  `sessions/`, or a `.claude.json.lock` younger than 10 s); first copies what it
+  will change to `<app data dir>/undo/<timestamp>/`; writes atomically (temp +
+  rename); and writes an audit line. Nothing writes to a config directory in the
+  background, ever. One exception runs without a user action:
   the plan-usage helper (`claude/usage.rs`), a short-lived `claude -p` that gets
   `initialize` and `get_usage` and never a message. It runs while a dashboard is
   connected (or for a Refresh) when no owned session can answer, and while it

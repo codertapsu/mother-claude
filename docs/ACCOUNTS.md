@@ -571,22 +571,29 @@ part of done. IDs are referenced from commit messages.
 
 ### Phase 0 — ground rules and scaffolding
 
-- [ ] **P0.1 Rules.** `CLAUDE.md` per §8 (the exceptions, the environment
-      rule, the table). Done when a reviewer can tell from `CLAUDE.md` alone
+- [x] **P0.1 Rules.** `CLAUDE.md` per §8 (the exceptions, the environment
+      rule, the table; "per home" lands with Phase 2). Done when a reviewer can tell from `CLAUDE.md` alone
       what may write under a Claude directory and when.
-- [ ] **P0.2 Registry module.** `claude/accounts.rs`: `Account`,
+- [x] **P0.2 Registry module.** `claude/accounts.rs`: `Account`,
       `AccountRegistry` (load, save, validate, add, rename, remove, defaults),
       `accounts.json` 0600. Done when the unit tests in §9 pass and a
       registry with only the Default round-trips to today's behaviour.
-- [ ] **P0.3 Secrets.** `claude/secrets.rs`: Keychain on macOS
+- [x] **P0.3 Secrets.** `claude/secrets.rs`: Keychain on macOS
       (`security-framework`), 0600 files elsewhere; get/set/delete; never
       logs values. Done when a token stored on macOS appears in Keychain
       Access under `dev.motherclaude.desktop` and nowhere on disk.
-- [ ] **P0.4 Environment composition.** `control::apply_child_env(cmd,
-      account)` per D5; `CLAUDE_CODE_OAUTH_TOKEN` added to `SCRUBBED_ENV`.
-      Done when the table-driven test covers all three kinds.
-- [ ] **P0.5 Fake CLI.** `tests/fixtures/fake-claude.py` logs the two
-      variables (value of the first, presence of the second). Done when
+      *(2026-10-21: the `#[ignore]`d `keychain_round_trip` test filed, found
+      with `security find-generic-password` and deleted a dummy item. The
+      Keychain is used only for the app's own data dir, so tests get files or
+      memory; `MOTHER_CLAUDE_SECRET_STORE=file` opts out on macOS.)*
+- [x] **P0.4 Environment composition.** `control::apply_child_env(cmd,
+      account)` per D5 (`accounts::AccountEnv`, `ACCOUNT_OVERRIDE_ENV`);
+      `SCRUBBED_ENV` stays as it was, since the Default keeps an inherited
+      token (D5, changed while building). Done when the table-driven test
+      covers all three kinds.
+- [x] **P0.5 Fake CLI.** `tests/fixtures/fake-claude.py` logs the two
+      variables (value of the first, presence and SHA-256 of the second, and
+      which override variables are present). Done when
       `tests/owned.rs` can assert them.
 
 ### Phase 1 — accounts and "continue on"
