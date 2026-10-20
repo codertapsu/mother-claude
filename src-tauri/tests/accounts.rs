@@ -1130,9 +1130,17 @@ async fn an_account_is_backed_up_and_restored_over_http() {
     let done = wait(job).await;
     assert_eq!(done["state"], "done", "{done}");
     assert_eq!(done["result"]["archived"][0], sid);
-    assert!(folder
-        .join(format!("Work/sessions/{sid}.tar.gz.age"))
-        .is_file());
+    // One archive, named after the session and what it holds.
+    let archives: Vec<String> = std::fs::read_dir(folder.join("Work/sessions"))
+        .unwrap()
+        .flatten()
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .collect();
+    assert_eq!(archives.len(), 1, "{archives:?}");
+    assert!(mother_claude_lib::claude::backup::is_archive_name(
+        &archives[0],
+        sid
+    ));
 
     // The set compared with Work's directory.
     let (s, v) = f

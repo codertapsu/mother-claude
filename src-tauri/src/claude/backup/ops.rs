@@ -602,8 +602,9 @@ pub async fn extract_config(state: &AppState, account_id: &str) -> Result<PathBu
         .as_ref()
         .map(|d| d.join("restored-config").join(&a.name))
         .ok_or_else(|| BackupError::Invalid("this build has no data directory".into()))?;
+    let machine = this_machine(state)?;
     tokio::task::spawn_blocking(move || {
-        super::extract_config(&Set::new(&folder, &a.name), &pass, &into)
+        super::extract_config(&Set::new(&folder, &a.name), &pass, &into, Some(&machine.id))
     })
     .await
     .map_err(|e| BackupError::Io(e.to_string()))?

@@ -73,6 +73,17 @@ fn not_live(_: &str) -> bool {
     false
 }
 
+/// The archive the set's index names for `id` now.
+fn archive_of(w: &World, id: &str) -> PathBuf {
+    let keys = open_keys(&w.set, &pass()).unwrap();
+    let index = read_index(&w.set, &keys).unwrap();
+    index
+        .sessions
+        .get(id)
+        .and_then(|e| w.set.session_archive(e))
+        .unwrap_or_else(|| w.set.sessions_dir().join(format!("{id}.none.tar.gz.age")))
+}
+
 /// A machine named `name`, with an id of its own (two machines may share a
 /// name: see `two_machines_with_one_name_stay_apart`).
 fn machine(name: &str) -> ThisMachine {
@@ -107,12 +118,12 @@ fn a_round_trip_is_byte_identical_and_the_second_run_archives_nothing() {
     let r = push_once(&w, &not_live);
     assert_eq!(r.archived, vec![SID.to_string()]);
     assert!(r.config.is_some());
-    assert!(w.set.archive(SID).is_file());
+    assert!(archive_of(&w, SID).is_file());
     // Nothing secret or plain in the set but set.json.
     let info = read_info(&w.set).unwrap();
     assert_eq!(info.account, "Work");
     assert_eq!(info.machines[0].host, "mbp-a");
-    let all: Vec<u8> = std::fs::read(w.set.archive(SID)).unwrap();
+    let all: Vec<u8> = std::fs::read(archive_of(&w, SID)).unwrap();
     assert!(
         !String::from_utf8_lossy(&all).contains("sessionId"),
         "encrypted"
@@ -193,7 +204,7 @@ fn the_configuration_bundle_leaves_out_what_d6_excludes() {
     );
     push_once(&w, &not_live);
     let out = w._tmp.path().join("review");
-    let dest = extract_config(&w.set, &pass(), &out).unwrap();
+    let dest = extract_config(&w.set, &pass(), &out, None).unwrap();
     assert_eq!(
         std::fs::read_to_string(dest.join("CLAUDE.md")).unwrap(),
         "be kind"
@@ -235,11 +246,11 @@ fn a_live_session_waits_and_a_truncated_archive_is_refused() {
     let live = |id: &str| id == SID;
     let r = push_once(&w, &live);
     assert_eq!(r.skipped_live, vec![SID.to_string()]);
-    assert!(!w.set.archive(SID).exists());
+    assert!(!archive_of(&w, SID).exists());
     push_once(&w, &not_live);
     // Cut the archive short.
-    let bytes = std::fs::read(w.set.archive(SID)).unwrap();
-    std::fs::write(w.set.archive(SID), &bytes[..bytes.len() / 2]).unwrap();
+    let bytes = std::fs::read(archive_of(&w, SID)).unwrap();
+    std::fs::write(archive_of(&w, SID), &bytes[..bytes.len() / 2]).unwrap();
     let (report, _) = restore(&RestoreInputs {
         set: &w.set,
         passphrase: &pass(),
@@ -330,7 +341,7 @@ fn archives_open_with_the_age_command_line_tool() {
         .arg(format!(
             "age -d -i '{}' '{}' | tar tz",
             key.display(),
-            w.set.archive(SID).display()
+            archive_of(&w, SID).display()
         ))
         .output()
         .unwrap();
@@ -530,11 +541,8 @@ fn a_session_id_from_the_index_never_names_a_path_outside_the_target() {
     std::fs::write(victim.join("sub/b.txt"), "user file B").unwrap();
     let id = "../../victim";
     let archive = seal(&keys.recipient, b"not even an archive").unwrap();
-    std::fs::write(
-        w.set.sessions_dir().join(format!("{id}.tar.gz.age")),
-        &archive,
-    )
-    .unwrap();
+    let name = format!("{id}.0123456789ab.tar.gz.age");
+    std::fs::write(w.set.sessions_dir().join(&name), &archive).unwrap();
     let entry = IndexEntry {
         id: id.to_string(),
         cwd: None,
@@ -543,6 +551,7 @@ fn a_session_id_from_the_index_never_names_a_path_outside_the_target() {
         host: "evil".into(),
         machine: String::new(),
         pushed_at: 1,
+        archive: name,
         archive_sha256: crate::claude::secrets::sha256_hex(&archive),
         archive_bytes: archive.len() as u64,
         files: 0,
@@ -589,6 +598,7 @@ fn a_bundle_name_from_the_index_never_names_a_path_outside_config() {
         name,
         created_at: 1,
         host: "x".into(),
+        machine: "f".repeat(32),
         fingerprint: "0".into(),
         archive_sha256: String::new(),
         archive_bytes: 0,
@@ -597,14 +607,15 @@ fn a_bundle_name_from_the_index_never_names_a_path_outside_config() {
     for name in [
         precious.display().to_string(),
         "../...tar.gz.age".to_string(),
-        "2026-01-01T00-00-00Z.tar.gz.age/../../x.tar.gz.age".to_string(),
+        "2026-01-01T00-00-00Z-0123456789ab.tar.gz.age/../../x.tar.gz.age".to_string(),
     ] {
         index.config.push(bundle(name));
     }
     for i in 0..4 {
-        index
-            .config
-            .push(bundle(format!("2026-01-0{}T00-00-00Z.tar.gz.age", i + 1)));
+        index.config.push(bundle(format!(
+            "2026-01-0{}T00-00-00Z-0123456789ab.tar.gz.age",
+            i + 1
+        )));
     }
     write_index(&w.set, &keys, &index).unwrap();
     assert_eq!(read_index(&w.set, &keys).unwrap().config.len(), 4);
@@ -613,11 +624,11 @@ fn a_bundle_name_from_the_index_never_names_a_path_outside_config() {
 
     // Only the bundle this push wrote can be unpacked, and only inside `into`.
     let into = w._tmp.path().join("appdata/restored-config/Work");
-    let dest = extract_config(&w.set, &pass(), &into).unwrap();
+    let dest = extract_config(&w.set, &pass(), &into, None).unwrap();
     assert_eq!(dest.parent(), Some(into.as_path()));
     // A second look replaces the first.
     std::fs::write(dest.join("CLAUDE.md"), "edited").unwrap();
-    let again = extract_config(&w.set, &pass(), &into).unwrap();
+    let again = extract_config(&w.set, &pass(), &into, None).unwrap();
     assert_eq!(again, dest);
     assert_eq!(
         std::fs::read_to_string(dest.join("CLAUDE.md")).unwrap(),
@@ -628,7 +639,7 @@ fn a_bundle_name_from_the_index_never_names_a_path_outside_config() {
 #[test]
 fn only_the_names_a_push_writes_are_bundle_names() {
     for (name, ok) in [
-        ("2026-10-21T03-09-00Z.tar.gz.age", true),
+        ("2026-10-21T03-09-00Z.tar.gz.age", false),
         ("2026-10-21T03-09-00Z-0123456789ab.tar.gz.age", true),
         ("2026-10-21T03-09-00Z-0123456789AB.tar.gz.age", false),
         ("2026-10-21T03-09-00Z-0123456789a.tar.gz.age", false),
@@ -748,7 +759,7 @@ fn set_json_never_chooses_the_key_archives_are_encrypted_to() {
         keys.recipient.to_string()
     );
     // The archive opens with the set's key, not the attacker's.
-    let bytes = std::fs::read(w.set.archive(SID)).unwrap();
+    let bytes = std::fs::read(archive_of(&w, SID)).unwrap();
     assert!(open_sealed(&keys.identity, &bytes).is_ok());
     assert!(open_sealed(&attacker, &bytes).is_err());
 }
@@ -818,7 +829,7 @@ fn a_changed_configuration_bundle_is_refused() {
     bytes.truncate(bytes.len() - 10);
     std::fs::write(&path, bytes).unwrap();
     let into = w._tmp.path().join("review");
-    let err = extract_config(&w.set, &pass(), &into).unwrap_err();
+    let err = extract_config(&w.set, &pass(), &into, None).unwrap_err();
     assert_eq!(err.code(), "invalid_backup", "{err}");
 }
 
@@ -911,4 +922,163 @@ fn the_machine_id_is_kept_and_a_copy_on_other_hardware_gets_its_own() {
     if let Some(h) = ops::hardware_fingerprint() {
         assert_eq!(h.len(), 64);
     }
+}
+
+/// Archives are never rewritten: a second push writes a new file, the old one
+/// stays a day (another machine may be reading an index that names it), then
+/// goes; a file nothing named (a push that crashed) goes a day after it was
+/// written.
+#[test]
+fn archives_are_never_rewritten_and_unnamed_ones_go_a_day_later() {
+    let w = world();
+    session(w.home.base(), SID);
+    push_once(&w, &not_live);
+    let first = archive_of(&w, SID);
+    let first_bytes = std::fs::read(&first).unwrap();
+    grow(&w.home, SID, "{\"type\":\"assistant\"}");
+    assert_eq!(push_once(&w, &not_live).archived, vec![SID.to_string()]);
+    let second = archive_of(&w, SID);
+    assert_ne!(first, second);
+    assert_eq!(std::fs::read(&first).unwrap(), first_bytes, "untouched");
+    let keys = open_keys(&w.set, &pass()).unwrap();
+    let index = read_index(&w.set, &keys).unwrap();
+    let name = |p: &Path| p.file_name().unwrap().to_string_lossy().into_owned();
+    assert_eq!(index.superseded.len(), 1);
+    assert_eq!(
+        index.superseded[0].path,
+        format!("sessions/{}", name(&first))
+    );
+
+    // A crash between an archive and the index: a file nothing names.
+    let orphan = w
+        .set
+        .sessions_dir()
+        .join(format!("{SID}.0123456789ab.tar.gz.age"));
+    std::fs::write(&orphan, b"half").unwrap();
+    let temp = w.set.sessions_dir().join(".archive.mc-0a0b.tmp");
+    std::fs::write(&temp, b"half").unwrap();
+    // Not someone else's file, whatever its age.
+    let stranger = w.set.sessions_dir().join("notes.txt");
+    std::fs::write(&stranger, b"mine").unwrap();
+    let now = now_ms();
+    assert_eq!(collect_garbage(&w.set, &index, now), 0, "all within a day");
+    let later = now + GRACE_MS + 60_000;
+    let set_old = |p: &Path| {
+        std::fs::File::options()
+            .write(true)
+            .open(p)
+            .unwrap()
+            .set_modified(SystemTime::now() - Duration::from_secs(2 * 24 * 3600))
+            .unwrap();
+    };
+    set_old(&orphan);
+    set_old(&temp);
+    set_old(&stranger);
+    assert_eq!(collect_garbage(&w.set, &index, later), 3);
+    assert!(!first.exists() && !orphan.exists() && !temp.exists());
+    assert!(second.exists() && stranger.exists());
+    // The next index written after the day forgets what is gone.
+    let merged = write_index_merged(
+        &w.set,
+        &keys,
+        &Changes::default(),
+        &machine("mbp-a").id,
+        later,
+    )
+    .unwrap();
+    assert!(
+        merged.index.superseded.is_empty(),
+        "{:?}",
+        merged.index.superseded
+    );
+}
+
+/// Two machines push the same session at once: the one whose push was made
+/// from an entry the set no longer has loses, its archive is removed and it
+/// reports a conflict; the other machine's copy stands.
+#[test]
+fn a_push_made_from_an_old_entry_never_replaces_a_newer_one() {
+    let w = world();
+    let (a, b) = (&w.home, &w.other);
+    session(a.base(), SID);
+    push_from(&w, a, "mbp-a");
+    let keys = open_keys(&w.set, &pass()).unwrap();
+    let before = read_index(&w.set, &keys).unwrap();
+    let base = before.sessions[SID].archive.clone();
+    // B pulls, continues and pushes while A is in the middle of a push made
+    // from the index it read before.
+    pull_once(&w, b, "mbp-b", &not_live, "20261021T160000-00000001");
+    grow(b, SID, "{\"type\":\"user\",\"on\":\"b\"}");
+    push_from(&w, b, "mbp-b");
+    let theirs = read_index(&w.set, &keys).unwrap().sessions[SID].clone();
+    assert_ne!(theirs.archive, base);
+
+    grow(a, SID, "{\"type\":\"user\",\"on\":\"a\"}");
+    let ma = machine("mbp-a");
+    let inp = PushInputs {
+        home: a,
+        set: &w.set,
+        account_name: "Work",
+        passphrase: &pass(),
+        machine: &ma,
+        is_live: &not_live,
+        progress: &Progress::default(),
+    };
+    let now = session_now(a, SID).unwrap();
+    let mine = archive_session(&inp, &keys, SID, &now).unwrap();
+    let mine_path = w.set.session_archive(&mine).unwrap();
+    assert!(mine_path.exists());
+    let mut changes = Changes::default();
+    changes
+        .sessions
+        .insert(SID.to_string(), (mine, Some(base.clone())));
+    let merged = write_index_merged(&w.set, &keys, &changes, &ma.id, now_ms()).unwrap();
+    assert_eq!(merged.lost, vec![SID.to_string()]);
+    assert_eq!(merged.index.sessions[SID], theirs, "B's push stands");
+    assert!(
+        !mine_path.exists(),
+        "A's archive is named by nothing: removed"
+    );
+    assert!(w.set.session_archive(&theirs).unwrap().exists());
+}
+
+/// A file of the configuration that cannot be read is left out of the
+/// bundle with a warning; the sessions are indexed all the same.
+#[cfg(unix)]
+#[test]
+fn an_unreadable_configuration_file_never_costs_the_index() {
+    use std::os::unix::fs::PermissionsExt;
+    let w = world();
+    session(w.home.base(), SID);
+    config(w.home.base());
+    let locked = w.home.base().join("settings.json");
+    std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o000)).unwrap();
+    if std::fs::File::open(&locked).is_ok() {
+        // Running as root: nothing is unreadable.
+        return;
+    }
+    let r = push_once(&w, &not_live);
+    std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o600)).unwrap();
+    assert_eq!(r.archived, vec![SID.to_string()]);
+    assert!(r.config.is_some());
+    assert!(
+        r.warnings.iter().any(|w| w.contains("settings.json")),
+        "{:?}",
+        r.warnings
+    );
+    assert!(archive_of(&w, SID).is_file());
+    let (report, _) = restore(&RestoreInputs {
+        set: &w.set,
+        passphrase: &pass(),
+        target: &w.other,
+        ids: &[SID.to_string()],
+        trust: false,
+        is_live: &not_live,
+        undo_root: &w.undo,
+        job_id: "20261021T170000-00000001",
+        progress: &Progress::default(),
+        kind: "restore",
+    })
+    .unwrap();
+    assert_eq!(report.restored, vec![SID.to_string()]);
 }

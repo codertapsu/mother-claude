@@ -192,22 +192,22 @@ pub fn host_name() -> String {
         .unwrap_or_else(|_| "this-machine".to_string())
 }
 
+fn is_hash12(s: &str) -> bool {
+    s.len() == 12 && s.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
+}
+
 /// A configuration bundle's name, exactly as a push writes it:
-/// `YYYY-MM-DDTHH-MM-SSZ[-<12 hex>].tar.gz.age`. A set's folder is shared
-/// (a cloud folder), so an index naming anything else is never followed.
+/// `YYYY-MM-DDTHH-MM-SSZ-<12 hex>.tar.gz.age` (the hex: the start of its
+/// SHA-256). A set's folder is shared (a cloud folder), so an index naming
+/// anything else is never followed.
 pub fn is_config_name(name: &str) -> bool {
     let Some(stem) = name.strip_suffix(".tar.gz.age") else {
         return false;
     };
-    if !stem.is_ascii() {
+    if !stem.is_ascii() || stem.len() != 33 {
         return false;
     }
-    let (time, hash) = match stem.len() {
-        20 => (stem, None),
-        33 => (&stem[..20], Some(&stem[20..])),
-        _ => return false,
-    };
-    let t = time.as_bytes();
+    let (t, hash) = (&stem.as_bytes()[..20], &stem[20..]);
     let digits = [0, 1, 2, 3, 5, 6, 8, 9, 11, 12, 14, 15, 17, 18];
     digits.iter().all(|&i| t[i].is_ascii_digit())
         && [
@@ -220,21 +220,29 @@ pub fn is_config_name(name: &str) -> bool {
         ]
         .iter()
         .all(|&(i, c)| t[i] == c)
-        && hash.is_none_or(|h| {
-            h.as_bytes()[0] == b'-'
-                && h.bytes()
-                    .skip(1)
-                    .all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
-        })
+        && hash.strip_prefix('-').is_some_and(is_hash12)
+}
+
+/// A session archive's name, exactly as a push writes it:
+/// `<id>.<12 hex>.tar.gz.age`. Archives are never rewritten: each push of a
+/// session writes a new one, and the index names the current one.
+pub fn is_archive_name(name: &str, id: &str) -> bool {
+    super::ids::is_session_id(id)
+        && name
+            .strip_prefix(id)
+            .and_then(|r| r.strip_prefix('.'))
+            .and_then(|r| r.strip_suffix(".tar.gz.age"))
+            .is_some_and(is_hash12)
 }
 
 /// Drop what an index may not name: session ids that are not session ids (or
-/// differ from their key), configuration bundles with any other name.
+/// differ from their key), archives and configuration bundles with any other
+/// name.
 fn sanitize_index(mut index: SetIndex) -> SetIndex {
     index.sessions.retain(|key, e| {
-        let ok = super::ids::is_session_id(key) && e.id == *key;
+        let ok = super::ids::is_session_id(key) && e.id == *key && is_archive_name(&e.archive, key);
         if !ok {
-            tracing::warn!("a backup index names an invalid session id; ignored");
+            tracing::warn!("a backup index names an invalid session or archive; ignored");
         }
         ok
     });
@@ -282,15 +290,27 @@ impl Set {
     fn config_dir(&self) -> PathBuf {
         self.dir.join("config")
     }
-    /// `sessions/<id>.tar.gz.age`.
-    pub fn archive(&self, id: &str) -> PathBuf {
-        debug_assert!(super::ids::is_session_id(id));
-        self.sessions_dir().join(format!("{id}.tar.gz.age"))
+    /// The archive an index entry names (`sessions/<id>.<hash>.tar.gz.age`),
+    /// for a valid name only.
+    pub fn session_archive(&self, e: &IndexEntry) -> Option<PathBuf> {
+        is_archive_name(&e.archive, &e.id).then(|| self.sessions_dir().join(&e.archive))
     }
     /// `config/<name>`, for a valid bundle name only (never a path out of
     /// `config/`).
     fn config_bundle(&self, name: &str) -> Option<PathBuf> {
         is_config_name(name).then(|| self.config_dir().join(name))
+    }
+    /// A file of the set by its index path (`sessions/<name>` or
+    /// `config/<name>`), for a valid one only.
+    fn file(&self, rel: &str) -> Option<PathBuf> {
+        match rel.split_once('/')? {
+            ("sessions", name) => {
+                let id = name.split('.').next()?;
+                is_archive_name(name, id).then(|| self.sessions_dir().join(name))
+            }
+            ("config", name) => self.config_bundle(name),
+            _ => None,
+        }
     }
 
     pub fn exists(&self) -> bool {
@@ -363,6 +383,9 @@ pub struct IndexEntry {
     #[serde(default)]
     pub machine: String,
     pub pushed_at: i64,
+    /// Its archive's file name in `sessions/` (`<id>.<hash>.tar.gz.age`).
+    #[serde(default)]
+    pub archive: String,
     pub archive_sha256: String,
     pub archive_bytes: u64,
     pub files: u32,
@@ -376,6 +399,10 @@ pub struct ConfigEntry {
     pub name: String,
     pub created_at: i64,
     pub host: String,
+    /// The machine whose configuration it is (each machine keeps its own
+    /// last [`CONFIG_KEEP`]).
+    #[serde(default)]
+    pub machine: String,
     pub fingerprint: String,
     /// The bundle file's SHA-256 and size, checked before it is decrypted.
     #[serde(default)]
@@ -396,8 +423,32 @@ pub struct SetIndex {
     /// (`transcriptBytes`), for pull's "changed on both sides" rule (§5.11).
     #[serde(default)]
     pub seen: BTreeMap<String, BTreeMap<String, u64>>,
+    /// Files the index stopped naming, and when: deleted a day later (a push
+    /// on another machine may have read an index that still names them).
+    #[serde(default)]
+    pub superseded: Vec<Superseded>,
     #[serde(flatten, default)]
     pub extra: BTreeMap<String, Value>,
+}
+
+/// A file a push replaced.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Superseded {
+    /// `sessions/<name>` or `config/<name>`.
+    pub path: String,
+    pub at: i64,
+}
+
+impl SetIndex {
+    /// Every file the index names, as `sessions/<name>` and `config/<name>`.
+    fn named(&self) -> std::collections::HashSet<String> {
+        self.sessions
+            .values()
+            .map(|e| format!("sessions/{}", e.archive))
+            .chain(self.config.iter().map(|c| format!("config/{}", c.name)))
+            .collect()
+    }
 }
 
 /// The set's key pair, and the index's HMAC key derived from its secret.
@@ -713,41 +764,163 @@ fn write_index(set: &Set, keys: &Keys, index: &SetIndex) -> Result<(), BackupErr
     write_atomic(&set.index_path(), &seal(&keys.recipient, &plain)?)
 }
 
+/// How long a file no index names stays in the set: a push on another
+/// machine may have read an index that still names it.
+const GRACE_MS: i64 = 24 * 3600 * 1000;
+
+/// Whether a file of the set is there, downloaded or not.
+fn present(path: &Path) -> bool {
+    path.exists() || placeholder(path).exists()
+}
+
+/// What one push or pull changes in a set's index.
+#[derive(Debug, Default)]
+struct Changes {
+    /// The sessions this push archived: each new entry and the archive of
+    /// the entry it replaces (`None`: the set had none). It lands only when
+    /// the set still holds that one.
+    sessions: BTreeMap<String, (IndexEntry, Option<String>)>,
+    /// A new configuration bundle.
+    config: Option<ConfigEntry>,
+    /// This machine's whole `seen`.
+    seen: Option<BTreeMap<String, u64>>,
+}
+
+/// The index as written, and the sessions whose push lost to another
+/// machine's.
+struct Merged {
+    index: SetIndex,
+    lost: Vec<String>,
+}
+
 /// Write the index merged with what is in the set now: another machine may
-/// have pushed since this one read it. Per session the newer push wins;
-/// configuration bundles are joined; each machine's `seen` is its own.
+/// have pushed since this one read it. A session's new entry replaces only
+/// the entry it was made from (compare and swap on the archive name):
+/// otherwise the other machine's push stands and this one's archive is
+/// removed again. Bundles are joined, each machine keeping its last
+/// [`CONFIG_KEEP`]; each machine's `seen` is its own; what the index stops
+/// naming is listed as superseded, never deleted here.
 fn write_index_merged(
     set: &Set,
     keys: &Keys,
-    mine: &SetIndex,
+    changes: &Changes,
     machine: &str,
-) -> Result<(), BackupError> {
+    now: i64,
+) -> Result<Merged, BackupError> {
     let theirs = read_index_for_merge(set, keys)?;
     let mut merged = theirs.clone();
-    for (id, e) in &mine.sessions {
-        match merged.sessions.get(id) {
-            Some(t) if t.pushed_at > e.pushed_at => {}
-            _ => {
-                merged.sessions.insert(id.clone(), e.clone());
+    let mut lost = Vec::new();
+    let mut superseded = std::mem::take(&mut merged.superseded);
+    for (id, (entry, base)) in &changes.sessions {
+        let current = merged.sessions.get(id).map(|t| t.archive.clone());
+        if current == *base {
+            if let Some(old) = base.as_ref().filter(|old| **old != entry.archive) {
+                superseded.push(Superseded {
+                    path: format!("sessions/{old}"),
+                    at: now,
+                });
             }
+            merged.sessions.insert(id.clone(), entry.clone());
+        } else {
+            // Ours alone and named by nothing.
+            if let Some(path) = set.session_archive(entry) {
+                let _ = std::fs::remove_file(path);
+            }
+            lost.push(id.clone());
         }
     }
-    for c in &mine.config {
+    if let Some(c) = &changes.config {
         if !merged.config.iter().any(|t| t.name == c.name) {
             merged.config.push(c.clone());
         }
     }
     merged.config.sort_by(|a, b| a.name.cmp(&b.name));
-    while merged.config.len() > CONFIG_KEEP {
-        let old = merged.config.remove(0);
-        if let Some(path) = set.config_bundle(&old.name) {
-            let _ = std::fs::remove_file(path);
+    let mut kept: BTreeMap<String, usize> = BTreeMap::new();
+    let mut config = Vec::new();
+    for c in merged.config.drain(..).rev() {
+        let n = kept.entry(c.machine.clone()).or_default();
+        *n += 1;
+        if *n <= CONFIG_KEEP {
+            config.push(c);
+        } else {
+            superseded.push(Superseded {
+                path: format!("config/{}", c.name),
+                at: now,
+            });
         }
     }
-    if let Some(seen) = mine.seen.get(machine) {
-        merged.seen.insert(machine.to_string(), seen.clone());
+    config.reverse();
+    merged.config = config;
+    if let Some(seen) = &changes.seen {
+        let mut mine = seen.clone();
+        // A session whose push lost keeps what this machine had before.
+        let before = theirs.seen.get(machine);
+        for id in &lost {
+            match before.and_then(|s| s.get(id)) {
+                Some(prev) => mine.insert(id.clone(), *prev),
+                None => mine.remove(id),
+            };
+        }
+        merged.seen.insert(machine.to_string(), mine);
     }
-    write_index(set, keys, &merged)
+    // What the index names again is not superseded; what is long gone is
+    // forgotten.
+    let named = merged.named();
+    superseded.retain(|s| {
+        !named.contains(&s.path)
+            && set
+                .file(&s.path)
+                .is_some_and(|p| now - s.at < GRACE_MS || present(&p))
+    });
+    superseded.sort_by(|a, b| a.path.cmp(&b.path).then(a.at.cmp(&b.at)));
+    superseded.dedup_by(|b, a| a.path == b.path);
+    merged.superseded = superseded;
+    write_index(set, keys, &merged)?;
+    Ok(Merged {
+        index: merged,
+        lost,
+    })
+}
+
+/// Remove what no index names: superseded files a day after they were
+/// superseded, files nothing ever named (a push that crashed, or lost to
+/// another machine's) a day after they were written, and stale temp files.
+/// Only names a push writes are ever touched.
+fn collect_garbage(set: &Set, index: &SetIndex, now: i64) -> usize {
+    let named = index.named();
+    let superseded: BTreeMap<&str, i64> = index
+        .superseded
+        .iter()
+        .map(|s| (s.path.as_str(), s.at))
+        .collect();
+    let mut removed = 0;
+    for (dir, sub) in [
+        (set.sessions_dir(), "sessions"),
+        (set.config_dir(), "config"),
+    ] {
+        for e in std::fs::read_dir(&dir).into_iter().flatten().flatten() {
+            let name = e.file_name().to_string_lossy().into_owned();
+            let rel = format!("{sub}/{name}");
+            let temp = name.starts_with('.') && name.contains(".mc-") && name.ends_with(".tmp");
+            if named.contains(&rel) || !(temp || set.file(&rel).is_some()) {
+                continue;
+            }
+            let Ok(meta) = std::fs::symlink_metadata(e.path()) else {
+                continue;
+            };
+            if !meta.is_file() {
+                continue;
+            }
+            let since = superseded
+                .get(rel.as_str())
+                .copied()
+                .unwrap_or_else(|| mtime_ms(&meta));
+            if now - since >= GRACE_MS && std::fs::remove_file(e.path()).is_ok() {
+                removed += 1;
+            }
+        }
+    }
+    removed
 }
 
 /// Read a file of the set, failing when the read makes no progress for
@@ -809,9 +982,17 @@ pub struct PushReport {
     pub unchanged: usize,
     pub skipped_live: Vec<String>,
     pub failed: Vec<(String, String)>,
+    /// Changed here and, since this machine last had them, in the set by
+    /// another machine: not pushed (a pull brings the other copy beside).
+    pub conflicts: Vec<String>,
     /// The configuration bundle written, when it changed.
     pub config: Option<String>,
     pub bytes: u64,
+    /// What was left out without failing the push (an unreadable
+    /// configuration file, a bundle that could not be written…).
+    pub warnings: Vec<String>,
+    /// Files no index names any more, removed.
+    pub removed: usize,
 }
 
 /// What a push needs.
@@ -903,20 +1084,19 @@ impl<W: Write> Write for HashingWriter<W> {
 /// set's key → a temp file in the set → fsync → rename. Returns its SHA-256
 /// and size.
 fn write_archive(
-    dest: &Path,
+    dir: &Path,
+    name_for: &dyn Fn(&str) -> String,
     recipient: &age::x25519::Recipient,
     base: &Path,
     files: &[(PathBuf, PathBuf)],
     dirs: &[PathBuf],
     extra: &[(&str, Vec<u8>)],
-) -> Result<(String, u64), BackupError> {
+) -> Result<(String, String, u64), BackupError> {
     use sha2::Digest;
-    let dir = dest
-        .parent()
-        .ok_or_else(|| BackupError::Invalid("an archive needs a folder".into()))?;
     std::fs::create_dir_all(dir).map_err(|e| io("creating", dir, e))?;
-    let tmp = temp_beside(dest);
-    let result = (|| -> Result<(String, u64), BackupError> {
+    let tmp = dir.join(format!(".archive.mc-{}.tmp", uuid::Uuid::new_v4().simple()));
+    let dest = &tmp;
+    let result = (|| -> Result<(String, String, u64), BackupError> {
         let file = std::fs::File::create(&tmp).map_err(|e| io("writing", &tmp, e))?;
         let hashing = HashingWriter {
             inner: BufWriter::new(file),
@@ -964,8 +1144,11 @@ fn write_archive(
             .into_inner()
             .map_err(|e| io("writing", &tmp, e.error()))?;
         file.sync_all().map_err(|e| io("syncing", &tmp, e))?;
-        std::fs::rename(&tmp, dest).map_err(|e| io("placing", dest, e))?;
-        Ok((sha, bytes))
+        // Named after what it holds: never over another archive.
+        let name = name_for(&sha);
+        let place = dir.join(&name);
+        std::fs::rename(&tmp, &place).map_err(|e| io("placing", &place, e))?;
+        Ok((name, sha, bytes))
     })();
     if result.is_err() {
         let _ = std::fs::remove_file(&tmp);
@@ -1021,11 +1204,17 @@ fn config_fingerprint(files: &[(PathBuf, PathBuf)]) -> String {
 }
 
 /// Back up one account's directory into its set. Blocking.
+///
+/// Crash-safe: every archive is a new file, the index naming it is written
+/// only after it, and a file the index stops naming is removed a day later,
+/// so the set always opens as of its last index. Nothing after the archives
+/// (the configuration bundle, `set.json`) can cost the index.
 pub fn push(inp: &PushInputs<'_>) -> Result<PushReport, BackupError> {
     let (keys, mut info) = open_or_create(inp.set, inp.account_name, inp.passphrase)?;
-    let mut index = read_index(inp.set, &keys)?;
+    let index = read_index(inp.set, &keys)?;
     let mut report = PushReport::default();
-    let base = inp.home.base();
+    let mut seen = index.seen.get(&inp.machine.id).cloned().unwrap_or_default();
+    let mut changes = Changes::default();
     for id in session_ids(inp.home) {
         if (inp.is_live)(&id) {
             report.skipped_live.push(id);
@@ -1038,93 +1227,160 @@ pub fn push(inp: &PushInputs<'_>) -> Result<PushReport, BackupError> {
                 continue;
             }
         };
-        let unchanged = index.sessions.get(&id).is_some_and(|e| {
-            e.transcript_bytes == now.transcript_bytes && e.newest_mtime == now.newest_mtime
-        }) && inp.set.archive(&id).is_file();
+        let current = index.sessions.get(&id);
+        let unchanged = current.is_some_and(|e| {
+            e.transcript_bytes == now.transcript_bytes
+                && e.newest_mtime == now.newest_mtime
+                && inp.set.session_archive(e).is_some_and(|p| present(&p))
+        });
         if unchanged {
             report.unchanged += 1;
             continue;
         }
-        let files: Vec<(PathBuf, PathBuf)> = now
-            .files
-            .iter()
-            .map(|f| (f.clone(), f.strip_prefix(base).unwrap_or(f).to_path_buf()))
-            .collect();
-        let meta = serde_json::json!({
-            "version": SET_VERSION,
-            "id": id,
-            "cwd": now.cwd,
-            "projectEntry": now.cwd.as_deref()
-                .and_then(|c| transfer::project_entry(&inp.home.claude_json(), c)),
-        });
-        let meta = serde_json::to_vec_pretty(&meta).unwrap_or_default();
-        match write_archive(
-            &inp.set.archive(&id),
-            &keys.recipient,
-            base,
-            &files,
-            &now.dirs,
-            &[(".mc/meta.json", meta)],
-        ) {
-            Ok((sha, bytes)) => {
+        match archive_session(inp, &keys, &id, &now) {
+            Ok(entry) => {
                 inp.progress.files_done.fetch_add(1, Ordering::Relaxed);
-                inp.progress.bytes_done.fetch_add(bytes, Ordering::Relaxed);
-                report.bytes += bytes;
-                index.sessions.insert(
-                    id.clone(),
-                    IndexEntry {
-                        id: id.clone(),
-                        cwd: now.cwd.clone(),
-                        transcript_bytes: now.transcript_bytes,
-                        newest_mtime: now.newest_mtime,
-                        host: inp.machine.name.clone(),
-                        machine: inp.machine.id.clone(),
-                        pushed_at: now_ms(),
-                        archive_sha256: sha,
-                        archive_bytes: bytes,
-                        files: files.len() as u32,
-                    },
-                );
-                index
-                    .seen
-                    .entry(inp.machine.id.clone())
-                    .or_default()
-                    .insert(id.clone(), now.transcript_bytes);
+                inp.progress
+                    .bytes_done
+                    .fetch_add(entry.archive_bytes, Ordering::Relaxed);
+                report.bytes += entry.archive_bytes;
+                seen.insert(id.clone(), now.transcript_bytes);
+                changes
+                    .sessions
+                    .insert(id.clone(), (entry, current.map(|e| e.archive.clone())));
                 report.archived.push(id);
             }
             Err(e) => report.failed.push((id, e.to_string())),
         }
     }
-    // The configuration bundle, when any of its files changed.
-    let files = config_files(inp.home);
+    match push_config(inp, &keys, &index) {
+        Ok((entry, unreadable)) => {
+            for rel in unreadable {
+                report.warnings.push(format!(
+                    "{rel} could not be read and is not in the configuration bundle"
+                ));
+            }
+            if let Some(c) = entry {
+                report.config = Some(c.name.clone());
+                changes.config = Some(c);
+            }
+        }
+        Err(e) => report
+            .warnings
+            .push(format!("The configuration bundle was not written: {e}")),
+    }
+    changes.seen = Some(seen);
+    let at = now_ms();
+    let merged = write_index_merged(inp.set, &keys, &changes, &inp.machine.id, at)?;
+    for id in merged.lost {
+        report.archived.retain(|a| *a != id);
+        report.conflicts.push(id);
+    }
+    report.removed = collect_garbage(inp.set, &merged.index, at);
+    note_push(&mut info, inp.machine);
+    if let Err(e) = write_info(inp.set, &info) {
+        report
+            .warnings
+            .push(format!("set.json was not updated: {e}"));
+    }
+    Ok(report)
+}
+
+/// One session's archive, written as a new file, and its index entry.
+fn archive_session(
+    inp: &PushInputs<'_>,
+    keys: &Keys,
+    id: &str,
+    now: &SessionNow,
+) -> Result<IndexEntry, BackupError> {
+    let base = inp.home.base();
+    let files: Vec<(PathBuf, PathBuf)> = now
+        .files
+        .iter()
+        .map(|f| (f.clone(), f.strip_prefix(base).unwrap_or(f).to_path_buf()))
+        .collect();
+    let meta = serde_json::json!({
+        "version": SET_VERSION,
+        "id": id,
+        "cwd": now.cwd,
+        "projectEntry": now.cwd.as_deref()
+            .and_then(|c| transfer::project_entry(&inp.home.claude_json(), c)),
+    });
+    let meta = serde_json::to_vec_pretty(&meta).unwrap_or_default();
+    let (archive, sha, bytes) = write_archive(
+        &inp.set.sessions_dir(),
+        &|sha| format!("{id}.{}.tar.gz.age", &sha[..12]),
+        &keys.recipient,
+        base,
+        &files,
+        &now.dirs,
+        &[(".mc/meta.json", meta)],
+    )?;
+    Ok(IndexEntry {
+        id: id.to_string(),
+        cwd: now.cwd.clone(),
+        transcript_bytes: now.transcript_bytes,
+        newest_mtime: now.newest_mtime,
+        host: inp.machine.name.clone(),
+        machine: inp.machine.id.clone(),
+        pushed_at: now_ms(),
+        archive,
+        archive_sha256: sha,
+        archive_bytes: bytes,
+        files: files.len() as u32,
+    })
+}
+
+/// This machine's configuration bundle, when it changed since this machine's
+/// last one; a file that cannot be read is left out (and named), never a
+/// reason for no bundle.
+fn push_config(
+    inp: &PushInputs<'_>,
+    keys: &Keys,
+    index: &SetIndex,
+) -> Result<(Option<ConfigEntry>, Vec<String>), BackupError> {
+    let mut unreadable = Vec::new();
+    let files: Vec<(PathBuf, PathBuf)> = config_files(inp.home)
+        .into_iter()
+        .filter(|(path, rel)| {
+            let ok = std::fs::File::open(path).is_ok();
+            if !ok {
+                unreadable.push(rel.display().to_string());
+            }
+            ok
+        })
+        .collect();
     let fingerprint = config_fingerprint(&files);
-    if index.config.last().map(|c| c.fingerprint.as_str()) != Some(fingerprint.as_str()) {
-        let name = format!(
-            "{}.tar.gz.age",
-            chrono::Utc::now().format("%Y-%m-%dT%H-%M-%SZ")
-        );
-        let dest = inp.set.config_dir().join(&name);
-        let (sha, bytes) = write_archive(&dest, &keys.recipient, base, &files, &[], &[])?;
-        index.config.push(ConfigEntry {
-            name: name.clone(),
+    let mine = index
+        .config
+        .iter()
+        .rev()
+        .find(|c| c.machine == inp.machine.id);
+    if mine.is_some_and(|c| c.fingerprint == fingerprint) {
+        return Ok((None, unreadable));
+    }
+    let stamp = chrono::Utc::now().format("%Y-%m-%dT%H-%M-%SZ").to_string();
+    let (name, sha, bytes) = write_archive(
+        &inp.set.config_dir(),
+        &|sha| format!("{stamp}-{}.tar.gz.age", &sha[..12]),
+        &keys.recipient,
+        inp.home.base(),
+        &files,
+        &[],
+        &[],
+    )?;
+    Ok((
+        Some(ConfigEntry {
+            name,
             created_at: now_ms(),
             host: inp.machine.name.clone(),
+            machine: inp.machine.id.clone(),
             fingerprint,
             archive_sha256: sha,
             archive_bytes: bytes,
-        });
-        while index.config.len() > CONFIG_KEEP {
-            let old = index.config.remove(0);
-            if let Some(path) = inp.set.config_bundle(&old.name) {
-                let _ = std::fs::remove_file(path);
-            }
-        }
-        report.config = Some(name);
-    }
-    write_index_merged(inp.set, &keys, &index, &inp.machine.id)?;
-    note_push(&mut info, inp.machine);
-    write_info(inp.set, &info)?;
-    Ok(report)
+        }),
+        unreadable,
+    ))
 }
 
 /// This machine's line in `set.json`: by id; its name as it is now.
@@ -1456,6 +1712,15 @@ fn restore_into(
     Ok(())
 }
 
+/// The archive an index entry names, read whole (it may still be
+/// downloading).
+fn read_archive(set: &Set, entry: &IndexEntry) -> Result<Vec<u8>, BackupError> {
+    let path = set.session_archive(entry).ok_or_else(|| {
+        BackupError::Invalid(format!("the index names no valid archive of {}", entry.id))
+    })?;
+    read_stalling(&path)
+}
+
 /// A session of the set: fetched, checked against the index and unpacked
 /// into its own directory under `stage_root`.
 struct Staged {
@@ -1472,7 +1737,7 @@ fn stage_session(
     stage_root: &Path,
 ) -> Result<Staged, BackupError> {
     let id = &entry.id;
-    let bytes = read_stalling(&set.archive(id))?;
+    let bytes = read_archive(set, entry)?;
     if super::secrets::sha256_hex(&bytes) != entry.archive_sha256 {
         return Err(BackupError::Invalid(format!(
             "the archive of {id} is not the one the index names (truncated or changed)"
@@ -1773,7 +2038,7 @@ pub fn pull(inp: &PullInputs<'_>) -> Result<(PullReport, Manifest), BackupError>
                     report.warnings.extend(r.warnings);
                 }
             }
-            PullAction::Conflict => match conflict_copy(inp, &keys, &index, &item.id, now) {
+            PullAction::Conflict => match conflict_copy(inp, &keys, &index, &item.id) {
                 Ok(Some(created)) => {
                     report
                         .conflicts
@@ -1801,6 +2066,10 @@ pub fn pull(inp: &PullInputs<'_>) -> Result<(PullReport, Manifest), BackupError>
         });
     }
 
+    // The undo first: whatever happens to the index, what was written here
+    // can be taken back.
+    crate::persist::write_json_private(&undo_dir.join("manifest.json"), &m)
+        .map_err(|e| io("writing", &undo_dir, e))?;
     // What this machine now has, for the next comparison.
     let seen = index.seen.entry(inp.machine.id.clone()).or_default();
     for id in report.restored.iter().chain(&report.updated) {
@@ -1808,10 +2077,16 @@ pub fn pull(inp: &PullInputs<'_>) -> Result<(PullReport, Manifest), BackupError>
             seen.insert(id.clone(), e.transcript_bytes);
         }
     }
-    let snapshot = index.clone();
-    write_index_merged(inp.set, &keys, &snapshot, &inp.machine.id)?;
-    crate::persist::write_json_private(&undo_dir.join("manifest.json"), &m)
-        .map_err(|e| io("writing", &undo_dir, e))?;
+    let changes = Changes {
+        seen: index.seen.get(&inp.machine.id).cloned(),
+        ..Changes::default()
+    };
+    if let Err(e) = write_index_merged(inp.set, &keys, &changes, &inp.machine.id, now_ms()) {
+        report.warnings.push(Warning {
+            id: String::new(),
+            text: format!("The set does not know yet what this machine has: {e}"),
+        });
+    }
     Ok((report, m))
 }
 
@@ -1826,8 +2101,8 @@ fn history_key(line: &str) -> Option<(String, String)> {
     ))
 }
 
-/// The newest bundle's prompt history appended to this machine's, without
-/// the lines it has (by time and text).
+/// The prompt history of every other machine's newest bundle appended to
+/// this machine's, without the lines it has (by time and text).
 fn merge_history(
     inp: &PullInputs<'_>,
     keys: &Keys,
@@ -1835,23 +2110,37 @@ fn merge_history(
     m: &mut Manifest,
     report: &mut PullReport,
 ) -> Result<(), BackupError> {
-    let Some(lines) = bundle_history(inp.set, keys, index)? else {
+    let mut newest: BTreeMap<&str, &ConfigEntry> = BTreeMap::new();
+    for c in index.config.iter().filter(|c| c.machine != inp.machine.id) {
+        if newest
+            .get(c.machine.as_str())
+            .is_none_or(|n| n.name < c.name)
+        {
+            newest.insert(&c.machine, c);
+        }
+    }
+    let mut lines = Vec::new();
+    for bundle in newest.values() {
+        lines.extend(bundle_history(inp.set, keys, bundle)?.unwrap_or_default());
+    }
+    if lines.is_empty() {
         return Ok(());
-    };
+    }
     let path = inp.home.history_file();
     let local = match std::fs::read(&path) {
         Ok(b) => b,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Vec::new(),
         Err(e) => return Err(io("reading", &path, e)),
     };
-    let have: std::collections::HashSet<(String, String)> = local
+    let mut have: std::collections::HashSet<(String, String)> = local
         .split(|b| *b == b'\n')
         .filter_map(|l| std::str::from_utf8(l).ok())
         .filter_map(history_key)
         .collect();
+    // Once each, also across bundles.
     let fresh: Vec<String> = lines
         .into_iter()
-        .filter(|l| history_key(l).is_some_and(|k| !have.contains(&k)))
+        .filter(|l| history_key(l).is_some_and(|k| have.insert(k)))
         .collect();
     if fresh.is_empty() {
         return Ok(());
@@ -1865,16 +2154,13 @@ fn merge_history(
     Ok(())
 }
 
-/// `history.jsonl` from the newest configuration bundle, if it has one.
+/// `history.jsonl` from a configuration bundle, if it has one.
 fn bundle_history(
     set: &Set,
     keys: &Keys,
-    index: &SetIndex,
+    bundle: &ConfigEntry,
 ) -> Result<Option<Vec<String>>, BackupError> {
-    let Some(last) = index.config.last() else {
-        return Ok(None);
-    };
-    let bytes = read_bundle(set, last)?;
+    let bytes = read_bundle(set, bundle)?;
     let dec =
         age::Decryptor::new_buffered(&bytes[..]).map_err(|e| BackupError::Io(e.to_string()))?;
     let r = dec
@@ -1923,13 +2209,13 @@ fn read_bundle(set: &Set, entry: &ConfigEntry) -> Result<Vec<u8>, BackupError> {
 }
 
 /// The set's transcript of a session changed on both sides, written beside
-/// the local one as `<id>.conflict-<host>-<time>.jsonl`.
+/// the local one as `<id>.conflict-<host>-<time it was pushed>.jsonl` (one
+/// file per pushed version, however often it is pulled).
 fn conflict_copy(
     inp: &PullInputs<'_>,
     keys: &Keys,
     index: &SetIndex,
     id: &str,
-    now: i64,
 ) -> Result<Option<Created>, BackupError> {
     let Some(entry) = index.sessions.get(id) else {
         return Ok(None);
@@ -1938,7 +2224,7 @@ fn conflict_copy(
     let Some(local) = local.first() else {
         return Ok(None);
     };
-    let bytes = read_stalling(&inp.set.archive(id))?;
+    let bytes = read_archive(inp.set, entry)?;
     if super::secrets::sha256_hex(&bytes) != entry.archive_sha256 {
         return Err(BackupError::Invalid(format!(
             "the archive of {id} is not the one the index names"
@@ -1961,7 +2247,7 @@ fn conflict_copy(
         else {
             return Ok(None);
         };
-        let stamp = chrono::DateTime::from_timestamp_millis(now)
+        let stamp = chrono::DateTime::from_timestamp_millis(entry.pushed_at)
             .unwrap_or_default()
             .format("%Y%m%dT%H%M%S");
         let host: String = entry
@@ -1992,13 +2278,19 @@ fn conflict_copy(
 }
 
 /// Unpack the newest configuration bundle into `into` for the user to look
-/// at (it never replaces the live configuration). Returns the folder.
-pub fn extract_config(set: &Set, passphrase: &Secret, into: &Path) -> Result<PathBuf, BackupError> {
+/// at (it never replaces the live configuration): `machine`'s own when it
+/// has one, else the newest of any machine. Returns the folder.
+pub fn extract_config(
+    set: &Set,
+    passphrase: &Secret,
+    into: &Path,
+    machine: Option<&str>,
+) -> Result<PathBuf, BackupError> {
     let keys = open_keys(set, passphrase)?;
     let index = read_index(set, &keys)?;
-    let last = index
-        .config
-        .last()
+    let last = machine
+        .and_then(|m| index.config.iter().rev().find(|c| c.machine == m))
+        .or_else(|| index.config.iter().max_by(|a, b| a.name.cmp(&b.name)))
         .ok_or_else(|| BackupError::Invalid("this set has no configuration bundle".into()))?;
     let bytes = read_bundle(set, last)?;
     let dec =
