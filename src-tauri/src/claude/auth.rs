@@ -169,6 +169,17 @@ pub async fn begin_login(console: bool) -> anyhow::Result<()> {
 /// [`begin_login`] for an account: a directory account signs its own
 /// directory in (its own Keychain item), never the Default's.
 pub async fn begin_login_for(console: bool, account: &AccountEnv) -> anyhow::Result<()> {
+    spawn_login_for(console, account).map(|_| ())
+}
+
+/// [`begin_login_for`], handing back the `claude auth login` process: its
+/// successful exit is a new sign-in even when the account signs in as the
+/// same email again (after an authentication failure, say), which
+/// `claude auth status` alone cannot tell apart from the old one.
+pub fn spawn_login_for(
+    console: bool,
+    account: &AccountEnv,
+) -> anyhow::Result<tokio::process::Child> {
     let mut command = tokio::process::Command::new(crate::claude::claude_bin());
     command.arg("auth").arg("login");
     if console {
@@ -182,7 +193,6 @@ pub async fn begin_login_for(console: bool, account: &AccountEnv) -> anyhow::Res
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .spawn()
-        .map(|_| ())
         .map_err(|e| anyhow::anyhow!("could not start `claude auth login`: {e}"))
 }
 

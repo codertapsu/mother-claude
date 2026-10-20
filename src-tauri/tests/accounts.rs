@@ -522,6 +522,47 @@ async fn a_fresh_directory_account_signs_in_without_a_terminal() {
     assert_eq!(s, StatusCode::UNPROCESSABLE_ENTITY, "{v}");
 }
 
+/// An account whose session failed to authenticate signs in again as the
+/// same email: `claude auth status` reads as before, so the login process
+/// finishing is what clears the mark.
+#[tokio::test]
+async fn signing_in_again_as_the_same_email_clears_a_failure() {
+    use mother_claude_lib::claude::accounts::status;
+    let f = boot().await;
+    let desk = f.desktop();
+    let dir = f.scratch.path().join("claude-again");
+    let (_, work) = f
+        .call(
+            "POST",
+            "/accounts",
+            &desk,
+            Some(json!({"name": "Again", "kind": "directory", "dir": dir})),
+        )
+        .await;
+    let id = work["id"].as_str().unwrap().to_string();
+    let path = format!("/accounts/{id}/login");
+    let login = || f.call("POST", &path, &desk, Some(json!({})));
+    let (s, v) = login().await;
+    assert_eq!(s, StatusCode::ACCEPTED, "{v}");
+    f.wait_for(&id, "signed in", |a| {
+        a["signedIn"] == true && a["signingIn"] == false
+    })
+    .await;
+
+    status::note_auth_failed(&f.st, &id).await;
+    let a = f.account(&id).await;
+    assert_eq!(a["attention"], "authFailed", "{a}");
+    assert_eq!(a["signedIn"], false);
+
+    let (s, v) = login().await;
+    assert_eq!(s, StatusCode::ACCEPTED, "{v}");
+    let a = f
+        .wait_for(&id, "the failure cleared", |a| a.get("attention").is_none())
+        .await;
+    assert_eq!(a["signedIn"], true);
+    assert_eq!(a["email"], "work@example.test", "the same email");
+}
+
 #[tokio::test]
 async fn setup_token_is_captured_into_the_secret_store() {
     let f = boot().await;

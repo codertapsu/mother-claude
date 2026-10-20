@@ -213,9 +213,8 @@ pub async fn start_login(state: &AppState, id: &str, console: bool) -> Result<()
         );
     }
     let env = state.accounts.env(id).map_err(|e| e.to_string())?;
-    crate::claude::auth::begin_login_for(console, &env)
-        .await
-        .map_err(|e| e.to_string())?;
+    let mut login =
+        crate::claude::auth::spawn_login_for(console, &env).map_err(|e| e.to_string())?;
     if !lock(&state.accounts.runtime.watching).insert(id.to_string()) {
         return Ok(());
     }
@@ -228,11 +227,23 @@ pub async fn start_login(state: &AppState, id: &str, console: bool) -> Result<()
         let before = st.accounts.runtime.status(&id).auth.and_then(|a| a.email);
         while tokio::time::Instant::now() < deadline {
             tokio::time::sleep(LOGIN_POLL).await;
+            // `Some(true)`: the login finished well — a new sign-in, even as
+            // the same email (which is all `auth status` would show).
+            let finished = match login.try_wait() {
+                Ok(Some(exit)) => Some(exit.success()),
+                Ok(None) => None,
+                Err(_) => Some(false),
+            };
             match refresh(&st, &id).await {
-                Ok(a) if a.logged_in && (a.email != before || before.is_none()) => {
+                Ok(a)
+                    if a.logged_in
+                        && (finished == Some(true) || a.email != before || before.is_none()) =>
+                {
                     st.accounts.runtime.update(&id, |s| s.auth_failed = false);
                     break;
                 }
+                // The login ended without a sign-in.
+                Ok(_) if finished.is_some() => break,
                 Ok(_) => {}
                 Err(_) => break,
             }
