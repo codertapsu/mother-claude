@@ -83,6 +83,7 @@ pub async fn post_move(
         mode: body.mode,
         trust: body.trust,
         snapshot: false,
+        refresh: false,
     };
     let plan = ops::plan(&state, &body.from, &body.to, req)
         .await

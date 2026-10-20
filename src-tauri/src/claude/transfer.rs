@@ -186,6 +186,8 @@ pub struct Plan {
     history: Vec<String>,
     #[serde(skip)]
     snapshot: bool,
+    #[serde(skip)]
+    refresh: bool,
     /// The two accounts, when the app planned it (the job names them).
     #[serde(skip)]
     pub(crate) from_account: Option<String>,
@@ -218,6 +220,12 @@ pub struct Request {
     /// source's first bytes. Never from a request body.
     #[serde(skip)]
     pub snapshot: bool,
+    /// With `snapshot`: a copy an earlier snapshot left in the target is
+    /// brought up to date when nothing changed it there since (it is the
+    /// start of the source now); one that changed there is left as it is
+    /// (`already_exists`, so it is forked as it stands). Never from a body.
+    #[serde(skip)]
+    pub refresh: bool,
 }
 
 /// The transcripts a session id has under `projects/*/`.
@@ -482,13 +490,32 @@ pub fn plan(ctx: &Context<'_>, req: &Request) -> Result<Plan, TransferError> {
             "a snapshot is a copy of one session".into(),
         ));
     }
+    if req.refresh && !req.snapshot {
+        return Err(TransferError::Invalid(
+            "only a snapshot brings an earlier copy up to date".into(),
+        ));
+    }
     let mut sessions = Vec::new();
     for id in &ids {
         if !req.snapshot && (ctx.is_live)(id) {
             return Err(TransferError::SessionLive(id.clone()));
         }
         if !transcripts_of(ctx.to, id).is_empty() {
-            return Err(TransferError::AlreadyExists(id.clone()));
+            if !req.refresh {
+                return Err(TransferError::AlreadyExists(id.clone()));
+            }
+            // An earlier snapshot is brought up to date only when it is
+            // behind the source and nothing changed it in the target.
+            let planned = plan_session(ctx.from, ctx.to, id)?;
+            let behind = planned
+                .files
+                .first()
+                .is_some_and(|t| matches!(copy_state(&t.to, &t.from), Ok(CopyState::Behind)));
+            if !behind {
+                return Err(TransferError::AlreadyExists(id.clone()));
+            }
+            sessions.push(planned);
+            continue;
         }
         sessions.push(plan_session(ctx.from, ctx.to, id)?);
     }
@@ -555,6 +582,7 @@ pub fn plan(ctx: &Context<'_>, req: &Request) -> Result<Plan, TransferError> {
         entry,
         history,
         snapshot: req.snapshot,
+        refresh: req.refresh,
         from_account: None,
         to_account: None,
     })
@@ -1046,11 +1074,54 @@ pub fn recheck(plan: &Plan, is_live: &dyn Fn(&str) -> bool) -> Result<(), Transf
         if !plan.snapshot && is_live(&s.id) {
             return Err(TransferError::SessionLive(s.id.clone()));
         }
-        if !transcripts_of(&to, &s.id).is_empty() {
+        if !plan.refresh && !transcripts_of(&to, &s.id).is_empty() {
             return Err(TransferError::AlreadyExists(s.id.clone()));
         }
     }
     shared_checks(plan)
+}
+
+/// How a copy made earlier stands against its source now.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CopyState {
+    /// The same bytes (a source that only has an unfinished line more counts
+    /// as the same: a snapshot leaves that out).
+    Same,
+    /// The start of the source: the source went on, the copy did not.
+    Behind,
+    /// Written to since it was copied (or never a copy of this source).
+    Changed,
+}
+
+fn copy_state(copy: &Path, source: &Path) -> Result<CopyState, TransferError> {
+    let (n, sha) = sha256_file(copy).map_err(|e| io("reading", copy, e))?;
+    let src_len = std::fs::metadata(source)
+        .map_err(|e| io("reading", source, e))?
+        .len();
+    if n > src_len || sha256_prefix(source, n).map_err(|e| io("reading", source, e))? != sha {
+        return Ok(CopyState::Changed);
+    }
+    if n == src_len || !has_newline_after(source, n).map_err(|e| io("reading", source, e))? {
+        return Ok(CopyState::Same);
+    }
+    Ok(CopyState::Behind)
+}
+
+/// Whether a file has a `\n` anywhere after byte `from`.
+fn has_newline_after(path: &Path, from: u64) -> std::io::Result<bool> {
+    use std::io::{Seek, SeekFrom};
+    let mut f = std::fs::File::open(path)?;
+    f.seek(SeekFrom::Start(from))?;
+    let mut buf = vec![0u8; 64 * 1024];
+    loop {
+        let k = f.read(&mut buf)?;
+        if k == 0 {
+            return Ok(false);
+        }
+        if buf[..k].contains(&b'\n') {
+            return Ok(true);
+        }
+    }
 }
 
 /// Whether a session has a file now that the plan does not list (it was
@@ -1131,6 +1202,23 @@ pub fn run(
                     for d in missing_dirs(parent, &plan.to) {
                         std::fs::create_dir(&d).map_err(|e| io("creating", &d, e))?;
                         m.created_dirs.push(d);
+                    }
+                }
+                if plan.refresh && is_plain_file(&f.to) {
+                    // An earlier copy: replaced only when it is behind (the
+                    // old one goes to the undo directory); one that changed
+                    // in the target stays, and a changed transcript stops it.
+                    match copy_state(&f.to, &f.from)? {
+                        CopyState::Same => continue,
+                        CopyState::Changed if f.to.extension().is_some_and(|e| e == "jsonl") => {
+                            return Err(TransferError::SessionChanged(s.id.clone()));
+                        }
+                        CopyState::Changed => continue,
+                        CopyState::Behind => {
+                            let rel = f.to.strip_prefix(&plan.to).unwrap_or(&f.to);
+                            m.moved
+                                .push(stash(&f.to, &undo_dir, &Path::new("target").join(rel))?);
+                        }
                     }
                 }
                 let created = copy_file(f, plan.snapshot)?;

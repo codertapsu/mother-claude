@@ -245,6 +245,9 @@ pub async fn copy_for_continue(
         mode: Mode::Copy,
         trust: false,
         snapshot: true,
+        // A copy an earlier continue-on made is brought up to date first, so
+        // the fork has every turn the original had since.
+        refresh: true,
     };
     match plan(state, from, to, req).await {
         Ok(p) => {
@@ -262,7 +265,8 @@ pub async fn copy_for_continue(
             );
             Ok(Some(job_id))
         }
-        // An earlier continue-on copied it already: fork that copy.
+        // An earlier continue-on copied it already and it is current, or it
+        // was continued there since: fork that copy as it stands.
         Err(TransferError::AlreadyExists(_)) => Ok(None),
         Err(e) => Err(ContinueCopyError::Transfer(e)),
     }

@@ -319,7 +319,10 @@ stopped at its limit), so the copy is of what is there now, an unfinished
 last transcript line is left out, and each file is verified against the
 source's first bytes. The account pair's copy consent is given on the desktop;
 after that a continue-on from any surface may copy for that pair, as §11.2
-intends. A second continue-on forks the copy that is already there.
+intends. A second continue-on brings the copy already there up to date first
+when it is only behind the original (nothing changed it in the target; the
+older copy is kept for undo), so the fork has every turn; a copy that was
+continued in the target is forked as it stands.
 
 *Changed while building (D6, §4.3):* age's passphrase mode costs about a
 second of scrypt per file — per archive, that would make a first backup of a

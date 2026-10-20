@@ -64,6 +64,7 @@ fn req(what: What, mode: Mode, trust: bool) -> Request {
         mode,
         trust,
         snapshot: false,
+        refresh: false,
     }
 }
 
@@ -126,6 +127,11 @@ fn a_copy_lands_byte_for_byte_and_touches_nothing_shared() {
     );
     // A second copy is refused: the target has it now.
     let again = plan(&ctx, &req(sess(), Mode::Copy, false)).unwrap_err();
+    assert_eq!(again.code(), "already_exists");
+    // Also when the source has it no more (it moved there): the target
+    // having it is what the refusal says.
+    std::fs::remove_file(transcripts_of(&w.a, SID).remove(0)).unwrap();
+    let again = plan(&ctx, &req(sess(), Mode::Move, false)).unwrap_err();
     assert_eq!(again.code(), "already_exists");
 }
 
@@ -770,4 +776,48 @@ fn a_rewritten_file_without_an_original_is_owner_only() {
         0o644,
         "an existing file keeps its mode"
     );
+}
+
+#[test]
+fn a_second_continue_on_brings_its_earlier_copy_up_to_date() {
+    let w = world();
+    session(w.a.base(), SID, CWD);
+    let live = |_: &str| true;
+    let ctx = Context {
+        from: &w.a,
+        to: &w.b,
+        is_live: &live,
+    };
+    let mut r = req(sess(), Mode::Copy, false);
+    r.snapshot = true;
+    r.refresh = true;
+    let p = plan(&ctx, &r).unwrap();
+    run(&p, &w.undo, &new_job_id(), &Progress::default(), &live).unwrap();
+    let src = transcripts_of(&w.a, SID).remove(0);
+    let copy = transcripts_of(&w.b, SID).remove(0);
+    let first = std::fs::read(&copy).unwrap();
+    // Nothing new (an unfinished line does not count): fork it as it is.
+    let mut f = std::fs::File::options().append(true).open(&src).unwrap();
+    f.write_all(b"{\"type\":\"assist").unwrap();
+    assert_eq!(plan(&ctx, &r).unwrap_err().code(), "already_exists");
+    // The original went on (its limit reset) and gained a turn.
+    f.write_all(b"ant\"}\n{\"type\":\"user\",\"n\":3}\n")
+        .unwrap();
+    drop(f);
+    let p = plan(&ctx, &r).unwrap();
+    let id = new_job_id();
+    let m = run(&p, &w.undo, &id, &Progress::default(), &live).unwrap();
+    assert_eq!(std::fs::read(&copy).unwrap(), std::fs::read(&src).unwrap());
+    assert_eq!(m.moved.len(), 1, "only the transcript was behind");
+    assert_eq!(m.created.len(), 1);
+    // Undo puts the earlier copy back.
+    undo(&w.undo, &id).unwrap();
+    assert_eq!(std::fs::read(&copy).unwrap(), first);
+    // A copy that was continued in the target is forked as it stands.
+    let mut f = std::fs::File::options().append(true).open(&copy).unwrap();
+    f.write_all(b"{\"type\":\"user\",\"in\":\"b\"}\n").unwrap();
+    assert_eq!(plan(&ctx, &r).unwrap_err().code(), "already_exists");
+    // Only a snapshot refreshes.
+    r.snapshot = false;
+    assert_eq!(plan(&ctx, &r).unwrap_err().code(), "invalid_transfer");
 }
