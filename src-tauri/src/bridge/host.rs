@@ -488,6 +488,30 @@ async fn handle_frame(state: &AppState, frame: Value) {
             ) {
                 super::note_thread_mode(state, id, mode).await;
             }
+            // A conversation whose sign-in or token stopped working marks its
+            // account at once; a turn that worked clears it (§5.8).
+            if let Some(id) = session_id {
+                let account = state.bridge.account_of(id);
+                match message.get("type").and_then(Value::as_str) {
+                    Some("assistant")
+                        if message.get("error").and_then(Value::as_str)
+                            == Some("authentication_failed") =>
+                    {
+                        if let Some(a) = account {
+                            crate::claude::accounts::status::note_auth_failed(state, &a).await;
+                        }
+                    }
+                    Some("result")
+                        if message.get("subtype").and_then(Value::as_str) == Some("success")
+                            && message.get("is_error").and_then(Value::as_bool) != Some(true) =>
+                    {
+                        if let Some(a) = account {
+                            crate::claude::accounts::status::note_auth_ok(state, &a).await;
+                        }
+                    }
+                    _ => {}
+                }
+            }
             let event = json!({
                 "method": "message",
                 "params": {

@@ -193,6 +193,38 @@ async fn conversations_run_under_their_account() {
     assert_eq!(s, reqwest::StatusCode::CONFLICT, "{v}");
     assert_eq!(v["error"]["code"], "account_token_missing");
 
+    // A conversation whose token stopped working marks its account at once;
+    // a turn that works clears it (§5.8).
+    let turn = |thread: String, text: &'static str| {
+        let base = base.clone();
+        async move {
+            reqwest::Client::new()
+                .post(format!("{base}/threads/{thread}/turns"))
+                .json(&json!({ "input": text }))
+                .send()
+                .await
+                .unwrap()
+                .status()
+        }
+    };
+    let failed = |st: &AppState| st.accounts.runtime.status(&pro.id).auth_failed;
+    assert!(turn(id.clone(), "AUTHFAIL please").await.is_success());
+    for _ in 0..100 {
+        if failed(&st) {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+    assert!(failed(&st), "authentication_failed marks the account");
+    assert!(turn(id.clone(), "hello").await.is_success());
+    for _ in 0..100 {
+        if !failed(&st) {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+    assert!(!failed(&st), "a turn that worked clears it");
+
     // The host never saw the token in anything it could log: only the env
     // block of a conversation carries it, and the fake recorded its hash.
     assert!(!std::fs::read_to_string(&log).unwrap().contains(TOKEN));
