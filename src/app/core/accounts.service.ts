@@ -117,21 +117,22 @@ export class AccountsService {
     return id ? this.limits().get(id) : undefined;
   }
 
-  /** Where a conversation of `from` can continue now: the first other
-   * account that is signed in, can run, is not at a limit itself and shares
-   * its directory (a copy into another one arrives with Move/Copy). */
+  /** Where a conversation of `from` can continue now: another account that
+   * is signed in, can run and is not at a limit itself — one sharing its
+   * directory first (a plain fork), else one with its own directory (the
+   * conversation is copied there first). */
   suggestionFor(from: { id: string; kind: AccountKind | string }): AccountView | null {
     const limits = this.limits();
-    return (
-      this.list().find(
-        (a) =>
-          a.id !== from.id &&
-          a.signedIn &&
-          accountCanRun(a) &&
-          !limits.has(a.id) &&
-          !needsCopy(from, a),
-      ) ?? null
+    const free = this.list().filter(
+      (a) => a.id !== from.id && a.signedIn && accountCanRun(a) && !limits.has(a.id),
     );
+    return free.find((a) => !needsCopy(from, a)) ?? free[0] ?? null;
+  }
+
+  /** The desktop allowed copying conversations from `from` to `to` for
+   * "continue on" (docs/ACCOUNTS.md §11.2). */
+  hasCopyConsent(from: string, to: string): boolean {
+    return (this.view()?.copyConsent ?? []).some((c) => c.from === from && c.to === to);
   }
 
   /** The account a new session in `cwd` gets unless someone picks one. */
@@ -214,6 +215,12 @@ export class AccountsService {
 
   async login(id: string, consoleAccount = false): Promise<void> {
     await this.api.loginAccount(id, consoleAccount);
+    await this.refresh();
+  }
+
+  /** The hooks plugin in a directory account's own directory. */
+  async setHooksPlugin(id: string, install: boolean): Promise<void> {
+    await (install ? this.api.installAccountHooks(id) : this.api.uninstallAccountHooks(id));
     await this.refresh();
   }
 

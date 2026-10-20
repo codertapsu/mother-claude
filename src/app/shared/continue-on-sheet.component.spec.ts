@@ -2,7 +2,13 @@ import { Component } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { Router, provideRouter } from '@angular/router';
 
-import { FakeBackend, flush, serveAccounts, useFakeServer } from '../core/mock/fake-server.testing';
+import {
+  FakeBackend,
+  asDesktop,
+  flush,
+  serveAccounts,
+  useFakeServer,
+} from '../core/mock/fake-server.testing';
 import {
   MOCK_ACCOUNT_PRO,
   MOCK_ACCOUNT_WORK,
@@ -43,6 +49,19 @@ const session = (over: Partial<SessionSummary> = {}): SessionSummary => ({
   ...over,
 });
 
+const consentRequired = {
+  status: 409,
+  body: {
+    error: {
+      code: 'copy_consent_required',
+      message:
+        'That account keeps its own directory: the conversation has to be copied there first.',
+      from: 'default',
+      to: MOCK_ACCOUNT_WORK,
+    },
+  },
+};
+
 describe('ContinueOnSheetComponent', () => {
   let backend: FakeBackend;
   let fixture: ComponentFixture<ContinueOnSheetComponent>;
@@ -65,20 +84,36 @@ describe('ContinueOnSheetComponent', () => {
     fixture.detectChanges();
     return fixture.nativeElement as HTMLElement;
   };
-  const text = (el: Element) => (el.textContent ?? '').replace(/\s+/g, ' ').trim();
+  const settle = async () => {
+    await flush();
+    fixture.detectChanges();
+    await flush();
+    fixture.detectChanges();
+  };
+  const text = (el: Element | null | undefined) =>
+    (el?.textContent ?? '').replace(/\s+/g, ' ').trim();
   const options = (el: HTMLElement) => [
     ...el.querySelectorAll<HTMLButtonElement>('[role="radiogroup"][aria-label="Account"] .opt'),
   ];
   const goButton = (el: HTMLElement) =>
     [...el.querySelectorAll<HTMLButtonElement>('.actions .btn.primary')][0];
+  const pick = async (el: HTMLElement, name: string) => {
+    options(el)
+      .find((o) => text(o.querySelector('.oname')) === name)
+      ?.click();
+    fixture.detectChanges();
+  };
 
-  it('offers the other accounts, saying why one cannot take the conversation', async () => {
+  it('offers every other account, saying when the conversation is copied first', async () => {
     const el = await open(session());
     const opts = options(el);
-    expect(opts.map((o) => text(o.querySelector('.oname')!))).toEqual(['Work', 'Marcus (Pro)']);
-    // Work keeps its own directory: not before Move/Copy.
-    expect(opts[0].disabled).toBeTrue();
+    expect(opts.map((o) => text(o.querySelector('.oname')))).toEqual(['Work', 'Marcus (Pro)']);
+    // Work keeps its own directory: it can be picked, the copy is said.
+    expect(opts[0].disabled).toBeFalse();
     expect(text(opts[0])).toContain('Keeps its own directory');
+    expect(text(opts[0])).toContain('allowed on the Mac first');
+    // The token account shares the directory: a plain fork.
+    expect(text(opts[1])).not.toContain('directory');
     // The suggestion is preselected.
     expect(opts[1].getAttribute('aria-checked')).toBe('true');
     expect(text(goButton(el))).toBe('Continue on Marcus (Pro)');
@@ -102,23 +137,66 @@ describe('ContinueOnSheetComponent', () => {
     expect(closed).toHaveBeenCalled();
   });
 
-  it("shows the server's words when the account needs a copy first", async () => {
-    backend.routes.set('/sessions/s1/continue', () => ({
-      status: 409,
-      body: {
-        error: {
-          code: 'account_needs_copy',
-          message: 'That account keeps its own directory: copy it there first.',
-        },
-      },
-    }));
-    const el = await open(session());
-    goButton(el).click();
-    await flush();
-    fixture.detectChanges();
-    expect(text(el.querySelector('.notice.error')!)).toBe(
-      'That account keeps its own directory: copy it there first.',
+  it('asks the desktop once before the first copy, then copies and continues', async () => {
+    asDesktop();
+    let continues = 0;
+    backend.routes.set('/sessions/s1/continue', () =>
+      ++continues === 1 ? consentRequired : { status: 201, body: { id: 's4', forked: true } },
     );
+    backend.routes.set('/accounts/copy-consent', (_m, body) => {
+      const view = buildAccounts(Date.now(), true);
+      view.copyConsent = [{ from: 'default', to: MOCK_ACCOUNT_WORK }];
+      expect(body).toEqual({ from: 'default', to: MOCK_ACCOUNT_WORK, granted: true });
+      return { status: 200, body: view };
+    });
+    const el = await open(session());
+    expect(text(options(el)[0])).toContain('copied there first (asked once)');
+    await pick(el, 'Work');
+    goButton(el).click();
+    await settle();
+    const ask = el.querySelector('[aria-label="Allow copies"]');
+    expect(text(ask)).toContain(
+      'Copy conversations from Default to Work when you continue them there? Asked once; you can revoke it on the Accounts page.',
+    );
+    expect(backend.calls).not.toContain('PUT /accounts/copy-consent');
+
+    (ask?.querySelector('.btn.primary') as HTMLButtonElement).click();
+    await settle();
+    expect(backend.calls).toContain('PUT /accounts/copy-consent');
+    expect(backend.calls.filter((c) => c === 'POST /sessions/s1/continue').length).toBe(2);
+    expect(backend.bodyOf('POST /sessions/s1/continue')).toEqual({
+      account: MOCK_ACCOUNT_WORK,
+      fork: true,
+    });
+    expect(TestBed.inject(Router).url).toBe('/session/s4');
+  });
+
+  it('"Not now" leaves everything as it was', async () => {
+    asDesktop();
+    backend.routes.set('/sessions/s1/continue', () => consentRequired);
+    const el = await open(session());
+    await pick(el, 'Work');
+    goButton(el).click();
+    await settle();
+    const ask = el.querySelector('[aria-label="Allow copies"]');
+    (ask?.querySelector('.btn.ghost') as HTMLButtonElement).click();
+    fixture.detectChanges();
+    expect(el.querySelector('[aria-label="Allow copies"]')).toBeNull();
+    expect(backend.calls).not.toContain('PUT /accounts/copy-consent');
+    expect(text(goButton(el))).toBe('Continue on Work');
+  });
+
+  it('on a phone says the copies have to be allowed on the Mac', async () => {
+    backend.routes.set('/sessions/s1/continue', () => consentRequired);
+    const el = await open(session());
+    await pick(el, 'Work');
+    goButton(el).click();
+    await settle();
+    expect(el.querySelector('[aria-label="Allow copies"]')).toBeNull();
+    expect(text(el.querySelector('.notice.error'))).toContain(
+      'copies between these two accounts have to be allowed on the Mac first (on its Accounts page)',
+    );
+    expect(backend.calls).not.toContain('PUT /accounts/copy-consent');
   });
 
   it('says plainly that a token is missing', async () => {
@@ -128,35 +206,43 @@ describe('ContinueOnSheetComponent', () => {
     }));
     const el = await open(session());
     goButton(el).click();
-    await flush();
-    fixture.detectChanges();
-    expect(text(el.querySelector('.notice.error')!)).toContain(
+    await settle();
+    expect(text(el.querySelector('.notice.error'))).toContain(
       'Marcus (Pro) has no token on this Mac yet',
     );
   });
 
-  it('stops a session Mother Claude runs, then continues it on the account', async () => {
-    let continues = 0;
-    backend.routes.set('/sessions/s1/continue', () =>
-      ++continues === 1
-        ? {
-            status: 409,
-            body: { error: { code: 'already_owned', message: 'already driven by Mother Claude' } },
-          }
-        : { status: 201, body: { id: 's3', forked: true } },
+  it("puts a copy's refusal in words", async () => {
+    asDesktop();
+    backend.routes.set('/sessions/s1/continue', () => ({
+      status: 409,
+      body: {
+        error: {
+          code: 'config_locked',
+          message:
+            'Claude Code is writing /Users/me/.claude-work/.claude.json right now; try again in a few seconds',
+        },
+      },
+    }));
+    const el = await open(session());
+    await pick(el, 'Work');
+    goButton(el).click();
+    await settle();
+    expect(text(el.querySelector('.notice.error'))).toBe(
+      'Claude Code is writing /Users/me/.claude-work/.claude.json right now; try again in a few seconds.',
     );
-    backend.routes.set('/sessions/s1/stop', () => ({ status: 200, body: { ok: true } }));
-    const el = await open(session({ owned: true, control: ownedCaps() }));
-    goButton(el).click();
-    await flush();
-    fixture.detectChanges();
-    expect(text(el.querySelector('.notice.warn')!)).toContain('it stops here first');
-    expect(backend.calls).not.toContain('POST /sessions/s1/stop');
+  });
 
+  it('continues a session Mother Claude runs on another account without stopping it', async () => {
+    backend.routes.set('/sessions/s1/continue', () => ({
+      status: 201,
+      body: { id: 's3', forked: true },
+    }));
+    const el = await open(session({ owned: true, control: ownedCaps() }));
+    expect(el.querySelector('.notice.warn')).toBeNull();
     goButton(el).click();
-    await new Promise((r) => setTimeout(r, 400));
-    await flush();
-    expect(backend.calls.filter((c) => c === 'POST /sessions/s1/stop').length).toBe(1);
+    await settle();
+    expect(backend.calls).not.toContain('POST /sessions/s1/stop');
     expect(backend.bodyOf('POST /sessions/s1/continue')).toEqual({
       account: MOCK_ACCOUNT_PRO,
       fork: true,
@@ -172,13 +258,14 @@ describe('ContinueOnSheetComponent', () => {
     serveAccounts(backend, view);
     const el = await open(session(), MOCK_ACCOUNT_PRO);
     const opts = options(el);
-    expect(opts.every((o) => o.disabled)).toBeTrue();
+    expect(opts[1].disabled).toBeTrue();
     expect(text(opts[1])).toContain('No token on this Mac yet.');
-    expect(goButton(el).disabled).toBeTrue();
-    expect(text(goButton(el))).toBe('Pick an account');
+    // The suggestion can't run: the first account that can is picked.
+    expect(opts[0].disabled).toBeFalse();
+    expect(text(goButton(el))).toBe('Continue on Work');
   });
 
-  it('from a separate directory, every other account needs a copy first', async () => {
+  it('from a separate directory, every other account takes a copy', async () => {
     const work = {
       id: MOCK_ACCOUNT_WORK,
       name: 'Work',
@@ -187,7 +274,9 @@ describe('ContinueOnSheetComponent', () => {
     };
     const el = await open(session({ account: work }), null);
     const opts = options(el);
-    expect(opts.map((o) => text(o.querySelector('.oname')!))).toEqual(['Default', 'Marcus (Pro)']);
-    expect(opts.every((o) => o.disabled)).toBeTrue();
+    expect(opts.map((o) => text(o.querySelector('.oname')))).toEqual(['Default', 'Marcus (Pro)']);
+    expect(opts.every((o) => !o.disabled)).toBeTrue();
+    expect(text(opts[0])).toContain('Keeps its own directory');
+    expect(text(opts[1])).toContain("Uses the Default's directory");
   });
 });

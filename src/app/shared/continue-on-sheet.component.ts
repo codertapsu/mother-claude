@@ -13,13 +13,19 @@ import { RouterLink } from '@angular/router';
 
 import { DEFAULT_ACCOUNT, isAccountColor, needsCopy } from '../core/accounts';
 import { AccountsService } from '../core/accounts.service';
-import { ApiError } from '../core/api.service';
+import { ApiError, describeError } from '../core/api.service';
 import { AuthService } from '../core/auth.service';
-import { AccountRef, AccountView, SessionSummary } from '../core/models';
+import { AccountRef, AccountView, CopyConsent, SessionSummary } from '../core/models';
 import { NowService } from '../core/now.service';
-import { SessionActionsService, isAlreadyOwned } from '../core/session-actions.service';
+import { SessionActionsService } from '../core/session-actions.service';
 import { AccountChipComponent } from './account-chip.component';
-import { accountErrorText, cannotRunReason, signInLine, usageLine } from './accounts';
+import {
+  accountErrorText,
+  cannotRunReason,
+  consentNeeded,
+  signInLine,
+  usageLine,
+} from './accounts';
 import { IconComponent } from './icon.component';
 import { SheetComponent } from './sheet.component';
 import { capitalize, sessionName, statusLabel } from './util';
@@ -32,6 +38,14 @@ interface Target {
   limited: boolean;
   /** Why it can't be picked ('' when it can). */
   blocked: string;
+  /** What picking it means beyond a fork ('' for nothing). */
+  note: string;
+}
+
+/** The desktop's question before the first copy between two accounts. */
+interface ConsentAsk extends CopyConsent {
+  fromName: string;
+  toName: string;
 }
 
 /** A session that can be continued from here at all. */
@@ -42,11 +56,11 @@ export function canContinue(s: SessionSummary): boolean {
 /**
  * "Continue on another account" (docs/ACCOUNTS.md §6.2): pick the account
  * (and, from the sessions list, the conversation) and the conversation goes
- * on there as a copy, the original staying as it was. Accounts that can't
- * take it say why: no token here, signed out, or a separate directory (a
- * copy between directories arrives with Move/Copy). A session Mother
- * Claude is running is let go of only once it stopped: the sheet then
- * offers to stop it first.
+ * on there as a copy, the original staying as it was — a session Mother
+ * Claude runs keeps running. An account with its own directory gets the
+ * conversation copied there first: the desktop is asked once per pair of
+ * accounts (the answer is kept, and revocable on the Accounts page); a
+ * phone is told to allow it on the Mac. Accounts that can't run say why.
  */
 @Component({
   selector: 'mc-continue-on-sheet',
@@ -105,6 +119,8 @@ export function canContinue(s: SessionSummary): boolean {
                   }
                   @if (t.blocked) {
                     <span class="small why">{{ t.blocked }}</span>
+                  } @else if (t.note) {
+                    <span class="muted small">{{ t.note }}</span>
                   }
                 </span>
                 @if (t.account.id === targetId()) {
@@ -122,25 +138,31 @@ export function canContinue(s: SessionSummary): boolean {
             <p class="notice error small" role="alert">{{ error() }}</p>
           }
 
-          @if (needsStop() && target(); as t) {
-            <p class="notice warn small" role="status">
-              Mother Claude is running this session right now. To continue it on {{ t.name }} it
-              stops here first (its current turn too, if one is running); the conversation then
-              continues on {{ t.name }} as a copy.
-            </p>
-            <div class="row actions">
-              <button class="btn primary" type="button" [disabled]="busy()" (click)="stopAndGo()">
-                <mc-icon name="stop" [size]="14" />
-                {{ busy() ? 'Stopping…' : 'Stop it and continue on ' + t.name }}
-              </button>
-              <button
-                class="btn ghost"
-                type="button"
-                [disabled]="busy()"
-                (click)="needsStop.set(false)"
-              >
-                Cancel
-              </button>
+          @if (ask(); as a) {
+            <div class="notice warn small ask" role="group" aria-label="Allow copies">
+              <p>
+                Copy conversations from <strong>{{ a.fromName }}</strong> to
+                <strong>{{ a.toName }}</strong> when you continue them there? Asked once; you can
+                revoke it on the Accounts page.
+              </p>
+              <div class="row">
+                <button
+                  class="btn primary small"
+                  type="button"
+                  [disabled]="busy()"
+                  (click)="allow()"
+                >
+                  {{ busy() ? 'Copying…' : 'Copy and continue' }}
+                </button>
+                <button
+                  class="btn ghost small"
+                  type="button"
+                  [disabled]="busy()"
+                  (click)="ask.set(null)"
+                >
+                  Not now
+                </button>
+              </div>
             </div>
           } @else {
             <div class="row actions">
@@ -246,6 +268,10 @@ export function canContinue(s: SessionSummary): boolean {
       .notice {
         margin: 0.75rem 0 0;
       }
+      .ask p {
+        margin: 0 0 0.6rem;
+        line-height: 1.5;
+      }
       .actions {
         margin-top: 0.9rem;
       }
@@ -271,8 +297,8 @@ export class ContinueOnSheetComponent {
 
   protected readonly busy = signal(false);
   protected readonly error = signal('');
-  /** The server let us know Mother Claude runs it: offer to stop it first. */
-  protected readonly needsStop = signal(false);
+  /** The desktop is asked to allow copies between two accounts. */
+  protected readonly ask = signal<ConsentAsk | null>(null);
   private readonly pickedSession = signal<string | null>(null);
   private readonly pickedTarget = signal<string | null>(null);
 
@@ -288,22 +314,30 @@ export class ContinueOnSheetComponent {
       kind: 'directory',
     };
     const now = this.clock.now();
+    const desktop = this.isDesktop();
     return this.accounts
       .list()
       .filter((a) => a.id !== from.id)
       .map((a) => {
         const reason = cannotRunReason(a);
+        let note = '';
+        if (needsCopy(from, a)) {
+          const where =
+            a.kind === 'token' ? "Uses the Default's directory" : 'Keeps its own directory';
+          note = this.accounts.hasCopyConsent(from.id, a.id)
+            ? `${where}: the conversation is copied there first.`
+            : desktop
+              ? `${where}: the conversation is copied there first (asked once).`
+              : `${where}: copies to it have to be allowed on the Mac first (Accounts page).`;
+        }
         return {
           account: a,
           color: isAccountColor(a.color) ? a.color : 'var(--accent)',
           signIn: signInLine(a).text,
           usage: usageLine(this.accounts.usageOf(a.id), now),
           limited: !!this.accounts.limitOf(a.id),
-          blocked: reason
-            ? `${capitalize(reason)}.`
-            : needsCopy(from, a)
-              ? 'Keeps its own directory: continuing there needs a copy of the conversation, which arrives with Move/Copy.'
-              : '',
+          blocked: reason ? `${capitalize(reason)}.` : '',
+          note,
         };
       });
   });
@@ -327,7 +361,7 @@ export class ContinueOnSheetComponent {
         this.pickedSession.set(null);
         this.pickedTarget.set(null);
         this.error.set('');
-        this.needsStop.set(false);
+        this.ask.set(null);
         void this.accounts.ensureLoaded();
       });
     });
@@ -344,13 +378,13 @@ export class ContinueOnSheetComponent {
   protected pickSession(id: string): void {
     this.pickedSession.set(id);
     this.error.set('');
-    this.needsStop.set(false);
+    this.ask.set(null);
   }
 
   protected pickTarget(id: string): void {
     this.pickedTarget.set(id);
     this.error.set('');
-    this.needsStop.set(false);
+    this.ask.set(null);
   }
 
   protected async go(): Promise<void> {
@@ -365,36 +399,38 @@ export class ContinueOnSheetComponent {
       this.closed.emit();
       return;
     }
-    if (isAlreadyOwned(res.error)) {
-      this.needsStop.set(true);
+    const pair = consentNeeded(res.error);
+    if (pair && this.isDesktop()) {
+      this.ask.set({
+        ...pair,
+        fromName: this.accounts.byId(pair.from)?.name ?? this.source()?.name ?? 'this account',
+        toName: this.accounts.byId(pair.to)?.name ?? t.name,
+      });
       return;
     }
     this.fail(res.error, t);
   }
 
-  protected async stopAndGo(): Promise<void> {
-    const s = this.session();
-    const t = this.target();
-    if (!s || !t || this.busy()) return;
+  /** Desktop: remember the consent, then continue as asked. */
+  protected async allow(): Promise<void> {
+    const a = this.ask();
+    if (!a || this.busy()) return;
     this.busy.set(true);
     this.error.set('');
-    const res = await this.actions.stopThenContinueOn(s, t);
-    this.busy.set(false);
-    if (res.ok) {
-      this.needsStop.set(false);
-      this.closed.emit();
+    try {
+      await this.accounts.setCopyConsent(a.from, a.to, true);
+    } catch (e) {
+      this.busy.set(false);
+      this.error.set(`Could not allow the copies: ${describeError(e).text}`);
       return;
     }
-    this.needsStop.set(false);
-    this.fail(res.error, t);
+    this.busy.set(false);
+    this.ask.set(null);
+    await this.go();
   }
 
   private fail(e: unknown, t: AccountView): void {
     if (e instanceof ApiError && e.code === 'unknown_account') void this.accounts.refresh();
-    this.error.set(
-      isAlreadyOwned(e)
-        ? 'The session has not stopped yet. Try again in a moment.'
-        : accountErrorText(e, t.name),
-    );
+    this.error.set(accountErrorText(e, t.name));
   }
 }

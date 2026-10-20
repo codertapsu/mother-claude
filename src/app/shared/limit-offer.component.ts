@@ -18,8 +18,9 @@ interface Offer {
 /**
  * "Account Work has reached its 5-hour limit — continue on Marcus (Pro)?"
  * (docs/ACCOUNTS.md §6.2), with a button that opens the Continue-on choice
- * with that account suggested: the first other account that is signed in,
- * free of limits and shares the directory. On a session page (`session`)
+ * with that account suggested: another account that is signed in and free
+ * of limits, one sharing the directory first, else one with its own (the
+ * conversation is copied there first). On a session page (`session`)
  * it speaks for that session's account; on the sessions list for every
  * account at a limit that has conversations here. Only while more than one
  * account exists; "Not now" hides it until the window resets.

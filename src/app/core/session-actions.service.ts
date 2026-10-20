@@ -1,22 +1,13 @@
 import { Injectable, inject, signal } from '@angular/core';
 import { Router } from '@angular/router';
 
-import { ApiError, ApiService } from './api.service';
+import { ApiService } from './api.service';
 import { ContinueBody, SessionSummary } from './models';
 import { NoticeService } from './notice.service';
 
 /** The answer to "continue on another account": the new session, or the
  * refusal for the caller to explain (the sheet shows it in place). */
 export type ContinueOnResult = { ok: true; id: string } | { ok: false; error: unknown };
-
-/** After a stop, look for the session to be let go this often (it is
- * refused with `already_owned` until its process has exited). */
-const RELEASE_WAITS_MS = [300, 500, 800, 1_200, 1_600, 2_400, 3_200];
-
-/** The server refused because Mother Claude drives the session right now. */
-export function isAlreadyOwned(e: unknown): boolean {
-  return e instanceof ApiError && e.status === 409 && e.code === 'already_owned';
-}
 
 /**
  * Actions offered from more than one place (a limitation's button in the
@@ -68,7 +59,11 @@ export class SessionActionsService {
   /**
    * "Continue on another account" (docs/ACCOUNTS.md §5.4): the conversation
    * continues as a copy (a fork) under `account`, the original stays as it
-   * was. Navigates to the copy; a refusal is returned, not shown.
+   * was — also one Mother Claude runs right now (it keeps running). For an
+   * account with its own directory the server copies the conversation
+   * there first, once the desktop allowed copies between the two accounts
+   * (409 `copy_consent_required` until then). Navigates to the copy; a
+   * refusal is returned, not shown.
    */
   async continueOn(
     s: Pick<SessionSummary, 'id' | 'live'>,
@@ -77,41 +72,18 @@ export class SessionActionsService {
     if (this.busy().has(s.id)) return { ok: false, error: new Error('Already on its way.') };
     this.setBusy(s.id, true);
     try {
-      return await this.continueOnce(s, account, !!s.live);
-    } catch (e) {
-      return { ok: false, error: e };
-    } finally {
-      this.setBusy(s.id, false);
-    }
-  }
-
-  /**
-   * For a session Mother Claude is running right now (the server lets go of
-   * it only once its process has exited): stop it, then continue it on
-   * `account` as soon as the server allows.
-   */
-  async stopThenContinueOn(
-    s: Pick<SessionSummary, 'id'>,
-    account: { id: string; name: string },
-  ): Promise<ContinueOnResult> {
-    if (this.busy().has(s.id)) return { ok: false, error: new Error('Already on its way.') };
-    this.setBusy(s.id, true);
-    try {
-      await this.api.lifecycle(s.id, 'stop');
-      let last: unknown = null;
-      for (const wait of RELEASE_WAITS_MS) {
-        await new Promise((r) => setTimeout(r, wait));
-        try {
-          return await this.continueOnce(s, account, true);
-        } catch (e) {
-          if (!isAlreadyOwned(e)) return { ok: false, error: e };
-          last = e;
-        }
-      }
-      return {
-        ok: false,
-        error: last ?? new Error('The session is still stopping. Try again in a moment.'),
-      };
+      const res = await this.api.continueSession(s.id, {
+        account: account.id,
+        ...(s.live ? { fork: true } : {}),
+      });
+      const id = res?.id || s.id;
+      this.notices.success(
+        id !== s.id
+          ? `Continuing on ${account.name}: you are driving the copy from here.`
+          : `Continuing on ${account.name}.`,
+      );
+      await this.openSession(s.id, id);
+      return { ok: true, id };
     } catch (e) {
       return { ok: false, error: e };
     } finally {
@@ -122,25 +94,6 @@ export class SessionActionsService {
   /** Open the session page with its terminal view showing. */
   openTerminal(id: string): void {
     void this.router.navigate(['/session', id], { queryParams: { view: 'terminal' } });
-  }
-
-  private async continueOnce(
-    s: Pick<SessionSummary, 'id'>,
-    account: { id: string; name: string },
-    fork: boolean,
-  ): Promise<ContinueOnResult> {
-    const res = await this.api.continueSession(s.id, {
-      account: account.id,
-      ...(fork ? { fork: true } : {}),
-    });
-    const id = res?.id || s.id;
-    this.notices.success(
-      id !== s.id
-        ? `Continuing on ${account.name}: you are driving the copy from here.`
-        : `Continuing on ${account.name}.`,
-    );
-    await this.openSession(s.id, id);
-    return { ok: true, id };
   }
 
   private async openSession(from: string, id: string): Promise<void> {
