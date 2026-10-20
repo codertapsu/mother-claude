@@ -12,61 +12,61 @@ name = "mother_claude_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
-tauri-build = { version = "2", features = [] }
+tauri-build = { version = "2.7.3", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = [] }
+tauri = { version = "2.12.4", features = [] }
 # In-app auto-updater (desktop-only; registered behind cfg(desktop) in lib.rs)
 # and process control for relaunching into the new version after an update.
 # Use native-tls (OS trust store) for the updater's downloads so its reqwest does
 # not pull rustls-no-provider into the graph — that would otherwise unify onto our
 # server/test reqwest and panic for want of a process-default rustls CryptoProvider
 # (our server uses its own rustls+ring stack independently).
-tauri-plugin-updater = { version = "2", default-features = false, features = ["native-tls", "zip"] }
-tauri-plugin-process = "2"
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-anyhow = "1"
-thiserror = "2"
-tokio = { version = "1", features = ["full"] }
-notify = "8"
-notify-debouncer-full = "0.5"
-chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
-git2 = { version = "0.21", default-features = false }
-axum = { version = "0.8", features = ["ws", "multipart"] }
-axum-server = { version = "0.8", default-features = false, features = ["tls-rustls-no-provider"] }
-rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
-rcgen = "0.14"
-tower = "0.5"
-tower-http = { version = "0.7", features = ["cors", "trace", "fs", "compression-gzip", "compression-br"] }
+tauri-plugin-updater = { version = "2.14.0", default-features = false, features = ["native-tls", "zip"] }
+tauri-plugin-process = "2.4.0"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
+anyhow = "1.0.104"
+thiserror = "2.0.21"
+tokio = { version = "1.54.0", features = ["full"] }
+notify = "8.2.0"
+notify-debouncer-full = "0.7.0"
+chrono = { version = "0.4.45", default-features = false, features = ["clock", "std"] }
+git2 = { version = "0.21.0", default-features = false }
+axum = { version = "0.8.9", features = ["ws", "multipart"] }
+axum-server = { version = "0.8.0", default-features = false, features = ["tls-rustls-no-provider"] }
+rustls = { version = "0.23.46", default-features = false, features = ["ring", "std", "tls12", "logging"] }
+rcgen = "0.14.10"
+tower = "0.5.3"
+tower-http = { version = "0.7.1", features = ["cors", "trace", "fs", "compression-gzip", "compression-br"] }
 # The HTTP bridge: SSE streams (futures-util) and the direct Messages API
 # path (reqwest). reqwest must use native-tls here for the same reason the
 # updater does — a rustls-no-provider reqwest would unify with our own
 # rustls+ring server stack and panic for want of a process-default provider.
-futures-util = { version = "0.3", default-features = false, features = ["std", "sink"] }
-reqwest = { version = "0.13", default-features = false, features = ["json", "native-tls", "multipart", "stream"] }
-uuid = { version = "1", features = ["v4"] }
-qrcode = { version = "0.14", default-features = false, features = ["svg"] }
-directories = "6"
-sha2 = "0.10"
+futures-util = { version = "0.3.34", default-features = false, features = ["std", "sink"] }
+reqwest = { version = "0.13.5", default-features = false, features = ["json", "native-tls", "multipart", "stream"] }
+uuid = { version = "1.28.0", features = ["v4"] }
+qrcode = { version = "0.14.1", default-features = false, features = ["svg"] }
+directories = "6.0.0"
+sha2 = "0.11.1"
 # Random credentials (device / hook / sidecar tokens, pairing codes) and their
 # base64url encoding. Both are already in the dependency graph.
-getrandom = "0.3"
-base64 = "0.22"
+getrandom = "0.4.3"
+base64 = "0.23.1"
 # Process liveness checks for the live session roster (`kill(pid, 0)`).
-libc = "0.2"
+libc = "0.2.191"
 # Web Push (VAPID + RFC 8291 payload encryption), pure Rust; delivery goes
 # through our own reqwest client.
-web-push-native = "0.5"
-portable-pty = { version = "0.9", optional = true }
+web-push-native = "0.5.0"
+portable-pty = { version = "0.9.0", optional = true }
 
 [dev-dependencies]
-tempfile = "3"
-reqwest = { version = "0.13", default-features = false, features = ["json"] }
+tempfile = "3.27.0"
+reqwest = { version = "0.13.5", default-features = false, features = ["json"] }
 tokio-tungstenite = "0.29"
-futures-util = "0.3"
+futures-util = "0.3.34"
 
 [features]
 # Foreign-session injection via PTY-driving `claude attach` (Stage 3). Uses
