@@ -87,11 +87,15 @@ fn run_file_of(projects: &Path, path: &Path, sid: &str) -> Option<(String, bool)
     crate::claude::ids::is_run_id(run).then(|| (run.to_string(), is_run_file))
 }
 
-/// What the watcher watches: every home's `projects/`, `sessions/`, `jobs/`.
+/// What the watcher watches: every home's `projects/`, `sessions/`, `jobs/`
+/// that exists. One that appears later — a new account's `projects/` with its
+/// first transcript, the first background job's `jobs/` — changes the list,
+/// and the watcher is re-made to watch it too.
 fn watch_paths(homes: &[(String, crate::claude::ClaudeHome)]) -> Vec<PathBuf> {
     homes
         .iter()
         .flat_map(|(_, h)| [h.projects_dir(), h.sessions_dir(), h.jobs_dir()])
+        .filter(|p| p.is_dir())
         .collect()
 }
 
@@ -177,8 +181,8 @@ pub async fn run(state: AppState) {
             drop(watcher.take());
             watcher = spawn_watcher(&now_watched, &tx);
             watched = now_watched;
-            // A directory joined (or left): discover it now, not at the next
-            // sweep.
+            // A directory joined, left or appeared: discover it now, not at
+            // the next sweep.
             run_cycle(
                 &state,
                 &mut cycle,
@@ -574,6 +578,22 @@ async fn run_cycle(state: &AppState, cycle: &mut Cycle, trigger: Trigger) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A new account's `projects/` appears with its first transcript: the
+    /// watch list changes then, so the watcher is re-made to watch it (not
+    /// only the 60 s sweep).
+    #[test]
+    fn a_directory_that_appears_is_watched_once_it_does() {
+        let dir = tempfile::tempdir().unwrap();
+        let home = crate::claude::ClaudeHome::for_account_dir(dir.path());
+        let homes = vec![("acc_000000000001".to_string(), home.clone())];
+        let before = watch_paths(&homes);
+        assert!(before.is_empty());
+        std::fs::create_dir_all(home.projects_dir()).unwrap();
+        let after = watch_paths(&homes);
+        assert_eq!(after, vec![home.projects_dir()]);
+        assert_ne!(before, after, "the watcher is re-made");
+    }
 
     #[test]
     fn workflow_run_files_are_recognised() {
