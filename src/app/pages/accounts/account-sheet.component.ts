@@ -11,6 +11,7 @@ import {
   untracked,
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { RouterLink } from '@angular/router';
 
 import { ACCOUNT_NAME_MAX, accountNameProblem, isAccountColor } from '../../core/accounts';
 import { AccountsService } from '../../core/accounts.service';
@@ -28,13 +29,16 @@ import { AccountTokenComponent } from './account-token.component';
  * Desktop: one account's administration — its name and colour, its
  * sign-in (a browser login for a directory account, a token for a token
  * account), a fresh check of the sign-in, and removing it (which never
- * touches its directory or its Anthropic sign-in).
+ * touches its directory or its Anthropic sign-in; refused while sessions
+ * Mother Claude started run under it, or while the API runs with it as
+ * the account its new conversations start under).
  */
 @Component({
   selector: 'mc-account-sheet',
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
     FormsModule,
+    RouterLink,
     AccountColorsComponent,
     AccountSignInComponent,
     AccountTokenComponent,
@@ -139,6 +143,11 @@ import { AccountTokenComponent } from './account-token.component';
 
         @if (error()) {
           <p class="error-text small" role="alert">{{ error() }}</p>
+          @if (usedByApi()) {
+            <p class="small">
+              <a routerLink="/api" (click)="closed.emit()">Open the API page</a>
+            </p>
+          }
         }
         @if (notice()) {
           <p class="notice ok small" role="status">{{ notice() }}</p>
@@ -202,6 +211,8 @@ export class AccountSheetComponent {
   protected readonly error = signal('');
   protected readonly notice = signal('');
   protected readonly confirmRemove = signal(false);
+  /** The removal was refused because the running API uses the account. */
+  protected readonly usedByApi = signal(false);
 
   protected readonly account = computed(() => this.accounts.byId(this.accountId()));
   private readonly savedName = computed(() => this.account()?.name ?? '');
@@ -226,6 +237,7 @@ export class AccountSheetComponent {
         this.error.set('');
         this.notice.set('');
         this.confirmRemove.set(false);
+        this.usedByApi.set(false);
       });
     });
   }
@@ -287,19 +299,27 @@ export class AccountSheetComponent {
     this.busy.set(true);
     this.error.set('');
     this.notice.set('');
+    this.usedByApi.set(false);
     try {
       await fn();
       if (ok) this.notice.set(ok);
       return true;
     } catch (e) {
-      this.error.set(
-        e instanceof ApiError && e.code === 'account_in_use'
-          ? `${e.message} Stop them first.`
-          : describeError(e).text,
-      );
+      this.usedByApi.set(e instanceof ApiError && e.code === 'account_used_by_bridge');
+      this.error.set(this.refusal(e));
       return false;
     } finally {
       this.busy.set(false);
     }
+  }
+
+  private refusal(e: unknown): string {
+    const name = this.account()?.name ?? 'This account';
+    if (e instanceof ApiError && e.code === 'account_in_use')
+      return `${e.message} Stop them first.`;
+    if (e instanceof ApiError && e.code === 'account_used_by_bridge') {
+      return `The API is running with ${name} as the account its new conversations start under. Stop the API, or start it again with another account, then remove ${name}.`;
+    }
+    return describeError(e).text;
   }
 }

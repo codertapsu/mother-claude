@@ -1,10 +1,17 @@
 import { Component, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 
+import { DEFAULT_ACCOUNT } from '../../core/accounts';
 import { AccountsService } from '../../core/accounts.service';
 import { ApiService, errorMessage } from '../../core/api.service';
 import { AuthService } from '../../core/auth.service';
-import { BridgeDefaults, BridgeStatus, LaunchDefaults, SessionSummary } from '../../core/models';
+import {
+  BridgeDefaults,
+  BridgeStatus,
+  BridgeThread,
+  LaunchDefaults,
+  SessionSummary,
+} from '../../core/models';
 import { EFFORT_LABELS, effortLabel, relativeTime, sessionName } from '../../shared/util';
 
 const PERMISSION_MODES: { value: string; label: string; hint: string }[] = [
@@ -222,7 +229,8 @@ const FRESH = '';
               <optgroup label="Running now">
                 @for (t of liveThreads(s); track t.threadId) {
                   <option [value]="t.threadId">
-                    {{ t.title || shortId(t.threadId) }} — {{ t.cwd }}
+                    {{ t.title || shortId(t.threadId) }} — {{ t.cwd
+                    }}{{ accounts.multi() ? ' · ' + threadAccount(t) : '' }}
                   </option>
                 }
               </optgroup>
@@ -504,6 +512,8 @@ export class BridgeComponent {
     this.isolate.set(Array.isArray(d.settingSources) && d.settingSources.length === 0);
     this.thread.set(status.activeThread ?? FRESH);
     this.openToTunnels.set(status.tokenPolicy === 'never');
+    // Absent: none was chosen at start (the project's, else the accounts'
+    // API default).
     this.account.set(d.account ?? '');
   }
 
@@ -556,6 +566,11 @@ export class BridgeComponent {
 
   liveThreads(s: BridgeStatus) {
     return s.threads ?? [];
+  }
+
+  /** The account a running conversation is under (absent: the Default's). */
+  threadAccount(t: BridgeThread): string {
+    return t.account?.name ?? this.accounts.byId(DEFAULT_ACCOUNT)?.name ?? 'Default';
   }
 
   /** Recent sessions that are not already listed as running conversations. */
