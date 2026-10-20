@@ -827,12 +827,19 @@ pub async fn continue_as(
     // The session's own account unless another one is asked for ("continue
     // on B"), which always forks: the original stays as it was.
     let source = crate::claude::summaries::session_account(state, id);
+    // A session that ran with a token no account holds continues under the
+    // project's account (or the default) unless one is named.
+    let fallback = if state.accounts.is_usable(&source) {
+        source.clone()
+    } else {
+        state.accounts.account_for_cwd(cwd)
+    };
     let target = req
         .account
         .as_deref()
         .map(str::trim)
         .filter(|a| !a.is_empty())
-        .unwrap_or(&source)
+        .unwrap_or(&fallback)
         .to_string();
     let (account, account_env) = launch_account(state, Some(&target), cwd)?;
     let source_home = state.accounts.home(&source);

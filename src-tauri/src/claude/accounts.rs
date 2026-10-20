@@ -268,6 +268,12 @@ impl Registry {
     /// The account new work in `cwd` runs under: the longest `byProject`
     /// directory containing `cwd`, else `newSession`.
     pub fn account_for_cwd(&self, cwd: &str) -> String {
+        self.project_account(cwd)
+            .unwrap_or_else(|| self.defaults.new_session.clone())
+    }
+
+    /// The account of the longest `byProject` directory containing `cwd`.
+    pub fn project_account(&self, cwd: &str) -> Option<String> {
         let cwd = Path::new(cwd);
         self.defaults
             .by_project
@@ -275,7 +281,6 @@ impl Registry {
             .filter(|(dir, id)| cwd.starts_with(dir) && self.get(id).is_some())
             .max_by_key(|(dir, _)| Path::new(dir).components().count())
             .map(|(_, id)| id.clone())
-            .unwrap_or_else(|| self.defaults.new_session.clone())
     }
 
     pub fn has_copy_consent(&self, from: &str, to: &str) -> bool {
@@ -765,8 +770,13 @@ impl AccountRegistry {
     }
 
     /// The config directory an account's processes use: its own for a
-    /// directory account, the Default's for the Default and token accounts.
+    /// directory account, the Default's for the Default and token accounts
+    /// (and for a session that runs with a token no account holds, which
+    /// lives in the Default's directory too).
     pub fn home(&self, id: &str) -> Option<ClaudeHome> {
+        if id == UNREGISTERED_TOKEN_ID {
+            return Some(self.default_home.clone());
+        }
         let reg = self.read();
         let account = reg.get(id)?;
         Some(match (&account.kind, &account.dir) {
@@ -811,19 +821,14 @@ impl AccountRegistry {
     /// names one: the project's, else the bridge default.
     pub fn account_for_bridge(&self, cwd: &str) -> String {
         let reg = self.read();
-        let project = reg.account_for_cwd(cwd);
-        if reg.defaults.by_project.is_empty() || project == reg.defaults.new_session {
-            // No project rule matched (the answer is the new-session default).
-            let matched = reg
-                .defaults
-                .by_project
-                .keys()
-                .any(|dir| Path::new(cwd).starts_with(dir));
-            if !matched {
-                return reg.defaults.bridge.clone();
-            }
-        }
-        project
+        reg.project_account(cwd)
+            .unwrap_or_else(|| reg.defaults.bridge.clone())
+    }
+
+    /// Whether `id` is an account sessions can run under (not the
+    /// unregistered-token pseudo-account, not a removed one).
+    pub fn is_usable(&self, id: &str) -> bool {
+        self.read().get(id).is_some()
     }
 
     pub fn defaults(&self) -> AccountDefaults {

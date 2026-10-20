@@ -1832,3 +1832,52 @@ async fn continuing_on_a_directory_account_copies_then_forks() {
     assert_eq!(st.jobs.list().len(), 1, "no second copy");
     st.control.kill(&again).await.unwrap();
 }
+
+/// A terminal session that runs with a token no account holds ("Token
+/// (unregistered)") continues under the project's account when none is named.
+#[tokio::test]
+async fn an_unregistered_token_session_continues_under_the_default() {
+    use mother_claude_lib::claude::live::LiveSession;
+    use mother_claude_lib::claude::secrets::Secret;
+    let f = Fixture::new();
+    let pro =
+        f.st.accounts
+            .add_token(
+                "Pro",
+                Some(&Secret::new(
+                    "sk-ant-oat01-AccountBTokenValue0123456789abcdefghij",
+                )),
+                None,
+            )
+            .unwrap();
+    let id = "7b0b2a3c-1d2e-4f50-8a9b-0c1d2e3f4a5b";
+    f.st.live.insert_for_test(LiveSession {
+        pid: Some(std::process::id()),
+        session_id: Some(id.into()),
+        cwd: Some(f.cwd()),
+        home_account: Some("default".into()),
+        token_sha256: Some("0".repeat(64)),
+        ..Default::default()
+    });
+    assert_eq!(
+        mother_claude_lib::claude::summaries::session_account(&f.st, id),
+        "unregistered"
+    );
+    let forked = owned::continue_as(
+        &f.st,
+        MAC,
+        id,
+        &f.cwd(),
+        ContinueRequest {
+            prompt: Some("go on".into()),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+    assert_ne!(forked, id, "live elsewhere and another account: a fork");
+    assert_eq!(f.st.control.account_of(&forked).as_deref(), Some("default"));
+    let _ = pro;
+    wait_turn_done(&f.st, &forked).await;
+    f.st.control.kill(&forked).await.unwrap();
+}

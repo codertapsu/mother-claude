@@ -917,8 +917,14 @@ pub async fn ensure_thread_live(
         .or_else(|| defaults.cwd.clone())
         .unwrap_or_else(routes::threads::default_cwd);
 
-    // It continues under the account whose directory holds it.
+    // It continues under the account whose directory holds it (one that ran
+    // with a token no account holds, under the bridge's).
     let account = crate::claude::summaries::session_account(state, thread_id);
+    let account = if state.accounts.is_usable(&account) {
+        account
+    } else {
+        state.accounts.account_for_bridge(&cwd)
+    };
     let env = state
         .accounts
         .env(&account)

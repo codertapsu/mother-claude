@@ -352,8 +352,16 @@ async fn conversation_account(
         .map(str::to_string);
     let account = match (&asked, &body.resume) {
         (Some(a), _) => a.clone(),
-        // Continuing keeps the conversation's own account.
-        (None, Some(resume)) => crate::claude::summaries::session_account(state, resume),
+        // Continuing keeps the conversation's own account (one that ran with
+        // a token no account holds takes the bridge's).
+        (None, Some(resume)) => {
+            let own = crate::claude::summaries::session_account(state, resume);
+            if state.accounts.is_usable(&own) {
+                own
+            } else {
+                state.accounts.account_for_bridge(cwd)
+            }
+        }
         (None, None) => state.accounts.account_for_bridge(cwd),
     };
     let env = state.accounts.env(&account).map_err(account_error)?;
