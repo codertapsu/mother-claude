@@ -53,12 +53,25 @@ pub async fn plan(
     .map_err(|e| TransferError::Io(e.to_string()))?
 }
 
-/// Run a plan as a data job, one transfer at a time. Returns once it is done
-/// (it is quick for a session; the routes run projects in the background).
+/// Run a plan as a data job, one data job at a time (it waits for a running
+/// backup or transfer). Returns once it is done (it is quick for a session;
+/// the routes run projects in the background).
 pub async fn execute(state: &AppState, job_id: &str, plan: Plan) -> Result<(), TransferError> {
+    let one = state.jobs.lock.lock().await;
+    execute_locked(state, job_id, plan, one).await
+}
+
+/// [`execute`] with the jobs lock held: the plan's checks are made again
+/// first, since it may have waited (a session resumed meanwhile, a directory
+/// now in use).
+async fn execute_locked(
+    state: &AppState,
+    job_id: &str,
+    plan: Plan,
+    _one: tokio::sync::MutexGuard<'_, ()>,
+) -> Result<(), TransferError> {
     let root = undo_root(state)
         .ok_or_else(|| TransferError::Invalid("this build has no data directory".into()))?;
-    let _one = state.jobs.lock.lock().await;
     let kind = match plan.mode {
         Mode::Move => "move",
         Mode::Copy => "copy",
@@ -70,9 +83,12 @@ pub async fn execute(state: &AppState, job_id: &str, plan: Plan) -> Result<(), T
     state.jobs.update(job_id, |v| v.sessions = sessions.clone());
     let id = job_id.to_string();
     let progress2 = Arc::clone(&progress);
+    let st = state.clone();
     let done = tokio::task::spawn_blocking(move || {
         super::prune_undo(&root);
-        super::run(&plan, &root, &id, &progress2)
+        let live = |id: &str| is_live(&st, id);
+        super::recheck(&plan, &live)?;
+        super::run(&plan, &root, &id, &progress2, &live)
     })
     .await
     .map_err(|e| TransferError::Io(e.to_string()))?;
@@ -90,6 +106,10 @@ pub async fn execute(state: &AppState, job_id: &str, plan: Plan) -> Result<(), T
             v.finished_at = Some(finished);
             v.error = Some(e.to_string());
             v.error_code = Some(e.code().to_string());
+            // Its undo directory stayed: Undo finishes putting things back.
+            if matches!(e, TransferError::Incomplete(_)) {
+                v.undo_until = Some(finished + super::UNDO_KEEP.as_millis() as i64);
+            }
         }),
     }
     rediscover(state).await;
@@ -102,9 +122,13 @@ pub async fn undo(state: &AppState, job_id: &str) -> Result<(), TransferError> {
         .ok_or_else(|| TransferError::Invalid("this build has no data directory".into()))?;
     let _one = state.jobs.lock.lock().await;
     let id = job_id.to_string();
-    let m = tokio::task::spawn_blocking(move || super::undo(&root, &id))
-        .await
-        .map_err(|e| TransferError::Io(e.to_string()))??;
+    let st = state.clone();
+    let m = tokio::task::spawn_blocking(move || {
+        let live = |id: &str| is_live(&st, id);
+        super::undo_with(&root, &id, &live)
+    })
+    .await
+    .map_err(|e| TransferError::Io(e.to_string()))??;
     let view = super::view_from_manifest(&m);
     state.jobs.update(job_id, |v| {
         v.state = JobState::Undone;
@@ -152,6 +176,10 @@ pub async fn copy_for_continue(
     if !state.accounts.has_copy_consent(from, to) {
         return Err(ContinueCopyError::ConsentRequired);
     }
+    // Never queued behind a backup: the request would hang for minutes.
+    let Ok(one) = state.jobs.lock.try_lock() else {
+        return Err(ContinueCopyError::Transfer(TransferError::Busy));
+    };
     // A snapshot: the conversation usually still has a process (it stopped
     // at its limit), and the fork continues from what is there now.
     let req = Request {
@@ -166,7 +194,7 @@ pub async fn copy_for_continue(
         Ok(p) => {
             let job_id = super::new_job_id();
             let sessions = p.files;
-            execute(state, &job_id, p)
+            execute_locked(state, &job_id, p, one)
                 .await
                 .map_err(ContinueCopyError::Transfer)?;
             tracing::info!(

@@ -92,7 +92,14 @@ fn a_copy_lands_byte_for_byte_and_touches_nothing_shared() {
     assert!(!p.writes_shared);
     assert!(p.adds_project_entry.is_none());
     let progress = Progress::default();
-    let m = run(&p, &w.undo, "20261021T101010-0a0b0c0d", &progress).unwrap();
+    let m = run(
+        &p,
+        &w.undo,
+        "20261021T101010-0a0b0c0d",
+        &progress,
+        &not_live,
+    )
+    .unwrap();
     assert_eq!(m.created.len(), 4);
     assert_eq!(progress.files_done.load(Ordering::Relaxed), 4);
     for c in &m.created {
@@ -238,7 +245,7 @@ fn a_move_can_be_undone_and_undo_refuses_lost_work() {
     let p = plan(&ctx, &req(sess(), Mode::Move, false)).unwrap();
     let id = new_job_id();
     assert!(is_job_id(&id));
-    run(&p, &w.undo, &id, &Progress::default()).unwrap();
+    run(&p, &w.undo, &id, &Progress::default(), &not_live).unwrap();
     assert!(transcripts_of(&w.a, SID).is_empty(), "moved away");
     assert!(!w.a.session_env_dir().join(SID).exists());
     assert_eq!(transcripts_of(&w.b, SID).len(), 1);
@@ -262,7 +269,7 @@ fn a_move_can_be_undone_and_undo_refuses_lost_work() {
     // A copy that was continued in the target is not taken back.
     let id = new_job_id();
     let p = plan(&ctx, &req(sess(), Mode::Copy, false)).unwrap();
-    run(&p, &w.undo, &id, &Progress::default()).unwrap();
+    run(&p, &w.undo, &id, &Progress::default(), &not_live).unwrap();
     let copied = transcripts_of(&w.b, SID).remove(0);
     std::fs::write(&copied, "{\"type\":\"user\"}\nmore work\n").unwrap();
     assert_eq!(undo(&w.undo, &id).unwrap_err().code(), "undo_conflict");
@@ -319,7 +326,7 @@ fn a_project_moves_with_its_history_and_trust_only_when_asked() {
     assert_eq!(p.removes_project_entry.as_deref(), Some(CWD));
     assert_eq!(p.history_lines, 1);
     let id = new_job_id();
-    run(&p, &w.undo, &id, &Progress::default()).unwrap();
+    run(&p, &w.undo, &id, &Progress::default(), &not_live).unwrap();
     let read = |h: &ClaudeHome| -> Value {
         serde_json::from_str(&std::fs::read_to_string(h.claude_json()).unwrap()).unwrap()
     };
@@ -364,7 +371,7 @@ fn a_failed_copy_leaves_nothing_behind() {
     p.sessions[0].files.last_mut().unwrap().from = gone;
     let id = new_job_id();
     assert_eq!(
-        run(&p, &w.undo, &id, &Progress::default())
+        run(&p, &w.undo, &id, &Progress::default(), &not_live)
             .unwrap_err()
             .code(),
         "transfer_io"
@@ -420,11 +427,347 @@ fn a_snapshot_of_a_live_session_leaves_out_its_unfinished_line() {
     assert_eq!(plan(&ctx, &r).unwrap_err().code(), "session_live");
     r.snapshot = true;
     let p = plan(&ctx, &r).unwrap();
-    run(&p, &w.undo, &new_job_id(), &Progress::default()).unwrap();
+    run(&p, &w.undo, &new_job_id(), &Progress::default(), &not_live).unwrap();
     let copied = std::fs::read_to_string(transcripts_of(&w.b, SID).remove(0)).unwrap();
     assert!(copied.ends_with('\n'));
     assert_eq!(copied.lines().count(), 2, "the two complete lines");
     // Never a move, never a project.
     r.mode = Mode::Move;
     assert_eq!(plan(&ctx, &r).unwrap_err().code(), "invalid_transfer");
+}
+
+/// Every file under a directory with its bytes (a `.claude.json` as its
+/// JSON: undo writes it back pretty-printed).
+fn snapshot_of(dir: &Path) -> Vec<(PathBuf, Vec<u8>)> {
+    let mut files = Vec::new();
+    walk(dir, &mut files).unwrap();
+    files.sort();
+    files
+        .into_iter()
+        .map(|f| {
+            let mut bytes = std::fs::read(&f).unwrap();
+            if f.file_name().is_some_and(|n| n == ".claude.json") {
+                let v: Value = serde_json::from_slice(&bytes).unwrap();
+                bytes = v.to_string().into_bytes();
+            }
+            (f, bytes)
+        })
+        .collect()
+}
+
+/// Two sessions of one project in `a`, with an entry and history lines.
+fn project_world() -> (World, What) {
+    let w = world();
+    session(w.a.base(), SID, CWD);
+    session(w.a.base(), "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee", CWD);
+    std::fs::write(
+        w.a.claude_json(),
+        serde_json::json!({"projects": {CWD: {"hasTrustDialogAccepted": true}}}).to_string(),
+    )
+    .unwrap();
+    let line = serde_json::json!({"display": "hi", "timestamp": 1, "project": CWD}).to_string();
+    std::fs::write(w.a.history_file(), line + "\n").unwrap();
+    (w, What::Project { cwd: CWD.into() })
+}
+
+#[test]
+fn a_move_that_fails_halfway_puts_every_moved_file_back() {
+    let (w, project) = project_world();
+    let before = snapshot_of(w.a.base());
+    let ctx = Context {
+        from: &w.a,
+        to: &w.b,
+        is_live: &not_live,
+    };
+    let p = plan(&ctx, &req(project, Mode::Move, true)).unwrap();
+    let id = new_job_id();
+    // The third file fails to move (a full disk, a vanished file…).
+    fail_at("stash", 2);
+    let err = run(&p, &w.undo, &id, &Progress::default(), &not_live).unwrap_err();
+    clear_failures();
+    assert_eq!(err.code(), "transfer_io");
+    assert_eq!(snapshot_of(w.a.base()), before, "the source is as it was");
+    assert!(w.a.session_env_dir().join(SID).is_dir());
+    assert!(transcripts_of(&w.b, SID).is_empty(), "the copies are gone");
+    assert!(
+        !w.b.claude_json().exists() || {
+            let v: Value =
+                serde_json::from_str(&std::fs::read_to_string(w.b.claude_json()).unwrap()).unwrap();
+            v["projects"].get(CWD).is_none()
+        }
+    );
+    assert!(!w.undo.join(&id).exists(), "nothing was left to undo");
+}
+
+#[test]
+fn a_failed_move_that_cannot_be_put_back_keeps_its_undo_and_undo_finishes_it() {
+    let (w, project) = project_world();
+    let before = snapshot_of(w.a.base());
+    let ctx = Context {
+        from: &w.a,
+        to: &w.b,
+        is_live: &not_live,
+    };
+    let p = plan(&ctx, &req(project, Mode::Move, true)).unwrap();
+    let id = new_job_id();
+    fail_at("stash", 2);
+    // …and putting the first file back fails as well.
+    fail_at("put_back", 0);
+    let err = run(&p, &w.undo, &id, &Progress::default(), &not_live).unwrap_err();
+    clear_failures();
+    assert_eq!(err.code(), "transfer_incomplete");
+    assert!(
+        w.undo.join(&id).join("manifest.json").exists(),
+        "the undo directory and its manifest stay"
+    );
+    let m = manifest(&w.undo, &id).unwrap();
+    assert_eq!(m.moved.len(), 2, "what had moved is recorded");
+    undo(&w.undo, &id).unwrap();
+    assert_eq!(
+        snapshot_of(w.a.base()),
+        before,
+        "undo finished putting it back"
+    );
+    assert!(transcripts_of(&w.b, SID).is_empty());
+}
+
+#[test]
+fn an_undo_that_fails_can_be_retried() {
+    let (w, project) = project_world();
+    let before = snapshot_of(w.a.base());
+    let ctx = Context {
+        from: &w.a,
+        to: &w.b,
+        is_live: &not_live,
+    };
+    let p = plan(&ctx, &req(project, Mode::Move, true)).unwrap();
+    let id = new_job_id();
+    run(&p, &w.undo, &id, &Progress::default(), &not_live).unwrap();
+    // The third file fails to come back: two are back, the copies all stay.
+    fail_at("put_back", 2);
+    assert_eq!(undo(&w.undo, &id).unwrap_err().code(), "transfer_io");
+    clear_failures();
+    assert_eq!(transcripts_of(&w.b, SID).len(), 1, "nothing deleted yet");
+    undo(&w.undo, &id).unwrap();
+    assert_eq!(snapshot_of(w.a.base()), before);
+    assert!(transcripts_of(&w.b, SID).is_empty());
+    let hist = std::fs::read_to_string(w.a.history_file()).unwrap();
+    assert_eq!(hist.lines().count(), 1, "the history line came back once");
+}
+
+#[test]
+fn undo_refuses_while_a_session_runs_or_the_directory_is_in_use() {
+    let (w, project) = project_world();
+    let ctx = Context {
+        from: &w.a,
+        to: &w.b,
+        is_live: &not_live,
+    };
+    let p = plan(&ctx, &req(project, Mode::Move, true)).unwrap();
+    let id = new_job_id();
+    run(&p, &w.undo, &id, &Progress::default(), &not_live).unwrap();
+    let live = |s: &str| s == SID;
+    assert_eq!(
+        undo_with(&w.undo, &id, &live).unwrap_err().code(),
+        "session_live"
+    );
+    // A Claude Code process in the target (this test's own pid stands in).
+    std::fs::create_dir_all(w.b.sessions_dir()).unwrap();
+    let pidfile =
+        w.b.sessions_dir()
+            .join(format!("{}.json", std::process::id()));
+    std::fs::write(&pidfile, "{}").unwrap();
+    assert_eq!(undo(&w.undo, &id).unwrap_err().code(), "directory_in_use");
+    std::fs::remove_file(&pidfile).unwrap();
+    undo(&w.undo, &id).unwrap();
+}
+
+#[test]
+fn a_session_that_changes_or_starts_after_the_plan_is_not_moved() {
+    let w = world();
+    session(w.a.base(), SID, CWD);
+    let ctx = Context {
+        from: &w.a,
+        to: &w.b,
+        is_live: &not_live,
+    };
+    let p = plan(&ctx, &req(sess(), Mode::Move, false)).unwrap();
+    // It started meanwhile (the job waited behind a backup).
+    let live = |s: &str| s == SID;
+    assert_eq!(recheck(&p, &live).unwrap_err().code(), "session_live");
+    assert_eq!(
+        run(&p, &w.undo, &new_job_id(), &Progress::default(), &live)
+            .unwrap_err()
+            .code(),
+        "session_live"
+    );
+    assert_eq!(transcripts_of(&w.a, SID).len(), 1);
+    assert!(transcripts_of(&w.b, SID).is_empty());
+    // It wrote a file the plan does not know.
+    std::fs::write(
+        w.a.file_history_dir().join(SID).join("snap@v2"),
+        "newer file",
+    )
+    .unwrap();
+    let before = snapshot_of(w.a.base());
+    assert_eq!(
+        run(&p, &w.undo, &new_job_id(), &Progress::default(), &not_live)
+            .unwrap_err()
+            .code(),
+        "session_changed"
+    );
+    assert_eq!(
+        snapshot_of(w.a.base()),
+        before,
+        "nothing moved, nothing lost"
+    );
+    assert!(transcripts_of(&w.b, SID).is_empty());
+    // The target got the session meanwhile.
+    let p = plan(&ctx, &req(sess(), Mode::Copy, false)).unwrap();
+    session(w.b.base(), SID, CWD);
+    assert_eq!(recheck(&p, &not_live).unwrap_err().code(), "already_exists");
+}
+
+#[test]
+fn a_project_move_without_the_opt_in_leaves_the_entry_where_it_is() {
+    let (w, project) = project_world();
+    let ctx = Context {
+        from: &w.a,
+        to: &w.b,
+        is_live: &not_live,
+    };
+    let p = plan(&ctx, &req(project, Mode::Move, false)).unwrap();
+    assert!(p.adds_project_entry.is_none());
+    assert!(p.removes_project_entry.is_none());
+    run(&p, &w.undo, &new_job_id(), &Progress::default(), &not_live).unwrap();
+    let v: Value =
+        serde_json::from_str(&std::fs::read_to_string(w.a.claude_json()).unwrap()).unwrap();
+    assert_eq!(
+        v["projects"][CWD]["hasTrustDialogAccepted"], true,
+        "its MCP servers and tools are not thrown away"
+    );
+    assert!(!w.b.claude_json().exists());
+    // The history still moves with the project.
+    assert_eq!(
+        std::fs::read_to_string(w.b.history_file())
+            .unwrap()
+            .lines()
+            .count(),
+        1
+    );
+    assert_eq!(std::fs::read_to_string(w.a.history_file()).unwrap(), "");
+}
+
+#[cfg(unix)]
+#[test]
+fn a_symlink_in_a_sessions_place_is_never_followed() {
+    let w = world();
+    session(w.a.base(), SID, CWD);
+    let outside = w._tmp.path().join("outside");
+    std::fs::create_dir_all(&outside).unwrap();
+    std::fs::write(outside.join("secret"), "not a session's").unwrap();
+    let fh = w.a.file_history_dir().join(SID);
+    std::fs::remove_dir_all(&fh).unwrap();
+    std::os::unix::fs::symlink(&outside, &fh).unwrap();
+    let ctx = Context {
+        from: &w.a,
+        to: &w.b,
+        is_live: &not_live,
+    };
+    let p = plan(&ctx, &req(sess(), Mode::Copy, false)).unwrap();
+    assert!(
+        p.sessions[0].files.iter().all(|f| !f.from.starts_with(&fh)),
+        "{:?}",
+        p.sessions[0].files
+    );
+}
+
+#[test]
+fn history_edits_keep_every_byte_and_never_write_over_an_unreadable_file() {
+    let tmp = tempfile::tempdir().unwrap();
+    let h = tmp.path().join("history.jsonl");
+    // A torn multibyte character (the CLI killed mid-append) in one line.
+    let mut bytes = b"{\"display\":\"a\",\"project\":\"/p\"}\n".to_vec();
+    bytes.extend_from_slice(b"{\"display\":\"\xe2\x82\"}\n");
+    bytes.extend_from_slice(b"{\"display\":\"b\",\"project\":\"/p\"}\n");
+    std::fs::write(&h, &bytes).unwrap();
+    assert_eq!(
+        history_lines(&h, "/p").len(),
+        2,
+        "the bad line is skipped, not the rest"
+    );
+    append_lines(&h, &["{\"display\":\"c\"}".to_string()]).unwrap();
+    let after = std::fs::read(&h).unwrap();
+    assert!(after.starts_with(&bytes), "every byte that was there stays");
+    let removed =
+        remove_lines(&h, &["{\"display\":\"a\",\"project\":\"/p\"}".to_string()]).unwrap();
+    assert_eq!(removed.len(), 1);
+    assert!(std::fs::read(&h)
+        .unwrap()
+        .windows(3)
+        .any(|w| w == b"\xe2\x82\""));
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&h, std::fs::Permissions::from_mode(0o000)).unwrap();
+        if std::fs::read(&h).is_err() {
+            assert!(append_lines(&h, &["x".to_string()]).is_err());
+            assert!(remove_lines(&h, &["x".to_string()]).is_err());
+        }
+        std::fs::set_permissions(&h, std::fs::Permissions::from_mode(0o600)).unwrap();
+    }
+    // A retried undo adds nothing twice.
+    let lines = vec![
+        "{\"display\":\"c\"}".to_string(),
+        "{\"display\":\"d\"}".to_string(),
+    ];
+    append_missing_lines(&h, &lines).unwrap();
+    append_missing_lines(&h, &lines).unwrap();
+    let text = String::from_utf8_lossy(&std::fs::read(&h).unwrap()).into_owned();
+    assert_eq!(text.matches("{\"display\":\"c\"}").count(), 1);
+    assert_eq!(text.matches("{\"display\":\"d\"}").count(), 1);
+}
+
+#[test]
+fn trimming_a_snapshot_reads_only_its_tail() {
+    let tmp = tempfile::tempdir().unwrap();
+    let f = tmp.path().join("t.jsonl");
+    // Longer than one block, the partial line straddling a block boundary.
+    let mut body = String::new();
+    while body.len() < 200 * 1024 {
+        body.push_str("{\"type\":\"assistant\",\"text\":\"lorem ipsum\"}\n");
+    }
+    let partial = "x".repeat(100 * 1024);
+    std::fs::write(&f, format!("{body}{partial}")).unwrap();
+    trim_partial_line(&f).unwrap();
+    assert_eq!(std::fs::read_to_string(&f).unwrap(), body);
+    trim_partial_line(&f).unwrap();
+    assert_eq!(
+        std::fs::read_to_string(&f).unwrap(),
+        body,
+        "complete: untouched"
+    );
+    std::fs::write(&f, "no newline at all").unwrap();
+    trim_partial_line(&f).unwrap();
+    assert_eq!(std::fs::read(&f).unwrap(), b"");
+}
+
+#[cfg(unix)]
+#[test]
+fn a_rewritten_file_without_an_original_is_owner_only() {
+    use std::os::unix::fs::PermissionsExt;
+    let tmp = tempfile::tempdir().unwrap();
+    let f = tmp.path().join(".claude.json");
+    rewrite(&f, b"{}").unwrap();
+    assert_eq!(
+        std::fs::metadata(&f).unwrap().permissions().mode() & 0o777,
+        0o600
+    );
+    std::fs::set_permissions(&f, std::fs::Permissions::from_mode(0o644)).unwrap();
+    rewrite(&f, b"{\"a\":1}").unwrap();
+    assert_eq!(
+        std::fs::metadata(&f).unwrap().permissions().mode() & 0o777,
+        0o644,
+        "an existing file keeps its mode"
+    );
 }

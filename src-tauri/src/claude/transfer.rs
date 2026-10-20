@@ -24,10 +24,18 @@
 //!
 //! **Undo** (seven days): `<app data dir>/undo/<job id>/` holds a manifest of
 //! every file created (with its hash) and, in move mode, the source files
-//! themselves (renamed there, so a move costs no extra space on one volume).
-//! Undo deletes what was created — refusing if any of it changed since — puts
-//! the moved files back, and takes back exactly the `.claude.json` entry and the
-//! `history.jsonl` lines that were added.
+//! themselves (renamed there, so a move costs no extra space on one volume),
+//! plus a copy of every shared file as it was before the job changed it
+//! (`shared/`, for recovery by hand: undo itself takes back exactly the
+//! `.claude.json` entry and the `history.jsonl` lines, so whatever Claude Code
+//! wrote since stays). Undo refuses while a session of the job runs or, when it
+//! changes shared files, while their directory is in use; it puts the moved
+//! files back first and only then deletes what was created — refusing if any of
+//! it changed since — and a retry after a failure finishes what is left.
+//!
+//! **A failed run** puts the source back the same way and removes what it made;
+//! when even that fails, the undo directory and its manifest stay (the job says
+//! so, and Undo finishes it): a moved file is never deleted.
 
 use std::collections::{BTreeMap, HashSet};
 use std::io::{BufRead, Read, Write};
@@ -84,6 +92,12 @@ pub enum TransferError {
     Io(String),
     #[error("{0}")]
     UndoConflict(String),
+    #[error("session {0} changed while it was being moved; nothing was moved, try again")]
+    SessionChanged(String),
+    #[error("a backup, restore or transfer is running; try again when it has finished")]
+    Busy,
+    #[error("{0}")]
+    Incomplete(String),
 }
 
 impl TransferError {
@@ -99,6 +113,9 @@ impl TransferError {
             Self::VerifyFailed(_) => "verify_failed",
             Self::Io(_) => "transfer_io",
             Self::UndoConflict(_) => "undo_conflict",
+            Self::SessionChanged(_) => "session_changed",
+            Self::Busy => "data_job_running",
+            Self::Incomplete(_) => "transfer_incomplete",
         }
     }
 }
@@ -146,7 +163,8 @@ pub struct Plan {
     pub bytes: u64,
     /// The project entry added to the target's `.claude.json` (trust opt-in).
     pub adds_project_entry: Option<String>,
-    /// The project entry removed from the source's (a project move).
+    /// The project entry removed from the source's (a project move that
+    /// carries it to the target).
     pub removes_project_entry: Option<String>,
     /// Prompt-history lines appended to the target (a project).
     pub history_lines: usize,
@@ -204,11 +222,22 @@ pub(crate) fn transcripts_of(home: &ClaudeHome, id: &str) -> Vec<PathBuf> {
         .into_iter()
         .flatten()
         .flatten()
+        .filter(|d| d.file_type().is_ok_and(|t| t.is_dir()))
         .map(|d| d.path().join(&name))
-        .filter(|p| p.is_file())
+        .filter(|p| is_plain_file(p))
         .collect();
     out.sort();
     out
+}
+
+/// A regular file, not through a symlink.
+pub(crate) fn is_plain_file(p: &Path) -> bool {
+    std::fs::symlink_metadata(p).is_ok_and(|m| m.is_file())
+}
+
+/// A directory, not through a symlink.
+pub(crate) fn is_plain_dir(p: &Path) -> bool {
+    std::fs::symlink_metadata(p).is_ok_and(|m| m.is_dir())
 }
 
 /// The cwd a transcript records first.
@@ -280,7 +309,8 @@ pub(crate) fn plan_session(
                    files: &mut Vec<FileCopy>,
                    dirs: &mut Vec<(PathBuf, PathBuf)>|
      -> Result<(), TransferError> {
-        if !d.is_dir() {
+        // A symlink planted in a session's place is never followed.
+        if !is_plain_dir(d) {
             return Ok(());
         }
         if let Some(dest) = map(d) {
@@ -301,9 +331,9 @@ pub(crate) fn plan_session(
     }
     add_dir(&from.file_history_dir().join(id), &mut files, &mut dirs)?;
     let env = from.session_env_dir().join(id);
-    if env.is_dir() {
+    if is_plain_dir(&env) {
         add_dir(&env, &mut files, &mut dirs)?;
-    } else if env.is_file() {
+    } else if is_plain_file(&env) {
         add(&env, &mut files)?;
     }
     for e in std::fs::read_dir(from.todos_dir())
@@ -336,9 +366,12 @@ pub(crate) fn history_lines(history: &Path, cwd: &str) -> Vec<String> {
     let Ok(file) = std::fs::File::open(history) else {
         return Vec::new();
     };
+    // Line by line as bytes: a torn character skips its line, not the rest.
     std::io::BufReader::new(file)
-        .lines()
+        .split(b'\n')
         .map_while(Result::ok)
+        .filter_map(|line| String::from_utf8(line).ok())
+        .map(|line| line.trim_end_matches('\r').to_string())
         .filter(|line| {
             serde_json::from_str::<Value>(line)
                 .ok()
@@ -363,7 +396,13 @@ fn history_key(line: &str) -> Option<(String, String)> {
 /// Whether a live Claude Code process uses `home`: a pidfile with a living
 /// pid, or a `.claude.json.lock` written in the last 10 s.
 pub fn in_use(home: &ClaudeHome) -> Option<TransferError> {
-    for e in std::fs::read_dir(home.sessions_dir())
+    in_use_at(home.base(), &home.claude_json())
+}
+
+/// [`in_use`] for a directory and the `.claude.json` that goes with it (the
+/// Default's is beside its directory).
+fn in_use_at(base: &Path, claude_json: &Path) -> Option<TransferError> {
+    for e in std::fs::read_dir(ClaudeHome::for_account_dir(base).sessions_dir())
         .into_iter()
         .flatten()
         .flatten()
@@ -376,18 +415,16 @@ pub fn in_use(home: &ClaudeHome) -> Option<TransferError> {
             continue;
         };
         if super::live::pid_exists(pid) {
-            return Some(TransferError::DirectoryInUse(
-                home.base().display().to_string(),
-            ));
+            return Some(TransferError::DirectoryInUse(base.display().to_string()));
         }
     }
-    let lock = home.claude_json().with_extension("json.lock");
+    let lock = claude_json.with_extension("json.lock");
     let fresh = std::fs::metadata(&lock)
         .and_then(|m| m.modified())
         .ok()
         .and_then(|t| SystemTime::now().duration_since(t).ok())
         .is_some_and(|age| age < LOCK_FRESH);
-    fresh.then(|| TransferError::ConfigLocked(home.claude_json().display().to_string()))
+    fresh.then(|| TransferError::ConfigLocked(claude_json.display().to_string()))
 }
 
 /// Check every precondition and work out what would be written. Nothing is
@@ -473,17 +510,19 @@ pub fn plan(ctx: &Context<'_>, req: &Request) -> Result<Plan, TransferError> {
         }
         None => Vec::new(),
     };
-    let removes = (req.mode == Mode::Move)
+    // A move takes the source's entry along only where it is carried to (the
+    // trust opt-in, a target without one): it holds the project's MCP servers
+    // and allowed tools, so without the opt-in it stays where it is.
+    let removes = (req.mode == Mode::Move && entry.is_some())
         .then_some(cwd.clone())
-        .flatten()
-        .filter(|c| project_entry(&ctx.from.claude_json(), c).is_some());
+        .flatten();
     let writes_shared = entry.is_some() || !history.is_empty();
     if writes_shared {
         if let Some(e) = in_use(ctx.to) {
             return Err(e);
         }
     }
-    if removes.is_some() || (req.mode == Mode::Move && cwd.is_some()) {
+    if req.mode == Mode::Move && cwd.is_some() {
         if let Some(e) = in_use(ctx.from) {
             return Err(e);
         }
@@ -632,17 +671,30 @@ fn sha256_prefix(path: &Path, len: u64) -> std::io::Result<String> {
 }
 
 /// Cut a JSONL file after its last complete line (a snapshot of a file the
-/// CLI is appending to).
+/// CLI is appending to). Reads backwards from the end in blocks: a
+/// transcript can be hundreds of megabytes.
 fn trim_partial_line(path: &Path) -> std::io::Result<()> {
-    let bytes = std::fs::read(path)?;
-    if bytes.is_empty() || bytes.ends_with(b"\n") {
-        return Ok(());
+    use std::io::{Seek, SeekFrom};
+    let mut f = std::fs::File::options().read(true).write(true).open(path)?;
+    let len = f.metadata()?.len();
+    let mut end = len;
+    let mut buf = vec![0u8; 64 * 1024];
+    let mut keep = 0u64;
+    while end > 0 {
+        let start = end.saturating_sub(buf.len() as u64);
+        let n = (end - start) as usize;
+        f.seek(SeekFrom::Start(start))?;
+        f.read_exact(&mut buf[..n])?;
+        if end == len && buf[n - 1] == b'\n' {
+            return Ok(());
+        }
+        if let Some(i) = buf[..n].iter().rposition(|b| *b == b'\n') {
+            keep = start + i as u64 + 1;
+            break;
+        }
+        end = start;
     }
-    let keep = bytes.iter().rposition(|b| *b == b'\n').map_or(0, |i| i + 1);
-    std::fs::File::options()
-        .write(true)
-        .open(path)?
-        .set_len(keep as u64)
+    f.set_len(keep)
 }
 
 /// Copy one file: a temp name beside the destination, fsync, the source's
@@ -716,7 +768,16 @@ pub(crate) fn rewrite(path: &Path, bytes: &[u8]) -> Result<(), TransferError> {
         uuid::Uuid::new_v4().simple()
     ));
     let result = (|| -> Result<(), TransferError> {
-        let mut f = std::fs::File::create(&tmp).map_err(|e| io("writing", &tmp, e))?;
+        // Owner-only from its first byte (a `.claude.json` holds MCP secrets);
+        // the original's mode is put back below.
+        let mut opts = std::fs::File::options();
+        opts.write(true).create_new(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            opts.mode(0o600);
+        }
+        let mut f = opts.open(&tmp).map_err(|e| io("writing", &tmp, e))?;
         f.write_all(bytes).map_err(|e| io("writing", &tmp, e))?;
         f.sync_all().map_err(|e| io("syncing", &tmp, e))?;
         if let Ok(perm) = std::fs::metadata(path).map(|m| m.permissions()) {
@@ -760,47 +821,158 @@ pub(crate) fn edit_projects(
     rewrite_json(claude_json, &root)
 }
 
-/// Append lines to a JSONL file (atomically: the whole file rewritten).
-pub(crate) fn append_lines(path: &Path, lines: &[String]) -> Result<(), TransferError> {
-    let mut text = std::fs::read_to_string(path).unwrap_or_default();
-    if !text.is_empty() && !text.ends_with('\n') {
-        text.push('\n');
+/// A file's bytes; only a missing file reads as empty (an unreadable one is
+/// an error, never an empty file to write over).
+fn read_or_empty(path: &Path) -> Result<Vec<u8>, TransferError> {
+    match std::fs::read(path) {
+        Ok(bytes) => Ok(bytes),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Vec::new()),
+        Err(e) => Err(io("reading", path, e)),
     }
-    for l in lines {
-        text.push_str(l);
-        text.push('\n');
-    }
-    rewrite(path, text.as_bytes())
 }
 
-/// Remove exactly these lines (once each) from a JSONL file.
-fn remove_lines(path: &Path, lines: &[String]) -> Result<(), TransferError> {
-    let Ok(text) = std::fs::read_to_string(path) else {
+/// A JSONL file's lines as bytes, without their `\n`.
+fn byte_lines(bytes: &[u8]) -> impl Iterator<Item = &[u8]> {
+    bytes
+        .split_inclusive(|b| *b == b'\n')
+        .map(|l| l.strip_suffix(b"\n").unwrap_or(l))
+}
+
+/// Append lines to a JSONL file (atomically: the whole file rewritten, as
+/// bytes, so a line that is not UTF-8 stays as it is).
+pub(crate) fn append_lines(path: &Path, lines: &[String]) -> Result<(), TransferError> {
+    let mut bytes = read_or_empty(path)?;
+    if !bytes.is_empty() && !bytes.ends_with(b"\n") {
+        bytes.push(b'\n');
+    }
+    for l in lines {
+        bytes.extend_from_slice(l.as_bytes());
+        bytes.push(b'\n');
+    }
+    rewrite(path, &bytes)
+}
+
+/// Append those of `lines` the file does not have yet (counting repeats): an
+/// undo that is retried adds nothing twice.
+fn append_missing_lines(path: &Path, lines: &[String]) -> Result<(), TransferError> {
+    let bytes = read_or_empty(path)?;
+    let mut have: Vec<&[u8]> = byte_lines(&bytes).collect();
+    let missing: Vec<String> = lines
+        .iter()
+        .filter(|l| match have.iter().position(|h| *h == l.as_bytes()) {
+            Some(i) => {
+                have.swap_remove(i);
+                false
+            }
+            None => true,
+        })
+        .cloned()
+        .collect();
+    if missing.is_empty() {
         return Ok(());
+    }
+    append_lines(path, &missing)
+}
+
+/// Remove exactly these lines (once each) from a JSONL file; every other
+/// byte stays. Returns the lines it found and removed.
+fn remove_lines(path: &Path, lines: &[String]) -> Result<Vec<String>, TransferError> {
+    let bytes = match std::fs::read(path) {
+        Ok(b) => b,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(e) => return Err(io("reading", path, e)),
     };
     let mut drop: Vec<&String> = lines.iter().collect();
-    let mut out = String::new();
-    for l in text.lines() {
-        if let Some(i) = drop.iter().position(|d| d.as_str() == l) {
-            drop.remove(i);
+    let mut removed = Vec::new();
+    let mut out = Vec::with_capacity(bytes.len());
+    for l in bytes.split_inclusive(|b| *b == b'\n') {
+        let content = l.strip_suffix(b"\n").unwrap_or(l);
+        let content = content.strip_suffix(b"\r").unwrap_or(content);
+        if let Some(i) = drop.iter().position(|d| d.as_bytes() == content) {
+            removed.push(drop.remove(i).clone());
             continue;
         }
-        out.push_str(l);
-        out.push('\n');
+        out.extend_from_slice(l);
     }
-    rewrite(path, out.as_bytes())
+    if removed.is_empty() {
+        return Ok(removed);
+    }
+    rewrite(path, &out)?;
+    Ok(removed)
+}
+
+/// Keep a copy of a shared file as it is before the job's first change to it
+/// (`<undo dir>/shared/<label>`), for recovery by hand.
+fn keep_shared(path: &Path, undo_dir: &Path, label: &str) -> Result<(), TransferError> {
+    let dest = undo_dir.join("shared").join(label);
+    if dest.exists() || !path.exists() {
+        return Ok(());
+    }
+    let dir = undo_dir.join("shared");
+    std::fs::create_dir_all(&dir).map_err(|e| io("creating", &dir, e))?;
+    private_dir(&dir);
+    std::fs::copy(path, &dest).map_err(|e| io("keeping a copy of", path, e))?;
+    crate::persist::restrict(&dest);
+    Ok(())
+}
+
+// Test-only failure injection: `fail_at("stash", 2)` makes the third pass
+// through `fail_point("stash")` on this thread fail.
+#[cfg(test)]
+thread_local! {
+    static FAIL_AT: std::cell::RefCell<Vec<(&'static str, usize)>> =
+        const { std::cell::RefCell::new(Vec::new()) };
+}
+
+#[cfg(test)]
+pub(crate) fn fail_at(point: &'static str, after: usize) {
+    FAIL_AT.with(|f| f.borrow_mut().push((point, after)));
+}
+
+#[cfg(test)]
+pub(crate) fn clear_failures() {
+    FAIL_AT.with(|f| f.borrow_mut().clear());
+}
+
+fn fail_point(point: &'static str) -> Result<(), TransferError> {
+    #[cfg(test)]
+    {
+        let hit = FAIL_AT.with(|f| {
+            let mut f = f.borrow_mut();
+            match f.iter_mut().position(|(p, _)| *p == point) {
+                Some(i) if f[i].1 == 0 => {
+                    f.remove(i);
+                    true
+                }
+                Some(i) => {
+                    f[i].1 -= 1;
+                    false
+                }
+                None => false,
+            }
+        });
+        if hit {
+            return Err(TransferError::Io(format!("injected failure at {point}")));
+        }
+    }
+    let _ = point;
+    Ok(())
 }
 
 /// Move a file into the undo directory: a rename on one volume, else a
 /// copy and a delete.
 fn stash(path: &Path, undo_dir: &Path, rel: &Path) -> Result<Moved, TransferError> {
+    fail_point("stash")?;
     let dest = undo_dir.join("moved").join(rel);
     if let Some(parent) = dest.parent() {
         std::fs::create_dir_all(parent).map_err(|e| io("creating", parent, e))?;
     }
     if std::fs::rename(path, &dest).is_err() {
         std::fs::copy(path, &dest).map_err(|e| io("saving", path, e))?;
-        std::fs::remove_file(path).map_err(|e| io("removing", path, e))?;
+        if let Err(e) = std::fs::remove_file(path) {
+            let _ = std::fs::remove_file(&dest);
+            return Err(io("removing", path, e));
+        }
     }
     Ok(Moved {
         original: path.to_path_buf(),
@@ -808,14 +980,95 @@ fn stash(path: &Path, undo_dir: &Path, rel: &Path) -> Result<Moved, TransferErro
     })
 }
 
+/// Put a saved file back: a rename on one volume, else a copy (the saved
+/// copy is removed only once the original is back).
+fn put_back(saved: &Path, original: &Path) -> Result<(), TransferError> {
+    fail_point("put_back")?;
+    if let Some(parent) = original.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| io("creating", parent, e))?;
+    }
+    if std::fs::rename(saved, original).is_err() {
+        std::fs::copy(saved, original).map_err(|e| io("restoring", original, e))?;
+        let _ = std::fs::remove_file(saved);
+    }
+    Ok(())
+}
+
+/// Remove a directory tree's empty directories, deepest first: whatever a
+/// session wrote there that the plan did not know stays.
+fn remove_empty_dirs(dir: &Path) {
+    let mut dirs = Vec::new();
+    let _ = collect_dirs(dir, &mut dirs);
+    for sub in dirs.iter().rev() {
+        let _ = std::fs::remove_dir(sub);
+    }
+    let _ = std::fs::remove_dir(dir);
+}
+
+/// The size and mtime a file has now (`None` when it is gone).
+fn file_stamp(path: &Path) -> Option<(u64, Option<SystemTime>)> {
+    std::fs::symlink_metadata(path)
+        .ok()
+        .map(|m| (m.len(), m.modified().ok()))
+}
+
+/// The checks a plan made that its shared-file writes depend on, again: the
+/// target's `.claude.json`/`history.jsonl` and, for a project move, the
+/// source's, only while no Claude Code process uses that directory.
+fn shared_checks(plan: &Plan) -> Result<(), TransferError> {
+    if plan.writes_shared {
+        if let Some(e) = in_use_at(&plan.to, &plan.to_config) {
+            return Err(e);
+        }
+    }
+    if plan.mode == Mode::Move && matches!(plan.what, What::Project { .. }) {
+        if let Some(e) = in_use_at(&plan.from, &plan.from_config) {
+            return Err(e);
+        }
+    }
+    Ok(())
+}
+
+/// A plan's preconditions once more, right before it runs (it may have
+/// waited behind another data job): no session of it started since, the
+/// target did not get one of them meanwhile, the shared files' directories
+/// are free.
+pub fn recheck(plan: &Plan, is_live: &dyn Fn(&str) -> bool) -> Result<(), TransferError> {
+    let to = ClaudeHome::for_account_dir(&plan.to);
+    for s in &plan.sessions {
+        if !plan.snapshot && is_live(&s.id) {
+            return Err(TransferError::SessionLive(s.id.clone()));
+        }
+        if !transcripts_of(&to, &s.id).is_empty() {
+            return Err(TransferError::AlreadyExists(s.id.clone()));
+        }
+    }
+    shared_checks(plan)
+}
+
+/// Whether a session has a file now that the plan does not list (it was
+/// resumed after the plan was made).
+fn has_unplanned_files(s: &SessionPlan) -> bool {
+    let planned: HashSet<&Path> = s.files.iter().map(|f| f.from.as_path()).collect();
+    s.dirs.iter().any(|(dir, _)| {
+        let mut found = Vec::new();
+        let _ = walk(dir, &mut found);
+        found.iter().any(|f| !planned.contains(f.as_path()))
+    })
+}
+
 /// Run a planned transfer: undo copy first, then the files, then the shared
-/// files, then (move mode) the source. Blocking. On failure everything
-/// created so far is removed again and the source is left as it was.
+/// files, then (move mode) the source. Blocking. The plan's checks are made
+/// again where they matter: before the shared files are written and before
+/// the source moves (a session that started meanwhile, a file that changed
+/// since it was copied). On failure the source is put back and everything
+/// created is removed; a moved file is never lost (see the module docs).
 pub fn run(
     plan: &Plan,
     undo_root: &Path,
     job_id: &str,
     progress: &Progress,
+    is_live: &dyn Fn(&str) -> bool,
 ) -> Result<Manifest, TransferError> {
     let undo_dir = undo_root.join(job_id);
     std::fs::create_dir_all(&undo_dir).map_err(|e| io("creating", &undo_dir, e))?;
@@ -844,6 +1097,7 @@ pub fn run(
         kind: None,
     };
     let save = |m: &Manifest| -> Result<(), TransferError> {
+        fail_point("save")?;
         crate::persist::write_json_private(&undo_dir.join("manifest.json"), m)
             .map_err(|e| io("writing", &undo_dir, e))
     };
@@ -851,6 +1105,10 @@ pub fn run(
         let _ = std::fs::remove_dir_all(&undo_dir);
         return Err(e);
     }
+    // What each source file was right after its copy verified: it must
+    // still be that when it moves, or the copy is not what moves.
+    let mut stamps: std::collections::HashMap<PathBuf, Option<(u64, Option<SystemTime>)>> =
+        std::collections::HashMap::new();
     let outcome = (|| -> Result<(), TransferError> {
         // The files, verified. Every directory made on the way is recorded,
         // so undo leaves the target as it found it.
@@ -869,6 +1127,7 @@ pub fn run(
                     }
                 }
                 let created = copy_file(f, plan.snapshot)?;
+                stamps.insert(f.from.clone(), file_stamp(&f.from));
                 progress.files_done.fetch_add(1, Ordering::Relaxed);
                 progress
                     .bytes_done
@@ -877,9 +1136,14 @@ pub fn run(
             }
             save(&m)?;
         }
-        // The target's shared files (trust opt-in; a project's history).
+        // The target's shared files (trust opt-in; a project's history),
+        // only while nothing uses its directory now.
         let to = ClaudeHome::for_account_dir(&plan.to);
+        if plan.writes_shared {
+            shared_checks(plan)?;
+        }
         if let Some((cwd, entry)) = &plan.entry {
+            keep_shared(&plan.to_config, &undo_dir, "to-claude.json")?;
             let mut added = false;
             edit_projects(&plan.to_config, |p| {
                 if !p.contains_key(cwd) {
@@ -893,34 +1157,55 @@ pub fn run(
             save(&m)?;
         }
         if !plan.history.is_empty() {
+            keep_shared(&to.history_file(), &undo_dir, "to-history.jsonl")?;
             append_lines(&to.history_file(), &plan.history)?;
             m.added_history = plan.history.clone();
             save(&m)?;
         }
         // Move mode: the source goes to the undo directory, only now that
-        // every copy verified.
+        // every copy verified, and only while none of its sessions runs and
+        // each file is still what was copied.
         if plan.mode == Mode::Move {
+            for s in &plan.sessions {
+                if is_live(&s.id) {
+                    return Err(TransferError::SessionLive(s.id.clone()));
+                }
+                let changed = has_unplanned_files(s)
+                    || s.files
+                        .iter()
+                        .any(|f| stamps.get(&f.from).cloned().flatten() != file_stamp(&f.from));
+                if changed {
+                    return Err(TransferError::SessionChanged(s.id.clone()));
+                }
+            }
             for s in &plan.sessions {
                 for f in &s.files {
                     let rel = f.from.strip_prefix(&plan.from).unwrap_or(&f.from);
                     m.moved.push(stash(&f.from, &undo_dir, rel)?);
                 }
                 for (dir, _) in s.dirs.iter().rev() {
-                    if std::fs::remove_dir_all(dir).is_ok() {
+                    remove_empty_dirs(dir);
+                    if !dir.exists() {
                         m.moved_dirs.push(dir.clone());
                     }
                 }
                 save(&m)?;
             }
-            if let (What::Project { cwd }, Some(_)) = (&plan.what, &plan.removes_project_entry) {
+            if let What::Project { cwd } = &plan.what {
+                shared_checks(plan)?;
                 let from = ClaudeHome::for_account_dir(&plan.from);
-                let mut removed = None;
-                edit_projects(&plan.from_config, |p| removed = p.remove(cwd))?;
-                m.removed_entry = removed.map(|e| (cwd.clone(), e));
+                if plan.removes_project_entry.is_some() {
+                    fail_point("edit_source")?;
+                    keep_shared(&plan.from_config, &undo_dir, "from-claude.json")?;
+                    let mut removed = None;
+                    edit_projects(&plan.from_config, |p| removed = p.remove(cwd))?;
+                    m.removed_entry = removed.map(|e| (cwd.clone(), e));
+                    save(&m)?;
+                }
                 let lines = history_lines(&from.history_file(), cwd);
                 if !lines.is_empty() {
-                    remove_lines(&from.history_file(), &lines)?;
-                    m.removed_history = lines;
+                    keep_shared(&from.history_file(), &undo_dir, "from-history.jsonl")?;
+                    m.removed_history = remove_lines(&from.history_file(), &lines)?;
                 }
                 save(&m)?;
             }
@@ -928,16 +1213,49 @@ pub fn run(
         Ok(())
     })();
     if let Err(e) = outcome {
-        // Leave the source as it was and remove what was made.
-        let _ = rollback(&m);
-        let _ = std::fs::remove_dir_all(&undo_dir);
-        return Err(e);
+        // The source first (its moved files are only in the undo directory
+        // now), then what was made in the target. If either fails, the undo
+        // directory and its manifest stay, and Undo finishes the job.
+        let back = restore_source(&m, &undo_dir).and_then(|()| rollback(&m));
+        return match back {
+            Ok(()) => {
+                let _ = std::fs::remove_dir_all(&undo_dir);
+                Err(e)
+            }
+            Err(back) => {
+                let _ = crate::persist::write_json_private(&undo_dir.join("manifest.json"), &m);
+                tracing::error!(
+                    job = job_id,
+                    error = %e,
+                    rollback = %back,
+                    "a failed transfer could not be put back; its undo directory stays"
+                );
+                Err(TransferError::Incomplete(format!(
+                    "{e}. Putting things back failed too ({back}); nothing is lost: \
+                     undo this job to finish."
+                )))
+            }
+        };
     }
     Ok(m)
 }
 
-/// Undo a finished transfer from its manifest.
+/// Undo a finished transfer from its manifest (no session is checked for
+/// being live: [`undo_with`] does that).
 pub fn undo(undo_root: &Path, job_id: &str) -> Result<Manifest, TransferError> {
+    undo_with(undo_root, job_id, &|_| false)
+}
+
+/// Undo a transfer: refuse while one of its sessions runs, while a
+/// directory whose shared files it changes back is in use, or when what it
+/// created has been used since (a continued session); then put the source
+/// back, and only then remove what was created. Safe to retry after a
+/// failure: what is back already is skipped.
+pub fn undo_with(
+    undo_root: &Path,
+    job_id: &str,
+    is_live: &dyn Fn(&str) -> bool,
+) -> Result<Manifest, TransferError> {
     if !is_job_id(job_id) {
         return Err(TransferError::Invalid("not a transfer id".into()));
     }
@@ -949,9 +1267,32 @@ pub fn undo(undo_root: &Path, job_id: &str) -> Result<Manifest, TransferError> {
             "this transfer was undone already".into(),
         ));
     }
+    if let Some(id) = m.sessions.iter().find(|id| is_live(id)) {
+        return Err(TransferError::SessionLive(id.clone()));
+    }
+    let target_shared =
+        m.added_entry.is_some() || !m.added_entries.is_empty() || !m.added_history.is_empty();
+    if target_shared {
+        if let Some(e) = in_use_at(&m.to_dir, &m.to_config()) {
+            return Err(e);
+        }
+    }
+    if m.removed_entry.is_some() || !m.removed_history.is_empty() {
+        if let Some(e) = in_use_at(&m.from_dir, &m.from_config()) {
+            return Err(e);
+        }
+    }
+    // A moved file that is back already (an earlier attempt) has no saved
+    // copy left; its place is the original again, not this job's file.
+    let back: HashSet<&PathBuf> = m
+        .moved
+        .iter()
+        .filter(|mv| !undo_dir.join(&mv.saved).exists() && mv.original.exists())
+        .map(|mv| &mv.original)
+        .collect();
     // Refuse when what was created has been used since (a continued
     // session): deleting it would lose that work.
-    for c in &m.created {
+    for c in m.created.iter().filter(|c| !back.contains(&c.path)) {
         match sha256_file(&c.path) {
             Ok((size, sha)) if size == c.size && sha == c.sha256 => {}
             Ok(_) => {
@@ -965,30 +1306,70 @@ pub fn undo(undo_root: &Path, job_id: &str) -> Result<Manifest, TransferError> {
         }
     }
     // A moved file's place may hold only what this job put there (a pull
-    // that replaced it), which the rollback removes first.
+    // that replaced it), which goes first.
     let ours: HashSet<&PathBuf> = m.created.iter().map(|c| &c.path).collect();
     for mv in &m.moved {
-        if mv.original.exists() && !ours.contains(&mv.original) {
+        let saved = undo_dir.join(&mv.saved);
+        if saved.exists() && mv.original.exists() && !ours.contains(&mv.original) {
             return Err(TransferError::UndoConflict(format!(
                 "{} exists again",
                 mv.original.display()
             )));
         }
+        if !saved.exists() && !mv.original.exists() {
+            return Err(TransferError::NotFound(format!(
+                "the saved copy of {} is gone",
+                mv.original.display()
+            )));
+        }
     }
+    restore_source(&m, &undo_dir)?;
     rollback(&m)?;
-    // Emptied source directories first (an empty `session-env/<id>` is one),
-    // then the files back into them.
+    m.undone_at = Some(now_ms());
+    crate::persist::write_json_private(&undo_dir.join("manifest.json"), &m)
+        .map_err(|e| io("writing", &undo_dir, e))?;
+    Ok(m)
+}
+
+/// Put the source back as it was: the emptied directories, the moved files
+/// (in place of this job's own file where one stands there, as after a pull
+/// that replaced a session), the removed `.claude.json` entry and the removed
+/// history lines. What is back already is skipped, so a retry finishes.
+fn restore_source(m: &Manifest, undo_dir: &Path) -> Result<(), TransferError> {
+    if m.moved.is_empty() && m.removed_entry.is_none() && m.removed_history.is_empty() {
+        return Ok(());
+    }
+    // Emptied source directories first (an empty `session-env/<id>` is one).
     for d in &m.moved_dirs {
         std::fs::create_dir_all(d).map_err(|e| io("creating", d, e))?;
     }
+    let ours: std::collections::HashMap<&PathBuf, &Created> =
+        m.created.iter().map(|c| (&c.path, c)).collect();
     for mv in &m.moved {
         let saved = undo_dir.join(&mv.saved);
-        if let Some(parent) = mv.original.parent() {
-            std::fs::create_dir_all(parent).map_err(|e| io("creating", parent, e))?;
+        if !saved.exists() {
+            if mv.original.exists() {
+                continue;
+            }
+            return Err(TransferError::NotFound(format!(
+                "the saved copy of {} is gone",
+                mv.original.display()
+            )));
         }
-        if std::fs::rename(&saved, &mv.original).is_err() {
-            std::fs::copy(&saved, &mv.original).map_err(|e| io("restoring", &mv.original, e))?;
+        if mv.original.exists() {
+            // Only this job's own, unchanged file may stand there.
+            let mine = ours.get(&mv.original).is_some_and(|c| {
+                sha256_file(&mv.original).is_ok_and(|(n, h)| n == c.size && h == c.sha256)
+            });
+            if !mine {
+                return Err(TransferError::UndoConflict(format!(
+                    "{} exists again",
+                    mv.original.display()
+                )));
+            }
+            std::fs::remove_file(&mv.original).map_err(|e| io("removing", &mv.original, e))?;
         }
+        put_back(&saved, &mv.original)?;
     }
     if let Some((cwd, entry)) = &m.removed_entry {
         edit_projects(&m.from_config(), |p| {
@@ -997,18 +1378,18 @@ pub fn undo(undo_root: &Path, job_id: &str) -> Result<Manifest, TransferError> {
     }
     if !m.removed_history.is_empty() {
         let from = ClaudeHome::for_account_dir(&m.from_dir);
-        append_lines(&from.history_file(), &m.removed_history)?;
+        append_missing_lines(&from.history_file(), &m.removed_history)?;
     }
-    m.undone_at = Some(now_ms());
-    crate::persist::write_json_private(&undo_dir.join("manifest.json"), &m)
-        .map_err(|e| io("writing", &undo_dir, e))?;
-    Ok(m)
+    Ok(())
 }
 
 /// Remove what a transfer created in the target (files, then the
 /// directories it made when empty) and the shared-file changes it made there.
+/// A created path that is a moved file's place holds the original again by
+/// now ([`restore_source`] ran first) and stays.
 fn rollback(m: &Manifest) -> Result<(), TransferError> {
-    for c in &m.created {
+    let originals: HashSet<&PathBuf> = m.moved.iter().map(|mv| &mv.original).collect();
+    for c in m.created.iter().filter(|c| !originals.contains(&c.path)) {
         match std::fs::remove_file(&c.path) {
             Ok(()) => {}
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
@@ -1018,12 +1399,7 @@ fn rollback(m: &Manifest) -> Result<(), TransferError> {
     for d in m.created_dirs.iter().rev() {
         // Deepest first (they were made outermost first); only what is empty
         // now, so anything written there since stays.
-        let mut dirs = Vec::new();
-        let _ = collect_dirs(d, &mut dirs);
-        for sub in dirs.iter().rev() {
-            let _ = std::fs::remove_dir(sub);
-        }
-        let _ = std::fs::remove_dir(d);
+        remove_empty_dirs(d);
     }
     let to = ClaudeHome::for_account_dir(&m.to_dir);
     let added: Vec<&(String, Value)> = m.added_entry.iter().chain(&m.added_entries).collect();

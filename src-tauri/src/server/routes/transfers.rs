@@ -10,8 +10,10 @@
 //! * `POST /api/data/jobs/{id}/undo` (DesktopOnly).
 //!
 //! Every refusal has its own code (`same_directory`, `session_live`,
-//! `already_exists`, `directory_in_use`, `config_locked`, …) and every
-//! transfer and undo is audited.
+//! `already_exists`, `directory_in_use`, `config_locked`, `session_changed`,
+//! `data_job_running`, …) and every transfer and undo is audited. A job that
+//! failed and could not put everything back (`transfer_incomplete`) keeps its
+//! undo directory and offers Undo (`undoUntil`).
 
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
@@ -35,8 +37,12 @@ pub fn transfer_error(e: TransferError) -> ApiError {
         | TransferError::AlreadyExists(_)
         | TransferError::DirectoryInUse(_)
         | TransferError::ConfigLocked(_)
-        | TransferError::UndoConflict(_) => StatusCode::CONFLICT,
-        TransferError::Io(_) | TransferError::VerifyFailed(_) => StatusCode::INTERNAL_SERVER_ERROR,
+        | TransferError::UndoConflict(_)
+        | TransferError::SessionChanged(_)
+        | TransferError::Busy => StatusCode::CONFLICT,
+        TransferError::Io(_) | TransferError::VerifyFailed(_) | TransferError::Incomplete(_) => {
+            StatusCode::INTERNAL_SERVER_ERROR
+        }
         TransferError::SameDirectory | TransferError::Invalid(_) => {
             StatusCode::UNPROCESSABLE_ENTITY
         }
