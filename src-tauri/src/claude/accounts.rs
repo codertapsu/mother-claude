@@ -9,7 +9,8 @@
 //! present and cannot be removed.
 //!
 //! The registry lives in `<app data dir>/accounts.json` (0600) and is parsed
-//! tolerantly: unknown fields are kept, a bad entry is skipped with a log line.
+//! tolerantly: unknown fields are kept, a bad entry is skipped with a log line
+//! and written back unchanged by the next save (another run may use it).
 //! It is written only when the user changes something, so a machine with only
 //! the Default account never gets the file. Secrets never go in it
 //! ([`super::secrets`]); a token account keeps only its token's SHA-256, for
@@ -230,6 +231,8 @@ pub struct Registry {
     pub copy_consent: Vec<CopyConsent>,
     pub backup: BackupSettings,
     extra: BTreeMap<String, Value>,
+    /// What this run could not use, written back as it was.
+    held: Held,
 }
 
 impl Default for Registry {
@@ -240,8 +243,31 @@ impl Default for Registry {
             copy_consent: Vec::new(),
             backup: BackupSettings::default(),
             extra: BTreeMap::new(),
+            held: Held::default(),
         }
     }
+}
+
+/// The parts of `accounts.json` a run skipped — an account whose directory
+/// is this run's Default (the app started with another `CLAUDE_CONFIG_DIR`),
+/// a newer version's kind, a hand edit — and what named them. Saves write
+/// them back unchanged, so a run that cannot use an account never erases it
+/// (saves happen without a user action too, e.g. a plugin state learned at
+/// startup).
+#[derive(Debug, Clone, Default, PartialEq)]
+struct Held {
+    /// The raw entries, in file order.
+    accounts: Vec<Value>,
+    /// Their ids, where they have one.
+    ids: std::collections::BTreeSet<String>,
+    /// Copy consents naming a held account.
+    copy_consent: Vec<Value>,
+    /// `byProject` entries naming a held account.
+    by_project: BTreeMap<String, String>,
+    /// `newSession` / `bridge` named a held account (until the user picks
+    /// the defaults again).
+    new_session: Option<String>,
+    bridge: Option<String>,
 }
 
 impl Registry {
@@ -290,35 +316,64 @@ impl Registry {
     }
 
     fn to_file(&self) -> RegistryFile {
+        let mut defaults = serde_json::to_value(&self.defaults).unwrap_or(Value::Null);
+        if let Some(d) = defaults.as_object_mut() {
+            if let Some(id) = &self.held.new_session {
+                d.insert("newSession".into(), Value::from(id.clone()));
+            }
+            if let Some(id) = &self.held.bridge {
+                d.insert("bridge".into(), Value::from(id.clone()));
+            }
+            if let Some(Value::Object(by)) = d.get_mut("byProject") {
+                for (dir, id) in &self.held.by_project {
+                    by.entry(dir.clone())
+                        .or_insert_with(|| Value::from(id.clone()));
+                }
+            }
+        }
         RegistryFile {
             version: 1,
             accounts: self
                 .accounts
                 .iter()
                 .filter_map(|a| serde_json::to_value(a).ok())
+                .chain(self.held.accounts.iter().cloned())
                 .collect(),
-            defaults: serde_json::to_value(&self.defaults).unwrap_or(Value::Null),
+            defaults,
             copy_consent: self
                 .copy_consent
                 .iter()
                 .filter_map(|c| serde_json::to_value(c).ok())
+                .chain(self.held.copy_consent.iter().cloned())
                 .collect(),
             backup: serde_json::to_value(&self.backup).unwrap_or(Value::Null),
             extra: self.extra.clone(),
         }
     }
 
-    /// Build from the file's contents, skipping what does not validate.
+    /// Hold an entry this run cannot use (see [`Held`]).
+    fn hold(&mut self, raw: Value) {
+        if let Some(id) = raw.get("id").and_then(Value::as_str) {
+            if is_account_id(id) && self.get(id).is_none() {
+                self.held.ids.insert(id.to_string());
+            }
+        }
+        self.held.accounts.push(raw);
+    }
+
+    /// Build from the file's contents, skipping (and holding) what does not
+    /// validate.
     fn from_file(file: RegistryFile, default_dir: &Path) -> Self {
         let mut reg = Registry {
             extra: file.extra,
             ..Default::default()
         };
         for raw in file.accounts {
-            let mut account: Account = match serde_json::from_value(raw) {
+            let mut account: Account = match serde_json::from_value(raw.clone()) {
                 Ok(a) => a,
                 Err(e) => {
                     tracing::warn!(error = %e, "accounts.json: skipping an unreadable account");
+                    reg.hold(raw);
                     continue;
                 }
             };
@@ -339,10 +394,14 @@ impl Registry {
             }
             if let Err(why) = validate_loaded(&reg, &mut account, default_dir) {
                 tracing::warn!(id = %account.id, why, "accounts.json: skipping an account");
+                reg.hold(raw);
                 continue;
             }
             reg.accounts.push(account);
         }
+        // An id both valid and held (a duplicate) is the valid one's.
+        let valid: Vec<String> = reg.accounts.iter().map(|a| a.id.clone()).collect();
+        reg.held.ids.retain(|id| !valid.contains(id));
         // A duplicate name of the Default (renamed after the others loaded).
         let default_name = reg.accounts[0].name.to_lowercase();
         if reg.accounts[1..]
@@ -354,24 +413,40 @@ impl Registry {
         match serde_json::from_value::<AccountDefaults>(file.defaults) {
             Ok(mut d) => {
                 if reg.get(&d.new_session).is_none() {
+                    if reg.held.ids.contains(&d.new_session) {
+                        reg.held.new_session = Some(d.new_session.clone());
+                    }
                     d.new_session = default_id();
                 }
                 if reg.get(&d.bridge).is_none() {
+                    if reg.held.ids.contains(&d.bridge) {
+                        reg.held.bridge = Some(d.bridge.clone());
+                    }
                     d.bridge = default_id();
                 }
-                d.by_project
-                    .retain(|dir, id| Path::new(dir).is_absolute() && reg.get(id).is_some());
+                let mut held = BTreeMap::new();
+                d.by_project.retain(|dir, id| {
+                    let absolute = Path::new(dir).is_absolute();
+                    if absolute && reg.held.ids.contains(id) {
+                        held.insert(dir.clone(), id.clone());
+                    }
+                    absolute && reg.get(id).is_some()
+                });
+                reg.held.by_project = held;
                 reg.defaults = d;
             }
             Err(e) => tracing::warn!(error = %e, "accounts.json: ignoring unreadable defaults"),
         }
         for raw in file.copy_consent {
-            if let Ok(c) = serde_json::from_value::<CopyConsent>(raw) {
-                if reg.get(&c.from).is_some()
-                    && reg.get(&c.to).is_some()
-                    && !reg.has_copy_consent(&c.from, &c.to)
-                {
-                    reg.copy_consent.push(c);
+            if let Ok(c) = serde_json::from_value::<CopyConsent>(raw.clone()) {
+                let known = |id: &str| reg.get(id).is_some();
+                let held = |id: &str| reg.held.ids.contains(id);
+                if known(&c.from) && known(&c.to) {
+                    if !reg.has_copy_consent(&c.from, &c.to) {
+                        reg.copy_consent.push(c);
+                    }
+                } else if (held(&c.from) || known(&c.from)) && (held(&c.to) || known(&c.to)) {
+                    reg.held.copy_consent.push(raw);
                 }
             }
         }
@@ -1093,6 +1168,10 @@ impl AccountRegistry {
         }
         let mut next = guard.clone();
         next.defaults = clean.clone();
+        // The user chose: a default kept for an account this run skipped
+        // gives way (its project entries stay).
+        next.held.new_session = None;
+        next.held.bridge = None;
         if next != *guard {
             self.commit(&mut guard, next)?;
         }
@@ -1688,6 +1767,79 @@ mod tests {
             Arc::new(MemoryStore::default()),
         );
         assert!(reg.is_default_only());
+    }
+
+    #[test]
+    fn accounts_a_run_cannot_use_survive_its_saves() {
+        let tmp = tempfile::tempdir().unwrap();
+        let usual = tmp.path().join("claude-usual");
+        let other = tmp.path().join("claude-other");
+        std::fs::create_dir_all(&usual).unwrap();
+        let reg = AccountRegistry::load(
+            Some(tmp.path()),
+            ClaudeHome::with_base(&usual),
+            Arc::new(MemoryStore::default()),
+        );
+        let work = reg.add_directory("Work", &other, None).unwrap();
+        let pro = reg.add_token("Pro", Some(&token(3)), None).unwrap();
+        reg.set_defaults(AccountDefaults {
+            new_session: work.id.clone(),
+            bridge: work.id.clone(),
+            by_project: [("/p/acme".to_string(), work.id.clone())].into(),
+        })
+        .unwrap();
+        reg.set_copy_consent(DEFAULT_ID, &work.id, true).unwrap();
+        reg.set_copy_consent(&work.id, &pro.id, true).unwrap();
+        let store = reg.secret_store().clone();
+
+        // A run started with CLAUDE_CONFIG_DIR=<Work's directory>: there
+        // Work's directory is the Default's, so Work is skipped.
+        let odd = AccountRegistry::load(
+            Some(tmp.path()),
+            ClaudeHome::with_base(&other),
+            store.clone(),
+        );
+        let ids: Vec<String> = odd.accounts().into_iter().map(|a| a.id).collect();
+        assert_eq!(ids, [DEFAULT_ID.to_string(), pro.id.clone()]);
+        assert_eq!(odd.defaults().new_session, DEFAULT_ID);
+        assert_eq!(odd.account_for_cwd("/p/acme/x"), DEFAULT_ID);
+        assert!(!odd.has_copy_consent(DEFAULT_ID, &work.id));
+        // A save nobody asked for (a plugin state learned at startup).
+        odd.note_hooks_plugin(DEFAULT_ID, "installed");
+
+        // The usual run again: nothing was lost.
+        let back = AccountRegistry::load(Some(tmp.path()), ClaudeHome::with_base(&usual), store);
+        assert_eq!(back.get(&work.id).unwrap().dir, work.dir);
+        assert_eq!(back.defaults().new_session, work.id);
+        assert_eq!(back.defaults().bridge, work.id);
+        assert_eq!(back.account_for_cwd("/p/acme/x"), work.id);
+        assert!(back.has_copy_consent(DEFAULT_ID, &work.id));
+        assert!(back.has_copy_consent(&work.id, &pro.id));
+        assert_eq!(
+            back.get(DEFAULT_ID).unwrap().hooks_plugin.as_deref(),
+            Some("installed")
+        );
+
+        // Choosing the defaults in the odd run replaces the held ones; the
+        // project entry stays.
+        let odd = AccountRegistry::load(
+            Some(tmp.path()),
+            ClaudeHome::with_base(&other),
+            back.secret_store().clone(),
+        );
+        odd.set_defaults(AccountDefaults {
+            new_session: pro.id.clone(),
+            ..Default::default()
+        })
+        .unwrap();
+        let back = AccountRegistry::load(
+            Some(tmp.path()),
+            ClaudeHome::with_base(&usual),
+            odd.secret_store().clone(),
+        );
+        assert_eq!(back.defaults().new_session, pro.id);
+        assert_eq!(back.defaults().bridge, DEFAULT_ID);
+        assert_eq!(back.account_for_cwd("/p/acme/x"), work.id);
     }
 
     #[test]
