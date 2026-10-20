@@ -802,7 +802,16 @@ pub async fn continue_as(
             "Only Claude Code sessions (UUID ids) can be continued.",
         ));
     }
-    if has_handle(state, id) || state.bridge.thread(id).await.is_some() {
+    // "Continue on B" forks, so it may start from a conversation Mother Claude
+    // drives right now (the usual case: it stopped at A's limit); the original
+    // keeps running as it was. Continuing on the same account is a message.
+    let other_account = req
+        .account
+        .as_deref()
+        .map(str::trim)
+        .filter(|a| !a.is_empty())
+        .is_some_and(|a| a != crate::claude::summaries::session_account(state, id));
+    if !other_account && (has_handle(state, id) || state.bridge.thread(id).await.is_some()) {
         return Err(ApiError::conflict(
             "already_owned",
             "This session is already driven by Mother Claude.",

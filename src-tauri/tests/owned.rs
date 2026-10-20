@@ -1674,6 +1674,40 @@ async fn continuing_on_another_account_forks_it() {
 
     let token = Secret::new("sk-ant-oat01-AccountBTokenValue0123456789abcdefghij");
     let pro = f.st.accounts.add_token("Pro", Some(&token), None).unwrap();
+
+    // A conversation Mother Claude drives right now (it hit A's limit) can
+    // go on under B: a fork, the original left running.
+    let running = f.spawn_text("hello").await;
+    wait_turn_done(&f.st, &running).await;
+    let same = owned::continue_as(&f.st, MAC, &running, &f.cwd(), ContinueRequest::default())
+        .await
+        .unwrap_err();
+    assert_eq!(
+        same.code, "already_owned",
+        "the same account: send it a message"
+    );
+    let branched = owned::continue_as(
+        &f.st,
+        MAC,
+        &running,
+        &f.cwd(),
+        ContinueRequest {
+            prompt: Some("go on".into()),
+            account: Some(pro.id.clone()),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+    assert_ne!(branched, running);
+    assert!(
+        owned::has_handle(&f.st, &running),
+        "the original keeps running"
+    );
+    wait_turn_done(&f.st, &branched).await;
+    f.st.control.kill(&branched).await.unwrap();
+    f.st.control.kill(&running).await.unwrap();
+
     let forked = owned::continue_as(
         &f.st,
         MAC,
