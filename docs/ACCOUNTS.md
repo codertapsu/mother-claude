@@ -298,6 +298,28 @@ source's first bytes. The account pair's copy consent is given on the desktop;
 after that a continue-on from any surface may copy for that pair, as §11.2
 intends. A second continue-on forks the copy that is already there.
 
+*Changed while building (D6, §4.3):* age's passphrase mode costs about a
+second of scrypt per file — per archive, that would make a first backup of a
+few hundred sessions take minutes of key derivation alone. Each set therefore
+has its own X25519 key: `identity.age` holds it, encrypted with the passphrase
+(scrypt), and replaces `check.age` (opening it proves the passphrase);
+archives and the index are encrypted to the set's public key, which
+`set.json` names. A run pays the passphrase once. Every file still opens with
+standard tools — `age -d -o key.txt identity.age && age -d -i key.txt
+sessions/<id>.tar.gz.age | tar xz` (verified with age 1.3.2) — and a new
+passphrase only re-encrypts `identity.age`. The index is written merged with
+the set's current one (the newer push of a session wins; each machine's
+`seen` is its own), so two machines pushing in turn keep each other's
+entries. Also excluded, as this machine showed them to be runtime state or
+re-fetchable: `ide/`, `tasks/`, `plugins/marketplaces/`, `plugins/synced/`,
+plugin cache files, `*.log`. The configuration bundle is never restored over
+the live configuration: restoring it unpacks the newest one into
+`<app data dir>/restored-config/<account>/` for review. A pull's prompt
+history comes from the newest bundle; a session newer in the set and
+unchanged here is replaced with the old copy kept for undo (the manifest is a
+transfer's, so `/data/jobs/{id}/undo` undoes restores and pulls too). See
+[BACKUP.md](BACKUP.md).
+
 **D9 — Account choice is not a dangerous action; account administration is.**
 Picking an account for a new session or a bridge conversation is allowed to
 any principal that may start sessions (it is the user's own account either
@@ -356,10 +378,10 @@ skipped with a log line), like every other file we read.
 ### 4.3 The backup set — `<folder>/<account name>/`
 
 ```
-set.json                      {"version":1,"account":"Work","createdAt":…,"machines":[{"host":"marcus-mbp","lastPush":…}]}
-check.age                     the string "mother-claude" encrypted with the passphrase — "is this the right passphrase?" without downloading anything else
-index.json.age                [{"id":…,"cwd":…,"transcriptBytes":…,"newestMtime":…,"lastActivityAt":…,"host":…,"pushedAt":…,"archiveSha256":…}, …]
-sessions/<session id>.tar.gz.age
+set.json                      {"version":1,"account":"Work","createdAt":…,"recipient":"age1…","machines":[{"host":"marcus-mbp","lastPush":…}]}
+identity.age                  the set's X25519 key, encrypted with the passphrase (§3, D6) — opening it proves the passphrase
+index.json.age                {"sessions":{<id>:{"id","cwd","transcriptBytes","newestMtime","host","pushedAt","archiveSha256","archiveBytes","files"}},"config":[…],"seen":{<host>:{<id>:bytes}}}
+sessions/<session id>.tar.gz.age     (with .mc/meta.json: id, cwd, the project's entry)
 config/<ISO timestamp>.tar.gz.age    (last five kept)
 ```
 
@@ -725,21 +747,22 @@ part of done. IDs are referenced from commit messages.
 
 ### Phase 4 — backup
 
-- [ ] **P4.1 Backup engine** (`claude/backup.rs`): walk, exclusions, session
+- [x] **P4.1 Backup engine** (`claude/backup.rs`): walk, exclusions, session
       archives, config bundle, encrypted index, incremental rule, live-skip,
       progress job. Done when the round-trip tests pass and a 6.7 GB
-      directory's second run archives nothing.
-- [ ] **P4.2 Restore** into a chosen account, with the §5.9 preconditions and
+      directory's second run archives nothing. *(The incremental rule is tested;
+      the 6.7 GB run is the maintainer's.)*
+- [x] **P4.2 Restore** into a chosen account, with the §5.9 preconditions and
       trust opt-in.
-- [ ] **P4.3 Routes and schedule** (`/backup*`, `everyHours`, idle rule,
+- [x] **P4.3 Routes and schedule** (`/backup*`, `everyHours`, idle rule,
       passphrase in the Keychain, iCloud/Drive folder suggestions).
 - [ ] **P4.4 UI: Backup & sync page** (without pull).
-- [ ] **P4.5 Docs:** a section in REMOTE.md or a new `docs/BACKUP.md` with the
+- [x] **P4.5 Docs:** a section in REMOTE.md or a new `docs/BACKUP.md` with the
       folder advice ("Keep Downloaded" on iCloud, Drive streaming).
 
 ### Phase 5 — carry data between laptops
 
-- [ ] **P5.1 Pull** with the §5.11 rules, conflicts surfaced, `pullOnLaunch`.
+- [x] **P5.1 Pull** with the §5.11 rules, conflicts surfaced, `pullOnLaunch`.
 - [ ] **P5.2 Live test** across the two Macs, recorded in the checklist with
       the date and CLI version.
 - [ ] **P5.3 UI: Pull… with the session list and conflicts.**

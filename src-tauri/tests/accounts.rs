@@ -782,3 +782,201 @@ async fn sessions_move_between_accounts_with_an_undo() {
     assert_eq!(s, StatusCode::UNPROCESSABLE_ENTITY, "{v}");
     assert_eq!(v["error"]["code"], "same_directory");
 }
+
+/// P4.3/P4.2: a backup set over HTTP — folder, generated passphrase (shown
+/// once), push, the index, a restore with its undo — and a phone only looks.
+#[tokio::test]
+async fn an_account_is_backed_up_and_restored_over_http() {
+    let f = boot().await;
+    let desk = f.desktop();
+    let phone = f.phone();
+    let cwd = f.scratch.path().join("proj");
+    std::fs::create_dir_all(&cwd).unwrap();
+    let cwd = cwd.to_string_lossy().into_owned();
+    // A directory account: its .claude.json is its own (the Default's would
+    // be the real ~/.claude.json).
+    let work_dir = f.scratch.path().join("claude-work");
+    let work =
+        f.st.accounts
+            .add_directory("Work", &work_dir, None)
+            .unwrap();
+    let sid = "66666666-6666-4666-8666-666666666666";
+    write_session(&work_dir, &cwd, sid, None);
+    let folder = f.scratch.path().join("iCloud/Mother Claude");
+
+    let (s, v) = f
+        .call(
+            "PUT",
+            "/backup/settings",
+            &desk,
+            Some(json!({"folder": folder, "everyHours": 6})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    assert_eq!(v["passphraseSet"], false);
+    let (s, v) = f
+        .call(
+            "POST",
+            "/backup/push",
+            &desk,
+            Some(json!({"account": work.id})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::CONFLICT, "no passphrase yet: {v}");
+    assert_eq!(v["error"]["code"], "no_backup_passphrase");
+
+    let (s, v) = f
+        .call(
+            "POST",
+            "/backup/passphrase",
+            &desk,
+            Some(json!({"generate": true})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    let pass = v["passphrase"].as_str().unwrap().to_string();
+    assert_eq!(pass.len(), 39, "eight groups of four: {pass}");
+    let (_, v) = f.call("GET", "/backup", &phone, None).await;
+    assert_eq!(v["passphraseSet"], true);
+    assert!(!v.to_string().contains(&pass), "never shown again");
+
+    let (s, _) = f
+        .call("POST", "/backup/push", &phone, Some(json!({})))
+        .await;
+    assert_eq!(s, StatusCode::FORBIDDEN);
+    let (s, v) = f
+        .call(
+            "POST",
+            "/backup/push",
+            &desk,
+            Some(json!({"account": work.id})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::ACCEPTED, "{v}");
+    let job = v["jobs"][0].as_str().unwrap().to_string();
+    let wait = |job: String| {
+        let f = &f;
+        let desk = desk.clone();
+        async move {
+            for _ in 0..400 {
+                let (_, j) = f
+                    .call("GET", &format!("/data/jobs/{job}"), &desk, None)
+                    .await;
+                if j["state"] != "running" {
+                    return j;
+                }
+                tokio::time::sleep(Duration::from_millis(25)).await;
+            }
+            panic!("job {job} did not finish");
+        }
+    };
+    let done = wait(job).await;
+    assert_eq!(done["state"], "done", "{done}");
+    assert_eq!(done["result"]["archived"][0], sid);
+    assert!(folder
+        .join(format!("Work/sessions/{sid}.tar.gz.age"))
+        .is_file());
+
+    // The set compared with Work's directory.
+    let (s, v) = f
+        .call(
+            "GET",
+            &format!("/backup/index?account={}", work.id),
+            &phone,
+            None,
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    assert_eq!(v["sessions"][0]["action"], "same");
+
+    // Gone locally (Claude Code pruned it): the index offers it, a restore
+    // brings it back, its undo takes it away again.
+    let transcript = work_dir
+        .join("projects")
+        .join(mother_claude_lib::claude::encode_cwd(&cwd))
+        .join(format!("{sid}.jsonl"));
+    let original = std::fs::read(&transcript).unwrap();
+    std::fs::remove_file(&transcript).unwrap();
+    let (_, v) = f
+        .call(
+            "GET",
+            &format!("/backup/index?account={}", work.id),
+            &desk,
+            None,
+        )
+        .await;
+    assert_eq!(v["sessions"][0]["action"], "new");
+    let (s, v) = f
+        .call(
+            "POST",
+            "/backup/restore",
+            &desk,
+            Some(json!({"account": work.id, "ids": [sid]})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::ACCEPTED, "{v}");
+    let done = wait(v["job"].as_str().unwrap().to_string()).await;
+    assert_eq!(done["state"], "done", "{done}");
+    assert_eq!(done["result"]["restored"][0], sid);
+    assert_eq!(std::fs::read(&transcript).unwrap(), original);
+    let (s, v) = f
+        .call(
+            "POST",
+            &format!("/data/jobs/{}/undo", done["id"].as_str().unwrap()),
+            &desk,
+            Some(json!({})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    assert!(!transcript.exists());
+
+    // A pull brings it back the same way (and only the desktop may pull).
+    let (s, _) = f
+        .call("POST", "/backup/pull", &phone, Some(json!({})))
+        .await;
+    assert_eq!(s, StatusCode::FORBIDDEN);
+    let (s, v) = f
+        .call(
+            "POST",
+            "/backup/pull",
+            &desk,
+            Some(json!({"account": work.id})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::ACCEPTED, "{v}");
+    let done = wait(v["jobs"][0].as_str().unwrap().to_string()).await;
+    assert_eq!(done["state"], "done", "{done}");
+    assert_eq!(done["result"]["restored"][0], sid, "{done}");
+    assert_eq!(std::fs::read(&transcript).unwrap(), original);
+
+    // The configuration bundle unpacks for review, never over the live one.
+    std::fs::write(work_dir.join("settings.json"), "{\"model\":\"opus\"}").unwrap();
+    let (_, v) = f
+        .call(
+            "POST",
+            "/backup/push",
+            &desk,
+            Some(json!({"account": work.id})),
+        )
+        .await;
+    wait(v["jobs"][0].as_str().unwrap().to_string()).await;
+    let (s, v) = f
+        .call(
+            "POST",
+            "/backup/restore",
+            &desk,
+            Some(json!({"account": work.id, "config": true})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    let review = std::path::PathBuf::from(v["folder"].as_str().unwrap());
+    assert_eq!(
+        std::fs::read_to_string(review.join("settings.json")).unwrap(),
+        "{\"model\":\"opus\"}"
+    );
+
+    // Nothing of the passphrase in the audit log.
+    let audit = serde_json::to_string(&f.st.devices.audit.recent(100)).unwrap();
+    assert!(!audit.contains(&pass));
+    assert!(audit.contains("backup.passphrase"));
+}

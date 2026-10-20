@@ -182,7 +182,12 @@ pub async fn update(
     Path(id): Path<String>,
     Body(body): Body<AccountPatch>,
 ) -> ApiResult<Json<AccountView>> {
+    let before = state.accounts.get(&id).map(|a| a.name);
     let account = state.accounts.update(&id, &body).map_err(account_error)?;
+    // A backup set is named after its account: it follows a rename.
+    if let Some(old) = before.filter(|n| *n != account.name) {
+        crate::claude::backup::ops::on_renamed(&state, &old, &account.name);
+    }
     audit(
         &state,
         &ctx,

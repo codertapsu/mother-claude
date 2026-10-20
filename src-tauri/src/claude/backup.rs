@@ -1629,5 +1629,7 @@ pub fn extract_config(set: &Set, passphrase: &Secret, into: &Path) -> Result<Pat
     Ok(dest)
 }
 
+pub mod ops;
+
 #[cfg(test)]
 mod tests;

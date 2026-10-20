@@ -12,6 +12,7 @@
 //! extractor (`Authed`, `DesktopOnly`, `DangerousOk`, `SidecarOnly`).
 
 pub mod accounts;
+pub mod backup;
 pub mod control;
 pub mod data;
 pub mod foreign;
@@ -136,6 +137,14 @@ pub fn api_router() -> Router<AppState> {
                 .post(accounts::token)
                 .delete(accounts::cancel_token),
         )
+        // ── backups, restores, pulls (docs/ACCOUNTS.md) ──
+        .route("/backup", get(backup::get_backup))
+        .route("/backup/settings", put(backup::put_settings))
+        .route("/backup/passphrase", post(backup::post_passphrase))
+        .route("/backup/push", post(backup::post_push))
+        .route("/backup/index", get(backup::get_index))
+        .route("/backup/restore", post(backup::post_restore))
+        .route("/backup/pull", post(backup::post_pull))
         // ── moving data between accounts, data jobs (docs/ACCOUNTS.md) ──
         .route("/data/move", post(transfers::post_move))
         .route("/data/jobs", get(transfers::list_jobs))

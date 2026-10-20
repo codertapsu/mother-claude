@@ -150,6 +150,7 @@ pub async fn serve(state: AppState) -> anyhow::Result<()> {
     hooks::start(&state);
     push::start(&state);
     crate::claude::usage::start(&state);
+    crate::claude::backup::ops::start(&state);
 
     listeners::start_lan(&state).await;
 
