@@ -3,13 +3,17 @@
 MOTHER_CLAUDE_CLI). It speaks the stream-json control protocol the way CLI
 2.1.282 does and records everything it receives.
 
-* argv and a few environment variables are appended to `<cwd>/fake-claude.log`
-  as the first JSON line, then every line read from stdin as `{"in": …}`.
+* argv, a few environment variables and the account part of the environment
+  (`account`: CLAUDE_CONFIG_DIR, whether CLAUDE_CODE_OAUTH_TOKEN is set and its
+  SHA-256, which override variables are present) are appended to
+  `<cwd>/fake-claude.log` as the first JSON line, then every line read from
+  stdin as `{"in": …}`.
 * `stop|rm|respawn <short>` print a line and exit 0; `logs <short>` prints a
   raw TUI screen (escape sequences, no line feeds).
 * Otherwise it answers control requests and runs one scripted turn per user
   message, chosen by the message text (see `run_turn`).
 """
+import hashlib
 import json
 import os
 import queue
@@ -59,7 +63,30 @@ if ARGS and ARGS[0] == "logs":
     sys.stdout.flush()
     sys.exit(0)
 
-log({"argv": ARGS, "env": {k: os.environ.get(k) for k in ENV_KEYS}})
+# The variables an account removes (docs/ACCOUNTS.md D5): which are present.
+ACCOUNT_OVERRIDES = [
+    "CLAUDE_CODE_OAUTH_TOKEN",
+    "ANTHROPIC_API_KEY",
+    "ANTHROPIC_AUTH_TOKEN",
+    "CLAUDE_CODE_USE_BEDROCK",
+    "CLAUDE_CODE_USE_VERTEX",
+    "CLAUDE_CODE_USE_FOUNDRY",
+]
+
+
+def account_env():
+    """CLAUDE_CONFIG_DIR's value, and only whether a token is set plus its
+    SHA-256 (never the token itself)."""
+    token = os.environ.get("CLAUDE_CODE_OAUTH_TOKEN")
+    return {
+        "configDir": os.environ.get("CLAUDE_CONFIG_DIR"),
+        "oauthToken": token is not None,
+        "oauthTokenSha256": hashlib.sha256(token.encode()).hexdigest() if token else None,
+        "overrides": [k for k in ACCOUNT_OVERRIDES if k in os.environ],
+    }
+
+
+log({"argv": ARGS, "env": {k: os.environ.get(k) for k in ENV_KEYS}, "account": account_env()})
 
 SESSION = arg("--session-id") or arg("--resume") or str(uuidlib.uuid4())
 MODE = arg("--permission-mode") or "default"

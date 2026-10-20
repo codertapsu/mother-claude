@@ -260,6 +260,24 @@ async fn spawn_line_env_initialize_and_stream() {
         env["CLAUDE_CONFIG_DIR"].as_str(),
         std::env::var("CLAUDE_CONFIG_DIR").ok().as_deref()
     );
+    // The Default account's part of the environment is what the app found
+    // (docs/ACCOUNTS.md D5): no directory invented, overrides kept.
+    let account = &first["account"];
+    assert_eq!(
+        account["configDir"].as_str(),
+        std::env::var("CLAUDE_CONFIG_DIR").ok().as_deref()
+    );
+    assert_eq!(
+        account["oauthToken"],
+        std::env::var_os("CLAUDE_CODE_OAUTH_TOKEN").is_some()
+    );
+    assert!(
+        account["overrides"]
+            .as_array()
+            .unwrap()
+            .contains(&json!("CLAUDE_CODE_USE_BEDROCK")),
+        "{account}"
+    );
 
     // `initialize` goes first, then the user message with a uuid.
     let got = f.received();
