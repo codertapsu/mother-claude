@@ -196,8 +196,12 @@ fn hash_of(v: &AccountsView) -> u64 {
     h.finish()
 }
 
-/// Send the `accounts` frame when what every client sees changed.
+/// Send the `accounts` frame when what every client sees changed. With only
+/// the Default nothing is sent (goal 7: a v0.4 setup gets exactly the frames
+/// it always got — its sign-in trouble shows the way it always did), except
+/// the one frame that tells clients the other accounts are gone.
 pub async fn publish(state: &AppState) {
+    let default_only = state.accounts.is_default_only();
     let view = build(state, false, None);
     let hash = hash_of(&view);
     {
@@ -207,10 +211,17 @@ pub async fn publish(state: &AppState) {
             .last_published
             .lock()
             .unwrap_or_else(|e| e.into_inner());
-        if *last == Some(hash) {
-            return;
+        if default_only {
+            // `None`: no frame since the last one with other accounts.
+            if last.take().is_none() {
+                return;
+            }
+        } else {
+            if *last == Some(hash) {
+                return;
+            }
+            *last = Some(hash);
         }
-        *last = Some(hash);
     }
     crate::server::ws::publish_accounts(state, view);
 }

@@ -235,8 +235,15 @@ pub struct ThreadRecord {
     pub persisted: bool,
     /// The turn currently running, if any.
     pub active_turn: Option<String>,
-    /// The Claude account it runs under (docs/ACCOUNTS.md §5.5).
+    /// The Claude account it runs under (docs/ACCOUNTS.md §5.5). Left out
+    /// for the Default's, so with only the Default every answer is what it
+    /// was before accounts: absent means `default`.
+    #[serde(skip_serializing_if = "is_default_account")]
     pub account: String,
+}
+
+fn is_default_account(account: &str) -> bool {
+    account == crate::claude::accounts::DEFAULT_ID
 }
 
 /// Everything the bridge owns, hung off [`crate::state::Inner`].
@@ -1067,6 +1074,28 @@ mod tests {
         std::env::set_var(name, "1");
         assert!(env_flag(name, false));
         std::env::remove_var(name);
+    }
+
+    /// Goal 7: a Default conversation reads as before accounts.
+    #[test]
+    fn a_default_conversation_names_no_account() {
+        let mut record = ThreadRecord {
+            thread_id: "t".into(),
+            cwd: "/tmp".into(),
+            created_at: 1,
+            model: None,
+            effort: None,
+            permission_mode: "default".into(),
+            title: None,
+            persisted: false,
+            active_turn: None,
+            account: crate::claude::accounts::DEFAULT_ID.into(),
+        };
+        let v = serde_json::to_value(&record).unwrap();
+        assert!(v.get("account").is_none(), "{v}");
+        record.account = "acc_0123456789ab".into();
+        let v = serde_json::to_value(&record).unwrap();
+        assert_eq!(v["account"], "acc_0123456789ab");
     }
 
     #[tokio::test]

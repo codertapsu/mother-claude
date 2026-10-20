@@ -349,6 +349,76 @@ async fn the_desktop_manages_accounts_and_tokens_never_show() {
     assert!(!serde_json::to_string(&audit).unwrap().contains(TOKEN));
 }
 
+/// The `accounts` frames a client receives within `ms`.
+async fn accounts_frames<S>(ws: &mut S, ms: u64) -> usize
+where
+    S: futures_util::Stream<
+            Item = Result<
+                tokio_tungstenite::tungstenite::Message,
+                tokio_tungstenite::tungstenite::Error,
+            >,
+        > + Unpin,
+{
+    let deadline = tokio::time::Instant::now() + Duration::from_millis(ms);
+    let mut n = 0;
+    while let Ok(Some(Ok(msg))) = tokio::time::timeout_at(deadline, ws.next()).await {
+        if msg
+            .into_text()
+            .is_ok_and(|t| t.contains("\"t\":\"accounts\""))
+        {
+            n += 1;
+        }
+    }
+    n
+}
+
+/// Goal 7: with only the Default no `accounts` frame goes out, not even when
+/// one of its sessions fails to authenticate; the one that says the other
+/// accounts are gone does.
+#[tokio::test]
+async fn only_the_default_sends_no_accounts_frames() {
+    use mother_claude_lib::claude::accounts::status;
+    let f = boot().await;
+    let desk = f.desktop();
+    let url = format!("{}/ws?token={desk}", f.base.replace("http://", "ws://"));
+    let mut ws = tokio_tungstenite::connect_async(url).await.unwrap().0;
+    assert_eq!(accounts_frames(&mut ws, 300).await, 0, "none on connect");
+    status::note_auth_failed(&f.st, "default").await;
+    assert_eq!(
+        accounts_frames(&mut ws, 500).await,
+        0,
+        "none for the Default"
+    );
+
+    let dir = f.scratch.path().join("claude-work");
+    let (s, work) = f
+        .call(
+            "POST",
+            "/accounts",
+            &desk,
+            Some(json!({"name": "Work", "kind": "directory", "dir": dir})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::CREATED, "{work}");
+    assert!(accounts_frames(&mut ws, 1500).await >= 1);
+    let (s, _) = f
+        .call(
+            "DELETE",
+            &format!("/accounts/{}", work["id"].as_str().unwrap()),
+            &desk,
+            None,
+        )
+        .await;
+    assert_eq!(s, StatusCode::NO_CONTENT);
+    assert_eq!(
+        accounts_frames(&mut ws, 1000).await,
+        1,
+        "the frame that says it is gone"
+    );
+    status::note_auth_ok(&f.st, "default").await;
+    assert_eq!(accounts_frames(&mut ws, 500).await, 0, "then none again");
+}
+
 #[tokio::test]
 async fn a_fresh_directory_account_signs_in_without_a_terminal() {
     let f = boot().await;

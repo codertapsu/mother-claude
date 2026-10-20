@@ -52,7 +52,9 @@ pub struct BridgeDefaults {
     /// `{"message": "…"}` almost always wants.
     pub default_thread: Option<String>,
     /// The Claude account conversations run under (docs/ACCOUNTS.md §5.5);
-    /// `None`: the project's, else the accounts' bridge default.
+    /// `None`: the project's, else the accounts' bridge default. Left out
+    /// when unset, so `GET /api/bridge` reads as before accounts.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub account: Option<String>,
 }
 
@@ -496,6 +498,26 @@ pub async fn post_active_thread(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Goal 7: without an account the defaults read as before accounts, and
+    /// a v0.4 body (no `account`) is still accepted.
+    #[test]
+    fn no_account_is_left_out() {
+        let v = serde_json::to_value(BridgeDefaults::default()).unwrap();
+        assert!(v.get("account").is_none(), "{v}");
+        assert!(v.get("cwd").is_some(), "the others stay as they were");
+        let parsed: BridgeDefaults =
+            serde_json::from_value(serde_json::json!({ "cwd": null, "model": "opus" })).unwrap();
+        assert!(parsed.account.is_none());
+        let with = BridgeDefaults {
+            account: Some("acc_0123456789ab".into()),
+            ..Default::default()
+        };
+        assert_eq!(
+            serde_json::to_value(with).unwrap()["account"],
+            "acc_0123456789ab"
+        );
+    }
 
     #[test]
     fn blank_form_fields_mean_unset() {

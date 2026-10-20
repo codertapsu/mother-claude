@@ -408,7 +408,13 @@ curl -sS http://127.0.0.1:5612/threads/$THREAD/run \
 | `output_schema` | JSON Schema; the result arrives as `structured_output`. |
 | `max_turns`, `max_budget_usd` | Hard stops. |
 | `skills`, `agents` | Skills and programmatic subagents. |
-| `account` | The Claude account to run under: `default` or an `acc_…` id from `GET /api/accounts`. Default: the start-time choice, then the project's account, then the accounts' bridge default. With `resume`, another account than the conversation's forks it; an account that keeps its own directory answers `409 account_needs_copy` until the conversation is copied there. A token account whose token is not on this machine answers `409 account_token_missing`. |
+| `account` | The Claude account to run under: `default` or an `acc_…` id from `GET /api/accounts`. Default: the start-time choice, then the project's account, then the accounts' bridge default. With `resume`, another account than the conversation's forks it; an account that keeps its own directory needs the conversation copied there first, which the desktop allows once per pair of accounts — until then `409 copy_consent_required`. A token account whose token is not on this machine answers `409 account_token_missing`. A conversation that ran with a token no account holds counts as the Default's. |
+
+A conversation names its `account` (in `GET /threads` and the other thread
+answers) only when it is not the Default's: **absent means `default`**, so
+with only the Default every answer reads as it did before accounts. The same
+goes for `account` in `GET /api/bridge`'s defaults: absent means none was
+chosen at start.
 
 `bypassPermissions` skips every approval prompt, so it is restricted to local
 clients and to devices granted dangerous actions. So are `mcp_servers`, a
