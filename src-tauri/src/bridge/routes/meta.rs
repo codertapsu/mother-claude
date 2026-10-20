@@ -94,7 +94,10 @@ pub async fn capabilities(
         "auth": {
             // This mount's policy, not the other listener's: the loopback port
             // may be tokenless while the LAN mount never is.
-            "require_token": policy.require_token,
+            "require_token": policy.require_token(),
+            // `required` | `local` (no token from this machine) | `never` (no
+            // token from anywhere the port is reachable, tunnels included).
+            "token_policy": policy.token,
             "token_sources": ["Authorization: Bearer", "?token= (this machine only)"],
         },
         "notes": [
@@ -253,7 +256,7 @@ pub async fn openapi(
         .unwrap_or_default()
         .to_string();
     ok(crate::bridge::openapi::document(
-        policy.require_token,
+        policy.token,
         state.bridge.messages.is_configured(),
         &mount,
     ))

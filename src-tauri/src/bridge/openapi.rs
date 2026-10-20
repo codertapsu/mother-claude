@@ -9,11 +9,12 @@ use serde_json::{json, Map, Value};
 
 /// Build the document.
 ///
-/// `require_token` and `messages_api` describe the live configuration, so the
+/// `token` and `messages_api` describe the live configuration, so the
 /// schema a client reads is the one it must satisfy. `mount` is the path prefix
 /// this document was served under — listing a guessed `/` would send every
 /// "Try it out" under the `/v1` mount to the dashboard's SPA fallback.
-pub fn document(require_token: bool, messages_api: bool, mount: &str) -> Value {
+pub fn document(token: crate::bridge::TokenPolicy, messages_api: bool, mount: &str) -> Value {
+    let require_token = token.requires_token();
     let mut paths = Map::new();
     let mut add = |path: &str, method: &str, op: Op| {
         let entry = paths.entry(path.to_string()).or_insert_with(|| json!({}));
@@ -553,13 +554,14 @@ pub fn document(require_token: bool, messages_api: bool, mount: &str) -> Value {
         "info": {
             "title": "Mother Claude — Claude HTTP bridge",
             "version": env!("CARGO_PKG_VERSION"),
-            "description": description(require_token, messages_api),
+            "description": description(token, messages_api),
         },
         "servers": [
             { "url": if mount.is_empty() { "/" } else { mount }, "description": "This mount" },
         ],
         "security": security,
         "x-bridge-require-token": require_token,
+        "x-bridge-token-policy": token,
         "x-bridge-messages-api": messages_api,
         "tags": [
             { "name": "Discovery", "description": "Health, capabilities, models." },
@@ -585,13 +587,21 @@ pub fn document(require_token: bool, messages_api: bool, mount: &str) -> Value {
     })
 }
 
-fn description(require_token: bool, messages_api: bool) -> String {
-    let auth = if require_token {
-        "This listener requires the Mother Claude API token on every API route. \
-         Documentation, the OpenAPI document, the JS client and the example page are public."
-    } else {
-        "Bearer checks are disabled on this listener, which is loopback-only. \
-         Any local process can drive Claude through it."
+fn description(token: crate::bridge::TokenPolicy, messages_api: bool) -> String {
+    let auth = match token {
+        crate::bridge::TokenPolicy::Required => {
+            "This listener requires the Mother Claude API token on every API route. \
+             Documentation, the OpenAPI document, the JS client and the example page are public."
+        }
+        crate::bridge::TokenPolicy::Local => {
+            "Bearer checks are disabled on this listener, which is loopback-only. \
+             Any local process can drive Claude through it."
+        }
+        crate::bridge::TokenPolicy::Never => {
+            "Bearer checks are disabled on this listener for everyone who can reach it, \
+             tunnels included (the API was started open to tunnels). Dangerous actions stay \
+             limited to callers on this machine."
+        }
     };
     let api = if messages_api {
         "The direct Messages API backend is enabled."
@@ -1019,10 +1029,11 @@ fn schemas() -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::bridge::TokenPolicy;
 
     #[test]
     fn the_document_is_openapi_31_with_every_family_present() {
-        let doc = document(true, true, "");
+        let doc = document(TokenPolicy::Required, true, "");
         assert_eq!(doc["openapi"], "3.1.0");
         let paths = doc["paths"].as_object().unwrap();
         for expected in [
@@ -1051,16 +1062,39 @@ mod tests {
     #[test]
     fn security_reflects_the_running_listener() {
         assert_eq!(
-            document(true, false, "")["security"],
+            document(TokenPolicy::Required, false, "")["security"],
             json!([{ "BridgeBearer": [] }])
         );
-        assert_eq!(document(false, false, "")["security"], json!([]));
-        assert_eq!(document(false, false, "")["x-bridge-require-token"], false);
-        assert_eq!(document(true, true, "")["x-bridge-messages-api"], true);
+        assert_eq!(
+            document(TokenPolicy::Local, false, "")["security"],
+            json!([])
+        );
+        assert_eq!(
+            document(TokenPolicy::Local, false, "")["x-bridge-require-token"],
+            false
+        );
+        // The opt-in that drops the token for tunnels too says so, in words a
+        // reader of the reference will see.
+        let open = document(TokenPolicy::Never, false, "");
+        assert_eq!(open["security"], json!([]));
+        assert_eq!(open["x-bridge-token-policy"], "never");
+        assert!(open["info"]["description"]
+            .as_str()
+            .is_some_and(|d| d.contains("tunnels included")));
+        assert_eq!(
+            document(TokenPolicy::Required, true, "")["x-bridge-messages-api"],
+            true
+        );
 
         // The server list names the mount the document came from.
-        assert_eq!(document(true, true, "")["servers"][0]["url"], "/");
-        assert_eq!(document(true, true, "/v1")["servers"][0]["url"], "/v1");
+        assert_eq!(
+            document(TokenPolicy::Required, true, "")["servers"][0]["url"],
+            "/"
+        );
+        assert_eq!(
+            document(TokenPolicy::Required, true, "/v1")["servers"][0]["url"],
+            "/v1"
+        );
     }
 
     #[test]
@@ -1072,7 +1106,7 @@ mod tests {
         assert_eq!(params[0]["in"], "path");
         assert!(path_params("/health").is_empty());
 
-        let doc = document(true, true, "");
+        let doc = document(TokenPolicy::Required, true, "");
         let op = &doc["paths"]["/threads/{thread_id}/turns/{turn_id}/steer"]["post"];
         let listed = op["parameters"].as_array().unwrap();
         assert_eq!(listed[0]["name"], "thread_id");
@@ -1081,7 +1115,7 @@ mod tests {
 
     #[test]
     fn creation_endpoints_document_their_real_status_codes() {
-        let doc = document(true, true, "");
+        let doc = document(TokenPolicy::Required, true, "");
         assert!(doc["paths"]["/threads"]["post"]["responses"]["201"].is_object());
         assert!(doc["paths"]["/threads"]["post"]["responses"]["200"].is_null());
         assert!(doc["paths"]["/threads/{thread_id}/turns"]["post"]["responses"]["202"].is_object());
@@ -1090,7 +1124,7 @@ mod tests {
 
     #[test]
     fn every_operation_documents_the_error_envelope() {
-        let doc = document(true, true, "");
+        let doc = document(TokenPolicy::Required, true, "");
         for (path, item) in doc["paths"].as_object().unwrap() {
             for (method, op) in item.as_object().unwrap() {
                 assert!(
@@ -1105,13 +1139,17 @@ mod tests {
 
     #[test]
     fn the_description_tells_the_truth_about_this_listener() {
-        assert!(document(false, false, "")["info"]["description"]
-            .as_str()
-            .unwrap()
-            .contains("Bearer checks are disabled"));
-        assert!(document(true, true, "")["info"]["description"]
-            .as_str()
-            .unwrap()
-            .contains("Messages API backend is enabled"));
+        assert!(
+            document(TokenPolicy::Local, false, "")["info"]["description"]
+                .as_str()
+                .unwrap()
+                .contains("Bearer checks are disabled")
+        );
+        assert!(
+            document(TokenPolicy::Required, true, "")["info"]["description"]
+                .as_str()
+                .unwrap()
+                .contains("Messages API backend is enabled")
+        );
     }
 }

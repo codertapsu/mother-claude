@@ -38,7 +38,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use futures_util::{SinkExt, StreamExt};
-use mother_claude_lib::bridge::BridgeConfig;
+use mother_claude_lib::bridge::{BridgeConfig, TokenPolicy};
 use mother_claude_lib::claude::ClaudeHome;
 use mother_claude_lib::server::auth::Auth;
 use mother_claude_lib::server::{self, hooks, monitor, Ingress};
@@ -148,7 +148,7 @@ async fn launch(
         BridgeConfig {
             enabled: true,
             port: None,
-            require_token: false,
+            token: TokenPolicy::Local,
             api_key: None,
             allowed_origins: Vec::new(),
         },

@@ -17,7 +17,7 @@
 use std::net::SocketAddr;
 
 use mother_claude_lib::bridge::control::BridgeDefaults;
-use mother_claude_lib::bridge::BridgeConfig;
+use mother_claude_lib::bridge::{BridgeConfig, TokenPolicy};
 use mother_claude_lib::claude::ClaudeHome;
 use mother_claude_lib::server::auth::Auth;
 use mother_claude_lib::state::{AppState, Inner, ServerConfig};
@@ -36,7 +36,7 @@ async fn boot() -> (String, String, AppState) {
 async fn boot_live_started() -> (String, String, AppState) {
     let (base, token, state) = boot_stopped(
         ClaudeHome::resolve().expect("a resolvable Claude home"),
-        false,
+        TokenPolicy::Local,
     )
     .await;
     mother_claude_lib::bridge::control::start(&state, BridgeDefaults::default())
@@ -56,16 +56,16 @@ async fn boot_live() -> (String, String, AppState) {
 async fn boot_tokenless() -> (String, String, AppState) {
     let dir = tempfile::tempdir().expect("tempdir");
     let base = dir.keep();
-    boot_router(ClaudeHome::with_base(&base), false).await
+    boot_router(ClaudeHome::with_base(&base), TokenPolicy::Local).await
 }
 
 /// Boot the bridge router on an ephemeral loopback port.
 async fn boot_with_home(home: ClaudeHome) -> (String, String, AppState) {
-    boot_router(home, true).await
+    boot_router(home, TokenPolicy::Required).await
 }
 
-async fn boot_router(home: ClaudeHome, require_token: bool) -> (String, String, AppState) {
-    let (base, token, state) = boot_stopped(home, require_token).await;
+async fn boot_router(home: ClaudeHome, policy: TokenPolicy) -> (String, String, AppState) {
+    let (base, token, state) = boot_stopped(home, policy).await;
     // Most tests exercise the running bridge; `boot_stopped` covers the gate.
     mother_claude_lib::bridge::control::start(&state, BridgeDefaults::default())
         .await
@@ -74,7 +74,7 @@ async fn boot_router(home: ClaudeHome, require_token: bool) -> (String, String, 
 }
 
 /// Boot the router with the bridge *not* started, which is how the app opens.
-async fn boot_stopped(home: ClaudeHome, require_token: bool) -> (String, String, AppState) {
+async fn boot_stopped(home: ClaudeHome, policy: TokenPolicy) -> (String, String, AppState) {
     let state = Inner::with_bridge_config(
         home,
         ServerConfig {
@@ -87,7 +87,7 @@ async fn boot_stopped(home: ClaudeHome, require_token: bool) -> (String, String,
         BridgeConfig {
             enabled: true,
             port: None,
-            require_token,
+            token: policy,
             api_key: None,
             allowed_origins: Vec::new(),
         },
@@ -95,10 +95,7 @@ async fn boot_stopped(home: ClaudeHome, require_token: bool) -> (String, String,
     let token = state.auth.token.clone();
 
     let app = axum::Router::new()
-        .merge(mother_claude_lib::bridge::router(
-            state.clone(),
-            require_token,
-        ))
+        .merge(mother_claude_lib::bridge::router(state.clone(), policy))
         .with_state(state.clone());
     // What `bridge::listener_router` does for the real loopback port: mark the
     // ingress so the context layer can tell local callers from tunnelled ones.
@@ -204,7 +201,7 @@ async fn the_v1_mount_on_the_main_server_is_reachable_and_authenticated() {
         BridgeConfig {
             enabled: true,
             port: None,
-            require_token: true,
+            token: TokenPolicy::Required,
             api_key: None,
             allowed_origins: Vec::new(),
         },
@@ -405,7 +402,8 @@ async fn every_failure_uses_one_error_envelope() {
 async fn nothing_drives_claude_until_the_bridge_is_started() {
     let dir = tempfile::tempdir().expect("tempdir");
     let base_dir = dir.keep();
-    let (base, _token, state) = boot_stopped(ClaudeHome::with_base(&base_dir), false).await;
+    let (base, _token, state) =
+        boot_stopped(ClaudeHome::with_base(&base_dir), TokenPolicy::Local).await;
     let http = client();
 
     for (method, path) in [
@@ -473,7 +471,7 @@ async fn the_dashboard_can_start_configure_and_stop_the_bridge() {
         BridgeConfig {
             enabled: true,
             port: None,
-            require_token: false,
+            token: TokenPolicy::Local,
             api_key: None,
             allowed_origins: Vec::new(),
         },
@@ -737,7 +735,8 @@ async fn a_local_script_token_never_lowers_what_the_bridge_port_allows() {
     assert_eq!(scripted, tokenless);
 
     let dir = tempfile::tempdir().unwrap().keep();
-    let (base, _token, state) = boot_router(ClaudeHome::with_base(&dir), true).await;
+    let (base, _token, state) =
+        boot_router(ClaudeHome::with_base(&dir), TokenPolicy::Required).await;
     let resp = http
         .post(format!("{base}/threads"))
         .bearer_auth(&state.auth.script_token)
@@ -792,6 +791,218 @@ async fn a_local_dev_proxy_reaches_the_tokenless_port_but_a_tunnel_does_not() {
         .await
         .unwrap();
     assert_eq!(cloudflare.status(), reqwest::StatusCode::UNAUTHORIZED);
+}
+
+/// `MOTHER_CLAUDE_BRIDGE_REQUIRE_TOKEN=never` drops the token on the loopback
+/// port for everyone who reaches it — through a tunnel, and while one points at
+/// the port — but dangerous actions stay with callers provably on this machine,
+/// and while a tunnel points at the port no tokenless caller is.
+#[tokio::test]
+async fn the_never_policy_opens_the_port_to_tunnels_but_not_its_dangerous_actions() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let base_dir = dir.keep();
+    let (base, _token, state) =
+        boot_router(ClaudeHome::with_base(&base_dir), TokenPolicy::Never).await;
+    let http = client();
+
+    // Through a tunnel's headers: no token needed, and the mount says so.
+    let resp = http
+        .get(format!("{base}/capabilities"))
+        .header("x-forwarded-for", "203.0.113.7")
+        .header("cf-ray", "8a1")
+        .send()
+        .await
+        .unwrap();
+    assert!(resp.status().is_success(), "got {}", resp.status());
+    let caps: Value = resp.json().await.unwrap();
+    assert_eq!(caps["auth"]["require_token"], false);
+    assert_eq!(caps["auth"]["token_policy"], "never");
+
+    // A tunnel points at the port: still no token needed (the default policy
+    // answers `bridge_exposed_requires_token` here)…
+    state.remote.set_detected(
+        vec![mother_claude_lib::server::remote::DetectedTunnel {
+            provider: "ngrok".into(),
+            url: "https://me.ngrok.app".into(),
+            upstream_port: Some(5612),
+            kind: "http".into(),
+            target: "bridge".into(),
+            ..Default::default()
+        }],
+        Some(5612),
+    );
+    let resp = http
+        .get(format!("{base}/capabilities"))
+        .send()
+        .await
+        .unwrap();
+    assert!(resp.status().is_success(), "got {}", resp.status());
+
+    // …but nothing tokenless counts as local now, so a dangerous action is
+    // refused, from a request that looks local as much as from the tunnel. The
+    // check comes before the runtime is touched, so nothing starts here.
+    let thread = "0a1b2c3d-0000-4000-8000-00000000000c";
+    for forwarded in [None, Some("203.0.113.7")] {
+        let mut req = http
+            .post(format!("{base}/threads/{thread}/permission-mode"))
+            .json(&json!({ "permission_mode": "bypassPermissions" }));
+        if let Some(ip) = forwarded {
+            req = req.header("x-forwarded-for", ip);
+        }
+        let resp = req.send().await.unwrap();
+        assert_eq!(
+            resp.status(),
+            reqwest::StatusCode::FORBIDDEN,
+            "{forwarded:?}"
+        );
+        assert_eq!(
+            resp.json::<Value>().await.unwrap()["error"]["code"],
+            "dangerous_blocked"
+        );
+    }
+}
+
+/// The API screen's "open to tunnels" switch, through the dashboard route: only
+/// the desktop app may turn it on; on, the API port takes a tunnelled request
+/// without a token; off again (a restart), the configured default refuses it;
+/// left out, the configured policy applies, and anyone allowed to start the API
+/// may do that.
+#[tokio::test]
+async fn the_api_screen_switch_opens_the_port_to_tunnels_and_closes_it_again() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let base_dir = dir.keep();
+    let state = Inner::with_bridge_config(
+        ClaudeHome::with_base(&base_dir),
+        ServerConfig {
+            host: "127.0.0.1".into(),
+            port: 0,
+        },
+        Auth::ephemeral(),
+        BridgeConfig {
+            enabled: true,
+            // A dedicated port the system picks, so nothing collides with a
+            // running Mother Claude.
+            port: Some(0),
+            token: TokenPolicy::Local,
+            api_key: None,
+            allowed_origins: Vec::new(),
+        },
+    );
+    let desktop = state.auth.token.clone();
+    let script = state.auth.script_token.clone();
+    let app = mother_claude_lib::server::router(state.clone());
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move {
+        axum::serve(
+            listener,
+            app.into_make_service_with_connect_info::<SocketAddr>(),
+        )
+        .await
+        .unwrap();
+    });
+    let http = client();
+    let start = |token: &str, open: Option<bool>| {
+        let mut body = json!({ "defaults": {} });
+        if let Some(open) = open {
+            body["openToTunnels"] = json!(open);
+        }
+        http.post(format!("http://{addr}/api/bridge/start"))
+            .bearer_auth(token)
+            .json(&body)
+            .send()
+    };
+    let tunnelled = |api: &str| {
+        http.get(format!("{api}/capabilities"))
+            .header("x-forwarded-for", "203.0.113.7")
+            .send()
+    };
+
+    // A local script may start the API, but not open it.
+    let resp = start(&script, Some(true)).await.unwrap();
+    assert_eq!(resp.status(), reqwest::StatusCode::FORBIDDEN);
+    assert_eq!(
+        resp.json::<Value>().await.unwrap()["error"]["code"],
+        "desktop_only"
+    );
+
+    // The desktop app may: a tunnelled request then needs no token.
+    let resp = start(&desktop, Some(true)).await.unwrap();
+    assert!(resp.status().is_success(), "got {}", resp.status());
+    let status: Value = resp.json().await.unwrap();
+    assert_eq!(status["tokenPolicy"], "never");
+    assert_eq!(status["configuredTokenPolicy"], "local");
+    let api = status["url"]
+        .as_str()
+        .expect("a dedicated port")
+        .to_string();
+    let resp = tunnelled(&api).await.unwrap();
+    assert!(resp.status().is_success(), "got {}", resp.status());
+
+    // Off again — a restart with the switch off: the default refuses it.
+    let resp = start(&desktop, Some(false)).await.unwrap();
+    let status: Value = resp.json().await.unwrap();
+    assert_eq!(status["tokenPolicy"], "local");
+    let api = status["url"].as_str().unwrap().to_string();
+    let resp = tunnelled(&api).await.unwrap();
+    assert_eq!(resp.status(), reqwest::StatusCode::UNAUTHORIZED);
+    assert_eq!(
+        resp.json::<Value>().await.unwrap()["error"]["code"],
+        "tunneled_request_requires_token"
+    );
+
+    // Left out: the configured policy, which a script may start with.
+    let resp = start(&script, None).await.unwrap();
+    assert!(resp.status().is_success(), "got {}", resp.status());
+    assert_eq!(resp.json::<Value>().await.unwrap()["tokenPolicy"], "local");
+
+    mother_claude_lib::bridge::control::stop(&state)
+        .await
+        .expect("the bridge should stop");
+}
+
+/// `never` belongs to the loopback port alone: the `/v1` mount of the main,
+/// LAN-reachable server keeps requiring the token.
+#[tokio::test]
+async fn the_never_policy_leaves_the_lan_mount_token_only() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let base_dir = dir.keep();
+    let state = Inner::with_bridge_config(
+        ClaudeHome::with_base(&base_dir),
+        ServerConfig {
+            host: "127.0.0.1".into(),
+            port: 0,
+        },
+        Auth::ephemeral(),
+        BridgeConfig {
+            enabled: true,
+            port: None,
+            token: TokenPolicy::Never,
+            api_key: None,
+            allowed_origins: Vec::new(),
+        },
+    );
+    mother_claude_lib::bridge::control::start(&state, BridgeDefaults::default())
+        .await
+        .expect("the bridge should start");
+    let app = mother_claude_lib::server::router(state);
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move {
+        axum::serve(
+            listener,
+            app.into_make_service_with_connect_info::<SocketAddr>(),
+        )
+        .await
+        .unwrap();
+    });
+
+    let resp = client()
+        .get(format!("http://{addr}/v1/capabilities"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), reqwest::StatusCode::UNAUTHORIZED);
 }
 
 /// Startup reports Claude's own sign-in, so a signed-out account is one clear

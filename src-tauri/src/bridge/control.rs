@@ -142,8 +142,20 @@ impl Listener {
     }
 }
 
-/// Start the bridge listener with `defaults`, replacing any previous run.
+/// Start the bridge listener with `defaults`, replacing any previous run, under
+/// the configured token policy (`MOTHER_CLAUDE_BRIDGE_REQUIRE_TOKEN`).
 pub async fn start(state: &AppState, defaults: BridgeDefaults) -> BridgeResult<Value> {
+    start_with(state, defaults, state.bridge.config.token).await
+}
+
+/// [`start`] under a token policy chosen at start time — the API screen's
+/// "open to tunnels" switch. Callers decide who may choose which; this only
+/// applies it.
+pub async fn start_with(
+    state: &AppState,
+    defaults: BridgeDefaults,
+    token: super::TokenPolicy,
+) -> BridgeResult<Value> {
     let config = state.bridge.config.clone();
     if !config.enabled {
         return Err(BridgeError::forbidden(
@@ -185,6 +197,7 @@ pub async fn start(state: &AppState, defaults: BridgeDefaults) -> BridgeResult<V
             started_at: crate::claude::registry::now_ms(),
             shutdown: None,
         });
+        state.bridge.set_token_policy(token);
         drop(guard);
         announce(state, "started").await;
         return Ok(status(state).await);
@@ -201,7 +214,19 @@ pub async fn start(state: &AppState, defaults: BridgeDefaults) -> BridgeResult<V
         .with("port", port)
     })?;
 
-    let app = super::listener_router(state.clone(), config.require_token);
+    // The port actually bound: the configured one, or the one the system
+    // picked when a test asked for port 0.
+    let port = socket.local_addr().map(|a| a.port()).unwrap_or(port);
+    let open = token == super::TokenPolicy::Never;
+    if open {
+        tracing::warn!(
+            port,
+            "the API port takes requests without a token from anyone who can reach it, \
+             through a tunnel too"
+        );
+    }
+    state.bridge.set_token_policy(token);
+    let app = super::listener_router(state.clone(), token);
     let (tx, rx) = oneshot::channel::<()>();
     tokio::spawn(async move {
         let served = axum::serve(
@@ -226,7 +251,15 @@ pub async fn start(state: &AppState, defaults: BridgeDefaults) -> BridgeResult<V
     });
     drop(guard);
 
-    announce(state, "started").await;
+    announce(
+        state,
+        if open {
+            "started — open without a token, through tunnels too"
+        } else {
+            "started"
+        },
+    )
+    .await;
     Ok(status(state).await)
 }
 
@@ -252,6 +285,7 @@ async fn announce(state: &AppState, what: &str) {
 /// Everything the control screen needs in one payload.
 pub async fn status(state: &AppState) -> Value {
     let config = &state.bridge.config;
+    let token = state.bridge.token_policy();
     let listener = state.bridge.listener.lock().await;
     let running = listener.is_some();
     let port = listener.as_ref().map(|l| l.port).or(config.port);
@@ -292,7 +326,20 @@ pub async fn status(state: &AppState) -> Value {
         "port": port,
         "url": url,
         "startedAt": started_at,
-        "requireToken": config.require_token,
+        "requireToken": token.requires_token(),
+        // `required` | `local` | `never` — the running (or last) start's policy;
+        // the API screen warns about `never`, loudest while a tunnel points at
+        // the port. `configuredTokenPolicy` is what MOTHER_CLAUDE_BRIDGE_REQUIRE_TOKEN
+        // says, and so what the "open to tunnels" switch means when it is off.
+        "tokenPolicy": token,
+        "configuredTokenPolicy": config.token,
+        "exposedByTunnel": state.remote.bridge_exposed(),
+        "tunnelUrl": state
+            .remote
+            .detected()
+            .into_iter()
+            .find(|t| t.target == "bridge")
+            .map(|t| t.url),
         "hostBuilt": super::host::host_entry().is_some(),
         "hostRunning": state.bridge.host.is_running().await,
         "messagesApi": state.bridge.messages.is_configured(),
@@ -319,16 +366,45 @@ pub async fn get_status(Authed(_ctx): Authed, State(state): State<AppState>) -> 
 pub struct StartBody {
     #[serde(default)]
     pub defaults: BridgeDefaults,
+    /// The API screen's "open to tunnels" switch. `true`: no token from anyone
+    /// who can reach the port, tunnels included (`TokenPolicy::Never`), and
+    /// only the desktop app may ask for it. `false`: the configured policy with
+    /// that opening closed. Absent: the configured policy as it is.
+    #[serde(default)]
+    pub open_to_tunnels: Option<bool>,
 }
 
 /// `POST /api/bridge/start`. Defaults with a permission mode that skips
 /// approvals are desktop-only (design G1): every conversation the bridge then
-/// creates or resumes would inherit it.
+/// creates or resumes would inherit it. So is opening the port to tokenless
+/// callers through tunnels: it publishes the API to whoever finds the URL.
 pub async fn post_start(
     Authed(ctx): Authed,
     State(state): State<AppState>,
     super::routes::Body(body): super::routes::Body<StartBody>,
 ) -> BridgeResult<Response> {
+    let configured = state.bridge.config.token;
+    let token = match body.open_to_tunnels {
+        None => configured,
+        Some(false) => configured.closed(),
+        Some(true) => {
+            if !ctx.is_desktop() {
+                return Err(BridgeError::forbidden(
+                    "desktop_only",
+                    "Opening the API port to callers without a token, through tunnels too, is \
+                     only possible from the Mother Claude desktop app.",
+                ));
+            }
+            if state.bridge.config.port.is_none() {
+                return Err(BridgeError::invalid_field(
+                    "openToTunnels",
+                    "There is no dedicated API port (MOTHER_CLAUDE_BRIDGE_PORT=0), and the /v1 \
+                     mount always needs a token.",
+                ));
+            }
+            super::TokenPolicy::Never
+        }
+    };
     if crate::claude::owned::is_dangerous_mode(body.defaults.permission_mode.as_deref())
         && !ctx.is_desktop()
     {
@@ -360,7 +436,10 @@ pub async fn post_start(
             }
         }
     }
-    Ok(axum::Json(start(&state, body.defaults).await?).into_response())
+    if body.open_to_tunnels == Some(true) {
+        ctx.note_dangerous("the API port opened without a token, tunnels included");
+    }
+    Ok(axum::Json(start_with(&state, body.defaults, token).await?).into_response())
 }
 
 /// `POST /api/bridge/stop`

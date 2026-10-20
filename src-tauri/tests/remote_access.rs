@@ -10,7 +10,7 @@ use std::net::SocketAddr;
 use std::time::Duration;
 
 use futures_util::{SinkExt, StreamExt};
-use mother_claude_lib::bridge::BridgeConfig;
+use mother_claude_lib::bridge::{BridgeConfig, TokenPolicy};
 use mother_claude_lib::claude::ClaudeHome;
 use mother_claude_lib::server::auth::Auth;
 use mother_claude_lib::server::context::ClientContext;
@@ -35,7 +35,7 @@ fn state() -> AppState {
         BridgeConfig {
             enabled: true,
             port: None,
-            require_token: false,
+            token: TokenPolicy::Local,
             api_key: None,
             allowed_origins: Vec::new(),
         },
@@ -1027,7 +1027,7 @@ async fn the_bridge_port_keeps_local_tokenless_access_but_not_dangerous_work() {
         .unwrap();
     let base = serve(mother_claude_lib::bridge::listener_router(
         st.clone(),
-        false,
+        TokenPolicy::Local,
     ))
     .await;
     let c = reqwest::Client::new();
@@ -1165,12 +1165,16 @@ async fn a_locked_down_bridge_accepts_the_script_token_from_allowlisted_pages() 
         BridgeConfig {
             enabled: true,
             port: None,
-            require_token: true,
+            token: TokenPolicy::Required,
             api_key: None,
             allowed_origins: vec!["https://myapp.test".into(), "http://localhost:4200".into()],
         },
     );
-    let base = serve(mother_claude_lib::bridge::listener_router(st.clone(), true)).await;
+    let base = serve(mother_claude_lib::bridge::listener_router(
+        st.clone(),
+        TokenPolicy::Required,
+    ))
+    .await;
     let c = reqwest::Client::new();
     let get = |origin: &'static str, token: Option<String>, query: bool| {
         let mut url = format!("{base}/capabilities");

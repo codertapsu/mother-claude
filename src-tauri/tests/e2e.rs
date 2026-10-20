@@ -18,7 +18,7 @@ use std::path::Path;
 use std::time::Duration;
 
 use futures_util::{SinkExt, StreamExt};
-use mother_claude_lib::bridge::BridgeConfig;
+use mother_claude_lib::bridge::{BridgeConfig, TokenPolicy};
 use mother_claude_lib::claude::hooks::{write_plugin_files, write_runtime_files, PluginPaths};
 use mother_claude_lib::claude::ClaudeHome;
 use mother_claude_lib::server::auth::Auth;
@@ -90,7 +90,7 @@ fn state(home: &Path, data: &Path) -> AppState {
         BridgeConfig {
             enabled: true,
             port: None,
-            require_token: false,
+            token: TokenPolicy::Local,
             api_key: None,
             allowed_origins: Vec::new(),
         },

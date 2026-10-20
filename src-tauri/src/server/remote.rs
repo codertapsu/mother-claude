@@ -830,7 +830,24 @@ async fn detect_and_store(state: &AppState, with_tailscale: bool) {
     crate::server::push::set_public_url(state, state.remote.public_url().as_deref());
     if changed {
         let bridge = state.bridge.config.port.unwrap_or_default();
-        if state.remote.bridge_exposed() {
+        let open = state.bridge.token_policy() == crate::bridge::TokenPolicy::Never;
+        if state.remote.bridge_exposed() && open {
+            tracing::warn!(
+                port = bridge,
+                "a tunnel points at the bridge port, and the API is open to tunnels without a \
+                 token"
+            );
+            crate::server::ws::publish_desktop_notice(
+                state,
+                NoticeLevel::Error,
+                format!(
+                    "A tunnel points at the Claude API port {bridge}, and the API is open to \
+                     tunnels: anyone who finds that URL can drive Claude on this Mac without a \
+                     token. Dangerous actions stay off for them. Stop the tunnel unless you \
+                     meant to publish the API."
+                ),
+            );
+        } else if state.remote.bridge_exposed() {
             tracing::warn!(
                 port = bridge,
                 "a tunnel points at the bridge port; tokenless mode is off"
@@ -848,9 +865,14 @@ async fn detect_and_store(state: &AppState, with_tailscale: bool) {
             crate::server::ws::publish_desktop_notice(
                 state,
                 NoticeLevel::Info,
-                format!(
-                    "No tunnel points at port {bridge} any more; tokenless local access is back."
-                ),
+                if open {
+                    format!("No tunnel points at the Claude API port {bridge} any more.")
+                } else {
+                    format!(
+                        "No tunnel points at port {bridge} any more; tokenless local access is \
+                         back."
+                    )
+                },
             );
         }
     }
@@ -904,13 +926,27 @@ pub fn warnings(
     main_port: u16,
     bridge_port: Option<u16>,
     tunnel_error: Option<&str>,
+    // The API runs open to tunnels (the API screen's switch, or
+    // `MOTHER_CLAUDE_BRIDGE_REQUIRE_TOKEN=never`): a tunnel to the bridge port
+    // publishes it without a token, rather than switching tokenless mode off.
+    bridge_open: bool,
 ) -> Vec<String> {
     let mut out = Vec::new();
     if let Some(e) = tunnel_error {
         out.push(e.to_string());
     }
     for t in detected {
-        if t.target == "bridge" {
+        if t.target == "bridge" && bridge_open {
+            out.push(format!(
+                "A tunnel ({}) points at the Claude API port {}, and the API is open to \
+                 tunnels: anyone who finds the URL can start conversations and approve Claude's \
+                 ordinary tool calls on this Mac without a token. Dangerous actions stay off for \
+                 them. Stop the tunnel, or turn off Open to tunnels on the API screen and \
+                 restart the API.",
+                t.url,
+                bridge_port.unwrap_or_default()
+            ));
+        } else if t.target == "bridge" {
             out.push(format!(
                 "A tunnel ({}) points at the Claude API port {}. Anyone who finds that URL could \
                  try to drive Claude. Tokenless access on port {} is off while it runs — stop \
@@ -1008,6 +1044,7 @@ pub async fn status(state: &AppState) -> Value {
         state.config.port,
         state.bridge.config.port,
         tunnel_error.as_deref(),
+        state.bridge.token_policy() == crate::bridge::TokenPolicy::Never,
     );
     let checked_at = state
         .remote
@@ -1331,6 +1368,7 @@ mod tests {
             6725,
             Some(5612),
             None,
+            false,
         );
         let all = w.join("\n");
         assert!(all.contains("--inspect=false"));
@@ -1338,7 +1376,15 @@ mod tests {
         assert!(all.contains("raw TCP tunnel"));
         assert!(all.contains("quick tunnel"));
 
-        let w = warnings(&s, &[], 6726, 6725, Some(5612), Some("Could not listen"));
+        let w = warnings(
+            &s,
+            &[],
+            6726,
+            6725,
+            Some(5612),
+            Some("Could not listen"),
+            false,
+        );
         assert!(w.iter().any(|x| x.contains("no tunnel to port 6726")));
         assert!(w.iter().any(|x| x.contains("Could not listen")));
         let off = RemoteSettings::default();
@@ -1354,8 +1400,33 @@ mod tests {
             6725,
             None,
             None,
+            false,
         );
         assert!(w.iter().any(|x| x.contains("Internet access is off")));
+
+        // With the token dropped for tunnels too, the same tunnel is not
+        // "switched off" — it is published, and the warning says so.
+        let to_bridge = t(
+            "ngrok",
+            "https://me.ngrok.app",
+            Some("localhost:5612"),
+            "bridge",
+        );
+        let closed = warnings(
+            &s,
+            std::slice::from_ref(&to_bridge),
+            6726,
+            6725,
+            Some(5612),
+            None,
+            false,
+        )
+        .join("\n");
+        assert!(closed.contains("Tokenless access on port 5612 is off"));
+        let open = warnings(&s, &[to_bridge], 6726, 6725, Some(5612), None, true).join("\n");
+        assert!(open.contains("the API is open to tunnels"));
+        assert!(open.contains("turn off Open to tunnels"));
+        assert!(!open.contains("is off while it runs"));
     }
 
     #[test]

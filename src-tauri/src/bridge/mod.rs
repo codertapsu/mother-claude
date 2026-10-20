@@ -67,14 +67,15 @@ pub struct BridgeConfig {
     pub enabled: bool,
     /// Dedicated loopback port, or `None` to only serve `/v1` on the main port.
     pub port: Option<u16>,
-    /// Require the API token on the dedicated loopback port.
+    /// Who may call the dedicated loopback port without a token
+    /// (`MOTHER_CLAUDE_BRIDGE_REQUIRE_TOKEN`, see [`TokenPolicy`]).
     ///
-    /// **Off by default**, so `curl http://127.0.0.1:5612/capabilities` works
-    /// with no setup — the point of a local bridge is that local tools can
-    /// simply call it. Set `MOTHER_CLAUDE_BRIDGE_REQUIRE_TOKEN=1` to require a
-    /// bearer token here too. The `/v1` mount on the main, LAN-reachable
-    /// server always requires one regardless of this setting.
-    pub require_token: bool,
+    /// **Clients on this machine, by default**, so `curl
+    /// http://127.0.0.1:5612/capabilities` works with no setup — the point of
+    /// a local bridge is that local tools can simply call it. The `/v1` mount
+    /// on the main, LAN-reachable server always requires a token regardless
+    /// of this setting.
+    pub token: TokenPolicy,
     /// Anthropic API key for the direct Messages API path, if one is available.
     pub api_key: Option<String>,
     /// Browser origins allowed to call the bridge. **Empty means any origin**,
@@ -111,6 +112,56 @@ impl BridgeConfig {
     }
 }
 
+/// Who may call the dedicated loopback port without a token
+/// (`MOTHER_CLAUDE_BRIDGE_REQUIRE_TOKEN`). Whatever it says, the `/v1` mount on
+/// the main, LAN-reachable server always requires one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum TokenPolicy {
+    /// `1`, or any value not listed below: every API route needs a token.
+    Required,
+    /// The default — unset, `0`, `false`, `off` or `no`: no token for a client
+    /// on this machine. A request through a proxy or tunnel needs one, and
+    /// while a detected tunnel points at the port, every request does.
+    Local,
+    /// `never`, or the API screen's "Open to tunnels" switch: no token for
+    /// anyone who reaches the port, through a tunnel too — an explicit opt-in
+    /// that publishes the API to whoever finds the tunnel's URL. Dangerous actions stay with callers provably on this
+    /// machine; while a tunnel points at the port no tokenless request is (a
+    /// raw TCP tunnel adds no headers and lets its caller name a loopback
+    /// `Host`), so then only a token holder has them.
+    Never,
+}
+
+impl TokenPolicy {
+    /// Read a `MOTHER_CLAUDE_BRIDGE_REQUIRE_TOKEN` value. Anything not
+    /// recognised requires the token, so a typo can never open the port.
+    pub fn parse(value: Option<&str>) -> Self {
+        let Some(value) = value else {
+            return Self::Local;
+        };
+        match value.trim().to_ascii_lowercase().as_str() {
+            "never" => Self::Never,
+            "0" | "false" | "off" | "no" => Self::Local,
+            _ => Self::Required,
+        }
+    }
+
+    /// Every API route needs a token.
+    pub fn requires_token(self) -> bool {
+        self == Self::Required
+    }
+
+    /// This policy with the port closed to tokenless tunnels again: what the
+    /// API screen's "open to tunnels" switch means when it is off.
+    pub fn closed(self) -> Self {
+        match self {
+            Self::Never => Self::Local,
+            other => other,
+        }
+    }
+}
+
 fn env_flag(name: &str, default: bool) -> bool {
     match std::env::var(name) {
         Ok(v) => {
@@ -135,7 +186,11 @@ impl BridgeConfig {
         Self {
             enabled: env_flag("MOTHER_CLAUDE_BRIDGE", true),
             port,
-            require_token: env_flag("MOTHER_CLAUDE_BRIDGE_REQUIRE_TOKEN", false),
+            token: TokenPolicy::parse(
+                std::env::var("MOTHER_CLAUDE_BRIDGE_REQUIRE_TOKEN")
+                    .ok()
+                    .as_deref(),
+            ),
             api_key: std::env::var("ANTHROPIC_API_KEY")
                 .ok()
                 .map(|k| k.trim().to_string())
@@ -154,7 +209,7 @@ impl BridgeConfig {
         Self {
             enabled: true,
             port: None,
-            require_token: true,
+            token: TokenPolicy::Required,
             api_key: None,
             allowed_origins: Vec::new(),
         }
@@ -197,11 +252,15 @@ pub struct BridgeState {
     pub defaults: RwLock<control::BridgeDefaults>,
     /// The conversation an unaddressed message joins.
     pub active_thread: RwLock<Option<String>>,
+    /// The token policy the listener runs with — the configured one until a
+    /// start from the API screen chooses otherwise ([`Self::token_policy`]).
+    token: std::sync::RwLock<TokenPolicy>,
 }
 
 impl BridgeState {
     pub fn new(config: BridgeConfig) -> Self {
         let messages = MessagesClient::new(config.api_key.clone());
+        let token = std::sync::RwLock::new(config.token);
         Self {
             config,
             ops: OperationRegistry::default(),
@@ -211,6 +270,20 @@ impl BridgeState {
             listener: tokio::sync::Mutex::new(None),
             defaults: RwLock::new(control::BridgeDefaults::default()),
             active_thread: RwLock::new(None),
+            token,
+        }
+    }
+
+    /// The token policy of the listener's current (or last) run: the
+    /// configured one (`MOTHER_CLAUDE_BRIDGE_REQUIRE_TOKEN`) until the API
+    /// screen starts it with the "open to tunnels" switch set either way.
+    pub fn token_policy(&self) -> TokenPolicy {
+        self.token.read().map(|t| *t).unwrap_or(self.config.token)
+    }
+
+    pub(crate) fn set_token_policy(&self, token: TokenPolicy) {
+        if let Ok(mut t) = self.token.write() {
+            *t = token;
         }
     }
 
@@ -347,11 +420,11 @@ pub async fn send_message(
 
 /// Build the bridge router, root-mounted.
 ///
-/// `require_token` gates only this instance: the `/v1` mount on the main server
-/// always passes `true`, because that listener is reachable from the LAN.
-/// Documentation, the OpenAPI document, the JS client and the example page are
-/// public either way — they are static assets and reveal no token.
-pub fn router(state: AppState, require_token: bool) -> Router<AppState> {
+/// `token` gates only this instance: the `/v1` mount on the main server always
+/// passes [`TokenPolicy::Required`], because that listener is reachable from
+/// the LAN. Documentation, the OpenAPI document, the JS client and the example
+/// page are public either way — they are static assets and reveal no token.
+pub fn router(state: AppState, token: TokenPolicy) -> Router<AppState> {
     // Discovery stays available whether or not the bridge has been started —
     // "is it running?" has to be answerable when the answer is no.
     let meta = Router::new()
@@ -430,7 +503,8 @@ pub fn router(state: AppState, require_token: bool) -> Router<AppState> {
 
     // Authentication runs on every mount: the token is always required on
     // `/v1` of the main server, and on the loopback port the tokenless mode
-    // applies only to requests genuinely from this machine (design §2.3).
+    // applies only to requests genuinely from this machine (design §2.3) —
+    // unless the operator opted into `TokenPolicy::Never`.
     let api = meta
         .merge(api)
         .route_layer(axum::middleware::from_fn_with_state(
@@ -456,7 +530,7 @@ pub fn router(state: AppState, require_token: bool) -> Router<AppState> {
         // else, so a client never has to parse two error formats.
         .fallback(not_found)
         .method_not_allowed_fallback(method_not_allowed)
-        .layer(axum::Extension(MountPolicy { require_token }))
+        .layer(axum::Extension(MountPolicy { token }))
         .layer(axum::middleware::from_fn_with_state(state, guard_origin))
         .layer(DefaultBodyLimit::max(MAX_BODY_BYTES))
 }
@@ -489,7 +563,14 @@ async fn require_started(
 /// clients to debug a token they do not need (or omit one they do).
 #[derive(Debug, Clone, Copy)]
 pub struct MountPolicy {
-    pub require_token: bool,
+    pub token: TokenPolicy,
+}
+
+impl MountPolicy {
+    /// Every API route on this mount needs a token.
+    pub fn require_token(&self) -> bool {
+        self.token.requires_token()
+    }
 }
 
 /// Authentication with the bridge's error envelope (design §2.3, §10 B1).
@@ -504,13 +585,18 @@ pub struct MountPolicy {
 /// * While tunnel detection sees a tunnel whose upstream is this port, the
 ///   tokenless mode is off (`bridge_exposed_requires_token`): a raw TCP tunnel
 ///   is invisible to header checks.
+/// * With [`TokenPolicy::Never`] every request passes without a token, from
+///   anywhere — but while a tunnel points at the port, a tokenless request
+///   counts as remote (not `local`, not `on_machine`), because nothing then
+///   tells this machine apart from a raw TCP tunnel. Dangerous actions, which
+///   an anonymous caller only has when `local`, stay with token holders.
 /// * Anything else is `401`; a tunnelled request to the tokenless port gets
 ///   `tunneled_request_requires_token`.
 async fn require_bridge_auth(
     axum::extract::State(state): axum::extract::State<AppState>,
     axum::Extension(policy): axum::Extension<MountPolicy>,
     ctx: crate::server::context::ClientContext,
-    req: axum::extract::Request,
+    mut req: axum::extract::Request,
     next: axum::middleware::Next,
 ) -> axum::response::Response {
     if ctx.principal.is_user() {
@@ -519,7 +605,16 @@ async fn require_bridge_auth(
         }
         return next.run(req).await;
     }
-    if !policy.require_token {
+    if policy.token == TokenPolicy::Never {
+        if state.remote.bridge_exposed() && (ctx.local || ctx.on_machine) {
+            let mut remote = ctx;
+            remote.local = false;
+            remote.on_machine = false;
+            req.extensions_mut().insert(remote);
+        }
+        return next.run(req).await;
+    }
+    if !policy.require_token() {
         if state.remote.bridge_exposed() {
             return error::BridgeError::new(
                 axum::http::StatusCode::UNAUTHORIZED,
@@ -691,7 +786,7 @@ async fn method_not_allowed(
 /// Loopback only, always: the bridge can drive a coding agent with filesystem
 /// write access, and its tokenless mode must never be reachable from the
 /// network. LAN clients use the `/v1` mount on the main (TLS + token) server.
-pub fn listener_router(state: AppState, require_token: bool) -> Router {
+pub fn listener_router(state: AppState, token: TokenPolicy) -> Router {
     let config = state.bridge.config.clone();
     // The same routes at `/` (Codex-compatible) and under `/v1` (so one client
     // base URL works against either listener).
@@ -714,8 +809,8 @@ pub fn listener_router(state: AppState, require_token: bool) -> Router {
     }
 
     let app = Router::new()
-        .merge(router(state.clone(), require_token))
-        .nest("/v1", router(state.clone(), require_token))
+        .merge(router(state.clone(), token))
+        .nest("/v1", router(state.clone(), token))
         .layer(cors)
         .with_state(state.clone());
     crate::server::context::layer(app, state, crate::server::context::Ingress::BridgeLoopback)
@@ -990,10 +1085,138 @@ mod tests {
     #[test]
     fn the_loopback_port_is_tokenless_unless_asked_otherwise() {
         std::env::remove_var("MOTHER_CLAUDE_BRIDGE_REQUIRE_TOKEN");
-        assert!(!BridgeConfig::from_env().require_token);
+        assert_eq!(BridgeConfig::from_env().token, TokenPolicy::Local);
         std::env::set_var("MOTHER_CLAUDE_BRIDGE_REQUIRE_TOKEN", "1");
-        assert!(BridgeConfig::from_env().require_token);
+        assert_eq!(BridgeConfig::from_env().token, TokenPolicy::Required);
+        std::env::set_var("MOTHER_CLAUDE_BRIDGE_REQUIRE_TOKEN", "never");
+        assert_eq!(BridgeConfig::from_env().token, TokenPolicy::Never);
         std::env::remove_var("MOTHER_CLAUDE_BRIDGE_REQUIRE_TOKEN");
+    }
+
+    /// Only `never` opens the port to tunnels; the switch-off words keep the
+    /// local default; anything else — a typo, an empty value — requires the
+    /// token rather than guessing in the open direction.
+    #[test]
+    fn the_token_policy_reads_every_spelling_and_fails_closed() {
+        assert_eq!(TokenPolicy::parse(None), TokenPolicy::Local);
+        for local in ["0", "false", "off", "no", " OFF ", "No"] {
+            assert_eq!(
+                TokenPolicy::parse(Some(local)),
+                TokenPolicy::Local,
+                "{local:?}"
+            );
+        }
+        for never in ["never", "NEVER", " Never "] {
+            assert_eq!(
+                TokenPolicy::parse(Some(never)),
+                TokenPolicy::Never,
+                "{never:?}"
+            );
+        }
+        for required in ["1", "true", "on", "yes", "", "nevr", "open"] {
+            assert_eq!(
+                TokenPolicy::parse(Some(required)),
+                TokenPolicy::Required,
+                "{required:?}"
+            );
+        }
+        assert!(TokenPolicy::Required.requires_token());
+        assert!(!TokenPolicy::Local.requires_token() && !TokenPolicy::Never.requires_token());
+    }
+
+    /// `never`'s one safety rule, through the real context layer on a real
+    /// loopback socket: no token from anywhere, but while a tunnel points at
+    /// the port no tokenless request counts as local — not even one that looks
+    /// local, because a raw TCP tunnel looks exactly like that — so none of
+    /// them has the dangerous right.
+    #[tokio::test]
+    async fn the_never_policy_drops_the_token_but_not_the_proof_of_being_local() {
+        let home = tempfile::tempdir().unwrap();
+        let state = crate::state::Inner::with_bridge_config(
+            crate::claude::ClaudeHome::with_base(home.path()),
+            crate::state::ServerConfig {
+                host: "127.0.0.1".into(),
+                port: 0,
+            },
+            crate::server::auth::Auth::ephemeral(),
+            BridgeConfig {
+                token: TokenPolicy::Never,
+                ..BridgeConfig::for_test()
+            },
+        );
+        async fn probe(ctx: crate::server::context::ClientContext) -> axum::Json<Value> {
+            axum::Json(serde_json::json!({
+                "local": ctx.local,
+                "dangerous": ctx.may_dangerous(),
+            }))
+        }
+        let app = Router::new()
+            .route("/probe", get(probe))
+            .route_layer(axum::middleware::from_fn_with_state(
+                state.clone(),
+                require_bridge_auth,
+            ))
+            .layer(axum::Extension(MountPolicy {
+                token: TokenPolicy::Never,
+            }))
+            .with_state(state.clone());
+        let app = crate::server::context::layer(
+            app,
+            state.clone(),
+            crate::server::context::Ingress::BridgeLoopback,
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base = format!("http://{}/probe", listener.local_addr().unwrap());
+        tokio::spawn(async move {
+            axum::serve(
+                listener,
+                app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+            )
+            .await
+            .unwrap();
+        });
+        let http = reqwest::Client::new();
+        let ask = |forwarded_for: Option<&'static str>| {
+            let mut req = http.get(&base);
+            if let Some(ip) = forwarded_for {
+                req = req.header("x-forwarded-for", ip);
+            }
+            async move {
+                let resp = req.send().await.unwrap();
+                assert!(resp.status().is_success(), "got {}", resp.status());
+                resp.json::<Value>().await.unwrap()
+            }
+        };
+
+        // Nothing points at the port: a caller here is local and keeps the
+        // dangerous right, exactly as with the default policy.
+        assert_eq!(
+            ask(None).await,
+            serde_json::json!({ "local": true, "dangerous": true })
+        );
+        // Through a tunnel: no token needed, and not local.
+        assert_eq!(
+            ask(Some("203.0.113.7")).await,
+            serde_json::json!({ "local": false, "dangerous": false })
+        );
+        // A tunnel points at the port: the same local-looking request is
+        // remote now, and only a token holder could do something dangerous.
+        state.remote.set_detected(
+            vec![crate::server::remote::DetectedTunnel {
+                provider: "ngrok".into(),
+                url: "https://me.ngrok.app".into(),
+                upstream_port: Some(5612),
+                kind: "tcp".into(),
+                target: "bridge".into(),
+                ..Default::default()
+            }],
+            Some(5612),
+        );
+        assert!(state.remote.bridge_exposed());
+        assert_eq!(
+            ask(None).await,
+            serde_json::json!({ "local": false, "dangerous": false })
+        );
     }
 
     #[test]

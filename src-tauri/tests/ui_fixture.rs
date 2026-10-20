@@ -22,7 +22,7 @@ use std::net::SocketAddr;
 use std::path::Path;
 use std::time::Duration;
 
-use mother_claude_lib::bridge::BridgeConfig;
+use mother_claude_lib::bridge::{BridgeConfig, TokenPolicy};
 use mother_claude_lib::claude::hooks::{write_plugin_files, write_runtime_files, PluginPaths};
 use mother_claude_lib::claude::ClaudeHome;
 use mother_claude_lib::server::auth::Auth;
@@ -113,7 +113,7 @@ async fn serve_a_synthetic_home_for_ui_checks() {
         BridgeConfig {
             enabled: true,
             port: None,
-            require_token: false,
+            token: TokenPolicy::Local,
             api_key: None,
             allowed_origins: Vec::new(),
         },

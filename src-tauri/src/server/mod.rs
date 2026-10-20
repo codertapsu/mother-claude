@@ -98,7 +98,10 @@ pub fn router_for(state: AppState, ingress: Ingress) -> Router {
             // Mounted with its own auth layer — always token-required here,
             // since this listener may be reachable from the LAN. Its tokenless
             // mode exists only on the dedicated loopback port.
-            .nest("/v1", crate::bridge::router(state.clone(), true));
+            .nest(
+                "/v1",
+                crate::bridge::router(state.clone(), crate::bridge::TokenPolicy::Required),
+            );
     }
     let app = match resolve_web_dir() {
         Some(dir) => {

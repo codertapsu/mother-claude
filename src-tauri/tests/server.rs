@@ -600,7 +600,7 @@ async fn the_tokenless_bridge_port_refuses_tunnelled_requests() {
     let st = state();
     let base = serve(mother_claude_lib::bridge::listener_router(
         st.clone(),
-        false,
+        mother_claude_lib::bridge::TokenPolicy::Local,
     ))
     .await;
     let c = http();
