@@ -607,6 +607,45 @@ appended de-duplicated by `(timestamp, display)`; trust flags are restored
 only with the same opt-in as §5.9. "Pull on launch" is off by default and
 only runs when no session is live.
 
+*Changed after the review (§5.10, §5.11; docs/BACKUP.md has the user's
+version):* a backup folder may be shared or reachable from other devices, so a
+set is treated as untrusted input. **Set format 2:** the index's first line is
+an HMAC-SHA256 of the rest, keyed from the set's secret key (which only the
+passphrase opens); a missing or wrong one is refused (`backup_unauthenticated`)
+and never written over. Archives and bundles are checked against the
+authenticated index's SHA-256 before they are decrypted; `set.json` is display
+only (a set.json naming another key stops a push; the recipient comes from the
+decrypted key). Every session id and bundle name from a set is validated
+before it names a path, and stage folders are always new. A set whose key is
+missing or still an iCloud placeholder is never given a new key
+(`set_key_missing`). **Archives are immutable**
+(`sessions/<id>.<12 hex>.tar.gz.age`, `config/<time>-<12 hex>.tar.gz.age`):
+the index names the new file after it is written, a replaced file is removed a
+day later, orphans too, and each machine keeps its own five bundles; an
+unreadable configuration file is a warning, never a lost index. **Machines**
+are told apart by a random per-install id (`<app data dir>/backup-machine.json`,
+0600; a Migration Assistant copy on other hardware gets a new one), not by
+host name. **Push and pull rules:** `seen` records each machine's bytes, whole
+seconds and archive name, so a restored or pulled session compares the same
+and nothing ping-pongs between machines; a push replaces the set's copy only
+when it changed here and the set's transcript is a byte prefix of the local
+one, else it is a conflict or *newer in the set*; a pull updates only when the
+local transcript is a byte prefix of the set's, else the set's copy lands
+beside it as a conflict copy named after its push time (pulling again adds no
+duplicate). The set's copy is staged before anything local moves, the undo
+manifest is written first and the local copy is put back on any error.
+**Passphrase change:** every set in the folder is opened first and nothing
+changes if a set of an account here opens with none of this machine's
+passphrases; the new one is kept as pending in the Keychain while sets are
+re-keyed (every set opens with the current or a pending one), and becomes the
+passphrase only at the end; a failure after a generated passphrase reached a
+set returns it. **One set per directory:** a token account's sessions are in
+the Default's set (push-all, the schedule, pull-on-launch and re-keying loop
+over directories), and a set that is being backed up or pulled returns that
+job instead of queueing another. Pulling everything lists a set it cannot
+start in `skipped` (`{account, code, message}`) and pulls the rest. Index
+entries keep the session's title, only inside the encrypted index.
+
 ---
 
 ## 6. UI (Angular)
