@@ -6,7 +6,9 @@
 //!   dryRun?}` → `200 {plan}` for a dry run, else `202 {job}`: the transfer
 //!   runs in the background as a data job.
 //! * `GET /api/data/jobs` and `GET /api/data/jobs/{id}` (Authed): progress,
-//!   result, until when undo works.
+//!   result, until when undo works, the accounts involved (`from`/`to`,
+//!   `account`). The list has this run's jobs and earlier ones that can still
+//!   be undone.
 //! * `POST /api/data/jobs/{id}/undo` (DesktopOnly).
 //!
 //! Every refusal has its own code (`same_directory`, `session_live`,
@@ -126,7 +128,11 @@ pub async fn post_move(
 
 /// `GET /api/data/jobs`.
 pub async fn list_jobs(Authed(_ctx): Authed, State(state): State<AppState>) -> impl IntoResponse {
-    Json(json!({ "jobs": state.jobs.list() }))
+    let st = state.clone();
+    let jobs = tokio::task::spawn_blocking(move || ops::list(&st))
+        .await
+        .unwrap_or_else(|_| state.jobs.list());
+    Json(json!({ "jobs": jobs }))
 }
 
 /// `GET /api/data/jobs/{id}`.

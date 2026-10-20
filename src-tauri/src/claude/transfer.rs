@@ -186,6 +186,11 @@ pub struct Plan {
     history: Vec<String>,
     #[serde(skip)]
     snapshot: bool,
+    /// The two accounts, when the app planned it (the job names them).
+    #[serde(skip)]
+    pub(crate) from_account: Option<String>,
+    #[serde(skip)]
+    pub(crate) to_account: Option<String>,
 }
 
 /// What the engine needs to know about the world: the two directories and
@@ -550,6 +555,8 @@ pub fn plan(ctx: &Context<'_>, req: &Request) -> Result<Plan, TransferError> {
         entry,
         history,
         snapshot: req.snapshot,
+        from_account: None,
+        to_account: None,
     })
 }
 
@@ -1530,6 +1537,15 @@ pub struct JobView {
     pub undo_until: Option<i64>,
     /// The sessions it moved, copied or restored.
     pub sessions: Vec<String>,
+    /// The account whose backup set it used (backup, restore, pull).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub account: Option<String>,
+    /// The accounts it moved or copied from and to (restore: `to` is the
+    /// account restored into).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub from: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub to: Option<String>,
     /// A per-kind result (backup: what was archived; restore: warnings…).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub result: Option<Value>,
@@ -1578,6 +1594,9 @@ impl Jobs {
                 error_code: None,
                 undo_until: None,
                 sessions: Vec::new(),
+                account: None,
+                from: None,
+                to: None,
                 result: None,
             }),
             progress: progress.clone(),
@@ -1650,6 +1669,9 @@ pub fn view_from_manifest(m: &Manifest) -> JobView {
             .is_none()
             .then(|| m.created_at + UNDO_KEEP.as_millis() as i64),
         sessions: m.sessions.clone(),
+        account: None,
+        from: None,
+        to: None,
         result: None,
     }
 }

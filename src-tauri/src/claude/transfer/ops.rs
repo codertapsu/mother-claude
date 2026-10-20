@@ -3,7 +3,7 @@
 //! audit-free core of `POST /api/data/move` and the copy behind "continue on"
 //! a directory account (docs/ACCOUNTS.md P3.2, P3.3).
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use super::{Context, JobState, Mode, Plan, Request, TransferError, What};
@@ -51,6 +51,11 @@ pub async fn plan(
     })
     .await
     .map_err(|e| TransferError::Io(e.to_string()))?
+    .map(|mut p| {
+        p.from_account = Some(from.to_string());
+        p.to_account = Some(to.to_string());
+        p
+    })
 }
 
 /// Run a plan as a data job, one data job at a time (it waits for a running
@@ -80,7 +85,11 @@ async fn execute_locked(
         .jobs
         .start(job_id, kind, plan.files as u64, plan.bytes);
     let sessions: Vec<String> = plan.sessions.iter().map(|s| s.id.clone()).collect();
-    state.jobs.update(job_id, |v| v.sessions = sessions.clone());
+    state.jobs.update(job_id, |v| {
+        v.sessions = sessions.clone();
+        v.from = plan.from_account.clone();
+        v.to = plan.to_account.clone();
+    });
     let id = job_id.to_string();
     let progress2 = Arc::clone(&progress);
     let st = state.clone();
@@ -129,7 +138,7 @@ pub async fn undo(state: &AppState, job_id: &str) -> Result<(), TransferError> {
     })
     .await
     .map_err(|e| TransferError::Io(e.to_string()))??;
-    let view = super::view_from_manifest(&m);
+    let view = view_of(state, &m);
     state.jobs.update(job_id, |v| {
         v.state = JobState::Undone;
         v.undo_until = None;
@@ -149,8 +158,55 @@ pub async fn undo(state: &AppState, job_id: &str) -> Result<(), TransferError> {
 pub fn job(state: &AppState, job_id: &str) -> Option<super::JobView> {
     state.jobs.get(job_id).or_else(|| {
         let root = undo_root(state)?;
-        super::manifest(&root, job_id).map(|m| super::view_from_manifest(&m))
+        super::manifest(&root, job_id).map(|m| view_of(state, &m))
     })
+}
+
+/// The jobs of this run, then those of earlier runs that can still be
+/// undone (from their manifests), newest first, at most 50.
+pub fn list(state: &AppState) -> Vec<super::JobView> {
+    let mut out = state.jobs.list();
+    if let Some(root) = undo_root(state) {
+        let known: std::collections::HashSet<String> = out.iter().map(|v| v.id.clone()).collect();
+        let mut ids: Vec<String> = std::fs::read_dir(&root)
+            .into_iter()
+            .flatten()
+            .flatten()
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .filter(|id| super::is_job_id(id) && !known.contains(id))
+            .collect();
+        ids.sort_unstable_by(|a, b| b.cmp(a));
+        out.extend(
+            ids.iter()
+                .take(50)
+                .filter_map(|id| super::manifest(&root, id))
+                .map(|m| view_of(state, &m)),
+        );
+    }
+    out.sort_by(|a, b| b.id.cmp(&a.id));
+    out.truncate(50);
+    out
+}
+
+/// A manifest's view, with the accounts its directories belong to now.
+fn view_of(state: &AppState, m: &super::Manifest) -> super::JobView {
+    let mut v = super::view_from_manifest(m);
+    v.from = account_of_dir(state, &m.from_dir);
+    v.to = account_of_dir(state, &m.to_dir);
+    v
+}
+
+/// The account whose directory `dir` is (the Default for its own, since
+/// token accounts share it).
+fn account_of_dir(state: &AppState, dir: &Path) -> Option<String> {
+    let canon = |p: &Path| std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
+    let dir = canon(dir);
+    state
+        .accounts
+        .homes()
+        .into_iter()
+        .find(|(_, h)| canon(h.base()) == dir)
+        .map(|(id, _)| id)
 }
 
 /// Re-list every directory now, so moved sessions show where they are.

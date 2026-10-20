@@ -725,6 +725,28 @@ async fn sessions_move_between_accounts_with_an_undo() {
     }
     assert_eq!(done["state"], "done", "{done}");
     assert!(done["undoUntil"].as_i64().is_some());
+    assert_eq!(done["from"], "default", "{done}");
+    assert_eq!(done["to"], json!(work.id));
+    // A job of an earlier run is listed from its manifest, accounts and all.
+    let undo_root = f.st.auth.config_dir.clone().unwrap().join("undo");
+    let earlier = "20260101T000000-0000abcd";
+    std::fs::create_dir_all(undo_root.join(earlier)).unwrap();
+    let mut m: Value =
+        serde_json::from_slice(&std::fs::read(undo_root.join(&job).join("manifest.json")).unwrap())
+            .unwrap();
+    m["jobId"] = json!(earlier);
+    m["created"] = json!([]);
+    m["moved"] = json!([]);
+    std::fs::write(undo_root.join(earlier).join("manifest.json"), m.to_string()).unwrap();
+    let (s, list) = f.call("GET", "/data/jobs", &phone, None).await;
+    assert_eq!(s, StatusCode::OK);
+    let jobs = list["jobs"].as_array().unwrap();
+    assert_eq!(jobs[0]["id"], json!(job), "newest first: {list}");
+    let old = jobs.iter().find(|j| j["id"] == earlier).expect("listed");
+    assert_eq!(old["kind"], "move");
+    assert_eq!(old["from"], "default");
+    assert_eq!(old["to"], json!(work.id));
+    std::fs::remove_dir_all(undo_root.join(earlier)).unwrap();
     let moved = work_dir
         .join("projects")
         .join(mother_claude_lib::claude::encode_cwd(&cwd))
