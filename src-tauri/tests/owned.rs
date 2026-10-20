@@ -1551,3 +1551,178 @@ async fn live_settings_are_read_back_without_a_turn() {
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
 }
+
+/// Spawning under each kind of account composes the child's environment as
+/// docs/ACCOUNTS.md D5 says, and the session carries its account.
+#[tokio::test]
+async fn sessions_run_under_the_account_they_are_given() {
+    use mother_claude_lib::claude::secrets::Secret;
+    let f = Fixture::new();
+    let token = Secret::new("sk-ant-oat01-AccountBTokenValue0123456789abcdefghij");
+    let pro = f.st.accounts.add_token("Pro", Some(&token), None).unwrap();
+    let dirs = tempfile::tempdir().unwrap();
+    let work =
+        f.st.accounts
+            .add_directory("Work", &dirs.path().join("claude-work"), None)
+            .unwrap();
+
+    // A token account: overrides removed, its token set, the directory as found.
+    let id = f
+        .spawn(
+            MAC,
+            SpawnRequest {
+                prompt: Some("hello".into()),
+                account: Some(pro.id.clone()),
+                ..Default::default()
+            },
+        )
+        .await;
+    wait_turn_done(&f.st, &id).await;
+    let account = f.log()[0]["account"].clone();
+    assert_eq!(account["oauthToken"], true, "{account}");
+    assert_eq!(account["oauthTokenSha256"], token.sha256_hex());
+    assert_eq!(account["overrides"], json!(["CLAUDE_CODE_OAUTH_TOKEN"]));
+    assert_eq!(
+        account["configDir"].as_str(),
+        std::env::var("CLAUDE_CONFIG_DIR").ok().as_deref()
+    );
+    let summary = f.st.find_session(&id).await.unwrap();
+    assert_eq!(
+        summary.account.as_ref().map(|a| a.id.as_str()),
+        Some(pro.id.as_str())
+    );
+    assert_eq!(summary.account.as_ref().unwrap().name, "Pro");
+    f.st.control.kill(&id).await.unwrap();
+
+    // A directory account: its own directory, no overrides at all.
+    let g = Fixture::new();
+    let work2 =
+        g.st.accounts
+            .add_directory("Work", &dirs.path().join("claude-work-2"), None)
+            .unwrap();
+    let id = g
+        .spawn(
+            MAC,
+            SpawnRequest {
+                prompt: Some("hello".into()),
+                account: Some(work2.id.clone()),
+                ..Default::default()
+            },
+        )
+        .await;
+    wait_turn_done(&g.st, &id).await;
+    let account = g.log()[0]["account"].clone();
+    assert_eq!(
+        account["configDir"].as_str().map(PathBuf::from),
+        work2.dir.clone(),
+        "{account}"
+    );
+    assert_eq!(account["oauthToken"], false);
+    assert_eq!(account["overrides"], json!([]));
+    g.st.control.kill(&id).await.unwrap();
+
+    // The project's account is the default for a launch that names none.
+    f.st.accounts
+        .set_defaults(mother_claude_lib::claude::accounts::AccountDefaults {
+            by_project: [(f.cwd(), work.id.clone())].into(),
+            ..Default::default()
+        })
+        .unwrap();
+    assert_eq!(f.st.accounts.account_for_cwd(&f.cwd()), work.id);
+
+    // An unknown account, or a token account without its token, is refused.
+    let err = owned::spawn_as(
+        &f.st,
+        MAC,
+        SpawnRequest {
+            cwd: f.cwd(),
+            account: Some("acc_000000000000".into()),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(err.code, "unknown_account");
+    let empty = f.st.accounts.add_token("Empty", None, None).unwrap();
+    let err = owned::spawn_as(
+        &f.st,
+        MAC,
+        SpawnRequest {
+            cwd: f.cwd(),
+            account: Some(empty.id.clone()),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(err.code, "account_token_missing");
+}
+
+/// "Continue on B": a token account forks the conversation under B; a
+/// directory account needs the conversation copied first.
+#[tokio::test]
+async fn continuing_on_another_account_forks_it() {
+    use mother_claude_lib::claude::secrets::Secret;
+    let f = Fixture::new();
+    let id = f.spawn_text("hello").await;
+    wait_turn_done(&f.st, &id).await;
+    f.st.control.kill(&id).await.unwrap();
+    wait_for("the first session to end", || {
+        !owned::has_handle(&f.st, &id)
+    })
+    .await;
+
+    let token = Secret::new("sk-ant-oat01-AccountBTokenValue0123456789abcdefghij");
+    let pro = f.st.accounts.add_token("Pro", Some(&token), None).unwrap();
+    let forked = owned::continue_as(
+        &f.st,
+        MAC,
+        &id,
+        &f.cwd(),
+        ContinueRequest {
+            prompt: Some("go on".into()),
+            account: Some(pro.id.clone()),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+    assert_ne!(forked, id, "another account always forks");
+    wait_turn_done(&f.st, &forked).await;
+    let line = f
+        .log()
+        .into_iter()
+        .rfind(|l| l.get("argv").is_some())
+        .unwrap();
+    let argv = line["argv"].to_string();
+    assert!(
+        argv.contains(&format!("\"--resume\",\"{id}\",\"--fork-session\"")),
+        "{argv}"
+    );
+    assert_eq!(line["account"]["oauthTokenSha256"], token.sha256_hex());
+    assert_eq!(
+        f.st.control.account_of(&forked).as_deref(),
+        Some(pro.id.as_str())
+    );
+    f.st.control.kill(&forked).await.unwrap();
+
+    // A directory account keeps its own data: not yet.
+    let dirs = tempfile::tempdir().unwrap();
+    let work =
+        f.st.accounts
+            .add_directory("Work", &dirs.path().join("claude-work"), None)
+            .unwrap();
+    let err = owned::continue_as(
+        &f.st,
+        MAC,
+        &id,
+        &f.cwd(),
+        ContinueRequest {
+            account: Some(work.id.clone()),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(err.code, "account_needs_copy");
+}

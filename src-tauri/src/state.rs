@@ -293,9 +293,18 @@ impl Inner {
             s.control = caps;
         })
         .await;
-        if !found {
+        let account = crate::claude::accounts::view::account_ref(
+            self,
+            &crate::claude::summaries::session_account(self, id),
+        );
+        if found {
+            if account.is_some() {
+                crate::server::ws::patch_session(self, id, move |s| s.account = account).await;
+            }
+        } else {
             let mut summary = crate::claude::summaries::synthetic_owned(id, cwd, started_at);
             summary.control = control;
+            summary.account = account;
             crate::server::ws::upsert_session(self, summary).await;
         }
     }

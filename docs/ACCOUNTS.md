@@ -246,6 +246,13 @@ stored, logged or served. A token we do not know shows as *token
 (unregistered)*. Hook events also carry `transcript_path`, which names the
 directory, so events from the plugin are attributed the same way.
 
+*Changed while building (D3/§4.1):* `initialize.account` carries `email`,
+`organization`, `subscriptionType`, `tokenSource`, `apiKeySource` and
+`apiProvider` but no account id, so `accountUuid` is not learned from it. A
+directory account's CLI cache is checked against its own `.claude.json`
+`oauthAccount`, as the Default's always was; a token account never uses the
+cache (§5.6).
+
 **D9 — Account choice is not a dangerous action; account administration is.**
 Picking an account for a new session or a bridge conversation is allowed to
 any principal that may start sessions (it is the user's own account either
@@ -598,22 +605,27 @@ part of done. IDs are referenced from commit messages.
 
 ### Phase 1 — accounts and "continue on"
 
-- [ ] **P1.1 Spike: `setup-token` capture.** Verify what `claude setup-token`
+- [x] **P1.1 Spike: `setup-token` capture.** Verify what `claude setup-token`
       prints and when; decide capture vs paste. Record the answer in §3 (D3).
-- [ ] **P1.2 `GET/POST/PATCH/DELETE /accounts`** with `DesktopOnly` on
+      *(Read from the CLI 2.1.304 binary, not run — a real run mints a real
+      token: the success branch only displays the token, then exits after
+      500 ms; a manual-code prompt exists. Capture first, paste as fallback.)*
+- [x] **P1.2 `GET/POST/PATCH/DELETE /accounts`** with `DesktopOnly` on
       writes; the `accounts` frame; `AccountView` without secrets. Done when
       a phone can list accounts and gets 403 on a write.
-- [ ] **P1.3 Sign-in per account.** `auth.rs` status per account at startup
+- [x] **P1.3 Sign-in per account.** `auth.rs` status per account at startup
       (parallel), `POST /accounts/{id}/login`, `POST /accounts/{id}/token`
       (capture or paste). Done when a fresh directory account goes from
       "signed out" to an email in the UI without a terminal.
-- [ ] **P1.4 Owned sessions carry an account.** `SpawnOptions.account`,
+- [x] **P1.4 Owned sessions carry an account.** `SpawnOptions.account`,
       handle + `SessionSummary.account`, `defaults.byProject`. Done when the
       fake CLI logs the expected environment for each kind.
-- [ ] **P1.5 Continue on another account.** `POST /sessions/{id}/continue`;
+- [x] **P1.5 Continue on another account.** `POST /sessions/{id}/continue`;
       fork for token accounts; "copy first" wired to P3 (until then, refuse
       directory targets with a clear error). Done when a token-account fork
-      answers under the other account in the live test.
+      answers under the other account in the live test. *(Against the fake
+      CLI: the fork's argv and its token's hash; the live run with a real
+      second account is the maintainer's.)*
 - [ ] **P1.6 Plan usage per account.** `UsageStore` keyed by account; helper
       per account; `GET /usage.accounts`; `planUsage.accountId`; limit-hit
       offer. Done when two accounts show two meters and a limit hit names the

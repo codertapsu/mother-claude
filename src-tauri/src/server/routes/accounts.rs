@@ -197,6 +197,18 @@ pub async fn remove(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> ApiResult<StatusCode> {
+    let live = state
+        .control
+        .accounts()
+        .into_iter()
+        .filter(|(_, a)| *a == id)
+        .count();
+    if live > 0 {
+        return Err(ApiError::conflict(
+            "account_in_use",
+            format!("{live} session(s) Mother Claude started still run under this account."),
+        ));
+    }
     let account = state.accounts.remove(&id).map_err(account_error)?;
     audit(
         &state,

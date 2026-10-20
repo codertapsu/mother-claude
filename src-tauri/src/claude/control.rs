@@ -192,6 +192,10 @@ pub struct SpawnOptions {
     pub setting_sources: Option<String>,
     /// Extra CLI arguments (tests only; never from a request).
     pub extra_args: Vec<String>,
+    /// The account the session runs under (`None`: the Default).
+    pub account: Option<String>,
+    /// That account's part of the child environment (docs/ACCOUNTS.md D5).
+    pub account_env: AccountEnv,
 }
 
 /// Lightweight metadata for a live owned session, so the registry can list it
@@ -548,6 +552,8 @@ struct OwnedHandle {
     id: String,
     cwd: String,
     started_at: i64,
+    /// The account it runs under (`default` for the Default).
+    account: String,
     driver: Driver,
     caller_may_dangerous: bool,
     stdin: AsyncMutex<Option<ChildStdin>>,
@@ -678,6 +684,20 @@ impl ControlRegistry {
         self.get(id).map(|h| h.cwd.clone())
     }
 
+    /// The account an owned session runs under.
+    pub fn account_of(&self, id: &str) -> Option<String> {
+        self.get(id).map(|h| h.account.clone())
+    }
+
+    /// Owned sessions per account that are alive: `(id, account)`.
+    pub fn accounts(&self) -> Vec<(String, String)> {
+        lock(&self.handles)
+            .values()
+            .filter(|h| h.alive.load(Ordering::SeqCst))
+            .map(|h| (h.id.clone(), h.account.clone()))
+            .collect()
+    }
+
     /// What the control protocol told us about an owned session.
     pub fn state(&self, id: &str) -> Option<OwnedLive> {
         self.get(id).map(|h| h.live().clone())
@@ -701,9 +721,19 @@ impl ControlRegistry {
     /// credentials `plan_ok` accepts and that never answered without plan
     /// usage.
     pub fn usage_session(&self, plan_ok: impl Fn(Option<AccountFacts>) -> bool) -> Option<String> {
+        self.usage_session_for(crate::claude::accounts::DEFAULT_ID, plan_ok)
+    }
+
+    /// [`Self::usage_session`] among the sessions of one account.
+    pub fn usage_session_for(
+        &self,
+        account: &str,
+        plan_ok: impl Fn(Option<AccountFacts>) -> bool,
+    ) -> Option<String> {
         let handles: Vec<Arc<OwnedHandle>> = lock(&self.handles).values().cloned().collect();
         handles
             .into_iter()
+            .filter(|h| h.account == account)
             .filter(|h| h.driver == Driver::Stream && h.alive.load(Ordering::SeqCst))
             .filter(|h| {
                 let live = h.live();
@@ -796,6 +826,10 @@ impl ControlRegistry {
             id: id.clone(),
             cwd: opts.cwd.clone(),
             started_at,
+            account: opts
+                .account
+                .clone()
+                .unwrap_or_else(|| crate::claude::accounts::DEFAULT_ID.to_string()),
             driver,
             caller_may_dangerous: opts.caller_may_dangerous,
             stdin: AsyncMutex::new(stdin),
@@ -1743,6 +1777,11 @@ async fn on_assistant(state: &AppState, h: &OwnedHandle, v: &Value) {
             s.last_error = Some(LastError { kind, text, at });
         })
         .await;
+        if err == "authentication_failed" {
+            // The account's sign-in or token no longer works: say so on the
+            // account at once, not only on this session.
+            crate::claude::accounts::status::note_auth_failed(state, &h.account).await;
+        }
     }
     // Without partial messages (the sidecar) this is the only activity hint.
     let last_tool = v
@@ -1808,6 +1847,9 @@ async fn on_result(state: &AppState, h: &OwnedHandle, v: &Value) {
     };
     let subtype = v.get("subtype").and_then(Value::as_str).unwrap_or_default();
     let is_error = v.get("is_error").and_then(Value::as_bool).unwrap_or(false);
+    if !is_error && subtype == "success" {
+        crate::claude::accounts::status::note_auth_ok(state, &h.account).await;
+    }
     if is_error && subtype != "error_during_execution" {
         let text = v
             .get("result")
@@ -2149,7 +2191,7 @@ fn headless_command(
     }
     // NOTE: the initial prompt is deliberately NOT passed as argv — it goes
     // over stdin as the first stream-json user message (see spawn()).
-    configure_common(&mut c, &opts.cwd, &AccountEnv::Inherit);
+    configure_common(&mut c, &opts.cwd, &opts.account_env);
     c
 }
 
@@ -2181,7 +2223,7 @@ fn sidecar_command(
     if let Some(resume) = &opts.resume {
         c.env("MC_RESUME", resume);
     }
-    configure_common(&mut c, &opts.cwd, &AccountEnv::Inherit);
+    configure_common(&mut c, &opts.cwd, &opts.account_env);
     // The sidecar's own credential (`mcs_…`): valid only for
     // `/api/sessions/{id}/permission-request` from this machine. The sidecar
     // removes it from its environment and passes the SDK an explicit env
@@ -2426,6 +2468,7 @@ mod tests {
             id: "s".into(),
             cwd: "/".into(),
             started_at: 0,
+            account: crate::claude::accounts::DEFAULT_ID.into(),
             driver: Driver::Stream,
             caller_may_dangerous: false,
             stdin: AsyncMutex::new(None),

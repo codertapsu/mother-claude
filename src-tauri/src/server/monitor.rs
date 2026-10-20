@@ -265,6 +265,7 @@ async fn gather_ctx(state: &AppState) -> BuildCtx {
         bridge_ids,
         owned_meta,
         previous,
+        accounts: crate::claude::accounts::view::account_refs(state),
     }
 }
 

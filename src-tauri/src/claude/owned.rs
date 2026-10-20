@@ -84,6 +84,9 @@ pub struct SpawnRequest {
     /// Legacy `"on"`/`"off"` thinking override.
     pub thinking: Option<String>,
     pub images: Vec<ImageInput>,
+    /// The account to run under (default: the project's, else the default
+    /// for new sessions; docs/ACCOUNTS.md §5.4).
+    pub account: Option<String>,
 }
 
 /// `POST /api/sessions/{id}/continue` body.
@@ -98,6 +101,9 @@ pub struct ContinueRequest {
     pub thinking: Option<String>,
     /// Images on the first message of the continued session.
     pub images: Vec<ImageInput>,
+    /// Continue under this account ("continue on B"): another account than
+    /// the session's always forks (docs/ACCOUNTS.md §5.4).
+    pub account: Option<String>,
 }
 
 /// Who is asking, for the launch policy.
@@ -489,11 +495,37 @@ fn launch_mode(requested: Option<&str>, caller: Caller) -> ApiResult<String> {
     Ok(mode)
 }
 
+/// Map an account refusal onto the API envelope.
+pub fn account_error(e: crate::claude::accounts::AccountError) -> ApiError {
+    use crate::claude::accounts::AccountError as E;
+    match &e {
+        E::NotFound(_) => ApiError::unprocessable("unknown_account", e.to_string()),
+        E::TokenMissing => ApiError::conflict(e.code(), e.to_string()),
+        _ => ApiError::unprocessable(e.code(), e.to_string()),
+    }
+}
+
+/// The account a launch in `cwd` runs under: the one asked for, else the
+/// project's, else the default for new sessions — with its environment.
+fn launch_account(
+    state: &AppState,
+    asked: Option<&str>,
+    cwd: &str,
+) -> ApiResult<(String, crate::claude::accounts::AccountEnv)> {
+    let id = match asked.map(str::trim).filter(|a| !a.is_empty()) {
+        Some(a) => a.to_string(),
+        None => state.accounts.account_for_cwd(cwd),
+    };
+    let env = state.accounts.env(&id).map_err(account_error)?;
+    Ok((id, env))
+}
+
 /// A spawn/continue working directory: absolute and existing; for callers
 /// other than the desktop, one the user already trusted. Returned as given
 /// (not canonicalized): `--resume` finds a transcript by the cwd it was
 /// recorded under, which may go through a symlink.
-fn launch_cwd(state: &AppState, raw: &str, caller: Caller) -> ApiResult<String> {
+/// Trust is read from the config directory of the account it runs under.
+fn launch_cwd(home: &crate::claude::ClaudeHome, raw: &str, caller: Caller) -> ApiResult<String> {
     let raw = raw.trim();
     let raw = match raw.trim_end_matches('/') {
         "" => raw,
@@ -515,7 +547,7 @@ fn launch_cwd(state: &AppState, raw: &str, caller: Caller) -> ApiResult<String> 
         .ok_or_else(|| {
             ApiError::unprocessable("invalid_cwd", format!("{raw} is not a directory."))
         })?;
-    if !caller.desktop && !is_trusted_cwd(state, path, &canonical) {
+    if !caller.desktop && !is_trusted_cwd(home, path, &canonical) {
         return Err(ApiError::forbidden(
             "untrusted_cwd",
             "Claude Code has not been trusted in this folder yet. Open it once on the Mac \
@@ -525,10 +557,11 @@ fn launch_cwd(state: &AppState, raw: &str, caller: Caller) -> ApiResult<String> 
     Ok(raw.to_string())
 }
 
-/// Whether the user already trusted `path` (as given, or canonical).
-fn is_trusted_cwd(state: &AppState, path: &Path, canonical: &Path) -> bool {
-    let claude_json = state.home.claude_json();
-    let projects = state.home.projects_dir();
+/// Whether the user already trusted `path` (as given, or canonical) in the
+/// config directory of `home`.
+fn is_trusted_cwd(home: &crate::claude::ClaudeHome, path: &Path, canonical: &Path) -> bool {
+    let claude_json = home.claude_json();
+    let projects = home.projects_dir();
     [path, canonical]
         .iter()
         .any(|p| trusted_in(&claude_json, &projects, p))
@@ -666,7 +699,12 @@ pub async fn spawn_as(state: &AppState, caller: Caller, req: SpawnRequest) -> Ap
         req.permission_mode.as_deref(),
     )?;
     let mode = launch_mode(req.permission_mode.as_deref(), caller)?;
-    let cwd = launch_cwd(state, &req.cwd, caller)?;
+    let (account, account_env) = launch_account(state, req.account.as_deref(), req.cwd.trim())?;
+    let home = state
+        .accounts
+        .home(&account)
+        .unwrap_or_else(|| state.home.clone());
+    let cwd = launch_cwd(&home, &req.cwd, caller)?;
     let model = req.model.as_deref().map(validate_model).transpose()?;
     let images = validate_images(&req.images)?;
     let prompt = req.prompt.unwrap_or_default();
@@ -686,6 +724,8 @@ pub async fn spawn_as(state: &AppState, caller: Caller, req: SpawnRequest) -> Ap
         images,
         allow_bypass: caller.may_dangerous,
         caller_may_dangerous: caller.may_dangerous,
+        account: Some(account),
+        account_env,
         ..Default::default()
     };
     state.control.spawn(state, opts).await.map_err(spawn_error)
@@ -748,10 +788,36 @@ pub async fn continue_as(
     )?;
     // Never inherit a mode on resume or fork: always explicit.
     let mode = launch_mode(req.permission_mode.as_deref(), caller)?;
-    let cwd = launch_cwd(state, cwd, caller)?;
+    // The session's own account unless another one is asked for ("continue
+    // on B"), which always forks: the original stays as it was.
+    let source = crate::claude::summaries::session_account(state, id);
+    let target = req
+        .account
+        .as_deref()
+        .map(str::trim)
+        .filter(|a| !a.is_empty())
+        .unwrap_or(&source)
+        .to_string();
+    let (account, account_env) = launch_account(state, Some(&target), cwd)?;
+    let source_home = state.accounts.home(&source);
+    let target_home = state
+        .accounts
+        .home(&account)
+        .unwrap_or_else(|| state.home.clone());
+    let same_dir = source_home
+        .as_ref()
+        .is_none_or(|h| h.base() == target_home.base());
+    if !same_dir {
+        return Err(ApiError::conflict(
+            "account_needs_copy",
+            "That account keeps its own directory: the conversation has to be copied \
+             there before it can continue on it, which this version cannot do yet.",
+        ));
+    }
+    let cwd = launch_cwd(&target_home, cwd, caller)?;
     let model = req.model.as_deref().map(validate_model).transpose()?;
     let images = validate_images(&req.images)?;
-    let fork = req.fork.unwrap_or(false) || live_elsewhere(state, id).await;
+    let fork = req.fork.unwrap_or(false) || account != source || live_elsewhere(state, id).await;
     let opts = SpawnOptions {
         cwd,
         prompt: req.prompt.unwrap_or_default(),
@@ -765,6 +831,8 @@ pub async fn continue_as(
         images,
         allow_bypass: caller.may_dangerous,
         caller_may_dangerous: caller.may_dangerous,
+        account: Some(account),
+        account_env,
         ..Default::default()
     };
     state.control.spawn(state, opts).await.map_err(spawn_error)

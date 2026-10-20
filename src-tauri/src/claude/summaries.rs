@@ -661,6 +661,30 @@ pub struct BuildCtx {
     pub owned_meta: HashMap<String, (String, i64)>,
     /// The previous snapshot (owned sessions nobody else knows keep their row).
     pub previous: HashMap<String, SessionSummary>,
+    /// Every account's chip by id; empty while only the Default exists (no
+    /// session then names an account).
+    pub accounts: std::collections::BTreeMap<String, super::model::AccountRef>,
+}
+
+/// The account a session runs (or ran) under: an owned session's own, a
+/// bridge conversation's, else the Default's.
+pub fn session_account(state: &AppState, id: &str) -> String {
+    state
+        .control
+        .account_of(id)
+        .unwrap_or_else(|| super::accounts::DEFAULT_ID.to_string())
+}
+
+/// The chip for a session, from [`BuildCtx::accounts`].
+fn account_chip(state: &AppState, id: &str, ctx: &BuildCtx) -> Option<super::model::AccountRef> {
+    if ctx.accounts.is_empty() {
+        return None;
+    }
+    let account = session_account(state, id);
+    ctx.accounts
+        .get(&account)
+        .or_else(|| ctx.accounts.get(super::accounts::DEFAULT_ID))
+        .cloned()
 }
 
 /// Every session id the data layer knows.
@@ -1041,7 +1065,7 @@ pub fn build_one(state: &AppState, id: &str, ctx: &BuildCtx) -> Option<SessionSu
             .filter(|on| *on),
         control,
         cli_name: pid.as_ref().and_then(|p| p.name.clone()),
-        account: None,
+        account: account_chip(state, id, ctx),
     };
     if owned_handle {
         // What the control protocol reported (model, mode, effort,
