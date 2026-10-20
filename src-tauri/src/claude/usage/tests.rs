@@ -120,6 +120,7 @@ fn documented_windows_without_limit_rows() {
         "five_hour": { "utilization": 101, "resets_at": "bogus" },
         "seven_day_opus": null,
         "seven_day_sonnet": { "utilization": 3, "resets_at": null },
+        "overage": { "utilization": 12, "resets_at": null },
         "limits": [],
         "nimbus_quill": { "utilization": 50 }
     }});
@@ -131,7 +132,11 @@ fn documented_windows_without_limit_rows() {
         panic!("data expected");
     };
     let keys: Vec<&str> = windows.iter().map(|w| w.key.as_str()).collect();
-    assert_eq!(keys, vec!["five_hour", "seven_day", "seven_day_sonnet"]);
+    assert_eq!(
+        keys,
+        vec!["five_hour", "seven_day", "seven_day_sonnet", "overage"]
+    );
+    assert_eq!(windows[3].label, "Extra usage");
     assert_eq!(windows[0].pct, 101.0, "over 100 % is kept");
     assert_eq!(windows[0].resets_at, None, "an unparseable time is dropped");
     assert_eq!(windows[1].pct, 7.3);

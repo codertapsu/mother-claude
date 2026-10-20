@@ -245,6 +245,8 @@ fn label_for(key: &str) -> String {
         "seven_day" => "Weekly · all models".to_string(),
         "seven_day_opus" => "Weekly · Opus".to_string(),
         "seven_day_sonnet" => "Weekly · Sonnet".to_string(),
+        "seven_day_overage_included" => "Weekly · with extra usage".to_string(),
+        "overage" => "Extra usage".to_string(),
         other => humanize(other),
     }
 }
@@ -335,6 +337,8 @@ pub fn windows_from_rate_limits(rl: &Map<String, Value>) -> Vec<PlanWindow> {
             "seven_day",
             "seven_day_opus",
             "seven_day_sonnet",
+            "seven_day_overage_included",
+            "overage",
         ] {
             let Some(w) = rl.get(key).and_then(Value::as_object) else {
                 continue;
