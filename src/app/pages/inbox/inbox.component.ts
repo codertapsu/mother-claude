@@ -9,11 +9,13 @@ import {
 } from '@angular/core';
 import { RouterLink } from '@angular/router';
 
+import { AccountsService } from '../../core/accounts.service';
 import { AuthService } from '../../core/auth.service';
 import { PendingRef, SessionSummary } from '../../core/models';
 import { NoticeService } from '../../core/notice.service';
 import { PendingService } from '../../core/pending.service';
 import { RealtimeService } from '../../core/realtime.service';
+import { inAccount } from '../../shared/accounts';
 import { IconComponent } from '../../shared/icon.component';
 import { Lingering, lingerList } from '../../shared/linger';
 import { PendingCardComponent } from '../../shared/pending-card.component';
@@ -33,7 +35,9 @@ interface Entry {
  *
  * Full items arrive through `subInbox` (and `GET /inbox` on first load).
  * After an answer the next card takes focus; on a keyboard J/K move between
- * cards and A/D/F answer the focused one.
+ * cards and A/D/F answer the focused one. While more than the Default
+ * account exists, each card names its session's account and a filter shows
+ * one account's requests.
  */
 @Component({
   selector: 'mc-inbox',
@@ -42,10 +46,29 @@ interface Entry {
     <div class="page narrow">
       <div class="page-head">
         <h1>Inbox</h1>
+        @if (accountFilterShown()) {
+          <span class="spacer"></span>
+          <select class="acct-filter" aria-label="Account" (change)="pickAccount($event)">
+            <option value="" [selected]="!account()">All accounts</option>
+            @for (a of accounts.list(); track a.id) {
+              <option [value]="a.id" [selected]="a.id === account()">{{ a.name }}</option>
+            }
+          </select>
+        }
       </div>
 
       @if (!ready()) {
         <div class="skeleton" aria-label="Loading"><span></span><span></span></div>
+      } @else if (hidden() && !needs().length && !desk().length) {
+        <div class="card empty-state">
+          <strong>Nothing from {{ accountName() }} needs you</strong>
+          {{ hiddenText() }}
+          <div class="all">
+            <button class="btn small" type="button" (click)="account.set('')">
+              Show every account
+            </button>
+          </div>
+        </div>
       } @else if (!needs().length && !desk().length) {
         <div class="card empty-state">
           <mc-icon name="check" [size]="28" />
@@ -166,6 +189,14 @@ interface Entry {
         margin: 0.75rem auto 0;
         max-width: 26rem;
       }
+      .acct-filter {
+        width: auto;
+        flex: 0 1 12rem;
+        min-width: 8rem;
+      }
+      .all {
+        margin-top: 0.75rem;
+      }
       .skeleton {
         display: flex;
         flex-direction: column;
@@ -185,6 +216,7 @@ export class InboxComponent {
   private pendings = inject(PendingService);
   private notices = inject(NoticeService);
   private auth = inject(AuthService);
+  protected readonly accounts = inject(AccountsService);
 
   private readonly cards = viewChildren(PendingCardComponent, { read: ElementRef });
   private readonly fetched = signal(false);
@@ -196,7 +228,7 @@ export class InboxComponent {
   private readonly lingering = lingerList<PendingRef>(() =>
     this.realtime.sessionsLoaded() ? this.realtime.pendingItems() : this.fetchedItems(),
   );
-  private readonly entries = computed<Entry[]>(() => {
+  private readonly all = computed<Entry[]>(() => {
     const byId = new Map(this.realtime.sessions().map((s) => [s.id, s]));
     return this.lingering()
       .map((l: Lingering<PendingRef>) => ({
@@ -206,8 +238,30 @@ export class InboxComponent {
       }))
       .sort((a, b) => a.ref.createdAt - b.ref.createdAt);
   });
+  /** The account filter: only while more than the Default exists. */
+  protected readonly accountFilterShown = this.accounts.multi;
+  /** The account picked ('' = every account). */
+  protected readonly account = signal('');
+  /** The pick in effect: none once its account is gone (or the only one). */
+  private readonly accountInEffect = computed(() => {
+    const id = this.account();
+    return this.accounts.multi() && this.accounts.byId(id) ? id : '';
+  });
+  protected readonly accountName = computed(
+    () => this.accounts.byId(this.accountInEffect())?.name ?? '',
+  );
+  private readonly entries = computed<Entry[]>(() => {
+    const id = this.accountInEffect();
+    return id ? this.all().filter((e) => inAccount(e.session, id)) : this.all();
+  });
   protected readonly needs = computed(() => this.entries().filter((e) => e.ref.answerable));
   protected readonly desk = computed(() => this.entries().filter((e) => !e.ref.answerable));
+  /** Requests the account filter hides. */
+  protected readonly hidden = computed(() => this.all().length - this.entries().length);
+  protected readonly hiddenText = computed(() => {
+    const n = this.hidden();
+    return `${n === 1 ? '1 request' : `${n} requests`} from other accounts ${n === 1 ? 'waits' : 'wait'}.`;
+  });
   /** A live foreign session nobody can answer from here: suggest the plugin. */
   protected readonly foreignHint = computed(() =>
     this.realtime
@@ -223,6 +277,10 @@ export class InboxComponent {
       sub.unsubscribe();
     });
     void this.load();
+  }
+
+  protected pickAccount(e: Event): void {
+    this.account.set((e.target as HTMLSelectElement).value);
   }
 
   protected focusCard(i: number): void {

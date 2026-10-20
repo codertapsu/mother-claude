@@ -6,7 +6,11 @@
   </div>
 
   @if (loaded()) {
-    <mc-fleet-summary (filter)="setFilter($event)" />
+    <mc-fleet-summary
+      [account]="account()"
+      (filter)="setFilter($event)"
+      (accountPicked)="showAccount($event)"
+    />
     <mc-limit-offer class="offers" />
   }
 
@@ -54,6 +58,19 @@
           <option [value]="p">{{ p }}</option>
         }
       </select>
+      @if (multi()) {
+        <select
+          class="acct-filter"
+          aria-label="Account"
+          [ngModel]="account()"
+          (ngModelChange)="account.set($event)"
+        >
+          <option value="">All accounts</option>
+          @for (a of accountList(); track a.id) {
+            <option [value]="a.id">{{ a.name }}</option>
+          }
+        </select>
+      }
     </div>
   </div>
 

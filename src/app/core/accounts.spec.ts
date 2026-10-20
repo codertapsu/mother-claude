@@ -7,7 +7,9 @@ import {
   needsCopy,
   normalizeAccounts,
   normalizeCapture,
+  sharersOf,
   suggestAccountDir,
+  transferTargets,
 } from './accounts';
 import { buildAccounts } from './mock/fixtures';
 import { AccountsView } from './models';
@@ -115,6 +117,24 @@ describe('account helpers', () => {
     expect(accountCanRun({ attention: 'signedOut' })).toBeFalse();
     expect(accountCanRun({ attention: 'authFailed' })).toBeTrue();
     expect(accountCanRun({})).toBeTrue();
+  });
+
+  it('moves and copies only into directory accounts with another directory', () => {
+    const list = buildAccounts(0, true).accounts;
+    const ids = (from: { id: string; kind: string }) =>
+      transferTargets(list, from).map((a) => a.id);
+    // From the Default's directory (the Default, or a token account in it):
+    // only Work keeps another one.
+    expect(ids({ id: 'default', kind: 'directory' })).toEqual([WORK]);
+    expect(ids({ id: PRO, kind: 'token' })).toEqual([WORK]);
+    // From Work: the Default's directory, which the token account shares.
+    expect(ids({ id: WORK, kind: 'directory' })).toEqual(['default']);
+    expect(sharersOf(list, 'default').map((a) => a.id)).toEqual([PRO]);
+    expect(sharersOf(list, WORK)).toEqual([]);
+    // With only the Default there is nowhere to go.
+    expect(
+      transferTargets(buildAccounts(0, false).accounts, { id: 'default', kind: 'directory' }),
+    ).toEqual([]);
   });
 
   it('checks names by the server rules', () => {

@@ -3,8 +3,15 @@ import { RouterLink } from '@angular/router';
 
 import { ApiService, describeError } from '../../core/api.service';
 import { NoticeService } from '../../core/notice.service';
-import { AgentInfo, BackgroundTask, FleetSession, WorkflowRun } from '../../core/models';
+import {
+  AccountRef,
+  AgentInfo,
+  BackgroundTask,
+  FleetSession,
+  WorkflowRun,
+} from '../../core/models';
 import { RealtimeService } from '../../core/realtime.service';
+import { AccountChipComponent } from '../../shared/account-chip.component';
 import { ActivityLineComponent } from '../../shared/activity-line.component';
 import {
   agentKindIcon,
@@ -26,6 +33,8 @@ const FLEET_POLL_TICKS = 4;
 interface FleetGroup {
   sessionId: string;
   name: string;
+  /** The session's Claude account (only while there are several). */
+  account?: AccountRef;
   /** Subagents, workflow agents, teammates: each has a transcript. */
   agents: (AgentInfo & { level: number })[];
   workflows: WorkflowRun[];
@@ -38,12 +47,14 @@ interface FleetGroup {
  * shells, monitors) grouped by session, with live activity, elapsed time and
  * tokens, plus each session's running workflow runs. Tap an agent to open
  * its transcript, or a shell/monitor for its output; stop it where the
- * session allows.
+ * session allows. Each session names its Claude account while there are
+ * several.
  */
 @Component({
   selector: 'mc-agents',
   imports: [
     RouterLink,
+    AccountChipComponent,
     ActivityLineComponent,
     ChipComponent,
     IconComponent,
@@ -70,6 +81,9 @@ interface FleetGroup {
         <section class="group">
           <a class="ghead" [routerLink]="['/session', g.sessionId]">
             <span class="gname">{{ g.name }}</span>
+            @if (g.account; as acc) {
+              <mc-account-chip class="gacct" [account]="acc" />
+            }
             <span class="muted small">{{ g.agents.length + g.shells.length }}</span>
             <mc-icon name="chevronRight" [size]="16" />
           </a>
@@ -261,6 +275,10 @@ interface FleetGroup {
         margin-left: auto;
         color: var(--faint);
       }
+      .gacct {
+        flex: 0 1 auto;
+        max-width: 45%;
+      }
       .list {
         padding: 0 0.9rem;
       }
@@ -346,9 +364,11 @@ export class AgentsComponent {
       .map((f) => {
         const s = byId.get(f.sessionId);
         const all = f.agents ?? [];
+        const account = f.account ?? s?.account;
         return {
           sessionId: f.sessionId,
           name: s ? sessionName(s) : f.name || f.sessionId.slice(0, 8),
+          ...(account ? { account } : {}),
           agents: orderAgentTree(all.filter((a) => !isTaskAgent(a))),
           workflows: (f.workflows ?? []).filter((w) => w.status === 'running'),
           shells: all.filter((a) => isTaskAgent(a) && a.status === 'running'),

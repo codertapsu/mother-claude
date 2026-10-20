@@ -109,6 +109,7 @@ export function buildAccounts(now: number, multi: boolean): AccountsView {
         email: 'marcus@acme.dev',
         subscription: 'team',
         authMethod: 'claude.ai',
+        hooksPlugin: 'missing',
       }),
       accountFixture({
         id: MOCK_ACCOUNT_PRO,

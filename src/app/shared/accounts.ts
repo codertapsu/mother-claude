@@ -1,5 +1,6 @@
 import { ApiError, describeError } from '../core/api.service';
-import { AccountView, CaptureView, PlanUsage, SecretStoreKind } from '../core/models';
+import { isTransferRefusal, transferErrorText } from '../core/data-jobs';
+import { AccountView, CaptureView, CopyConsent, PlanUsage, SecretStoreKind } from '../core/models';
 import { compactWindows, limitName, limitWindow, windowPct } from '../core/plan-usage';
 import { Tone, capitalize, resetsIn } from './util';
 
@@ -129,11 +130,14 @@ export function captureProblem(c: CaptureView | null | undefined): string {
 export function accountErrorText(e: unknown, accountName?: string): string {
   if (e instanceof ApiError) {
     switch (e.code) {
+      // An older server, before "continue on" could copy.
       case 'account_needs_copy':
         return (
           e.message ||
-          'That account keeps its own directory; moving conversations between directories arrives with Move/Copy.'
+          'That account keeps its own directory: the conversation has to be copied there first.'
         );
+      case 'copy_consent_required':
+        return `${accountName || 'That account'} keeps its own directory, so the conversation is copied there first, and copies between these two accounts have to be allowed on the Mac first (on its Accounts page).`;
       case 'account_token_missing':
         return `${accountName || 'That account'} has no token on this Mac yet: add it on the Accounts page of the desktop app.`;
       case 'unknown_account':
@@ -142,5 +146,38 @@ export function accountErrorText(e: unknown, accountName?: string): string {
         break;
     }
   }
-  return describeError(e).text;
+  return isTransferRefusal(e) ? transferErrorText(e) : describeError(e).text;
+}
+
+/** A session belongs to the account an account filter picked ('' = every
+ * account). A session that names no account matches only "every account". */
+export function inAccount(s: { account?: { id: string } } | undefined, filter: string): boolean {
+  return !filter || s?.account?.id === filter;
+}
+
+/** The pair of accounts a continue-on copy waits for the desktop to allow
+ * (409 `copy_consent_required` names them), or null for any other error. */
+export function consentNeeded(e: unknown): CopyConsent | null {
+  if (!(e instanceof ApiError) || e.code !== 'copy_consent_required') return null;
+  const from = e.detail('from');
+  const to = e.detail('to');
+  return from && to ? { from, to } : null;
+}
+
+/** The hooks plugin of an account, in a few words ('' for none to show: a
+ * token account uses the Default's). */
+export function hooksPluginText(a: Pick<AccountView, 'kind' | 'hooksPlugin'>): string {
+  if (a.kind === 'token') return '';
+  switch (a.hooksPlugin) {
+    case 'installed':
+      return 'Hooks plugin installed';
+    case 'off':
+      return 'Hooks plugin switched off';
+    case 'missing':
+      return 'Hooks plugin not installed';
+    case 'unknown':
+      return "Hooks plugin: couldn't check";
+    default:
+      return '';
+  }
 }

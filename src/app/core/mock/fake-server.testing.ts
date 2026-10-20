@@ -54,14 +54,18 @@ export class FakeBackend implements MockBackend {
   readonly calls: string[] = [];
   /** Every request's JSON body, in the order of `calls`. */
   readonly bodies: unknown[] = [];
+  /** Every request's path with its query (`/backup/index?account=x`). */
+  readonly urls: string[] = [];
   readonly routes = new Map<string, Route>();
 
   async fetch(url: string, init?: RequestInit): Promise<Response> {
-    const path = new URL(url).pathname.replace(/^\/api/, '');
+    const u = new URL(url);
+    const path = u.pathname.replace(/^\/api/, '');
     const method = init?.method ?? 'GET';
     const sent = parseJson(init?.body);
     this.calls.push(`${method} ${path}`);
     this.bodies.push(sent);
+    this.urls.push(`${path}${u.search}`);
     const route = this.routes.get(path);
     const { status, body, headers } = route
       ? await route(method, sent)

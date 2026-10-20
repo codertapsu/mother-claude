@@ -3,6 +3,7 @@ import {
   Component,
   computed,
   inject,
+  input,
   output,
   signal,
 } from '@angular/core';
@@ -10,7 +11,7 @@ import { RouterLink } from '@angular/router';
 
 import { isAccountColor } from '../core/accounts';
 import { AccountsService } from '../core/accounts.service';
-import { FleetSummary, PlanUsage, SessionSummary } from '../core/models';
+import { AccountFleet, FleetSummary, PlanUsage, SessionSummary } from '../core/models';
 import { NowService } from '../core/now.service';
 import { compactWindows, windowPct, windowSeverity, worstSeverity } from '../core/plan-usage';
 import { PlanUsageService } from '../core/plan-usage.service';
@@ -65,6 +66,37 @@ export function fleetCounts(sessions: readonly SessionSummary[], midnight: numbe
   return out;
 }
 
+/**
+ * The fleet summary per Claude account, with the server's rules (`GET
+ * /agents` `summary.accounts`): working, needing you and live sessions and
+ * today's cost, for every account a session names (sessions name one only
+ * while more than the Default exists, so this is empty with only it).
+ */
+export function fleetByAccount(sessions: readonly SessionSummary[]): Map<string, AccountFleet> {
+  const out = new Map<string, AccountFleet>();
+  for (const s of sessions) {
+    const id = s.account?.id;
+    if (!id) continue;
+    const a = out.get(id) ?? { working: 0, needYou: 0, live: 0, costToday: 0 };
+    if (s.live && s.status === 'working') a.working += 1;
+    if ((s.pending ?? []).some((p) => p.answerable)) a.needYou += 1;
+    if (s.live) a.live += 1;
+    a.costToday += s.costToday ?? 0;
+    out.set(id, a);
+  }
+  for (const a of out.values()) a.costToday = Math.round(a.costToday * 100) / 100;
+  return out;
+}
+
+/** One account's line of the fleet summary. */
+interface AccountLine {
+  id: string;
+  name: string;
+  color: string;
+  parts: { text: string; warn?: boolean }[];
+  label: string;
+}
+
 /** One meter of the compact plan-usage segment. */
 export interface CompactMeter {
   key: string;
@@ -117,7 +149,9 @@ export function compactPlan(
  * server's fleet summary ({@link fleetCounts}), so the phone and the fleet
  * agree. The plan part is hidden when the account has no plan usage. With
  * several Claude accounts a switcher in front of it picks whose usage it
- * shows (the Default's until another is picked; the sheet lists them all).
+ * shows (the Default's until another is picked; the sheet lists them all),
+ * and a second row gives each account with something going on its own
+ * counts ({@link fleetByAccount}); tapping one shows its sessions.
  */
 @Component({
   selector: 'mc-fleet-summary',
@@ -195,6 +229,25 @@ export function compactPlan(
           }
         </span>
       </div>
+      @if (accountLines().length) {
+        <div class="fleet accts" role="group" aria-label="Per account">
+          @for (l of accountLines(); track l.id) {
+            <button
+              type="button"
+              class="seg acctsum"
+              [attr.aria-pressed]="l.id === account()"
+              [attr.aria-label]="l.label"
+              (click)="accountPicked.emit(l.id)"
+            >
+              <span class="adot" aria-hidden="true" [style.background]="l.color"></span>
+              <span class="aname">{{ l.name }}</span>
+              @for (p of l.parts; track p.text) {
+                <span class="apart" [class.warn]="p.warn">{{ p.text }}</span>
+              }
+            </button>
+          }
+        </div>
+      }
       <mc-plan-usage-sheet [open]="sheetOpen()" (closed)="sheetOpen.set(false)" />
     }
   `,
@@ -326,6 +379,33 @@ export function compactPlan(
         cursor: pointer;
         font-size: 16px;
       }
+      .fleet.accts {
+        margin-top: -0.35rem;
+      }
+      .seg.acctsum {
+        max-width: 100%;
+        min-height: 32px;
+        flex-wrap: wrap;
+        row-gap: 0.1rem;
+        white-space: normal;
+      }
+      .seg.acctsum[aria-pressed='true'] {
+        border-color: var(--accent);
+        background: var(--accent-soft);
+      }
+      .seg.acctsum .aname {
+        color: var(--text);
+        font-weight: 600;
+        max-width: 9rem;
+        white-space: nowrap;
+      }
+      .apart + .apart::before {
+        content: '· ';
+        color: var(--faint);
+      }
+      .apart.warn {
+        color: var(--amber);
+      }
       @media (max-width: 767px) {
         .seg.plan {
           flex: 1 1 100%;
@@ -354,6 +434,10 @@ export class FleetSummaryComponent {
   private accounts = inject(AccountsService);
 
   readonly filter = output<'live' | 'needs'>();
+  /** The account whose sessions the page shows ('' = every account). */
+  readonly account = input('');
+  /** An account's counts were tapped: show its sessions. */
+  readonly accountPicked = output<string>();
   protected readonly sheetOpen = signal(false);
 
   protected readonly hasSessions = computed(() => this.realtime.sessions().length > 0);
@@ -392,6 +476,32 @@ export class FleetSummaryComponent {
     return this.multi()
       ? label.replace(/^Plan usage:/, `Plan usage of ${this.meterName()}:`)
       : label;
+  });
+
+  /** Each account with something going on (live, waiting or spent today),
+   * in the accounts' order. Only while more than the Default exists. */
+  protected readonly accountLines = computed<AccountLine[]>(() => {
+    if (!this.multi()) return [];
+    const by = fleetByAccount(this.realtime.sessions());
+    const out: AccountLine[] = [];
+    for (const a of this.accountList()) {
+      const f = by.get(a.id);
+      if (!f || (!f.live && !f.needYou && !f.costToday)) continue;
+      const parts: AccountLine['parts'] = [{ text: `${f.live} live` }];
+      if (f.working) parts.push({ text: `${f.working} working` });
+      if (f.needYou) {
+        parts.push({ text: `${f.needYou} ${f.needYou === 1 ? 'needs' : 'need'} you`, warn: true });
+      }
+      if (f.costToday) parts.push({ text: `${formatUsd(f.costToday)} today` });
+      out.push({
+        id: a.id,
+        name: a.name,
+        color: isAccountColor(a.color) ? a.color : 'var(--accent)',
+        parts,
+        label: `${a.name}: ${parts.map((p) => p.text).join(', ')}. Show its sessions`,
+      });
+    }
+    return out;
   });
 
   protected pickMeter(e: Event): void {

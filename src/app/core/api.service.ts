@@ -8,6 +8,9 @@ import {
   AccountPatch,
   AccountView,
   AccountsView,
+  BackupIndex,
+  BackupSettings,
+  BackupView,
   BridgeDefaults,
   BridgeStatus,
   CaptureView,
@@ -21,6 +24,7 @@ import {
   ForeignControlStatus,
   GitOverview,
   Inbox,
+  JobView,
   KeyName,
   LaunchDefaults,
   LifecycleAction,
@@ -55,6 +59,8 @@ import {
   TokenStatus,
   TranscriptPage,
   TranscriptQuery,
+  TransferBody,
+  TransferPlan,
   UploadResult,
   VapidInfo,
 } from './models';
@@ -99,7 +105,15 @@ import {
  *             setCopyConsent(from, to, granted) · recheckAccount(id) ·
  *             loginAccount(id, consoleAccount?) · getAccountToken(id) ·
  *             startTokenCapture(id) · sendTokenCode(id, code) ·
- *             pasteAccountToken(id, token) · cancelTokenCapture(id)
+ *             pasteAccountToken(id, token) · cancelTokenCapture(id) ·
+ *             installAccountHooks(id) · uninstallAccountHooks(id)
+ *   Data      planTransfer(body) · startTransfer(body) · listDataJobs() ·
+ *             getDataJob(id) · undoDataJob(id)
+ *   Backup    getBackup() · setBackupSettings(patch) ·
+ *             generateBackupPassphrase() · setBackupPassphrase(p) ·
+ *             pushBackup(account?) · getBackupIndex(account, into?) ·
+ *             restoreBackup(body) · restoreBackupSettings(account) ·
+ *             pullBackup(body)
  *   Pairing   createPairCode(req) · exchangePairCode(body) ·
  *             pollPairPending(pendingId, secret) · getMe() · unpairSelf()
  *   Devices   listDevices() · approvePair(id, fingerprint) · denyPair(id) ·
@@ -433,6 +447,104 @@ export class ApiService {
     return this.req(`/accounts/${enc(id)}/token`, { method: 'DELETE' });
   }
 
+  /** Desktop only: the hooks plugin in a directory account's directory (422
+   * `use_default_install` for the Default, `not_a_directory_account` for a
+   * token account). */
+  installAccountHooks(id: string): Promise<AccountView> {
+    return this.post<AccountView>(`/accounts/${enc(id)}/hooks/install`, {});
+  }
+
+  uninstallAccountHooks(id: string): Promise<AccountView> {
+    return this.post<AccountView>(`/accounts/${enc(id)}/hooks/uninstall`, {});
+  }
+
+  // ─────────────────────────────────────────── Moving and copying data
+
+  /** Desktop only: what a move or copy would write (nothing is written). */
+  planTransfer(body: TransferBody): Promise<{ plan: TransferPlan }> {
+    return this.post('/data/move', { ...body, dryRun: true });
+  }
+
+  /** Desktop only: run a move or copy as a data job (202). */
+  startTransfer(body: TransferBody): Promise<{ job: JobView }> {
+    return this.post('/data/move', { ...body, dryRun: false });
+  }
+
+  /** Running and recent data jobs (moves, copies, backups, restores, pulls). */
+  listDataJobs(): Promise<{ jobs: JobView[] }> {
+    return this.req('/data/jobs');
+  }
+
+  getDataJob(id: string): Promise<JobView> {
+    return this.req<JobView>(`/data/jobs/${enc(id)}`);
+  }
+
+  /** Desktop only: put things back as they were (409 `undo_conflict` when
+   * something it created was changed since). */
+  undoDataJob(id: string): Promise<JobView> {
+    return this.post<JobView>(`/data/jobs/${enc(id)}/undo`, {});
+  }
+
+  // ─────────────────────────────────────────────────── Backup and sync
+
+  getBackup(): Promise<BackupView> {
+    return this.req<BackupView>('/backup');
+  }
+
+  /** Desktop only: send only what changes. */
+  setBackupSettings(patch: Partial<BackupSettings>): Promise<BackupView> {
+    return this.req<BackupView>('/backup/settings', {
+      method: 'PUT',
+      body: JSON.stringify(patch),
+    });
+  }
+
+  /** Desktop only: a generated passphrase, answered this once and then only
+   * in the Mac's Keychain. The caller shows it and forgets it. */
+  generateBackupPassphrase(): Promise<{ passphrase: string | null }> {
+    return this.post('/backup/passphrase', { generate: true });
+  }
+
+  /** Desktop only: the user's own passphrase (at least 12 characters). */
+  setBackupPassphrase(passphrase: string): Promise<{ passphrase: string | null }> {
+    return this.post('/backup/passphrase', { passphrase });
+  }
+
+  /** Desktop only: back up one account, or all (202 with the job ids). */
+  pushBackup(account?: string): Promise<{ jobs: string[] }> {
+    return this.post('/backup/push', account ? { account } : {});
+  }
+
+  /** A set's sessions compared with an account's directory (`into`,
+   * default the set's own account). */
+  getBackupIndex(account: string, into?: string): Promise<BackupIndex> {
+    return this.req<BackupIndex>(`/backup/index${query({ account, into })}`);
+  }
+
+  /** Desktop only: restore sessions of a set (202 with the job, or its id). */
+  restoreBackup(body: {
+    account: string;
+    into?: string;
+    ids: string[];
+    trust?: boolean;
+  }): Promise<{ job: JobView | string }> {
+    return this.post('/backup/restore', body);
+  }
+
+  /** Desktop only: unpack the newest settings bundle for review. */
+  restoreBackupSettings(account: string): Promise<{ folder: string }> {
+    return this.post('/backup/restore', { account, config: true });
+  }
+
+  /** Desktop only: pull one account's set, or every account's (202). */
+  pullBackup(body: {
+    account?: string;
+    ids?: string[];
+    trust?: boolean;
+  }): Promise<{ jobs: (JobView | string)[]; skipped?: string[] }> {
+    return this.post('/backup/pull', body);
+  }
+
   // ────────────────────────────────────────────────────────────── Pairing
 
   /** Desktop: mint a single-use pairing code + QR for LAN or internet. A
@@ -676,6 +788,7 @@ export class ApiService {
         env.code,
         retry,
         env.field,
+        env.extra,
       );
     }
     return res;
@@ -696,9 +809,18 @@ export class ApiError extends Error {
     readonly retryAfter?: number,
     /** Offending request field, when the server names one. */
     readonly field?: string,
+    /** The error object's other fields (e.g. `copy_consent_required`'s
+     * `from` and `to`). */
+    readonly extra: Readonly<Record<string, unknown>> = {},
   ) {
     super(message);
     this.name = 'ApiError';
+  }
+
+  /** A string field of the error object ('' when absent). */
+  detail(key: string): string {
+    const v = this.extra[key];
+    return typeof v === 'string' ? v : '';
   }
 }
 
@@ -816,12 +938,13 @@ async function readJson(res: Response): Promise<unknown> {
   }
 }
 
-/** `{"error":{"code","message","field"}}`, `{"error":"…"}`, `{"message":"…"}` or text. */
+/** `{"error":{"code","message","field", …}}`, `{"error":"…"}`, `{"message":"…"}` or text. */
 function parseEnvelope(text: string): {
   code?: string;
   message?: string;
   field?: string;
   retryAfter?: number;
+  extra?: Record<string, unknown>;
 } {
   const trimmed = text.trim();
   if (!trimmed) return {};
@@ -833,14 +956,21 @@ function parseEnvelope(text: string): {
     };
     if (typeof body.error === 'string') return { message: body.error, code: body.code };
     if (body.error && typeof body.error === 'object') {
-      const retry = body.error.retryAfter;
+      const {
+        code,
+        message,
+        field,
+        retryAfter: retry,
+        ...extra
+      } = body.error as Record<string, unknown>;
       return {
-        code: body.error.code,
-        message: body.error.message,
-        field: body.error.field,
+        code: typeof code === 'string' ? code : undefined,
+        message: typeof message === 'string' ? message : undefined,
+        field: typeof field === 'string' ? field : undefined,
         ...(typeof retry === 'number' && Number.isFinite(retry) && retry > 0
           ? { retryAfter: retry }
           : {}),
+        extra,
       };
     }
     if (typeof body.message === 'string') return { message: body.message, code: body.code };

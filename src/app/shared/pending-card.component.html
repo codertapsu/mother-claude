@@ -2,7 +2,16 @@
   <span class="kicon" aria-hidden="true"><mc-icon [name]="icon()" [size]="18" /></span>
   <div class="htext">
     @if (showSession()) {
-      <a class="sess" [routerLink]="['/session', item().sessionId]">{{ sessionLabel() }}</a>
+      @if (session()?.account; as a) {
+        <!-- The Claude account it runs under (sessions name one only while
+             there are several). -->
+        <span class="sline">
+          <a class="sess" [routerLink]="['/session', item().sessionId]">{{ sessionLabel() }}</a>
+          <mc-account-chip class="acct" [account]="a" />
+        </span>
+      } @else {
+        <a class="sess" [routerLink]="['/session', item().sessionId]">{{ sessionLabel() }}</a>
+      }
     }
     <strong class="title">{{ heading() }}</strong>
   </div>

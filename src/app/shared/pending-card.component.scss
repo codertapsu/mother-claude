@@ -63,6 +63,20 @@
 .sess:hover {
   color: var(--accent-text);
 }
+.sline {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.2rem 0.4rem;
+  min-width: 0;
+}
+.sline .sess {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.sline .acct {
+  font-size: 0.7rem;
+}
 .title {
   line-height: 1.35;
   overflow-wrap: anywhere;

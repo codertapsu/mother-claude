@@ -3,7 +3,8 @@ import { ChangeDetectionStrategy, Component, input, signal } from '@angular/core
 import { IconComponent } from './icon.component';
 
 /** Copies `text` to the clipboard (with a fallback for non-secure contexts,
- * where the async Clipboard API is unavailable). */
+ * where the async Clipboard API is unavailable). `ariaLabel` replaces the
+ * spoken "Copy: <text>" (for a secret that must not end up in it). */
 @Component({
   selector: 'mc-copy-button',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -12,7 +13,7 @@ import { IconComponent } from './icon.component';
     <button
       type="button"
       class="btn small"
-      [attr.aria-label]="label() + ': ' + text()"
+      [attr.aria-label]="ariaLabel() || label() + ': ' + text()"
       (click)="copy()"
     >
       <mc-icon [name]="copied() ? 'check' : 'copy'" [size]="14" />
@@ -23,6 +24,7 @@ import { IconComponent } from './icon.component';
 export class CopyButtonComponent {
   readonly text = input.required<string>();
   readonly label = input('Copy');
+  readonly ariaLabel = input('');
   protected readonly copied = signal(false);
   private timer?: ReturnType<typeof setTimeout>;
 

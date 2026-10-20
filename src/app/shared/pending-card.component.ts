@@ -28,6 +28,7 @@ import {
 import { NoticeService } from '../core/notice.service';
 import { PendingService, isFullItem, resolutionText } from '../core/pending.service';
 import { RealtimeService } from '../core/realtime.service';
+import { AccountChipComponent } from './account-chip.component';
 import { CapLimitsComponent } from './cap-limits.component';
 import { IconComponent, IconName } from './icon.component';
 import { renderMarkdown } from './markdown';
@@ -73,7 +74,8 @@ interface SchemaField {
  * - `compact` — list version: quick actions only for exactly-one simple,
  *   answerable, non-dangerous item (a permission, or one single-select
  *   question with ≤ 4 options), else "Review".
- * - `showSession` — show which session asks (Inbox).
+ * - `showSession` — show which session asks (Inbox), with its Claude
+ *   account's chip while there are several.
  * - `gone` — the item left the store; the card shows how it was settled.
  * - `bodyMax` — cap the body height (the dock uses 45vh) and scroll inside.
  * Outputs: `resolved`, `move` (J/K: ±1), `sendAsMessage` (typed feedback
@@ -93,6 +95,7 @@ interface SchemaField {
     FormsModule,
     NgTemplateOutlet,
     RouterLink,
+    AccountChipComponent,
     CapLimitsComponent,
     IconComponent,
     SheetComponent,

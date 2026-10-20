@@ -19,6 +19,7 @@ import {
   BridgeDefaults,
   CaptureView,
   FleetSession,
+  FleetSummary,
   PairCode,
   PendingItem,
   PlanUsage,
@@ -39,6 +40,7 @@ import {
   toPreview,
 } from './fixtures';
 import { MockBackend, MockRole, WebSocketLike, mockRole } from './mock-api';
+import { MockData } from './mock-data';
 import { urlParam } from '../platform';
 
 const TOKEN = 'mock-token';
@@ -108,10 +110,22 @@ class FixtureBackend implements MockBackend {
   private readonly captures = new Map<string, CaptureView>();
   /** When each other account's usage was last read (429 within a minute). */
   private readonly accountReads = new Map<string, number>();
+  /** Moves, copies, data jobs and backups (`/data/*`, `/backup*`). */
+  private readonly data: MockData;
 
   constructor(readonly role: MockRole) {
     const now = Date.now();
     this.fx = buildFixtures(now);
+    this.data = new MockData({
+      desktop: role === 'desktop',
+      sessions: () => [...this.fx.sessions, ...this.fx.history],
+      accounts: () => this.fx.accounts.accounts,
+      accountOf: (id) => this.sessionAccounts.get(id) ?? DEFAULT_ACCOUNT,
+      reassign: (id, account) => {
+        this.sessionAccounts.set(id, account);
+        this.syncSessionAccounts(true);
+      },
+    });
     if (ACCOUNTS_MODE === '1' || ACCOUNTS_MODE === 'limit') {
       this.fx.accounts = buildAccounts(now, true);
       this.fx.accountUsage = buildAccountUsage(now);
@@ -209,6 +223,10 @@ class FixtureBackend implements MockBackend {
     // /me
     if (path === '/me') return json(this.me());
 
+    // Moves, copies, data jobs, backups
+    const data = this.data.route(path, method, body, q);
+    if (data) return data;
+
     // Sessions
     if (path === '/sessions' && method === 'GET') {
       if (q.get('scope') === 'all') {
@@ -229,7 +247,7 @@ class FixtureBackend implements MockBackend {
       const refusal = this.accountRefusal((body as { account?: unknown }).account);
       return refusal ?? json(this.spawn(body), 201);
     }
-    if (path === '/agents') return json({ sessions: this.fleet() });
+    if (path === '/agents') return json({ sessions: this.fleet(), summary: this.fleetSummary() });
     if (path === '/inbox') return json({ items: this.pending() });
     if (path === '/projects') return json({ projects: this.fx.projects });
     if (path === '/defaults') return json(this.fx.defaults);
@@ -277,7 +295,10 @@ class FixtureBackend implements MockBackend {
       return json({
         mcpServers: { github: {}, linear: {}, playwright: {} },
         daemon: { reachable: true, raw: 'claude daemon 2.1.282 · pid 4411 · up 3d 4h' },
-        backgroundJobs: [{ id: 'k7m2', cwd: '/Users/marcus/dev/monorepo', state: 'running' }],
+        // Like the server: the session's id, the daemon's short job id.
+        backgroundJobs: [
+          { id: 's-audit', jobId: 'k7m2', cwd: '/Users/marcus/dev/monorepo', state: 'working' },
+        ],
       });
     }
 
@@ -614,7 +635,7 @@ class FixtureBackend implements MockBackend {
   }
 
   onSubFleet(socket: FakeSocket): void {
-    socket.emit({ t: 'fleet', sessions: this.fleet() });
+    socket.emit({ t: 'fleet', sessions: this.fleet(), summary: this.fleetSummary() });
   }
 
   forget(socket: FakeSocket): void {
@@ -721,7 +742,7 @@ class FixtureBackend implements MockBackend {
     }
     for (const s of this.sockets) {
       if (!s.authed) continue;
-      if (s.fleet) s.emit({ t: 'fleet', sessions: this.fleet() });
+      if (s.fleet) s.emit({ t: 'fleet', sessions: this.fleet(), summary: this.fleetSummary() });
       for (const sid of s.subs) {
         s.emit({
           t: 'agents',
@@ -964,12 +985,43 @@ class FixtureBackend implements MockBackend {
 
   private fleet(): FleetSession[] {
     return Object.entries(this.fx.agents)
-      .map(([sessionId, list]) => ({
-        sessionId,
-        name: this.find(sessionId)?.title ?? sessionId,
-        agents: list.filter((a) => a.status === 'running'),
-      }))
+      .map(([sessionId, list]) => {
+        // Like the server: the session's account while there are several.
+        const account = this.multi()
+          ? this.accountRef(this.sessionAccounts.get(sessionId) ?? DEFAULT_ACCOUNT)
+          : undefined;
+        return {
+          sessionId,
+          name: this.find(sessionId)?.title ?? sessionId,
+          agents: list.filter((a) => a.status === 'running'),
+          ...(account ? { account } : {}),
+        };
+      })
       .filter((f) => f.agents.length);
+  }
+
+  /** The fleet header, by the server's rules (per account once there are
+   * several). */
+  private fleetSummary(): FleetSummary {
+    const out: FleetSummary = { working: 0, agentsRunning: 0, needYou: 0, costToday: 0 };
+    const accounts: NonNullable<FleetSummary['accounts']> = {};
+    for (const s of this.fx.sessions) {
+      const working = s.live && s.status === 'working';
+      const needYou = s.pending.some((p) => p.answerable);
+      out.working += Number(working);
+      out.needYou += Number(needYou);
+      out.agentsRunning += s.agents.running;
+      out.costToday = (out.costToday ?? 0) + (s.costToday ?? 0);
+      if (s.account) {
+        const a = (accounts[s.account.id] ??= { working: 0, needYou: 0, live: 0, costToday: 0 });
+        a.working += Number(working);
+        a.needYou += Number(needYou);
+        a.live += Number(s.live);
+        a.costToday = Math.round((a.costToday + (s.costToday ?? 0)) * 100) / 100;
+      }
+    }
+    out.costToday = Math.round((out.costToday ?? 0) * 100) / 100;
+    return Object.keys(accounts).length ? { ...out, accounts } : out;
   }
 
   private detail(s: SessionSummary): SessionDetail {
@@ -1167,7 +1219,10 @@ class FixtureBackend implements MockBackend {
     return id;
   }
 
-  /** `POST /sessions/{id}/continue`, with the server's account rules. */
+  /** `POST /sessions/{id}/continue`, with the server's account rules:
+   * another account always forks (a session Mother Claude runs keeps
+   * running); one with its own directory gets the conversation copied there
+   * first, once the desktop allowed copies between the two accounts. */
   private continueSession(s: SessionSummary, body: unknown): Response {
     const asked = (body as { account?: unknown }).account;
     const source = this.sessionAccounts.get(s.id) ?? DEFAULT_ACCOUNT;
@@ -1179,27 +1234,24 @@ class FixtureBackend implements MockBackend {
     const target = this.account(String(asked)) as AccountView;
     const from = this.account(source) ?? { id: source, kind: 'directory' };
     if (needsCopy(from, target)) {
-      return json(
-        {
-          error: {
-            code: 'account_needs_copy',
-            message:
-              'That account keeps its own directory: the conversation has to be copied there before it can continue on it, which this version cannot do yet.',
-          },
-        },
-        409,
+      const allowed = this.fx.accounts.copyConsent.some(
+        (c) => c.from === source && c.to === target.id,
       );
-    }
-    if (s.owned && s.live) {
-      return json(
-        {
-          error: {
-            code: 'already_owned',
-            message: 'This session is already driven by Mother Claude.',
+      if (!allowed) {
+        return json(
+          {
+            error: {
+              code: 'copy_consent_required',
+              message:
+                'That account keeps its own directory: the conversation has to be copied there first. Allow copies between these two accounts (on the desktop), then try again.',
+              from: source,
+              to: target.id,
+            },
           },
-        },
-        409,
-      );
+          409,
+        );
+      }
+      this.data.copyForContinue(s.id, target.id);
     }
     return json({ id: this.fork(s, target), forked: true }, 201);
   }
@@ -1640,6 +1692,39 @@ class FixtureBackend implements MockBackend {
       }
     }
 
+    if ((sub === 'hooks/install' || sub === 'hooks/uninstall') && method === 'POST') {
+      if (!desktop) return deskOnly();
+      if (a.isDefault) {
+        return json(
+          {
+            error: {
+              code: 'use_default_install',
+              message:
+                "The Default account's plugin is managed with foreign control's own install.",
+            },
+          },
+          422,
+        );
+      }
+      if (a.kind !== 'directory') {
+        return json(
+          {
+            error: {
+              code: 'not_a_directory_account',
+              message: "A token account shares the Default account's directory and its plugin.",
+            },
+          },
+          422,
+        );
+      }
+      await delay(700);
+      this.updateAccount(a.id, {
+        hooksPlugin: sub === 'hooks/install' ? 'installed' : 'missing',
+      });
+      this.publishAccounts();
+      return this.accountJson(a.id);
+    }
+
     return json({ error: { code: 'not_found', message: `No mock for ${method} ${sub}` } }, 404);
   }
 
@@ -1749,8 +1834,11 @@ class FixtureBackend implements MockBackend {
     this.fx.agents[sessionId] = list.map((a: AgentInfo) =>
       a.taskId === taskId || a.id === taskId ? { ...a, status: 'stopped', endedAt: Date.now() } : a,
     );
-    for (const s of this.sockets)
-      if (s.authed && s.fleet) s.emit({ t: 'fleet', sessions: this.fleet() });
+    for (const s of this.sockets) {
+      if (s.authed && s.fleet) {
+        s.emit({ t: 'fleet', sessions: this.fleet(), summary: this.fleetSummary() });
+      }
+    }
   }
 }
 

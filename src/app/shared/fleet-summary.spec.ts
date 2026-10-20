@@ -7,7 +7,12 @@ import { setActiveMock } from '../core/mock/mock-api';
 import { PlanUsage, SessionSummary } from '../core/models';
 import { storageGet, storageRemove } from '../core/platform';
 import { RealtimeService } from '../core/realtime.service';
-import { FleetSummaryComponent, compactPlan, fleetCounts } from './fleet-summary.component';
+import {
+  FleetSummaryComponent,
+  compactPlan,
+  fleetByAccount,
+  fleetCounts,
+} from './fleet-summary.component';
 
 const s = (over: Record<string, unknown>): SessionSummary =>
   ({ id: 'x', live: true, status: 'idle', pending: [], ...over }) as unknown as SessionSummary;
@@ -51,6 +56,27 @@ describe('fleetCounts', () => {
     );
     expect(unpriced.priced).toBeFalse();
     expect(unpriced.tokensToday).toBe(15);
+  });
+});
+
+describe('fleetByAccount', () => {
+  const work = { id: 'acc_w', name: 'Work', color: '#0ea5e9', kind: 'directory' };
+  const def = { id: 'default', name: 'Default', color: '#8b5cf6', kind: 'directory' };
+
+  it("counts each account's sessions like the server's summary.accounts", () => {
+    const by = fleetByAccount([
+      s({ account: work, status: 'working', costToday: 0.104 }),
+      s({ account: work, status: 'waiting', pending: [{ answerable: true }], costToday: 0.2 }),
+      s({ account: work, live: false, status: 'ended', costToday: 1 }),
+      s({ account: def, status: 'idle', pending: [{ answerable: false }] }),
+      // A session in a directory nobody registered counts for no account.
+      s({ status: 'working' }),
+    ]);
+    expect([...by.keys()]).toEqual(['acc_w', 'default']);
+    expect(by.get('acc_w')).toEqual({ working: 1, needYou: 1, live: 2, costToday: 1.3 });
+    expect(by.get('default')).toEqual({ working: 0, needYou: 0, live: 1, costToday: 0 });
+    // With only the Default, sessions name no account: nothing per account.
+    expect(fleetByAccount([s({ status: 'working' })]).size).toBe(0);
   });
 });
 

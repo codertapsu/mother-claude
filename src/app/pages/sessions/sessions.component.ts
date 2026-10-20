@@ -2,10 +2,12 @@ import { Component, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 
+import { AccountsService } from '../../core/accounts.service';
 import { ApiService, errorMessage } from '../../core/api.service';
 import { SessionSummary } from '../../core/models';
 import { storageGet, storageSet } from '../../core/platform';
 import { RealtimeService } from '../../core/realtime.service';
+import { inAccount } from '../../shared/accounts';
 import { FleetSummaryComponent } from '../../shared/fleet-summary.component';
 import { IconComponent } from '../../shared/icon.component';
 import { LimitOfferComponent } from '../../shared/limit-offer.component';
@@ -34,9 +36,10 @@ function byRecent(a: SessionSummary, b: SessionSummary): number {
 
 /**
  * Every session in the active scope (live, or active in the last 24 h),
- * searchable and filterable, grouped by what they need; ended sessions page
- * in on demand. A card with one simple pending request can be answered
- * right here.
+ * searchable and filterable (by surface, project and — while more than the
+ * Default exists — Claude account), grouped by what they need; ended
+ * sessions page in on demand. A card with one simple pending request can be
+ * answered right here.
  */
 @Component({
   selector: 'mc-sessions',
@@ -54,6 +57,7 @@ function byRecent(a: SessionSummary, b: SessionSummary): number {
 export class SessionsComponent {
   private realtime = inject(RealtimeService);
   private api = inject(ApiService);
+  private accounts = inject(AccountsService);
 
   protected readonly loaded = this.realtime.sessionsLoaded;
   protected readonly connection = this.realtime.connection;
@@ -63,6 +67,16 @@ export class SessionsComponent {
   protected readonly filter = signal<Filter>(readFilter());
   protected readonly surface = signal('');
   protected readonly project = signal('');
+  /** The account filter ('' = every account; shown only while more than
+   * the Default exists). */
+  protected readonly account = signal('');
+  protected readonly accountList = this.accounts.list;
+  protected readonly multi = this.accounts.multi;
+  /** The pick in effect: none once its account is gone (or the only one). */
+  private readonly accountInEffect = computed(() => {
+    const id = this.account();
+    return this.accounts.multi() && this.accounts.byId(id) ? id : '';
+  });
 
   protected readonly history = signal<SessionSummary[]>([]);
   protected readonly historyOpen = signal(false);
@@ -87,9 +101,11 @@ export class SessionsComponent {
     const q = this.query().trim().toLowerCase();
     const surface = this.surface();
     const project = this.project();
+    const account = this.accountInEffect();
     return (s: SessionSummary): boolean => {
       if (surface && s.surface !== surface) return false;
       if (project && s.projectName !== project) return false;
+      if (!inAccount(s, account)) return false;
       return !q || sessionMatches(s, q);
     };
   });
@@ -152,7 +168,13 @@ export class SessionsComponent {
     this.query.set('');
     this.surface.set('');
     this.project.set('');
+    this.account.set('');
     this.setFilter('all');
+  }
+
+  /** The fleet summary's account: show its sessions (again: every one). */
+  showAccount(id: string): void {
+    this.account.set(this.account() === id ? '' : id);
   }
 
   async openHistory(): Promise<void> {

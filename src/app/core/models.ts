@@ -566,6 +566,20 @@ export interface FleetSession {
    * `bash`/`monitor`: they have output, not a transcript). */
   agents: AgentInfo[];
   workflows?: WorkflowRun[];
+  /** The session's Claude account (absent while only the Default exists). */
+  account?: AccountRef;
+}
+
+/** One account's part of the fleet summary. */
+export interface AccountFleet {
+  /** Its live sessions currently working. */
+  working: number;
+  /** Its sessions with a request answerable from here. */
+  needYou: number;
+  /** Its live sessions. */
+  live: number;
+  /** Priced cost written since local midnight. */
+  costToday: number;
 }
 
 /** "3 working · 7 agents running · 2 need you · $4.12 today". */
@@ -582,6 +596,8 @@ export interface FleetSummary {
   /** Priced cost written since local midnight, across sessions (the sum of
    * their `costToday`, not of their lifetime `costUsd`). */
   costToday?: number;
+  /** The same per account id (absent while only the Default exists). */
+  accounts?: Record<string, AccountFleet>;
 }
 
 export interface Fleet {
@@ -698,8 +714,9 @@ export interface AccountView {
   signingIn: boolean;
   /** A token account's token is in this Mac's secret store. */
   tokenStored: boolean;
-  /** The hooks plugin in this account's directory, as last seen. */
-  hooksPlugin?: string;
+  /** The hooks plugin in this account's directory, as last seen (the
+   * Default's mirrors foreign control; a token account shares it). */
+  hooksPlugin?: HooksPluginState | string;
   /** Live sessions (only in `GET /accounts` answers). */
   live?: number;
   capture?: CaptureView;
@@ -759,6 +776,193 @@ export interface TokenStatus {
   available: boolean;
   capture?: CaptureView;
   tokenStored: boolean;
+}
+
+/** The hooks plugin in an account's directory, as last seen: `installed`
+ * (and on), `off` (installed, switched off), `missing`, `unknown`. */
+export type HooksPluginState = 'installed' | 'off' | 'missing' | 'unknown';
+
+// ──────────────── Data jobs: moves, copies, backups (`/data/*`, `/backup*`)
+
+export type DataJobKind = 'move' | 'copy' | 'backup' | 'restore' | 'pull';
+export type DataJobState = 'running' | 'done' | 'failed' | 'undone';
+
+/** `GET /data/jobs/{id}`: a move, copy, backup, restore or pull. */
+export interface JobView {
+  id: string;
+  kind: DataJobKind;
+  state: DataJobState;
+  startedAt: number;
+  finishedAt?: number;
+  filesDone: number;
+  filesTotal: number;
+  bytesDone: number;
+  bytesTotal: number;
+  error?: string;
+  errorCode?: string;
+  /** Until when Undo works (ms). */
+  undoUntil?: number;
+  /** The sessions it moved, copied or restored. */
+  sessions: string[];
+  /** Per kind: what a backup archived, what a restore or pull did. */
+  result?: unknown;
+}
+
+export type TransferMode = 'move' | 'copy';
+
+/** What a transfer takes: one session, or every session of a project. */
+export type TransferWhat = { what: 'session'; id: string } | { what: 'project'; cwd: string };
+
+/** `POST /data/move` (desktop only). */
+export type TransferBody = TransferWhat & {
+  from: string;
+  to: string;
+  mode: TransferMode;
+  /** Bring the folder's trust (its `.claude.json` entry) along. */
+  trust?: boolean;
+  /** Only say what it would do. */
+  dryRun?: boolean;
+};
+
+export interface TransferFile {
+  from: string;
+  to: string;
+  size: number;
+}
+
+export interface TransferSessionPlan {
+  id: string;
+  cwd?: string;
+  files: TransferFile[];
+}
+
+/** A dry run: everything a transfer would write, nothing written yet. */
+export interface TransferPlan {
+  what: TransferWhat;
+  mode: TransferMode;
+  sessions: TransferSessionPlan[];
+  files: number;
+  bytes: number;
+  /** The project entry added to the target's `.claude.json` (trust). */
+  addsProjectEntry?: string | null;
+  /** The project entry removed from the source's (a project move). */
+  removesProjectEntry?: string | null;
+  /** Prompt-history lines appended to the target (a project). */
+  historyLines: number;
+  /** The target's `.claude.json` or `history.jsonl` is written. */
+  writesShared: boolean;
+}
+
+/** `PUT /backup/settings` (desktop only); `folder: null` turns backups off. */
+export interface BackupSettings {
+  folder?: string | null;
+  /** 0 = by hand only, else every this many hours (≤ 168). */
+  everyHours: number;
+  pullOnLaunch: boolean;
+}
+
+/** A machine that pushed to a backup set. */
+export interface BackupMachine {
+  host: string;
+  lastPush?: number;
+}
+
+/** One account's backup set (`GET /backup` `sets`). */
+export interface BackupSet {
+  account: string;
+  name: string;
+  dir: string;
+  exists: boolean;
+  lastPush?: number;
+  lastError?: string;
+  sessions?: number;
+  machines: BackupMachine[];
+}
+
+export interface BackupSuggestion {
+  label: string;
+  path: string;
+}
+
+/** `GET /backup`. */
+export interface BackupView {
+  settings: BackupSettings;
+  passphraseSet: boolean;
+  /** This Mac's name in the sets. */
+  host: string;
+  sets: BackupSet[];
+  suggestions: BackupSuggestion[];
+  lastPull?: number;
+  jobs: JobView[];
+}
+
+/** What a pull (or restore) does with one session of a set. */
+export type BackupAction = 'new' | 'update' | 'conflict' | 'same' | 'localNewer' | 'live';
+
+export interface BackupIndexSession {
+  id: string;
+  action: BackupAction;
+  cwd?: string;
+  remoteBytes: number;
+  localBytes?: number;
+  host: string;
+  pushedAt: number;
+  newestMtime: number;
+  /** "Claude Code will delete this again at its next cleanup…". */
+  pruneWarning?: string;
+}
+
+export interface BackupConfigEntry {
+  name: string;
+  createdAt: number;
+  host: string;
+}
+
+/** `GET /backup/index?account=&into=`. */
+export interface BackupIndex {
+  account: string;
+  name: string;
+  set: string;
+  machines: BackupMachine[];
+  sessions: BackupIndexSession[];
+  config: BackupConfigEntry[];
+}
+
+export interface BackupSkip {
+  id: string;
+  code: string;
+  reason: string;
+}
+
+export interface BackupWarning {
+  /** Empty for a warning about the whole run. */
+  id: string;
+  text: string;
+}
+
+/** A restore's `result`. */
+export interface RestoreResult {
+  restored: string[];
+  skipped: BackupSkip[];
+  warnings: BackupWarning[];
+}
+
+/** A pull's `result`. */
+export interface PullResult extends RestoreResult {
+  updated: string[];
+  /** The session, and the file written beside its own transcript. */
+  conflicts: [string, string][];
+  historyLines: number;
+}
+
+/** A backup's `result`. */
+export interface PushResult {
+  archived: string[];
+  unchanged: number;
+  skippedLive: string[];
+  failed: [string, string][];
+  config?: string | null;
+  bytes: number;
 }
 
 /** `GET /sessions/{id}/mcp` (owned sessions). */
@@ -1477,5 +1681,6 @@ export interface PermissionInfo {
 export interface ServicesInfo {
   mcpServers?: Record<string, unknown>;
   daemon?: { reachable?: boolean; raw?: string; error?: string };
-  backgroundJobs?: { id: string; cwd: string; state: string }[];
+  /** `id` is the session's; `jobId` the daemon's short id. */
+  backgroundJobs?: { id: string; jobId?: string; cwd: string; state: string }[];
 }

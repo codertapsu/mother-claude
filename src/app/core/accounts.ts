@@ -222,12 +222,32 @@ export function homeOf(a: { id: string; kind: AccountKind | string }): string {
 }
 
 /** Continuing a conversation of `from` on `to` needs it copied into another
- * directory first (docs/ACCOUNTS.md §5.9; not available before Move/Copy). */
+ * directory first (docs/ACCOUNTS.md §5.9: "continue on" a directory account
+ * copies it there, once the desktop allowed copies between the two). */
 export function needsCopy(
   from: { id: string; kind: AccountKind | string },
   to: { id: string; kind: AccountKind | string },
 ): boolean {
   return homeOf(from) !== homeOf(to);
+}
+
+/** Where a conversation or project of `from` can be moved or copied: the
+ * directory accounts (the Default among them) whose directory is another
+ * one. A token account is no target of its own: it shares the Default's
+ * directory, so moving there is moving to the Default. */
+export function transferTargets<T extends { id: string; kind: AccountKind | string }>(
+  accounts: readonly T[],
+  from: { id: string; kind: AccountKind | string },
+): T[] {
+  return accounts.filter((a) => a.kind === 'directory' && needsCopy(from, a));
+}
+
+/** The token accounts that use `id`'s directory (only the Default has any). */
+export function sharersOf<T extends { id: string; kind: AccountKind | string; name: string }>(
+  accounts: readonly T[],
+  id: string,
+): T[] {
+  return accounts.filter((a) => a.id !== id && a.kind === 'token' && homeOf(a) === id);
 }
 
 /** Work can run under this account right now: its token is here and it is
