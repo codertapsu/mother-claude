@@ -321,6 +321,9 @@ impl Inner {
     pub async fn refresh_claude_auth(&self) -> AuthStatus {
         let status = crate::claude::auth_status().await;
         *self.claude_auth.write().await = status.clone();
+        self.accounts
+            .runtime
+            .set_auth(crate::claude::accounts::DEFAULT_ID, status.clone());
         status
     }
 }

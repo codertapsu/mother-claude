@@ -521,6 +521,20 @@ pub struct SessionSummary {
     /// Pidfile `name` (the CLI's own session name, e.g. `mother-claude-25`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cli_name: Option<String>,
+    /// The Claude account the session runs (or ran) under; absent while only
+    /// the Default account exists (docs/ACCOUNTS.md §4.4).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub account: Option<AccountRef>,
+}
+
+/// An account as a chip on a session, a conversation or a job.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AccountRef {
+    pub id: String,
+    pub name: String,
+    pub color: String,
+    pub kind: crate::claude::accounts::AccountKind,
 }
 
 impl SessionSummary {

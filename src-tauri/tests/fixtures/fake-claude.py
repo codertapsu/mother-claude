@@ -63,6 +63,67 @@ if ARGS and ARGS[0] == "logs":
     sys.stdout.flush()
     sys.exit(0)
 
+# Sign-in, per account (docs/ACCOUNTS.md). Only ever touches the directory in
+# CLAUDE_CONFIG_DIR (a test's temp dir), never the real ~/.claude.
+SIGNED_IN = ".fake-signed-in"
+if ARGS[:2] == ["auth", "status"]:
+    token = os.environ.get("CLAUDE_CODE_OAUTH_TOKEN")
+    cfg = os.environ.get("CLAUDE_CONFIG_DIR")
+    if token:
+        status = {"loggedIn": True, "authMethod": "oauth_token", "apiProvider": "firstParty"}
+    elif cfg:
+        marker = os.path.join(cfg, SIGNED_IN)
+        if os.path.exists(marker):
+            with open(marker, encoding="utf-8") as f:
+                email = f.read().strip()
+            status = {"loggedIn": True, "authMethod": "claude.ai", "email": email,
+                      "subscriptionType": "pro", "configDirectory": cfg}
+        else:
+            status = {"loggedIn": False, "authMethod": "none", "configDirectory": cfg}
+    else:
+        status = {"loggedIn": True, "authMethod": "claude.ai", "email": "default@example.test",
+                  "subscriptionType": "max"}
+    print(json.dumps(status))
+    sys.exit(0)
+if ARGS[:2] == ["auth", "login"]:
+    cfg = os.environ.get("CLAUDE_CONFIG_DIR")
+    if cfg and os.path.isdir(cfg):
+        time.sleep(0.3)  # the browser round trip
+        with open(os.path.join(cfg, SIGNED_IN), "w", encoding="utf-8") as f:
+            f.write(os.environ.get("FAKE_LOGIN_EMAIL", "work@example.test"))
+    sys.exit(0)
+if ARGS[:1] == ["setup-token"]:
+    # Ink-like output: colours, cursor moves, an OSC 8 link, then the token.
+    mode = os.environ.get("FAKE_SETUP_TOKEN", "token")
+    url = "https://claude.ai/oauth/authorize?code=true&client_id=fake&state=s1"
+    w = sys.stdout.write
+    w("\x1b[?25l\x1b[2K\x1b[G\x1b[2mBrowser didn't open? Use the url below to sign in\x1b[22m\r\n")
+    w(f"\x1b]8;;{url}\x1b\\\x1b[2m{url}\x1b[22m\x1b]8;;\x1b\\\r\n")
+    sys.stdout.flush()
+    if mode == "fail":
+        w("\x1b[31mOAuth error: the sign-in was cancelled\x1b[39m\r\n")
+        sys.stdout.flush()
+        sys.exit(1)
+    if mode == "hang":
+        time.sleep(600)
+        sys.exit(0)
+    if mode == "code":
+        w("\x1b[1mPaste code here if prompted >\x1b[22m ")
+        sys.stdout.flush()
+        sys.stdin.readline()
+    token = os.environ.get(
+        "FAKE_SETUP_TOKEN_VALUE",
+        "sk-ant-oat01-" + "Ab1_" * 20 + "-fakeTokenTail0123456789",
+    )
+    time.sleep(0.1)
+    w("\x1b[32m\u2713 Long-lived authentication token created successfully!\x1b[39m\r\n")
+    w("Your OAuth token (valid for 1 year):\r\n")
+    w(f"\x1b[33m{token}\x1b[39m\r\n")
+    w("\x1b[2mStore this token securely. You won't be able to see it again.\x1b[22m\r\n")
+    sys.stdout.flush()
+    time.sleep(0.5)
+    sys.exit(0)
+
 # The variables an account removes (docs/ACCOUNTS.md D5): which are present.
 ACCOUNT_OVERRIDES = [
     "CLAUDE_CODE_OAUTH_TOKEN",

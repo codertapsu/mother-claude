@@ -15,6 +15,8 @@ use std::process::Stdio;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use crate::claude::accounts::AccountEnv;
+
 /// The result of asking the CLI who it is signed in as.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -76,18 +78,35 @@ pub async fn status() -> AuthStatus {
     status_with(&crate::claude::claude_bin()).await
 }
 
+/// Ask the CLI for an account's sign-in state: the Default account exactly
+/// like [`status`]; another account with its environment composed (its
+/// directory or its token, docs/ACCOUNTS.md D5).
+pub async fn status_for(account: &AccountEnv) -> AuthStatus {
+    status_with_env(&crate::claude::claude_bin(), account).await
+}
+
 /// The check itself, against a named binary.
 ///
 /// Split out so tests can point it at something that does not exist without
 /// mutating `MOTHER_CLAUDE_CLI`, which is process-global and shared with every
 /// other test running in parallel.
 async fn status_with(binary: &str) -> AuthStatus {
-    let run = tokio::process::Command::new(binary)
+    status_with_env(binary, &AccountEnv::Inherit).await
+}
+
+async fn status_with_env(binary: &str, account: &AccountEnv) -> AuthStatus {
+    let mut command = tokio::process::Command::new(binary);
+    command
         .arg("auth")
         .arg("status")
         .arg("--json")
-        .stdin(Stdio::null())
-        .output();
+        .stdin(Stdio::null());
+    if !account.is_inherit() {
+        // Another account: the scrubbed environment plus its own part. The
+        // Default's check keeps the environment it always had.
+        crate::claude::control::scrub_child_env(&mut command, account);
+    }
+    let run = command.output();
 
     let output = match tokio::time::timeout(std::time::Duration::from_secs(20), run).await {
         Ok(Ok(output)) => output,
@@ -144,10 +163,19 @@ pub fn parse(value: &Value) -> AuthStatus {
 /// blocking an HTTP handler on a human finishing an OAuth round trip would only
 /// produce a timeout. Poll [`status`] to see when it lands.
 pub async fn begin_login(console: bool) -> anyhow::Result<()> {
+    begin_login_for(console, &AccountEnv::Inherit).await
+}
+
+/// [`begin_login`] for an account: a directory account signs its own
+/// directory in (its own Keychain item), never the Default's.
+pub async fn begin_login_for(console: bool, account: &AccountEnv) -> anyhow::Result<()> {
     let mut command = tokio::process::Command::new(crate::claude::claude_bin());
     command.arg("auth").arg("login");
     if console {
         command.arg("--console");
+    }
+    if !account.is_inherit() {
+        crate::claude::control::scrub_child_env(&mut command, account);
     }
     command
         .stdin(Stdio::null())

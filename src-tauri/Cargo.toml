@@ -79,8 +79,11 @@ futures-util = "0.3.34"
 # unsanctioned, unstable internals but is ON by default so the dashboard can
 # drive foreign sessions. Build with `--no-default-features` to compile it out;
 # disable at runtime with MOTHER_CLAUDE_FOREIGN_INJECTION=0.
-default = ["experimental"]
+default = ["experimental", "token-capture"]
 experimental = ["dep:portable-pty"]
+# Run `claude setup-token` in a pseudo-terminal and take the token it shows
+# (docs/ACCOUNTS.md D3). Without it a token account's token can only be pasted.
+token-capture = ["dep:portable-pty"]
 
 [profile.release]
 strip = true

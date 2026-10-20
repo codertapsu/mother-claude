@@ -135,6 +135,11 @@ pub async fn serve(state: AppState) -> anyhow::Result<()> {
     if !auth.logged_in {
         tracing::warn!(status = %auth.summary(), "Claude is not signed in");
     }
+    // The other accounts' sign-ins, in parallel, without holding up the start.
+    if !state.accounts.is_default_only() {
+        let st = state.clone();
+        tokio::spawn(async move { crate::claude::accounts::status::refresh_all(&st).await });
+    }
 
     tokio::spawn(monitor::run(state.clone()));
     tokio::spawn(crate::bridge::autostart(state.clone()));

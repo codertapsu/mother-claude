@@ -162,6 +162,11 @@ pub enum ServerEvent {
     /// The claude.ai plan's usage changed (everyone; also sent right after
     /// the full `sessions` frame): `{t:"planUsage", usage}`.
     PlanUsage { usage: PlanUsage },
+    /// The accounts changed (everyone; sent on connect once there is more
+    /// than the Default): `{t:"accounts", accounts}` (docs/ACCOUNTS.md §4.4).
+    Accounts {
+        accounts: crate::claude::accounts::view::AccountsView,
+    },
 }
 
 /// Who receives an event.
@@ -185,7 +190,8 @@ impl ServerEvent {
             | ServerEvent::Notice { .. }
             | ServerEvent::Resync
             | ServerEvent::PendingResolved(_)
-            | ServerEvent::PlanUsage { .. } => Audience::All,
+            | ServerEvent::PlanUsage { .. }
+            | ServerEvent::Accounts { .. } => Audience::All,
             ServerEvent::Transcript { session, agent, .. }
             | ServerEvent::TranscriptReset { session, agent } => {
                 Audience::SessionKey(session, agent.as_deref())
@@ -499,6 +505,18 @@ pub fn publish_resync(state: &AppState) {
 /// when what clients see changed).
 pub fn publish_plan_usage(state: &AppState, usage: PlanUsage) {
     state.broadcast(ServerEvent::PlanUsage { usage });
+}
+
+/// The accounts changed, for everyone.
+pub fn publish_accounts(state: &AppState, accounts: crate::claude::accounts::view::AccountsView) {
+    state.broadcast(ServerEvent::Accounts { accounts });
+}
+
+/// The `accounts` frame a client gets after its `planUsage` frame, once
+/// there is more than the Default account.
+fn accounts_frame(state: &AppState) -> Option<ServerEvent> {
+    crate::claude::accounts::view::connect_frame(state)
+        .map(|accounts| ServerEvent::Accounts { accounts })
 }
 
 /// The `planUsage` frame a client gets after its full `sessions` frame.
@@ -997,6 +1015,9 @@ async fn run_client(
         snap.seq
     };
     out.push_event(&plan_usage_frame(&state));
+    if let Some(frame) = accounts_frame(&state) {
+        out.push_event(&frame);
+    }
     // The first client may make stale plan usage worth a read.
     crate::claude::usage::on_client_connected(&state, state.hub.client_count());
 
@@ -1057,11 +1078,14 @@ async fn run_client(
                             let snap = state.snapshot.read().await;
                             serde_json::to_string(&full_frame(&snap)).unwrap_or_default()
                         };
-                        // A dropped backlog may have held a planUsage frame.
+                        // A dropped backlog may have held a planUsage or
+                        // accounts frame.
                         let usage =
                             serde_json::to_string(&plan_usage_frame(&state)).unwrap_or_default();
+                        let accounts = accounts_frame(&state)
+                            .and_then(|f| serde_json::to_string(&f).ok());
                         let mut sent = socket.send(Message::Text(resync.into())).await;
-                        for text in [full, usage] {
+                        for text in [Some(full), Some(usage), accounts].into_iter().flatten() {
                             if sent.is_ok() {
                                 sent = socket.send(Message::Text(text.into())).await;
                             }

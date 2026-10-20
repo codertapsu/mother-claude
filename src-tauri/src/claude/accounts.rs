@@ -34,6 +34,10 @@ use serde_json::Value;
 use super::home::{user_home_dir, ClaudeHome};
 use super::secrets::{Secret, SecretError, SecretName, SecretStore};
 
+pub mod capture;
+pub mod status;
+pub mod view;
+
 /// The Default account's id.
 pub const DEFAULT_ID: &str = "default";
 /// The Default account's name until the user renames it.
@@ -94,7 +98,7 @@ fn now_ms() -> i64 {
 // ─────────────────────────────── the model ────────────────────────────────
 
 /// The two kinds of account (D1).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum AccountKind {
     /// Its own config directory and its own sign-in.
@@ -635,6 +639,8 @@ pub struct AccountRegistry {
     data: RwLock<Registry>,
     /// Bumped on every change (for the `accounts` frame).
     generation: AtomicU64,
+    /// What is known about each account now (sign-in, captures).
+    pub runtime: status::AccountRuntime,
 }
 
 impl fmt::Debug for AccountRegistry {
@@ -667,7 +673,37 @@ impl AccountRegistry {
             secrets,
             data: RwLock::new(data),
             generation: AtomicU64::new(0),
+            runtime: status::AccountRuntime::default(),
         }
+    }
+
+    /// Whether a token account's token is stored on this machine (the
+    /// secret store is asked once per account, then remembered).
+    pub fn has_token(&self, id: &str) -> bool {
+        if let Some(known) = self
+            .runtime
+            .tokens
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(id)
+        {
+            return *known;
+        }
+        let present = self
+            .secrets
+            .get(&SecretName::AccountToken(id.to_string()))
+            .map(|t| t.is_some_and(|t| !t.is_empty()))
+            .unwrap_or(false);
+        self.note_token(id, present);
+        present
+    }
+
+    fn note_token(&self, id: &str, present: bool) {
+        self.runtime
+            .tokens
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(id.to_string(), present);
     }
 
     fn read(&self) -> RwLockReadGuard<'_, Registry> {
@@ -837,21 +873,24 @@ impl AccountRegistry {
     }
 
     /// Register a token account. The token goes to the secret store; the
-    /// registry keeps its SHA-256.
+    /// registry keeps its SHA-256. Without a token the account waits for one
+    /// (`setup-token` or a paste) and cannot run sessions until then.
     pub fn add_token(
         &self,
         name: &str,
-        token: &Secret,
+        token: Option<&Secret>,
         color: Option<&str>,
     ) -> Result<Account, AccountError> {
         let name = clean_name(name)?;
-        check_token_shape(token)?;
+        if let Some(token) = token {
+            check_token_shape(token)?;
+        }
         let mut guard = self.write();
         if name_taken(&guard, &name, None) {
             return Err(AccountError::NameTaken(name));
         }
-        let sha = token.sha256_hex();
-        if let Some(other) = guard.by_token_sha256(&sha) {
+        let sha = token.map(Secret::sha256_hex);
+        if let Some(other) = sha.as_deref().and_then(|s| guard.by_token_sha256(s)) {
             return Err(AccountError::Invalid(format!(
                 "this token is already account {:?}",
                 other.name
@@ -866,18 +905,23 @@ impl AccountRegistry {
             color: Some(color),
             created_at: now_ms(),
             hooks_plugin: None,
-            token_sha256: Some(sha),
+            token_sha256: sha,
             account_uuid: None,
             extra: BTreeMap::new(),
         };
         let secret = SecretName::AccountToken(account.id.clone());
-        self.secrets.set(&secret, token)?;
+        if let Some(token) = token {
+            self.secrets.set(&secret, token)?;
+        }
         let mut next = guard.clone();
         next.accounts.push(account.clone());
         if let Err(e) = self.commit(&mut guard, next) {
-            let _ = self.secrets.delete(&secret);
+            if token.is_some() {
+                let _ = self.secrets.delete(&secret);
+            }
             return Err(e);
         }
+        self.note_token(&account.id, token.is_some());
         Ok(account)
     }
 
@@ -903,6 +947,7 @@ impl AccountRegistry {
             .get(&SecretName::AccountToken(id.to_string()))?;
         self.secrets
             .set(&SecretName::AccountToken(id.to_string()), token)?;
+        self.note_token(id, true);
         let mut next = guard.clone();
         let entry = next.get_mut(id).expect("checked above");
         entry.token_sha256 = Some(sha);
@@ -977,11 +1022,13 @@ impl AccountRegistry {
         next.defaults.by_project.retain(|_, a| a != id);
         next.copy_consent.retain(|c| c.from != id && c.to != id);
         self.commit(&mut guard, next)?;
+        drop(guard);
         if account.kind == AccountKind::Token {
             if let Err(e) = self.secrets.delete(&SecretName::AccountToken(id.into())) {
                 tracing::warn!(id, error = %e, "could not delete a removed account's token");
             }
         }
+        self.runtime.forget(id);
         Ok(account)
     }
 
@@ -1217,7 +1264,7 @@ impl fmt::Debug for EnvOverrides {
 
 impl AccountEnv {
     /// Apply to a child's environment (after the scrub, before the spawn).
-    pub fn apply(&self, target: &mut impl EnvTarget) {
+    pub fn apply(&self, target: &mut dyn EnvTarget) {
         match self {
             Self::Inherit => {}
             Self::Directory(dir) => {
@@ -1333,7 +1380,7 @@ mod tests {
             assert_eq!(mode(&tmp.path().join(FILE_NAME)), 0o600);
         }
         let pro = reg
-            .add_token("Marcus (Pro)", &token(1), Some("#F59E0B"))
+            .add_token("Marcus (Pro)", Some(&token(1)), Some("#F59E0B"))
             .unwrap();
         assert_eq!(pro.color.as_deref(), Some("#f59e0b"));
         assert_eq!(
@@ -1445,20 +1492,20 @@ mod tests {
             Err(AccountError::DirUnavailable(_))
         ));
         assert!(matches!(
-            reg.add_token("Short", &Secret::new("abc"), None),
+            reg.add_token("Short", Some(&Secret::new("abc")), None),
             Err(AccountError::Invalid(_))
         ));
         assert!(matches!(
             reg.add_token(
                 "Spaces",
-                &Secret::new(format!("{} x", "a".repeat(30))),
+                Some(&Secret::new(format!("{} x", "a".repeat(30)))),
                 None
             ),
             Err(AccountError::Invalid(_))
         ));
-        reg.add_token("T1", &token(2), None).unwrap();
+        reg.add_token("T1", Some(&token(2)), None).unwrap();
         assert!(matches!(
-            reg.add_token("T2", &token(2), None),
+            reg.add_token("T2", Some(&token(2)), None),
             Err(AccountError::Invalid(_))
         ));
         assert!(matches!(
@@ -1485,7 +1532,7 @@ mod tests {
     fn removing_an_account_cleans_up_after_it() {
         let tmp = tempfile::tempdir().unwrap();
         let (reg, _) = registry(tmp.path());
-        let t = reg.add_token("T", &token(3), None).unwrap();
+        let t = reg.add_token("T", Some(&token(3)), None).unwrap();
         let w = reg.add_directory("W", &tmp.path().join("w"), None).unwrap();
         reg.set_defaults(AccountDefaults {
             new_session: t.id.clone(),
@@ -1522,7 +1569,7 @@ mod tests {
     fn a_token_account_without_its_token_is_an_error_not_the_default() {
         let tmp = tempfile::tempdir().unwrap();
         let (reg, default_dir) = registry(tmp.path());
-        let t = reg.add_token("T", &token(4), None).unwrap();
+        let t = reg.add_token("T", Some(&token(4)), None).unwrap();
         // Another machine: same registry, empty secret store.
         let elsewhere = AccountRegistry::load(
             Some(tmp.path()),

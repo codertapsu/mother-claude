@@ -11,6 +11,7 @@
 //! sidecar only on its one route). Each handler still names its own guard
 //! extractor (`Authed`, `DesktopOnly`, `DangerousOk`, `SidecarOnly`).
 
+pub mod accounts;
 pub mod control;
 pub mod data;
 pub mod foreign;
@@ -116,6 +117,22 @@ pub fn api_router() -> Router<AppState> {
         .route("/sessions/{id}/commands", get(data::commands))
         .route("/projects", get(data::projects))
         .route("/defaults", get(data::defaults))
+        // ── accounts (docs/ACCOUNTS.md) ──
+        .route("/accounts", get(accounts::list).post(accounts::add))
+        .route("/accounts/defaults", put(accounts::put_defaults))
+        .route("/accounts/copy-consent", put(accounts::put_copy_consent))
+        .route(
+            "/accounts/{id}",
+            axum::routing::patch(accounts::update).delete(accounts::remove),
+        )
+        .route("/accounts/{id}/refresh", post(accounts::refresh))
+        .route("/accounts/{id}/login", post(accounts::login))
+        .route(
+            "/accounts/{id}/token",
+            get(accounts::token_status)
+                .post(accounts::token)
+                .delete(accounts::cancel_token),
+        )
         .route("/usage", get(usage::get_usage))
         .route("/usage/refresh", post(usage::refresh))
         .route("/usage/settings", put(usage::put_settings))
