@@ -17,6 +17,7 @@ use std::sync::Arc;
 use tokio::sync::{broadcast, RwLock};
 
 use crate::bridge::{BridgeConfig, BridgeState};
+use crate::claude::accounts::AccountRegistry;
 use crate::claude::activity::ActivityTracker;
 use crate::claude::agents::AgentTracker;
 use crate::claude::control::ControlRegistry;
@@ -141,6 +142,9 @@ pub struct Inner {
     /// The claude.ai plan's usage limits and their refresh scheduler
     /// (`claude/usage.rs`).
     pub usage: UsageStore,
+    /// The Claude accounts sessions can run under, and their secrets
+    /// (`claude/accounts.rs`, docs/ACCOUNTS.md).
+    pub accounts: AccountRegistry,
 }
 
 impl std::fmt::Debug for Inner {
@@ -177,6 +181,11 @@ impl Inner {
             // The plan-usage helper's `claude -p` is never a session.
             live.ignore_cwd(&crate::claude::usage::helper_dir(dir));
         }
+        let accounts = AccountRegistry::load(
+            data_dir,
+            home.clone(),
+            crate::claude::secrets::store_for(data_dir),
+        );
         Arc::new(Inner {
             home,
             config,
@@ -207,6 +216,7 @@ impl Inner {
             tmux: TmuxState::new(),
             push: PushService::new(data_dir),
             usage: UsageStore::new(data_dir),
+            accounts,
             auth,
         })
     }

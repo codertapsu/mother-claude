@@ -12,6 +12,19 @@ use anyhow::{anyhow, Result};
 #[derive(Debug, Clone)]
 pub struct ClaudeHome {
     base: PathBuf,
+    global: GlobalFile,
+}
+
+/// Where a home's global `.claude.json` lives.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum GlobalFile {
+    /// Decided by `CLAUDE_CONFIG_DIR` of our own environment, the way the CLI
+    /// decides it for a child that inherits it: inside the directory when it
+    /// is set, `~/.claude.json` otherwise. The Default account's home.
+    FromEnv,
+    /// Always `<dir>/.claude.json`: a directory account, whose children get
+    /// `CLAUDE_CONFIG_DIR` set to the directory (docs/ACCOUNTS.md D5).
+    Inside,
 }
 
 /// The current user's home directory: `$HOME` (Unix) or, when that is unset,
@@ -35,6 +48,7 @@ impl ClaudeHome {
             if !dir.trim().is_empty() {
                 return Ok(Self {
                     base: PathBuf::from(dir),
+                    global: GlobalFile::FromEnv,
                 });
             }
         }
@@ -42,12 +56,28 @@ impl ClaudeHome {
             .ok_or_else(|| anyhow!("none of CLAUDE_CONFIG_DIR, HOME, or USERPROFILE is set"))?;
         Ok(Self {
             base: home.join(".claude"),
+            global: GlobalFile::FromEnv,
         })
     }
 
-    /// Construct a handle for an explicit base dir (used in tests).
+    /// Construct a handle for an explicit base dir (used in tests). Its
+    /// `.claude.json` follows our own `CLAUDE_CONFIG_DIR`, like [`resolve`].
+    ///
+    /// [`resolve`]: ClaudeHome::resolve
     pub fn with_base(base: impl Into<PathBuf>) -> Self {
-        Self { base: base.into() }
+        Self {
+            base: base.into(),
+            global: GlobalFile::FromEnv,
+        }
+    }
+
+    /// The home of a directory account: `CLAUDE_CONFIG_DIR` is set to `dir`
+    /// for its children, so its `.claude.json` is always inside it.
+    pub fn for_account_dir(dir: impl Into<PathBuf>) -> Self {
+        Self {
+            base: dir.into(),
+            global: GlobalFile::Inside,
+        }
     }
 
     pub fn base(&self) -> &Path {
@@ -83,16 +113,38 @@ impl ClaudeHome {
     }
 
     /// The global `~/.claude.json` — relocated into `$CLAUDE_CONFIG_DIR` when
-    /// that override is active, like every other config file.
+    /// that override is active, like every other config file, and always
+    /// inside a directory account's directory.
     pub fn claude_json(&self) -> PathBuf {
-        let overridden = std::env::var("CLAUDE_CONFIG_DIR")
-            .map(|v| !v.trim().is_empty())
-            .unwrap_or(false);
+        let overridden = self.global == GlobalFile::Inside
+            || std::env::var("CLAUDE_CONFIG_DIR")
+                .map(|v| !v.trim().is_empty())
+                .unwrap_or(false);
         if overridden {
             self.base.join(".claude.json")
         } else {
             user_home_dir().unwrap_or_default().join(".claude.json")
         }
+    }
+
+    /// `sessions/` — the live pidfiles (`<pid>.json`).
+    pub fn sessions_dir(&self) -> PathBuf {
+        self.base.join("sessions")
+    }
+
+    /// `file-history/` — per-session file snapshots for `/rewind`.
+    pub fn file_history_dir(&self) -> PathBuf {
+        self.base.join("file-history")
+    }
+
+    /// `session-env/` — per-session environment directories.
+    pub fn session_env_dir(&self) -> PathBuf {
+        self.base.join("session-env")
+    }
+
+    /// `todos/` — per-session todo lists (`<id>*.json`).
+    pub fn todos_dir(&self) -> PathBuf {
+        self.base.join("todos")
     }
 
     /// `jobs/<id>/state.json` (may not exist).
@@ -197,6 +249,20 @@ mod tests {
     fn best_effort_decode_roundtrips_simple_paths() {
         // No hyphens in the original → exact round-trip.
         assert_eq!(best_effort_decode("-Users-me-app"), "/Users/me/app");
+    }
+
+    #[test]
+    fn a_directory_account_keeps_its_global_file_inside() {
+        let home = ClaudeHome::for_account_dir("/tmp/cfg-work");
+        assert_eq!(
+            home.claude_json(),
+            PathBuf::from("/tmp/cfg-work/.claude.json")
+        );
+        assert_eq!(home.sessions_dir(), PathBuf::from("/tmp/cfg-work/sessions"));
+        assert_eq!(
+            home.file_history_dir(),
+            PathBuf::from("/tmp/cfg-work/file-history")
+        );
     }
 
     #[test]

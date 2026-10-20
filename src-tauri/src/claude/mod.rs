@@ -4,6 +4,7 @@
 //! Claude Code's research-preview internals. Everything above it works with the
 //! tolerant types defined here, so a single module absorbs version churn.
 
+pub mod accounts;
 pub mod activity;
 pub mod agents;
 pub mod auth;
@@ -22,6 +23,7 @@ pub mod owned;
 pub mod pricing;
 pub mod registry;
 pub mod schema;
+pub mod secrets;
 pub mod settings;
 pub mod summaries;
 pub mod tmux;
