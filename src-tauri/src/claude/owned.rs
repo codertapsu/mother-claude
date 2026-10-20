@@ -1095,6 +1095,19 @@ pub async fn context_usage(state: &AppState, id: &str) -> ApiResult<Value> {
     request(state, id, json!({ "subtype": "get_context_usage" })).await
 }
 
+/// The end of a background shell or Monitor task's output
+/// (`get_task_output`: `{output, total_bytes, truncated}`, the last 8 KiB,
+/// read-only, no model turn). A CLI that predates the request answers an
+/// error.
+pub async fn task_output(state: &AppState, id: &str, task_id: &str) -> ApiResult<Value> {
+    request(
+        state,
+        id,
+        json!({ "subtype": "get_task_output", "task_id": task_id }),
+    )
+    .await
+}
+
 /// MCP server status (`mcp_status`) → `{servers:[{name,status,scope?}]}`.
 pub async fn mcp_status(state: &AppState, id: &str) -> ApiResult<Value> {
     let resp = request(state, id, json!({ "subtype": "mcp_status" })).await?;

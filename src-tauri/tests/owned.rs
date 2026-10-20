@@ -1226,6 +1226,19 @@ async fn http_routes_drive_an_owned_session() {
         .unwrap();
     assert_eq!(v["servers"][0]["status"], "connected");
 
+    // Background task output comes from the CLI (`get_task_output`), not
+    // from a temp file this test never wrote.
+    let o = c
+        .get(format!("{base}/api/sessions/{id}/tasks/t1/output"))
+        .bearer_auth(&token)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(o.status(), 200);
+    assert_eq!(o.headers()["x-output-size"], "9000");
+    assert_eq!(o.headers()["x-output-truncated"], "true");
+    assert!(o.text().await.unwrap().contains("[t1] ready on :3000"));
+
     // Stop kills the child; respawn of an owned session is refused.
     let r = post(&format!("/sessions/{id}/stop"), json!({}))
         .await

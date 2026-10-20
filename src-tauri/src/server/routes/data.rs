@@ -376,9 +376,12 @@ fn tail_file(path: &FsPath, max: u64) -> std::io::Result<(String, bool, u64)> {
     Ok((text, start > 0, size))
 }
 
-/// `GET /api/sessions/{id}/tasks/{taskId}/output` → the last 16 KB of a
-/// background task's output, as `text/plain`. The file is the one the
-/// transcript names (`outputFile` / `<output-file>` / `task_status`), and it
+/// `GET /api/sessions/{id}/tasks/{taskId}/output` → the end of a background
+/// task's output, as `text/plain`. An owned session's CLI answers itself
+/// (`get_task_output`: its own 8 KiB tail, Monitor tasks included, whatever
+/// temp directory the shell was given); for every other session, and for a
+/// CLI that predates the request, it is the last 16 KB of the file the
+/// transcript names (`outputFile` / `<output-file>` / `task_status`), which
 /// must lie under the CLI's temp root.
 pub async fn task_output(
     Authed(_ctx): Authed,
@@ -392,6 +395,18 @@ pub async fn task_output(
             "invalid_id",
             "Not a valid task id.",
         ));
+    }
+    if claude::owned::has_handle(&state, &id) {
+        if let Ok(v) = claude::owned::task_output(&state, &id, &task).await {
+            if let Some(text) = v.get("output").and_then(Value::as_str) {
+                let size = v
+                    .get("total_bytes")
+                    .and_then(Value::as_u64)
+                    .unwrap_or(text.len() as u64);
+                let truncated = v.get("truncated").and_then(Value::as_bool).unwrap_or(false);
+                return Ok(output_response(text.to_string(), truncated, size));
+            }
+        }
     }
     let recorded = state
         .index
@@ -415,6 +430,12 @@ pub async fn task_output(
     .map_err(|e| ApiError::internal(e.to_string()))?
     .ok_or_else(|| ApiError::not_found("no_output", "The task's output file is not available."))?;
     let (text, truncated, size) = out;
+    Ok(output_response(text, truncated, size))
+}
+
+/// A task output tail as `text/plain`, with the whole output's size and
+/// whether this is only its end.
+fn output_response(text: String, truncated: bool, size: u64) -> Response {
     let mut resp = locked_down(text.into_response(), "text/plain; charset=utf-8");
     if let Ok(v) = HeaderValue::from_str(&size.to_string()) {
         resp.headers_mut().insert("x-output-size", v);
@@ -423,7 +444,7 @@ pub async fn task_output(
         resp.headers_mut()
             .insert("x-output-truncated", HeaderValue::from_static("true"));
     }
-    Ok(resp)
+    resp
 }
 
 #[derive(Debug, Default, Deserialize)]

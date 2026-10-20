@@ -1587,6 +1587,15 @@ fn on_task(h: &OwnedHandle, sub: &str, v: &Value) {
             if let Some(d) = t.get("description").and_then(Value::as_str) {
                 entry.description = d.to_string();
             }
+            // The level names each task's type too (since CLI 2.1.3xx), so a
+            // task this host never saw start — a re-initialize snapshot — is
+            // an agent or a shell rather than an unknown.
+            if let Some(k) = t.get("task_type").and_then(Value::as_str) {
+                entry.task_type = Some(k.to_string());
+            }
+            if let Some(a) = t.get("subagent_type").and_then(Value::as_str) {
+                entry.subagent_type = Some(a.to_string());
+            }
             entry.ambient = t.get("ambient").and_then(Value::as_bool).unwrap_or(false);
             entry.background = true;
             if entry.status.is_empty() {
@@ -2417,6 +2426,23 @@ mod tests {
         let tasks = live.background_tasks();
         assert_eq!(tasks.len(), 1);
         assert_eq!(tasks[0].kind, BackgroundTaskKind::Bash);
+        // The level signal seeds a task this host never saw start (a
+        // re-initialize snapshot), with its type.
+        on_task(
+            &h,
+            "background_tasks_changed",
+            &json!({ "tasks": [
+                { "task_id": "t1", "task_type": "local_agent", "description": "Explore the repo" },
+                { "task_id": "b1", "task_type": "local_bash", "description": "npm test" },
+                { "task_id": "a2", "task_type": "local_agent", "subagent_type": "Plan",
+                  "description": "Plan the change", "parent_task_id": "t1" }
+            ] }),
+        );
+        let agents = h.live().agents_of("s");
+        assert_eq!(agents.len(), 2);
+        assert!(agents
+            .iter()
+            .any(|a| a.agent_type.as_deref() == Some("Plan")));
         on_task(
             &h,
             "task_notification",

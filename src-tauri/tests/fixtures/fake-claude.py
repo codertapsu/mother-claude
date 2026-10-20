@@ -201,6 +201,12 @@ def handle_host_request(obj):
             err(rid, f"No task {tid}")
     elif sub == "get_context_usage":
         ok(rid, {"totalTokens": 1234, "maxTokens": 200000})
+    elif sub == "get_task_output":
+        tid = req.get("task_id")
+        if tid:
+            ok(rid, {"output": f"[{tid}] ready on :3000\n", "total_bytes": 9000, "truncated": True})
+        else:
+            err(rid, "task_id required")
     elif sub == "mcp_status":
         ok(rid, {"mcpServers": [{"name": "gh", "status": "connected", "scope": "user",
                                  "config": {"env": {"TOKEN": "secret"}}}]})
