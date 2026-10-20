@@ -1391,7 +1391,7 @@ pub async fn helper_read(bin: &str, dir: &Path) -> Result<Value, String> {
         .kill_on_drop(true);
     // The scrubbed child environment, marked owned; CLAUDE_CONFIG_DIR only
     // when the user set it themselves.
-    super::control::apply_child_env(&mut cmd);
+    super::control::apply_child_env(&mut cmd, &super::accounts::AccountEnv::Inherit);
     let mut child = cmd
         .spawn()
         .map_err(|e| format!("Could not start `{bin}` for the plan usage: {e}"))?;

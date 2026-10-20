@@ -174,7 +174,10 @@ impl RuntimeHost {
         // its environment). Scrub the parent's Claude Code session variables
         // and mark the children owned so the foreign-control hook scripts
         // stay out of bridge conversations.
-        crate::claude::control::apply_child_env(&mut command);
+        crate::claude::control::apply_child_env(
+            &mut command,
+            &crate::claude::accounts::AccountEnv::Inherit,
+        );
 
         // CLAUDE_CONFIG_DIR is deliberately NOT set here. Exporting it breaks
         // the CLI's credential resolution *even when it points at the default

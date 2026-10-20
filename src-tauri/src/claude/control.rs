@@ -15,8 +15,12 @@
 //! * The environment is scrubbed of the parent's Claude Code session variables
 //!   (an explicit denylist, [`SCRUBBED_ENV`]) and of `MOTHER_CLAUDE_TOKEN`;
 //!   `MOTHER_CLAUDE_OWNED=1` tells the foreign-control hook scripts to stay
-//!   out. `CLAUDE_CONFIG_DIR` is never set (only inherited when the user set
-//!   it) — setting it breaks the CLI's credential lookup.
+//!   out. Then the session's account composes the rest
+//!   ([`AccountEnv`], docs/ACCOUNTS.md D5): the Default account inherits our
+//!   environment as found — `CLAUDE_CONFIG_DIR` only when the user set it,
+//!   since setting it to the default directory signs the CLI out — a
+//!   directory account gets `CLAUDE_CONFIG_DIR` set to its own directory, a
+//!   token account `CLAUDE_CODE_OAUTH_TOKEN`.
 //! * An `initialize` control request goes first; its commands/models/agents
 //!   (and `fast_mode_state`, and what `account` says about the credentials)
 //!   are cached. `get_settings` (local, no API call) follows it, every
@@ -68,6 +72,7 @@ use super::model::{
     CommandInfo, Delivery, ImageInput, LastError, ModelInfo, NoticeLevel, QueueStatus, QueueVia,
     QueuedMessage, SessionStatus, StreamFrame, StreamKind,
 };
+use crate::claude::accounts::AccountEnv;
 use crate::pending;
 use crate::server::ws;
 use crate::state::AppState;
@@ -95,10 +100,14 @@ const STDERR_TAIL: usize = 20;
 
 /// Inherited variables removed from every child Mother Claude spawns (an
 /// explicit denylist: provider and auth variables such as
-/// `CLAUDE_CODE_USE_BEDROCK` or `CLAUDE_CODE_OAUTH_TOKEN` must survive, or the
-/// child fails the way an exported `CLAUDE_CONFIG_DIR` does). Everything here
-/// identifies the *parent* Claude Code session (set when Mother Claude itself
-/// runs from a Claude Code terminal) or is our own credential.
+/// `CLAUDE_CODE_USE_BEDROCK` or `CLAUDE_CODE_OAUTH_TOKEN` must survive for the
+/// Default account, or the child fails the way an exported
+/// `CLAUDE_CONFIG_DIR` does; another account removes them itself,
+/// [`ACCOUNT_OVERRIDE_ENV`]). Everything here identifies the *parent* Claude
+/// Code session (set when Mother Claude itself runs from a Claude Code
+/// terminal) or is our own credential.
+///
+/// [`ACCOUNT_OVERRIDE_ENV`]: crate::claude::accounts::ACCOUNT_OVERRIDE_ENV
 pub const SCRUBBED_ENV: [&str; 12] = [
     "CLAUDECODE",
     "CLAUDE_CODE_ENTRYPOINT",
@@ -119,21 +128,24 @@ pub const SCRUBBED_ENV: [&str; 12] = [
 pub const OWNED_ENV: &str = "MOTHER_CLAUDE_OWNED";
 
 /// Scrub a child's environment ([`SCRUBBED_ENV`], plus any inherited
-/// [`OWNED_ENV`]) without marking it owned. Used for the lifecycle commands
+/// [`OWNED_ENV`]) and compose the account's part ([`AccountEnv`]) without
+/// marking it owned. Used for the lifecycle commands
 /// (`claude stop|respawn|rm|logs`): they can cold-start a transient
 /// background daemon that would pass the marker on to every background
 /// session it runs, silencing their hooks.
-pub fn scrub_child_env(cmd: &mut tokio::process::Command) {
+pub fn scrub_child_env(cmd: &mut tokio::process::Command, account: &AccountEnv) {
     for key in SCRUBBED_ENV {
         cmd.env_remove(key);
     }
     cmd.env_remove(OWNED_ENV);
+    account.apply(cmd);
 }
 
-/// Scrub a child's environment ([`scrub_child_env`]) and mark it owned. Used
-/// for the Path B `claude`, the Path A sidecar and the bridge host.
-pub fn apply_child_env(cmd: &mut tokio::process::Command) {
-    scrub_child_env(cmd);
+/// Scrub a child's environment and compose its account's part
+/// ([`scrub_child_env`]), then mark it owned. Used for the Path B `claude`,
+/// the Path A sidecar, the bridge host and the plan-usage helper.
+pub fn apply_child_env(cmd: &mut tokio::process::Command, account: &AccountEnv) {
+    scrub_child_env(cmd, account);
     cmd.env(OWNED_ENV, "1");
 }
 
@@ -2055,8 +2067,8 @@ fn server_url(state: &AppState) -> String {
 
 /// Shared stdio/env configuration for both spawn paths. No Mother Claude
 /// credential is ever inherited by a `claude` child (design §2.5).
-fn configure_common(cmd: &mut tokio::process::Command, cwd: &str) {
-    apply_child_env(cmd);
+fn configure_common(cmd: &mut tokio::process::Command, cwd: &str, account: &AccountEnv) {
+    apply_child_env(cmd, account);
     cmd.current_dir(cwd)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -2137,7 +2149,7 @@ fn headless_command(
     }
     // NOTE: the initial prompt is deliberately NOT passed as argv — it goes
     // over stdin as the first stream-json user message (see spawn()).
-    configure_common(&mut c, &opts.cwd);
+    configure_common(&mut c, &opts.cwd, &AccountEnv::Inherit);
     c
 }
 
@@ -2169,7 +2181,7 @@ fn sidecar_command(
     if let Some(resume) = &opts.resume {
         c.env("MC_RESUME", resume);
     }
-    configure_common(&mut c, &opts.cwd);
+    configure_common(&mut c, &opts.cwd, &AccountEnv::Inherit);
     // The sidecar's own credential (`mcs_…`): valid only for
     // `/api/sessions/{id}/permission-request` from this machine. The sidecar
     // removes it from its environment and passes the SDK an explicit env
@@ -2203,7 +2215,7 @@ async fn run_job_command(action: &str, short_id: &str) -> Result<std::process::O
         .stderr(Stdio::piped())
         .kill_on_drop(true);
     // Not owned: never mark a lifecycle command (see `scrub_child_env`).
-    scrub_child_env(&mut cmd);
+    scrub_child_env(&mut cmd, &AccountEnv::Inherit);
     tokio::time::timeout(Duration::from_secs(60), cmd.output())
         .await
         .map_err(|_| anyhow!("`claude {action} {short_id}` timed out"))?
@@ -2254,14 +2266,8 @@ mod tests {
         assert!(!r.is_owned("bridge-thread"));
     }
 
-    #[test]
-    fn child_env_is_scrubbed_by_denylist() {
-        let mut cmd = tokio::process::Command::new("true");
-        cmd.env("CLAUDE_CODE_USE_BEDROCK", "1")
-            .env("CLAUDE_CODE_OAUTH_TOKEN", "x");
-        apply_child_env(&mut cmd);
-        let envs: HashMap<String, Option<String>> = cmd
-            .as_std()
+    fn envs_of(cmd: &tokio::process::Command) -> HashMap<String, Option<String>> {
+        cmd.as_std()
             .get_envs()
             .map(|(k, v)| {
                 (
@@ -2269,21 +2275,65 @@ mod tests {
                     v.map(|v| v.to_string_lossy().into_owned()),
                 )
             })
-            .collect();
-        for key in SCRUBBED_ENV {
-            assert_eq!(envs.get(key), Some(&None), "{key} must be removed");
+            .collect()
+    }
+
+    /// D5 for each kind of account, on top of the scrub every child gets.
+    #[test]
+    fn child_env_is_scrubbed_and_composed_per_account() {
+        use crate::claude::accounts::{ACCOUNT_OVERRIDE_ENV, CONFIG_DIR_ENV, OAUTH_TOKEN_ENV};
+        use crate::claude::secrets::Secret;
+        let some = |v: &str| Some(Some(v.to_string()));
+        let cases = [
+            ("default", AccountEnv::Inherit),
+            (
+                "directory",
+                AccountEnv::Directory("/Users/x/.claude-work".into()),
+            ),
+            (
+                "token",
+                AccountEnv::Token(Secret::new("sk-ant-oat01-account-b")),
+            ),
+        ];
+        for (kind, account) in cases {
+            let mut cmd = tokio::process::Command::new("true");
+            cmd.env("CLAUDE_CODE_USE_BEDROCK", "1")
+                .env("CLAUDE_CODE_OAUTH_TOKEN", "inherited")
+                .env("CLAUDECODE", "1");
+            apply_child_env(&mut cmd, &account);
+            let envs = envs_of(&cmd);
+            for key in SCRUBBED_ENV {
+                assert_eq!(envs.get(key), Some(&None), "{kind}: {key} must be removed");
+            }
+            assert_eq!(envs.get(OWNED_ENV).cloned(), some("1"), "{kind}");
+            match kind {
+                // Provider/auth variables survive; CLAUDE_CONFIG_DIR is never
+                // touched (inherited only when the user set it).
+                "default" => {
+                    assert_eq!(envs.get("CLAUDE_CODE_USE_BEDROCK").cloned(), some("1"));
+                    assert_eq!(envs.get(OAUTH_TOKEN_ENV).cloned(), some("inherited"));
+                    assert!(!envs.contains_key(CONFIG_DIR_ENV));
+                }
+                "directory" => {
+                    assert_eq!(
+                        envs.get(CONFIG_DIR_ENV).cloned(),
+                        some("/Users/x/.claude-work")
+                    );
+                    for key in ACCOUNT_OVERRIDE_ENV {
+                        assert_eq!(envs.get(key), Some(&None), "{key} removed");
+                    }
+                }
+                "token" => {
+                    assert!(!envs.contains_key(CONFIG_DIR_ENV), "left as found");
+                    assert_eq!(
+                        envs.get(OAUTH_TOKEN_ENV).cloned(),
+                        some("sk-ant-oat01-account-b")
+                    );
+                    assert_eq!(envs.get("CLAUDE_CODE_USE_BEDROCK"), Some(&None));
+                }
+                _ => unreachable!(),
+            }
         }
-        assert_eq!(envs.get(OWNED_ENV), Some(&Some("1".to_string())));
-        // Provider/auth variables survive; CLAUDE_CONFIG_DIR is never touched.
-        assert_eq!(
-            envs.get("CLAUDE_CODE_USE_BEDROCK"),
-            Some(&Some("1".to_string()))
-        );
-        assert_eq!(
-            envs.get("CLAUDE_CODE_OAUTH_TOKEN"),
-            Some(&Some("x".to_string()))
-        );
-        assert!(!envs.contains_key("CLAUDE_CONFIG_DIR"));
     }
 
     #[test]
@@ -2292,17 +2342,8 @@ mod tests {
         // marker it inherited would silence every background session's hooks.
         let mut cmd = tokio::process::Command::new("true");
         cmd.env(OWNED_ENV, "1").env("CLAUDE_CODE_USE_BEDROCK", "1");
-        scrub_child_env(&mut cmd);
-        let envs: HashMap<String, Option<String>> = cmd
-            .as_std()
-            .get_envs()
-            .map(|(k, v)| {
-                (
-                    k.to_string_lossy().into_owned(),
-                    v.map(|v| v.to_string_lossy().into_owned()),
-                )
-            })
-            .collect();
+        scrub_child_env(&mut cmd, &AccountEnv::Inherit);
+        let envs = envs_of(&cmd);
         assert_eq!(envs.get(OWNED_ENV), Some(&None), "marker removed, not set");
         for key in SCRUBBED_ENV {
             assert_eq!(envs.get(key), Some(&None), "{key} must be removed");
