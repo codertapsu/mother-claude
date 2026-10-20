@@ -1,0 +1,342 @@
+<div class="page narrow">
+  <div class="page-head">
+    <h1>Backup &amp; sync</h1>
+  </div>
+  <p class="lede">
+    Encrypted backups of each Claude account's data, in a folder you choose. The same folder carries
+    your conversations to another laptop: back up on one, pull on the other.
+  </p>
+
+  @if (!isDesktop()) {
+    <p class="notice small phone-note">
+      Backups are set up and run on the Mac. From here you can see how they stand.
+    </p>
+  }
+  @if (error()) {
+    <p class="notice error small" role="alert">{{ error() }}</p>
+  }
+  @if (notice()) {
+    <p class="notice ok small" role="status">{{ notice() }}</p>
+  }
+
+  @if (view(); as v) {
+    <!-- ─────────────── Folder ─────────────── -->
+    <h2>Folder</h2>
+    <section class="card">
+      @if (isDesktop()) {
+        <form class="folder" (submit)="saveFolder($event)">
+          <label class="field grow">
+            <span class="field-label">Backup folder</span>
+            <input
+              name="folder"
+              placeholder="/Users/you/Library/Mobile Documents/com~apple~CloudDocs/Mother Claude"
+              spellcheck="false"
+              autocapitalize="off"
+              autocomplete="off"
+              [ngModel]="folder()"
+              (ngModelChange)="folder.set($event); error.set('')"
+            />
+          </label>
+          <button class="btn" type="submit" [disabled]="!folderChanged() || saving()">
+            {{ saving() ? 'Saving…' : 'Save' }}
+          </button>
+        </form>
+        @if (v.suggestions.length) {
+          <div class="sugg" role="group" aria-label="Suggested folders">
+            <span class="muted small">Suggested:</span>
+            @for (s of v.suggestions; track s.path) {
+              <button
+                class="btn small"
+                type="button"
+                [disabled]="saving() || s.path === v.settings.folder"
+                [title]="s.path"
+                (click)="useSuggestion(s.path)"
+              >
+                <mc-icon name="cloud" [size]="14" /> {{ s.label }}
+              </button>
+            }
+          </div>
+        }
+        <p class="muted small hint">
+          Each account gets a folder of its own inside it, named after the account. Leave it empty
+          to stop backing up. On iCloud Drive, right-click the folder and choose Keep Downloaded.
+        </p>
+      } @else {
+        <p class="value">
+          @if (v.settings.folder) {
+            <span class="mono break">{{ short(v.settings.folder) }}</span>
+          } @else {
+            <span class="muted">No folder chosen yet: nothing is backed up.</span>
+          }
+        </p>
+      }
+    </section>
+
+    <!-- ─────────────── Passphrase ─────────────── -->
+    <h2>Passphrase</h2>
+    <section class="card">
+      <div class="list-row prow">
+        <mc-icon name="key" />
+        <div class="grow">
+          <strong>{{ v.passphraseSet ? "Set, in this Mac's Keychain" : 'Not set yet' }}</strong>
+          <span class="muted small"
+            >Without it no backup can be read — by you or anyone, and Mother Claude can't recover
+            it. It is kept in the Mac's Keychain. Changing it keeps every backup readable.</span
+          >
+        </div>
+        @if (isDesktop()) {
+          <button
+            class="btn small"
+            [class.primary]="!v.passphraseSet"
+            type="button"
+            (click)="passOpen.set(true)"
+          >
+            {{ v.passphraseSet ? 'Change…' : 'Set a passphrase…' }}
+          </button>
+        }
+      </div>
+    </section>
+
+    <!-- ─────────────── Schedule ─────────────── -->
+    <h2>Schedule</h2>
+    <section class="card">
+      <div class="list">
+        <div class="list-row srow">
+          <div class="grow">
+            @if (isDesktop()) {
+              <label for="backup-every"><strong>Back up</strong></label>
+            } @else {
+              <strong>Back up</strong>
+            }
+            <span class="muted small"
+              >On a schedule an account is backed up only after none of its sessions was active for
+              ten minutes.</span
+            >
+          </div>
+          @if (isDesktop()) {
+            <select
+              id="backup-every"
+              class="ssel"
+              [disabled]="saving()"
+              (change)="setSchedule($event)"
+            >
+              @for (o of schedules; track o.hours) {
+                <option [value]="o.hours" [selected]="o.hours === v.settings.everyHours">
+                  {{ o.label }}
+                </option>
+              }
+              @if (!knownSchedule()) {
+                <option [value]="v.settings.everyHours" [selected]="true">
+                  {{ scheduleLabel(v.settings.everyHours) }}
+                </option>
+              }
+            </select>
+          } @else {
+            <span class="sval">{{ scheduleLabel(v.settings.everyHours) }}</span>
+          }
+        </div>
+        @if (isDesktop()) {
+          <label class="switch list-row">
+            <input
+              type="checkbox"
+              [checked]="v.settings.pullOnLaunch"
+              [disabled]="saving()"
+              (change)="setPullOnLaunch($any($event.target).checked)"
+            />
+            <span class="switch-text">
+              <span>Pull on launch</span>
+              <span class="muted small"
+                >When the app starts, bring every account up to date from its backup — only when no
+                session is running.</span
+              >
+            </span>
+          </label>
+        } @else {
+          <div class="list-row srow">
+            <div class="grow">
+              <strong>Pull on launch</strong>
+              <span class="muted small">Only when no session is running.</span>
+            </div>
+            <span class="sval">{{ v.settings.pullOnLaunch ? 'On' : 'Off' }}</span>
+          </div>
+        }
+      </div>
+    </section>
+
+    <!-- ─────────────── Accounts ─────────────── -->
+    <div class="shead">
+      <h2>Accounts</h2>
+      @if (isDesktop()) {
+        <div class="hacts">
+          <button
+            class="btn small"
+            type="button"
+            [disabled]="!ready() || !anySet() || saving()"
+            (click)="openPull(null)"
+          >
+            <mc-icon name="download" [size]="14" /> Pull…
+          </button>
+          <button
+            class="btn small primary"
+            type="button"
+            [disabled]="!ready() || !!pushing()"
+            (click)="push()"
+          >
+            <mc-icon name="upload" [size]="14" />
+            {{ pushing() === 'all' ? 'Starting…' : 'Back up now' }}
+          </button>
+        </div>
+      }
+    </div>
+    @if (isDesktop() && v.settings.folder && notReady()) {
+      <!-- Without a folder the list below says so itself. -->
+      <p class="muted small why">{{ notReady() }}</p>
+    }
+    <section class="card list sets" aria-label="Each account's backup">
+      @for (r of rows(); track r.set.account) {
+        <div class="setrow">
+          <div class="smain">
+            <strong class="sname">{{ r.set.name }}</strong>
+            @if (r.set.lastPush) {
+              <span class="small"
+                >Backed up from this Mac <mc-time [ms]="r.set.lastPush" />
+                @if (r.set.sessions !== undefined) {
+                  · {{ plural(r.set.sessions, 'session') }}
+                }
+              </span>
+            } @else if (r.set.exists) {
+              <span class="small">Not backed up from this Mac yet</span>
+            } @else {
+              <span class="muted small">No backup yet</span>
+            }
+            @if (r.set.lastError) {
+              <span class="error-text small">{{ r.set.lastError }}</span>
+            }
+            @for (m of r.others; track m.host) {
+              <span class="muted small"
+                >Also from {{ m.host }}
+                @if (m.lastPush) {
+                  <mc-time [ms]="m.lastPush" />
+                }
+              </span>
+            }
+            @if (configFolders().get(r.set.account); as folder) {
+              <div class="notice small cfg" role="status">
+                <p>
+                  The newest settings bundle, unpacked for you to look through; your live settings
+                  are not changed:
+                </p>
+                <div class="cfgpath">
+                  <span class="mono break">{{ folder }}</span>
+                  <mc-copy-button [text]="folder" label="Copy path" />
+                </div>
+              </div>
+            }
+          </div>
+          @if (isDesktop()) {
+            <div class="sacts">
+              <button
+                class="btn small"
+                type="button"
+                [disabled]="!ready() || !!pushing()"
+                [attr.aria-label]="'Back up ' + r.set.name"
+                (click)="push(r.set.account)"
+              >
+                {{ pushing() === r.set.account ? 'Starting…' : 'Back up' }}
+              </button>
+              @if (r.set.exists) {
+                <button
+                  class="btn small"
+                  type="button"
+                  [disabled]="!ready()"
+                  [attr.aria-label]="'Restore from the backup of ' + r.set.name"
+                  (click)="restoreFor.set(r.set.account)"
+                >
+                  Restore…
+                </button>
+                <button
+                  class="btn small"
+                  type="button"
+                  [disabled]="!ready()"
+                  [attr.aria-label]="'Pull ' + r.set.name + ' from its backup'"
+                  (click)="openPull(r.set.account)"
+                >
+                  Pull…
+                </button>
+                <button
+                  class="btn small ghost"
+                  type="button"
+                  [disabled]="!ready() || !!configBusy()"
+                  [attr.aria-label]="'Restore the settings of ' + r.set.name"
+                  (click)="restoreSettings(r.set)"
+                >
+                  {{ configBusy() === r.set.account ? 'Unpacking…' : 'Restore settings' }}
+                </button>
+              }
+            </div>
+          }
+        </div>
+      } @empty {
+        <p class="muted small none">
+          @if (v.settings.folder) {
+            No account to back up.
+          } @else {
+            Choose a folder first: each account's backup goes in a folder of its own inside it.
+          }
+        </p>
+      }
+    </section>
+    @if (v.lastPull) {
+      <p class="muted small last">Last pull on this Mac <mc-time [ms]="v.lastPull" />.</p>
+    }
+
+    <!-- ─────────────── Recent ─────────────── -->
+    @if (jobList().length) {
+      <h2>Recent</h2>
+      <section class="card list jobs" aria-label="Recent backups, restores and pulls">
+        @for (j of jobList(); track j.id) {
+          <mc-data-job class="jrow" [job]="j" [label]="labelOf(j)" (changed)="jobChanged($event)">
+            <mc-job-details [job]="j" />
+          </mc-data-job>
+        }
+      </section>
+    }
+
+    <p class="muted small more">
+      Several Claude accounts? Each one has its own backup; they are set up on the
+      <a routerLink="/accounts">Accounts</a> page.
+    </p>
+  } @else if (loadError()) {
+    <div class="card empty-state">
+      <strong>Can't load the backup settings</strong>
+      {{ loadError() }}
+      <div class="retry">
+        <button class="btn" type="button" (click)="load()">Retry</button>
+      </div>
+    </div>
+  } @else {
+    <p class="muted">Loading…</p>
+  }
+</div>
+
+@if (isDesktop()) {
+  <mc-passphrase-sheet
+    [open]="passOpen()"
+    [changing]="!!view()?.passphraseSet"
+    (closed)="passOpen.set(false)"
+    (saved)="load()"
+  />
+  <mc-restore-sheet
+    [account]="restoreFor()"
+    [sets]="sets()"
+    (closed)="restoreFor.set(null)"
+    (started)="tracked($event)"
+  />
+  <mc-pull-sheet
+    [open]="pullFor() !== null"
+    [account]="pullFor() || null"
+    [sets]="sets()"
+    (closed)="pullFor.set(null)"
+    (started)="tracked($event)"
+  />
+}

@@ -73,6 +73,11 @@ const pages: Routes = [
     loadComponent: () =>
       import('./pages/accounts/accounts.component').then((m) => m.AccountsComponent),
   },
+  // Settings › Backup & sync (read-only on phones).
+  {
+    path: 'backup',
+    loadComponent: () => import('./pages/backup/backup.component').then((m) => m.BackupComponent),
+  },
   {
     path: 'more',
     loadComponent: () => import('./pages/more/more.component').then((m) => m.MoreComponent),

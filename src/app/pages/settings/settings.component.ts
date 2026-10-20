@@ -52,9 +52,9 @@ const INGRESS: Record<string, string> = {
   'bridge-loopback': 'This computer (API port)',
 };
 
-/** Notifications, theme, the Claude accounts (a page of their own), the
- * plan-usage refresh interval (set on the desktop, shown read-only on
- * phones), connection details and about. */
+/** Notifications, theme, the Claude accounts and Backup & sync (pages of
+ * their own), the plan-usage refresh interval (set on the desktop, shown
+ * read-only on phones), connection details and about. */
 @Component({
   selector: 'mc-settings',
   imports: [RouterLink, IconComponent, PermissionsListComponent, UpdaterComponent],
