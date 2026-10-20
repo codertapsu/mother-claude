@@ -18,17 +18,29 @@ and every pull can be undone for seven days.
 **Settings → Backup & sync** on the desktop:
 
 1. **Folder.** Pick one of the suggestions (iCloud Drive, Google Drive, OneDrive
-   or Dropbox when the Mac has them) or any folder. Each account gets its own
-   sub-folder named after it, e.g. `Mother Claude/Work/`.
+   or Dropbox when the Mac has them) or any folder. Each account with a
+   directory of its own gets a sub-folder named after it, e.g.
+   `Mother Claude/Work/`. A token account uses the Default's directory, so its
+   sessions are backed up in the Default's set.
 2. **Passphrase.** *Generate* one — eight groups of four characters, 160 bits —
    and write it down: it is shown **once**, then kept in the macOS Keychain
-   (`dev.motherclaude.desktop`). *Use my own* takes any passphrase of at least
-   twelve characters. Without it no backup can be read, by you or anyone;
-   Mother Claude cannot recover it. Changing it later re-keys every set in the
-   folder; nothing already backed up becomes unreadable.
-3. **Schedule.** *By hand only*, or every *N* hours: an account is backed up
-   on schedule only after none of its sessions was active for ten minutes.
-4. **Back up now** runs every account at once.
+   (`dev.motherclaude.desktop`). *Use my own* takes any one-line passphrase of
+   at least twelve characters. Without it no backup can be read, by you or
+   anyone; Mother Claude cannot recover it.
+
+   Changing it later re-keys every set in the folder, all or nothing as far as
+   it can be: every set is opened first, and if a set of one of your accounts
+   opens with neither the old nor the new passphrase, nothing changes. While
+   the sets are re-keyed, the new passphrase is kept beside the old one, so an
+   interruption leaves every set readable; the page then says the change did
+   not finish, and setting the passphrase again finishes it. If a generated
+   passphrase was already applied to a set when something failed, the error
+   shows it, so it is never lost. A set in the folder that belongs to none of
+   your accounts and opens with neither passphrase is left as it is.
+3. **Schedule.** *By hand only*, or every *N* hours: a set is backed up on
+   schedule only after none of the sessions in its directory was active for
+   ten minutes. A set that is still being backed up is never queued again.
+4. **Back up now** runs every set at once.
 
 Phones see all of this, read-only.
 
@@ -36,15 +48,21 @@ Phones see all of this, read-only.
 
 Per session, one archive: its transcript, its subagents' and workflows'
 transcripts, its file-history snapshots (what `/rewind` restores), its session
-environment and its todo lists. A session is archived again only when its
-transcript grew or a file of it changed, so after the first run a backup of a
-large directory writes only what changed. A session that is running is skipped
-until it is idle.
+environment and its todo lists. A session is archived again only when it
+changed here, so after the first run a backup of a large directory writes only
+what changed. A session that is running is skipped until it is idle.
 
-Per account, the **configuration bundle** (the last five are kept): settings,
+Archives are never rewritten: each push of a session writes a new file, the
+set's index then names it, and the file it replaced is removed a day later. A
+push that is interrupted — the Mac sleeps, the app quits, the disk fills up —
+leaves the set as its last index describes it.
+
+Per machine, the **configuration bundle** (each machine keeps its last five,
+and writes a new one only when its configuration changed): settings,
 `CLAUDE.md`, your skills, agents and commands, plugin registrations, prompt
 history and `.claude.json` (whole — it holds your MCP servers and per-project
-choices, which is why the bundle is encrypted).
+choices, which is why the bundle is encrypted). A file that cannot be read is
+left out of the bundle with a warning rather than failing the backup.
 
 **Never backed up:** sign-in credentials (`.credentials.json`; on macOS they are
 in the Keychain anyway), the live session list, background jobs, caches, logs,
@@ -52,10 +70,10 @@ telemetry, plugin caches and downloaded marketplaces, synced skills, lock files.
 
 ## Restoring
 
-**Restore…** lists the sessions of a set, each marked *new here*, *same*,
-*newer here* or *newer in the backup*. Pick the ones to bring back and the
-account to restore them into. Restoring writes only new files — a session the
-account already has is skipped — and can be undone for seven days.
+**Restore…** lists the sessions of a set by their title, each marked *new
+here*, *same*, *newer here* or *newer in the backup*. Pick the ones to bring
+back and the account to restore them into. Restoring writes only new files — a
+session the account already has is skipped — and can be undone for seven days.
 
 > **Pruning.** Claude Code deletes transcripts older than its
 > `cleanupPeriodDays` (30 days unless you changed it). A restored session that
@@ -69,8 +87,8 @@ the target account too*. Without it the conversation comes back and the folder
 asks again the first time it is opened.
 
 The configuration bundle is never restored over your live settings: *Restore
-settings* unpacks the newest bundle into a folder for you to look through and
-copy from.
+settings* unpacks this laptop's newest bundle (or, on a laptop that has none
+yet, the newest of any) into a folder for you to look through and copy from.
 
 ## Carrying sessions to another laptop
 
@@ -78,21 +96,35 @@ On the first laptop, back up. On the second, set the **same folder and the same
 passphrase**, then **Pull…**:
 
 - sessions the set has and this laptop does not are restored;
-- a session that is newer in the set and unchanged here since this laptop last
-  had it is replaced (the older copy is kept for undo);
+- a session that is newer in the set, and unchanged here since this laptop last
+  pushed or pulled it, is replaced — and only when the set's transcript
+  continues this laptop's, checked byte for byte (the older copy is kept for
+  undo);
 - a session that changed **on both** laptops is never merged: the set's
   transcript lands beside the local one as
-  `<id>.conflict-<laptop>-<time>.jsonl` and the pull lists it under
-  *Conflicts*;
+  `<id>.conflict-<laptop>-<time it was pushed>.jsonl` and the pull lists it
+  under *Conflicts*. Pulling again adds no second copy of the same version, and
+  neither laptop replaces the other's copy until one of them continues the
+  conversation;
 - a session running here is never touched;
-- prompt history is merged, without duplicates.
+- the prompt history of every other laptop is merged, without duplicates.
 
-*Pull on launch* (off by default) pulls every account when the app starts —
-only when no session is running.
+A push works the same way round: it never replaces a copy another laptop pushed
+since this one last had it. Such a session is listed as *newer in the set* (a
+pull brings it) or, when it changed here too, as a *conflict*. A pull that
+fails half-way puts the local copy back.
+
+*Pull on launch* (off by default) pulls every set when the app starts — only
+when no session is running.
 
 The sign-in does not travel: each laptop signs in to its accounts itself (or
 holds the token you gave it). Account sets are matched by account **name**, so
 name an account the same on both laptops — renaming an account renames its set.
+
+Laptops are told apart by an id Mother Claude makes once per install and keeps
+in its data folder, never by their name: two Macs with the same name never mix
+up what each of them has. A Mac set up from another with Migration Assistant,
+or from a backup of it, is recognised and gets an id of its own.
 
 ## Cloud folders
 
@@ -100,15 +132,34 @@ name an account the same on both laptops — renaming an account renames its set
   Downloaded**. With *Optimize Mac Storage* on, iCloud evicts files it thinks
   you do not need; a restore or pull then waits for them to download, and an
   archive that makes no progress for a minute is reported as failed rather than
-  hanging.
+  hanging. A set whose key (`identity.age`) has not downloaded yet is never
+  given a new one: the backup waits until it is there.
 - **Google Drive:** *Stream files* works (files download as they are read);
   *Mirror files* keeps a full local copy and makes restores instant. Make sure
   the `Mother Claude` folder is inside *My Drive*.
 - Any folder works: an external disk, a NAS share, a Dropbox or OneDrive
   folder.
 
-Pushing from two laptops at once is safe: each push merges the set's index
-with what the other wrote.
+Pushing from two laptops at once is safe: each push merges the set's index with
+what the other wrote, and a push made from an older copy of a session than the
+one the other laptop just pushed loses — it is listed as a conflict and its
+archive removed — instead of replacing it.
+
+## What someone with access to the folder can do
+
+A cloud folder is often shared, or reachable from more devices than yours.
+Without the passphrase nobody can read anything in it. Nor can anyone slip a
+session or settings into it: the set's index is authenticated with a key that
+only the passphrase unlocks, every archive and bundle is checked against the
+index before it is opened, and a set whose index fails the check is refused
+(`backup_unauthenticated`) and never written over. Names in the index are never
+followed outside the set or the account's directory.
+
+What anyone who can write the folder can still do, as with any folder, is
+delete files or put older ones back. A restore then reports an archive as
+missing, or as not the one the index names, and writes nothing for it; an older
+index makes the set look as it did then until the next push from a laptop that
+has the newer copies.
 
 ## Opening a backup without Mother Claude
 
@@ -118,11 +169,17 @@ is in `identity.age`, encrypted with your passphrase:
 ```bash
 cd "Mother Claude/Work"
 age -d -o key.txt identity.age                  # asks for the passphrase
-age -d -i key.txt sessions/<id>.tar.gz.age | tar xz -C ~/.claude
+# Which archive is each session's current one: the index's first line is its
+# authentication code, the rest is JSON (each entry's "archive").
+age -d -i key.txt index.json.age | tail -n +2 | python3 -m json.tool
+age -d -i key.txt sessions/<id>.<hash>.tar.gz.age | tar xz -C ~/.claude
 rm key.txt
 ```
 
-The paths inside an archive are relative to the config directory
+A session's archive is named after its id and the start of the file's SHA-256;
+an older one may still be there for a day after a newer push. The paths inside
+an archive are relative to the config directory
 (`projects/<folder>/<id>.jsonl`, `file-history/<id>/…`), so `-C` names the
-directory to restore into. `set.json` is the set's only plaintext: the account
-name, the set's public key, the machines that pushed and when.
+directory to restore into. `set.json` is the set's only plaintext, for display:
+the account name, the set's public key, the machines that pushed (their id and
+name) and when.
