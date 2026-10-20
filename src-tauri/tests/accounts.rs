@@ -1107,6 +1107,7 @@ async fn an_account_is_backed_up_and_restored_over_http() {
     let (_, v) = f.call("GET", "/backup", &phone, None).await;
     assert_eq!(v["passphraseSet"], true);
     assert!(!v.to_string().contains(&pass), "never shown again");
+    assert!(v.get("machine").is_none(), "no id is made by looking: {v}");
 
     let (s, _) = f
         .call("POST", "/backup/push", &phone, Some(json!({})))
@@ -1142,6 +1143,27 @@ async fn an_account_is_backed_up_and_restored_over_http() {
     assert_eq!(done["state"], "done", "{done}");
     assert_eq!(done["result"]["archived"][0], sid);
     assert_eq!(done["account"], json!(work.id), "the job names its set");
+    // Now this Mac has an id, and the set lists it under that id.
+    let (_, v) = f.call("GET", "/backup", &phone, None).await;
+    let me = v["machine"]
+        .as_str()
+        .expect("this machine's id")
+        .to_string();
+    let work_set = v["sets"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|s| s["account"] == json!(work.id))
+        .unwrap()
+        .clone();
+    assert!(
+        work_set["machines"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|m| m["id"] == json!(me)),
+        "{work_set}"
+    );
     // One archive, named after the session and what it holds.
     let archives: Vec<String> = std::fs::read_dir(folder.join("Work/sessions"))
         .unwrap()

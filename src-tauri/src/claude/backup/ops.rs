@@ -168,6 +168,19 @@ pub fn machine_id_in(data_dir: &Path, hardware: Option<String>) -> Result<String
     Ok(id)
 }
 
+/// This machine's id as the sets know it, without making one: `None` before
+/// its first push or pull (a page that only looks writes nothing), or when the
+/// stored one is another machine's (its next push makes a new one).
+pub fn known_machine_id(state: &AppState) -> Option<String> {
+    let dir = state.auth.config_dir.as_deref()?;
+    let s = crate::persist::read_json::<StoredMachine>(&dir.join(MACHINE_FILE))?;
+    let same_hardware = match (&s.hardware, hardware_fingerprint()) {
+        (Some(a), Some(b)) => *a == b,
+        _ => true,
+    };
+    (super::is_machine_id(&s.id) && same_hardware).then_some(s.id)
+}
+
 /// A hash of the hardware's id (macOS: the host UUID; Linux: the machine
 /// id), never the id itself.
 pub fn hardware_fingerprint() -> Option<String> {
@@ -506,6 +519,11 @@ pub struct BackupView {
     /// set the passphrase again.
     pub passphrase_change_unfinished: bool,
     pub host: String,
+    /// This machine's id, as the sets' machine lists name it (once it has
+    /// pushed or pulled): another machine with the same host name is not this
+    /// one.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub machine: Option<String>,
     pub sets: Vec<SetView>,
     pub suggestions: Vec<Suggestion>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -551,6 +569,7 @@ pub fn view(state: &AppState) -> BackupView {
         passphrase_set: passphrase(state).is_some(),
         passphrase_change_unfinished: passphrase_change_unfinished(state),
         host,
+        machine: known_machine_id(state),
         sets,
         suggestions: suggestions(),
         last_pull: local.last_pull,
