@@ -172,12 +172,14 @@ impl CreateThread {
     /// directory the user never trusted, or resuming a conversation whose
     /// approvals are switched off. Only callers allowed dangerous actions may
     /// use them (design §10, B1). `caller_cwd` is the cwd the *caller* named
-    /// (defaults chosen on the desktop are trusted).
+    /// (defaults chosen on the desktop are trusted); its trust is the one of
+    /// `account`, the conversation's (each account keeps its own).
     pub async fn require_safe_options(
         &self,
         state: &AppState,
         ctx: &ClientContext,
         caller_cwd: Option<&str>,
+        account: &str,
     ) -> BridgeResult<()> {
         let mut risky: Vec<&'static str> = Vec::new();
         if self
@@ -204,7 +206,10 @@ impl CreateThread {
         }
         let untrusted = match caller_cwd {
             Some(cwd) => {
-                let home = state.home.clone();
+                let home = state
+                    .accounts
+                    .home(account)
+                    .unwrap_or_else(|| state.home.clone());
                 let cwd = cwd.to_string();
                 !tokio::task::spawn_blocking(move || cwd_is_trusted(&home, &cwd))
                     .await
@@ -336,14 +341,12 @@ pub fn account_error(e: crate::claude::accounts::AccountError) -> BridgeError {
     }
 }
 
-/// The account a new conversation in `cwd` runs under, and how it may take
-/// over `resume`: another account than the conversation's always forks, and
-/// one that keeps its own directory needs the conversation copied there.
-async fn conversation_account(
-    state: &AppState,
-    body: &mut CreateThread,
-    cwd: &str,
-) -> BridgeResult<(String, crate::claude::accounts::AccountEnv)> {
+/// The account a new conversation in `cwd` runs under: the one asked for;
+/// continuing, the conversation's own (one that ran with a token no account
+/// holds, or under a removed account, takes the bridge's); else the bridge's.
+/// Decided before anything else, so the folder's trust is checked in that
+/// account's directory.
+fn conversation_account(state: &AppState, body: &CreateThread, cwd: &str) -> BridgeResult<String> {
     let asked = body
         .account
         .as_deref()
@@ -352,8 +355,6 @@ async fn conversation_account(
         .map(str::to_string);
     let account = match (&asked, &body.resume) {
         (Some(a), _) => a.clone(),
-        // Continuing keeps the conversation's own account (one that ran with
-        // a token no account holds takes the bridge's).
         (None, Some(resume)) => {
             let own = crate::claude::summaries::session_account(state, resume);
             if state.accounts.is_usable(&own) {
@@ -364,19 +365,35 @@ async fn conversation_account(
         }
         (None, None) => state.accounts.account_for_bridge(cwd),
     };
-    let env = state.accounts.env(&account).map_err(account_error)?;
+    if !state.accounts.is_usable(&account) {
+        return Err(account_error(
+            crate::claude::accounts::AccountError::NotFound(account),
+        ));
+    }
+    Ok(account)
+}
+
+/// How `account` may take over `resume`: another account than the
+/// conversation's always forks, and one that keeps its own directory needs
+/// the conversation copied there. Returns the account's environment.
+async fn take_over(
+    state: &AppState,
+    body: &mut CreateThread,
+    account: &str,
+) -> BridgeResult<crate::claude::accounts::AccountEnv> {
+    let env = state.accounts.env(account).map_err(account_error)?;
     if let Some(resume) = &body.resume {
         // A conversation that ran with a token no account holds is the
         // Default's here: it lives in the Default's directory.
         let source = crate::claude::summaries::acting_account(state, resume);
-        let same_dir = match (state.accounts.home(&source), state.accounts.home(&account)) {
+        let same_dir = match (state.accounts.home(&source), state.accounts.home(account)) {
             (Some(a), Some(b)) => a.base() == b.base(),
             _ => true,
         };
         if !same_dir {
             // Copied into the account's directory first, then forked there.
             use crate::claude::transfer::ops::{copy_for_continue, ContinueCopyError};
-            match copy_for_continue(state, &source, &account, resume).await {
+            match copy_for_continue(state, &source, account, resume).await {
                 Ok(_) => {}
                 Err(ContinueCopyError::ConsentRequired) => {
                     return Err(BridgeError::conflict(
@@ -397,7 +414,7 @@ async fn conversation_account(
             body.fork = true;
         }
     }
-    Ok((account, env))
+    Ok(env)
 }
 
 /// Whether a conversation runs with approvals switched off
@@ -522,9 +539,10 @@ pub async fn create(
             format!("{cwd} is not a directory on this machine."),
         ));
     }
-    body.require_safe_options(&state, &ctx, caller_cwd.as_deref())
+    let account = conversation_account(&state, &body, &cwd)?;
+    body.require_safe_options(&state, &ctx, caller_cwd.as_deref(), &account)
         .await?;
-    let (account, env) = conversation_account(&state, &mut body, &cwd).await?;
+    let env = take_over(&state, &mut body, &account).await?;
 
     // Continuing in place keeps the id (and the transcript); everything else
     // gets a fresh one the caller already holds.

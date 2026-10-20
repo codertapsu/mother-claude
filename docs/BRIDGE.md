@@ -420,7 +420,9 @@ chosen at start.
 clients and to devices granted dangerous actions. So are `mcp_servers`, a
 non-empty `allowed_tools`, `additional_directories`, resuming a conversation
 whose approvals are off, and a `cwd` that Claude Code has never been opened in
-on this Mac (`403 untrusted_cwd`).
+on this Mac (`403 untrusted_cwd`) — under the conversation's account: each
+account keeps its own trust, so a folder the Default opened is still new to a
+directory account that never did.
 
 ### The rest of the conversation surface
 

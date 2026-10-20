@@ -436,7 +436,18 @@ pub async fn post_start(
     // A default working directory the user never trusted would run its
     // project hooks and MCP servers unasked in every conversation (B1).
     if let Some(cwd) = body.defaults.cwd.clone().filter(|c| !c.trim().is_empty()) {
-        let home = state.home.clone();
+        // Trusted by the account its conversations run under (each keeps its
+        // own trust).
+        let account = body
+            .defaults
+            .account
+            .clone()
+            .filter(|a| !a.trim().is_empty())
+            .unwrap_or_else(|| state.accounts.account_for_bridge(&cwd));
+        let home = state
+            .accounts
+            .home(&account)
+            .unwrap_or_else(|| state.home.clone());
         let trusted = tokio::task::spawn_blocking(move || {
             super::routes::threads::cwd_is_trusted(&home, &cwd)
         })

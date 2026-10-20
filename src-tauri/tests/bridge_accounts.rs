@@ -284,3 +284,90 @@ async fn conversations_run_under_their_account() {
         Secret::new(TOKEN).sha256_hex()
     );
 }
+
+/// A folder's trust is the conversation's account's (each keeps its own): a
+/// folder the Default has opened is still untrusted for a directory account
+/// that never did, for a caller without the dangerous right. Refused before
+/// any conversation starts, so this needs no host (and sets no variable the
+/// other test reads).
+#[tokio::test]
+async fn a_folder_is_trusted_per_account() {
+    let home = tempfile::tempdir().unwrap();
+    let state = Inner::with_bridge_config(
+        ClaudeHome::with_base(home.path()),
+        ServerConfig {
+            host: "127.0.0.1".into(),
+            port: 0,
+        },
+        Auth::ephemeral(),
+        BridgeConfig {
+            enabled: true,
+            port: None,
+            token: TokenPolicy::Local,
+            api_key: None,
+            allowed_origins: Vec::new(),
+        },
+    );
+    mother_claude_lib::bridge::control::start(&state, BridgeDefaults::default())
+        .await
+        .unwrap();
+    let app = mother_claude_lib::server::context::layer(
+        axum::Router::new()
+            .merge(mother_claude_lib::bridge::router(
+                state.clone(),
+                TokenPolicy::Local,
+            ))
+            .with_state(state.clone()),
+        state.clone(),
+        mother_claude_lib::server::Ingress::BridgeLoopback,
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let base = format!("http://{}", listener.local_addr().unwrap());
+    tokio::spawn(async move {
+        axum::serve(
+            listener,
+            app.into_make_service_with_connect_info::<SocketAddr>(),
+        )
+        .await
+        .unwrap();
+    });
+
+    // The Default opened the folder before (its transcript recorded it).
+    let folder = tempfile::tempdir().unwrap();
+    let cwd = folder.path().to_string_lossy().into_owned();
+    let proj = home
+        .path()
+        .join("projects")
+        .join(mother_claude_lib::claude::encode_cwd(&cwd));
+    std::fs::create_dir_all(&proj).unwrap();
+    std::fs::write(
+        proj.join("1b0b2a3c-1d2e-4f50-8a9b-0c1d2e3f4a5b.jsonl"),
+        json!({"type": "user", "cwd": cwd, "sessionId": "1b0b2a3c-1d2e-4f50-8a9b-0c1d2e3f4a5b"})
+            .to_string()
+            + "\n",
+    )
+    .unwrap();
+    use mother_claude_lib::bridge::routes::threads::cwd_is_trusted;
+    assert!(cwd_is_trusted(&state.home, &cwd), "the Default trusts it");
+    let dirs = tempfile::tempdir().unwrap();
+    let work = state
+        .accounts
+        .add_directory("Work", &dirs.path().join("claude-work"), None)
+        .unwrap();
+    assert!(!cwd_is_trusted(
+        &state.accounts.home(&work.id).unwrap(),
+        &cwd
+    ));
+
+    // Another website on this machine: no dangerous right.
+    let r = reqwest::Client::new()
+        .post(format!("{base}/threads"))
+        .header("origin", "https://example.com")
+        .json(&json!({ "cwd": cwd, "account": work.id }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), reqwest::StatusCode::FORBIDDEN);
+    let v: Value = r.json().await.unwrap();
+    assert_eq!(v["error"]["code"], "untrusted_cwd", "{v}");
+}
