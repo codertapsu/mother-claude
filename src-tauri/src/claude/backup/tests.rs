@@ -1082,3 +1082,188 @@ fn an_unreadable_configuration_file_never_costs_the_index() {
     .unwrap();
     assert_eq!(report.restored, vec![SID.to_string()]);
 }
+
+fn transcript(home: &ClaudeHome, id: &str) -> PathBuf {
+    home.projects_dir()
+        .join(encode_cwd(CWD))
+        .join(format!("{id}.jsonl"))
+}
+
+/// Sub-second times, as APFS and NTFS keep them (a tar keeps whole seconds).
+fn set_mtime_ms(path: &Path, ms: u64) {
+    std::fs::File::options()
+        .write(true)
+        .open(path)
+        .unwrap()
+        .set_modified(SystemTime::UNIX_EPOCH + Duration::from_millis(ms))
+        .unwrap();
+}
+
+/// The correctness review's second case: a pulled copy has whole-second
+/// times, the pushed one had milliseconds. It compares the same, and two
+/// machines pushing in turn archive nothing.
+#[test]
+fn a_pulled_session_compares_the_same_and_nothing_goes_back_and_forth() {
+    let w = world();
+    let (a, b) = (&w.home, &w.other);
+    session(a.base(), SID);
+    set_mtime_ms(&transcript(a, SID), 1_760_000_100_500);
+    set_mtime_ms(
+        &a.projects_dir()
+            .join(encode_cwd(CWD))
+            .join(SID)
+            .join("subagents/agent-a1.jsonl"),
+        1_760_000_000_250,
+    );
+    push_from(&w, a, "mbp-a");
+    pull_once(&w, b, "mbp-b", &not_live, "20261021T180000-00000001");
+    let keys = open_keys(&w.set, &pass()).unwrap();
+    let index = read_index(&w.set, &keys).unwrap();
+    assert_eq!(
+        compare(&index, b, &machine("mbp-b").id, &not_live, now_ms())[0].action,
+        PullAction::Same
+    );
+    for _ in 0..3 {
+        assert!(push_from(&w, b, "mbp-b").archived.is_empty());
+        assert!(push_from(&w, a, "mbp-a").archived.is_empty());
+    }
+}
+
+/// The correctness review's first case: A pushes, B pulls, continues and
+/// pushes; A, idle and not pulled since, must not put its older copy back
+/// over B's. A pull brings B's copy to A.
+#[test]
+fn a_push_never_replaces_a_copy_another_machine_pushed_since() {
+    let w = world();
+    let (a, b) = (&w.home, &w.other);
+    session(a.base(), SID);
+    push_from(&w, a, "mbp-a");
+    pull_once(&w, b, "mbp-b", &not_live, "20261021T181000-00000001");
+    grow(b, SID, "{\"type\":\"user\",\"on\":\"b\"}");
+    assert_eq!(push_from(&w, b, "mbp-b").archived, vec![SID.to_string()]);
+    let keys = open_keys(&w.set, &pass()).unwrap();
+    let theirs = read_index(&w.set, &keys).unwrap().sessions[SID].clone();
+
+    let r = push_from(&w, a, "mbp-a");
+    assert!(r.archived.is_empty(), "{r:?}");
+    assert_eq!(r.newer_in_set, vec![SID.to_string()]);
+    assert_eq!(read_index(&w.set, &keys).unwrap().sessions[SID], theirs);
+    let (r, _) = pull_once(&w, a, "mbp-a", &not_live, "20261021T181001-00000002");
+    assert_eq!(r.updated, vec![SID.to_string()], "{r:?}");
+    assert_eq!(
+        std::fs::read(transcript(a, SID)).unwrap(),
+        std::fs::read(transcript(b, SID)).unwrap()
+    );
+}
+
+/// Changed on both machines: neither push replaces the other's copy, a pull
+/// puts the other copy beside, and once one side continues, the other side
+/// gets that copy beside its own again rather than in its place.
+#[test]
+fn a_session_changed_on_both_machines_is_never_lost_by_either() {
+    let w = world();
+    let (a, b) = (&w.home, &w.other);
+    session(a.base(), SID);
+    push_from(&w, a, "mbp-a");
+    pull_once(&w, b, "mbp-b", &not_live, "20261021T182000-00000001");
+    grow(a, SID, "{\"type\":\"user\",\"on\":\"a\"}");
+    grow(b, SID, "{\"type\":\"user\",\"on\":\"b, a longer line\"}");
+    assert_eq!(push_from(&w, b, "mbp-b").archived, vec![SID.to_string()]);
+    let r = push_from(&w, a, "mbp-a");
+    assert_eq!(r.conflicts, vec![SID.to_string()], "{r:?}");
+    let mine_a = std::fs::read(transcript(a, SID)).unwrap();
+
+    // A pulls: B's copy beside A's, A's untouched; then nothing more to do.
+    let (r, _) = pull_once(&w, a, "mbp-a", &not_live, "20261021T182001-00000002");
+    assert_eq!(r.conflicts.len(), 1, "{r:?}");
+    assert_eq!(std::fs::read(transcript(a, SID)).unwrap(), mine_a);
+    let (r, _) = pull_once(&w, a, "mbp-a", &not_live, "20261021T182002-00000003");
+    assert!(r.conflicts.is_empty() && r.updated.is_empty(), "{r:?}");
+    assert!(push_from(&w, a, "mbp-a").archived.is_empty());
+
+    // A continues: its copy goes to the set; B, unchanged since its push,
+    // does not get it in place of its own (it did not come from B's).
+    grow(a, SID, "{\"type\":\"assistant\",\"on\":\"a again\"}");
+    assert_eq!(push_from(&w, a, "mbp-a").archived, vec![SID.to_string()]);
+    let mine_b = std::fs::read(transcript(b, SID)).unwrap();
+    let (r, _) = pull_once(&w, b, "mbp-b", &not_live, "20261021T182003-00000004");
+    assert!(r.updated.is_empty(), "{r:?}");
+    assert_eq!(r.conflicts.len(), 1);
+    assert_eq!(std::fs::read(transcript(b, SID)).unwrap(), mine_b);
+    assert_eq!(
+        std::fs::read(&r.conflicts[0].1).unwrap(),
+        std::fs::read(transcript(a, SID)).unwrap()
+    );
+}
+
+/// The correctness review's eighth case: an update that fails half-way puts
+/// the local copy back and leaves nothing listed for undo.
+#[test]
+fn an_update_that_fails_half_way_puts_the_local_copy_back() {
+    let w = world();
+    let (a, b) = (&w.home, &w.other);
+    session(a.base(), SID);
+    push_from(&w, a, "mbp-a");
+    pull_once(&w, b, "mbp-b", &not_live, "20261021T183000-00000001");
+    grow(a, SID, "{\"type\":\"assistant\",\"n\":2}");
+    push_from(&w, a, "mbp-a");
+    let before = tree(b.base());
+    let bytes = std::fs::read(transcript(b, SID)).unwrap();
+    // The transcript and the subagent file move out, then file-history
+    // cannot (a file where its folder in the undo would go).
+    let job = "20261021T183001-00000002";
+    std::fs::create_dir_all(w.undo.join(job).join("moved")).unwrap();
+    std::fs::write(w.undo.join(job).join("moved/file-history"), "in the way").unwrap();
+    let (r, m) = pull_once(&w, b, "mbp-b", &not_live, job);
+    assert!(r.updated.is_empty(), "{r:?}");
+    assert_eq!(r.skipped.len(), 1, "{r:?}");
+    assert!(
+        r.skipped[0].reason.contains("moved/file-history"),
+        "it failed after the first files moved: {r:?}"
+    );
+    assert_eq!(tree(b.base()), before);
+    assert_eq!(std::fs::read(transcript(b, SID)).unwrap(), bytes);
+    assert!(m.moved.is_empty() && m.created.is_empty(), "{m:?}");
+    // The next pull (nothing in the way) updates it.
+    let (r, _) = pull_once(&w, b, "mbp-b", &not_live, "20261021T183002-00000003");
+    assert_eq!(r.updated, vec![SID.to_string()]);
+}
+
+/// A session restored (not pulled) and continued here: the set's copy is
+/// where it came from, so a push sends it; one that did not come from it is
+/// a conflict.
+#[test]
+fn a_restored_and_continued_session_is_pushed_when_it_came_from_the_set() {
+    let w = world();
+    let (a, b) = (&w.home, &w.other);
+    session(a.base(), SID);
+    push_from(&w, a, "mbp-a");
+    restore(&RestoreInputs {
+        set: &w.set,
+        passphrase: &pass(),
+        target: b,
+        ids: &[SID.to_string()],
+        trust: false,
+        is_live: &not_live,
+        undo_root: &w.undo,
+        job_id: "20261021T184000-00000001",
+        progress: &Progress::default(),
+        kind: "restore",
+    })
+    .unwrap();
+    grow(b, SID, "{\"type\":\"user\",\"on\":\"b\"}");
+    assert_eq!(push_from(&w, b, "mbp-b").archived, vec![SID.to_string()]);
+
+    // A session with the same id that did not come from the set's copy.
+    let other_sid = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
+    session(a.base(), other_sid);
+    push_from(&w, a, "mbp-a");
+    session(b.base(), other_sid);
+    std::fs::write(
+        transcript(b, other_sid),
+        "{\"type\":\"user\",\"made\":\"elsewhere, and longer than A's\"}\n",
+    )
+    .unwrap();
+    let r = push_from(&w, b, "mbp-b");
+    assert_eq!(r.conflicts, vec![other_sid.to_string()], "{r:?}");
+}

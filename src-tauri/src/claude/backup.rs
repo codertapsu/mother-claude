@@ -419,16 +419,46 @@ pub struct SetIndex {
     pub sessions: BTreeMap<String, IndexEntry>,
     #[serde(default)]
     pub config: Vec<ConfigEntry>,
-    /// What each machine (by id) last saw of each session
-    /// (`transcriptBytes`), for pull's "changed on both sides" rule (§5.11).
+    /// What each machine (by id) had of each session when it last pushed or
+    /// pulled it: the rule for "changed here", "changed there" and "changed
+    /// on both sides" (§5.11).
     #[serde(default)]
-    pub seen: BTreeMap<String, BTreeMap<String, u64>>,
+    pub seen: BTreeMap<String, BTreeMap<String, Seen>>,
     /// Files the index stopped naming, and when: deleted a day later (a push
     /// on another machine may have read an index that still names them).
     #[serde(default)]
     pub superseded: Vec<Superseded>,
     #[serde(flatten, default)]
     pub extra: BTreeMap<String, Value>,
+}
+
+/// What a machine had of a session when it last pushed or pulled it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Seen {
+    /// Its transcripts' size.
+    pub bytes: u64,
+    /// Its newest file's time, in whole seconds (what an archive keeps of
+    /// it, so a restored copy compares equal).
+    pub secs: i64,
+    /// The archive the set named of it then.
+    pub archive: String,
+}
+
+/// Epoch milliseconds to whole seconds.
+fn secs(ms: i64) -> i64 {
+    ms.div_euclid(1000)
+}
+
+impl IndexEntry {
+    /// This entry, as a machine that has exactly it records it.
+    fn seen(&self) -> Seen {
+        Seen {
+            bytes: self.transcript_bytes,
+            secs: secs(self.newest_mtime),
+            archive: self.archive.clone(),
+        }
+    }
 }
 
 /// A file a push replaced.
@@ -783,7 +813,7 @@ struct Changes {
     /// A new configuration bundle.
     config: Option<ConfigEntry>,
     /// This machine's whole `seen`.
-    seen: Option<BTreeMap<String, u64>>,
+    seen: Option<BTreeMap<String, Seen>>,
 }
 
 /// The index as written, and the sessions whose push lost to another
@@ -857,7 +887,7 @@ fn write_index_merged(
         let before = theirs.seen.get(machine);
         for id in &lost {
             match before.and_then(|s| s.get(id)) {
-                Some(prev) => mine.insert(id.clone(), *prev),
+                Some(prev) => mine.insert(id.clone(), prev.clone()),
                 None => mine.remove(id),
             };
         }
@@ -985,6 +1015,9 @@ pub struct PushReport {
     /// Changed here and, since this machine last had them, in the set by
     /// another machine: not pushed (a pull brings the other copy beside).
     pub conflicts: Vec<String>,
+    /// Unchanged here, newer in the set (another machine pushed them): a
+    /// pull brings them. Counted in `unchanged` too.
+    pub newer_in_set: Vec<String>,
     /// The configuration bundle written, when it changed.
     pub config: Option<String>,
     pub bytes: u64,
@@ -1058,6 +1091,154 @@ fn session_now(home: &ClaudeHome, id: &str) -> Result<SessionNow, BackupError> {
         transcript_bytes,
         newest_mtime: newest,
     })
+}
+
+impl SessionNow {
+    /// This copy as a machine records it, against the set's `archive`.
+    fn seen(&self, archive: &str) -> Seen {
+        Seen {
+            bytes: self.transcript_bytes,
+            secs: secs(self.newest_mtime),
+            archive: archive.to_string(),
+        }
+    }
+
+    /// Unchanged since `s` was recorded.
+    fn is(&self, s: &Seen) -> bool {
+        self.transcript_bytes == s.bytes && secs(self.newest_mtime) == s.secs
+    }
+
+    /// The same as the set's copy (at an archive's whole seconds).
+    fn same_as(&self, e: &IndexEntry) -> bool {
+        self.transcript_bytes == e.transcript_bytes
+            && secs(self.newest_mtime) == secs(e.newest_mtime)
+    }
+}
+
+/// The set's copy of a session's transcript (`projects/<folder>/<id>.jsonl`
+/// in its archive), checked against the index first.
+fn set_transcript(set: &Set, keys: &Keys, e: &IndexEntry) -> Result<Option<Vec<u8>>, BackupError> {
+    let bytes = read_archive(set, e)?;
+    if super::secrets::sha256_hex(&bytes) != e.archive_sha256 {
+        return Err(BackupError::Invalid(format!(
+            "the archive of {} is not the one the index names (truncated or changed)",
+            e.id
+        )));
+    }
+    let r = age::Decryptor::new_buffered(&bytes[..])
+        .and_then(|d| d.decrypt(std::iter::once(&keys.identity as &dyn age::Identity)))
+        .map_err(|e| BackupError::Io(format!("could not decrypt: {e}")))?;
+    let mut tar = tar::Archive::new(flate2::read::GzDecoder::new(BufReader::new(r)));
+    let name = format!("{}.jsonl", e.id);
+    for entry in tar.entries().map_err(|e| BackupError::Io(e.to_string()))? {
+        let mut entry = entry.map_err(|e| BackupError::Io(e.to_string()))?;
+        let path = entry
+            .path()
+            .map_err(|e| BackupError::Io(e.to_string()))?
+            .into_owned();
+        let parts: Vec<_> = path.components().collect();
+        let main = parts.len() == 3
+            && parts[0].as_os_str() == "projects"
+            && parts[2].as_os_str() == name.as_str();
+        if main && entry.header().entry_type().is_file() {
+            let mut out = Vec::new();
+            entry
+                .read_to_end(&mut out)
+                .map_err(|e| BackupError::Io(e.to_string()))?;
+            return Ok(Some(out));
+        }
+    }
+    Ok(None)
+}
+
+/// Whether the file at `path` starts with `prefix` (read a megabyte at a
+/// time, never whole).
+fn file_starts_with(path: &Path, prefix: &[u8]) -> Result<bool, BackupError> {
+    let mut f = std::fs::File::open(path).map_err(|e| io("reading", path, e))?;
+    let len = f.metadata().map_err(|e| io("reading", path, e))?.len();
+    if (prefix.len() as u64) > len {
+        return Ok(false);
+    }
+    let mut buf = vec![0u8; 1024 * 1024];
+    let mut at = 0;
+    while at < prefix.len() {
+        let want = (prefix.len() - at).min(buf.len());
+        f.read_exact(&mut buf[..want])
+            .map_err(|e| io("reading", path, e))?;
+        if buf[..want] != prefix[at..at + want] {
+            return Ok(false);
+        }
+        at += want;
+    }
+    Ok(true)
+}
+
+/// What a push does with one session.
+#[derive(Debug, Clone, PartialEq)]
+enum Step {
+    /// Nothing changed here since this machine pushed or pulled it.
+    Unchanged,
+    /// The same as the set's: only what this machine has is noted.
+    Note(Seen),
+    /// Archived; it replaces the entry with this archive (`None`: none).
+    Archive(Option<String>),
+    /// Changed only in the set (another machine pushed since): a pull
+    /// brings it.
+    Behind,
+    /// Changed here and in the set: not pushed.
+    Conflict,
+}
+
+/// The push rule (§5.11 from the other side): this machine replaces the
+/// set's copy only when the set still holds what this machine last had (it
+/// changed here, nowhere else), or when the set's transcript is where the
+/// local one came from (a byte prefix of it), which a content check shows.
+/// Never an entry another machine changed since.
+fn push_step(
+    set: &Set,
+    keys: &Keys,
+    home: &ClaudeHome,
+    now: &SessionNow,
+    entry: Option<&IndexEntry>,
+    seen: Option<&Seen>,
+) -> Step {
+    let Some(e) = entry else {
+        return Step::Archive(None);
+    };
+    match seen {
+        Some(s) if s.archive == e.archive => {
+            let there = set.session_archive(e).is_some_and(|p| present(&p));
+            if now.is(s) && there {
+                Step::Unchanged
+            } else if now.transcript_bytes < s.bytes {
+                // Older here than what this machine had (a pull undone):
+                // the set's copy stands, a pull brings it back.
+                Step::Behind
+            } else {
+                // Changed here (or its archive is gone: written again).
+                Step::Archive(Some(e.archive.clone()))
+            }
+        }
+        _ if now.same_as(e) => Step::Note(now.seen(&e.archive)),
+        Some(s) if now.is(s) => Step::Behind,
+        _ => {
+            let ours = transfer::transcripts_of(home, &e.id);
+            let extends = ours.first().is_some_and(|local| {
+                matches!(
+                    set_transcript(set, keys, e).and_then(|t| match t {
+                        Some(theirs) => file_starts_with(local, &theirs),
+                        None => Ok(false),
+                    }),
+                    Ok(true)
+                )
+            });
+            if extends {
+                Step::Archive(Some(e.archive.clone()))
+            } else {
+                Step::Conflict
+            }
+        }
+    }
 }
 
 /// Counts bytes and hashes them on the way to the file.
@@ -1228,15 +1409,27 @@ pub fn push(inp: &PushInputs<'_>) -> Result<PushReport, BackupError> {
             }
         };
         let current = index.sessions.get(&id);
-        let unchanged = current.is_some_and(|e| {
-            e.transcript_bytes == now.transcript_bytes
-                && e.newest_mtime == now.newest_mtime
-                && inp.set.session_archive(e).is_some_and(|p| present(&p))
-        });
-        if unchanged {
-            report.unchanged += 1;
-            continue;
-        }
+        let base = match push_step(inp.set, &keys, inp.home, &now, current, seen.get(&id)) {
+            Step::Unchanged => {
+                report.unchanged += 1;
+                continue;
+            }
+            Step::Note(s) => {
+                seen.insert(id, s);
+                report.unchanged += 1;
+                continue;
+            }
+            Step::Behind => {
+                report.unchanged += 1;
+                report.newer_in_set.push(id);
+                continue;
+            }
+            Step::Conflict => {
+                report.conflicts.push(id);
+                continue;
+            }
+            Step::Archive(base) => base,
+        };
         match archive_session(inp, &keys, &id, &now) {
             Ok(entry) => {
                 inp.progress.files_done.fetch_add(1, Ordering::Relaxed);
@@ -1244,10 +1437,8 @@ pub fn push(inp: &PushInputs<'_>) -> Result<PushReport, BackupError> {
                     .bytes_done
                     .fetch_add(entry.archive_bytes, Ordering::Relaxed);
                 report.bytes += entry.archive_bytes;
-                seen.insert(id.clone(), now.transcript_bytes);
-                changes
-                    .sessions
-                    .insert(id.clone(), (entry, current.map(|e| e.archive.clone())));
+                seen.insert(id.clone(), now.seen(&entry.archive));
+                changes.sessions.insert(id.clone(), (entry, base));
                 report.archived.push(id);
             }
             Err(e) => report.failed.push((id, e.to_string())),
@@ -1568,6 +1759,15 @@ fn staged(stage: &Path) -> (Vec<PathBuf>, Vec<PathBuf>) {
 pub fn restore(inp: &RestoreInputs<'_>) -> Result<(RestoreReport, Manifest), BackupError> {
     let keys = open_keys(inp.set, inp.passphrase)?;
     let index = read_index(inp.set, &keys)?;
+    restore_open(inp, &keys, &index)
+}
+
+/// [`restore`] with the set's keys and index open already.
+fn restore_open(
+    inp: &RestoreInputs<'_>,
+    keys: &Keys,
+    index: &SetIndex,
+) -> Result<(RestoreReport, Manifest), BackupError> {
     let now = now_ms();
     let days = cleanup_days(inp.target);
     let undo_dir = inp.undo_root.join(inp.job_id);
@@ -1609,8 +1809,8 @@ pub fn restore(inp: &RestoreInputs<'_>) -> Result<(RestoreReport, Manifest), Bac
     std::fs::create_dir(&stage_root).map_err(|e| io("creating", &stage_root, e))?;
     let result = restore_into(
         inp,
-        &keys,
-        &index,
+        keys,
+        index,
         &stage_root,
         &mut m,
         &mut report,
@@ -1852,7 +2052,8 @@ pub struct PullItem {
 }
 
 /// What the set holds, compared with this machine's directory (`machine`:
-/// this machine's id).
+/// this machine's id). Metadata only: a pull checks an `Update` against the
+/// set's transcript before it replaces anything.
 pub fn compare(
     index: &SetIndex,
     home: &ClaudeHome,
@@ -1872,24 +2073,7 @@ pub fn compare(
             let action = match &local {
                 _ if is_live(&e.id) => PullAction::Live,
                 None => PullAction::New,
-                Some(l)
-                    if l.transcript_bytes == e.transcript_bytes
-                        && l.newest_mtime == e.newest_mtime =>
-                {
-                    PullAction::Same
-                }
-                Some(l)
-                    if e.transcript_bytes > l.transcript_bytes
-                        && e.newest_mtime > l.newest_mtime =>
-                {
-                    let previous = seen.and_then(|s| s.get(&e.id)).copied();
-                    match previous {
-                        // Unchanged here since this machine last had it.
-                        Some(p) if l.transcript_bytes <= p => PullAction::Update,
-                        _ => PullAction::Conflict,
-                    }
-                }
-                Some(_) => PullAction::LocalNewer,
+                Some(l) => pull_action(l, e, seen.and_then(|s| s.get(&e.id))),
             };
             PullItem {
                 id: e.id.clone(),
@@ -1908,6 +2092,41 @@ pub fn compare(
         .collect();
     out.sort_by_key(|p| std::cmp::Reverse(p.pushed_at));
     out
+}
+
+/// §5.11 for a session this machine has: by what it had when it last pushed
+/// or pulled it (`seen`), else (it never did) by size and time.
+fn pull_action(l: &SessionNow, e: &IndexEntry, seen: Option<&Seen>) -> PullAction {
+    if l.same_as(e) {
+        return PullAction::Same;
+    }
+    match seen {
+        // The set holds what this machine last had: changed here since, or
+        // older here (a pull undone; transcripts only grow otherwise).
+        Some(s) if s.archive == e.archive => {
+            if l.is(s) {
+                PullAction::Same
+            } else if l.transcript_bytes < s.bytes {
+                PullAction::Update
+            } else {
+                PullAction::LocalNewer
+            }
+        }
+        // Another machine pushed since: unchanged here, or changed on both.
+        Some(s) if l.is(s) => PullAction::Update,
+        Some(_) => PullAction::Conflict,
+        None if e.transcript_bytes > l.transcript_bytes
+            && secs(e.newest_mtime) >= secs(l.newest_mtime) =>
+        {
+            PullAction::Update
+        }
+        None if l.transcript_bytes > e.transcript_bytes
+            && secs(l.newest_mtime) >= secs(e.newest_mtime) =>
+        {
+            PullAction::LocalNewer
+        }
+        None => PullAction::Conflict,
+    }
 }
 
 /// What a pull needs.
@@ -1940,121 +2159,123 @@ pub struct PullReport {
 }
 
 /// Bring this machine up to date from the set (§5.11). Blocking.
+///
+/// An update replaces the local copy only when the local transcript is where
+/// the set's came from (a byte prefix of it), otherwise it is a conflict;
+/// the set's copy is fetched, checked and unpacked before anything local
+/// moves, the undo lists what will move before it does, and on any error the
+/// local copy is put back.
 pub fn pull(inp: &PullInputs<'_>) -> Result<(PullReport, Manifest), BackupError> {
     let keys = open_keys(inp.set, inp.passphrase)?;
-    let mut index = read_index(inp.set, &keys)?;
+    let index = read_index(inp.set, &keys)?;
     let now = now_ms();
     let plan = compare(&index, inp.home, &inp.machine.id, inp.is_live, now);
     let wanted = |id: &str| inp.ids.is_none_or(|ids| ids.iter().any(|i| i == id));
     let mut report = PullReport::default();
+    let mut seen = index.seen.get(&inp.machine.id).cloned().unwrap_or_default();
 
-    // New sessions: a restore.
+    // New sessions: a restore, with the keys and index open already.
     let new: Vec<String> = plan
         .iter()
         .filter(|p| p.action == PullAction::New && wanted(&p.id))
         .map(|p| p.id.clone())
         .collect();
-    let (restored, mut m) = restore(&RestoreInputs {
-        set: inp.set,
-        passphrase: inp.passphrase,
-        target: inp.home,
-        ids: &new,
-        trust: inp.trust,
-        is_live: inp.is_live,
-        undo_root: inp.undo_root,
-        job_id: inp.job_id,
-        progress: inp.progress,
-        kind: "pull",
-    })?;
+    let (restored, mut m) = restore_open(
+        &RestoreInputs {
+            set: inp.set,
+            passphrase: inp.passphrase,
+            target: inp.home,
+            ids: &new,
+            trust: inp.trust,
+            is_live: inp.is_live,
+            undo_root: inp.undo_root,
+            job_id: inp.job_id,
+            progress: inp.progress,
+            kind: "pull",
+        },
+        &keys,
+        &index,
+    )?;
+    for id in &restored.restored {
+        if let Some(e) = index.sessions.get(id) {
+            seen.insert(id.clone(), e.seen());
+        }
+    }
     report.restored = restored.restored;
     report.skipped = restored.skipped;
     report.warnings = restored.warnings;
     let undo_dir = inp.undo_root.join(inp.job_id);
-    let base = inp.home.base().to_path_buf();
+    let stage_root = inp.home.base().join(format!(".mc-pull-{}", inp.job_id));
+    // Ours alone, like a restore's stage.
+    std::fs::create_dir(&stage_root).map_err(|e| io("creating", &stage_root, e))?;
 
     for item in plan.iter().filter(|p| wanted(&p.id)) {
+        let Some(e) = index.sessions.get(&item.id) else {
+            continue;
+        };
+        let skip = |err: BackupError| Skip {
+            id: item.id.clone(),
+            code: err.code().to_string(),
+            reason: err.to_string(),
+        };
         match item.action {
-            PullAction::Update => {
-                let result = (|| -> Result<(), BackupError> {
-                    // The local copy goes to the undo directory first.
-                    let local = session_now(inp.home, &item.id)?;
-                    for f in &local.files {
-                        let rel = f.strip_prefix(&base).unwrap_or(f).to_path_buf();
-                        let saved = PathBuf::from("moved").join(&rel);
-                        let dest = undo_dir.join(&saved);
-                        if let Some(parent) = dest.parent() {
-                            std::fs::create_dir_all(parent)
-                                .map_err(|e| io("creating", parent, e))?;
-                        }
-                        if std::fs::rename(f, &dest).is_err() {
-                            std::fs::copy(f, &dest).map_err(|e| io("saving", f, e))?;
-                            std::fs::remove_file(f).map_err(|e| io("removing", f, e))?;
-                        }
-                        m.moved.push(transfer::Moved {
-                            original: f.clone(),
-                            saved,
-                        });
-                    }
-                    Ok(())
-                })();
-                if let Err(e) = result {
-                    report.skipped.push(Skip {
-                        id: item.id.clone(),
-                        code: e.code().to_string(),
-                        reason: e.to_string(),
-                    });
-                    continue;
-                }
-                let (r, extra) = restore(&RestoreInputs {
-                    set: inp.set,
-                    passphrase: inp.passphrase,
-                    target: inp.home,
-                    ids: std::slice::from_ref(&item.id),
-                    trust: false,
-                    is_live: inp.is_live,
-                    undo_root: inp.undo_root,
-                    job_id: &format!("{}-u", inp.job_id),
-                    progress: inp.progress,
-                    kind: "pull",
-                })?;
-                let _ = std::fs::remove_dir_all(inp.undo_root.join(format!("{}-u", inp.job_id)));
-                if r.restored.is_empty() {
-                    // Put the local copy back: the set's would not come.
-                    for mv in m
-                        .moved
-                        .iter()
-                        .filter(|mv| mv.original.to_string_lossy().contains(&item.id))
-                    {
-                        let _ = std::fs::rename(undo_dir.join(&mv.saved), &mv.original);
-                    }
-                    m.moved
-                        .retain(|mv| !mv.original.to_string_lossy().contains(&item.id));
-                    report.skipped.extend(r.skipped);
-                } else {
-                    m.created.extend(extra.created);
-                    m.created_dirs.extend(extra.created_dirs);
+            PullAction::Update => match update(inp, &keys, e, &stage_root, &undo_dir, &mut m) {
+                Ok(None) => {
+                    seen.insert(item.id.clone(), e.seen());
                     m.sessions.push(item.id.clone());
                     report.updated.push(item.id.clone());
-                    report.warnings.extend(r.warnings);
+                    if let Some(w) = prune_warning(e.newest_mtime, cleanup_days(inp.home), now) {
+                        report.warnings.push(Warning {
+                            id: item.id.clone(),
+                            text: w,
+                        });
+                    }
+                }
+                // Changed here after all: the set's copy goes beside it.
+                Ok(Some(staged)) => match place_conflict(inp.home, e, &staged) {
+                    Ok(created) => {
+                        note_conflict(inp.home, e, created, &mut seen, &mut m, &mut report)
+                    }
+                    Err(err) => report.skipped.push(skip(err)),
+                },
+                Err(err) => report.skipped.push(skip(err)),
+            },
+            PullAction::Conflict => {
+                match stage_session(inp.set, &keys, e, &stage_root)
+                    .and_then(|staged| place_conflict(inp.home, e, &staged))
+                {
+                    Ok(created) => {
+                        note_conflict(inp.home, e, created, &mut seen, &mut m, &mut report)
+                    }
+                    Err(err) => report.skipped.push(skip(err)),
                 }
             }
-            PullAction::Conflict => match conflict_copy(inp, &keys, &index, &item.id) {
-                Ok(Some(created)) => {
-                    report
-                        .conflicts
-                        .push((item.id.clone(), created.path.clone()));
-                    m.created.push(created);
+            // Never had here: when the set's transcript is where this one
+            // came from, the next push may replace it.
+            PullAction::LocalNewer if !seen.contains_key(&item.id) => {
+                let local = transfer::transcripts_of(inp.home, &item.id);
+                let came_from = local.first().is_some_and(|l| {
+                    matches!(
+                        set_transcript(inp.set, &keys, e).and_then(|t| match t {
+                            Some(theirs) => file_starts_with(l, &theirs),
+                            None => Ok(false),
+                        }),
+                        Ok(true)
+                    )
+                });
+                if came_from {
+                    seen.insert(item.id.clone(), e.seen());
                 }
-                Ok(None) => {}
-                Err(e) => report.skipped.push(Skip {
-                    id: item.id.clone(),
-                    code: e.code().to_string(),
-                    reason: e.to_string(),
-                }),
-            },
+            }
+            PullAction::Same => {
+                if let Ok(l) = session_now(inp.home, &item.id) {
+                    seen.insert(item.id.clone(), l.seen(&e.archive));
+                }
+            }
             _ => {}
         }
     }
+    let _ = std::fs::remove_dir_all(&stage_root);
 
     // Prompt history from the newest configuration bundle, appended
     // de-duplicated, and only while nothing here is writing it. It never
@@ -2071,14 +2292,8 @@ pub fn pull(inp: &PullInputs<'_>) -> Result<(PullReport, Manifest), BackupError>
     crate::persist::write_json_private(&undo_dir.join("manifest.json"), &m)
         .map_err(|e| io("writing", &undo_dir, e))?;
     // What this machine now has, for the next comparison.
-    let seen = index.seen.entry(inp.machine.id.clone()).or_default();
-    for id in report.restored.iter().chain(&report.updated) {
-        if let Some(e) = index.sessions.get(id) {
-            seen.insert(id.clone(), e.transcript_bytes);
-        }
-    }
     let changes = Changes {
-        seen: index.seen.get(&inp.machine.id).cloned(),
+        seen: Some(seen),
         ..Changes::default()
     };
     if let Err(e) = write_index_merged(inp.set, &keys, &changes, &inp.machine.id, now_ms()) {
@@ -2210,71 +2425,196 @@ fn read_bundle(set: &Set, entry: &ConfigEntry) -> Result<Vec<u8>, BackupError> {
 
 /// The set's transcript of a session changed on both sides, written beside
 /// the local one as `<id>.conflict-<host>-<time it was pushed>.jsonl` (one
-/// file per pushed version, however often it is pulled).
-fn conflict_copy(
+/// file per pushed version, however often it is pulled; `None`: that file
+/// is there already).
+fn place_conflict(
+    home: &ClaudeHome,
+    e: &IndexEntry,
+    staged: &Staged,
+) -> Result<Option<Created>, BackupError> {
+    let id = &e.id;
+    let local = transfer::transcripts_of(home, id);
+    let local = local.first().ok_or_else(|| {
+        BackupError::Invalid(format!(
+            "{id} has no transcript here to put the set's beside"
+        ))
+    })?;
+    let Some(main) = main_transcript(staged, id) else {
+        return Err(BackupError::Invalid(format!(
+            "the set's copy of {id} has no transcript"
+        )));
+    };
+    let stamp = chrono::DateTime::from_timestamp_millis(e.pushed_at)
+        .unwrap_or_default()
+        .format("%Y%m%dT%H%M%S");
+    let host: String = e
+        .host
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' {
+                c
+            } else {
+                '-'
+            }
+        })
+        .collect();
+    let dest = local.with_file_name(format!("{id}.conflict-{host}-{stamp}.jsonl"));
+    if std::fs::symlink_metadata(&dest).is_ok() {
+        return Ok(None);
+    }
+    std::fs::rename(staged.dir.join(main), &dest).map_err(|e| io("placing", &dest, e))?;
+    let (size, sha) = transfer::sha256_file(&dest).map_err(|e| io("verifying", &dest, e))?;
+    Ok(Some(Created {
+        path: dest,
+        size,
+        sha256: sha,
+    }))
+}
+
+/// The session's own transcript among staged files
+/// (`projects/<folder>/<id>.jsonl`).
+fn main_transcript<'a>(staged: &'a Staged, id: &str) -> Option<&'a PathBuf> {
+    let name = format!("{id}.jsonl");
+    staged.files.iter().find(|f| {
+        let parts: Vec<_> = f.components().collect();
+        parts.len() == 3
+            && parts[0].as_os_str() == "projects"
+            && parts[2].as_os_str() == name.as_str()
+    })
+}
+
+/// A conflict copy written (or there already): this machine keeps its own
+/// copy and has seen the set's, so neither pushes nor pulls it again until
+/// one side changes.
+fn note_conflict(
+    home: &ClaudeHome,
+    e: &IndexEntry,
+    created: Option<Created>,
+    seen: &mut BTreeMap<String, Seen>,
+    m: &mut Manifest,
+    report: &mut PullReport,
+) {
+    if let Some(created) = created {
+        report.conflicts.push((e.id.clone(), created.path.clone()));
+        m.created.push(created);
+    }
+    if let Ok(l) = session_now(home, &e.id) {
+        seen.insert(e.id.clone(), l.seen(&e.archive));
+    }
+}
+
+/// Replace the local copy of a session with the set's (§5.11 "update").
+/// `Ok(Some(staged))`: the local transcript is not where the set's came from
+/// (changed here after all), so nothing was replaced and the staged copy is
+/// handed back for a conflict copy.
+fn update(
     inp: &PullInputs<'_>,
     keys: &Keys,
-    index: &SetIndex,
-    id: &str,
-) -> Result<Option<Created>, BackupError> {
-    let Some(entry) = index.sessions.get(id) else {
-        return Ok(None);
+    e: &IndexEntry,
+    stage_root: &Path,
+    undo_dir: &Path,
+    m: &mut Manifest,
+) -> Result<Option<Staged>, BackupError> {
+    // The set's copy first: fetched, checked and unpacked.
+    let staged = stage_session(inp.set, keys, e, stage_root)?;
+    let local = session_now(inp.home, &e.id)?;
+    let ours = transfer::transcripts_of(inp.home, &e.id);
+    let came_from = match (ours.first(), main_transcript(&staged, &e.id)) {
+        (Some(mine), Some(theirs)) => file_is_prefix_of_file(mine, &staged.dir.join(theirs))?,
+        _ => false,
     };
-    let local = transfer::transcripts_of(inp.home, id);
-    let Some(local) = local.first() else {
-        return Ok(None);
-    };
-    let bytes = read_archive(inp.set, entry)?;
-    if super::secrets::sha256_hex(&bytes) != entry.archive_sha256 {
-        return Err(BackupError::Invalid(format!(
-            "the archive of {id} is not the one the index names"
-        )));
+    if !came_from {
+        return Ok(Some(staged));
     }
-    let stage_root = inp
-        .home
-        .base()
-        .join(format!(".mc-restore-{}-c", inp.job_id));
-    let stage = stage_root.join(id);
-    // Ours alone, like a restore's stage.
-    std::fs::create_dir(&stage_root).map_err(|e| io("creating", &stage_root, e))?;
-    let result = (|| -> Result<Option<Created>, BackupError> {
-        std::fs::create_dir(&stage).map_err(|e| io("creating", &stage, e))?;
-        unpack(&bytes, &keys.identity, &stage, id)?;
-        let (files, _) = staged(&stage);
-        let Some(main) = files
+    // The undo lists what will move before it moves.
+    let base = inp.home.base();
+    let planned: Vec<transfer::Moved> = local
+        .files
+        .iter()
+        .map(|f| transfer::Moved {
+            original: f.clone(),
+            saved: PathBuf::from("moved").join(f.strip_prefix(base).unwrap_or(f)),
+        })
+        .collect();
+    let before = m.moved.len();
+    m.moved.extend(planned.iter().cloned());
+    let save = |m: &Manifest| {
+        crate::persist::write_json_private(&undo_dir.join("manifest.json"), m)
+            .map_err(|e| io("writing", undo_dir, e))
+    };
+    if let Err(err) = save(m) {
+        m.moved.truncate(before);
+        return Err(err);
+    }
+    let mut moved = 0;
+    let mut result = planned.iter().try_for_each(|mv| {
+        move_file(&mv.original, &undo_dir.join(&mv.saved))?;
+        moved += 1;
+        Ok(())
+    });
+    if result.is_ok() {
+        result = place_staged(&staged, inp.home, m, inp.progress);
+    }
+    if let Err(err) = result {
+        // Put the local copy back: nothing of it is lost.
+        let back = planned[..moved]
             .iter()
-            .find(|f| f.file_name().and_then(|n| n.to_str()) == Some(&format!("{id}.jsonl")))
-        else {
-            return Ok(None);
-        };
-        let stamp = chrono::DateTime::from_timestamp_millis(entry.pushed_at)
-            .unwrap_or_default()
-            .format("%Y%m%dT%H%M%S");
-        let host: String = entry
-            .host
-            .chars()
-            .map(|c| {
-                if c.is_ascii_alphanumeric() || c == '-' {
-                    c
-                } else {
-                    '-'
-                }
-            })
-            .collect();
-        let dest = local.with_file_name(format!("{id}.conflict-{host}-{stamp}.jsonl"));
-        if std::fs::symlink_metadata(&dest).is_ok() {
-            return Ok(None);
+            .all(|mv| move_file(&undo_dir.join(&mv.saved), &mv.original).is_ok());
+        if back {
+            m.moved.truncate(before);
         }
-        std::fs::rename(stage.join(main), &dest).map_err(|e| io("placing", &dest, e))?;
-        let (size, sha) = transfer::sha256_file(&dest).map_err(|e| io("verifying", &dest, e))?;
-        Ok(Some(Created {
-            path: dest,
-            size,
-            sha256: sha,
-        }))
-    })();
-    let _ = std::fs::remove_dir_all(&stage_root);
-    result
+        // Whatever is left out is listed: Undo finishes it.
+        let _ = save(m);
+        return Err(err);
+    }
+    save(m)?;
+    Ok(None)
+}
+
+/// Move a file (a rename, else a copy and a delete), never over another.
+fn move_file(from: &Path, to: &Path) -> Result<(), BackupError> {
+    if std::fs::symlink_metadata(to).is_ok() {
+        return Err(BackupError::Transfer(
+            transfer::TransferError::AlreadyExists(to.display().to_string()),
+        ));
+    }
+    if let Some(parent) = to.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| io("creating", parent, e))?;
+    }
+    if std::fs::rename(from, to).is_err() {
+        std::fs::copy(from, to).map_err(|e| io("copying", from, e))?;
+        std::fs::remove_file(from).map_err(|e| io("removing", from, e))?;
+    }
+    Ok(())
+}
+
+/// Whether the file `mine` is a byte prefix of the file `theirs`.
+fn file_is_prefix_of_file(mine: &Path, theirs: &Path) -> Result<bool, BackupError> {
+    let len = std::fs::metadata(mine)
+        .map_err(|e| io("reading", mine, e))?
+        .len();
+    let their_len = std::fs::metadata(theirs)
+        .map_err(|e| io("reading", theirs, e))?
+        .len();
+    if len > their_len {
+        return Ok(false);
+    }
+    let mut a = std::fs::File::open(mine).map_err(|e| io("reading", mine, e))?;
+    let mut b = std::fs::File::open(theirs).map_err(|e| io("reading", theirs, e))?;
+    let (mut x, mut y) = (vec![0u8; 1024 * 1024], vec![0u8; 1024 * 1024]);
+    let mut left = len;
+    while left > 0 {
+        let n = left.min(x.len() as u64) as usize;
+        a.read_exact(&mut x[..n])
+            .map_err(|e| io("reading", mine, e))?;
+        b.read_exact(&mut y[..n])
+            .map_err(|e| io("reading", theirs, e))?;
+        if x[..n] != y[..n] {
+            return Ok(false);
+        }
+        left -= n as u64;
+    }
+    Ok(true)
 }
 
 /// Unpack the newest configuration bundle into `into` for the user to look
