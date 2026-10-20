@@ -58,6 +58,7 @@ import {
 import { z } from 'zod';
 import * as readline from 'node:readline';
 import { randomUUID } from 'node:crypto';
+import { conversationEnv as composeEnv, StoreLock, type AccountEnvSpec } from './host-env.js';
 
 // The Rust core starts this host with a scrubbed environment (no Mother Claude
 // credential, `MOTHER_CLAUDE_OWNED=1`); the SDK's `claude` children inherit it.
@@ -75,30 +76,21 @@ process.env.MOTHER_CLAUDE_OWNED = '1';
  */
 const BASE_ENV: Record<string, string | undefined> = { ...process.env };
 
-/** What an account changes in a conversation's environment. */
-interface AccountEnvSpec {
-  set?: Record<string, string>;
-  unset?: string[];
-}
-
 function conversationEnv(spec?: AccountEnvSpec): Record<string, string | undefined> {
-  const env = { ...BASE_ENV };
-  for (const key of spec?.unset ?? []) delete env[key];
-  for (const [key, value] of Object.entries(spec?.set ?? {})) env[key] = value;
-  return env;
+  return composeEnv(BASE_ENV, spec);
 }
 
 /**
- * Store reads and writes for another account's directory: the SDK finds the
- * config directory through `process.env.CLAUDE_CONFIG_DIR` at call time, so
- * every store operation runs one at a time, with it pointed where the
- * conversation lives and put back afterwards.
+ * Store reads and writes: the SDK finds the config directory through
+ * `process.env.CLAUDE_CONFIG_DIR` at call time, so a call for another
+ * account's directory runs alone, with it pointed where the conversation
+ * lives and put back afterwards; the Default's calls share (StoreLock).
  */
-let storeQueue: Promise<unknown> = Promise.resolve();
+const storeLock = new StoreLock();
 
 function inConfigDir<T>(configDir: unknown, fn: () => Promise<T>): Promise<T> {
-  const run = storeQueue.then(async () => {
-    if (typeof configDir !== 'string' || !configDir) return fn();
+  if (typeof configDir !== 'string' || !configDir) return storeLock.run(false, fn);
+  return storeLock.run(true, async () => {
     const before = process.env.CLAUDE_CONFIG_DIR;
     process.env.CLAUDE_CONFIG_DIR = configDir;
     try {
@@ -108,8 +100,6 @@ function inConfigDir<T>(configDir: unknown, fn: () => Promise<T>): Promise<T> {
       else process.env.CLAUDE_CONFIG_DIR = before;
     }
   });
-  storeQueue = run.catch(() => undefined);
-  return run;
 }
 
 // --------------------------------------------------------------------------
