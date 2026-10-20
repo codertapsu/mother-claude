@@ -36,6 +36,7 @@ use super::home::{user_home_dir, ClaudeHome};
 use super::secrets::{Secret, SecretError, SecretName, SecretStore};
 
 pub mod capture;
+pub mod sessions;
 pub mod status;
 pub mod view;
 
@@ -731,6 +732,8 @@ pub struct AccountRegistry {
     generation: AtomicU64,
     /// What is known about each account now (sign-in, captures).
     pub runtime: status::AccountRuntime,
+    /// Which token account a session ran under, across restarts.
+    sessions: sessions::SessionAccounts,
 }
 
 impl fmt::Debug for AccountRegistry {
@@ -757,6 +760,9 @@ impl AccountRegistry {
             .and_then(crate::persist::read_json::<RegistryFile>)
             .map(|file| Registry::from_file(file, default_home.base()))
             .unwrap_or_default();
+        let sessions = sessions::SessionAccounts::load(data_dir, |id| {
+            data.get(id).is_some_and(|a| a.kind == AccountKind::Token)
+        });
         Self {
             path,
             default_home,
@@ -764,6 +770,7 @@ impl AccountRegistry {
             data: RwLock::new(data),
             generation: AtomicU64::new(0),
             runtime: status::AccountRuntime::default(),
+            sessions,
         }
     }
 
@@ -891,6 +898,35 @@ impl AccountRegistry {
     /// See [`Registry::has_token_accounts`].
     pub fn has_token_accounts(&self) -> bool {
         self.read().has_token_accounts()
+    }
+
+    fn is_token_account(&self, id: &str) -> bool {
+        self.read()
+            .get(id)
+            .is_some_and(|a| a.kind == AccountKind::Token)
+    }
+
+    /// A session was seen running under `account` (by a source that knows:
+    /// its owned handle or bridge conversation, its pidfile's directory, its
+    /// token). Remembered for this run; a token account's also across
+    /// restarts ([`sessions`]).
+    pub fn remember_session(&self, session_id: &str, account: &str) {
+        self.runtime.remember(session_id, account);
+        self.sessions
+            .note(session_id, account, self.is_token_account(account));
+    }
+
+    /// The token account a session ran under in an earlier run of the app.
+    pub fn remembered_token_account(&self, session_id: &str) -> Option<String> {
+        self.sessions
+            .get(session_id)
+            .filter(|a| self.is_token_account(a))
+    }
+
+    /// Forget the remembered sessions whose transcript is gone (`exists`
+    /// says which still are).
+    pub fn prune_remembered_sessions(&self, exists: impl Fn(&str) -> bool) {
+        self.sessions.prune(exists);
     }
 
     /// The account a token belongs to, by the token's SHA-256 (D8).
@@ -1143,6 +1179,7 @@ impl AccountRegistry {
             }
         }
         self.runtime.forget(id);
+        self.sessions.forget_account(id);
         Ok(account)
     }
 

@@ -16,15 +16,22 @@ use serde_json::{json, Value};
 const TOKEN: &str = "sk-ant-oat01-BridgeAccountToken0123456789abcdefghij";
 
 async fn boot(log: &std::path::Path) -> (String, AppState, tempfile::TempDir) {
+    let home = tempfile::tempdir().unwrap();
+    let (base, state) = boot_at(log, home.path()).await;
+    (base, state, home)
+}
+
+/// A server on `home` (and `<home>/app-data`): a second one on the same
+/// directories is the app after a restart.
+async fn boot_at(log: &std::path::Path, home: &std::path::Path) -> (String, AppState) {
     let fake = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/fake-bridge-host.js");
     // Process-wide, but this file runs one test: nothing else reads them.
     std::env::set_var("MOTHER_CLAUDE_BRIDGE_HOST_PATH", &fake);
     std::env::set_var("FAKE_BRIDGE_LOG", log);
-    let home = tempfile::tempdir().unwrap();
     let mut auth = Auth::ephemeral();
-    auth.config_dir = Some(home.path().join("app-data"));
+    auth.config_dir = Some(home.join("app-data"));
     let state = Inner::with_bridge_config(
-        ClaudeHome::with_base(home.path()),
+        ClaudeHome::with_base(home),
         ServerConfig {
             host: "127.0.0.1".into(),
             port: 0,
@@ -59,7 +66,7 @@ async fn boot(log: &std::path::Path) -> (String, AppState, tempfile::TempDir) {
         .await
         .unwrap();
     });
-    (format!("http://{addr}"), state, home)
+    (format!("http://{addr}"), state)
 }
 
 fn records(log: &std::path::Path) -> Vec<Value> {
@@ -241,4 +248,39 @@ async fn conversations_run_under_their_account() {
     .await
     .unwrap_err();
     assert_eq!(err.body()["error"]["field"], "account");
+
+    // After a restart the token account's conversation keeps its account:
+    // `/chat` naming it resumes it with the token, not the Default's sign-in.
+    // (A `sessions/` directory: a CLI with pidfiles, so a fresh transcript
+    // alone does not count as running.)
+    std::fs::create_dir_all(_home.path().join("sessions")).unwrap();
+    std::fs::write(
+        proj.join(format!("{id}.jsonl")),
+        format!("{{\"type\":\"user\",\"cwd\":\"/tmp\",\"sessionId\":\"{id}\"}}\n"),
+    )
+    .unwrap();
+    drop(st);
+    let (base, st) = boot_at(&log, _home.path()).await;
+    mother_claude_lib::server::monitor::refresh_once(&st).await;
+    mother_claude_lib::bridge::control::start(&st, BridgeDefaults::default())
+        .await
+        .unwrap();
+    let before = records(&log).len();
+    let r = reqwest::Client::new()
+        .post(format!("{base}/chat"))
+        .json(&json!({ "thread_id": id, "message": "hello again" }))
+        .send()
+        .await
+        .unwrap();
+    assert!(r.status().is_success(), "{}", r.text().await.unwrap());
+    let resumed = records(&log)
+        .into_iter()
+        .skip(before)
+        .find(|r| r["op"] == "session.create" && r["sessionId"] == id)
+        .expect("the conversation was resumed");
+    assert_eq!(resumed["resume"], id.as_str());
+    assert_eq!(
+        resumed["env"]["tokenSha256"],
+        Secret::new(TOKEN).sha256_hex()
+    );
 }

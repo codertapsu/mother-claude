@@ -1998,3 +1998,101 @@ async fn a_session_with_a_token_of_its_own_is_the_defaults_for_decisions() {
     );
     finish(forked).await;
 }
+
+/// A token account's session lives in the Default's directory, so after a
+/// restart only what the app wrote down says whose it was: Continue resumes
+/// it under that token account, not the Default.
+#[tokio::test]
+async fn a_token_accounts_session_keeps_its_account_after_a_restart() {
+    use mother_claude_lib::claude::secrets::Secret;
+    use mother_claude_lib::claude::summaries::session_account;
+    setup();
+    let home = tempfile::tempdir().unwrap();
+    let cwd = tempfile::tempdir().unwrap();
+    let data = tempfile::tempdir().unwrap();
+    let boot = || {
+        let mut auth = Auth::ephemeral();
+        auth.config_dir = Some(data.path().to_path_buf());
+        Inner::new(
+            ClaudeHome::with_base(home.path()),
+            ServerConfig {
+                host: "127.0.0.1".into(),
+                port: 0,
+            },
+            auth,
+        )
+    };
+    let cwd_s = cwd.path().to_string_lossy().into_owned();
+    let token = Secret::new("sk-ant-oat01-RestartTokenValue0123456789abcdefghijk");
+    let remembered = data
+        .path()
+        .join(mother_claude_lib::claude::accounts::sessions::FILE_NAME);
+
+    let st = boot();
+    // Only the Default: nothing is written down.
+    let plain = owned::spawn_as(
+        &st,
+        MAC,
+        SpawnRequest {
+            cwd: cwd_s.clone(),
+            prompt: Some("hello".into()),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+    wait_turn_done(&st, &plain).await;
+    assert_eq!(session_account(&st, &plain), "default");
+    st.control.kill(&plain).await.unwrap();
+    assert!(!remembered.exists(), "goal 7: no file");
+
+    let pro = st.accounts.add_token("Pro", Some(&token), None).unwrap();
+    let id = owned::spawn_as(
+        &st,
+        MAC,
+        SpawnRequest {
+            cwd: cwd_s.clone(),
+            prompt: Some("hello".into()),
+            account: Some(pro.id.clone()),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+    wait_turn_done(&st, &id).await;
+    assert_eq!(session_account(&st, &id), pro.id);
+    st.control.kill(&id).await.unwrap();
+    wait_for("it to end", || !owned::has_handle(&st, &id)).await;
+    assert!(remembered.exists());
+    drop(st);
+
+    // The app restarts.
+    let st = boot();
+    assert_eq!(session_account(&st, &id), pro.id);
+    assert_eq!(session_account(&st, &plain), "default");
+    let resumed = owned::continue_as(
+        &st,
+        MAC,
+        &id,
+        &cwd_s,
+        ContinueRequest {
+            prompt: Some("go on".into()),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(resumed, id, "its own account: resumed in place");
+    wait_turn_done(&st, &resumed).await;
+    let line = read_log(cwd.path())
+        .into_iter()
+        .rfind(|l| l.get("argv").is_some())
+        .unwrap();
+    assert_eq!(line["account"]["oauthTokenSha256"], token.sha256_hex());
+    st.control.kill(&resumed).await.unwrap();
+
+    // Removing the account forgets its sessions.
+    wait_for("it to end", || !owned::has_handle(&st, &resumed)).await;
+    st.accounts.remove(&pro.id).unwrap();
+    assert_eq!(session_account(&st, &id), "default");
+}

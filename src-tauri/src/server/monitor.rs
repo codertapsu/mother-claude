@@ -366,6 +366,11 @@ async fn run_cycle(state: &AppState, cycle: &mut Cycle, trigger: Trigger) {
         if discover {
             let changed = state.index.discover_homes(&homes);
             touched_sessions.extend(changed);
+            // The token-account sessions remembered across restarts whose
+            // transcript is gone (pruned by Claude Code, deleted).
+            state.accounts.prune_remembered_sessions(|sid| {
+                state.index.home_account_of(sid).is_some() || state.live.get(sid).is_some()
+            });
         }
         for sid in &rediscover {
             state.index.rediscover_session(sid);

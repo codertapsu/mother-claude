@@ -73,10 +73,12 @@ impl AccountRuntime {
         f(lock(&self.status).entry(id.to_string()).or_default());
     }
 
-    /// Forget a removed account.
+    /// Forget a removed account (its sessions included: they are found
+    /// where their transcript is again).
     pub fn forget(&self, id: &str) {
         lock(&self.status).remove(id);
         lock(&self.tokens).remove(id);
+        lock(&self.seen).retain(|_, account| account != id);
         if let Some(job) = lock(&self.captures).remove(id) {
             job.cancel();
         }

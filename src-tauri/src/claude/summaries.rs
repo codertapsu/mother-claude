@@ -677,13 +677,13 @@ pub struct BuildCtx {
 /// Default's. This is the chip; decisions use [`acting_account`].
 pub fn session_account(state: &AppState, id: &str) -> String {
     use super::accounts::{DEFAULT_ID, UNREGISTERED_TOKEN_ID};
-    let runtime = &state.accounts.runtime;
+    let accounts = &state.accounts;
     if let Some(a) = state
         .control
         .account_of(id)
         .or_else(|| state.bridge.account_of(id))
     {
-        runtime.remember(id, &a);
+        accounts.remember_session(id, &a);
         return a;
     }
     if let Some(live) = state.live.get(id) {
@@ -691,25 +691,33 @@ pub fn session_account(state: &AppState, id: &str) -> String {
             .home_account
             .clone()
             .unwrap_or_else(|| DEFAULT_ID.to_string());
-        let account = if home != DEFAULT_ID || !state.accounts.has_token_accounts() {
-            home
-        } else {
-            match live
-                .token_sha256
-                .or_else(|| state.activity.token_sha256(id))
-            {
-                Some(sha) => state
-                    .accounts
+        if home != DEFAULT_ID || !accounts.has_token_accounts() {
+            accounts.remember_session(id, &home);
+            return home;
+        }
+        // In the Default's directory: its token says whose it is. Without
+        // one known yet (no hook has fired), it shows as the Default's, and
+        // nothing is remembered from a guess.
+        return match live
+            .token_sha256
+            .or_else(|| state.activity.token_sha256(id))
+        {
+            Some(sha) => {
+                let account = accounts
                     .account_for_token_sha256(&sha)
-                    .unwrap_or_else(|| UNREGISTERED_TOKEN_ID.to_string()),
-                None => DEFAULT_ID.to_string(),
+                    .unwrap_or_else(|| UNREGISTERED_TOKEN_ID.to_string());
+                accounts.remember_session(id, &account);
+                account
             }
+            None => DEFAULT_ID.to_string(),
         };
-        runtime.remember(id, &account);
-        return account;
     }
     let indexed = state.index.home_account_of(id);
-    if let Some(seen) = runtime.last_seen(id) {
+    let seen = accounts
+        .runtime
+        .last_seen(id)
+        .or_else(|| accounts.remembered_token_account(id));
+    if let Some(seen) = seen {
         // Only while the transcript is where that account keeps it: a move
         // or a restore since put it in another account's directory.
         if indexed
