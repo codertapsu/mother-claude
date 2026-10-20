@@ -87,7 +87,7 @@ Mac, or a paired device's). Starting with defaults that skip approvals
 | Method and path | Result |
 |---|---|
 | `GET /api/bridge` | Status, defaults, current conversation, running conversations |
-| `POST /api/bridge/start` | `{"defaults": { … }}` — start (or restart) with these defaults |
+| `POST /api/bridge/start` | `{"defaults": { … }, "openToTunnels": true\|false}` — start (or restart) with these defaults; `openToTunnels` is the API screen's switch (below), and only the desktop app may set it to `true` |
 | `POST /api/bridge/stop` | Unbind the port |
 | `POST /api/bridge/active-thread` | `{"threadId": "…"\|null}` — change which conversation messages join |
 
@@ -160,7 +160,7 @@ Configuration lives in the environment (see `.env.example`):
 |---|---|---|
 | `MOTHER_CLAUDE_BRIDGE` | on | `0` disables the bridge entirely |
 | `MOTHER_CLAUDE_BRIDGE_PORT` | `5612` | `0` serves only `/v1` on the main port |
-| `MOTHER_CLAUDE_BRIDGE_REQUIRE_TOKEN` | **off** | `1` requires a bearer token **on the loopback port** too |
+| `MOTHER_CLAUDE_BRIDGE_REQUIRE_TOKEN` | **off** | `1` requires a bearer token **on the loopback port** too; `never` drops it for everyone who can reach that port, tunnels included (below) |
 | `MOTHER_CLAUDE_BRIDGE_CWD` | your home directory | Default working directory for new conversations |
 | `MOTHER_CLAUDE_BRIDGE_ORIGINS` | unset | Extra browser origins allowed to call the bridge |
 | `ANTHROPIC_API_KEY` | unset | Enables `/messages` and `/files` |
@@ -257,6 +257,30 @@ These stay locked regardless:
 - tunnelled requests need a paired device's token, and a detected tunnel to
   the port switches the tokenless mode off;
 - the LAN mount on port 6725 **always** requires the token.
+
+**Open to tunnels too: the API screen's _Open to tunnels_ switch.** An
+explicit opt-in for publishing the API through a tunnel you run (`ngrok http
+5612`, cloudflared, …) without handing callers a token. Turn it on under
+**Access** on the API screen and start (or restart) the API: no request to 5612
+then needs a token, wherever it comes from, and a tunnel pointing at the port
+no longer switches anything off. Only the desktop app can turn it on — a phone
+or a script starting the API gets `desktop_only` — and it lasts until you
+restart the API with it off, or quit the app. `MOTHER_CLAUDE_BRIDGE_REQUIRE_TOKEN=never`
+sets its starting position, so every launch begins with it on. Anyone who finds the tunnel's URL can then start
+conversations in your trusted folders and approve Claude's ordinary tool calls
+— shell commands included — on this Mac, with your Claude account. What stays
+closed:
+
+- the dangerous actions listed above still need a caller on this Mac, and while
+  a tunnel points at the port **no** tokenless request counts as one (a raw TCP
+  tunnel adds no headers and lets its caller name a loopback `Host`), so then
+  only a token holder has them;
+- the LAN mount on port 6725 keeps requiring the token.
+
+The app says so where you would look: a warning when the API starts, on the
+API screen, and on the Remote page while a tunnel points at 5612. `/capabilities`
+reports `auth.token_policy: "never"`. Turn the switch off and restart the API
+to return to the default.
 
 To close it down: `MOTHER_CLAUDE_BRIDGE_REQUIRE_TOKEN=1`, plus
 `MOTHER_CLAUDE_BRIDGE_ORIGINS` to name the pages you trust — or

@@ -167,7 +167,9 @@ keeps working, because it bypasses that port, so point tunnels at `6726`.
   from the internet), but 6726 serves fewer routes and insists on HTTPS.
 - **A tunnel points at the Claude API port (5612).** Anyone who finds the address
   could try to drive Claude. The API's tokenless mode is switched off until that
-  tunnel stops.
+  tunnel stops — unless the API screen's *Open to tunnels* switch is on, in
+  which case the API is open through the tunnel without a token, and the warning
+  says so ([BRIDGE.md](BRIDGE.md#what-the-open-default-actually-means)).
 - **A raw TCP tunnel.** It hides that traffic comes from the internet (to 6725),
   or cannot work at all (to 6726). Use an HTTP tunnel.
 - **Internet access is on but no tunnel was found**, or **a tunnel points at 6726
@@ -443,7 +445,8 @@ What you get:
   connections.
 - **The local API stays local.** The Claude HTTP API on port 5612 needs no token
   only for programs on this Mac. Through a tunnel it asks for a token, and while
-  a tunnel points at it the tokenless mode is off entirely.
+  a tunnel points at it the tokenless mode is off entirely — unless you turn on
+  *Open to tunnels* on the API screen (desktop app only).
 
 ## Troubleshooting
 

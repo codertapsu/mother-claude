@@ -187,7 +187,7 @@ You can skip and revisit anytime under **Settings → Permissions**.
 | `MOTHER_CLAUDE_BRIDGE` | on | `0` ⇒ disable the HTTP bridge entirely. |
 | `MOTHER_CLAUDE_BRIDGE_AUTOSTART` | off | `1` ⇒ start the API at launch (headless/CI) instead of from the app. |
 | `MOTHER_CLAUDE_BRIDGE_PORT` | `5612` | Dedicated loopback API port; `0` ⇒ serve only `/v1`. |
-| `MOTHER_CLAUDE_BRIDGE_REQUIRE_TOKEN` | **off** | `1` ⇒ require the token on the loopback bridge port too. |
+| `MOTHER_CLAUDE_BRIDGE_REQUIRE_TOKEN` | **off** | `1` ⇒ require the token on the loopback bridge port too. `never` ⇒ start with the API screen's *Open to tunnels* switch on: no token from anyone who can reach that port, through a tunnel too ([BRIDGE.md](docs/BRIDGE.md#what-the-open-default-actually-means)). |
 | `MOTHER_CLAUDE_BRIDGE_CWD` | home dir | Default working directory for API conversations. |
 | `MOTHER_CLAUDE_BRIDGE_ORIGINS` | unset | Unset ⇒ any browser origin may call the bridge; set ⇒ strict allowlist. |
 | `ANTHROPIC_API_KEY` | unset | Enables the bridge's direct Messages API routes. |

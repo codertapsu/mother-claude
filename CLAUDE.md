@@ -199,7 +199,15 @@ where an override is wanted. (Verified against SDK 0.3.186 / CLI 2.1.186.)
   (`ctx.on_machine`), so local tools and other websites on this machine can call
   it without setup; a tunnelled request needs a token, the tokenless mode turns
   off while a detected tunnel points at the port, and the LAN-reachable `/v1`
-  mount always needs a token. Dangerous actions (`bypassPermissions`, transcript
+  mount always needs a token. The one exception is the operator's explicit
+  opt-in, the API screen's *Open to tunnels* switch (`openToTunnels` on
+  `POST /api/bridge/start`, desktop principal only to turn on;
+  `MOTHER_CLAUDE_BRIDGE_REQUIRE_TOKEN=never` is its starting position;
+  `bridge::TokenPolicy::Never`, the running run's policy in
+  `BridgeState::token_policy`): no token on the loopback port from anywhere,
+  tunnels included, while a tunnel pointing at the port makes every tokenless
+  request non-`local` (a raw TCP tunnel looks like this machine) — so the
+  dangerous right stays with token holders, and `/v1` is untouched. Dangerous actions (`bypassPermissions`, transcript
   deletion, starting a sign-in flow, approving a dangerous tool call or attaching
   a standing permission grant to an approval, thread options that run code
   nobody approves, turns into a conversation whose approvals are off) need the

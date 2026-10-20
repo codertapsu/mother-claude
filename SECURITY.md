@@ -181,6 +181,18 @@ detected tunnel points at 5612 the tokenless mode is off entirely
 or absent `Origin`, or a token with the dangerous right. The `/v1` mount on the
 LAN-reachable port always needs a token and is never served through a tunnel.
 
+The API screen's _Open to tunnels_ switch (`openToTunnels` on
+`POST /api/bridge/start`, which only the desktop principal may set to `true`;
+`MOTHER_CLAUDE_BRIDGE_REQUIRE_TOKEN=never` sets its starting position) is the
+operator's explicit opt-out: no request to 5612 needs a token, from anywhere,
+tunnels included — whoever has a tunnel's URL can run ordinary turns and
+approve ordinary tool calls. The
+dangerous right still needs a _local_ request, and while a tunnel points at the
+port no tokenless request is treated as local (a raw TCP tunnel is
+indistinguishable from this machine), so only a token holder has it. The `/v1`
+mount is unaffected. The app warns at start, on the API screen and on the
+Remote page.
+
 - A development server or reverse proxy **on this Mac** that relays to 5612 is
   accepted for the tokenless mode when its only proxy headers are
   `X-Forwarded-*`, every `X-Forwarded-For` hop is loopback and
