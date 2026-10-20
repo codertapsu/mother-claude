@@ -1141,6 +1141,7 @@ async fn an_account_is_backed_up_and_restored_over_http() {
     let done = wait(job).await;
     assert_eq!(done["state"], "done", "{done}");
     assert_eq!(done["result"]["archived"][0], sid);
+    assert_eq!(done["account"], json!(work.id), "the job names its set");
     // One archive, named after the session and what it holds.
     let archives: Vec<String> = std::fs::read_dir(folder.join("Work/sessions"))
         .unwrap()
@@ -1194,6 +1195,8 @@ async fn an_account_is_backed_up_and_restored_over_http() {
     let done = wait(v["job"].as_str().unwrap().to_string()).await;
     assert_eq!(done["state"], "done", "{done}");
     assert_eq!(done["result"]["restored"][0], sid);
+    assert_eq!(done["account"], json!(work.id));
+    assert_eq!(done["to"], json!(work.id), "restored into its own account");
     assert_eq!(std::fs::read(&transcript).unwrap(), original);
     let (s, v) = f
         .call(
@@ -1223,6 +1226,7 @@ async fn an_account_is_backed_up_and_restored_over_http() {
     let done = wait(v["jobs"][0].as_str().unwrap().to_string()).await;
     assert_eq!(done["state"], "done", "{done}");
     assert_eq!(done["result"]["restored"][0], sid, "{done}");
+    assert_eq!(done["account"], json!(work.id));
     assert_eq!(std::fs::read(&transcript).unwrap(), original);
 
     // The configuration bundle unpacks for review, never over the live one.

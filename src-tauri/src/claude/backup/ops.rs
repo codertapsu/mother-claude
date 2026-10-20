@@ -697,6 +697,7 @@ pub async fn push(state: &AppState, account_id: &str) -> Result<String, BackupEr
         Err(running) => return Ok(running),
     };
     let progress = state.jobs.start(&job, "backup", 0, 0);
+    state.jobs.update(&job, |v| v.account = Some(a.id.clone()));
     let st = state.clone();
     let id = job.clone();
     tokio::spawn(async move {
@@ -837,6 +838,10 @@ pub async fn restore(
         .ok_or_else(|| BackupError::Invalid("this build has no data directory".into()))?;
     let job = transfer::new_job_id();
     let progress = state.jobs.start(&job, "restore", ids.len() as u64, 0);
+    state.jobs.update(&job, |v| {
+        v.account = Some(a.id.clone());
+        v.to = Some(target.id.clone());
+    });
     let st = state.clone();
     let id = job.clone();
     tokio::spawn(async move {
@@ -930,6 +935,7 @@ pub async fn pull(
         Err(running) => return Ok(running),
     };
     let progress = state.jobs.start(&job, "pull", 0, 0);
+    state.jobs.update(&job, |v| v.account = Some(a.id.clone()));
     let st = state.clone();
     let id = job.clone();
     tokio::spawn(async move {
