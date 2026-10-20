@@ -707,7 +707,7 @@ part of done. IDs are referenced from commit messages.
       point `CLAUDE_CONFIG_DIR` at another account's directory, one at a
       time, without reaching a conversation.)*
 - [x] **P1.8 UI: Accounts page, picker, meter switcher, limit offer.**
-- [ ] **P1.9 Docs:** REMOTE.md, README, .env.example, SECURITY.md (§8).
+- [x] **P1.9 Docs:** REMOTE.md, README, .env.example, SECURITY.md (§8).
 
 ### Phase 2 — see every account
 

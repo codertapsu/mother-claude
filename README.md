@@ -95,6 +95,18 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) and [KNOWN_ISSUES.md](KNOWN_ISSUES.md).
   from **Remote**. Internet access is off until you turn it on and point a
   tunnel at it; internet pairings always wait for you to type the phone's 4
   digits on the Mac. See [docs/REMOTE.md](docs/REMOTE.md).
+- **Several Claude accounts at once.** **Settings → Accounts** adds accounts
+  beside the one `~/.claude` is signed in to, each with a name of your choice:
+  a *token account* (recommended: the same projects and conversations, another
+  subscription — Mother Claude runs `claude setup-token` and keeps the token in
+  the macOS Keychain) or a *directory account* (a fully separate Claude Code
+  setup such as `~/.claude-work`, with its own sign-in, settings and plugins).
+  Pick the account per project or per session, and when one reaches its limit,
+  **Continue on…** another. See [docs/ACCOUNTS.md](docs/ACCOUNTS.md).
+- **Backups and a second laptop.** **Settings → Backup & sync** keeps encrypted
+  backups of each account in a folder you choose (iCloud Drive, Google Drive…);
+  the same folder carries conversations to another laptop. See
+  [docs/BACKUP.md](docs/BACKUP.md).
 
 ## Prerequisites (macOS, Apple Silicon)
 
@@ -173,7 +185,8 @@ You can skip and revisit anytime under **Settings → Permissions**.
 |---|---|---|
 | `MOTHER_CLAUDE_HOST` | `0.0.0.0` | Loopback ⇒ HTTP on `127.0.0.1` only; `0.0.0.0` ⇒ also TLS on every private LAN address; one private address ⇒ only that one. |
 | `MOTHER_CLAUDE_PORT` | `6725` | Port. |
-| `CLAUDE_CONFIG_DIR` | `~/.claude` | Claude config dir to read. |
+| `CLAUDE_CONFIG_DIR` | `~/.claude` | Claude config dir of the **Default** account. Other accounts are added in the app ([ACCOUNTS.md](docs/ACCOUNTS.md)). |
+| `MOTHER_CLAUDE_SECRET_STORE` | Keychain (macOS) | `file` ⇒ keep token accounts' tokens and the backup passphrase in `0600` files in the app data dir instead of the login Keychain (for builds whose changing signature would make the Keychain ask on every launch). |
 | `MOTHER_CLAUDE_CLI` | `claude` | Path to the Claude binary. |
 | `MOTHER_CLAUDE_SIDECAR` | off | `1` ⇒ drive owned sessions with the legacy Path A Agent SDK sidecar instead of the stream-json control protocol. |
 | `MOTHER_CLAUDE_FOREIGN_INJECTION` | on | `0` ⇒ disable the experimental PTY injection into background jobs. |

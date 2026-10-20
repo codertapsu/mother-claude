@@ -301,6 +301,37 @@ device, ingress and client address.
 - Tokens, certificates and keys are created at runtime in the app data dir and
   are **never committed** (`.gitignore` excludes `*.pem`, `*.key`, `*.token`).
 
+## Claude accounts
+
+[ACCOUNTS.md](docs/ACCOUNTS.md) §7 in short:
+
+- A token account's token and the backup passphrase are kept in the login
+  Keychain (`dev.motherclaude.desktop`; `0600` files in the app data dir off
+  macOS, or with `MOTHER_CLAUDE_SECRET_STORE=file`). `accounts.json` holds a
+  token's SHA-256 only. No token or passphrase is ever in a response (the
+  generated passphrase is shown once), a WebSocket frame, a log line, an error,
+  an audit line or a backup.
+- A token reaches a `claude` child only in its environment
+  (`CLAUDE_CODE_OAUTH_TOKEN`), with the inherited sign-in overrides removed; a
+  token account whose token is not on this machine fails, it never falls back
+  to the Default sign-in. Which token a session outside Mother Claude runs with
+  is learned as a hash: from the process environment on Linux, from the hooks
+  plugin's `X-MC-Token-Sha256` on macOS (the hook hashes it inside the
+  session); the value is compared and dropped.
+- Account administration, sign-ins, tokens, moving or copying data, backups,
+  restores, pulls and their settings are desktop-only. Picking an account for a
+  session is allowed to anyone who may start one.
+- Our code writes into a Claude config directory in four explicit desktop
+  actions only — a new account's empty directory, move/copy, restore, pull —
+  each refusing while a live process uses a shared file it would write, keeping
+  an undo for seven days, writing atomically and leaving an audit line.
+  A folder's trust (`hasTrustDialogAccepted`, its allowed tools and MCP
+  choices) is never copied or restored without the explicit opt-in.
+- Backups are encrypted (age, X25519 per set, the set's key under the
+  passphrase with scrypt); the only plaintext in a set is `set.json` (account
+  name, the set's public key, machine names and times). Credentials are never
+  backed up.
+
 ## Reporting
 
 This is a research-preview-grade tool over undocumented internals. Audit before

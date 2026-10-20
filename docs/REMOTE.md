@@ -385,6 +385,27 @@ It runs only when no owned session can answer: for the automatic reads above,
 which need a connected dashboard, and for a Refresh. With **Manually only**, it
 starts only for a Refresh.
 
+With more than one Claude account (Settings → Accounts on the Mac,
+[ACCOUNTS.md](ACCOUNTS.md)) the meter shows one account at a time with a
+switcher, and its sheet lists every account's windows. An account that reached
+a limit is called out on the sessions list and on its sessions' pages, with an
+offer to continue on another account that has room.
+
+### Accounts on the phone
+
+Every session, Inbox item, agent and background job carries a coloured chip
+naming its account once there is more than one; the Sessions and Inbox lists
+filter by account. From the phone you can **pick the account** a new session
+runs under and **continue a conversation on another account** — that is the
+user's own account either way, so it is not a dangerous action. Everything
+else about accounts is for the Mac: adding, renaming and removing them,
+signing them in, entering tokens, moving or copying data between them,
+backups, restores and pulls. A phone sees all of it, read-only.
+
+Continuing on an account that keeps its own directory first copies the
+conversation there; that needs the account pair's consent, which only the Mac
+gives (once per pair, revocable on the Accounts page).
+
 ## Notifications
 
 Push notifications reach a phone even when the app is closed. On the phone,
