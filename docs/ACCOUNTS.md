@@ -764,8 +764,39 @@ part of done. IDs are referenced from commit messages.
 
 - [x] **P5.1 Pull** with the §5.11 rules, conflicts surfaced, `pullOnLaunch`.
 - [ ] **P5.2 Live test** across the two Macs, recorded in the checklist with
-      the date and CLI version.
+      the date and CLI version. *(The maintainer's: it needs both Macs, a real
+      cloud folder and real accounts — see "Checks that need real accounts"
+      below.)*
 - [ ] **P5.3 UI: Pull… with the session list and conflicts.**
+
+### Checks that need real accounts
+
+Everything above runs against the fake CLI, a fake bridge host and temp
+directories. These need the maintainer's Macs, real sign-ins and a real cloud
+folder, and spend a little plan usage:
+
+1. **A token account** (P1.3, P1.5): Settings → Accounts → Add → *Shared data,
+   another account* → *Sign in to get a token*; sign in in the browser with the
+   second subscription. The account shows *Token · signed in*. On a session of
+   the Default: *Continue on…* the new account; the fork answers, and the plan
+   meter of the new account moves after its first turn.
+2. **A directory account** (P1.3, P2.1, P2.4): Add → *Separate directory* →
+   `~/.claude-work` → *Sign in now*; the account shows its email. Install the
+   hooks plugin for it, start `CLAUDE_CONFIG_DIR=~/.claude-work claude` in a
+   terminal: the session is listed with the account's chip, and an approval it
+   asks for reaches the phone.
+3. **A terminal session with the token** (P2.2): `CLAUDE_CODE_OAUTH_TOKEN=<the
+   token> claude` with the plugin installed: after its first tool call the
+   session shows the token account's chip.
+4. **The bridge** (P1.7): start the API with the token account as its default;
+   `curl -sS http://127.0.0.1:5612/chat -d '{"message":"Which model are you?"}'`
+   answers, and the conversation's chip names the account.
+5. **Backups** (P4.1, P4.3): set the iCloud folder, generate a passphrase, *Back
+   up now*; a second *Back up now* archives nothing; the archives open with
+   `age -d -i key.txt …` as docs/BACKUP.md shows.
+6. **Two Macs** (P5.2): on the second Mac set the same folder and passphrase,
+   *Pull…*; continue a conversation on each Mac and pull again: one conflict
+   file, no data lost. Record the date and the CLI version here.
 
 ---
 
