@@ -80,6 +80,11 @@ pub struct AccountsView {
     pub token_capture: bool,
 }
 
+/// The Default's hooks plugin, as foreign control last saw it.
+fn default_plugin_state(state: &AppState) -> Option<String> {
+    state.plugin.summary().map(str::to_string)
+}
+
 /// Live sessions per account in the current snapshot.
 pub async fn live_counts(state: &AppState) -> HashMap<String, u32> {
     let mut out = HashMap::new();
@@ -160,7 +165,11 @@ pub fn build(state: &AppState, desktop: bool, live: Option<&HashMap<String, u32>
                 checking: status.checking,
                 signing_in: status.signing_in,
                 token_stored,
-                hooks_plugin: a.hooks_plugin.clone(),
+                hooks_plugin: if a.is_default() {
+                    default_plugin_state(state)
+                } else {
+                    a.hooks_plugin.clone()
+                },
                 live: live.map(|l| l.get(&a.id).copied().unwrap_or(0)),
                 capture,
             }

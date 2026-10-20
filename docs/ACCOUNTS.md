@@ -262,6 +262,19 @@ directory account's CLI cache is checked against its own `.claude.json`
 `oauthAccount`, as the Default's always was; a token account never uses the
 cache (§5.6).
 
+*Changed while building (D8, verified 2026-10-21 on macOS 27 / Darwin 27.0):*
+`KERN_PROCARGS2` no longer returns another process's environment — not even
+for a child of the asking process (`ps -E` shows none either). On macOS a
+token account's foreign sessions are therefore attributed through the hooks
+plugin: `mc-hook` runs inside the session's process tree, hashes its
+`CLAUDE_CODE_OAUTH_TOKEN` there (`openssl`/`sha256sum`/`shasum`, fed by the
+`printf` builtin, so the token is in no argv) and sends only
+`X-MC-Token-Sha256`. The environment read stays for Linux. A session without
+the plugin, or that has fired no hook yet, shows the Default until it does.
+Hook events are not attributed by `transcript_path` (§5.7): the dispatcher
+never trusts a path a hook names, and every session that writes a pidfile is
+attributed by the directory it is in.
+
 **D9 — Account choice is not a dangerous action; account administration is.**
 Picking an account for a new session or a bridge conversation is allowed to
 any principal that may start sessions (it is the user's own account either
@@ -653,17 +666,25 @@ part of done. IDs are referenced from commit messages.
 
 ### Phase 2 — see every account
 
-- [ ] **P2.1 `HomeSet`.** `AppState.homes()`; every enumerating call site
+- [x] **P2.1 `HomeSet`.** `AppState.homes()`; every enumerating call site
       moved (list them in the commit). Done when a session in a directory
       account's home appears in the list with its badge.
-- [ ] **P2.2 Roster per home + environment matcher** (D8). Done when a
+- [x] **P2.2 Roster per home + environment matcher** (D8). Done when a
       terminal session started with a registered token shows its account.
-- [ ] **P2.3 Index and watcher per home**, checkpoint per home, duplicate-id
-      rule. Done when the three-home tick stays under 100 ms.
-- [ ] **P2.4 Hooks plugin per directory account** (`/accounts/{id}/hooks/
-      install`, `hooksPlugin` state, dispatcher by `transcript_path`). Done
-      when an approval from a directory account's session reaches the phone.
-- [ ] **P2.5 Background jobs per home** (`jobs/`, `claude logs/stop/respawn/
+      *(macOS: through the hook's token hash, see §3; tested with the hook
+      script and with a recorded hash.)*
+- [x] **P2.3 Index and watcher per home**, checkpoint per home, duplicate-id
+      rule. Done when the three-home tick stays under 100 ms. *(2026-10-21,
+      release build, the real Default home plus two directory accounts of 20
+      sessions each: median tick 25 ms, against 22 ms with one home —
+      `measure_three_homes_tick`.)*
+- [x] **P2.4 Hooks plugin per directory account** (`/accounts/{id}/hooks/
+      install`, `hooksPlugin` state, ~~dispatcher by `transcript_path`~~
+      attribution by the pidfile's directory, §3). Done when an approval
+      from a directory account's session reaches the phone. *(The plugin and
+      its token are shared, so a directory account's held approval takes the
+      same path as the Default's; the live check is the maintainer's.)*
+- [x] **P2.5 Background jobs per home** (`jobs/`, `claude logs/stop/respawn/
       rm` with the environment).
 - [ ] **P2.6 UI: badges, filters, fleet per account, Inbox and Agents.**
 

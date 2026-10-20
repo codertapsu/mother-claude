@@ -16,6 +16,8 @@
 //! * `POST /api/accounts/{id}/refresh` (Authed): re-check the sign-in.
 //! * `POST /api/accounts/{id}/login {console?}` (DesktopOnly): `claude auth
 //!   login` for the account's directory; watched until it lands.
+//! * `POST /api/accounts/{id}/hooks/install|uninstall` (DesktopOnly): the
+//!   hooks plugin in a directory account's own directory.
 //! * `GET|POST|DELETE /api/accounts/{id}/token` (DesktopOnly): a token
 //!   account's `setup-token` capture — `POST {}` starts it, `POST {code}`
 //!   types the browser's code into it, `POST {token}` stores a pasted token,
@@ -391,4 +393,38 @@ pub async fn cancel_token(
     let view = status::cancel_capture(&state, &id);
     view::publish(&state).await;
     Ok(Json(json!({ "capture": view })))
+}
+
+/// `POST /api/accounts/{id}/hooks/install`.
+pub async fn hooks_install(
+    DesktopOnly(ctx): DesktopOnly,
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> ApiResult<Json<AccountView>> {
+    let answer = crate::claude::hooks::install_for(&state, &id).await?;
+    audit(
+        &state,
+        &ctx,
+        "account.hooks.install",
+        json!({ "account": id, "state": answer }),
+    );
+    view::publish(&state).await;
+    Ok(Json(one(&state, &id)?))
+}
+
+/// `POST /api/accounts/{id}/hooks/uninstall`.
+pub async fn hooks_uninstall(
+    DesktopOnly(ctx): DesktopOnly,
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> ApiResult<Json<AccountView>> {
+    let answer = crate::claude::hooks::uninstall_for(&state, &id).await?;
+    audit(
+        &state,
+        &ctx,
+        "account.hooks.uninstall",
+        json!({ "account": id, "state": answer }),
+    );
+    view::publish(&state).await;
+    Ok(Json(one(&state, &id)?))
 }

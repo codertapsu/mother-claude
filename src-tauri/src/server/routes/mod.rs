@@ -127,6 +127,8 @@ pub fn api_router() -> Router<AppState> {
         )
         .route("/accounts/{id}/refresh", post(accounts::refresh))
         .route("/accounts/{id}/login", post(accounts::login))
+        .route("/accounts/{id}/hooks/install", post(accounts::hooks_install))
+        .route("/accounts/{id}/hooks/uninstall", post(accounts::hooks_uninstall))
         .route(
             "/accounts/{id}/token",
             get(accounts::token_status)

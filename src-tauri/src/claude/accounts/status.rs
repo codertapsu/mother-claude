@@ -162,6 +162,11 @@ pub async fn refresh_all(state: &AppState) {
             tracing::debug!(account = %id, error = %e, "account sign-in check failed");
         }
     }
+    // The hooks plugin in each directory account's own directory.
+    let plugins = ids
+        .iter()
+        .map(|id| crate::claude::hooks::refresh_account(state, id));
+    futures_util::future::join_all(plugins).await;
     super::view::publish(state).await;
 }
 

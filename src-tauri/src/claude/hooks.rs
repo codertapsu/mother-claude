@@ -290,6 +290,18 @@ impl PluginManager {
         self.cache.lock().unwrap_or_else(|p| p.into_inner()).clone()
     }
 
+    /// The Default directory's plugin as last checked: `installed`, `off`,
+    /// `missing`, or `None` before the CLI was asked.
+    pub fn summary(&self) -> Option<&'static str> {
+        let c = self.snapshot();
+        c.cli_available?;
+        Some(match (c.installed, c.enabled && !self.disabled_cached()) {
+            (true, true) => "installed",
+            (true, false) => "off",
+            (false, _) => "missing",
+        })
+    }
+
     /// Record the installed state directly (tests; a caller that knows).
     pub fn set_installed(&self, installed: bool) {
         self.set(|c| {
@@ -437,6 +449,15 @@ pub mod argv {
 /// Run `claude <args>` with the scrubbed environment, stdin closed and a
 /// timeout. `Err` only when the CLI could not be run at all.
 pub async fn run_cli(args: &[String]) -> Result<CliOutput, String> {
+    run_cli_with(args, &crate::claude::accounts::AccountEnv::Inherit).await
+}
+
+/// [`run_cli`] for an account: a directory account's `claude plugin …`
+/// manages the plugin in its own directory (docs/ACCOUNTS.md §5.7).
+pub async fn run_cli_with(
+    args: &[String],
+    account: &crate::claude::accounts::AccountEnv,
+) -> Result<CliOutput, String> {
     let mut cmd = tokio::process::Command::new(crate::claude::claude_bin());
     cmd.args(args)
         .stdin(std::process::Stdio::null())
@@ -446,6 +467,7 @@ pub async fn run_cli(args: &[String]) -> Result<CliOutput, String> {
     for k in ENV_DENYLIST {
         cmd.env_remove(k);
     }
+    account.apply(&mut cmd);
     let child = cmd
         .spawn()
         .map_err(|e| format!("could not run `claude`: {e}"))?;
@@ -657,6 +679,127 @@ pub async fn uninstall(state: &AppState) -> ApiResult<ForeignStatus> {
     }
     refresh_status(state, true).await;
     Ok(status(state).await)
+}
+
+// ──────────────────────────── per account ────────────────────────────
+
+/// The plugin's state in a directory account's own directory:
+/// `installed`, `off` (installed, disabled), `missing`, or `unknown` when
+/// the CLI could not say. Recorded in the registry (`hooksPlugin`).
+pub async fn refresh_account(state: &AppState, account: &str) -> Option<String> {
+    let a = state.accounts.get(account)?;
+    if a.is_default() || a.kind != crate::claude::accounts::AccountKind::Directory {
+        return None;
+    }
+    let env = state.accounts.env(account).ok()?;
+    let answer = match run_cli_with(&argv::list(), &env).await {
+        Ok(out) if out.ok => match parse_list(&out.stdout) {
+            Some((true, true, _)) => "installed",
+            Some((true, false, _)) => "off",
+            Some((false, _, _)) => "missing",
+            None => "unknown",
+        },
+        _ => "unknown",
+    };
+    state.accounts.note_hooks_plugin(account, answer);
+    Some(answer.to_string())
+}
+
+/// Install the plugin in a directory account's directory: the same plugin
+/// files (they are shared — the hook token authenticates the plugin, not an
+/// account), registered with `claude plugin marketplace add` and `claude
+/// plugin install` run with the account's environment. The Default uses
+/// [`install`].
+pub async fn install_for(state: &AppState, account: &str) -> ApiResult<String> {
+    let env = directory_env(state, account)?;
+    let paths = paths_of(state).ok_or_else(|| {
+        ApiError::conflict(
+            "no_data_dir",
+            "This build has no data directory to install the plugin from.",
+        )
+    })?;
+    {
+        let _busy = state.plugin.busy.lock().await;
+        write_plugin_files(&paths)
+            .and_then(|()| write_runtime_files(&paths, state.config.port, &state.auth.hook_token))
+            .map_err(|e| ApiError::internal(format!("Could not write the plugin files: {e}")))?;
+        let dir = paths.marketplace.to_string_lossy().into_owned();
+        let known = match run_cli_with(&argv::marketplace_list(), &env).await {
+            Ok(out) if out.ok => marketplace_listed(&out.stdout),
+            Ok(_) => false,
+            Err(e) => return Err(failed("Running `claude`", e, state)),
+        };
+        if !known {
+            let out = run_cli_with(&argv::marketplace_add(&dir), &env)
+                .await
+                .map_err(|e| failed("Adding the marketplace", e, state))?;
+            if !out.ok {
+                return Err(failed("Adding the marketplace", cli_message(&out), state));
+            }
+        }
+        let out = run_cli_with(&argv::install(), &env)
+            .await
+            .map_err(|e| failed("Installing the plugin", e, state))?;
+        if !out.ok {
+            return Err(failed("Installing the plugin", cli_message(&out), state));
+        }
+        tracing::info!(account, "foreign-control plugin installed for an account");
+    }
+    Ok(refresh_account(state, account)
+        .await
+        .unwrap_or_else(|| "unknown".into()))
+}
+
+/// Uninstall the plugin from a directory account's directory. The shared
+/// scripts stay on for the other accounts.
+pub async fn uninstall_for(state: &AppState, account: &str) -> ApiResult<String> {
+    let env = directory_env(state, account)?;
+    {
+        let _busy = state.plugin.busy.lock().await;
+        let out = run_cli_with(&argv::uninstall(), &env)
+            .await
+            .map_err(|e| failed("Uninstalling the plugin", e, state))?;
+        let not_installed = out.stderr.contains("not installed")
+            || out.stdout.contains("not installed")
+            || out.stderr.contains("not found");
+        if !out.ok && !not_installed {
+            return Err(failed("Uninstalling the plugin", cli_message(&out), state));
+        }
+        if let Ok(out) = run_cli_with(&argv::marketplace_remove(), &env).await {
+            if !out.ok {
+                tracing::warn!(error = %cli_message(&out), "could not remove the marketplace");
+            }
+        }
+    }
+    Ok(refresh_account(state, account)
+        .await
+        .unwrap_or_else(|| "unknown".into()))
+}
+
+/// A directory account's environment, or why the plugin is not its own.
+fn directory_env(
+    state: &AppState,
+    account: &str,
+) -> ApiResult<crate::claude::accounts::AccountEnv> {
+    let a = state.accounts.get(account).ok_or_else(|| {
+        ApiError::not_found("account_not_found", format!("No account {account:?}."))
+    })?;
+    if a.is_default() {
+        return Err(ApiError::unprocessable(
+            "use_default_install",
+            "The Default account's plugin is managed with foreign control's own install.",
+        ));
+    }
+    if a.kind != crate::claude::accounts::AccountKind::Directory {
+        return Err(ApiError::unprocessable(
+            "not_a_directory_account",
+            "A token account shares the Default account's directory and its plugin.",
+        ));
+    }
+    state
+        .accounts
+        .env(account)
+        .map_err(|e| ApiError::unprocessable(e.code(), e.to_string()))
 }
 
 #[cfg(test)]
