@@ -1034,10 +1034,11 @@ different directories.
    `skipped` with its code and the rest goes ahead. The old body (`what`:
    `session` | `project`) still refuses with the code, exactly as before.
 3. **The preconditions of D4 and §5.9 hold for every write** into a config
-   directory: desktop principal, `directory_in_use`, `config_locked`, checked
-   again right before writing, undo copy first, atomic writes, audit line.
-   Reading a storage needs the passphrase (`no_passphrase`) and an
-   authenticated set (`backup_unauthenticated`, `set_key_missing`).
+   directory: the desktop or a paired device (§13.9), `directory_in_use`,
+   `config_locked`, checked again right before writing, undo copy first,
+   atomic writes, audit line. Reading a storage needs the passphrase
+   (`no_backup_passphrase`) and an authenticated set
+   (`backup_unauthenticated`, `set_key_missing`).
 4. **Archived** entries (`archived: {at, machine}` in the set's index): a
    pull never brings an archived conversation to a machine that does not have
    it; a machine that has it keeps it, and its push of a changed copy replaces
@@ -1069,6 +1070,39 @@ different directories.
 9. **Goal 7 still holds**: with only the Default account, no storage besides
    the backup folder and no API server besides the main one, every response
    is what it was before this section.
+
+*Changed while building (2026-10-22):*
+
+- A request whose shared-file writes (a project's `.claude.json` entry or
+  prompt history, a replaced customization, the MCP servers) meet a directory
+  in use is refused as a whole (`directory_in_use`, `config_locked`), as the
+  old body is; only what cannot go is skipped. Customizations that are only
+  new files go while the target has live sessions: a new file is placed
+  through a hard link, never over one that appeared meanwhile.
+- A move takes a project's prompt history and carried entry out of the source
+  only when every conversation of it goes (and the plan warns when one
+  stays). In the shared folder, while token accounts exist, a source account's
+  conversations are those attributed to it (§3, D8): `all` and a project take
+  those, and a project shared with another account keeps its history there.
+- With `from` left out, a source none of whose conversations can go is no
+  job: its conversations are listed in `skipped` (`already_exists` for the
+  target's own, `same_directory` for a copy within the shared folder).
+- A move into a storage archives each conversation anew, even one the set has
+  as it is here, and checks the set's copy against the files here byte for
+  byte before it marks it and removes it; one that starts or changes
+  meanwhile stays here, unmarked. Going into a storage, a project's prompt
+  history and `.claude.json` entry stay in the account (each archive carries
+  the entry, for a restore with `trust`), and `trust` is not used.
+- A move out of a set keeps each removed entry's archive seven days through
+  the index's `superseded[].until`, its `at` a day before, so that a build
+  that knows only `at` keeps the file as long.
+- Storage → storage (P6.7) is not built: such a request is refused
+  (`invalid_transfer`).
+- The backup folder always counts as available (its first backup makes it).
+  Another storage whose folder is missing is `available: false`, refused as a
+  source or a target, and stops a passphrase change until it is back or
+  removed (`storage_unavailable`): its sets would keep only the old
+  passphrase.
 
 ### 13.4 API for moving data
 
@@ -1130,6 +1164,71 @@ Storages, all `DesktopOnly` to change, `Authed` to read:
   `PATCH /api/backup/storage/{id} {label}`; `DELETE /api/backup/storage/{id}`.
 - `GET /api/backup/index?storage=<id>&set=<name>`, beside the existing
   `?account=`; its session items gain `archived`.
+
+*As built (2026-10-22):*
+
+- **Locations** in a plan and a job are always objects: `{"account": id}` or
+  `{"storage": id, "set": name}`. A storage source needs `set`; a storage
+  target without one gets the source account's own set (the Default's for a
+  token account). A set's name follows the account-name rules (1–40
+  characters, no `/ \ : * ? " < > |`, no leading dot).
+- **Refusals** (the request as a whole): `422 invalid_body` (not this shape,
+  an unknown customization); `422 invalid_transfer` (nothing named; projects,
+  `all` or customizations without `from`; customizations with `mode: move` or
+  a storage on either side; a storage source without `set`; storage →
+  storage); `422 same_directory` (`from` = `to`; a copy, or customizations,
+  between accounts that share a directory); `404 not_found` (an account);
+  `404 storage_not_found`; `409 no_backup_folder`, `storage_unavailable`,
+  `no_backup_passphrase`, `set_key_missing`, `backup_unauthenticated`;
+  `403 wrong_passphrase`; `422 invalid_backup` (no such set, a bad set name);
+  `409 directory_in_use`, `config_locked` (shared files, §13.3); `403
+  dangerous_blocked` (`trust`, or the `settings` or `mcpServers`
+  customizations, from a device without the dangerous right — a dry run too,
+  §13.9); `403 desktop_only` (the local-script token); `409 no_data_dir`. The
+  body may be up to 1 MiB.
+- **The plan**: `sessions[].cwd` and `title` are left out when unknown;
+  `files` and `bytes` are what would be written (a restore: the archive's
+  file count and size; an assign: 0). `jobs` is at least 1. `truncated` is
+  there only when true. `customizations[].reason` says why one is skipped
+  ("the target has its own", "the same already") and, for `history`, how many
+  lines merge.
+- **Skipped codes**: `session_live`; `already_exists` (the target has it, or
+  it is the target account's already); `not_found` (no such conversation
+  here, a project with none, another account's conversation in the shared
+  folder, a customization the source lacks — named by `item`);
+  `invalid_transfer` (not a session id, a relative project);
+  `same_directory` (with `from` left out, a copy within the shared folder);
+  `not_in_set`; `newer_in_set` (another machine pushed a newer copy: bring it
+  first); `conflict` (changed here and in the set); `verify_failed`;
+  `session_changed`; `transfer_io` / `backup_io` (cannot be read).
+- **Jobs**: `kind` is the request's `mode` (`move` | `copy`); `from` / `to`
+  name accounts, `fromStorage` / `toStorage` and `set` a storage side;
+  `sessions` lists what it did. `result` is `{moved | copied | assigned |
+  archived | restored: [ids], skipped: [Skipped], customizations?:
+  [CustomItem], warnings?: [text]}`: `moved` / `copied` between directories,
+  `assigned` within one, `copied` / `archived` into a set, `restored` out of
+  one (either mode). A request with nothing to do still gets one job whose
+  result lists what it skipped. `undoUntil` is set when there is something to
+  undo (never for a copy into a set: that is a backup). An undo that could
+  not clear a set's marks says so in `result.warnings`.
+- **Storages**: `GET /api/backup` lists `storage` unless only the Default is
+  registered, no storage besides the backup folder exists and that folder
+  holds no set but the Default's (goal 7). The backup folder's `label` is
+  "Backup folder". A set's `sessions` and `archived` are what this app last
+  read or wrote of its index (left out until then: listing never takes the
+  passphrase). `POST /api/backup/storage` refuses a folder inside or around
+  an account's directory, the backup folder or another storage, the home
+  folder or the root, and one whose parent is missing (`422
+  invalid_storage`); it makes the folder when only it is missing. `PATCH` and
+  `DELETE` refuse the backup folder (`422 invalid_storage`); `DELETE` answers
+  `204`; an unknown id is `404 storage_not_found`. `PUT /api/backup/settings`
+  refuses a folder inside or around a storage (`422 invalid_folder`). A
+  passphrase change names another storage's sets `<label>/<set>` in
+  `rekeyed` / `left`.
+- **The index of a set**: `GET /api/backup/index?storage=<id>&set=<name>
+  &into=<account>` (`set` alone: the backup folder) compares the set with
+  `into` (by default the account the set is named after, else the Default);
+  the view gains `storage`, and its `account` is the account compared with.
 
 ### 13.5 API servers
 
@@ -1301,23 +1400,28 @@ docs/REMOTE.md (tunnels per server), SECURITY.md, README.md, `.env.example`.
 
 **Phase 6 — move data anywhere**
 
-- [ ] P6.1 Bulk transfer: the `items` body, skips with reasons, several
+- [x] P6.1 Bulk transfer: the `items` body, skips with reasons, several
   projects' entries and history in one job, `from` left out → a job per
   source; the old body unchanged.
-- [ ] P6.2 Assign between accounts that share a directory, with its undo.
-- [ ] P6.3 Storages: settings, routes, the view, sets not named after an
+- [x] P6.2 Assign between accounts that share a directory, with its undo.
+- [x] P6.3 Storages: settings, routes, the view, sets not named after an
   account, the index by storage and set, re-keying every storage.
-- [ ] P6.4 Account → storage: copy (a push of some conversations) and move
+- [x] P6.4 Account → storage: copy (a push of some conversations) and move
   (archive, local removal, undo); pull skips archived entries.
-- [ ] P6.5 Storage → account: copy (restore from any set into any account)
+- [x] P6.5 Storage → account: copy (restore from any set into any account)
   and move (restore, then remove the entries; undo puts them back).
-- [ ] P6.6 Customizations, with their undo and warnings; D4 in CLAUDE.md.
+- [x] P6.6 Customizations, with their undo and warnings; D4 in CLAUDE.md.
 - [ ] P6.7 Storage → storage (P2).
 - [ ] P6.8 UI: Select, Move data, the account action, the Storage section, job
   titles, the mock backend.
-- [ ] P6.9 Documents (§13.7).
+- [ ] P6.9 Documents (§13.7). *(Backend half done: CLAUDE.md, docs/BACKUP.md,
+  SECURITY.md and §13 itself; README, `.env.example` and the servers'
+  documents remain.)*
 - [ ] P6.10 From the phone (§13.9): the guards, the dangerous parts, the
-  desktop notice; the UI on phones.
+  desktop notice; the UI on phones. *(Backend half done: `ManageData` on the
+  data, backup, storage and account-default routes; `trust` and the settings
+  and MCP customizations behind the dangerous right; the desktop notice and
+  audit for a device.)*
 
 **Phase 7 — API servers per account**
 

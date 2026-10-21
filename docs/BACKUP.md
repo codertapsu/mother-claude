@@ -68,6 +68,36 @@ other set — "Shared", "Archive 2026", or a set in another storage — is read 
 written only when you move or copy conversations there (*Move data*).
 Removing a storage forgets it; its files stay where they are.
 
+## Moving conversations into and out of storage
+
+*Move data* — on the desktop or a paired phone — takes conversations, projects
+or everything of an account to a set of any storage, and back:
+
+- **Copy into a set** backs up just those conversations, into the account's
+  own set or one you name ("Shared", "Archive 2026"). It is a backup: nothing
+  changes in the account, so there is nothing to undo.
+- **Move into a set** archives them. Each is written to the set anew, the
+  set's copy is checked against the files here byte for byte, it is marked
+  *in storage only* in the set's index, and only then is it removed from the
+  account (into the undo folder, for seven days). A conversation that starts
+  or changes meanwhile stays where it is. Its project's prompt history and
+  folder settings stay in the account.
+- A conversation *in storage only* is never brought by a pull to a laptop that
+  does not have it; Restore and Move data list it and bring it back when you
+  ask. A laptop that still has it keeps it, and if it continues the
+  conversation and backs up, its copy replaces the set's and the mark goes.
+- **Copy out of a set** restores into any account, from any set of any
+  storage. **Move out of a set** then takes the conversations out of the set;
+  their archives stay there for seven days, so that the move can be undone.
+- **Undo** (seven days, from the job): a move into a set puts the files back
+  and clears the marks; a move out of a set puts its entries back into the
+  set first — not over a newer copy another laptop pushed since — and then
+  removes the restored files. If the set cannot take them back (an archive is
+  gone, the passphrase is not on this Mac), nothing is undone.
+
+Moving straight from one storage to another is not available yet: bring the
+conversations into an account, then move them on.
+
 ## What is backed up
 
 Per session, one archive: its transcript, its subagents' and workflows'
@@ -95,8 +125,9 @@ telemetry, plugin caches and downloaded marketplaces, synced skills, lock files.
 ## Restoring
 
 **Restore…** lists the sessions of a set by their title, each marked *new
-here*, *same*, *newer here* or *newer in the backup*. Pick the ones to bring
-back and the account to restore them into. Restoring writes only new files — a
+here*, *same*, *newer here* or *newer in the backup* — and *in storage only*
+when it was moved into the set. Pick the ones to bring back and the account to
+restore them into. Restoring writes only new files — a
 session the account already has is skipped — and can be undone for seven days.
 
 > **Pruning.** Claude Code deletes transcripts older than its

@@ -114,7 +114,10 @@ These are **dangerous**:
   a tmux session, and experimental PTY injection;
 - `rm`, transcript purge and starting a sign-in flow;
 - carrying a folder's trust (its `.claude.json` entry: `hasTrustDialogAccepted`,
-  allowed tools, MCP choices) with a move, copy, restore or pull;
+  allowed tools, MCP choices) with a move, copy, restore or pull, and copying
+  the `settings` or `mcpServers` customizations to another account (they
+  choose how Claude signs in, what runs in every session, which programs
+  start);
 - HTTP bridge options that run code nobody approves (MCP servers, pre-approved
   tools, extra directories, an untrusted folder, work sent into a conversation
   whose approvals are off).
@@ -381,6 +384,18 @@ device, ingress and client address.
 - A move, copy, restore or pull checks its preconditions again right before it
   writes, never leaves a file it moved only in a deleted undo directory, and
   never follows a symlink in a session's place.
+- Customizations (`CLAUDE.md`, settings, skills, agents, commands, output
+  styles, keybindings, MCP servers, prompt history) are only ever copied,
+  between accounts in different directories, each replaced file kept for the
+  undo. A symlinked skill is made again as a link to the same target, never
+  followed. MCP servers are named only by name in plans and results: their
+  `env` and `headers` values are never served. The dry run warns when copied
+  settings would choose how the target signs in or run commands.
+- Storages besides the backup folder hold sets encrypted the same way, under
+  the same passphrase; a passphrase change re-keys every one of them and
+  refuses while one is not there. A conversation moved into a set is removed
+  from the account only after the set's copy was checked against it byte for
+  byte.
 
 ## Reporting
 
