@@ -103,8 +103,11 @@ async fn serve_a_synthetic_home_for_ui_checks() {
     std::env::remove_var("MOTHER_CLAUDE_SIDECAR");
     let mut auth = Auth::ephemeral();
     auth.config_dir = Some(data.path().to_path_buf());
+    // The Default's `.claude.json` inside the synthetic home: with `with_base`
+    // it would be the real `~/.claude.json`, which moves with the trust
+    // opt-in and MCP customizations write.
     let st = Inner::with_bridge_config(
-        ClaudeHome::with_base(home.path()),
+        ClaudeHome::for_account_dir(home.path().to_path_buf()),
         ServerConfig {
             host: "127.0.0.1".into(),
             port,
