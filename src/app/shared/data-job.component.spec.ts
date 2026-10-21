@@ -51,11 +51,12 @@ describe('DataJobComponent', () => {
     expect(el.querySelector('button')).toBeNull();
   });
 
-  it('tells a phone that the undo is on the Mac', () => {
+  it('offers a phone the Undo too (docs/ACCOUNTS.md §13.9)', () => {
     const el = render(job());
     expect(text(el)).toContain('Moved 1 session.');
-    expect(text(el)).toContain('It can be undone on the Mac until');
-    expect(el.querySelector('button')).toBeNull();
+    expect(text(el.querySelector('.undo .btn'))).toBe('Undo');
+    expect(text(el)).toContain('Possible until');
+    expect(text(el)).not.toContain('on the Mac');
   });
 
   it('titles a move into a storage with its label, and says what it did', async () => {

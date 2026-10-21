@@ -208,27 +208,30 @@ export class MockData {
     q: URLSearchParams,
   ): Promise<Response> | Response | null {
     const b = (body ?? {}) as Record<string, unknown>;
-    if (path === '/data/move' && method === 'POST') return this.desk(() => this.move(b));
+    // The desktop and paired devices alike (docs/ACCOUNTS.md §13.9); a
+    // folder's trust needs the dangerous right, the passphrase the desktop.
+    if (path === '/data/move' && method === 'POST') return this.trusted(b, () => this.move(b));
     if (path === '/data/jobs' && method === 'GET') return json({ jobs: [...this.jobs.values()] });
     const job = /^\/data\/jobs\/([^/]+)(\/undo)?$/.exec(path);
     if (job) {
       const id = decodeURIComponent(job[1]);
-      if (job[2] && method === 'POST') return this.desk(() => this.undo(id));
+      if (job[2] && method === 'POST') return this.undo(id);
       if (!job[2] && method === 'GET') {
         const j = this.jobs.get(id);
         return j ? json(j) : fail(404, 'job_not_found', 'No such data job.');
       }
     }
     if (path === '/backup' && method === 'GET') return json(this.view());
-    if (path === '/backup/settings' && method === 'PUT')
-      return this.desk(() => this.putSettings(b));
+    if (path === '/backup/settings' && method === 'PUT') return this.putSettings(b);
     if (path === '/backup/passphrase' && method === 'POST') {
       return this.desk(() => this.passphrase(b));
     }
-    if (path === '/backup/push' && method === 'POST') return this.desk(() => this.push(b));
+    if (path === '/backup/push' && method === 'POST') return this.push(b);
     if (path === '/backup/index' && method === 'GET') return this.index(q);
-    if (path === '/backup/restore' && method === 'POST') return this.desk(() => this.restore(b));
-    if (path === '/backup/pull' && method === 'POST') return this.desk(() => this.pull(b));
+    if (path === '/backup/restore' && method === 'POST') {
+      return this.trusted(b, () => this.restore(b));
+    }
+    if (path === '/backup/pull' && method === 'POST') return this.trusted(b, () => this.pull(b));
     if (path.startsWith('/data/') || path.startsWith('/backup')) {
       return fail(404, 'not_found', `No mock for ${method} ${path}`);
     }
@@ -938,6 +941,13 @@ export class MockData {
     return this.host.desktop
       ? fn()
       : fail(403, 'desktop_only', 'Only the desktop app can do this.');
+  }
+
+  /** A folder's trust needs the dangerous right (devices here have none). */
+  private trusted(b: Record<string, unknown>, fn: () => Response): Response {
+    return b['trust'] === true && !this.host.desktop
+      ? fail(403, 'dangerous_blocked', "a folder's trust needs dangerous actions for this device")
+      : fn();
   }
 
   private account(id: string | undefined): AccountView | undefined {

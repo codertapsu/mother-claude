@@ -554,10 +554,7 @@ export class InfoPanelComponent {
    * directory (the header's dialog). */
   /** The folder can be moved or copied (the header hosts the sheet). */
   protected readonly moveOffered = computed(
-    () =>
-      !!this.ctx.session() &&
-      this.ctx.isDesktop() &&
-      anyTarget(this.accounts.list(), this.storage.list() ?? []),
+    () => !!this.ctx.session() && anyTarget(this.accounts.list(), this.storage.list() ?? []),
   );
   protected readonly kindLabel = accountKindLabel;
   protected readonly terminal = computed(() => {

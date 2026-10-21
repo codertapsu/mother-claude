@@ -14,7 +14,6 @@ import { RouterLink } from '@angular/router';
 import { DEFAULT_ACCOUNT, isAccountColor, needsCopy } from '../core/accounts';
 import { AccountsService } from '../core/accounts.service';
 import { ApiError, describeError } from '../core/api.service';
-import { AuthService } from '../core/auth.service';
 import { AccountRef, AccountView, CopyConsent, SessionSummary } from '../core/models';
 import { NowService } from '../core/now.service';
 import { SessionActionsService } from '../core/session-actions.service';
@@ -42,7 +41,7 @@ interface Target {
   note: string;
 }
 
-/** The desktop's question before the first copy between two accounts. */
+/** The question before the first copy between two accounts. */
 interface ConsentAsk extends CopyConsent {
   fromName: string;
   toName: string;
@@ -58,9 +57,9 @@ export function canContinue(s: SessionSummary): boolean {
  * (and, from the sessions list, the conversation) and the conversation goes
  * on there as a copy, the original staying as it was — a session Mother
  * Claude runs keeps running. An account with its own directory gets the
- * conversation copied there first: the desktop is asked once per pair of
- * accounts (the answer is kept, and revocable on the Accounts page); a
- * phone is told to allow it on the Mac. Accounts that can't run say why.
+ * conversation copied there first: the desktop or a paired phone is asked
+ * once per pair of accounts (docs/ACCOUNTS.md §13.9; the answer is kept,
+ * and revocable on the Accounts page). Accounts that can't run say why.
  */
 @Component({
   selector: 'mc-continue-on-sheet',
@@ -183,11 +182,9 @@ export function canContinue(s: SessionSummary): boolean {
               </button>
             </div>
           }
-          @if (isDesktop()) {
-            <p class="muted small manage">
-              <a routerLink="/accounts" (click)="closed.emit()">Manage accounts</a>
-            </p>
-          }
+          <p class="muted small manage">
+            <a routerLink="/accounts" (click)="closed.emit()">Manage accounts</a>
+          </p>
         }
       }
     </mc-sheet>
@@ -285,7 +282,6 @@ export class ContinueOnSheetComponent {
   protected readonly accounts = inject(AccountsService);
   private actions = inject(SessionActionsService);
   private clock = inject(NowService);
-  protected readonly isDesktop = inject(AuthService).isDesktop;
 
   readonly open = input(false);
   /** The conversation(s) to choose from: one from a session's menu, those
@@ -297,7 +293,7 @@ export class ContinueOnSheetComponent {
 
   protected readonly busy = signal(false);
   protected readonly error = signal('');
-  /** The desktop is asked to allow copies between two accounts. */
+  /** Asked to allow copies between two accounts. */
   protected readonly ask = signal<ConsentAsk | null>(null);
   private readonly pickedSession = signal<string | null>(null);
   private readonly pickedTarget = signal<string | null>(null);
@@ -314,7 +310,6 @@ export class ContinueOnSheetComponent {
       kind: 'directory',
     };
     const now = this.clock.now();
-    const desktop = this.isDesktop();
     return this.accounts
       .list()
       .filter((a) => a.id !== from.id)
@@ -326,9 +321,7 @@ export class ContinueOnSheetComponent {
             a.kind === 'token' ? "Uses the Default's directory" : 'Keeps its own directory';
           note = this.accounts.hasCopyConsent(from.id, a.id)
             ? `${where}: the conversation is copied there first.`
-            : desktop
-              ? `${where}: the conversation is copied there first (asked once).`
-              : `${where}: copies to it have to be allowed on the Mac first (Accounts page).`;
+            : `${where}: the conversation is copied there first (asked once).`;
         }
         return {
           account: a,
@@ -400,7 +393,7 @@ export class ContinueOnSheetComponent {
       return;
     }
     const pair = consentNeeded(res.error);
-    if (pair && this.isDesktop()) {
+    if (pair) {
       this.ask.set({
         ...pair,
         fromName: this.accounts.byId(pair.from)?.name ?? this.source()?.name ?? 'this account',
@@ -411,7 +404,7 @@ export class ContinueOnSheetComponent {
     this.fail(res.error, t);
   }
 
-  /** Desktop: remember the consent, then continue as asked. */
+  /** Remember the consent, then continue as asked. */
   protected async allow(): Promise<void> {
     const a = this.ask();
     if (!a || this.busy()) return;

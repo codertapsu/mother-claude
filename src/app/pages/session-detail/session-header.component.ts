@@ -35,8 +35,8 @@ import { SessionContext } from './session-context';
  * The session page's sticky top row: back, name, status, the Claude
  * account (while there are several) and what it is doing right now (with
  * elapsed time), the connection state when it isn't Live, and a ⋯ menu
- * (rename, continue/fork, continue on another account, on the desktop
- * moving or copying it or its project to another account or a storage,
+ * (rename, continue/fork, continue on another account, moving or copying
+ * it or its project to another account or a storage,
  * terminal, notifications, resume command, stop/respawn/remove). 48 px tall
  * on phones.
  */
@@ -492,12 +492,10 @@ export class SessionHeaderComponent {
     const a = this.ctx.session()?.account;
     return a ? (this.accounts.suggestionFor(a)?.id ?? null) : null;
   });
-  /** Desktop, and somewhere to move it: another account, or a storage. */
+  /** Somewhere to move it: another account, or a storage (the desktop
+   * and paired phones alike, docs/ACCOUNTS.md §13.9). */
   protected readonly moveOffered = computed(
-    () =>
-      !!this.ctx.session() &&
-      this.ctx.isDesktop() &&
-      anyTarget(this.accounts.list(), this.storage.list() ?? []),
+    () => !!this.ctx.session() && anyTarget(this.accounts.list(), this.storage.list() ?? []),
   );
   /** Move data with the conversation, or every conversation of its folder. */
   protected readonly moveStart = computed<MoveStart | null>(() => {
@@ -512,9 +510,7 @@ export class SessionHeaderComponent {
 
   constructor() {
     // Where things can be moved to: the storages count too.
-    effect(() => {
-      if (this.ctx.isDesktop()) untracked(() => void this.storage.ensureLoaded());
-    });
+    void this.storage.ensureLoaded();
     // The composer's `/rename` lands here.
     effect(() => {
       if (this.ctx.openPicker() !== 'rename') return;
@@ -527,6 +523,7 @@ export class SessionHeaderComponent {
 
   protected openMenu(): void {
     this.menu.set(true);
+    void this.storage.ensureLoaded();
     if (!this.push.prefs()) void this.push.loadPrefs();
   }
 

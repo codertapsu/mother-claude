@@ -13,7 +13,6 @@ import {
 
 import { AccountsService } from '../core/accounts.service';
 import { ApiService } from '../core/api.service';
-import { AuthService } from '../core/auth.service';
 import { jobSummary } from '../core/backup';
 import {
   canUndo,
@@ -48,9 +47,10 @@ function dateTime(ms: number): string {
 /**
  * One data job (a move, copy, backup, restore or pull): what it is, how far
  * it got (a progress bar while it runs), one line about how it ended, and —
- * on the desktop, while its undo has not run out — Undo, confirmed with a
- * second tap. Emits the job as it is after an undo. Extra details (a pull's
- * conflicts, a restore's skips) go in as content.
+ * while its undo has not run out — Undo, confirmed with a second tap, from
+ * the desktop or a paired phone alike (docs/ACCOUNTS.md §13.9). Emits the
+ * job as it is after an undo. Extra details (a pull's conflicts, a
+ * restore's skips) go in as content.
  */
 @Component({
   selector: 'mc-data-job',
@@ -84,23 +84,19 @@ function dateTime(ms: number): string {
     }
     <ng-content />
     @if (undoable()) {
-      @if (isDesktop()) {
-        <div class="undo">
-          <button
-            class="btn small"
-            type="button"
-            [class.danger]="confirming()"
-            [disabled]="undoing()"
-            (click)="undo()"
-          >
-            <mc-icon name="undo" [size]="14" />
-            {{ undoing() ? 'Undoing…' : confirming() ? 'Tap again to undo' : 'Undo' }}
-          </button>
-          <span class="muted small">Possible until {{ until() }}.</span>
-        </div>
-      } @else {
-        <p class="muted small sum">It can be undone on the Mac until {{ until() }}.</p>
-      }
+      <div class="undo">
+        <button
+          class="btn small"
+          type="button"
+          [class.danger]="confirming()"
+          [disabled]="undoing()"
+          (click)="undo()"
+        >
+          <mc-icon name="undo" [size]="14" />
+          {{ undoing() ? 'Undoing…' : confirming() ? 'Tap again to undo' : 'Undo' }}
+        </button>
+        <span class="muted small">Possible until {{ until() }}.</span>
+      </div>
     }
     @if (undoError()) {
       <p class="error-text small sum" role="alert">{{ undoError() }}</p>
@@ -184,7 +180,6 @@ export class DataJobComponent {
   private clock = inject(NowService);
   private accounts = inject(AccountsService);
   private storage = inject(StorageService);
-  protected readonly isDesktop = inject(AuthService).isDesktop;
 
   readonly job = input.required<JobView>();
   /** What it is, e.g. "Backup of Work" (default: its kind). */

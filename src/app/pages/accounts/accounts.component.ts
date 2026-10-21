@@ -6,7 +6,6 @@ import {
   inject,
   linkedSignal,
   signal,
-  untracked,
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 
@@ -87,15 +86,13 @@ interface ProjectRow {
 
 /**
  * Settings › Accounts (docs/ACCOUNTS.md §6.1): every Claude account with
- * its kind, directory, sign-in, live sessions and plan usage; on the
- * desktop adding, renaming, recolouring, signing in (a browser login or a
- * token), re-checking and removing them, the hooks plugin in a directory
- * account's own directory (the Default's is foreign control's), the
- * defaults (new sessions, the API, per project) and the copy consents —
- * allowed ahead of time, or revoked. *Move or copy data…* on each account
- * opens Move data with everything of it. Phones see the rest read-only:
- * their account actions are the picker when starting or continuing a
- * session (D9) and moving data.
+ * its kind, directory, sign-in, live sessions and plan usage; renaming and
+ * recolouring them, the defaults (new sessions, the API, per project) and
+ * the copy consents — allowed ahead of time, or revoked — and *Move or copy
+ * data…* on each account, from the desktop or a paired phone (§13.9). On
+ * the desktop only: adding, signing in (a browser login or a token),
+ * re-checking and removing them, and the hooks plugin in a directory
+ * account's own directory (the Default's is foreign control's).
  */
 @Component({
   selector: 'mc-accounts',
@@ -225,13 +222,8 @@ export class AccountsComponent {
   constructor() {
     // Always fresh on opening (the desktop's read carries a sign-in link).
     void this.accounts.refresh();
-    // The project picker's suggestions, for the desktop that edits rules.
-    let projectsLoaded = false;
-    effect(() => {
-      if (!this.isDesktop() || projectsLoaded) return;
-      projectsLoaded = true;
-      untracked(() => void this.loadProjects());
-    });
+    // The project picker's suggestions.
+    void this.loadProjects();
     effect((onCleanup) => {
       if (!this.accounts.list().some((a) => a.signingIn || a.checking)) return;
       const timer = setInterval(() => void this.accounts.refresh(), WATCH_MS);

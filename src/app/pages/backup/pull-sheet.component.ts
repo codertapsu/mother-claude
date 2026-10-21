@@ -12,6 +12,7 @@ import {
 } from '@angular/core';
 
 import { ApiService } from '../../core/api.service';
+import { AuthService } from '../../core/auth.service';
 import {
   PRUNE_WARNING,
   backupErrorText,
@@ -25,6 +26,7 @@ import {
 import { jobIdOf, normalizeJob, plural, sentence } from '../../core/data-jobs';
 import { DataJobsService } from '../../core/data-jobs.service';
 import { BackupIndex, BackupSet, JobView } from '../../core/models';
+import { DANGEROUS_REASON } from '../../core/move-data';
 import { DataJobComponent } from '../../shared/data-job.component';
 import { SheetComponent } from '../../shared/sheet.component';
 import { BackupSessionsComponent } from './backup-sessions.component';
@@ -50,7 +52,8 @@ interface PullRun {
 }
 
 /**
- * Desktop: bring this Mac up to date from the backup sets (docs/BACKUP.md
+ * Bring this Mac up to date from the backup sets, from the desktop or a
+ * paired phone (docs/BACKUP.md
  * "Carrying sessions to another laptop") — one account's set, or every set
  * (one per directory: a token account's sessions are in the Default's; a
  * set whose key is not here says so). Before anything is written it lists
@@ -58,7 +61,8 @@ interface PullRun {
  * session: new here; newer in the backup (this Mac's copy is replaced and
  * kept for undo); changed on both (kept side by side, never merged);
  * running here (skipped); newer here. Afterwards each account's result,
- * with the conflicts and the file each one was written to.
+ * with the conflicts and the file each one was written to. A folder's trust
+ * needs the dangerous right.
  */
 @Component({
   selector: 'mc-pull-sheet',
@@ -103,8 +107,8 @@ interface PullRun {
             <label class="check">
               <input
                 type="checkbox"
-                [checked]="trust()"
-                [disabled]="busy()"
+                [checked]="trust() && canDangerous()"
+                [disabled]="busy() || !canDangerous()"
                 (change)="trust.set($any($event.target).checked)"
               />
               <span>
@@ -112,6 +116,9 @@ interface PullRun {
                 <span class="muted small hint-line"
                   >A trusted folder runs its project hooks and MCP servers without asking.</span
                 >
+                @if (!canDangerous()) {
+                  <span class="small hint-line blocked">{{ dangerousReason }}</span>
+                }
               </span>
             </label>
             @if (error()) {
@@ -178,6 +185,9 @@ interface PullRun {
       .hint-line {
         display: block;
       }
+      .blocked {
+        color: var(--amber);
+      }
       .notice {
         margin: 0.75rem 0 0;
       }
@@ -195,6 +205,9 @@ interface PullRun {
 export class PullSheetComponent {
   private api = inject(ApiService);
   private jobs = inject(DataJobsService);
+  /** A folder's trust needs the dangerous right (docs/ACCOUNTS.md §13.9). */
+  protected readonly canDangerous = inject(AuthService).canDangerous;
+  protected readonly dangerousReason = DANGEROUS_REASON;
 
   readonly open = input(false);
   /** One account's set; null: every account's. */
@@ -334,7 +347,7 @@ export class PullSheetComponent {
         const res = await this.api.pullBackup({
           account: g.account,
           ids,
-          ...(this.trust() ? { trust: true } : {}),
+          ...(this.trust() && this.canDangerous() ? { trust: true } : {}),
         });
         for (const m of normalizePullSkips(res?.skipped)) {
           const name = this.sets().find((s) => s.account === m.account)?.name;

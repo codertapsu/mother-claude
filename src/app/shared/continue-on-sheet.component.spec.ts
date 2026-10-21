@@ -111,7 +111,7 @@ describe('ContinueOnSheetComponent', () => {
     // Work keeps its own directory: it can be picked, the copy is said.
     expect(opts[0].disabled).toBeFalse();
     expect(text(opts[0])).toContain('Keeps its own directory');
-    expect(text(opts[0])).toContain('allowed on the Mac first');
+    expect(text(opts[0])).toContain('copied there first (asked once)');
     // The token account shares the directory: a plain fork.
     expect(text(opts[1])).not.toContain('directory');
     // The suggestion is preselected.
@@ -186,17 +186,25 @@ describe('ContinueOnSheetComponent', () => {
     expect(text(goButton(el))).toBe('Continue on Work');
   });
 
-  it('on a phone says the copies have to be allowed on the Mac', async () => {
-    backend.routes.set('/sessions/s1/continue', () => consentRequired);
+  it('asks a phone too before the first copy (docs/ACCOUNTS.md §13.9)', async () => {
+    let continues = 0;
+    backend.routes.set('/sessions/s1/continue', () =>
+      ++continues === 1 ? consentRequired : { status: 201, body: { id: 's5', forked: true } },
+    );
+    backend.routes.set('/accounts/copy-consent', () => ({
+      status: 200,
+      body: buildAccounts(Date.now(), true),
+    }));
     const el = await open(session());
     await pick(el, 'Work');
     goButton(el).click();
     await settle();
-    expect(el.querySelector('[aria-label="Allow copies"]')).toBeNull();
-    expect(text(el.querySelector('.notice.error'))).toContain(
-      'copies between these two accounts have to be allowed on the Mac first (on its Accounts page)',
-    );
-    expect(backend.calls).not.toContain('PUT /accounts/copy-consent');
+    const ask = el.querySelector('[aria-label="Allow copies"]');
+    expect(ask).not.toBeNull();
+    (ask?.querySelector('.btn.primary') as HTMLButtonElement).click();
+    await settle();
+    expect(backend.calls).toContain('PUT /accounts/copy-consent');
+    expect(TestBed.inject(Router).url).toBe('/session/s5');
   });
 
   it('says plainly that a token is missing', async () => {

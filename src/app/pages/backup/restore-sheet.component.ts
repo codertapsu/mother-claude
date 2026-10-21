@@ -13,6 +13,7 @@ import {
 
 import { AccountsService } from '../../core/accounts.service';
 import { ApiService } from '../../core/api.service';
+import { AuthService } from '../../core/auth.service';
 import {
   PRUNE_WARNING,
   backupErrorText,
@@ -24,6 +25,7 @@ import {
 import { jobIdOf, normalizeJob, plural } from '../../core/data-jobs';
 import { DataJobsService } from '../../core/data-jobs.service';
 import { BackupIndex, BackupSet, JobView } from '../../core/models';
+import { DANGEROUS_REASON } from '../../core/move-data';
 import { DataJobComponent } from '../../shared/data-job.component';
 import { SheetComponent } from '../../shared/sheet.component';
 import { BackupSessionsComponent } from './backup-sessions.component';
@@ -33,15 +35,16 @@ import { JobDetailsComponent } from './job-details.component';
 export type RestoreStep = 'loading' | 'list' | 'confirm' | 'run' | 'error';
 
 /**
- * Desktop: bring sessions back from a backup set (docs/BACKUP.md). Choose
+ * Bring sessions back from a backup set (docs/BACKUP.md), from the desktop
+ * or a paired phone (docs/ACCOUNTS.md §13.9). Choose
  * the set (one per directory: a token account's sessions are in the
  * Default's) and the account to restore into (the same by default); the
  * set's sessions are listed by title with how each compares (new ones
  * start selected) and
  * Claude Code's pruning warning next to those it would delete again. If any
  * selected one has it, the dialog says so before it starts. A folder's
- * trust comes back only when ticked. Restoring writes only new files and
- * can be undone.
+ * trust comes back only when ticked (it needs the dangerous right).
+ * Restoring writes only new files and can be undone.
  */
 @Component({
   selector: 'mc-restore-sheet',
@@ -99,8 +102,8 @@ export type RestoreStep = 'loading' | 'list' | 'confirm' | 'run' | 'error';
             <label class="check">
               <input
                 type="checkbox"
-                [checked]="trust()"
-                [disabled]="busy()"
+                [checked]="trust() && canDangerous()"
+                [disabled]="busy() || !canDangerous()"
                 (change)="trust.set($any($event.target).checked)"
               />
               <span>
@@ -108,6 +111,9 @@ export type RestoreStep = 'loading' | 'list' | 'confirm' | 'run' | 'error';
                 <span class="muted small hint-line"
                   >A trusted folder runs its project hooks and MCP servers without asking.</span
                 >
+                @if (!canDangerous()) {
+                  <span class="small hint-line blocked">{{ dangerousReason }}</span>
+                }
               </span>
             </label>
             @if (error()) {
@@ -190,6 +196,9 @@ export type RestoreStep = 'loading' | 'list' | 'confirm' | 'run' | 'error';
       .hint-line {
         display: block;
       }
+      .blocked {
+        color: var(--amber);
+      }
       .notice {
         margin: 0.75rem 0 0;
       }
@@ -209,6 +218,9 @@ export type RestoreStep = 'loading' | 'list' | 'confirm' | 'run' | 'error';
 export class RestoreSheetComponent {
   private api = inject(ApiService);
   private jobs = inject(DataJobsService);
+  /** A folder's trust needs the dangerous right (docs/ACCOUNTS.md §13.9). */
+  protected readonly canDangerous = inject(AuthService).canDangerous;
+  protected readonly dangerousReason = DANGEROUS_REASON;
   private accounts = inject(AccountsService);
 
   /** The account whose set to restore from (null: closed). */
@@ -346,7 +358,7 @@ export class RestoreSheetComponent {
         account: this.setId(),
         ...(this.intoId() !== this.setId() ? { into: this.intoId() } : {}),
         ids,
-        ...(this.trust() ? { trust: true } : {}),
+        ...(this.trust() && this.canDangerous() ? { trust: true } : {}),
       });
       first = normalizeJob(res?.job) ?? jobIdOf(res?.job);
       if (!first) throw new Error('The Mac sent no job for the restore.');

@@ -49,7 +49,7 @@ describe('AccountsComponent', () => {
     expect(text(el)).toContain('Account tokens are kept in the macOS Keychain');
   });
 
-  it('shows a phone every account read-only', async () => {
+  it('lets a phone rename accounts and choose the defaults; adding and signing in stay on the Mac', async () => {
     serveAccounts(backend, buildAccounts(Date.now(), true));
     const el = await render();
     const rows = [...el.querySelectorAll('.acct')];
@@ -59,20 +59,44 @@ describe('AccountsComponent', () => {
       'Marcus (Pro)',
     ]);
     expect(text(rows[2])).toContain("Token, shares the Default's data");
-    expect(text(el.querySelector('.phone-note'))).toContain('added and signed in on the Mac');
-    // No administration at all: no add, manage, sign-in or selects.
+    expect(text(el.querySelector('.phone-note'))).toContain(
+      'added, signed in and removed on the Mac',
+    );
     const labels = buttons(el);
     expect(labels).not.toContain('Add account');
-    expect(labels.some((b) => b.includes('Manage'))).toBeFalse();
-    expect(el.querySelectorAll('.defaults select').length).toBe(0);
-    expect(el.querySelector('form.padd')).toBeNull();
-    // The defaults are still there to read.
-    const rowsOfDefaults = [...el.querySelectorAll('.defaults .drow')];
-    expect(text(rowsOfDefaults[0].querySelector('strong'))).toBe('New sessions run under');
-    expect(text(rowsOfDefaults[0].querySelector('.dval'))).toBe('Default');
-    expect(text(rowsOfDefaults[1].querySelector('.dval'))).toBe('Default');
+    expect(labels.some((b) => b.startsWith('Sign in'))).toBeFalse();
+    // Manage: the name and colour (docs/ACCOUNTS.md §13.9).
+    expect(labels.filter((b) => b.includes('Manage')).length).toBe(3);
+    expect((el.querySelector('#acc-new-session') as HTMLSelectElement).value).toBe('default');
+    expect((el.querySelector('#acc-bridge') as HTMLSelectElement).value).toBe('default');
     expect(text(el.querySelector('.prow .pdir'))).toBe('~/dev/analytics');
-    expect(text(el.querySelector('.prow .pname'))).toBe('Work');
+    expect((el.querySelector('.prow .psel') as HTMLSelectElement).value).toBe(MOCK_ACCOUNT_WORK);
+    expect(el.querySelector('form.padd')).not.toBeNull();
+  });
+
+  it("lets a phone rename an account, and says the rest is the Mac's", async () => {
+    const view = buildAccounts(Date.now(), true);
+    serveAccounts(backend, view);
+    backend.routes.set(`/accounts/${MOCK_ACCOUNT_WORK}`, (_m, body) => ({
+      status: 200,
+      body: { ...view.accounts[1], ...(body as object) },
+    }));
+    const el = await render();
+    el.querySelector<HTMLButtonElement>('button[aria-label="Manage Work"]')!.click();
+    fixture.detectChanges();
+    await flush();
+    fixture.detectChanges();
+    const sheet = el.querySelector('mc-account-sheet') as HTMLElement;
+    expect(sheet.querySelector('mc-account-signin')).toBeNull();
+    expect(text(sheet.querySelector('.onmac'))).toContain('changed on the Mac');
+    expect(buttons(sheet).some((b) => b.startsWith('Remove'))).toBeFalse();
+    const name = sheet.querySelector<HTMLInputElement>('input[name="name"]')!;
+    name.value = 'Acme';
+    name.dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+    (sheet.querySelector('form.look button[type="submit"]') as HTMLButtonElement).click();
+    await flush();
+    expect(backend.bodyOf(`PATCH /accounts/${MOCK_ACCOUNT_WORK}`)).toEqual({ name: 'Acme' });
   });
 
   it('lets the desktop choose the defaults and add a project rule', async () => {
@@ -201,11 +225,11 @@ describe('AccountsComponent', () => {
     );
   });
 
-  it('shows a phone no hooks or copy buttons', async () => {
+  it('shows a phone no hooks plugin buttons, and lets it allow copies', async () => {
     serveAccounts(backend, buildAccounts(Date.now(), true));
     const el = await render();
     expect(el.querySelector('.hooks')).toBeNull();
-    expect(el.querySelector('select[name="pair"]')).toBeNull();
+    expect(el.querySelector('select[name="pair"]')).not.toBeNull();
   });
 
   it('keeps the Undo of recent moves and copies at hand', async () => {

@@ -2,9 +2,6 @@
   display: block;
 }
 
-.phone-note {
-  margin: 0 0 0.75rem;
-}
 .unfinished {
   display: flex;
   align-items: center;
@@ -59,6 +56,9 @@ section.card {
 
 .prow > mc-icon {
   color: var(--accent-text);
+}
+.onmac {
+  margin-top: 0.2rem;
 }
 .srow {
   gap: 0.75rem;

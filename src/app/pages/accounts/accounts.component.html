@@ -15,8 +15,8 @@
 
   @if (!isDesktop()) {
     <p class="notice small phone-note">
-      Accounts are added and signed in on the Mac. From here you can see them, and pick one when you
-      start a session or continue one.
+      Accounts are added, signed in and removed on the Mac. From here you can rename them, choose
+      the defaults, allow copies and move their data.
     </p>
   }
 
@@ -120,45 +120,41 @@
               <span class="muted small">{{ tokenNoUsage }}</span>
             }
           </div>
-          @if (isDesktop() || moveOffered()) {
-            <div class="aacts">
-              @if (isDesktop() && r.action === 'signin') {
-                <button
-                  class="btn small primary"
-                  type="button"
-                  [disabled]="busyId() === r.a.id"
-                  (click)="signIn(r.a)"
-                >
-                  {{ busyId() === r.a.id ? 'Opening the browser…' : 'Sign in' }}
-                </button>
-              } @else if (isDesktop() && r.action === 'token') {
-                <button class="btn small primary" type="button" (click)="managing.set(r.a.id)">
-                  <mc-icon name="key" [size]="14" />
-                  {{ r.a.tokenStored ? 'New token' : 'Get token' }}
-                </button>
-              }
-              @if (moveOffered()) {
-                <button
-                  class="btn small"
-                  type="button"
-                  [attr.aria-label]="'Move or copy the data of ' + r.a.name"
-                  (click)="moveFrom(r.a)"
-                >
-                  <mc-icon name="move" [size]="14" /> Move or copy data…
-                </button>
-              }
-              @if (isDesktop()) {
-                <button
-                  class="btn small"
-                  type="button"
-                  [attr.aria-label]="'Manage ' + r.a.name"
-                  (click)="managing.set(r.a.id)"
-                >
-                  <mc-icon name="settings" [size]="14" /> Manage
-                </button>
-              }
-            </div>
-          }
+          <div class="aacts">
+            @if (isDesktop() && r.action === 'signin') {
+              <button
+                class="btn small primary"
+                type="button"
+                [disabled]="busyId() === r.a.id"
+                (click)="signIn(r.a)"
+              >
+                {{ busyId() === r.a.id ? 'Opening the browser…' : 'Sign in' }}
+              </button>
+            } @else if (isDesktop() && r.action === 'token') {
+              <button class="btn small primary" type="button" (click)="managing.set(r.a.id)">
+                <mc-icon name="key" [size]="14" />
+                {{ r.a.tokenStored ? 'New token' : 'Get token' }}
+              </button>
+            }
+            @if (moveOffered()) {
+              <button
+                class="btn small"
+                type="button"
+                [attr.aria-label]="'Move or copy the data of ' + r.a.name"
+                (click)="moveFrom(r.a)"
+              >
+                <mc-icon name="move" [size]="14" /> Move or copy data…
+              </button>
+            }
+            <button
+              class="btn small"
+              type="button"
+              [attr.aria-label]="'Manage ' + r.a.name"
+              (click)="managing.set(r.a.id)"
+            >
+              <mc-icon name="settings" [size]="14" /> Manage
+            </button>
+          </div>
         </div>
       }
     </section>
@@ -170,57 +166,41 @@
           <div class="list">
             <div class="list-row drow">
               <div class="grow">
-                @if (isDesktop()) {
-                  <label for="acc-new-session"><strong>New sessions run under</strong></label>
-                } @else {
-                  <strong>New sessions run under</strong>
-                }
+                <label for="acc-new-session"><strong>New sessions run under</strong></label>
                 <span class="muted small"
                   >Unless their project has an account of its own (below), or you pick one when you
                   start.</span
                 >
               </div>
-              @if (isDesktop()) {
-                <select
-                  id="acc-new-session"
-                  class="dsel"
-                  [disabled]="saving()"
-                  (change)="setNewSession($event)"
-                >
-                  @for (a of accounts.list(); track a.id) {
-                    <option [value]="a.id" [selected]="a.id === d.newSession">{{ a.name }}</option>
-                  }
-                </select>
-              } @else {
-                <span class="dval">{{ nameOf(d.newSession) }}</span>
-              }
+              <select
+                id="acc-new-session"
+                class="dsel"
+                [disabled]="saving()"
+                (change)="setNewSession($event)"
+              >
+                @for (a of accounts.list(); track a.id) {
+                  <option [value]="a.id" [selected]="a.id === d.newSession">{{ a.name }}</option>
+                }
+              </select>
             </div>
             <div class="list-row drow">
               <div class="grow">
-                @if (isDesktop()) {
-                  <label for="acc-bridge"><strong>The API runs under</strong></label>
-                } @else {
-                  <strong>The API runs under</strong>
-                }
+                <label for="acc-bridge"><strong>The API runs under</strong></label>
                 <span class="muted small"
                   >Conversations the HTTP API starts, unless their project has an account of its own
                   or the request or the API screen names one.</span
                 >
               </div>
-              @if (isDesktop()) {
-                <select
-                  id="acc-bridge"
-                  class="dsel"
-                  [disabled]="saving()"
-                  (change)="setBridge($event)"
-                >
-                  @for (a of accounts.list(); track a.id) {
-                    <option [value]="a.id" [selected]="a.id === d.bridge">{{ a.name }}</option>
-                  }
-                </select>
-              } @else {
-                <span class="dval">{{ nameOf(d.bridge) }}</span>
-              }
+              <select
+                id="acc-bridge"
+                class="dsel"
+                [disabled]="saving()"
+                (change)="setBridge($event)"
+              >
+                @for (a of accounts.list(); track a.id) {
+                  <option [value]="a.id" [selected]="a.id === d.bridge">{{ a.name }}</option>
+                }
+              </select>
             </div>
           </div>
 
@@ -234,83 +214,77 @@
               <div class="list-row prow">
                 <mc-icon name="folder" [size]="15" />
                 <span class="mono pdir" [title]="p.dir">{{ short(p.dir) }}</span>
-                @if (isDesktop()) {
-                  <select
-                    class="psel"
-                    [attr.aria-label]="'Account for ' + p.dir"
-                    [disabled]="saving()"
-                    (change)="setProject(p.dir, $event)"
-                  >
-                    @for (a of accounts.list(); track a.id) {
-                      <option [value]="a.id" [selected]="a.id === p.id">{{ a.name }}</option>
-                    }
-                    @if (!p.known) {
-                      <option [value]="p.id" [selected]="true">{{ p.name }}</option>
-                    }
-                  </select>
-                  <button
-                    class="btn small ghost icon-only"
-                    type="button"
-                    [attr.aria-label]="'Remove the rule for ' + p.dir"
-                    [disabled]="saving()"
-                    (click)="removeProject(p.dir)"
-                  >
-                    <mc-icon name="trash" [size]="15" />
-                  </button>
-                } @else {
-                  <span class="pname">{{ p.name }}</span>
-                }
+                <select
+                  class="psel"
+                  [attr.aria-label]="'Account for ' + p.dir"
+                  [disabled]="saving()"
+                  (change)="setProject(p.dir, $event)"
+                >
+                  @for (a of accounts.list(); track a.id) {
+                    <option [value]="a.id" [selected]="a.id === p.id">{{ a.name }}</option>
+                  }
+                  @if (!p.known) {
+                    <option [value]="p.id" [selected]="true">{{ p.name }}</option>
+                  }
+                </select>
+                <button
+                  class="btn small ghost icon-only"
+                  type="button"
+                  [attr.aria-label]="'Remove the rule for ' + p.dir"
+                  [disabled]="saving()"
+                  (click)="removeProject(p.dir)"
+                >
+                  <mc-icon name="trash" [size]="15" />
+                </button>
               </div>
             } @empty {
               <p class="muted small none">No project has an account of its own yet.</p>
             }
           </div>
 
-          @if (isDesktop()) {
-            <form class="padd" (submit)="addProject($event)">
-              <label class="field pfield">
-                <span class="field-label">Project folder</span>
-                <input
-                  name="dir"
-                  list="mc-account-projects"
-                  placeholder="/Users/you/project"
-                  spellcheck="false"
-                  autocapitalize="off"
-                  autocomplete="off"
-                  [ngModel]="newDir()"
-                  (ngModelChange)="newDir.set($event); projectError.set('')"
-                />
-              </label>
-              <datalist id="mc-account-projects">
-                @for (p of projects(); track p.path) {
-                  <option [value]="p.path">{{ p.name }}</option>
+          <form class="padd" (submit)="addProject($event)">
+            <label class="field pfield">
+              <span class="field-label">Project folder</span>
+              <input
+                name="dir"
+                list="mc-account-projects"
+                placeholder="/Users/you/project"
+                spellcheck="false"
+                autocapitalize="off"
+                autocomplete="off"
+                [ngModel]="newDir()"
+                (ngModelChange)="newDir.set($event); projectError.set('')"
+              />
+            </label>
+            <datalist id="mc-account-projects">
+              @for (p of projects(); track p.path) {
+                <option [value]="p.path">{{ p.name }}</option>
+              }
+            </datalist>
+            <label class="field">
+              <span class="field-label">Account</span>
+              <select
+                name="account"
+                [ngModel]="newDirAccount()"
+                (ngModelChange)="newDirAccount.set($event)"
+              >
+                @for (a of accounts.list(); track a.id) {
+                  <option [value]="a.id">{{ a.name }}</option>
                 }
-              </datalist>
-              <label class="field">
-                <span class="field-label">Account</span>
-                <select
-                  name="account"
-                  [ngModel]="newDirAccount()"
-                  (ngModelChange)="newDirAccount.set($event)"
-                >
-                  @for (a of accounts.list(); track a.id) {
-                    <option [value]="a.id">{{ a.name }}</option>
-                  }
-                </select>
-              </label>
-              <button class="btn" type="submit" [disabled]="!newDir().trim() || saving()">
-                <mc-icon name="plus" [size]="15" /> Add
-              </button>
-            </form>
-            @if (projectError()) {
-              <p class="error-text small" role="alert">{{ projectError() }}</p>
-            }
+              </select>
+            </label>
+            <button class="btn" type="submit" [disabled]="!newDir().trim() || saving()">
+              <mc-icon name="plus" [size]="15" /> Add
+            </button>
+          </form>
+          @if (projectError()) {
+            <p class="error-text small" role="alert">{{ projectError() }}</p>
           }
         </section>
       }
     }
 
-    @if (consent().length || (isDesktop() && consentPairs().length)) {
+    @if (consent().length || consentPairs().length) {
       <h2>Copy for Continue on</h2>
       <section class="card" aria-label="Copy consents">
         <p class="muted small first">
@@ -318,7 +292,7 @@
           @if (consent().length) {
             Between these accounts that happens without asking.
           } @else {
-            The desktop asks once for each pair of accounts.
+            Mother Claude asks once for each pair of accounts.
           }
         </p>
         @if (consent().length) {
@@ -326,21 +300,19 @@
             @for (c of consent(); track c.from + '>' + c.to) {
               <div class="list-row">
                 <span class="grow">{{ c.fromName }} → {{ c.toName }}</span>
-                @if (isDesktop()) {
-                  <button
-                    class="btn small"
-                    type="button"
-                    [disabled]="saving()"
-                    (click)="revoke(c.from, c.to)"
-                  >
-                    Revoke
-                  </button>
-                }
+                <button
+                  class="btn small"
+                  type="button"
+                  [disabled]="saving()"
+                  (click)="revoke(c.from, c.to)"
+                >
+                  Revoke
+                </button>
               </div>
             }
           </div>
         }
-        @if (isDesktop() && consentPairs().length) {
+        @if (consentPairs().length) {
           <form class="padd" (submit)="allowPair($event)">
             <label class="field pfield">
               <span class="field-label">Allow copies</span>
@@ -391,6 +363,6 @@
 
 @if (isDesktop()) {
   <mc-account-add-sheet [open]="adding()" (closed)="adding.set(false)" />
-  <mc-account-sheet [accountId]="managing()" (closed)="managing.set(null)" />
 }
+<mc-account-sheet [accountId]="managing()" (closed)="managing.set(null)" />
 <mc-move-data-sheet [open]="!!moveStart()" [start]="moveStart()" (closed)="moveClosed()" />

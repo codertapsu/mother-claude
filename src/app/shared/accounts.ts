@@ -137,7 +137,7 @@ export function accountErrorText(e: unknown, accountName?: string): string {
           'That account keeps its own directory: the conversation has to be copied there first.'
         );
       case 'copy_consent_required':
-        return `${accountName || 'That account'} keeps its own directory, so the conversation is copied there first, and copies between these two accounts have to be allowed on the Mac first (on its Accounts page).`;
+        return `${accountName || 'That account'} keeps its own directory, so the conversation is copied there first, and copies between these two accounts have to be allowed first (Accounts page, Copy for Continue on).`;
       case 'account_token_missing':
         return `${accountName || 'That account'} has no token on this Mac yet: add it on the Accounts page of the desktop app.`;
       case 'unknown_account':

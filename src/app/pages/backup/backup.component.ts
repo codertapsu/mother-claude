@@ -60,7 +60,9 @@ interface SetRow {
  * A passphrase change that did not finish, and a set whose key is not in
  * the folder here, are said up front. The Storage section lists the backup
  * folder and the folders added beside it, with their sets (Move data).
- * Everything that changes something is the desktop's; phones see it all.
+ * The desktop and paired phones alike (docs/ACCOUNTS.md §13.9), except the
+ * passphrase, which is set on the Mac; a folder's trust needs the
+ * dangerous right.
  */
 @Component({
   selector: 'mc-backup',

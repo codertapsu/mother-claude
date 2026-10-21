@@ -447,12 +447,9 @@ class FixtureBackend implements MockBackend {
     if (path === '/accounts' && method === 'GET') return json(this.accountsView(desktop, true));
     if (path === '/accounts' && method === 'POST')
       return desktop ? this.addAccount(body) : deskOnly();
-    if (path === '/accounts/defaults' && method === 'PUT') {
-      return desktop ? this.putAccountDefaults(body) : deskOnly();
-    }
-    if (path === '/accounts/copy-consent' && method === 'PUT') {
-      return desktop ? this.putCopyConsent(body) : deskOnly();
-    }
+    // The defaults, copy consent and renaming: paired devices too (§13.9).
+    if (path === '/accounts/defaults' && method === 'PUT') return this.putAccountDefaults(body);
+    if (path === '/accounts/copy-consent' && method === 'PUT') return this.putCopyConsent(body);
     if (seg[0] === 'accounts' && seg[1]) {
       return this.accountRoute(decodeURIComponent(seg[1]), seg.slice(2).join('/'), method, body);
     }
@@ -1550,7 +1547,6 @@ class FixtureBackend implements MockBackend {
     const b = (body ?? {}) as Record<string, unknown>;
 
     if (!sub && method === 'PATCH') {
-      if (!desktop) return deskOnly();
       const change: Partial<AccountView> = {};
       if (typeof b['name'] === 'string') {
         const problem = accountNameProblem(b['name'], this.fx.accounts.accounts, a.id);

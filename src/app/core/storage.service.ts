@@ -25,8 +25,9 @@ export class StorageService {
   private again = false;
 
   constructor() {
+    // Back after a disconnect: read again what was read (or tried).
     this.realtime.refetch$.subscribe(() => {
-      if (this.list()) void this.refresh();
+      if (this.list() || this.loadError()) void this.refresh();
     });
   }
 

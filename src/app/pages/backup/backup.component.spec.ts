@@ -132,12 +132,24 @@ describe('BackupComponent', () => {
   const button = (el: HTMLElement, label: string) =>
     [...el.querySelectorAll<HTMLButtonElement>('button')].find((b) => text(b).startsWith(label));
 
-  it('shows a phone how backups stand, with nothing to change', async () => {
+  it('lets a phone run and set up the backups, all but the passphrase', async () => {
     current = ready();
     const el = await render();
-    expect(text(el.querySelector('.phone-note'))).toContain('set up and run on the Mac');
+    expect(el.querySelector('.phone-note')).toBeNull();
     expect(text(el)).toContain("Set, in this Mac's Keychain");
-    expect(text(el)).toContain('Every 6 hours');
+    // The passphrase stays on the Mac (docs/ACCOUNTS.md §13.9).
+    expect(text(el.querySelector('.onmac'))).toBe('It is set and changed on the Mac.');
+    expect(button(el, 'Change…')).toBeUndefined();
+    expect(el.querySelector('mc-passphrase-sheet')).toBeNull();
+    // Everything else is the phone's too.
+    expect(el.querySelector('input[name="folder"]')).not.toBeNull();
+    expect((el.querySelector('#backup-every') as HTMLSelectElement).value).toBe('6');
+    expect(el.querySelector('.switch input')).not.toBeNull();
+    expect(button(el, 'Back up now')?.disabled).toBeFalse();
+    expect(button(el, 'Pull…')?.disabled).toBeFalse();
+    const labels = [...el.querySelectorAll('.sacts .btn')].map((b) => b.getAttribute('aria-label'));
+    expect(labels).toContain('Back up Default');
+    expect(labels).toContain('Restore from the backup of Default');
     expect(text(el.querySelector('.sets'))).toContain('Backed up from this Mac');
     expect(text(el.querySelector('.sets'))).toContain('143 sessions');
     // Other Macs that pushed, not this one.
@@ -152,12 +164,20 @@ describe('BackupComponent', () => {
       "Its sessions are in Default's backup: a token account uses the Default account's directory.",
     );
     expect(text(pro)).not.toContain('143 sessions');
-    // Nothing that changes the backups (the storages are anyone's: §13.9).
-    const own = (sel: string) =>
-      [...el.querySelectorAll(sel)].filter((x) => !x.closest('mc-storage-section'));
-    expect(own('button').length).toBe(0);
-    expect(own('select').length).toBe(0);
-    expect(own('input').length).toBe(0);
+  });
+
+  it('backs up from a phone', async () => {
+    current = ready();
+    backend.routes.set('/backup/push', () => ({ status: 202, body: { jobs: ['job_b'] } }));
+    backend.routes.set('/data/jobs/job_b', () => ({
+      status: 200,
+      body: backupJob('job_b', 'done'),
+    }));
+    const el = await render();
+    button(el, 'Back up now')?.click();
+    await settle();
+    expect(backend.calls).toContain('POST /backup/push');
+    expect(text(el.querySelector('.notice.ok'))).toContain('Backing up Default and Work');
   });
 
   it("gives a token account's row no buttons: its set is the Default's", async () => {

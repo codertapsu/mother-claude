@@ -1,11 +1,13 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 
+import { AuthService } from '../../core/auth.service';
 import { PRUNE_WARNING } from '../../core/backup';
 import { DataJobsService } from '../../core/data-jobs.service';
 import {
   FakeBackend,
   asDesktop,
   flush,
+  me,
   serveAccounts,
   useFakeServer,
 } from '../../core/mock/fake-server.testing';
@@ -217,6 +219,25 @@ describe('RestoreSheetComponent', () => {
     });
     // The job names both accounts.
     expect(text(el.querySelector('mc-data-job .jtitle'))).toBe('Restore of Default into Work');
+  });
+
+  it('restores from a phone, whose trust option needs the dangerous right', async () => {
+    TestBed.inject(AuthService).me.set(me({ allowDangerous: false }));
+    backend.routes.set('/backup/restore', () => ({ status: 202, body: { job: doneJob() } }));
+    const el = await open();
+    const trust = el.querySelector('.check input') as HTMLInputElement;
+    expect(trust.disabled).toBeTrue();
+    expect(text(el.querySelector('.check'))).toContain(
+      'Needs dangerous actions for this device, granted on the Mac in Remote › Devices.',
+    );
+    boxes(el)[1].click();
+    fixture.detectChanges();
+    button(el, 'Restore 1 session')?.click();
+    await settle();
+    expect(backend.bodyOf('POST /backup/restore')).toEqual({
+      account: 'default',
+      ids: ['aaaaaaaa-0001'],
+    });
   });
 
   it("says in plain words that a set failed its check, or that its key isn't here", async () => {

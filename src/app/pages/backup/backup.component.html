@@ -7,11 +7,6 @@
     your conversations to another laptop: back up on one, pull on the other.
   </p>
 
-  @if (!isDesktop()) {
-    <p class="notice small phone-note">
-      Backups are set up and run on the Mac. From here you can see how they stand.
-    </p>
-  }
   @if (error()) {
     <p class="notice error small" role="alert">{{ error() }}</p>
   }
@@ -41,54 +36,44 @@
     <!-- ─────────────── Folder ─────────────── -->
     <h2>Folder</h2>
     <section class="card">
-      @if (isDesktop()) {
-        <form class="folder" (submit)="saveFolder($event)">
-          <label class="field grow">
-            <span class="field-label">Backup folder</span>
-            <input
-              name="folder"
-              placeholder="/Users/you/Library/Mobile Documents/com~apple~CloudDocs/Mother Claude"
-              spellcheck="false"
-              autocapitalize="off"
-              autocomplete="off"
-              [ngModel]="folder()"
-              (ngModelChange)="folder.set($event); error.set('')"
-            />
-          </label>
-          <button class="btn" type="submit" [disabled]="!folderChanged() || saving()">
-            {{ saving() ? 'Saving…' : 'Save' }}
-          </button>
-        </form>
-        @if (v.suggestions.length) {
-          <div class="sugg" role="group" aria-label="Suggested folders">
-            <span class="muted small">Suggested:</span>
-            @for (s of v.suggestions; track s.path) {
-              <button
-                class="btn small"
-                type="button"
-                [disabled]="saving() || s.path === v.settings.folder"
-                [title]="s.path"
-                (click)="useSuggestion(s.path)"
-              >
-                <mc-icon name="cloud" [size]="14" /> {{ s.label }}
-              </button>
-            }
-          </div>
-        }
-        <p class="muted small hint">
-          Each account with a directory of its own gets a folder inside it, named after the account
-          (a token account's sessions go in the Default's). Leave it empty to stop backing up. On
-          iCloud Drive, right-click the folder and choose Keep Downloaded.
-        </p>
-      } @else {
-        <p class="value">
-          @if (v.settings.folder) {
-            <span class="mono break">{{ short(v.settings.folder) }}</span>
-          } @else {
-            <span class="muted">No folder chosen yet: nothing is backed up.</span>
+      <form class="folder" (submit)="saveFolder($event)">
+        <label class="field grow">
+          <span class="field-label">Backup folder</span>
+          <input
+            name="folder"
+            placeholder="/Users/you/Library/Mobile Documents/com~apple~CloudDocs/Mother Claude"
+            spellcheck="false"
+            autocapitalize="off"
+            autocomplete="off"
+            [ngModel]="folder()"
+            (ngModelChange)="folder.set($event); error.set('')"
+          />
+        </label>
+        <button class="btn" type="submit" [disabled]="!folderChanged() || saving()">
+          {{ saving() ? 'Saving…' : 'Save' }}
+        </button>
+      </form>
+      @if (v.suggestions.length) {
+        <div class="sugg" role="group" aria-label="Suggested folders">
+          <span class="muted small">Suggested:</span>
+          @for (s of v.suggestions; track s.path) {
+            <button
+              class="btn small"
+              type="button"
+              [disabled]="saving() || s.path === v.settings.folder"
+              [title]="s.path"
+              (click)="useSuggestion(s.path)"
+            >
+              <mc-icon name="cloud" [size]="14" /> {{ s.label }}
+            </button>
           }
-        </p>
+        </div>
       }
+      <p class="muted small hint">
+        Each account with a directory of its own gets a folder inside it, named after the account (a
+        token account's sessions go in the Default's). Leave it empty to stop backing up. On iCloud
+        Drive, right-click the folder and choose Keep Downloaded.
+      </p>
     </section>
 
     <!-- ─────────────── Passphrase ─────────────── -->
@@ -102,6 +87,9 @@
             >Without it no backup can be read — by you or anyone, and Mother Claude can't recover
             it. It is kept in the Mac's Keychain. Changing it keeps every backup readable.</span
           >
+          @if (!isDesktop()) {
+            <span class="small onmac">It is set and changed on the Mac.</span>
+          }
         </div>
         @if (isDesktop()) {
           <button
@@ -122,92 +110,72 @@
       <div class="list">
         <div class="list-row srow">
           <div class="grow">
-            @if (isDesktop()) {
-              <label for="backup-every"><strong>Back up</strong></label>
-            } @else {
-              <strong>Back up</strong>
-            }
+            <label for="backup-every"><strong>Back up</strong></label>
             <span class="muted small"
               >On a schedule a backup runs only after none of the sessions in its directory was
               active for ten minutes.</span
             >
           </div>
-          @if (isDesktop()) {
-            <select
-              id="backup-every"
-              class="ssel"
-              [disabled]="saving()"
-              (change)="setSchedule($event)"
-            >
-              @for (o of schedules; track o.hours) {
-                <option [value]="o.hours" [selected]="o.hours === v.settings.everyHours">
-                  {{ o.label }}
-                </option>
-              }
-              @if (!knownSchedule()) {
-                <option [value]="v.settings.everyHours" [selected]="true">
-                  {{ scheduleLabel(v.settings.everyHours) }}
-                </option>
-              }
-            </select>
-          } @else {
-            <span class="sval">{{ scheduleLabel(v.settings.everyHours) }}</span>
-          }
+          <select
+            id="backup-every"
+            class="ssel"
+            [disabled]="saving()"
+            (change)="setSchedule($event)"
+          >
+            @for (o of schedules; track o.hours) {
+              <option [value]="o.hours" [selected]="o.hours === v.settings.everyHours">
+                {{ o.label }}
+              </option>
+            }
+            @if (!knownSchedule()) {
+              <option [value]="v.settings.everyHours" [selected]="true">
+                {{ scheduleLabel(v.settings.everyHours) }}
+              </option>
+            }
+          </select>
         </div>
-        @if (isDesktop()) {
-          <label class="switch list-row">
-            <input
-              type="checkbox"
-              [checked]="v.settings.pullOnLaunch"
-              [disabled]="saving()"
-              (change)="setPullOnLaunch($any($event.target).checked)"
-            />
-            <span class="switch-text">
-              <span>Pull on launch</span>
-              <span class="muted small"
-                >When the app starts, bring every account up to date from its backup — only when no
-                session is running.</span
-              >
-            </span>
-          </label>
-        } @else {
-          <div class="list-row srow">
-            <div class="grow">
-              <strong>Pull on launch</strong>
-              <span class="muted small">Only when no session is running.</span>
-            </div>
-            <span class="sval">{{ v.settings.pullOnLaunch ? 'On' : 'Off' }}</span>
-          </div>
-        }
+        <label class="switch list-row">
+          <input
+            type="checkbox"
+            [checked]="v.settings.pullOnLaunch"
+            [disabled]="saving()"
+            (change)="setPullOnLaunch($any($event.target).checked)"
+          />
+          <span class="switch-text">
+            <span>Pull on launch</span>
+            <span class="muted small"
+              >When the app starts, bring every account up to date from its backup — only when no
+              session is running.</span
+            >
+          </span>
+        </label>
       </div>
     </section>
 
     <!-- ─────────────── Accounts ─────────────── -->
     <div class="shead">
       <h2>Accounts</h2>
-      @if (isDesktop()) {
-        <div class="hacts">
-          <button
-            class="btn small"
-            type="button"
-            [disabled]="!ready() || !anySet() || saving()"
-            (click)="openPull(null)"
-          >
-            <mc-icon name="download" [size]="14" /> Pull…
-          </button>
-          <button
-            class="btn small primary"
-            type="button"
-            [disabled]="!ready() || !!pushing()"
-            (click)="push()"
-          >
-            <mc-icon name="upload" [size]="14" />
-            {{ pushing() === 'all' ? 'Starting…' : 'Back up now' }}
-          </button>
-        </div>
-      }
+      <div class="hacts">
+        <button
+          class="btn small"
+          type="button"
+          [disabled]="!ready() || !anySet() || saving()"
+          (click)="openPull(null)"
+        >
+          <mc-icon name="download" [size]="14" /> Pull…
+        </button>
+        <button
+          class="btn small primary"
+          type="button"
+          [disabled]="!ready() || !!pushing()"
+          (click)="push()"
+        >
+          <mc-icon name="upload" [size]="14" />
+          {{ pushing() === 'all' ? 'Starting…' : 'Back up now' }}
+        </button>
+      </div>
     </div>
-    @if (isDesktop() && v.settings.folder && notReady()) {
+    @if (v.settings.folder && notReady()) {
       <!-- Without a folder the list below says so itself. -->
       <p class="muted small why">{{ notReady() }}</p>
     }
@@ -265,7 +233,7 @@
               }
             }
           </div>
-          @if (isDesktop() && !r.sharedWith) {
+          @if (!r.sharedWith) {
             <div class="sacts">
               @if (r.set.keyMissing) {
                 <button
@@ -373,17 +341,17 @@
     (closed)="passOpen.set(false)"
     (saved)="load()"
   />
-  <mc-restore-sheet
-    [account]="restoreFor()"
-    [sets]="sets()"
-    (closed)="restoreFor.set(null)"
-    (started)="tracked($event)"
-  />
-  <mc-pull-sheet
-    [open]="pullFor() !== null"
-    [account]="pullFor() || null"
-    [sets]="sets()"
-    (closed)="pullFor.set(null)"
-    (started)="tracked($event)"
-  />
 }
+<mc-restore-sheet
+  [account]="restoreFor()"
+  [sets]="sets()"
+  (closed)="restoreFor.set(null)"
+  (started)="tracked($event)"
+/>
+<mc-pull-sheet
+  [open]="pullFor() !== null"
+  [account]="pullFor() || null"
+  [sets]="sets()"
+  (closed)="pullFor.set(null)"
+  (started)="tracked($event)"
+/>

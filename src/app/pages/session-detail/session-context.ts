@@ -97,8 +97,8 @@ export class SessionContext {
   /** The composer asked the header to open a picker (`/model` etc.). */
   readonly openPicker = signal<PickerKind | null>(null);
   readonly terminalOpen = signal(false);
-  /** The desktop's Move/Copy dialog is open, for the session or its whole
-   * project (the header hosts it; the Info tab opens it too). */
+  /** Move data is open, for the session or its whole project (the header
+   * hosts it; the Info tab opens it too). */
   readonly moveCopy = signal<'session' | 'project' | null>(null);
   readonly composerFocused = signal(false);
   /** Text another part wants in the composer (e.g. unsent feedback). */

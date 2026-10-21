@@ -17,6 +17,7 @@ import { ACCOUNT_NAME_MAX, accountNameProblem, isAccountColor } from '../../core
 import { AccountsService } from '../../core/accounts.service';
 import { accountInUseText } from '../../core/api-servers';
 import { ApiError, describeError } from '../../core/api.service';
+import { AuthService } from '../../core/auth.service';
 import { AccountView } from '../../core/models';
 import { SignInLine, accountKindLabel, secretStoreText, signInLine } from '../../shared/accounts';
 import { IconComponent } from '../../shared/icon.component';
@@ -27,12 +28,13 @@ import { AccountSignInComponent } from './account-signin.component';
 import { AccountTokenComponent } from './account-token.component';
 
 /**
- * Desktop: one account's administration — its name and colour, its
- * sign-in (a browser login for a directory account, a token for a token
- * account), a fresh check of the sign-in, and removing it (which never
- * touches its directory or its Anthropic sign-in; refused while sessions
- * Mother Claude started run under it, or while the API runs with it as
- * the account its new conversations start under).
+ * One account's administration — its name and colour (the desktop or a
+ * paired phone, docs/ACCOUNTS.md §13.9); on the desktop only, its sign-in
+ * (a browser login for a directory account, a token for a token account),
+ * a fresh check of the sign-in, and removing it (which never touches its
+ * directory or its Anthropic sign-in; refused while sessions Mother Claude
+ * started run under it, or while the API runs with it as the account its
+ * new conversations start under). A phone is told those are the Mac's.
  */
 @Component({
   selector: 'mc-account-sheet',
@@ -95,24 +97,31 @@ import { AccountTokenComponent } from './account-token.component';
         </form>
 
         <h3>Sign-in</h3>
-        @if (a.kind === 'token') {
-          <mc-account-token [account]="a" />
+        @if (!isDesktop()) {
+          <p class="small state" [attr.data-tone]="signIn(a).tone">{{ signIn(a).text }}</p>
+          <p class="muted small onmac">
+            Sign-ins and tokens are changed on the Mac, and accounts are removed there.
+          </p>
         } @else {
-          <mc-account-signin [account]="a" />
+          @if (a.kind === 'token') {
+            <mc-account-token [account]="a" />
+          } @else {
+            <mc-account-signin [account]="a" />
+          }
+          <div class="row">
+            <button
+              class="btn ghost small"
+              type="button"
+              [disabled]="a.checking || busy()"
+              (click)="recheck()"
+            >
+              <mc-icon name="refresh" [size]="14" />
+              {{ a.checking ? 'Checking…' : 'Check the sign-in again' }}
+            </button>
+          </div>
         }
-        <div class="row">
-          <button
-            class="btn ghost small"
-            type="button"
-            [disabled]="a.checking || busy()"
-            (click)="recheck()"
-          >
-            <mc-icon name="refresh" [size]="14" />
-            {{ a.checking ? 'Checking…' : 'Check the sign-in again' }}
-          </button>
-        </div>
 
-        @if (!a.isDefault) {
+        @if (isDesktop() && !a.isDefault) {
           <h3>Remove</h3>
           @if (!confirmRemove()) {
             <p class="muted small">{{ removeText(a) }}</p>
@@ -207,6 +216,7 @@ import { AccountTokenComponent } from './account-token.component';
 })
 export class AccountSheetComponent {
   private accounts = inject(AccountsService);
+  protected readonly isDesktop = inject(AuthService).isDesktop;
 
   /** The account to manage (null: closed). */
   readonly accountId = input<string | null>(null);
