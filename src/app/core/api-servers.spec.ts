@@ -346,10 +346,36 @@ describe('API servers: addresses', () => {
       (x) => x.key === 'viaMain',
     )!;
     expect(via.hint).toContain('Only while the main server runs.');
-    // No main API port (MOTHER_CLAUDE_BRIDGE_PORT=0): no way through it.
+    // No main API port (MOTHER_CLAUDE_BRIDGE_PORT=0), and Mother Claude's
+    // own port not known here: no way through it.
     expect(serverAddresses(p, ctx({ main: { port: 0, running: true } })).map((x) => x.key)).toEqual(
       ['own', 'lan'],
     );
+  });
+
+  it("goes through Mother Claude's port when the main server has none of its own", () => {
+    const noPort = ctx({ main: { port: undefined, running: true }, dashboardPort: 6802 });
+    const via = serverAddresses(p, noPort);
+    expect(via.map((x) => [x.key, x.url])).toEqual([
+      ['own', 'http://127.0.0.1:5614/v1'],
+      ['viaMain', 'http://127.0.0.1:6802/servers/personal/v1'],
+      ['lan', 'https://192.168.1.23:6725/servers/personal/v1'],
+    ]);
+    expect(via[1].label).toBe("On this Mac, through Mother Claude's port");
+    expect(via[1].hint).toContain('always with a token');
+    // The main server itself: its /v1 there.
+    const mainNoPort = { ...m, port: undefined, url: undefined };
+    const own = serverAddresses(mainNoPort, noPort);
+    expect(own.map((x) => [x.key, x.url])).toEqual([
+      ['own', 'http://127.0.0.1:6802/v1'],
+      ['lan', 'https://192.168.1.23:6725/v1'],
+    ]);
+    expect(own[0].label).toBe("On this Mac, on Mother Claude's port");
+    expect(own[0].hint).toBe('Always with a token: the main server has no port of its own.');
+    // A phone: the Mac's loopback, last, and said so.
+    const phone = serverAddresses(p, { ...noPort, desktop: false, lanBase: null });
+    expect(phone.map((x) => x.key)).toEqual(['lan', 'own', 'viaMain']);
+    expect(phone[2].hint).toContain('this device cannot reach it');
   });
 
   it('gives the main server its own port, the network and its tunnel', () => {
@@ -442,10 +468,27 @@ describe('API servers: refusals in words', () => {
     expect(
       serverErrorText(err(409, 'port_unavailable', { port: 5613, server: 'work' }), { servers }),
     ).toBe("Port 5613 is Work's. Pick another, or leave the port empty for the first free one.");
+    // Saving: the server's own words say whose it is.
     expect(
-      serverErrorText(err(409, 'port_unavailable', { port: 6725 }), { saving: true }),
-    ).toContain(
-      "Port 6725 is taken: the main server, Mother Claude's own ports or another program has it.",
+      serverErrorText(
+        err(
+          409,
+          'port_unavailable',
+          { port: 6725 },
+          "Port 6725 is the Mother Claude app's own port.",
+        ),
+        { saving: true },
+      ),
+    ).toBe(
+      "Port 6725 is the Mother Claude app's own port. Pick another, or leave it empty for the first free one.",
+    );
+    // …and when it sent none (only the status), ours.
+    expect(
+      serverErrorText(err(409, 'port_unavailable', { port: 6725 }, '409 Conflict'), {
+        saving: true,
+      }),
+    ).toBe(
+      "Port 6725 is taken: the main server, Mother Claude's own ports or another program has it. Pick another, or leave it empty for the first free one.",
     );
     expect(
       serverErrorText(err(409, 'port_unavailable', { port: 5614 }), { server: 'Personal' }),

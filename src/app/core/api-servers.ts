@@ -383,13 +383,18 @@ export interface AddressContext {
 /** The addresses `s` answers on (docs/ACCOUNTS.md §13.5 "Reaching them"):
  * its own port and, for a server besides the main one, its prefix on the
  * main port — both on the Mac only —, the LAN mount (a paired device's
- * token, always) and any tunnel that points at it or at the main port. */
+ * token, always) and any tunnel that points at it or at the main port.
+ * With no API port of its own (`MOTHER_CLAUDE_BRIDGE_PORT=0`) the main
+ * server answers on Mother Claude's own port, and every server under its
+ * prefix there: a token always. */
 export function serverAddresses(s: ServerStatus, ctx: AddressContext): ServerAddress[] {
   const main = s.id === MAIN_SERVER;
   const where = ctx.desktop ? 'On this Mac' : 'On the Mac';
   // A phone can't reach the Mac's loopback: say so rather than the token.
   const macOnly = 'For programs on the Mac itself: this device cannot reach it.';
-  const own: ServerAddress[] = s.port
+  // Mother Claude's own port, when the main server has none of its own.
+  const appPort = !ctx.main.port && ctx.dashboardPort ? ctx.dashboardPort : 0;
+  const ownPort: ServerAddress[] = s.port
     ? [
         {
           key: 'own',
@@ -399,20 +404,40 @@ export function serverAddresses(s: ServerStatus, ctx: AddressContext): ServerAdd
         },
       ]
     : [];
-  const viaMain: ServerAddress[] =
-    !main && ctx.main.port
+  const own: ServerAddress[] =
+    main && !s.port && appPort
       ? [
           {
-            key: 'viaMain',
-            label: `${where}, through the main port`,
-            url: `http://127.0.0.1:${ctx.main.port}${s.prefix}/v1`,
-            hint:
-              (ctx.desktop
-                ? `One port reaches every server; ${s.name} keeps its own account and token rules.`
-                : macOnly) + (ctx.main.running ? '' : ' Only while the main server runs.'),
+            key: 'own',
+            label: `${where}, on Mother Claude's port`,
+            url: `http://127.0.0.1:${appPort}/v1`,
+            hint: ctx.desktop
+              ? 'Always with a token: the main server has no port of its own.'
+              : macOnly,
           },
         ]
-      : [];
+      : ownPort;
+  const viaMain: ServerAddress[] = [];
+  if (!main && ctx.main.port) {
+    viaMain.push({
+      key: 'viaMain',
+      label: `${where}, through the main port`,
+      url: `http://127.0.0.1:${ctx.main.port}${s.prefix}/v1`,
+      hint:
+        (ctx.desktop
+          ? `One port reaches every server; ${s.name} keeps its own account and token rules.`
+          : macOnly) + (ctx.main.running ? '' : ' Only while the main server runs.'),
+    });
+  } else if (!main && appPort) {
+    viaMain.push({
+      key: 'viaMain',
+      label: `${where}, through Mother Claude's port`,
+      url: `http://127.0.0.1:${appPort}${s.prefix}/v1`,
+      hint: ctx.desktop
+        ? `Mother Claude's own port reaches every server, always with a token; ${s.name} keeps its own account.`
+        : macOnly,
+    });
+  }
   const lan: ServerAddress = ctx.lanBase
     ? {
         key: 'lan',
@@ -565,6 +590,14 @@ export function tunnelServer(t: DetectedTunnel, servers: RemoteServer[]): Remote
 
 // ─────────────────────────────────────────────────────────── Refusals
 
+/** The server's own sentence, ending in a full stop ('' when it sent none:
+ * ApiService then puts the bare status there). */
+function serverSaid(e: ApiError): string {
+  const m = e.message.trim();
+  if (!m || /^\d{3}\b/.test(m)) return '';
+  return /[.!?]$/.test(m) ? m : `${m}.`;
+}
+
 function portIn(e: ApiError): string {
   const v = e.extra['port'];
   return typeof v === 'number' || (typeof v === 'string' && v) ? String(v) : '';
@@ -607,7 +640,9 @@ function refusalText(e: ApiError, ctx: RefusalContext): string {
         return `${which} is ${holder}'s. Pick another, or leave the port empty for the first free one.`;
       }
       if (ctx.saving) {
-        return `${which} is taken: the main server, Mother Claude's own ports or another program has it. Pick another, or leave it empty for the first free one.`;
+        // The server knows whose it is ("… the Mother Claude app's own port.").
+        const said = serverSaid(e);
+        return `${said || `${which} is taken: the main server, Mother Claude's own ports or another program has it.`} Pick another, or leave it empty for the first free one.`;
       }
       return ctx.main
         ? `${which} is in use by another program, so ${name} cannot listen on it. Stop that program, or set MOTHER_CLAUDE_BRIDGE_PORT to another port.`

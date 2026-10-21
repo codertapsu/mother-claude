@@ -263,6 +263,33 @@ describe('BridgeComponent servers', () => {
     expect(addresses()[2].url).toBe('https://192.168.1.23:6725/servers/work/v1');
   });
 
+  it("offers Mother Claude's port when the main server has none of its own", async () => {
+    // As MOTHER_CLAUDE_BRIDGE_PORT=0, with the LAN listener off.
+    setup({ server: 'work' });
+    asDesktop();
+    backend.routes.set('/remote', () => ({
+      status: 200,
+      body: { lan: { enabled: false, port: 6802, addresses: [] } },
+    }));
+    await render(withServers([work()], { port: undefined, url: undefined }));
+    await settle();
+    expect(addresses()).toEqual([
+      { label: 'On this Mac', url: 'http://127.0.0.1:5613/v1' },
+      {
+        label: "On this Mac, through Mother Claude's port",
+        url: 'http://127.0.0.1:6802/servers/work/v1',
+      },
+      { label: 'On your network', url: "https://<the Mac's address>:6802/servers/work/v1" },
+      { label: 'Through its tunnel', url: 'https://acme.ngrok.app/v1' },
+    ]);
+    // The main server's own address there.
+    await click('Main');
+    expect(addresses()[0]).toEqual({
+      label: "On this Mac, on Mother Claude's port",
+      url: 'http://127.0.0.1:6802/v1',
+    });
+  });
+
   it("keeps a removed account's server from starting until another account is chosen", async () => {
     setup({ server: 'personal' });
     await render(
