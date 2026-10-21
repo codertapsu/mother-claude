@@ -20,6 +20,14 @@ export type StorageKind = 'icloud' | 'gdrive' | 'onedrive' | 'dropbox' | 'folder
 /** The backup folder's storage id (the first storage). */
 export const BACKUP_STORAGE = 'backup';
 
+/** What the server calls the backup folder's storage. */
+export const BACKUP_LABEL = 'Backup folder';
+
+/** A storage's label already says it is the backup folder. */
+export function namesBackupFolder(label: string): boolean {
+  return label.trim().toLowerCase() === BACKUP_LABEL.toLowerCase();
+}
+
 /** One set of a storage: `<storage>/<name>/`. */
 export interface StorageSet {
   name: string;
@@ -168,7 +176,8 @@ export function normalizeStorages(raw: unknown): StorageView[] {
   return [
     {
       id: BACKUP_STORAGE,
-      label: KIND_LABELS[kind],
+      // As the server names it once it lists storages.
+      label: BACKUP_LABEL,
       path: folder,
       kind,
       primary: true,
@@ -402,9 +411,10 @@ export function locationGroups(
       options.push({ key: newSetKey(s.id), label: 'New set…', disabled: !s.available });
     }
     if (!options.length) continue;
-    const tags = [s.primary ? 'backup folder' : '', s.available ? '' : 'not available'].filter(
-      Boolean,
-    );
+    const tags = [
+      s.primary && !namesBackupFolder(s.label) ? 'backup folder' : '',
+      s.available ? '' : 'not available',
+    ].filter(Boolean);
     groups.push({ label: tags.length ? `${s.label} (${tags.join(', ')})` : s.label, options });
   }
   return groups;

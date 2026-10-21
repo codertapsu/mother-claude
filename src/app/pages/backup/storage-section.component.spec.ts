@@ -97,6 +97,14 @@ describe('StorageSectionComponent', () => {
       'Google Drive',
     ]);
     expect(text(stores[0].querySelector('.badge'))).toBe('Backup folder');
+    // Named "Backup folder" by the server, it says so once.
+    TestBed.inject(StorageService).accept({
+      ...current,
+      storage: [{ ...current.storage[0], label: 'Backup folder' }, current.storage[1]],
+    });
+    fixture.detectChanges();
+    expect(text(el.querySelector('.store .stname'))).toBe('Backup folder');
+    expect(el.querySelector('.store .badge')).toBeNull();
     const sets = [...stores[0].querySelectorAll('.stset')].map((r) => text(r));
     expect(sets[0]).toContain("143 conversations · 2 in storage only · Default's backup");
     // A set without its key here offers nothing.

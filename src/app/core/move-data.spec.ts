@@ -136,7 +136,7 @@ describe('move data helpers', () => {
     expect(list).toEqual([
       {
         id: 'backup',
-        label: 'iCloud Drive',
+        label: 'Backup folder',
         path: '/Users/me/Library/Mobile Documents/com~apple~CloudDocs/MC',
         kind: 'icloud',
         primary: true,
@@ -410,6 +410,10 @@ describe('move data helpers', () => {
     expect(to[2].label).toBe('Google Drive (not available)');
     expect(to[2].options.every((o) => o.disabled)).toBeTrue();
     expect(locationGroups([DEFAULT], [], 'to')[0].options[0].label).toBe('Default');
+    // The server calls the backup folder "Backup folder": said once.
+    expect(locationGroups([DEFAULT], [{ ...ICLOUD, label: 'Backup folder' }], 'to')[1].label).toBe(
+      'Backup folder',
+    );
   });
 
   it('names and describes a location', () => {

@@ -237,7 +237,8 @@ export class MockMove {
       const kind = storageKindOf(folder);
       out.push({
         id: BACKUP_STORAGE,
-        label: kind === 'folder' ? 'Backup folder' : KIND_LABELS[kind],
+        // As the server names it.
+        label: 'Backup folder',
         path: folder,
         kind,
         primary: true,

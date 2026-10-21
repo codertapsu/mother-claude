@@ -17,6 +17,7 @@ import {
   StorageView,
   accountLocation,
   moveErrorText,
+  namesBackupFolder,
   setLocation,
 } from '../../core/move-data';
 import { StorageService } from '../../core/storage.service';
@@ -76,7 +77,7 @@ interface StoreRow {
             <div class="stmain">
               <span class="stline">
                 <strong class="stname">{{ r.store.label }}</strong>
-                @if (r.store.primary) {
+                @if (r.store.primary && !namesBackupFolder(r.store.label)) {
                   <span class="badge">Backup folder</span>
                 }
                 @if (!r.store.available) {
@@ -342,6 +343,10 @@ export class StorageSectionComponent {
 
   protected short(p: string): string {
     return shortPath(p);
+  }
+
+  protected namesBackupFolder(label: string): boolean {
+    return namesBackupFolder(label);
   }
 
   protected closeSheet(): void {
