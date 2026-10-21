@@ -185,10 +185,26 @@ pub struct Plan {
     from_config: PathBuf,
     #[serde(skip)]
     to_config: PathBuf,
+    /// `(cwd, entry)` added to the target's `.claude.json` (trust opt-in).
     #[serde(skip)]
-    entry: Option<(String, Value)>,
+    entries: Vec<(String, Value)>,
+    /// Projects whose entry leaves the source's `.claude.json` (a move that
+    /// carries it).
+    #[serde(skip)]
+    removes: Vec<String>,
     #[serde(skip)]
     history: Vec<String>,
+    /// Projects whose prompt-history lines leave the source (a move of every
+    /// conversation of them).
+    #[serde(skip)]
+    history_cwds: Vec<String>,
+    /// The projects of a bulk request that go (some of their conversations
+    /// at least).
+    #[serde(skip)]
+    pub projects: Vec<String>,
+    /// What a bulk request should know before it runs.
+    #[serde(skip)]
+    pub warnings: Vec<String>,
     #[serde(skip)]
     snapshot: bool,
     #[serde(skip)]
@@ -553,6 +569,11 @@ pub fn plan(ctx: &Context<'_>, req: &Request) -> Result<Plan, TransferError> {
     let removes = (req.mode == Mode::Move && entry.is_some())
         .then_some(cwd.clone())
         .flatten();
+    let history_cwds: Vec<String> = cwd
+        .iter()
+        .filter(|_| req.mode == Mode::Move)
+        .cloned()
+        .collect();
     let writes_shared = entry.is_some() || !history.is_empty();
     if writes_shared {
         if let Some(e) = in_use(ctx.to) {
@@ -577,20 +598,352 @@ pub fn plan(ctx: &Context<'_>, req: &Request) -> Result<Plan, TransferError> {
         files,
         bytes,
         adds_project_entry: entry.as_ref().map(|(c, _)| c.clone()),
-        removes_project_entry: removes,
+        removes_project_entry: removes.clone(),
         history_lines: history.len(),
         writes_shared,
         from: ctx.from.base().to_path_buf(),
         to: ctx.to.base().to_path_buf(),
         from_config: ctx.from.claude_json(),
         to_config: ctx.to.claude_json(),
-        entry,
+        entries: entry.into_iter().collect(),
+        removes: removes.into_iter().collect(),
         history,
+        history_cwds,
+        projects: Vec::new(),
+        warnings: Vec::new(),
         snapshot: req.snapshot,
         refresh: req.refresh,
         from_account: None,
         to_account: None,
     })
+}
+
+/// Why a bulk request left something out (§13.3 rule 2): a conversation
+/// (`id`), a project (`cwd`) or a customization (`item`), with a code.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Skipped {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cwd: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub item: Option<String>,
+    pub code: String,
+    pub message: String,
+}
+
+impl Skipped {
+    pub fn session(id: &str, code: &str, message: impl Into<String>) -> Self {
+        Self {
+            id: Some(id.to_string()),
+            cwd: None,
+            item: None,
+            code: code.to_string(),
+            message: message.into(),
+        }
+    }
+
+    pub fn project(cwd: &str, code: &str, message: impl Into<String>) -> Self {
+        Self {
+            id: None,
+            cwd: Some(cwd.to_string()),
+            item: None,
+            code: code.to_string(),
+            message: message.into(),
+        }
+    }
+
+    pub fn item(item: &str, code: &str, message: impl Into<String>) -> Self {
+        Self {
+            id: None,
+            cwd: None,
+            item: Some(item.to_string()),
+            code: code.to_string(),
+            message: message.into(),
+        }
+    }
+
+    fn of(id: &str, e: &TransferError) -> Self {
+        Self::session(id, e.code(), e.to_string())
+    }
+}
+
+/// A bulk request between two accounts in different directories (§13.4
+/// `items`): conversations and projects, moved or copied in one job.
+#[derive(Debug, Clone)]
+pub struct Items {
+    pub sessions: Vec<String>,
+    /// Absolute folders: every conversation of each, its prompt history and
+    /// (with `trust`) its `.claude.json` entry.
+    pub projects: Vec<String>,
+    pub mode: Mode,
+    pub trust: bool,
+}
+
+/// Whether a conversation of the source directory is the source account's
+/// (in the shared folder only those attributed to it are):
+/// `Err((code, message))` leaves it out.
+pub type Belongs<'a> = &'a dyn Fn(&str) -> Result<(), (String, String)>;
+
+/// The conversations of `from` that recorded exactly `cwd` (a look-alike
+/// folder encodes the same).
+fn project_sessions(from: &ClaudeHome, cwd: &str) -> Vec<String> {
+    let mut ids: Vec<String> = std::fs::read_dir(from.transcript_dir(cwd))
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter_map(|e| {
+            let name = e.file_name().to_string_lossy().into_owned();
+            let id = name.strip_suffix(".jsonl")?.to_string();
+            (super::ids::is_session_id(&id) && recorded_cwd(&e.path()).as_deref() == Some(cwd))
+                .then_some(id)
+        })
+        .collect();
+    ids.sort();
+    ids
+}
+
+/// Plan a bulk request (§13.3 rules 1–3): what cannot go — a conversation
+/// that runs, that the target has, that cannot be read or is not the source
+/// account's; a project with no conversation here — is listed in `skipped`
+/// with its code and the rest goes ahead. A project's prompt history and
+/// entry leave the source only when every conversation of it goes. A
+/// shared-file write meeting a directory in use still refuses the whole
+/// request (D4). Nothing is touched. Blocking.
+pub fn plan_items(
+    ctx: &Context<'_>,
+    req: &Items,
+    belongs: Belongs<'_>,
+) -> Result<(Plan, Vec<Skipped>), TransferError> {
+    let same = |a: &Path, b: &Path| {
+        let a = std::fs::canonicalize(a).unwrap_or_else(|_| a.to_path_buf());
+        let b = std::fs::canonicalize(b).unwrap_or_else(|_| b.to_path_buf());
+        a == b
+    };
+    if same(ctx.from.base(), ctx.to.base()) {
+        return Err(TransferError::SameDirectory);
+    }
+    let mut skipped = Vec::new();
+    let mut warnings = Vec::new();
+    // The projects, each with the conversations of it that are the source
+    // account's and whether those are all of them.
+    let mut projects: Vec<(String, Vec<String>, bool)> = Vec::new();
+    for raw in &req.projects {
+        let cwd = match raw.trim_end_matches('/') {
+            "" => "/".to_string(),
+            c => c.to_string(),
+        };
+        if !Path::new(&cwd).is_absolute() {
+            skipped.push(Skipped::project(
+                raw,
+                "invalid_transfer",
+                "a project is named by its absolute folder",
+            ));
+            continue;
+        }
+        if projects.iter().any(|(c, _, _)| *c == cwd) {
+            continue;
+        }
+        let all = project_sessions(ctx.from, &cwd);
+        let mine: Vec<String> = all
+            .iter()
+            .filter(|id| belongs(id).is_ok())
+            .cloned()
+            .collect();
+        if mine.is_empty() {
+            skipped.push(Skipped::project(
+                &cwd,
+                "not_found",
+                format!("no conversations of {cwd} here"),
+            ));
+            continue;
+        }
+        let complete = mine.len() == all.len();
+        projects.push((cwd, mine, complete));
+    }
+    let mut sessions: Vec<SessionPlan> = Vec::new();
+    let mut done: HashSet<String> = HashSet::new();
+    let check = |id: &str, of_project: bool| -> Result<SessionPlan, Skipped> {
+        if !super::ids::is_session_id(id) {
+            return Err(Skipped::session(
+                id,
+                "invalid_transfer",
+                format!("{id:?} is not a session id"),
+            ));
+        }
+        if !of_project {
+            belongs(id).map_err(|(code, message)| Skipped::session(id, &code, message))?;
+        }
+        if (ctx.is_live)(id) {
+            return Err(Skipped::of(id, &TransferError::SessionLive(id.to_string())));
+        }
+        if !transcripts_of(ctx.to, id).is_empty() {
+            return Err(Skipped::of(
+                id,
+                &TransferError::AlreadyExists(id.to_string()),
+            ));
+        }
+        plan_session(ctx.from, ctx.to, id).map_err(|e| Skipped::of(id, &e))
+    };
+    for (_, ids, complete) in projects.iter_mut() {
+        for id in ids.iter() {
+            if !done.insert(id.clone()) {
+                continue;
+            }
+            match check(id, true) {
+                Ok(p) => sessions.push(p),
+                Err(s) => {
+                    skipped.push(s);
+                    *complete = false;
+                }
+            }
+        }
+    }
+    for id in &req.sessions {
+        if !done.insert(id.clone()) {
+            continue;
+        }
+        match check(id, false) {
+            Ok(p) => sessions.push(p),
+            Err(s) => skipped.push(s),
+        }
+    }
+    let planned: HashSet<&str> = sessions.iter().map(|s| s.id.as_str()).collect();
+    // Only the projects something of goes.
+    projects.retain(|(_, ids, _)| ids.iter().any(|id| planned.contains(id.as_str())));
+    // The entries (trust opt-in, never over one): each project's, and the
+    // folder of each conversation named on its own.
+    let mut entries: Vec<(String, Value)> = Vec::new();
+    if req.trust {
+        let cwds = projects.iter().map(|(c, _, _)| c.clone()).chain(
+            sessions
+                .iter()
+                .filter(|s| !projects.iter().any(|(_, ids, _)| ids.contains(&s.id)))
+                .filter_map(|s| s.cwd.clone()),
+        );
+        for cwd in cwds {
+            if entries.iter().any(|(c, _)| *c == cwd)
+                || project_entry(&ctx.to.claude_json(), &cwd).is_some()
+            {
+                continue;
+            }
+            if let Some(e) = project_entry(&ctx.from.claude_json(), &cwd) {
+                entries.push((cwd, e));
+            }
+        }
+    }
+    // Each project's prompt history the target lacks, once.
+    let mut have: HashSet<(String, String)> = HashSet::new();
+    let mut history: Vec<String> = Vec::new();
+    for (cwd, _, _) in &projects {
+        have.extend(
+            history_lines(&ctx.to.history_file(), cwd)
+                .iter()
+                .filter_map(|l| history_key(l)),
+        );
+        for line in history_lines(&ctx.from.history_file(), cwd) {
+            if history_key(&line).is_some_and(|k| have.insert(k)) {
+                history.push(line);
+            }
+        }
+    }
+    // A move takes a project's history and carried entry out of the source
+    // only when every conversation of it goes.
+    let mut removes = Vec::new();
+    let mut history_cwds = Vec::new();
+    if req.mode == Mode::Move {
+        for (cwd, _, complete) in &projects {
+            if !complete {
+                warnings.push(format!(
+                    "Some conversations of {cwd} stay where they are, so its prompt history \
+                     and folder settings stay there too."
+                ));
+                continue;
+            }
+            history_cwds.push(cwd.clone());
+            if entries.iter().any(|(c, _)| c == cwd) {
+                removes.push(cwd.clone());
+            }
+        }
+    }
+    let writes_shared = !entries.is_empty() || !history.is_empty();
+    if writes_shared {
+        if let Some(e) = in_use(ctx.to) {
+            return Err(e);
+        }
+    }
+    let source_lines = history_cwds
+        .iter()
+        .any(|c| !history_lines(&ctx.from.history_file(), c).is_empty());
+    if !removes.is_empty() || source_lines {
+        if let Some(e) = in_use(ctx.from) {
+            return Err(e);
+        }
+    }
+    let files = sessions.iter().map(|s| s.files.len()).sum();
+    let bytes = sessions
+        .iter()
+        .flat_map(|s| s.files.iter())
+        .map(|f| f.size)
+        .sum();
+    let what = match (projects.first(), sessions.first()) {
+        (Some((cwd, _, _)), _) => What::Project { cwd: cwd.clone() },
+        (None, Some(s)) => What::Session { id: s.id.clone() },
+        (None, None) => What::Session { id: String::new() },
+    };
+    let plan = Plan {
+        what,
+        mode: req.mode,
+        sessions,
+        files,
+        bytes,
+        adds_project_entry: entries.first().map(|(c, _)| c.clone()),
+        removes_project_entry: removes.first().cloned(),
+        history_lines: history.len(),
+        writes_shared,
+        from: ctx.from.base().to_path_buf(),
+        to: ctx.to.base().to_path_buf(),
+        from_config: ctx.from.claude_json(),
+        to_config: ctx.to.claude_json(),
+        entries,
+        removes,
+        history,
+        history_cwds,
+        projects: projects.into_iter().map(|(c, _, _)| c).collect(),
+        warnings,
+        snapshot: false,
+        refresh: false,
+        from_account: None,
+        to_account: None,
+    };
+    Ok((plan, skipped))
+}
+
+impl Plan {
+    /// The cwds whose `.claude.json` entry it adds to the target.
+    pub fn added_entries(&self) -> Vec<String> {
+        self.entries.iter().map(|(c, _)| c.clone()).collect()
+    }
+
+    /// The cwds whose entry it takes out of the source.
+    pub fn removed_entries(&self) -> &[String] {
+        &self.removes
+    }
+
+    /// Whether it changes the source's shared files (a move's prompt history
+    /// or entries).
+    fn removes_from_source(&self) -> bool {
+        self.mode == Mode::Move && (!self.removes.is_empty() || !self.history_cwds.is_empty())
+    }
+
+    /// Whether running it would change anything.
+    pub fn is_empty(&self) -> bool {
+        self.sessions.is_empty()
+            && self.entries.is_empty()
+            && self.history.is_empty()
+            && !self.removes_from_source()
+    }
 }
 
 // ─────────────────────────────── running it ───────────────────────────────
@@ -639,6 +992,7 @@ impl Manifest {
             added_entry: None,
             added_entries: Vec::new(),
             removed_entry: None,
+            removed_entries: Vec::new(),
             added_history: Vec::new(),
             removed_history: Vec::new(),
             undone_at: None,
@@ -658,6 +1012,7 @@ impl Manifest {
             && self.added_entry.is_none()
             && self.added_entries.is_empty()
             && self.removed_entry.is_none()
+            && self.removed_entries.is_empty()
             && self.added_history.is_empty()
             && self.removed_history.is_empty()
             && self.archived_marks.is_empty()
@@ -717,6 +1072,9 @@ pub struct Manifest {
     pub added_entries: Vec<(String, Value)>,
     /// `(cwd, entry)` removed from the source's `.claude.json`.
     pub removed_entry: Option<(String, Value)>,
+    /// More of them (a move of several projects).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub removed_entries: Vec<(String, Value)>,
     /// Lines appended to the target's `history.jsonl`.
     pub added_history: Vec<String>,
     /// Lines removed from the source's `history.jsonl`.
@@ -1135,7 +1493,7 @@ fn shared_checks(plan: &Plan) -> Result<(), TransferError> {
             return Err(e);
         }
     }
-    if plan.mode == Mode::Move && matches!(plan.what, What::Project { .. }) {
+    if plan.removes_from_source() {
         if let Some(e) = in_use_at(&plan.from, &plan.from_config) {
             return Err(e);
         }
@@ -1306,18 +1664,18 @@ pub fn run(
         if plan.writes_shared {
             shared_checks(plan)?;
         }
-        if let Some((cwd, entry)) = &plan.entry {
+        if !plan.entries.is_empty() {
             keep_shared(&plan.to_config, &undo_dir, "to-claude.json")?;
-            let mut added = false;
+            let mut added = Vec::new();
             edit_projects(&plan.to_config, |p| {
-                if !p.contains_key(cwd) {
-                    p.insert(cwd.clone(), entry.clone());
-                    added = true;
+                for (cwd, entry) in &plan.entries {
+                    if !p.contains_key(cwd) {
+                        p.insert(cwd.clone(), entry.clone());
+                        added.push((cwd.clone(), entry.clone()));
+                    }
                 }
             })?;
-            if added {
-                m.added_entry = Some((cwd.clone(), entry.clone()));
-            }
+            m.added_entries = added;
             save(&m)?;
         }
         if !plan.history.is_empty() {
@@ -1355,18 +1713,28 @@ pub fn run(
                 }
                 save(&m)?;
             }
-            if let What::Project { cwd } = &plan.what {
+            if plan.removes_from_source() {
                 shared_checks(plan)?;
                 let from = ClaudeHome::for_account_dir(&plan.from);
-                if plan.removes_project_entry.is_some() {
+                if !plan.removes.is_empty() {
                     fail_point("edit_source")?;
                     keep_shared(&plan.from_config, &undo_dir, "from-claude.json")?;
-                    let mut removed = None;
-                    edit_projects(&plan.from_config, |p| removed = p.remove(cwd))?;
-                    m.removed_entry = removed.map(|e| (cwd.clone(), e));
+                    let mut removed = Vec::new();
+                    edit_projects(&plan.from_config, |p| {
+                        for cwd in &plan.removes {
+                            if let Some(e) = p.remove(cwd) {
+                                removed.push((cwd.clone(), e));
+                            }
+                        }
+                    })?;
+                    m.removed_entries = removed;
                     save(&m)?;
                 }
-                let lines = history_lines(&from.history_file(), cwd);
+                let lines: Vec<String> = plan
+                    .history_cwds
+                    .iter()
+                    .flat_map(|cwd| history_lines(&from.history_file(), cwd))
+                    .collect();
                 if !lines.is_empty() {
                     keep_shared(&from.history_file(), &undo_dir, "from-history.jsonl")?;
                     m.removed_history = remove_lines(&from.history_file(), &lines)?;
@@ -1453,7 +1821,7 @@ pub fn undo_with_before(
             return Err(e);
         }
     }
-    if m.removed_entry.is_some() || !m.removed_history.is_empty() {
+    if m.removed_entry.is_some() || !m.removed_entries.is_empty() || !m.removed_history.is_empty() {
         if let Some(e) = in_use_at(&m.from_dir, &m.from_config()) {
             return Err(e);
         }
@@ -1513,7 +1881,11 @@ pub fn undo_with_before(
 /// that replaced a session), the removed `.claude.json` entry and the removed
 /// history lines. What is back already is skipped, so a retry finishes.
 fn restore_source(m: &Manifest, undo_dir: &Path) -> Result<(), TransferError> {
-    if m.moved.is_empty() && m.removed_entry.is_none() && m.removed_history.is_empty() {
+    if m.moved.is_empty()
+        && m.removed_entry.is_none()
+        && m.removed_entries.is_empty()
+        && m.removed_history.is_empty()
+    {
         return Ok(());
     }
     // Emptied source directories first (an empty `session-env/<id>` is one).
@@ -1548,9 +1920,12 @@ fn restore_source(m: &Manifest, undo_dir: &Path) -> Result<(), TransferError> {
         }
         put_back(&saved, &mv.original)?;
     }
-    if let Some((cwd, entry)) = &m.removed_entry {
+    let removed: Vec<&(String, Value)> = m.removed_entry.iter().chain(&m.removed_entries).collect();
+    if !removed.is_empty() {
         edit_projects(&m.from_config(), |p| {
-            p.entry(cwd.clone()).or_insert_with(|| entry.clone());
+            for (cwd, entry) in removed {
+                p.entry(cwd.clone()).or_insert_with(|| entry.clone());
+            }
         })?;
     }
     if !m.removed_history.is_empty() {

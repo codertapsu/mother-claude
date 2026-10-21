@@ -821,3 +821,244 @@ fn a_second_continue_on_brings_its_earlier_copy_up_to_date() {
     r.snapshot = false;
     assert_eq!(plan(&ctx, &r).unwrap_err().code(), "invalid_transfer");
 }
+
+fn items(sessions: &[&str], projects: &[&str], mode: Mode, trust: bool) -> Items {
+    Items {
+        sessions: sessions.iter().map(|s| s.to_string()).collect(),
+        projects: projects.iter().map(|s| s.to_string()).collect(),
+        mode,
+        trust,
+    }
+}
+
+fn mine(_: &str) -> Result<(), (String, String)> {
+    Ok(())
+}
+
+const CWD2: &str = "/p/lib";
+const S2: &str = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
+const S3: &str = "cccccccc-dddd-4eee-8fff-000000000000";
+
+/// §13.3 rule 2: the `items` body skips what cannot go, each with its code,
+/// and the rest goes ahead; the old body refuses with the same code.
+#[test]
+fn bulk_skips_what_cannot_go_where_the_old_body_refuses() {
+    let w = world();
+    session(w.a.base(), SID, CWD);
+    session(w.a.base(), S2, CWD);
+    session(w.a.base(), S3, CWD2);
+    // The target has S3 already.
+    session(w.b.base(), S3, CWD2);
+    let live = |id: &str| id == SID;
+    let ctx = Context {
+        from: &w.a,
+        to: &w.b,
+        is_live: &live,
+    };
+    let missing = "dddddddd-eeee-4fff-8000-111111111111";
+    let (p, skipped) = plan_items(
+        &ctx,
+        &items(&[SID, S2, S3, missing, "../x"], &[], Mode::Copy, false),
+        &mine,
+    )
+    .unwrap();
+    let ids: Vec<&str> = p.sessions.iter().map(|s| s.id.as_str()).collect();
+    assert_eq!(ids, [S2]);
+    let codes: Vec<(&str, &str)> = skipped
+        .iter()
+        .map(|s| (s.id.as_deref().unwrap(), s.code.as_str()))
+        .collect();
+    assert_eq!(
+        codes,
+        [
+            (SID, "session_live"),
+            (S3, "already_exists"),
+            (missing, "not_found"),
+            ("../x", "invalid_transfer"),
+        ]
+    );
+    // The old body refuses the first that cannot go.
+    assert_eq!(
+        plan(&ctx, &req(sess(), Mode::Copy, false))
+            .unwrap_err()
+            .code(),
+        "session_live"
+    );
+    // A project with nothing here is skipped by its folder.
+    let (_, skipped) =
+        plan_items(&ctx, &items(&[], &["/p/none"], Mode::Copy, false), &mine).unwrap();
+    assert_eq!(skipped[0].cwd.as_deref(), Some("/p/none"));
+    assert_eq!(skipped[0].code, "not_found");
+    // A conversation the source account does not own is left out.
+    let theirs = |id: &str| {
+        if id == S2 {
+            Err((
+                "not_found".to_string(),
+                "it is Pro's conversation".to_string(),
+            ))
+        } else {
+            Ok(())
+        }
+    };
+    let (p, skipped) = plan_items(&ctx, &items(&[S2], &[], Mode::Copy, false), &theirs).unwrap();
+    assert!(p.sessions.is_empty() && p.is_empty());
+    assert_eq!(skipped[0].message, "it is Pro's conversation");
+    // Same directory: nothing to move.
+    let same = Context {
+        from: &w.a,
+        to: &w.a,
+        is_live: &not_live,
+    };
+    assert_eq!(
+        plan_items(&same, &items(&[S2], &[], Mode::Copy, false), &mine)
+            .unwrap_err()
+            .code(),
+        "same_directory"
+    );
+}
+
+/// Two projects in one job: their conversations, prompt history and (trust)
+/// entries go together, and one undo puts all of it back.
+#[test]
+fn several_projects_move_in_one_job_and_one_undo() {
+    let w = world();
+    session(w.a.base(), SID, CWD);
+    session(w.a.base(), S2, CWD);
+    session(w.a.base(), S3, CWD2);
+    std::fs::write(
+        w.a.claude_json(),
+        serde_json::json!({"projects": {
+            CWD: {"hasTrustDialogAccepted": true},
+            CWD2: {"hasTrustDialogAccepted": true, "allowedTools": ["Bash"]},
+            "/elsewhere": {"x": 1}}})
+        .to_string(),
+    )
+    .unwrap();
+    let line = |t: i64, d: &str, p: &str| {
+        serde_json::json!({"display": d, "timestamp": t, "project": p}).to_string()
+    };
+    std::fs::write(
+        w.a.history_file(),
+        [
+            line(1, "app one", CWD),
+            line(2, "lib one", CWD2),
+            line(3, "elsewhere", "/elsewhere"),
+            line(4, "app two", CWD),
+        ]
+        .join("\n")
+            + "\n",
+    )
+    .unwrap();
+    // History lines come back at the end: compared as a set.
+    let lines = |h: &ClaudeHome| {
+        let mut l: Vec<String> = std::fs::read_to_string(h.history_file())
+            .unwrap_or_default()
+            .lines()
+            .map(str::to_string)
+            .collect();
+        l.sort();
+        l
+    };
+    let without_history = |dir: &Path| {
+        snapshot_of(dir)
+            .into_iter()
+            .filter(|(f, _)| !f.ends_with("history.jsonl"))
+            .collect::<Vec<_>>()
+    };
+    let before_a = without_history(w.a.base());
+    let lines_a = lines(&w.a);
+    let ctx = Context {
+        from: &w.a,
+        to: &w.b,
+        is_live: &not_live,
+    };
+    let (p, skipped) =
+        plan_items(&ctx, &items(&[], &[CWD, CWD2], Mode::Move, true), &mine).unwrap();
+    assert!(skipped.is_empty(), "{skipped:?}");
+    assert_eq!(p.sessions.len(), 3);
+    assert_eq!(p.projects, [CWD, CWD2]);
+    assert_eq!(p.added_entries(), [CWD, CWD2]);
+    assert_eq!(p.removed_entries(), [CWD, CWD2]);
+    assert_eq!(p.history_lines, 3);
+    assert!(p.writes_shared && p.warnings.is_empty());
+    let id = new_job_id();
+    run(&p, &w.undo, &id, &Progress::default(), &not_live).unwrap();
+    let read = |h: &ClaudeHome| -> Value {
+        serde_json::from_str(&std::fs::read_to_string(h.claude_json()).unwrap()).unwrap()
+    };
+    assert_eq!(read(&w.b)["projects"][CWD2]["allowedTools"][0], "Bash");
+    assert!(read(&w.b)["projects"].get(CWD).is_some());
+    assert!(read(&w.a)["projects"].get(CWD).is_none());
+    assert!(read(&w.a)["projects"].get(CWD2).is_none());
+    assert_eq!(read(&w.a)["projects"]["/elsewhere"]["x"], 1);
+    let hist = |h: &ClaudeHome| std::fs::read_to_string(h.history_file()).unwrap();
+    assert_eq!(hist(&w.b).lines().count(), 3);
+    assert_eq!(
+        hist(&w.a).lines().count(),
+        1,
+        "only the other folder's line"
+    );
+    for id in [SID, S2, S3] {
+        assert!(transcripts_of(&w.a, id).is_empty());
+        assert_eq!(transcripts_of(&w.b, id).len(), 1);
+    }
+    let m = manifest(&w.undo, &id).unwrap();
+    assert_eq!(m.added_entries.len(), 2);
+    assert_eq!(m.removed_entries.len(), 2);
+
+    undo(&w.undo, &id).unwrap();
+    assert_eq!(
+        without_history(w.a.base()),
+        before_a,
+        "the source as it was"
+    );
+    assert_eq!(lines(&w.a), lines_a);
+    for id in [SID, S2, S3] {
+        assert!(transcripts_of(&w.b, id).is_empty());
+    }
+    assert!(read(&w.b)["projects"].as_object().unwrap().is_empty());
+    assert_eq!(hist(&w.b), "");
+}
+
+/// A project of which a conversation cannot go is copied as far as it can
+/// be, and in a move its prompt history and entry stay in the source.
+#[test]
+fn a_project_that_cannot_go_whole_keeps_its_history_where_it_is() {
+    let w = world();
+    session(w.a.base(), SID, CWD);
+    session(w.a.base(), S2, CWD);
+    std::fs::write(
+        w.a.claude_json(),
+        serde_json::json!({"projects": {CWD: {"hasTrustDialogAccepted": true}}}).to_string(),
+    )
+    .unwrap();
+    let line = serde_json::json!({"display": "hi", "timestamp": 1, "project": CWD}).to_string();
+    std::fs::write(w.a.history_file(), line.clone() + "\n").unwrap();
+    let live = |id: &str| id == SID;
+    let ctx = Context {
+        from: &w.a,
+        to: &w.b,
+        is_live: &live,
+    };
+    let (p, skipped) = plan_items(&ctx, &items(&[], &[CWD], Mode::Move, true), &mine).unwrap();
+    assert_eq!(skipped[0].code, "session_live");
+    assert_eq!(p.sessions.len(), 1);
+    assert!(p.removed_entries().is_empty(), "the entry stays");
+    assert_eq!(p.history_lines, 1, "copied all the same");
+    assert_eq!(p.warnings.len(), 1, "{:?}", p.warnings);
+    run(&p, &w.undo, &new_job_id(), &Progress::default(), &live).unwrap();
+    assert_eq!(
+        std::fs::read_to_string(w.a.history_file()).unwrap(),
+        line.clone() + "\n",
+        "the source keeps its history"
+    );
+    assert_eq!(
+        std::fs::read_to_string(w.b.history_file()).unwrap(),
+        line + "\n"
+    );
+    let v: Value =
+        serde_json::from_str(&std::fs::read_to_string(w.a.claude_json()).unwrap()).unwrap();
+    assert!(v["projects"].get(CWD).is_some());
+    assert_eq!(transcripts_of(&w.a, SID).len(), 1, "the running one stays");
+    assert_eq!(transcripts_of(&w.b, S2).len(), 1);
+}
