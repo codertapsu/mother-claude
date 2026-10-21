@@ -98,11 +98,16 @@ pub enum TransferError {
     Busy,
     #[error("{0}")]
     Incomplete(String),
+    /// A backup set's refusal (a move into or out of a storage, its undo),
+    /// with the backup error's own code.
+    #[error("{message}")]
+    Backup { code: &'static str, message: String },
 }
 
 impl TransferError {
     pub fn code(&self) -> &'static str {
         match self {
+            Self::Backup { code, .. } => code,
             Self::SameDirectory => "same_directory",
             Self::NotFound(_) => "not_found",
             Self::SessionLive(_) => "session_live",
@@ -599,7 +604,66 @@ pub struct Created {
     pub sha256: String,
 }
 
+/// The set a move into or out of a storage used (docs/ACCOUNTS.md §13.2),
+/// as its job recorded it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StorageRef {
+    /// `backup` or `stor_…`.
+    pub storage: String,
+    /// The set's name.
+    pub set: String,
+    /// The set's folder then.
+    pub dir: PathBuf,
+    /// Into the set (else out of it).
+    pub into: bool,
+}
+
 impl Manifest {
+    /// A manifest of nothing done yet.
+    pub fn new(job_id: &str, mode: Mode, what: What, from_dir: PathBuf, to_dir: PathBuf) -> Self {
+        Self {
+            job_id: job_id.to_string(),
+            created_at: now_ms(),
+            mode,
+            what,
+            from_dir,
+            to_dir,
+            from_config: None,
+            to_config: None,
+            sessions: Vec::new(),
+            created: Vec::new(),
+            created_dirs: Vec::new(),
+            moved: Vec::new(),
+            moved_dirs: Vec::new(),
+            added_entry: None,
+            added_entries: Vec::new(),
+            removed_entry: None,
+            added_history: Vec::new(),
+            removed_history: Vec::new(),
+            undone_at: None,
+            kind: None,
+            from_account: None,
+            to_account: None,
+            storage: None,
+            archived_marks: Vec::new(),
+            set_entries: Vec::new(),
+        }
+    }
+
+    /// Whether undoing it would change anything.
+    pub fn is_empty(&self) -> bool {
+        self.created.is_empty()
+            && self.moved.is_empty()
+            && self.added_entry.is_none()
+            && self.added_entries.is_empty()
+            && self.removed_entry.is_none()
+            && self.added_history.is_empty()
+            && self.removed_history.is_empty()
+            && self.archived_marks.is_empty()
+            && self.set_entries.is_empty()
+    }
+
     /// The source's `.claude.json` (older manifests: inside its directory).
     pub fn from_config(&self) -> PathBuf {
         self.from_config
@@ -662,6 +726,21 @@ pub struct Manifest {
     /// What made it, when not a move or copy (`restore`, `pull`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub kind: Option<String>,
+    /// The accounts the job named (two may share a directory).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub from_account: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub to_account: Option<String>,
+    /// The set of a move into or out of a storage.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub storage: Option<StorageRef>,
+    /// The marks a move into a set made there (its undo clears them).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub archived_marks: Vec<(String, crate::claude::backup::Archived)>,
+    /// The entries a move out of a set took out of it (its undo puts them
+    /// back).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub set_entries: Vec<crate::claude::backup::IndexEntry>,
 }
 
 /// Progress of a running transfer.
@@ -996,7 +1075,7 @@ fn fail_point(point: &'static str) -> Result<(), TransferError> {
 
 /// Move a file into the undo directory: a rename on one volume, else a
 /// copy and a delete.
-fn stash(path: &Path, undo_dir: &Path, rel: &Path) -> Result<Moved, TransferError> {
+pub(crate) fn stash(path: &Path, undo_dir: &Path, rel: &Path) -> Result<Moved, TransferError> {
     fail_point("stash")?;
     let dest = undo_dir.join("moved").join(rel);
     if let Some(parent) = dest.parent() {
@@ -1017,7 +1096,7 @@ fn stash(path: &Path, undo_dir: &Path, rel: &Path) -> Result<Moved, TransferErro
 
 /// Put a saved file back: a rename on one volume, else a copy (the saved
 /// copy is removed only once the original is back).
-fn put_back(saved: &Path, original: &Path) -> Result<(), TransferError> {
+pub(crate) fn put_back(saved: &Path, original: &Path) -> Result<(), TransferError> {
     fail_point("put_back")?;
     if let Some(parent) = original.parent() {
         std::fs::create_dir_all(parent).map_err(|e| io("creating", parent, e))?;
@@ -1031,7 +1110,7 @@ fn put_back(saved: &Path, original: &Path) -> Result<(), TransferError> {
 
 /// Remove a directory tree's empty directories, deepest first: whatever a
 /// session wrote there that the plan did not know stays.
-fn remove_empty_dirs(dir: &Path) {
+pub(crate) fn remove_empty_dirs(dir: &Path) {
     let mut dirs = Vec::new();
     let _ = collect_dirs(dir, &mut dirs);
     for sub in dirs.iter().rev() {
@@ -1153,26 +1232,16 @@ pub fn run(
     private_dir(undo_root);
     private_dir(&undo_dir);
     let mut m = Manifest {
-        job_id: job_id.to_string(),
-        created_at: now_ms(),
-        mode: plan.mode,
-        what: plan.what.clone(),
-        from_dir: plan.from.clone(),
-        to_dir: plan.to.clone(),
         from_config: Some(plan.from_config.clone()),
         to_config: Some(plan.to_config.clone()),
         sessions: plan.sessions.iter().map(|s| s.id.clone()).collect(),
-        created: Vec::new(),
-        created_dirs: Vec::new(),
-        moved: Vec::new(),
-        moved_dirs: Vec::new(),
-        added_entry: None,
-        added_entries: Vec::new(),
-        removed_entry: None,
-        added_history: Vec::new(),
-        removed_history: Vec::new(),
-        undone_at: None,
-        kind: None,
+        ..Manifest::new(
+            job_id,
+            plan.mode,
+            plan.what.clone(),
+            plan.from.clone(),
+            plan.to.clone(),
+        )
     };
     let save = |m: &Manifest| -> Result<(), TransferError> {
         fail_point("save")?;
@@ -1351,6 +1420,18 @@ pub fn undo_with(
     job_id: &str,
     is_live: &dyn Fn(&str) -> bool,
 ) -> Result<Manifest, TransferError> {
+    undo_with_before(undo_root, job_id, is_live, &mut |_| Ok(()))
+}
+
+/// [`undo_with`] that runs `before` once every check passed and before
+/// anything is put back: a move out of a backup set puts the set's entries
+/// back there first, and when that fails nothing is undone.
+pub fn undo_with_before(
+    undo_root: &Path,
+    job_id: &str,
+    is_live: &dyn Fn(&str) -> bool,
+    before: &mut dyn FnMut(&Manifest) -> Result<(), TransferError>,
+) -> Result<Manifest, TransferError> {
     if !is_job_id(job_id) {
         return Err(TransferError::Invalid("not a transfer id".into()));
     }
@@ -1418,6 +1499,7 @@ pub fn undo_with(
             )));
         }
     }
+    before(&m)?;
     restore_source(&m, &undo_dir)?;
     rollback(&m)?;
     m.undone_at = Some(now_ms());
@@ -1634,6 +1716,14 @@ pub struct JobView {
     pub from: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub to: Option<String>,
+    /// The storage a move or copy came from or went to (docs/ACCOUNTS.md
+    /// §13.4), and its set.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub from_storage: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub to_storage: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub set: Option<String>,
     /// A per-kind result (backup: what was archived; restore: warnings…).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub result: Option<Value>,
@@ -1685,6 +1775,9 @@ impl Jobs {
                 account: None,
                 from: None,
                 to: None,
+                from_storage: None,
+                to_storage: None,
+                set: None,
                 result: None,
             }),
             progress: progress.clone(),
@@ -1758,8 +1851,19 @@ pub fn view_from_manifest(m: &Manifest) -> JobView {
             .then(|| m.created_at + UNDO_KEEP.as_millis() as i64),
         sessions: m.sessions.clone(),
         account: None,
-        from: None,
-        to: None,
+        from: m.from_account.clone(),
+        to: m.to_account.clone(),
+        from_storage: m
+            .storage
+            .as_ref()
+            .filter(|s| !s.into)
+            .map(|s| s.storage.clone()),
+        to_storage: m
+            .storage
+            .as_ref()
+            .filter(|s| s.into)
+            .map(|s| s.storage.clone()),
+        set: m.storage.as_ref().map(|s| s.set.clone()),
         result: None,
     }
 }

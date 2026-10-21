@@ -1493,3 +1493,355 @@ fn set_counts_are_cached_by_the_index_file() {
     std::fs::write(w.set.index_path(), b"changed elsewhere").unwrap();
     assert!(cached_counts(&w.set).is_none());
 }
+
+const OTHER: &str = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
+
+fn push_inputs<'a>(
+    w: &'a World,
+    home: &'a ClaudeHome,
+    machine: &'a ThisMachine,
+    passphrases: &'a [Secret],
+    live: &'a dyn Fn(&str) -> bool,
+    progress: &'a Progress,
+) -> PushInputs<'a> {
+    PushInputs {
+        home,
+        set: &w.set,
+        account_name: "Work",
+        passphrases,
+        machine,
+        is_live: live,
+        title_of: &no_title,
+        progress,
+    }
+}
+
+fn index_of(w: &World) -> SetIndex {
+    let keys = open_keys(&w.set, &pass()).unwrap();
+    read_index(&w.set, &keys).unwrap()
+}
+
+/// §13.3 rule 5: a push of some conversations changes only their `seen`
+/// entries; the machine's other entries stay as they were.
+#[test]
+fn a_push_of_some_conversations_keeps_the_other_seen_entries() {
+    let w = world();
+    session(w.home.base(), SID);
+    session(w.home.base(), OTHER);
+    push_once(&w, &not_live);
+    let a = machine("mbp-a");
+    let before = index_of(&w).seen[&a.id].clone();
+    assert_eq!(before.len(), 2);
+    grow(&w.home, SID, "{\"type\":\"assistant\",\"n\":2}");
+    let progress = Progress::default();
+    let pp = [pass()];
+    let r = push_some(
+        &push_inputs(&w, &w.home, &a, &pp, &not_live, &progress),
+        &[SID.to_string()],
+        false,
+    )
+    .unwrap();
+    assert_eq!(r.copied, [SID]);
+    let seen = index_of(&w).seen[&a.id].clone();
+    assert_eq!(seen.len(), 2, "the other entry stays: {seen:?}");
+    assert_eq!(seen[OTHER], before[OTHER]);
+    assert_ne!(seen[SID], before[SID], "the pushed one is updated");
+    // A session that is not here, or not a session, is skipped with a code.
+    let r = push_some(
+        &push_inputs(&w, &w.home, &a, &pp, &not_live, &progress),
+        &["bbbbbbbb-cccc-4ddd-8eee-ffffffffffff".into(), "../x".into()],
+        false,
+    )
+    .unwrap();
+    let codes: Vec<&str> = r.skipped.iter().map(|s| s.code.as_str()).collect();
+    assert_eq!(codes, ["not_found", "invalid_id"]);
+}
+
+/// §13.2 account → storage, move: the copy is verified, marked archived in
+/// the same index write and removed here; a pull never brings it to a
+/// machine that does not have it; the undo brings the files back and clears
+/// the mark.
+#[test]
+fn a_move_into_a_set_archives_and_its_undo_brings_it_back() {
+    let w = world();
+    session(w.home.base(), SID);
+    session(w.home.base(), OTHER);
+    push_once(&w, &not_live);
+    let before = tree(w.home.base());
+    let a = machine("mbp-a");
+    let pp = [pass()];
+    let progress = Progress::default();
+    let job = "20261021T190000-00000001";
+    let (r, m) = move_into_set(&MoveIntoInputs {
+        push: push_inputs(&w, &w.home, &a, &pp, &not_live, &progress),
+        ids: &[SID.to_string()],
+        undo_root: &w.undo,
+        job_id: job,
+        storage: transfer::StorageRef {
+            storage: "backup".into(),
+            set: "Work".into(),
+            dir: w.set.dir.clone(),
+            into: true,
+        },
+        from_account: Some("default".into()),
+    })
+    .unwrap();
+    assert_eq!(r.archived, [SID], "{r:?}");
+    let m = m.expect("something left this directory");
+    assert!(
+        transfer::transcripts_of(&w.home, SID).is_empty(),
+        "removed here"
+    );
+    assert_eq!(transfer::transcripts_of(&w.home, OTHER).len(), 1);
+    let index = index_of(&w);
+    let mark = index.sessions[SID].archived.clone().expect("marked");
+    assert_eq!(mark.machine, a.id);
+    assert!(index.sessions[SID].archived.is_some());
+    assert_eq!(m.archived_marks, [(SID.to_string(), mark.clone())]);
+
+    // Another machine without it: listed as in storage only, never pulled.
+    let b = &w.other;
+    let items = compare(&index, b, &machine("mbp-b").id, &not_live, now_ms());
+    let item = items.iter().find(|i| i.id == SID).unwrap();
+    assert_eq!(item.action, PullAction::New);
+    assert!(item.archived.is_some());
+    let (r, _) = pull_once(&w, b, "mbp-b", &not_live, "20261021T190001-00000002");
+    assert!(!r.restored.contains(&SID.to_string()), "{r:?}");
+    assert_eq!(r.restored, [OTHER]);
+    let (r, _) = pull(&PullInputs {
+        set: &w.set,
+        passphrases: &[pass()],
+        home: b,
+        machine: &machine("mbp-b"),
+        ids: Some(&[SID.to_string()]),
+        trust: false,
+        is_live: &not_live,
+        undo_root: &w.undo,
+        job_id: "20261021T190002-00000003",
+        progress: &Progress::default(),
+    })
+    .unwrap();
+    assert_eq!(r.skipped[0].code, "archived", "{r:?}");
+    assert!(transfer::transcripts_of(b, SID).is_empty());
+
+    // The undo: the files back, the mark cleared.
+    transfer::undo(&w.undo, job).unwrap();
+    assert_eq!(tree(w.home.base()), before);
+    assert_eq!(clear_marks(&w.set, &pp, &m.archived_marks).unwrap(), [SID]);
+    assert!(index_of(&w).sessions[SID].archived.is_none());
+}
+
+/// A conversation that starts while it is being moved into a set stays here,
+/// unmarked; one already marked by someone else's push is not this move's.
+#[test]
+fn a_conversation_that_starts_during_a_move_into_a_set_stays() {
+    let w = world();
+    session(w.home.base(), SID);
+    let a = machine("mbp-a");
+    let pp = [pass()];
+    let progress = Progress::default();
+    // Not live while it is pushed and checked, live once it would move.
+    let calls = std::cell::Cell::new(0);
+    let live = |_: &str| {
+        calls.set(calls.get() + 1);
+        calls.get() > 1
+    };
+    let (r, m) = move_into_set(&MoveIntoInputs {
+        push: push_inputs(&w, &w.home, &a, &pp, &live, &progress),
+        ids: &[SID.to_string()],
+        undo_root: &w.undo,
+        job_id: "20261021T191000-00000001",
+        storage: transfer::StorageRef {
+            storage: "backup".into(),
+            set: "Work".into(),
+            dir: w.set.dir.clone(),
+            into: true,
+        },
+        from_account: None,
+    })
+    .unwrap();
+    assert!(r.archived.is_empty(), "{r:?}");
+    assert_eq!(r.skipped[0].code, "session_live");
+    assert!(m.is_none(), "nothing to undo");
+    assert_eq!(transfer::transcripts_of(&w.home, SID).len(), 1);
+    let index = index_of(&w);
+    assert!(
+        index.sessions[SID].archived.is_none(),
+        "the mark is cleared"
+    );
+    assert!(!w.undo.join("20261021T191000-00000001").exists());
+}
+
+/// §13.3 rule 4: a machine that has an archived conversation keeps it; its
+/// push of an unchanged copy leaves the mark, of a changed copy replaces the
+/// entry and so clears it.
+#[test]
+fn a_push_of_a_changed_copy_clears_the_archived_mark() {
+    let w = world();
+    let (a, b) = (&w.home, &w.other);
+    session(a.base(), SID);
+    push_from(&w, a, "mbp-a");
+    pull_once(&w, b, "mbp-b", &not_live, "20261021T192000-00000001");
+    let pp = [pass()];
+    let progress = Progress::default();
+    let ma = machine("mbp-a");
+    move_into_set(&MoveIntoInputs {
+        push: push_inputs(&w, a, &ma, &pp, &not_live, &progress),
+        ids: &[SID.to_string()],
+        undo_root: &w.undo,
+        job_id: "20261021T192001-00000002",
+        storage: transfer::StorageRef {
+            storage: "backup".into(),
+            set: "Work".into(),
+            dir: w.set.dir.clone(),
+            into: true,
+        },
+        from_account: None,
+    })
+    .unwrap();
+    assert!(index_of(&w).sessions[SID].archived.is_some());
+    // B has it and keeps it; an unchanged push leaves the mark.
+    let (r, _) = pull_once(&w, b, "mbp-b", &not_live, "20261021T192002-00000003");
+    assert!(r.restored.is_empty() && r.updated.is_empty(), "{r:?}");
+    assert_eq!(transfer::transcripts_of(b, SID).len(), 1);
+    assert!(push_from(&w, b, "mbp-b").archived.is_empty());
+    assert!(index_of(&w).sessions[SID].archived.is_some());
+    // B continues it: its push replaces the entry, which clears the mark.
+    grow(b, SID, "{\"type\":\"user\",\"on\":\"b\"}");
+    assert_eq!(push_from(&w, b, "mbp-b").archived, [SID]);
+    assert!(index_of(&w).sessions[SID].archived.is_none());
+}
+
+/// §13.2 storage → account, move: restored, then its entry taken out of the
+/// set with its archive kept seven days; the undo puts the entry back first
+/// (not over a newer one) and then removes the restored files; an archive
+/// that is gone means nothing is undone.
+#[test]
+fn a_move_out_of_a_set_keeps_the_archive_for_its_undo() {
+    let w = world();
+    session(w.home.base(), SID);
+    session(w.home.base(), OTHER);
+    push_once(&w, &not_live);
+    let archive = archive_of(&w, SID);
+    let job = "20261021T193000-00000001";
+    let now = now_ms();
+    let week = 7 * 24 * 3600 * 1000;
+    let (r, m) = move_out_of_set(
+        &RestoreInputs {
+            set: &w.set,
+            passphrases: &[pass()],
+            target: &w.other,
+            ids: &[SID.to_string()],
+            trust: false,
+            is_live: &not_live,
+            undo_root: &w.undo,
+            job_id: job,
+            progress: &Progress::default(),
+            kind: "move",
+        },
+        true,
+        now + week,
+        transfer::StorageRef {
+            storage: "backup".into(),
+            set: "Work".into(),
+            dir: w.set.dir.clone(),
+            into: false,
+        },
+        Some("acc_000000000001".into()),
+    )
+    .unwrap();
+    assert_eq!(r.restored, [SID]);
+    assert_eq!(transfer::transcripts_of(&w.other, SID).len(), 1);
+    let index = index_of(&w);
+    assert!(!index.sessions.contains_key(SID), "out of the set");
+    assert!(index.sessions.contains_key(OTHER));
+    assert_eq!(m.set_entries.len(), 1);
+    assert_eq!(m.to_account.as_deref(), Some("acc_000000000001"));
+    let kept = index
+        .superseded
+        .iter()
+        .find(|s| {
+            s.path
+                .ends_with(archive.file_name().unwrap().to_str().unwrap())
+        })
+        .expect("kept for the undo");
+    assert_eq!(kept.until, Some(now + week));
+    assert_eq!(
+        kept.at,
+        now + week - GRACE_MS,
+        "an older build keeps it as long"
+    );
+    assert_eq!(collect_garbage(&w.set, &index, now + 2 * GRACE_MS), 0);
+    assert!(archive.exists());
+
+    // The undo: the entry first, then the files.
+    let pp = [pass()];
+    let mut set_err = None;
+    transfer::undo_with_before(&w.undo, job, &not_live, &mut |m| {
+        put_back_entries(&w.set, &pp, &m.set_entries)
+            .map(|back| assert_eq!(back, [SID]))
+            .map_err(|e| {
+                set_err = Some(e.to_string());
+                transfer::TransferError::from(e)
+            })
+    })
+    .unwrap();
+    assert!(set_err.is_none());
+    assert!(index_of(&w).sessions.contains_key(SID), "back in the set");
+    assert!(transfer::transcripts_of(&w.other, SID).is_empty());
+
+    // Out again; meanwhile A pushes a newer copy: the undo leaves that one.
+    let job = "20261021T193001-00000002";
+    let (_, m) = move_out_of_set(
+        &RestoreInputs {
+            set: &w.set,
+            passphrases: &[pass()],
+            target: &w.other,
+            ids: &[SID.to_string()],
+            trust: false,
+            is_live: &not_live,
+            undo_root: &w.undo,
+            job_id: job,
+            progress: &Progress::default(),
+            kind: "move",
+        },
+        true,
+        now_ms() + week,
+        transfer::StorageRef {
+            storage: "backup".into(),
+            set: "Work".into(),
+            dir: w.set.dir.clone(),
+            into: false,
+        },
+        None,
+    )
+    .unwrap();
+    grow(&w.home, SID, "{\"type\":\"user\",\"n\":9}");
+    push_once(&w, &not_live);
+    let newer = index_of(&w).sessions[SID].clone();
+    assert!(put_back_entries(&w.set, &pp, &m.set_entries)
+        .unwrap()
+        .is_empty());
+    assert_eq!(index_of(&w).sessions[SID], newer, "the newer push stands");
+
+    // An archive that is gone: the set cannot take it back.
+    let mut gone = m.set_entries.clone();
+    gone[0].id = OTHER.into();
+    gone[0].archive = format!("{OTHER}.0123456789ab.tar.gz.age");
+    let keys = open_keys(&w.set, &pass()).unwrap();
+    let mut index = read_index(&w.set, &keys).unwrap();
+    index.sessions.remove(OTHER);
+    write_index(&w.set, &keys, &index).unwrap();
+    assert!(put_back_entries(&w.set, &pp, &gone).is_err());
+}
+
+/// An index written before `until` existed reads as before: a superseded
+/// file goes a day after it was superseded.
+#[test]
+fn superseded_files_without_until_go_a_day_later() {
+    let s: Superseded = serde_json::from_str(r#"{"path":"sessions/x","at":1000}"#).unwrap();
+    assert_eq!(s.until, None);
+    assert_eq!(s.deadline(), 1000 + GRACE_MS);
+    let json = serde_json::to_string(&s).unwrap();
+    assert!(!json.contains("until"), "{json}");
+}

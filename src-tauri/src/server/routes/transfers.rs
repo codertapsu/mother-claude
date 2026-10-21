@@ -49,6 +49,14 @@ pub fn transfer_error(e: TransferError) -> ApiError {
         TransferError::SameDirectory | TransferError::Invalid(_) => {
             StatusCode::UNPROCESSABLE_ENTITY
         }
+        // A backup set's refusal keeps the status a backup route gives it.
+        TransferError::Backup { code, .. } => match *code {
+            "storage_not_found" => StatusCode::NOT_FOUND,
+            "wrong_passphrase" => StatusCode::FORBIDDEN,
+            "invalid_backup" | "invalid_storage" => StatusCode::UNPROCESSABLE_ENTITY,
+            "backup_io" => StatusCode::INTERNAL_SERVER_ERROR,
+            _ => StatusCode::CONFLICT,
+        },
     };
     ApiError::new(status, e.code(), e.to_string())
 }

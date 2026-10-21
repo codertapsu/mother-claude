@@ -560,6 +560,19 @@ pub struct Superseded {
     /// `sessions/<name>` or `config/<name>`.
     pub path: String,
     pub at: i64,
+    /// Kept until then rather than a day after `at`: the archive of an entry
+    /// a move took out of the set, kept for that move's undo (seven days).
+    /// `at` is then a day before it, so a build that knows only `at` keeps
+    /// the file as long.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub until: Option<i64>,
+}
+
+impl Superseded {
+    /// When the file may go.
+    fn deadline(&self) -> i64 {
+        self.until.unwrap_or(self.at + GRACE_MS)
+    }
 }
 
 impl SetIndex {
@@ -929,24 +942,44 @@ struct Changes {
     sessions: BTreeMap<String, (IndexEntry, Option<String>)>,
     /// A new configuration bundle.
     config: Option<ConfigEntry>,
-    /// This machine's whole `seen`.
-    seen: Option<BTreeMap<String, Seen>>,
+    /// What this machine has now of the sessions it pushed, pulled or
+    /// compared: merged into its `seen`, whose other entries stay as they
+    /// were (§13.3 rule 5).
+    seen: BTreeMap<String, Seen>,
+    /// Marks to set (a move into the set, §13.3 rule 4): id → the archive the
+    /// mark is for; it lands only on the entry that names that archive.
+    archive: BTreeMap<String, (String, Archived)>,
+    /// Marks to clear (that move's undo): only this very mark.
+    unarchive: BTreeMap<String, Archived>,
+    /// Entries to take out of the set (a move out of it): id → the archive
+    /// they name; one that names another since stays. Their archives are kept
+    /// until `keep_until` (that move's undo), else a day.
+    remove: BTreeMap<String, String>,
+    keep_until: Option<i64>,
+    /// Entries to put back (that move's undo): only where the set has no
+    /// entry for the id now and the archive is still there.
+    put_back: Vec<IndexEntry>,
 }
 
-/// The index as written, and the sessions whose push lost to another
-/// machine's.
+/// The index as written, the sessions whose push lost to another machine's,
+/// and which of the marks, removals and entries put back took effect.
 struct Merged {
     index: SetIndex,
     lost: Vec<String>,
+    marked: Vec<String>,
+    unmarked: Vec<String>,
+    removed: Vec<String>,
+    put_back: Vec<String>,
 }
 
 /// Write the index merged with what is in the set now: another machine may
 /// have pushed since this one read it. A session's new entry replaces only
 /// the entry it was made from (compare and swap on the archive name):
 /// otherwise the other machine's push stands and this one's archive is
-/// removed again. Bundles are joined, each machine keeping its last
-/// [`CONFIG_KEEP`]; each machine's `seen` is its own; what the index stops
-/// naming is listed as superseded, never deleted here.
+/// removed again. Marks and removals compare and swap the same way. Bundles
+/// are joined, each machine keeping its last [`CONFIG_KEEP`]; each machine's
+/// `seen` is its own, and a run changes only the entries it names; what the
+/// index stops naming is listed as superseded, never deleted here.
 fn write_index_merged(
     set: &Set,
     keys: &Keys,
@@ -955,7 +988,7 @@ fn write_index_merged(
     now: i64,
 ) -> Result<Merged, BackupError> {
     let theirs = read_index_for_merge(set, keys)?;
-    let mut merged = theirs.clone();
+    let mut merged = theirs;
     let mut lost = Vec::new();
     let mut superseded = std::mem::take(&mut merged.superseded);
     for (id, (entry, base)) in &changes.sessions {
@@ -965,6 +998,7 @@ fn write_index_merged(
                 superseded.push(Superseded {
                     path: format!("sessions/{old}"),
                     at: now,
+                    until: None,
                 });
             }
             merged.sessions.insert(id.clone(), entry.clone());
@@ -974,6 +1008,53 @@ fn write_index_merged(
                 let _ = std::fs::remove_file(path);
             }
             lost.push(id.clone());
+        }
+    }
+    let mut marked = Vec::new();
+    for (id, (archive, mark)) in &changes.archive {
+        if let Some(e) = merged
+            .sessions
+            .get_mut(id)
+            .filter(|e| e.archive == *archive)
+        {
+            e.archived = Some(mark.clone());
+            marked.push(id.clone());
+        }
+    }
+    let mut unmarked = Vec::new();
+    for (id, mark) in &changes.unarchive {
+        if let Some(e) = merged
+            .sessions
+            .get_mut(id)
+            .filter(|e| e.archived.as_ref() == Some(mark))
+        {
+            e.archived = None;
+            unmarked.push(id.clone());
+        }
+    }
+    let mut removed = Vec::new();
+    let until = changes.keep_until.unwrap_or(now + GRACE_MS);
+    for (id, archive) in &changes.remove {
+        if merged
+            .sessions
+            .get(id)
+            .is_some_and(|e| e.archive == *archive)
+        {
+            merged.sessions.remove(id);
+            superseded.push(Superseded {
+                path: format!("sessions/{archive}"),
+                at: until - GRACE_MS,
+                until: Some(until),
+            });
+            removed.push(id.clone());
+        }
+    }
+    let mut put_back = Vec::new();
+    for e in &changes.put_back {
+        let there = set.session_archive(e).is_some_and(|p| present(&p));
+        if there && !merged.sessions.contains_key(&e.id) {
+            merged.sessions.insert(e.id.clone(), e.clone());
+            put_back.push(e.id.clone());
         }
     }
     if let Some(c) = &changes.config {
@@ -993,52 +1074,59 @@ fn write_index_merged(
             superseded.push(Superseded {
                 path: format!("config/{}", c.name),
                 at: now,
+                until: None,
             });
         }
     }
     config.reverse();
     merged.config = config;
-    if let Some(seen) = &changes.seen {
-        let mut mine = seen.clone();
-        // A session whose push lost keeps what this machine had before.
-        let before = theirs.seen.get(machine);
-        for id in &lost {
-            match before.and_then(|s| s.get(id)) {
-                Some(prev) => mine.insert(id.clone(), prev.clone()),
-                None => mine.remove(id),
-            };
+    // This machine's `seen`: the sessions this run names, except one whose
+    // push lost (it keeps what this machine had before).
+    let updates: Vec<(&String, &Seen)> = changes
+        .seen
+        .iter()
+        .filter(|(id, _)| !lost.contains(id))
+        .collect();
+    if !updates.is_empty() {
+        let mine = merged.seen.entry(machine.to_string()).or_default();
+        for (id, s) in updates {
+            mine.insert(id.clone(), s.clone());
         }
-        merged.seen.insert(machine.to_string(), mine);
     }
     // What the index names again is not superseded; what is long gone is
-    // forgotten.
+    // forgotten; a file listed twice keeps the later of its deadlines.
     let named = merged.named();
     superseded.retain(|s| {
         !named.contains(&s.path)
             && set
                 .file(&s.path)
-                .is_some_and(|p| now - s.at < GRACE_MS || present(&p))
+                .is_some_and(|p| now < s.deadline() || present(&p))
     });
-    superseded.sort_by(|a, b| a.path.cmp(&b.path).then(a.at.cmp(&b.at)));
+    superseded.sort_by(|a, b| a.path.cmp(&b.path).then(b.deadline().cmp(&a.deadline())));
     superseded.dedup_by(|b, a| a.path == b.path);
     merged.superseded = superseded;
     write_index(set, keys, &merged)?;
     Ok(Merged {
         index: merged,
         lost,
+        marked,
+        unmarked,
+        removed,
+        put_back,
     })
 }
 
-/// Remove what no index names: superseded files a day after they were
-/// superseded, files nothing ever named (a push that crashed, or lost to
-/// another machine's) a day after they were written, and stale temp files.
-/// Only names a push writes are ever touched.
+/// Remove what no index names: superseded files once their time is up (a
+/// day after they were superseded, or the day a move's undo keeps them
+/// until), files nothing ever named (a push that crashed, or lost to another
+/// machine's) a day after they were written, and stale temp files. Only
+/// names a push writes are ever touched.
 fn collect_garbage(set: &Set, index: &SetIndex, now: i64) -> usize {
     let named = index.named();
     let superseded: BTreeMap<&str, i64> = index
         .superseded
         .iter()
-        .map(|s| (s.path.as_str(), s.at))
+        .map(|s| (s.path.as_str(), s.deadline()))
         .collect();
     let mut removed = 0;
     for (dir, sub) in [
@@ -1058,11 +1146,11 @@ fn collect_garbage(set: &Set, index: &SetIndex, now: i64) -> usize {
             if !meta.is_file() {
                 continue;
             }
-            let since = superseded
+            let deadline = superseded
                 .get(rel.as_str())
                 .copied()
-                .unwrap_or_else(|| mtime_ms(&meta));
-            if now - since >= GRACE_MS && std::fs::remove_file(e.path()).is_ok() {
+                .unwrap_or_else(|| mtime_ms(&meta) + GRACE_MS);
+            if now >= deadline && std::fs::remove_file(e.path()).is_ok() {
                 removed += 1;
             }
         }
@@ -1518,6 +1606,64 @@ fn config_fingerprint(files: &[(PathBuf, PathBuf)]) -> String {
     super::secrets::sha256_hex(text.as_bytes())
 }
 
+/// What a push did with one session.
+enum Pushed {
+    /// Running here: it waits until it is idle.
+    Live,
+    Failed(BackupError),
+    /// The set has it as it is here; `Some`: what this machine now records.
+    Same(Option<Seen>),
+    /// Changed only in the set (another machine pushed since): a pull
+    /// brings it.
+    Behind,
+    /// Changed here and in the set: not pushed.
+    Conflict,
+    /// Archived now: its new entry, the archive it replaces, and what this
+    /// machine records of it.
+    Archived(Box<IndexEntry>, Option<String>, Seen),
+}
+
+/// Push one session (the rule of [`push_step`]); `seen`: what this machine
+/// had of it. `fresh`: a copy the set has as it is here is archived anew all
+/// the same (a move into the set verifies exactly what this machine wrote).
+fn push_session(
+    inp: &PushInputs<'_>,
+    keys: &Keys,
+    index: &SetIndex,
+    seen: Option<&Seen>,
+    id: &str,
+    fresh: bool,
+) -> Pushed {
+    if (inp.is_live)(id) {
+        return Pushed::Live;
+    }
+    let now = match session_now(inp.home, id) {
+        Ok(n) => n,
+        Err(e) => return Pushed::Failed(e),
+    };
+    let base = match push_step(inp.set, keys, inp.home, &now, index.sessions.get(id), seen) {
+        Step::Unchanged | Step::Note(_) if fresh => {
+            index.sessions.get(id).map(|e| e.archive.clone())
+        }
+        Step::Unchanged => return Pushed::Same(None),
+        Step::Note(s) => return Pushed::Same(Some(s)),
+        Step::Behind => return Pushed::Behind,
+        Step::Conflict => return Pushed::Conflict,
+        Step::Archive(base) => base,
+    };
+    match archive_session(inp, keys, id, &now) {
+        Ok(entry) => {
+            inp.progress.files_done.fetch_add(1, Ordering::Relaxed);
+            inp.progress
+                .bytes_done
+                .fetch_add(entry.archive_bytes, Ordering::Relaxed);
+            let s = now.seen(&entry.archive);
+            Pushed::Archived(Box::new(entry), base, s)
+        }
+        Err(e) => Pushed::Failed(e),
+    }
+}
+
 /// Back up one account's directory into its set. Blocking.
 ///
 /// Crash-safe: every archive is a new file, the index naming it is written
@@ -1528,54 +1674,29 @@ pub fn push(inp: &PushInputs<'_>) -> Result<PushReport, BackupError> {
     let (keys, mut info) = open_or_create(inp.set, inp.account_name, inp.passphrases)?;
     let index = read_index(inp.set, &keys)?;
     let mut report = PushReport::default();
-    let mut seen = index.seen.get(&inp.machine.id).cloned().unwrap_or_default();
+    let seen = index.seen.get(&inp.machine.id).cloned().unwrap_or_default();
     let mut changes = Changes::default();
     for id in session_ids(inp.home) {
-        if (inp.is_live)(&id) {
-            report.skipped_live.push(id);
-            continue;
-        }
-        let now = match session_now(inp.home, &id) {
-            Ok(n) => n,
-            Err(e) => {
-                report.failed.push((id, e.to_string()));
-                continue;
-            }
-        };
-        let current = index.sessions.get(&id);
-        let base = match push_step(inp.set, &keys, inp.home, &now, current, seen.get(&id)) {
-            Step::Unchanged => {
+        match push_session(inp, &keys, &index, seen.get(&id), &id, false) {
+            Pushed::Live => report.skipped_live.push(id),
+            Pushed::Failed(e) => report.failed.push((id, e.to_string())),
+            Pushed::Same(note) => {
+                if let Some(s) = note {
+                    changes.seen.insert(id, s);
+                }
                 report.unchanged += 1;
-                continue;
             }
-            Step::Note(s) => {
-                seen.insert(id, s);
-                report.unchanged += 1;
-                continue;
-            }
-            Step::Behind => {
+            Pushed::Behind => {
                 report.unchanged += 1;
                 report.newer_in_set.push(id);
-                continue;
             }
-            Step::Conflict => {
-                report.conflicts.push(id);
-                continue;
-            }
-            Step::Archive(base) => base,
-        };
-        match archive_session(inp, &keys, &id, &now) {
-            Ok(entry) => {
-                inp.progress.files_done.fetch_add(1, Ordering::Relaxed);
-                inp.progress
-                    .bytes_done
-                    .fetch_add(entry.archive_bytes, Ordering::Relaxed);
+            Pushed::Conflict => report.conflicts.push(id),
+            Pushed::Archived(entry, base, s) => {
                 report.bytes += entry.archive_bytes;
-                seen.insert(id.clone(), now.seen(&entry.archive));
-                changes.sessions.insert(id.clone(), (entry, base));
+                changes.seen.insert(id.clone(), s);
+                changes.sessions.insert(id.clone(), (*entry, base));
                 report.archived.push(id);
             }
-            Err(e) => report.failed.push((id, e.to_string())),
         }
     }
     match push_config(inp, &keys, &index) {
@@ -1594,7 +1715,6 @@ pub fn push(inp: &PushInputs<'_>) -> Result<PushReport, BackupError> {
             .warnings
             .push(format!("The configuration bundle was not written: {e}")),
     }
-    changes.seen = Some(seen);
     let at = now_ms();
     let merged = write_index_merged(inp.set, &keys, &changes, &inp.machine.id, at)?;
     for id in merged.lost {
@@ -1609,6 +1729,263 @@ pub fn push(inp: &PushInputs<'_>) -> Result<PushReport, BackupError> {
             .push(format!("set.json was not updated: {e}"));
     }
     Ok(report)
+}
+
+/// A file's size and time, as a move checks it has not changed.
+pub type FileStamp = (u64, Option<SystemTime>);
+
+fn stamp_of(path: &Path) -> Option<FileStamp> {
+    std::fs::symlink_metadata(path)
+        .ok()
+        .map(|m| (m.len(), m.modified().ok()))
+}
+
+/// What a push of some conversations did (docs/ACCOUNTS.md §13.2: a copy
+/// into a set, or the first half of a move into one).
+#[derive(Debug, Clone, Default, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SomeReport {
+    /// In the set now as they are here (archived now, or the same already).
+    pub copied: Vec<String>,
+    /// Marked archived in the set (a move): each only once its copy there
+    /// verified against the files here.
+    pub archived: Vec<String>,
+    pub skipped: Vec<Skip>,
+    pub bytes: u64,
+    pub warnings: Vec<String>,
+    /// What the files of each archived session were when its copy verified:
+    /// a move removes them only while they still are.
+    #[serde(skip)]
+    pub verified: BTreeMap<String, Vec<(PathBuf, FileStamp)>>,
+    /// The mark each archived session got.
+    #[serde(skip)]
+    pub marks: BTreeMap<String, Archived>,
+}
+
+fn skip_of(id: &str, code: &str, reason: impl Into<String>) -> Skip {
+    Skip {
+        id: id.to_string(),
+        code: code.to_string(),
+        reason: reason.into(),
+    }
+}
+
+/// Back up some conversations of a directory into a set (§13.3 rule 5: only
+/// their `seen` entries change, the machine's others stay as they were; no
+/// configuration bundle). With `archive`, each one whose copy in the set
+/// verified against the files here is marked archived, in the same index
+/// write. Blocking.
+pub fn push_some(
+    inp: &PushInputs<'_>,
+    ids: &[String],
+    archive: bool,
+) -> Result<SomeReport, BackupError> {
+    let (keys, mut info) = open_or_create(inp.set, inp.account_name, inp.passphrases)?;
+    let index = read_index(inp.set, &keys)?;
+    let seen = index.seen.get(&inp.machine.id).cloned().unwrap_or_default();
+    let mut report = SomeReport::default();
+    let mut changes = Changes::default();
+    // What the set will name of each one: checked before it is marked.
+    let mut candidates: Vec<IndexEntry> = Vec::new();
+    let mut done: std::collections::HashSet<&str> = std::collections::HashSet::new();
+    for id in ids {
+        if !done.insert(id.as_str()) {
+            continue;
+        }
+        if !super::ids::is_session_id(id) {
+            report
+                .skipped
+                .push(skip_of(id, "invalid_id", "not a session id"));
+            continue;
+        }
+        if transfer::transcripts_of(inp.home, id).is_empty() {
+            report.skipped.push(skip_of(
+                id,
+                "not_found",
+                "this account has no such conversation",
+            ));
+            continue;
+        }
+        match push_session(inp, &keys, &index, seen.get(id), id, archive) {
+            Pushed::Live => {
+                report
+                    .skipped
+                    .push(skip_of(id, "session_live", "it is running; stop it first"))
+            }
+            Pushed::Failed(e) => report.skipped.push(skip_of(id, e.code(), e.to_string())),
+            Pushed::Same(note) => {
+                if let Some(s) = note {
+                    changes.seen.insert(id.clone(), s);
+                }
+                if let Some(e) = index.sessions.get(id) {
+                    candidates.push(e.clone());
+                }
+                report.copied.push(id.clone());
+            }
+            Pushed::Behind => report.skipped.push(skip_of(
+                id,
+                "newer_in_set",
+                "the set has a newer copy, from another machine: bring that one here first",
+            )),
+            Pushed::Conflict => report.skipped.push(skip_of(
+                id,
+                "conflict",
+                "it changed here and, from another machine, in the set too",
+            )),
+            Pushed::Archived(entry, base, s) => {
+                report.bytes += entry.archive_bytes;
+                changes.seen.insert(id.clone(), s);
+                candidates.push((*entry).clone());
+                changes.sessions.insert(id.clone(), (*entry, base));
+                report.copied.push(id.clone());
+            }
+        }
+    }
+    if archive {
+        let mark = Archived {
+            at: now_ms(),
+            machine: inp.machine.id.clone(),
+        };
+        for e in &candidates {
+            match verify_copy(inp.set, &keys, e, inp.home) {
+                Ok(stamps) => {
+                    changes
+                        .archive
+                        .insert(e.id.clone(), (e.archive.clone(), mark.clone()));
+                    report.verified.insert(e.id.clone(), stamps);
+                }
+                Err(err) => report
+                    .skipped
+                    .push(skip_of(&e.id, err.code(), err.to_string())),
+            }
+        }
+    }
+    let at = now_ms();
+    let merged = write_index_merged(inp.set, &keys, &changes, &inp.machine.id, at)?;
+    for id in &merged.lost {
+        report.copied.retain(|c| c != id);
+        report.skipped.push(skip_of(
+            id,
+            "conflict",
+            "another machine pushed it at the same time; its copy stands",
+        ));
+    }
+    // A verified one whose entry changed meanwhile was not marked: it stays.
+    let unmarked: Vec<String> = report
+        .verified
+        .keys()
+        .filter(|id| !merged.marked.contains(id) && !merged.lost.contains(id))
+        .cloned()
+        .collect();
+    for id in unmarked {
+        report.skipped.push(skip_of(
+            &id,
+            "conflict",
+            "the set's copy changed while it was checked",
+        ));
+    }
+    report.verified.retain(|id, _| merged.marked.contains(id));
+    report.archived = merged.marked.clone();
+    report.marks = changes
+        .archive
+        .iter()
+        .filter(|(id, _)| merged.marked.contains(id))
+        .map(|(id, (_, mark))| (id.clone(), mark.clone()))
+        .collect();
+    collect_garbage(inp.set, &merged.index, at);
+    note_push(&mut info, inp.machine);
+    if let Err(e) = write_info(inp.set, &info) {
+        report
+            .warnings
+            .push(format!("set.json was not updated: {e}"));
+    }
+    Ok(report)
+}
+
+/// Check the set's copy of a session against its files here, byte for byte:
+/// the archive is the one the index names, every file in it is a file of the
+/// session here with the same content, and every file of the session here is
+/// in it. Returns what each local file was then; a file that changed while it
+/// was checked fails it.
+fn verify_copy(
+    set: &Set,
+    keys: &Keys,
+    entry: &IndexEntry,
+    home: &ClaudeHome,
+) -> Result<Vec<(PathBuf, FileStamp)>, BackupError> {
+    use sha2::Digest;
+    let id = &entry.id;
+    let bad = |why: String| BackupError::Transfer(transfer::TransferError::VerifyFailed(why));
+    let local = session_now(home, id)?;
+    let base = home.base();
+    let before: Vec<(PathBuf, FileStamp)> = local
+        .files
+        .iter()
+        .map(|f| {
+            stamp_of(f)
+                .map(|s| (f.clone(), s))
+                .ok_or_else(|| bad(format!("{} is gone", f.display())))
+        })
+        .collect::<Result<_, _>>()?;
+    let bytes = read_archive(set, entry)?;
+    if super::secrets::sha256_hex(&bytes) != entry.archive_sha256 {
+        return Err(bad(format!(
+            "the set's archive of {id} is not the one its index names"
+        )));
+    }
+    let r = age::Decryptor::new_buffered(&bytes[..])
+        .and_then(|d| d.decrypt(std::iter::once(&keys.identity as &dyn age::Identity)))
+        .map_err(|e| bad(format!("the set's archive of {id} does not open: {e}")))?;
+    let mut tar = tar::Archive::new(flate2::read::GzDecoder::new(BufReader::new(r)));
+    let mut archived: std::collections::HashSet<PathBuf> = std::collections::HashSet::new();
+    let io_bad = |e: std::io::Error| bad(format!("the set's archive of {id}: {e}"));
+    for item in tar.entries().map_err(io_bad)? {
+        let mut item = item.map_err(io_bad)?;
+        let rel = item.path().map_err(io_bad)?.into_owned();
+        let kind = item.header().entry_type();
+        if rel == Path::new(".mc/meta.json") || kind.is_dir() {
+            continue;
+        }
+        if !kind.is_file() || !allowed_entry(&rel, id) {
+            return Err(bad(format!(
+                "the set's archive of {id} holds {}",
+                rel.display()
+            )));
+        }
+        let mut h = sha2::Sha256::new();
+        let mut buf = vec![0u8; 256 * 1024];
+        loop {
+            let n = item.read(&mut buf).map_err(io_bad)?;
+            if n == 0 {
+                break;
+            }
+            h.update(&buf[..n]);
+        }
+        let theirs = hex(&h.finalize());
+        let path = base.join(&rel);
+        let (_, mine) =
+            transfer::sha256_file(&path).map_err(|e| bad(format!("{}: {e}", path.display())))?;
+        if mine != theirs {
+            return Err(bad(format!(
+                "{} is not what the set's copy holds",
+                rel.display()
+            )));
+        }
+        archived.insert(rel);
+    }
+    for (f, stamp) in &before {
+        let rel = f.strip_prefix(base).unwrap_or(f);
+        if !archived.contains(rel) {
+            return Err(bad(format!("{} is not in the set's copy", rel.display())));
+        }
+        if stamp_of(f).as_ref() != Some(stamp) {
+            return Err(bad(format!(
+                "{} changed while it was checked",
+                rel.display()
+            )));
+        }
+    }
+    Ok(before)
 }
 
 /// One session's archive, written as a new file, and its index entry.
@@ -1915,28 +2292,18 @@ fn restore_open(
     transfer::private_dir(inp.undo_root);
     transfer::private_dir(&undo_dir);
     let mut m = Manifest {
-        job_id: inp.job_id.to_string(),
         created_at: now,
-        mode: Mode::Copy,
-        what: What::Session {
-            id: inp.ids.first().cloned().unwrap_or_default(),
-        },
-        from_dir: inp.set.dir.clone(),
-        to_dir: inp.target.base().to_path_buf(),
-        from_config: None,
         to_config: Some(inp.target.claude_json()),
-        sessions: Vec::new(),
-        created: Vec::new(),
-        created_dirs: Vec::new(),
-        moved: Vec::new(),
-        moved_dirs: Vec::new(),
-        added_entry: None,
-        added_entries: Vec::new(),
-        removed_entry: None,
-        added_history: Vec::new(),
-        removed_history: Vec::new(),
-        undone_at: None,
         kind: Some(inp.kind.to_string()),
+        ..Manifest::new(
+            inp.job_id,
+            Mode::Copy,
+            What::Session {
+                id: inp.ids.first().cloned().unwrap_or_default(),
+            },
+            inp.set.dir.clone(),
+            inp.target.base().to_path_buf(),
+        )
     };
     let mut report = RestoreReport::default();
     let target_busy = transfer::in_use(inp.target);
@@ -2192,6 +2559,11 @@ pub struct PullItem {
     pub newest_mtime: i64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub prune_warning: Option<String>,
+    /// Moved into the set out of the machine that had it (§13.3 rule 4): in
+    /// storage only, unless this directory has it. A pull never brings it
+    /// to a directory that does not.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub archived: Option<Archived>,
 }
 
 /// What the set holds, compared with this machine's directory (`machine`:
@@ -2231,6 +2603,7 @@ pub fn compare(
                 prune_warning: matches!(action, PullAction::New | PullAction::Update)
                     .then(|| prune_warning(e.newest_mtime, days, now))
                     .flatten(),
+                archived: e.archived.clone(),
             }
         })
         .collect();
@@ -2319,11 +2692,25 @@ pub fn pull(inp: &PullInputs<'_>) -> Result<(PullReport, Manifest), BackupError>
     let mut report = PullReport::default();
     let mut seen = index.seen.get(&inp.machine.id).cloned().unwrap_or_default();
 
-    // New sessions: a restore, with the keys and index open already.
+    // New sessions: a restore, with the keys and index open already. One
+    // moved into the set (archived) never comes to a directory that does not
+    // have it (§13.3 rule 4); named on its own, it is listed as skipped.
     let new: Vec<String> = plan
         .iter()
-        .filter(|p| p.action == PullAction::New && wanted(&p.id))
+        .filter(|p| p.action == PullAction::New && wanted(&p.id) && p.archived.is_none())
         .map(|p| p.id.clone())
+        .collect();
+    let archived_asked: Vec<Skip> = plan
+        .iter()
+        .filter(|p| p.action == PullAction::New && p.archived.is_some())
+        .filter(|p| inp.ids.is_some_and(|ids| ids.contains(&p.id)))
+        .map(|p| Skip {
+            id: p.id.clone(),
+            code: "archived".to_string(),
+            reason: "it was moved into the set and is in storage only; bring it back with \
+                     Move data or Restore"
+                .to_string(),
+        })
         .collect();
     let (restored, mut m) = restore_open(
         &RestoreInputs {
@@ -2348,6 +2735,7 @@ pub fn pull(inp: &PullInputs<'_>) -> Result<(PullReport, Manifest), BackupError>
     }
     report.restored = restored.restored;
     report.skipped = restored.skipped;
+    report.skipped.extend(archived_asked);
     report.warnings = restored.warnings;
     let undo_dir = inp.undo_root.join(inp.job_id);
     let stage_root = inp.home.base().join(format!(".mc-pull-{}", inp.job_id));
@@ -2438,7 +2826,7 @@ pub fn pull(inp: &PullInputs<'_>) -> Result<(PullReport, Manifest), BackupError>
         .map_err(|e| io("writing", &undo_dir, e))?;
     // What this machine now has, for the next comparison.
     let changes = Changes {
-        seen: Some(seen),
+        seen,
         ..Changes::default()
     };
     if let Err(e) = write_index_merged(inp.set, &keys, &changes, &inp.machine.id, now_ms()) {
@@ -2814,6 +3202,291 @@ pub fn extract_config(
         let _ = std::fs::remove_dir_all(&tmp);
     }
     result.map(|()| dest)
+}
+
+// ──────────────────────── moving into and out of a set ────────────────────────
+
+impl From<BackupError> for transfer::TransferError {
+    fn from(e: BackupError) -> Self {
+        match e {
+            BackupError::Transfer(t) => t,
+            other => transfer::TransferError::Backup {
+                code: other.code(),
+                message: other.to_string(),
+            },
+        }
+    }
+}
+
+/// What a move into a set needs (docs/ACCOUNTS.md §13.2, account → storage).
+pub struct MoveIntoInputs<'a> {
+    pub push: PushInputs<'a>,
+    pub ids: &'a [String],
+    pub undo_root: &'a Path,
+    pub job_id: &'a str,
+    pub storage: transfer::StorageRef,
+    pub from_account: Option<String>,
+}
+
+/// Move conversations into a set: a push of just those, each one whose copy
+/// in the set verified against the files here marked archived in the same
+/// index write, then removed here (renamed into the undo directory, which
+/// lists them first) while it is still what was verified. One that started
+/// meanwhile, or changed, stays here and its mark is cleared again.
+/// Blocking. The manifest is `None` when nothing left this directory.
+pub fn move_into_set(
+    inp: &MoveIntoInputs<'_>,
+) -> Result<(SomeReport, Option<Manifest>), BackupError> {
+    let mut report = push_some(&inp.push, inp.ids, true)?;
+    if report.archived.is_empty() {
+        return Ok((report, None));
+    }
+    let home = inp.push.home;
+    let undo_dir = inp.undo_root.join(inp.job_id);
+    std::fs::create_dir_all(&undo_dir).map_err(|e| io("creating", &undo_dir, e))?;
+    transfer::private_dir(inp.undo_root);
+    transfer::private_dir(&undo_dir);
+    let mut m = Manifest {
+        from_config: Some(home.claude_json()),
+        from_account: inp.from_account.clone(),
+        storage: Some(inp.storage.clone()),
+        ..Manifest::new(
+            inp.job_id,
+            Mode::Move,
+            What::Session {
+                id: report.archived[0].clone(),
+            },
+            home.base().to_path_buf(),
+            inp.push.set.dir.clone(),
+        )
+    };
+    let save = |m: &Manifest| {
+        crate::persist::write_json_private(&undo_dir.join("manifest.json"), m)
+            .map_err(|e| io("writing", &undo_dir, e))
+    };
+    save(&m)?;
+    let mut stays: Vec<String> = Vec::new();
+    for id in report.archived.clone() {
+        if (inp.push.is_live)(&id) {
+            stays.push(id.clone());
+            report.skipped.push(skip_of(
+                &id,
+                "session_live",
+                "it started meanwhile; it stays here",
+            ));
+            continue;
+        }
+        let stamps = report.verified.get(&id).cloned().unwrap_or_default();
+        let plan = match transfer::plan_session(home, home, &id) {
+            Ok(p) => p,
+            Err(e) => {
+                stays.push(id.clone());
+                report.skipped.push(skip_of(&id, e.code(), e.to_string()));
+                continue;
+            }
+        };
+        let unchanged = plan.files.len() == stamps.len()
+            && plan.files.iter().all(|f| {
+                stamps
+                    .iter()
+                    .any(|(p, s)| *p == f.from && stamp_of(&f.from).as_ref() == Some(s))
+            });
+        if !unchanged {
+            stays.push(id.clone());
+            report.skipped.push(skip_of(
+                &id,
+                "session_changed",
+                "it changed after its copy in the set was checked; it stays here",
+            ));
+            continue;
+        }
+        // The undo lists what will move before it moves.
+        let before = m.moved.len();
+        let planned: Vec<transfer::Moved> = plan
+            .files
+            .iter()
+            .map(|f| transfer::Moved {
+                original: f.from.clone(),
+                saved: PathBuf::from("moved")
+                    .join(f.from.strip_prefix(home.base()).unwrap_or(&f.from)),
+            })
+            .collect();
+        m.moved.extend(planned.iter().cloned());
+        m.sessions.push(id.clone());
+        if let Some(mark) = report.marks.get(&id) {
+            m.archived_marks.push((id.clone(), mark.clone()));
+        }
+        save(&m)?;
+        let mut moved = 0;
+        let result = planned.iter().try_for_each(|mv| {
+            let rel = mv.saved.strip_prefix("moved").unwrap_or(&mv.saved);
+            transfer::stash(&mv.original, &undo_dir, rel)?;
+            moved += 1;
+            Ok::<(), transfer::TransferError>(())
+        });
+        if let Err(e) = result {
+            // This one stays here: what moved goes back.
+            let back = planned[..moved]
+                .iter()
+                .all(|mv| transfer::put_back(&undo_dir.join(&mv.saved), &mv.original).is_ok());
+            if back {
+                m.moved.truncate(before);
+                m.sessions.retain(|s| *s != id);
+                m.archived_marks.retain(|(s, _)| *s != id);
+            }
+            save(&m)?;
+            stays.push(id.clone());
+            report.skipped.push(skip_of(&id, e.code(), e.to_string()));
+            continue;
+        }
+        for (dir, _) in plan.dirs.iter().rev() {
+            transfer::remove_empty_dirs(dir);
+            if !dir.exists() {
+                m.moved_dirs.push(dir.clone());
+            }
+        }
+        save(&m)?;
+    }
+    if !stays.is_empty() {
+        // Their copies stay in the set, but they are here: no longer marked.
+        let marks: Vec<(String, Archived)> = stays
+            .iter()
+            .filter_map(|id| report.marks.get(id).map(|m| (id.clone(), m.clone())))
+            .collect();
+        if let Err(e) = clear_marks(inp.push.set, inp.push.passphrases, &marks) {
+            report.warnings.push(format!(
+                "{} conversation(s) stayed here but the set still says they are in storage \
+                 only: {e}",
+                marks.len()
+            ));
+        }
+        report.archived.retain(|id| !stays.contains(id));
+    }
+    if m.sessions.is_empty() {
+        let _ = std::fs::remove_dir_all(&undo_dir);
+        return Ok((report, None));
+    }
+    Ok((report, Some(m)))
+}
+
+/// Clear marks a move into a set made (that move's undo, once the files are
+/// back; or the conversations a move left here): only these very marks.
+/// Returns the conversations whose mark was cleared.
+pub fn clear_marks(
+    set: &Set,
+    passphrases: &[Secret],
+    marks: &[(String, Archived)],
+) -> Result<Vec<String>, BackupError> {
+    if marks.is_empty() {
+        return Ok(Vec::new());
+    }
+    let keys = open_keys_any(set, passphrases)?;
+    let changes = Changes {
+        unarchive: marks.iter().cloned().collect(),
+        ..Changes::default()
+    };
+    write_index_merged(set, &keys, &changes, "", now_ms()).map(|m| m.unmarked)
+}
+
+/// Move conversations out of a set into an account's directory: a restore
+/// (`inp.kind` names the job), then — with `remove` — the restored ones'
+/// entries taken out of the set, each only while it still names the archive
+/// it was restored from, its archive kept until `keep_until` for this move's
+/// undo. The manifest lists the entries before they leave. Blocking.
+pub fn move_out_of_set(
+    inp: &RestoreInputs<'_>,
+    remove: bool,
+    keep_until: i64,
+    storage: transfer::StorageRef,
+    to_account: Option<String>,
+) -> Result<(RestoreReport, Manifest), BackupError> {
+    let keys = open_keys_any(inp.set, inp.passphrases)?;
+    let index = read_index(inp.set, &keys)?;
+    let (mut report, mut m) = restore_open(inp, &keys, &index)?;
+    m.storage = Some(storage);
+    m.to_account = to_account;
+    let undo_dir = inp.undo_root.join(inp.job_id);
+    let save = |m: &Manifest| {
+        crate::persist::write_json_private(&undo_dir.join("manifest.json"), m)
+            .map_err(|e| io("writing", &undo_dir, e))
+    };
+    if remove && !report.restored.is_empty() {
+        m.set_entries = report
+            .restored
+            .iter()
+            .filter_map(|id| index.sessions.get(id).cloned())
+            .collect();
+        save(&m)?;
+        let changes = Changes {
+            remove: m
+                .set_entries
+                .iter()
+                .map(|e| (e.id.clone(), e.archive.clone()))
+                .collect(),
+            keep_until: Some(keep_until),
+            ..Changes::default()
+        };
+        match write_index_merged(inp.set, &keys, &changes, "", now_ms()) {
+            Ok(merged) => {
+                for e in &m.set_entries {
+                    if !merged.removed.contains(&e.id) {
+                        report.warnings.push(Warning {
+                            id: e.id.clone(),
+                            text: "The set has a newer copy since; it stays there.".into(),
+                        });
+                    }
+                }
+                m.set_entries.retain(|e| merged.removed.contains(&e.id));
+            }
+            Err(e) => {
+                m.set_entries.clear();
+                report.warnings.push(Warning {
+                    id: String::new(),
+                    text: format!("The conversations stay in the set too: {e}"),
+                });
+            }
+        }
+    }
+    save(&m)?;
+    Ok((report, m))
+}
+
+/// Put back into a set the entries a move out of it took out (that move's
+/// undo, before the restored files go): only where the set has no entry for
+/// the id now (a newer push stands), and only while each archive is still
+/// there — if one is gone the set cannot take them back and nothing changes.
+/// Returns the conversations put back.
+pub fn put_back_entries(
+    set: &Set,
+    passphrases: &[Secret],
+    entries: &[IndexEntry],
+) -> Result<Vec<String>, BackupError> {
+    if entries.is_empty() {
+        return Ok(Vec::new());
+    }
+    let keys = open_keys_any(set, passphrases)?;
+    let index = read_index(set, &keys)?;
+    let mut back = Vec::new();
+    for e in entries {
+        if index.sessions.contains_key(&e.id) {
+            continue;
+        }
+        if !set.session_archive(e).is_some_and(|p| present(&p)) {
+            return Err(BackupError::Invalid(format!(
+                "the set's archive of {} is gone, so the set cannot take it back",
+                e.id
+            )));
+        }
+        back.push(e.clone());
+    }
+    if back.is_empty() {
+        return Ok(Vec::new());
+    }
+    let changes = Changes {
+        put_back: back,
+        ..Changes::default()
+    };
+    write_index_merged(set, &keys, &changes, "", now_ms()).map(|m| m.put_back)
 }
 
 pub mod ops;

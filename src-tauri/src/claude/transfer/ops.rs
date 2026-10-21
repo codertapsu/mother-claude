@@ -191,8 +191,9 @@ pub fn list(state: &AppState) -> Vec<super::JobView> {
 /// A manifest's view, with the accounts its directories belong to now.
 fn view_of(state: &AppState, m: &super::Manifest) -> super::JobView {
     let mut v = super::view_from_manifest(m);
-    v.from = account_of_dir(state, &m.from_dir);
-    v.to = account_of_dir(state, &m.to_dir);
+    // The accounts it named; older manifests: whose directories they were.
+    v.from = v.from.or_else(|| account_of_dir(state, &m.from_dir));
+    v.to = v.to.or_else(|| account_of_dir(state, &m.to_dir));
     v
 }
 
