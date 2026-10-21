@@ -84,9 +84,11 @@ pub struct Storage {
 }
 
 impl Storage {
-    /// Its folder is there now (an external disk may be unplugged).
+    /// Its folder is there now (an external disk may be unplugged). The
+    /// backup folder always counts: its first backup makes it, as before
+    /// storages.
     pub fn available(&self) -> bool {
-        self.path.is_dir()
+        self.primary || self.path.is_dir()
     }
 
     /// `Err(storage_unavailable)` unless [`Self::available`].

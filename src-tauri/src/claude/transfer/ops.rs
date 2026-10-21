@@ -25,7 +25,7 @@ fn home_of(state: &AppState, account: &str) -> Result<ClaudeHome, TransferError>
 
 /// Whether a session runs anywhere: a live pidfile in any directory, an
 /// owned handle, a bridge conversation.
-fn is_live(state: &AppState, id: &str) -> bool {
+pub(crate) fn is_live(state: &AppState, id: &str) -> bool {
     state.live.is_live(id) || state.control.controls(id) || state.bridge.account_of(id).is_some()
 }
 
@@ -125,16 +125,68 @@ async fn execute_locked(
     done.map(|_| ())
 }
 
-/// Undo a finished transfer.
+/// Undo a finished transfer: files back as the engine does; an assign's
+/// accounts back; a move into a set's marks cleared once its files are back
+/// (a warning when the set cannot take that, the files are back all the
+/// same); a move out of a set's entries back into it first, and nothing
+/// undone when the set cannot take them (docs/ACCOUNTS.md §13.3 rule 6).
 pub async fn undo(state: &AppState, job_id: &str) -> Result<(), TransferError> {
     let root = undo_root(state)
         .ok_or_else(|| TransferError::Invalid("this build has no data directory".into()))?;
     let _one = state.jobs.lock.lock().await;
+    let found = super::manifest(&root, job_id)
+        .ok_or_else(|| TransferError::NotFound("nothing to undo for that transfer".into()))?;
     let id = job_id.to_string();
     let st = state.clone();
-    let m = tokio::task::spawn_blocking(move || {
+    let pass = found
+        .storage
+        .as_ref()
+        .and(crate::claude::backup::ops::passphrases(state));
+    let (m, warning) = tokio::task::spawn_blocking(move || {
         let live = |id: &str| is_live(&st, id);
-        super::undo_with(&root, &id, &live)
+        if !found.assigned.is_empty() {
+            return super::moves::undo_assign(&st, &root, &id).map(|m| (m, None));
+        }
+        match &found.storage {
+            // Out of a set: its entries back there first.
+            Some(s) if !s.into => {
+                let set = crate::claude::backup::Set { dir: s.dir.clone() };
+                let m = super::undo_with_before(&root, &id, &live, &mut |m| {
+                    if m.set_entries.is_empty() {
+                        return Ok(());
+                    }
+                    let pass = pass.as_deref().ok_or_else(|| {
+                        TransferError::from(crate::claude::backup::BackupError::NoPassphrase)
+                    })?;
+                    crate::claude::backup::put_back_entries(&set, pass, &m.set_entries)
+                        .map(|_| ())
+                        .map_err(TransferError::from)
+                })?;
+                Ok((m, None))
+            }
+            // Into a set: the files back, then the marks.
+            Some(s) => {
+                let m = super::undo_with(&root, &id, &live)?;
+                let set = crate::claude::backup::Set { dir: s.dir.clone() };
+                let cleared = match &pass {
+                    Some(p) => crate::claude::backup::clear_marks(&set, p, &m.archived_marks)
+                        .map(|_| ())
+                        .map_err(|e| e.to_string()),
+                    None => Err("no backup passphrase is set".to_string()),
+                };
+                let warning = cleared
+                    .err()
+                    .filter(|_| !m.archived_marks.is_empty())
+                    .map(|e| {
+                        format!(
+                            "The conversations are back, but the set still says they are in \
+                         storage only: {e}"
+                        )
+                    });
+                Ok((m, warning))
+            }
+            None => super::undo_with(&root, &id, &live).map(|m| (m, None)),
+        }
     })
     .await
     .map_err(|e| TransferError::Io(e.to_string()))??;
@@ -142,6 +194,11 @@ pub async fn undo(state: &AppState, job_id: &str) -> Result<(), TransferError> {
     state.jobs.update(job_id, |v| {
         v.state = JobState::Undone;
         v.undo_until = None;
+        if let Some(w) = &warning {
+            let mut r = v.result.take().unwrap_or_else(|| serde_json::json!({}));
+            r["warnings"] = serde_json::json!([w]);
+            v.result = Some(r);
+        }
     });
     if state.jobs.get(job_id).is_none() {
         // Started before a restart: it is known only from its manifest.
@@ -211,7 +268,7 @@ fn account_of_dir(state: &AppState, dir: &Path) -> Option<String> {
 }
 
 /// Re-list every directory now, so moved sessions show where they are.
-async fn rediscover(state: &AppState) {
+pub(crate) async fn rediscover(state: &AppState) {
     let st = state.clone();
     let _ = tokio::task::spawn_blocking(move || {
         st.index.discover_homes(&st.accounts.homes());

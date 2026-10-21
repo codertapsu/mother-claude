@@ -1,11 +1,20 @@
 //! Moving and copying data between accounts, and the data jobs that do it
 //! (docs/ACCOUNTS.md §4.4, P3.2).
 //!
-//! * `POST /api/data/move` (the desktop or a paired device, §13.9)
-//!   `{what: "session", id} | {what: "project", cwd}` plus `{from, to, mode:
-//!   "move"|"copy", trust?, dryRun?}` → `200 {plan}` for a dry run, else
-//!   `202 {job}`: the transfer runs in the background as a data job.
-//!   `trust: true` needs the dangerous right.
+//! * `POST /api/data/move` (the desktop or a paired device, §13.9), two
+//!   bodies:
+//!   - the old one, `{what: "session", id} | {what: "project", cwd}` plus
+//!     `{from, to, mode: "move"|"copy", trust?, dryRun?}` → `200 {plan}` for a
+//!     dry run, else `202 {job}`; it refuses with the code of the first thing
+//!     that cannot go;
+//!   - Move data's (docs/ACCOUNTS.md §13.4), `{from?, to, items: {sessions?,
+//!     projects?, all?, customizations?}, mode, trust?, replaceExisting?,
+//!     dryRun?}` with accounts and storages on either side → `200 {plan}`,
+//!     else `202 {jobs, job}` (one job per source; `job` the first); what
+//!     cannot go is skipped with its code.
+//!
+//!   `trust: true`, and the `settings` or `mcpServers` customizations, need
+//!   the dangerous right (a dry run too, without raising a notice).
 //! * `GET /api/data/jobs` and `GET /api/data/jobs/{id}` (Authed): progress,
 //!   result, until when undo works, the accounts involved (`from`/`to`,
 //!   `account`). The list has this run's jobs and earlier ones that can still
@@ -23,10 +32,10 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::Json;
 use serde::Deserialize;
-use serde_json::json;
+use serde_json::{json, Value};
 
 use super::Body;
-use crate::claude::transfer::{self, ops, Mode, Request, TransferError, What};
+use crate::claude::transfer::{self, moves, ops, Mode, Request, TransferError, What};
 use crate::server::auth::{self, Authed, ManageData};
 use crate::server::devices::audit::AuditEntry;
 use crate::server::error::{ApiError, ApiResult};
@@ -79,16 +88,24 @@ pub struct MoveBody {
 pub async fn post_move(
     ManageData(ctx): ManageData,
     State(state): State<AppState>,
-    Body(body): Body<MoveBody>,
+    Body(raw): Body<Value>,
 ) -> ApiResult<Response> {
-    if body.trust {
-        auth::require_dangerous_unless_dry(&ctx, "Carrying a folder's trust", body.dry_run)?;
-    }
+    let invalid_body = |e: serde_json::Error| {
+        ApiError::unprocessable("invalid_body", format!("Invalid JSON body: {e}"))
+    };
     if ops::undo_root(&state).is_none() {
         return Err(ApiError::conflict(
             "no_data_dir",
             "This build has no data directory to keep an undo in.",
         ));
+    }
+    if raw.get("items").is_some() {
+        let req: moves::MoveRequest = serde_json::from_value(raw).map_err(invalid_body)?;
+        return post_items(ctx, state, req).await;
+    }
+    let body: MoveBody = serde_json::from_value(raw).map_err(invalid_body)?;
+    if body.trust {
+        auth::require_dangerous_unless_dry(&ctx, "Carrying a folder's trust", body.dry_run)?;
     }
     let req = Request {
         what: body.what.clone(),
@@ -139,6 +156,51 @@ pub async fn post_move(
     auth::note_device_action(&state, &ctx, &what);
     let view = ops::job(&state, &job_id);
     Ok((StatusCode::ACCEPTED, Json(json!({ "job": view }))).into_response())
+}
+
+/// Move data (§13.4): plan, then (unless a dry run) one job per source.
+async fn post_items(
+    ctx: crate::server::context::ClientContext,
+    state: AppState,
+    req: moves::MoveRequest,
+) -> ApiResult<Response> {
+    if let Some(what) = moves::dangerous_part(&req) {
+        auth::require_dangerous_unless_dry(&ctx, what, req.dry_run)?;
+    }
+    let plan = moves::plan(&state, &req).await.map_err(transfer_error)?;
+    if req.dry_run {
+        return Ok(Json(json!({ "plan": plan })).into_response());
+    }
+    let mut detail = moves::audit_detail(&req, &plan, &[]);
+    let (mode, n) = (
+        match req.mode {
+            Mode::Move => "move",
+            Mode::Copy => "copy",
+        },
+        plan.sessions.len(),
+    );
+    let jobs = moves::start(&state, plan);
+    detail["jobs"] = json!(jobs.iter().map(|j| j.id.clone()).collect::<Vec<_>>());
+    state.devices.audit.record(AuditEntry {
+        detail: Some(detail),
+        ..AuditEntry::from_ctx(&ctx, &format!("data.{mode}"))
+    });
+    let customs = if req.items.customizations.is_empty() {
+        String::new()
+    } else {
+        " and customizations".to_string()
+    };
+    auth::note_device_action(
+        &state,
+        &ctx,
+        &format!("started to {mode} {n} conversation(s){customs}"),
+    );
+    let first = jobs.first().cloned();
+    Ok((
+        StatusCode::ACCEPTED,
+        Json(json!({ "jobs": jobs, "job": first })),
+    )
+        .into_response())
 }
 
 /// `GET /api/data/jobs`.

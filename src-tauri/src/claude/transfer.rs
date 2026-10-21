@@ -1063,6 +1063,7 @@ impl Manifest {
             archived_marks: Vec::new(),
             set_entries: Vec::new(),
             mcp: Vec::new(),
+            assigned: Vec::new(),
         }
     }
 
@@ -1079,6 +1080,7 @@ impl Manifest {
             && self.archived_marks.is_empty()
             && self.set_entries.is_empty()
             && self.mcp.is_empty()
+            && self.assigned.is_empty()
     }
 
     /// The source's `.claude.json` (older manifests: inside its directory).
@@ -1165,6 +1167,10 @@ pub struct Manifest {
     /// `.claude.json` (its undo sets each back).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub mcp: Vec<custom::McpChange>,
+    /// An assign between accounts that share a directory: each conversation
+    /// and the account it was before (its undo puts that one back).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub assigned: Vec<(String, String)>,
 }
 
 /// Progress of a running transfer.
@@ -1699,6 +1705,8 @@ pub fn run(
         from_config: Some(plan.from_config.clone()),
         to_config: Some(plan.to_config.clone()),
         sessions: plan.sessions.iter().map(|s| s.id.clone()).collect(),
+        from_account: plan.from_account.clone(),
+        to_account: plan.to_account.clone(),
         ..Manifest::new(
             job_id,
             plan.mode,
@@ -2285,6 +2293,11 @@ impl Jobs {
         progress
     }
 
+    /// A running job's progress counters.
+    pub fn progress(&self, id: &str) -> Option<Arc<Progress>> {
+        lock(&self.jobs).get(id).map(|j| j.progress.clone())
+    }
+
     /// Change a job's view.
     pub fn update(&self, id: &str, f: impl FnOnce(&mut JobView)) {
         if let Some(job) = lock(&self.jobs).get(id) {
@@ -2370,6 +2383,7 @@ pub fn project_folder(cwd: &str) -> String {
 }
 
 pub mod custom;
+pub mod moves;
 pub mod ops;
 
 #[cfg(test)]

@@ -3491,6 +3491,179 @@ pub fn put_back_entries(
     write_index_merged(set, &keys, &changes, "", now_ms()).map(|m| m.put_back)
 }
 
+// ───────────────────────────── dry runs for Move data ─────────────────────────────
+
+/// A conversation a push into a set would take.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PlannedPush {
+    pub id: String,
+    pub cwd: Option<String>,
+    pub files: usize,
+    pub bytes: u64,
+}
+
+/// What a push of these conversations into a set would do (Move data's dry
+/// run, account → storage): the ones it would take, and why the others would
+/// be skipped. Nothing is written. A set that is not there yet takes them
+/// all; one that is needs the passphrase to say.
+pub fn plan_push_some(
+    set: &Set,
+    passphrases: &[Secret],
+    home: &ClaudeHome,
+    ids: &[String],
+    machine: &str,
+    is_live: &dyn Fn(&str) -> bool,
+) -> Result<(Vec<PlannedPush>, Vec<Skip>), BackupError> {
+    if passphrases.is_empty() {
+        return Err(BackupError::NoPassphrase);
+    }
+    let opened = if set.exists() {
+        let keys = open_keys_any(set, passphrases)?;
+        let index = read_index(set, &keys)?;
+        Some((keys, index))
+    } else if set.key_missing() {
+        return Err(BackupError::KeyMissing(set.dir.display().to_string()));
+    } else {
+        None
+    };
+    let mut planned = Vec::new();
+    let mut skipped = Vec::new();
+    let mut done: std::collections::HashSet<&str> = std::collections::HashSet::new();
+    for id in ids {
+        if !done.insert(id.as_str()) {
+            continue;
+        }
+        if !super::ids::is_session_id(id) {
+            skipped.push(skip_of(id, "invalid_id", "not a session id"));
+            continue;
+        }
+        if transfer::transcripts_of(home, id).is_empty() {
+            skipped.push(skip_of(
+                id,
+                "not_found",
+                "this account has no such conversation",
+            ));
+            continue;
+        }
+        if is_live(id) {
+            skipped.push(skip_of(id, "session_live", "it is running; stop it first"));
+            continue;
+        }
+        let now = match session_now(home, id) {
+            Ok(n) => n,
+            Err(e) => {
+                skipped.push(skip_of(id, e.code(), e.to_string()));
+                continue;
+            }
+        };
+        if let Some((keys, index)) = &opened {
+            let seen = index.seen.get(machine).and_then(|s| s.get(id));
+            match push_step(set, keys, home, &now, index.sessions.get(id), seen) {
+                Step::Behind => {
+                    skipped.push(skip_of(
+                        id,
+                        "newer_in_set",
+                        "the set has a newer copy, from another machine: bring that one here first",
+                    ));
+                    continue;
+                }
+                Step::Conflict => {
+                    skipped.push(skip_of(
+                        id,
+                        "conflict",
+                        "it changed here and, from another machine, in the set too",
+                    ));
+                    continue;
+                }
+                _ => {}
+            }
+        }
+        let bytes = now
+            .files
+            .iter()
+            .filter_map(|f| std::fs::metadata(f).ok())
+            .map(|m| m.len())
+            .sum();
+        planned.push(PlannedPush {
+            id: id.clone(),
+            cwd: now.cwd.clone(),
+            files: now.files.len(),
+            bytes,
+        });
+    }
+    Ok((planned, skipped))
+}
+
+/// What [`plan_restore`] found: the entries a restore would bring, why the
+/// others would be skipped, and the projects with nothing in the set.
+pub type RestorePlan = (Vec<IndexEntry>, Vec<Skip>, Vec<String>);
+
+/// What a restore of a set's conversations into a directory would do
+/// (Move data's dry run, storage → account). `ids`: these conversations
+/// (`None`: every one in the set), plus every conversation of `projects`.
+pub fn plan_restore(
+    set: &Set,
+    passphrases: &[Secret],
+    target: &ClaudeHome,
+    ids: Option<&[String]>,
+    projects: &[String],
+    is_live: &dyn Fn(&str) -> bool,
+) -> Result<RestorePlan, BackupError> {
+    let keys = open_keys_any(set, passphrases)?;
+    let index = read_index(set, &keys)?;
+    let mut wanted: Vec<String> = match ids {
+        Some(ids) => ids.to_vec(),
+        None => index.sessions.keys().cloned().collect(),
+    };
+    let mut empty_projects = Vec::new();
+    for raw in projects {
+        let cwd = match raw.trim_end_matches('/') {
+            "" => "/",
+            c => c,
+        };
+        let of: Vec<String> = index
+            .sessions
+            .values()
+            .filter(|e| e.cwd.as_deref() == Some(cwd))
+            .map(|e| e.id.clone())
+            .collect();
+        if of.is_empty() {
+            empty_projects.push(cwd.to_string());
+        }
+        wanted.extend(of);
+    }
+    let mut entries = Vec::new();
+    let mut skipped = Vec::new();
+    let mut done: std::collections::HashSet<String> = std::collections::HashSet::new();
+    for id in wanted {
+        if !done.insert(id.clone()) {
+            continue;
+        }
+        if !super::ids::is_session_id(&id) {
+            skipped.push(skip_of(&id, "invalid_id", "not a session id"));
+            continue;
+        }
+        let Some(e) = index.sessions.get(&id) else {
+            skipped.push(skip_of(&id, "not_in_set", "not in this set"));
+            continue;
+        };
+        if is_live(&id) {
+            skipped.push(skip_of(&id, "session_live", "it is running here"));
+            continue;
+        }
+        if !transfer::transcripts_of(target, &id).is_empty() {
+            skipped.push(skip_of(
+                &id,
+                "already_exists",
+                "this account has it already",
+            ));
+            continue;
+        }
+        entries.push(e.clone());
+    }
+    Ok((entries, skipped, empty_projects))
+}
+
 pub mod ops;
 pub mod storage;
 

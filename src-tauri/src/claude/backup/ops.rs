@@ -740,7 +740,7 @@ fn flight_key(kind: &str, set: &Set) -> String {
 }
 
 /// What the session list calls each session, for the index.
-async fn titles(state: &AppState) -> BTreeMap<String, String> {
+pub(crate) async fn titles(state: &AppState) -> BTreeMap<String, String> {
     state
         .sessions()
         .await
