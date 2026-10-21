@@ -1217,9 +1217,28 @@ fn finish(state: &AppState, job: &str, result: Result<(Value, Vec<String>, bool)
 /// plan checked again first.
 async fn run_group(state: &AppState, job: &str, g: Group) -> Result<(), TransferError> {
     let one = state.jobs.lock.lock().await;
-    let root =
-        super::ops::undo_root(state).ok_or_else(|| invalid("this build has no data directory"))?;
-    let result = match g.work.clone() {
+    let result = match super::ops::undo_root(state) {
+        Some(root) => run_work(state, job, &root, &g).await,
+        None => Err(invalid("this build has no data directory")),
+    };
+    drop(one);
+    let failed = result.as_ref().err().cloned();
+    finish(state, job, result);
+    match failed {
+        Some(e) => Err(e),
+        None => Ok(()),
+    }
+}
+
+/// What a job does, by its kind.
+async fn run_work(
+    state: &AppState,
+    job: &str,
+    root: &std::path::Path,
+    g: &Group,
+) -> Result<(Value, Vec<String>, bool), TransferError> {
+    let (root, g) = (root.to_path_buf(), g.clone());
+    match g.work.clone() {
         Work::Transfer { from, to, items } => {
             run_transfer(state, job, &root, &g, &from, &to, items).await
         }
@@ -1257,13 +1276,6 @@ async fn run_group(state: &AppState, job: &str, g: Group) -> Result<(), Transfer
                 false,
             ))
         }
-    };
-    drop(one);
-    let failed = result.as_ref().err().cloned();
-    finish(state, job, result);
-    match failed {
-        Some(e) => Err(e),
-        None => Ok(()),
     }
 }
 
@@ -1357,10 +1369,10 @@ fn run_assign(
             ));
             continue;
         }
-        state.accounts.remember_session(&id, to);
         done.push((id, previous));
     }
     let ids: Vec<String> = done.iter().map(|(id, _)| id.clone()).collect();
+    // The undo is written before anything is recorded.
     if !done.is_empty() {
         let dir = state.accounts.default_home().base().to_path_buf();
         let m = super::Manifest {
@@ -1383,6 +1395,9 @@ fn run_assign(
         super::private_dir(&undo_dir);
         crate::persist::write_json_private(&undo_dir.join("manifest.json"), &m)
             .map_err(|e| TransferError::Io(format!("writing {}: {e}", undo_dir.display())))?;
+    }
+    for id in &ids {
+        state.accounts.remember_session(id, to);
     }
     Ok((
         json!({ "assigned": ids, "skipped": skipped_json(&skipped) }),
