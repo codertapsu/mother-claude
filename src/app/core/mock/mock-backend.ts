@@ -41,6 +41,7 @@ import {
 } from './fixtures';
 import { MockBackend, MockRole, WebSocketLike, mockRole } from './mock-api';
 import { MockData } from './mock-data';
+import { MOCK_SERVERS, MockServers } from './mock-servers';
 import { urlParam } from '../platform';
 
 const TOKEN = 'mock-token';
@@ -112,6 +113,8 @@ class FixtureBackend implements MockBackend {
   private readonly accountReads = new Map<string, number>();
   /** Moves, copies, data jobs and backups (`/data/*`, `/backup*`). */
   private readonly data: MockData;
+  /** API servers besides the main one (`/bridge/servers*`). */
+  private readonly servers: MockServers;
 
   constructor(readonly role: MockRole) {
     const now = Date.now();
@@ -126,7 +129,7 @@ class FixtureBackend implements MockBackend {
         this.syncSessionAccounts(true);
       },
     });
-    if (ACCOUNTS_MODE === '1' || ACCOUNTS_MODE === 'limit') {
+    if (ACCOUNTS_MODE === '1' || ACCOUNTS_MODE === 'limit' || MOCK_SERVERS) {
       this.fx.accounts = buildAccounts(now, true);
       this.fx.accountUsage = buildAccountUsage(now);
       for (const [sid, acc] of Object.entries(MOCK_SESSION_ACCOUNTS)) {
@@ -197,6 +200,14 @@ class FixtureBackend implements MockBackend {
         intervalSecs: u.intervalSecs,
       };
     }
+    this.servers = new MockServers({
+      desktop: role === 'desktop',
+      main: () => this.fx.bridge,
+      setMain: (status) => (this.fx.bridge = status),
+      accounts: () => this.fx.accounts.accounts,
+      remote: () => this.fx.remote,
+      accountRef: (id) => (this.multi() ? this.accountRef(id) : undefined),
+    });
   }
 
   // ─────────────────────────────────────────────────────────────── REST
@@ -226,6 +237,10 @@ class FixtureBackend implements MockBackend {
     // Moves, copies, data jobs, backups
     const data = this.data.route(path, method, body, q);
     if (data) return data;
+
+    // API servers besides the main one (`?mockservers=1`)
+    const servers = this.servers.route(path, method, body);
+    if (servers) return servers;
 
     // Sessions
     if (path === '/sessions' && method === 'GET') {
