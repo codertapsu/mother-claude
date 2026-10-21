@@ -1,5 +1,6 @@
 import { Injectable, inject, signal } from '@angular/core';
 
+import type { NewServer, ServerDefaults, ServerPatch } from './api-servers';
 import { AuthService } from './auth.service';
 import { ConfigService } from './config.service';
 import { activeMock } from './mock/mock-api';
@@ -131,6 +132,9 @@ import {
  * a retry hint), so every page reports errors the same way.
  *   Bridge    getBridge() · startBridge(defaults) · stopBridge() ·
  *             setBridgeThread(threadId)
+ *   Servers   addBridgeServer(body) · updateBridgeServer(id, patch) ·
+ *             removeBridgeServer(id) · startBridgeServer(id, defaults) ·
+ *             stopBridgeServer(id) · setBridgeServerThread(id, threadId)
  */
 @Injectable({ providedIn: 'root' })
 export class ApiService {
@@ -715,6 +719,48 @@ export class ApiService {
   /** Change which conversation unaddressed messages join. */
   setBridgeThread(threadId: string | null): Promise<BridgeStatus> {
     return this.post<BridgeStatus>('/bridge/active-thread', { threadId });
+  }
+
+  // ─────────── API servers besides the main one (docs/ACCOUNTS.md §13.5)
+  // Each answers that server's status (`normalizeServer` reads it); the
+  // main server keeps the routes above.
+
+  /** Add a server (not started); `port` unset: the first free from 5613. */
+  addBridgeServer(body: NewServer): Promise<unknown> {
+    return this.post<unknown>('/bridge/servers', body);
+  }
+
+  /** Rename it, move it to another port, or change its defaults (a running
+   * server restarts with them). */
+  updateBridgeServer(id: string, patch: ServerPatch): Promise<unknown> {
+    return this.req<unknown>(`/bridge/servers/${enc(id)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(patch),
+    });
+  }
+
+  /** Remove it (the server stops it first). */
+  async removeBridgeServer(id: string): Promise<void> {
+    await this.req<unknown>(`/bridge/servers/${enc(id)}`, { method: 'DELETE' });
+  }
+
+  /** Start (or restart) it with these defaults; `openToTunnels` as for
+   * {@link startBridge} (desktop app only to open it). */
+  startBridgeServer(
+    id: string,
+    defaults: ServerDefaults,
+    openToTunnels?: boolean,
+  ): Promise<unknown> {
+    return this.post<unknown>(`/bridge/servers/${enc(id)}/start`, { defaults, openToTunnels });
+  }
+
+  stopBridgeServer(id: string): Promise<unknown> {
+    return this.post<unknown>(`/bridge/servers/${enc(id)}/stop`, {});
+  }
+
+  /** Change which conversation its unaddressed messages join. */
+  setBridgeServerThread(id: string, threadId: string | null): Promise<unknown> {
+    return this.post<unknown>(`/bridge/servers/${enc(id)}/active-thread`, { threadId });
   }
 
   // ──────────────────────────────────────────────────────────── Transport
