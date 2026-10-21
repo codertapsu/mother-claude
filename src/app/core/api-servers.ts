@@ -569,8 +569,10 @@ function portIn(e: ApiError): string {
 
 /** The server a refusal is about, for {@link serverErrorText}. */
 export interface RefusalContext {
-  /** Its name. */
+  /** Its name ("the API" for the main one while it is the only one). */
   server?: string;
+  /** It is the main server (its port is the environment's to change). */
+  main?: boolean;
   /** The account it runs only as, by name. */
   account?: string;
   /** Every server, to name the one holding a port. */
@@ -584,7 +586,12 @@ export interface RefusalContext {
 export function serverErrorText(e: unknown, ctx: RefusalContext = {}): string {
   if (!(e instanceof ApiError)) return errorMessage(e);
   if (e.kind !== 'http') return describeError(e).text;
-  const name = ctx.server || 'This server';
+  const text = refusalText(e, ctx);
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+function refusalText(e: ApiError, ctx: RefusalContext): string {
+  const name = ctx.server || 'this server';
   switch (e.code) {
     case 'port_unavailable': {
       const port = portIn(e);
@@ -596,8 +603,11 @@ export function serverErrorText(e: unknown, ctx: RefusalContext = {}): string {
       if (holder) {
         return `${which} is ${holder}'s. Pick another, or leave the port empty for the first free one.`;
       }
-      return ctx.saving
-        ? `${which} is taken: the main server, Mother Claude's own ports or another program has it. Pick another, or leave it empty for the first free one.`
+      if (ctx.saving) {
+        return `${which} is taken: the main server, Mother Claude's own ports or another program has it. Pick another, or leave it empty for the first free one.`;
+      }
+      return ctx.main
+        ? `${which} is in use by another program, so ${name} cannot listen on it. Stop that program, or set MOTHER_CLAUDE_BRIDGE_PORT to another port.`
         : `${which} is in use by another program, so ${name} cannot listen on it. Stop that program, or give ${name} another port.`;
     }
     case 'account_not_found':

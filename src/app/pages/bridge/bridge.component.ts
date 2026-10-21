@@ -1,29 +1,60 @@
-import { Component, computed, inject, signal } from '@angular/core';
+import {
+  Component,
+  ElementRef,
+  computed,
+  effect,
+  inject,
+  signal,
+  untracked,
+  viewChild,
+} from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { ActivatedRoute } from '@angular/router';
 
 import { DEFAULT_ACCOUNT } from '../../core/accounts';
 import { AccountsService } from '../../core/accounts.service';
-import { ApiService, errorMessage } from '../../core/api.service';
+import {
+  MAIN_SERVER,
+  MAIN_SERVER_NAME,
+  ServerAddress,
+  ServerDefaults,
+  absorbReply,
+  lanBaseOf,
+  serverAccount,
+  serverAddresses,
+  serverErrorText,
+  serverPanel,
+  serversOf,
+} from '../../core/api-servers';
+import { ApiService } from '../../core/api.service';
 import { AuthService } from '../../core/auth.service';
 import {
-  BridgeDefaults,
   BridgeStatus,
   BridgeThread,
   LaunchDefaults,
+  RemoteInfo,
   SessionSummary,
 } from '../../core/models';
+import { signInLine } from '../../shared/accounts';
 import { EFFORT_LABELS, effortLabel, relativeTime, sessionName } from '../../shared/util';
-
-const PERMISSION_MODES: { value: string; label: string; hint: string }[] = [
-  { value: 'default', label: 'Ask me', hint: 'Every tool call needs approval' },
-  { value: 'plan', label: 'Plan only', hint: 'Claude plans but changes nothing' },
-  { value: 'acceptEdits', label: 'Accept edits', hint: 'File edits go through; other tools ask' },
-  { value: 'dontAsk', label: "Don't ask", hint: 'No prompts — it just works' },
-  { value: 'auto', label: 'Auto', hint: 'A classifier decides what needs you' },
-];
+import { API_PERMISSION_MODES } from './permission-modes';
+import { ApiServerAddressesComponent } from './server-addresses.component';
+import { ApiServerListComponent } from './server-list.component';
 
 /** New conversation on the first message, rather than joining an existing one. */
 const FRESH = '';
+
+/** The panel's "Claude account" line. */
+interface ClaudeLine {
+  text: string;
+  ok: boolean;
+  /** The account the server names (absent: the Default's sign-in). */
+  account?: string;
+  /** That account was removed. */
+  gone?: boolean;
+  /** That account's name, when it is signed out. */
+  signedOut?: string;
+}
 
 /**
  * Start, configure and stop the HTTP API.
@@ -32,10 +63,17 @@ const FRESH = '';
  * act, because the port can drive Claude with your account. What you pick here
  * becomes the *defaults* for conversations the API creates; any request can
  * override them.
+ *
+ * Besides the main server there may be others, each on its own port and,
+ * when it names one, running as one Claude account (docs/ACCOUNTS.md §13.5).
+ * While there are, the screen lists them and the panel shows the one picked,
+ * with its addresses; with only the main one it is the screen it always was.
+ * Phones may do all of it but open a port to tunnels (the server enforces
+ * that, and a mode that skips approvals).
  */
 @Component({
   selector: 'mc-bridge',
-  imports: [FormsModule],
+  imports: [FormsModule, ApiServerAddressesComponent, ApiServerListComponent],
   template: `
     <div class="page-head"><h1>API</h1></div>
     <p class="lede">
@@ -44,13 +82,25 @@ const FRESH = '';
     </p>
 
     @if (error(); as e) {
-      <div class="card err">{{ e }}</div>
+      <div class="card err" role="alert">{{ e }}</div>
     }
 
-    @if (status(); as s) {
+    @if (panel(); as s) {
+      @if (multi()) {
+        <mc-api-server-list [servers]="servers()" [selected]="panelId()" (picked)="pick($event)" />
+      }
+      @if (notice(); as n) {
+        @if (n.at === 'top') {
+          <p class="notice ok small said-top" role="status">{{ n.text }}</p>
+        }
+      }
+
       <!-- ── Status ─────────────────────────────────────────────── -->
-      <div class="card status">
+      <div #panelTop class="card status" [class.picked]="multi()">
         <div class="row head">
+          @if (multi()) {
+            <strong class="sname">{{ panelName() }}</strong>
+          }
           <span class="badge" [class.working]="s.running" [class.stopped]="!s.running">
             {{ s.running ? 'running' : 'stopped' }}
           </span>
@@ -69,7 +119,7 @@ const FRESH = '';
 
         <dl class="facts">
           <dt>Claude account</dt>
-          <dd [class.warn]="!s.claudeAuthenticated">{{ s.claudeAccount }}</dd>
+          <dd [class.warn]="!claudeLine().ok">{{ claudeLine().text }}</dd>
           <dt>Runtime</dt>
           <dd>
             {{ s.hostBuilt ? (s.hostRunning ? 'running' : 'ready') : 'not built' }}
@@ -82,8 +132,10 @@ const FRESH = '';
           @if (s.running) {
             <dt>Started</dt>
             <dd>{{ rel(s.startedAt) }}</dd>
-            <dt>In flight</dt>
-            <dd>{{ s.activeOperations }} operation{{ s.activeOperations === 1 ? '' : 's' }}</dd>
+            @if (isMain()) {
+              <dt>In flight</dt>
+              <dd>{{ s.activeOperations }} operation{{ s.activeOperations === 1 ? '' : 's' }}</dd>
+            }
           }
         </dl>
 
@@ -103,7 +155,17 @@ const FRESH = '';
           </p>
         }
 
-        @if (!s.claudeAuthenticated) {
+        @if (claudeLine().gone) {
+          <p class="warn">
+            Its account was removed, so it cannot start. Choose another account under Defaults (or
+            Automatic), then start it.
+          </p>
+        } @else if (claudeLine().signedOut; as name) {
+          <p class="warn">
+            {{ name }} is not signed in, so every message would fail. Sign it in on the Accounts
+            page of the desktop app.
+          </p>
+        } @else if (!s.claudeAuthenticated && !claudeLine().account) {
           <p class="warn">
             Claude itself is not signed in, so every message would fail. Run
             <code>claude auth login</code> in a terminal, then reload this page.
@@ -118,6 +180,12 @@ const FRESH = '';
           <pre class="mono snippet">{{ snippet(s) }}</pre>
         }
       </div>
+
+      @if (multi() && addresses().length) {
+        <!-- ── Addresses ──────────────────────────────────────────── -->
+        <h2>Addresses</h2>
+        <mc-api-server-addresses [addresses]="addresses()" />
+      }
 
       <!-- ── Defaults ───────────────────────────────────────────── -->
       <h2>{{ s.running ? 'Defaults in use' : 'Defaults' }}</h2>
@@ -171,15 +239,18 @@ const FRESH = '';
           </label>
         </div>
 
-        @if (accounts.multi()) {
+        @if (accounts.multi() || (!isMain() && account())) {
           <label class="wide">
             <span class="lbl">Account</span>
-            <select [ngModel]="account()" (ngModelChange)="account.set($event)">
+            <select [ngModel]="account()" (ngModelChange)="pickAccount($event)">
               <option value="">
                 Automatic — the project's account, else {{ bridgeDefaultName() }}
               </option>
               @for (a of accounts.list(); track a.id) {
                 <option [value]="a.id">{{ a.name }}{{ a.email ? ' — ' + a.email : '' }}</option>
+              }
+              @if (accountGone()) {
+                <option [value]="account()">A removed account</option>
               }
             </select>
             <span class="hint">
@@ -187,6 +258,20 @@ const FRESH = '';
               else the one Settings › Accounts sets for the API. A request can still name another.
             </span>
           </label>
+          @if (account() && (multi() || accountOnly())) {
+            <label class="check">
+              <input
+                type="checkbox"
+                [ngModel]="accountOnly()"
+                (ngModelChange)="accountOnly.set($event)"
+              />
+              <span
+                >Only this account — every conversation runs as {{ accountName() }}; a request
+                naming another account is refused, and other accounts' conversations stay out of
+                reach</span
+              >
+            </label>
+          }
         }
 
         <label class="wide">
@@ -293,9 +378,24 @@ const FRESH = '';
 
       <!-- ── Action ─────────────────────────────────────────────── -->
       <div class="actions">
-        <button class="btn primary" type="button" [disabled]="busy()" (click)="start()">
-          {{ busy() ? 'Working…' : s.running ? 'Restart with these settings' : 'Start the API' }}
+        <button
+          class="btn primary"
+          type="button"
+          [disabled]="busy() || accountGone()"
+          (click)="start()"
+        >
+          {{ busy() ? 'Working…' : s.running ? 'Restart with these settings' : startLabel() }}
         </button>
+        @if (!isMain() && !s.running) {
+          <button
+            class="btn"
+            type="button"
+            [disabled]="busy() || accountGone()"
+            (click)="saveDefaults()"
+          >
+            Save without starting
+          </button>
+        }
         @if (!s.running) {
           <span class="muted small">
             Starting publishes
@@ -304,6 +404,12 @@ const FRESH = '';
           </span>
         }
       </div>
+
+      @if (notice(); as n) {
+        @if (n.at === 'actions') {
+          <p class="notice ok small said" role="status">{{ n.text }}</p>
+        }
+      }
 
       @if (!s.enabled) {
         <div class="card muted">
@@ -331,17 +437,29 @@ const FRESH = '';
         margin: 0 0 10px;
         max-width: 46rem;
       }
+      h2 + mc-api-server-addresses {
+        display: block;
+        margin-top: 10px;
+      }
       .card.err {
         border-color: var(--error, #a63232);
         color: var(--error, #a63232);
+      }
+      .card.status.picked {
+        margin-top: 12px;
       }
       .status .head {
         align-items: center;
         gap: 10px;
         margin-bottom: 12px;
       }
+      .sname {
+        font-size: 1rem;
+        overflow-wrap: anywhere;
+      }
       .url {
         text-decoration: none;
+        overflow-wrap: anywhere;
       }
       .facts {
         display: grid;
@@ -355,6 +473,8 @@ const FRESH = '';
       }
       .facts dd {
         margin: 0;
+        min-width: 0;
+        overflow-wrap: anywhere;
       }
       .warn {
         color: var(--warn, #b8860b);
@@ -428,6 +548,15 @@ const FRESH = '';
         margin: 18px 0 40px;
         flex-wrap: wrap;
       }
+      .said {
+        margin: -24px 0 40px;
+      }
+      .said-top {
+        margin: 12px 0 0;
+      }
+      .said-top + .card.status {
+        margin-top: 12px;
+      }
       @media (max-width: 560px) {
         .form .row {
           flex-direction: column;
@@ -447,12 +576,17 @@ export class BridgeComponent {
   readonly accounts = inject(AccountsService);
 
   readonly FRESH = FRESH;
-  readonly permissionModes = PERMISSION_MODES;
+  readonly permissionModes = API_PERMISSION_MODES;
 
+  /** `GET /api/bridge`: the main server's status, with `servers` while
+   * another exists. */
   readonly status = signal<BridgeStatus | null>(null);
   readonly launch = signal<LaunchDefaults | null>(null);
   readonly sessions = signal<SessionSummary[]>([]);
   readonly error = signal('');
+  /** What was just done, said where the eye is: at the top for a server
+   * added or removed, under the buttons for one saved there. */
+  readonly notice = signal<{ text: string; at: 'top' | 'actions' } | null>(null);
   readonly busy = signal(false);
 
   // Form state, seeded from whatever the API is already configured with.
@@ -468,17 +602,102 @@ export class BridgeComponent {
   /** The account conversations run under ('' = the project's, else the
    * accounts' API default). */
   readonly account = signal('');
+  /** Run only as that account (a request naming another is refused). */
+  readonly accountOnly = signal(false);
+
+  // ── Servers (docs/ACCOUNTS.md §13.5)
+  /** Every server, main first; none while the main one is the only one. */
+  readonly servers = computed(() => serversOf(this.status()));
+  readonly multi = computed(() => this.servers().length > 0);
+  /** The server picked (`?server=` on opening). */
+  readonly selectedId = signal(MAIN_SERVER);
+  readonly selected = computed(
+    () => this.servers().find((s) => s.id === this.selectedId()) ?? null,
+  );
+  /** The server the panel shows: the main one unless another is picked. */
+  readonly panelId = computed(() => this.selected()?.id ?? MAIN_SERVER);
+  readonly isMain = computed(() => this.panelId() === MAIN_SERVER);
+  readonly panelName = computed(() => this.selected()?.name ?? MAIN_SERVER_NAME);
+  /** What the panel shows: the main payload, or the picked server's. */
+  readonly panel = computed(() => {
+    const s = this.status();
+    return s ? serverPanel(s, this.selected()) : null;
+  });
+  /** The desktop's `GET /api/remote`, for the LAN address. */
+  private readonly remote = signal<RemoteInfo | null>(null);
+  /** The server the form was seeded for. */
+  private seededFor = '';
+  private readonly panelTop = viewChild<ElementRef<HTMLElement>>('panelTop');
 
   readonly efforts = computed(() => this.launch()?.efforts ?? Object.keys(EFFORT_LABELS));
   readonly bridgeDefaultName = computed(() => {
     const id = this.accounts.view()?.defaults.bridge;
     return this.accounts.byId(id)?.name ?? 'Default';
   });
+  /** The account picked for a server besides the main one is gone (it keeps
+   * a removed one until another is chosen; the main one forgets it). */
+  readonly accountGone = computed(() => {
+    const id = this.account();
+    const server = this.selected();
+    if (!id || !server || this.isMain()) return false;
+    return (server.accountMissing && server.defaults.account === id) || this.accountUnknown(id);
+  });
+  readonly accountName = computed(() => this.accounts.byId(this.account())?.name ?? 'it');
+  readonly startLabel = computed(() =>
+    this.isMain() ? 'Start the API' : `Start ${this.panelName()}`,
+  );
+
+  readonly claudeLine = computed<ClaudeLine>(() => {
+    const s = this.panel();
+    if (!s) return { text: '', ok: true };
+    const server = this.multi() ? this.selected() : null;
+    const id = server?.defaults.account;
+    if (!server || !id) return { text: s.claudeAccount, ok: s.claudeAuthenticated };
+    const acc = serverAccount(server, (x) => this.accounts.byId(x)?.name);
+    const only = acc.only ? ' · only this account' : '';
+    if (acc.missing) return { text: 'A removed account', ok: false, account: id, gone: true };
+    const view = this.accounts.byId(id);
+    if (!view) return { text: acc.name + only, ok: true, account: id };
+    return {
+      text: `${view.name} — ${signInLine(view).text}${only}`,
+      ok: view.signedIn,
+      account: id,
+      ...(view.signedIn ? {} : { signedOut: view.name }),
+    };
+  });
+
+  readonly addresses = computed<ServerAddress[]>(() => {
+    const server = this.selected();
+    const main = this.servers()[0];
+    if (!server || !main) return [];
+    const remote = this.remote();
+    return serverAddresses(server, {
+      desktop: this.isDesktop(),
+      main: { port: main.port, running: main.running, tunnelUrl: main.tunnelUrl },
+      lanBase: lanBaseOf(remote, location.origin),
+      dashboardPort: remote?.lan.port,
+    });
+  });
 
   constructor() {
+    const wanted = inject(ActivatedRoute).snapshot.queryParamMap.get('server');
+    if (wanted) this.selectedId.set(wanted);
     void this.load();
     // The picker needs the accounts: with only the Default nothing sent them.
     void this.accounts.ensureLoaded();
+    // The desktop knows its LAN address (a phone on the LAN uses its own
+    // origin): asked once servers besides the main one exist.
+    let remoteAsked = false;
+    effect(() => {
+      if (remoteAsked || !this.multi() || !this.isDesktop()) return;
+      remoteAsked = true;
+      untracked(() => {
+        this.api.getRemote().then(
+          (r) => this.remote.set(r),
+          () => undefined,
+        );
+      });
+    });
   }
 
   private async load(): Promise<void> {
@@ -493,17 +712,27 @@ export class BridgeComponent {
       ]);
       this.launch.set(launch);
       this.sessions.set(sessions);
-      this.apply(status);
+      this.apply(status, true);
       this.error.set('');
     } catch (e) {
       this.error.set(e instanceof Error ? e.message : String(e));
     }
   }
 
-  /** Adopt a status payload, seeding the form from the defaults it reports. */
-  private apply(status: BridgeStatus): void {
+  /** Adopt a status payload. The form is seeded from the shown server's
+   * defaults when asked to, or when the server it was seeded for is no
+   * longer the one shown (it was removed, say). */
+  private apply(status: BridgeStatus | null, reseed: boolean): void {
     this.status.set(status);
-    const d = status.defaults ?? {};
+    if (reseed || this.panelId() !== this.seededFor) this.seed();
+  }
+
+  /** Seed the form from what the shown server is configured with. */
+  private seed(): void {
+    const status = this.panel();
+    if (!status) return;
+    this.seededFor = this.panelId();
+    const d: ServerDefaults = status.defaults ?? {};
     this.cwd.set(d.cwd ?? '');
     this.model.set(d.model ?? '');
     this.effort.set(d.effort ?? '');
@@ -515,9 +744,14 @@ export class BridgeComponent {
     // Absent: none was chosen at start (the project's, else the accounts'
     // API default).
     this.account.set(d.account ?? '');
+    this.accountOnly.set(d.accountOnly === true);
   }
 
-  private defaults(): BridgeDefaults {
+  private defaults(): ServerDefaults {
+    // Only while several accounts exist for the main server: the request is
+    // unchanged otherwise. Another server keeps the account it names.
+    const account =
+      (this.isMain() ? this.accounts.multi() && this.account() : this.account()) || undefined;
     return {
       cwd: this.cwd().trim() || undefined,
       model: this.model() || undefined,
@@ -528,16 +762,20 @@ export class BridgeComponent {
       // collapsed to "unset" the way an empty string is.
       settingSources: this.isolate() ? [] : undefined,
       defaultThread: this.thread() || undefined,
-      // Only while several accounts exist: the request is unchanged otherwise.
-      account: (this.accounts.multi() && this.account()) || undefined,
+      account,
+      // Only with an account: the server refuses it alone.
+      accountOnly: account && this.accountOnly() ? true : undefined,
     };
   }
 
-  private async run(action: () => Promise<BridgeStatus>): Promise<void> {
+  /** Run an action and adopt its answer: the main server's routes answer
+   * the whole payload, a server's routes that server's status. */
+  private async run(action: () => Promise<unknown>): Promise<void> {
     this.busy.set(true);
     this.error.set('');
+    this.notice.set(null);
     try {
-      this.apply(await action());
+      this.apply(absorbReply(this.status(), await action()), true);
     } catch (e) {
       this.error.set(this.explain(e));
     } finally {
@@ -545,23 +783,77 @@ export class BridgeComponent {
     }
   }
 
-  /** The server's error envelope is already unpacked by ApiService. */
   private explain(e: unknown): string {
-    return errorMessage(e);
+    const main = this.isMain();
+    return serverErrorText(e, {
+      server: main && !this.multi() ? 'the API' : this.panelName(),
+      main,
+      account: this.accounts.byId(this.account())?.name,
+      servers: this.servers(),
+    });
   }
 
   start(): Promise<void> {
     // A phone cannot change access: it starts with whatever is configured.
     const open = this.isDesktop() ? this.openToTunnels() : undefined;
-    return this.run(() => this.api.startBridge(this.defaults(), open));
+    const id = this.panelId();
+    return this.run(() =>
+      id === MAIN_SERVER
+        ? this.api.startBridge(this.defaults(), open)
+        : this.api.startBridgeServer(id, this.defaults(), open),
+    );
   }
 
   stop(): Promise<void> {
-    return this.run(() => this.api.stopBridge());
+    const id = this.panelId();
+    return this.run(() =>
+      id === MAIN_SERVER ? this.api.stopBridge() : this.api.stopBridgeServer(id),
+    );
   }
 
   applyThread(): Promise<void> {
-    return this.run(() => this.api.setBridgeThread(this.thread() || null));
+    const id = this.panelId();
+    const thread = this.thread() || null;
+    return this.run(() =>
+      id === MAIN_SERVER
+        ? this.api.setBridgeThread(thread)
+        : this.api.setBridgeServerThread(id, thread),
+    );
+  }
+
+  /** A stopped server's defaults, kept for its next start. */
+  async saveDefaults(): Promise<void> {
+    const id = this.panelId();
+    if (id === MAIN_SERVER) return;
+    await this.run(() => this.api.updateBridgeServer(id, { defaults: this.defaults() }));
+    if (!this.error()) {
+      this.notice.set({
+        text: `Saved: ${this.panelName()} starts with these settings.`,
+        at: 'actions',
+      });
+    }
+  }
+
+  /** Show another server's panel. */
+  pick(id: string): void {
+    if (id === this.panelId()) return;
+    this.selectedId.set(id);
+    this.error.set('');
+    this.notice.set(null);
+    this.seed();
+    // On a phone the panel is below the list: bring it into view.
+    const top = this.panelTop()?.nativeElement;
+    if (top && top.getBoundingClientRect().top > window.innerHeight * 0.6) {
+      top.scrollIntoView({ block: 'start' });
+    }
+  }
+
+  /** Picking an account for a server besides the main one runs it only as
+   * that account, until unticked (as when adding one). */
+  pickAccount(id: string): void {
+    if (!id) this.accountOnly.set(false);
+    else if (!this.account() && !this.isMain()) this.accountOnly.set(true);
+    this.account.set(id);
   }
 
   liveThreads(s: BridgeStatus) {
@@ -573,11 +865,14 @@ export class BridgeComponent {
     return t.account?.name ?? this.accounts.byId(DEFAULT_ACCOUNT)?.name ?? 'Default';
   }
 
-  /** Recent sessions that are not already listed as running conversations. */
+  /** Recent sessions that are not already listed as running conversations —
+   * only the account's own, for a server that runs only as it. */
   pastSessions(s: BridgeStatus): SessionSummary[] {
     const live = new Set((s.threads ?? []).map((t) => t.threadId));
+    const only = this.accountOnly() ? this.account() : '';
     return this.sessions()
       .filter((session) => !live.has(session.id) && session.messageCount > 0)
+      .filter((session) => !only || (session.account?.id ?? DEFAULT_ACCOUNT) === only)
       .sort((a, b) => (b.lastActivityAt ?? 0) - (a.lastActivityAt ?? 0))
       .slice(0, 25);
   }
@@ -631,5 +926,10 @@ export class BridgeComponent {
 
   rel(at?: number): string {
     return relativeTime(at);
+  }
+
+  /** An account id the loaded registry doesn't have. */
+  private accountUnknown(id: string): boolean {
+    return !!this.accounts.view() && !this.accounts.byId(id);
   }
 }

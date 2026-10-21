@@ -451,6 +451,21 @@ describe('API servers: refusals in words', () => {
     );
   });
 
+  it("sends the main server's port to the environment", () => {
+    expect(
+      serverErrorText(err(409, 'port_unavailable', { port: 5612 }), {
+        server: 'the API',
+        main: true,
+      }),
+    ).toBe(
+      'Port 5612 is in use by another program, so the API cannot listen on it. Stop that program, or set MOTHER_CLAUDE_BRIDGE_PORT to another port.',
+    );
+    // A sentence starts with a capital, whatever the server is called.
+    expect(serverErrorText(err(403, 'account_not_served'), { server: 'the API' })).toMatch(
+      /^The API runs only as its own account/,
+    );
+  });
+
   it('puts the account refusals in words', () => {
     expect(serverErrorText(err(409, 'account_not_found'), { server: 'Personal' })).toBe(
       "Personal's account was removed. Choose another account (or Automatic) for it, then start it.",
