@@ -14,13 +14,23 @@ use serde_json::{json, Value};
 
 use super::{ok, validate_id, Body};
 use crate::bridge::error::{BridgeError, BridgeResult};
+use crate::bridge::MountPolicy;
 use crate::claude::model::{PendingItem, PendingKind};
 use crate::server::context::ClientContext;
 use crate::state::AppState;
 
-/// `GET /requests` — everything currently waiting on a human.
-pub async fn list(State(state): State<AppState>) -> BridgeResult<Response> {
-    Ok(ok(json!({ "data": state.bridge.host.pending_requests() })))
+/// `GET /requests` — everything currently waiting on a human (on a server
+/// that runs as one account, what that account's conversations wait on).
+pub async fn list(State(state): State<AppState>, mount: MountPolicy) -> BridgeResult<Response> {
+    let mut data = state.bridge.host.pending_requests();
+    if mount.only_account().is_some() {
+        data.retain(|r| {
+            r.get("thread_id")
+                .and_then(Value::as_str)
+                .is_some_and(|thread| mount.serves(&state, thread))
+        });
+    }
+    Ok(ok(json!({ "data": data })))
 }
 
 /// How a request is answered. Exactly one shape must be used.
@@ -216,16 +226,20 @@ impl RespondBody {
 pub async fn respond(
     State(state): State<AppState>,
     ctx: ClientContext,
+    mount: MountPolicy,
     Path(request_id): Path<String>,
     Body(body): Body<RespondBody>,
 ) -> BridgeResult<Response> {
     validate_id("request_id", &request_id)?;
 
-    // The server-classified item (never the host's heuristic alone).
+    // The server-classified item (never the host's heuristic alone). One of
+    // another account's conversations, on a server that runs as one, is not
+    // there to answer.
     let item = state
         .bridge
         .host
         .pending_request_item(&request_id)
+        .filter(|item| mount.serves(&state, &item.session_id))
         .ok_or_else(|| BridgeError::request_not_found(&request_id))?;
 
     // Approving a dangerous action obeys the same rule as the dashboard: the

@@ -7,7 +7,8 @@
 //!
 //! What you choose at start time becomes the *defaults* for every conversation
 //! the server creates — model, effort, working directory, permission mode,
-//! account — and every one of them can still be overridden per request. You can
+//! account — and every one of them can still be overridden per request (only
+//! the account cannot, on a server that runs as one account only). You can
 //! also nominate a conversation for new messages to join, so a client that
 //! only ever sends `{"message": "…"}` keeps one continuous thread instead of a
 //! new one each time.
@@ -67,11 +68,17 @@ pub struct BridgeDefaults {
     /// when unset, so `GET /api/bridge` reads as before accounts.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub account: Option<String>,
+    /// Run **only** as `account` (docs/ACCOUNTS.md §13.5): a request naming
+    /// another is refused, and another account's conversations, operations
+    /// and runtime requests do not exist through this server. Left out when
+    /// false, so `GET /api/bridge` reads as before.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub account_only: bool,
 }
 
 /// The fields of [`BridgeDefaults`] as they are written (camelCase): what a
 /// saved server's defaults are read by.
-pub const DEFAULTS_FIELDS: [&str; 9] = [
+pub const DEFAULTS_FIELDS: [&str; 10] = [
     "cwd",
     "model",
     "effort",
@@ -81,6 +88,7 @@ pub const DEFAULTS_FIELDS: [&str; 9] = [
     "systemPromptAppend",
     "defaultThread",
     "account",
+    "accountOnly",
 ];
 
 fn one_of(field: &str, value: &Option<String>, allowed: &[&str]) -> BridgeResult<()> {
@@ -126,6 +134,12 @@ impl BridgeDefaults {
                 ));
             }
         }
+        if self.account_only && self.account.is_none() {
+            return Err(BridgeError::invalid_field(
+                "accountOnly",
+                "Running as one account only needs that account: choose one.",
+            ));
+        }
         Ok(())
     }
 
@@ -145,6 +159,11 @@ impl BridgeDefaults {
         blank(&mut self.default_thread);
         blank(&mut self.account);
         self
+    }
+
+    /// The one account these defaults run as, when they say `accountOnly`.
+    pub fn only_account(&self) -> Option<&str> {
+        self.account.as_deref().filter(|_| self.account_only)
     }
 }
 
@@ -194,8 +213,9 @@ async fn bind(port: u16, retry: bool) -> std::io::Result<tokio::net::TcpListener
 }
 
 /// Check `defaults` for a start of `server`: what the runtime would refuse,
-/// an account that does not exist, a nominated conversation that does not,
-/// a port another listener has.
+/// an account that does not exist, a nominated conversation that does not
+/// (or is another account's, on a server that runs as one), a port another
+/// listener has.
 async fn prepare(
     state: &AppState,
     server: &ApiServer,
@@ -228,6 +248,15 @@ async fn prepare(
                 format!("No conversation {thread} — pick another, or leave it unset."),
             )
             .with("thread_id", thread.clone()));
+        }
+        if let Some(only) = defaults.only_account() {
+            if servers::thread_account(state, thread) != only {
+                return Err(BridgeError::invalid_field(
+                    "defaultThread",
+                    format!("Conversation {thread} runs under another account than this server's."),
+                )
+                .with("thread_id", thread.clone()));
+            }
         }
     }
     if !server.is_main() {
@@ -613,10 +642,16 @@ async fn checked_defaults(
         }
     }
     if let Some(thread) = &defaults.default_thread {
-        if !super::thread_exists(state, thread).await {
+        let exists = super::thread_exists(state, thread).await;
+        let foreign = defaults
+            .only_account()
+            .is_some_and(|only| servers::thread_account(state, thread) != only);
+        if !exists || foreign {
             return Err(BridgeError::invalid_field(
                 "defaultThread",
-                format!("No conversation {thread} — pick another, or leave it unset."),
+                format!(
+                    "No conversation {thread} of this server's — pick another, or leave it unset."
+                ),
             )
             .with("thread_id", thread.clone()));
         }
@@ -774,14 +809,19 @@ pub async fn stop_server(state: &AppState, id: &str) -> BridgeResult<Arc<ApiServ
 }
 
 /// Change which conversation `server`'s unaddressed messages join (`None`:
-/// the next one starts a new conversation). One that is gone is `404`.
+/// the next one starts a new conversation). One it does not show — gone, or
+/// another account's on a server that runs as one — is `404`.
 pub async fn set_active(
     state: &AppState,
     server: &ApiServer,
     thread_id: Option<String>,
 ) -> BridgeResult<()> {
     if let Some(thread) = &thread_id {
-        if !super::thread_exists(state, thread).await {
+        let exists = super::thread_exists(state, thread).await;
+        let foreign = server
+            .only_account()
+            .is_some_and(|only| servers::thread_account(state, thread) != only);
+        if !exists || foreign {
             return Err(BridgeError::thread_not_found(thread));
         }
     }
@@ -1090,16 +1130,20 @@ mod tests {
     fn no_account_is_left_out() {
         let v = serde_json::to_value(BridgeDefaults::default()).unwrap();
         assert!(v.get("account").is_none(), "{v}");
+        assert!(v.get("accountOnly").is_none(), "{v}");
         assert!(v.get("cwd").is_some(), "the others stay as they were");
         let parsed: BridgeDefaults =
             serde_json::from_value(serde_json::json!({ "cwd": null, "model": "opus" })).unwrap();
         assert!(parsed.account.is_none());
+        assert!(!parsed.account_only);
         let with = BridgeDefaults {
             account: Some("acc_0123456789ab".into()),
+            account_only: true,
             ..Default::default()
         };
         let v = serde_json::to_value(with).unwrap();
         assert_eq!(v["account"], "acc_0123456789ab");
+        assert_eq!(v["accountOnly"], true);
     }
 
     /// The saved file is read by these names: every field, written.
@@ -1115,6 +1159,7 @@ mod tests {
             system_prompt_append: Some("x".into()),
             default_thread: Some("t".into()),
             account: Some("a".into()),
+            account_only: true,
         };
         let v = serde_json::to_value(full).unwrap();
         let mut keys: Vec<&str> = v.as_object().unwrap().keys().map(String::as_str).collect();
@@ -1172,6 +1217,29 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(bad.validate().unwrap_err().body()["error"]["field"], "cwd");
+
+        // One account only, without an account, is no account at all.
+        let bad = BridgeDefaults {
+            account_only: true,
+            ..Default::default()
+        };
+        assert_eq!(
+            bad.validate().unwrap_err().body()["error"]["field"],
+            "accountOnly"
+        );
+        assert!(bad.only_account().is_none());
+        let only = BridgeDefaults {
+            account: Some("acc_0123456789ab".into()),
+            account_only: true,
+            ..Default::default()
+        };
+        assert!(only.validate().is_ok());
+        assert_eq!(only.only_account(), Some("acc_0123456789ab"));
+        let default_for_new = BridgeDefaults {
+            account_only: false,
+            ..only
+        };
+        assert!(default_for_new.only_account().is_none());
     }
 
     #[test]
@@ -1186,6 +1254,7 @@ mod tests {
             system_prompt_append: Some("Be terse.".into()),
             default_thread: None,
             account: None,
+            account_only: false,
         };
         assert!(good.validate().is_ok());
     }

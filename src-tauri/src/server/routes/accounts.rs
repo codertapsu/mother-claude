@@ -258,10 +258,12 @@ pub async fn remove(
     let account = state.accounts.remove(&id).map_err(account_error)?;
     if bridge_default {
         // The stopped main API's remembered choice: the next start takes the
-        // project's account, else the accounts' bridge default.
+        // project's account, else the accounts' bridge default (and so no
+        // longer only that one).
         let forget = |d: &mut crate::bridge::control::BridgeDefaults| {
             if d.account.as_deref() == Some(id.as_str()) {
                 d.account = None;
+                d.account_only = false;
             }
         };
         main.update_defaults(forget);

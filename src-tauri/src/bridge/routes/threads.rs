@@ -18,7 +18,7 @@ use uuid::Uuid;
 use super::{created, ok, validate_id, Body};
 use crate::bridge::error::{BridgeError, BridgeResult};
 use crate::bridge::host::{CREATE_TIMEOUT, RPC_TIMEOUT};
-use crate::bridge::{MountPolicy, ThreadRecord};
+use crate::bridge::{servers, MountPolicy, ThreadRecord};
 use crate::server::context::ClientContext;
 use crate::state::AppState;
 
@@ -522,6 +522,13 @@ pub async fn create(
     mount: MountPolicy,
     Body(body): Body<CreateThread>,
 ) -> BridgeResult<Response> {
+    // A server that runs as one account serves no other: neither a request
+    // naming another, nor continuing another's conversation (as if it did not
+    // exist).
+    mount.check_asked(body.account.as_deref())?;
+    if let Some(resume) = &body.resume {
+        mount.require_thread(&state, resume)?;
+    }
     let caller_cwd = body.cwd.clone();
     let mut body = body.with_defaults(&mount.defaults);
     body.validate(&ctx)?;
@@ -598,12 +605,20 @@ pub async fn create(
     })))
 }
 
-/// `GET /threads` — live conversations, plus what is on disk.
+/// `GET /threads` — live conversations, plus what is on disk (on a server
+/// that runs as one account, only that account's).
 pub async fn list(
     State(state): State<AppState>,
+    mount: MountPolicy,
     Query(params): Query<HashMap<String, String>>,
 ) -> BridgeResult<Response> {
-    let live = state.bridge.threads().await;
+    let live: Vec<ThreadRecord> = state
+        .bridge
+        .threads()
+        .await
+        .into_iter()
+        .filter(|t| mount.only_account().is_none_or(|only| t.account == only))
+        .collect();
     let live_only = params
         .get("live_only")
         .map(|v| v == "true" || v == "1")
@@ -624,7 +639,9 @@ pub async fn list(
         // A bridge that has never started the host should still answer this,
         // so a runtime failure degrades to "live only" rather than a 503.
         let homes = state.accounts.homes();
-        if homes.len() == 1 {
+        if let Some(only) = mount.only_account() {
+            Value::Array(stored_of_account(&state, homes.len() > 1, only, call).await)
+        } else if homes.len() == 1 {
             match state
                 .bridge
                 .host
@@ -702,14 +719,78 @@ async fn stored_across_homes(
     }
 }
 
+/// One account's stored conversations, newest first: its directory's store,
+/// and in the Default's directory — which the token accounts share — only
+/// the conversations that are this account's. `annotate`: each names its
+/// `account`, as the listing across directories does.
+async fn stored_of_account(
+    state: &AppState,
+    annotate: bool,
+    account: &str,
+    call: Value,
+) -> Vec<Value> {
+    let offset = call.get("offset").and_then(Value::as_u64).unwrap_or(0) as usize;
+    let limit = call
+        .get("limit")
+        .and_then(Value::as_u64)
+        .map(|l| l as usize);
+    let Some(home) = state.accounts.home(account) else {
+        return Vec::new();
+    };
+    let mut one = json!({});
+    if home.base() != state.home.base() {
+        one["configDir"] = json!(home.base().to_string_lossy());
+    }
+    let sessions = match state
+        .bridge
+        .host
+        .call(state, "store.list", one, RPC_TIMEOUT)
+        .await
+    {
+        Ok(v) => v
+            .get("sessions")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default(),
+        Err(e) => {
+            tracing::warn!(error = %e, account, "bridge could not read a session store");
+            Vec::new()
+        }
+    };
+    let mut mine: Vec<Value> = sessions
+        .into_iter()
+        .filter(|s| {
+            s.get("sessionId")
+                .and_then(Value::as_str)
+                .is_some_and(|id| servers::thread_account(state, id) == account)
+        })
+        .map(|mut s| {
+            if annotate {
+                s["account"] = json!(account);
+            }
+            s
+        })
+        .collect();
+    mine.sort_by_key(|s| {
+        std::cmp::Reverse(s.get("lastModified").and_then(Value::as_i64).unwrap_or(0))
+    });
+    let page = mine.into_iter().skip(offset);
+    match limit {
+        Some(l) => page.take(l).collect(),
+        None => page.collect(),
+    }
+}
+
 /// `GET /threads/{id}` — one conversation. `?include_messages=true` inlines its
 /// transcript.
 pub async fn read(
     State(state): State<AppState>,
+    mount: MountPolicy,
     Path(thread_id): Path<String>,
     Query(params): Query<HashMap<String, String>>,
 ) -> BridgeResult<Response> {
     validate_id("thread_id", &thread_id)?;
+    mount.require_thread(&state, &thread_id)?;
     let live = state.bridge.thread(&thread_id).await;
 
     let stored = state
@@ -761,10 +842,12 @@ pub async fn read(
 /// `GET /threads/{id}/messages` — the stored transcript.
 pub async fn messages(
     State(state): State<AppState>,
+    mount: MountPolicy,
     Path(thread_id): Path<String>,
     Query(params): Query<HashMap<String, String>>,
 ) -> BridgeResult<Response> {
     validate_id("thread_id", &thread_id)?;
+    mount.require_thread(&state, &thread_id)?;
     let mut call = json!({ "sessionId": thread_id });
     for key in ["limit", "offset"] {
         if let Some(raw) = params.get(key) {
@@ -788,9 +871,11 @@ pub async fn messages(
 /// `GET /threads/{id}/context` — the live context-window breakdown.
 pub async fn context(
     State(state): State<AppState>,
+    mount: MountPolicy,
     Path(thread_id): Path<String>,
 ) -> BridgeResult<Response> {
     validate_id("thread_id", &thread_id)?;
+    mount.require_thread(&state, &thread_id)?;
     Ok(ok(state
         .bridge
         .host
@@ -812,10 +897,12 @@ pub struct NameBody {
 /// `POST /threads/{id}/name` — set the stored title.
 pub async fn rename(
     State(state): State<AppState>,
+    mount: MountPolicy,
     Path(thread_id): Path<String>,
     Body(body): Body<NameBody>,
 ) -> BridgeResult<Response> {
     validate_id("thread_id", &thread_id)?;
+    mount.require_thread(&state, &thread_id)?;
     if body.name.trim().is_empty() {
         return Err(BridgeError::invalid_field(
             "name",
@@ -855,10 +942,12 @@ pub struct ForkBody {
 /// `POST /threads/{id}/fork` — branch the transcript into a new conversation.
 pub async fn fork(
     State(state): State<AppState>,
+    mount: MountPolicy,
     Path(thread_id): Path<String>,
     Body(body): Body<ForkBody>,
 ) -> BridgeResult<Response> {
     validate_id("thread_id", &thread_id)?;
+    mount.require_thread(&state, &thread_id)?;
     let mut call = json!({ "sessionId": thread_id });
     if let Some(up_to) = &body.up_to_message_id {
         call["upToMessageId"] = json!(up_to);
@@ -904,10 +993,12 @@ where
 /// `POST /threads/{id}/model` — switch model mid-conversation.
 pub async fn set_model(
     State(state): State<AppState>,
+    mount: MountPolicy,
     Path(thread_id): Path<String>,
     Body(body): Body<ModelBody>,
 ) -> BridgeResult<Response> {
     validate_id("thread_id", &thread_id)?;
+    mount.require_thread(&state, &thread_id)?;
     let model = body.model.ok_or_else(|| {
         BridgeError::invalid_field(
             "model",
@@ -942,10 +1033,12 @@ pub struct PermissionModeBody {
 pub async fn set_permission_mode(
     State(state): State<AppState>,
     ctx: ClientContext,
+    mount: MountPolicy,
     Path(thread_id): Path<String>,
     Body(body): Body<PermissionModeBody>,
 ) -> BridgeResult<Response> {
     validate_id("thread_id", &thread_id)?;
+    mount.require_thread(&state, &thread_id)?;
     one_of(
         "permission_mode",
         &Some(body.permission_mode.clone()),
@@ -981,10 +1074,12 @@ pub async fn set_permission_mode(
 pub async fn close(
     State(state): State<AppState>,
     ctx: ClientContext,
+    mount: MountPolicy,
     Path(thread_id): Path<String>,
     Query(params): Query<HashMap<String, String>>,
 ) -> BridgeResult<Response> {
     validate_id("thread_id", &thread_id)?;
+    mount.require_thread(&state, &thread_id)?;
     let purge = params.get("purge").map(String::as_str) == Some("true");
 
     // Deleting a transcript is irreversible, so it obeys the dangerous gate.

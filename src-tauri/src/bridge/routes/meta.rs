@@ -12,13 +12,56 @@ use serde_json::{json, Value};
 use super::ok;
 use crate::bridge::error::BridgeResult;
 use crate::bridge::host::{host_entry, RPC_TIMEOUT};
-use crate::bridge::{events, inputs, messages, ops, MountPolicy};
+use crate::bridge::{events, inputs, messages, ops, servers, MountPolicy};
+use crate::claude::AuthStatus;
 use crate::state::AppState;
+
+/// The sign-in of the account a server runs as only — the Default's is
+/// `state.claude_auth`, another's what was last checked (`refresh`: checked
+/// now) — or `None` for a server that does not run as one account.
+async fn only_account_auth(
+    state: &AppState,
+    mount: &MountPolicy,
+    refresh: bool,
+) -> Option<(String, AuthStatus)> {
+    let account = mount.only_account()?.to_string();
+    if account == crate::claude::accounts::DEFAULT_ID {
+        let status = if refresh {
+            state.refresh_claude_auth().await
+        } else {
+            state.claude_auth.read().await.clone()
+        };
+        return Some((account, status));
+    }
+    let status = if refresh {
+        crate::claude::accounts::status::refresh(state, &account)
+            .await
+            .unwrap_or_else(|e| AuthStatus {
+                error: Some(e.to_string()),
+                ..Default::default()
+            })
+    } else {
+        state
+            .accounts
+            .runtime
+            .status(&account)
+            .auth
+            .unwrap_or_else(|| AuthStatus {
+                error: Some("not checked yet; ask GET /auth?refresh=true".into()),
+                ..Default::default()
+            })
+    };
+    Some((account, status))
+}
 
 /// `GET /health` — lifecycle only. It does not call the model, refresh a login
 /// or acquire any lock, so it stays fast and side-effect free.
-pub async fn health(State(state): State<AppState>) -> Response {
+pub async fn health(State(state): State<AppState>, mount: MountPolicy) -> Response {
     let host_built = host_entry().is_some();
+    let authenticated = match only_account_auth(&state, &mount, false).await {
+        Some((_, status)) => status.logged_in,
+        None => state.claude_auth.read().await.logged_in,
+    };
     let body = json!({
         "status": if host_built { "ready" } else { "unavailable" },
         "backend": "claude-agent-sdk",
@@ -30,7 +73,7 @@ pub async fn health(State(state): State<AppState>) -> Response {
         "active_operations": state.bridge.ops.active_count(),
         // Whether Claude itself can reach Anthropic. Identifying details live
         // on GET /auth; a liveness probe does not need the account's email.
-        "claude_authenticated": state.claude_auth.read().await.logged_in,
+        "claude_authenticated": authenticated,
     });
     if host_built {
         ok(body)
@@ -41,7 +84,7 @@ pub async fn health(State(state): State<AppState>) -> Response {
 
 /// `GET /capabilities` — the machine-readable contract.
 pub async fn capabilities(State(state): State<AppState>, policy: MountPolicy) -> Response {
-    ok(json!({
+    let mut body = json!({
         "app": "mother-claude",
         "version": env!("CARGO_PKG_VERSION"),
         "backends": {
@@ -103,11 +146,17 @@ pub async fn capabilities(State(state): State<AppState>, policy: MountPolicy) ->
             "Requests are never retried or replayed; a disconnected client does not \
              interrupt a running turn.",
         ],
-    }))
+    });
+    // Which API server this is, once there is more than the main one or more
+    // than the Default account (docs/ACCOUNTS.md §13.5).
+    if let Some(server) = servers::server_view(&state, &policy) {
+        body["server"] = server;
+    }
+    ok(body)
 }
 
 /// `GET /metadata` — versions of everything in the chain.
-pub async fn metadata(State(state): State<AppState>) -> Response {
+pub async fn metadata(State(state): State<AppState>, mount: MountPolicy) -> Response {
     let cli = tokio::process::Command::new(crate::claude::claude_bin())
         .arg("--version")
         .output()
@@ -116,15 +165,25 @@ pub async fn metadata(State(state): State<AppState>) -> Response {
         .filter(|o| o.status.success())
         .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string());
 
-    ok(json!({
+    // A server that runs as one account reads and writes that account's
+    // directory.
+    let home = mount
+        .only_account()
+        .and_then(|a| state.accounts.home(a))
+        .unwrap_or_else(|| state.home.clone());
+    let mut body = json!({
         "app": "mother-claude",
         "version": env!("CARGO_PKG_VERSION"),
         "backend": "claude-agent-sdk",
         "claude_cli": cli,
-        "claude_home": state.home.base().to_string_lossy(),
+        "claude_home": home.base().to_string_lossy(),
         "host_entry": host_entry().map(|p| p.to_string_lossy().into_owned()),
         "anthropic_version": messages::ANTHROPIC_VERSION,
-    }))
+    });
+    if let Some(server) = servers::server_view(&state, &mount) {
+        body["server"] = server;
+    }
+    ok(body)
 }
 
 /// `GET /models` — what this account can select.
@@ -132,8 +191,16 @@ pub async fn metadata(State(state): State<AppState>) -> Response {
 /// A live conversation can report the rich `ModelInfo` list (effort support and
 /// all); with none running, the user's own saved Claude settings are the next
 /// best answer, and cost nothing to read.
-pub async fn models(State(state): State<AppState>) -> BridgeResult<Response> {
-    if let Some(thread) = state.bridge.threads().await.first() {
+pub async fn models(State(state): State<AppState>, mount: MountPolicy) -> BridgeResult<Response> {
+    // A live conversation this server shows (one of its account's, when it
+    // runs as one only).
+    let live = state
+        .bridge
+        .threads()
+        .await
+        .into_iter()
+        .find(|t| mount.only_account().is_none_or(|only| t.account == only));
+    if let Some(thread) = live {
         if let Ok(result) = state
             .bridge
             .host
@@ -151,7 +218,11 @@ pub async fn models(State(state): State<AppState>) -> BridgeResult<Response> {
         }
     }
 
-    let defaults = crate::claude::read_launch_defaults(&state.home);
+    let home = mount
+        .only_account()
+        .and_then(|a| state.accounts.home(a))
+        .unwrap_or_else(|| state.home.clone());
+    let defaults = crate::claude::read_launch_defaults(&home);
     let data: Vec<Value> = defaults
         .models
         .iter()
@@ -178,14 +249,40 @@ pub async fn models(State(state): State<AppState>) -> BridgeResult<Response> {
 /// CLI and therefore is not what a polling client should do.
 pub async fn auth(
     State(state): State<AppState>,
+    mount: MountPolicy,
     axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
 ) -> Response {
-    let status = if params.get("refresh").map(String::as_str) == Some("true") {
+    let refresh = params.get("refresh").map(String::as_str) == Some("true");
+    // A server that runs as one account reports that account's sign-in.
+    if let Some((account, status)) = only_account_auth(&state, &mount, refresh).await {
+        let mut body = auth_body(&status);
+        let token = state
+            .accounts
+            .get(&account)
+            .is_some_and(|a| a.kind == crate::claude::accounts::AccountKind::Token);
+        body["login_hint"] = json!(if token {
+            "This is a token account: give it a new token on the Mother Claude desktop \
+             (Settings → Accounts)."
+        } else {
+            "POST /auth/login, or sign the account in on the Mother Claude desktop \
+             (Settings → Accounts)."
+        });
+        if let Some(a) = state.accounts.get(&account) {
+            body["account"] = json!({ "id": a.id, "name": a.name });
+        }
+        return ok(body);
+    }
+    let status = if refresh {
         state.refresh_claude_auth().await
     } else {
         state.claude_auth.read().await.clone()
     };
-    ok(json!({
+    ok(auth_body(&status))
+}
+
+/// What `GET /auth` says about a sign-in.
+fn auth_body(status: &AuthStatus) -> Value {
+    json!({
         "authenticated": status.logged_in,
         "summary": status.summary(),
         "method": status.auth_method,
@@ -196,7 +293,7 @@ pub async fn auth(
         "config_directory": status.config_directory,
         "error": status.error,
         "login_hint": "POST /auth/login, or run `claude auth login` in a terminal.",
-    }))
+    })
 }
 
 /// `POST /auth/login` — start the interactive sign-in flow.
@@ -206,6 +303,8 @@ pub async fn auth(
 /// flow is launched: waiting for a human to finish an OAuth round trip inside an
 /// HTTP handler would only ever produce a timeout. Poll `GET /auth?refresh=true`.
 pub async fn auth_login(
+    State(state): State<AppState>,
+    mount: MountPolicy,
     ctx: crate::server::context::ClientContext,
     super::Body(body): super::Body<LoginBody>,
 ) -> BridgeResult<Response> {
@@ -217,6 +316,19 @@ pub async fn auth_login(
         ));
     }
 
+    // A server that runs as one account signs that account in (its own
+    // directory's sign-in, never the Default's).
+    if let Some(account) = mount.only_account() {
+        crate::claude::accounts::status::start_login(&state, account, body.console)
+            .await
+            .map_err(|m| crate::bridge::error::BridgeError::unprocessable("login_failed", m))?;
+        ctx.note_dangerous("account sign-in through the API");
+        return Ok(ok(json!({
+            "status": "started",
+            "message": "A browser sign-in flow was launched on the host machine. \
+                        Poll GET /auth?refresh=true until `authenticated` is true.",
+        })));
+    }
     crate::claude::auth::begin_login(body.console)
         .await
         .map_err(|e| crate::bridge::error::BridgeError::claude_error(e.to_string()))?;

@@ -21,7 +21,7 @@ use crate::bridge::error::{BridgeError, BridgeResult};
 use crate::bridge::host::RPC_TIMEOUT;
 use crate::bridge::inputs;
 use crate::bridge::ops::Operation;
-use crate::bridge::{MountPolicy, RUN_TIMEOUT_SECS};
+use crate::bridge::{servers, MountPolicy, RUN_TIMEOUT_SECS};
 use crate::server::context::ClientContext;
 use crate::state::AppState;
 
@@ -152,9 +152,12 @@ pub(crate) async fn require_turn_allowed(
 pub async fn start(
     State(state): State<AppState>,
     ctx: ClientContext,
+    mount: MountPolicy,
     Path(thread_id): Path<String>,
     Body(body): Body<TurnBody>,
 ) -> BridgeResult<Response> {
+    validate_id("thread_id", &thread_id)?;
+    mount.require_thread(&state, &thread_id)?;
     require_turn_allowed(&state, &ctx, &thread_id).await?;
     let op = begin_turn(&state, &thread_id, &body).await?;
     Ok(accepted(op.snapshot(), &op.id))
@@ -164,9 +167,12 @@ pub async fn start(
 pub async fn run(
     State(state): State<AppState>,
     ctx: ClientContext,
+    mount: MountPolicy,
     Path(thread_id): Path<String>,
     Body(body): Body<TurnBody>,
 ) -> BridgeResult<Response> {
+    validate_id("thread_id", &thread_id)?;
+    mount.require_thread(&state, &thread_id)?;
     require_turn_allowed(&state, &ctx, &thread_id).await?;
     let op = begin_turn(&state, &thread_id, &body).await?;
     Ok(await_operation(&state, op).await)
@@ -241,11 +247,13 @@ fn status_for_turn_error(error: &Value) -> StatusCode {
 pub async fn steer(
     State(state): State<AppState>,
     ctx: ClientContext,
+    mount: MountPolicy,
     Path((thread_id, turn_id)): Path<(String, String)>,
     Body(body): Body<TurnBody>,
 ) -> BridgeResult<Response> {
     validate_id("thread_id", &thread_id)?;
     validate_id("turn_id", &turn_id)?;
+    mount.require_thread(&state, &thread_id)?;
     validate_priority(&body.priority)?;
     require_turn_allowed(&state, &ctx, &thread_id).await?;
 
@@ -299,10 +307,12 @@ pub async fn steer(
 /// the conversation.
 pub async fn interrupt(
     State(state): State<AppState>,
+    mount: MountPolicy,
     Path((thread_id, turn_id)): Path<(String, String)>,
 ) -> BridgeResult<Response> {
     validate_id("thread_id", &thread_id)?;
     validate_id("turn_id", &turn_id)?;
+    mount.require_thread(&state, &thread_id)?;
 
     let op = state
         .bridge
@@ -436,7 +446,8 @@ pub async fn chat(
 ///
 /// Step 3 is the reason the flag defaults to false: a client that sends nothing
 /// but `{"message": "…"}` should be having *a conversation*, not accumulating a
-/// new one per message.
+/// new one per message. On a server that runs as one account only, every step
+/// stays within that account: a conversation of another does not exist there.
 async fn resolve_chat_thread(
     state: &AppState,
     ctx: crate::server::context::ClientContext,
@@ -444,13 +455,15 @@ async fn resolve_chat_thread(
     body: &ChatBody,
 ) -> BridgeResult<String> {
     // An account named with the message: only a conversation of that account
-    // may take it.
+    // may take it (on a server that runs as one, only that one may be named).
     let asked_account = body
         .options
         .account
         .as_deref()
         .map(str::trim)
         .filter(|a| !a.is_empty());
+    mount.check_asked(asked_account)?;
+    let asked_account = asked_account.or(mount.only_account());
     // (A conversation that ran with a token no account holds is the
     // Default's.)
     let other_account = |id: &str| {
@@ -458,6 +471,7 @@ async fn resolve_chat_thread(
     };
     if let Some(id) = &body.thread_id {
         validate_id("thread_id", id)?;
+        mount.require_thread(state, id)?;
         if other_account(id) {
             return Err(BridgeError::conflict(
                 "account_mismatch",
@@ -474,7 +488,7 @@ async fn resolve_chat_thread(
     if !body.create_new_chat {
         let active = mount.server.active_thread();
         // A message for another account starts its own conversation.
-        if let Some(active) = active.filter(|a| !other_account(a)) {
+        if let Some(active) = active.filter(|a| !other_account(a) && mount.serves(state, a)) {
             match crate::bridge::ensure_thread_live(state, &ctx, mount, &active, asked_account)
                 .await
             {
@@ -535,33 +549,60 @@ async fn thread_id_from(response: Response) -> BridgeResult<String> {
         .ok_or_else(|| BridgeError::internal("Creating the conversation returned no id."))
 }
 
+/// The operation `id`, unless the server does not show its conversation
+/// (one of another account, on a server that runs as one): then `404`, as if
+/// it did not exist.
+fn served_operation(
+    state: &AppState,
+    mount: &MountPolicy,
+    id: &str,
+) -> BridgeResult<std::sync::Arc<Operation>> {
+    let op = state.bridge.ops.get(id)?;
+    let shown = match (&op.thread_id, mount.only_account()) {
+        (_, None) => true,
+        (Some(thread), Some(_)) => mount.serves(state, thread),
+        (None, Some(_)) => false,
+    };
+    if shown {
+        Ok(op)
+    } else {
+        Err(BridgeError::operation_not_found(id))
+    }
+}
+
 /// `GET /operations/{id}` — poll one operation.
 pub async fn operation(
     State(state): State<AppState>,
+    mount: MountPolicy,
     Path(operation_id): Path<String>,
 ) -> BridgeResult<Response> {
     validate_id("operation_id", &operation_id)?;
-    Ok(ok(state.bridge.ops.get(&operation_id)?.snapshot()))
+    Ok(ok(
+        served_operation(&state, &mount, &operation_id)?.snapshot()
+    ))
 }
 
 /// `GET /operations/{id}/events` — replayable SSE for one turn.
 pub async fn operation_events(
     State(state): State<AppState>,
+    mount: MountPolicy,
     Path(operation_id): Path<String>,
     Query(params): Query<HashMap<String, String>>,
     headers: HeaderMap,
 ) -> BridgeResult<Response> {
     validate_id("operation_id", &operation_id)?;
-    let op = state.bridge.ops.get(&operation_id)?;
+    let op = served_operation(&state, &mount, &operation_id)?;
     // An operation stream replays from the beginning by default, so a client
     // that connects after the turn finished still gets the whole thing.
     let cursor = super::resolve_cursor(&params, &headers, 0)?;
     sse(op.log.clone(), cursor).await
 }
 
-/// `GET /events` — everything, across every conversation.
+/// `GET /events` — everything, across every conversation (on a server that
+/// runs as one account, every conversation of that account).
 pub async fn global_events(
     State(state): State<AppState>,
+    mount: MountPolicy,
     Query(params): Query<HashMap<String, String>>,
     headers: HeaderMap,
 ) -> BridgeResult<Response> {
@@ -569,7 +610,23 @@ pub async fn global_events(
     // at 0, which would 410 the moment the buffer had wrapped.
     let default = state.bridge.ops.global.oldest_cursor();
     let cursor = super::resolve_cursor(&params, &headers, default)?;
-    sse(state.bridge.ops.global.clone(), cursor).await
+    let Some(only) = mount.only_account().map(str::to_string) else {
+        return sse(state.bridge.ops.global.clone(), cursor).await;
+    };
+    // Every event names its conversation (`params.thread_id`); one that
+    // names none, or another account's, is left out.
+    let st = state.clone();
+    let keep: super::EventFilter = std::sync::Arc::new(move |data: &str| {
+        serde_json::from_str::<Value>(data)
+            .ok()
+            .and_then(|v| {
+                v.pointer("/params/thread_id")
+                    .and_then(Value::as_str)
+                    .map(str::to_string)
+            })
+            .is_some_and(|id| servers::thread_account(&st, &id) == only)
+    });
+    super::sse_filtered(state.bridge.ops.global.clone(), cursor, Some(keep)).await
 }
 
 #[cfg(test)]

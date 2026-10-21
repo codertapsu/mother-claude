@@ -166,6 +166,9 @@ pub fn resolve_cursor(
     Ok(default)
 }
 
+/// Which events of a log a stream passes on (their serialized JSON in).
+pub type EventFilter = Arc<dyn Fn(&str) -> bool + Send + Sync>;
+
 /// Stream an event log as Server-Sent Events.
 ///
 /// The cursor is validated *before* the response starts, so an expired one is a
@@ -173,11 +176,23 @@ pub fn resolve_cursor(
 /// explanation. Once streaming, an expiry can still happen (the writer outran a
 /// slow reader); that is delivered as a terminal `bridge/error` frame.
 pub async fn sse(log: Arc<EventLog>, cursor: u64) -> BridgeResult<Response> {
+    sse_filtered(log, cursor, None).await
+}
+
+/// [`sse`], passing on only the events `keep` accepts (`None`: all). Event
+/// ids stay the log's, so `?after=` and `Last-Event-ID` work as on a
+/// stream of everything.
+pub async fn sse_filtered(
+    log: Arc<EventLog>,
+    cursor: u64,
+    keep: Option<EventFilter>,
+) -> BridgeResult<Response> {
     // Validate now; discard the batch and let the stream replay it.
     log.read(cursor, Duration::ZERO).await?;
 
     let stream = futures_util::stream::unfold(Some(cursor), move |state| {
         let log = log.clone();
+        let keep = keep.clone();
         async move {
             let cursor = state?;
             match log.read(cursor, HEARTBEAT).await {
@@ -186,6 +201,7 @@ pub async fn sse(log: Arc<EventLog>, cursor: u64) -> BridgeResult<Response> {
                     let frames: Vec<Result<Event, std::convert::Infallible>> = out
                         .events
                         .iter()
+                        .filter(|e| keep.as_ref().is_none_or(|keep| keep(&e.data)))
                         .map(|e| Ok(Event::default().id(e.seq.to_string()).data(&*e.data)))
                         .collect();
                     // A closed log with nothing left to send ends the stream.

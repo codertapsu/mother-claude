@@ -5,8 +5,8 @@
 //! mount on the main app port, its defaults chosen at each start and never
 //! saved. Others are added on the API screen and saved in
 //! `<app data dir>/api-servers.json` (0600) as `{id, name, port, defaults}`.
-//! Each has its own loopback port, defaults, the conversation unaddressed
-//! messages join, token policy and started gate.
+//! Each has its own loopback port, defaults (`accountOnly` among them), the
+//! conversation unaddressed messages join, token policy and started gate.
 //! None listens until it is started; whether a start opens it to tunnels is
 //! chosen at that start and never saved.
 //!
@@ -15,6 +15,11 @@
 //! main app port (a token always) — with the target's rules: a [`Mount`]
 //! names the server and the port a request arrived on, and the request's
 //! [`MountPolicy`] is resolved from it.
+//!
+//! A server with `accountOnly` runs only as its account: [`MountPolicy::only_account`]
+//! and the helpers below hide every conversation, operation and runtime
+//! request of another account (`404`, as if it did not exist) and refuse a
+//! request that names another account (`403 account_not_served`).
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU16, Ordering};
@@ -241,6 +246,11 @@ impl ApiServer {
         } else {
             format!("/servers/{}", self.id)
         }
+    }
+
+    /// The one account it runs as, when its defaults say `accountOnly`.
+    pub fn only_account(&self) -> Option<String> {
+        self.defaults().only_account().map(str::to_string)
     }
 
     /// The entry `api-servers.json` keeps for it.
@@ -637,6 +647,52 @@ impl MountPolicy {
     pub fn server_id(&self) -> &str {
         &self.server.id
     }
+
+    /// The one account this server runs as, when it is `accountOnly`.
+    pub fn only_account(&self) -> Option<&str> {
+        self.defaults.only_account()
+    }
+
+    /// `403 account_not_served` when a request names an account this
+    /// server does not run as.
+    pub fn check_asked(&self, asked: Option<&str>) -> BridgeResult<()> {
+        let asked = asked.map(str::trim).filter(|a| !a.is_empty());
+        match (self.only_account(), asked) {
+            (Some(only), Some(asked)) if only != asked => Err(BridgeError::forbidden(
+                "account_not_served",
+                format!(
+                    "This API server runs only as its own account; it does not serve {asked:?}."
+                ),
+            )
+            .with("account", asked.to_string())
+            .with("server", self.server.id.clone())),
+            _ => Ok(()),
+        }
+    }
+
+    /// Whether this server shows the conversation `thread_id` — always,
+    /// unless it is `accountOnly` and the conversation is another account's.
+    pub fn serves(&self, state: &AppState, thread_id: &str) -> bool {
+        match self.only_account() {
+            None => true,
+            Some(only) => thread_account(state, thread_id) == only,
+        }
+    }
+
+    /// `404 thread_not_found` for a conversation this server does not show.
+    pub fn require_thread(&self, state: &AppState, thread_id: &str) -> BridgeResult<()> {
+        if self.serves(state, thread_id) {
+            Ok(())
+        } else {
+            Err(BridgeError::thread_not_found(thread_id))
+        }
+    }
+}
+
+/// The account a conversation runs (or ran) under, a token no account holds
+/// counting as the Default's ([`crate::claude::summaries::acting_account`]).
+pub fn thread_account(state: &AppState, thread_id: &str) -> String {
+    crate::claude::summaries::acting_account(state, thread_id)
 }
 
 impl<S: Send + Sync> FromRequestParts<S> for MountPolicy {
@@ -649,6 +705,29 @@ impl<S: Send + Sync> FromRequestParts<S> for MountPolicy {
             .cloned()
             .ok_or_else(|| BridgeError::internal("This route was mounted without its API server."))
     }
+}
+
+/// The server object `/metadata` and `/capabilities` carry, or `None` while
+/// only the Default account and only the main server exist (goal 7).
+pub fn server_view(state: &AppState, mount: &MountPolicy) -> Option<Value> {
+    if state.accounts.is_default_only() && !state.bridge.servers.has_added() {
+        return None;
+    }
+    let account = mount
+        .defaults
+        .account
+        .as_deref()
+        .and_then(|id| state.accounts.get(id))
+        .map(|a| json!({ "id": a.id, "name": a.name }));
+    let mut view = json!({
+        "id": mount.server.id,
+        "name": mount.server.name(),
+        "accountOnly": mount.only_account().is_some(),
+    });
+    if let Some(account) = account {
+        view["account"] = account;
+    }
+    Some(view)
 }
 
 #[cfg(test)]
@@ -722,7 +801,7 @@ mod tests {
         assert_eq!(work.port(), Some(5613));
         let d = work.saved();
         assert_eq!(d.model.as_deref(), Some("haiku"));
-        assert_eq!(d.account.as_deref(), Some("acc_0123456789ab"));
+        assert_eq!(d.only_account(), Some("acc_0123456789ab"));
         assert_eq!(loaded[1].saved(), BridgeDefaults::default());
 
         let servers: Vec<Arc<ApiServer>> = loaded.into_iter().map(Arc::new).collect();

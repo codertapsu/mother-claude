@@ -26,8 +26,8 @@
 //! ## Several API servers
 //!
 //! That is the **main** API server. Others can be added, each with its own
-//! loopback port, defaults, conversation that unaddressed messages join,
-//! token policy and started gate
+//! loopback port, defaults (one account only, if asked), conversation that
+//! unaddressed messages join, token policy and started gate
 //! ([`servers`], docs/ACCOUNTS.md §13.5). Every server is also reachable
 //! through the main ones: `/servers/<id>/` and `/servers/<id>/v1/` on the
 //! main API port, `/servers/<id>/v1/` on the main app port (a token always),

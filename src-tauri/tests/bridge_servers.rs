@@ -1,6 +1,6 @@
 //! API servers (docs/ACCOUNTS.md §13.5), offline: several at once, each with
 //! its own account, port, defaults, conversation, token policy and started
-//! gate. A fake Node host
+//! gate; `accountOnly` on every route kind. A fake Node host
 //! (`tests/fixtures/fake-bridge-host.js`) stands in for the runtime. Nothing
 //! here binds 5612 or runs Claude: the main server and every added one listen
 //! on ports the system picks.
@@ -8,14 +8,18 @@
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
+use std::time::Duration;
 
 use mother_claude_lib::bridge::control::{self, BridgeDefaults};
 use mother_claude_lib::bridge::{BridgeConfig, TokenPolicy};
+use mother_claude_lib::claude::secrets::Secret;
 use mother_claude_lib::claude::ClaudeHome;
 use mother_claude_lib::server::auth::Auth;
 use mother_claude_lib::state::{AppState, Inner, ServerConfig};
 use reqwest::StatusCode;
 use serde_json::{json, Value};
+
+const TOKEN: &str = "sk-ant-oat01-ServersTestToken0123456789abcdefghijk";
 
 /// The fake host and its log, for every test here: the variables are
 /// process-wide, so they are set once, the same for all.
@@ -160,6 +164,55 @@ async fn create(api: &str, body: Value) -> String {
     v["thread_id"].as_str().unwrap().to_string()
 }
 
+/// A turn on `thread` through `api`, its operation id.
+async fn turn(api: &str, thread: &str, text: &str) -> String {
+    let (s, v) = post(
+        &format!("{api}/threads/{thread}/turns"),
+        json!({ "input": text }),
+    )
+    .await;
+    assert_eq!(s, StatusCode::ACCEPTED, "{v}");
+    v["operation_id"].as_str().unwrap().to_string()
+}
+
+/// The request id a conversation's turn raised, once the host sent it.
+async fn request_of(api: &str, thread: &str) -> String {
+    for _ in 0..200 {
+        let (_, v) = get(&format!("{api}/requests")).await;
+        if let Some(r) = v["data"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .find(|r| r["thread_id"] == thread)
+        {
+            return r["request_id"].as_str().unwrap().to_string();
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    panic!("no request for {thread}");
+}
+
+/// The `thread_id`s of the events `/events` replays on `api`.
+async fn event_threads(api: &str) -> Vec<String> {
+    let mut resp = reqwest::Client::new()
+        .get(format!("{api}/events?after=0"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let mut text = String::new();
+    while let Ok(Ok(Some(chunk))) =
+        tokio::time::timeout(Duration::from_millis(400), resp.chunk()).await
+    {
+        text.push_str(&String::from_utf8_lossy(&chunk));
+    }
+    text.lines()
+        .filter_map(|l| l.strip_prefix("data: "))
+        .filter_map(|d| serde_json::from_str::<Value>(d).ok())
+        .map(|v| v["params"]["thread_id"].as_str().unwrap_or("").to_string())
+        .collect()
+}
+
 /// Two servers at once: each its own port, account, defaults, conversation
 /// unaddressed messages join, token policy and started gate.
 #[tokio::test]
@@ -186,6 +239,7 @@ async fn two_api_servers_run_at_once_each_with_its_own_account_and_rules() {
         BridgeDefaults {
             model: Some("sonnet".into()),
             account: Some(work.id.clone()),
+            account_only: true,
             ..Default::default()
         },
     )
@@ -302,6 +356,236 @@ async fn two_api_servers_run_at_once_each_with_its_own_account_and_rules() {
     assert!(!f.st.bridge.server("work").unwrap().is_running());
 }
 
+/// `accountOnly`: a server that runs as one account shows nothing of any
+/// other — not a conversation, an operation, an event or a runtime request —
+/// and refuses a request that names another account. Here the account is a
+/// token account, which shares the Default's directory: the hardest case.
+#[tokio::test]
+async fn an_account_only_server_shows_nothing_of_another_account() {
+    let f = boot().await;
+    let pro =
+        f.st.accounts
+            .add_token("Pro", Some(&Secret::new(TOKEN)), None)
+            .unwrap();
+    control::start(&f.st, BridgeDefaults::default())
+        .await
+        .unwrap();
+    let main = f.api("main");
+    control::add_server(
+        &f.st,
+        "Pro only",
+        Some(0),
+        BridgeDefaults {
+            account: Some(pro.id.clone()),
+            account_only: true,
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+    control::start_server(&f.st, "pro-only", None, TokenPolicy::Local)
+        .await
+        .unwrap();
+    let pro_api = f.api("pro-only");
+
+    let theirs = create(&main, json!({})).await;
+    let mine = create(&pro_api, json!({})).await;
+    assert_eq!(f.st.bridge.thread(&mine).await.unwrap().account, pro.id);
+    assert_eq!(
+        created(&mine)["env"]["tokenSha256"],
+        Secret::new(TOKEN).sha256_hex()
+    );
+
+    // Naming another account is refused; its own is fine.
+    for (path, body) in [
+        ("/threads", json!({ "account": "default" })),
+        ("/chat", json!({ "message": "hi", "account": "default" })),
+    ] {
+        let (s, v) = post(&format!("{pro_api}{path}"), body).await;
+        assert_eq!(s, StatusCode::FORBIDDEN, "{path}: {v}");
+        assert_eq!(v["error"]["code"], "account_not_served");
+    }
+    create(&pro_api, json!({ "account": pro.id })).await;
+
+    // Another account's conversation does not exist here, on every route
+    // that names one.
+    let routes: Vec<(&str, String, Value)> = vec![
+        ("GET", format!("/threads/{theirs}"), Value::Null),
+        ("GET", format!("/threads/{theirs}/messages"), Value::Null),
+        ("GET", format!("/threads/{theirs}/context"), Value::Null),
+        (
+            "POST",
+            format!("/threads/{theirs}/name"),
+            json!({ "name": "x" }),
+        ),
+        ("POST", format!("/threads/{theirs}/fork"), json!({})),
+        (
+            "POST",
+            format!("/threads/{theirs}/model"),
+            json!({ "model": null }),
+        ),
+        (
+            "POST",
+            format!("/threads/{theirs}/permission-mode"),
+            json!({ "permission_mode": "plan" }),
+        ),
+        (
+            "POST",
+            format!("/threads/{theirs}/turns"),
+            json!({ "input": "hi" }),
+        ),
+        (
+            "POST",
+            format!("/threads/{theirs}/run"),
+            json!({ "input": "hi" }),
+        ),
+        (
+            "POST",
+            format!("/threads/{theirs}/turns/t1/steer"),
+            json!({ "input": "hi" }),
+        ),
+        (
+            "POST",
+            format!("/threads/{theirs}/turns/t1/interrupt"),
+            json!({}),
+        ),
+        ("DELETE", format!("/threads/{theirs}"), Value::Null),
+        (
+            "POST",
+            "/chat".to_string(),
+            json!({ "message": "hi", "thread_id": theirs }),
+        ),
+        ("POST", "/threads".to_string(), json!({ "resume": theirs })),
+    ];
+    for (method, path, body) in &routes {
+        let body = (!body.is_null()).then(|| body.clone());
+        let (s, v) = call(method, &format!("{pro_api}{path}"), None, body.clone()).await;
+        assert_eq!(s, StatusCode::NOT_FOUND, "{method} {path}: {v}");
+        assert_eq!(v["error"]["code"], "thread_not_found", "{method} {path}");
+        // The same conversation through the main server is there.
+        if *method == "GET" {
+            assert_eq!(
+                call(method, &format!("{main}{path}"), None, body).await.0,
+                StatusCode::OK
+            );
+        }
+    }
+    let (s, _) = get(&format!("{pro_api}/threads/{mine}")).await;
+    assert_eq!(s, StatusCode::OK);
+
+    // The listing: only its account's, live and stored (the Default's
+    // directory is shared with the token account).
+    let ids = |v: &Value, key: &str, field: &str| -> Vec<String> {
+        v[key]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|t| t[field].as_str().unwrap().to_string())
+            .collect()
+    };
+    let (_, here) = get(&format!("{pro_api}/threads")).await;
+    assert!(ids(&here, "data", "thread_id").contains(&mine));
+    assert!(!ids(&here, "data", "thread_id").contains(&theirs));
+    assert!(ids(&here, "stored", "sessionId").contains(&mine));
+    assert!(
+        !ids(&here, "stored", "sessionId").contains(&theirs),
+        "{here}"
+    );
+    let (_, there) = get(&format!("{main}/threads")).await;
+    assert!(ids(&there, "data", "thread_id").contains(&theirs));
+    assert!(ids(&there, "data", "thread_id").contains(&mine));
+
+    // Operations of another account's turns.
+    let op = turn(&main, &theirs, "hello").await;
+    for path in [
+        format!("/operations/{op}"),
+        format!("/operations/{op}/events"),
+    ] {
+        let (s, v) = get(&format!("{pro_api}{path}")).await;
+        assert_eq!(s, StatusCode::NOT_FOUND, "{path}: {v}");
+        assert_eq!(v["error"]["code"], "operation_not_found");
+    }
+    assert_eq!(
+        get(&format!("{main}/operations/{op}")).await.0,
+        StatusCode::OK
+    );
+    let own = turn(&pro_api, &mine, "hello").await;
+    assert_eq!(
+        get(&format!("{pro_api}/operations/{own}")).await.0,
+        StatusCode::OK
+    );
+
+    // The event stream carries its account's conversations only.
+    let seen = event_threads(&pro_api).await;
+    assert!(seen.contains(&mine), "{seen:?}");
+    assert!(seen.iter().all(|t| *t == mine), "{seen:?}");
+    assert!(event_threads(&main).await.contains(&theirs));
+
+    // Runtime requests of another account's conversation: not listed, not
+    // answerable here; the main server answers it.
+    turn(&main, &theirs, "ASK first").await;
+    let rid = request_of(&main, &theirs).await;
+    let (_, listed) = get(&format!("{pro_api}/requests")).await;
+    assert!(
+        listed["data"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|r| r["request_id"] != rid),
+        "{listed}"
+    );
+    let (s, v) = post(
+        &format!("{pro_api}/requests/{rid}/respond"),
+        json!({ "decision": "allow" }),
+    )
+    .await;
+    assert_eq!(s, StatusCode::NOT_FOUND, "{v}");
+    assert_eq!(v["error"]["code"], "request_not_found");
+    turn(&pro_api, &mine, "ASK too").await;
+    let own_rid = request_of(&pro_api, &mine).await;
+    let (s, v) = post(
+        &format!("{pro_api}/requests/{own_rid}/respond"),
+        json!({ "decision": "allow" }),
+    )
+    .await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    let (s, _) = post(
+        &format!("{main}/requests/{rid}/respond"),
+        json!({ "decision": "allow" }),
+    )
+    .await;
+    assert_eq!(s, StatusCode::OK);
+
+    // Its sign-in is its account's; the main server's is the Default's.
+    let (_, auth) = get(&format!("{pro_api}/auth")).await;
+    assert_eq!(auth["account"]["id"], pro.id.as_str(), "{auth}");
+    assert!(auth["login_hint"]
+        .as_str()
+        .unwrap()
+        .contains("token account"));
+    assert!(get(&format!("{main}/auth"))
+        .await
+        .1
+        .get("account")
+        .is_none());
+
+    // It says which server it is and that it runs as one account only.
+    let (_, caps) = get(&format!("{pro_api}/capabilities")).await;
+    assert_eq!(caps["server"]["id"], "pro-only");
+    assert_eq!(caps["server"]["accountOnly"], true);
+    assert_eq!(caps["server"]["account"]["id"], pro.id.as_str());
+    let (_, meta) = get(&format!("{main}/metadata")).await;
+    assert_eq!(meta["server"]["id"], "main");
+    assert_eq!(meta["server"]["accountOnly"], false);
+
+    // An unaddressed message starts (and then joins) a conversation of its
+    // own account, never the main server's.
+    let (s, v) = post(&format!("{pro_api}/chat"), json!({ "message": "hi" })).await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    let joined = v["thread_id"].as_str().unwrap().to_string();
+    assert_eq!(f.st.bridge.thread(&joined).await.unwrap().account, pro.id);
+}
+
 /// The saved servers come back after a restart, as they were saved; "open to
 /// tunnels" never does.
 #[tokio::test]
@@ -318,6 +602,7 @@ async fn api_servers_are_saved_and_come_back() {
         model: Some("opus".into()),
         effort: Some("high".into()),
         account: Some(work.id.clone()),
+        account_only: true,
         ..Default::default()
     };
     control::add_server(&st, "Work", Some(0), defaults.clone())
@@ -392,6 +677,7 @@ async fn the_servers_prefix_gets_the_target_servers_rules() {
         Some(0),
         BridgeDefaults {
             account: Some(work.id.clone()),
+            account_only: true,
             ..Default::default()
         },
     )
@@ -412,10 +698,20 @@ async fn the_servers_prefix_gets_the_target_servers_rules() {
         assert_eq!(s, StatusCode::UNAUTHORIZED, "{base}: {v}");
         let (s, caps) = call("GET", &format!("{base}/capabilities"), Some(&script), None).await;
         assert_eq!(s, StatusCode::OK, "{base}");
+        assert_eq!(caps["server"]["id"], "work");
         assert_eq!(caps["auth"]["token_policy"], "required");
     }
 
-    // The conversations it makes are its, under its account.
+    // Its account: one only, and the conversations it makes are its.
+    let (s, v) = call(
+        "POST",
+        &format!("{via}/threads"),
+        Some(&script),
+        Some(json!({ "account": "default" })),
+    )
+    .await;
+    assert_eq!(s, StatusCode::FORBIDDEN, "{v}");
+    assert_eq!(v["error"]["code"], "account_not_served");
     let (s, v) = call(
         "POST",
         &format!("{via}/v1/threads"),
@@ -484,6 +780,7 @@ async fn the_servers_prefix_gets_the_target_servers_rules() {
     let (s, caps) = call("GET", &format!("{app_via}/capabilities"), Some(&desk), None).await;
     assert_eq!(s, StatusCode::OK);
     assert_eq!(caps["auth"]["require_token"], true);
+    assert_eq!(caps["server"]["id"], "work");
     // Never through a tunnel or proxy to it.
     let resp = reqwest::Client::new()
         .get(format!("{app_via}/capabilities"))
@@ -651,7 +948,7 @@ async fn the_dashboard_manages_api_servers() {
         "POST",
         &api("/servers"),
         Some(&script),
-        Some(json!({ "name": "Work", "defaults": { "account": work.id } })),
+        Some(json!({ "name": "Work", "defaults": { "account": work.id, "accountOnly": true } })),
     )
     .await;
     assert_eq!(s, StatusCode::CREATED, "{v}");
@@ -659,6 +956,7 @@ async fn the_dashboard_manages_api_servers() {
     assert_eq!(v["name"], "Work");
     assert_eq!(v["running"], false);
     assert_eq!(v["prefix"], "/servers/work");
+    assert_eq!(v["defaults"]["accountOnly"], true);
     assert!(v["port"].as_u64().unwrap() >= 5613, "{v}");
     assert!(v.get("accountMissing").is_none());
     let port = v["port"].as_u64().unwrap();
@@ -697,6 +995,11 @@ async fn the_dashboard_manages_api_servers() {
         ),
         (
             json!({ "name": "Nobody", "defaults": { "account": "acc_000000000000" } }),
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "invalid_field",
+        ),
+        (
+            json!({ "name": "Only", "defaults": { "accountOnly": true } }),
             StatusCode::UNPROCESSABLE_ENTITY,
             "invalid_field",
         ),
@@ -833,7 +1136,7 @@ async fn the_dashboard_manages_api_servers() {
         "POST",
         &api("/servers/work/start"),
         Some(&script),
-        Some(json!({ "defaults": { "account": "default" } })),
+        Some(json!({ "defaults": { "account": "default", "accountOnly": true } })),
     )
     .await;
     assert_eq!(s, StatusCode::OK, "{v}");
