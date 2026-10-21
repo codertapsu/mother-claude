@@ -41,6 +41,7 @@ import {
 } from './fixtures';
 import { MockBackend, MockRole, WebSocketLike, mockRole } from './mock-api';
 import { MockData } from './mock-data';
+import { MockMove } from './mock-move';
 import { MOCK_SERVERS, MockServers } from './mock-servers';
 import { urlParam } from '../platform';
 
@@ -113,22 +114,27 @@ class FixtureBackend implements MockBackend {
   private readonly accountReads = new Map<string, number>();
   /** Moves, copies, data jobs and backups (`/data/*`, `/backup*`). */
   private readonly data: MockData;
+  /** Storages and moving data anywhere (`items` moves, `/backup/storage*`). */
+  private readonly move: MockMove;
   /** API servers besides the main one (`/bridge/servers*`). */
   private readonly servers: MockServers;
 
   constructor(readonly role: MockRole) {
     const now = Date.now();
     this.fx = buildFixtures(now);
-    this.data = new MockData({
+    const host = {
       desktop: role === 'desktop',
+      role,
       sessions: () => [...this.fx.sessions, ...this.fx.history],
       accounts: () => this.fx.accounts.accounts,
-      accountOf: (id) => this.sessionAccounts.get(id) ?? DEFAULT_ACCOUNT,
-      reassign: (id, account) => {
+      accountOf: (id: string) => this.sessionAccounts.get(id) ?? DEFAULT_ACCOUNT,
+      reassign: (id: string, account: string) => {
         this.sessionAccounts.set(id, account);
         this.syncSessionAccounts(true);
       },
-    });
+    };
+    this.data = new MockData(host);
+    this.move = new MockMove(host, this.data);
     if (ACCOUNTS_MODE === '1' || ACCOUNTS_MODE === 'limit' || MOCK_SERVERS) {
       this.fx.accounts = buildAccounts(now, true);
       this.fx.accountUsage = buildAccountUsage(now);
@@ -234,7 +240,9 @@ class FixtureBackend implements MockBackend {
     // /me
     if (path === '/me') return json(this.me());
 
-    // Moves, copies, data jobs, backups
+    // Moves, copies, data jobs, backups, storages
+    const moved = await this.move.route(path, method, body, q);
+    if (moved) return moved;
     const data = this.data.route(path, method, body, q);
     if (data) return data;
 

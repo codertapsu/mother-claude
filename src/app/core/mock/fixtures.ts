@@ -64,6 +64,11 @@ export const MOCK_ACCOUNT_PRO = 'acc_9b02d3e6c1f8';
 export const MOCK_SESSION_ACCOUNTS: Readonly<Record<string, string>> = {
   's-auth': MOCK_ACCOUNT_PRO,
   's-haiku': MOCK_ACCOUNT_WORK,
+  // The analytics project runs under Work (its rule in `byProject`).
+  'h-1': MOCK_ACCOUNT_WORK,
+  'h-9': MOCK_ACCOUNT_WORK,
+  'h-17': MOCK_ACCOUNT_WORK,
+  'h-25': MOCK_ACCOUNT_WORK,
 };
 
 /** An account as `GET /accounts` reports it. */

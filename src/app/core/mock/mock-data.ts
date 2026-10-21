@@ -47,17 +47,17 @@ const M = 60 * S;
 const H = 60 * M;
 const D = 24 * H;
 const UNDO_KEEP = 7 * D;
-const HOST = 'marcus-mbp';
-const OTHER_HOST = 'marcus-air';
+export const HOST = 'marcus-mbp';
+export const OTHER_HOST = 'marcus-air';
 /** The machines' per-install ids (sets tell them apart by these). */
-const THIS_MACHINE = '9f3c2a7e5b1d4c6f8a0b2c4d6e8f0a1b';
+export const THIS_MACHINE = '9f3c2a7e5b1d4c6f8a0b2c4d6e8f0a1b';
 const OTHER_MACHINE = '4e6a8c0e2a4c6e8a0c2e4a6c8e0a2c4e';
 /** The demo's sessions another Mac changed: one newer in the set, one
  * changed on both (a backup reports them; a pull brings them). */
 const NEWER_IN_SET = 'c4a2e3f5-6a7b-4c8d-9e0f-1a2b3c4d5e6f';
 const CONFLICTED = 'd5b3f4a6-7b8c-4d9e-0f1a-2b3c4d5e6f7a';
 const ICLOUD = '/Users/marcus/Library/Mobile Documents/com~apple~CloudDocs/Mother Claude';
-const GDRIVE =
+export const GDRIVE =
   '/Users/marcus/Library/CloudStorage/GoogleDrive-marcus@example.com/My Drive/Mother Claude';
 const DATA_DIR = '/Users/marcus/Library/Application Support/dev.motherclaude.desktop';
 const PASS_ALPHABET = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ';
@@ -105,8 +105,14 @@ interface TransferUndo {
   before: Map<string, string>;
 }
 
+/** The places a job names. */
+export type JobNames = Pick<
+  JobView,
+  'account' | 'from' | 'to' | 'fromStorage' | 'toStorage' | 'set'
+>;
+
 /** What a job ends with: a result, or the refusal it failed with. */
-interface JobEnd {
+export interface JobEnd {
   result?: unknown;
   sessions?: string[];
   undo?: boolean;
@@ -232,6 +238,31 @@ export class MockData {
   /** "Continue on" a directory account copies the conversation first (P3.3). */
   copyForContinue(sessionId: string, to: string): void {
     this.copyTo(sessionId, this.homeId(to));
+  }
+
+  /** `account`'s directory has a copy of the session (Move data's mock). */
+  hasCopy(sessionId: string, account: string): boolean {
+    return !!this.copies.get(sessionId)?.has(this.homeId(account));
+  }
+
+  dropCopy(sessionId: string, account: string): void {
+    this.copies.get(sessionId)?.delete(this.homeId(account));
+  }
+
+  /** A data job of Move data's mock (`mock-move.ts`): it makes progress for
+   * `ms`, then ends the way `done` says. */
+  runJob(
+    kind: DataJobKind,
+    names: JobNames,
+    files: number,
+    bytes: number,
+    sessions: string[],
+    ms: number,
+    done: () => JobEnd,
+  ): JobView {
+    const job = this.start(this.newJobId(), kind, files, bytes, sessions, names);
+    this.progress(job.id, ms, done);
+    return job;
   }
 
   // ─────────────────────────────────────────────── Moving and copying
@@ -948,7 +979,7 @@ export class MockData {
     files: number,
     bytes: number,
     sessions: string[],
-    names: Pick<JobView, 'account' | 'from' | 'to'> = {},
+    names: JobNames = {},
   ): JobView {
     const job: JobView = {
       id,
