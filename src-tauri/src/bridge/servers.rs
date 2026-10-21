@@ -10,9 +10,11 @@
 //! None listens until it is started; whether a start opens it to tunnels is
 //! chosen at that start and never saved.
 //!
-//! Each entry point names its server with a [`Mount`] — and the port a
-//! request arrived on — and the request's [`MountPolicy`] is resolved from
-//! it.
+//! Every server is also reachable through the main ones — `/servers/<id>/`
+//! and `/servers/<id>/v1/` on the main API port, `/servers/<id>/v1/` on the
+//! main app port (a token always) — with the target's rules: a [`Mount`]
+//! names the server and the port a request arrived on, and the request's
+//! [`MountPolicy`] is resolved from it.
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU16, Ordering};

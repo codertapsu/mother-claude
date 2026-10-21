@@ -28,7 +28,11 @@
 //! That is the **main** API server. Others can be added, each with its own
 //! loopback port, defaults, conversation that unaddressed messages join,
 //! token policy and started gate
-//! ([`servers`], docs/ACCOUNTS.md §13.5). Conversations are one store, served
+//! ([`servers`], docs/ACCOUNTS.md §13.5). Every server is also reachable
+//! through the main ones: `/servers/<id>/` and `/servers/<id>/v1/` on the
+//! main API port, `/servers/<id>/v1/` on the main app port (a token always),
+//! each with the target server's rules while the port a request arrived on
+//! decides whether a tunnel points at it. Conversations are one store, served
 //! by one Node host.
 
 pub mod assets;
@@ -48,7 +52,7 @@ use std::sync::Arc;
 
 use axum::extract::DefaultBodyLimit;
 use axum::response::IntoResponse;
-use axum::routing::{delete, get, post};
+use axum::routing::{any, delete, get, post};
 use axum::Router;
 use serde::Serialize;
 use serde_json::Value;
@@ -936,15 +940,18 @@ fn api_port_cors(config: &BridgeConfig) -> tower_http::cors::CorsLayer {
 /// The main server's dedicated loopback port under a fixed token policy, with
 /// no port to watch for tunnels (a tunnel to any API port counts): the same
 /// routes at `/` (so `http://127.0.0.1:5612/threads` works) and under `/v1`
-/// (so one client base URL works against either listener). Tests and
-/// embedders; the app serves [`server_listener_router`].
+/// (so one client base URL works against either listener), and every other
+/// server under `/servers/<id>/`. Tests and embedders; the app serves
+/// [`server_listener_router`].
 pub fn listener_router(state: AppState, token: TokenPolicy) -> Router {
     port_router(state, Mount::new(MAIN_ID, Some(token), None))
 }
 
 /// The app an API server's own loopback port serves: its routes at `/` and
-/// `/v1` under its own run's token policy (docs/ACCOUNTS.md §13.5). `port` is
-/// the one bound.
+/// `/v1` under its own run's token policy, and on the main server's port
+/// every server under `/servers/<id>/` and `/servers/<id>/v1/` with that
+/// server's rules (docs/ACCOUNTS.md §13.5). `port` is the one bound: a
+/// tunnel to it switches its tokenless mode off.
 ///
 /// Loopback only, always: the bridge can drive a coding agent with filesystem
 /// write access, and its tokenless mode must never be reachable from the
@@ -955,12 +962,143 @@ pub fn server_listener_router(state: AppState, server: &str, port: u16) -> Route
 
 fn port_router(state: AppState, mount: Mount) -> Router {
     let cors = api_port_cors(&state.bridge.config);
-    let app = Router::new()
+    let mut app = Router::new()
         .merge(mount_routes(state.clone(), mount.clone()))
-        .nest("/v1", mount_routes(state.clone(), mount.clone()))
-        .layer(cors)
-        .with_state(state.clone());
+        .nest("/v1", mount_routes(state.clone(), mount.clone()));
+    if mount.server == MAIN_ID {
+        app = app.merge(port_prefixes(state.clone(), mount.port));
+    }
+    let app = app.layer(cors).with_state(state.clone());
     crate::server::context::layer(app, state, crate::server::context::Ingress::BridgeLoopback)
+}
+
+/// `/servers/<id>/…` and `/servers/<id>/v1/…` on the main API port: one
+/// tunnel to it reaches every server, each with its own rules — token
+/// policy, account, whether it is started — while `port`, the port the
+/// request arrived on, decides whether a tunnel points at it.
+fn port_prefixes(state: AppState, port: Option<u16>) -> Router<AppState> {
+    let inner: Router = Router::new()
+        .merge(routes(state.clone()))
+        .nest("/v1", routes(state.clone()))
+        .with_state(state.clone());
+    prefixes(
+        state,
+        inner,
+        None,
+        port,
+        &[
+            "/servers/{server}",
+            "/servers/{server}/",
+            "/servers/{server}/{*rest}",
+        ],
+    )
+}
+
+/// `/servers/<id>/v1/…` on the main app port (and so on its LAN mount): a
+/// token always, as on `/v1` there; the target server's account and started
+/// gate. Not on the tunnel listener, which serves no bridge at all.
+pub fn app_prefixes(state: AppState) -> Router<AppState> {
+    let inner: Router = Router::new()
+        .nest("/v1", routes(state.clone()))
+        .fallback(not_found)
+        .with_state(state.clone());
+    prefixes(
+        state,
+        inner,
+        Some(TokenPolicy::Required),
+        None,
+        &[
+            "/servers/{server}/v1",
+            "/servers/{server}/v1/",
+            "/servers/{server}/v1/{*rest}",
+        ],
+    )
+}
+
+fn prefixes(
+    state: AppState,
+    inner: Router,
+    token: Option<TokenPolicy>,
+    port: Option<u16>,
+    paths: &[&str],
+) -> Router<AppState> {
+    let handler = move |req: axum::extract::Request| {
+        let (state, inner) = (state.clone(), inner.clone());
+        async move { dispatch(state, inner, token, port, req).await }
+    };
+    paths.iter().fold(Router::new(), |router, path| {
+        router.route(path, any(handler.clone()))
+    })
+}
+
+fn copy_extension<T: Clone + Send + Sync + 'static>(
+    from: &axum::http::Extensions,
+    to: &mut axum::http::Extensions,
+) {
+    if let Some(value) = from.get::<T>() {
+        to.insert(value.clone());
+    }
+}
+
+/// Serve a `/servers/<id>/…` request: the rest of its path, on `inner`, for
+/// the server `<id>` (`404 server_not_found` when there is none).
+async fn dispatch(
+    state: AppState,
+    mut inner: Router,
+    token: Option<TokenPolicy>,
+    port: Option<u16>,
+    req: axum::extract::Request,
+) -> axum::response::Response {
+    let (mut parts, body) = req.into_parts();
+    let path = parts.uri.path().to_string();
+    let rest = path.strip_prefix("/servers/").unwrap_or_default();
+    let (id, tail) = match rest.find('/') {
+        Some(i) => (&rest[..i], &rest[i..]),
+        None => (rest, "/"),
+    };
+    if state.bridge.server(id).is_none() {
+        return servers::server_not_found(id).into_response();
+    }
+    let target = match parts.uri.query() {
+        Some(query) => format!("{tail}?{query}"),
+        None => tail.to_string(),
+    };
+    let Ok(uri) = target.parse::<axum::http::Uri>() else {
+        return error::BridgeError::not_found("not_found", format!("No such endpoint: {path}"))
+            .into_response();
+    };
+    // Fresh extensions: the outer route's path parameters must never reach
+    // the inner routes' extractors. What the request carried about its
+    // caller goes along, and its original URI (the OpenAPI document names it).
+    let mut extensions = axum::http::Extensions::new();
+    copy_extension::<crate::server::context::ClientContext>(&parts.extensions, &mut extensions);
+    copy_extension::<AppState>(&parts.extensions, &mut extensions);
+    copy_extension::<axum::extract::ConnectInfo<std::net::SocketAddr>>(
+        &parts.extensions,
+        &mut extensions,
+    );
+    copy_extension::<crate::server::context::Ingress>(&parts.extensions, &mut extensions);
+    let original = parts
+        .extensions
+        .get::<axum::extract::OriginalUri>()
+        .cloned()
+        .unwrap_or_else(|| axum::extract::OriginalUri(parts.uri.clone()));
+    extensions.insert(original);
+    extensions.insert(Mount::new(id, token, port));
+    parts.uri = uri;
+    parts.extensions = extensions;
+    let req = axum::extract::Request::from_parts(parts, body);
+    if let Err(never) = std::future::poll_fn(|cx| {
+        tower::Service::<axum::extract::Request>::poll_ready(&mut inner, cx)
+    })
+    .await
+    {
+        match never {}
+    }
+    match tower::Service::<axum::extract::Request>::call(&mut inner, req).await {
+        Ok(response) => response,
+        Err(never) => match never {},
+    }
 }
 
 /// Find a stored conversation by id, reading `~/.claude` through the adapter.

@@ -676,6 +676,7 @@ fn is_auth_path(path: &str) -> bool {
         || path == "/api"
         || path.starts_with("/hooks/")
         || path.starts_with("/v1")
+        || path.starts_with("/servers/")
 }
 
 /// Build the [`ClientContext`] for a request, resolve its credential into a

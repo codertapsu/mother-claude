@@ -125,6 +125,24 @@ pub fn csp_for(state: Option<&AppState>) -> String {
     format!("{CSP_BASE}; connect-src {}", connect.join(" "))
 }
 
+/// The bundled reference or console of an API server: under `/v1`, or under
+/// `/servers/<id>/v1` (docs/ACCOUNTS.md §13.5).
+fn is_bridge_page(path: &str) -> bool {
+    let rest = match path.strip_prefix("/servers/") {
+        Some(rest) => match rest.split_once('/') {
+            Some((_, tail)) => tail,
+            None => return false,
+        },
+        None => path.trim_start_matches('/'),
+    };
+    rest.starts_with("v1/docs") || rest.starts_with("v1/example")
+}
+
+/// A path that reaches an API server: `/v1…` or `/servers/…`.
+fn is_bridge_path(path: &str) -> bool {
+    path == "/v1" || path.starts_with("/v1/") || path.starts_with("/servers/")
+}
+
 fn set_if_absent(resp: &mut Response, name: HeaderName, value: &str) {
     if resp.headers().contains_key(&name) {
         return;
@@ -143,7 +161,7 @@ async fn security_headers(req: Request, next: Next) -> Response {
     let mut resp = next.run(req).await;
 
     let is_api = path.starts_with("/api/") || path == "/api" || path == "/ws";
-    let is_bridge_page = path.starts_with("/v1/docs") || path.starts_with("/v1/example");
+    let is_bridge_page = is_bridge_page(&path);
     let csp = if is_bridge_page {
         CSP_BRIDGE_PAGES.to_string()
     } else {
@@ -210,7 +228,7 @@ async fn route_policy(ingress: Ingress, req: Request, next: Next) -> Response {
     }
     if ctx.is_tunneled() {
         let path = req.uri().path();
-        if path == "/v1" || path.starts_with("/v1/") || path.starts_with("/hooks/") {
+        if is_bridge_path(path) || path.starts_with("/hooks/") {
             return ApiError::not_found(
                 "not_found",
                 "This endpoint is not available through a tunnel or proxy.",
@@ -302,6 +320,36 @@ mod tests {
         assert!(csp.ends_with("connect-src 'self'"));
         assert!(!csp.contains("ws:"));
         assert!(!csp.contains("wss:"), "no scheme-wide websocket allowance");
+    }
+
+    #[test]
+    fn every_api_servers_pages_get_the_bridge_policy() {
+        for page in [
+            "/v1/docs/",
+            "/v1/example/app.js",
+            "/servers/work/v1/docs/",
+            "/servers/work/v1/example/",
+        ] {
+            assert!(is_bridge_page(page), "{page}");
+        }
+        for other in [
+            "/",
+            "/docs/",
+            "/servers/work",
+            "/servers/v1/docs",
+            "/api/v1/docs",
+        ] {
+            assert!(!is_bridge_page(other), "{other}");
+        }
+        for bridge in [
+            "/v1",
+            "/v1/threads",
+            "/servers/work/v1/threads",
+            "/servers/x",
+        ] {
+            assert!(is_bridge_path(bridge), "{bridge}");
+        }
+        assert!(!is_bridge_path("/v10") && !is_bridge_path("/api/servers/x"));
     }
 
     #[test]

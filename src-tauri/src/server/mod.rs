@@ -75,8 +75,9 @@ pub async fn no_frontend() -> impl IntoResponse {
 /// * `/ws` — WebSocket v2 (authenticates itself);
 /// * `/hooks/event`, `/hooks/wait` — the hook plugin (Hook principal; not on
 ///   the tunnel ingress);
-/// * `/v1` — the Claude HTTP bridge, token always required here (not on the
-///   tunnel ingress);
+/// * `/v1` — the Claude HTTP bridge's main server, and `/servers/<id>/v1` —
+///   every other API server (docs/ACCOUNTS.md §13.5), token always required
+///   here (not on the tunnel ingress);
 /// * everything else — the SPA (no auth, so a phone can load the app and
 ///   then pair).
 pub fn router_for(state: AppState, ingress: Ingress) -> Router {
@@ -101,7 +102,10 @@ pub fn router_for(state: AppState, ingress: Ingress) -> Router {
             .nest(
                 "/v1",
                 crate::bridge::router(state.clone(), crate::bridge::TokenPolicy::Required),
-            );
+            )
+            // Every other API server, with its own account and started gate,
+            // under the same token-always rule.
+            .merge(crate::bridge::app_prefixes(state.clone()));
     }
     let app = match resolve_web_dir() {
         Some(dir) => {

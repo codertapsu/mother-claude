@@ -88,9 +88,12 @@ fn example_file(path: &str) -> Option<(&'static str, &'static str)> {
 /// Both pages reference their assets relatively (`swagger-ui.css`, `app.js`),
 /// so serving them at `/docs` makes the browser resolve every one against `/`
 /// — the reference renders unstyled and scriptless, and the console does not
-/// load at all. The redirect is the whole fix, and it has to use the request's
-/// own path so it works identically under the `/v1` mount.
-pub async fn redirect_to_slash(uri: axum::http::Uri) -> Response {
+/// load at all. The redirect is the whole fix, and it has to use the path the
+/// request was sent to — not the one a mount stripped its prefix from — so it
+/// works identically under `/v1` and `/servers/<id>/`.
+pub async fn redirect_to_slash(
+    axum::extract::OriginalUri(uri): axum::extract::OriginalUri,
+) -> Response {
     let target = format!("{}/", uri.path());
     axum::response::Redirect::permanent(&target).into_response()
 }

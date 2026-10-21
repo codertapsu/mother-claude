@@ -371,8 +371,175 @@ async fn api_servers_are_saved_and_come_back() {
     assert!(!text.contains("\"main\""), "{text}");
 }
 
+/// `/servers/<id>` on the main API port and on the main app port: the target
+/// server's rules — its token policy, its account, whether it is started —
+/// and on the main app port a token always, never through a tunnel.
+#[tokio::test]
+async fn the_servers_prefix_gets_the_target_servers_rules() {
+    use tower::ServiceExt as _;
+    let f = boot().await;
+    let work =
+        f.st.accounts
+            .add_directory("Work", &f.work_dir(), None)
+            .unwrap();
+    control::start(&f.st, BridgeDefaults::default())
+        .await
+        .unwrap();
+    let main = f.api("main");
+    control::add_server(
+        &f.st,
+        "Work",
+        Some(0),
+        BridgeDefaults {
+            account: Some(work.id.clone()),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+    control::start_server(&f.st, "work", None, TokenPolicy::Required)
+        .await
+        .unwrap();
+    let script = f.st.auth.script_token.clone();
+    let desk = f.st.auth.token.clone();
+    let via = format!("{main}/servers/work");
+
+    // Its token policy: Work wants a token, the main port it came through
+    // does not.
+    assert_eq!(get(&format!("{main}/capabilities")).await.0, StatusCode::OK);
+    for base in [via.clone(), format!("{via}/v1")] {
+        let (s, v) = get(&format!("{base}/capabilities")).await;
+        assert_eq!(s, StatusCode::UNAUTHORIZED, "{base}: {v}");
+        let (s, caps) = call("GET", &format!("{base}/capabilities"), Some(&script), None).await;
+        assert_eq!(s, StatusCode::OK, "{base}");
+        assert_eq!(caps["auth"]["token_policy"], "required");
+    }
+
+    // The conversations it makes are its, under its account.
+    let (s, v) = call(
+        "POST",
+        &format!("{via}/v1/threads"),
+        Some(&script),
+        Some(json!({})),
+    )
+    .await;
+    assert_eq!(s, StatusCode::CREATED, "{v}");
+    let made =
+        f.st.bridge
+            .thread(v["thread_id"].as_str().unwrap())
+            .await
+            .unwrap();
+    assert_eq!(
+        (made.server.as_str(), made.account.as_str()),
+        ("work", work.id.as_str())
+    );
+
+    // The document names the base it came through; the pages redirect within it.
+    for (base, server) in [
+        (via.clone(), "/servers/work"),
+        (format!("{via}/v1"), "/servers/work/v1"),
+    ] {
+        let (_, doc) = get(&format!("{base}/openapi.json")).await;
+        assert_eq!(doc["servers"][0]["url"], server);
+        assert_eq!(doc["x-bridge-require-token"], true);
+    }
+    let no_redirect = reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .unwrap();
+    for (url, to) in [
+        (format!("{via}/docs"), "/servers/work/docs/"),
+        (format!("{via}/v1/example"), "/servers/work/v1/example/"),
+        (format!("{main}/v1/docs"), "/v1/docs/"),
+    ] {
+        let resp = no_redirect.get(&url).send().await.unwrap();
+        assert_eq!(resp.status(), StatusCode::PERMANENT_REDIRECT, "{url}");
+        assert_eq!(resp.headers()["location"], to, "{url}");
+    }
+
+    // A server that is not there.
+    let (s, v) = get(&format!("{main}/servers/nope/threads")).await;
+    assert_eq!(s, StatusCode::NOT_FOUND, "{v}");
+    assert_eq!(v["error"]["code"], "server_not_found");
+
+    // Whether it is started: stopped, its routes are gated, discovery is not.
+    control::stop_server(&f.st, "work").await.unwrap();
+    let (s, v) = call("GET", &format!("{via}/threads"), Some(&script), None).await;
+    assert_eq!(s, StatusCode::SERVICE_UNAVAILABLE, "{v}");
+    assert_eq!(v["error"]["code"], "bridge_not_started");
+    assert!(v["error"]["message"].as_str().unwrap().contains("\"Work\""));
+    let (s, _) = call("GET", &format!("{via}/health"), Some(&script), None).await;
+    assert_eq!(s, StatusCode::OK);
+    // Started again tokenless: so it is through the prefix too.
+    control::start_server(&f.st, "work", None, TokenPolicy::Local)
+        .await
+        .unwrap();
+    assert_eq!(get(&format!("{via}/threads")).await.0, StatusCode::OK);
+
+    // The main app port: `/servers/<id>/v1`, and a token always — even for a
+    // server that wants none on its own port.
+    let app_via = format!("{}/servers/work/v1", f.app);
+    let (s, _) = get(&format!("{app_via}/capabilities")).await;
+    assert_eq!(s, StatusCode::UNAUTHORIZED);
+    let (s, caps) = call("GET", &format!("{app_via}/capabilities"), Some(&desk), None).await;
+    assert_eq!(s, StatusCode::OK);
+    assert_eq!(caps["auth"]["require_token"], true);
+    // Never through a tunnel or proxy to it.
+    let resp = reqwest::Client::new()
+        .get(format!("{app_via}/capabilities"))
+        .bearer_auth(&desk)
+        .header("x-forwarded-for", "203.0.113.9")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+    // The tunnel listener serves no API server at all.
+    let tunnel = serve(mother_claude_lib::server::router_for(
+        f.st.clone(),
+        mother_claude_lib::server::Ingress::Tunnel,
+    ))
+    .await;
+    let resp = reqwest::Client::new()
+        .get(format!("{tunnel}/servers/work/v1/capabilities"))
+        .header("x-forwarded-proto", "https")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+
+    // The LAN mount: a paired phone's token, from a private address.
+    let lan = mother_claude_lib::server::router_for(
+        f.st.clone(),
+        mother_claude_lib::server::Ingress::Lan,
+    );
+    let (_, phone) = f.st.devices.issue(
+        "Phone",
+        "ios",
+        None,
+        mother_claude_lib::server::Ingress::Lan,
+        "192.168.1.9".parse().unwrap(),
+    );
+    let ask = |token: Option<String>| {
+        let mut req = axum::http::Request::get("/servers/work/v1/capabilities")
+            .header("host", "192.168.1.5:6725");
+        if let Some(t) = token {
+            req = req.header("authorization", format!("Bearer {t}"));
+        }
+        let mut req = req.body(axum::body::Body::empty()).unwrap();
+        req.extensions_mut()
+            .insert(axum::extract::ConnectInfo(SocketAddr::from((
+                [192, 168, 1, 9],
+                50000,
+            ))));
+        lan.clone().oneshot(req)
+    };
+    assert_eq!(ask(None).await.unwrap().status(), StatusCode::UNAUTHORIZED);
+    assert_eq!(ask(Some(phone)).await.unwrap().status(), StatusCode::OK);
+}
+
 /// Tunnel detection tracks every server's port: a tunnel to one turns off
-/// only that port's tokenless mode.
+/// only that port's tokenless mode, and a request through `/servers/<id>` is
+/// judged by the port it arrived on.
 #[tokio::test]
 async fn a_tunnel_to_one_servers_port_closes_only_that_port() {
     use mother_claude_lib::server::remote::{target_of, DetectedTunnel};
@@ -418,6 +585,12 @@ async fn a_tunnel_to_one_servers_port_closes_only_that_port() {
     assert_eq!(s, StatusCode::UNAUTHORIZED, "{v}");
     assert_eq!(code(&v), "bridge_exposed_requires_token");
     assert_eq!(get(&format!("{main}/threads")).await.0, StatusCode::OK);
+    // …and Work through the main port, which no tunnel points at, keeps its
+    // tokenless mode for this machine.
+    assert_eq!(
+        get(&format!("{main}/servers/work/threads")).await.0,
+        StatusCode::OK
+    );
 
     // The API screen and the Remote page name it.
     let (_, status) = call("GET", &format!("{}/api/bridge", f.app), Some(&desk), None).await;
@@ -437,15 +610,26 @@ async fn a_tunnel_to_one_servers_port_closes_only_that_port() {
     assert!(warnings.contains("the API server"), "{warnings}");
     assert!(warnings.contains("Work"), "{warnings}");
 
-    // A tunnel to the main port instead: the main port needs a token; Work's
-    // own port does not.
+    // A tunnel to the main port instead: the main port, and everything
+    // through it, needs a token; Work's own port does not.
     f.st.remote
         .set_detected(vec![tunnel(main_port, None)], f.st.bridge.server_ports());
-    let (s, v) = get(&format!("{main}/threads")).await;
-    assert_eq!(s, StatusCode::UNAUTHORIZED, "{v}");
-    assert_eq!(code(&v), "bridge_exposed_requires_token");
+    for url in [
+        format!("{main}/threads"),
+        format!("{main}/servers/work/threads"),
+    ] {
+        let (s, v) = get(&url).await;
+        assert_eq!(s, StatusCode::UNAUTHORIZED, "{url}: {v}");
+        assert_eq!(code(&v), "bridge_exposed_requires_token");
+    }
     assert_eq!(get(&format!("{work_api}/threads")).await.0, StatusCode::OK);
-    let (s, _) = call("GET", &format!("{main}/threads"), Some(&desk), None).await;
+    let (s, _) = call(
+        "GET",
+        &format!("{main}/servers/work/threads"),
+        Some(&desk),
+        None,
+    )
+    .await;
     assert_eq!(s, StatusCode::OK, "a token still works");
 }
 
