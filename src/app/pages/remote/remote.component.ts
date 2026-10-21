@@ -12,9 +12,11 @@ import { FormsModule } from '@angular/forms';
 import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
 import { RouterLink } from '@angular/router';
 
+import { MAIN_SERVER, RemoteServer, remoteServers, tunnelServer } from '../../core/api-servers';
 import { ApiError, ApiService, errorMessage } from '../../core/api.service';
 import { AuthService } from '../../core/auth.service';
 import {
+  DetectedTunnel,
   DeviceInfo,
   ForeignControlStatus,
   PairCode,
@@ -135,6 +137,28 @@ export class RemoteComponent {
   );
   protected readonly idleDays = signal<number | null>(null);
 
+  /** The API servers (main first), while one besides the main one exists:
+   * a tunnel to one of their ports names it (docs/ACCOUNTS.md §13.5). */
+  protected readonly apiServers = computed(() => remoteServers(this.remote()));
+  /** Servers besides the main one that a tunnel points at. */
+  protected readonly exposedServers = computed(() =>
+    this.apiServers().filter((s) => s.exposed && s.id !== MAIN_SERVER),
+  );
+  /** A tunnel points at the main API port (its own flag while it is the
+   * only server, its entry's otherwise). */
+  protected readonly mainExposed = computed(() => {
+    const main = this.apiServers().find((s) => s.id === MAIN_SERVER);
+    return main ? main.exposed : !!this.remote()?.bridge.exposed;
+  });
+  /** "Main: running, port 5612 · Work: stopped, port 5613". */
+  protected readonly serversLine = computed(() =>
+    this.apiServers()
+      .map(
+        (s) => `${s.name}: ${s.running ? 'running' : 'stopped'}${s.port ? `, port ${s.port}` : ''}`,
+      )
+      .join(' · '),
+  );
+
   constructor() {
     const destroyRef = inject(DestroyRef);
     const subs = [
@@ -243,6 +267,11 @@ export class RemoteComponent {
 
   protected providerLabel(p: string): string {
     return PROVIDER_LABELS[p] ?? p;
+  }
+
+  /** The API server a detected tunnel points at, if any. */
+  protected serverOf(t: DetectedTunnel): RemoteServer | null {
+    return tunnelServer(t, this.apiServers());
   }
 
   // ───────────────────────────────────────────────────────────── Devices

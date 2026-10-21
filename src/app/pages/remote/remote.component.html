@@ -231,6 +231,11 @@
                 @if (t.upstream) {
                   <span class="muted small">→ {{ t.upstream }}</span>
                 }
+                @if (serverOf(t); as srv) {
+                  <a class="small api-server" routerLink="/api" [queryParams]="{ server: srv.id }"
+                    >API server {{ srv.name }}</a
+                  >
+                }
                 @if (t.inspect) {
                   <span class="badge warn" title="ngrok's inspector records request bodies"
                     >inspector on</span
@@ -329,15 +334,34 @@
             </span>
           </label>
 
-          @if (r.bridge.exposed) {
+          @for (srv of exposedServers(); track srv.id) {
             <p class="notice error small" role="alert">
-              A tunnel points at the HTTP API port {{ r.bridge.port }}: its tokenless access is
-              switched off until that tunnel stops. Stop it unless you meant to publish the API.
+              A tunnel points at the API server
+              <a routerLink="/api" [queryParams]="{ server: srv.id }">{{ srv.name }}</a
+              >{{ srv.port ? ' (port ' + srv.port + ')' : '' }}: its tokenless access is switched
+              off until that tunnel stops. Stop it unless you meant to publish that API.
             </p>
-          } @else {
+          }
+          @if (mainExposed()) {
+            <p class="notice error small" role="alert">
+              A tunnel points at the
+              @if (apiServers().length) {
+                main API server's
+              } @else {
+                HTTP API
+              }
+              port {{ r.bridge.port }}: its tokenless access is switched off until that tunnel
+              stops. Stop it unless you meant to publish the API.
+            </p>
+          } @else if (!exposedServers().length) {
             <p class="muted small bridge">
-              HTTP API ({{ r.bridge.running ? 'running' : 'stopped' }}, port {{ r.bridge.port }})
-              stays on this computer — the tunnel port never serves it.
+              @if (apiServers().length) {
+                API servers ({{ serversLine() }}) stay on this computer — the tunnel port never
+                serves them.
+              } @else {
+                HTTP API ({{ r.bridge.running ? 'running' : 'stopped' }}, port {{ r.bridge.port }})
+                stays on this computer — the tunnel port never serves it.
+              }
               <a routerLink="/api">API settings</a>
             </p>
           }
