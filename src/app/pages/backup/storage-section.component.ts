@@ -167,7 +167,14 @@ interface StoreRow {
                 }
               </li>
             } @empty {
-              <li class="muted small none">No sets in it yet.</li>
+              <li class="muted small none">
+                @if (r.store.available) {
+                  No sets in it yet.
+                } @else {
+                  Its folder is not there now — an unplugged disk, or a cloud folder that is signed
+                  out? Its sets show again when it is back.
+                }
+              </li>
             }
           </ul>
         </div>

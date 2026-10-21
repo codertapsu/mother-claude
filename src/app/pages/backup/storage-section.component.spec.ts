@@ -118,6 +118,17 @@ describe('StorageSectionComponent', () => {
     expect(button(stores[1], 'Rename')).toBeDefined();
   });
 
+  it('says when a storage is not there now', async () => {
+    current = view();
+    current.storage[1] = { ...current.storage[1], available: false, sets: [] };
+    const el = await render();
+    const drive = [...el.querySelectorAll('.store')][1];
+    expect(text(drive.querySelector('.badge'))).toBe('Not available');
+    expect(text(drive.querySelector('.stsets'))).toContain('Its folder is not there now');
+    expect(text(drive.querySelector('.stsets'))).not.toContain('No sets in it yet');
+    expect(button(drive, 'New set')).toBeUndefined();
+  });
+
   it('adds a storage from a typed path, with a label', async () => {
     backend.routes.set('/backup/storage', () => {
       current = view([

@@ -532,5 +532,30 @@ describe('move data helpers', () => {
     expect(moveErrorText(new ApiError('nope', 403, 'http', 'dangerous_blocked'))).toContain(
       'Remote › Devices',
     );
+    expect(
+      moveErrorText(
+        new ApiError(
+          '/x/work/store is inside (or around) the directory of account "Work"',
+          422,
+          'http',
+          'invalid_storage',
+        ),
+      ),
+    ).toBe(
+      'That folder can\'t be a storage: /x/work/store is inside (or around) the directory of account "Work".',
+    );
+    expect(
+      moveErrorText(
+        new ApiError(
+          'the storage Drive is not available: its folder is missing',
+          409,
+          'http',
+          'storage_unavailable',
+        ),
+      ),
+    ).toBe('The storage Drive is not available: its folder is missing.');
+    expect(moveErrorText(new ApiError('', 404, 'http', 'storage_not_found'))).toBe(
+      'That storage is no longer there.',
+    );
   });
 });

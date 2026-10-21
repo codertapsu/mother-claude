@@ -981,11 +981,25 @@ export function moveResultSummary(job: JobView): string | null {
 
 // ────────────────────────────────────────────────────────────── Errors
 
-/** A refusal of a move, copy or storage change, in words: the backup
- * codes for a storage, the transfer codes, and the rest. */
+/** What a storage's refusals mean, when the server says nothing. */
+const STORAGE_TEXT: Record<string, string> = {
+  invalid_storage: "That folder can't be a storage.",
+  storage_unavailable:
+    "That storage's folder is not there now: an unplugged disk, or a cloud folder that is signed out?",
+  storage_not_found: 'That storage is no longer there.',
+};
+
+/** A refusal of a move, copy or storage change, in words: the storage and
+ * backup codes, the transfer codes, and the rest. */
 export function moveErrorText(e: unknown): string {
   if (e instanceof ApiError && e.code === 'no_passphrase') {
     return 'Set a backup passphrase first: every storage opens with it.';
+  }
+  if (e instanceof ApiError && e.code && e.code in STORAGE_TEXT) {
+    const why = e.message.trim().replace(/\.$/, '');
+    // The server's reason names the folder: said after ours, as it is.
+    if (e.code === 'invalid_storage' && why) return `${STORAGE_TEXT[e.code].slice(0, -1)}: ${why}.`;
+    return sentence(why) || STORAGE_TEXT[e.code];
   }
   return backupErrorText(e);
 }
