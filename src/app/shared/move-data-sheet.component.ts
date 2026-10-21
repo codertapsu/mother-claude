@@ -900,11 +900,14 @@ export class MoveDataSheetComponent {
     if (key === this.fromKey()) return;
     this.fromKey.set(key);
     this.error.set('');
-    // What was ticked belongs to the old place.
-    if (key !== '') {
-      this.pickedSessions.set(new Set());
-      this.pickedProjects.set(new Set());
-    }
+    // What was ticked belongs to the old place; back at the opener's
+    // place, its own picks come back.
+    const start = this.started();
+    const home = locationKey(
+      start?.from === undefined ? accountLocation(DEFAULT_ACCOUNT) : start.from,
+    );
+    this.pickedSessions.set(new Set(key === home ? (start?.sessions ?? []) : []));
+    this.pickedProjects.set(new Set(key === home ? (start?.projects ?? []) : []));
     if (key === '' && this.what() !== 'sessions') this.what.set('sessions');
   }
 
@@ -1075,7 +1078,11 @@ export class MoveDataSheetComponent {
     this.modePick.set('copy');
     this.trust.set(false);
     this.replace.set(false);
+    // Read afresh: a move since may have changed whose they are.
     this.index.set(null);
+    this.pages.set([]);
+    this.pagesCursor.set(undefined);
+    this.pagesError.set('');
     void this.accounts.ensureLoaded();
     void this.storage.ensureLoaded();
   }

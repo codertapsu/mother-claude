@@ -411,6 +411,14 @@ describe('MoveDataSheetComponent', () => {
     expect(body['items']).toEqual({ sessions: ['s1', 'w1'] });
     expect(text(el)).toContain('It runs as 2 jobs');
     expect(text(el.querySelector('.plist'))).toContain('from Work');
+
+    // Away from "where each one is" the picks go; back there they return.
+    button(el, 'Back')?.click();
+    await settle();
+    await choose(el, 'from', 'a:default');
+    expect(text(el.querySelector('mc-move-checklist'))).toContain('0 of');
+    await choose(el, 'from', '');
+    expect(text(el.querySelector('mc-move-checklist'))).toContain('2 of 2 selected');
   });
 
   it('copies customizations only between accounts in different folders', async () => {
