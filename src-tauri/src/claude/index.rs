@@ -429,7 +429,14 @@ impl TranscriptIndex {
             return Vec::new();
         }
         self.lock().homes = dirs;
-        self.install_discovery(found)
+        let changed = self.install_discovery(found);
+        // What changed is indexed now or queued for the worker: a caller that
+        // only wanted the new map (a move's rescan, a lookup) never passes
+        // these ids on, and the next sweep finds nothing new to report.
+        for sid in &changed {
+            self.ensure(sid, false);
+        }
+        changed
     }
 
     /// Swap in a discovery's session map; the ids whose files changed.
@@ -744,6 +751,15 @@ impl TranscriptIndex {
         let existing = {
             let mut g = self.lock();
             g.queued.remove(&path);
+            let known = g.sessions.get(&fi.session_id).is_some_and(|s| {
+                s.main.as_deref() == Some(path.as_path())
+                    || s.subagents.values().any(|a| a.path == path)
+            });
+            if !known {
+                // Discovery dropped the file while the job ran (it moved or
+                // was deleted): its result belongs to nothing now.
+                return;
+            }
             g.dirty = true;
             g.files.get(&path).cloned()
         };
@@ -1405,5 +1421,86 @@ mod tests {
         idx.discover(&home);
         assert!(idx.persist(true), "pruning marks the cache dirty");
         assert!(cached().is_empty());
+    }
+
+    /// Two homes, the session in the first: (default, work, homes).
+    fn two_homes(base: &Path) -> (PathBuf, PathBuf, Vec<(String, ClaudeHome)>) {
+        let default = base.join("default");
+        let work = base.join("work");
+        std::fs::create_dir_all(work.join("projects")).unwrap();
+        layout(&default);
+        let homes = vec![
+            ("default".to_string(), ClaudeHome::with_base(&default)),
+            (
+                "acc_0123456789ab".to_string(),
+                ClaudeHome::for_account_dir(&work),
+            ),
+        ];
+        (default, work, homes)
+    }
+
+    /// A move's rescan (or a lookup) runs discovery and nothing else: what it
+    /// finds must still be indexed, or a moved session shows no title and no
+    /// messages until the app restarts.
+    #[test]
+    fn a_discovery_queues_what_it_finds_and_follows_a_move() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (default, work, homes) = two_homes(tmp.path());
+        let idx = TranscriptIndex::new(None);
+        idx.discover_homes(&homes);
+        assert!(
+            idx.pending_jobs() > 0,
+            "queued without anyone calling ensure"
+        );
+        idx.drain_jobs_blocking();
+        assert_eq!(idx.with_main(SID, |f| f.agg.usage.total().output), Some(10));
+
+        // The session moves to Work (as a transfer renames it there).
+        let from = default.join(format!("projects/-p-app/{SID}.jsonl"));
+        let to = work.join(format!("projects/-p-app/{SID}.jsonl"));
+        std::fs::create_dir_all(to.parent().unwrap()).unwrap();
+        std::fs::rename(&from, &to).unwrap();
+        idx.discover_homes(&homes);
+        idx.drain_jobs_blocking();
+        assert_eq!(idx.transcript_path(SID).as_deref(), Some(to.as_path()));
+        assert_eq!(idx.account_of(SID).as_deref(), Some("acc_0123456789ab"));
+        assert_eq!(
+            idx.with_main(SID, |f| f.agg.usage.total().output),
+            Some(10),
+            "indexed where it is now"
+        );
+
+        // And back (an undo).
+        std::fs::rename(&to, &from).unwrap();
+        idx.discover_homes(&homes);
+        idx.drain_jobs_blocking();
+        assert_eq!(idx.transcript_path(SID).as_deref(), Some(from.as_path()));
+        assert_eq!(idx.with_main(SID, |f| f.agg.usage.total().output), Some(10));
+    }
+
+    /// A job that ran while discovery dropped its file (moved away) installs
+    /// nothing: the stale entry would shadow the file if it came back.
+    #[test]
+    fn a_job_for_a_file_that_moved_away_installs_nothing() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (default, work, homes) = two_homes(tmp.path());
+        let idx = TranscriptIndex::new(None);
+        idx.discover_homes(&homes);
+        let from = default.join(format!("projects/-p-app/{SID}.jsonl"));
+        let job = std::iter::from_fn(|| idx.next_job())
+            .find(|j| j.path == from)
+            .expect("the main transcript's job");
+        // It moves while the worker holds the job.
+        let to = work.join(format!("projects/-p-app/{SID}.jsonl"));
+        std::fs::create_dir_all(to.parent().unwrap()).unwrap();
+        std::fs::copy(&from, &to).unwrap();
+        let fi = run_job(&job);
+        std::fs::remove_file(&from).unwrap();
+        idx.discover_homes(&homes);
+        idx.install(fi);
+        assert!(idx.with_file(&from, |_| ()).is_none(), "no stale entry");
+        idx.drain_jobs_blocking();
+        assert_eq!(idx.transcript_path(SID).as_deref(), Some(to.as_path()));
+        assert_eq!(idx.with_main(SID, |f| f.agg.usage.total().output), Some(10));
     }
 }
