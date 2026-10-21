@@ -321,7 +321,7 @@ describe('BridgeComponent servers', () => {
     await render(withServers([work({ tokenPolicy: 'never' })]));
     const access = [...el.querySelectorAll('.hint')].map(text).find((h) => h.startsWith('On:'))!;
     expect(access).toContain('Only the desktop app can change this.');
-    expect(access).toContain('Restarting it from here closes it to tunnels.');
+    expect(access).toContain('Restart with these settings from here closes it to tunnels.');
     // The main server keeps its configured opening: nothing to warn about.
     await click('Main');
     expect(el.textContent).not.toContain('closes it to tunnels');
