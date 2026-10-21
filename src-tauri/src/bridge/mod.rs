@@ -1293,32 +1293,156 @@ pub async fn note_thread_mode(state: &AppState, thread_id: &str, mode: &str) {
     crate::server::ws::patch_session(state, thread_id, move |s| s.permission_mode = Some(m)).await;
 }
 
-/// Start the bridge at boot when `MOTHER_CLAUDE_BRIDGE_AUTOSTART=1`.
+/// What `MOTHER_CLAUDE_BRIDGE_AUTOSTART` asks for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Autostart {
+    /// Unset, `0`, `false`, `off` or `no`: nothing starts at launch.
+    Off,
+    /// `1`, or any other value but `all`: the main server.
+    Main,
+    /// `all`: the main server and every saved one, each closed to tunnels.
+    All,
+}
+
+impl Autostart {
+    pub fn parse(value: Option<&str>) -> Self {
+        let Some(value) = value else {
+            return Self::Off;
+        };
+        match value.trim().to_ascii_lowercase().as_str() {
+            "0" | "false" | "off" | "no" => Self::Off,
+            "all" => Self::All,
+            _ => Self::Main,
+        }
+    }
+}
+
+/// The main server's defaults at an autostart: the account
+/// `MOTHER_CLAUDE_BRIDGE_ACCOUNT` names (an id, or a name in any case), and
+/// only that one with `MOTHER_CLAUDE_BRIDGE_ACCOUNT_ONLY=1`. A name no
+/// account has, or "only" without an account, is an error: the API then does
+/// not start, rather than run under another account than the one asked for.
+pub fn autostart_defaults(
+    state: &AppState,
+    account: Option<&str>,
+    only: bool,
+) -> Result<control::BridgeDefaults, String> {
+    let mut defaults = control::BridgeDefaults::default();
+    if let Some(wanted) = account.map(str::trim).filter(|a| !a.is_empty()) {
+        let found = state.accounts.get(wanted).map(|a| a.id).or_else(|| {
+            state
+                .accounts
+                .accounts()
+                .into_iter()
+                .find(|a| a.name.eq_ignore_ascii_case(wanted))
+                .map(|a| a.id)
+        });
+        match found {
+            Some(id) => defaults.account = Some(id),
+            None => {
+                return Err(format!(
+                    "MOTHER_CLAUDE_BRIDGE_ACCOUNT names no account ({wanted:?}), so the API was \
+                     not started."
+                ))
+            }
+        }
+    }
+    if only {
+        if defaults.account.is_none() {
+            return Err(
+                "MOTHER_CLAUDE_BRIDGE_ACCOUNT_ONLY=1 needs MOTHER_CLAUDE_BRIDGE_ACCOUNT, \
+                        so the API was not started."
+                    .to_string(),
+            );
+        }
+        defaults.account_only = true;
+    }
+    Ok(defaults)
+}
+
+/// Start the API at boot when `MOTHER_CLAUDE_BRIDGE_AUTOSTART` asks for it:
+/// `1` the main server (with `MOTHER_CLAUDE_BRIDGE_ACCOUNT` and
+/// `MOTHER_CLAUDE_BRIDGE_ACCOUNT_ONLY`), `all` every saved server too.
 ///
-/// Off by default: the app should not publish this port just because it opened.
-/// The flag exists for headless and CI runs, where there is no one to press the
-/// button.
+/// Off by default: the app should not publish these ports just because it
+/// opened. The flag exists for headless and CI runs, where there is no one to
+/// press the button.
 pub async fn autostart(state: AppState) {
     if !state.bridge.config.enabled {
         tracing::info!("Claude HTTP bridge disabled (MOTHER_CLAUDE_BRIDGE=0)");
         return;
     }
-    if !env_flag("MOTHER_CLAUDE_BRIDGE_AUTOSTART", false) {
+    let mode = Autostart::parse(
+        std::env::var("MOTHER_CLAUDE_BRIDGE_AUTOSTART")
+            .ok()
+            .as_deref(),
+    );
+    let account = std::env::var("MOTHER_CLAUDE_BRIDGE_ACCOUNT").ok();
+    let only = env_flag("MOTHER_CLAUDE_BRIDGE_ACCOUNT_ONLY", false);
+    autostart_with(&state, mode, account.as_deref(), only).await;
+}
+
+/// [`autostart`] with its settings given.
+pub async fn autostart_with(state: &AppState, mode: Autostart, account: Option<&str>, only: bool) {
+    if mode == Autostart::Off {
         return;
     }
-    match control::start(&state, control::BridgeDefaults::default()).await {
-        Ok(_) => {
-            if let Some(port) = state.bridge.config.port {
-                println!("  Bridge: http://127.0.0.1:{port}  (autostarted)");
+    match autostart_defaults(state, account, only) {
+        Ok(defaults) => match control::start(state, defaults).await {
+            Ok(_) => {
+                if let Some(port) = state.bridge.config.port {
+                    println!("  Bridge: http://127.0.0.1:{port}  (autostarted)");
+                }
+            }
+            Err(e) => tracing::error!(error = %e, "could not autostart the Claude bridge"),
+        },
+        Err(why) => {
+            tracing::error!("{why}");
+            println!("  Bridge: not autostarted — {why}");
+        }
+    }
+    if mode != Autostart::All {
+        return;
+    }
+    for server in state.bridge.servers.all() {
+        if server.is_main() {
+            continue;
+        }
+        match control::autostart_server(state, &server).await {
+            Ok(()) => {
+                if let Some(port) = server.bound_port() {
+                    println!(
+                        "  API {}: http://127.0.0.1:{port}  (autostarted)",
+                        server.name()
+                    );
+                }
+            }
+            Err(e) => {
+                tracing::error!(error = %e, server = %server.id, "could not autostart an API server")
             }
         }
-        Err(e) => tracing::error!(error = %e, "could not autostart the Claude bridge"),
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `MOTHER_CLAUDE_BRIDGE_AUTOSTART`: off unless set, `all` for every
+    /// saved server too, any other value the main server — as `1` always was.
+    #[test]
+    fn autostart_reads_off_one_and_all() {
+        assert_eq!(Autostart::parse(None), Autostart::Off);
+        for off in ["0", "false", "OFF", " no "] {
+            assert_eq!(Autostart::parse(Some(off)), Autostart::Off, "{off:?}");
+        }
+        for all in ["all", "ALL", " All "] {
+            assert_eq!(Autostart::parse(Some(all)), Autostart::All, "{all:?}");
+        }
+        for main in ["1", "true", "yes", "", "main"] {
+            assert_eq!(Autostart::parse(Some(main)), Autostart::Main, "{main:?}");
+        }
+    }
 
     /// Env-var parsing is shared by every knob, so pin its edges.
     #[test]

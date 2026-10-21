@@ -1295,3 +1295,45 @@ async fn with_only_the_main_server_everything_reads_as_before() {
     assert!(!f.scratch.path().join("app-data/api-servers.json").exists());
     assert!(f.home.path().is_dir());
 }
+
+/// `MOTHER_CLAUDE_BRIDGE_AUTOSTART`: `1` the main server, with the account
+/// `MOTHER_CLAUDE_BRIDGE_ACCOUNT` names (only it with `_ACCOUNT_ONLY`); `all`
+/// every saved server too, closed to tunnels. A wrong account starts nothing.
+#[tokio::test]
+async fn autostart_starts_what_it_is_asked_to() {
+    use mother_claude_lib::bridge::{autostart_with, Autostart};
+    let f = boot().await;
+    let work =
+        f.st.accounts
+            .add_directory("Work", &f.work_dir(), None)
+            .unwrap();
+    control::add_server(&f.st, "Saved", Some(0), BridgeDefaults::default())
+        .await
+        .unwrap();
+    let saved = f.st.bridge.server("saved").unwrap();
+    // It nominated a conversation that has gone since.
+    saved.update_saved(|d| d.default_thread = Some("0a1b2c3d-0000-4000-8000-0000000000aa".into()));
+    let main = f.st.bridge.main();
+
+    autostart_with(&f.st, Autostart::Off, None, false).await;
+    assert!(!main.is_running());
+    // An account no one has, or one account only without one: nothing starts.
+    autostart_with(&f.st, Autostart::Main, Some("Nobody"), false).await;
+    autostart_with(&f.st, Autostart::Main, None, true).await;
+    assert!(!main.is_running());
+    // By name (any case), only that one.
+    autostart_with(&f.st, Autostart::Main, Some("work"), true).await;
+    assert!(main.is_running());
+    assert_eq!(main.defaults().account.as_deref(), Some(work.id.as_str()));
+    assert!(main.defaults().account_only);
+    assert!(!saved.is_running(), "`1` starts the main server alone");
+    control::stop(&f.st).await.unwrap();
+
+    // `all`: the saved one too, closed to tunnels, without the gone conversation.
+    autostart_with(&f.st, Autostart::All, Some(&work.id), false).await;
+    assert!(main.is_running());
+    assert!(!main.defaults().account_only);
+    assert!(saved.is_running());
+    assert_eq!(saved.token_policy(), TokenPolicy::Local);
+    assert!(saved.saved().default_thread.is_none());
+}

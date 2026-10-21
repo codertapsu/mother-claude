@@ -797,6 +797,25 @@ pub async fn start_server(
     Ok(server)
 }
 
+/// Start a saved server at launch (`MOTHER_CLAUDE_BRIDGE_AUTOSTART=all`):
+/// its saved defaults, closed to tunnels; a nominated conversation that is
+/// gone meanwhile is dropped rather than keeping the server down.
+pub(crate) async fn autostart_server(
+    state: &AppState,
+    server: &Arc<ApiServer>,
+) -> BridgeResult<()> {
+    if let Some(thread) = server.saved().default_thread {
+        if !super::thread_exists(state, &thread).await {
+            tracing::warn!(server = %server.id, thread_id = %thread,
+                "the API server's nominated conversation is gone; starting without it");
+            server.update_saved(|d| d.default_thread = None);
+        }
+    }
+    start_server(state, &server.id, None, state.bridge.config.token.closed())
+        .await
+        .map(|_| ())
+}
+
 /// Stop a server.
 pub async fn stop_server(state: &AppState, id: &str) -> BridgeResult<Arc<ApiServer>> {
     let server = state
