@@ -72,7 +72,7 @@ pub enum Mode {
 /// Why a transfer was refused. Every precondition has its own code.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum TransferError {
-    #[error("both accounts use the same directory: there is nothing to move")]
+    #[error("both accounts use the same directory: there is nothing to move or copy")]
     SameDirectory,
     #[error("{0}")]
     NotFound(String),

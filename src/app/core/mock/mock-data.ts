@@ -326,7 +326,7 @@ export class MockData {
       return fail(
         422,
         'same_directory',
-        'both accounts use the same directory: there is nothing to move',
+        'both accounts use the same directory: there is nothing to move or copy',
       );
     }
     const inFrom = this.host
