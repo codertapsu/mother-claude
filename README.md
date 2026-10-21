@@ -103,9 +103,17 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) and [KNOWN_ISSUES.md](KNOWN_ISSUES.md).
   setup such as `~/.claude-work`, with its own sign-in, settings and plugins).
   Pick the account per project or per session, and when one reaches its limit,
   **Continue on…** another. See [docs/ACCOUNTS.md](docs/ACCOUNTS.md).
+- **Move data anywhere, in bulk.** **Select** on the Sessions list, or *Move or
+  copy data…* on an account, moves or copies any number of conversations,
+  whole projects or everything an account has — between accounts, between the
+  shared `~/.claude` and an account's own folder, and to or from cloud storage
+  — plus settings, skills, agents, commands and MCP servers between accounts.
+  Each move is previewed first and can be undone for seven days; it works from
+  the phone too, on the LAN or through a tunnel.
 - **Backups and a second laptop.** **Settings → Backup & sync** keeps encrypted
-  backups of each account in a folder you choose (iCloud Drive, Google Drive…);
-  the same folder carries conversations to another laptop. See
+  backups of each account in a folder you choose (iCloud Drive, Google Drive…),
+  and any number of further storages for archives and shared sets; the same
+  folder carries conversations to another laptop. See
   [docs/BACKUP.md](docs/BACKUP.md).
 
 ## Prerequisites (macOS, Apple Silicon)

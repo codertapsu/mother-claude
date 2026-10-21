@@ -1423,16 +1423,13 @@ docs/REMOTE.md (tunnels per server), SECURITY.md, README.md, `.env.example`.
   and move (restore, then remove the entries; undo puts them back).
 - [x] P6.6 Customizations, with their undo and warnings; D4 in CLAUDE.md.
 - [x] P6.7 Storage → storage (P2).
-- [ ] P6.8 UI: Select, Move data, the account action, the Storage section, job
+- [x] P6.8 UI: Select, Move data, the account action, the Storage section, job
   titles, the mock backend.
-- [ ] P6.9 Documents (§13.7). *(Backend half done: CLAUDE.md, docs/BACKUP.md,
-  SECURITY.md and §13 itself; README, `.env.example` and the servers'
-  documents remain.)*
-- [ ] P6.10 From the phone (§13.9): the guards, the dangerous parts, the
-  desktop notice; the UI on phones. *(Backend half done: `ManageData` on the
-  data, backup, storage and account-default routes; `trust` and the settings
-  and MCP customizations behind the dangerous right; the desktop notice and
-  audit for a device.)*
+- [x] P6.9 Documents (§13.7).
+- [x] P6.10 From the phone (§13.9): the guards, the dangerous parts, the
+  desktop notice; the UI on phones (`ManageData` on the data, backup, storage
+  and account-default routes; `trust` and the settings and MCP customizations
+  behind the dangerous right; the desktop notice and audit for a device).
 
 **Phase 7 — API servers per account**
 
@@ -1445,9 +1442,9 @@ docs/REMOTE.md (tunnels per server), SECURITY.md, README.md, `.env.example`.
 - [x] P7.6 The dashboard routes, `servers` in `GET /api/bridge`, the account
   removal rule.
 - [x] P7.7 Autostart: `all`, `MOTHER_CLAUDE_BRIDGE_ACCOUNT(_ONLY)`.
-- [ ] P7.8 UI: the server list, adding and removing, the panel per server,
+- [x] P7.8 UI: the server list, adding and removing, the panel per server,
   the addresses, the mock backend.
-- [ ] P7.9 Documents (§13.7).
+- [x] P7.9 Documents (§13.7).
 
 ### 13.9 From the phone (D9 revised, 2026-10-21)
 

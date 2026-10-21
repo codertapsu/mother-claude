@@ -46,9 +46,12 @@ is in [SECURITY.md](SECURITY.md), the phone and remote-access guide in
      and token accounts; `accounts.json`), the child environment each one
      composes, per-account sign-in, the `setup-token` capture and the accounts
      view; `secrets` — tokens and the backup passphrase in the Keychain;
-     `transfer` — moving and copying sessions and projects between accounts'
-     directories, with an undo; `backup` — encrypted per-session backups to a
-     folder, restore and pull ([docs/ACCOUNTS.md](docs/ACCOUNTS.md),
+     `transfer` — moving and copying conversations, projects and everything
+     of an account in bulk, between accounts' directories, within the shared
+     folder (an assign) and to or from storages (`transfer/moves.rs`), and
+     copying customizations (`transfer/custom.rs`), each with an undo;
+     `backup` — encrypted per-session sets in the backup folder and further
+     storages, restore, pull and archives ([docs/ACCOUNTS.md](docs/ACCOUNTS.md),
      [docs/BACKUP.md](docs/BACKUP.md)). The roster and the index cover every
      account's directory at once.
 2. **Embedded axum server** (`src-tauri/src/server/`) — REST under `/api`,
@@ -119,7 +122,10 @@ prompt waiting for an answer, an API error).
 - `127.0.0.1:6726`, only while Internet access is on: the port a tunnel forwards
   to. It serves a reduced router (no `/v1`, no `/hooks/*`) and requires
   `X-Forwarded-Proto: https`.
-- `127.0.0.1:5612`, only once the bridge is started: the tokenless local API.
+- `127.0.0.1:5612`, only once the bridge is started: the tokenless local API;
+  each further API server's own port (5613, …) once it is started, and every
+  server under `/servers/<id>/` on 5612 and under `/servers/<id>/v1` on the
+  LAN mount.
 
 Every listener's router carries its `Ingress`; the context middleware builds a
 `ClientContext` per request, and authorization is decided by principal (desktop,
@@ -176,7 +182,10 @@ replay logs — 2048 events / 8 MiB, with the 410-expired / 422-beyond-head curs
 contract), `ops` (background operations, caps, retention), `host` (the Node
 supervisor), `inputs` (content-block normalization plus image validation),
 `messages` (the direct `api.anthropic.com` client), `openapi`, `assets`, `routes`,
-`control` (start/stop from the app's API screen).
+`control` (start/stop from the app's API screen), `servers` (the API servers:
+the main one and those added on the API screen, each with its port, defaults,
+token policy and, when it runs as one account only, its account —
+docs/ACCOUNTS.md §13.5).
 
 - **One approval, two surfaces.** A blocked tool call is a pending item with
   source `bridge` *and* a record in the bridge's `/requests` table. The dashboard
