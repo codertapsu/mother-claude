@@ -316,6 +316,17 @@ describe('BridgeComponent servers', () => {
     expect(only.querySelector('input')!.checked).toBeTrue();
   });
 
+  it('tells a phone that restarting a server open to tunnels closes it', async () => {
+    setup({ server: 'work' });
+    await render(withServers([work({ tokenPolicy: 'never' })]));
+    const access = [...el.querySelectorAll('.hint')].map(text).find((h) => h.startsWith('On:'))!;
+    expect(access).toContain('Only the desktop app can change this.');
+    expect(access).toContain('Restarting it from here closes it to tunnels.');
+    // The main server keeps its configured opening: nothing to warn about.
+    await click('Main');
+    expect(el.textContent).not.toContain('closes it to tunnels');
+  });
+
   it('puts a refusal in words', async () => {
     setup();
     await render(withServers([personal({ defaults: {} })]));

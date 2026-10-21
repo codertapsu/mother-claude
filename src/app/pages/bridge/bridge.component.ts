@@ -386,6 +386,10 @@ interface ClaudeLine {
             }
             @if (!isDesktop()) {
               Only the desktop app can change this.
+              <!-- A server besides the main one starts closed unless the desktop opens it. -->
+              @if (!isMain() && openToTunnels()) {
+                Restarting it from here closes it to tunnels.
+              }
             }
           </span>
           @if (openToTunnels() && s.exposedByTunnel) {
