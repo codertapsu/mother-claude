@@ -199,10 +199,11 @@ describe('BridgeComponent servers', () => {
     expect(text(el.querySelector('.facts'))).toContain(
       'Work — marcus@acme.dev · Team · only this account',
     );
-    // A phone leads with what it can reach; the Mac's loopback says so.
+    // A phone leads with what it can reach (off the network here: the
+    // tunnel); the Mac's loopback says so.
     expect(addresses()).toEqual([
-      { label: 'On your network', url: "https://<the Mac's address>:6725/servers/work/v1" },
       { label: 'Through its tunnel', url: 'https://acme.ngrok.app/v1' },
+      { label: 'On your network', url: "https://<the Mac's address>:6725/servers/work/v1" },
       { label: 'On the Mac', url: 'http://127.0.0.1:5613/v1' },
       { label: 'On the Mac, through the main port', url: 'http://127.0.0.1:5612/servers/work/v1' },
     ]);

@@ -930,6 +930,16 @@ export class BridgeComponent {
     } else {
       // Its name or port: what is being edited in the form stays.
       this.apply(next, false);
+      // An answer that isn't a server's status: read the list again.
+      if (!server) void this.refresh();
+    }
+  }
+
+  private async refresh(): Promise<void> {
+    try {
+      this.apply(await this.api.getBridge(), false);
+    } catch {
+      // The next action says what is wrong.
     }
   }
 

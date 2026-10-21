@@ -328,6 +328,9 @@ describe('API servers: addresses', () => {
     expect(own.label).toBe('On the Mac');
     expect(own.hint).toContain('this device cannot reach it');
     expect(a.find((x) => x.key === 'viaMain')?.label).toBe('On the Mac, through the main port');
+    // Not on the network (through a tunnel itself): a tunnel leads.
+    const away = serverAddresses(w, ctx({ desktop: false, lanBase: null }));
+    expect(away.map((x) => x.key)).toEqual(['tunnel', 'lan', 'own', 'viaMain']);
   });
 
   it('shows the shape of the network address when it is not known here', () => {

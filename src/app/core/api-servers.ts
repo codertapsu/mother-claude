@@ -450,9 +450,12 @@ export function serverAddresses(s: ServerStatus, ctx: AddressContext): ServerAdd
           : "With a paired device's token.",
     });
   }
-  return ctx.desktop
-    ? [...own, ...viaMain, lan, ...tunnels]
-    : [lan, ...tunnels, ...own, ...viaMain];
+  if (ctx.desktop) return [...own, ...viaMain, lan, ...tunnels];
+  // A phone: what it can reach first — the network when it is on it, else
+  // a tunnel — and the Mac's own loopback last.
+  return ctx.lanBase
+    ? [lan, ...tunnels, ...own, ...viaMain]
+    : [...tunnels, lan, ...own, ...viaMain];
 }
 
 /** Who may call a server's own port without a token. */
