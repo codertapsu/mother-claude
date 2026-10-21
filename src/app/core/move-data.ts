@@ -404,11 +404,17 @@ export function locationGroups(
     const sets = side === 'from' ? s.sets.filter((x) => x.exists) : s.sets;
     const options: LocationOption[] = sets.map((x) => ({
       key: locationKey(setLocation(s.id, x.name)),
-      label: x.keyMissing ? `${x.name} — no key here` : x.name,
+      // A closed picker shows only the option: it names its storage too
+      // (the Default's set is not the Default account).
+      label: x.keyMissing ? `${s.label} · ${x.name} — no key here` : `${s.label} · ${x.name}`,
       disabled: x.keyMissing || !s.available,
     }));
     if (side === 'to') {
-      options.push({ key: newSetKey(s.id), label: 'New set…', disabled: !s.available });
+      options.push({
+        key: newSetKey(s.id),
+        label: `${s.label} · New set…`,
+        disabled: !s.available,
+      });
     }
     if (!options.length) continue;
     const tags = [

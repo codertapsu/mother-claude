@@ -210,12 +210,12 @@ describe('MoveDataSheetComponent', () => {
         'Accounts',
         ['Default — shared folder', 'Work — own folder', 'Marcus (Pro) — shared folder'],
       ],
-      ['iCloud Drive (backup folder)', ['Default']],
-      ['Google Drive', ['Shared']],
+      ['iCloud Drive (backup folder)', ['iCloud Drive · Default']],
+      ['Google Drive', ['Google Drive · Shared']],
     ]);
     expect(options(el, 'to')[1]).toEqual([
       'iCloud Drive (backup folder)',
-      ['Default', 'Work', 'New set…'],
+      ['iCloud Drive · Default', 'iCloud Drive · Work', 'iCloud Drive · New set…'],
     ]);
     // Another account's directory first.
     expect(select(el, 'to').value).toBe(`a:${MOCK_ACCOUNT_WORK}`);

@@ -399,13 +399,15 @@ describe('move data helpers', () => {
       'Pro — shared folder',
     ]);
     // A set that does not exist yet can't be a source.
-    expect(from[1].options.map((o) => [o.label, o.disabled])).toEqual([['Default', false]]);
+    expect(from[1].options.map((o) => [o.label, o.disabled])).toEqual([
+      ['iCloud Drive · Default', false],
+    ]);
 
     const to = locationGroups(ACCOUNTS, [ICLOUD, { ...GDRIVE, available: false }], 'to');
     expect(to[1].options.map((o) => [o.label, o.disabled])).toEqual([
-      ['Default', false],
-      ['Work — no key here', true],
-      ['New set…', false],
+      ['iCloud Drive · Default', false],
+      ['iCloud Drive · Work — no key here', true],
+      ['iCloud Drive · New set…', false],
     ]);
     expect(to[2].label).toBe('Google Drive (not available)');
     expect(to[2].options.every((o) => o.disabled)).toBeTrue();
