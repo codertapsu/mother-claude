@@ -163,6 +163,21 @@ describe('data job helpers', () => {
     expect(
       jobTitle(job({ fromStorage: 'backup', toStorage: 'stor_1', set: 'Work' }), nameOf, storageOf),
     ).toBe('Move from iCloud Drive · Work to Google Drive');
+    // Into another set there: the target's set is named too.
+    expect(
+      jobTitle(
+        job({ fromStorage: 'backup', toStorage: 'stor_1', set: 'Work', toSet: 'Shared' }),
+        nameOf,
+        storageOf,
+      ),
+    ).toBe('Move from iCloud Drive · Work to Google Drive · Shared');
+    expect(
+      jobTitle(
+        job({ fromStorage: 'backup', toStorage: 'stor_1', set: 'Work', toSet: 'Work' }),
+        nameOf,
+        storageOf,
+      ),
+    ).toBe('Move from iCloud Drive · Work to Google Drive');
     // A storage nobody knows: only what is known.
     expect(jobTitle(job({ from: 'acc_w', toStorage: 'stor_x' }), nameOf, storageOf)).toBe(
       'Move from Work',

@@ -811,10 +811,12 @@ export interface JobView {
   from?: string;
   to?: string;
   /** A move or copy out of a storage, or into one: the storage ids, and
-   * the set (docs/ACCOUNTS.md §13.4). */
+   * the set (docs/ACCOUNTS.md §13.4); between two storages `set` is the
+   * source's and `toSet` the target's. */
   fromStorage?: string;
   toStorage?: string;
   set?: string;
+  toSet?: string;
   /** Per kind: what a backup archived, what a restore or pull did. */
   result?: unknown;
 }

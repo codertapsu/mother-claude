@@ -44,6 +44,7 @@ export function normalizeJob(raw: unknown): JobView | null {
   const fromStorage = str(r['fromStorage']);
   const toStorage = str(r['toStorage']);
   const set = str(r['set']);
+  const toSet = str(r['toSet']);
   return {
     id,
     kind,
@@ -66,6 +67,7 @@ export function normalizeJob(raw: unknown): JobView | null {
     ...(fromStorage ? { fromStorage } : {}),
     ...(toStorage ? { toStorage } : {}),
     ...(set ? { set } : {}),
+    ...(toSet ? { toSet } : {}),
     ...(r['result'] !== undefined && r['result'] !== null ? { result: r['result'] } : {}),
   };
 }
@@ -147,11 +149,15 @@ export function jobTitle(
         if (!label) return undefined;
         return j.set && j.set !== other ? `${label} · ${j.set}` : label;
       };
-      // Both sides storages: the set is the source's.
+      // Both sides storages: `set` is the source's, `toSet` the target's
+      // (named when it differs from the source's).
       const from = j.fromStorage ? side(j.fromStorage, toAccount) : fromAccount;
+      const toLabel = j.toStorage ? storageOf(j.toStorage) : undefined;
       const to = j.toStorage
         ? j.fromStorage
-          ? storageOf(j.toStorage)
+          ? toLabel && j.toSet && j.toSet !== j.set
+            ? `${toLabel} · ${j.toSet}`
+            : toLabel
           : side(j.toStorage, fromAccount)
         : toAccount;
       if (from && to) return `${kind} from ${from} to ${to}`;
