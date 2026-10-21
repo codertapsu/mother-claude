@@ -3,7 +3,9 @@
 > **Status: approved 2026-10-21, being built.** The design and the to-do list
 > for the work: tick the boxes in §10 as tasks land, and change the design here
 > first when the implementation finds it wrong. The review's answers are in
-> §11; §3 records where building it changed a decision.
+> §11; §3 records where building it changed a decision. §13 adds moving data
+> anywhere (storages, bulk moves, customizations) and API servers per account,
+> with its own checklist.
 >
 > Verified against Claude Code CLI 2.1.304 and the Agent SDK 0.3.304 on
 > 2026-10-20, on the maintainer's MacBook. Every "verified" claim below was run,
@@ -965,3 +967,291 @@ for planning, not a promise.
 
 Phases 1 and 2 could be split: ship 1 (token accounts, continue-on, usage
 per account) first — it needs none of 2 — and 2 as the following release.
+
+---
+
+## 13. Moving data anywhere, and an API server per account (2026-10-21)
+
+Asked on 2026-10-21: bulk-move conversations and the rest of an account's
+data between accounts, between the shared folder and an account, and between an
+account and cloud storage (iCloud Drive, Google Drive, any other), in either
+direction; run the API under a specific account, or several API servers at
+once, each with its own account; and the same through remote access. This
+section is the design; §13.8 is its checklist.
+
+### 13.1 Words
+
+- **Location**: where data lives. Either an **account** — its config
+  directory: a directory account's own, or the **shared folder**, the Default's
+  directory, which the Default and every token account use — or a **storage**.
+- **Storage**: a folder that holds encrypted **sets** (§4.3, docs/BACKUP.md).
+  The backup folder is the first storage (id `backup`); the user may add more
+  (another cloud's folder, a NAS, an external disk), ids `stor_` + 12 hex.
+  Every set in every storage opens with the one backup passphrase (§4.2).
+- **Set**: `<storage>/<name>/`. A set named after an account is that
+  account's backup (backed up, pulled, scheduled as §5.10–5.11). A set no
+  account is named after ("Shared", "Archive 2026") is never backed up, pulled
+  or scheduled: only Move data reads and writes it.
+- **Items**: conversations (by id); projects (by folder: every conversation
+  of it, its prompt-history lines and, with the trust opt-in, its
+  `.claude.json` entry); everything of an account; and **customizations**:
+  `memory` (`CLAUDE.md`), `settings` (`settings.json`), `skills`, `agents`,
+  `commands`, `outputStyles` (`output-styles/`), `keybindings`, `mcpServers`
+  (the user-scope `mcpServers` of `.claude.json`) and `history`
+  (`history.jsonl`). Plugins are never copied: install them in the account.
+
+### 13.2 What each direction does
+
+| From → To | an account in another directory | an account in the same directory | a storage |
+|---|---|---|---|
+| **an account** | move or copy (§5.9), any number of items in one job | **assign**: nothing moves; the conversations are recorded as the target account's (`account-sessions.json`), so they show, count and continue under it. Copy is refused (`same_directory`): it would be the same conversation | **copy**: back the conversations up into the set (a push of just those). **Move**: the same, then each one whose copy in the set verified is removed here (into the undo directory) and its index entry marked *archived* |
+| **a storage** | **copy**: restore (§5.10) into the account. **Move**: restore, then remove the entries from the set (their archives kept seven days, for the undo) | as left | copy or move between sets: decrypt, encrypt to the target set's key, verify (P2) |
+
+Customizations are only ever copied (a move is refused), between accounts in
+different directories.
+
+### 13.3 Rules
+
+1. **One request, one plan, one job per source.** A request names a source
+   and a target location and any mix of items; the dry run lists everything
+   it would do. With `items.sessions` only, `from` may be left out: each
+   conversation goes from where it is, one job per source location.
+2. **Bulk skips, single refuses.** With the new `items` body, a conversation
+   that runs, that the target already has, or that cannot be read is listed in
+   `skipped` with its code and the rest goes ahead. The old body (`what`:
+   `session` | `project`) still refuses with the code, exactly as before.
+3. **The preconditions of D4 and §5.9 hold for every write** into a config
+   directory: desktop principal, `directory_in_use`, `config_locked`, checked
+   again right before writing, undo copy first, atomic writes, audit line.
+   Reading a storage needs the passphrase (`no_passphrase`) and an
+   authenticated set (`backup_unauthenticated`, `set_key_missing`).
+4. **Archived** entries (`archived: {at, machine}` in the set's index): a
+   pull never brings an archived conversation to a machine that does not have
+   it; a machine that has it keeps it, and its push of a changed copy replaces
+   the entry, which clears the mark. Restore lists and Move data show it as
+   *in storage only*.
+5. **A push of some conversations** updates only their `seen` entries; the
+   machine's other `seen` entries stay as they were.
+6. **Undo.** Between directories: §5.9. Assign: the previous account of each
+   conversation back. Copy to storage: none (it is a backup). Move to storage:
+   the local files back; the set keeps its copy and the archived mark is
+   cleared. Copy from storage: as a restore. Move from storage: the set's
+   entries first (only where the set has no newer entry for the id since;
+   their archives are kept seven days for this), then the restored files as a
+   restore's undo; if the set cannot take them back, nothing is undone.
+7. **Customizations**: each category adds what the target lacks; with
+   `replaceExisting`, what it has is replaced (the old copy into the undo
+   directory). `mcpServers` merge by server name, `history` by `(timestamp,
+   display)` as §5.9. A symbolic link (a skill linked from a repository) is
+   recreated as a link to the same absolute target, never followed. The dry
+   run warns when the copied settings choose how Claude signs in (an `env` with
+   one of `ACCOUNT_OVERRIDE_ENV`, `apiKeyHelper`, `forceLoginMethod`,
+   `forceLoginOrgUUID`) or run commands (`hooks`, `statusLine`), and names MCP
+   servers only by name: their `env` and `headers` values are never served.
+8. **Storages**: a passphrase change re-keys every set in every storage
+   (every one opened first, as docs/BACKUP.md says for the backup folder); the
+   schedule and pull on launch use the backup folder only; removing a storage
+   forgets it and never deletes its files. A storage is an absolute folder, not
+   inside an account's directory, not another storage.
+9. **Goal 7 still holds**: with only the Default account, no storage besides
+   the backup folder and no API server besides the main one, every response
+   is what it was before this section.
+
+### 13.4 API for moving data
+
+`POST /api/data/move` (`DesktopOnly`):
+
+```jsonc
+{
+  "from": "acc_…" | {"account": "acc_…"} | {"storage": "backup" | "stor_…", "set": "Work"},
+  "to":   "acc_…" | {"account": "acc_…"} | {"storage": "backup" | "stor_…", "set": "Work"},
+  "items": {
+    "sessions": ["<id>", …],        // any of these four
+    "projects": ["/abs/folder", …],
+    "all": true,                    // every conversation of `from`
+    "customizations": ["memory", "settings", "skills", "agents", "commands",
+                       "outputStyles", "keybindings", "mcpServers", "history"]
+  },
+  "mode": "move" | "copy",
+  "trust": false,                   // carry the projects' trust and entries
+  "replaceExisting": false,         // customizations: replace what the target has
+  "dryRun": false
+}
+```
+
+A bare string is an account id. A storage target's `set` defaults to the set
+of the source account's directory (a token account's is the Default's).
+"Everything of" a shared-folder account is the conversations attributed to it
+(§5 attribution); with only the Default, the whole folder.
+
+Dry run → `200 {plan}`; otherwise `202 {jobs: [JobView…], job: JobView}` (`job`
+is the first, for the old client). The plan, camelCase, lists capped at 1000
+entries each with `truncated: true` beyond:
+
+```jsonc
+{
+  "from": <location>, "to": <location>, "mode": "move", "jobs": 1,
+  "sessions": [{"id", "cwd", "title", "files", "bytes", "from": <location>,
+                "action": "move" | "copy" | "assign" | "archive" | "restore"}],
+  "skipped": [{"id"?, "cwd"?, "item"?, "code", "message"}],
+  "projects": ["/abs/folder"], "addsProjectEntries": [], "removesProjectEntries": [],
+  "historyLines": 0,
+  "customizations": [{"item": "skills", "name": "review", "action": "add" | "replace" | "skip" | "merge", "reason"?}],
+  "warnings": ["…"],
+  "files": 0, "bytes": 0, "writesShared": false
+}
+```
+
+The old body's dry run keeps its old plan shape. A job view adds
+`fromStorage` / `toStorage` (storage ids) and `set` beside `from` / `to` /
+`account`; its `result` names what it did: `moved`, `copied`, `assigned`,
+`archived` or `restored` (ids), `skipped`, `customizations`.
+
+Storages, all `DesktopOnly` to change, `Authed` to read:
+
+- `GET /api/backup` adds `storage: [{id, label, path, kind: "icloud" | "gdrive"
+  | "onedrive" | "dropbox" | "folder", primary, available, sets: [{name,
+  account?, exists, keyMissing?, sessions?, archived?}]}]`, the backup folder
+  first (`primary: true`).
+- `POST /api/backup/storage {path, label?}` → `201` the storage;
+  `PATCH /api/backup/storage/{id} {label}`; `DELETE /api/backup/storage/{id}`.
+- `GET /api/backup/index?storage=<id>&set=<name>`, beside the existing
+  `?account=`; its session items gain `archived`.
+
+### 13.5 API servers
+
+**Model.** An API server is `{id, name, port, defaults}`, `defaults` being
+§5.5's `BridgeDefaults` plus `accountOnly`. The **main** server (id `main`) is
+the one there always was: port 5612 (`MOTHER_CLAUDE_BRIDGE_PORT`), `/v1` on the
+main server, its defaults not saved, exactly as before. Others are added on
+the API screen and saved in `<app data dir>/api-servers.json` (0600), each with
+a loopback port of its own (1024–65535, none another server's, the main
+server's or the tunnel listener's). None listens until it is started; the
+"open to tunnels" choice is made at each start and never saved.
+`MOTHER_CLAUDE_BRIDGE_AUTOSTART=1` starts the main server at launch as before,
+`=all` every saved one too (each closed to tunnels);
+`MOTHER_CLAUDE_BRIDGE_ACCOUNT` (an id or a name) and
+`MOTHER_CLAUDE_BRIDGE_ACCOUNT_ONLY=1` set the autostarted main server's
+account.
+
+**Account.** `defaults.account` unset: automatic, as §5.5. Set, with
+`accountOnly` false: the default for new conversations, a request may name
+another (the main server's behaviour so far). Set, with `accountOnly` true
+(what a server made for an account starts with): the server runs **only** as
+that account. New conversations run under it; a request naming another account
+is refused (`403 account_not_served`); a conversation, operation or runtime
+request of another account is not listed, read, resumed or answered through it
+(`404`, as if it did not exist); `/auth` and `/auth/login` are that account's
+sign-in. One account's API can then be put behind a tunnel without opening the
+others.
+
+**One sidecar host** serves every server (each query carries its account's
+environment, §5.5); conversations are one store, each recording the server
+that made it (`server`, left out for the main one).
+
+**Reaching them.** Each server answers on `http://127.0.0.1:<port>` at `/` and
+`/v1`. Every server is also reachable through the main ones: under
+`/servers/<id>/` and `/servers/<id>/v1/` on the main API port (one tunnel
+reaches every server) and on the main server's LAN mount
+(`https://<mac>:6725/servers/<id>/v1`, a token always, as `/v1` there). A
+request through such a prefix gets the target server's rules — its token
+policy, its account, whether it is started — while the port it arrived on
+decides whether a tunnel points at it. The tunnel listener (6726) still serves
+no `/v1`.
+
+**Tunnels per server.** Detection tracks every server's port: a tunnel to a
+server's port turns that server's tokenless mode off while it lasts, as it does
+for the main port, and the Remote page and the API screen name the server a
+tunnel points at.
+
+**Who may.** As `POST /api/bridge/start` today: anyone authenticated to the
+dashboard may add, start, stop, change and remove servers; the dangerous parts
+keep their rules (a permission mode that skips approvals and opening to
+tunnels: desktop only; an untrusted default folder: the dangerous right).
+Removing an account a running server uses is refused
+(`409 account_used_by_bridge`); a stopped server whose account was removed
+says so and cannot start (`account_not_found`) until another is chosen.
+
+**Dashboard API.**
+
+- `GET /api/bridge` as before for the main server, plus `servers:
+  [ServerStatus…]` (main first) whenever a server besides the main one exists.
+  A `ServerStatus` has the main payload's per-server fields (`id`, `name`,
+  `running`, `port`, `url`, `prefix`, `startedAt`, `requireToken`,
+  `tokenPolicy`, `exposedByTunnel`, `tunnelUrl`, `defaults`, `activeThread`,
+  `threads`).
+- `POST /api/bridge/servers {name, port?, defaults?}` → `201` its status (not
+  started; `port` defaults to the first free from 5613); `PATCH
+  /api/bridge/servers/{id} {name?, port?, defaults?}` (a running server is
+  restarted with them); `DELETE /api/bridge/servers/{id}` (stopped first);
+  `POST /api/bridge/servers/{id}/start {defaults?, openToTunnels?}`, `…/stop`,
+  `…/active-thread {threadId}`. `/api/bridge/start`, `/stop` and
+  `/active-thread` stay the main server's. An id is a slug of the name
+  (`[a-z0-9-]{1,32}`, made unique; `main` is taken).
+- The bridge's own `/metadata` and `/capabilities` carry `server: {id, name,
+  account?: {id, name}, accountOnly}`; the OpenAPI document's `servers` names
+  the base URL the request came through.
+
+### 13.6 UI
+
+1. **Sessions → Select** (desktop): checkboxes on the cards, *Select all
+   shown*, and a bar *Move or copy N…* that opens Move data with them.
+2. **Move data** (replaces the Move/copy dialog; opened from a session's or
+   project's menu, an account, a storage or the Select bar): *From* and *To*
+   list the accounts (directory, or the shared folder with the accounts that
+   use it) and the storages (with their sets, and *New set…*); *What*:
+   everything, projects, conversations (each a searchable checklist) and
+   customizations; *Move* or *Copy*; the trust and replace options; the dry
+   run (what goes, what is skipped and why, warnings); then progress and Undo.
+3. **Accounts**: *Move or copy data…* on each account.
+4. **Backup & sync**: a *Storage* section — the backup folder first, *Add
+   storage…* (the same suggestions as the folder), and each storage's sets
+   with *Bring back…* and *Move here…*.
+5. **API**: the servers, main first, each with its state, port, account and
+   tunnel; *Add API server* (name, account, *Only this account*, port, the
+   defaults); the panel shows the selected server, with its addresses (its
+   port, through the main port, on the network).
+6. Phones see Move data and the storages read-only, as before (D9); they may
+   manage API servers as they may start the main one today.
+
+### 13.7 Documents to change
+
+`CLAUDE.md` (D4's list: customizations; the bridge paragraph: several servers;
+the accounts row), docs/BACKUP.md (storages, archived, moving to and from),
+docs/BRIDGE.md (servers, prefixes, `accountOnly`, the env variables),
+docs/REMOTE.md (tunnels per server), SECURITY.md, README.md, `.env.example`.
+
+### 13.8 Checklist
+
+**Phase 6 — move data anywhere**
+
+- [ ] P6.1 Bulk transfer: the `items` body, skips with reasons, several
+  projects' entries and history in one job, `from` left out → a job per
+  source; the old body unchanged.
+- [ ] P6.2 Assign between accounts that share a directory, with its undo.
+- [ ] P6.3 Storages: settings, routes, the view, sets not named after an
+  account, the index by storage and set, re-keying every storage.
+- [ ] P6.4 Account → storage: copy (a push of some conversations) and move
+  (archive, local removal, undo); pull skips archived entries.
+- [ ] P6.5 Storage → account: copy (restore from any set into any account)
+  and move (restore, then remove the entries; undo puts them back).
+- [ ] P6.6 Customizations, with their undo and warnings; D4 in CLAUDE.md.
+- [ ] P6.7 Storage → storage (P2).
+- [ ] P6.8 UI: Select, Move data, the account action, the Storage section, job
+  titles, the mock backend.
+- [ ] P6.9 Documents (§13.7).
+
+**Phase 7 — API servers per account**
+
+- [ ] P7.1 The servers: registry, `api-servers.json`, the main one as before.
+- [ ] P7.2 Per server: listener, defaults, active conversation, token policy,
+  started gate.
+- [ ] P7.3 `accountOnly` on every bridge route; `/auth` per account.
+- [ ] P7.4 `/servers/<id>` on the main API port and the LAN mount.
+- [ ] P7.5 Tunnel detection per port; the Remote page names the server.
+- [ ] P7.6 The dashboard routes, `servers` in `GET /api/bridge`, the account
+  removal rule.
+- [ ] P7.7 Autostart: `all`, `MOTHER_CLAUDE_BRIDGE_ACCOUNT(_ONLY)`.
+- [ ] P7.8 UI: the server list, adding and removing, the panel per server,
+  the addresses, the mock backend.
+- [ ] P7.9 Documents (§13.7).
