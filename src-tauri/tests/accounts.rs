@@ -163,8 +163,11 @@ impl Fixture {
 
 const TOKEN: &str = "sk-ant-oat01-PastedTokenValue0123456789abcdefghijABCDEFGHIJ";
 
+/// A phone lists accounts; adding, removing, signing in and tokens stay on
+/// the desktop (§13.9; what a phone may change is in
+/// `a_phone_manages_data_but_never_secrets`).
 #[tokio::test]
-async fn a_phone_lists_accounts_but_cannot_change_them() {
+async fn a_phone_lists_accounts_but_cannot_add_or_sign_them_in() {
     let f = boot().await;
     let phone = f.phone();
     let (s, v) = f.call("GET", "/accounts", &phone, None).await;
@@ -178,18 +181,7 @@ async fn a_phone_lists_accounts_but_cannot_change_them() {
             "/accounts",
             json!({"name": "Work", "kind": "directory", "dir": dir}),
         ),
-        ("PATCH", "/accounts/default", json!({"name": "Mine"})),
         ("DELETE", "/accounts/acc_000000000000", json!({})),
-        (
-            "PUT",
-            "/accounts/defaults",
-            json!({"newSession": "default", "bridge": "default"}),
-        ),
-        (
-            "PUT",
-            "/accounts/copy-consent",
-            json!({"from": "default", "to": "default", "granted": true}),
-        ),
         ("POST", "/accounts/default/login", json!({})),
         ("POST", "/accounts/default/token", json!({})),
         ("GET", "/accounts/default/token", json!({})),
@@ -842,7 +834,7 @@ async fn every_accounts_sessions_are_listed_with_their_account() {
 }
 
 /// P3.2: moving a session between two directory accounts over HTTP — a dry
-/// run, the job, its undo — and a phone may watch but not move.
+/// run, the job, its undo — and a local script may watch but not move.
 #[tokio::test]
 async fn sessions_move_between_accounts_with_an_undo() {
     let f = boot().await;
@@ -863,8 +855,12 @@ async fn sessions_move_between_accounts_with_an_undo() {
     };
 
     let phone = f.phone();
-    let (s, _) = f.call("POST", "/data/move", &phone, Some(body(true))).await;
+    let script = f.st.auth.script_token.clone();
+    let (s, v) = f
+        .call("POST", "/data/move", &script, Some(body(true)))
+        .await;
     assert_eq!(s, StatusCode::FORBIDDEN);
+    assert_eq!(v["error"]["code"], "desktop_only");
 
     let (s, v) = f.call("POST", "/data/move", &desk, Some(body(true))).await;
     assert_eq!(s, StatusCode::OK, "{v}");
@@ -927,12 +923,12 @@ async fn sessions_move_between_accounts_with_an_undo() {
     assert_eq!(s, StatusCode::CONFLICT, "{v}");
     assert_eq!(v["error"]["code"], "already_exists");
 
-    // A phone cannot undo; the desktop can.
+    // A local script cannot undo; the desktop can.
     let (s, _) = f
         .call(
             "POST",
             &format!("/data/jobs/{job}/undo"),
-            &phone,
+            &script,
             Some(json!({})),
         )
         .await;
@@ -1052,7 +1048,8 @@ async fn a_moved_session_belongs_to_the_account_that_has_it_now() {
 }
 
 /// P4.3/P4.2: a backup set over HTTP — folder, generated passphrase (shown
-/// once), push, the index, a restore with its undo — and a phone only looks.
+/// once), push, the index, a restore with its undo — and a local script only
+/// looks.
 #[tokio::test]
 async fn an_account_is_backed_up_and_restored_over_http() {
     let f = boot().await;
@@ -1109,8 +1106,9 @@ async fn an_account_is_backed_up_and_restored_over_http() {
     assert!(!v.to_string().contains(&pass), "never shown again");
     assert!(v.get("machine").is_none(), "no id is made by looking: {v}");
 
+    let script = f.st.auth.script_token.clone();
     let (s, _) = f
-        .call("POST", "/backup/push", &phone, Some(json!({})))
+        .call("POST", "/backup/push", &script, Some(json!({})))
         .await;
     assert_eq!(s, StatusCode::FORBIDDEN);
     let (s, v) = f
@@ -1231,9 +1229,9 @@ async fn an_account_is_backed_up_and_restored_over_http() {
     assert_eq!(s, StatusCode::OK, "{v}");
     assert!(!transcript.exists());
 
-    // A pull brings it back the same way (and only the desktop may pull).
+    // A pull brings it back the same way (and a local script may not pull).
     let (s, _) = f
-        .call("POST", "/backup/pull", &phone, Some(json!({})))
+        .call("POST", "/backup/pull", &script, Some(json!({})))
         .await;
     assert_eq!(s, StatusCode::FORBIDDEN);
     let (s, v) = f
@@ -1398,4 +1396,262 @@ async fn sets_are_per_directory_and_a_set_is_never_queued_twice() {
     assert_eq!(v["skipped"][0]["code"], "invalid_backup");
     assert!(v["skipped"][0]["message"].as_str().is_some());
     let _ = work;
+}
+
+/// A data job's view once it stopped running.
+async fn finished_job(f: &Fixture, token: &str, job: &str) -> Value {
+    for _ in 0..400 {
+        let (_, j) = f
+            .call("GET", &format!("/data/jobs/{job}"), token, None)
+            .await;
+        if j["state"] != "running" {
+            return j;
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    panic!("job {job} did not finish");
+}
+
+type Bus = tokio::sync::broadcast::Receiver<std::sync::Arc<mother_claude_lib::state::ServerEvent>>;
+
+/// The desktop notices sent on the bus since `rx` subscribed.
+fn desktop_notices(rx: &mut Bus) -> Vec<String> {
+    use mother_claude_lib::state::ServerEvent;
+    use tokio::sync::broadcast::error::TryRecvError;
+    let mut out = Vec::new();
+    loop {
+        match rx.try_recv() {
+            Ok(ev) => {
+                if let ServerEvent::DesktopNotice { text, .. } = &*ev {
+                    out.push(text.clone());
+                }
+            }
+            Err(TryRecvError::Lagged(_)) => continue,
+            Err(_) => return out,
+        }
+    }
+}
+
+/// §13.9: a paired phone (on the LAN or through a tunnel) moves, copies,
+/// undoes, backs up, restores, pulls and changes the account defaults; a
+/// folder's trust needs the dangerous right; the passphrase stays the
+/// desktop's; the local-script token gets none of it; the desktop is told
+/// what the phone did, by the phone's name, and the audit names the device.
+#[tokio::test]
+async fn a_phone_manages_data_but_never_secrets() {
+    let f = boot_inside().await;
+    let desk = f.desktop();
+    let (device, phone) = f.st.devices.issue(
+        "Kitchen phone",
+        "ios",
+        None,
+        Ingress::Lan,
+        "192.168.1.61".parse().unwrap(),
+    );
+    let script = f.st.auth.script_token.clone();
+    let cwd = f.scratch.path().join("proj");
+    std::fs::create_dir_all(&cwd).unwrap();
+    let cwd = cwd.to_string_lossy().into_owned();
+    let work_dir = f.scratch.path().join("claude-work");
+    let work =
+        f.st.accounts
+            .add_directory("Work", &work_dir, None)
+            .unwrap();
+    let sid = "99999999-9999-4999-8999-999999999999";
+    write_session(&work_dir, &cwd, sid, None);
+    // The folder is trusted in Work: `trust` would carry that.
+    std::fs::write(
+        work_dir.join(".claude.json"),
+        json!({"projects": {&cwd: {"hasTrustDialogAccepted": true}}}).to_string(),
+    )
+    .unwrap();
+    let mut bus = f.st.bus.subscribe();
+
+    // The account settings a phone may change.
+    let (s, v) = f
+        .call(
+            "PUT",
+            "/accounts/defaults",
+            &phone,
+            Some(json!({"newSession": work.id, "bridge": "default"})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    let (s, v) = f
+        .call(
+            "PATCH",
+            &format!("/accounts/{}", work.id),
+            &phone,
+            Some(json!({"color": "#123456"})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    let (s, v) = f
+        .call(
+            "PUT",
+            "/accounts/copy-consent",
+            &phone,
+            Some(json!({"from": "default", "to": work.id, "granted": true})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    assert!(f.st.accounts.has_copy_consent("default", &work.id));
+    // The passphrase is the desktop's.
+    let (s, v) = f
+        .call(
+            "POST",
+            "/backup/passphrase",
+            &phone,
+            Some(json!({"generate": true})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::FORBIDDEN, "{v}");
+    assert_eq!(v["error"]["code"], "desktop_only");
+
+    // A local script: none of the data routes.
+    let copy = |trust: bool, dry: bool| {
+        json!({"what": "session", "id": sid, "from": work.id, "to": "default",
+               "mode": "copy", "trust": trust, "dryRun": dry})
+    };
+    let work_path = format!("/accounts/{}", work.id);
+    for (method, path, body) in [
+        (
+            "PUT",
+            "/accounts/defaults",
+            json!({"newSession": "default", "bridge": "default"}),
+        ),
+        ("PATCH", work_path.as_str(), json!({"color": "#654321"})),
+        ("POST", "/data/move", copy(false, true)),
+        ("POST", "/backup/push", json!({})),
+        ("PUT", "/backup/settings", json!({"everyHours": 2})),
+        ("POST", "/backup/pull", json!({})),
+    ] {
+        let (s, v) = f.call(method, path, &script, Some(body)).await;
+        assert_eq!(s, StatusCode::FORBIDDEN, "{method} {path}: {v}");
+        assert_eq!(v["error"]["code"], "desktop_only", "{method} {path}");
+    }
+
+    // Trust needs the dangerous right, even in a dry run; the rest does not.
+    let (s, v) = f
+        .call("POST", "/data/move", &phone, Some(copy(true, true)))
+        .await;
+    assert_eq!(s, StatusCode::FORBIDDEN, "{v}");
+    assert_eq!(v["error"]["code"], "dangerous_blocked");
+    let (s, v) = f
+        .call("POST", "/data/move", &phone, Some(copy(false, false)))
+        .await;
+    assert_eq!(s, StatusCode::ACCEPTED, "{v}");
+    let job = v["job"]["id"].as_str().unwrap().to_string();
+    let done = finished_job(&f, &phone, &job).await;
+    assert_eq!(done["state"], "done", "{done}");
+    let (s, v) = f
+        .call(
+            "POST",
+            &format!("/data/jobs/{job}/undo"),
+            &phone,
+            Some(json!({})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    assert_eq!(v["state"], "undone");
+
+    // Backups from the phone: settings, push, restore and pull.
+    let folder = f.scratch.path().join("iCloud/Mother Claude");
+    let (s, v) = f
+        .call(
+            "PUT",
+            "/backup/settings",
+            &phone,
+            Some(json!({ "folder": folder })),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    let (s, _) = f
+        .call(
+            "POST",
+            "/backup/passphrase",
+            &desk,
+            Some(json!({"generate": true})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK);
+    let (s, v) = f
+        .call(
+            "POST",
+            "/backup/push",
+            &phone,
+            Some(json!({"account": work.id})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::ACCEPTED, "{v}");
+    let pushed = finished_job(&f, &phone, v["jobs"][0].as_str().unwrap()).await;
+    assert_eq!(pushed["state"], "done", "{pushed}");
+    for (path, body) in [
+        (
+            "/backup/restore",
+            json!({"account": work.id, "into": "default", "ids": [sid], "trust": true}),
+        ),
+        ("/backup/pull", json!({"account": work.id, "trust": true})),
+    ] {
+        let (s, v) = f.call("POST", path, &phone, Some(body)).await;
+        assert_eq!(s, StatusCode::FORBIDDEN, "{path}: {v}");
+        assert_eq!(v["error"]["code"], "dangerous_blocked", "{path}");
+    }
+    let (s, v) = f
+        .call(
+            "POST",
+            "/backup/restore",
+            &phone,
+            Some(json!({"account": work.id, "into": "default", "ids": [sid]})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::ACCEPTED, "{v}");
+    let restored = finished_job(&f, &phone, v["job"].as_str().unwrap()).await;
+    assert_eq!(restored["result"]["restored"][0], sid, "{restored}");
+
+    // With the grant the trust goes through.
+    f.st.devices
+        .set_grants(&device.id, Some(true), Some(true))
+        .unwrap();
+    let (s, v) = f
+        .call("POST", "/data/move", &phone, Some(copy(true, true)))
+        .await;
+    // Past the gate (the restore above put the conversation there already).
+    assert_eq!(s, StatusCode::CONFLICT, "{v}");
+    assert_eq!(v["error"]["code"], "already_exists");
+    let (s, v) = f
+        .call(
+            "POST",
+            "/backup/pull",
+            &phone,
+            Some(json!({"account": work.id, "trust": true})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::ACCEPTED, "{v}");
+    finished_job(&f, &phone, v["jobs"][0].as_str().unwrap()).await;
+
+    // The desktop was told, by the phone's name; the audit names the device.
+    let notices = desktop_notices(&mut bus);
+    for what in [
+        "changed the account defaults",
+        "undid a data job",
+        "started a backup",
+        "started to restore 1 conversation(s)",
+    ] {
+        assert!(
+            notices
+                .iter()
+                .any(|n| n.contains("\"Kitchen phone\"") && n.contains(what)),
+            "{what}: {notices:?}"
+        );
+    }
+    let audit = f.st.devices.audit.recent(200);
+    for action in ["data.copy", "data.undo", "backup.push", "backup.restore"] {
+        assert!(
+            audit
+                .iter()
+                .any(|e| e.action == action && e.device_id.as_deref() == Some(device.id.as_str())),
+            "{action}"
+        );
+    }
 }

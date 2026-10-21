@@ -211,9 +211,12 @@ the Default sign-in.
   grant for its effective ingress (`allowDangerous` on the LAN,
   `allowDangerousInternet` elsewhere), or an anonymous *local* caller on the
   bridge port. Use the guard extractors in `server::auth` (`Authed`,
-  `DesktopOnly` for admin routes, `DangerousOk`, `HookOnly`, `SidecarOnly`), and
-  call `ctx.note_dangerous(..)` when a device passes a dangerous check you made
-  by hand (audit + desktop notice).
+  `DesktopOnly` for admin routes, `ManageData` for the data, backup and
+  account-default routes a paired phone may use — never the local-script token
+  — `DangerousOk`, `HookOnly`, `SidecarOnly`), and call `ctx.note_dangerous(..)`
+  when a device passes a dangerous check you made by hand (audit + desktop
+  notice); a `ManageData` handler names what a device did with
+  `auth::note_device_action`.
 - **The desktop token is per launch and in memory** (`server_info` invoke only).
   The on-disk `script-token` file is `Principal::LocalScript`: local only,
   data and control routes, never admin routes; dangerous actions only on the
@@ -276,11 +279,14 @@ the Default sign-in.
   user action: `claude plugin install/uninstall` from the desktop, a standing
   grant the user chose, a transcript purge through the SDK. Tests and scripts
   must never run the plugin installer against the real config. Our own code
-  writes into a config directory in exactly four explicit desktop actions
+  writes into a config directory in exactly four explicit user actions
   (docs/ACCOUNTS.md D4): creating a new directory account's empty directory
-  (mode 0700), **move/copy** of sessions or projects between directory accounts
-  (`claude/transfer.rs`), **restore** from a backup and **pull** from a backup
-  set (`claude/backup.rs`). Each of them is `DesktopOnly`; refuses while a live
+  (mode 0700, `DesktopOnly`), **move/copy** of sessions or projects between
+  directory accounts (`claude/transfer.rs`), **restore** from a backup and
+  **pull** from a backup set (`claude/backup.rs`). The last three are the
+  desktop's or a paired device's (`ManageData`, docs/ACCOUNTS.md §13.9):
+  carrying a folder's trust needs the dangerous right, and the desktop is told
+  what a device did. Each of them refuses while a live
   process uses the directory it would write (a pidfile with a living pid in its
   `sessions/`, or a `.claude.json.lock` younger than 10 s); first copies what it
   will change to `<app data dir>/undo/<timestamp>/`; writes atomically (temp +

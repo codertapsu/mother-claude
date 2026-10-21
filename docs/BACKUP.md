@@ -15,7 +15,8 @@ and every pull can be undone for seven days.
 
 ## Setting it up
 
-**Settings → Backup & sync** on the desktop:
+**Settings → Backup & sync**, on the desktop or a paired phone (the passphrase
+only on the desktop):
 
 1. **Folder.** Pick one of the suggestions (iCloud Drive, Google Drive, OneDrive
    or Dropbox when the Mac has them) or any folder. Each account with a
@@ -42,7 +43,10 @@ and every pull can be undone for seven days.
    ten minutes. A set that is still being backed up is never queued again.
 4. **Back up now** runs every set at once.
 
-Phones see all of this, read-only.
+A paired phone, on the LAN or through a tunnel, may do all of this but set the
+passphrase: change the folder and the schedule, back up, restore, pull and
+undo. Bringing back a folder's trust (below) needs the dangerous right on the
+phone, and the desktop shows a notice naming the phone and what it did.
 
 ## What is backed up
 

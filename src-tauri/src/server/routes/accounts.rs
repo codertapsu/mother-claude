@@ -8,11 +8,13 @@
 //!   `{name, kind: "token", token?}` (DesktopOnly) → `201 AccountView`. A
 //!   token is checked with `claude auth status` first and goes straight to the
 //!   secret store; without one the account waits for `setup-token`.
-//! * `PATCH /api/accounts/{id} {name?, color?}`, `DELETE /api/accounts/{id}`
+//! * `PATCH /api/accounts/{id} {name?, color?}` (the desktop or a paired
+//!   device, docs/ACCOUNTS.md §13.9), `DELETE /api/accounts/{id}`
 //!   (DesktopOnly). Removing never touches the account's directory or its
 //!   Anthropic sign-in.
 //! * `PUT /api/accounts/defaults {newSession, bridge, byProject}`,
-//!   `PUT /api/accounts/copy-consent {from, to, granted}` (DesktopOnly).
+//!   `PUT /api/accounts/copy-consent {from, to, granted}` (the desktop or a
+//!   paired device).
 //! * `POST /api/accounts/{id}/refresh` (Authed): re-check the sign-in.
 //! * `POST /api/accounts/{id}/login {console?}` (DesktopOnly): `claude auth
 //!   login` for the account's directory; watched until it lands.
@@ -41,7 +43,7 @@ use crate::claude::accounts::{
     status, AccountDefaults, AccountEnv, AccountError, AccountKind, AccountPatch,
 };
 use crate::claude::secrets::Secret;
-use crate::server::auth::{Authed, DesktopOnly};
+use crate::server::auth::{self, Authed, DesktopOnly, ManageData};
 use crate::server::context::ClientContext;
 use crate::server::devices::audit::AuditEntry;
 use crate::server::error::{ApiError, ApiResult};
@@ -67,6 +69,16 @@ fn audit(state: &AppState, ctx: &ClientContext, action: &str, detail: serde_json
 
 fn one(state: &AppState, id: &str) -> ApiResult<AccountView> {
     view::build(state, true, None)
+        .accounts
+        .into_iter()
+        .find(|a| a.id == id)
+        .ok_or_else(|| account_error(AccountError::NotFound(id.to_string())))
+}
+
+/// [`one`] as `ctx` may see it (a running capture's sign-in URL is the
+/// desktop's alone).
+fn one_for(state: &AppState, ctx: &ClientContext, id: &str) -> ApiResult<AccountView> {
+    view::build(state, ctx.is_desktop(), None)
         .accounts
         .into_iter()
         .find(|a| a.id == id)
@@ -177,7 +189,7 @@ pub async fn add(
 
 /// `PATCH /api/accounts/{id}`.
 pub async fn update(
-    DesktopOnly(ctx): DesktopOnly,
+    ManageData(ctx): ManageData,
     State(state): State<AppState>,
     Path(id): Path<String>,
     Body(body): Body<AccountPatch>,
@@ -194,8 +206,9 @@ pub async fn update(
         "account.update",
         json!({ "account": account.id, "name": account.name, "color": account.color }),
     );
+    auth::note_device_action(&state, &ctx, &format!("changed account {:?}", account.name));
     view::publish(&state).await;
-    Ok(Json(one(&state, &id)?))
+    Ok(Json(one_for(&state, &ctx, &id)?))
 }
 
 /// `DELETE /api/accounts/{id}`.
@@ -282,7 +295,7 @@ pub async fn remove(
 
 /// `PUT /api/accounts/defaults`.
 pub async fn put_defaults(
-    DesktopOnly(ctx): DesktopOnly,
+    ManageData(ctx): ManageData,
     State(state): State<AppState>,
     Body(body): Body<AccountDefaults>,
 ) -> ApiResult<Json<AccountDefaults>> {
@@ -294,6 +307,7 @@ pub async fn put_defaults(
         json!({ "newSession": defaults.new_session, "bridge": defaults.bridge,
                 "projects": defaults.by_project.len() }),
     );
+    auth::note_device_action(&state, &ctx, "changed the account defaults");
     view::publish(&state).await;
     Ok(Json(defaults))
 }
@@ -308,7 +322,7 @@ pub struct ConsentBody {
 
 /// `PUT /api/accounts/copy-consent`.
 pub async fn put_copy_consent(
-    DesktopOnly(ctx): DesktopOnly,
+    ManageData(ctx): ManageData,
     State(state): State<AppState>,
     Body(body): Body<ConsentBody>,
 ) -> ApiResult<Json<AccountsView>> {
@@ -322,8 +336,13 @@ pub async fn put_copy_consent(
         "account.copy_consent",
         json!({ "from": body.from, "to": body.to, "granted": body.granted }),
     );
+    auth::note_device_action(
+        &state,
+        &ctx,
+        "changed the copy consent between two accounts",
+    );
     view::publish(&state).await;
-    Ok(Json(view::view(&state, true).await))
+    Ok(Json(view::view(&state, ctx.is_desktop()).await))
 }
 
 /// `POST /api/accounts/{id}/refresh`.

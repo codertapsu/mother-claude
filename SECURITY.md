@@ -113,6 +113,8 @@ These are **dangerous**:
 - raw terminal keys, a leading `!` or a non-allowlisted slash command typed into
   a tmux session, and experimental PTY injection;
 - `rm`, transcript purge and starting a sign-in flow;
+- carrying a folder's trust (its `.claude.json` entry: `hasTrustDialogAccepted`,
+  allowed tools, MCP choices) with a move, copy, restore or pull;
 - HTTP bridge options that run code nobody approves (MCP servers, pre-approved
   tools, extra directories, an untrusted folder, work sent into a conversation
   whose approvals are off).
@@ -351,15 +353,21 @@ device, ingress and client address.
   is learned as a hash: from the process environment on Linux, from the hooks
   plugin's `X-MC-Token-Sha256` on macOS (the hook hashes it inside the
   session); the value is compared and dropped.
-- Account administration, sign-ins, tokens, moving or copying data, backups,
-  restores, pulls and their settings are desktop-only. Picking an account for a
-  session is allowed to anyone who may start one.
-- Our code writes into a Claude config directory in four explicit desktop
-  actions only — a new account's empty directory, move/copy, restore, pull —
-  each refusing while a live process uses a shared file it would write, keeping
-  an undo for seven days, writing atomically and leaving an audit line.
-  A folder's trust (`hasTrustDialogAccepted`, its allowed tools and MCP
-  choices) is never copied or restored without the explicit opt-in.
+- Adding, removing and signing in accounts, tokens, the backup passphrase and
+  the hooks plugin installer are desktop-only. Moving and copying data, backups,
+  restores, pulls, undo, the backup settings, account defaults, copy consent
+  and renaming an account are open to the desktop and to paired devices (LAN or
+  tunnel; [ACCOUNTS.md](docs/ACCOUNTS.md) §13.9), never to the local-script
+  token. Every such action of a device is audited with the device and named to
+  the desktop in a notice. Picking an account for a session is allowed to
+  anyone who may start one.
+- Our code writes into a Claude config directory in four explicit user
+  actions only — a new account's empty directory (desktop only), move/copy,
+  restore, pull — each refusing while a live process uses a shared file it
+  would write, keeping an undo for seven days, writing atomically and leaving
+  an audit line, whoever asked. A folder's trust (`hasTrustDialogAccepted`,
+  its allowed tools and MCP choices) is never copied or restored without the
+  explicit opt-in, which is a dangerous action.
 - Backups are encrypted (age, X25519 per set, the set's key under the
   passphrase with scrypt); the only plaintext in a set is `set.json` (account
   name, the set's public key, machine ids, names and times), and it is display

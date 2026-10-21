@@ -24,9 +24,10 @@
 //!
 //! [`authenticate`] resolves the credential into `ctx.principal` (called by the
 //! context middleware); handlers then pick a guard extractor:
-//! [`Authed`] (desktop or device), [`DesktopOnly`], [`HookOnly`],
-//! [`SidecarOnly`], [`DangerousOk`] (authed + may do dangerous actions).
-//! Rejections use the `{"error":{"code","message"}}` envelope.
+//! [`Authed`] (desktop or device), [`DesktopOnly`], [`ManageData`] (the
+//! desktop or a paired device: moving data, backups, account defaults),
+//! [`HookOnly`], [`SidecarOnly`], [`DangerousOk`] (authed + may do dangerous
+//! actions). Rejections use the `{"error":{"code","message"}}` envelope.
 
 use std::path::{Path, PathBuf};
 
@@ -494,6 +495,71 @@ impl<S: Send + Sync> FromRequestParts<S> for DesktopOnly {
             )),
         }
     }
+}
+
+/// The desktop or a paired device, on any ingress (docs/ACCOUNTS.md §13.9):
+/// moving and copying data, backups, restores, pulls, undo, storages, backup
+/// settings, account defaults, copy consent, renaming an account. Never the
+/// local-script token or an anonymous caller (`desktop_only`, as these routes
+/// answered everyone but the desktop before). The audit layer records what a
+/// device does; the handler names it to the desktop with
+/// [`note_device_action`]. Whatever of it runs code or changes trust still
+/// needs [`require_dangerous`].
+#[derive(Debug, Clone)]
+pub struct ManageData(pub ClientContext);
+
+impl<S: Send + Sync> FromRequestParts<S> for ManageData {
+    type Rejection = ApiError;
+
+    async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
+        let ctx = ctx_of(parts);
+        match ctx.principal {
+            Principal::Desktop | Principal::Device { .. } => Ok(ManageData(ctx)),
+            Principal::Anonymous => Err(unauthorized(&ctx)),
+            _ => Err(ApiError::forbidden(
+                "desktop_only",
+                "This action is only available on the Mother Claude desktop app or a paired \
+                 device.",
+            )),
+        }
+    }
+}
+
+/// Tell the desktop what a paired device did through a [`ManageData`] route:
+/// a notice naming the device, where it called from and `what` (e.g. "moved
+/// 3 conversations from Default to Work"). Nothing for the desktop itself.
+pub fn note_device_action(state: &AppState, ctx: &ClientContext, what: &str) {
+    let Some(id) = ctx.device_id() else {
+        return;
+    };
+    let name = state
+        .devices
+        .get(id)
+        .map(|d| d.name)
+        .unwrap_or_else(|| "A paired device".to_string());
+    crate::server::ws::publish_desktop_notice(
+        state,
+        crate::claude::model::NoticeLevel::Info,
+        format!(
+            "\"{name}\" {what} from {} ({})",
+            ctx.client_ip,
+            ctx.effective_ingress.as_str()
+        ),
+    );
+}
+
+/// [`require_dangerous`] for a part of a request that may be a dry run: the
+/// right is checked either way, and only a request that acts is marked (a
+/// dry run changes nothing, so it raises no notice).
+pub fn require_dangerous_unless_dry(
+    ctx: &ClientContext,
+    what: &str,
+    dry_run: bool,
+) -> Result<(), ApiError> {
+    if dry_run && ctx.may_dangerous() {
+        return Ok(());
+    }
+    require_dangerous(ctx, what)
 }
 
 /// The hook plugin (`mch_…`, local only).

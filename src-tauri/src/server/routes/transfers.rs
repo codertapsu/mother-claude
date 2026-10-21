@@ -1,15 +1,16 @@
 //! Moving and copying data between accounts, and the data jobs that do it
 //! (docs/ACCOUNTS.md §4.4, P3.2).
 //!
-//! * `POST /api/data/move` (DesktopOnly) `{what: "session", id} |
-//!   {what: "project", cwd}` plus `{from, to, mode: "move"|"copy", trust?,
-//!   dryRun?}` → `200 {plan}` for a dry run, else `202 {job}`: the transfer
-//!   runs in the background as a data job.
+//! * `POST /api/data/move` (the desktop or a paired device, §13.9)
+//!   `{what: "session", id} | {what: "project", cwd}` plus `{from, to, mode:
+//!   "move"|"copy", trust?, dryRun?}` → `200 {plan}` for a dry run, else
+//!   `202 {job}`: the transfer runs in the background as a data job.
+//!   `trust: true` needs the dangerous right.
 //! * `GET /api/data/jobs` and `GET /api/data/jobs/{id}` (Authed): progress,
 //!   result, until when undo works, the accounts involved (`from`/`to`,
 //!   `account`). The list has this run's jobs and earlier ones that can still
 //!   be undone.
-//! * `POST /api/data/jobs/{id}/undo` (DesktopOnly).
+//! * `POST /api/data/jobs/{id}/undo` (the desktop or a paired device).
 //!
 //! Every refusal has its own code (`same_directory`, `session_live`,
 //! `already_exists`, `directory_in_use`, `config_locked`, `session_changed`,
@@ -26,7 +27,7 @@ use serde_json::json;
 
 use super::Body;
 use crate::claude::transfer::{self, ops, Mode, Request, TransferError, What};
-use crate::server::auth::{Authed, DesktopOnly};
+use crate::server::auth::{self, Authed, ManageData};
 use crate::server::devices::audit::AuditEntry;
 use crate::server::error::{ApiError, ApiResult};
 use crate::state::AppState;
@@ -68,10 +69,13 @@ pub struct MoveBody {
 
 /// `POST /api/data/move`.
 pub async fn post_move(
-    DesktopOnly(ctx): DesktopOnly,
+    ManageData(ctx): ManageData,
     State(state): State<AppState>,
     Body(body): Body<MoveBody>,
 ) -> ApiResult<Response> {
+    if body.trust {
+        auth::require_dangerous_unless_dry(&ctx, "Carrying a folder's trust", body.dry_run)?;
+    }
     if ops::undo_root(&state).is_none() {
         return Err(ApiError::conflict(
             "no_data_dir",
@@ -116,6 +120,7 @@ pub async fn post_move(
             .jobs
             .start(&job_id, kind, plan.files as u64, plan.bytes),
     );
+    let what = format!("started to {kind} {} conversation(s)", plan.sessions.len());
     let st = state.clone();
     let id = job_id.clone();
     tokio::spawn(async move {
@@ -123,6 +128,7 @@ pub async fn post_move(
             tracing::warn!(job = %id, error = %e, "data transfer failed");
         }
     });
+    auth::note_device_action(&state, &ctx, &what);
     let view = ops::job(&state, &job_id);
     Ok((StatusCode::ACCEPTED, Json(json!({ "job": view }))).into_response())
 }
@@ -149,7 +155,7 @@ pub async fn get_job(
 
 /// `POST /api/data/jobs/{id}/undo`.
 pub async fn undo_job(
-    DesktopOnly(ctx): DesktopOnly,
+    ManageData(ctx): ManageData,
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> ApiResult<Json<transfer::JobView>> {
@@ -158,6 +164,7 @@ pub async fn undo_job(
         detail: Some(json!({ "job": id })),
         ..AuditEntry::from_ctx(&ctx, "data.undo")
     });
+    auth::note_device_action(&state, &ctx, "undid a data job");
     ops::job(&state, &id)
         .map(Json)
         .ok_or_else(|| ApiError::not_found("job_not_found", "No such data job."))

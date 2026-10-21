@@ -3,15 +3,15 @@
 //! * `GET /api/backup` (Authed): the settings, whether a passphrase is set,
 //!   each account's set, folder suggestions (iCloud Drive, Google Drive…), the
 //!   recent jobs.
-//! * `PUT /api/backup/settings {folder?, everyHours?, pullOnLaunch?}`
-//!   (DesktopOnly).
+//! * `PUT /api/backup/settings {folder?, everyHours?, pullOnLaunch?}` (the
+//!   desktop or a paired device, docs/ACCOUNTS.md §13.9).
 //! * `POST /api/backup/passphrase {generate: true}` → `{passphrase, rekeyed,
 //!   left}` shown this once, or `{passphrase}` of the user's own
 //!   (DesktopOnly). Every set in the folder is re-keyed, all or nothing as
 //!   far as it can be (`ops::set_passphrase`); the passphrase is kept in the
 //!   Keychain. A failure after some set has it already carries
 //!   `error.applied: true` and, for a generated one, `error.passphrase`.
-//! * `POST /api/backup/push {account?}` (DesktopOnly) → `202 {jobs}`; without
+//! * `POST /api/backup/push {account?}` (desktop or device) → `202 {jobs}`; without
 //!   `account`, one job per set (a token account's is the Default's); a set
 //!   being backed up already gives that job's id.
 //! * `GET /api/backup/index?account=&into=` (Authed): the set's sessions
@@ -19,13 +19,16 @@
 //!   would do and the pruning warning.
 //! * `POST /api/backup/restore {account, into?, ids, trust?}` → `202 {job}`, or
 //!   `{account, config: true}` → `{folder}` (the configuration bundle unpacked
-//!   for review, never over the live one) (DesktopOnly).
-//! * `POST /api/backup/pull {account?, ids?, trust?}` (DesktopOnly) →
+//!   for review, never over the live one) (desktop or device; `trust: true`
+//!   needs the dangerous right).
+//! * `POST /api/backup/pull {account?, ids?, trust?}` (desktop or device;
+//!   `trust: true` needs the dangerous right) →
 //!   `202 {jobs, skipped: [{account, code, message}]}`: without `account`,
 //!   every set, a set that cannot be read named in `skipped` and the rest
 //!   pulled.
 //!
-//! The passphrase never reaches a log, a frame or the audit line.
+//! The passphrase stays the desktop's (`POST /api/backup/passphrase`), and
+//! never reaches a log, a frame or the audit line.
 
 use axum::extract::{Query, State};
 use axum::http::StatusCode;
@@ -37,7 +40,7 @@ use serde_json::json;
 use super::Body;
 use crate::claude::backup::{ops, BackupError};
 use crate::claude::secrets::Secret;
-use crate::server::auth::{Authed, DesktopOnly};
+use crate::server::auth::{self, Authed, DesktopOnly, ManageData};
 use crate::server::context::ClientContext;
 use crate::server::devices::audit::AuditEntry;
 use crate::server::error::{ApiError, ApiResult};
@@ -92,7 +95,7 @@ pub struct SettingsBody {
 
 /// `PUT /api/backup/settings`.
 pub async fn put_settings(
-    DesktopOnly(ctx): DesktopOnly,
+    ManageData(ctx): ManageData,
     State(state): State<AppState>,
     Body(body): Body<SettingsBody>,
 ) -> ApiResult<Json<ops::BackupView>> {
@@ -127,6 +130,7 @@ pub async fn put_settings(
         "backup.settings",
         json!({ "folder": s.folder, "everyHours": s.every_hours, "pullOnLaunch": s.pull_on_launch }),
     );
+    auth::note_device_action(&state, &ctx, "changed the backup settings");
     Ok(Json(ops::view(&state)))
 }
 
@@ -203,7 +207,7 @@ pub struct PushBody {
 
 /// `POST /api/backup/push`.
 pub async fn post_push(
-    DesktopOnly(ctx): DesktopOnly,
+    ManageData(ctx): ManageData,
     State(state): State<AppState>,
     Body(body): Body<PushBody>,
 ) -> ApiResult<Response> {
@@ -217,6 +221,7 @@ pub async fn post_push(
         "backup.push",
         json!({ "account": body.account, "jobs": jobs }),
     );
+    auth::note_device_action(&state, &ctx, "started a backup");
     Ok((StatusCode::ACCEPTED, Json(json!({ "jobs": jobs }))).into_response())
 }
 
@@ -255,10 +260,13 @@ pub struct RestoreBody {
 
 /// `POST /api/backup/restore`.
 pub async fn post_restore(
-    DesktopOnly(ctx): DesktopOnly,
+    ManageData(ctx): ManageData,
     State(state): State<AppState>,
     Body(body): Body<RestoreBody>,
 ) -> ApiResult<Response> {
+    if body.trust && !body.config {
+        auth::require_dangerous(&ctx, "Restoring a folder's trust")?;
+    }
     if body.config {
         let folder = ops::extract_config(&state, &body.account)
             .await
@@ -269,6 +277,7 @@ pub async fn post_restore(
             "backup.restore.config",
             json!({ "account": body.account }),
         );
+        auth::note_device_action(&state, &ctx, "unpacked a configuration bundle for review");
         return Ok(Json(json!({ "folder": folder })).into_response());
     }
     if body.ids.is_empty() || body.ids.len() > 10_000 {
@@ -288,6 +297,11 @@ pub async fn post_restore(
         json!({ "account": body.account, "into": into, "sessions": body.ids.len(),
                 "trust": body.trust, "job": job }),
     );
+    auth::note_device_action(
+        &state,
+        &ctx,
+        &format!("started to restore {} conversation(s)", body.ids.len()),
+    );
     Ok((StatusCode::ACCEPTED, Json(json!({ "job": job }))).into_response())
 }
 
@@ -304,10 +318,13 @@ pub struct PullBody {
 
 /// `POST /api/backup/pull`.
 pub async fn post_pull(
-    DesktopOnly(ctx): DesktopOnly,
+    ManageData(ctx): ManageData,
     State(state): State<AppState>,
     Body(body): Body<PullBody>,
 ) -> ApiResult<Response> {
+    if body.trust {
+        auth::require_dangerous(&ctx, "Pulling folders' trust")?;
+    }
     // Everything: each set once (a token account's is the Default's).
     let accounts: Vec<String> = match &body.account {
         Some(a) => vec![a.clone()],
@@ -339,6 +356,7 @@ pub async fn post_pull(
         "backup.pull",
         json!({ "account": body.account, "jobs": jobs, "trust": body.trust }),
     );
+    auth::note_device_action(&state, &ctx, "started a pull");
     Ok((
         StatusCode::ACCEPTED,
         Json(json!({ "jobs": jobs, "skipped": skipped })),
