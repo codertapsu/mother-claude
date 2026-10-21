@@ -149,6 +149,18 @@ impl ApiServer {
             .or_else(|| self.port().filter(|p| *p != 0))
     }
 
+    /// Every port a tunnel could point at to reach it: the configured one
+    /// and the bound one.
+    pub fn ports(&self) -> Vec<u16> {
+        let mut out: Vec<u16> = self.port().into_iter().filter(|p| *p != 0).collect();
+        if let Some(p) = self.bound_port() {
+            if !out.contains(&p) {
+                out.push(p);
+            }
+        }
+        out
+    }
+
     /// Whether it serves. Everything that drives Claude through it checks this.
     pub fn is_running(&self) -> bool {
         self.running.load(Ordering::SeqCst)
@@ -573,8 +585,10 @@ pub struct Mount {
     /// The mount's own token policy — the main app port's mounts always
     /// `Required` — or `None`: the server's own run's.
     pub token: Option<TokenPolicy>,
-    /// The API port the request arrived on; `None` on the main app port (a
-    /// token always), and on routers built without a port (tests).
+    /// The API port the request arrived on, whose tunnels decide the
+    /// tokenless mode; `None` on the main app port (a token always), and on
+    /// routers built without a port (tests), where a tunnel to any API port
+    /// counts.
     pub port: Option<u16>,
 }
 
@@ -605,7 +619,8 @@ pub struct MountPolicy {
     pub token: TokenPolicy,
     /// The API port the request arrived on (see [`Mount::port`]).
     pub port: Option<u16>,
-    /// A detected tunnel points at the API port.
+    /// A detected tunnel points at that port (or, without one, at any API
+    /// port).
     pub exposed: bool,
     /// The server's defaults when the request arrived.
     pub defaults: BridgeDefaults,

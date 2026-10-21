@@ -356,6 +356,28 @@ impl BridgeState {
         self.main().set_active_thread(thread_id);
     }
 
+    /// Every port of every API server — configured or bound — for tunnel
+    /// detection.
+    pub fn server_ports(&self) -> Vec<u16> {
+        let mut out: Vec<u16> = Vec::new();
+        for server in self.servers.all() {
+            for port in server.ports() {
+                if !out.contains(&port) {
+                    out.push(port);
+                }
+            }
+        }
+        out
+    }
+
+    /// The API server that listens (or would) on `port`.
+    pub fn server_for_port(&self, port: u16) -> Option<Arc<ApiServer>> {
+        self.servers
+            .all()
+            .into_iter()
+            .find(|s| s.ports().contains(&port))
+    }
+
     pub async fn insert_thread(&self, record: ThreadRecord) {
         self.accounts
             .lock()
@@ -614,8 +636,8 @@ fn routes(state: AppState) -> Router<AppState> {
 
 /// Resolve the request's [`Mount`] into its [`MountPolicy`]: the server
 /// (`404 server_not_found` once it is gone), its token policy unless the
-/// mount fixes one, whether a tunnel points at the API port, and the
-/// server's defaults.
+/// mount fixes one, whether a tunnel points at the port the request arrived
+/// on, and the server's defaults.
 async fn resolve_mount(
     axum::extract::State(state): axum::extract::State<AppState>,
     mut req: axum::extract::Request,
@@ -630,7 +652,12 @@ async fn resolve_mount(
         return servers::server_not_found(&mount.server).into_response();
     };
     let token = mount.token.unwrap_or_else(|| server.token_policy());
-    let exposed = state.remote.bridge_exposed();
+    let exposed = match mount.port {
+        Some(port) => state.remote.port_exposed(port),
+        // No port to go by (a router built without one): a tunnel to any API
+        // port counts.
+        None => state.remote.bridge_exposed(),
+    };
     let defaults = server.defaults();
     req.extensions_mut().insert(MountPolicy {
         server,
@@ -685,12 +712,13 @@ async fn require_started(
 ///   `Host`, no proxy/tunnel headers — passes without a token, whatever its
 ///   `Origin` (local tools, Postman, Swagger and pages on other websites keep
 ///   working; dangerous actions still need a local or absent `Origin`).
-/// * While tunnel detection sees a tunnel whose upstream is the main API port,
-///   the tokenless mode is off (`bridge_exposed_requires_token`): a raw TCP
-///   tunnel is invisible to header checks.
+/// * While tunnel detection sees a tunnel whose upstream is the port the
+///   request arrived on, the tokenless mode is off there
+///   (`bridge_exposed_requires_token`): a raw TCP tunnel is invisible to header
+///   checks. A tunnel to another server's port changes nothing here.
 /// * With [`TokenPolicy::Never`] every request passes without a token, from
-///   anywhere — but while a tunnel points at the port, a tokenless request
-///   counts as remote (not `local`, not `on_machine`),
+///   anywhere — but while a tunnel points at the port it arrived on, a
+///   tokenless request counts as remote (not `local`, not `on_machine`),
 ///   because nothing then tells this machine apart from a raw TCP tunnel.
 ///   Dangerous actions, which an anonymous caller only has when `local`, stay
 ///   with token holders.
@@ -1380,19 +1408,24 @@ mod tests {
             ask(Some("203.0.113.7")).await,
             serde_json::json!({ "local": false, "dangerous": false })
         );
+        // A tunnel to another API server's port changes nothing on this one.
+        let tunnel = |port: u16| crate::server::remote::DetectedTunnel {
+            provider: "ngrok".into(),
+            url: "https://me.ngrok.app".into(),
+            upstream_port: Some(port),
+            kind: "tcp".into(),
+            target: "bridge".into(),
+            ..Default::default()
+        };
+        state.remote.set_detected(vec![tunnel(5613)], [5612, 5613]);
+        assert!(state.remote.port_exposed(5613) && !state.remote.port_exposed(5612));
+        assert_eq!(
+            ask(None).await,
+            serde_json::json!({ "local": true, "dangerous": true })
+        );
         // A tunnel points at the port: the same local-looking request is
         // remote now, and only a token holder could do something dangerous.
-        state.remote.set_detected(
-            vec![crate::server::remote::DetectedTunnel {
-                provider: "ngrok".into(),
-                url: "https://me.ngrok.app".into(),
-                upstream_port: Some(5612),
-                kind: "tcp".into(),
-                target: "bridge".into(),
-                ..Default::default()
-            }],
-            Some(5612),
-        );
+        state.remote.set_detected(vec![tunnel(5612)], Some(5612));
         assert!(state.remote.bridge_exposed());
         assert_eq!(
             ask(None).await,

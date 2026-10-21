@@ -410,22 +410,22 @@ pub async fn stop(state: &AppState) -> BridgeResult<Value> {
     Ok(status(state).await)
 }
 
-/// Whether a tunnel points at `server`'s port (detection watches the main
-/// API port).
+/// Whether a tunnel points at one of `server`'s ports.
 pub fn exposed(state: &AppState, server: &ApiServer) -> bool {
-    server.is_main() && state.remote.bridge_exposed()
+    server
+        .ports()
+        .iter()
+        .any(|port| state.remote.port_exposed(*port))
 }
 
-/// The public URL of a tunnel that points at `server`'s port.
+/// The public URL of a tunnel that points at one of `server`'s ports.
 pub fn tunnel_url(state: &AppState, server: &ApiServer) -> Option<String> {
-    if !server.is_main() {
-        return None;
-    }
+    let ports = server.ports();
     state
         .remote
         .detected()
         .into_iter()
-        .find(|t| t.target == "bridge")
+        .find(|t| t.upstream_port.is_some_and(|p| ports.contains(&p)))
         .map(|t| t.url)
 }
 

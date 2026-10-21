@@ -1131,6 +1131,7 @@ async fn the_bridge_port_keeps_local_tokenless_access_but_not_dangerous_work() {
             inspect: false,
             kind: "tcp".into(),
             target: "bridge".into(),
+            server: None,
         }],
         Some(5612),
     );

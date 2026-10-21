@@ -371,6 +371,84 @@ async fn api_servers_are_saved_and_come_back() {
     assert!(!text.contains("\"main\""), "{text}");
 }
 
+/// Tunnel detection tracks every server's port: a tunnel to one turns off
+/// only that port's tokenless mode.
+#[tokio::test]
+async fn a_tunnel_to_one_servers_port_closes_only_that_port() {
+    use mother_claude_lib::server::remote::{target_of, DetectedTunnel};
+    let f = boot().await;
+    control::start(&f.st, BridgeDefaults::default())
+        .await
+        .unwrap();
+    control::add_server(&f.st, "Work", Some(0), BridgeDefaults::default())
+        .await
+        .unwrap();
+    control::start_server(&f.st, "work", None, TokenPolicy::Local)
+        .await
+        .unwrap();
+    let (main, work_api) = (f.api("main"), f.api("work"));
+    let main_port = f.st.bridge.main().bound_port().unwrap();
+    let work_port = f.st.bridge.server("work").unwrap().bound_port().unwrap();
+    let desk = f.st.auth.token.clone();
+
+    // Detection names the server a tunnel points at (none: the main one).
+    assert_eq!(
+        target_of(&f.st, Some(work_port)),
+        ("bridge".into(), Some("work".into()))
+    );
+    assert_eq!(target_of(&f.st, Some(main_port)), ("bridge".into(), None));
+    assert_eq!(target_of(&f.st, Some(1)), ("other".into(), None));
+    let tunnel = |port: u16, server: Option<&str>| DetectedTunnel {
+        provider: "ngrok".into(),
+        url: format!("https://p{port}.ngrok.app"),
+        upstream_port: Some(port),
+        kind: "tcp".into(),
+        target: "bridge".into(),
+        server: server.map(str::to_string),
+        ..Default::default()
+    };
+    let code = |v: &Value| v["error"]["code"].as_str().unwrap_or("").to_string();
+
+    // A tunnel to Work's port: its tokenless mode is off; the main port's is not.
+    f.st.remote.set_detected(
+        vec![tunnel(work_port, Some("work"))],
+        f.st.bridge.server_ports(),
+    );
+    let (s, v) = get(&format!("{work_api}/threads")).await;
+    assert_eq!(s, StatusCode::UNAUTHORIZED, "{v}");
+    assert_eq!(code(&v), "bridge_exposed_requires_token");
+    assert_eq!(get(&format!("{main}/threads")).await.0, StatusCode::OK);
+
+    // The API screen and the Remote page name it.
+    let (_, status) = call("GET", &format!("{}/api/bridge", f.app), Some(&desk), None).await;
+    assert_eq!(status["exposedByTunnel"], false);
+    assert_eq!(status["servers"][1]["id"], "work");
+    assert_eq!(status["servers"][1]["exposedByTunnel"], true);
+    assert_eq!(
+        status["servers"][1]["tunnelUrl"],
+        format!("https://p{work_port}.ngrok.app")
+    );
+    let (_, remote) = call("GET", &format!("{}/api/remote", f.app), Some(&desk), None).await;
+    assert_eq!(remote["bridge"]["exposed"], false);
+    assert_eq!(remote["bridge"]["servers"][1]["id"], "work");
+    assert_eq!(remote["bridge"]["servers"][1]["exposed"], true);
+    assert_eq!(remote["internet"]["detected"][0]["server"], "work");
+    let warnings = remote["internet"]["warnings"].to_string();
+    assert!(warnings.contains("the API server"), "{warnings}");
+    assert!(warnings.contains("Work"), "{warnings}");
+
+    // A tunnel to the main port instead: the main port needs a token; Work's
+    // own port does not.
+    f.st.remote
+        .set_detected(vec![tunnel(main_port, None)], f.st.bridge.server_ports());
+    let (s, v) = get(&format!("{main}/threads")).await;
+    assert_eq!(s, StatusCode::UNAUTHORIZED, "{v}");
+    assert_eq!(code(&v), "bridge_exposed_requires_token");
+    assert_eq!(get(&format!("{work_api}/threads")).await.0, StatusCode::OK);
+    let (s, _) = call("GET", &format!("{main}/threads"), Some(&desk), None).await;
+    assert_eq!(s, StatusCode::OK, "a token still works");
+}
+
 /// The dashboard routes: add, read, change, start, stop and remove servers,
 /// with their refusals; the account removal rule.
 #[tokio::test]

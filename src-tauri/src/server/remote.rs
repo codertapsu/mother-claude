@@ -15,9 +15,10 @@
 //!   agent API (`127.0.0.1:4040/api/endpoints`, fallback `/api/tunnels`),
 //!   cloudflared's metrics (`/quicktunnel` on 20241–20245) and
 //!   `tailscale serve status --json` (Serve and Funnel). Every 10 s while
-//!   Internet access is on, the Remote page is open or the bridge is running;
-//!   every minute otherwise. A tunnel whose upstream is the bridge port turns
-//!   the bridge's tokenless mode off ([`RemoteState::bridge_exposed`]).
+//!   Internet access is on, the Remote page is open or an API server is
+//!   running; every minute otherwise. A tunnel whose upstream is an API
+//!   server's port turns the tokenless mode of that port off, and only of that
+//!   one ([`RemoteState::port_exposed`], docs/ACCOUNTS.md §13.5).
 //! * `GET/PUT /api/remote` payloads ([`status`], [`update`]) with the tunnel
 //!   commands and warnings.
 //! * The LAN listener status (addresses, skipped interfaces, certificate
@@ -84,8 +85,14 @@ pub struct DetectedTunnel {
     pub inspect: bool,
     /// `http` | `tcp`.
     pub kind: String,
-    /// `tunnel` (6726) | `main` (6725) | `bridge` (5612) | `other` | `unknown`.
+    /// `tunnel` (6726) | `main` (6725) | `bridge` (an API server's port: 5612,
+    /// or another server's) | `other` | `unknown`.
     pub target: String,
+    /// The API server a `bridge` tunnel points at, when it is not the main
+    /// one (absent: the main server, so with only that one it reads as
+    /// before).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub server: Option<String>,
 }
 
 /// A bound LAN address.
@@ -157,7 +164,8 @@ pub struct RemoteState {
     detection: Mutex<Detection>,
     lan: Mutex<LanStatus>,
     page_seen: Mutex<Option<Instant>>,
-    bridge_exposed: AtomicBool,
+    /// The API ports a detected tunnel points at, sorted.
+    exposed: Mutex<Vec<u16>>,
     tunnel: tokio::sync::Mutex<Option<TunnelListener>>,
     tunnel_error: Mutex<Option<String>>,
     /// LAN listener runtime (owned by `server::listeners`).
@@ -197,7 +205,7 @@ impl RemoteState {
             detection: Mutex::new(Detection::default()),
             lan: Mutex::new(LanStatus::default()),
             page_seen: Mutex::new(None),
-            bridge_exposed: AtomicBool::new(false),
+            exposed: Mutex::new(Vec::new()),
             tunnel: tokio::sync::Mutex::new(None),
             tunnel_error: Mutex::new(None),
             lan_rt: tokio::sync::Mutex::new(Default::default()),
@@ -243,21 +251,47 @@ impl RemoteState {
             .unwrap_or_default()
     }
 
-    /// Replace detection results (the detection loop; tests).
-    pub fn set_detected(&self, tunnels: Vec<DetectedTunnel>, bridge_port: Option<u16>) -> bool {
-        let exposed =
-            bridge_port.is_some_and(|p| tunnels.iter().any(|t| t.upstream_port == Some(p)));
+    /// Replace detection results (the detection loop; tests). `ports` are
+    /// the API servers' ports (an `Option` works: the main one's alone);
+    /// returns whether the set of them a tunnel points at changed.
+    pub fn set_detected(
+        &self,
+        tunnels: Vec<DetectedTunnel>,
+        ports: impl IntoIterator<Item = u16>,
+    ) -> bool {
+        let mut exposed: Vec<u16> = ports
+            .into_iter()
+            .filter(|p| tunnels.iter().any(|t| t.upstream_port == Some(*p)))
+            .collect();
+        exposed.sort_unstable();
+        exposed.dedup();
         if let Ok(mut d) = self.detection.lock() {
             d.tunnels = tunnels;
             d.checked_at = Some(now_ms());
         }
-        self.bridge_exposed.swap(exposed, Ordering::SeqCst) != exposed
+        let mut current = self.exposed.lock().unwrap_or_else(|e| e.into_inner());
+        let changed = *current != exposed;
+        *current = exposed;
+        changed
     }
 
-    /// A detected tunnel points at the bridge port: its tokenless mode is off
-    /// until that tunnel stops.
+    /// The API ports a detected tunnel points at.
+    pub fn exposed_ports(&self) -> Vec<u16> {
+        self.exposed.lock().map(|g| g.clone()).unwrap_or_default()
+    }
+
+    /// A detected tunnel points at this API port: its tokenless mode is off
+    /// until that tunnel stops. Other ports are not affected.
+    pub fn port_exposed(&self, port: u16) -> bool {
+        self.exposed
+            .lock()
+            .map(|g| g.contains(&port))
+            .unwrap_or(true)
+    }
+
+    /// A detected tunnel points at an API port, any server's.
     pub fn bridge_exposed(&self) -> bool {
-        self.bridge_exposed.load(Ordering::SeqCst)
+        self.exposed.lock().map(|g| !g.is_empty()).unwrap_or(true)
     }
 
     /// The public URL for Internet pairing: the manual one, else a detected
@@ -585,6 +619,26 @@ pub fn classify_target(
     .to_string()
 }
 
+/// What a tunnel whose upstream is `upstream_port` points at
+/// ([`classify_target`]), every API server's port counting as `bridge`, and
+/// which API server that is when it is not the main one.
+pub fn target_of(state: &AppState, upstream_port: Option<u16>) -> (String, Option<String>) {
+    let mut target = classify_target(
+        upstream_port,
+        state.remote.tunnel_port(),
+        state.config.port,
+        state.bridge.config.port,
+    );
+    let mut server = None;
+    if target == "other" || target == "bridge" {
+        if let Some(s) = upstream_port.and_then(|p| state.bridge.server_for_port(p)) {
+            target = "bridge".to_string();
+            server = (!s.is_main()).then(|| s.id.clone());
+        }
+    }
+    (target, server)
+}
+
 /// Parse ngrok's `/api/endpoints` (agent ≥ 3.16) answer.
 pub fn parse_ngrok_endpoints(v: &Value) -> Vec<(String, Option<String>, bool)> {
     v.get("endpoints")
@@ -729,9 +783,6 @@ async fn tailscale_status() -> Option<Value> {
 
 /// One detection pass. Local reads only.
 pub async fn detect(state: &AppState, with_tailscale: bool) -> Vec<DetectedTunnel> {
-    let tunnel = state.remote.tunnel_port();
-    let main = state.config.port;
-    let bridge = state.bridge.config.port;
     let client = match reqwest::Client::builder()
         .no_proxy()
         .redirect(reqwest::redirect::Policy::none())
@@ -762,14 +813,16 @@ pub async fn detect(state: &AppState, with_tailscale: bool) -> Vec<DetectedTunne
             "http"
         };
         let upstream_port = upstream.as_deref().and_then(port_of);
+        let (target, server) = target_of(state, upstream_port);
         found.push(DetectedTunnel {
             provider: provider.to_string(),
-            target: classify_target(upstream_port, tunnel, main, bridge),
+            target,
             url,
             upstream,
             upstream_port,
             inspect,
             kind: kind.to_string(),
+            server,
         });
     };
 
@@ -825,56 +878,104 @@ async fn detect_and_store(state: &AppState, with_tailscale: bool) {
                 .filter(|t| t.provider.starts_with("tailscale")),
         );
     }
-    let changed = state.remote.set_detected(tunnels, state.bridge.config.port);
+    let before = state.remote.exposed_ports();
+    let changed = state
+        .remote
+        .set_detected(tunnels, state.bridge.server_ports());
     // The public https URL is the VAPID contact of our pushes.
     crate::server::push::set_public_url(state, state.remote.public_url().as_deref());
-    if changed {
-        let bridge = state.bridge.config.port.unwrap_or_default();
-        let open = state.bridge.token_policy() == crate::bridge::TokenPolicy::Never;
-        if state.remote.bridge_exposed() && open {
-            tracing::warn!(
-                port = bridge,
-                "a tunnel points at the bridge port, and the API is open to tunnels without a \
-                 token"
-            );
-            crate::server::ws::publish_desktop_notice(
-                state,
+    if !changed {
+        return;
+    }
+    let after = state.remote.exposed_ports();
+    for server in state.bridge.servers.all() {
+        let ports = server.ports();
+        let was = ports.iter().any(|p| before.contains(p));
+        let is = ports.iter().any(|p| after.contains(p));
+        if was != is {
+            notice_exposure(state, &server, is);
+        }
+    }
+}
+
+/// Tell the desktop that a tunnel now points at an API server's port, or no
+/// longer does.
+fn notice_exposure(state: &AppState, server: &crate::bridge::ApiServer, exposed: bool) {
+    let open = server.token_policy() == crate::bridge::TokenPolicy::Never;
+    if !server.is_main() {
+        let name = server.name();
+        let port = server.current_port().unwrap_or_default();
+        let (level, text) = match (exposed, open) {
+            (true, true) => (
                 NoticeLevel::Error,
                 format!(
-                    "A tunnel points at the Claude API port {bridge}, and the API is open to \
+                    "A tunnel points at the API server \"{name}\" (port {port}), which is open \
+                     to tunnels: anyone who finds that URL can drive Claude on this Mac without \
+                     a token. Dangerous actions stay off for them. Stop the tunnel unless you \
+                     meant to publish it."
+                ),
+            ),
+            (true, false) => (
+                NoticeLevel::Error,
+                format!(
+                    "A tunnel points at the API server \"{name}\" (port {port}). Tokenless \
+                     access on that port is switched off until the tunnel stops — stop it \
+                     unless you meant to publish it."
+                ),
+            ),
+            (false, _) => (
+                NoticeLevel::Info,
+                format!("No tunnel points at the API server \"{name}\" (port {port}) any more."),
+            ),
+        };
+        tracing::warn!(server = %server.id, port, exposed, "a tunnel to an API server's port changed");
+        crate::server::ws::publish_desktop_notice(state, level, text);
+        return;
+    }
+    let bridge = server.current_port().unwrap_or_default();
+    if exposed && open {
+        tracing::warn!(
+            port = bridge,
+            "a tunnel points at the bridge port, and the API is open to tunnels without a \
+                 token"
+        );
+        crate::server::ws::publish_desktop_notice(
+            state,
+            NoticeLevel::Error,
+            format!(
+                "A tunnel points at the Claude API port {bridge}, and the API is open to \
                      tunnels: anyone who finds that URL can drive Claude on this Mac without a \
                      token. Dangerous actions stay off for them. Stop the tunnel unless you \
                      meant to publish the API."
-                ),
-            );
-        } else if state.remote.bridge_exposed() {
-            tracing::warn!(
-                port = bridge,
-                "a tunnel points at the bridge port; tokenless mode is off"
-            );
-            crate::server::ws::publish_desktop_notice(
-                state,
-                NoticeLevel::Error,
-                format!(
-                    "A tunnel points at the Claude API port {bridge}. Tokenless access on that \
+            ),
+        );
+    } else if exposed {
+        tracing::warn!(
+            port = bridge,
+            "a tunnel points at the bridge port; tokenless mode is off"
+        );
+        crate::server::ws::publish_desktop_notice(
+            state,
+            NoticeLevel::Error,
+            format!(
+                "A tunnel points at the Claude API port {bridge}. Tokenless access on that \
                      port is switched off until the tunnel stops — stop it unless you meant to \
                      publish the API."
-                ),
-            );
-        } else {
-            crate::server::ws::publish_desktop_notice(
-                state,
-                NoticeLevel::Info,
-                if open {
-                    format!("No tunnel points at the Claude API port {bridge} any more.")
-                } else {
-                    format!(
-                        "No tunnel points at port {bridge} any more; tokenless local access is \
+            ),
+        );
+    } else {
+        crate::server::ws::publish_desktop_notice(
+            state,
+            NoticeLevel::Info,
+            if open {
+                format!("No tunnel points at the Claude API port {bridge} any more.")
+            } else {
+                format!(
+                    "No tunnel points at port {bridge} any more; tokenless local access is \
                          back."
-                    )
-                },
-            );
-        }
+                )
+            },
+        );
     }
 }
 
@@ -892,7 +993,7 @@ pub fn start(state: &AppState) {
         loop {
             let busy = st.remote.settings().internet_enabled
                 || st.remote.page_open()
-                || st.bridge.is_running().await;
+                || st.bridge.servers.all().iter().any(|s| s.is_running());
             if busy || tick.is_multiple_of(6) {
                 detect_and_store(&st, tick.is_multiple_of(3)).await;
             }
@@ -918,43 +1019,93 @@ pub fn commands(tunnel_port: u16) -> Value {
     })
 }
 
+/// An API server's port, as the Remote page's warnings name it.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ApiPort {
+    /// The server's id; `None` for the main one.
+    pub server: Option<String>,
+    pub name: String,
+    pub port: Option<u16>,
+    /// It runs open to tunnels (the API screen's switch, or
+    /// `MOTHER_CLAUDE_BRIDGE_REQUIRE_TOKEN=never`): a tunnel to its port
+    /// publishes it without a token, rather than switching tokenless mode off.
+    pub open: bool,
+}
+
+/// Every API server's port, the main one first.
+pub fn api_ports(state: &AppState) -> Vec<ApiPort> {
+    state
+        .bridge
+        .servers
+        .all()
+        .into_iter()
+        .map(|s| ApiPort {
+            server: (!s.is_main()).then(|| s.id.clone()),
+            name: s.name(),
+            port: if s.is_main() {
+                state.bridge.config.port
+            } else {
+                s.current_port()
+            },
+            open: s.token_policy() == crate::bridge::TokenPolicy::Never,
+        })
+        .collect()
+}
+
 /// Human-readable warnings for the Remote page.
 pub fn warnings(
     settings: &RemoteSettings,
     detected: &[DetectedTunnel],
     tunnel_port: u16,
     main_port: u16,
-    bridge_port: Option<u16>,
+    api: &[ApiPort],
     tunnel_error: Option<&str>,
-    // The API runs open to tunnels (the API screen's switch, or
-    // `MOTHER_CLAUDE_BRIDGE_REQUIRE_TOKEN=never`): a tunnel to the bridge port
-    // publishes it without a token, rather than switching tokenless mode off.
-    bridge_open: bool,
 ) -> Vec<String> {
     let mut out = Vec::new();
     if let Some(e) = tunnel_error {
         out.push(e.to_string());
     }
     for t in detected {
-        if t.target == "bridge" && bridge_open {
-            out.push(format!(
+        let to_api = (t.target == "bridge")
+            .then(|| api.iter().find(|a| a.server == t.server))
+            .flatten();
+        match to_api {
+            Some(a) if a.server.is_none() && a.open => out.push(format!(
                 "A tunnel ({}) points at the Claude API port {}, and the API is open to \
                  tunnels: anyone who finds the URL can start conversations and approve Claude's \
                  ordinary tool calls on this Mac without a token. Dangerous actions stay off for \
                  them. Stop the tunnel, or turn off Open to tunnels on the API screen and \
                  restart the API.",
                 t.url,
-                bridge_port.unwrap_or_default()
-            ));
-        } else if t.target == "bridge" {
-            out.push(format!(
+                a.port.unwrap_or_default()
+            )),
+            Some(a) if a.server.is_none() => out.push(format!(
                 "A tunnel ({}) points at the Claude API port {}. Anyone who finds that URL could \
                  try to drive Claude. Tokenless access on port {} is off while it runs — stop \
                  that tunnel.",
                 t.url,
-                bridge_port.unwrap_or_default(),
-                bridge_port.unwrap_or_default()
-            ));
+                a.port.unwrap_or_default(),
+                a.port.unwrap_or_default()
+            )),
+            Some(a) if a.open => out.push(format!(
+                "A tunnel ({}) points at the API server \"{}\" (port {}), which is open to \
+                 tunnels: anyone who finds the URL can start conversations and approve Claude's \
+                 ordinary tool calls on this Mac without a token. Dangerous actions stay off for \
+                 them. Stop the tunnel, or turn off Open to tunnels and restart that server.",
+                t.url,
+                a.name,
+                a.port.unwrap_or_default()
+            )),
+            Some(a) => out.push(format!(
+                "A tunnel ({}) points at the API server \"{}\" (port {}). Anyone who finds that \
+                 URL could try to drive Claude. Tokenless access on port {} is off while it runs \
+                 — stop that tunnel.",
+                t.url,
+                a.name,
+                a.port.unwrap_or_default(),
+                a.port.unwrap_or_default()
+            )),
+            None => {}
         }
         if t.inspect && t.provider == "ngrok" {
             out.push(format!(
@@ -1042,9 +1193,8 @@ pub async fn status(state: &AppState) -> Value {
         &detected,
         tunnel_port,
         state.config.port,
-        state.bridge.config.port,
+        &api_ports(state),
         tunnel_error.as_deref(),
-        state.bridge.token_policy() == crate::bridge::TokenPolicy::Never,
     );
     let checked_at = state
         .remote
@@ -1058,6 +1208,32 @@ pub async fn status(state: &AppState) -> Value {
         "cloudflared": binary("cloudflared").is_some(),
         "tailscale": binary("tailscale").is_some(),
     });
+    let main = state.bridge.main();
+    let mut bridge = json!({
+        "port": state.bridge.config.port,
+        "running": main.is_running(),
+        "exposed": crate::bridge::control::exposed(state, &main),
+    });
+    // Every API server, main first, once there is more than the main one, so
+    // the page can name the server a tunnel points at.
+    if state.bridge.servers.has_added() {
+        let servers: Vec<Value> = state
+            .bridge
+            .servers
+            .all()
+            .iter()
+            .map(|s| {
+                json!({
+                    "id": s.id,
+                    "name": s.name(),
+                    "port": s.current_port(),
+                    "running": s.is_running(),
+                    "exposed": crate::bridge::control::exposed(state, s),
+                })
+            })
+            .collect();
+        bridge["servers"] = json!(servers);
+    }
     json!({
         "lan": {
             "enabled": lan.enabled,
@@ -1086,11 +1262,7 @@ pub async fn status(state: &AppState) -> Value {
             "recommended": "tailscaleServe",
             "warnings": warnings,
         },
-        "bridge": {
-            "port": state.bridge.config.port,
-            "running": state.bridge.is_running().await,
-            "exposed": state.remote.bridge_exposed(),
-        },
+        "bridge": bridge,
         "devices": {
             "idleDays": state.devices.idle_days(),
             "active": state.devices.active_count(),
@@ -1210,7 +1382,18 @@ mod tests {
             }
             .into(),
             target: target.into(),
+            server: None,
         }
+    }
+
+    /// The main API server on `port` alone.
+    fn main_api(port: Option<u16>, open: bool) -> Vec<ApiPort> {
+        vec![ApiPort {
+            server: None,
+            name: "Main".into(),
+            port,
+            open,
+        }]
     }
 
     #[test]
@@ -1269,6 +1452,29 @@ mod tests {
             .iter()
             .any(|x| x.3 == "tcp" && x.2.as_deref() == Some("127.0.0.1:5612")));
         assert!(parse_tailscale(&json!(null)).is_empty());
+    }
+
+    /// Exposure is per port: a tunnel to one API server's port is that
+    /// port's, and only while the tunnel lasts.
+    #[test]
+    fn exposure_is_tracked_per_port() {
+        let r = RemoteState::new(None);
+        let to = |port: &str| t("ngrok", "tcp://0.tcp.ngrok.io:1", Some(port), "bridge");
+        assert!(r.set_detected(vec![to("localhost:5613")], [5612, 5613, 5614]));
+        assert!(r.port_exposed(5613));
+        assert!(!r.port_exposed(5612) && !r.port_exposed(5614));
+        assert!(r.bridge_exposed());
+        assert_eq!(r.exposed_ports(), vec![5613]);
+        // A port no server has is not tracked, however many tunnels point at it.
+        assert!(!r.set_detected(
+            vec![to("localhost:5613"), to("localhost:9999")],
+            [5612, 5613]
+        ));
+        assert!(!r.port_exposed(9999));
+        assert!(r.set_detected(vec![to("localhost:5612")], [5612, 5613]));
+        assert_eq!(r.exposed_ports(), vec![5612]);
+        assert!(r.set_detected(vec![], [5612, 5613]));
+        assert!(!r.bridge_exposed());
     }
 
     #[test]
@@ -1366,9 +1572,8 @@ mod tests {
             ],
             6726,
             6725,
-            Some(5612),
+            &main_api(Some(5612), false),
             None,
-            false,
         );
         let all = w.join("\n");
         assert!(all.contains("--inspect=false"));
@@ -1381,9 +1586,8 @@ mod tests {
             &[],
             6726,
             6725,
-            Some(5612),
+            &main_api(Some(5612), false),
             Some("Could not listen"),
-            false,
         );
         assert!(w.iter().any(|x| x.contains("no tunnel to port 6726")));
         assert!(w.iter().any(|x| x.contains("Could not listen")));
@@ -1398,9 +1602,8 @@ mod tests {
             )],
             6726,
             6725,
+            &main_api(None, false),
             None,
-            None,
-            false,
         );
         assert!(w.iter().any(|x| x.contains("Internet access is off")));
 
@@ -1417,16 +1620,53 @@ mod tests {
             std::slice::from_ref(&to_bridge),
             6726,
             6725,
-            Some(5612),
+            &main_api(Some(5612), false),
             None,
-            false,
         )
         .join("\n");
         assert!(closed.contains("Tokenless access on port 5612 is off"));
-        let open = warnings(&s, &[to_bridge], 6726, 6725, Some(5612), None, true).join("\n");
+        let open = warnings(
+            &s,
+            std::slice::from_ref(&to_bridge),
+            6726,
+            6725,
+            &main_api(Some(5612), true),
+            None,
+        )
+        .join("\n");
         assert!(open.contains("the API is open to tunnels"));
         assert!(open.contains("turn off Open to tunnels"));
         assert!(!open.contains("is off while it runs"));
+
+        // A tunnel to another API server's port names that server, under
+        // that server's own policy.
+        let mut to_work = t(
+            "ngrok",
+            "https://work.ngrok.app",
+            Some("localhost:5613"),
+            "bridge",
+        );
+        to_work.server = Some("work".into());
+        let mut api = main_api(Some(5612), true);
+        api.push(ApiPort {
+            server: Some("work".into()),
+            name: "Work".into(),
+            port: Some(5613),
+            open: false,
+        });
+        let w = warnings(&s, &[to_work.clone()], 6726, 6725, &api, None).join("\n");
+        assert!(w.contains("the API server \"Work\" (port 5613)"), "{w}");
+        assert!(w.contains("Tokenless access on port 5613 is off"), "{w}");
+        assert!(
+            !w.contains("5612"),
+            "the main server is not the one exposed: {w}"
+        );
+        api[1].open = true;
+        let w = warnings(&s, &[to_work], 6726, 6725, &api, None).join("\n");
+        assert!(
+            w.contains("\"Work\" (port 5613), which is open to tunnels"),
+            "{w}"
+        );
     }
 
     #[test]
