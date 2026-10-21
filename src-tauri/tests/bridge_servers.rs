@@ -344,6 +344,25 @@ async fn two_api_servers_run_at_once_each_with_its_own_account_and_rules() {
     assert!(of(&a).get("server").is_none(), "{}", of(&a));
     assert_eq!(of(&b)["server"], "work");
 
+    // Its stored conversations are all of its own directory's, even one the
+    // index has not seen yet (written by a terminal session, say).
+    let on_disk = "7c0b2a3c-1d2e-4f50-8a9b-0c1d2e3f4a5b";
+    let project = f.work_dir().join("projects/-tmp");
+    std::fs::create_dir_all(&project).unwrap();
+    std::fs::write(project.join(format!("{on_disk}.jsonl")), "{}\n").unwrap();
+    let (_, listed) = call("GET", &format!("{work_api}/threads"), Some(&script), None).await;
+    let stored: Vec<&str> = listed["stored"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|s| s["sessionId"].as_str())
+        .collect();
+    assert!(stored.contains(&on_disk), "{listed}");
+    assert!(
+        !stored.contains(&a.as_str()),
+        "the main server's is not Work's: {listed}"
+    );
+
     // The started gate is the server's: the main one stopped, Work runs on.
     control::stop(&f.st).await.unwrap();
     let desk = f.st.auth.token.clone();

@@ -719,9 +719,10 @@ async fn stored_across_homes(
     }
 }
 
-/// One account's stored conversations, newest first: its directory's store,
-/// and in the Default's directory — which the token accounts share — only
-/// the conversations that are this account's. `annotate`: each names its
+/// One account's stored conversations, newest first: its directory's store
+/// — all of it for a directory account, whose directory is its own; in the
+/// Default's directory, which the token accounts share, only the
+/// conversations that are this account's. `annotate`: each names its
 /// `account`, as the listing across directories does.
 async fn stored_of_account(
     state: &AppState,
@@ -757,12 +758,14 @@ async fn stored_of_account(
             Vec::new()
         }
     };
+    let shared = home.base() == state.home.base();
     let mut mine: Vec<Value> = sessions
         .into_iter()
         .filter(|s| {
-            s.get("sessionId")
-                .and_then(Value::as_str)
-                .is_some_and(|id| servers::thread_account(state, id) == account)
+            !shared
+                || s.get("sessionId")
+                    .and_then(Value::as_str)
+                    .is_some_and(|id| servers::thread_account(state, id) == account)
         })
         .map(|mut s| {
             if annotate {

@@ -6,10 +6,12 @@
 //
 // Its session store is the conversations created through it, each in the
 // config directory it was created with (`store.list` with a `configDir`
-// lists those, without one the rest). A turn whose text says "ASK" raises a
+// lists those, and the transcripts a test wrote into that directory's
+// `projects`; without one the rest). A turn whose text says "ASK" raises a
 // tool request first and finishes once it is answered (`request.respond`).
 'use strict';
 const fs = require('node:fs');
+const path = require('node:path');
 const crypto = require('node:crypto');
 const readline = require('node:readline');
 
@@ -19,6 +21,13 @@ const record = (entry) => {
   if (LOG) fs.appendFileSync(LOG, JSON.stringify(entry) + '\n');
 };
 const sha = (s) => crypto.createHash('sha256').update(s).digest('hex');
+const list = (dir) => {
+  try {
+    return fs.readdirSync(dir);
+  } catch {
+    return [];
+  }
+};
 
 // sessionId -> { configDir, lastModified }
 const store = new Map();
@@ -74,6 +83,17 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
       const sessions = [...store.entries()]
         .filter(([, s]) => s.configDir === dir)
         .map(([sessionId, s]) => ({ sessionId, summary: 'fake', lastModified: s.lastModified }));
+      if (dir) {
+        const projects = path.join(dir, 'projects');
+        for (const project of list(projects)) {
+          for (const file of list(path.join(projects, project))) {
+            const id = file.endsWith('.jsonl') ? file.slice(0, -6) : null;
+            if (id && !store.has(id)) {
+              sessions.push({ sessionId: id, summary: 'on disk', lastModified: 1 });
+            }
+          }
+        }
+      }
       return reply({ sessions });
     }
     case 'session.input': {
