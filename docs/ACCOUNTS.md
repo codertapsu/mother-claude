@@ -534,7 +534,8 @@ bridge answers as before accounts: a thread's `account` is left out when it is
 the Default's and the start-time defaults leave out an unset one. A folder's
 trust for a bridge call is checked in the conversation's account's
 `.claude.json`, not the Default's. Removing the account the running API uses
-as its start-time default is refused (`409 account_used_by_bridge`). The
+as its start-time default is refused (`409 account_used_by_bridge`; any
+running API server's, §13.5). The
 sidecar gives every conversation the environment the SDK would have built
 without `env` (it removes the same variables), and only store calls that
 point `CLAUDE_CONFIG_DIR` elsewhere run one at a time; the Default's never
@@ -1204,6 +1205,64 @@ says so and cannot start (`account_not_found`) until another is chosen.
   account?: {id, name}, accountOnly}`; the OpenAPI document's `servers` names
   the base URL the request came through.
 
+*Changed while building (P7):*
+
+- **Wire.** `accountOnly` is in `defaults` (left out when false), needs
+  `defaults.account` (`422 invalid_field`, field `accountOnly`) and is
+  accepted by `POST /api/bridge/start` too. A `ServerStatus` also has
+  `docsUrl`, `consoleUrl` and, only when `defaults.account` names a removed
+  account, `accountMissing: true`; `prefix` is `""` for the main server and
+  `/servers/<id>` for the others (the LAN form is that plus `/v1`). The main
+  payload itself gains no `id`/`name`/`prefix`: the main server is
+  `servers[0]` (`main`, "Main"), and with other servers present its `threads`
+  are the main server's only. `POST /api/bridge/servers` → `201`; `PATCH`,
+  `…/start`, `…/stop`, `…/active-thread` → `200` that server's status;
+  `DELETE` → `204`; an unknown id `404 server_not_found`. `main` answers on
+  `…/start`, `…/stop`, `…/active-thread` too; `PATCH`/`DELETE` of it are
+  `409 main_server_fixed`. A start with `defaults` saves them for an added
+  server; without, its saved ones apply; `openToTunnels` left out is off for
+  an added server (`MOTHER_CLAUDE_BRIDGE_REQUIRE_TOKEN=never` is the main
+  server's starting position only), so a stopped added server shows the
+  configured policy closed to tunnels.
+- **Refusals.** A name is 1–40 characters, no control characters
+  (`422 invalid_field`, field `name`), unique in any case including "Main"
+  (`409 server_name_taken`). A port outside 1024–65535 is `422 invalid_field`
+  (field `port`); one another server, the main API, the app or the tunnel
+  listener has is `409 port_unavailable` (field `port`, plus `server` when a
+  server holds it); a bind failure at start is `409 port_unavailable` as
+  before. An account no one has in a body is `422 invalid_field` (field
+  `account`), as the main start answers; starting a server whose *saved*
+  account was removed is `409 account_not_found`. `account_used_by_bridge`
+  carries `server` and `serverName` when it is not the main server. The main
+  server, stopped, still forgets a removed account (and `accountOnly` with
+  it), as before. Port `0` — any free port at each start — exists only for
+  tests and embedders (`control::add_server`); the dashboard refuses it.
+- **Reaching them.** On the main API port `/servers/<id>/` serves the target at
+  `/` and `/v1`; the main app port serves only `/servers/<id>/v1/`, never
+  through a tunnel (the route policy and the tunnel listener treat
+  `/servers/*` as `/v1`). A request names its server with a `Mount` and gets a
+  `MountPolicy` (server, token policy, arrival port, whether a tunnel points at
+  that port, the server's defaults); a router built without a port (tests,
+  embedders) counts a tunnel to any API port.
+- **Tunnels.** `DetectedTunnel.target` is `bridge` for every API server's
+  port, saved servers included, with `server: "<id>"` when it is not the main
+  one; `GET /api/remote`'s `bridge` adds `servers: [{id, name, port, running,
+  exposed}]` once another server exists; warnings and notices name the server.
+- **`accountOnly`.** Besides the routes above, `GET /events` filters by each
+  event's `params.thread_id` (one without is left out), `GET /threads`'
+  `stored` reads the account's directory and, in the Default's (shared with
+  the token accounts), keeps only that account's conversations; `/auth` adds
+  `account: {id, name}`, and `/auth/login` signs the account in (a token
+  account: `422 login_failed`, it gets a new token on the desktop);
+  `/metadata`'s `claude_home` is the account's directory; `/models` reads the
+  account's settings. `/messages` and `/files` use `ANTHROPIC_API_KEY` on every
+  server. The `server` object of `/metadata` and `/capabilities` is left out
+  while only the Default account and only the main server exist (rule 9).
+- A removed server's conversations stay, as the main server's. Autostart with
+  an account no one has, or `ACCOUNT_ONLY` without an account, starts no main
+  server rather than the wrong one; `all` drops a saved server's nominated
+  conversation that has gone since, rather than keeping the server down.
+
 ### 13.6 UI
 
 1. **Sessions → Select** (desktop): checkboxes on the cards, *Select all
@@ -1262,15 +1321,15 @@ docs/REMOTE.md (tunnels per server), SECURITY.md, README.md, `.env.example`.
 
 **Phase 7 — API servers per account**
 
-- [ ] P7.1 The servers: registry, `api-servers.json`, the main one as before.
-- [ ] P7.2 Per server: listener, defaults, active conversation, token policy,
+- [x] P7.1 The servers: registry, `api-servers.json`, the main one as before.
+- [x] P7.2 Per server: listener, defaults, active conversation, token policy,
   started gate.
-- [ ] P7.3 `accountOnly` on every bridge route; `/auth` per account.
-- [ ] P7.4 `/servers/<id>` on the main API port and the LAN mount.
-- [ ] P7.5 Tunnel detection per port; the Remote page names the server.
-- [ ] P7.6 The dashboard routes, `servers` in `GET /api/bridge`, the account
+- [x] P7.3 `accountOnly` on every bridge route; `/auth` per account.
+- [x] P7.4 `/servers/<id>` on the main API port and the LAN mount.
+- [x] P7.5 Tunnel detection per port; the Remote page names the server.
+- [x] P7.6 The dashboard routes, `servers` in `GET /api/bridge`, the account
   removal rule.
-- [ ] P7.7 Autostart: `all`, `MOTHER_CLAUDE_BRIDGE_ACCOUNT(_ONLY)`.
+- [x] P7.7 Autostart: `all`, `MOTHER_CLAUDE_BRIDGE_ACCOUNT(_ONLY)`.
 - [ ] P7.8 UI: the server list, adding and removing, the panel per server,
   the addresses, the mock backend.
 - [ ] P7.9 Documents (§13.7).
