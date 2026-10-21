@@ -15,6 +15,7 @@ import { RouterLink } from '@angular/router';
 
 import { ACCOUNT_NAME_MAX, accountNameProblem, isAccountColor } from '../../core/accounts';
 import { AccountsService } from '../../core/accounts.service';
+import { accountInUseText } from '../../core/api-servers';
 import { ApiError, describeError } from '../../core/api.service';
 import { AccountView } from '../../core/models';
 import { SignInLine, accountKindLabel, secretStoreText, signInLine } from '../../shared/accounts';
@@ -145,7 +146,12 @@ import { AccountTokenComponent } from './account-token.component';
           <p class="error-text small" role="alert">{{ error() }}</p>
           @if (usedByApi()) {
             <p class="small">
-              <a routerLink="/api" (click)="closed.emit()">Open the API page</a>
+              <a
+                routerLink="/api"
+                [queryParams]="apiServer() ? { server: apiServer() } : null"
+                (click)="closed.emit()"
+                >Open the API page</a
+              >
             </p>
           }
         }
@@ -213,6 +219,8 @@ export class AccountSheetComponent {
   protected readonly confirmRemove = signal(false);
   /** The removal was refused because the running API uses the account. */
   protected readonly usedByApi = signal(false);
+  /** That API server, when it is not the main one (its id). */
+  protected readonly apiServer = signal('');
 
   protected readonly account = computed(() => this.accounts.byId(this.accountId()));
   private readonly savedName = computed(() => this.account()?.name ?? '');
@@ -305,7 +313,9 @@ export class AccountSheetComponent {
       if (ok) this.notice.set(ok);
       return true;
     } catch (e) {
-      this.usedByApi.set(e instanceof ApiError && e.code === 'account_used_by_bridge');
+      const usedByApi = e instanceof ApiError && e.code === 'account_used_by_bridge';
+      this.usedByApi.set(usedByApi);
+      this.apiServer.set(usedByApi ? e.detail('server') : '');
       this.error.set(this.refusal(e));
       return false;
     } finally {
@@ -318,7 +328,8 @@ export class AccountSheetComponent {
     if (e instanceof ApiError && e.code === 'account_in_use')
       return `${e.message} Stop them first.`;
     if (e instanceof ApiError && e.code === 'account_used_by_bridge') {
-      return `The API is running with ${name} as the account its new conversations start under. Stop the API, or start it again with another account, then remove ${name}.`;
+      // Names the server when it is not the main one.
+      return accountInUseText(e, name, `then remove ${name}`);
     }
     return describeError(e).text;
   }

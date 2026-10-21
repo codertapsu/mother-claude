@@ -30,7 +30,7 @@ describe('AccountSheetComponent removal', () => {
   const button = (el: HTMLElement, label: string) =>
     [...el.querySelectorAll<HTMLButtonElement>('button')].find((b) => text(b).startsWith(label));
 
-  const removeWork = async (refusal: { code: string; message: string }) => {
+  const removeWork = async (refusal: { code: string; message: string; [k: string]: unknown }) => {
     backend.routes.set(`/accounts/${MOCK_ACCOUNT_WORK}`, (method) =>
       method === 'DELETE' ? { status: 409, body: { error: refusal } } : { status: 404, body: {} },
     );
@@ -58,6 +58,20 @@ describe('AccountSheetComponent removal', () => {
       'The API is running with Work as the account its new conversations start under. Stop the API, or start it again with another account, then remove Work.',
     );
     const link = el.querySelector('a[href="/api"]');
+    expect(text(link)).toBe('Open the API page');
+  });
+
+  it('names the API server that runs under it, and links to that server', async () => {
+    const el = await removeWork({
+      code: 'account_used_by_bridge',
+      message: 'An API server runs with this account.',
+      server: 'work',
+      serverName: 'Work API',
+    });
+    expect(text(el.querySelector('.error-text'))).toBe(
+      'The API server Work API is running under Work. Stop it, or start it with another account, then remove Work.',
+    );
+    const link = el.querySelector('a[href="/api?server=work"]');
     expect(text(link)).toBe('Open the API page');
   });
 

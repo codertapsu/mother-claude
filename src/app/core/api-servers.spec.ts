@@ -497,7 +497,16 @@ describe('API servers: refusals in words', () => {
       'The API server Work is running under Work. Stop it, or start it with another account, first.',
     );
     expect(accountInUseText(err(409, 'account_used_by_bridge'), 'Work')).toBe(
-      'The API is running with Work as the account its new conversations start under. Stop it, or start it again with another account, first.',
+      'The API is running with Work as the account its new conversations start under. Stop the API, or start it again with another account, first.',
+    );
+    expect(
+      accountInUseText(
+        err(409, 'account_used_by_bridge', { server: 'work' }),
+        'Work',
+        'then remove Work',
+      ),
+    ).toBe(
+      'The API server work is running under Work. Stop it, or start it with another account, then remove Work.',
     );
   });
 });

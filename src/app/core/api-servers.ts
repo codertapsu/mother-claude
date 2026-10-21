@@ -635,11 +635,12 @@ function refusalText(e: ApiError, ctx: RefusalContext): string {
 
 /**
  * `409 account_used_by_bridge` (removing an account a running server uses),
- * in words: it names the server when it is not the main one.
+ * in words: it names the server when it is not the main one. `then`: what
+ * to do after stopping it.
  */
-export function accountInUseText(e: ApiError, account = 'this account'): string {
+export function accountInUseText(e: ApiError, account = 'this account', then = 'first'): string {
   const server = e.detail('serverName') || e.detail('server');
   return server
-    ? `The API server ${server} is running under ${account}. Stop it, or start it with another account, first.`
-    : `The API is running with ${account} as the account its new conversations start under. Stop it, or start it again with another account, first.`;
+    ? `The API server ${server} is running under ${account}. Stop it, or start it with another account, ${then}.`
+    : `The API is running with ${account} as the account its new conversations start under. Stop the API, or start it again with another account, ${then}.`;
 }
