@@ -122,6 +122,8 @@ describe('SessionsComponent accounts', () => {
     expect(el.querySelector('select[aria-label="Account"]')).toBeNull();
     expect(el.querySelector('.acctsum')).toBeNull();
     expect(names(el)).toEqual(['Session a', 'Session b']);
+    // Nowhere to move them to (no other account, no storage): no Select.
+    expect([...el.querySelectorAll('button')].some((b) => text(b) === 'Select')).toBeFalse();
   });
 
   it("filters by account, from the select or an account's counts", async () => {

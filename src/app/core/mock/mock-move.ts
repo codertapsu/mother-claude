@@ -607,7 +607,10 @@ export class MockMove {
         skipped.push({
           id: c.id,
           code: 'already_exists',
-          message: `${this.name(target)} has it already`,
+          message:
+            target.kind === 'storage'
+              ? 'the set has it already'
+              : `${this.name(target)} has it already`,
         });
       } else {
         planned.push({ c, direction, action: action(direction, mode) });

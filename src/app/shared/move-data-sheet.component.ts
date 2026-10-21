@@ -30,6 +30,7 @@ import {
   MovePlan,
   MoveWhat,
   accountLocation,
+  anyTarget,
   defaultTarget,
   indexRow,
   locationFromKey,
@@ -133,6 +134,11 @@ interface IndexState {
           } @else {
             <p class="muted small">Loading…</p>
           }
+        } @else if (!somewhere()) {
+          <p class="muted small nowhere">
+            There is nowhere to move it yet: add an account with a folder of its own on the Accounts
+            page, or a storage on Backup &amp; sync.
+          </p>
         } @else {
           @switch (step()) {
             @case ('pick') {
@@ -591,6 +597,8 @@ export class MoveDataSheetComponent {
   protected readonly loadError = computed(() =>
     this.accounts.view() ? '' : this.accounts.loadError(),
   );
+  /** Another account, or a storage, to move things to. */
+  protected readonly somewhere = computed(() => anyTarget(this.list(), this.storages()));
   protected readonly storageError = computed(() =>
     this.storage.list() === null ? this.storage.loadError() : '',
   );
@@ -836,7 +844,7 @@ export class MoveDataSheetComponent {
     if (!p) return this.modeWord();
     if (!p.sessions.length) {
       const n = p.customizations.filter((c) => c.action !== 'skip').length;
-      return `Copy ${plural(n, 'customization')}`;
+      return n ? `Copy ${plural(n, 'customization')}` : `Nothing to ${this.mode()}`;
     }
     const actions = new Set(p.sessions.map((s) => s.action));
     const one = actions.size === 1 ? [...actions][0] : null;

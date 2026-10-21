@@ -5,8 +5,10 @@ import { RouterLink } from '@angular/router';
 import { AccountsService } from '../../core/accounts.service';
 import { ApiService, errorMessage } from '../../core/api.service';
 import { SessionSummary } from '../../core/models';
+import { anyTarget } from '../../core/move-data';
 import { storageGet, storageSet } from '../../core/platform';
 import { RealtimeService } from '../../core/realtime.service';
+import { StorageService } from '../../core/storage.service';
 import { inAccount } from '../../shared/accounts';
 import { FleetSummaryComponent } from '../../shared/fleet-summary.component';
 import { IconComponent } from '../../shared/icon.component';
@@ -63,6 +65,7 @@ export class SessionsComponent {
   private realtime = inject(RealtimeService);
   private api = inject(ApiService);
   private accounts = inject(AccountsService);
+  private storage = inject(StorageService);
 
   protected readonly loaded = this.realtime.sessionsLoaded;
   protected readonly connection = this.realtime.connection;
@@ -164,11 +167,20 @@ export class SessionsComponent {
 
   protected readonly surfaceLabel = surfaceLabel;
 
+  /** Select is offered: there is somewhere to move conversations to
+   * (another account, or a storage). */
+  protected readonly selectOffered = computed(() =>
+    anyTarget(this.accounts.list(), this.storage.list() ?? []),
+  );
   /** Sessions › Select: the cards have checkboxes. */
   protected readonly selecting = signal(false);
   protected readonly picked = signal<ReadonlySet<string>>(new Set());
   /** Move data with the picked conversations (null: closed). */
   protected readonly moveStart = signal<MoveStart | null>(null);
+
+  constructor() {
+    void this.storage.ensureLoaded();
+  }
 
   setFilter(f: Filter): void {
     this.filter.set(f);

@@ -2,7 +2,7 @@
   <div class="page-head">
     <h1>Sessions</h1>
     <span class="spacer"></span>
-    @if (loaded() && (all().length || history().length)) {
+    @if (selectOffered() && loaded() && (all().length || history().length)) {
       <button
         class="btn"
         type="button"
