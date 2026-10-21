@@ -185,7 +185,7 @@ interface StoreRow {
     <mc-storage-sheet
       [open]="adding() || !!renaming()"
       [renaming]="renaming()"
-      [suggestions]="suggestions()"
+      [suggestions]="freeSuggestions()"
       (closed)="closeSheet()"
       (saved)="saved($event)"
     />
@@ -324,6 +324,11 @@ export class StorageSectionComponent {
   protected readonly moveStart = signal<MoveStart | null>(null);
   private confirmTimer?: ReturnType<typeof setTimeout>;
 
+  /** The suggested folders that are no storage yet. */
+  protected readonly freeSuggestions = computed(() => {
+    const taken = new Set((this.storage.list() ?? []).map((s) => s.path.replace(/\/+$/, '')));
+    return this.suggestions().filter((s) => !taken.has(s.path.replace(/\/+$/, '')));
+  });
   protected readonly rows = computed<StoreRow[]>(() =>
     (this.storage.list() ?? []).map((store) => ({
       store,

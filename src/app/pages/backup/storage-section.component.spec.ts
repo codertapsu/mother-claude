@@ -67,6 +67,7 @@ describe('StorageSectionComponent', () => {
     fixture = TestBed.createComponent(StorageSectionComponent);
     fixture.componentRef.setInput('suggestions', [
       { label: 'Google Drive (me@example.com)', path: '/Users/me/Drive/Mother Claude' },
+      { label: 'Dropbox', path: '/Users/me/Dropbox/Mother Claude' },
     ]);
     fixture.detectChanges();
     await settle();
@@ -127,7 +128,8 @@ describe('StorageSectionComponent', () => {
     button(el, 'Add storage')?.click();
     await settle();
     const sheet = el.querySelector('mc-storage-sheet') as HTMLElement;
-    expect(text(sheet)).toContain('Google Drive');
+    // Google Drive's folder is a storage already: only Dropbox is offered.
+    expect(text(sheet.querySelector('.sugg'))).toBe('Suggested: Dropbox');
     const path = sheet.querySelector<HTMLInputElement>('input[name="path"]')!;
     await type(path, 'Volumes/NAS');
     expect(text(sheet)).toContain("Enter the folder's full path");
