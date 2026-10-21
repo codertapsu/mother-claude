@@ -427,9 +427,9 @@ function accountOptionLabel(a: AccountLike, accounts: readonly AccountLike[]): s
 export type MoveDirection =
   'between' | 'assign' | 'toStorage' | 'fromStorage' | 'storages' | 'mixed' | 'same';
 
-/** The directory an account id's data is in (a token account's is the
- * Default's; an id nobody knows is its own). */
-function homeIdOf(accounts: readonly AccountLike[], id: string): string {
+/** The directory an account id's data is in, as an account id (a token
+ * account's is the Default's; an id nobody knows is its own). */
+export function accountHome(accounts: readonly AccountLike[], id: string): string {
   const a = accountOf(accounts, id);
   return a ? homeOf(a) : id;
 }
@@ -444,7 +444,7 @@ export function moveDirection(
   if (!from) return to.kind === 'storage' ? 'toStorage' : 'mixed';
   if (sameLocation(from, to)) return 'same';
   if (from.kind === 'account' && to.kind === 'account') {
-    return homeIdOf(accounts, from.account) === homeIdOf(accounts, to.account)
+    return accountHome(accounts, from.account) === accountHome(accounts, to.account)
       ? 'assign'
       : 'between';
   }
@@ -594,7 +594,7 @@ export function defaultTarget(
     return accountLocation(named ? named.id : DEFAULT_ACCOUNT);
   }
   const source = from?.account ?? DEFAULT_ACCOUNT;
-  const home = homeIdOf(accounts, source);
+  const home = accountHome(accounts, source);
   const other = accounts.find((a) => homeOf(a) !== home);
   if (other) return accountLocation(other.id);
   const sharing = accounts.find((a) => a.id !== source);
@@ -885,6 +885,8 @@ export function customizationText(c: CustomizationPlan): string {
 
 /** What each bulk skip code means, when the server says nothing. */
 const SKIP_TEXT: Record<string, string> = {
+  same_directory:
+    "It is in that account's folder already: a copy there would be the same conversation. Move it instead, which records it as that account's.",
   session_live: 'It is running; stop it first.',
   already_exists: 'The target has it already.',
   not_found: 'It could not be read.',
@@ -892,8 +894,12 @@ const SKIP_TEXT: Record<string, string> = {
   archived: 'It is in the storage only.',
 };
 
+/** Skip codes said our way, whatever the server's words. */
+const OUR_SKIP_WORDS = new Set(['same_directory']);
+
 /** Why something does not go, as a sentence. */
 export function skipReason(s: MoveSkip): string {
+  if (OUR_SKIP_WORDS.has(s.code)) return SKIP_TEXT[s.code];
   return sentence(s.message) || SKIP_TEXT[s.code] || 'Skipped.';
 }
 

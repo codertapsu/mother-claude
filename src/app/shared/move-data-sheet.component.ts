@@ -29,6 +29,7 @@ import {
   DataLocation,
   MovePlan,
   MoveWhat,
+  accountHome,
   accountLocation,
   anyTarget,
   defaultTarget,
@@ -632,9 +633,20 @@ export class MoveDataSheetComponent {
     if (store) return setLocation(store, this.newSetName().trim());
     return locationFromKey(this.toKeyInEffect());
   });
-  protected readonly direction = computed(() =>
-    moveDirection(this.everywhere() ? null : this.fromLoc(), this.toLoc(), this.list()),
-  );
+  protected readonly direction = computed(() => {
+    const from = this.everywhere() ? null : this.fromLoc();
+    const to = this.toLoc();
+    // Each from where it is, and every one in the target's folder already:
+    // an assign (nothing moves; a copy there would be the same conversation).
+    if (!from && to?.kind === 'account') {
+      const target = accountHome(this.list(), to.account);
+      const sources = [...this.pickedAccounts()];
+      if (sources.length && sources.every((a) => a && accountHome(this.list(), a) === target)) {
+        return 'assign';
+      }
+    }
+    return moveDirection(from, to, this.list());
+  });
 
   protected readonly fromName = computed(() =>
     this.everywhere()
@@ -720,12 +732,16 @@ export class MoveDataSheetComponent {
     for (const s of this.realtime.sessions()) out.set(s.id, s);
     return out;
   });
+  /** The accounts the ticked conversations are recorded as ('' for one
+   * not known here). */
+  private readonly pickedAccounts = computed(() => {
+    const known = this.knownSessions();
+    return new Set([...this.pickedSessions()].map((id) => this.accountIdOf(known.get(id))));
+  });
   /** The account all ticked conversations are in, when they share one. */
   private readonly singleSource = computed<DataLocation | null>(() => {
-    const ids = [...this.pickedSessions()];
-    const known = this.knownSessions();
-    const homes = new Set(ids.map((id) => this.accountIdOf(known.get(id))));
-    const only = homes.size === 1 ? [...homes][0] : null;
+    const accounts = this.pickedAccounts();
+    const only = accounts.size === 1 ? [...accounts][0] : null;
     return only ? accountLocation(only) : null;
   });
   private readonly indexKey = computed(() => {

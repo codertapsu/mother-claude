@@ -346,6 +346,10 @@ describe('move data helpers', () => {
     );
     expect(skipReason({ code: 'session_live', message: '' })).toBe('It is running; stop it first.');
     expect(skipReason({ code: 'x', message: 'the target has it' })).toBe('The target has it.');
+    // A copy within the shared folder, said our way whatever the server says.
+    expect(
+      skipReason({ code: 'same_directory', message: 'both accounts use the same directory' }),
+    ).toContain('a copy there would be the same conversation');
     expect(skipName({ id: 'abcdef123456', code: '', message: '' }, () => undefined)).toBe(
       'abcdef12',
     );

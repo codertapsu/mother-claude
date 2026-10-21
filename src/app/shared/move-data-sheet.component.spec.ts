@@ -555,6 +555,24 @@ describe('MoveDataSheetComponent', () => {
     expect(select(el, 'from').value).toBe(`a:${MOCK_ACCOUNT_PRO}`);
   });
 
+  it('assigns, not copies, when every ticked conversation is in the folder already', async () => {
+    const el = await open({
+      from: null,
+      what: 'sessions',
+      sessions: ['s1'],
+      known: [session('s1')],
+    });
+    // Pro uses the Default's folder, where s1 is.
+    await choose(el, 'to', `a:${MOCK_ACCOUNT_PRO}`);
+    expect(button(el, 'Copy')?.disabled).toBeTrue();
+    expect(button(el, 'Move')?.getAttribute('aria-pressed')).toBe('true');
+    expect(text(el)).toContain("Nothing moves: it is recorded as Marcus (Pro)'s");
+    expect(text(el)).not.toContain('Also trust their folders');
+    // Into another directory it is a copy again.
+    await choose(el, 'to', `a:${MOCK_ACCOUNT_WORK}`);
+    expect(button(el, 'Copy')?.disabled).toBeFalse();
+  });
+
   it("puts the server's refusals in words and stays where it was", async () => {
     backend.routes.set('/data/move', () => ({
       status: 409,
