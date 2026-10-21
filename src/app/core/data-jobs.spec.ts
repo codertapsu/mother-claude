@@ -6,7 +6,6 @@ import {
   jobIdOf,
   jobTitle,
   normalizeJob,
-  normalizePlan,
   sentence,
   transferErrorText,
 } from './data-jobs';
@@ -108,37 +107,6 @@ describe('data job helpers', () => {
     // Anything else goes through the app's one error sentence.
     expect(transferErrorText(new ApiError('nope', 422, 'http', 'other'))).toBe('nope');
     expect(sentence('  done already!  ')).toBe('Done already!');
-  });
-
-  it('reads a dry run tolerantly', () => {
-    const p = normalizePlan({
-      what: { what: 'project', cwd: '/Users/me/dev/api' },
-      mode: 'move',
-      sessions: [
-        { id: 's1', cwd: '/Users/me/dev/api', files: [{ from: '/a', to: '/b', size: 10 }, {}] },
-        { cwd: 'no id' },
-      ],
-      files: 1,
-      bytes: 10,
-      addsProjectEntry: '/Users/me/dev/api',
-      historyLines: 4,
-      writesShared: true,
-    });
-    expect(p).toEqual({
-      what: { what: 'project', cwd: '/Users/me/dev/api' },
-      mode: 'move',
-      sessions: [
-        { id: 's1', cwd: '/Users/me/dev/api', files: [{ from: '/a', to: '/b', size: 10 }] },
-      ],
-      files: 1,
-      bytes: 10,
-      addsProjectEntry: '/Users/me/dev/api',
-      removesProjectEntry: null,
-      historyLines: 4,
-      writesShared: true,
-    });
-    expect(normalizePlan({ what: { what: 'session' }, mode: 'copy' })).toBeNull();
-    expect(normalizePlan({ what: { what: 'session', id: 'x' }, mode: 'teleport' })).toBeNull();
   });
 
   it('names the accounts a job moved between, when they are known', () => {

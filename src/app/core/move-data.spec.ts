@@ -501,9 +501,9 @@ describe('move data helpers', () => {
     expect(i.tag).toBe('In storage only');
     const p = projectRows([{ cwd: '/a' }, { cwd: '/b' }, { cwd: '/b' }, {}], ['/c']);
     expect(p.map((r) => [r.id, r.sub])).toEqual([
+      ['/c', ''],
       ['/b', '2 conversations'],
       ['/a', '1 conversation'],
-      ['/c', ''],
     ]);
     expect(filterRows([s, i], 'NOTES').map((r) => r.id)).toEqual(['fedcba9876']);
     expect(filterRows([s, i], ' ').length).toBe(2);

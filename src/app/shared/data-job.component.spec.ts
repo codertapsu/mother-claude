@@ -58,6 +58,36 @@ describe('DataJobComponent', () => {
     expect(el.querySelector('button')).toBeNull();
   });
 
+  it('titles a move into a storage with its label, and says what it did', async () => {
+    backend.routes.set('/backup', () => ({
+      status: 200,
+      body: {
+        settings: { folder: '/x' },
+        storage: [
+          { id: 'backup', label: 'iCloud Drive', path: '/x', primary: true, sets: [] },
+          { id: 'stor_1', label: 'Google Drive', path: '/y', sets: [] },
+        ],
+      },
+    }));
+    fixture = TestBed.createComponent(DataJobComponent);
+    fixture.componentRef.setInput(
+      'job',
+      job({
+        from: 'default',
+        toStorage: 'stor_1',
+        set: 'Shared',
+        result: { archived: ['s1', 's2'], skipped: [{ id: 's3', code: 'session_live' }] },
+      }),
+    );
+    fixture.detectChanges();
+    await flush();
+    fixture.detectChanges();
+    const el = fixture.nativeElement as HTMLElement;
+    expect(backend.calls).toContain('GET /backup');
+    expect(text(el.querySelector('.jtitle'))).toBe('Move to Google Drive · Shared');
+    expect(text(el.querySelector('.sum'))).toBe('Archived 2 conversations · 1 skipped');
+  });
+
   it("says why an undo was refused, in the server's words", async () => {
     asDesktop();
     backend.routes.set('/data/jobs/job1/undo', () => ({

@@ -2,11 +2,13 @@ import {
   ChangeDetectionStrategy,
   Component,
   computed,
+  effect,
   inject,
   input,
   linkedSignal,
   output,
   signal,
+  untracked,
 } from '@angular/core';
 
 import { AccountsService } from '../core/accounts.service';
@@ -23,7 +25,9 @@ import {
   transferErrorText,
 } from '../core/data-jobs';
 import { JobView } from '../core/models';
+import { moveResultSummary } from '../core/move-data';
 import { NowService } from '../core/now.service';
+import { StorageService } from '../core/storage.service';
 import { IconComponent, IconName } from './icon.component';
 import { TimeAgoComponent } from './time-ago.component';
 
@@ -179,6 +183,7 @@ export class DataJobComponent {
   private api = inject(ApiService);
   private clock = inject(NowService);
   private accounts = inject(AccountsService);
+  private storage = inject(StorageService);
   protected readonly isDesktop = inject(AuthService).isDesktop;
 
   readonly job = input.required<JobView>();
@@ -198,10 +203,23 @@ export class DataJobComponent {
   });
   private confirmTimer?: ReturnType<typeof setTimeout>;
 
+  constructor() {
+    // A job that names a storage is titled with its label.
+    effect(() => {
+      const j = this.job();
+      if (j.fromStorage || j.toStorage) untracked(() => void this.storage.ensureLoaded());
+    });
+  }
+
   protected readonly icon = computed(() => ICONS[this.job().kind]);
-  /** Its kind and the accounts it names (when a page gives no label). */
+  /** Its kind and the accounts and storages it names (when a page gives
+   * no label). */
   protected readonly kindLabel = computed(() =>
-    jobTitle(this.job(), (id) => this.accounts.byId(id)?.name),
+    jobTitle(
+      this.job(),
+      (id) => this.accounts.byId(id)?.name,
+      (id) => this.storage.labelOf(id),
+    ),
   );
   protected readonly stateLabel = computed(() => jobStateLabel(this.job().state));
   protected readonly pct = computed(() => {
@@ -214,7 +232,11 @@ export class DataJobComponent {
     if (j.filesTotal > 0) return `${j.filesDone} of ${j.filesTotal} files`;
     return 'Working…';
   });
-  protected readonly summary = computed(() => jobSummary(this.job()));
+  protected readonly summary = computed(() => {
+    const j = this.job();
+    const moved = j.state === 'done' && (j.kind === 'move' || j.kind === 'copy');
+    return (moved ? moveResultSummary(j) : null) ?? jobSummary(j);
+  });
   protected readonly undoable = computed(() => canUndo(this.job(), this.clock.now()));
   protected readonly until = computed(() => dateTime(this.job().undoUntil ?? 0));
 

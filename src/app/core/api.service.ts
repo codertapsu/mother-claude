@@ -63,8 +63,6 @@ import {
   TokenStatus,
   TranscriptPage,
   TranscriptQuery,
-  TransferBody,
-  TransferPlan,
   UploadResult,
   VapidInfo,
 } from './models';
@@ -479,16 +477,6 @@ export class ApiService {
 
   /** Run it (202): one job per source location (`job` is the first). */
   startMove(body: MoveBody): Promise<{ jobs?: unknown[]; job?: unknown }> {
-    return this.post('/data/move', { ...body, dryRun: false });
-  }
-
-  /** Desktop only: what a move or copy would write (nothing is written). */
-  planTransfer(body: TransferBody): Promise<{ plan: TransferPlan }> {
-    return this.post('/data/move', { ...body, dryRun: true });
-  }
-
-  /** Desktop only: run a move or copy as a data job (202). */
-  startTransfer(body: TransferBody): Promise<{ job: JobView }> {
     return this.post('/data/move', { ...body, dryRun: false });
   }
 

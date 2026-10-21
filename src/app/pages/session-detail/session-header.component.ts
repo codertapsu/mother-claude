@@ -10,19 +10,21 @@ import {
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 
-import { transferTargets } from '../../core/accounts';
+import { DEFAULT_ACCOUNT } from '../../core/accounts';
 import { AccountsService } from '../../core/accounts.service';
+import { accountLocation, anyTarget } from '../../core/move-data';
+import { StorageService } from '../../core/storage.service';
 import { NoticeService } from '../../core/notice.service';
 import { PushService } from '../../core/push.service';
 import { RealtimeService, connectionDetail, connectionLabel } from '../../core/realtime.service';
-import { SessionPushPref, TransferWhat } from '../../core/models';
+import { SessionPushPref } from '../../core/models';
 import { AccountChipComponent } from '../../shared/account-chip.component';
 import { ActivityLineComponent } from '../../shared/activity-line.component';
 import { capRename, capTerminal } from '../../shared/caps';
 import { ContinueOnSheetComponent, canContinue } from '../../shared/continue-on-sheet.component';
 import { CopyButtonComponent } from '../../shared/copy-button.component';
 import { IconComponent } from '../../shared/icon.component';
-import { MoveCopySheetComponent } from '../../shared/move-copy-sheet.component';
+import { MoveDataSheetComponent, MoveStart } from '../../shared/move-data-sheet.component';
 import { SheetComponent } from '../../shared/sheet.component';
 import { StatusPillComponent } from '../../shared/status-pill.component';
 import { TimeAgoComponent } from '../../shared/time-ago.component';
@@ -34,7 +36,7 @@ import { SessionContext } from './session-context';
  * account (while there are several) and what it is doing right now (with
  * elapsed time), the connection state when it isn't Live, and a ⋯ menu
  * (rename, continue/fork, continue on another account, on the desktop
- * moving or copying it or its project to another account's directory,
+ * moving or copying it or its project to another account or a storage,
  * terminal, notifications, resume command, stop/respawn/remove). 48 px tall
  * on phones.
  */
@@ -49,7 +51,7 @@ import { SessionContext } from './session-context';
     ContinueOnSheetComponent,
     CopyButtonComponent,
     IconComponent,
-    MoveCopySheetComponent,
+    MoveDataSheetComponent,
     SheetComponent,
     StatusPillComponent,
     TimeAgoComponent,
@@ -122,7 +124,7 @@ import { SessionContext } from './session-context';
           @if (moveOffered()) {
             <button class="item" type="button" (click)="openMoveCopy('session')">
               <mc-icon name="move" [size]="18" />
-              <span>Move or copy to another account…</span>
+              <span>Move or copy…</span>
             </button>
             <button class="item" type="button" (click)="openMoveCopy('project')">
               <mc-icon name="folder" [size]="18" />
@@ -269,11 +271,9 @@ import { SessionContext } from './session-context';
       />
 
       @if (moveOffered()) {
-        <mc-move-copy-sheet
+        <mc-move-data-sheet
           [open]="!!ctx.moveCopy()"
-          [what]="moveWhat()"
-          [source]="s.account"
-          [live]="s.live"
+          [start]="moveStart()"
           (closed)="ctx.moveCopy.set(null)"
         />
       }
@@ -440,6 +440,7 @@ export class SessionHeaderComponent {
   private push = inject(PushService);
   private notices = inject(NoticeService);
   private accounts = inject(AccountsService);
+  private storage = inject(StorageService);
 
   protected readonly menu = signal(false);
   /** The "Continue on another account" choice is open. */
@@ -491,23 +492,29 @@ export class SessionHeaderComponent {
     const a = this.ctx.session()?.account;
     return a ? (this.accounts.suggestionFor(a)?.id ?? null) : null;
   });
-  /** Desktop, several accounts, and one of them in another directory. */
-  protected readonly moveOffered = computed(() => {
-    const s = this.ctx.session();
-    return (
-      !!s?.account &&
+  /** Desktop, and somewhere to move it: another account, or a storage. */
+  protected readonly moveOffered = computed(
+    () =>
+      !!this.ctx.session() &&
       this.ctx.isDesktop() &&
-      transferTargets(this.accounts.list(), s.account).length > 0
-    );
-  });
-  protected readonly moveWhat = computed<TransferWhat | null>(() => {
+      anyTarget(this.accounts.list(), this.storage.list() ?? []),
+  );
+  /** Move data with the conversation, or every conversation of its folder. */
+  protected readonly moveStart = computed<MoveStart | null>(() => {
     const s = this.ctx.session();
     const kind = this.ctx.moveCopy();
     if (!s || !kind) return null;
-    return kind === 'project' ? { what: 'project', cwd: s.cwd } : { what: 'session', id: s.id };
+    const from = accountLocation(s.account?.id ?? DEFAULT_ACCOUNT);
+    return kind === 'project'
+      ? { from, what: 'projects', projects: [s.cwd], known: [s] }
+      : { from, what: 'sessions', sessions: [s.id], known: [s] };
   });
 
   constructor() {
+    // Where things can be moved to: the storages count too.
+    effect(() => {
+      if (this.ctx.isDesktop()) untracked(() => void this.storage.ensureLoaded());
+    });
     // The composer's `/rename` lands here.
     effect(() => {
       if (this.ctx.openPicker() !== 'rename') return;

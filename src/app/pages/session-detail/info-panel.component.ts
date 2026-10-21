@@ -8,12 +8,14 @@ import {
   untracked,
 } from '@angular/core';
 
-import { DEFAULT_ACCOUNT, transferTargets } from '../../core/accounts';
+import { DEFAULT_ACCOUNT } from '../../core/accounts';
 import { AccountsService } from '../../core/accounts.service';
 import { ApiService } from '../../core/api.service';
 import { KeyName, LaunchOverrides, McpServerStatus } from '../../core/models';
+import { anyTarget } from '../../core/move-data';
 import { NowService } from '../../core/now.service';
 import { PlanUsageService } from '../../core/plan-usage.service';
+import { StorageService } from '../../core/storage.service';
 import { AccountChipComponent } from '../../shared/account-chip.component';
 import { accountKindLabel } from '../../shared/accounts';
 import { CapLimitsComponent } from '../../shared/cap-limits.component';
@@ -530,6 +532,7 @@ export class InfoPanelComponent {
   private api = inject(ApiService);
   private clock = inject(NowService);
   private accounts = inject(AccountsService);
+  private storage = inject(StorageService);
   protected readonly plan = inject(PlanUsageService);
 
   protected overrides: LaunchOverrides = {};
@@ -549,10 +552,13 @@ export class InfoPanelComponent {
   );
   /** The desktop may move or copy the project to another account's
    * directory (the header's dialog). */
-  protected readonly moveOffered = computed(() => {
-    const a = this.ctx.session()?.account;
-    return !!a && this.ctx.isDesktop() && transferTargets(this.accounts.list(), a).length > 0;
-  });
+  /** The folder can be moved or copied (the header hosts the sheet). */
+  protected readonly moveOffered = computed(
+    () =>
+      !!this.ctx.session() &&
+      this.ctx.isDesktop() &&
+      anyTarget(this.accounts.list(), this.storage.list() ?? []),
+  );
   protected readonly kindLabel = accountKindLabel;
   protected readonly terminal = computed(() => {
     const s = this.ctx.session();

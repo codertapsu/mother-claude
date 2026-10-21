@@ -880,7 +880,7 @@ export function customizationText(c: CustomizationPlan): string {
         : c.action === 'merge'
           ? 'merged'
           : 'left as it is';
-  return c.reason ? `${verb}: ${sentence(c.reason).replace(/\.$/, '')}` : verb;
+  return c.reason ? `${verb}: ${c.reason.trim().replace(/\.$/, '')}` : verb;
 }
 
 /** What each bulk skip code means, when the server says nothing. */
@@ -1018,9 +1018,9 @@ export function indexRow(s: BackupIndexSession): ChecklistRow {
   };
 }
 
-/** The projects of some conversations (one row per folder, the most
- * conversations first), with `keep` folders listed even when none of the
- * conversations is in them. */
+/** The projects of some conversations (one row per folder): the `keep`
+ * folders first (listed even when none of the conversations is in them),
+ * then the most conversations first. */
 export function projectRows(
   sessions: readonly { cwd?: string }[],
   keep: readonly string[] = [],
@@ -1030,8 +1030,14 @@ export function projectRows(
     if (s.cwd) counts.set(s.cwd, (counts.get(s.cwd) ?? 0) + 1);
   }
   for (const cwd of keep) if (!counts.has(cwd)) counts.set(cwd, 0);
+  const first = new Set(keep);
   return [...counts.entries()]
-    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .sort(
+      (a, b) =>
+        Number(first.has(b[0])) - Number(first.has(a[0])) ||
+        b[1] - a[1] ||
+        a[0].localeCompare(b[0]),
+    )
     .map(([cwd, n]) => ({
       id: cwd,
       title: tilde(cwd),

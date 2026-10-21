@@ -1,19 +1,10 @@
 import { ApiError, describeError } from './api.service';
-import {
-  DataJobKind,
-  DataJobState,
-  JobView,
-  TransferFile,
-  TransferMode,
-  TransferPlan,
-  TransferSessionPlan,
-  TransferWhat,
-} from './models';
+import { DataJobKind, DataJobState, JobView } from './models';
 
 /**
  * Pure helpers for the data jobs (`/data/jobs`: moves, copies, backups,
- * restores, pulls) and the transfer dry run (`POST /data/move`), read
- * tolerantly like everything else from the wire.
+ * restores, pulls), read tolerantly like everything else from the wire.
+ * Moving data (`POST /data/move`) has its own in move-data.ts.
  */
 
 /** How often a running job is asked about (ms). */
@@ -235,58 +226,4 @@ export function transferErrorText(e: unknown): string {
     return sentence(e.message) || TRANSFER_TEXT[e.code as string];
   }
   return describeError(e).text;
-}
-
-function normalizeWhat(raw: unknown): TransferWhat | null {
-  if (!raw || typeof raw !== 'object') return null;
-  const r = raw as Record<string, unknown>;
-  const id = str(r['id']);
-  const cwd = str(r['cwd']);
-  if (r['what'] === 'session' && id) return { what: 'session', id };
-  if (r['what'] === 'project' && cwd) return { what: 'project', cwd };
-  return null;
-}
-
-function normalizeFile(raw: unknown): TransferFile | null {
-  if (!raw || typeof raw !== 'object') return null;
-  const r = raw as Record<string, unknown>;
-  const from = str(r['from']);
-  const to = str(r['to']);
-  return from && to ? { from, to, size: count(r['size']) } : null;
-}
-
-function normalizeSessionPlan(raw: unknown): TransferSessionPlan | null {
-  if (!raw || typeof raw !== 'object') return null;
-  const r = raw as Record<string, unknown>;
-  const id = str(r['id']);
-  if (!id) return null;
-  const cwd = str(r['cwd']);
-  const files = Array.isArray(r['files'])
-    ? r['files'].map(normalizeFile).filter((f): f is TransferFile => !!f)
-    : [];
-  return { id, ...(cwd ? { cwd } : {}), files };
-}
-
-/** A dry run from the wire (`{plan}`), or null when it isn't one. */
-export function normalizePlan(raw: unknown): TransferPlan | null {
-  if (!raw || typeof raw !== 'object') return null;
-  const r = raw as Record<string, unknown>;
-  const what = normalizeWhat(r['what']);
-  const mode: TransferMode | undefined =
-    r['mode'] === 'move' || r['mode'] === 'copy' ? r['mode'] : undefined;
-  if (!what || !mode) return null;
-  const sessions = Array.isArray(r['sessions'])
-    ? r['sessions'].map(normalizeSessionPlan).filter((s): s is TransferSessionPlan => !!s)
-    : [];
-  return {
-    what,
-    mode,
-    sessions,
-    files: count(r['files']),
-    bytes: count(r['bytes']),
-    addsProjectEntry: str(r['addsProjectEntry']) ?? null,
-    removesProjectEntry: str(r['removesProjectEntry']) ?? null,
-    historyLines: count(r['historyLines']),
-    writesShared: r['writesShared'] === true,
-  };
 }
