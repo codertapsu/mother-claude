@@ -1087,6 +1087,12 @@ different directories.
 - With `from` left out, a source none of whose conversations can go is no
   job: its conversations are listed in `skipped` (`already_exists` for the
   target's own, `same_directory` for a copy within the shared folder).
+- A move or copy from another directory into a token account lands in the
+  shared folder recorded as that account's (as an assign records it), so it
+  shows and continues under it. An assign checks each conversation again
+  when its turn comes: one that started (`session_live`) or was given to
+  another account meanwhile (`session_changed`) is skipped. A storage job
+  left with nothing to take never opens, or makes, a set.
 - A move into a storage archives each conversation anew, even one the set has
   as it is here, and checks the set's copy against the files here byte for
   byte before it marks it and removes it; one that starts or changes

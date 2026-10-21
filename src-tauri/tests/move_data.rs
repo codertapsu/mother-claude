@@ -820,3 +820,26 @@ async fn conversations_move_between_storages_and_back() {
     assert!(ids_in(&disk_id).await.is_empty());
     let _ = pass;
 }
+
+/// A storage job whose conversations were all skipped says so, and never
+/// opens or makes the set it would have written.
+#[tokio::test]
+async fn a_storage_job_with_nothing_to_take_makes_no_set() {
+    let f = boot().await;
+    let (work, _) = f.work();
+    let (folder, _) = f.backups().await;
+    let missing = "99999999-9999-4999-8999-999999999999";
+    let (s, v) = f
+        .move_data(
+            json!({"from": work, "to": {"storage": "backup", "set": "Fresh"},
+                          "mode": "move", "items": {"sessions": [missing]}}),
+        )
+        .await;
+    assert_eq!(s, StatusCode::ACCEPTED, "{v}");
+    let done = f.finished(v["job"]["id"].as_str().unwrap()).await;
+    assert_eq!(done["state"], "done", "{done}");
+    assert_eq!(done["result"]["archived"], json!([]));
+    assert_eq!(done["result"]["skipped"][0]["code"], "not_found");
+    assert!(done.get("undoUntil").is_none());
+    assert!(!folder.join("Fresh").exists(), "no set was made");
+}

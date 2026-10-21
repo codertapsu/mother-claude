@@ -1402,6 +1402,15 @@ async fn run_into(
     set_name: String,
     ids: Vec<String>,
 ) -> Result<(Value, Vec<String>, bool), TransferError> {
+    if ids.is_empty() {
+        return nothing_taken(
+            g,
+            match g.mode {
+                Mode::Move => "archived",
+                Mode::Copy => "copied",
+            },
+        );
+    }
     let home = home_of(state, from)?;
     storage.require_available().map_err(TransferError::from)?;
     let pass =
@@ -1471,6 +1480,9 @@ async fn run_out_of(
     to: &str,
     ids: Vec<String>,
 ) -> Result<(Value, Vec<String>, bool), TransferError> {
+    if ids.is_empty() {
+        return nothing_taken(g, "restored");
+    }
     let home = home_of(state, to)?;
     storage.require_available().map_err(TransferError::from)?;
     let pass =
@@ -1540,6 +1552,16 @@ async fn run_out_of(
     Ok((result, report.restored.clone(), !manifest.is_empty()))
 }
 
+/// A storage job with nothing to take: its result, without opening (or
+/// making) a set.
+fn nothing_taken(g: &Group, key: &str) -> Result<(Value, Vec<String>, bool), TransferError> {
+    Ok((
+        json!({ key: Vec::<String>::new(), "skipped": skipped_json(&g.skipped) }),
+        Vec::new(),
+        false,
+    ))
+}
+
 /// Run a copy or move between two sets.
 async fn run_between(
     state: &AppState,
@@ -1550,6 +1572,15 @@ async fn run_between(
     to: (Storage, String),
     ids: Vec<String>,
 ) -> Result<(Value, Vec<String>, bool), TransferError> {
+    if ids.is_empty() {
+        return nothing_taken(
+            g,
+            match g.mode {
+                Mode::Move => "moved",
+                Mode::Copy => "copied",
+            },
+        );
+    }
     from.0.require_available().map_err(TransferError::from)?;
     to.0.require_available().map_err(TransferError::from)?;
     let pass =
