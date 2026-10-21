@@ -161,4 +161,43 @@ describe('data job helpers', () => {
     );
     expect(jobTitle(job({ kind: 'pull' }), nameOf)).toBe('Pull');
   });
+
+  it('titles a move into, out of or between storages, and an assign', () => {
+    const names: Record<string, string> = {
+      default: 'Default',
+      acc_w: 'Work',
+      acc_p: 'Personal',
+      acc_a: 'Token A',
+      acc_b: 'Token B',
+    };
+    const stores: Record<string, string> = { backup: 'iCloud Drive', stor_1: 'Google Drive' };
+    const nameOf = (id: string) => names[id];
+    const storageOf = (id: string) => stores[id];
+    const job = (extra: Record<string, unknown>) =>
+      normalizeJob({ id: 'j', kind: 'move', state: 'done', ...extra })!;
+    expect(job({ fromStorage: 'stor_1', set: 'Shared' })).toEqual(
+      jasmine.objectContaining({ fromStorage: 'stor_1', set: 'Shared' }),
+    );
+    // The set named after the account on the other side goes unsaid.
+    expect(
+      jobTitle(job({ from: 'acc_w', toStorage: 'backup', set: 'Work' }), nameOf, storageOf),
+    ).toBe('Move from Work to iCloud Drive');
+    expect(
+      jobTitle(
+        job({ kind: 'copy', fromStorage: 'backup', set: 'Shared', to: 'acc_p' }),
+        nameOf,
+        storageOf,
+      ),
+    ).toBe('Copy from iCloud Drive · Shared to Personal');
+    expect(jobTitle(job({ from: 'acc_a', to: 'acc_b' }), nameOf, storageOf)).toBe(
+      'Move from Token A to Token B',
+    );
+    expect(
+      jobTitle(job({ fromStorage: 'backup', toStorage: 'stor_1', set: 'Work' }), nameOf, storageOf),
+    ).toBe('Move from iCloud Drive · Work to Google Drive');
+    // A storage nobody knows: only what is known.
+    expect(jobTitle(job({ from: 'acc_w', toStorage: 'stor_x' }), nameOf, storageOf)).toBe(
+      'Move from Work',
+    );
+  });
 });

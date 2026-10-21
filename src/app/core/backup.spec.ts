@@ -160,6 +160,23 @@ describe('backup helpers', () => {
     expect(normalizeBackupIndex({ account: 'default' })).toBeNull();
   });
 
+  it('reads the index of a storage set no account is named after', () => {
+    const ix = normalizeBackupIndex({
+      set: 'Shared',
+      sessions: [
+        { id: 'a', action: 'new', archived: { at: 5, machine: 'm1' } },
+        { id: 'b', action: 'new', archived: false },
+      ],
+    });
+    expect(ix?.account).toBe('');
+    expect(ix?.name).toBe('Shared');
+    expect(ix?.sessions.map((x) => [x.id, x.archived])).toEqual([
+      ['a', true],
+      ['b', undefined],
+    ]);
+    expect(normalizeBackupIndex({ sessions: [] })).toBeNull();
+  });
+
   it('preselects new sessions for a restore, and all a pull brings for a pull', () => {
     const list = [
       s('n', 'new'),

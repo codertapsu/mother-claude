@@ -810,6 +810,11 @@ export interface JobView {
    * account it restored into). */
   from?: string;
   to?: string;
+  /** A move or copy out of a storage, or into one: the storage ids, and
+   * the set (docs/ACCOUNTS.md §13.4). */
+  fromStorage?: string;
+  toStorage?: string;
+  set?: string;
   /** Per kind: what a backup archived, what a restore or pull did. */
   result?: unknown;
 }
@@ -935,6 +940,8 @@ export interface BackupIndexSession {
   newestMtime: number;
   /** "Claude Code will delete this again at its next cleanup…". */
   pruneWarning?: string;
+  /** Moved into the storage and out of every account: in the storage only. */
+  archived?: boolean;
 }
 
 export interface BackupConfigEntry {

@@ -4,6 +4,7 @@ import type { NewServer, ServerDefaults, ServerPatch } from './api-servers';
 import { AuthService } from './auth.service';
 import { ConfigService } from './config.service';
 import { activeMock } from './mock/mock-api';
+import type { MoveBody } from './move-data';
 import {
   AccountDefaults,
   AccountPatch,
@@ -110,13 +111,15 @@ import {
  *             startTokenCapture(id) · sendTokenCode(id, code) ·
  *             pasteAccountToken(id, token) · cancelTokenCapture(id) ·
  *             installAccountHooks(id) · uninstallAccountHooks(id)
- *   Data      planTransfer(body) · startTransfer(body) · listDataJobs() ·
+ *   Data      planMove(body) · startMove(body) · listDataJobs() ·
  *             getDataJob(id) · undoDataJob(id)
  *   Backup    getBackup() · setBackupSettings(patch) ·
  *             generateBackupPassphrase() · setBackupPassphrase(p) ·
  *             pushBackup(account?) · getBackupIndex(account, into?) ·
  *             restoreBackup(body) · restoreBackupSettings(account) ·
- *             pullBackup(body)
+ *             pullBackup(body) · addStorage(body) ·
+ *             renameStorage(id, label) · removeStorage(id) ·
+ *             getStorageIndex(storage, set)
  *   Pairing   createPairCode(req) · exchangePairCode(body) ·
  *             pollPairPending(pendingId, secret) · getMe() · unpairSelf()
  *   Devices   listDevices() · approvePair(id, fingerprint) · denyPair(id) ·
@@ -466,6 +469,19 @@ export class ApiService {
 
   // ─────────────────────────────────────────── Moving and copying data
 
+  /** What a move or copy would do, nothing done yet (`{plan}`;
+   * docs/ACCOUNTS.md §13.4). A device needs the dangerous right for
+   * `trust` and the settings or MCP customizations (403
+   * `dangerous_blocked`). */
+  planMove(body: MoveBody): Promise<{ plan: unknown }> {
+    return this.post('/data/move', { ...body, dryRun: true });
+  }
+
+  /** Run it (202): one job per source location (`job` is the first). */
+  startMove(body: MoveBody): Promise<{ jobs?: unknown[]; job?: unknown }> {
+    return this.post('/data/move', { ...body, dryRun: false });
+  }
+
   /** Desktop only: what a move or copy would write (nothing is written). */
   planTransfer(body: TransferBody): Promise<{ plan: TransferPlan }> {
     return this.post('/data/move', { ...body, dryRun: true });
@@ -556,6 +572,29 @@ export class ApiService {
     trust?: boolean;
   }): Promise<{ jobs: (JobView | string)[]; skipped?: (PullSkip | string)[] }> {
     return this.post('/backup/pull', body);
+  }
+
+  /** Add a folder that holds sets (201: the storage). */
+  addStorage(body: { path: string; label?: string }): Promise<unknown> {
+    return this.post('/backup/storage', body);
+  }
+
+  renameStorage(id: string, label: string): Promise<unknown> {
+    return this.req(`/backup/storage/${enc(id)}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ label }),
+    });
+  }
+
+  /** Forget a storage: its files stay where they are. */
+  removeStorage(id: string): Promise<void> {
+    return this.req(`/backup/storage/${enc(id)}`, { method: 'DELETE' });
+  }
+
+  /** One set of a storage, with what each entry is (`archived`: in the
+   * storage only). */
+  getStorageIndex(storage: string, set: string): Promise<BackupIndex> {
+    return this.req<BackupIndex>(`/backup/index${query({ storage, set })}`);
   }
 
   // ────────────────────────────────────────────────────────────── Pairing

@@ -50,6 +50,9 @@ export function normalizeJob(raw: unknown): JobView | null {
   const account = str(r['account']);
   const from = str(r['from']);
   const to = str(r['to']);
+  const fromStorage = str(r['fromStorage']);
+  const toStorage = str(r['toStorage']);
+  const set = str(r['set']);
   return {
     id,
     kind,
@@ -69,6 +72,9 @@ export function normalizeJob(raw: unknown): JobView | null {
     ...(account ? { account } : {}),
     ...(from ? { from } : {}),
     ...(to ? { to } : {}),
+    ...(fromStorage ? { fromStorage } : {}),
+    ...(toStorage ? { toStorage } : {}),
+    ...(set ? { set } : {}),
     ...(r['result'] !== undefined && r['result'] !== null ? { result: r['result'] } : {}),
   };
 }
@@ -126,24 +132,47 @@ export function jobKindLabel(kind: DataJobKind): string {
   return KIND_LABELS[kind];
 }
 
-/** What a job did, with the accounts it names: "Move from Default to Work",
- * "Backup of Work", "Restore of Work into Personal". `nameOf` gives an
- * account's name (undefined when unknown: then only what is known is said). */
-export function jobTitle(j: JobView, nameOf: (id: string) => string | undefined): string {
+/** What a job did, with the places it names: "Move from Default to Work",
+ * "Move from Work to iCloud Drive", "Copy from Google Drive · Shared to
+ * Personal", "Backup of Work", "Restore of Work into Personal". `nameOf`
+ * gives an account's name and `storageOf` a storage's (undefined when
+ * unknown: then only what is known is said). A storage's set is named
+ * unless it is the set of the account on the other side. */
+export function jobTitle(
+  j: JobView,
+  nameOf: (id: string) => string | undefined,
+  storageOf: (id: string) => string | undefined = () => undefined,
+): string {
   const kind = jobKindLabel(j.kind);
   const name = (id: string | undefined) => (id ? nameOf(id) : undefined);
-  const from = name(j.from);
-  const to = name(j.to);
   const set = name(j.account);
   switch (j.kind) {
     case 'move':
-    case 'copy':
+    case 'copy': {
+      const fromAccount = name(j.from);
+      const toAccount = name(j.to);
+      const side = (storage: string | undefined, other: string | undefined) => {
+        const label = storage ? storageOf(storage) : undefined;
+        if (!label) return undefined;
+        return j.set && j.set !== other ? `${label} · ${j.set}` : label;
+      };
+      // Both sides storages: the set is the source's.
+      const from = j.fromStorage ? side(j.fromStorage, toAccount) : fromAccount;
+      const to = j.toStorage
+        ? j.fromStorage
+          ? storageOf(j.toStorage)
+          : side(j.toStorage, fromAccount)
+        : toAccount;
       if (from && to) return `${kind} from ${from} to ${to}`;
       if (to) return `${kind} to ${to}`;
+      if (from) return `${kind} from ${from}`;
       return kind;
-    case 'restore':
-      if (set && to && j.to !== j.account) return `${kind} of ${set} into ${to}`;
+    }
+    case 'restore': {
+      const into = name(j.to);
+      if (set && into && j.to !== j.account) return `${kind} of ${set} into ${into}`;
       return set ? `${kind} of ${set}` : kind;
+    }
     default:
       return set ? `${kind} of ${set}` : kind;
   }
@@ -173,7 +202,8 @@ export function sentence(text: string | undefined): string {
 
 /** What each refusal of a move or copy means, when the server says nothing. */
 const TRANSFER_TEXT: Record<string, string> = {
-  same_directory: 'Both accounts use the same directory: there is nothing to move.',
+  same_directory:
+    "Both accounts use the same folder: a copy there would be the same conversation. Move it instead: that records it as the other account's.",
   not_found: 'There is nothing of it to move or copy.',
   session_live: 'It is running; stop it first.',
   already_exists: 'The other account already has this conversation.',

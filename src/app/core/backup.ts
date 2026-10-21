@@ -195,6 +195,8 @@ function indexSession(raw: unknown): BackupIndexSession | null {
   const title = str(r['title']);
   const localBytes = num(r['localBytes']);
   const pruneWarning = str(r['pruneWarning']);
+  // `{at, machine}` (or true): moved out of every account into the set.
+  const archived = r['archived'] === true || !!obj(r['archived']);
   return {
     id,
     action,
@@ -206,6 +208,7 @@ function indexSession(raw: unknown): BackupIndexSession | null {
     pushedAt: num(r['pushedAt']) ?? 0,
     newestMtime: num(r['newestMtime']) ?? 0,
     ...(pruneWarning ? { pruneWarning } : {}),
+    ...(archived ? { archived } : {}),
   };
 }
 
@@ -223,15 +226,19 @@ function configEntry(raw: unknown): BackupConfigEntry | null {
   };
 }
 
-/** `GET /backup/index` made safe to render, or null when it isn't one. */
+/** `GET /backup/index` made safe to render, or null when it isn't one. A
+ * set of a storage that no account is named after has no `account` ('').
+ */
 export function normalizeBackupIndex(raw: unknown): BackupIndex | null {
   const r = obj(raw);
-  const account = str(r?.['account']);
-  if (!r || !account || !Array.isArray(r['sessions'])) return null;
+  if (!r || !Array.isArray(r['sessions'])) return null;
+  const account = str(r['account']) ?? '';
+  const set = str(r['set']) ?? '';
+  if (!account && !set) return null;
   return {
     account,
-    name: str(r['name']) ?? account,
-    set: str(r['set']) ?? '',
+    name: str(r['name']) ?? (account || set),
+    set,
     machines: list(r['machines'], machine),
     sessions: list(r['sessions'], indexSession),
     config: list(r['config'], configEntry),
