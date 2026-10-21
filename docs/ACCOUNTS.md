@@ -374,6 +374,14 @@ any principal that may start sessions (it is the user's own account either
 way). Adding, removing or signing in an account, entering a token, moving
 data, restoring, pulling and changing backup settings are `DesktopOnly`.
 
+*Changed 2026-10-21 (§13.9): the user runs Mother Claude from the phone, on
+the LAN or through a tunnel, and wants the data and API-server features there
+too.* Moving and copying data, backups, restores, pulls, undo, storages, backup
+settings, account defaults, copy consent, renaming accounts and API servers
+are open to the desktop and to paired devices; the parts that run code or
+change trust need the dangerous right; secrets, sign-ins and adding or
+removing accounts stay on the desktop. §13.9 has the split.
+
 ---
 
 ## 4. Data model
@@ -684,8 +692,12 @@ entries keep the session's title, only inside the encrypted index.
 - Tokens: Keychain only; `tokenSha256` in the registry; never in frames, logs,
   audit lines, backups or error messages. The process-environment read (D8)
   reads one variable of our own user's processes, compares, drops.
-- Account administration, data moves, restore, pull, backup settings:
-  `DesktopOnly`. Account choice: any principal that may start sessions.
+- Adding, removing and signing in accounts, tokens, the backup passphrase,
+  the hooks plugin installer: `DesktopOnly`. Data moves, backups, restores,
+  pulls, undo, storages, backup settings, account defaults, copy consent,
+  renaming, API servers: the desktop and paired devices, with a folder's trust
+  and settings or MCP customizations needing the dangerous right (§13.9).
+  Account choice: any principal that may start sessions.
 - Writes under a Claude directory: only the four explicit actions (D4), each
   with the in-use check, the undo copy, atomic writes and an audit line.
 - Backups: encrypted at rest with a passphrase the user holds; the set's only
@@ -1211,8 +1223,13 @@ says so and cannot start (`account_not_found`) until another is chosen.
    tunnel; *Add API server* (name, account, *Only this account*, port, the
    defaults); the panel shows the selected server, with its addresses (its
    port, through the main port, on the network).
-6. Phones see Move data and the storages read-only, as before (D9); they may
-   manage API servers as they may start the main one today.
+6. **Phones** (LAN or tunnel) get all of it, as §13.9 says: Select, Move
+   data, Undo, the storages, Back up now, Restore, Pull, the backup settings,
+   account defaults and copy consent, and the API servers. What needs the
+   dangerous right (a folder's trust, settings and MCP customizations) is
+   shown disabled with the reason on a device without it; what stays on the
+   desktop (the passphrase, adding or signing in accounts, tokens, the hooks
+   plugin, opening the API to tunnels) says so. Every layout works at 360 px.
 
 ### 13.7 Documents to change
 
@@ -1240,6 +1257,8 @@ docs/REMOTE.md (tunnels per server), SECURITY.md, README.md, `.env.example`.
 - [ ] P6.8 UI: Select, Move data, the account action, the Storage section, job
   titles, the mock backend.
 - [ ] P6.9 Documents (§13.7).
+- [ ] P6.10 From the phone (§13.9): the guards, the dangerous parts, the
+  desktop notice; the UI on phones.
 
 **Phase 7 — API servers per account**
 
@@ -1255,3 +1274,28 @@ docs/REMOTE.md (tunnels per server), SECURITY.md, README.md, `.env.example`.
 - [ ] P7.8 UI: the server list, adding and removing, the panel per server,
   the addresses, the mock backend.
 - [ ] P7.9 Documents (§13.7).
+
+### 13.9 From the phone (D9 revised, 2026-10-21)
+
+"Remote" in the request means the dashboard on the phone, on the LAN or
+through a tunnel (ngrok and the like, §2.8 of the remote design): everything in
+§13 has to work there. Who may do what:
+
+| Action | Desktop | Paired device | Device with the dangerous right |
+|---|---|---|---|
+| Move or copy data in any direction, assign, archive, restore, pull, Back up now, undo a data job | yes | yes | yes |
+| Add, rename or remove a storage; backup folder, schedule, pull on launch | yes | yes | yes |
+| Account defaults (new sessions, API, per project), copy consent, rename or recolour an account | yes | yes | yes |
+| Add, start, stop, change or remove an API server | yes | yes | yes |
+| Carry a folder's trust (`trust: true`); copy the `settings` or `mcpServers` customizations | yes | no (`403 dangerous_blocked`) | yes |
+| Set or generate the backup passphrase; add, remove or sign in an account; tokens; the hooks plugin installer; opening an API server to tunnels; a permission mode that skips approvals | yes | no (`403 desktop_only`) | no |
+
+- A **paired device** is the device principal (a `mcd_` token, LAN or
+  tunnel). The local-script token stays off the data and account routes, as
+  it is off admin routes today; API servers keep today's rule for starting the
+  main one (any authenticated caller, local scripts included).
+- Every such action a device starts is audited with the device, and the
+  desktop shows a notice naming the device and what it did, as it does when a
+  device uses the dangerous right.
+- The D4 guarantees do not depend on who asks: the in-use checks, the undo
+  copy, atomic writes and the audit line are the same for a phone.
