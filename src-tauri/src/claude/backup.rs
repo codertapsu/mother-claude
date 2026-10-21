@@ -122,6 +122,19 @@ pub enum BackupError {
     Invalid(String),
     #[error("{0}")]
     Io(String),
+    /// No storage with that id (§13.1).
+    #[error("no storage {0:?}")]
+    StorageNotFound(String),
+    /// A storage's folder is not there now (an unplugged disk, a cloud folder
+    /// that is signed out).
+    #[error(
+        "the storage {0} is not available: its folder is missing (an unplugged disk, or a cloud \
+         folder that is signed out?)"
+    )]
+    StorageUnavailable(String),
+    /// A storage that cannot be added or changed as asked.
+    #[error("{0}")]
+    InvalidStorage(String),
     #[error(transparent)]
     Transfer(#[from] transfer::TransferError),
 }
@@ -136,9 +149,66 @@ impl BackupError {
             Self::KeyMissing(_) => "set_key_missing",
             Self::Invalid(_) => "invalid_backup",
             Self::Io(_) => "backup_io",
+            Self::StorageNotFound(_) => "storage_not_found",
+            Self::StorageUnavailable(_) => "storage_unavailable",
+            Self::InvalidStorage(_) => "invalid_storage",
             Self::Transfer(e) => e.code(),
         }
     }
+}
+
+/// A set's name: a folder name, by the rules account names follow (1–40
+/// characters, no `/ \ : * ? " < > |`, no leading dot, no control
+/// characters), so a name from a request never leaves its storage.
+pub fn clean_set_name(name: &str) -> Result<String, BackupError> {
+    super::accounts::clean_name(name)
+        .map_err(|e| BackupError::Invalid(format!("not a set name: {e}")))
+}
+
+/// How many sessions (and archived ones) each set's index held when this app
+/// last read or wrote it, by the index file's size and time: what the storage
+/// list shows without opening a set, which takes the passphrase.
+type CountKey = (u64, Option<SystemTime>);
+type Counts = std::collections::HashMap<PathBuf, (CountKey, usize, usize)>;
+static COUNTS: std::sync::LazyLock<std::sync::Mutex<Counts>> =
+    std::sync::LazyLock::new(Default::default);
+
+fn index_stamp(set: &Set) -> Option<CountKey> {
+    std::fs::metadata(set.index_path())
+        .ok()
+        .map(|m| (m.len(), m.modified().ok()))
+}
+
+/// The set's folder as the counts know it (one spelling per folder).
+fn counts_key(set: &Set) -> PathBuf {
+    std::fs::canonicalize(&set.dir).unwrap_or_else(|_| set.dir.clone())
+}
+
+fn note_counts(set: &Set, index: &SetIndex) {
+    let Some(stamp) = index_stamp(set) else {
+        return;
+    };
+    let archived = index
+        .sessions
+        .values()
+        .filter(|e| e.archived.is_some())
+        .count();
+    COUNTS
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .insert(counts_key(set), (stamp, index.sessions.len(), archived));
+}
+
+/// `(sessions, archived)` of a set, when its index is the one this app last
+/// read or wrote.
+pub fn cached_counts(set: &Set) -> Option<(usize, usize)> {
+    let stamp = index_stamp(set)?;
+    COUNTS
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .get(&counts_key(set))
+        .filter(|(s, _, _)| *s == stamp)
+        .map(|(_, n, a)| (*n, *a))
 }
 
 fn io(what: &str, path: &Path, e: impl std::fmt::Display) -> BackupError {
@@ -394,6 +464,23 @@ pub struct IndexEntry {
     pub archive_sha256: String,
     pub archive_bytes: u64,
     pub files: u32,
+    /// Moved into this set out of the machine that had it (docs/ACCOUNTS.md
+    /// §13.3 rule 4): a pull never brings it to a machine that does not have
+    /// it, and a push of a changed copy (a new entry) clears it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub archived: Option<Archived>,
+    /// Fields a newer version wrote; kept as they were.
+    #[serde(flatten, default)]
+    pub extra: BTreeMap<String, Value>,
+}
+
+/// When, and by which machine, a conversation was moved into a set.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Archived {
+    pub at: i64,
+    /// The machine's id ([`ThisMachine::id`]).
+    pub machine: String,
 }
 
 /// One configuration bundle in the set.
@@ -787,9 +874,11 @@ pub fn read_index(set: &Set, keys: &Keys) -> Result<SetIndex, BackupError> {
         // Constant time.
         mac.verify_slice(&tag).map_err(|_| tampered())?;
     }
-    serde_json::from_slice(json)
+    let index = serde_json::from_slice(json)
         .map(sanitize_index)
-        .map_err(|e| BackupError::Invalid(format!("the index: {e}")))
+        .map_err(|e| BackupError::Invalid(format!("the index: {e}")))?;
+    note_counts(set, &index);
+    Ok(index)
 }
 
 /// [`read_index`] for a write: an index that is missing while archives are
@@ -817,7 +906,9 @@ fn write_index(set: &Set, keys: &Keys, index: &SetIndex) -> Result<(), BackupErr
     )
     .into_bytes();
     plain.extend_from_slice(&json);
-    write_atomic(&set.index_path(), &seal(&keys.recipient, &plain)?)
+    write_atomic(&set.index_path(), &seal(&keys.recipient, &plain)?)?;
+    note_counts(set, index);
+    Ok(())
 }
 
 /// How long a file no index names stays in the set: a push on another
@@ -1565,6 +1656,8 @@ fn archive_session(
         archive_sha256: sha,
         archive_bytes: bytes,
         files: files.len() as u32,
+        archived: None,
+        extra: BTreeMap::new(),
     })
 }
 
@@ -2724,6 +2817,7 @@ pub fn extract_config(
 }
 
 pub mod ops;
+pub mod storage;
 
 #[cfg(test)]
 mod tests;

@@ -1655,3 +1655,241 @@ async fn a_phone_manages_data_but_never_secrets() {
         );
     }
 }
+
+/// §13.3 rule 8 and §13.4 over HTTP: a storage is added (its folder made
+/// when only it is missing), listed after the backup folder, renamed and
+/// forgotten (its files stay); one inside an account's directory, the backup
+/// folder or another storage is refused; a passphrase change re-keys a set in
+/// every storage and refuses while one is unplugged; a set of any storage is
+/// listed by `?storage=&set=`; a phone may do all of it but the passphrase;
+/// and with only the Default and only the backup folder, `GET /api/backup`
+/// is what it was (goal 7).
+#[tokio::test]
+async fn storages_are_added_listed_and_re_keyed() {
+    use mother_claude_lib::claude::backup::{self as b, PushInputs, Set, ThisMachine};
+    use mother_claude_lib::claude::secrets::Secret;
+    let f = boot_inside().await;
+    let desk = f.desktop();
+    let phone = f.phone();
+    let folder = f.scratch.path().join("iCloud/Mother Claude");
+    let (s, _) = f
+        .call(
+            "PUT",
+            "/backup/settings",
+            &desk,
+            Some(json!({ "folder": folder })),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK);
+    let (_, v) = f
+        .call(
+            "POST",
+            "/backup/passphrase",
+            &desk,
+            Some(json!({"generate": true})),
+        )
+        .await;
+    let pass = v["passphrase"].as_str().unwrap().to_string();
+
+    // Goal 7: nothing of storages while none is in use.
+    let (_, v) = f.call("GET", "/backup", &phone, None).await;
+    assert!(v.get("storage").is_none(), "{v}");
+    assert!(v["settings"].get("storages").is_none(), "{v}");
+
+    // Refused: inside an account's directory, the backup folder, nowhere.
+    std::fs::create_dir_all(f.scratch.path().join("Archive disk")).unwrap();
+    let disk = f.scratch.path().join("Archive disk/Claude");
+    for path in [
+        f._home.path().join("archive"),
+        folder.join("inner"),
+        f.scratch.path().join("Unplugged/Claude"),
+        std::path::PathBuf::from("relative/path"),
+    ] {
+        let (s, v) = f
+            .call(
+                "POST",
+                "/backup/storage",
+                &phone,
+                Some(json!({ "path": path })),
+            )
+            .await;
+        assert_eq!(
+            s,
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "{}: {v}",
+            path.display()
+        );
+        assert_eq!(v["error"]["code"], "invalid_storage", "{}", path.display());
+    }
+    let (s, added) = f
+        .call(
+            "POST",
+            "/backup/storage",
+            &phone,
+            Some(json!({"path": disk, "label": "Archive disk"})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::CREATED, "{added}");
+    let id = added["id"].as_str().unwrap().to_string();
+    assert!(id.starts_with("stor_"), "{added}");
+    assert_eq!(added["primary"], false);
+    assert_eq!(added["available"], true);
+    assert_eq!(added["kind"], "folder");
+    assert!(disk.is_dir(), "its folder is made");
+    let (s, v) = f
+        .call(
+            "POST",
+            "/backup/storage",
+            &phone,
+            Some(json!({"path": disk.join("inner")})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::UNPROCESSABLE_ENTITY, "{v}");
+    let (s, v) = f
+        .call(
+            "PUT",
+            "/backup/settings",
+            &desk,
+            Some(json!({ "folder": disk.join("x") })),
+        )
+        .await;
+    assert_eq!(s, StatusCode::UNPROCESSABLE_ENTITY, "{v}");
+    assert_eq!(v["error"]["code"], "invalid_folder");
+
+    // A set in it (Move data makes them; here the engine does).
+    let cwd = f.scratch.path().join("proj").to_string_lossy().into_owned();
+    let sid = "abababab-abab-4bab-8bab-abababababab";
+    write_session(f._home.path(), &cwd, sid, None);
+    let set = Set::new(&disk, "Archive");
+    b::push(&PushInputs {
+        home: &f.st.home,
+        set: &set,
+        account_name: "Archive",
+        passphrases: &[Secret::new(pass.clone())],
+        machine: &ThisMachine {
+            id: "0".repeat(32),
+            name: "test".into(),
+        },
+        is_live: &|_: &str| false,
+        title_of: &|_: &str| None,
+        progress: &Default::default(),
+    })
+    .unwrap();
+    let (_, v) = f.call("GET", "/backup", &phone, None).await;
+    let storage = v["storage"].as_array().expect("listed now");
+    assert_eq!(storage[0]["id"], "backup");
+    assert_eq!(storage[0]["primary"], true);
+    assert_eq!(storage[1]["id"], json!(id));
+    assert_eq!(storage[1]["label"], "Archive disk");
+    assert_eq!(storage[1]["sets"][0]["name"], "Archive");
+    assert_eq!(storage[1]["sets"][0]["exists"], true);
+    assert_eq!(storage[1]["sets"][0]["sessions"], 1);
+    assert_eq!(v["settings"]["storages"][0]["id"], json!(id));
+    let (s, v) = f
+        .call(
+            "GET",
+            &format!("/backup/index?storage={id}&set=Archive"),
+            &phone,
+            None,
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    assert_eq!(v["storage"], json!(id));
+    assert_eq!(
+        v["account"], "default",
+        "compared with the Default's directory"
+    );
+    assert_eq!(v["sessions"][0]["id"], sid);
+    assert_eq!(v["sessions"][0]["action"], "same");
+    let (s, v) = f
+        .call(
+            "GET",
+            &format!("/backup/index?storage={id}&set=..%2F..%2Fetc"),
+            &phone,
+            None,
+        )
+        .await;
+    assert_eq!(s, StatusCode::UNPROCESSABLE_ENTITY, "{v}");
+
+    // Renamed; the backup folder's label is fixed.
+    let (s, v) = f
+        .call(
+            "PATCH",
+            &format!("/backup/storage/{id}"),
+            &phone,
+            Some(json!({"label": "Old disk"})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    assert_eq!(v["label"], "Old disk");
+    let (s, v) = f
+        .call(
+            "PATCH",
+            "/backup/storage/backup",
+            &phone,
+            Some(json!({"label": "Mine"})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::UNPROCESSABLE_ENTITY, "{v}");
+
+    // A new passphrase re-keys the storage's set too; never while a storage
+    // is unplugged.
+    let away = f.scratch.path().join("Archive disk/Claude (away)");
+    std::fs::rename(&disk, &away).unwrap();
+    let (s, v) = f
+        .call(
+            "POST",
+            "/backup/passphrase",
+            &desk,
+            Some(json!({"generate": true})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::CONFLICT, "{v}");
+    assert_eq!(v["error"]["code"], "storage_unavailable");
+    let (_, v) = f.call("GET", "/backup", &phone, None).await;
+    assert_eq!(v["storage"][1]["available"], false);
+    std::fs::rename(&away, &disk).unwrap();
+    assert!(b::open_keys(&set, &Secret::new(pass.clone())).is_ok());
+    let (s, v) = f
+        .call(
+            "POST",
+            "/backup/passphrase",
+            &desk,
+            Some(json!({"generate": true})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    assert_eq!(v["rekeyed"], json!(["Old disk/Archive"]));
+    let new = v["passphrase"].as_str().unwrap();
+    assert!(b::open_keys(&set, &Secret::new(new)).is_ok());
+
+    // Forgotten, never deleted.
+    let (s, v) = f
+        .call("DELETE", "/backup/storage/backup", &phone, None)
+        .await;
+    assert_eq!(s, StatusCode::UNPROCESSABLE_ENTITY, "{v}");
+    let (s, v) = f
+        .call("DELETE", "/backup/storage/stor_000000000000", &phone, None)
+        .await;
+    assert_eq!(s, StatusCode::NOT_FOUND, "{v}");
+    assert_eq!(v["error"]["code"], "storage_not_found");
+    let (s, _) = f
+        .call("DELETE", &format!("/backup/storage/{id}"), &phone, None)
+        .await;
+    assert_eq!(s, StatusCode::NO_CONTENT);
+    assert!(
+        disk.join("Archive/identity.age").is_file(),
+        "its files stay"
+    );
+    let (_, v) = f.call("GET", "/backup", &phone, None).await;
+    assert!(v.get("storage").is_none(), "{v}");
+    assert!(v["settings"].get("storages").is_none(), "{v}");
+    let audit = f.st.devices.audit.recent(100);
+    for action in [
+        "backup.storage.add",
+        "backup.storage.rename",
+        "backup.storage.remove",
+    ] {
+        assert!(audit.iter().any(|e| e.action == action), "{action}");
+    }
+}

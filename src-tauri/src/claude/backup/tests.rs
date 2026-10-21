@@ -563,6 +563,8 @@ fn a_session_id_from_the_index_never_names_a_path_outside_the_target() {
         archive_sha256: crate::claude::secrets::sha256_hex(&archive),
         archive_bytes: archive.len() as u64,
         files: 0,
+        archived: None,
+        extra: BTreeMap::new(),
     };
     let mut index = SetIndex::default();
     index.sessions.insert(id.to_string(), entry);
@@ -1416,4 +1418,78 @@ fn the_index_keeps_what_the_session_list_calls_a_session() {
     assert!(!std::fs::read_to_string(w.set.info_path())
         .unwrap()
         .contains("flaky"));
+}
+
+/// §13.3 rule 8: a passphrase change re-keys every set in every storage —
+/// all opened first — and names a storage's sets `<label>/<set>`; a set of
+/// an account here that opens with none of the passphrases, in any storage,
+/// stops it before anything changes.
+#[test]
+fn a_passphrase_change_re_keys_every_storage() {
+    use crate::claude::secrets::{MemoryStore, SecretName, SecretStore};
+    let tmp = tempfile::tempdir().unwrap();
+    let folder = tmp.path().join("Mother Claude");
+    let disk = tmp.path().join("Archive disk");
+    let p0 = Secret::new("the passphrase of old");
+    let new = Secret::new("the new passphrase, all over");
+    let home = Set::new(&folder, "Home");
+    let shared = Set::new(&disk, "Shared");
+    let work_there = Set::new(&disk, "Work");
+    open_or_create(&home, "Home", std::slice::from_ref(&p0)).unwrap();
+    open_or_create(&shared, "Shared", std::slice::from_ref(&p0)).unwrap();
+    let store = MemoryStore::default();
+    store.set(&SecretName::BackupPassphrase, &p0).unwrap();
+    let ours = ["Home".to_string(), "Work".to_string()];
+    let folders = [
+        ops::SetsFolder {
+            label: None,
+            path: &folder,
+        },
+        ops::SetsFolder {
+            label: Some("Archive disk"),
+            path: &disk,
+        },
+    ];
+
+    // A set named after an account here, in the other storage, that opens
+    // with none of this machine's passphrases: nothing changes.
+    open_or_create(
+        &work_there,
+        "Work",
+        &[Secret::new("somebody else's passphrase")],
+    )
+    .unwrap();
+    let err = ops::change_passphrase_in(&store, &folders, &ours, &new).unwrap_err();
+    assert!(!err.applied);
+    assert!(opens(&home, std::slice::from_ref(&p0)));
+    assert!(opens(&shared, std::slice::from_ref(&p0)));
+    std::fs::remove_dir_all(&work_there.dir).unwrap();
+
+    let done = ops::change_passphrase_in(&store, &folders, &ours, &new).unwrap();
+    assert_eq!(done.rekeyed, ["Home", "Archive disk/Shared"]);
+    assert!(opens(&home, std::slice::from_ref(&new)));
+    assert!(opens(&shared, std::slice::from_ref(&new)));
+    assert_eq!(ops::passphrases_in(&store).unwrap(), vec![new.clone()]);
+}
+
+/// The storage list's counts come from the last index this app read or
+/// wrote, never from opening a set; a changed index is not counted.
+#[test]
+fn set_counts_are_cached_by_the_index_file() {
+    let w = world();
+    session(w.home.base(), SID);
+    assert!(cached_counts(&w.set).is_none());
+    push_once(&w, &not_live);
+    assert_eq!(cached_counts(&w.set), Some((1, 0)));
+    // Another machine's index (a different file): unknown until read.
+    let keys = open_keys(&w.set, &pass()).unwrap();
+    let mut index = read_index(&w.set, &keys).unwrap();
+    index.sessions.get_mut(SID).unwrap().archived = Some(Archived {
+        at: 1,
+        machine: machine("mbp-a").id,
+    });
+    write_index(&w.set, &keys, &index).unwrap();
+    assert_eq!(cached_counts(&w.set), Some((1, 1)));
+    std::fs::write(w.set.index_path(), b"changed elsewhere").unwrap();
+    assert!(cached_counts(&w.set).is_none());
 }

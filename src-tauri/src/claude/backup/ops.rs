@@ -226,7 +226,7 @@ pub fn this_machine(state: &AppState) -> Result<super::ThisMachine, BackupError>
 /// The accounts with a set of their own: the Default and each directory
 /// account. A token account's sessions are in the Default's directory, so
 /// in the Default's set.
-fn set_owners(state: &AppState) -> Vec<Account> {
+pub(crate) fn set_owners(state: &AppState) -> Vec<Account> {
     state
         .accounts
         .homes()
@@ -235,9 +235,17 @@ fn set_owners(state: &AppState) -> Vec<Account> {
         .collect()
 }
 
+/// `(id, name)` of [`set_owners`].
+pub(crate) fn set_owner_names(state: &AppState) -> Vec<(String, String)> {
+    set_owners(state)
+        .into_iter()
+        .map(|a| (a.id, a.name))
+        .collect()
+}
+
 /// The account whose set holds `a`'s sessions: itself, or the Default for a
 /// token account.
-fn set_owner(state: &AppState, a: Account) -> Account {
+pub(crate) fn set_owner(state: &AppState, a: Account) -> Account {
     match a.kind {
         crate::claude::accounts::AccountKind::Token => state
             .accounts
@@ -270,15 +278,24 @@ impl From<BackupError> for PassphraseFailure {
 #[derive(Debug, Clone, Default, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PassphraseChange {
-    /// Sets now under the new passphrase.
+    /// Sets now under the new passphrase (a storage's besides the backup
+    /// folder as `<its label>/<set>`).
     pub rekeyed: Vec<String>,
-    /// Sets in the folder of no account here that open with none of this
-    /// machine's passphrases: left as they are.
+    /// Sets of no account here that open with none of this machine's
+    /// passphrases: left as they are.
     pub left: Vec<String>,
 }
 
+/// One folder of sets a passphrase change goes through: the backup folder
+/// (`label: None`, its sets named plainly) or another storage (its sets
+/// named `<label>/<set>`).
+pub struct SetsFolder<'a> {
+    pub label: Option<&'a str>,
+    pub path: &'a Path,
+}
+
 /// Every set in the folder, by folder name.
-fn folder_sets(folder: &Path) -> Vec<(String, Set)> {
+pub(crate) fn folder_sets(folder: &Path) -> Vec<(String, Set)> {
     let mut out: Vec<(String, Set)> = std::fs::read_dir(folder)
         .into_iter()
         .flatten()
@@ -305,25 +322,56 @@ fn folder_sets(folder: &Path) -> Vec<(String, Set)> {
 ///    so a crash or a failed write leaves every set openable with one of the
 ///    two kept;
 /// 3. only then does it become the passphrase.
+///
+/// Every storage counts (§13.3 rule 8): a storage besides the backup folder
+/// that is not there now (an unplugged disk) stops the change before anything
+/// changes, since its sets would keep only the old passphrase.
 pub fn set_passphrase(
     state: &AppState,
     new: &Secret,
 ) -> Result<PassphraseChange, PassphraseFailure> {
     let ours: Vec<String> = set_owners(state).into_iter().map(|a| a.name).collect();
-    change_passphrase(
-        state.accounts.secret_store().as_ref(),
-        state.accounts.backup_settings().folder.as_deref(),
-        &ours,
-        new,
-    )
+    let storages = super::storage::list(state);
+    if let Some(gone) = storages.iter().find(|s| !s.primary && !s.available()) {
+        return Err(BackupError::StorageUnavailable(format!(
+            "{:?} ({}); connect it, or remove it from the storages (its files stay), and set \
+             the passphrase again",
+            gone.label,
+            gone.path.display()
+        ))
+        .into());
+    }
+    let folders: Vec<SetsFolder<'_>> = storages
+        .iter()
+        .map(|s| SetsFolder {
+            label: (!s.primary).then_some(s.label.as_str()),
+            path: &s.path,
+        })
+        .collect();
+    change_passphrase_in(state.accounts.secret_store().as_ref(), &folders, &ours, new)
 }
 
-/// [`set_passphrase`] on a secret store and a folder; `ours`: the names of
+/// [`set_passphrase`] on a secret store and one folder; `ours`: the names of
 /// the sets of this machine's accounts (the others are left as they are when
 /// they open with none of its passphrases).
 pub fn change_passphrase(
     store: &dyn SecretStore,
     folder: Option<&Path>,
+    ours: &[String],
+    new: &Secret,
+) -> Result<PassphraseChange, PassphraseFailure> {
+    let folders: Vec<SetsFolder<'_>> = folder
+        .map(|path| SetsFolder { label: None, path })
+        .into_iter()
+        .collect();
+    change_passphrase_in(store, &folders, ours, new)
+}
+
+/// [`change_passphrase`] through several folders of sets (every storage):
+/// all of them are opened first, then re-keyed.
+pub fn change_passphrase_in(
+    store: &dyn SecretStore,
+    folders: &[SetsFolder<'_>],
     ours: &[String],
     new: &Secret,
 ) -> Result<PassphraseChange, PassphraseFailure> {
@@ -347,9 +395,13 @@ pub fn change_passphrase(
     // Some set has the new one already (an earlier attempt).
     let mut had_new = false;
     let mut todo = Vec::new();
-    if let Some(folder) = folder {
-        for (name, set) in folder_sets(folder) {
+    for folder in folders {
+        for (name, set) in folder_sets(folder.path) {
             let mine = ours.contains(&name);
+            let name = match folder.label {
+                Some(label) => format!("{label}/{name}"),
+                None => name,
+            };
             if set.key_missing() {
                 if mine {
                     return Err(BackupError::KeyMissing(set.dir.display().to_string()).into());
@@ -530,6 +582,11 @@ pub struct BackupView {
     pub last_pull: Option<i64>,
     /// The data jobs of the last backups, restores and pulls.
     pub jobs: Vec<transfer::JobView>,
+    /// Every storage, the backup folder first (docs/ACCOUNTS.md §13.4): left
+    /// out while only the Default is registered, no storage besides the
+    /// backup folder exists and that folder holds no set but the Default's.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub storage: Option<Vec<super::storage::StorageView>>,
 }
 
 pub fn view(state: &AppState) -> BackupView {
@@ -564,7 +621,10 @@ pub fn view(state: &AppState) -> BackupView {
             .collect(),
         None => Vec::new(),
     };
+    let storage = super::storage::views(state);
+    let storage = super::storage::shown(state, &storage).then_some(storage);
     BackupView {
+        storage,
         settings,
         passphrase_set: passphrase(state).is_some(),
         passphrase_change_unfinished: passphrase_change_unfinished(state),
@@ -777,12 +837,17 @@ pub async fn push_all(state: &AppState) -> Result<Vec<String>, BackupError> {
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct IndexView {
+    /// The account whose set it is (`?account=`), or the one the set is
+    /// compared with (`?storage=&set=`).
     pub account: String,
     pub name: String,
     pub set: String,
     pub machines: Vec<super::Machine>,
     pub sessions: Vec<PullItem>,
     pub config: Vec<super::ConfigEntry>,
+    /// The storage, for `?storage=&set=`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub storage: Option<String>,
 }
 
 /// `GET /api/backup/index`: the set of `account` (a token account's: the
@@ -831,6 +896,98 @@ pub async fn index(
             machines,
             sessions,
             config: index.config,
+            storage: None,
+        })
+    })
+    .await
+    .map_err(|e| BackupError::Io(e.to_string()))?
+}
+
+/// The account a set of `storage` is named after (one with a set of its
+/// own), if any.
+pub(crate) fn set_named_after(state: &AppState, name: &str) -> Option<Account> {
+    set_owners(state)
+        .into_iter()
+        .find(|a| a.name.to_lowercase() == name.to_lowercase())
+}
+
+/// A set of any storage, opened: `no_backup_passphrase`, `storage_not_found`,
+/// `storage_unavailable`, a set that is not there or has no key.
+pub(crate) fn storage_set(
+    state: &AppState,
+    storage_id: &str,
+    set_name: &str,
+) -> Result<(super::storage::Storage, String, Set), BackupError> {
+    let storage = super::storage::get(state, storage_id)?;
+    storage.require_available()?;
+    let name = super::clean_set_name(set_name)?;
+    let set = storage.set(&name);
+    if !set.exists() {
+        return Err(if set.key_missing() {
+            BackupError::KeyMissing(set.dir.display().to_string())
+        } else {
+            BackupError::Invalid(format!(
+                "there is no set {name:?} in {}",
+                storage.path.display()
+            ))
+        });
+    }
+    Ok((storage, name, set))
+}
+
+/// `GET /api/backup/index?storage=&set=&into=`: a set of any storage compared
+/// with an account's directory (`into`; else the account the set is named
+/// after; else the Default). Its items say which are in storage only
+/// (`archived`).
+pub async fn index_of_set(
+    state: &AppState,
+    storage_id: &str,
+    set_name: &str,
+    into: Option<&str>,
+) -> Result<IndexView, BackupError> {
+    let pass = passphrases(state).ok_or(BackupError::NoPassphrase)?;
+    let (storage, name, set) = storage_set(state, storage_id, set_name)?;
+    let owner = set_named_after(state, &name);
+    let target = account(
+        state,
+        into.or(owner.as_ref().map(|o| o.id.as_str()))
+            .unwrap_or(crate::claude::accounts::DEFAULT_ID),
+    )?;
+    let home = state
+        .accounts
+        .home(&target.id)
+        .ok_or_else(|| BackupError::Invalid("the account has no directory".into()))?;
+    let machine = this_machine(state)?;
+    // What this machine had is about an account's own set in the backup
+    // folder, compared with that account's directory, only.
+    let same_dir = storage.primary
+        && owner
+            .as_ref()
+            .and_then(|o| state.accounts.home(&o.id))
+            .is_some_and(|h| h.base() == home.base());
+    let st = state.clone();
+    tokio::task::spawn_blocking(move || {
+        let keys = super::open_keys_any(&set, &pass)?;
+        let index = super::read_index(&set, &keys)?;
+        let machines = super::read_info(&set)
+            .map(|i| i.machines)
+            .unwrap_or_default();
+        let live = |s: &str| is_live(&st, s);
+        let sessions = super::compare(
+            &index,
+            &home,
+            if same_dir { &machine.id } else { "" },
+            &live,
+            chrono::Utc::now().timestamp_millis(),
+        );
+        Ok(IndexView {
+            account: target.id.clone(),
+            name,
+            set: set.dir.to_string_lossy().into_owned(),
+            machines,
+            sessions,
+            config: index.config,
+            storage: Some(storage.id),
         })
     })
     .await

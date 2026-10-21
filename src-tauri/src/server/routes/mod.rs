@@ -145,6 +145,11 @@ pub fn api_router() -> Router<AppState> {
         .route("/backup/index", get(backup::get_index))
         .route("/backup/restore", post(backup::post_restore))
         .route("/backup/pull", post(backup::post_pull))
+        .route("/backup/storage", post(backup::post_storage))
+        .route(
+            "/backup/storage/{id}",
+            axum::routing::patch(backup::patch_storage).delete(backup::delete_storage),
+        )
         // ── moving data between accounts, data jobs (docs/ACCOUNTS.md) ──
         .route("/data/move", post(transfers::post_move))
         .route("/data/jobs", get(transfers::list_jobs))

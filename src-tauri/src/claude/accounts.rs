@@ -219,8 +219,82 @@ pub struct BackupSettings {
     /// Pull from the set at launch when no session is live.
     #[serde(default)]
     pub pull_on_launch: bool,
+    /// More storages besides the backup folder (§13.1): folders of sets only
+    /// Move data reads and writes. Left out while there are none.
+    #[serde(
+        default,
+        deserialize_with = "tolerant_storages",
+        skip_serializing_if = "Vec::is_empty"
+    )]
+    pub storages: Vec<StorageEntry>,
     #[serde(flatten, default)]
     pub extra: BTreeMap<String, Value>,
+}
+
+/// The backup folder's id as a storage.
+pub const BACKUP_STORAGE_ID: &str = "backup";
+
+/// `stor_` + 12 lowercase hex characters.
+pub fn is_storage_id(id: &str) -> bool {
+    id.strip_prefix("stor_").is_some_and(|hex| {
+        hex.len() == 12
+            && hex
+                .bytes()
+                .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+    })
+}
+
+/// A new storage id.
+pub fn new_storage_id() -> String {
+    let hex: String = crate::server::auth::random_bytes(6)
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect();
+    format!("stor_{hex}")
+}
+
+/// A storage besides the backup folder (§13.1): another cloud's folder, a
+/// NAS, an external disk.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StorageEntry {
+    /// `stor_` + 12 hex.
+    pub id: String,
+    pub label: String,
+    /// Absolute.
+    pub path: PathBuf,
+    #[serde(default)]
+    pub created_at: i64,
+    /// Fields a newer version wrote; kept as they were.
+    #[serde(flatten, default)]
+    pub extra: BTreeMap<String, Value>,
+}
+
+/// `storages` as read from the file: an entry that does not validate (or a
+/// list that is not one) is skipped with a log line, never the whole backup
+/// settings.
+fn tolerant_storages<'de, D>(d: D) -> Result<Vec<StorageEntry>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let Value::Array(items) = Value::deserialize(d)? else {
+        tracing::warn!("accounts.json: ignoring storages that are not a list");
+        return Ok(Vec::new());
+    };
+    let mut out: Vec<StorageEntry> = Vec::new();
+    for raw in items {
+        match serde_json::from_value::<StorageEntry>(raw) {
+            Ok(s)
+                if is_storage_id(&s.id)
+                    && s.path.is_absolute()
+                    && !out.iter().any(|o| o.id == s.id) =>
+            {
+                out.push(s)
+            }
+            _ => tracing::warn!("accounts.json: skipping an unreadable storage"),
+        }
+    }
+    Ok(out)
 }
 
 /// The whole registry, as kept in memory.
@@ -1270,6 +1344,32 @@ impl AccountRegistry {
         Ok(())
     }
 
+    /// Change the backup settings in place (`f` sees the current ones under
+    /// the registry's lock, so two changes never lose each other); saved when
+    /// `f` succeeds and changed something.
+    pub fn update_backup<T>(
+        &self,
+        f: impl FnOnce(&mut BackupSettings) -> Result<T, AccountError>,
+    ) -> Result<T, AccountError> {
+        let mut guard = self.write();
+        let mut next = guard.clone();
+        let out = f(&mut next.backup)?;
+        if next
+            .backup
+            .folder
+            .as_deref()
+            .is_some_and(|f| !f.is_absolute())
+        {
+            return Err(AccountError::Invalid(
+                "the backup folder must be an absolute path".into(),
+            ));
+        }
+        if next != *guard {
+            self.commit(&mut guard, next)?;
+        }
+        Ok(out)
+    }
+
     /// Record the Anthropic account id an account's process reported. Saved
     /// only when it changed.
     pub fn note_account_uuid(&self, id: &str, uuid: &str) {
@@ -1927,6 +2027,55 @@ mod tests {
         })
         .unwrap();
         assert_eq!(reg.backup_settings().every_hours, 6);
+    }
+
+    /// §13.3 rule 8: storages are read tolerantly — a bad entry, or a list
+    /// that is not one, never costs the backup folder — and left out of the
+    /// file while there are none.
+    #[test]
+    fn storages_are_read_tolerantly() {
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::write(
+            tmp.path().join(FILE_NAME),
+            serde_json::json!({
+                "version": 1,
+                "accounts": [],
+                "backup": {
+                    "folder": "/backups",
+                    "storages": [
+                        {"id": "stor_0123456789ab", "label": "Disk", "path": "/Volumes/Disk/Claude",
+                         "createdAt": 1, "fromTheFuture": true},
+                        {"id": "stor_0123456789ab", "label": "Twice", "path": "/twice"},
+                        {"id": "bad", "label": "Bad id", "path": "/bad"},
+                        {"id": "stor_aaaaaaaaaaaa", "label": "Relative", "path": "relative"},
+                        "not an object"
+                    ]
+                }
+            })
+            .to_string(),
+        )
+        .unwrap();
+        let (reg, _) = registry(tmp.path());
+        let b = reg.backup_settings();
+        assert_eq!(b.folder.as_deref(), Some(Path::new("/backups")));
+        assert_eq!(b.storages.len(), 1, "{:?}", b.storages);
+        assert_eq!(b.storages[0].label, "Disk");
+        assert_eq!(b.storages[0].extra["fromTheFuture"], true, "kept as it was");
+
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::write(
+            tmp.path().join(FILE_NAME),
+            serde_json::json!({"backup": {"folder": "/backups", "storages": {"x": 1}}}).to_string(),
+        )
+        .unwrap();
+        let (reg, _) = registry(tmp.path());
+        assert_eq!(
+            reg.backup_settings().folder.as_deref(),
+            Some(Path::new("/backups"))
+        );
+        assert!(reg.backup_settings().storages.is_empty());
+        let file = serde_json::to_value(reg.backup_settings()).unwrap();
+        assert!(file.get("storages").is_none(), "{file}");
     }
 
     /// Records what an [`EnvTarget`] was told, in order.

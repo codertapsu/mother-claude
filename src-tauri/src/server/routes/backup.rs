@@ -16,7 +16,13 @@
 //!   being backed up already gives that job's id.
 //! * `GET /api/backup/index?account=&into=` (Authed): the set's sessions
 //!   compared with an account's directory, each with what a pull or restore
-//!   would do and the pruning warning.
+//!   would do and the pruning warning; `?storage=<id>&set=<name>&into=` the
+//!   same for a set of any storage (docs/ACCOUNTS.md §13.4), its items saying
+//!   which are in storage only (`archived`).
+//! * `POST /api/backup/storage {path, label?}` → `201` the storage;
+//!   `PATCH /api/backup/storage/{id} {label}` → the storage;
+//!   `DELETE /api/backup/storage/{id}` → `204` (forgotten, its files stay)
+//!   (desktop or device).
 //! * `POST /api/backup/restore {account, into?, ids, trust?}` → `202 {job}`, or
 //!   `{account, config: true}` → `{folder}` (the configuration bundle unpacked
 //!   for review, never over the live one) (desktop or device; `trust: true`
@@ -46,14 +52,18 @@ use crate::server::devices::audit::AuditEntry;
 use crate::server::error::{ApiError, ApiResult};
 use crate::state::AppState;
 
-fn backup_error(e: BackupError) -> ApiError {
+pub(crate) fn backup_error(e: BackupError) -> ApiError {
     let status = match &e {
         BackupError::NoFolder
         | BackupError::NoPassphrase
         | BackupError::Tampered(_)
-        | BackupError::KeyMissing(_) => StatusCode::CONFLICT,
+        | BackupError::KeyMissing(_)
+        | BackupError::StorageUnavailable(_) => StatusCode::CONFLICT,
         BackupError::WrongPassphrase => StatusCode::FORBIDDEN,
-        BackupError::Invalid(_) => StatusCode::UNPROCESSABLE_ENTITY,
+        BackupError::StorageNotFound(_) => StatusCode::NOT_FOUND,
+        BackupError::Invalid(_) | BackupError::InvalidStorage(_) => {
+            StatusCode::UNPROCESSABLE_ENTITY
+        }
         BackupError::Io(_) => StatusCode::INTERNAL_SERVER_ERROR,
         BackupError::Transfer(t) => {
             return crate::server::routes::transfers::transfer_error(t.clone())
@@ -107,6 +117,23 @@ pub async fn put_settings(
             .map(|f| crate::claude::accounts::normalize_dir(std::path::Path::new(&f)))
             .transpose()
             .map_err(|e| ApiError::unprocessable("invalid_folder", e.to_string()))?;
+        // Never inside (or around) another storage (§13.3 rule 8).
+        if let Some(f) = &s.folder {
+            if let Some(other) = s
+                .storages
+                .iter()
+                .find(|o| f.starts_with(&o.path) || o.path.starts_with(f))
+            {
+                return Err(ApiError::unprocessable(
+                    "invalid_folder",
+                    format!(
+                        "{} is inside (or around) the storage {:?}",
+                        f.display(),
+                        other.label
+                    ),
+                ));
+            }
+        }
     }
     if let Some(h) = body.every_hours {
         if h > 24 * 7 {
@@ -227,9 +254,15 @@ pub async fn post_push(
 
 #[derive(Debug, Deserialize)]
 pub struct IndexQuery {
-    pub account: String,
+    #[serde(default)]
+    pub account: Option<String>,
     #[serde(default)]
     pub into: Option<String>,
+    /// A set of any storage (with `set`; `backup` when only `set` is given).
+    #[serde(default)]
+    pub storage: Option<String>,
+    #[serde(default)]
+    pub set: Option<String>,
 }
 
 /// `GET /api/backup/index`.
@@ -238,10 +271,124 @@ pub async fn get_index(
     State(state): State<AppState>,
     Query(q): Query<IndexQuery>,
 ) -> ApiResult<Json<ops::IndexView>> {
-    ops::index(&state, &q.account, q.into.as_deref())
+    let result = match (&q.storage, &q.set, &q.account) {
+        (storage, Some(set), _) => {
+            let storage = storage
+                .as_deref()
+                .unwrap_or(crate::claude::accounts::BACKUP_STORAGE_ID);
+            ops::index_of_set(&state, storage, set, q.into.as_deref()).await
+        }
+        (Some(_), None, _) => {
+            return Err(ApiError::unprocessable(
+                "invalid_query",
+                "Name the set of the storage (`set`).",
+            ))
+        }
+        (None, None, Some(account)) => ops::index(&state, account, q.into.as_deref()).await,
+        (None, None, None) => {
+            return Err(ApiError::unprocessable(
+                "invalid_query",
+                "Name an account (`account`), or a storage and a set (`storage`, `set`).",
+            ))
+        }
+    };
+    result.map(Json).map_err(backup_error)
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct StorageBody {
+    pub path: std::path::PathBuf,
+    #[serde(default)]
+    pub label: Option<String>,
+}
+
+/// A storage's view, as `GET /api/backup` lists it.
+fn storage_view(
+    state: &AppState,
+    s: &crate::claude::backup::storage::Storage,
+) -> serde_json::Value {
+    let owners = ops::set_owner_names(state);
+    serde_json::to_value(crate::claude::backup::storage::view_of(s, &owners))
+        .unwrap_or(serde_json::Value::Null)
+}
+
+/// `POST /api/backup/storage`.
+pub async fn post_storage(
+    ManageData(ctx): ManageData,
+    State(state): State<AppState>,
+    Body(body): Body<StorageBody>,
+) -> ApiResult<Response> {
+    let st = state.clone();
+    let added = tokio::task::spawn_blocking(move || {
+        crate::claude::backup::storage::add(&st, &body.path, body.label.as_deref())
+    })
+    .await
+    .map_err(|e| ApiError::internal(e.to_string()))?
+    .map_err(backup_error)?;
+    audit(
+        &state,
+        &ctx,
+        "backup.storage.add",
+        json!({ "storage": added.id, "label": added.label, "path": added.path }),
+    );
+    auth::note_device_action(
+        &state,
+        &ctx,
+        &format!("added the storage {:?}", added.label),
+    );
+    let view = storage_view(&state, &added);
+    Ok((StatusCode::CREATED, Json(view)).into_response())
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct StorageLabelBody {
+    pub label: String,
+}
+
+/// `PATCH /api/backup/storage/{id}`.
+pub async fn patch_storage(
+    ManageData(ctx): ManageData,
+    State(state): State<AppState>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+    Body(body): Body<StorageLabelBody>,
+) -> ApiResult<Json<serde_json::Value>> {
+    let s =
+        crate::claude::backup::storage::rename(&state, &id, &body.label).map_err(backup_error)?;
+    audit(
+        &state,
+        &ctx,
+        "backup.storage.rename",
+        json!({ "storage": s.id, "label": s.label }),
+    );
+    auth::note_device_action(&state, &ctx, &format!("renamed the storage {:?}", s.label));
+    let st = state.clone();
+    let view = tokio::task::spawn_blocking(move || storage_view(&st, &s))
         .await
-        .map(Json)
-        .map_err(backup_error)
+        .map_err(|e| ApiError::internal(e.to_string()))?;
+    Ok(Json(view))
+}
+
+/// `DELETE /api/backup/storage/{id}`: forgotten; its files stay.
+pub async fn delete_storage(
+    ManageData(ctx): ManageData,
+    State(state): State<AppState>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+) -> ApiResult<StatusCode> {
+    let gone = crate::claude::backup::storage::remove(&state, &id).map_err(backup_error)?;
+    audit(
+        &state,
+        &ctx,
+        "backup.storage.remove",
+        json!({ "storage": gone.id, "label": gone.label, "path": gone.path }),
+    );
+    auth::note_device_action(
+        &state,
+        &ctx,
+        &format!("removed the storage {:?}", gone.label),
+    );
+    Ok(StatusCode::NO_CONTENT)
 }
 
 #[derive(Debug, Deserialize)]

@@ -48,6 +48,26 @@ passphrase: change the folder and the schedule, back up, restore, pull and
 undo. Bringing back a folder's trust (below) needs the dangerous right on the
 phone, and the desktop shows a notice naming the phone and what it did.
 
+## Storages
+
+The backup folder is the first **storage**. Under **Storage** you can add more:
+another cloud's folder, a NAS share, an external disk (**Add storage…** offers
+the same suggestions as the folder). A storage is any absolute folder that is
+not inside an account's directory, the backup folder or another storage; its
+folder is made when only it is missing, and a folder on a disk that is not
+plugged in is refused.
+
+Every set in every storage opens with the one passphrase. Changing it re-keys
+every set in every storage, opening them all first — and never while a storage
+is not there (an unplugged disk): its sets would keep only the old passphrase.
+Plug it in, or remove it from the list, and change the passphrase again.
+
+A set named after an account in the **backup folder** is that account's backup:
+"Back up now", the schedule and pull on launch use the backup folder alone. Any
+other set — "Shared", "Archive 2026", or a set in another storage — is read and
+written only when you move or copy conversations there (*Move data*).
+Removing a storage forgets it; its files stay where they are.
+
 ## What is backed up
 
 Per session, one archive: its transcript, its subagents' and workflows'
