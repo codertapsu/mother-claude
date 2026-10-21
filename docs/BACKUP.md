@@ -89,14 +89,14 @@ or everything of an account to a set of any storage, and back:
 - **Copy out of a set** restores into any account, from any set of any
   storage. **Move out of a set** then takes the conversations out of the set;
   their archives stay there for seven days, so that the move can be undone.
+- **From one storage to another**, a copy re-encrypts each conversation to the
+  target set's key and checks it before the target lists it; a move then takes
+  it out of the source set, kept there seven days for the undo.
 - **Undo** (seven days, from the job): a move into a set puts the files back
   and clears the marks; a move out of a set puts its entries back into the
   set first — not over a newer copy another laptop pushed since — and then
   removes the restored files. If the set cannot take them back (an archive is
   gone, the passphrase is not on this Mac), nothing is undone.
-
-Moving straight from one storage to another is not available yet: bring the
-conversations into an account, then move them on.
 
 ## What is backed up
 

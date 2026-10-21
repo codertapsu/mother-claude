@@ -147,6 +147,9 @@ pub async fn undo(state: &AppState, job_id: &str) -> Result<(), TransferError> {
         if !found.assigned.is_empty() {
             return super::moves::undo_assign(&st, &root, &id).map(|m| (m, None));
         }
+        if found.storage_to.is_some() {
+            return super::moves::undo_between_sets(&root, &id, pass.as_deref()).map(|m| (m, None));
+        }
         match &found.storage {
             // Out of a set: its entries back there first.
             Some(s) if !s.into => {

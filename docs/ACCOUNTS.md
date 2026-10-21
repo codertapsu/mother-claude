@@ -1096,8 +1096,12 @@ different directories.
 - A move out of a set keeps each removed entry's archive seven days through
   the index's `superseded[].until`, its `at` a day before, so that a build
   that knows only `at` keeps the file as long.
-- Storage → storage (P6.7) is not built: such a request is refused
-  (`invalid_transfer`).
+- Storage → storage (P6.7): each archive is decrypted with the source set's
+  key, encrypted to the target's as a new file, and read back and checked
+  (it decrypts to exactly the source's bytes) before the target's index
+  names it; the target set's name defaults to the source's; a move then
+  takes the entries out of the source as a move out of a set does, and the
+  undo puts them back there before it takes the copies out of the target.
 - The backup folder always counts as available (its first backup makes it).
   Another storage whose folder is missing is `available: false`, refused as a
   source or a target, and stops a passphrase change until it is back or
@@ -1175,8 +1179,8 @@ Storages, all `DesktopOnly` to change, `Authed` to read:
 - **Refusals** (the request as a whole): `422 invalid_body` (not this shape,
   an unknown customization); `422 invalid_transfer` (nothing named; projects,
   `all` or customizations without `from`; customizations with `mode: move` or
-  a storage on either side; a storage source without `set`; storage →
-  storage); `422 same_directory` (`from` = `to`; a copy, or customizations,
+  a storage on either side; a storage source without `set`; the same set on
+  both sides); `422 same_directory` (`from` = `to`; a copy, or customizations,
   between accounts that share a directory); `404 not_found` (an account);
   `404 storage_not_found`; `409 no_backup_folder`, `storage_unavailable`,
   `no_backup_passphrase`, `set_key_missing`, `backup_unauthenticated`;
@@ -1202,12 +1206,13 @@ Storages, all `DesktopOnly` to change, `Authed` to read:
   first); `conflict` (changed here and in the set); `verify_failed`;
   `session_changed`; `transfer_io` / `backup_io` (cannot be read).
 - **Jobs**: `kind` is the request's `mode` (`move` | `copy`); `from` / `to`
-  name accounts, `fromStorage` / `toStorage` and `set` a storage side;
+  name accounts, `fromStorage` / `toStorage` and `set` a storage side (from
+  one storage to another `set` is the source's and `toSet` the target's);
   `sessions` lists what it did. `result` is `{moved | copied | assigned |
   archived | restored: [ids], skipped: [Skipped], customizations?:
-  [CustomItem], warnings?: [text]}`: `moved` / `copied` between directories,
-  `assigned` within one, `copied` / `archived` into a set, `restored` out of
-  one (either mode). A request with nothing to do still gets one job whose
+  [CustomItem], warnings?: [text]}`: `moved` / `copied` between directories
+  and between sets, `assigned` within one directory, `copied` / `archived`
+  into a set, `restored` out of one (either mode). A request with nothing to do still gets one job whose
   result lists what it skipped. `undoUntil` is set when there is something to
   undo (never for a copy into a set: that is a backup). An undo that could
   not clear a set's marks says so in `result.warnings`.
@@ -1411,7 +1416,7 @@ docs/REMOTE.md (tunnels per server), SECURITY.md, README.md, `.env.example`.
 - [x] P6.5 Storage → account: copy (restore from any set into any account)
   and move (restore, then remove the entries; undo puts them back).
 - [x] P6.6 Customizations, with their undo and warnings; D4 in CLAUDE.md.
-- [ ] P6.7 Storage → storage (P2).
+- [x] P6.7 Storage → storage (P2).
 - [ ] P6.8 UI: Select, Move data, the account action, the Storage section, job
   titles, the mock backend.
 - [ ] P6.9 Documents (§13.7). *(Backend half done: CLAUDE.md, docs/BACKUP.md,

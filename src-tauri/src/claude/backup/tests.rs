@@ -1845,3 +1845,122 @@ fn superseded_files_without_until_go_a_day_later() {
     let json = serde_json::to_string(&s).unwrap();
     assert!(!json.contains("until"), "{json}");
 }
+
+/// §13.2 storage → storage (P6.7): an archive goes to another set encrypted
+/// to that set's key and checked; a move takes the entry out of the source
+/// (its archive kept for the undo); the copy restores byte for byte; the undo
+/// puts the entry back into the source and takes the copy out of the target;
+/// a conversation the target has already is skipped.
+#[test]
+fn a_move_between_sets_re_encrypts_and_its_undo_puts_it_back() {
+    let w = world();
+    session(w.home.base(), SID);
+    session(w.home.base(), OTHER);
+    push_once(&w, &not_live);
+    let source_entry = index_of(&w).sessions[SID].clone();
+    let disk = Set::new(&w._tmp.path().join("Disk"), "Archive");
+    let job = "20261022T100000-00000001";
+    let week = 7 * 24 * 3600 * 1000;
+    let refs = |into_disk: bool| {
+        (
+            transfer::StorageRef {
+                storage: "backup".into(),
+                set: "Work".into(),
+                dir: w.set.dir.clone(),
+                into: false,
+            },
+            transfer::StorageRef {
+                storage: "stor_0123456789ab".into(),
+                set: "Archive".into(),
+                dir: disk.dir.clone(),
+                into: into_disk,
+            },
+        )
+    };
+    let (from_ref, to_ref) = refs(true);
+    let (r, m) = between_sets(&BetweenInputs {
+        from: &w.set,
+        to: &disk,
+        to_name: "Archive",
+        passphrases: &[pass()],
+        ids: &[
+            SID.to_string(),
+            "bbbbbbbb-cccc-4ddd-8eee-ffffffffffff".to_string(),
+        ],
+        remove: true,
+        keep_until: now_ms() + week,
+        undo_root: &w.undo,
+        job_id: job,
+        from_ref,
+        to_ref,
+        progress: &Progress::default(),
+    })
+    .unwrap();
+    assert_eq!(r.copied, [SID], "{r:?}");
+    assert_eq!(r.skipped[0].code, "not_in_set");
+    let m = m.expect("something changed");
+    let disk_keys = open_keys(&disk, &pass()).unwrap();
+    let copy = read_index(&disk, &disk_keys).unwrap().sessions[SID].clone();
+    assert_ne!(
+        copy.archive_sha256, source_entry.archive_sha256,
+        "re-encrypted"
+    );
+    assert_eq!(copy.transcript_bytes, source_entry.transcript_bytes);
+    assert!(
+        !index_of(&w).sessions.contains_key(SID),
+        "moved out of the source"
+    );
+    assert!(index_of(&w).sessions.contains_key(OTHER));
+    assert!(
+        w.set.session_archive(&source_entry).unwrap().exists(),
+        "kept for the undo"
+    );
+    // The copy restores what the source had, byte for byte.
+    let (restored, _) = restore(&RestoreInputs {
+        set: &disk,
+        passphrases: &[pass()],
+        target: &w.other,
+        ids: &[SID.to_string()],
+        trust: false,
+        is_live: &not_live,
+        undo_root: &w.undo,
+        job_id: "20261022T100001-00000002",
+        progress: &Progress::default(),
+        kind: "restore",
+    })
+    .unwrap();
+    assert_eq!(restored.restored, [SID]);
+    assert_eq!(
+        std::fs::read(transcript(&w.other, SID)).unwrap(),
+        std::fs::read(transcript(&w.home, SID)).unwrap()
+    );
+    // Once more into the target: it has it.
+    let (from_ref, to_ref) = refs(true);
+    let (again, none) = between_sets(&BetweenInputs {
+        from: &w.set,
+        to: &disk,
+        to_name: "Archive",
+        passphrases: &[pass()],
+        ids: &[OTHER.to_string()],
+        remove: false,
+        keep_until: now_ms() + week,
+        undo_root: &w.undo,
+        job_id: "20261022T100002-00000003",
+        from_ref,
+        to_ref,
+        progress: &Progress::default(),
+    })
+    .unwrap();
+    assert_eq!(again.copied, [OTHER]);
+    assert!(none.is_some());
+
+    // The undo of the move: back into the source, out of the target.
+    undo_between(&m, &[pass()]).unwrap();
+    assert_eq!(index_of(&w).sessions[SID], source_entry);
+    let disk_index = read_index(&disk, &disk_keys).unwrap();
+    assert!(!disk_index.sessions.contains_key(SID));
+    assert!(
+        disk_index.sessions.contains_key(OTHER),
+        "the other job's copy stays"
+    );
+}

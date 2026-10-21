@@ -731,3 +731,92 @@ async fn with_only_the_default_every_response_is_as_before() {
         .join("account-sessions.json")
         .exists());
 }
+
+/// §13.2, P6.7: a move from a set of one storage to another — the target
+/// set's name defaults to the source's — and its undo.
+#[tokio::test]
+async fn conversations_move_between_storages_and_back() {
+    let f = boot().await;
+    let cwd = f.cwd();
+    let (work, work_dir) = f.work();
+    write_session(&work_dir, &cwd, S1, None);
+    write_session(&work_dir, &cwd, S2, None);
+    let (_, pass) = f.backups().await;
+    let (_, v) = f
+        .call(
+            "POST",
+            "/backup/push",
+            &f.desktop(),
+            Some(json!({ "account": work })),
+        )
+        .await;
+    f.finished(v["jobs"][0].as_str().unwrap()).await;
+    std::fs::create_dir_all(f.scratch.path().join("Disk")).unwrap();
+    let (_, disk) = f
+        .call(
+            "POST",
+            "/backup/storage",
+            &f.desktop(),
+            Some(json!({"path": f.scratch.path().join("Disk/Claude"), "label": "Disk"})),
+        )
+        .await;
+    let disk_id = disk["id"].as_str().unwrap().to_string();
+    let body = |dry: bool| {
+        json!({"from": {"storage": "backup", "set": "Work"}, "to": {"storage": disk_id},
+               "mode": "move", "dryRun": dry, "items": {"sessions": [S1]}})
+    };
+    let (s, v) = f.move_data(body(true)).await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    assert_eq!(v["plan"]["sessions"][0]["action"], "move");
+    let (s, v) = f.move_data(body(false)).await;
+    assert_eq!(s, StatusCode::ACCEPTED, "{v}");
+    assert_eq!(v["job"]["fromStorage"], "backup");
+    assert_eq!(v["job"]["set"], "Work");
+    assert_eq!(v["job"]["toStorage"], json!(disk_id));
+    assert_eq!(v["job"]["toSet"], "Work", "the source's name by default");
+    let job = v["job"]["id"].as_str().unwrap().to_string();
+    let done = f.finished(&job).await;
+    assert_eq!(done["state"], "done", "{done}");
+    assert_eq!(done["result"]["moved"], json!([S1]));
+    let ids_in = |storage: &str| {
+        let f = &f;
+        let storage = storage.to_string();
+        async move {
+            let (_, v) = f
+                .call(
+                    "GET",
+                    &format!(
+                        "/backup/index?storage={storage}&set=Work&into={}",
+                        "default"
+                    ),
+                    &f.desktop(),
+                    None,
+                )
+                .await;
+            v["sessions"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|i| i["id"].as_str().unwrap().to_string())
+                .collect::<Vec<_>>()
+        }
+    };
+    assert_eq!(ids_in(&disk_id).await, [S1]);
+    assert_eq!(ids_in("backup").await, [S2]);
+    // The same set is no target; storage → storage takes no customizations.
+    let (s, v) = f
+        .move_data(json!({"from": {"storage": "backup", "set": "Work"},
+                          "to": {"storage": "backup", "set": "Work"},
+                          "mode": "copy", "items": {"all": true}}))
+        .await;
+    assert_eq!(s, StatusCode::UNPROCESSABLE_ENTITY, "{v}");
+
+    let (s, v) = f.undo(&job).await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    assert_eq!(v["state"], "undone");
+    let mut back = ids_in("backup").await;
+    back.sort();
+    assert_eq!(back, [S1, S2]);
+    assert!(ids_in(&disk_id).await.is_empty());
+    let _ = pass;
+}

@@ -1064,6 +1064,8 @@ impl Manifest {
             set_entries: Vec::new(),
             mcp: Vec::new(),
             assigned: Vec::new(),
+            storage_to: None,
+            added_set_entries: Vec::new(),
         }
     }
 
@@ -1081,6 +1083,7 @@ impl Manifest {
             && self.set_entries.is_empty()
             && self.mcp.is_empty()
             && self.assigned.is_empty()
+            && self.added_set_entries.is_empty()
     }
 
     /// The source's `.claude.json` (older manifests: inside its directory).
@@ -1171,6 +1174,14 @@ pub struct Manifest {
     /// and the account it was before (its undo puts that one back).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub assigned: Vec<(String, String)>,
+    /// The target set of a copy or move between two sets (`storage` is the
+    /// source's).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub storage_to: Option<StorageRef>,
+    /// The entries such a copy added to the target set, with their archives
+    /// (its undo takes them out again).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub added_set_entries: Vec<(String, String)>,
 }
 
 /// Progress of a running transfer.
@@ -2220,6 +2231,9 @@ pub struct JobView {
     pub to_storage: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub set: Option<String>,
+    /// Storage to storage: the target's set (`set` is the source's).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub to_set: Option<String>,
     /// A per-kind result (backup: what was archived; restore: warnings…).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub result: Option<Value>,
@@ -2274,6 +2288,7 @@ impl Jobs {
                 from_storage: None,
                 to_storage: None,
                 set: None,
+                to_set: None,
                 result: None,
             }),
             progress: progress.clone(),
@@ -2363,8 +2378,10 @@ pub fn view_from_manifest(m: &Manifest) -> JobView {
             .storage
             .as_ref()
             .filter(|s| s.into)
+            .or(m.storage_to.as_ref())
             .map(|s| s.storage.clone()),
         set: m.storage.as_ref().map(|s| s.set.clone()),
+        to_set: m.storage_to.as_ref().map(|s| s.set.clone()),
         result: None,
     }
 }

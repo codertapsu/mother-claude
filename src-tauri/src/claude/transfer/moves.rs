@@ -6,7 +6,7 @@
 //! | from → to | an account in another directory | one in the same directory | a storage |
 //! |---|---|---|---|
 //! | an account | move or copy (the transfer engine) | assign (a move; a copy is refused) | copy (a push of just those) or move (archive) |
-//! | a storage | copy (a restore) or move (a restore, then out of the set) | | — |
+//! | a storage | copy (a restore) or move (a restore, then out of the set) | | copy or move between sets (re-encrypted, checked) |
 //!
 //! With only `items.sessions`, `from` may be left out: each conversation goes
 //! from where it is (its directory; in the shared folder, the account it is
@@ -209,6 +209,15 @@ enum Work {
         storage: Storage,
         set: String,
         to: String,
+        ids: Vec<String>,
+    },
+    /// From one set to another: re-encrypted to the target's key and
+    /// checked; for a move the entries then leave the source set.
+    Between {
+        from: Storage,
+        from_set: String,
+        to: Storage,
+        to_set: String,
         ids: Vec<String>,
     },
     /// Everything was skipped: a job that only says so.
@@ -626,11 +635,119 @@ async fn plan_one(
             let home = home_of(state, b)?;
             plan_out_of(state, req, storage, set_name, set, b, &home, items).await
         }
-        (Location::Storage { .. }, Location::Storage { .. }) => Err(invalid(
-            "moving between storages is not available yet: bring the conversations into an \
-             account, then move them on",
-        )),
+        (
+            Location::Storage {
+                storage: s1,
+                set: set1,
+            },
+            Location::Storage {
+                storage: s2,
+                set: set2,
+            },
+        ) => {
+            let set1 = set1
+                .as_deref()
+                .ok_or_else(|| invalid("name the set to move from (`from.set`)"))?;
+            let (from_storage, from_name, from_set) =
+                backup::ops::storage_set(state, s1, set1).map_err(TransferError::from)?;
+            let to_storage = backup::storage::get(state, s2).map_err(TransferError::from)?;
+            to_storage
+                .require_available()
+                .map_err(TransferError::from)?;
+            let to_name = match set2 {
+                Some(s) => backup::clean_set_name(s).map_err(TransferError::from)?,
+                None => from_name.clone(),
+            };
+            let to_set = to_storage.set(&to_name);
+            let canon =
+                |p: &std::path::Path| std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
+            if canon(&from_set.dir) == canon(&to_set.dir) {
+                return Err(invalid("that is the same set"));
+            }
+            plan_between(
+                state,
+                req,
+                (from_storage, from_name, from_set),
+                (to_storage, to_name, to_set),
+                items,
+            )
+            .await
+        }
     }
+}
+
+/// A copy or move from one set to another.
+async fn plan_between(
+    state: &AppState,
+    req: &MoveRequest,
+    from: (Storage, String, Set),
+    to: (Storage, String, Set),
+    items: &ItemsBody,
+) -> Result<Group, TransferError> {
+    let pass =
+        backup::ops::passphrases(state).ok_or(TransferError::from(BackupError::NoPassphrase))?;
+    let (items2, from_set, to_set) = (items.clone(), from.2.clone(), to.2.clone());
+    let (entries, skips, empty) = tokio::task::spawn_blocking(move || {
+        backup::plan_between(
+            &from_set,
+            &to_set,
+            &pass,
+            (!items2.all).then_some(items2.sessions.as_slice()),
+            &items2.projects,
+        )
+    })
+    .await
+    .map_err(|e| TransferError::Io(e.to_string()))?
+    .map_err(TransferError::from)?;
+    let from_loc = Location::Storage {
+        storage: from.0.id.clone(),
+        set: Some(from.1.clone()),
+    };
+    let to_loc = Location::Storage {
+        storage: to.0.id.clone(),
+        set: Some(to.1.clone()),
+    };
+    let mut g = Group::new(
+        Work::Between {
+            from: from.0,
+            from_set: from.1,
+            to: to.0,
+            to_set: to.1,
+            ids: entries.iter().map(|e| e.id.clone()).collect(),
+        },
+        req.mode,
+        req.trust,
+        from_loc.clone(),
+        to_loc,
+    );
+    g.sessions = entries
+        .iter()
+        .map(|e| PlanSession {
+            id: e.id.clone(),
+            cwd: e.cwd.clone(),
+            title: e.title.clone(),
+            files: e.files as usize,
+            bytes: e.archive_bytes,
+            from: from_loc.clone(),
+            action: match req.mode {
+                Mode::Move => Action::Move,
+                Mode::Copy => Action::Copy,
+            },
+        })
+        .collect();
+    g.skipped = skips
+        .iter()
+        .map(skipped_of)
+        .chain(empty.iter().map(|cwd| {
+            Skipped::project(
+                cwd,
+                "not_found",
+                format!("the set has no conversations of {cwd}"),
+            )
+        }))
+        .collect();
+    g.tally();
+    Ok(g)
 }
 
 /// An assign between accounts that share a directory.
@@ -1012,7 +1129,12 @@ fn start_view(state: &AppState, job: &str, g: &Group) {
             Location::Account(b) => v.to = Some(b.clone()),
             Location::Storage { storage, set } => {
                 v.to_storage = Some(storage.clone());
-                v.set = set.clone();
+                // Storage to storage: `set` is the source's.
+                if v.from_storage.is_some() {
+                    v.to_set = set.clone();
+                } else {
+                    v.set = set.clone();
+                }
             }
         }
     });
@@ -1116,6 +1238,13 @@ async fn run_group(state: &AppState, job: &str, g: Group) -> Result<(), Transfer
             to,
             ids,
         } => run_out_of(state, job, &root, &g, storage, set, &to, ids).await,
+        Work::Between {
+            from,
+            from_set,
+            to,
+            to_set,
+            ids,
+        } => run_between(state, job, &root, &g, (from, from_set), (to, to_set), ids).await,
         Work::Nothing => {
             let key = match (&g.to, g.mode) {
                 (Location::Storage { .. }, Mode::Move) => "archived",
@@ -1409,6 +1538,89 @@ async fn run_out_of(
         result["warnings"] = json!(warnings);
     }
     Ok((result, report.restored.clone(), !manifest.is_empty()))
+}
+
+/// Run a copy or move between two sets.
+async fn run_between(
+    state: &AppState,
+    job: &str,
+    root: &std::path::Path,
+    g: &Group,
+    from: (Storage, String),
+    to: (Storage, String),
+    ids: Vec<String>,
+) -> Result<(Value, Vec<String>, bool), TransferError> {
+    from.0.require_available().map_err(TransferError::from)?;
+    to.0.require_available().map_err(TransferError::from)?;
+    let pass =
+        backup::ops::passphrases(state).ok_or(TransferError::from(BackupError::NoPassphrase))?;
+    let progress = state.jobs.progress(job).unwrap_or_default();
+    let (job2, root2) = (job.to_string(), root.to_path_buf());
+    let remove = g.mode == Mode::Move;
+    let (report, manifest) = tokio::task::spawn_blocking(move || {
+        let (from_set, to_set) = (from.0.set(&from.1), to.0.set(&to.1));
+        let keep_until =
+            chrono::Utc::now().timestamp_millis() + super::UNDO_KEEP.as_millis() as i64;
+        backup::between_sets(&backup::BetweenInputs {
+            from: &from_set,
+            to: &to_set,
+            to_name: &to.1,
+            passphrases: &pass,
+            ids: &ids,
+            remove,
+            keep_until,
+            undo_root: &root2,
+            job_id: &job2,
+            from_ref: super::StorageRef {
+                storage: from.0.id.clone(),
+                set: from.1.clone(),
+                dir: from_set.dir.clone(),
+                into: false,
+            },
+            to_ref: super::StorageRef {
+                storage: to.0.id.clone(),
+                set: to.1.clone(),
+                dir: to_set.dir.clone(),
+                into: true,
+            },
+            progress: &progress,
+        })
+    })
+    .await
+    .map_err(|e| TransferError::Io(e.to_string()))?
+    .map_err(TransferError::from)?;
+    let mut skipped = g.skipped.clone();
+    skipped.extend(report.skipped.iter().map(skipped_of));
+    let key = match g.mode {
+        Mode::Move => "moved",
+        Mode::Copy => "copied",
+    };
+    let mut result = json!({ key: report.copied, "skipped": skipped_json(&skipped) });
+    if !report.warnings.is_empty() {
+        result["warnings"] = json!(report.warnings);
+    }
+    Ok((result, report.copied.clone(), manifest.is_some()))
+}
+
+/// Undo a copy or move between two sets (see [`backup::undo_between`]).
+pub fn undo_between_sets(
+    root: &std::path::Path,
+    job_id: &str,
+    passphrases: Option<&[crate::claude::secrets::Secret]>,
+) -> Result<super::Manifest, TransferError> {
+    let mut m = super::manifest(root, job_id)
+        .ok_or_else(|| TransferError::NotFound("nothing to undo for that transfer".into()))?;
+    if m.undone_at.is_some() {
+        return Err(TransferError::UndoConflict(
+            "this transfer was undone already".into(),
+        ));
+    }
+    let pass = passphrases.ok_or(TransferError::from(BackupError::NoPassphrase))?;
+    backup::undo_between(&m, pass).map_err(TransferError::from)?;
+    m.undone_at = Some(chrono::Utc::now().timestamp_millis());
+    crate::persist::write_json_private(&root.join(job_id).join("manifest.json"), &m)
+        .map_err(|e| TransferError::Io(e.to_string()))?;
+    Ok(m)
 }
 
 /// Undo an assign: each conversation back to the account it was, while it is

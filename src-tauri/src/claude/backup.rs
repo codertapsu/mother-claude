@@ -3664,6 +3664,323 @@ pub fn plan_restore(
     Ok((entries, skipped, empty_projects))
 }
 
+// ─────────────────────────────── between two sets ───────────────────────────────
+
+/// What a copy or move between two sets did (docs/ACCOUNTS.md §13.2,
+/// storage → storage).
+#[derive(Debug, Clone, Default, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BetweenReport {
+    /// In the target set now.
+    pub copied: Vec<String>,
+    pub skipped: Vec<Skip>,
+    pub warnings: Vec<String>,
+    pub bytes: u64,
+}
+
+/// What a copy or move between two sets needs.
+pub struct BetweenInputs<'a> {
+    pub from: &'a Set,
+    pub to: &'a Set,
+    /// The target set's name, for `set.json` when it is made now.
+    pub to_name: &'a str,
+    pub passphrases: &'a [Secret],
+    pub ids: &'a [String],
+    /// A move: the entries then leave the source set (their archives kept
+    /// until `keep_until`, for the undo).
+    pub remove: bool,
+    pub keep_until: i64,
+    pub undo_root: &'a Path,
+    pub job_id: &'a str,
+    pub from_ref: transfer::StorageRef,
+    pub to_ref: transfer::StorageRef,
+    pub progress: &'a Progress,
+}
+
+/// One archive of `from` encrypted to `to`'s key as a new file of `to`, then
+/// read back and checked: the file is what was written and it decrypts to
+/// exactly the source's bytes. Returns the target's entry (the source's, with
+/// the new archive).
+fn recrypt(
+    from: &Set,
+    from_keys: &Keys,
+    e: &IndexEntry,
+    to: &Set,
+    to_keys: &Keys,
+) -> Result<IndexEntry, BackupError> {
+    let bad = |why: String| BackupError::Transfer(transfer::TransferError::VerifyFailed(why));
+    let bytes = read_archive(from, e)?;
+    if super::secrets::sha256_hex(&bytes) != e.archive_sha256 {
+        return Err(BackupError::Invalid(format!(
+            "the archive of {} is not the one the index names (truncated or changed)",
+            e.id
+        )));
+    }
+    let plain = open_sealed(&from_keys.identity, &bytes)?;
+    let plain_sha = super::secrets::sha256_hex(&plain);
+    let sealed = seal(&to_keys.recipient, &plain)?;
+    let sha = super::secrets::sha256_hex(&sealed);
+    let name = format!("{}.{}.tar.gz.age", e.id, &sha[..12]);
+    let path = to.sessions_dir().join(&name);
+    write_atomic(&path, &sealed)?;
+    let check = (|| {
+        let back = read_stalling(&path)?;
+        if super::secrets::sha256_hex(&back) != sha {
+            return Err(bad(format!("{} is not what was written", path.display())));
+        }
+        let again = open_sealed(&to_keys.identity, &back)?;
+        if super::secrets::sha256_hex(&again) != plain_sha {
+            return Err(bad(format!(
+                "{} does not open to the source's copy",
+                path.display()
+            )));
+        }
+        Ok(())
+    })();
+    if let Err(e) = check {
+        let _ = std::fs::remove_file(&path);
+        return Err(e);
+    }
+    Ok(IndexEntry {
+        archive: name,
+        archive_sha256: sha,
+        archive_bytes: sealed.len() as u64,
+        ..e.clone()
+    })
+}
+
+/// Copy (or move) conversations from one set to another (§13.2, storage →
+/// storage): each archive decrypted with the source set's key, encrypted to
+/// the target's and checked (see [`recrypt`]) before the target's index names
+/// it; one the target has already, or not in the source, is skipped. A move
+/// then takes the entries out of the source, each only while it names the
+/// archive that was copied, kept seven days for the undo. The manifest lists
+/// what will change before it does. Blocking; `None`: nothing changed.
+pub fn between_sets(
+    inp: &BetweenInputs<'_>,
+) -> Result<(BetweenReport, Option<Manifest>), BackupError> {
+    let from_keys = open_keys_any(inp.from, inp.passphrases)?;
+    let from_index = read_index(inp.from, &from_keys)?;
+    let (to_keys, _) = open_or_create(inp.to, inp.to_name, inp.passphrases)?;
+    let to_index = read_index(inp.to, &to_keys)?;
+    let mut report = BetweenReport::default();
+    let mut changes = Changes::default();
+    let mut sources: Vec<IndexEntry> = Vec::new();
+    let mut done: std::collections::HashSet<&str> = std::collections::HashSet::new();
+    for id in inp.ids {
+        if !done.insert(id.as_str()) {
+            continue;
+        }
+        if !super::ids::is_session_id(id) {
+            report
+                .skipped
+                .push(skip_of(id, "invalid_id", "not a session id"));
+            continue;
+        }
+        let Some(e) = from_index.sessions.get(id) else {
+            report
+                .skipped
+                .push(skip_of(id, "not_in_set", "not in the set it comes from"));
+            continue;
+        };
+        if to_index.sessions.contains_key(id) {
+            report.skipped.push(skip_of(
+                id,
+                "already_exists",
+                "the target set has it already",
+            ));
+            continue;
+        }
+        match recrypt(inp.from, &from_keys, e, inp.to, &to_keys) {
+            Ok(entry) => {
+                inp.progress.files_done.fetch_add(1, Ordering::Relaxed);
+                inp.progress
+                    .bytes_done
+                    .fetch_add(entry.archive_bytes, Ordering::Relaxed);
+                report.bytes += entry.archive_bytes;
+                changes.sessions.insert(id.clone(), (entry, None));
+                sources.push(e.clone());
+            }
+            Err(err) => report
+                .skipped
+                .push(skip_of(id, err.code(), err.to_string())),
+        }
+    }
+    if changes.sessions.is_empty() {
+        return Ok((report, None));
+    }
+    let undo_dir = inp.undo_root.join(inp.job_id);
+    std::fs::create_dir_all(&undo_dir).map_err(|e| io("creating", &undo_dir, e))?;
+    transfer::private_dir(inp.undo_root);
+    transfer::private_dir(&undo_dir);
+    let ids: Vec<String> = changes.sessions.keys().cloned().collect();
+    let mut m = Manifest {
+        sessions: ids.clone(),
+        storage: Some(inp.from_ref.clone()),
+        storage_to: Some(inp.to_ref.clone()),
+        added_set_entries: changes
+            .sessions
+            .iter()
+            .map(|(id, (e, _))| (id.clone(), e.archive.clone()))
+            .collect(),
+        ..Manifest::new(
+            inp.job_id,
+            if inp.remove { Mode::Move } else { Mode::Copy },
+            What::Session { id: ids[0].clone() },
+            inp.from.dir.clone(),
+            inp.to.dir.clone(),
+        )
+    };
+    let save = |m: &Manifest| {
+        crate::persist::write_json_private(&undo_dir.join("manifest.json"), m)
+            .map_err(|e| io("writing", &undo_dir, e))
+    };
+    save(&m)?;
+    let merged = write_index_merged(inp.to, &to_keys, &changes, "", now_ms())?;
+    for id in &merged.lost {
+        report.skipped.push(skip_of(
+            id,
+            "conflict",
+            "the target set got its own copy meanwhile",
+        ));
+    }
+    m.added_set_entries
+        .retain(|(id, _)| !merged.lost.contains(id));
+    sources.retain(|e| !merged.lost.contains(&e.id));
+    report.copied = sources.iter().map(|e| e.id.clone()).collect();
+    m.sessions = report.copied.clone();
+    save(&m)?;
+    if inp.remove && !sources.is_empty() {
+        m.set_entries = sources;
+        save(&m)?;
+        let out = Changes {
+            remove: m
+                .set_entries
+                .iter()
+                .map(|e| (e.id.clone(), e.archive.clone()))
+                .collect(),
+            keep_until: Some(inp.keep_until),
+            ..Changes::default()
+        };
+        match write_index_merged(inp.from, &from_keys, &out, "", now_ms()) {
+            Ok(merged) => {
+                for e in &m.set_entries {
+                    if !merged.removed.contains(&e.id) {
+                        report.warnings.push(format!(
+                            "{}: the source set has a newer copy since; it stays there too",
+                            e.id
+                        ));
+                    }
+                }
+                m.set_entries.retain(|e| merged.removed.contains(&e.id));
+            }
+            Err(e) => {
+                m.set_entries.clear();
+                report
+                    .warnings
+                    .push(format!("The conversations stay in the source set too: {e}"));
+            }
+        }
+        save(&m)?;
+    }
+    Ok((report, Some(m)))
+}
+
+/// Undo a copy or move between two sets: a move's entries back into the
+/// source set first (not over a newer one; if it cannot take them nothing is
+/// undone), then the copies out of the target set, each only while it still
+/// names this job's archive.
+pub fn undo_between(m: &Manifest, passphrases: &[Secret]) -> Result<(), BackupError> {
+    let (Some(from), Some(to)) = (&m.storage, &m.storage_to) else {
+        return Err(BackupError::Invalid("not a copy between sets".into()));
+    };
+    let source = Set {
+        dir: from.dir.clone(),
+    };
+    let target = Set {
+        dir: to.dir.clone(),
+    };
+    put_back_entries(&source, passphrases, &m.set_entries)?;
+    if m.added_set_entries.is_empty() {
+        return Ok(());
+    }
+    let keys = open_keys_any(&target, passphrases)?;
+    let changes = Changes {
+        remove: m.added_set_entries.iter().cloned().collect(),
+        ..Changes::default()
+    };
+    write_index_merged(&target, &keys, &changes, "", now_ms()).map(|_| ())
+}
+
+/// What a copy between two sets would do (Move data's dry run): the source's
+/// entries it would take, and why the others would be skipped. `ids`: these
+/// (`None`: every one), plus every conversation of `projects`.
+pub fn plan_between(
+    from: &Set,
+    to: &Set,
+    passphrases: &[Secret],
+    ids: Option<&[String]>,
+    projects: &[String],
+) -> Result<RestorePlan, BackupError> {
+    let keys = open_keys_any(from, passphrases)?;
+    let index = read_index(from, &keys)?;
+    let theirs = if to.exists() {
+        let k = open_keys_any(to, passphrases)?;
+        read_index(to, &k)?
+    } else if to.key_missing() {
+        return Err(BackupError::KeyMissing(to.dir.display().to_string()));
+    } else {
+        SetIndex::default()
+    };
+    let mut wanted: Vec<String> = match ids {
+        Some(ids) => ids.to_vec(),
+        None => index.sessions.keys().cloned().collect(),
+    };
+    let mut empty_projects = Vec::new();
+    for raw in projects {
+        let cwd = match raw.trim_end_matches('/') {
+            "" => "/",
+            c => c,
+        };
+        let of: Vec<String> = index
+            .sessions
+            .values()
+            .filter(|e| e.cwd.as_deref() == Some(cwd))
+            .map(|e| e.id.clone())
+            .collect();
+        if of.is_empty() {
+            empty_projects.push(cwd.to_string());
+        }
+        wanted.extend(of);
+    }
+    let mut entries = Vec::new();
+    let mut skipped = Vec::new();
+    let mut done: std::collections::HashSet<String> = std::collections::HashSet::new();
+    for id in wanted {
+        if !done.insert(id.clone()) {
+            continue;
+        }
+        if !super::ids::is_session_id(&id) {
+            skipped.push(skip_of(&id, "invalid_id", "not a session id"));
+            continue;
+        }
+        let Some(e) = index.sessions.get(&id) else {
+            skipped.push(skip_of(&id, "not_in_set", "not in the set it comes from"));
+            continue;
+        };
+        if theirs.sessions.contains_key(&id) {
+            skipped.push(skip_of(
+                &id,
+                "already_exists",
+                "the target set has it already",
+            ));
+            continue;
+        }
+        entries.push(e.clone());
+    }
+    Ok((entries, skipped, empty_projects))
+}
+
 pub mod ops;
 pub mod storage;
 
