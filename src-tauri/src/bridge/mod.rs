@@ -22,6 +22,14 @@
 //! unless disabled — additionally on its own loopback-only port, where the same
 //! routes are served at both `/` and `/v1`. That port is the ergonomic one: it
 //! is what `http://127.0.0.1:5612/threads` talks to.
+//!
+//! ## Several API servers
+//!
+//! That is the **main** API server. Others can be added, each with its own
+//! loopback port, defaults, conversation that unaddressed messages join,
+//! token policy and started gate
+//! ([`servers`], docs/ACCOUNTS.md §13.5). Conversations are one store, served
+//! by one Node host.
 
 pub mod assets;
 pub mod control;
@@ -33,8 +41,10 @@ pub mod messages;
 pub mod openapi;
 pub mod ops;
 pub mod routes;
+pub mod servers;
 
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use axum::extract::DefaultBodyLimit;
 use axum::response::IntoResponse;
@@ -48,6 +58,7 @@ use crate::state::AppState;
 use host::RuntimeHost;
 use messages::MessagesClient;
 use ops::OperationRegistry;
+pub use servers::{ApiServer, Mount, MountPolicy, MAIN_ID};
 
 /// Default loopback port for the dedicated bridge listener.
 pub const DEFAULT_BRIDGE_PORT: u16 = 5612;
@@ -240,10 +251,19 @@ pub struct ThreadRecord {
     /// was before accounts: absent means `default`.
     #[serde(skip_serializing_if = "is_default_account")]
     pub account: String,
+    /// The API server that made it or last resumed it (docs/ACCOUNTS.md
+    /// §13.5). Left out for the main one, so with only the main server every
+    /// answer is what it was before: absent means `main`.
+    #[serde(skip_serializing_if = "is_main_server")]
+    pub server: String,
 }
 
 fn is_default_account(account: &str) -> bool {
     account == crate::claude::accounts::DEFAULT_ID
+}
+
+fn is_main_server(server: &str) -> bool {
+    server == MAIN_ID
 }
 
 /// Everything the bridge owns, hung off [`crate::state::Inner`].
@@ -254,36 +274,51 @@ pub struct BridgeState {
     pub host: RuntimeHost,
     pub messages: MessagesClient,
     threads: RwLock<HashMap<String, ThreadRecord>>,
-    /// The bound listener, when the bridge has been started. `None` means the
-    /// bridge is not serving — the routes that drive Claude answer 503.
-    pub listener: tokio::sync::Mutex<Option<control::Listener>>,
-    /// What the person chose when they started it.
-    pub defaults: RwLock<control::BridgeDefaults>,
-    /// The conversation an unaddressed message joins.
-    pub active_thread: RwLock<Option<String>>,
-    /// The token policy the listener runs with — the configured one until a
-    /// start from the API screen chooses otherwise ([`Self::token_policy`]).
-    token: std::sync::RwLock<TokenPolicy>,
+    /// The API servers, the main one first (docs/ACCOUNTS.md §13.5): each
+    /// with its listener, defaults, active conversation, token policy and
+    /// started gate.
+    pub servers: servers::Servers,
     /// Each live conversation's account, for sync lookups (session rows).
     accounts: std::sync::Mutex<HashMap<String, String>>,
 }
 
 impl BridgeState {
+    /// The bridge with only its main server (nothing read or written).
     pub fn new(config: BridgeConfig) -> Self {
+        Self::load(config, None)
+    }
+
+    /// The bridge with the API servers saved in `data_dir`
+    /// (`api-servers.json`) besides the main one.
+    pub fn load(config: BridgeConfig, data_dir: Option<&std::path::Path>) -> Self {
         let messages = MessagesClient::new(config.api_key.clone());
-        let token = std::sync::RwLock::new(config.token);
+        let main = ApiServer::new(
+            MAIN_ID,
+            servers::MAIN_NAME,
+            config.port,
+            control::BridgeDefaults::default(),
+            config.token,
+        );
+        let servers = servers::Servers::load(main, data_dir, config.token);
         Self {
             config,
             ops: OperationRegistry::default(),
             host: RuntimeHost::new(),
             messages,
             threads: RwLock::new(HashMap::new()),
-            listener: tokio::sync::Mutex::new(None),
-            defaults: RwLock::new(control::BridgeDefaults::default()),
-            active_thread: RwLock::new(None),
-            token,
+            servers,
             accounts: std::sync::Mutex::new(HashMap::new()),
         }
+    }
+
+    /// The main API server: the one there always was.
+    pub fn main(&self) -> Arc<ApiServer> {
+        self.servers.main()
+    }
+
+    /// An API server by id.
+    pub fn server(&self, id: &str) -> Option<Arc<ApiServer>> {
+        self.servers.get(id)
     }
 
     /// The account a live conversation runs under (sync).
@@ -295,37 +330,30 @@ impl BridgeState {
             .cloned()
     }
 
-    /// The token policy of the listener's current (or last) run: the
+    /// The main server's token policy for its current (or last) run: the
     /// configured one (`MOTHER_CLAUDE_BRIDGE_REQUIRE_TOKEN`) until the API
     /// screen starts it with the "open to tunnels" switch set either way.
     pub fn token_policy(&self) -> TokenPolicy {
-        self.token.read().map(|t| *t).unwrap_or(self.config.token)
+        self.main().token_policy()
     }
 
-    pub(crate) fn set_token_policy(&self, token: TokenPolicy) {
-        if let Ok(mut t) = self.token.write() {
-            *t = token;
-        }
-    }
-
-    /// Whether the bridge is serving. Everything that drives Claude checks this.
+    /// Whether the main server is serving.
     pub async fn is_running(&self) -> bool {
-        self.listener.lock().await.is_some()
+        self.main().is_running()
     }
 
+    /// The main server's defaults in force.
     pub async fn defaults(&self) -> control::BridgeDefaults {
-        self.defaults.read().await.clone()
+        self.main().defaults()
     }
 
     pub async fn update_defaults<F: FnOnce(&mut control::BridgeDefaults)>(&self, f: F) {
-        let mut guard = self.defaults.write().await;
-        f(&mut guard);
+        self.main().update_defaults(f);
     }
 
-    /// Remember the conversation unaddressed messages should join.
+    /// Remember the conversation the main server's unaddressed messages join.
     pub async fn set_active_thread(&self, thread_id: Option<String>) {
-        *self.active_thread.write().await = thread_id.clone();
-        self.update_defaults(|d| d.default_thread = thread_id).await;
+        self.main().set_active_thread(thread_id);
     }
 
     pub async fn insert_thread(&self, record: ThreadRecord) {
@@ -366,17 +394,16 @@ impl BridgeState {
     }
 
     /// Drop a conversation the host has closed. If it was the one unaddressed
-    /// messages joined, stop pointing at it — the next message should open a
-    /// fresh conversation rather than fail against a dead id.
+    /// messages joined on any server, stop pointing at it — the next message
+    /// should open a fresh conversation rather than fail against a dead id.
     pub async fn forget_thread(&self, id: &str) {
         self.threads.write().await.remove(id);
         self.accounts
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .remove(id);
-        let mut active = self.active_thread.write().await;
-        if active.as_deref() == Some(id) {
-            *active = None;
+        for server in self.servers.all() {
+            server.forget_active(id);
         }
     }
 
@@ -447,13 +474,25 @@ pub async fn send_message(
     .map(|_| ())
 }
 
-/// Build the bridge router, root-mounted.
-///
-/// `token` gates only this instance: the `/v1` mount on the main server always
+/// The main server's routes under a fixed token policy, root-mounted, with
+/// no port to watch for tunnels: the `/v1` mount on the main app port
 /// passes [`TokenPolicy::Required`], because that listener is reachable from
 /// the LAN. Documentation, the OpenAPI document, the JS client and the example
 /// page are public either way — they are static assets and reveal no token.
 pub fn router(state: AppState, token: TokenPolicy) -> Router<AppState> {
+    mount_routes(state, Mount::new(MAIN_ID, Some(token), None))
+}
+
+/// The bridge's routes for one entry point: the server, token policy and
+/// arrival port `mount` names.
+pub fn mount_routes(state: AppState, mount: Mount) -> Router<AppState> {
+    routes(state).layer(axum::Extension(mount))
+}
+
+/// The bridge's routes for whichever server the request's [`Mount`] names:
+/// an entry point puts one in the extensions — without one, the main server
+/// with a token always (fail closed).
+fn routes(state: AppState) -> Router<AppState> {
     // Discovery stays available whether or not the bridge has been started —
     // "is it running?" has to be answerable when the answer is no.
     let meta = Router::new()
@@ -465,7 +504,7 @@ pub fn router(state: AppState, token: TokenPolicy) -> Router<AppState> {
         .route("/auth/login", post(routes::meta::auth_login));
 
     // Everything that can spend tokens or touch the filesystem is gated on the
-    // bridge having been started from the app.
+    // request's server having been started from the app.
     let api = Router::new()
         .route(
             "/threads",
@@ -525,13 +564,10 @@ pub fn router(state: AppState, token: TokenPolicy) -> Router<AppState> {
             "/files/{file_id}/content",
             get(routes::messages::file_content),
         )
-        .route_layer(axum::middleware::from_fn_with_state(
-            state.clone(),
-            require_started,
-        ));
+        .route_layer(axum::middleware::from_fn(require_started));
 
     // Authentication runs on every mount: the token is always required on
-    // `/v1` of the main server, and on the loopback port the tokenless mode
+    // `/v1` of the main app port, and on an API port the tokenless mode
     // applies only to requests genuinely from this machine (design §2.3) —
     // unless the operator opted into `TokenPolicy::Never`.
     let api = meta
@@ -559,71 +595,101 @@ pub fn router(state: AppState, token: TokenPolicy) -> Router<AppState> {
         // else, so a client never has to parse two error formats.
         .fallback(not_found)
         .method_not_allowed_fallback(method_not_allowed)
-        .layer(axum::Extension(MountPolicy { token }))
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            resolve_mount,
+        ))
         .layer(axum::middleware::from_fn_with_state(state, guard_origin))
         .layer(DefaultBodyLimit::max(MAX_BODY_BYTES))
 }
 
-/// Refuse work until the bridge has been started from the app.
+/// Resolve the request's [`Mount`] into its [`MountPolicy`]: the server
+/// (`404 server_not_found` once it is gone), its token policy unless the
+/// mount fixes one, whether a tunnel points at the API port, and the
+/// server's defaults.
+async fn resolve_mount(
+    axum::extract::State(state): axum::extract::State<AppState>,
+    mut req: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> axum::response::Response {
+    let mount = req
+        .extensions()
+        .get::<Mount>()
+        .cloned()
+        .unwrap_or_else(Mount::fail_closed);
+    let Some(server) = state.bridge.server(&mount.server) else {
+        return servers::server_not_found(&mount.server).into_response();
+    };
+    let token = mount.token.unwrap_or_else(|| server.token_policy());
+    let exposed = state.remote.bridge_exposed();
+    let defaults = server.defaults();
+    req.extensions_mut().insert(MountPolicy {
+        server,
+        token,
+        port: mount.port,
+        exposed,
+        defaults,
+    });
+    next.run(req).await
+}
+
+/// Refuse work until the request's server has been started from the app.
 ///
 /// Opening Mother Claude does not publish this API; starting it is a deliberate
 /// act, because the port can drive Claude with the user's account. Discovery
 /// routes stay open so a client can tell "not started" from "not there".
 async fn require_started(
-    axum::extract::State(state): axum::extract::State<AppState>,
     req: axum::extract::Request,
     next: axum::middleware::Next,
 ) -> axum::response::Response {
-    if state.bridge.is_running().await {
+    let server = req
+        .extensions()
+        .get::<MountPolicy>()
+        .map(|m| m.server.clone());
+    if server.as_ref().is_some_and(|s| s.is_running()) {
         return next.run(req).await;
     }
+    let message = match server.filter(|s| !s.is_main()) {
+        Some(s) => format!(
+            "The API server \"{}\" has not been started. Open Mother Claude and start it on \
+             the API screen.",
+            s.name()
+        ),
+        None => "The Claude bridge has not been started. Open Mother Claude, choose the \
+                 defaults you want on the API screen, and press Start."
+            .to_string(),
+    };
     error::BridgeError::new(
         axum::http::StatusCode::SERVICE_UNAVAILABLE,
         "bridge_not_started",
-        "The Claude bridge has not been started. Open Mother Claude, choose the \
-         defaults you want on the API screen, and press Start.",
+        message,
     )
     .into_response()
 }
 
-/// Which listener a request arrived on. `/capabilities` and the OpenAPI
-/// document must describe *this* mount — the loopback port and the LAN mount
-/// have different authentication policies, and advertising the wrong one sends
-/// clients to debug a token they do not need (or omit one they do).
-#[derive(Debug, Clone, Copy)]
-pub struct MountPolicy {
-    pub token: TokenPolicy,
-}
-
-impl MountPolicy {
-    /// Every API route on this mount needs a token.
-    pub fn require_token(&self) -> bool {
-        self.token.requires_token()
-    }
-}
-
-/// Authentication with the bridge's error envelope (design §2.3, §10 B1).
+/// Authentication with the bridge's error envelope (design §2.3, §10 B1),
+/// under the request's server's token policy ([`MountPolicy`]).
 ///
 /// * A desktop, local-script or paired-device credential always passes.
-/// * On a tokenless mount (the dedicated loopback port with
-///   `MOTHER_CLAUDE_BRIDGE_REQUIRE_TOKEN` unset) a **machine-local** request —
-///   loopback peer, exactly one loopback `Host`, no proxy/tunnel headers —
-///   passes without a token, whatever its `Origin` (local tools, Postman,
-///   Swagger and pages on other websites keep working; dangerous actions still
-///   need a local or absent `Origin`).
-/// * While tunnel detection sees a tunnel whose upstream is this port, the
-///   tokenless mode is off (`bridge_exposed_requires_token`): a raw TCP tunnel
-///   is invisible to header checks.
+/// * On a tokenless mount (an API port with `MOTHER_CLAUDE_BRIDGE_REQUIRE_TOKEN`
+///   unset) a **machine-local** request — loopback peer, exactly one loopback
+///   `Host`, no proxy/tunnel headers — passes without a token, whatever its
+///   `Origin` (local tools, Postman, Swagger and pages on other websites keep
+///   working; dangerous actions still need a local or absent `Origin`).
+/// * While tunnel detection sees a tunnel whose upstream is the main API port,
+///   the tokenless mode is off (`bridge_exposed_requires_token`): a raw TCP
+///   tunnel is invisible to header checks.
 /// * With [`TokenPolicy::Never`] every request passes without a token, from
 ///   anywhere — but while a tunnel points at the port, a tokenless request
-///   counts as remote (not `local`, not `on_machine`), because nothing then
-///   tells this machine apart from a raw TCP tunnel. Dangerous actions, which
-///   an anonymous caller only has when `local`, stay with token holders.
-/// * Anything else is `401`; a tunnelled request to the tokenless port gets
+///   counts as remote (not `local`, not `on_machine`),
+///   because nothing then tells this machine apart from a raw TCP tunnel.
+///   Dangerous actions, which an anonymous caller only has when `local`, stay
+///   with token holders.
+/// * Anything else is `401`; a tunnelled request to a tokenless port gets
 ///   `tunneled_request_requires_token`.
 async fn require_bridge_auth(
     axum::extract::State(state): axum::extract::State<AppState>,
-    axum::Extension(policy): axum::Extension<MountPolicy>,
+    policy: MountPolicy,
     ctx: crate::server::context::ClientContext,
     mut req: axum::extract::Request,
     next: axum::middleware::Next,
@@ -635,7 +701,7 @@ async fn require_bridge_auth(
         return next.run(req).await;
     }
     if policy.token == TokenPolicy::Never {
-        if state.remote.bridge_exposed() && (ctx.local || ctx.on_machine) {
+        if policy.exposed && (ctx.local || ctx.on_machine) {
             let mut remote = ctx;
             remote.local = false;
             remote.on_machine = false;
@@ -644,7 +710,7 @@ async fn require_bridge_auth(
         return next.run(req).await;
     }
     if !policy.require_token() {
-        if state.remote.bridge_exposed() {
+        if policy.exposed {
             return error::BridgeError::new(
                 axum::http::StatusCode::UNAUTHORIZED,
                 "bridge_exposed_requires_token",
@@ -808,20 +874,11 @@ async fn method_not_allowed(
     .into_response()
 }
 
-/// The app served on the dedicated loopback port: the same routes at `/`
-/// (so `http://127.0.0.1:5612/threads` works) and under `/v1` (so one client
-/// base URL works against either listener).
-///
-/// Loopback only, always: the bridge can drive a coding agent with filesystem
-/// write access, and its tokenless mode must never be reachable from the
-/// network. LAN clients use the `/v1` mount on the main (TLS + token) server.
-pub fn listener_router(state: AppState, token: TokenPolicy) -> Router {
-    let config = state.bridge.config.clone();
-    // The same routes at `/` (Codex-compatible) and under `/v1` (so one client
-    // base URL works against either listener).
-    // CORS mirrors `origin_allowed`: open unless an allowlist is configured, so
-    // a browser app can call the bridge out of the box and a deployment that
-    // wants it locked down gets exactly that by naming its origins.
+/// The CORS layer of an API port. It mirrors `origin_allowed`: open unless an
+/// allowlist is configured, so a browser app can call the bridge out of the
+/// box and a deployment that wants it locked down gets exactly that by naming
+/// its origins.
+fn api_port_cors(config: &BridgeConfig) -> tower_http::cors::CorsLayer {
     let mut cors = tower_http::cors::CorsLayer::new()
         .allow_methods(tower_http::cors::Any)
         .allow_headers(tower_http::cors::Any)
@@ -836,10 +893,34 @@ pub fn listener_router(state: AppState, token: TokenPolicy) -> Router {
             }
         }
     }
+    cors
+}
 
+/// The main server's dedicated loopback port under a fixed token policy, with
+/// no port to watch for tunnels (a tunnel to any API port counts): the same
+/// routes at `/` (so `http://127.0.0.1:5612/threads` works) and under `/v1`
+/// (so one client base URL works against either listener). Tests and
+/// embedders; the app serves [`server_listener_router`].
+pub fn listener_router(state: AppState, token: TokenPolicy) -> Router {
+    port_router(state, Mount::new(MAIN_ID, Some(token), None))
+}
+
+/// The app an API server's own loopback port serves: its routes at `/` and
+/// `/v1` under its own run's token policy (docs/ACCOUNTS.md §13.5). `port` is
+/// the one bound.
+///
+/// Loopback only, always: the bridge can drive a coding agent with filesystem
+/// write access, and its tokenless mode must never be reachable from the
+/// network. LAN clients use the `/v1` mounts on the main (TLS + token) server.
+pub fn server_listener_router(state: AppState, server: &str, port: u16) -> Router {
+    port_router(state, Mount::new(server, None, Some(port)))
+}
+
+fn port_router(state: AppState, mount: Mount) -> Router {
+    let cors = api_port_cors(&state.bridge.config);
     let app = Router::new()
-        .merge(router(state.clone(), token))
-        .nest("/v1", router(state.clone(), token))
+        .merge(mount_routes(state.clone(), mount.clone()))
+        .nest("/v1", mount_routes(state.clone(), mount.clone()))
         .layer(cors)
         .with_state(state.clone());
     crate::server::context::layer(app, state, crate::server::context::Ingress::BridgeLoopback)
@@ -883,10 +964,13 @@ pub async fn thread_exists(state: &AppState, thread_id: &str) -> bool {
 /// the human from the loop (bypassPermissions / dontAsk) is refused for a
 /// caller that may not perform dangerous actions (design G1). `account` is
 /// the one the caller named, already checked to be the conversation's own
-/// ([`crate::claude::summaries::acting_account`]).
+/// ([`crate::claude::summaries::acting_account`]). `mount` is the API server
+/// the request came through: its defaults apply, and the conversation is
+/// recorded as its.
 pub async fn ensure_thread_live(
     state: &AppState,
     ctx: &crate::server::context::ClientContext,
+    mount: &MountPolicy,
     thread_id: &str,
     account: Option<&str>,
 ) -> error::BridgeResult<()> {
@@ -909,7 +993,7 @@ pub async fn ensure_thread_live(
         .with("thread_id", thread_id.to_string()));
     }
 
-    let defaults = state.bridge.defaults().await;
+    let defaults = &mount.defaults;
     if crate::claude::owned::is_dangerous_mode(defaults.permission_mode.as_deref())
         && !ctx.may_dangerous()
     {
@@ -988,6 +1072,7 @@ pub async fn ensure_thread_live(
         persisted: true,
         active_turn: None,
         account,
+        server: mount.server_id().to_string(),
     };
     state.bridge.insert_thread(record.clone()).await;
     state.mark_owned(thread_id, &cwd, record.created_at).await;
@@ -1090,12 +1175,19 @@ mod tests {
             persisted: false,
             active_turn: None,
             account: crate::claude::accounts::DEFAULT_ID.into(),
+            server: MAIN_ID.into(),
         };
         let v = serde_json::to_value(&record).unwrap();
         assert!(v.get("account").is_none(), "{v}");
+        assert!(
+            v.get("server").is_none(),
+            "the main server's reads as before: {v}"
+        );
         record.account = "acc_0123456789ab".into();
+        record.server = "work".into();
         let v = serde_json::to_value(&record).unwrap();
         assert_eq!(v["account"], "acc_0123456789ab");
+        assert_eq!(v["server"], "work");
     }
 
     #[tokio::test]
@@ -1114,6 +1206,7 @@ mod tests {
                     persisted: false,
                     active_turn: None,
                     account: crate::claude::accounts::DEFAULT_ID.into(),
+                    server: MAIN_ID.into(),
                 })
                 .await;
         }
@@ -1228,9 +1321,16 @@ mod tests {
                 state.clone(),
                 require_bridge_auth,
             ))
-            .layer(axum::Extension(MountPolicy {
-                token: TokenPolicy::Never,
-            }))
+            .layer(axum::middleware::from_fn_with_state(
+                state.clone(),
+                resolve_mount,
+            ))
+            // As if it arrived on 5612, under `never`.
+            .layer(axum::Extension(Mount::new(
+                MAIN_ID,
+                Some(TokenPolicy::Never),
+                Some(5612),
+            )))
             .with_state(state.clone());
         let app = crate::server::context::layer(
             app,

@@ -1,20 +1,27 @@
-//! Starting, stopping and configuring the bridge from the dashboard.
+//! Starting, stopping and configuring the API servers from the dashboard.
 //!
-//! The bridge does not listen until you ask it to. That is deliberate: starting
-//! it publishes an unauthenticated port that can drive Claude with your account,
-//! and the moment that happens should be a thing you did, not a side effect of
-//! opening the app.
+//! An API server does not listen until you ask it to. That is deliberate:
+//! starting one publishes an unauthenticated port that can drive Claude with
+//! your account, and the moment that happens should be a thing you did, not a
+//! side effect of opening the app.
 //!
 //! What you choose at start time becomes the *defaults* for every conversation
-//! the bridge creates — model, effort, working directory, permission mode — and
-//! every one of them can still be overridden per request. You can also nominate
-//! a conversation for new messages to join, so a client that only ever sends
-//! `{"message": "…"}` keeps one continuous thread instead of a new one each time.
+//! the server creates — model, effort, working directory, permission mode,
+//! account — and every one of them can still be overridden per request. You can
+//! also nominate a conversation for new messages to join, so a client that
+//! only ever sends `{"message": "…"}` keeps one continuous thread instead of a
+//! new one each time.
+//!
+//! The **main** server is the one there always was (`/api/bridge/start`,
+//! `/stop`, `/active-thread`); its defaults are never saved. Servers added
+//! besides it are saved with theirs in `api-servers.json` (docs/ACCOUNTS.md
+//! §13.5).
 //!
 //! These handlers live on the **dashboard** API (`/api/bridge/…`), not on the
 //! bridge itself — you have to be able to start something that is not running.
 
 use std::net::SocketAddr;
+use std::sync::Arc;
 
 use axum::extract::State;
 use axum::response::{IntoResponse, Response};
@@ -24,10 +31,13 @@ use tokio::sync::oneshot;
 
 use super::error::{BridgeError, BridgeResult};
 use super::routes::threads::{EFFORT_LEVELS, PERMISSION_MODES, SETTING_SOURCES};
+use super::servers::{self, ApiServer, MAIN_ID};
+use super::TokenPolicy;
 use crate::server::auth::Authed;
+use crate::server::context::ClientContext;
 use crate::state::AppState;
 
-/// Defaults applied to every conversation the bridge creates.
+/// Defaults applied to every conversation an API server creates.
 ///
 /// Every field is optional and every one is overridable per request; `None`
 /// means "whatever the user's own Claude settings say", which is the same rule
@@ -57,6 +67,20 @@ pub struct BridgeDefaults {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub account: Option<String>,
 }
+
+/// The fields of [`BridgeDefaults`] as they are written (camelCase): what a
+/// saved server's defaults are read by.
+pub const DEFAULTS_FIELDS: [&str; 9] = [
+    "cwd",
+    "model",
+    "effort",
+    "thinking",
+    "permissionMode",
+    "settingSources",
+    "systemPromptAppend",
+    "defaultThread",
+    "account",
+];
 
 fn one_of(field: &str, value: &Option<String>, allowed: &[&str]) -> BridgeResult<()> {
     if let Some(v) = value {
@@ -123,7 +147,7 @@ impl BridgeDefaults {
     }
 }
 
-/// A bound, serving bridge listener.
+/// A bound, serving API server listener.
 pub struct Listener {
     pub port: u16,
     pub started_at: i64,
@@ -148,22 +172,35 @@ impl Listener {
     }
 }
 
-/// Start the bridge listener with `defaults`, replacing any previous run, under
-/// the configured token policy (`MOTHER_CLAUDE_BRIDGE_REQUIRE_TOKEN`).
-pub async fn start(state: &AppState, defaults: BridgeDefaults) -> BridgeResult<Value> {
-    start_with(state, defaults, state.bridge.config.token).await
+// ─────────────────────────────── running a server ──────────────────────────
+
+/// Bind `port` on loopback. Right after a restart in place the listener just
+/// told to stop may hold the port for a moment, so then it is tried again for
+/// up to a second.
+async fn bind(port: u16, retry: bool) -> std::io::Result<tokio::net::TcpListener> {
+    let addr = SocketAddr::from(([127, 0, 0, 1], port));
+    let mut tries = if retry && port != 0 { 40 } else { 1 };
+    loop {
+        match tokio::net::TcpListener::bind(addr).await {
+            Ok(socket) => return Ok(socket),
+            Err(e) if tries > 1 && e.kind() == std::io::ErrorKind::AddrInUse => {
+                tries -= 1;
+                tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+            }
+            Err(e) => return Err(e),
+        }
+    }
 }
 
-/// [`start`] under a token policy chosen at start time — the API screen's
-/// "open to tunnels" switch. Callers decide who may choose which; this only
-/// applies it.
-pub async fn start_with(
+/// Check `defaults` for a start of `server`: what the runtime would refuse,
+/// an account that does not exist, a nominated conversation that does not,
+/// a port another listener has.
+async fn prepare(
     state: &AppState,
+    server: &ApiServer,
     defaults: BridgeDefaults,
-    token: super::TokenPolicy,
-) -> BridgeResult<Value> {
-    let config = state.bridge.config.clone();
-    if !config.enabled {
+) -> BridgeResult<BridgeDefaults> {
+    if !state.bridge.config.enabled {
         return Err(BridgeError::forbidden(
             "bridge_disabled",
             "The bridge is disabled for this process (MOTHER_CLAUDE_BRIDGE=0).",
@@ -192,18 +229,46 @@ pub async fn start_with(
             .with("thread_id", thread.clone()));
         }
     }
+    if !server.is_main() {
+        if let Some(port) = server.port() {
+            servers::check_port(state, Some(&server.id), port)?;
+        }
+    }
+    Ok(defaults)
+}
 
-    let mut guard = state.bridge.listener.lock().await;
+/// Start `server` with `defaults` under `token`, replacing a run it has.
+/// `persist`: an added server's saved defaults become these (written before
+/// the port is bound, so a failed save starts nothing). Callers hold the
+/// servers' admin lock.
+pub(crate) async fn run(
+    state: &AppState,
+    server: &Arc<ApiServer>,
+    defaults: BridgeDefaults,
+    token: TokenPolicy,
+    persist: bool,
+) -> BridgeResult<()> {
+    let defaults = prepare(state, server, defaults).await?;
+    if persist && !server.is_main() {
+        let before = server.saved();
+        server.update_saved(|d| *d = defaults.clone());
+        if let Err(e) = state.bridge.servers.save() {
+            server.update_saved(|d| *d = before);
+            return Err(e);
+        }
+    }
+
+    let mut guard = server.listener.lock().await;
+    let restarting = guard.as_ref().map(|l| l.port);
     if let Some(listener) = guard.as_mut() {
         // Restarting in place: keep the port, take the new defaults.
         listener.stop();
-        *guard = None;
     }
+    *guard = None;
+    server.note_listener(false, None);
+    server.apply_defaults(defaults);
 
-    *state.bridge.defaults.write().await = defaults.clone();
-    *state.bridge.active_thread.write().await = defaults.default_thread.clone();
-
-    let Some(port) = config.port else {
+    let Some(port) = server.port() else {
         // No dedicated port configured: the `/v1` mount is the whole surface,
         // and "started" is still meaningful because it ungates those routes.
         *guard = Some(Listener {
@@ -211,37 +276,43 @@ pub async fn start_with(
             started_at: crate::claude::registry::now_ms(),
             shutdown: None,
         });
-        state.bridge.set_token_policy(token);
+        server.set_token_policy(token);
+        server.note_listener(true, None);
         drop(guard);
-        announce(state, "started").await;
-        return Ok(status(state).await);
+        announce(state, server, "started").await;
+        return Ok(());
     };
 
     // Bind before reporting success, so "port already in use" is an error the
     // person sees on the button they pressed.
-    let addr = SocketAddr::from(([127, 0, 0, 1], port));
-    let socket = tokio::net::TcpListener::bind(addr).await.map_err(|e| {
-        BridgeError::conflict(
-            "port_unavailable",
-            format!("Could not bind {addr}: {e}. Another process may already hold it."),
-        )
-        .with("port", port)
-    })?;
+    let socket = bind(port, restarting.is_some_and(|p| p == port))
+        .await
+        .map_err(|e| {
+            BridgeError::conflict(
+                "port_unavailable",
+                format!(
+                    "Could not bind 127.0.0.1:{port}: {e}. Another process may already hold it."
+                ),
+            )
+            .with("port", port)
+        })?;
 
     // The port actually bound: the configured one, or the one the system
     // picked when a test asked for port 0.
     let port = socket.local_addr().map(|a| a.port()).unwrap_or(port);
-    let open = token == super::TokenPolicy::Never;
+    let open = token == TokenPolicy::Never;
     if open {
         tracing::warn!(
             port,
+            server = %server.id,
             "the API port takes requests without a token from anyone who can reach it, \
              through a tunnel too"
         );
     }
-    state.bridge.set_token_policy(token);
-    let app = super::listener_router(state.clone(), token);
+    server.set_token_policy(token);
+    let app = super::server_listener_router(state.clone(), &server.id, port);
     let (tx, rx) = oneshot::channel::<()>();
+    let id = server.id.clone();
     tokio::spawn(async move {
         let served = axum::serve(
             socket,
@@ -252,9 +323,9 @@ pub async fn start_with(
         })
         .await;
         if let Err(e) = served {
-            tracing::error!(error = %e, "Claude bridge listener stopped");
+            tracing::error!(error = %e, server = %id, "API server listener stopped");
         } else {
-            tracing::info!("Claude bridge listener closed");
+            tracing::info!(server = %id, "API server listener closed");
         }
     });
 
@@ -263,10 +334,12 @@ pub async fn start_with(
         started_at: crate::claude::registry::now_ms(),
         shutdown: Some(tx),
     });
+    server.note_listener(true, Some(port));
     drop(guard);
 
     announce(
         state,
+        server,
         if open {
             "started — open without a token, through tunnels too"
         } else {
@@ -274,49 +347,98 @@ pub async fn start_with(
         },
     )
     .await;
-    Ok(status(state).await)
+    Ok(())
 }
 
-/// Stop the listener. Conversations already created stay alive — stopping the
-/// door does not evict the people inside it.
-pub async fn stop(state: &AppState) -> BridgeResult<Value> {
-    let mut guard = state.bridge.listener.lock().await;
+/// Stop `server`'s listener. Conversations already created stay alive —
+/// stopping the door does not evict the people inside it.
+pub(crate) async fn halt(state: &AppState, server: &ApiServer) {
+    let mut guard = server.listener.lock().await;
     if let Some(listener) = guard.as_mut() {
         listener.stop();
     }
     *guard = None;
+    server.note_listener(false, None);
     drop(guard);
-    announce(state, "stopped").await;
+    announce(state, server, "stopped").await;
+}
+
+async fn announce(state: &AppState, server: &ApiServer, what: &str) {
+    let running = server.is_running();
+    if server.is_main() {
+        tracing::info!(running, "Claude bridge {what}");
+        state.notice(format!("Claude bridge {what}"));
+    } else {
+        let name = server.name();
+        tracing::info!(running, server = %server.id, "API server {name} {what}");
+        state.notice(format!("API server \"{name}\" {what}"));
+    }
+}
+
+// ─────────────────────────────── the main server ───────────────────────────
+
+/// Start the main server with `defaults`, replacing any previous run, under
+/// the configured token policy (`MOTHER_CLAUDE_BRIDGE_REQUIRE_TOKEN`).
+pub async fn start(state: &AppState, defaults: BridgeDefaults) -> BridgeResult<Value> {
+    start_with(state, defaults, state.bridge.config.token).await
+}
+
+/// [`start`] under a token policy chosen at start time — the API screen's
+/// "open to tunnels" switch. Callers decide who may choose which; this only
+/// applies it.
+pub async fn start_with(
+    state: &AppState,
+    defaults: BridgeDefaults,
+    token: TokenPolicy,
+) -> BridgeResult<Value> {
+    let main = state.bridge.main();
+    {
+        let _admin = state.bridge.servers.admin.lock().await;
+        run(state, &main, defaults, token, false).await?;
+    }
     Ok(status(state).await)
 }
 
-async fn announce(state: &AppState, what: &str) {
-    let running = state.bridge.is_running().await;
-    tracing::info!(running, "Claude bridge {what}");
-    state.notice(format!("Claude bridge {what}"));
+/// Stop the main server's listener.
+pub async fn stop(state: &AppState) -> BridgeResult<Value> {
+    let main = state.bridge.main();
+    {
+        let _admin = state.bridge.servers.admin.lock().await;
+        halt(state, &main).await;
+    }
+    Ok(status(state).await)
 }
 
-/// Everything the control screen needs in one payload.
-pub async fn status(state: &AppState) -> Value {
-    let config = &state.bridge.config;
-    let token = state.bridge.token_policy();
-    let listener = state.bridge.listener.lock().await;
-    let running = listener.is_some();
-    let port = listener.as_ref().map(|l| l.port).or(config.port);
-    let started_at = listener.as_ref().map(|l| l.started_at);
-    drop(listener);
+/// Whether a tunnel points at `server`'s port (detection watches the main
+/// API port).
+pub fn exposed(state: &AppState, server: &ApiServer) -> bool {
+    server.is_main() && state.remote.bridge_exposed()
+}
 
-    let url = port
-        .filter(|p| *p != 0)
-        .map(|p| format!("http://127.0.0.1:{p}"));
-    // Projected to the dashboard's camelCase convention. `ThreadRecord` is
-    // snake_case because the bridge's own API mirrors the Codex one; this
-    // payload belongs to `/api/*`, which is camelCase throughout.
-    let threads: Vec<Value> = state
+/// The public URL of a tunnel that points at `server`'s port.
+pub fn tunnel_url(state: &AppState, server: &ApiServer) -> Option<String> {
+    if !server.is_main() {
+        return None;
+    }
+    state
+        .remote
+        .detected()
+        .into_iter()
+        .find(|t| t.target == "bridge")
+        .map(|t| t.url)
+}
+
+/// The conversations `server` made, for the dashboard. Projected to the
+/// dashboard's camelCase convention. `ThreadRecord` is snake_case because the
+/// bridge's own API mirrors the Codex one; this payload belongs to `/api/*`,
+/// which is camelCase throughout.
+async fn thread_views(state: &AppState, server: &str) -> Vec<Value> {
+    state
         .bridge
         .threads()
         .await
         .into_iter()
+        .filter(|t| t.server == server)
         .map(|t| {
             let mut v = json!({
                 "threadId": t.thread_id,
@@ -335,8 +457,24 @@ pub async fn status(state: &AppState) -> Value {
             }
             v
         })
-        .collect();
-    let active = state.bridge.active_thread.read().await.clone();
+        .collect()
+}
+
+/// Everything the API screen needs in one payload: the main server.
+pub async fn status(state: &AppState) -> Value {
+    let config = &state.bridge.config;
+    let main = state.bridge.main();
+    let token = main.token_policy();
+    let listener = main.listener.lock().await;
+    let running = listener.is_some();
+    let port = listener.as_ref().map(|l| l.port).or(config.port);
+    let started_at = listener.as_ref().map(|l| l.started_at);
+    drop(listener);
+
+    let url = port
+        .filter(|p| *p != 0)
+        .map(|p| format!("http://127.0.0.1:{p}"));
+    let threads = thread_views(state, MAIN_ID).await;
     let auth = state.claude_auth.read().await.clone();
 
     json!({
@@ -352,25 +490,151 @@ pub async fn status(state: &AppState) -> Value {
         // says, and so what the "open to tunnels" switch means when it is off.
         "tokenPolicy": token,
         "configuredTokenPolicy": config.token,
-        "exposedByTunnel": state.remote.bridge_exposed(),
-        "tunnelUrl": state
-            .remote
-            .detected()
-            .into_iter()
-            .find(|t| t.target == "bridge")
-            .map(|t| t.url),
+        "exposedByTunnel": exposed(state, &main),
+        "tunnelUrl": tunnel_url(state, &main),
         "hostBuilt": super::host::host_entry().is_some(),
         "hostRunning": state.bridge.host.is_running().await,
         "messagesApi": state.bridge.messages.is_configured(),
         "claudeAuthenticated": auth.logged_in,
         "claudeAccount": auth.summary(),
         "activeOperations": state.bridge.ops.active_count(),
-        "defaults": state.bridge.defaults.read().await.clone(),
-        "activeThread": active,
+        "defaults": main.defaults(),
+        "activeThread": main.active_thread(),
         "threads": threads,
         "docsUrl": url.as_ref().map(|u| format!("{u}/docs/")),
         "consoleUrl": url.as_ref().map(|u| format!("{u}/example/")),
     })
+}
+
+// ─────────────────────────────── added servers ─────────────────────────────
+
+/// `409 server_name_taken` when another server has this name (in any case).
+fn name_free(state: &AppState, name: &str, except: Option<&str>) -> BridgeResult<()> {
+    let taken = state
+        .bridge
+        .servers
+        .all()
+        .into_iter()
+        .any(|s| Some(s.id.as_str()) != except && s.name().eq_ignore_ascii_case(name));
+    if taken {
+        return Err(BridgeError::conflict(
+            "server_name_taken",
+            format!("An API server named {name:?} already exists."),
+        )
+        .with("field", "name"));
+    }
+    Ok(())
+}
+
+/// Defaults an added server may keep: what [`prepare`] checks but the port.
+async fn checked_defaults(
+    state: &AppState,
+    defaults: BridgeDefaults,
+) -> BridgeResult<BridgeDefaults> {
+    let defaults = defaults.normalized();
+    defaults.validate()?;
+    if let Some(account) = &defaults.account {
+        if state.accounts.get(account).is_none() {
+            return Err(BridgeError::invalid_field(
+                "account",
+                format!("No account {account:?} — pick another, or leave it unset."),
+            ));
+        }
+    }
+    if let Some(thread) = &defaults.default_thread {
+        if !super::thread_exists(state, thread).await {
+            return Err(BridgeError::invalid_field(
+                "defaultThread",
+                format!("No conversation {thread} — pick another, or leave it unset."),
+            )
+            .with("thread_id", thread.clone()));
+        }
+    }
+    Ok(defaults)
+}
+
+/// Add an API server (not started). `port`: the first free from 5613 when
+/// `None`; `Some(0)` — any free port at each start — is for tests and
+/// embedders only (the dashboard route refuses it).
+pub async fn add_server(
+    state: &AppState,
+    name: &str,
+    port: Option<u16>,
+    defaults: BridgeDefaults,
+) -> BridgeResult<Arc<ApiServer>> {
+    let name = servers::clean_name(name)?;
+    let defaults = checked_defaults(state, defaults).await?;
+    let _admin = state.bridge.servers.admin.lock().await;
+    name_free(state, &name, None)?;
+    let port = match port {
+        Some(port) => {
+            servers::check_port(state, None, port)?;
+            port
+        }
+        None => servers::first_free_port(state)?,
+    };
+    let id = servers::unique_id(&servers::slug(&name), |id| {
+        state.bridge.servers.get(id).is_some()
+    });
+    let server = ApiServer::new(
+        &id,
+        &name,
+        Some(port),
+        defaults,
+        state.bridge.config.token.closed(),
+    );
+    let server = state.bridge.servers.insert(server)?;
+    tracing::info!(server = %server.id, port, "API server added");
+    Ok(server)
+}
+
+/// Start a server with `defaults` — an added server keeps them as its saved
+/// defaults — or, without, with the ones it has saved.
+pub async fn start_server(
+    state: &AppState,
+    id: &str,
+    defaults: Option<BridgeDefaults>,
+    token: TokenPolicy,
+) -> BridgeResult<Arc<ApiServer>> {
+    let server = state
+        .bridge
+        .server(id)
+        .ok_or_else(|| servers::server_not_found(id))?;
+    let _admin = state.bridge.servers.admin.lock().await;
+    let persist = defaults.is_some();
+    let defaults = match defaults {
+        Some(defaults) => defaults,
+        None => server.saved(),
+    };
+    run(state, &server, defaults, token, persist).await?;
+    Ok(server)
+}
+
+/// Stop a server.
+pub async fn stop_server(state: &AppState, id: &str) -> BridgeResult<Arc<ApiServer>> {
+    let server = state
+        .bridge
+        .server(id)
+        .ok_or_else(|| servers::server_not_found(id))?;
+    let _admin = state.bridge.servers.admin.lock().await;
+    halt(state, &server).await;
+    Ok(server)
+}
+
+/// Change which conversation `server`'s unaddressed messages join (`None`:
+/// the next one starts a new conversation). One that is gone is `404`.
+pub async fn set_active(
+    state: &AppState,
+    server: &ApiServer,
+    thread_id: Option<String>,
+) -> BridgeResult<()> {
+    if let Some(thread) = &thread_id {
+        if !super::thread_exists(state, thread).await {
+            return Err(BridgeError::thread_not_found(thread));
+        }
+    }
+    server.set_active_thread(thread_id);
+    Ok(())
 }
 
 // --- dashboard handlers ----------------------------------------------------
@@ -393,19 +657,20 @@ pub struct StartBody {
     pub open_to_tunnels: Option<bool>,
 }
 
-/// `POST /api/bridge/start`. Defaults with a permission mode that skips
-/// approvals are desktop-only (design G1): every conversation the bridge then
-/// creates or resumes would inherit it. So is opening the port to tokenless
-/// callers through tunnels: it publishes the API to whoever finds the URL.
-pub async fn post_start(
-    Authed(ctx): Authed,
-    State(state): State<AppState>,
-    super::routes::Body(body): super::routes::Body<StartBody>,
-) -> BridgeResult<Response> {
+/// The token policy a start of `server` asks for: the switch on — desktop
+/// only, and only where there is a port to open — or off; absent, the
+/// configured policy for the main server, and closed to tunnels for the
+/// others ("open to tunnels" is chosen at each start, never saved).
+fn start_token(
+    state: &AppState,
+    ctx: &ClientContext,
+    server: &ApiServer,
+    open: Option<bool>,
+) -> BridgeResult<TokenPolicy> {
     let configured = state.bridge.config.token;
-    let token = match body.open_to_tunnels {
-        None => configured,
-        Some(false) => configured.closed(),
+    Ok(match open {
+        None if server.is_main() => configured,
+        None | Some(false) => configured.closed(),
         Some(true) => {
             if !ctx.is_desktop() {
                 return Err(BridgeError::forbidden(
@@ -414,32 +679,45 @@ pub async fn post_start(
                      only possible from the Mother Claude desktop app.",
                 ));
             }
-            if state.bridge.config.port.is_none() {
+            if server.port().is_none() {
                 return Err(BridgeError::invalid_field(
                     "openToTunnels",
                     "There is no dedicated API port (MOTHER_CLAUDE_BRIDGE_PORT=0), and the /v1 \
                      mount always needs a token.",
                 ));
             }
-            super::TokenPolicy::Never
+            TokenPolicy::Never
         }
-    };
-    if crate::claude::owned::is_dangerous_mode(body.defaults.permission_mode.as_deref())
+    })
+}
+
+/// The dangerous parts of a server's defaults keep their rules (design G1):
+/// a permission mode that skips approvals is desktop-only — every
+/// conversation the server then creates or resumes would inherit it — and a
+/// default working directory the user never trusted would run its project
+/// hooks and MCP servers unasked in every conversation (B1), so it needs the
+/// dangerous right. `what` names the action in the refusal.
+async fn check_defaults(
+    state: &AppState,
+    ctx: &ClientContext,
+    defaults: &BridgeDefaults,
+    what: &str,
+) -> BridgeResult<()> {
+    if crate::claude::owned::is_dangerous_mode(defaults.permission_mode.as_deref())
         && !ctx.is_desktop()
     {
         return Err(BridgeError::forbidden(
             "desktop_only",
-            "Starting the bridge with a permission mode that skips approvals is only \
-             possible from the Mother Claude desktop app.",
+            format!(
+                "{what} with a permission mode that skips approvals is only possible from the \
+                 Mother Claude desktop app."
+            ),
         ));
     }
-    // A default working directory the user never trusted would run its
-    // project hooks and MCP servers unasked in every conversation (B1).
-    if let Some(cwd) = body.defaults.cwd.clone().filter(|c| !c.trim().is_empty()) {
+    if let Some(cwd) = defaults.cwd.clone().filter(|c| !c.trim().is_empty()) {
         // Trusted by the account its conversations run under (each keeps its
         // own trust).
-        let account = body
-            .defaults
+        let account = defaults
             .account
             .clone()
             .filter(|a| !a.trim().is_empty())
@@ -466,6 +744,21 @@ pub async fn post_start(
             }
         }
     }
+    Ok(())
+}
+
+/// `POST /api/bridge/start` — the main server. Defaults with a permission
+/// mode that skips approvals are desktop-only (design G1). So is opening the
+/// port to tokenless callers through tunnels: it publishes the API to whoever
+/// finds the URL.
+pub async fn post_start(
+    Authed(ctx): Authed,
+    State(state): State<AppState>,
+    super::routes::Body(body): super::routes::Body<StartBody>,
+) -> BridgeResult<Response> {
+    let main = state.bridge.main();
+    let token = start_token(&state, &ctx, &main, body.open_to_tunnels)?;
+    check_defaults(&state, &ctx, &body.defaults, "Starting the bridge").await?;
     if body.open_to_tunnels == Some(true) {
         ctx.note_dangerous("the API port opened without a token, tunnels included");
     }
@@ -487,22 +780,14 @@ pub struct ActiveThreadBody {
     pub thread_id: Option<String>,
 }
 
-/// `POST /api/bridge/active-thread` — change which conversation new messages join.
+/// `POST /api/bridge/active-thread` — change which conversation the main
+/// server's new messages join.
 pub async fn post_active_thread(
     Authed(_ctx): Authed,
     State(state): State<AppState>,
     super::routes::Body(body): super::routes::Body<ActiveThreadBody>,
 ) -> BridgeResult<Response> {
-    if let Some(thread) = &body.thread_id {
-        if !super::thread_exists(&state, thread).await {
-            return Err(BridgeError::thread_not_found(thread));
-        }
-    }
-    *state.bridge.active_thread.write().await = body.thread_id.clone();
-    state
-        .bridge
-        .update_defaults(|d| d.default_thread = body.thread_id.clone())
-        .await;
+    set_active(&state, &state.bridge.main(), body.thread_id).await?;
     Ok(axum::Json(status(&state).await).into_response())
 }
 
@@ -524,10 +809,30 @@ mod tests {
             account: Some("acc_0123456789ab".into()),
             ..Default::default()
         };
-        assert_eq!(
-            serde_json::to_value(with).unwrap()["account"],
-            "acc_0123456789ab"
-        );
+        let v = serde_json::to_value(with).unwrap();
+        assert_eq!(v["account"], "acc_0123456789ab");
+    }
+
+    /// The saved file is read by these names: every field, written.
+    #[test]
+    fn the_defaults_fields_are_the_written_ones() {
+        let full = BridgeDefaults {
+            cwd: Some("/".into()),
+            model: Some("m".into()),
+            effort: Some("low".into()),
+            thinking: Some("on".into()),
+            permission_mode: Some("plan".into()),
+            setting_sources: Some(vec![]),
+            system_prompt_append: Some("x".into()),
+            default_thread: Some("t".into()),
+            account: Some("a".into()),
+        };
+        let v = serde_json::to_value(full).unwrap();
+        let mut keys: Vec<&str> = v.as_object().unwrap().keys().map(String::as_str).collect();
+        keys.sort_unstable();
+        let mut fields = DEFAULTS_FIELDS.to_vec();
+        fields.sort_unstable();
+        assert_eq!(keys, fields);
     }
 
     #[test]

@@ -203,7 +203,7 @@ impl Inner {
             pending: PendingStore::new(),
             hub: Hub::new(),
             presence: Presence::new(),
-            bridge: BridgeState::new(bridge),
+            bridge: BridgeState::load(bridge, data_dir),
             claude_auth: RwLock::new(AuthStatus::default()),
             limits: AuthLimiter::new(),
             devices: DeviceStore::load(data_dir),

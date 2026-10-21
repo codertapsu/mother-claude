@@ -18,7 +18,7 @@ use uuid::Uuid;
 use super::{created, ok, validate_id, Body};
 use crate::bridge::error::{BridgeError, BridgeResult};
 use crate::bridge::host::{CREATE_TIMEOUT, RPC_TIMEOUT};
-use crate::bridge::ThreadRecord;
+use crate::bridge::{MountPolicy, ThreadRecord};
 use crate::server::context::ClientContext;
 use crate::state::AppState;
 
@@ -519,10 +519,11 @@ pub async fn takeover(state: &AppState, id: &str) -> BridgeResult<Takeover> {
 pub async fn create(
     State(state): State<AppState>,
     ctx: ClientContext,
+    mount: MountPolicy,
     Body(body): Body<CreateThread>,
 ) -> BridgeResult<Response> {
     let caller_cwd = body.cwd.clone();
-    let mut body = body.with_defaults(&state.bridge.defaults().await);
+    let mut body = body.with_defaults(&mount.defaults);
     body.validate(&ctx)?;
     if let (Some(resume), false) = (body.resume.clone(), body.fork) {
         // A session still running elsewhere is continued in a fork.
@@ -578,6 +579,7 @@ pub async fn create(
         persisted: body.resume.is_some(),
         active_turn: None,
         account,
+        server: mount.server_id().to_string(),
     };
     state.bridge.insert_thread(record.clone()).await;
 
@@ -1073,6 +1075,7 @@ mod tests {
             persisted: true,
             active_turn: None,
             account: crate::claude::accounts::DEFAULT_ID.into(),
+            server: crate::bridge::MAIN_ID.into(),
         }
     }
 

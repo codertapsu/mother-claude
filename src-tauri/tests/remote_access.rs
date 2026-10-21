@@ -1093,6 +1093,7 @@ async fn the_bridge_port_keeps_local_tokenless_access_but_not_dangerous_work() {
             persisted: false,
             active_turn: None,
             account: "default".into(),
+            server: "main".into(),
         })
         .await;
     let r = c

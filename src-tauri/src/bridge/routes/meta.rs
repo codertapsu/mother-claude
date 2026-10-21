@@ -7,7 +7,6 @@
 use axum::extract::State;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
-use axum::Extension;
 use serde_json::{json, Value};
 
 use super::ok;
@@ -41,10 +40,7 @@ pub async fn health(State(state): State<AppState>) -> Response {
 }
 
 /// `GET /capabilities` — the machine-readable contract.
-pub async fn capabilities(
-    State(state): State<AppState>,
-    Extension(policy): Extension<MountPolicy>,
-) -> Response {
+pub async fn capabilities(State(state): State<AppState>, policy: MountPolicy) -> Response {
     ok(json!({
         "app": "mother-claude",
         "version": env!("CARGO_PKG_VERSION"),
@@ -244,7 +240,7 @@ pub struct LoginBody {
 /// listener's actual authentication policy.
 pub async fn openapi(
     State(state): State<AppState>,
-    Extension(policy): Extension<MountPolicy>,
+    policy: MountPolicy,
     axum::extract::OriginalUri(uri): axum::extract::OriginalUri,
 ) -> Response {
     // Strip our own filename to learn the prefix we are mounted at, so the

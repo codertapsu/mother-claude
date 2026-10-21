@@ -21,7 +21,7 @@ use crate::bridge::error::{BridgeError, BridgeResult};
 use crate::bridge::host::RPC_TIMEOUT;
 use crate::bridge::inputs;
 use crate::bridge::ops::Operation;
-use crate::bridge::RUN_TIMEOUT_SECS;
+use crate::bridge::{MountPolicy, RUN_TIMEOUT_SECS};
 use crate::server::context::ClientContext;
 use crate::state::AppState;
 
@@ -360,6 +360,7 @@ pub struct ChatBody {
 pub async fn chat(
     State(state): State<AppState>,
     ctx: ClientContext,
+    mount: MountPolicy,
     Body(body): Body<ChatBody>,
 ) -> BridgeResult<Response> {
     let input = match (&body.input, &body.message) {
@@ -376,7 +377,7 @@ pub async fn chat(
     // conversation (and a subprocess) that is immediately orphaned.
     inputs::normalize(&input)?;
 
-    let thread_id = resolve_chat_thread(&state, ctx.clone(), &body).await?;
+    let thread_id = resolve_chat_thread(&state, ctx.clone(), &mount, &body).await?;
     require_turn_allowed(&state, &ctx, &thread_id).await?;
 
     let op = begin_turn(
@@ -429,8 +430,8 @@ pub async fn chat(
 ///    not currently running;
 /// 2. `create_new_chat: true` starts a fresh one and makes it the conversation
 ///    later messages join;
-/// 3. otherwise the active conversation — set when the bridge was started, or
-///    by the first message — continues;
+/// 3. otherwise the active conversation of the server the message came
+///    through — set when it was started, or by the first message — continues;
 /// 4. with no active conversation, one is created and becomes active.
 ///
 /// Step 3 is the reason the flag defaults to false: a client that sends nothing
@@ -439,6 +440,7 @@ pub async fn chat(
 async fn resolve_chat_thread(
     state: &AppState,
     ctx: crate::server::context::ClientContext,
+    mount: &MountPolicy,
     body: &ChatBody,
 ) -> BridgeResult<String> {
     // An account named with the message: only a conversation of that account
@@ -465,15 +467,17 @@ async fn resolve_chat_thread(
             .with("thread_id", id.clone()));
         }
         // Explicitly named: a failure to resume belongs to the caller.
-        crate::bridge::ensure_thread_live(state, &ctx, id, asked_account).await?;
+        crate::bridge::ensure_thread_live(state, &ctx, mount, id, asked_account).await?;
         return Ok(id.clone());
     }
 
     if !body.create_new_chat {
-        let active = state.bridge.active_thread.read().await.clone();
+        let active = mount.server.active_thread();
         // A message for another account starts its own conversation.
         if let Some(active) = active.filter(|a| !other_account(a)) {
-            match crate::bridge::ensure_thread_live(state, &ctx, &active, asked_account).await {
+            match crate::bridge::ensure_thread_live(state, &ctx, mount, &active, asked_account)
+                .await
+            {
                 Ok(()) => return Ok(active),
                 // The conversation we were pointing at is gone. That is not the
                 // caller's problem — open a new one rather than failing a
@@ -481,7 +485,7 @@ async fn resolve_chat_thread(
                 Err(e) => {
                     tracing::warn!(error = %e, thread_id = %active,
                         "the active conversation could not be resumed; starting a new one");
-                    state.bridge.set_active_thread(None).await;
+                    mount.server.set_active_thread(None);
                 }
             }
         }
@@ -511,9 +515,10 @@ async fn resolve_chat_thread(
         fork: body.options.fork,
         account: body.options.account.clone(),
     };
-    let response = super::threads::create(State(state.clone()), ctx, Body(options)).await?;
+    let response =
+        super::threads::create(State(state.clone()), ctx, mount.clone(), Body(options)).await?;
     let created = thread_id_from(response).await?;
-    state.bridge.set_active_thread(Some(created.clone())).await;
+    mount.server.set_active_thread(Some(created.clone()));
     Ok(created)
 }
 

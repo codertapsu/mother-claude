@@ -214,6 +214,25 @@ async fn announce(state: &AppState) {
                 "not started — start it on the API screen".to_string()
             }
         );
+        // The other API servers (docs/ACCOUNTS.md §13.5), each on its own port.
+        for server in state.bridge.servers.all() {
+            if server.is_main() {
+                continue;
+            }
+            let at = server
+                .current_port()
+                .map(|p| format!("http://127.0.0.1:{p}"))
+                .unwrap_or_else(|| "any free port".to_string());
+            println!(
+                "  API {}: {at}  ({})",
+                server.name(),
+                if server.is_running() {
+                    "running"
+                } else {
+                    "not started"
+                }
+            );
+        }
     }
     println!();
 }
