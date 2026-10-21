@@ -282,15 +282,20 @@ the Default sign-in.
   writes into a config directory in exactly four explicit user actions
   (docs/ACCOUNTS.md D4): creating a new directory account's empty directory
   (mode 0700, `DesktopOnly`), **move/copy** of sessions or projects between
-  directory accounts (`claude/transfer.rs`), **restore** from a backup and
-  **pull** from a backup set (`claude/backup.rs`). The last three are the
-  desktop's or a paired device's (`ManageData`, docs/ACCOUNTS.md §13.9):
-  carrying a folder's trust needs the dangerous right, and the desktop is told
-  what a device did. Each of them refuses while a live
-  process uses the directory it would write (a pidfile with a living pid in its
-  `sessions/`, or a `.claude.json.lock` younger than 10 s); first copies what it
-  will change to `<app data dir>/undo/<timestamp>/`; writes atomically (temp +
-  rename); and writes an audit line. Nothing writes to a config directory in the
+  directory accounts and **copying customizations** (`CLAUDE.md`, settings,
+  skills, agents, commands, output styles, keybindings, the user-scope MCP
+  servers, prompt history; `claude/transfer.rs`, `claude/transfer/custom.rs`),
+  **restore** from a backup and **pull** from a backup set
+  (`claude/backup.rs`). The last three are the desktop's or a paired
+  device's (`ManageData`, docs/ACCOUNTS.md §13.9): carrying a folder's trust
+  and copying the settings or MCP servers need the dangerous right, and the
+  desktop is told what a device did. Each of them refuses to write a shared
+  file (`.claude.json`, `history.jsonl`, a file it replaces) while a live
+  process uses that directory (a pidfile with a living pid in its `sessions/`,
+  or a `.claude.json.lock` younger than 10 s) — only adding new files runs
+  alongside; first copies what it will change to
+  `<app data dir>/undo/<timestamp>/`; writes atomically (temp + rename, a new
+  file never over another); and writes an audit line. Nothing writes to a config directory in the
   background, ever. One exception runs without a user action:
   the plan-usage helper (`claude/usage.rs`), a short-lived `claude -p` that gets
   `initialize` and `get_usage` and never a message. It runs while a dashboard is

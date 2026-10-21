@@ -828,6 +828,8 @@ fn items(sessions: &[&str], projects: &[&str], mode: Mode, trust: bool) -> Items
         projects: projects.iter().map(|s| s.to_string()).collect(),
         mode,
         trust,
+        customs: Vec::new(),
+        replace_existing: false,
     }
 }
 
@@ -1061,4 +1063,309 @@ fn a_project_that_cannot_go_whole_keeps_its_history_where_it_is() {
     assert!(v["projects"].get(CWD).is_some());
     assert_eq!(transcripts_of(&w.a, SID).len(), 1, "the running one stays");
     assert_eq!(transcripts_of(&w.b, S2).len(), 1);
+}
+
+use super::custom::{Custom, CustomAction};
+
+const ALL_CUSTOMS: [Custom; 9] = [
+    Custom::Memory,
+    Custom::Settings,
+    Custom::Skills,
+    Custom::Agents,
+    Custom::Commands,
+    Custom::OutputStyles,
+    Custom::Keybindings,
+    Custom::McpServers,
+    Custom::History,
+];
+
+fn customs(list: &[Custom], replace: bool) -> Items {
+    Items {
+        sessions: Vec::new(),
+        projects: Vec::new(),
+        mode: Mode::Copy,
+        trust: false,
+        customs: list.to_vec(),
+        replace_existing: replace,
+    }
+}
+
+/// The source's customizations: every category, a skill linked from a
+/// repository among them.
+fn customized(w: &World) -> PathBuf {
+    let a = w.a.base();
+    std::fs::write(a.join("CLAUDE.md"), "be brief").unwrap();
+    std::fs::write(
+        a.join("settings.json"),
+        serde_json::json!({"model": "opus", "env": {"ANTHROPIC_API_KEY": "sk-secret-in-settings"},
+                           "statusLine": {"type": "command", "command": "x"}})
+        .to_string(),
+    )
+    .unwrap();
+    std::fs::create_dir_all(a.join("skills/review/scripts")).unwrap();
+    std::fs::write(a.join("skills/review/SKILL.md"), "review skill").unwrap();
+    std::fs::write(a.join("skills/review/scripts/run.sh"), "echo hi").unwrap();
+    std::fs::create_dir_all(a.join("skills/synced/x")).unwrap();
+    std::fs::write(a.join("skills/synced/x/SKILL.md"), "synced").unwrap();
+    let repo = w._tmp.path().join("repo/skills/linted");
+    std::fs::create_dir_all(&repo).unwrap();
+    std::fs::write(repo.join("SKILL.md"), "from a repository").unwrap();
+    #[cfg(unix)]
+    std::os::unix::fs::symlink("../../repo/skills/linted", a.join("skills/linted")).unwrap();
+    std::fs::create_dir_all(a.join("agents")).unwrap();
+    std::fs::write(a.join("agents/planner.md"), "plan").unwrap();
+    std::fs::create_dir_all(a.join("commands/git")).unwrap();
+    std::fs::write(a.join("commands/git/ship.md"), "ship it").unwrap();
+    std::fs::create_dir_all(a.join("output-styles")).unwrap();
+    std::fs::write(a.join("output-styles/terse.md"), "terse").unwrap();
+    std::fs::write(a.join("keybindings.json"), "[]").unwrap();
+    std::fs::write(
+        w.a.claude_json(),
+        serde_json::json!({"userID": "a", "mcpServers": {
+            "github": {"command": "gh-mcp", "env": {"GITHUB_TOKEN": "ghp-secret-token"}},
+            "shared": {"command": "a-version"}}})
+        .to_string(),
+    )
+    .unwrap();
+    let line = |t: i64, d: &str| {
+        serde_json::json!({"display": d, "timestamp": t, "project": "/p"}).to_string()
+    };
+    std::fs::write(
+        w.a.history_file(),
+        [line(1, "one"), line(2, "two")].join("\n") + "\n",
+    )
+    .unwrap();
+    repo
+}
+
+fn mcp_of(h: &ClaudeHome) -> Value {
+    let v: Value =
+        serde_json::from_str(&std::fs::read_to_string(h.claude_json()).unwrap()).unwrap();
+    v["mcpServers"].clone()
+}
+
+/// §13.3 rule 7: every category adds what the target lacks and leaves what
+/// it has; MCP servers merge by name; the history by `(timestamp,
+/// display)`; a symlinked skill is linked again, never followed; the plan
+/// names MCP servers only by name and warns about settings that choose the
+/// sign-in or run commands; one undo takes all of it back.
+#[cfg(unix)]
+#[test]
+fn customizations_add_what_the_target_lacks_and_undo_takes_them_back() {
+    let w = world();
+    let repo = customized(&w);
+    let b = w.b.base();
+    std::fs::write(b.join("CLAUDE.md"), "the target's own").unwrap();
+    std::fs::write(
+        w.b.claude_json(),
+        serde_json::json!({"userID": "b", "mcpServers": {"shared": {"command": "b-version"}}})
+            .to_string(),
+    )
+    .unwrap();
+    std::fs::write(
+        w.b.history_file(),
+        serde_json::json!({"display": "one", "timestamp": 1, "project": "/p"}).to_string() + "\n",
+    )
+    .unwrap();
+    let before = snapshot_of(b);
+    let ctx = Context {
+        from: &w.a,
+        to: &w.b,
+        is_live: &not_live,
+    };
+    let (p, skipped) = plan_items(&ctx, &customs(&ALL_CUSTOMS, false), &mine).unwrap();
+    assert!(skipped.is_empty(), "{skipped:?}");
+    let cp = p.customs.clone().unwrap();
+    let actions: Vec<(String, &str, CustomAction)> = cp
+        .items
+        .iter()
+        .map(|i| (i.item.key().to_string(), i.name.as_str(), i.action))
+        .collect();
+    assert_eq!(
+        actions,
+        [
+            ("memory".to_string(), "CLAUDE.md", CustomAction::Skip),
+            ("settings".into(), "settings.json", CustomAction::Add),
+            ("skills".into(), "linted", CustomAction::Add),
+            ("skills".into(), "review", CustomAction::Add),
+            ("agents".into(), "planner.md", CustomAction::Add),
+            ("commands".into(), "git", CustomAction::Add),
+            ("outputStyles".into(), "terse.md", CustomAction::Add),
+            ("keybindings".into(), "keybindings.json", CustomAction::Add),
+            ("mcpServers".into(), "github", CustomAction::Add),
+            ("mcpServers".into(), "shared", CustomAction::Skip),
+            ("history".into(), "history.jsonl", CustomAction::Merge),
+        ]
+    );
+    assert_eq!(p.history_lines, 1, "the line the target lacks");
+    let served = serde_json::to_string(&cp.items).unwrap() + &p.warnings.concat();
+    assert!(!served.contains("ghp-secret-token") && !served.contains("sk-secret-in-settings"));
+    assert!(
+        p.warnings
+            .iter()
+            .any(|w| w.contains("env ANTHROPIC_API_KEY")),
+        "{:?}",
+        p.warnings
+    );
+    assert!(p.warnings.iter().any(|w| w.contains("statusLine")));
+    assert!(p.writes_shared, "the MCP servers and the history");
+
+    let id = new_job_id();
+    run(&p, &w.undo, &id, &Progress::default(), &not_live).unwrap();
+    assert_eq!(
+        std::fs::read_to_string(b.join("CLAUDE.md")).unwrap(),
+        "the target's own"
+    );
+    assert_eq!(
+        std::fs::read_to_string(b.join("skills/review/scripts/run.sh")).unwrap(),
+        "echo hi"
+    );
+    assert!(
+        !b.join("skills/synced").exists(),
+        "synced skills are runtime state"
+    );
+    let link = b.join("skills/linted");
+    assert!(std::fs::symlink_metadata(&link)
+        .unwrap()
+        .file_type()
+        .is_symlink());
+    assert_eq!(
+        std::fs::read_link(&link).unwrap(),
+        repo.parent()
+            .unwrap()
+            .parent()
+            .unwrap()
+            .join("skills/linted"),
+        "the same absolute target"
+    );
+    assert_eq!(
+        std::fs::read_to_string(b.join("commands/git/ship.md")).unwrap(),
+        "ship it"
+    );
+    assert_eq!(mcp_of(&w.b)["github"]["command"], "gh-mcp");
+    assert_eq!(
+        mcp_of(&w.b)["shared"]["command"],
+        "b-version",
+        "never over its own"
+    );
+    assert_eq!(
+        std::fs::read_to_string(w.b.history_file())
+            .unwrap()
+            .lines()
+            .count(),
+        2
+    );
+
+    undo(&w.undo, &id).unwrap();
+    assert_eq!(snapshot_of(b), before, "the target as it was");
+    assert!(
+        std::fs::symlink_metadata(&link).is_err(),
+        "the link is gone"
+    );
+    assert!(
+        repo.join("SKILL.md").exists(),
+        "and never what it pointed to"
+    );
+}
+
+/// With `replaceExisting`, what the target has is replaced, the old copy kept
+/// in the undo directory; the undo puts it back — a replaced skill folder
+/// whole, with the file the new one did not have.
+#[test]
+fn replaced_customizations_come_back_with_the_undo() {
+    let w = world();
+    customized(&w);
+    let b = w.b.base();
+    std::fs::write(b.join("CLAUDE.md"), "the target's own").unwrap();
+    std::fs::create_dir_all(b.join("skills/review")).unwrap();
+    std::fs::write(b.join("skills/review/SKILL.md"), "old review").unwrap();
+    std::fs::write(b.join("skills/review/notes.md"), "only here").unwrap();
+    std::fs::write(
+        w.b.claude_json(),
+        serde_json::json!({"mcpServers": {"shared": {"command": "b-version"}}}).to_string(),
+    )
+    .unwrap();
+    let before = snapshot_of(b);
+    let ctx = Context {
+        from: &w.a,
+        to: &w.b,
+        is_live: &not_live,
+    };
+    let list = [Custom::Memory, Custom::Skills, Custom::McpServers];
+    let (p, _) = plan_items(&ctx, &customs(&list, true), &mine).unwrap();
+    let replaced: Vec<&str> = p
+        .customs
+        .as_ref()
+        .unwrap()
+        .items
+        .iter()
+        .filter(|i| i.action == CustomAction::Replace)
+        .map(|i| i.name.as_str())
+        .collect();
+    assert_eq!(replaced, ["CLAUDE.md", "review", "shared"]);
+    let id = new_job_id();
+    run(&p, &w.undo, &id, &Progress::default(), &not_live).unwrap();
+    assert_eq!(
+        std::fs::read_to_string(b.join("CLAUDE.md")).unwrap(),
+        "be brief"
+    );
+    assert_eq!(
+        std::fs::read_to_string(b.join("skills/review/SKILL.md")).unwrap(),
+        "review skill"
+    );
+    assert!(!b.join("skills/review/notes.md").exists(), "replaced whole");
+    assert_eq!(mcp_of(&w.b)["shared"]["command"], "a-version");
+    // A file of the target changed since: the undo refuses.
+    std::fs::write(b.join("CLAUDE.md"), "edited after").unwrap();
+    assert_eq!(undo(&w.undo, &id).unwrap_err().code(), "undo_conflict");
+    std::fs::write(b.join("CLAUDE.md"), "be brief").unwrap();
+    undo(&w.undo, &id).unwrap();
+    assert_eq!(snapshot_of(b), before, "every replaced file back");
+}
+
+/// Adding new files runs while the target has live sessions; replacing, the
+/// MCP servers and the history wait (D4). Customizations are never moved,
+/// and a category the source lacks is skipped by name.
+#[test]
+fn customizations_follow_the_in_use_rule_and_are_only_copied() {
+    let w = world();
+    std::fs::create_dir_all(w.a.base().join("agents")).unwrap();
+    std::fs::write(w.a.base().join("agents/planner.md"), "plan").unwrap();
+    std::fs::write(w.a.base().join("CLAUDE.md"), "be brief").unwrap();
+    std::fs::write(w.b.base().join("CLAUDE.md"), "own").unwrap();
+    std::fs::create_dir_all(w.b.sessions_dir()).unwrap();
+    std::fs::write(
+        w.b.sessions_dir()
+            .join(format!("{}.json", std::process::id())),
+        "{}",
+    )
+    .unwrap();
+    let ctx = Context {
+        from: &w.a,
+        to: &w.b,
+        is_live: &not_live,
+    };
+    let (p, skipped) = plan_items(
+        &ctx,
+        &customs(&[Custom::Agents, Custom::Keybindings], false),
+        &mine,
+    )
+    .unwrap();
+    assert!(!p.writes_shared, "new files only");
+    assert_eq!(skipped[0].item.as_deref(), Some("keybindings"));
+    assert_eq!(skipped[0].code, "not_found");
+    run(&p, &w.undo, &new_job_id(), &Progress::default(), &not_live).unwrap();
+    assert!(w.b.base().join("agents/planner.md").exists());
+    assert_eq!(
+        plan_items(&ctx, &customs(&[Custom::Memory], true), &mine)
+            .unwrap_err()
+            .code(),
+        "directory_in_use"
+    );
+    let mut moving = customs(&[Custom::Agents], false);
+    moving.mode = Mode::Move;
+    assert_eq!(
+        plan_items(&ctx, &moving, &mine).unwrap_err().code(),
+        "invalid_transfer"
+    );
 }

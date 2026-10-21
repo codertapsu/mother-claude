@@ -2503,6 +2503,7 @@ fn place_staged(
                 path: dest,
                 size,
                 sha256: sha,
+                link: None,
             });
         }
         Ok(())
@@ -3001,6 +3002,7 @@ fn place_conflict(
         path: dest,
         size,
         sha256: sha,
+        link: None,
     }))
 }
 

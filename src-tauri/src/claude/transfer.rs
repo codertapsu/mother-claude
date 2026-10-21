@@ -205,6 +205,9 @@ pub struct Plan {
     /// What a bulk request should know before it runs.
     #[serde(skip)]
     pub warnings: Vec<String>,
+    /// The customizations it copies.
+    #[serde(skip)]
+    pub customs: Option<custom::CustomPlan>,
     #[serde(skip)]
     snapshot: bool,
     #[serde(skip)]
@@ -611,6 +614,7 @@ pub fn plan(ctx: &Context<'_>, req: &Request) -> Result<Plan, TransferError> {
         history_cwds,
         projects: Vec::new(),
         warnings: Vec::new(),
+        customs: None,
         snapshot: req.snapshot,
         refresh: req.refresh,
         from_account: None,
@@ -679,6 +683,10 @@ pub struct Items {
     pub projects: Vec<String>,
     pub mode: Mode,
     pub trust: bool,
+    /// Customizations, copied only (§13.3 rule 7).
+    pub customs: Vec<custom::Custom>,
+    /// Customizations: replace what the target has.
+    pub replace_existing: bool,
 }
 
 /// Whether a conversation of the source directory is the source account's
@@ -723,6 +731,11 @@ pub fn plan_items(
     };
     if same(ctx.from.base(), ctx.to.base()) {
         return Err(TransferError::SameDirectory);
+    }
+    if req.mode == Mode::Move && !req.customs.is_empty() {
+        return Err(TransferError::Invalid(
+            "customizations are only copied, never moved".into(),
+        ));
     }
     let mut skipped = Vec::new();
     let mut warnings = Vec::new();
@@ -867,7 +880,25 @@ pub fn plan_items(
             }
         }
     }
-    let writes_shared = !entries.is_empty() || !history.is_empty();
+    let customs = if req.customs.is_empty() {
+        None
+    } else {
+        let mut cp = custom::plan(ctx.from, ctx.to, &req.customs, req.replace_existing)?;
+        skipped.append(&mut cp.skipped);
+        warnings.append(&mut cp.warnings);
+        // The whole history and a project's lines go once.
+        for line in std::mem::take(&mut cp.history) {
+            if history_key(&line).is_some_and(|k| have.insert(k)) {
+                history.push(line);
+            }
+        }
+        Some(cp)
+    };
+    let writes_shared = !entries.is_empty()
+        || !history.is_empty()
+        || customs
+            .as_ref()
+            .is_some_and(custom::CustomPlan::writes_shared);
     if writes_shared {
         if let Some(e) = in_use(ctx.to) {
             return Err(e);
@@ -881,12 +912,14 @@ pub fn plan_items(
             return Err(e);
         }
     }
-    let files = sessions.iter().map(|s| s.files.len()).sum();
+    let files = sessions.iter().map(|s| s.files.len()).sum::<usize>()
+        + customs.as_ref().map_or(0, |c| c.files);
     let bytes = sessions
         .iter()
         .flat_map(|s| s.files.iter())
         .map(|f| f.size)
-        .sum();
+        .sum::<u64>()
+        + customs.as_ref().map_or(0, |c| c.bytes);
     let what = match (projects.first(), sessions.first()) {
         (Some((cwd, _, _)), _) => What::Project { cwd: cwd.clone() },
         (None, Some(s)) => What::Session { id: s.id.clone() },
@@ -912,6 +945,7 @@ pub fn plan_items(
         history_cwds,
         projects: projects.into_iter().map(|(c, _, _)| c).collect(),
         warnings,
+        customs,
         snapshot: false,
         refresh: false,
         from_account: None,
@@ -943,6 +977,10 @@ impl Plan {
             && self.entries.is_empty()
             && self.history.is_empty()
             && !self.removes_from_source()
+            && self
+                .customs
+                .as_ref()
+                .is_none_or(custom::CustomPlan::is_empty)
     }
 }
 
@@ -955,6 +993,28 @@ pub struct Created {
     pub path: PathBuf,
     pub size: u64,
     pub sha256: String,
+    /// A symbolic link the job made (a skill linked from a repository),
+    /// pointing here; `size` and `sha256` are then empty.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub link: Option<PathBuf>,
+}
+
+impl Created {
+    /// Whether it is still exactly what the job made (`None`: it is gone).
+    fn state(&self) -> std::io::Result<Option<bool>> {
+        if let Some(target) = &self.link {
+            return match std::fs::read_link(&self.path) {
+                Ok(t) => Ok(Some(t == *target)),
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+                Err(e) => Err(e),
+            };
+        }
+        match sha256_file(&self.path) {
+            Ok((size, sha)) => Ok(Some(size == self.size && sha == self.sha256)),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(e) => Err(e),
+        }
+    }
 }
 
 /// The set a move into or out of a storage used (docs/ACCOUNTS.md §13.2),
@@ -1002,6 +1062,7 @@ impl Manifest {
             storage: None,
             archived_marks: Vec::new(),
             set_entries: Vec::new(),
+            mcp: Vec::new(),
         }
     }
 
@@ -1017,6 +1078,7 @@ impl Manifest {
             && self.removed_history.is_empty()
             && self.archived_marks.is_empty()
             && self.set_entries.is_empty()
+            && self.mcp.is_empty()
     }
 
     /// The source's `.claude.json` (older manifests: inside its directory).
@@ -1099,6 +1161,10 @@ pub struct Manifest {
     /// back).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub set_entries: Vec<crate::claude::backup::IndexEntry>,
+    /// The MCP servers a copy of customizations wrote into the target's
+    /// `.claude.json` (its undo sets each back).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub mcp: Vec<custom::McpChange>,
 }
 
 /// Progress of a running transfer.
@@ -1216,6 +1282,7 @@ fn copy_file(c: &FileCopy, snapshot: bool) -> Result<Created, TransferError> {
         path: c.to.clone(),
         size,
         sha256: sha,
+        link: None,
     })
 }
 
@@ -1270,6 +1337,25 @@ pub(crate) fn edit_projects(
     claude_json: &Path,
     f: impl FnOnce(&mut serde_json::Map<String, Value>),
 ) -> Result<(), TransferError> {
+    edit_claude_json(claude_json, |obj| {
+        let projects = obj
+            .entry("projects")
+            .or_insert_with(|| Value::Object(Default::default()));
+        let projects = projects.as_object_mut().ok_or_else(|| {
+            TransferError::Io(format!("{} has no projects object", claude_json.display()))
+        })?;
+        f(projects);
+        Ok(())
+    })
+}
+
+/// `.claude.json` with its top-level object changed by `f` (the rest as it
+/// is), rewritten atomically; a missing file starts empty, an unreadable one
+/// is an error, never a file to write over.
+pub(crate) fn edit_claude_json(
+    claude_json: &Path,
+    f: impl FnOnce(&mut serde_json::Map<String, Value>) -> Result<(), TransferError>,
+) -> Result<(), TransferError> {
     let mut root: Value = match std::fs::read_to_string(claude_json) {
         Ok(text) => serde_json::from_str(&text).map_err(|e| {
             TransferError::Io(format!(
@@ -1283,13 +1369,7 @@ pub(crate) fn edit_projects(
     let obj = root
         .as_object_mut()
         .ok_or_else(|| TransferError::Io(format!("{} is not an object", claude_json.display())))?;
-    let projects = obj
-        .entry("projects")
-        .or_insert_with(|| Value::Object(Default::default()));
-    let projects = projects.as_object_mut().ok_or_else(|| {
-        TransferError::Io(format!("{} has no projects object", claude_json.display()))
-    })?;
-    f(projects);
+    f(obj)?;
     rewrite_json(claude_json, &root)
 }
 
@@ -1440,7 +1520,7 @@ pub(crate) fn stash(path: &Path, undo_dir: &Path, rel: &Path) -> Result<Moved, T
         std::fs::create_dir_all(parent).map_err(|e| io("creating", parent, e))?;
     }
     if std::fs::rename(path, &dest).is_err() {
-        std::fs::copy(path, &dest).map_err(|e| io("saving", path, e))?;
+        copy_entry(path, &dest).map_err(|e| io("saving", path, e))?;
         if let Err(e) = std::fs::remove_file(path) {
             let _ = std::fs::remove_file(&dest);
             return Err(io("removing", path, e));
@@ -1452,6 +1532,32 @@ pub(crate) fn stash(path: &Path, undo_dir: &Path, rel: &Path) -> Result<Moved, T
     })
 }
 
+/// Copy a file, or a symbolic link as a link to the same target (never what
+/// it points to).
+fn copy_entry(from: &Path, to: &Path) -> std::io::Result<()> {
+    if std::fs::symlink_metadata(from)?.file_type().is_symlink() {
+        return make_symlink(&std::fs::read_link(from)?, to);
+    }
+    std::fs::copy(from, to).map(|_| ())
+}
+
+/// Make a symbolic link at `link` pointing to `target` (on Windows a
+/// directory link when the target is a directory).
+pub(crate) fn make_symlink(target: &Path, link: &Path) -> std::io::Result<()> {
+    #[cfg(unix)]
+    {
+        std::os::unix::fs::symlink(target, link)
+    }
+    #[cfg(windows)]
+    {
+        if target.is_dir() {
+            std::os::windows::fs::symlink_dir(target, link)
+        } else {
+            std::os::windows::fs::symlink_file(target, link)
+        }
+    }
+}
+
 /// Put a saved file back: a rename on one volume, else a copy (the saved
 /// copy is removed only once the original is back).
 pub(crate) fn put_back(saved: &Path, original: &Path) -> Result<(), TransferError> {
@@ -1460,7 +1566,7 @@ pub(crate) fn put_back(saved: &Path, original: &Path) -> Result<(), TransferErro
         std::fs::create_dir_all(parent).map_err(|e| io("creating", parent, e))?;
     }
     if std::fs::rename(saved, original).is_err() {
-        std::fs::copy(saved, original).map_err(|e| io("restoring", original, e))?;
+        copy_entry(saved, original).map_err(|e| io("restoring", original, e))?;
         let _ = std::fs::remove_file(saved);
     }
     Ok(())
@@ -1684,6 +1790,9 @@ pub fn run(
             m.added_history = plan.history.clone();
             save(&m)?;
         }
+        if let Some(cp) = &plan.customs {
+            custom::run(cp, &to, &plan.to_config, &undo_dir, &mut m, progress, &save)?;
+        }
         // Move mode: the source goes to the undo directory, only now that
         // every copy verified, and only while none of its sessions runs and
         // each file is still what was copied.
@@ -1814,8 +1923,12 @@ pub fn undo_with_before(
     if let Some(id) = m.sessions.iter().find(|id| is_live(id)) {
         return Err(TransferError::SessionLive(id.clone()));
     }
-    let target_shared =
-        m.added_entry.is_some() || !m.added_entries.is_empty() || !m.added_history.is_empty();
+    let target_shared = m.added_entry.is_some()
+        || !m.added_entries.is_empty()
+        || !m.added_history.is_empty()
+        || !m.mcp.is_empty()
+        // Customizations a copy replaced in the target go back there.
+        || m.moved.iter().any(|mv| mv.original.starts_with(&m.to_dir));
     if target_shared {
         if let Some(e) = in_use_at(&m.to_dir, &m.to_config()) {
             return Err(e);
@@ -1837,15 +1950,14 @@ pub fn undo_with_before(
     // Refuse when what was created has been used since (a continued
     // session): deleting it would lose that work.
     for c in m.created.iter().filter(|c| !back.contains(&c.path)) {
-        match sha256_file(&c.path) {
-            Ok((size, sha)) if size == c.size && sha == c.sha256 => {}
-            Ok(_) => {
+        match c.state() {
+            Ok(Some(true)) | Ok(None) => {}
+            Ok(Some(false)) => {
                 return Err(TransferError::UndoConflict(format!(
                     "{} changed after the transfer",
                     c.path.display()
                 )))
             }
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
             Err(e) => return Err(io("reading", &c.path, e)),
         }
     }
@@ -1907,9 +2019,9 @@ fn restore_source(m: &Manifest, undo_dir: &Path) -> Result<(), TransferError> {
         }
         if mv.original.exists() {
             // Only this job's own, unchanged file may stand there.
-            let mine = ours.get(&mv.original).is_some_and(|c| {
-                sha256_file(&mv.original).is_ok_and(|(n, h)| n == c.size && h == c.sha256)
-            });
+            let mine = ours
+                .get(&mv.original)
+                .is_some_and(|c| matches!(c.state(), Ok(Some(true))));
             if !mine {
                 return Err(TransferError::UndoConflict(format!(
                     "{} exists again",
@@ -1967,6 +2079,7 @@ fn rollback(m: &Manifest) -> Result<(), TransferError> {
     if !m.added_history.is_empty() {
         remove_lines(&to.history_file(), &m.added_history)?;
     }
+    custom::undo_mcp(m)?;
     Ok(())
 }
 
@@ -2256,6 +2369,7 @@ pub fn project_folder(cwd: &str) -> String {
     encode_cwd(cwd)
 }
 
+pub mod custom;
 pub mod ops;
 
 #[cfg(test)]
