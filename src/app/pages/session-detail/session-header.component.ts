@@ -4,6 +4,7 @@ import {
   computed,
   effect,
   inject,
+  linkedSignal,
   signal,
   untracked,
 } from '@angular/core';
@@ -498,14 +499,19 @@ export class SessionHeaderComponent {
     () => !!this.ctx.session() && anyTarget(this.accounts.list(), this.storage.list() ?? []),
   );
   /** Move data with the conversation, or every conversation of its folder. */
-  protected readonly moveStart = computed<MoveStart | null>(() => {
-    const s = this.ctx.session();
-    const kind = this.ctx.moveCopy();
-    if (!s || !kind) return null;
-    const from = accountLocation(s.account?.id ?? DEFAULT_ACCOUNT);
-    return kind === 'project'
-      ? { from, what: 'projects', projects: [s.cwd], known: [s] }
-      : { from, what: 'sessions', sessions: [s.id], known: [s] };
+  /** Move data with the conversation, or every conversation of its folder:
+   * taken when it opens (from this menu or the Info tab), as the session
+   * may move away, or change account, while it runs. */
+  protected readonly moveStart = linkedSignal<'session' | 'project' | null, MoveStart | null>({
+    source: () => this.ctx.moveCopy(),
+    computation: (kind) => {
+      const s = untracked(() => this.ctx.session());
+      if (!kind || !s) return null;
+      const from = accountLocation(s.account?.id ?? DEFAULT_ACCOUNT);
+      return kind === 'project'
+        ? { from, what: 'projects', projects: [s.cwd], known: [s] }
+        : { from, what: 'sessions', sessions: [s.id], known: [s] };
+    },
   });
 
   constructor() {

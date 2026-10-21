@@ -862,11 +862,14 @@ export class MoveDataSheetComponent {
   protected readonly anyFailed = computed(() => this.jobs().some((j) => j.state === 'failed'));
 
   constructor() {
-    // Every opening starts over, with what the opener chose.
+    // Every opening starts over, with what the opener chose then: a change
+    // of it while open (the session moved, its account changed) keeps the
+    // jobs on screen.
+    let wasOpen = false;
     effect(() => {
-      if (!this.open()) return;
-      const start = this.start();
-      untracked(() => this.reset(start));
+      const open = this.open();
+      if (open && !wasOpen) untracked(() => this.reset(this.start()));
+      wasOpen = open;
     });
     // A set's index, when its conversations are listed (or counted).
     effect(() => {

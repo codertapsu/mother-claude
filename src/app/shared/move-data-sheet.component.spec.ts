@@ -523,6 +523,38 @@ describe('MoveDataSheetComponent', () => {
     );
   });
 
+  it('keeps its jobs when what it opened with changes while open', async () => {
+    backend.routes.set('/data/move', () => ({
+      status: 200,
+      body: { plan: { mode: 'move', sessions: [{ id: 's1', action: 'assign' }] } },
+    }));
+    const el = await open({
+      from: accountLocation('default'),
+      what: 'sessions',
+      sessions: ['s1'],
+      known: [session('s1')],
+    });
+    await choose(el, 'to', `a:${MOCK_ACCOUNT_PRO}`);
+    button(el, 'Check what it does')?.click();
+    await settle();
+    expect(el.querySelector('.planline')).not.toBeNull();
+    // The session it opened with was given to Pro meanwhile: a new start.
+    fixture.componentRef.setInput('start', {
+      from: accountLocation(MOCK_ACCOUNT_PRO),
+      what: 'sessions',
+      sessions: ['s1'],
+    });
+    await settle();
+    expect(el.querySelector('.planline')).not.toBeNull();
+    expect(el.querySelector('select[name="from"]')).toBeNull();
+    // Opened again, it starts from the new one.
+    fixture.componentRef.setInput('open', false);
+    await settle();
+    fixture.componentRef.setInput('open', true);
+    await settle();
+    expect(select(el, 'from').value).toBe(`a:${MOCK_ACCOUNT_PRO}`);
+  });
+
   it("puts the server's refusals in words and stays where it was", async () => {
     backend.routes.set('/data/move', () => ({
       status: 409,
