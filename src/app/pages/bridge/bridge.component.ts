@@ -20,11 +20,13 @@ import {
   ServerDefaults,
   absorbReply,
   lanBaseOf,
+  normalizeServer,
   serverAccount,
   serverAddresses,
   serverErrorText,
   serverPanel,
   serversOf,
+  withoutServer,
 } from '../../core/api-servers';
 import { ApiService } from '../../core/api.service';
 import { AuthService } from '../../core/auth.service';
@@ -36,10 +38,12 @@ import {
   SessionSummary,
 } from '../../core/models';
 import { signInLine } from '../../shared/accounts';
+import { IconComponent } from '../../shared/icon.component';
 import { EFFORT_LABELS, effortLabel, relativeTime, sessionName } from '../../shared/util';
 import { API_PERMISSION_MODES } from './permission-modes';
 import { ApiServerAddressesComponent } from './server-addresses.component';
 import { ApiServerListComponent } from './server-list.component';
+import { ApiServerSheetComponent } from './server-sheet.component';
 
 /** New conversation on the first message, rather than joining an existing one. */
 const FRESH = '';
@@ -67,13 +71,19 @@ interface ClaudeLine {
  * Besides the main server there may be others, each on its own port and,
  * when it names one, running as one Claude account (docs/ACCOUNTS.md §13.5).
  * While there are, the screen lists them and the panel shows the one picked,
- * with its addresses; with only the main one it is the screen it always was.
- * Phones may do all of it but open a port to tunnels (the server enforces
- * that, and a mode that skips approvals).
+ * with its addresses; with only the main one it is the screen it always was,
+ * plus a quiet *Add API server*. Phones may do all of it but open a port to
+ * tunnels (the server enforces that, and a mode that skips approvals).
  */
 @Component({
   selector: 'mc-bridge',
-  imports: [FormsModule, ApiServerAddressesComponent, ApiServerListComponent],
+  imports: [
+    FormsModule,
+    ApiServerAddressesComponent,
+    ApiServerListComponent,
+    ApiServerSheetComponent,
+    IconComponent,
+  ],
   template: `
     <div class="page-head"><h1>API</h1></div>
     <p class="lede">
@@ -87,7 +97,12 @@ interface ClaudeLine {
 
     @if (panel(); as s) {
       @if (multi()) {
-        <mc-api-server-list [servers]="servers()" [selected]="panelId()" (picked)="pick($event)" />
+        <mc-api-server-list
+          [servers]="servers()"
+          [selected]="panelId()"
+          (picked)="pick($event)"
+          (add)="adding.set(true)"
+        />
       }
       @if (notice(); as n) {
         @if (n.at === 'top') {
@@ -112,6 +127,11 @@ interface ClaudeLine {
             <span class="mono muted">port {{ s.port }}</span>
           }
           <span class="spacer"></span>
+          @if (!isMain()) {
+            <button class="btn" type="button" [disabled]="busy()" (click)="managing.set(true)">
+              <mc-icon name="settings" [size]="15" /> Manage
+            </button>
+          }
           @if (s.running) {
             <button class="btn" type="button" [disabled]="busy()" (click)="stop()">Stop</button>
           }
@@ -411,6 +431,15 @@ interface ClaudeLine {
         }
       }
 
+      @if (!multi() && s.enabled) {
+        <p class="more muted small">
+          <button class="btn ghost small" type="button" (click)="adding.set(true)">
+            <mc-icon name="plus" [size]="14" /> Add API server
+          </button>
+          <span>Another API on a port of its own — for one Claude account, say.</span>
+        </p>
+      }
+
       @if (!s.enabled) {
         <div class="card muted">
           The API is disabled for this process (<code>MOTHER_CLAUDE_BRIDGE=0</code>).
@@ -419,6 +448,18 @@ interface ClaudeLine {
     } @else if (!error()) {
       <p class="muted">Loading…</p>
     }
+
+    <mc-api-server-sheet
+      [open]="adding() || managing()"
+      [server]="managing() ? selected() : null"
+      [servers]="servers()"
+      [mainPort]="status()?.port"
+      [mainDefaults]="status()?.defaults ?? {}"
+      [launch]="launch()"
+      (closed)="closeSheet()"
+      (saved)="onSaved($event)"
+      (removed)="onRemoved($event)"
+    />
   `,
   styles: [
     `
@@ -557,6 +598,16 @@ interface ClaudeLine {
       .said-top + .card.status {
         margin-top: 12px;
       }
+      .more {
+        display: flex;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 4px 10px;
+        margin: -24px 0 40px;
+      }
+      .more .btn {
+        margin-left: -0.6rem;
+      }
       @media (max-width: 560px) {
         .form .row {
           flex-direction: column;
@@ -623,6 +674,8 @@ export class BridgeComponent {
     const s = this.status();
     return s ? serverPanel(s, this.selected()) : null;
   });
+  readonly adding = signal(false);
+  readonly managing = signal(false);
   /** The desktop's `GET /api/remote`, for the LAN address. */
   private readonly remote = signal<RemoteInfo | null>(null);
   /** The server the form was seeded for. */
@@ -854,6 +907,38 @@ export class BridgeComponent {
     if (!id) this.accountOnly.set(false);
     else if (!this.account() && !this.isMain()) this.accountOnly.set(true);
     this.account.set(id);
+  }
+
+  closeSheet(): void {
+    this.adding.set(false);
+    this.managing.set(false);
+  }
+
+  /** A server was added (its panel shows next) or changed. */
+  onSaved(reply: unknown): void {
+    const added = this.adding();
+    this.closeSheet();
+    const server = normalizeServer(reply);
+    const next = absorbReply(this.status(), reply);
+    if (added && server) {
+      this.selectedId.set(server.id);
+      this.apply(next, true);
+      this.notice.set({
+        text: `Added ${server.name}. It is stopped: check its defaults below, then start it.`,
+        at: 'top',
+      });
+    } else {
+      // Its name or port: what is being edited in the form stays.
+      this.apply(next, false);
+    }
+  }
+
+  onRemoved(id: string): void {
+    const name = this.servers().find((s) => s.id === id)?.name ?? 'The server';
+    this.closeSheet();
+    this.selectedId.set(MAIN_SERVER);
+    this.apply(withoutServer(this.status(), id), true);
+    this.notice.set({ text: `Removed ${name}.`, at: 'top' });
   }
 
   liveThreads(s: BridgeStatus) {

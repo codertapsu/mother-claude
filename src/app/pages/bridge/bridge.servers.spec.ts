@@ -149,12 +149,13 @@ describe('BridgeComponent servers', () => {
       url: text(a.querySelector('.aurl')),
     }));
 
-  it('with no servers field looks as it did', async () => {
+  it('with no servers field looks as it did, plus a quiet Add API server', async () => {
     setup();
     await render(main());
     expect(el.querySelector('mc-api-server-list')).toBeNull();
     expect(el.querySelector('mc-api-server-addresses')).toBeNull();
     expect(head()).toBe('running http://127.0.0.1:5612 Stop');
+    expect(text(el.querySelector('.more'))).toContain('Add API server');
     // No "Only this account" for the main server while it is the only one.
     expect(el.textContent).not.toContain('Only this account');
     // The main server's routes, with the request as before.
@@ -185,13 +186,16 @@ describe('BridgeComponent servers', () => {
       "https://<the Mac's address>:6725/v1",
       'http://127.0.0.1:5612/v1',
     ]);
+    // Adding is in the list now, not under the buttons.
+    expect(el.querySelector('.more')).toBeNull();
+    expect(text(el.querySelector('mc-api-server-list'))).toContain('Add API server');
   });
 
   it("shows a picked server's panel, its addresses and its routes", async () => {
     setup();
     await render(withServers([work()]));
     await click('Work');
-    expect(head()).toBe('Work running http://127.0.0.1:5613 Stop');
+    expect(head()).toBe('Work running http://127.0.0.1:5613 Manage Stop');
     expect(text(el.querySelector('.facts'))).toContain(
       'Work — marcus@acme.dev · Team · only this account',
     );
@@ -227,7 +231,7 @@ describe('BridgeComponent servers', () => {
       body: work({ running: false, startedAt: null }),
     }));
     await click('Stop');
-    expect(head()).toBe('Work stopped port 5613');
+    expect(head()).toBe('Work stopped port 5613 Manage');
     expect(rows()[1]).toContain('Work stopped');
     expect(backend.calls).not.toContain('POST /bridge/stop');
     expect(backend.calls).not.toContain('POST /bridge/start');
@@ -323,5 +327,46 @@ describe('BridgeComponent servers', () => {
     expect(text(el.querySelector('.card.err'))).toBe(
       'Port 5614 is in use by another program, so Personal cannot listen on it. Stop that program, or give Personal another port.',
     );
+  });
+
+  it('adds a server and shows it, and removing it brings the screen back as it was', async () => {
+    setup();
+    await render(main());
+    await click('Add API server');
+    const dialog = el.querySelector('dialog')!;
+    const name = dialog.querySelector<HTMLInputElement>('input[name=name]')!;
+    name.value = 'Work';
+    name.dispatchEvent(new Event('input'));
+    const account = dialog.querySelector<HTMLSelectElement>('select[name=account]')!;
+    account.value = MOCK_ACCOUNT_WORK;
+    account.dispatchEvent(new Event('change'));
+    await settle();
+    backend.routes.set('/bridge/servers', () => ({
+      status: 201,
+      body: work({ running: false, exposedByTunnel: false, tunnelUrl: null, threads: [] }),
+    }));
+    await click('Add API server', dialog);
+    expect(backend.bodyOf('POST /bridge/servers')).toEqual({
+      name: 'Work',
+      defaults: {
+        cwd: '/Users/me/dev',
+        permissionMode: 'default',
+        account: MOCK_ACCOUNT_WORK,
+        accountOnly: true,
+      },
+    });
+    expect(rows().map((r) => r.split(' ')[0])).toEqual(['Main', 'Work']);
+    expect(head()).toBe('Work stopped port 5613 Manage');
+    expect(text(el.querySelector('.said-top'))).toContain('Added Work.');
+
+    await click('Manage');
+    // (The server answers 204; this fake can only send a body.)
+    backend.routes.set('/bridge/servers/work', () => ({ status: 200, body: {} }));
+    await click('Remove Work…', el.querySelector('dialog')!);
+    await click('Remove', el.querySelector('dialog')!);
+    expect(backend.calls).toContain('DELETE /bridge/servers/work');
+    expect(el.querySelector('mc-api-server-list')).toBeNull();
+    expect(head()).toBe('running http://127.0.0.1:5612 Stop');
+    expect(text(el.querySelector('.said-top'))).toBe('Removed Work.');
   });
 });

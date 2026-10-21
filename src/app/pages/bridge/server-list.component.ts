@@ -77,6 +77,11 @@ interface Row {
           </span>
         </button>
       }
+      <div class="addrow">
+        <button class="btn ghost small" type="button" (click)="add.emit()">
+          <mc-icon name="plus" [size]="15" /> Add API server
+        </button>
+      </div>
     </section>
   `,
   styles: [
@@ -165,6 +170,12 @@ interface Row {
       .tunnel .mono {
         color: var(--text);
       }
+      .addrow {
+        display: flex;
+        padding: 0.3rem 0.2rem 0.1rem;
+        border-top: 1px solid var(--border);
+        margin-top: 0.35rem;
+      }
     `,
   ],
 })
@@ -175,6 +186,7 @@ export class ApiServerListComponent {
   /** The server whose panel shows. */
   readonly selected = input<string>(MAIN_SERVER);
   readonly picked = output<string>();
+  readonly add = output<void>();
 
   protected readonly rows = computed<Row[]>(() =>
     this.servers().map((s) => {
