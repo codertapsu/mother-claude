@@ -120,9 +120,9 @@
               <span class="muted small">{{ tokenNoUsage }}</span>
             }
           </div>
-          @if (isDesktop()) {
+          @if (isDesktop() || moveOffered()) {
             <div class="aacts">
-              @if (r.action === 'signin') {
+              @if (isDesktop() && r.action === 'signin') {
                 <button
                   class="btn small primary"
                   type="button"
@@ -131,20 +131,32 @@
                 >
                   {{ busyId() === r.a.id ? 'Opening the browser…' : 'Sign in' }}
                 </button>
-              } @else if (r.action === 'token') {
+              } @else if (isDesktop() && r.action === 'token') {
                 <button class="btn small primary" type="button" (click)="managing.set(r.a.id)">
                   <mc-icon name="key" [size]="14" />
                   {{ r.a.tokenStored ? 'New token' : 'Get token' }}
                 </button>
               }
-              <button
-                class="btn small"
-                type="button"
-                [attr.aria-label]="'Manage ' + r.a.name"
-                (click)="managing.set(r.a.id)"
-              >
-                <mc-icon name="settings" [size]="14" /> Manage
-              </button>
+              @if (moveOffered()) {
+                <button
+                  class="btn small"
+                  type="button"
+                  [attr.aria-label]="'Move or copy the data of ' + r.a.name"
+                  (click)="moveFrom(r.a)"
+                >
+                  <mc-icon name="move" [size]="14" /> Move or copy data…
+                </button>
+              }
+              @if (isDesktop()) {
+                <button
+                  class="btn small"
+                  type="button"
+                  [attr.aria-label]="'Manage ' + r.a.name"
+                  (click)="managing.set(r.a.id)"
+                >
+                  <mc-icon name="settings" [size]="14" /> Manage
+                </button>
+              }
             </div>
           }
         </div>
@@ -381,3 +393,4 @@
   <mc-account-add-sheet [open]="adding()" (closed)="adding.set(false)" />
   <mc-account-sheet [accountId]="managing()" (closed)="managing.set(null)" />
 }
+<mc-move-data-sheet [open]="!!moveStart()" [start]="moveStart()" (closed)="moveClosed()" />

@@ -17,8 +17,10 @@ import { AuthService } from '../../core/auth.service';
 import { normalizeJob } from '../../core/data-jobs';
 import { DataJobsService } from '../../core/data-jobs.service';
 import { AccountDefaults, AccountView, JobView, ProjectInfo } from '../../core/models';
+import { accountLocation, anyTarget } from '../../core/move-data';
 import { NowService } from '../../core/now.service';
 import { PlanUsageService } from '../../core/plan-usage.service';
+import { StorageService } from '../../core/storage.service';
 import {
   SignInLine,
   TOKEN_NO_USAGE,
@@ -31,6 +33,7 @@ import {
 import { DataJobComponent } from '../../shared/data-job.component';
 import { CompactMeter, compactPlan } from '../../shared/fleet-summary.component';
 import { IconComponent } from '../../shared/icon.component';
+import { MoveDataSheetComponent, MoveStart } from '../../shared/move-data-sheet.component';
 import { PlanUsageComponent } from '../../shared/plan-usage.component';
 import { Tone, shortPath } from '../../shared/util';
 import { AccountAddSheetComponent } from './account-add-sheet.component';
@@ -89,9 +92,10 @@ interface ProjectRow {
  * token), re-checking and removing them, the hooks plugin in a directory
  * account's own directory (the Default's is foreign control's), the
  * defaults (new sessions, the API, per project) and the copy consents —
- * allowed ahead of time, or revoked. Phones see all of it read-only: their
- * one account action is the picker when starting or continuing a session
- * (D9).
+ * allowed ahead of time, or revoked. *Move or copy data…* on each account
+ * opens Move data with everything of it. Phones see the rest read-only:
+ * their account actions are the picker when starting or continuing a
+ * session (D9) and moving data.
  */
 @Component({
   selector: 'mc-accounts',
@@ -101,6 +105,7 @@ interface ProjectRow {
     AccountSheetComponent,
     DataJobComponent,
     IconComponent,
+    MoveDataSheetComponent,
     PlanUsageComponent,
   ],
   templateUrl: './accounts.component.html',
@@ -111,6 +116,7 @@ export class AccountsComponent {
   private plan = inject(PlanUsageService);
   private api = inject(ApiService);
   private clock = inject(NowService);
+  private storage = inject(StorageService);
   protected readonly isDesktop = inject(AuthService).isDesktop;
 
   protected readonly tokenNoUsage = TOKEN_NO_USAGE;
@@ -204,8 +210,14 @@ export class AccountsComponent {
   /** `<account id>:install|uninstall` while the hooks plugin changes. */
   protected readonly hooksBusy = signal<string | null>(null);
   protected readonly notice = signal('');
+  /** Somewhere to move an account's data: another account, or a storage. */
+  protected readonly moveOffered = computed(() =>
+    anyTarget(this.accounts.list(), this.storage.list() ?? []),
+  );
+  /** Move data, opened from an account (null: closed). */
+  protected readonly moveStart = signal<MoveStart | null>(null);
   /** Recent moves and copies (`GET /data/jobs`), newest first: Undo stays
-   * here once the Move/Copy dialog is closed. */
+   * here once Move data is closed. */
   protected readonly moves = signal<JobView[]>([]);
   private readonly jobs = inject(DataJobsService);
   private readonly stopFollowing = new AbortController();
@@ -226,7 +238,19 @@ export class AccountsComponent {
       onCleanup(() => clearInterval(timer));
     });
     void this.loadMoves();
+    void this.storage.ensureLoaded();
     inject(DestroyRef).onDestroy(() => this.stopFollowing.abort());
+  }
+
+  /** Move data with everything of an account. */
+  protected moveFrom(a: AccountView): void {
+    this.moveStart.set({ from: accountLocation(a.id), what: 'all' });
+  }
+
+  /** Move data closed: its jobs join the list. */
+  protected moveClosed(): void {
+    this.moveStart.set(null);
+    void this.loadMoves();
   }
 
   protected moveChanged(j: JobView): void {

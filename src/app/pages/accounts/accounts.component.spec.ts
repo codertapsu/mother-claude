@@ -43,8 +43,9 @@ describe('AccountsComponent', () => {
     expect(text(rows[0])).toContain('Own directory · ~/.claude');
     expect(text(rows[0])).toContain('marcus@example.com · Max');
     expect(buttons(el)).toContain('Add account');
-    // Nothing to choose between yet.
+    // Nothing to choose between yet, and nowhere to move data to.
     expect(text(el)).not.toContain('New sessions run under');
+    expect(buttons(el).some((b) => b.startsWith('Move or copy'))).toBeFalse();
     expect(text(el)).toContain('Account tokens are kept in the macOS Keychain');
   });
 
@@ -177,6 +178,27 @@ describe('AccountsComponent', () => {
       to: 'default',
       granted: true,
     });
+  });
+
+  it('opens Move data with everything of an account', async () => {
+    asDesktop();
+    serveAccounts(backend, buildAccounts(Date.now(), true));
+    backend.routes.set('/backup', () => ({ status: 200, body: { settings: { folder: null } } }));
+    const el = await render();
+    el.querySelector<HTMLButtonElement>(
+      'button[aria-label="Move or copy the data of Work"]',
+    )!.click();
+    fixture.detectChanges();
+    await flush();
+    fixture.detectChanges();
+    const sheet = el.querySelector('mc-move-data-sheet') as HTMLElement;
+    expect(sheet.querySelector<HTMLSelectElement>('select[name="from"]')!.value).toBe(
+      `a:${MOCK_ACCOUNT_WORK}`,
+    );
+    expect(text(sheet.querySelector('.whatseg [aria-pressed="true"]'))).toBe('Everything');
+    expect(text(sheet.querySelector('.allline'))).toBe(
+      'Every conversation of Work, and its prompt history.',
+    );
   });
 
   it('shows a phone no hooks or copy buttons', async () => {
