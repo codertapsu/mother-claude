@@ -198,7 +198,9 @@ You can skip and revisit anytime under **Settings → Permissions**.
 | `MOTHER_CLAUDE_VAPID_SUBJECT` | public URL | `mailto:` or `https:` contact sent with Web Push. |
 | `MOTHER_CLAUDE_WEB_DIR` | autodetect | Override the built SPA directory. |
 | `MOTHER_CLAUDE_BRIDGE` | on | `0` ⇒ disable the HTTP bridge entirely. |
-| `MOTHER_CLAUDE_BRIDGE_AUTOSTART` | off | `1` ⇒ start the API at launch (headless/CI) instead of from the app. |
+| `MOTHER_CLAUDE_BRIDGE_AUTOSTART` | off | `1` ⇒ start the API at launch (headless/CI) instead of from the app; `all` ⇒ every saved API server too, each closed to tunnels. |
+| `MOTHER_CLAUDE_BRIDGE_ACCOUNT` | unset | The autostarted API's Claude account (an id or a name); one that does not exist starts nothing. |
+| `MOTHER_CLAUDE_BRIDGE_ACCOUNT_ONLY` | off | `1` ⇒ the autostarted API runs as that account only. |
 | `MOTHER_CLAUDE_BRIDGE_PORT` | `5612` | Dedicated loopback API port; `0` ⇒ serve only `/v1`. |
 | `MOTHER_CLAUDE_BRIDGE_REQUIRE_TOKEN` | **off** | `1` ⇒ require the token on the loopback bridge port too. `never` ⇒ start with the API screen's *Open to tunnels* switch on: no token from anyone who can reach that port, through a tunnel too ([BRIDGE.md](docs/BRIDGE.md#what-the-open-default-actually-means)). |
 | `MOTHER_CLAUDE_BRIDGE_CWD` | home dir | Default working directory for API conversations. |
@@ -257,11 +259,20 @@ The same routes are served at `/v1` on the main app port, so a phone on your LAN
 can use them over TLS. A conversation created through the API shows up in the
 dashboard like any other session, and its approval prompts appear on both.
 
+With more than one Claude account you can run **an API server per account**:
+*Add API server* on the API screen gives one a port of its own (5613, 5614, …),
+its own defaults and, with *Only this account*, an account it runs as and
+nothing else — another account's conversations do not exist through it, so you
+can put one account's API behind a tunnel without opening the others. Every
+server is also reachable through the main port at `/servers/<id>/` (and on the
+LAN at `/servers/<id>/v1`, with a token).
+
 Full reference: **[docs/BRIDGE.md](docs/BRIDGE.md)**.
 
 > For access from outside your network, use **Remote → Internet access** and a
 > tunnel to its local-only port (6726) — never a raw port forward. Devices need
 > their own pairing and never get dangerous actions through a tunnel unless you
 > grant them. The bridge port (5612) binds loopback only; a tunnel pointed at it
-> switches its tokenless mode off. See [SECURITY.md](SECURITY.md) and
+> switches its tokenless mode off — and so for every other API server's port,
+> each on its own. See [SECURITY.md](SECURITY.md) and
 > [docs/REMOTE.md](docs/REMOTE.md).

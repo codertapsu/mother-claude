@@ -53,7 +53,8 @@ Open Mother Claude → **API**. Choose:
 - **Permissions** — from *Ask me* through to *Don't ask*.
 - **Account** — which Claude account conversations run under, when there is
   more than one ([ACCOUNTS.md](ACCOUNTS.md)). *Default* follows the project's
-  account, then the accounts' bridge default.
+  account, then the accounts' bridge default. *Only this account* makes the
+  API run as that account alone ([below](#several-api-servers)).
 - **Conversation** — which conversation messages join (see below).
 
 Press **Start**. The screen shows the URL, links to the reference and console,
@@ -78,7 +79,12 @@ document and the console stay available, so a client can always tell "not
 started" from "not there".
 
 For headless and CI runs, where there is nobody to press a button, set
-`MOTHER_CLAUDE_BRIDGE_AUTOSTART=1` to start it at launch with plain defaults.
+`MOTHER_CLAUDE_BRIDGE_AUTOSTART=1` to start it at launch with plain defaults —
+or `all` to start every saved [API server](#several-api-servers) too, each
+closed to tunnels. `MOTHER_CLAUDE_BRIDGE_ACCOUNT` (an account's id or name)
+chooses the autostarted API's account, and `MOTHER_CLAUDE_BRIDGE_ACCOUNT_ONLY=1`
+makes it run as that account only; an account that does not exist starts
+nothing rather than the wrong one.
 
 ### Controlling it over HTTP
 
@@ -93,6 +99,9 @@ Mac, or a paired device's). Starting with defaults that skip approvals
 | `POST /api/bridge/start` | `{"defaults": { … }, "openToTunnels": true\|false}` — start (or restart) with these defaults; `openToTunnels` is the API screen's switch (below), and only the desktop app may set it to `true` |
 | `POST /api/bridge/stop` | Unbind the port |
 | `POST /api/bridge/active-thread` | `{"threadId": "…"\|null}` — change which conversation messages join |
+
+These drive the main API server; the [others](#several-api-servers) have
+routes of their own.
 
 ---
 
@@ -147,6 +156,98 @@ with `POST /threads {"resume": …, "account": …}`, which forks it).
 
 ---
 
+## Several API servers
+
+Everything above is the **main** API server, the one there always was. More
+can be added on the API screen (*Add API server*), each with a name, a
+loopback port of its own (the first free one from 5613 unless you pick one),
+its defaults and, above all, its own Claude account. Each is started and
+stopped on its own, keeps its own current conversation and token policy, and
+answers `503 bridge_not_started` until it is started. Added servers are saved
+with their defaults in `api-servers.json` in the app data directory (0600);
+whether one is open to tunnels is chosen at each start and never saved. The
+main server's defaults are never saved, as before. One Node host serves every
+server, and the conversations are one store.
+
+**One account only.** A server's *Account* is the default for new
+conversations, and a request may name another — the main server's behaviour.
+With *Only this account* (`"accountOnly": true` in its defaults) the server
+runs **only** as that account:
+
+- new conversations run under it, and a request that names another account
+  answers `403 account_not_served`;
+- a conversation, operation, event or tool request of another account does not
+  exist through it: reading, resuming, continuing, forking, renaming,
+  steering, interrupting, streaming or answering one answers `404`
+  (`thread_not_found`, `operation_not_found`, `request_not_found`), and
+  `GET /threads`, `GET /requests` and `GET /events` leave them out;
+- `GET /auth` reports that account's sign-in (with `account: {id, name}`), and
+  `POST /auth/login` signs that account in (a token account gets a new token
+  on the desktop instead).
+
+That is what lets you put one account's API behind a tunnel without opening
+the others. (`/messages` and `/files` use `ANTHROPIC_API_KEY` on every server;
+they are not a Claude account's.)
+
+**Reaching them.** Each server answers on its own port, at `/` and `/v1`, and
+through the main ones:
+
+| Address | Auth |
+|---|---|
+| `http://127.0.0.1:<its port>/…`, `/v1/…` | its own token policy |
+| `http://127.0.0.1:5612/servers/<id>/…`, `/servers/<id>/v1/…` | its own token policy — one tunnel to 5612 reaches every server |
+| `https://<LAN address>:6725/servers/<id>/v1/…` | Token, **always**, as on `/v1` there |
+| The Internet-access port (`6726`) | — not served |
+
+A request through a `/servers/<id>` prefix gets the target server's rules — its
+token policy, its account, whether it is started — while the port it arrived
+on decides whether a tunnel points at it. An id that names no server answers
+`404 server_not_found`.
+
+**Tunnels per server.** Tunnel detection tracks every server's port. A tunnel
+to one switches off the tokenless mode of that port only, as it does for 5612,
+and the API screen and the Remote page name the server it points at.
+
+`/capabilities` and `/metadata` say which server answered —
+`server: {id, name, account?: {id, name}, accountOnly}` — once there is more
+than the main server or more than the Default account. A conversation names
+the server that made it (`server`, left out for the main one).
+
+**Controlling them over HTTP.** On the dashboard API, like the main server's
+routes:
+
+| Method and path | Result |
+|---|---|
+| `POST /api/bridge/servers` | `{"name", "port"?, "defaults"?}` → `201` its status, not started. Its id is a slug of the name (`[a-z0-9-]`, up to 32, made unique; `main` is taken) and never changes |
+| `PATCH /api/bridge/servers/{id}` | `{"name"?, "port"?, "defaults"?}` — a running server restarts with them |
+| `DELETE /api/bridge/servers/{id}` | Stop and remove it (`204`); its conversations go on as the main server's |
+| `POST /api/bridge/servers/{id}/start` | `{"defaults"?, "openToTunnels"?}` — the defaults given are saved, without them the saved ones apply; left out, `openToTunnels` is off |
+| `POST /api/bridge/servers/{id}/stop` | Unbind its port |
+| `POST /api/bridge/servers/{id}/active-thread` | `{"threadId": "…"\|null}` — the conversation its messages join |
+
+Each answers the server's status: `id`, `name`, `running`, `port`, `url`,
+`prefix` (`/servers/<id>`, `""` for the main one), `startedAt`,
+`requireToken`, `tokenPolicy`, `exposedByTunnel`, `tunnelUrl`, `defaults`,
+`activeThread`, `threads`, `docsUrl`, `consoleUrl`, and `accountMissing: true`
+when its account was removed. `GET /api/bridge` adds `servers` — every
+server's status, the main one first — once a server besides the main one
+exists. `main` answers on these routes too, but keeps its port and cannot be
+changed or removed (`409 main_server_fixed`).
+
+Anyone signed in to the dashboard may add, start, stop, change and remove
+servers; the dangerous parts keep their rules — defaults that skip approvals
+and *Open to tunnels* are the desktop app's alone, a default folder Claude Code
+never opened needs the dangerous right. A name is 1–40 characters and unique
+(`409 server_name_taken`); a port is 1024–65535 and nobody else's — not another
+server's, the main API port, the app's or the tunnel port
+(`409 port_unavailable`). Removing an account a running server uses is refused
+(`409 account_used_by_bridge`, with `server` and `serverName` unless it is the
+main one); a stopped server whose
+account was removed shows `accountMissing` and answers `409 account_not_found`
+until another account is chosen.
+
+---
+
 ## Where it listens
 
 | Address | Auth | Use it for |
@@ -155,7 +256,8 @@ with `POST /threads {"resume": …, "account": …}`, which forks it).
 | `http://127.0.0.1:5612/v1/…` | Same | Identical routes under a version prefix. |
 | `http://127.0.0.1:6725/v1/…` | Token, **always** | The main app port, from this machine. |
 | `https://<LAN address>:6725/v1/…` | Token, **always** (a paired device's) | The same mount from your LAN, over TLS. |
-| The Internet-access port (`6726`), or anything tunnelled to `6725` | — | Not served: `/v1` never answers through a tunnel. |
+| `…/servers/<id>/…` on 5612, `…/servers/<id>/v1/…` on 6725 | As [above](#several-api-servers) | Another API server, through the main ones. |
+| The Internet-access port (`6726`), or anything tunnelled to `6725` | — | Not served: `/v1` and `/servers/…` never answer through a tunnel. |
 
 The dedicated port binds loopback only, always — the bridge can drive an agent
 with filesystem write access, so it is never exposed to the network. LAN clients
@@ -168,6 +270,9 @@ Configuration lives in the environment (see `.env.example`):
 | Variable | Default | Effect |
 |---|---|---|
 | `MOTHER_CLAUDE_BRIDGE` | on | `0` disables the bridge entirely |
+| `MOTHER_CLAUDE_BRIDGE_AUTOSTART` | off | `1` starts the main API server at launch; `all` every saved one too, each closed to tunnels |
+| `MOTHER_CLAUDE_BRIDGE_ACCOUNT` | unset | The autostarted main server's account: an id or a name |
+| `MOTHER_CLAUDE_BRIDGE_ACCOUNT_ONLY` | off | `1`: the autostarted main server runs as that account only |
 | `MOTHER_CLAUDE_BRIDGE_PORT` | `5612` | `0` serves only `/v1` on the main port |
 | `MOTHER_CLAUDE_BRIDGE_REQUIRE_TOKEN` | **off** | `1` requires a bearer token **on the loopback port** too; `never` drops it for everyone who can reach that port, tunnels included (below) |
 | `MOTHER_CLAUDE_BRIDGE_CWD` | your home directory | Default working directory for new conversations |
@@ -264,7 +369,8 @@ These stay locked regardless:
   whose approvals are off. A page on another website therefore keeps tokenless
   access to ordinary work, never to these;
 - tunnelled requests need a paired device's token, and a detected tunnel to
-  the port switches the tokenless mode off;
+  the port switches the tokenless mode off — each API server's port on its
+  own;
 - the LAN mount on port 6725 **always** requires the token.
 
 **Open to tunnels too: the API screen's _Open to tunnels_ switch.** An
@@ -289,7 +395,9 @@ closed:
 The app says so where you would look: a warning when the API starts, on the
 API screen, and on the Remote page while a tunnel points at 5612. `/capabilities`
 reports `auth.token_policy: "never"`. Turn the switch off and restart the API
-to return to the default.
+to return to the default. Every [added API server](#several-api-servers) has
+the same switch, chosen at each of its starts and never saved (an added server
+starts closed to tunnels, even with `MOTHER_CLAUDE_BRIDGE_REQUIRE_TOKEN=never`).
 
 To close it down: `MOTHER_CLAUDE_BRIDGE_REQUIRE_TOKEN=1`, plus
 `MOTHER_CLAUDE_BRIDGE_ORIGINS` to name the pages you trust — or
@@ -684,7 +792,9 @@ Every failure is the same envelope, with context fields flattened alongside:
 | 401 | `tunneled_request_requires_token`, `bridge_exposed_requires_token` | The request came through a tunnel (or a proxy with a non-loopback hop), or a tunnel points at the port: send a paired device's token |
 | 403 | `dangerous_blocked`, `untrusted_cwd`, `file_id_not_accepted` | Do it from a local client (or a device granted dangerous actions), or don't |
 | 403 | `origin_not_allowed` | Add the page's origin to `MOTHER_CLAUDE_BRIDGE_ORIGINS` |
-| 404 | `thread_not_found`, `turn_not_found`, `operation_not_found`, `request_not_found`, `not_found` | Check the id; operations do not survive a restart |
+| 403 | `account_not_served` | This API server runs as one account only: leave `account` out, or use a server of that account |
+| 404 | `thread_not_found`, `turn_not_found`, `operation_not_found`, `request_not_found`, `not_found` | Check the id; operations do not survive a restart; through a server that runs as one account, another account's do not exist |
+| 404 | `server_not_found` | No API server has that id: check `/servers/<id>` |
 | 405 | `method_not_allowed` | Check the method against the reference |
 | 409 | `busy` | A turn is already running (steer it) or 16 operations are live |
 | 409 | `already_answered`, `invalid_state` | Someone else got there first |
@@ -749,6 +859,14 @@ config directory.
 
 **`409 busy` on every turn** — a previous turn never finished. Check
 `GET /threads/{id}`, then interrupt the turn it names.
+
+**`403 account_not_served`, or a conversation that is there on one port and
+`404` on another** — the server you called runs as one account only, and that
+conversation (or the account you named) is another's. Leave `account` out, or
+call a server of that account.
+
+**`404 server_not_found`** — no API server has the id in `/servers/<id>`. The
+ids are on the API screen, and in `GET /api/bridge`'s `servers`.
 
 **Turns hang with no events** — look at `GET /requests`: Claude is probably
 blocked on an approval. The dashboard shows the same prompt.

@@ -25,6 +25,12 @@ layers:
    answer `503 bridge_not_started` while discovery stays open. Start-time
    choices are *defaults* — every request may override them — and one of them is
    which conversation an unaddressed `/chat` message joins.
+   That is the **main** API server; the API screen adds more (`bridge::servers`,
+   saved in `<app data dir>/api-servers.json`, 0600), each with its own
+   loopback port, defaults, active conversation, token policy and started gate,
+   and reachable through the main ones at `/servers/<id>/` on the main API port
+   and `/servers/<id>/v1` on the main app port with the target's rules. One
+   with `accountOnly` runs **only** as its account (docs/ACCOUNTS.md §13.5).
    See [docs/BRIDGE.md](docs/BRIDGE.md).
 
 ## The one hard invariant: owned vs foreign sessions
@@ -241,6 +247,21 @@ the Default sign-in.
   nobody approves, turns into a conversation whose approvals are off) need the
   dangerous right — for an anonymous bridge caller that means `local` (no
   foreign `Origin`).
+  **Several API servers hold all of this port by port.** Every bridge route
+  serves the server its `Mount` names (`bridge::servers`): its own port, or a
+  `/servers/<id>` prefix on the main API port (its token policy) or on the main
+  app port (a token always). The request's `MountPolicy` carries that server's
+  token policy, defaults and started gate, and whether a detected tunnel points
+  at the port the request *arrived on* (`RemoteState::port_exposed`) — a tunnel
+  to one server's port never turns another port's tokenless mode off. *Open to
+  tunnels* is chosen at each start and never saved. An `accountOnly` server
+  must never show another account's conversation, operation, event or runtime
+  request (`404`, as if it did not exist) nor run as another account (`403
+  account_not_served`): a route that names one goes through
+  `MountPolicy::require_thread` / `check_asked` / `serves`. With only the main
+  server (and only the Default account) every answer stays byte-for-byte what
+  it was: `servers`, a thread's `server` and the bridge's `server` object are
+  left out.
   Whether a tool call is dangerous is decided server-side for every channel
   (`pending::classify_dangerous`: writes to `.claude/`, `.mcp.json`, shell
   startup files, git hooks, launch agents, our data dir, …); a channel's own

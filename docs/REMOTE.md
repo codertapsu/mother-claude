@@ -22,15 +22,18 @@ The security model behind this guide is in [SECURITY.md](../SECURITY.md).
 
 ## Ports at a glance
 
-| Port   | Listens on                                           | Used by                                         | Credential                                                           |
-| ------ | ---------------------------------------------------- | ----------------------------------------------- | -------------------------------------------------------------------- |
-| `6725` | `127.0.0.1` (HTTP)                                   | the desktop app, your scripts, the hooks plugin | the desktop, script or hook token (this Mac only), or a device token |
-| `6725` | each private LAN address (HTTPS)                     | phones at home                                  | a device token                                                       |
-| `6726` | `127.0.0.1` (HTTP), only while Internet access is on | the tunnel you start                            | a device token; HTTPS-forwarded requests only                        |
-| `5612` | `127.0.0.1` (HTTP), only once the API is started     | local tools ([BRIDGE.md](BRIDGE.md))            | none from this Mac; a token for anything tunnelled                   |
+| Port    | Listens on                                             | Used by                                                                                   | Credential                                                           |
+| ------- | ------------------------------------------------------ | ----------------------------------------------------------------------------------------- | -------------------------------------------------------------------- |
+| `6725`  | `127.0.0.1` (HTTP)                                     | the desktop app, your scripts, the hooks plugin                                           | the desktop, script or hook token (this Mac only), or a device token |
+| `6725`  | each private LAN address (HTTPS)                       | phones at home                                                                            | a device token                                                       |
+| `6726`  | `127.0.0.1` (HTTP), only while Internet access is on   | the tunnel you start                                                                      | a device token; HTTPS-forwarded requests only                        |
+| `5612`  | `127.0.0.1` (HTTP), only once the API is started       | local tools ([BRIDGE.md](BRIDGE.md))                                                      | none from this Mac; a token for anything tunnelled                   |
+| `5613…` | `127.0.0.1` (HTTP), each added API server once started | local tools, through an API server you added ([BRIDGE.md](BRIDGE.md#several-api-servers)) | as `5612`, under that server's own policy                            |
 
 `MOTHER_CLAUDE_PORT`, `MOTHER_CLAUDE_TUNNEL_PORT` and `MOTHER_CLAUDE_BRIDGE_PORT`
-change them.
+change them; an added API server's port is chosen on the API screen. Every
+API server is also reachable through `5612` at `/servers/<id>/`, and through
+`6725` at `/servers/<id>/v1/` with a token.
 
 ## At home: pair over Wi-Fi
 
@@ -170,6 +173,11 @@ keeps working, because it bypasses that port, so point tunnels at `6726`.
   tunnel stops — unless the API screen's *Open to tunnels* switch is on, in
   which case the API is open through the tunnel without a token, and the warning
   says so ([BRIDGE.md](BRIDGE.md#what-the-open-default-actually-means)).
+- **A tunnel points at another API server's port.** The same, for that server
+  alone: the warning names it, only its port's tokenless mode is switched off,
+  and the other servers are not affected. A tunnel to `5612` reaches every
+  server through `/servers/<id>/`, each under its own rules
+  ([BRIDGE.md](BRIDGE.md#several-api-servers)).
 - **A raw TCP tunnel.** It hides that traffic comes from the internet (to 6725),
   or cannot work at all (to 6726). Use an HTTP tunnel.
 - **Internet access is on but no tunnel was found**, or **a tunnel points at 6726
@@ -467,7 +475,9 @@ What you get:
 - **The local API stays local.** The Claude HTTP API on port 5612 needs no token
   only for programs on this Mac. Through a tunnel it asks for a token, and while
   a tunnel points at it the tokenless mode is off entirely — unless you turn on
-  *Open to tunnels* on the API screen (desktop app only).
+  *Open to tunnels* on the API screen (desktop app only). Each API server you
+  add has its own port and the same rules, port by port; one that runs as one
+  account only shows nothing of the others.
 
 ## Troubleshooting
 

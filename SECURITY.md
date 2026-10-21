@@ -9,9 +9,9 @@ for remote access is [docs/REMOTE.md](docs/REMOTE.md).
 
 Every listener tags its requests with the door they came through (loopback
 `127.0.0.1:6725`, the LAN TLS listeners, the tunnel port, the bridge port
-`127.0.0.1:5612`). Tunnels (ngrok, cloudflared, Tailscale) connect from
-127.0.0.1, so the peer address alone proves nothing. Two predicates are derived
-from each request:
+`127.0.0.1:5612` and every other API server's port). Tunnels (ngrok,
+cloudflared, Tailscale) connect from 127.0.0.1, so the peer address alone
+proves nothing. Two predicates are derived from each request:
 
 - **machine-local**: a loopback listener, a loopback peer, exactly one `Host`
   header naming `localhost`, `127.0.0.0/8` or `[::1]`, and no proxy header at
@@ -26,11 +26,12 @@ from each request:
 
 Any request carrying a proxy header, or reaching the LAN listener from a
 non-private address (a Tailscale `100.x` address included), is treated as coming
-**through a tunnel**: it gets the reduced route set (no `/v1`, no `/hooks/*`),
-the tunnel pairing rules and the device's internet grant. The client address
-used for rate limits, device records and the audit log is the peer's, or behind
-a loopback tunnel the last `X-Forwarded-For` value, else `Forwarded: for=`, else
-`CF-Connecting-IP` (see [HTTP hardening](#http-hardening)).
+**through a tunnel**: it gets the reduced route set (no `/v1`, no
+`/servers/*`, no `/hooks/*`), the tunnel pairing rules and the device's
+internet grant. The client address used for rate limits, device records and
+the audit log is the peer's, or behind a loopback tunnel the last
+`X-Forwarded-For` value, else `Forwarded: for=`, else `CF-Connecting-IP` (see
+[HTTP hardening](#http-hardening)).
 
 ## Credentials
 
@@ -155,10 +156,10 @@ notice and is written to the audit log.
 
 - Off by default. When on, Mother Claude listens on `127.0.0.1:6726` (change it
   with `MOTHER_CLAUDE_TUNNEL_PORT`) for a tunnel to forward to. That port
-  requires the last `X-Forwarded-Proto` to be `https`, serves no `/v1` and no
-  `/hooks/*`, and accepts only device tokens. Switching Internet access off
-  closes every connection on it (a tunnel pointed at 6725 instead is not
-  affected, which is one reason to use 6726).
+  requires the last `X-Forwarded-Proto` to be `https`, serves no `/v1`, no
+  `/servers/*` and no `/hooks/*`, and accepts only device tokens. Switching
+  Internet access off closes every connection on it (a tunnel pointed at 6725
+  instead is not affected, which is one reason to use 6726).
 - The public URL is read from the tunnel's own local API (ngrok, cloudflared,
   `tailscale serve status`) or entered by hand — never from request headers.
 - **Tailscale Serve** (`tailscale serve --bg 6726`) keeps access inside your
@@ -168,8 +169,8 @@ notice and is written to the audit log.
 - Warnings on the Remote page: ngrok's local inspector recording requests (use
   `--inspect=false`), quick-tunnel URLs that change every run, Tailscale Funnel
   names published in certificate logs, tunnels pointing at 6725 (works, less
-  defended) or at the bridge port, raw TCP tunnels, and Internet access switched
-  on with no tunnel found.
+  defended) or at an API server's port (named), raw TCP tunnels, and Internet
+  access switched on with no tunnel found.
 
 ## The Claude HTTP bridge (port 5612)
 
@@ -210,6 +211,38 @@ Remote page.
   pending runs (`device_revoked`).
 - `POST /v1/threads` with a resume id that another process is running forks it
   rather than taking it over.
+
+### Several API servers
+
+Besides the main API server (5612), the API screen can add more, each on a
+loopback port of its own, with its own token policy, started gate and defaults
+(docs/BRIDGE.md, docs/ACCOUNTS.md §13.5). Everything above holds for each of
+them, **port by port**:
+
+- A detected tunnel to one server's port switches off that port's tokenless
+  mode only. A request that reaches a server through `/servers/<id>/` on 5612
+  gets the target server's token policy, account and started gate, while
+  whether a tunnel points at the port is decided by the port it arrived on
+  (5612) — so a tunnel to 5612 makes every server tokenless-off through it,
+  and a tunnel to another server's port leaves 5612 alone.
+- `/servers/<id>/v1/` on the LAN-reachable port always needs a token, whatever
+  the target's own policy, and is never served through a tunnel or on the
+  Internet-access port.
+- A server with `accountOnly` runs as its account only: a request naming another
+  account is refused (`403 account_not_served`), and another account's
+  conversations, operations, events and tool requests do not exist through it
+  (`404`). Its `/auth/login` signs that account in, and still needs the
+  dangerous right.
+- Adding, starting, stopping, changing and removing servers is open to every
+  dashboard principal, as starting the main one is; defaults that skip
+  approvals and *Open to tunnels* stay desktop-only, an untrusted default
+  folder needs the dangerous right — also when a phone starts a server whose
+  saved defaults have them. *Open to tunnels* is never saved: an added server
+  starts closed to tunnels, `MOTHER_CLAUDE_BRIDGE_REQUIRE_TOKEN=never`
+  notwithstanding, and `MOTHER_CLAUDE_BRIDGE_AUTOSTART=all` starts every saved
+  one closed.
+- The saved servers live in `api-servers.json` in the app data dir (0600): ids,
+  names, ports and defaults — no token, no secret.
 
 ## HTTP hardening
 
