@@ -24,7 +24,8 @@ const TONES: Record<BackupAction, string> = {
  * each (docs/BACKUP.md): a checkbox per session (sessions it can't take are
  * shown, not offered), its title (what the session list called it when it
  * was backed up; else its id), its id and folder, where and when it was
- * backed up, its size and Claude Code's pruning warning. What it would bring is listed
+ * backed up, its size, whether it is in the storage only (archived) and
+ * Claude Code's pruning warning. What it would bring is listed
  * open; the rest (the same, newer here, already there, running) folded
  * below it.
  */
@@ -91,7 +92,12 @@ const TONES: Record<BackupAction, string> = {
                 }
               </span>
             }
-            <span class="act small">{{ text(s.action) }}</span>
+            <span class="act small"
+              >{{ text(s.action) }}
+              @if (s.archived) {
+                <span class="tag">In storage only</span>
+              }
+            </span>
             <span class="muted small">
               From {{ s.host || 'another Mac' }} <mc-time [ms]="s.pushedAt" /> ·
               {{ bytes(s.remoteBytes) }}
@@ -169,6 +175,15 @@ const TONES: Record<BackupAction, string> = {
       }
       .prune {
         color: var(--amber);
+      }
+      .tag {
+        margin-left: 0.35rem;
+        font-size: 0.72rem;
+        padding: 0.02rem 0.4rem;
+        border-radius: 0.4rem;
+        background: var(--panel-3);
+        color: var(--muted);
+        white-space: nowrap;
       }
       .rest {
         margin-top: 0.5rem;

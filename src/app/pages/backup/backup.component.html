@@ -333,6 +333,9 @@
       <p class="muted small last">Last pull on this Mac <mc-time [ms]="v.lastPull" />.</p>
     }
 
+    <!-- ─────────────── Storage ─────────────── -->
+    <mc-storage-section [suggestions]="v.suggestions" (changed)="load()" />
+
     <!-- ─────────────── Recent ─────────────── -->
     @if (jobList().length) {
       <h2>Recent</h2>

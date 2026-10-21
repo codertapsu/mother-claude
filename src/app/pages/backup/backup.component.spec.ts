@@ -152,10 +152,12 @@ describe('BackupComponent', () => {
       "Its sessions are in Default's backup: a token account uses the Default account's directory.",
     );
     expect(text(pro)).not.toContain('143 sessions');
-    // Nothing that changes anything.
-    expect(el.querySelectorAll('button').length).toBe(0);
-    expect(el.querySelector('select')).toBeNull();
-    expect(el.querySelector('input')).toBeNull();
+    // Nothing that changes the backups (the storages are anyone's: §13.9).
+    const own = (sel: string) =>
+      [...el.querySelectorAll(sel)].filter((x) => !x.closest('mc-storage-section'));
+    expect(own('button').length).toBe(0);
+    expect(own('select').length).toBe(0);
+    expect(own('input').length).toBe(0);
   });
 
   it("gives a token account's row no buttons: its set is the Default's", async () => {

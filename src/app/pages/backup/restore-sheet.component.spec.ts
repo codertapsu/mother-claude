@@ -55,7 +55,12 @@ const index = () => {
     config: [],
     sessions: [
       s('aaaaaaaa-0001', 'new', { title: 'Refactor auth middleware' }),
-      s('bbbbbbbb-0002', 'new', { cwd: '/Users/me/dev/old', pruneWarning: PRUNE }),
+      s('bbbbbbbb-0002', 'new', {
+        cwd: '/Users/me/dev/old',
+        pruneWarning: PRUNE,
+        // Moved into the set and out of every account (Move data).
+        archived: { at: now - H, machine: 'm-this' },
+      }),
       s('cccccccc-0003', 'same', { localBytes: 2048 }),
       s('dddddddd-0004', 'live', { localBytes: 1024 }),
     ],
@@ -132,7 +137,7 @@ describe('RestoreSheetComponent', () => {
     const rows = [...el.querySelectorAll('.srow')];
     expect(rows.map((r) => text(r.querySelector('.act')))).toEqual([
       'New here',
-      'New here',
+      'New here In storage only',
       'Same',
       'Running here',
     ]);

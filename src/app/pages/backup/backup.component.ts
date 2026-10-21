@@ -19,6 +19,7 @@ import { jobIdOf, plural, sentence } from '../../core/data-jobs';
 import { DataJobsService } from '../../core/data-jobs.service';
 import { BackupMachine, BackupSet, BackupView, JobView } from '../../core/models';
 import { RealtimeService } from '../../core/realtime.service';
+import { StorageService } from '../../core/storage.service';
 import { CopyButtonComponent } from '../../shared/copy-button.component';
 import { DataJobComponent } from '../../shared/data-job.component';
 import { IconComponent } from '../../shared/icon.component';
@@ -28,6 +29,7 @@ import { JobDetailsComponent } from './job-details.component';
 import { PassphraseSheetComponent } from './passphrase-sheet.component';
 import { PullSheetComponent } from './pull-sheet.component';
 import { RestoreSheetComponent } from './restore-sheet.component';
+import { StorageSectionComponent } from './storage-section.component';
 
 /** The newest jobs listed. */
 const JOBS_SHOWN = 8;
@@ -56,8 +58,9 @@ interface SetRow {
  * lists, Restore settings, Pull on launch, and the recent jobs with Undo.
  * One set per directory: a token account's sessions are in the Default's.
  * A passphrase change that did not finish, and a set whose key is not in
- * the folder here, are said up front. Everything that changes something is
- * the desktop's; phones see it all.
+ * the folder here, are said up front. The Storage section lists the backup
+ * folder and the folders added beside it, with their sets (Move data).
+ * Everything that changes something is the desktop's; phones see it all.
  */
 @Component({
   selector: 'mc-backup',
@@ -71,6 +74,7 @@ interface SetRow {
     PassphraseSheetComponent,
     PullSheetComponent,
     RestoreSheetComponent,
+    StorageSectionComponent,
     TimeAgoComponent,
   ],
   templateUrl: './backup.component.html',
@@ -80,6 +84,7 @@ export class BackupComponent {
   private api = inject(ApiService);
   private jobs = inject(DataJobsService);
   private realtime = inject(RealtimeService);
+  private storage = inject(StorageService);
   protected readonly accounts = inject(AccountsService);
   protected readonly isDesktop = inject(AuthService).isDesktop;
 
@@ -166,9 +171,12 @@ export class BackupComponent {
 
   async load(): Promise<void> {
     try {
-      const v = normalizeBackupView(await this.api.getBackup());
+      const raw = await this.api.getBackup();
+      const v = normalizeBackupView(raw);
       if (!v) throw new Error('The Mac sent backup settings this app could not read.');
       this.view.set(v);
+      // The storages are in the same answer.
+      this.storage.accept(raw);
       this.loadError.set('');
       // Jobs that still run (started here or elsewhere) are followed.
       for (const j of v.jobs) if (j.state === 'running') this.follow(j);
@@ -217,9 +225,12 @@ export class BackupComponent {
     this.error.set('');
     this.notice.set('');
     try {
-      const v = normalizeBackupView(await this.api.setBackupSettings(patch));
-      if (v) this.view.set(v);
-      else await this.load();
+      const raw = await this.api.setBackupSettings(patch);
+      const v = normalizeBackupView(raw);
+      if (v) {
+        this.view.set(v);
+        this.storage.accept(raw);
+      } else await this.load();
       if (ok) this.notice.set(ok);
       return true;
     } catch (e) {
