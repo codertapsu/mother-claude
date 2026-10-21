@@ -204,14 +204,38 @@ pub async fn remove(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> ApiResult<StatusCode> {
-    let bridge_default = state.bridge.defaults().await.account == Some(id.clone());
-    if bridge_default && state.bridge.is_running().await {
-        return Err(ApiError::conflict(
-            "account_used_by_bridge",
-            "The API runs with this account as its default for new conversations. Stop the \
-             API, or start it again with another account, first.",
-        ));
+    // No running API server may lose the account it runs its conversations
+    // under (docs/ACCOUNTS.md §13.5); a stopped one keeps it, says so, and
+    // cannot start until another is chosen. Held until the account is gone,
+    // so no server starts with it in between.
+    let _servers = state.bridge.servers.admin.lock().await;
+    for server in state.bridge.servers.all() {
+        if server.defaults().account.as_deref() != Some(id.as_str()) || !server.is_running() {
+            continue;
+        }
+        let err = if server.is_main() {
+            ApiError::conflict(
+                "account_used_by_bridge",
+                "The API runs with this account as its default for new conversations. Stop \
+                 the API, or start it again with another account, first.",
+            )
+        } else {
+            ApiError::conflict(
+                "account_used_by_bridge",
+                format!(
+                    "The API server \"{}\" runs with this account. Stop it, or start it again \
+                     with another account, first.",
+                    server.name()
+                ),
+            )
+            .with("server", server.id.clone())
+            .with("serverName", server.name())
+        };
+        return Err(err);
     }
+    let main = state.bridge.main();
+    let bridge_default =
+        main.defaults().account == Some(id.clone()) || main.saved().account == Some(id.clone());
     let live = state
         .control
         .accounts()
@@ -233,16 +257,15 @@ pub async fn remove(
     }
     let account = state.accounts.remove(&id).map_err(account_error)?;
     if bridge_default {
-        // The stopped API's remembered choice: the next start takes the
+        // The stopped main API's remembered choice: the next start takes the
         // project's account, else the accounts' bridge default.
-        state
-            .bridge
-            .update_defaults(|d| {
-                if d.account.as_deref() == Some(id.as_str()) {
-                    d.account = None;
-                }
-            })
-            .await;
+        let forget = |d: &mut crate::bridge::control::BridgeDefaults| {
+            if d.account.as_deref() == Some(id.as_str()) {
+                d.account = None;
+            }
+        };
+        main.update_defaults(forget);
+        main.update_saved(forget);
     }
     state.index.forget_checkpoint(&id);
     audit(

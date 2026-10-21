@@ -229,6 +229,31 @@ pub fn api_router() -> Router<AppState> {
             "/bridge/active-thread",
             post(crate::bridge::control::post_active_thread),
         )
+        // ── API servers besides the main one (docs/ACCOUNTS.md §13.5) ──
+        .route(
+            "/bridge/servers",
+            post(crate::bridge::control::post_server)
+                .layer(DefaultBodyLimit::max(BRIDGE_START_BODY_MAX)),
+        )
+        .route(
+            "/bridge/servers/{id}",
+            axum::routing::patch(crate::bridge::control::patch_server)
+                .delete(crate::bridge::control::delete_server)
+                .layer(DefaultBodyLimit::max(BRIDGE_START_BODY_MAX)),
+        )
+        .route(
+            "/bridge/servers/{id}/start",
+            post(crate::bridge::control::post_server_start)
+                .layer(DefaultBodyLimit::max(BRIDGE_START_BODY_MAX)),
+        )
+        .route(
+            "/bridge/servers/{id}/stop",
+            post(crate::bridge::control::post_server_stop),
+        )
+        .route(
+            "/bridge/servers/{id}/active-thread",
+            post(crate::bridge::control::post_server_active_thread),
+        )
         .route_layer(axum::middleware::from_fn(auth::require_api_principal))
         // Outermost, so a route's own limit (set closer to its handler)
         // overrides it.

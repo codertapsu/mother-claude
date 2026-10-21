@@ -13,9 +13,9 @@
 //! new one each time.
 //!
 //! The **main** server is the one there always was (`/api/bridge/start`,
-//! `/stop`, `/active-thread`); its defaults are never saved. Servers added
-//! besides it are saved with theirs in `api-servers.json` (docs/ACCOUNTS.md
-//! §13.5).
+//! `/stop`, `/active-thread`); its defaults are never saved. Servers added on
+//! the API screen are saved with theirs in `api-servers.json`
+//! (docs/ACCOUNTS.md §13.5) and driven through `/api/bridge/servers/…`.
 //!
 //! These handlers live on the **dashboard** API (`/api/bridge/…`), not on the
 //! bridge itself — you have to be able to start something that is not running.
@@ -23,7 +23,8 @@
 use std::net::SocketAddr;
 use std::sync::Arc;
 
-use axum::extract::State;
+use axum::extract::{Path, State};
+use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -460,7 +461,8 @@ async fn thread_views(state: &AppState, server: &str) -> Vec<Value> {
         .collect()
 }
 
-/// Everything the API screen needs in one payload: the main server.
+/// Everything the API screen needs in one payload: the main server as it
+/// always was, plus `servers` (main first) once another one exists.
 pub async fn status(state: &AppState) -> Value {
     let config = &state.bridge.config;
     let main = state.bridge.main();
@@ -477,7 +479,7 @@ pub async fn status(state: &AppState) -> Value {
     let threads = thread_views(state, MAIN_ID).await;
     let auth = state.claude_auth.read().await.clone();
 
-    json!({
+    let mut out = json!({
         "enabled": config.enabled,
         "running": running,
         "port": port,
@@ -503,10 +505,79 @@ pub async fn status(state: &AppState) -> Value {
         "threads": threads,
         "docsUrl": url.as_ref().map(|u| format!("{u}/docs/")),
         "consoleUrl": url.as_ref().map(|u| format!("{u}/example/")),
-    })
+    });
+    if state.bridge.servers.has_added() {
+        let mut list = Vec::new();
+        for server in state.bridge.servers.all() {
+            list.push(server_status(state, &server).await);
+        }
+        out["servers"] = json!(list);
+    }
+    out
+}
+
+/// One server's part of the API screen (docs/ACCOUNTS.md §13.5).
+pub async fn server_status(state: &AppState, server: &ApiServer) -> Value {
+    let listener = server.listener.lock().await;
+    let running = listener.is_some();
+    let port = listener.as_ref().map(|l| l.port).or(server.port());
+    let started_at = listener.as_ref().map(|l| l.started_at);
+    drop(listener);
+
+    let url = port
+        .filter(|p| *p != 0)
+        .map(|p| format!("http://127.0.0.1:{p}"));
+    let token = server.token_policy();
+    let defaults = server.defaults();
+    let missing = defaults
+        .account
+        .as_deref()
+        .is_some_and(|a| state.accounts.get(a).is_none());
+    let mut out = json!({
+        "id": server.id,
+        "name": server.name(),
+        "running": running,
+        "port": port,
+        "url": url,
+        "prefix": server.prefix(),
+        "startedAt": started_at,
+        "requireToken": token.requires_token(),
+        "tokenPolicy": token,
+        "exposedByTunnel": exposed(state, server),
+        "tunnelUrl": tunnel_url(state, server),
+        "defaults": defaults,
+        "activeThread": server.active_thread(),
+        "threads": thread_views(state, &server.id).await,
+        "docsUrl": url.as_ref().map(|u| format!("{u}/docs/")),
+        "consoleUrl": url.as_ref().map(|u| format!("{u}/example/")),
+    });
+    if missing {
+        // Its account was removed: it cannot start until another is chosen.
+        out["accountMissing"] = json!(true);
+    }
+    out
 }
 
 // ─────────────────────────────── added servers ─────────────────────────────
+
+/// An added server by id: `404 server_not_found`, and `409
+/// main_server_fixed` for the main one (its port comes from the
+/// environment, and it is never removed).
+fn added(state: &AppState, id: &str) -> BridgeResult<Arc<ApiServer>> {
+    let server = state
+        .bridge
+        .server(id)
+        .ok_or_else(|| servers::server_not_found(id))?;
+    if server.is_main() {
+        return Err(BridgeError::conflict(
+            "main_server_fixed",
+            "The main API server keeps its port (MOTHER_CLAUDE_BRIDGE_PORT) and cannot be \
+             changed or removed here; start it with other defaults instead.",
+        )
+        .with("server", MAIN_ID));
+    }
+    Ok(server)
+}
 
 /// `409 server_name_taken` when another server has this name (in any case).
 fn name_free(state: &AppState, name: &str, except: Option<&str>) -> BridgeResult<()> {
@@ -588,8 +659,70 @@ pub async fn add_server(
     Ok(server)
 }
 
+/// Change an added server's name, port or saved defaults; a running one is
+/// restarted with them (under its run's token policy).
+pub async fn update_server(
+    state: &AppState,
+    id: &str,
+    name: Option<&str>,
+    port: Option<u16>,
+    defaults: Option<BridgeDefaults>,
+) -> BridgeResult<Arc<ApiServer>> {
+    let server = added(state, id)?;
+    let name = name.map(servers::clean_name).transpose()?;
+    let defaults = match defaults {
+        Some(d) => Some(checked_defaults(state, d).await?),
+        None => None,
+    };
+    let _admin = state.bridge.servers.admin.lock().await;
+    if let Some(name) = &name {
+        name_free(state, name, Some(id))?;
+    }
+    if let Some(port) = port {
+        servers::check_port(state, Some(id), port)?;
+    }
+    let before = (server.name(), server.port(), server.saved());
+    let moved = port.is_some_and(|p| Some(p) != server.port());
+    if let Some(name) = name {
+        server.set_name(name);
+    }
+    if let Some(port) = port {
+        server.set_port(Some(port));
+    }
+    if let Some(defaults) = &defaults {
+        server.update_saved(|d| *d = defaults.clone());
+    }
+    if let Err(e) = state.bridge.servers.save() {
+        server.set_name(before.0);
+        server.set_port(before.1);
+        server.update_saved(|d| *d = before.2);
+        return Err(e);
+    }
+    if server.is_running() && (moved || defaults.is_some()) {
+        run(state, &server, server.saved(), server.token_policy(), false).await?;
+    } else if defaults.is_some() {
+        server.apply_defaults(server.saved());
+    }
+    Ok(server)
+}
+
+/// Remove an added server, stopped first. Its conversations go on, as the
+/// main server's.
+pub async fn remove_server(state: &AppState, id: &str) -> BridgeResult<()> {
+    let server = added(state, id)?;
+    let _admin = state.bridge.servers.admin.lock().await;
+    if server.is_running() {
+        halt(state, &server).await;
+    }
+    state.bridge.servers.remove(id)?;
+    state.bridge.reassign_threads(id, MAIN_ID).await;
+    tracing::info!(server = %id, "API server removed");
+    Ok(())
+}
+
 /// Start a server with `defaults` — an added server keeps them as its saved
-/// defaults — or, without, with the ones it has saved.
+/// defaults — or, without, with the ones it has saved (`409
+/// account_not_found` when their account was removed since).
 pub async fn start_server(
     state: &AppState,
     id: &str,
@@ -604,7 +737,26 @@ pub async fn start_server(
     let persist = defaults.is_some();
     let defaults = match defaults {
         Some(defaults) => defaults,
-        None => server.saved(),
+        None => {
+            let saved = server.saved();
+            if let Some(account) = saved
+                .account
+                .as_deref()
+                .filter(|a| state.accounts.get(a).is_none())
+            {
+                return Err(BridgeError::conflict(
+                    "account_not_found",
+                    format!(
+                        "The account this API server runs under ({account}) was removed; \
+                         choose another to start it."
+                    ),
+                )
+                .with("field", "account")
+                .with("account", account.to_string())
+                .with("server", server.id.clone()));
+            }
+            saved
+        }
     };
     run(state, &server, defaults, token, persist).await?;
     Ok(server)
@@ -791,6 +943,143 @@ pub async fn post_active_thread(
     Ok(axum::Json(status(&state).await).into_response())
 }
 
+/// A port a server may ask for through the dashboard: 1024–65535.
+fn dashboard_port(port: Option<u16>) -> BridgeResult<()> {
+    match port {
+        Some(p) if p < servers::MIN_PORT => Err(BridgeError::invalid_field(
+            "port",
+            format!(
+                "A server's port is between {} and 65535.",
+                servers::MIN_PORT
+            ),
+        )),
+        _ => Ok(()),
+    }
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct AddServerBody {
+    pub name: String,
+    /// Default: the first free port from 5613.
+    #[serde(default)]
+    pub port: Option<u16>,
+    #[serde(default)]
+    pub defaults: Option<BridgeDefaults>,
+}
+
+/// `POST /api/bridge/servers` → `201` its status (not started).
+pub async fn post_server(
+    Authed(ctx): Authed,
+    State(state): State<AppState>,
+    super::routes::Body(body): super::routes::Body<AddServerBody>,
+) -> BridgeResult<Response> {
+    dashboard_port(body.port)?;
+    let defaults = body.defaults.unwrap_or_default();
+    check_defaults(&state, &ctx, &defaults, "Saving an API server's defaults").await?;
+    let server = add_server(&state, &body.name, body.port, defaults).await?;
+    Ok((
+        StatusCode::CREATED,
+        axum::Json(server_status(&state, &server).await),
+    )
+        .into_response())
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PatchServerBody {
+    #[serde(default)]
+    pub name: Option<String>,
+    #[serde(default)]
+    pub port: Option<u16>,
+    #[serde(default)]
+    pub defaults: Option<BridgeDefaults>,
+}
+
+/// `PATCH /api/bridge/servers/{id}` — a running server is restarted with the
+/// change.
+pub async fn patch_server(
+    Authed(ctx): Authed,
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    super::routes::Body(body): super::routes::Body<PatchServerBody>,
+) -> BridgeResult<Response> {
+    dashboard_port(body.port)?;
+    if let Some(defaults) = &body.defaults {
+        check_defaults(&state, &ctx, defaults, "Saving an API server's defaults").await?;
+    }
+    let server = update_server(&state, &id, body.name.as_deref(), body.port, body.defaults).await?;
+    Ok(axum::Json(server_status(&state, &server).await).into_response())
+}
+
+/// `DELETE /api/bridge/servers/{id}` → `204`.
+pub async fn delete_server(
+    Authed(_ctx): Authed,
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> BridgeResult<Response> {
+    remove_server(&state, &id).await?;
+    Ok(StatusCode::NO_CONTENT.into_response())
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ServerStartBody {
+    /// The defaults to start with (an added server saves them); absent: the
+    /// ones it has.
+    #[serde(default)]
+    pub defaults: Option<BridgeDefaults>,
+    /// As on `/api/bridge/start`; absent on an added server: closed to tunnels.
+    #[serde(default)]
+    pub open_to_tunnels: Option<bool>,
+}
+
+/// `POST /api/bridge/servers/{id}/start`
+pub async fn post_server_start(
+    Authed(ctx): Authed,
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    super::routes::Body(body): super::routes::Body<ServerStartBody>,
+) -> BridgeResult<Response> {
+    let server = state
+        .bridge
+        .server(&id)
+        .ok_or_else(|| servers::server_not_found(&id))?;
+    let token = start_token(&state, &ctx, &server, body.open_to_tunnels)?;
+    let check = body.defaults.clone().unwrap_or_else(|| server.saved());
+    check_defaults(&state, &ctx, &check, "Starting an API server").await?;
+    if body.open_to_tunnels == Some(true) {
+        ctx.note_dangerous("an API port opened without a token, tunnels included");
+    }
+    let server = start_server(&state, &id, body.defaults, token).await?;
+    Ok(axum::Json(server_status(&state, &server).await).into_response())
+}
+
+/// `POST /api/bridge/servers/{id}/stop`
+pub async fn post_server_stop(
+    Authed(_ctx): Authed,
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> BridgeResult<Response> {
+    let server = stop_server(&state, &id).await?;
+    Ok(axum::Json(server_status(&state, &server).await).into_response())
+}
+
+/// `POST /api/bridge/servers/{id}/active-thread`
+pub async fn post_server_active_thread(
+    Authed(_ctx): Authed,
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    super::routes::Body(body): super::routes::Body<ActiveThreadBody>,
+) -> BridgeResult<Response> {
+    let server = state
+        .bridge
+        .server(&id)
+        .ok_or_else(|| servers::server_not_found(&id))?;
+    set_active(&state, &server, body.thread_id).await?;
+    Ok(axum::Json(server_status(&state, &server).await).into_response())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -911,5 +1200,15 @@ mod tests {
         let err = serde_json::from_value::<StartBody>(json!({ "defaults": { "modl": "haiku" } }))
             .unwrap_err();
         assert!(err.to_string().starts_with("unknown field"));
+        for body in [
+            json!({ "name": "Work", "prt": 5613 }),
+            json!({ "name": "Work", "defaults": { "accountonly": true } }),
+        ] {
+            let err = serde_json::from_value::<AddServerBody>(body).unwrap_err();
+            assert!(err.to_string().starts_with("unknown field"), "{err}");
+        }
+        assert!(
+            serde_json::from_value::<ServerStartBody>(json!({ "openToTunnels": false })).is_ok()
+        );
     }
 }

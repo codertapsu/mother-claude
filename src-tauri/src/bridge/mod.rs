@@ -393,6 +393,15 @@ impl BridgeState {
         }
     }
 
+    /// The conversations of a removed server now show as the main one's.
+    pub(crate) async fn reassign_threads(&self, from: &str, to: &str) {
+        for record in self.threads.write().await.values_mut() {
+            if record.server == from {
+                record.server = to.to_string();
+            }
+        }
+    }
+
     /// Drop a conversation the host has closed. If it was the one unaddressed
     /// messages joined on any server, stop pointing at it — the next message
     /// should open a fresh conversation rather than fail against a dead id.

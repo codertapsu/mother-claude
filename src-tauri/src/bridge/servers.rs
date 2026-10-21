@@ -124,9 +124,17 @@ impl ApiServer {
         get(&self.name)
     }
 
+    pub(crate) fn set_name(&self, name: String) {
+        set(&self.name, name);
+    }
+
     /// The port it is configured to listen on.
     pub fn port(&self) -> Option<u16> {
         get(&self.port)
+    }
+
+    pub(crate) fn set_port(&self, port: Option<u16>) {
+        set(&self.port, port);
     }
 
     /// The port it is bound to now (`None`: stopped, or the main server
@@ -208,6 +216,17 @@ impl ApiServer {
 
     pub(crate) fn set_token_policy(&self, token: TokenPolicy) {
         set(&self.token, token);
+    }
+
+    /// Where it is reached through the main ones: `""` for the main server,
+    /// `/servers/<id>` for the others (the main API port serves it there and
+    /// under `/v1`; the main app port only under `/v1`).
+    pub fn prefix(&self) -> String {
+        if self.is_main() {
+            String::new()
+        } else {
+            format!("/servers/{}", self.id)
+        }
     }
 
     /// The entry `api-servers.json` keeps for it.
@@ -529,6 +548,18 @@ impl Servers {
         self.save_list(&next)?;
         set(&self.list, next);
         Ok(server)
+    }
+
+    /// Remove an added server, saved before it is gone.
+    pub(crate) fn remove(&self, id: &str) -> BridgeResult<()> {
+        let next: Vec<Arc<ApiServer>> = self
+            .all()
+            .into_iter()
+            .filter(|s| s.id != id || s.is_main())
+            .collect();
+        self.save_list(&next)?;
+        set(&self.list, next);
+        Ok(())
     }
 }
 

@@ -371,6 +371,279 @@ async fn api_servers_are_saved_and_come_back() {
     assert!(!text.contains("\"main\""), "{text}");
 }
 
+/// The dashboard routes: add, read, change, start, stop and remove servers,
+/// with their refusals; the account removal rule.
+#[tokio::test]
+async fn the_dashboard_manages_api_servers() {
+    let f = boot().await;
+    let desk = f.st.auth.token.clone();
+    let script = f.st.auth.script_token.clone();
+    let work =
+        f.st.accounts
+            .add_directory("Work", &f.work_dir(), None)
+            .unwrap();
+    let api = |path: &str| format!("{}/api/bridge{path}", f.app);
+
+    // Add one: not started, a port of its own from 5613 up.
+    let (s, v) = call(
+        "POST",
+        &api("/servers"),
+        Some(&script),
+        Some(json!({ "name": "Work", "defaults": { "account": work.id } })),
+    )
+    .await;
+    assert_eq!(s, StatusCode::CREATED, "{v}");
+    assert_eq!(v["id"], "work");
+    assert_eq!(v["name"], "Work");
+    assert_eq!(v["running"], false);
+    assert_eq!(v["prefix"], "/servers/work");
+    assert!(v["port"].as_u64().unwrap() >= 5613, "{v}");
+    assert!(v.get("accountMissing").is_none());
+    let port = v["port"].as_u64().unwrap();
+
+    // Refusals, each naming what is wrong.
+    for (body, status, code) in [
+        (
+            json!({ "name": "work" }),
+            StatusCode::CONFLICT,
+            "server_name_taken",
+        ),
+        (
+            json!({ "name": "Main" }),
+            StatusCode::CONFLICT,
+            "server_name_taken",
+        ),
+        (
+            json!({ "name": " " }),
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "invalid_field",
+        ),
+        (
+            json!({ "name": "Low", "port": 80 }),
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "invalid_field",
+        ),
+        (
+            json!({ "name": "Zero", "port": 0 }),
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "invalid_field",
+        ),
+        (
+            json!({ "name": "Twin", "port": port }),
+            StatusCode::CONFLICT,
+            "port_unavailable",
+        ),
+        (
+            json!({ "name": "Nobody", "defaults": { "account": "acc_000000000000" } }),
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "invalid_field",
+        ),
+        (
+            json!({ "name": "Typo", "prot": 6000 }),
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "unknown_field",
+        ),
+        (
+            json!({ "name": "Wild", "defaults": { "permissionMode": "bypassPermissions" } }),
+            StatusCode::FORBIDDEN,
+            "desktop_only",
+        ),
+    ] {
+        let (s, v) = call("POST", &api("/servers"), Some(&script), Some(body.clone())).await;
+        assert_eq!(s, status, "{body}: {v}");
+        assert_eq!(v["error"]["code"], code, "{body}: {v}");
+    }
+    let (_, v) = call(
+        "POST",
+        &api("/servers"),
+        Some(&script),
+        Some(json!({ "name": "Twin", "port": port })),
+    )
+    .await;
+    assert_eq!(v["error"]["server"], "work");
+
+    // `servers` in the status, main first.
+    let (_, status) = call("GET", &api(""), Some(&desk), None).await;
+    let servers = status["servers"].as_array().unwrap();
+    assert_eq!(servers.len(), 2);
+    assert_eq!(servers[0]["id"], "main");
+    assert_eq!(servers[0]["name"], "Main");
+    assert_eq!(servers[0]["prefix"], "");
+    assert_eq!(servers[1]["id"], "work");
+
+    // Change it: a new name keeps the id.
+    let (s, v) = call(
+        "PATCH",
+        &api("/servers/work"),
+        Some(&script),
+        Some(json!({ "name": "Work API" })),
+    )
+    .await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    assert_eq!(
+        (v["id"].as_str(), v["name"].as_str()),
+        (Some("work"), Some("Work API"))
+    );
+    for (path, status, code) in [
+        ("/servers/main", StatusCode::CONFLICT, "main_server_fixed"),
+        ("/servers/nope", StatusCode::NOT_FOUND, "server_not_found"),
+    ] {
+        let (s, v) = call(
+            "PATCH",
+            &api(path),
+            Some(&script),
+            Some(json!({ "name": "X" })),
+        )
+        .await;
+        assert_eq!(
+            (s, v["error"]["code"].as_str()),
+            (status, Some(code)),
+            "{path}"
+        );
+    }
+    // A port the system picks, so it can start here (tests only).
+    control::update_server(&f.st, "work", None, Some(0), None)
+        .await
+        .unwrap();
+
+    // Start it: opening to tunnels is the desktop's alone.
+    let (s, v) = call(
+        "POST",
+        &api("/servers/work/start"),
+        Some(&script),
+        Some(json!({ "openToTunnels": true })),
+    )
+    .await;
+    assert_eq!(s, StatusCode::FORBIDDEN, "{v}");
+    assert_eq!(v["error"]["code"], "desktop_only");
+    let (s, v) = call(
+        "POST",
+        &api("/servers/work/start"),
+        Some(&desk),
+        Some(json!({ "openToTunnels": true })),
+    )
+    .await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    assert_eq!(v["running"], true);
+    assert_eq!(v["tokenPolicy"], "never");
+    assert!(v["url"].as_str().unwrap().starts_with("http://127.0.0.1:"));
+    // Started without defaults: the saved ones, closed to tunnels.
+    let (_, v) = call(
+        "POST",
+        &api("/servers/work/start"),
+        Some(&script),
+        Some(json!({})),
+    )
+    .await;
+    assert_eq!(v["tokenPolicy"], "local");
+    assert_eq!(v["defaults"]["account"], work.id.as_str());
+
+    // The account a running server uses cannot be removed.
+    let account = format!("{}/api/accounts/{}", f.app, work.id);
+    let (s, v) = call("DELETE", &account, Some(&desk), None).await;
+    assert_eq!(s, StatusCode::CONFLICT, "{v}");
+    assert_eq!(v["error"]["code"], "account_used_by_bridge");
+    assert_eq!(v["error"]["server"], "work");
+    assert_eq!(v["error"]["serverName"], "Work API");
+    // Stopped, it can; the server keeps it, says so and does not start.
+    let (s, v) = call("POST", &api("/servers/work/stop"), Some(&script), None).await;
+    assert_eq!(s, StatusCode::OK);
+    assert_eq!(v["running"], false);
+    let (s, _) = call("DELETE", &account, Some(&desk), None).await;
+    assert_eq!(s, StatusCode::NO_CONTENT);
+    let (_, status) = call("GET", &api(""), Some(&desk), None).await;
+    assert_eq!(status["servers"][1]["accountMissing"], true);
+    assert_eq!(
+        status["servers"][1]["defaults"]["account"],
+        work.id.as_str()
+    );
+    let (s, v) = call(
+        "POST",
+        &api("/servers/work/start"),
+        Some(&script),
+        Some(json!({})),
+    )
+    .await;
+    assert_eq!(s, StatusCode::CONFLICT, "{v}");
+    assert_eq!(v["error"]["code"], "account_not_found");
+    // Another account chosen: it starts, and keeps that one.
+    let (s, v) = call(
+        "POST",
+        &api("/servers/work/start"),
+        Some(&script),
+        Some(json!({ "defaults": { "account": "default" } })),
+    )
+    .await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    assert!(v.get("accountMissing").is_none());
+    assert_eq!(
+        f.st.bridge
+            .server("work")
+            .unwrap()
+            .saved()
+            .account
+            .as_deref(),
+        Some("default")
+    );
+
+    // The conversation unaddressed messages join, per server.
+    let thread = create(&f.api("work"), json!({})).await;
+    let (s, v) = call(
+        "POST",
+        &api("/servers/work/active-thread"),
+        Some(&script),
+        Some(json!({ "threadId": thread })),
+    )
+    .await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    assert_eq!(v["activeThread"], thread.as_str());
+    assert!(f.st.bridge.main().active_thread().is_none());
+    // Its conversations are listed under it, not under the main server.
+    assert_eq!(v["threads"][0]["threadId"], thread.as_str());
+    let (_, status) = call("GET", &api(""), Some(&desk), None).await;
+    assert!(status["threads"].as_array().unwrap().is_empty(), "{status}");
+    // The main server answers on these routes too, as a server like the others.
+    let (s, v) = call("POST", &api("/servers/main/stop"), Some(&script), None).await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    assert_eq!(
+        (v["id"].as_str(), v["running"].as_bool()),
+        (Some("main"), Some(false))
+    );
+    let (s, v) = call(
+        "POST",
+        &api("/servers/work/active-thread"),
+        Some(&script),
+        Some(json!({ "threadId": "0a1b2c3d-0000-4000-8000-0000000000ff" })),
+    )
+    .await;
+    assert_eq!(s, StatusCode::NOT_FOUND, "{v}");
+
+    // A running server changed is restarted with the change.
+    let (s, v) = call(
+        "PATCH",
+        &api("/servers/work"),
+        Some(&script),
+        Some(json!({ "defaults": { "account": "default", "model": "haiku" } })),
+    )
+    .await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    assert_eq!(v["running"], true);
+    assert_eq!(v["defaults"]["model"], "haiku");
+    let after = create(&f.api("work"), json!({})).await;
+    assert_eq!(created(&after)["model"], "haiku");
+
+    // Removed: stopped first, its conversations go on as the main server's;
+    // with only the main server left the status reads as before again.
+    let (s, _) = call("DELETE", &api("/servers/work"), Some(&script), None).await;
+    assert_eq!(s, StatusCode::NO_CONTENT);
+    assert!(f.st.bridge.server("work").is_none());
+    assert_eq!(f.st.bridge.thread(&thread).await.unwrap().server, "main");
+    let (_, status) = call("GET", &api(""), Some(&desk), None).await;
+    assert!(status.get("servers").is_none(), "{status}");
+    let (s, _) = call("DELETE", &api("/servers/main"), Some(&script), None).await;
+    assert_eq!(s, StatusCode::CONFLICT);
+}
+
 /// Goal 7 (§13.3 rule 9): with only the Default account and only the main
 /// server, every answer is what it was before API servers.
 #[tokio::test]
