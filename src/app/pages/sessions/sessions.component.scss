@@ -89,3 +89,30 @@
   background: var(--panel-2);
   animation: mc-shimmer 1.2s ease-in-out infinite alternate;
 }
+
+/* Sessions › Select: the bar stays in view above the phone's tab bar. */
+.selbar {
+  position: sticky;
+  bottom: calc(var(--tabbar-h) + env(safe-area-inset-bottom) + 0.5rem);
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.5rem;
+  margin-top: 1rem;
+  padding: 0.5rem 0.65rem;
+  background: var(--panel);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+}
+.selcount {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  margin-right: 0.15rem;
+}
+@media (min-width: 768px) {
+  .selbar {
+    bottom: 1rem;
+  }
+}

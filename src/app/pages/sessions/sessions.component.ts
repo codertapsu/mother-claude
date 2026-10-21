@@ -11,6 +11,7 @@ import { inAccount } from '../../shared/accounts';
 import { FleetSummaryComponent } from '../../shared/fleet-summary.component';
 import { IconComponent } from '../../shared/icon.component';
 import { LimitOfferComponent } from '../../shared/limit-offer.component';
+import { MoveDataSheetComponent, MoveStart } from '../../shared/move-data-sheet.component';
 import { SessionCardComponent } from '../../shared/session-card.component';
 import { thinkingChip } from '../../shared/session-settings';
 import { effortLabel, effortShortLabel, surfaceLabel } from '../../shared/util';
@@ -39,7 +40,10 @@ function byRecent(a: SessionSummary, b: SessionSummary): number {
  * searchable and filterable (by surface, project and — while more than the
  * Default exists — Claude account), grouped by what they need; ended
  * sessions page in on demand. A card with one simple pending request can be
- * answered right here.
+ * answered right here. *Select* puts a checkbox on every card and a bar
+ * below them: *Select all shown*, and *Move or copy N…*, which opens Move
+ * data with those conversations (from several accounts at once: each goes
+ * from where it is).
  */
 @Component({
   selector: 'mc-sessions',
@@ -49,6 +53,7 @@ function byRecent(a: SessionSummary, b: SessionSummary): number {
     FleetSummaryComponent,
     IconComponent,
     LimitOfferComponent,
+    MoveDataSheetComponent,
     SessionCardComponent,
   ],
   templateUrl: './sessions.component.html',
@@ -159,6 +164,12 @@ export class SessionsComponent {
 
   protected readonly surfaceLabel = surfaceLabel;
 
+  /** Sessions › Select: the cards have checkboxes. */
+  protected readonly selecting = signal(false);
+  protected readonly picked = signal<ReadonlySet<string>>(new Set());
+  /** Move data with the picked conversations (null: closed). */
+  protected readonly moveStart = signal<MoveStart | null>(null);
+
   setFilter(f: Filter): void {
     this.filter.set(f);
     storageSet(FILTER_KEY, f);
@@ -170,6 +181,46 @@ export class SessionsComponent {
     this.project.set('');
     this.account.set('');
     this.setFilter('all');
+  }
+
+  toggleSelecting(): void {
+    const on = !this.selecting();
+    this.selecting.set(on);
+    if (!on) this.picked.set(new Set());
+  }
+
+  flip(id: string): void {
+    this.picked.update((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  /** Every card the filters show now (the earlier ones too, when open). */
+  selectAllShown(): void {
+    const shown = [
+      ...this.groups().flatMap((g) => g.items),
+      ...(this.historyOpen() ? this.historyVisible() : []),
+    ];
+    this.picked.update((prev) => new Set([...prev, ...shown.map((s) => s.id)]));
+  }
+
+  clearPicked(): void {
+    this.picked.set(new Set());
+  }
+
+  /** Move data with them, each from the account it is in. */
+  openMove(): void {
+    const ids = [...this.picked()];
+    if (!ids.length) return;
+    this.moveStart.set({
+      from: null,
+      what: 'sessions',
+      sessions: ids,
+      known: [...this.all(), ...this.history()],
+    });
   }
 
   /** The fleet summary's account: show its sessions (again: every one). */

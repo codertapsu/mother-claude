@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, computed, inject, input } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject, input, output } from '@angular/core';
 import { RouterLink } from '@angular/router';
 
 import { PendingRef, SessionSummary } from '../core/models';
@@ -37,7 +37,8 @@ interface PackedPart {
  * something to say: ultracode when on (not when off, unknown or unavailable:
  * the session page says which), thinking when off or used. On the smallest
  * screens effort, ultracode and fast share one chip and thinking shows only
- * its figure, so the settings add at most one row of chips.
+ * its figure, so the settings add at most one row of chips. While the list
+ * selects (Sessions › Select) a checkbox leads the top row.
  */
 @Component({
   selector: 'mc-session-card',
@@ -55,10 +56,23 @@ interface PackedPart {
     StatusPillComponent,
     TimeAgoComponent,
   ],
-  host: { '[attr.data-status]': 'session().status' },
+  host: {
+    '[attr.data-status]': 'session().status',
+    '[attr.data-selected]': "selectable() && selected() ? '' : null",
+  },
   template: `
     @let s = session();
     <div class="top">
+      @if (selectable()) {
+        <label class="pick">
+          <input
+            type="checkbox"
+            [checked]="selected()"
+            [attr.aria-label]="'Select ' + name()"
+            (change)="toggled.emit()"
+          />
+        </label>
+      }
       <mc-status-pill [status]="s.status" [live]="s.live" />
       <a class="name" [routerLink]="['/session', s.id]">{{ name() }}</a>
       <mc-time class="when" [ms]="s.lastActivityAt" />
@@ -189,6 +203,25 @@ interface PackedPart {
       :host([data-status='waiting']) {
         border-color: var(--amber-border);
       }
+      :host([data-selected]) {
+        border-color: var(--accent);
+        background: color-mix(in srgb, var(--accent-soft) 45%, var(--panel));
+      }
+      /* A tap target of the full size, without growing the row. */
+      .pick {
+        flex: 0 0 auto;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: var(--tap);
+        min-height: var(--tap);
+        margin: -0.75rem -0.55rem -0.75rem -0.85rem;
+        cursor: pointer;
+      }
+      .pick input {
+        width: 1.05rem;
+        height: 1.05rem;
+      }
       .top {
         display: flex;
         align-items: center;
@@ -259,6 +292,11 @@ export class SessionCardComponent {
   private clock = inject(NowService);
   protected readonly viewport = inject(ViewportService);
   readonly session = input.required<SessionSummary>();
+  /** Show a checkbox (Sessions › Select). */
+  readonly selectable = input(false);
+  readonly selected = input(false);
+  /** The checkbox was ticked or cleared. */
+  readonly toggled = output<void>();
 
   protected readonly name = computed(() => sessionName(this.session()));
   protected readonly effort = computed(() => effortText(this.session()));

@@ -163,4 +163,43 @@ describe('SessionsComponent accounts', () => {
     fixture.detectChanges();
     expect(names(el)).toEqual(['Session a', 'Session b', 'Session c']);
   });
+
+  it('selects cards and opens Move data with them, each from where it is', async () => {
+    serveAccounts(backend, buildAccounts(Date.now(), true));
+    backend.routes.set('/backup', () => ({ status: 200, body: { settings: { folder: null } } }));
+    store([card('a', DEFAULT_REF), card('b', WORK_REF), card('c', WORK_REF)]);
+    const el = await render();
+    const button = (label: string) =>
+      [...el.querySelectorAll<HTMLButtonElement>('button')].find((b) => text(b).startsWith(label));
+    expect(el.querySelector('mc-session-card .pick')).toBeNull();
+    button('Select')?.click();
+    fixture.detectChanges();
+    const boxes = () => [...el.querySelectorAll<HTMLInputElement>('mc-session-card .pick input')];
+    expect(boxes().length).toBe(3);
+    boxes()[0].click();
+    boxes()[2].click();
+    fixture.detectChanges();
+    expect(text(el.querySelector('.selcount'))).toBe('2 selected');
+    expect(el.querySelectorAll('mc-session-card[data-selected]').length).toBe(2);
+    button('Select all shown')?.click();
+    fixture.detectChanges();
+    expect(text(el.querySelector('.selcount'))).toBe('3 selected');
+
+    button('Move or copy 3')?.click();
+    fixture.detectChanges();
+    await flush();
+    fixture.detectChanges();
+    const sheet = el.querySelector('mc-move-data-sheet') as HTMLElement;
+    const from = sheet.querySelector<HTMLSelectElement>('select[name="from"]');
+    expect(text(from?.selectedOptions[0])).toBe('Where each one is');
+    expect(text(sheet.querySelector('mc-move-checklist'))).toContain('3 of 3 selected');
+
+    // Done leaves Select, and forgets the picks.
+    button('Done')?.click();
+    fixture.detectChanges();
+    expect(el.querySelector('.selbar')).toBeNull();
+    button('Select')?.click();
+    fixture.detectChanges();
+    expect(text(el.querySelector('.selcount'))).toBe('0 selected');
+  });
 });

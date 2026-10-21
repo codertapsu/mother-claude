@@ -2,6 +2,20 @@
   <div class="page-head">
     <h1>Sessions</h1>
     <span class="spacer"></span>
+    @if (loaded() && (all().length || history().length)) {
+      <button
+        class="btn"
+        type="button"
+        [attr.aria-pressed]="selecting()"
+        (click)="toggleSelecting()"
+      >
+        @if (selecting()) {
+          Done
+        } @else {
+          <mc-icon name="check" [size]="16" /> Select
+        }
+      </button>
+    }
     <a class="btn primary" routerLink="/new"><mc-icon name="plus" [size]="16" /> New session</a>
   </div>
 
@@ -113,7 +127,12 @@
       </h2>
       <div class="cards">
         @for (s of g.items; track s.id) {
-          <mc-session-card [session]="s" />
+          <mc-session-card
+            [session]="s"
+            [selectable]="selecting()"
+            [selected]="picked().has(s.id)"
+            (toggled)="flip(s.id)"
+          />
         }
       </div>
     </section>
@@ -129,7 +148,12 @@
         <h2>Earlier sessions</h2>
         <div class="cards">
           @for (s of historyVisible(); track s.id) {
-            <mc-session-card [session]="s" />
+            <mc-session-card
+              [session]="s"
+              [selectable]="selecting()"
+              [selected]="picked().has(s.id)"
+              (toggled)="flip(s.id)"
+            />
           } @empty {
             @if (!historyLoading()) {
               <p class="muted">No earlier sessions{{ query() ? ' match' : '' }}.</p>
@@ -152,4 +176,27 @@
       }
     </section>
   }
+
+  @if (selecting()) {
+    <div class="selbar" role="region" aria-label="Selected sessions">
+      <span class="selcount" aria-live="polite">{{ picked().size }} selected</span>
+      <button class="btn small ghost" type="button" (click)="selectAllShown()">
+        Select all shown
+      </button>
+      @if (picked().size) {
+        <button class="btn small ghost" type="button" (click)="clearPicked()">Clear</button>
+      }
+      <span class="spacer"></span>
+      <button
+        class="btn small primary"
+        type="button"
+        [disabled]="!picked().size"
+        (click)="openMove()"
+      >
+        <mc-icon name="move" [size]="14" /> Move or copy {{ picked().size || '' }}…
+      </button>
+    </div>
+  }
 </div>
+
+<mc-move-data-sheet [open]="!!moveStart()" [start]="moveStart()" (closed)="moveStart.set(null)" />
