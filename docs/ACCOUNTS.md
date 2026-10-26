@@ -1679,6 +1679,6 @@ anywhere").
 - [x] P8.3 `POST /api/data/delete`: plan, skips, jobs per directory, undo,
   `undo: false`, the guards, audit and notice, API servers' active
   conversations.
-- [ ] P8.4 UI: Select with Delete, the Projects view, the session's paths and
+- [x] P8.4 UI: Select with Delete, the Projects view, the session's paths and
   reveal, the delete dialog, the API screen's entries, the mock backend.
 - [x] P8.5 Documents (§14.5).
