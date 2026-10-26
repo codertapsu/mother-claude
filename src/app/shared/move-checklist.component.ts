@@ -4,8 +4,8 @@ import {
   computed,
   input,
   linkedSignal,
+  model,
   output,
-  signal,
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 
@@ -17,10 +17,14 @@ const FIRST_ROWS = 50;
 
 /**
  * A searchable checklist of conversations or projects (Move data): a
- * search box, how many are selected, *Select all shown* and *None*, and
- * one row per item with its title, a short tag ("Running", "In storage
- * only") and a muted line (its id, folder or size). Long lists show their
- * first rows and "Show N more"; `more` offers loading earlier ones.
+ * search box, how many are selected, *Select all* ("Select all matching"
+ * while searching) and *None*, and one row per item with its title, a
+ * short tag ("Running", "In storage only") and a muted line (its id,
+ * folder or size). Long lists show their first rows and "Show N more";
+ * `more` offers loading earlier ones. The search filters the rows here,
+ * unless the host searched for them (`searched`: the rows are what its
+ * server found); *Select all* hands the matches to the host, which may
+ * take more than are listed (every match on the server).
  */
 @Component({
   selector: 'mc-move-checklist',
@@ -42,24 +46,29 @@ const FIRST_ROWS = 50;
         />
       </label>
       <div class="bulk">
-        <span class="muted small count">{{ selectedCount() }} of {{ rows().length }} selected</span>
+        <span class="muted small count">{{ countText() }}</span>
         <button
           class="btn ghost small"
           type="button"
-          [disabled]="disabled() || !visible().length"
-          (click)="setAll(true)"
+          [disabled]="disabled() || selectingAll() || !visible().length"
+          (click)="selectAll.emit(visibleIds())"
         >
-          Select all shown
+          {{
+            selectingAll() ? 'Selecting…' : query().trim() ? 'Select all matching' : 'Select all'
+          }}
         </button>
         <button
           class="btn ghost small"
           type="button"
-          [disabled]="disabled() || !selectedCount()"
-          (click)="setAll(false)"
+          [disabled]="disabled() || !selected().size"
+          (click)="bulk.emit({ ids: [...selected()], on: false })"
         >
           None
         </button>
       </div>
+      @if (selectAllError()) {
+        <p class="error-text small" role="alert">{{ selectAllError() }}</p>
+      }
     </div>
     <ul class="rows" [attr.aria-label]="label()">
       @for (r of shown(); track r.id) {
@@ -228,28 +237,42 @@ export class MoveChecklistComponent {
   readonly more = input(false);
   readonly moreText = input('Load earlier ones');
   readonly disabled = input(false);
+  /** The rows are what the host searched for (its server matched them):
+   * they are shown as they are. */
+  readonly searched = input(false);
+  /** *Select all* is at work (the host asks its server for every match). */
+  readonly selectingAll = input(false);
+  /** Why *Select all* took only what is listed ('' when it took all). */
+  readonly selectAllError = input('');
   readonly flip = output<string>();
-  /** Select (true) or clear (false) the rows a search shows. */
+  /** *None*: clear every selected item. */
   readonly bulk = output<{ ids: string[]; on: boolean }>();
+  /** *Select all*: the rows the search shows (the host may add every
+   * match it has not listed yet). */
+  readonly selectAll = output<string[]>();
   readonly loadMore = output<void>();
 
-  protected readonly query = signal('');
+  /** The search box (the host may search with it). */
+  readonly query = model('');
   /** How many rows show (null: all), back to the first ones on a search. */
   protected readonly limit = linkedSignal<string, number | null>({
     source: () => this.query(),
     computation: () => FIRST_ROWS,
   });
-  protected readonly visible = computed(() => filterRows(this.rows(), this.query()));
+  protected readonly visible = computed(() =>
+    this.searched() ? [...this.rows()] : filterRows(this.rows(), this.query()),
+  );
+  protected readonly visibleIds = computed(() => this.visible().map((r) => r.id));
   protected readonly shown = computed(() => {
     const n = this.limit();
     return n === null ? this.visible() : this.visible().slice(0, n);
   });
   protected readonly hidden = computed(() => this.visible().length - this.shown().length);
-  protected readonly selectedCount = computed(
-    () => this.rows().filter((r) => this.selected().has(r.id)).length,
-  );
-
-  protected setAll(on: boolean): void {
-    this.bulk.emit({ ids: (on ? this.visible() : this.rows()).map((r) => r.id), on });
-  }
+  /** "3 of 12 selected" while every item is listed, else "40 selected"
+   * (more are on the Mac than are listed). */
+  protected readonly countText = computed(() => {
+    if (this.more()) return `${this.selected().size} selected`;
+    const n = this.rows().filter((r) => this.selected().has(r.id)).length;
+    return `${n} of ${this.rows().length} selected`;
+  });
 }

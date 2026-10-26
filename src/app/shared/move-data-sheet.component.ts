@@ -258,6 +258,7 @@ interface IndexState {
                     [disabled]="busy()"
                     (flip)="flip(pickedSessions, $event)"
                     (bulk)="bulkSet(pickedSessions, $event)"
+                    (selectAll)="bulkSet(pickedSessions, { ids: $event, on: true })"
                     (loadMore)="loadMore()"
                   />
                 }
@@ -275,6 +276,7 @@ interface IndexState {
                     [disabled]="busy()"
                     (flip)="flip(pickedProjects, $event)"
                     (bulk)="bulkSet(pickedProjects, $event)"
+                    (selectAll)="bulkSet(pickedProjects, { ids: $event, on: true })"
                     (loadMore)="loadMore()"
                   />
                   <p class="muted small">
