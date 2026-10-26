@@ -1051,6 +1051,8 @@ pub async fn restore(
             .as_ref()
             .map(|(r, _)| r.restored.clone())
             .unwrap_or_default();
+        // In the lists before the job says it is done.
+        rediscover(&st).await;
         st.jobs.update(&id, |v| {
             v.undo_until = undo;
             v.sessions = sessions;
@@ -1060,7 +1062,6 @@ pub async fn restore(
             &id,
             result.map(|(r, _)| serde_json::to_value(r).unwrap_or(Value::Null)),
         );
-        rediscover(&st).await;
     });
     Ok(job)
 }
@@ -1145,6 +1146,8 @@ pub async fn pull(
             .as_ref()
             .map(|(r, _)| r.restored.iter().chain(&r.updated).cloned().collect())
             .unwrap_or_default();
+        // In the lists before the job says it is done.
+        rediscover(&st).await;
         st.jobs.update(&id, |v| {
             v.undo_until = undo;
             v.sessions = sessions;
@@ -1159,7 +1162,6 @@ pub async fn pull(
             &id,
             result.map(|(r, _)| serde_json::to_value(r).unwrap_or(Value::Null)),
         );
-        rediscover(&st).await;
     });
     Ok(job)
 }

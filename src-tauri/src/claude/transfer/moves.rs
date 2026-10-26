@@ -1176,7 +1176,6 @@ pub fn start(state: &AppState, plan: MovePlan) -> Vec<JobView> {
             if let Err(e) = &result {
                 tracing::warn!(job = %id, error = %e, "moving data failed");
             }
-            super::ops::rediscover(&st).await;
         }
     });
     views
@@ -1222,6 +1221,8 @@ async fn run_group(state: &AppState, job: &str, g: Group) -> Result<(), Transfer
         None => Err(invalid("this build has no data directory")),
     };
     drop(one);
+    // The lists show where things are before the job says it is done.
+    super::ops::rediscover(state).await;
     let failed = result.as_ref().err().cloned();
     finish(state, job, result);
     match failed {

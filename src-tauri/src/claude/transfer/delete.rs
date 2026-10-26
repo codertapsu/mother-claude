@@ -817,12 +817,8 @@ pub fn start(state: &AppState, plan: DeletePlan) -> Vec<JobView> {
     let st = state.clone();
     tokio::spawn(async move {
         for (g, id) in groups.into_iter().zip(ids) {
-            let nothing = g.sessions.is_empty();
             if let Err(e) = run_group(&st, &id, g, keep).await {
                 tracing::warn!(job = %id, error = %e, "deleting conversations failed");
-            }
-            if !nothing {
-                super::ops::rediscover(&st).await;
             }
         }
     });
@@ -847,6 +843,10 @@ async fn run_group(state: &AppState, job: &str, g: Group, keep: bool) -> Result<
     if let Ok(r) = &result {
         // An API server no longer joins or names a conversation that is gone.
         crate::bridge::forget_deleted(state, &r.deleted).await;
+    }
+    // Gone from the lists before the job says it is done.
+    if !g.sessions.is_empty() {
+        super::ops::rediscover(state).await;
     }
     let failed = result.as_ref().err().cloned();
     finish(state, job, &g, result);

@@ -101,6 +101,9 @@ async fn execute_locked(
     })
     .await
     .map_err(|e| TransferError::Io(e.to_string()))?;
+    // The lists show where things are before the job says it is done: a
+    // client that waits for "done" never reads the old places.
+    rediscover(state).await;
     let finished = chrono::Utc::now().timestamp_millis();
     match &done {
         Ok(m) => state.jobs.update(job_id, |v| {
@@ -121,7 +124,6 @@ async fn execute_locked(
             }
         }),
     }
-    rediscover(state).await;
     done.map(|_| ())
 }
 
@@ -197,6 +199,8 @@ pub async fn undo(state: &AppState, job_id: &str) -> Result<(), TransferError> {
     for (id, account) in &m.token_accounts {
         state.accounts.remember_session(id, account);
     }
+    // Back in the lists before the job says it is undone.
+    rediscover(state).await;
     let view = view_of(state, &m);
     state.jobs.update(job_id, |v| {
         v.state = JobState::Undone;
@@ -213,7 +217,6 @@ pub async fn undo(state: &AppState, job_id: &str) -> Result<(), TransferError> {
         drop(p);
         state.jobs.update(job_id, |v| *v = view.clone());
     }
-    rediscover(state).await;
     Ok(())
 }
 
