@@ -44,6 +44,7 @@ import { API_PERMISSION_MODES } from './permission-modes';
 import { ApiServerAddressesComponent } from './server-addresses.component';
 import { ApiServerListComponent } from './server-list.component';
 import { ApiServerSheetComponent } from './server-sheet.component';
+import { ConversationFilesComponent } from './conversation-files.component';
 
 /** New conversation on the first message, rather than joining an existing one. */
 const FRESH = '';
@@ -82,6 +83,7 @@ interface ClaudeLine {
     ApiServerAddressesComponent,
     ApiServerListComponent,
     ApiServerSheetComponent,
+    ConversationFilesComponent,
     IconComponent,
   ],
   template: `
@@ -352,6 +354,14 @@ interface ClaudeLine {
             Picking an earlier conversation resumes it — same history, same working directory.
           </span>
         </label>
+        @if (picked(); as p) {
+          <mc-conversation-files
+            [id]="p.id"
+            [title]="p.title"
+            [account]="p.account"
+            (deleted)="onDeleted($event)"
+          />
+        }
 
         @if (s.running && thread() !== (s.activeThread ?? FRESH)) {
           <button class="btn" type="button" [disabled]="busy()" (click)="applyThread()">
@@ -958,6 +968,28 @@ export class BridgeComponent {
 
   liveThreads(s: BridgeStatus) {
     return s.threads ?? [];
+  }
+
+  /** The conversation picked in "Messages join", for its files and
+   * Delete… (docs/ACCOUNTS.md §14.4). */
+  readonly picked = computed(() => {
+    const id = this.thread();
+    if (id === FRESH) return null;
+    const t = this.panel()?.threads?.find((x) => x.threadId === id);
+    const s = this.sessions().find((x) => x.id === id);
+    const title = t?.title || (s ? sessionName(s) : '');
+    return { id, title, account: t ? (t.account?.id ?? DEFAULT_ACCOUNT) : s?.account?.id };
+  });
+
+  /** A deleted conversation leaves the picker; the server cleared it where
+   * it was the active one. */
+  onDeleted(id: string): void {
+    this.sessions.update((list) => list.filter((s) => s.id !== id));
+    if (this.thread() === id) this.thread.set(FRESH);
+    this.api.getBridge().then(
+      (status) => this.apply(status, false),
+      () => undefined,
+    );
   }
 
   /** The account a running conversation is under (absent: the Default's). */

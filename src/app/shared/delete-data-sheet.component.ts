@@ -44,7 +44,7 @@ export interface DeleteStart {
   /** What it is, for the title: "this conversation", "3 projects". */
   what: string;
   /** Conversations the opener has at hand (titles for the lists). */
-  known?: readonly SessionSummary[];
+  known?: readonly Pick<SessionSummary, 'id' | 'name' | 'title' | 'projectName'>[];
 }
 
 /** Where the dialog is: checking, showing the dry run, running. */
