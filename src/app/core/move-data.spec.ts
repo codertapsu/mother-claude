@@ -24,6 +24,7 @@ import {
   normalizeStorages,
   planLine,
   projectRows,
+  diskProjectRows,
   readLocation,
   sameLocation,
   sessionRow,
@@ -517,6 +518,19 @@ describe('move data helpers', () => {
     ]);
     expect(filterRows([s, i], 'NOTES').map((r) => r.id)).toEqual(['fedcba9876']);
     expect(filterRows([s, i], ' ').length).toBe(2);
+    // An account's folders on disk: the kept ones first, then as listed.
+    const d = diskProjectRows(
+      [
+        { cwd: '/Users/me/dev/new', sessions: 2, live: 1, bytes: 2048 },
+        { cwd: '/Users/me/dev/old', sessions: 40, live: 0, bytes: 0 },
+      ],
+      ['/Users/me/dev/old', '/Users/me/dev/gone'],
+    );
+    expect(d.map((r) => [r.id, r.title, r.sub, r.tag])).toEqual([
+      ['/Users/me/dev/old', '~/dev/old', '40 conversations', ''],
+      ['/Users/me/dev/gone', '~/dev/gone', '', ''],
+      ['/Users/me/dev/new', '~/dev/new', '2 conversations · 2.0 KB', '1 running'],
+    ]);
   });
 
   it('puts the refusals in words', () => {

@@ -689,5 +689,72 @@ describe('MoveDataSheetComponent', () => {
       expect(backend.urls).toContain('/sessions?scope=all&limit=200&before=b1');
       expect(titles(el)).toEqual(['Title of s1', 'Old one']);
     });
+
+    it("lists an account's projects from every folder on disk, searched there", async () => {
+      serve();
+      backend.routes.set('/data/projects', () => ({
+        status: 200,
+        body: {
+          projects: [
+            {
+              account: 'default',
+              cwd: '/Users/me/dev/api',
+              folder: '/u/.claude/projects/-Users-me-dev-api',
+              sessions: 2,
+              live: 1,
+              bytes: 2048,
+              lastActivityAt: 30,
+            },
+            {
+              account: MOCK_ACCOUNT_WORK,
+              cwd: '/Users/me/dev/work',
+              folder: '/u/.claude-work/projects/-Users-me-dev-work',
+              sessions: 1,
+              live: 0,
+              bytes: 10,
+              lastActivityAt: 20,
+            },
+            {
+              account: 'default',
+              cwd: '/Users/me/dev/xiangqi',
+              folder: '/u/.claude/projects/-Users-me-dev-xiangqi',
+              sessions: 40,
+              live: 0,
+              bytes: 1_048_576,
+              lastActivityAt: 10,
+            },
+          ],
+        },
+      }));
+      const el = await open({ from: accountLocation('default'), what: 'projects' });
+      expect(titles(el)).toEqual(['~/dev/api', '~/dev/xiangqi']);
+      expect(text(checklist(el))).toContain('40 conversations · 1.0 MB');
+      expect(text(checklist(el))).toContain('1 running');
+      // Read from the disk's list, not from conversations.
+      expect(backend.calls).not.toContain('GET /sessions');
+
+      await type(el, 'xiang');
+      button(el, 'Select all matching')?.click();
+      await settle();
+      backend.routes.set('/data/move', () => ({ status: 200, body: { plan: { mode: 'copy' } } }));
+      button(el, 'Check what it does')?.click();
+      await settle();
+      expect(lastMove()['items']).toEqual({ projects: ['/Users/me/dev/xiangqi'] });
+    });
+
+    it("falls back to the conversations' folders when the disk's list fails", async () => {
+      serve();
+      backend.routes.set('/data/projects', () => ({
+        status: 500,
+        body: { error: { code: 'internal', message: 'index busy' } },
+      }));
+      const el = await open({ from: accountLocation('default'), what: 'projects' });
+      expect(text(checklist(el).querySelector('[role="alert"]'))).toContain(
+        'The Mac could not list every project',
+      );
+      // The folders of the conversations read, and more to look through.
+      expect(titles(el)).toEqual(['~/dev/api']);
+      expect(button(el, 'Look through earlier conversations')).toBeDefined();
+    });
   });
 });

@@ -1083,6 +1083,30 @@ export function projectRows(
     }));
 }
 
+/** An account's project folders on disk (`GET /data/projects`, §14.2) as
+ * rows: the `keep` folders first (listed even when the account has none of
+ * them), then the rest as the Mac lists them (newest first). */
+export function diskProjectRows(
+  projects: readonly { cwd: string; sessions: number; live: number; bytes: number }[],
+  keep: readonly string[] = [],
+): ChecklistRow[] {
+  const byCwd = new Map(projects.map((p) => [p.cwd, p]));
+  const first = new Set(keep);
+  const ordered = [
+    ...keep.map((cwd) => byCwd.get(cwd) ?? { cwd, sessions: 0, live: 0, bytes: 0 }),
+    ...projects.filter((p) => !first.has(p.cwd)),
+  ];
+  return ordered.map((p) => ({
+    id: p.cwd,
+    title: tilde(p.cwd),
+    sub: [p.sessions ? plural(p.sessions, 'conversation') : '', p.bytes ? formatBytes(p.bytes) : '']
+      .filter(Boolean)
+      .join(' · '),
+    tag: p.live ? `${p.live} running` : '',
+    haystack: p.cwd.toLowerCase(),
+  }));
+}
+
 /** The rows a search shows. */
 export function filterRows(rows: readonly ChecklistRow[], query: string): ChecklistRow[] {
   const q = query.trim().toLowerCase();

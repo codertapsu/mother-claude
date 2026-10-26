@@ -20,6 +20,7 @@ import { AuthService } from '../core/auth.service';
 import { normalizeBackupIndex } from '../core/backup';
 import { normalizeJob, plural } from '../core/data-jobs';
 import { DataJobsService } from '../core/data-jobs.service';
+import { DataProject, normalizeDataProjects } from '../core/delete-data';
 import { BackupIndex, JobView, SessionSummary, SessionsQuery, TransferMode } from '../core/models';
 import {
   CUSTOMIZATIONS,
@@ -33,6 +34,7 @@ import {
   accountLocation,
   anyTarget,
   defaultTarget,
+  diskProjectRows,
   indexRow,
   locationFromKey,
   locationGroups,
@@ -115,6 +117,13 @@ interface SessionList {
   error: string;
 }
 
+/** Every project folder on disk (`GET /data/projects`, §14.2). */
+interface DiskProjects {
+  rows: DataProject[] | null;
+  loading: boolean;
+  error: string;
+}
+
 /**
  * Move data (docs/ACCOUNTS.md §13.6): take conversations, projects,
  * everything, or an account's customizations from one place to another —
@@ -124,7 +133,8 @@ interface SessionList {
  * storages with their sets (*New set…* as a target); conversations and
  * projects are searchable checklists — an account's conversations are
  * searched on the Mac and *Select all* takes every match, not only the
- * pages read; a set's come from its index. Move
+ * pages read; its projects are every folder on disk (`GET /data/projects`);
+ * a set's come from its index. Move
  * or Copy, as far as the way allows; a folder's trust and the replace
  * option; then a dry run (what goes, what is skipped and why, warnings),
  * the jobs with their progress, and Undo. The desktop and paired phones
@@ -624,6 +634,9 @@ export class MoveDataSheetComponent {
   /** *Select all* is asking the Mac for every match. */
   protected readonly selectingAll = signal(false);
   protected readonly selectAllError = signal('');
+  /** Every project folder on disk, when From is an account. */
+  private readonly disk = signal<DiskProjects | null>(null);
+  private diskGen = 0;
   /** The index of the set things come from. */
   private readonly index = signal<IndexState | null>(null);
   private following?: AbortController;
@@ -859,6 +872,15 @@ export class MoveDataSheetComponent {
       const ix = st?.key === this.indexKey() ? st.ix : null;
       return projectRows(ix?.sessions ?? [], keep);
     }
+    // Every folder of the account on disk; if the Mac can't list them,
+    // the folders of the conversations read so far.
+    const disk = this.disk()?.rows;
+    if (f?.kind === 'account' && disk) {
+      return diskProjectRows(
+        disk.filter((p) => p.account === f.account),
+        keep,
+      );
+    }
     return projectRows(this.sourceSessions(), keep);
   });
   protected readonly sourceLoading = computed(() =>
@@ -872,16 +894,23 @@ export class MoveDataSheetComponent {
   protected readonly sourceMore = computed(
     () => this.fromLoc()?.kind === 'account' && !!this.activeList()?.cursor,
   );
-  /** An account's projects are the folders of its conversations read. */
-  protected readonly projectsLoading = computed(() =>
-    this.fromLoc()?.kind === 'account' ? !!this.base()?.loading : this.sourceLoading(),
+  /** The projects' list could not be read: the conversations' pages stand
+   * in for it. */
+  private readonly diskFailed = computed(
+    () => this.fromLoc()?.kind === 'account' && !!this.disk()?.error,
   );
-  protected readonly projectsError = computed(() =>
-    this.fromLoc()?.kind === 'account' ? (this.base()?.error ?? '') : this.sourceError(),
-  );
-  protected readonly projectsMore = computed(
-    () => this.fromLoc()?.kind === 'account' && !!this.base()?.cursor,
-  );
+  protected readonly projectsLoading = computed(() => {
+    if (this.fromLoc()?.kind !== 'account') return this.sourceLoading();
+    return this.diskFailed() ? !!this.base()?.loading : !!this.disk()?.loading;
+  });
+  protected readonly projectsError = computed(() => {
+    if (this.fromLoc()?.kind !== 'account') return this.sourceError();
+    const err = this.disk()?.error;
+    return err
+      ? `The Mac could not list every project (${err}); these are the folders of the conversations read so far.`
+      : '';
+  });
+  protected readonly projectsMore = computed(() => this.diskFailed() && !!this.base()?.cursor);
   protected readonly emptyText = computed(() =>
     this.fromLoc()?.kind === 'storage'
       ? 'This set holds no conversations.'
@@ -988,7 +1017,7 @@ export class MoveDataSheetComponent {
         this.open() &&
         !!query &&
         ((account && this.what() === 'sessions') ||
-          (account && this.what() === 'projects') ||
+          (account && this.what() === 'projects' && this.diskFailed()) ||
           (this.everywhere() && this.unknownPicked().length > 0));
       if (!query) return;
       const key = JSON.stringify(query);
@@ -1016,6 +1045,15 @@ export class MoveDataSheetComponent {
         if (this.found()?.key === key) return;
         this.found.set(newList(key, query));
         void this.loadPage('found');
+      });
+    });
+    // Every project folder on disk, when an account's projects are listed.
+    effect(() => {
+      const listing =
+        this.open() && this.fromLoc()?.kind === 'account' && this.what() === 'projects';
+      if (!listing) return;
+      untracked(() => {
+        if (!this.disk()) void this.loadDisk();
       });
     });
     // Ticked conversations without a title (the opener's, not read here):
@@ -1270,6 +1308,8 @@ export class MoveDataSheetComponent {
     this.searchText.set('');
     this.selectingAll.set(false);
     this.selectAllError.set('');
+    this.diskGen += 1;
+    this.disk.set(null);
     void this.accounts.ensureLoaded();
     void this.storage.ensureLoaded();
   }
@@ -1339,6 +1379,19 @@ export class MoveDataSheetComponent {
       const list = which === 'base' ? this.base() : this.found();
       if (!list || list.cursor === null || list.error) return;
       await this.loadPage(which);
+    }
+  }
+
+  /** Every project folder on disk; the checklist keeps an account's. */
+  private async loadDisk(): Promise<void> {
+    const gen = ++this.diskGen;
+    this.disk.set({ rows: null, loading: true, error: '' });
+    try {
+      const rows = normalizeDataProjects(await this.api.getDataProjects());
+      if (gen === this.diskGen) this.disk.set({ rows, loading: false, error: '' });
+    } catch (e) {
+      if (gen === this.diskGen)
+        this.disk.set({ rows: null, loading: false, error: moveErrorText(e) });
     }
   }
 
