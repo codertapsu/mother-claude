@@ -16,6 +16,8 @@
 //! request, as a foreign session would. Owned sessions spawned from the UI
 //! run the scripted fake CLI (`tests/fixtures/fake-claude.py`, no tokens
 //! spent): send `hello`, `bash`, `ask` or `plan` to see each kind of card.
+//! `MC_UI_REVEAL=record` makes *Show in Finder* record its command (printed
+//! on stdout) instead of opening a window, for unattended runs.
 
 use std::io::Write;
 use std::net::SocketAddr;
@@ -121,6 +123,21 @@ async fn serve_a_synthetic_home_for_ui_checks() {
             allowed_origins: Vec::new(),
         },
     );
+    if std::env::var("MC_UI_REVEAL").as_deref() == Ok("record") {
+        st.reveal.record_only();
+        let st = st.clone();
+        tokio::spawn(async move {
+            let mut shown = 0;
+            loop {
+                tokio::time::sleep(Duration::from_millis(500)).await;
+                let recorded = st.reveal.recorded();
+                for cmd in &recorded[shown..] {
+                    println!("reveal: {cmd:?}");
+                }
+                shown = recorded.len();
+            }
+        });
+    }
     tokio::spawn(monitor::run(st.clone()));
     hooks::start(&st);
     push::start(&st);
