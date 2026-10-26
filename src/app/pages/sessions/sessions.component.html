@@ -2,7 +2,7 @@
   <div class="page-head">
     <h1>Sessions</h1>
     <span class="spacer"></span>
-    @if (selectOffered() && loaded() && (all().length || history().length)) {
+    @if (loaded() && (all().length || history().length)) {
       <button
         class="btn"
         type="button"
@@ -188,15 +188,30 @@
       }
       <span class="spacer"></span>
       <button
-        class="btn small primary"
+        class="btn small danger"
         type="button"
         [disabled]="!picked().size"
-        (click)="openMove()"
+        (click)="openDelete()"
       >
-        <mc-icon name="move" [size]="14" /> Move or copy {{ picked().size || '' }}…
+        <mc-icon name="trash" [size]="14" /> Delete {{ picked().size || '' }}…
       </button>
+      @if (moveOffered()) {
+        <button
+          class="btn small primary"
+          type="button"
+          [disabled]="!picked().size"
+          (click)="openMove()"
+        >
+          <mc-icon name="move" [size]="14" /> Move or copy {{ picked().size || '' }}…
+        </button>
+      }
     </div>
   }
 </div>
 
 <mc-move-data-sheet [open]="!!moveStart()" [start]="moveStart()" (closed)="moveStart.set(null)" />
+<mc-delete-data-sheet
+  [open]="!!deleteStart()"
+  [start]="deleteStart()"
+  (closed)="deleteClosed($event)"
+/>

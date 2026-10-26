@@ -2,14 +2,22 @@ import { Component, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 
+import { DEFAULT_ACCOUNT } from '../../core/accounts';
 import { AccountsService } from '../../core/accounts.service';
 import { ApiService, errorMessage } from '../../core/api.service';
-import { SessionSummary } from '../../core/models';
+import { sessionGroups } from '../../core/delete-data';
+import { JobView, SessionSummary } from '../../core/models';
 import { anyTarget } from '../../core/move-data';
 import { storageGet, storageSet } from '../../core/platform';
 import { RealtimeService } from '../../core/realtime.service';
 import { StorageService } from '../../core/storage.service';
 import { inAccount } from '../../shared/accounts';
+import {
+  DeleteDataSheetComponent,
+  DeleteStart,
+  countedWhat,
+  deletedIds,
+} from '../../shared/delete-data-sheet.component';
 import { FleetSummaryComponent } from '../../shared/fleet-summary.component';
 import { IconComponent } from '../../shared/icon.component';
 import { LimitOfferComponent } from '../../shared/limit-offer.component';
@@ -43,7 +51,8 @@ function byRecent(a: SessionSummary, b: SessionSummary): number {
  * Default exists — Claude account), grouped by what they need; ended
  * sessions page in on demand. A card with one simple pending request can be
  * answered right here. *Select* puts a checkbox on every card and a bar
- * below them: *Select all shown*, and *Move or copy N…*, which opens Move
+ * below them: *Select all shown*, *Delete N…* (docs/ACCOUNTS.md §14) and,
+ * when there is somewhere to move them, *Move or copy N…*, which opens Move
  * data with those conversations (from several accounts at once: each goes
  * from where it is).
  */
@@ -54,6 +63,7 @@ function byRecent(a: SessionSummary, b: SessionSummary): number {
     FormsModule,
     FleetSummaryComponent,
     IconComponent,
+    DeleteDataSheetComponent,
     LimitOfferComponent,
     MoveDataSheetComponent,
     SessionCardComponent,
@@ -167,9 +177,9 @@ export class SessionsComponent {
 
   protected readonly surfaceLabel = surfaceLabel;
 
-  /** Select is offered: there is somewhere to move conversations to
-   * (another account, or a storage). */
-  protected readonly selectOffered = computed(() =>
+  /** Somewhere to move conversations to (another account, or a
+   * storage): the Select bar offers Move or copy. */
+  protected readonly moveOffered = computed(() =>
     anyTarget(this.accounts.list(), this.storage.list() ?? []),
   );
   /** Sessions › Select: the cards have checkboxes. */
@@ -177,6 +187,8 @@ export class SessionsComponent {
   protected readonly picked = signal<ReadonlySet<string>>(new Set());
   /** Move data with the picked conversations (null: closed). */
   protected readonly moveStart = signal<MoveStart | null>(null);
+  /** The delete dialog with the picked conversations (null: closed). */
+  protected readonly deleteStart = signal<DeleteStart | null>(null);
 
   constructor() {
     void this.storage.ensureLoaded();
@@ -233,6 +245,34 @@ export class SessionsComponent {
       sessions: ids,
       known: [...this.all(), ...this.history()],
     });
+  }
+
+  /** Delete them, each from the account it is recorded as. */
+  openDelete(): void {
+    const ids = [...this.picked()];
+    if (!ids.length) return;
+    const known = new Map([...this.history(), ...this.all()].map((s) => [s.id, s]));
+    const multi = this.accounts.multi();
+    this.deleteStart.set({
+      what: countedWhat(ids.length, 'conversation'),
+      groups: sessionGroups(
+        ids.map((id) => {
+          const s = known.get(id);
+          const account = s?.account?.id ?? (multi ? undefined : DEFAULT_ACCOUNT);
+          return { id, ...(account ? { account } : {}) };
+        }),
+      ),
+      known: [...known.values()].filter((s) => ids.includes(s.id)),
+    });
+  }
+
+  /** The dialog closed: what it deleted is no longer picked. */
+  deleteClosed(jobs: JobView[]): void {
+    this.deleteStart.set(null);
+    const gone = deletedIds(jobs);
+    if (!gone.size) return;
+    this.picked.update((prev) => new Set([...prev].filter((id) => !gone.has(id))));
+    this.history.update((list) => list.filter((s) => !gone.has(s.id)));
   }
 
   /** The fleet summary's account: show its sessions (again: every one). */

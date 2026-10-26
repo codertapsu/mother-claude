@@ -1,9 +1,11 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
 
+import { AuthService } from '../../core/auth.service';
 import {
   FakeBackend,
   flush,
+  me,
   serveAccounts,
   useFakeServer,
 } from '../../core/mock/fake-server.testing';
@@ -122,8 +124,15 @@ describe('SessionsComponent accounts', () => {
     expect(el.querySelector('select[aria-label="Account"]')).toBeNull();
     expect(el.querySelector('.acctsum')).toBeNull();
     expect(names(el)).toEqual(['Session a', 'Session b']);
-    // Nowhere to move them to (no other account, no storage): no Select.
-    expect([...el.querySelectorAll('button')].some((b) => text(b) === 'Select')).toBeFalse();
+    // Select is always there; with nowhere to move them, only Delete.
+    const select = [...el.querySelectorAll<HTMLButtonElement>('button')].find(
+      (b) => text(b) === 'Select',
+    );
+    select?.click();
+    fixture.detectChanges();
+    const bar = text(el.querySelector('.selbar'));
+    expect(bar).toContain('Delete');
+    expect(bar).not.toContain('Move or copy');
   });
 
   it("filters by account, from the select or an account's counts", async () => {
@@ -195,6 +204,33 @@ describe('SessionsComponent accounts', () => {
     const from = sheet.querySelector<HTMLSelectElement>('select[name="from"]');
     expect(text(from?.selectedOptions[0])).toBe('Where each one is');
     expect(text(sheet.querySelector('mc-move-checklist'))).toContain('3 of 3 selected');
+
+    sheet.querySelector<HTMLButtonElement>('button[aria-label="Close"]')?.click();
+    fixture.detectChanges();
+
+    // Delete: one request per account the conversations are in.
+    backend.routes.set('/data/delete', () => ({
+      status: 200,
+      body: { plan: { sessions: [{ id: 'a' }], skipped: [] } },
+    }));
+    TestBed.inject(AuthService).me.set(me({ principal: 'desktop', allowDangerous: true }));
+    button('Delete 3')?.click();
+    fixture.detectChanges();
+    await flush();
+    fixture.detectChanges();
+    const asked = backend.calls
+      .map((c, i) => (c === 'POST /data/delete' ? backend.bodies[i] : null))
+      .filter(Boolean);
+    expect(asked).toEqual([
+      { from: 'default', items: { sessions: ['a'] }, undo: true, dryRun: true },
+      {
+        from: MOCK_ACCOUNT_WORK,
+        items: { sessions: jasmine.arrayWithExactContents(['b', 'c']) },
+        undo: true,
+        dryRun: true,
+      },
+    ]);
+    expect(text(el.querySelector('mc-delete-data-sheet .planline'))).toContain('Deletes');
 
     // Done leaves Select, and forgets the picks.
     button('Done')?.click();
