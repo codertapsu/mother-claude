@@ -11,6 +11,7 @@ use std::time::Duration;
 
 use mother_claude_lib::claude::reveal::{command, Platform, Target};
 use mother_claude_lib::claude::secrets::Secret;
+use mother_claude_lib::claude::summaries::session_account;
 use mother_claude_lib::claude::ClaudeHome;
 use mother_claude_lib::server::auth::Auth;
 use mother_claude_lib::server::{self, Ingress};
@@ -834,13 +835,29 @@ async fn a_token_accounts_conversations_are_those_attributed_to_it() {
         .await;
     assert_eq!(s, StatusCode::ACCEPTED, "{v}");
     assert_eq!(v["job"]["account"], json!(pro), "named after Pro");
-    let done = f.finished(v["job"]["id"].as_str().unwrap()).await;
+    let job = v["job"]["id"].as_str().unwrap().to_string();
+    let done = f.finished(&job).await;
     assert_eq!(done["result"]["deleted"], json!([S5]), "{done}");
     assert!(
         transcript_path(home, &proj, S1).is_file(),
         "the Default's stays"
     );
     assert!(!transcript_path(home, &proj, S5).exists());
+    // Undo brings it back as Pro's, even once this run no longer remembers
+    // whose it was (the memory of it is pruned an hour after it is gone).
+    f.st.accounts.runtime.remember(S5, "default");
+    assert_eq!(session_account(&f.st, S5), "default");
+    let (s, v) = f
+        .call(
+            "POST",
+            &format!("/data/jobs/{job}/undo"),
+            &f.desktop(),
+            Some(json!({})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    assert!(transcript_path(home, &proj, S5).is_file());
+    assert_eq!(session_account(&f.st, S5), pro);
 
     for (body, status, code) in [
         (

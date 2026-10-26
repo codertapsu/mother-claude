@@ -1391,6 +1391,7 @@ fn delete_from_a(
         keep_undo,
         is_live,
         may_go,
+        attributed: &|id| (id == SID).then(|| "acc_0123456789ab".to_string()),
         progress: &Progress::default(),
     })?;
     Ok((job, r))
@@ -1454,6 +1455,11 @@ fn a_delete_takes_a_conversations_files_and_nothing_shared() {
     let m = manifest(&w.undo, &job).unwrap();
     assert_eq!(m.kind.as_deref(), Some(delete::KIND));
     assert_eq!(m.sessions, [SID]);
+    assert_eq!(
+        m.token_accounts,
+        [(SID.to_string(), "acc_0123456789ab".to_string())],
+        "its account, for the undo"
+    );
     assert_eq!(m.moved.len(), 4, "transcript, subagent, file history, todo");
     let v = view_from_manifest(&m);
     assert_eq!(v.kind, "delete");

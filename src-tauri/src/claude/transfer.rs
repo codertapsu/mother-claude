@@ -1066,6 +1066,7 @@ impl Manifest {
             assigned: Vec::new(),
             storage_to: None,
             added_set_entries: Vec::new(),
+            token_accounts: Vec::new(),
         }
     }
 
@@ -1182,6 +1183,11 @@ pub struct Manifest {
     /// (its undo takes them out again).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub added_set_entries: Vec<(String, String)>,
+    /// A delete: the token account each conversation it took was attributed
+    /// to, which its undo records again (the memory of it is pruned an hour
+    /// after a transcript is gone).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub token_accounts: Vec<(String, String)>,
 }
 
 /// Progress of a running transfer.

@@ -35,7 +35,7 @@ use serde_json::{json, Value};
 
 use super::moves::{Location, LIST_CAP};
 use super::{JobState, JobView, Manifest, Mode, Moved, Progress, Skipped, TransferError, What};
-use crate::claude::accounts::{DEFAULT_ID, UNREGISTERED_TOKEN_ID};
+use crate::claude::accounts::{AccountKind, DEFAULT_ID, UNREGISTERED_TOKEN_ID};
 use crate::claude::{disk, ClaudeHome};
 use crate::state::AppState;
 
@@ -545,6 +545,9 @@ pub struct TakeInputs<'a> {
     pub is_live: &'a dyn Fn(&str) -> bool,
     /// Whether a conversation may still go (`Err`: skipped so).
     pub may_go: &'a dyn Fn(&str) -> Result<(), Skipped>,
+    /// The token account a conversation is attributed to, if any (its undo
+    /// records it again).
+    pub attributed: &'a dyn Fn(&str) -> Option<String>,
     pub progress: &'a Progress,
 }
 
@@ -624,6 +627,7 @@ fn take_one(
         return Ok(Taken::Skipped(s));
     }
     let folders = folders_of(home, id);
+    let token_account = (inp.attributed)(id);
     let plan = match super::plan_session(home, home, id) {
         Ok(p) => p,
         Err(e) => return Ok(Taken::Skipped(Skipped::of(id, &e))),
@@ -686,6 +690,9 @@ fn take_one(
         if take_folder(&folder, home, undo_dir, m, save)? {
             m.moved_dirs.push(folder);
         }
+    }
+    if let Some(account) = token_account {
+        m.token_accounts.push((id.to_string(), account));
     }
     save(m)?;
     Ok(Taken::Gone)
@@ -869,6 +876,13 @@ async fn run_locked(
             )),
             _ => Ok(()),
         };
+        let attributed = |id: &str| {
+            let owner = disk::owner_in(&st, &g2.dir_account, id);
+            st.accounts
+                .get(&owner)
+                .is_some_and(|a| a.kind == AccountKind::Token)
+                .then_some(owner)
+        };
         take(&TakeInputs {
             home: &g2.home,
             ids: &ids,
@@ -878,6 +892,7 @@ async fn run_locked(
             keep_undo: keep,
             is_live: &live,
             may_go: &may_go,
+            attributed: &attributed,
             progress: &progress,
         })
     })

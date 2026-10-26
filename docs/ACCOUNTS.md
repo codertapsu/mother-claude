@@ -1628,7 +1628,9 @@ the folder its summary shows. Phones and the local-script token read it too.
 - **Undo** is every data job's (`POST /api/data/jobs/{id}/undo`: the desktop
   or a paired device, no dangerous right — it only puts files back); `404
   not_found` once there is no copy (`undo: false`, or pruned), `409
-  undo_conflict` where something new is.
+  undo_conflict` where something new is. A token account's conversation comes
+  back as that account's: the manifest keeps whose it was, since the memory of
+  it (`account-sessions.json`) is pruned an hour after a transcript is gone.
 - **A project folder** goes when nothing else is in it (a `.DS_Store` goes
   into the undo copy first); one that holds anything else — the project's
   auto-memory, say — stays.

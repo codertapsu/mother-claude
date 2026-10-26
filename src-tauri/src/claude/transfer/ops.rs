@@ -193,6 +193,10 @@ pub async fn undo(state: &AppState, job_id: &str) -> Result<(), TransferError> {
     })
     .await
     .map_err(|e| TransferError::Io(e.to_string()))??;
+    // A deleted conversation of a token account is that account's again.
+    for (id, account) in &m.token_accounts {
+        state.accounts.remember_session(id, account);
+    }
     let view = view_of(state, &m);
     state.jobs.update(job_id, |v| {
         v.state = JobState::Undone;
