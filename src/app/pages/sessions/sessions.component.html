@@ -2,7 +2,7 @@
   <div class="page-head">
     <h1>Sessions</h1>
     <span class="spacer"></span>
-    @if (loaded() && (all().length || history().length)) {
+    @if (view() === 'sessions' && loaded() && (all().length || history().length)) {
       <button
         class="btn"
         type="button"
@@ -19,193 +19,212 @@
     <a class="btn primary" routerLink="/new"><mc-icon name="plus" [size]="16" /> New session</a>
   </div>
 
-  @if (loaded()) {
-    <mc-fleet-summary
-      [account]="account()"
-      (filter)="setFilter($event)"
-      (accountPicked)="showAccount($event)"
-    />
-    <mc-limit-offer class="offers" />
-  }
-
-  <div class="toolbar">
-    <label class="search">
-      <mc-icon name="search" [size]="16" />
-      <input
-        type="search"
-        placeholder="Search sessions"
-        aria-label="Search sessions"
-        [ngModel]="query()"
-        (ngModelChange)="query.set($event)"
-        autocapitalize="off"
-        spellcheck="false"
-      />
-    </label>
-    <div class="filters">
-      <div class="segmented" role="group" aria-label="Show sessions">
-        <button type="button" [attr.aria-pressed]="filter() === 'live'" (click)="setFilter('live')">
-          Live <span class="n">{{ liveCount() }}</span>
-        </button>
-        <button
-          type="button"
-          [attr.aria-pressed]="filter() === 'needs'"
-          (click)="setFilter('needs')"
-        >
-          Needs you
-          @if (needsCount()) {
-            <span class="n warn">{{ needsCount() }}</span>
-          }
-        </button>
-        <button type="button" [attr.aria-pressed]="filter() === 'all'" (click)="setFilter('all')">
-          All <span class="n">{{ all().length }}</span>
-        </button>
-      </div>
-      <select aria-label="Surface" [ngModel]="surface()" (ngModelChange)="surface.set($event)">
-        <option value="">All surfaces</option>
-        @for (sf of surfaces(); track sf) {
-          <option [value]="sf">{{ surfaceLabel(sf) }}</option>
-        }
-      </select>
-      <select aria-label="Project" [ngModel]="project()" (ngModelChange)="project.set($event)">
-        <option value="">All projects</option>
-        @for (p of projects(); track p) {
-          <option [value]="p">{{ p }}</option>
-        }
-      </select>
-      @if (multi()) {
-        <select
-          class="acct-filter"
-          aria-label="Account"
-          [ngModel]="account()"
-          (ngModelChange)="account.set($event)"
-        >
-          <option value="">All accounts</option>
-          @for (a of accountList(); track a.id) {
-            <option [value]="a.id">{{ a.name }}</option>
-          }
-        </select>
-      }
-    </div>
+  <div class="segmented view-switch" role="group" aria-label="Show">
+    <button type="button" [attr.aria-pressed]="view() === 'sessions'" (click)="setView('sessions')">
+      Sessions
+    </button>
+    <button type="button" [attr.aria-pressed]="view() === 'projects'" (click)="setView('projects')">
+      Projects
+    </button>
   </div>
 
-  @if (!loaded()) {
-    @if (connection() === 'offline' || connection() === 'unreachable') {
-      <div class="card empty-state">
-        <strong>{{
-          connection() === 'offline' ? "You're offline" : "Can't reach your Mac"
-        }}</strong>
-        It may be asleep, offline, or the tunnel is down. This page updates as soon as it's back.
-      </div>
-    } @else {
-      <div class="skeleton" aria-label="Loading your sessions">
-        <span></span><span></span><span></span>
-      </div>
+  @if (view() === 'projects') {
+    <mc-projects-view />
+  } @else {
+    @if (loaded()) {
+      <mc-fleet-summary
+        [account]="account()"
+        (filter)="setFilter($event)"
+        (accountPicked)="showAccount($event)"
+      />
+      <mc-limit-offer class="offers" />
     }
-  } @else if (!all().length) {
-    <div class="card empty-state">
-      <strong>No sessions in the last 24 h</strong>
-      Start one here, or run <code>claude</code> in a terminal or your editor — it shows up
-      automatically.
-      <div class="empty-actions">
-        <a class="btn primary" routerLink="/new"><mc-icon name="plus" [size]="15" /> New session</a>
-        <button class="btn" type="button" (click)="openHistory()">
-          <mc-icon name="clock" [size]="15" /> Show ended sessions
-        </button>
-      </div>
-    </div>
-  } @else if (!groups().length) {
-    <div class="card empty-state">
-      <strong>No sessions match</strong>
-      <button class="btn" type="button" (click)="clearFilters()">Clear filters</button>
-    </div>
-  }
 
-  @for (g of groups(); track g.key) {
-    <section class="group" [attr.aria-label]="g.title">
-      <h2>
-        {{ g.title }} <span class="gcount">{{ g.items.length }}</span>
-      </h2>
-      <div class="cards">
-        @for (s of g.items; track s.id) {
-          <mc-session-card
-            [session]="s"
-            [selectable]="selecting()"
-            [selected]="picked().has(s.id)"
-            (toggled)="flip(s.id)"
-          />
+    <div class="toolbar">
+      <label class="search">
+        <mc-icon name="search" [size]="16" />
+        <input
+          type="search"
+          placeholder="Search sessions"
+          aria-label="Search sessions"
+          [ngModel]="query()"
+          (ngModelChange)="query.set($event)"
+          autocapitalize="off"
+          spellcheck="false"
+        />
+      </label>
+      <div class="filters">
+        <div class="segmented" role="group" aria-label="Show sessions">
+          <button
+            type="button"
+            [attr.aria-pressed]="filter() === 'live'"
+            (click)="setFilter('live')"
+          >
+            Live <span class="n">{{ liveCount() }}</span>
+          </button>
+          <button
+            type="button"
+            [attr.aria-pressed]="filter() === 'needs'"
+            (click)="setFilter('needs')"
+          >
+            Needs you
+            @if (needsCount()) {
+              <span class="n warn">{{ needsCount() }}</span>
+            }
+          </button>
+          <button type="button" [attr.aria-pressed]="filter() === 'all'" (click)="setFilter('all')">
+            All <span class="n">{{ all().length }}</span>
+          </button>
+        </div>
+        <select aria-label="Surface" [ngModel]="surface()" (ngModelChange)="surface.set($event)">
+          <option value="">All surfaces</option>
+          @for (sf of surfaces(); track sf) {
+            <option [value]="sf">{{ surfaceLabel(sf) }}</option>
+          }
+        </select>
+        <select aria-label="Project" [ngModel]="project()" (ngModelChange)="project.set($event)">
+          <option value="">All projects</option>
+          @for (p of projects(); track p) {
+            <option [value]="p">{{ p }}</option>
+          }
+        </select>
+        @if (multi()) {
+          <select
+            class="acct-filter"
+            aria-label="Account"
+            [ngModel]="account()"
+            (ngModelChange)="account.set($event)"
+          >
+            <option value="">All accounts</option>
+            @for (a of accountList(); track a.id) {
+              <option [value]="a.id">{{ a.name }}</option>
+            }
+          </select>
         }
       </div>
-    </section>
-  }
+    </div>
 
-  @if (loaded() && (filter() === 'all' || historyOpen())) {
-    <section class="history" aria-label="Ended sessions">
-      @if (!historyOpen()) {
-        <button class="btn block" type="button" (click)="openHistory()">
-          <mc-icon name="clock" [size]="16" /> Show ended sessions
-        </button>
+    @if (!loaded()) {
+      @if (connection() === 'offline' || connection() === 'unreachable') {
+        <div class="card empty-state">
+          <strong>{{
+            connection() === 'offline' ? "You're offline" : "Can't reach your Mac"
+          }}</strong>
+          It may be asleep, offline, or the tunnel is down. This page updates as soon as it's back.
+        </div>
       } @else {
-        <h2>Earlier sessions</h2>
+        <div class="skeleton" aria-label="Loading your sessions">
+          <span></span><span></span><span></span>
+        </div>
+      }
+    } @else if (!all().length) {
+      <div class="card empty-state">
+        <strong>No sessions in the last 24 h</strong>
+        Start one here, or run <code>claude</code> in a terminal or your editor — it shows up
+        automatically.
+        <div class="empty-actions">
+          <a class="btn primary" routerLink="/new"
+            ><mc-icon name="plus" [size]="15" /> New session</a
+          >
+          <button class="btn" type="button" (click)="openHistory()">
+            <mc-icon name="clock" [size]="15" /> Show ended sessions
+          </button>
+        </div>
+      </div>
+    } @else if (!groups().length) {
+      <div class="card empty-state">
+        <strong>No sessions match</strong>
+        <button class="btn" type="button" (click)="clearFilters()">Clear filters</button>
+      </div>
+    }
+
+    @for (g of groups(); track g.key) {
+      <section class="group" [attr.aria-label]="g.title">
+        <h2>
+          {{ g.title }} <span class="gcount">{{ g.items.length }}</span>
+        </h2>
         <div class="cards">
-          @for (s of historyVisible(); track s.id) {
+          @for (s of g.items; track s.id) {
             <mc-session-card
               [session]="s"
               [selectable]="selecting()"
               [selected]="picked().has(s.id)"
               (toggled)="flip(s.id)"
             />
-          } @empty {
-            @if (!historyLoading()) {
-              <p class="muted">No earlier sessions{{ query() ? ' match' : '' }}.</p>
-            }
           }
         </div>
-        @if (historyError()) {
-          <p class="error-text small">{{ historyError() }}</p>
-        }
-        @if (!historyDone()) {
-          <button
-            class="btn block"
-            type="button"
-            [disabled]="historyLoading()"
-            (click)="loadMoreHistory()"
-          >
-            {{ historyLoading() ? 'Loading…' : 'Load more' }}
-          </button>
-        }
-      }
-    </section>
-  }
+      </section>
+    }
 
-  @if (selecting()) {
-    <div class="selbar" role="region" aria-label="Selected sessions">
-      <span class="selcount" aria-live="polite">{{ picked().size }} selected</span>
-      <button class="btn small ghost" type="button" (click)="selectAllShown()">
-        Select all shown
-      </button>
-      @if (picked().size) {
-        <button class="btn small ghost" type="button" (click)="clearPicked()">Clear</button>
-      }
-      <span class="spacer"></span>
-      <button
-        class="btn small danger"
-        type="button"
-        [disabled]="!picked().size"
-        (click)="openDelete()"
-      >
-        <mc-icon name="trash" [size]="14" /> Delete {{ picked().size || '' }}…
-      </button>
-      @if (moveOffered()) {
+    @if (loaded() && (filter() === 'all' || historyOpen())) {
+      <section class="history" aria-label="Ended sessions">
+        @if (!historyOpen()) {
+          <button class="btn block" type="button" (click)="openHistory()">
+            <mc-icon name="clock" [size]="16" /> Show ended sessions
+          </button>
+        } @else {
+          <h2>Earlier sessions</h2>
+          <div class="cards">
+            @for (s of historyVisible(); track s.id) {
+              <mc-session-card
+                [session]="s"
+                [selectable]="selecting()"
+                [selected]="picked().has(s.id)"
+                (toggled)="flip(s.id)"
+              />
+            } @empty {
+              @if (!historyLoading()) {
+                <p class="muted">No earlier sessions{{ query() ? ' match' : '' }}.</p>
+              }
+            }
+          </div>
+          @if (historyError()) {
+            <p class="error-text small">{{ historyError() }}</p>
+          }
+          @if (!historyDone()) {
+            <button
+              class="btn block"
+              type="button"
+              [disabled]="historyLoading()"
+              (click)="loadMoreHistory()"
+            >
+              {{ historyLoading() ? 'Loading…' : 'Load more' }}
+            </button>
+          }
+        }
+      </section>
+    }
+
+    @if (selecting()) {
+      <div class="selbar" role="region" aria-label="Selected sessions">
+        <span class="selcount" aria-live="polite">{{ picked().size }} selected</span>
+        <button class="btn small ghost" type="button" (click)="selectAllShown()">
+          Select all shown
+        </button>
+        @if (picked().size) {
+          <button class="btn small ghost" type="button" (click)="clearPicked()">Clear</button>
+        }
+        <span class="spacer"></span>
         <button
-          class="btn small primary"
+          class="btn small danger"
           type="button"
           [disabled]="!picked().size"
-          (click)="openMove()"
+          (click)="openDelete()"
         >
-          <mc-icon name="move" [size]="14" /> Move or copy {{ picked().size || '' }}…
+          <mc-icon name="trash" [size]="14" /> Delete {{ picked().size || '' }}…
         </button>
-      }
-    </div>
+        @if (moveOffered()) {
+          <button
+            class="btn small primary"
+            type="button"
+            [disabled]="!picked().size"
+            (click)="openMove()"
+          >
+            <mc-icon name="move" [size]="14" /> Move or copy {{ picked().size || '' }}…
+          </button>
+        }
+      </div>
+    }
   }
 </div>
 

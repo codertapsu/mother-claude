@@ -25,8 +25,11 @@ import { MoveDataSheetComponent, MoveStart } from '../../shared/move-data-sheet.
 import { SessionCardComponent } from '../../shared/session-card.component';
 import { thinkingChip } from '../../shared/session-settings';
 import { effortLabel, effortShortLabel, surfaceLabel } from '../../shared/util';
+import { ProjectsViewComponent } from './projects-view.component';
 
 type Filter = 'live' | 'needs' | 'all';
+/** Sessions, or every project on disk (docs/ACCOUNTS.md §14.4). */
+type View = 'sessions' | 'projects';
 
 interface Group {
   key: string;
@@ -35,6 +38,7 @@ interface Group {
 }
 
 const FILTER_KEY = 'mc_sessions_filter';
+const VIEW_KEY = 'mc_sessions_view';
 const HISTORY_PAGE = 25;
 
 function needsYou(s: SessionSummary): boolean {
@@ -54,7 +58,8 @@ function byRecent(a: SessionSummary, b: SessionSummary): number {
  * below them: *Select all shown*, *Delete N…* (docs/ACCOUNTS.md §14) and,
  * when there is somewhere to move them, *Move or copy N…*, which opens Move
  * data with those conversations (from several accounts at once: each goes
- * from where it is).
+ * from where it is). The *Sessions / Projects* switch shows every project
+ * on disk instead (`ProjectsViewComponent`).
  */
 @Component({
   selector: 'mc-sessions',
@@ -66,6 +71,7 @@ function byRecent(a: SessionSummary, b: SessionSummary): number {
     DeleteDataSheetComponent,
     LimitOfferComponent,
     MoveDataSheetComponent,
+    ProjectsViewComponent,
     SessionCardComponent,
   ],
   templateUrl: './sessions.component.html',
@@ -81,6 +87,9 @@ export class SessionsComponent {
   protected readonly connection = this.realtime.connection;
   protected readonly all = this.realtime.sessions;
 
+  protected readonly view = signal<View>(
+    storageGet(VIEW_KEY) === 'projects' ? 'projects' : 'sessions',
+  );
   protected readonly query = signal('');
   protected readonly filter = signal<Filter>(readFilter());
   protected readonly surface = signal('');
@@ -192,6 +201,13 @@ export class SessionsComponent {
 
   constructor() {
     void this.storage.ensureLoaded();
+  }
+
+  setView(v: View): void {
+    this.view.set(v);
+    storageSet(VIEW_KEY, v);
+    this.selecting.set(false);
+    this.picked.set(new Set());
   }
 
   setFilter(f: Filter): void {

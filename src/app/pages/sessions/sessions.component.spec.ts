@@ -12,6 +12,7 @@ import {
 import { MOCK_ACCOUNT_WORK, buildAccounts, ownedCaps } from '../../core/mock/fixtures';
 import { setActiveMock } from '../../core/mock/mock-api';
 import { AccountRef, SessionSummary } from '../../core/models';
+import { storageGet, storageRemove } from '../../core/platform';
 import { RealtimeService } from '../../core/realtime.service';
 import { inAccount } from '../../shared/accounts';
 import { SessionsComponent, sessionMatches } from './sessions.component';
@@ -99,7 +100,10 @@ describe('SessionsComponent accounts', () => {
     useFakeServer(backend, [provideRouter([])]);
   });
 
-  afterEach(() => setActiveMock(null));
+  afterEach(() => {
+    setActiveMock(null);
+    storageRemove('mc_sessions_view');
+  });
 
   const store = (list: SessionSummary[]) =>
     (
@@ -239,5 +243,34 @@ describe('SessionsComponent accounts', () => {
     button('Select')?.click();
     fixture.detectChanges();
     expect(text(el.querySelector('.selcount'))).toBe('0 selected');
+  });
+
+  it('switches to the projects on disk, and remembers it', async () => {
+    serveAccounts(backend, buildAccounts(Date.now(), false));
+    backend.routes.set('/data/projects', () => ({ status: 200, body: { projects: [] } }));
+    backend.routes.set('/data/jobs', () => ({ status: 200, body: { jobs: [] } }));
+    store([card('a')]);
+    let el = await render();
+    const view = (label: string) =>
+      [...el.querySelectorAll<HTMLButtonElement>('[aria-label="Show"] button')].find(
+        (b) => text(b) === label,
+      )!;
+    expect(view('Sessions').getAttribute('aria-pressed')).toBe('true');
+    view('Projects').click();
+    fixture.detectChanges();
+    await flush();
+    fixture.detectChanges();
+    expect(el.querySelector('mc-session-card')).toBeNull();
+    expect(text(el.querySelector('mc-projects-view .empty-state'))).toContain(
+      'No conversations on disk',
+    );
+    // The page's Select is the sessions'; the projects have their own.
+    expect(
+      [...el.querySelectorAll('.page-head button')].map((b) => text(b)).includes('Select'),
+    ).toBeFalse();
+    expect(storageGet('mc_sessions_view')).toBe('projects');
+    fixture.destroy();
+    el = await render();
+    expect(el.querySelector('mc-projects-view')).not.toBeNull();
   });
 });
