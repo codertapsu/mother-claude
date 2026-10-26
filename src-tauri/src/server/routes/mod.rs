@@ -15,6 +15,7 @@ pub mod accounts;
 pub mod backup;
 pub mod control;
 pub mod data;
+pub mod disk;
 pub mod foreign;
 pub mod pairing;
 pub mod push;
@@ -158,6 +159,8 @@ pub fn api_router() -> Router<AppState> {
             "/data/move",
             post(transfers::post_move).layer(DefaultBodyLimit::max(DATA_MOVE_BODY_MAX)),
         )
+        // ── finding conversations on disk (docs/ACCOUNTS.md §14) ──
+        .route("/data/projects", get(disk::projects))
         .route("/data/jobs", get(transfers::list_jobs))
         .route("/data/jobs/{id}", get(transfers::get_job))
         .route("/data/jobs/{id}/undo", post(transfers::undo_job))

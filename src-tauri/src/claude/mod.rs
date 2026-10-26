@@ -11,6 +11,7 @@ pub mod auth;
 pub mod backup;
 pub mod caps;
 pub mod control;
+pub mod disk;
 #[cfg(feature = "experimental")]
 pub mod experimental;
 pub mod git;

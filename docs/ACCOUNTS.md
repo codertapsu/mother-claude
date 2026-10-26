@@ -1510,6 +1510,17 @@ directory's conversations attributed to it (§5 attribution). `cwd` is what the
 transcripts record (the folder name decodes ambiguously, §1.4). Built from the
 index; no transcript is read for it.
 
+*As built (2026-10-26):* `account` is an account id; `name` the folder's last
+component; `folder` the absolute `projects/<enc>` folder the conversations are
+in (the one `cwd` encodes to, when they are in several); `sessions` and `live`
+are counts — `live` those that run now (a living pidfile, an owned session, a
+bridge conversation open in the host); `bytes` the transcripts' and subagent
+files' sizes as the index knows them (file history, todos and `session-env`
+are not counted); `lastActivityAt` epoch ms. A conversation counts where the
+index finds it: an id in two directories (a copy) counts once, in the
+directory of its most recently written copy (§5.3); one not indexed yet takes
+the folder its summary shows. Phones and the local-script token read it too.
+
 ### 14.3 Deleting
 
 `POST /api/data/delete`:
@@ -1589,7 +1600,7 @@ anywhere").
 
 - [ ] P8.1 `files` in the session detail; reveal a session's transcript and a
   project's folder (macOS, Windows, Linux).
-- [ ] P8.2 `GET /api/data/projects`.
+- [x] P8.2 `GET /api/data/projects`.
 - [ ] P8.3 `POST /api/data/delete`: plan, skips, jobs per directory, undo,
   `undo: false`, the guards, audit and notice, API servers' active
   conversations.
