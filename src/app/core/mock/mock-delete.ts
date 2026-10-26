@@ -41,6 +41,7 @@ interface Planned {
 interface Skip {
   id?: string;
   cwd?: string;
+  title?: string;
   code: string;
   message: string;
 }
@@ -112,11 +113,14 @@ export class MockDelete {
         'Deleting conversations is restricted to the Mother Claude desktop app, or to a device you granted dangerous actions in Remote > Devices.',
       );
     }
-    const items = obj(b['items']) ?? {};
-    const ids = strings(items['sessions']);
-    const projects = strings(items['projects']).map((p) => p.replace(/\/+$/, '') || '/');
+    const items = obj(b['items']);
+    if (!items) return fail(422, 'invalid_body', 'missing field `items`');
+    const ids = [...new Set(strings(items['sessions']))];
+    const projects = [
+      ...new Set(strings(items['projects']).map((p) => p.replace(/\/+$/, '') || '/')),
+    ];
     if (!ids.length && !projects.length) {
-      return fail(422, 'invalid_body', 'Name what to delete: items.sessions or items.projects.');
+      return fail(422, 'invalid_transfer', 'nothing to delete: name sessions or projects');
     }
     const fromRaw = b['from'];
     const from =
@@ -125,37 +129,48 @@ export class MockDelete {
       return fail(404, 'not_found', `no account ${JSON.stringify(from ?? fromRaw)}`);
     }
     const known = this.host.sessions();
+    const titleOf = (id?: string) => known.find((x) => x.id === id)?.title?.trim() || undefined;
     const open = new Set(this.host.openThreads());
     const skipped: Skip[] = [];
+    const skip = (k: Omit<Skip, 'title'>) => {
+      const title = titleOf(k.id);
+      skipped.push({ ...k, ...(title ? { title } : {}) });
+    };
     const candidates: SessionSummary[] = [];
+    const named: string[] = [];
     const mine = (s: SessionSummary) => !from || this.host.accountOf(s.id) === from;
+    const where = from ? `${this.account(from)?.name ?? from}'s directory` : '';
     for (const id of ids) {
       const s = known.find((x) => x.id === id && mine(x));
       if (s) candidates.push(s);
-      else if (open.has(id)) skipped.push(openInApi(id));
-      else skipped.push({ id, code: 'not_found', message: `there is no conversation ${id} here` });
+      // A conversation open in the API runs, indexed yet or not.
+      else if (open.has(id)) skip({ id, code: 'session_live', message: running(id) });
+      else
+        skip({
+          id,
+          code: 'not_found',
+          message: from ? `it is not in ${where}` : 'no account has this conversation',
+        });
     }
     for (const cwd of projects) {
       const of = known.filter((s) => s.cwd === cwd && mine(s));
       if (!of.length) {
-        skipped.push({
+        skip({
           cwd,
           code: 'not_found',
-          message: `there is no conversation of ${cwd} here`,
+          message: from
+            ? `no conversations of ${cwd} here`
+            : `no account has conversations of ${cwd}`,
         });
+        continue;
       }
+      named.push(cwd);
       for (const s of of) if (!candidates.includes(s)) candidates.push(s);
     }
     const planned: Planned[] = [];
     for (const s of candidates) {
-      if (open.has(s.id)) {
-        skipped.push(openInApi(s.id));
-      } else if (s.live) {
-        skipped.push({
-          id: s.id,
-          code: 'session_live',
-          message: `session ${s.id} is running; stop it first`,
-        });
+      if (open.has(s.id) || s.live) {
+        skip({ id: s.id, code: 'session_live', message: running(s.id) });
       } else {
         const account = this.host.accountOf(s.id);
         planned.push({ s, account, home: this.homeOf(account), bytes: sizeOf(s) });
@@ -163,32 +178,54 @@ export class MockDelete {
     }
     const homes = new Map<string, Planned[]>();
     for (const p of planned) homes.set(p.home, [...(homes.get(p.home) ?? []), p]);
+    // A project folder goes when every conversation in it goes.
+    const going = new Set(planned.map((p) => p.s.id));
+    const folders = [...homes.entries()].flatMap(([home, group]) =>
+      [...new Set(group.map((p) => p.s.cwd))]
+        .filter((cwd) =>
+          known
+            .filter((s) => s.cwd === cwd && this.homeOf(this.host.accountOf(s.id)) === home)
+            .every((s) => going.has(s.id)),
+        )
+        .map((cwd) => `${this.dirOf(home)}/projects/${encode(cwd)}`),
+    );
+    const goingProjects = named.filter((cwd) => planned.some((p) => p.s.cwd === cwd));
     if (b['dryRun'] === true) {
       return json({
         plan: {
+          ...(from ? { from } : {}),
+          undo: b['undo'] !== false,
+          jobs: Math.max(1, homes.size),
           sessions: planned.map((p) => ({
             id: p.s.id,
             ...(p.s.title ? { title: p.s.title } : {}),
             cwd: p.s.cwd,
-            account: { account: p.account },
+            account: p.account,
             files: 3,
             bytes: p.bytes,
           })),
           skipped,
+          projects: goingProjects,
+          folders,
+          sessionsTotal: planned.length,
+          skippedTotal: skipped.length,
+          projectsTotal: goingProjects.length,
+          foldersTotal: folders.length,
           files: planned.length * 3,
           bytes: planned.reduce((n, p) => n + p.bytes, 0),
-          jobs: Math.max(1, homes.size),
         },
       });
     }
     const keep = b['undo'] !== false;
+    // Nothing to delete still makes one job, which lists what it skipped.
     const groups = homes.size ? [...homes.entries()] : [[from ?? DEFAULT_ACCOUNT, []] as const];
     const jobs: JobView[] = groups.map(([home, group], i) => {
       const ids = group.map((p) => p.s.id);
       const bytes = group.reduce((n, p) => n + p.bytes, 0);
       return this.data.runJob(
         'delete',
-        { account: home },
+        // Named after the account asked for, else the directory's.
+        { account: from ?? home },
         ids.length * 3,
         bytes,
         ids,
@@ -229,7 +266,8 @@ export class MockDelete {
         'This action is only available on the Mother Claude desktop app.',
       );
     }
-    const cwd = str(b['cwd']);
+    // A row's folder, which may end in a separator.
+    const cwd = str(b['cwd'])?.replace(/\/+$/, '') || undefined;
     const account = str(b['account']);
     if (!cwd || !account) return fail(422, 'invalid_body', 'Send account and cwd.');
     const any = this.host
@@ -237,7 +275,7 @@ export class MockDelete {
       .some((s) => s.cwd === cwd && this.host.accountOf(s.id) === account);
     return any
       ? new Response(null, { status: 204 })
-      : fail(404, 'not_found', `there is no conversation of ${cwd} in that account`);
+      : fail(404, 'project_not_found', 'That account has no conversations of that folder.');
   }
 
   private account(id: string): AccountView | undefined {
@@ -256,9 +294,10 @@ export class MockDelete {
   }
 }
 
-/** A conversation open in the API's host runs: it is skipped. */
-function openInApi(id: string): Skip {
-  return { id, code: 'session_live', message: 'it is open in the API: close it there first' };
+/** The server's words for a running conversation (one open in the API's
+ * host too). */
+function running(id: string): string {
+  return `session ${id} is running; stop it first`;
 }
 
 /** A conversation's size in the demo. */
