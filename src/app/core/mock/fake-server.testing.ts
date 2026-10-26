@@ -44,8 +44,9 @@ export interface RouteReply {
   headers?: Record<string, string>;
 }
 
-/** Answers one path; gets the request's JSON body (undefined for none). */
-export type Route = (method: string, body?: unknown) => RouteReply | Promise<RouteReply>;
+/** Answers one path; gets the request's JSON body (undefined for none) and
+ * its URL (for the query). */
+export type Route = (method: string, body?: unknown, url?: URL) => RouteReply | Promise<RouteReply>;
 
 export class FakeBackend implements MockBackend {
   readonly role = 'device' as const;
@@ -68,7 +69,7 @@ export class FakeBackend implements MockBackend {
     this.urls.push(`${path}${u.search}`);
     const route = this.routes.get(path);
     const { status, body, headers } = route
-      ? await route(method, sent)
+      ? await route(method, sent, u)
       : ({ status: 404, body: {} } as RouteReply);
     return new Response(JSON.stringify(body), {
       status,

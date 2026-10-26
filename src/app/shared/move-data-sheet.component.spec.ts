@@ -590,4 +590,104 @@ describe('MoveDataSheetComponent', () => {
     );
     expect(button(el, 'Check what it does')).toBeDefined();
   });
+
+  describe('searching and Select all', () => {
+    const xq = (id: string, n: number) =>
+      session(id, { title: `Xiangqi ${n}`, lastActivityAt: 10_000 - n });
+    const checklist = (el: HTMLElement) => el.querySelector('mc-move-checklist') as HTMLElement;
+    const titles = (el: HTMLElement) =>
+      [...checklist(el).querySelectorAll('.title')].map((t) => text(t));
+    const type = async (el: HTMLElement, q: string) => {
+      const input = checklist(el).querySelector<HTMLInputElement>('input[type="search"]')!;
+      input.value = q;
+      input.dispatchEvent(new Event('input'));
+      await settle();
+    };
+
+    /** An account's conversations on the Mac: two pages of them, and what
+     * a search for Xiangqi finds — two pages too, the second not read. */
+    const serve = (
+      ids: () => { status: number; body: unknown } = () => ({
+        status: 200,
+        body: { ids: ['x1', 'x2', 'x3'] },
+      }),
+    ) =>
+      backend.routes.set('/sessions', (_m, _b, url) => {
+        const p = url!.searchParams;
+        if (p.get('view') === 'ids') return ids();
+        if (p.get('q')) {
+          return p.get('before')
+            ? { status: 200, body: { sessions: [xq('x3', 3)] } }
+            : { status: 200, body: { sessions: [xq('x1', 1), xq('x2', 2)], nextBefore: 'q1' } };
+        }
+        return p.get('before')
+          ? { status: 200, body: { sessions: [session('s9', { title: 'Old one' })] } }
+          : { status: 200, body: { sessions: [session('s1'), xq('x1', 1)], nextBefore: 'b1' } };
+      });
+
+    it("searches an account's conversations on the Mac, and takes every match", async () => {
+      serve();
+      fixture = TestBed.createComponent(MoveDataSheetComponent);
+      fixture.componentInstance.searchDebounceMs = 0;
+      fixture.componentRef.setInput('start', {
+        from: accountLocation('default'),
+        what: 'sessions',
+      });
+      fixture.componentRef.setInput('open', true);
+      fixture.detectChanges();
+      await settle();
+      const el = fixture.nativeElement as HTMLElement;
+      // Only the Default's, asked of the Mac.
+      expect(backend.urls).toContain('/sessions?scope=all&account=default&limit=200');
+      // Newest first.
+      expect(titles(el)).toEqual(['Xiangqi 1', 'Title of s1']);
+
+      await type(el, 'xiangqi');
+      await settle();
+      expect(backend.urls).toContain('/sessions?scope=all&account=default&q=xiangqi&limit=200');
+      expect(titles(el)).toEqual(['Xiangqi 1', 'Xiangqi 2']);
+      expect(button(el, 'Load earlier conversations')).toBeDefined();
+
+      button(el, 'Select all matching')?.click();
+      await settle();
+      expect(backend.urls).toContain('/sessions?scope=all&account=default&q=xiangqi&view=ids');
+      // Every match is ticked; the one not read yet is read for its title.
+      expect(text(checklist(el).querySelector('.count'))).toBe('3 of 3 selected');
+      expect(backend.urls).toContain(
+        '/sessions?scope=all&account=default&q=xiangqi&limit=200&before=q1',
+      );
+      expect(titles(el)).toEqual(['Xiangqi 1', 'Xiangqi 2', 'Xiangqi 3']);
+
+      backend.routes.set('/data/move', () => ({ status: 200, body: { plan: { mode: 'copy' } } }));
+      button(el, 'Check what it does')?.click();
+      await settle();
+      expect((lastMove()['items'] as { sessions: string[] }).sessions).toEqual(
+        jasmine.arrayWithExactContents(['x1', 'x2', 'x3']),
+      );
+    });
+
+    it('takes what is listed when the Mac cannot be asked for every match, and says so', async () => {
+      serve(() => ({ status: 500, body: { error: { code: 'internal', message: 'boom' } } }));
+      const el = await open({ from: accountLocation('default'), what: 'sessions' });
+      button(el, 'Select all')?.click();
+      await settle();
+      expect(text(checklist(el).querySelector('.count'))).toBe('2 selected');
+      expect(text(checklist(el).querySelector('[role="alert"]'))).toContain(
+        'Only the conversations listed were selected',
+      );
+    });
+
+    it('reads on for the titles of ticked conversations it was not given', async () => {
+      serve();
+      // Sessions › Select all ticked one the page never read.
+      const el = await open({
+        from: null,
+        what: 'sessions',
+        sessions: ['s1', 's9'],
+        known: [session('s1')],
+      });
+      expect(backend.urls).toContain('/sessions?scope=all&limit=200&before=b1');
+      expect(titles(el)).toEqual(['Title of s1', 'Old one']);
+    });
+  });
 });

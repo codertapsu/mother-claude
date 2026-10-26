@@ -20,7 +20,7 @@ import { AuthService } from '../core/auth.service';
 import { normalizeBackupIndex } from '../core/backup';
 import { normalizeJob, plural } from '../core/data-jobs';
 import { DataJobsService } from '../core/data-jobs.service';
-import { BackupIndex, JobView, SessionSummary, TransferMode } from '../core/models';
+import { BackupIndex, JobView, SessionSummary, SessionsQuery, TransferMode } from '../core/models';
 import {
   CUSTOMIZATIONS,
   ChecklistRow,
@@ -83,6 +83,11 @@ export type MoveDataStep = 'pick' | 'plan' | 'run';
 
 /** Conversations read per page for the checklists. */
 const PAGE = 200;
+/** Pages read on so that conversations ticked but not listed get their
+ * titles (Select all, or the opener's picks). */
+const TITLE_PAGES = 5;
+/** How long typing waits before the Mac is searched. */
+const SEARCH_DEBOUNCE_MS = 300;
 
 const WHATS: readonly { value: MoveWhat; label: string }[] = [
   { value: 'all', label: 'Everything' },
@@ -98,6 +103,18 @@ interface IndexState {
   error: string;
 }
 
+/** Conversations read from the Mac for a checklist, page by page: an
+ * account's (every one's, for titles), or what a search found. */
+interface SessionList {
+  key: string;
+  query: SessionsQuery;
+  rows: SessionSummary[];
+  /** undefined: not read yet; null: every page read. */
+  cursor: string | null | undefined;
+  loading: boolean;
+  error: string;
+}
+
 /**
  * Move data (docs/ACCOUNTS.md §13.6): take conversations, projects,
  * everything, or an account's customizations from one place to another —
@@ -105,7 +122,9 @@ interface IndexState {
  * storage's set (a backup, or an archive when moved), out of one (a
  * restore), or between two sets. *From* and *To* list the accounts and the
  * storages with their sets (*New set…* as a target); conversations and
- * projects are searchable checklists (a set's come from its index). Move
+ * projects are searchable checklists — an account's conversations are
+ * searched on the Mac and *Select all* takes every match, not only the
+ * pages read; a set's come from its index. Move
  * or Copy, as far as the way allows; a folder's trust and the replace
  * option; then a dry run (what goes, what is skipped and why, warnings),
  * the jobs with their progress, and Undo. The desktop and paired phones
@@ -256,9 +275,13 @@ interface IndexState {
                     moreText="Load earlier conversations"
                     [emptyText]="emptyText()"
                     [disabled]="busy()"
+                    [searched]="!!searchQuery()"
+                    [(query)]="sessionQuery"
+                    [selectingAll]="selectingAll()"
+                    [selectAllError]="selectAllError()"
                     (flip)="flip(pickedSessions, $event)"
                     (bulk)="bulkSet(pickedSessions, $event)"
-                    (selectAll)="bulkSet(pickedSessions, { ids: $event, on: true })"
+                    (selectAll)="selectAllSessions($event)"
                     (loadMore)="loadMore()"
                   />
                 }
@@ -268,9 +291,9 @@ interface IndexState {
                     [label]="'Projects of ' + fromName()"
                     [rows]="projectRowsShown()"
                     [selected]="pickedProjects()"
-                    [loading]="sourceLoading()"
-                    [error]="sourceError()"
-                    [more]="sourceMore()"
+                    [loading]="projectsLoading()"
+                    [error]="projectsError()"
+                    [more]="projectsMore()"
                     moreText="Look through earlier conversations"
                     emptyText="No projects here."
                     [disabled]="busy()"
@@ -582,12 +605,25 @@ export class MoveDataSheetComponent {
   protected readonly plan = signal<MovePlan | null>(null);
   protected readonly jobs = signal<JobView[]>([]);
   private readonly started = signal<MoveStart | null>(null);
+  /** Bumped at every opening. */
+  private opened = 0;
 
-  /** Conversations read for the checklists (every account's, newest first). */
-  private readonly pages = signal<SessionSummary[]>([]);
-  private readonly pagesCursor = signal<string | null | undefined>(undefined);
-  private readonly pagesLoading = signal(false);
-  private readonly pagesError = signal('');
+  /** From's conversations as the Mac lists them (an account's; every
+   * one's when each goes from where it is, for titles). */
+  private readonly base = signal<SessionList | null>(null);
+  /** What the search found among From's conversations, on the Mac. */
+  private readonly found = signal<SessionList | null>(null);
+  /** Pages being read, by list. */
+  private readonly inflight = new Map<'base' | 'found', Promise<void>>();
+  /** The conversations' search box, as typed. */
+  protected readonly sessionQuery = signal('');
+  /** The search sent to the Mac (the box, once typing stops). */
+  private readonly searchText = signal('');
+  /** How long typing waits before the Mac is searched (specs shorten it). */
+  searchDebounceMs = SEARCH_DEBOUNCE_MS;
+  /** *Select all* is asking the Mac for every match. */
+  protected readonly selectingAll = signal(false);
+  protected readonly selectAllError = signal('');
   /** The index of the set things come from. */
   private readonly index = signal<IndexState | null>(null);
   private following?: AbortController;
@@ -730,9 +766,32 @@ export class MoveDataSheetComponent {
   private readonly knownSessions = computed(() => {
     const out = new Map<string, SessionSummary>();
     for (const s of this.started()?.known ?? []) out.set(s.id, s);
-    for (const s of this.pages()) out.set(s.id, s);
+    for (const s of this.base()?.rows ?? []) out.set(s.id, s);
+    for (const s of this.found()?.rows ?? []) out.set(s.id, s);
     for (const s of this.realtime.sessions()) out.set(s.id, s);
     return out;
+  });
+  /** How From's conversations are asked for: an account's (by its id
+   * while there are several — with only the Default, every one is its),
+   * every account's when each goes from where it is. */
+  private readonly baseQuery = computed<SessionsQuery | null>(() => {
+    if (this.everywhere()) return { scope: 'all' };
+    const f = this.fromLoc();
+    if (f?.kind !== 'account') return null;
+    return this.accounts.multi() ? { scope: 'all', account: f.account } : { scope: 'all' };
+  });
+  /** The search on the Mac, while one is typed (an account's only). */
+  protected readonly searchQuery = computed<SessionsQuery | null>(() => {
+    const q = this.searchText().trim();
+    const base = this.baseQuery();
+    return q && base && this.fromLoc()?.kind === 'account' ? { ...base, q } : null;
+  });
+  /** The list the conversations' checklist shows. */
+  private readonly activeList = computed(() => (this.searchQuery() ? this.found() : this.base()));
+  /** Ticked conversations not read yet (no title known). */
+  private readonly unknownPicked = computed(() => {
+    const known = this.knownSessions();
+    return [...this.pickedSessions()].filter((id) => !known.has(id));
   });
   /** The accounts the ticked conversations are recorded as ('' for one
    * not known here). */
@@ -775,12 +834,21 @@ export class MoveDataSheetComponent {
       const st = this.index();
       return st?.key === this.indexKey() && st.ix ? st.ix.sessions.map(indexRow) : [];
     }
+    // What the search found on the Mac, as it found them.
+    if (this.searchQuery()) {
+      return (this.found()?.rows ?? []).filter((s) => this.ofSource(s)).map(sessionRow);
+    }
     const rows = this.sourceSessions().map(sessionRow);
-    // Ticked ones not read yet still show (by id).
+    // Ticked ones not listed still show: with their titles once read (the
+    // pages read on for them), by id until then.
     const shown = new Set(rows.map((r) => r.id));
+    const known = this.knownSessions();
     const extra = [...this.pickedSessions()]
       .filter((id) => !shown.has(id))
-      .map((id) => ({ id, title: id.slice(0, 8), sub: '', tag: '', haystack: id }));
+      .map((id) => {
+        const s = known.get(id);
+        return s ? sessionRow(s) : { id, title: id.slice(0, 8), sub: '', tag: '', haystack: id };
+      });
     return [...rows, ...extra];
   });
   protected readonly projectRowsShown = computed<ChecklistRow[]>(() => {
@@ -794,13 +862,25 @@ export class MoveDataSheetComponent {
     return projectRows(this.sourceSessions(), keep);
   });
   protected readonly sourceLoading = computed(() =>
-    this.fromLoc()?.kind === 'storage' ? !!this.index()?.loading : this.pagesLoading(),
+    this.fromLoc()?.kind === 'storage' ? !!this.index()?.loading : !!this.activeList()?.loading,
   );
   protected readonly sourceError = computed(() =>
-    this.fromLoc()?.kind === 'storage' ? (this.index()?.error ?? '') : this.pagesError(),
+    this.fromLoc()?.kind === 'storage'
+      ? (this.index()?.error ?? '')
+      : (this.activeList()?.error ?? ''),
   );
   protected readonly sourceMore = computed(
-    () => this.fromLoc()?.kind === 'account' && !!this.pagesCursor(),
+    () => this.fromLoc()?.kind === 'account' && !!this.activeList()?.cursor,
+  );
+  /** An account's projects are the folders of its conversations read. */
+  protected readonly projectsLoading = computed(() =>
+    this.fromLoc()?.kind === 'account' ? !!this.base()?.loading : this.sourceLoading(),
+  );
+  protected readonly projectsError = computed(() =>
+    this.fromLoc()?.kind === 'account' ? (this.base()?.error ?? '') : this.sourceError(),
+  );
+  protected readonly projectsMore = computed(
+    () => this.fromLoc()?.kind === 'account' && !!this.base()?.cursor,
   );
   protected readonly emptyText = computed(() =>
     this.fromLoc()?.kind === 'storage'
@@ -898,16 +978,55 @@ export class MoveDataSheetComponent {
         if (this.index()?.key !== key) void this.loadIndex(key);
       });
     });
-    // An account's conversations, when they are listed.
+    // From's conversations as the Mac lists them: an account's when they
+    // are listed (or stand in for its projects); every one's when each goes
+    // from where it is and some ticked one has no title yet.
     effect(() => {
-      const listing =
+      const query = this.baseQuery();
+      const account = this.fromLoc()?.kind === 'account';
+      const needed =
         this.open() &&
-        this.fromLoc()?.kind === 'account' &&
-        (this.what() === 'sessions' || this.what() === 'projects');
-      if (!listing) return;
+        !!query &&
+        ((account && this.what() === 'sessions') ||
+          (account && this.what() === 'projects') ||
+          (this.everywhere() && this.unknownPicked().length > 0));
+      if (!query) return;
+      const key = JSON.stringify(query);
       untracked(() => {
-        if (this.pagesCursor() === undefined && !this.pagesLoading()) void this.loadPage();
+        if (this.base()?.key !== key) this.base.set(newList(key, query));
+        if (needed && this.base()?.cursor === undefined) void this.loadPage('base');
       });
+    });
+    // The search box, once typing stops (at once when it is emptied).
+    effect((onCleanup) => {
+      const text = this.sessionQuery();
+      if (!text.trim()) {
+        this.searchText.set('');
+        return;
+      }
+      const timer = setTimeout(() => this.searchText.set(text), this.searchDebounceMs);
+      onCleanup(() => clearTimeout(timer));
+    });
+    // What the search finds on the Mac.
+    effect(() => {
+      const query = this.searchQuery();
+      if (!this.open() || !query || this.what() !== 'sessions') return;
+      const key = JSON.stringify(query);
+      untracked(() => {
+        if (this.found()?.key === key) return;
+        this.found.set(newList(key, query));
+        void this.loadPage('found');
+      });
+    });
+    // Ticked conversations without a title (the opener's, not read here):
+    // the pages are read on for them, once per opening.
+    let titlesFor = -1;
+    effect(() => {
+      const unknown = this.unknownPicked();
+      const listed = this.base()?.cursor !== undefined;
+      if (!this.open() || !unknown.length || !listed || titlesFor === this.opened) return;
+      titlesFor = this.opened;
+      untracked(() => void this.readTitles(unknown));
     });
     inject(DestroyRef).onDestroy(() => this.following?.abort());
   }
@@ -929,6 +1048,7 @@ export class MoveDataSheetComponent {
     );
     this.pickedSessions.set(new Set(key === home ? (start?.sessions ?? []) : []));
     this.pickedProjects.set(new Set(key === home ? (start?.projects ?? []) : []));
+    this.selectAllError.set('');
     if (key === '' && this.what() !== 'sessions') this.what.set('sessions');
   }
 
@@ -983,7 +1103,48 @@ export class MoveDataSheetComponent {
   }
 
   protected loadMore(): void {
-    if (this.fromLoc()?.kind === 'account') void this.loadPage();
+    if (this.fromLoc()?.kind !== 'account') return;
+    if (this.what() === 'projects') void this.loadPage('base');
+    else void this.loadPage(this.searchQuery() ? 'found' : 'base');
+  }
+
+  /** *Select all*: an account's every conversation the search matches —
+   * the Mac's list of them, not only the pages read — and what the list
+   * shows; elsewhere (a set's index, where each one is) what the list
+   * shows, which is all of them. If the Mac can't be asked, what is listed
+   * is selected and the checklist says so. */
+  protected async selectAllSessions(listed: string[]): Promise<void> {
+    if (this.selectingAll()) return;
+    this.selectAllError.set('');
+    const base = this.baseQuery();
+    if (this.fromLoc()?.kind !== 'account' || !base) {
+      this.bulkSet(this.pickedSessions, { ids: listed, on: true });
+      return;
+    }
+    // A search typed but not sent yet: sent now; the listed rows were
+    // found for another one.
+    const typed = this.sessionQuery().trim();
+    if (typed !== this.searchText().trim()) {
+      this.searchText.set(typed);
+      listed = [];
+    }
+    const query: SessionsQuery = typed ? { ...base, q: typed } : base;
+    const from = this.fromKey();
+    this.selectingAll.set(true);
+    let ids: string[] = [];
+    try {
+      ids = await this.api.listSessionIds(query);
+    } catch (e) {
+      this.selectAllError.set(
+        `Only the conversations listed were selected; the Mac could not be asked for the rest: ${moveErrorText(e)}`,
+      );
+    } finally {
+      this.selectingAll.set(false);
+    }
+    // The sheet moved on meanwhile (closed, or another From).
+    if (!this.open() || this.fromKey() !== from) return;
+    this.bulkSet(this.pickedSessions, { ids: [...listed, ...ids], on: true });
+    void this.readTitles(ids);
   }
 
   protected back(): void {
@@ -1075,6 +1236,7 @@ export class MoveDataSheetComponent {
 
   private reset(start: MoveStart | null): void {
     this.following?.abort();
+    this.opened += 1;
     this.started.set(start);
     this.step.set('pick');
     this.busy.set(false);
@@ -1101,9 +1263,13 @@ export class MoveDataSheetComponent {
     this.replace.set(false);
     // Read afresh: a move since may have changed whose they are.
     this.index.set(null);
-    this.pages.set([]);
-    this.pagesCursor.set(undefined);
-    this.pagesError.set('');
+    this.base.set(null);
+    this.found.set(null);
+    this.inflight.clear();
+    this.sessionQuery.set('');
+    this.searchText.set('');
+    this.selectingAll.set(false);
+    this.selectAllError.set('');
     void this.accounts.ensureLoaded();
     void this.storage.ensureLoaded();
   }
@@ -1116,22 +1282,63 @@ export class MoveDataSheetComponent {
     return this.accounts.multi() ? '' : DEFAULT_ACCOUNT;
   }
 
-  private async loadPage(): Promise<void> {
-    if (this.pagesLoading() || this.pagesCursor() === null) return;
-    this.pagesLoading.set(true);
-    this.pagesError.set('');
+  /** From's conversation, as far as this Mac knows whose it is. */
+  private ofSource(s: SessionSummary): boolean {
+    const f = this.fromLoc();
+    return f?.kind === 'account' && this.accountIdOf(s) === f.account;
+  }
+
+  /** The next page of a list (the one being read, if one is). */
+  private loadPage(which: 'base' | 'found'): Promise<void> {
+    const pending = this.inflight.get(which);
+    if (pending) return pending;
+    const list = which === 'base' ? this.base : this.found;
+    const cur = list();
+    if (!cur || cur.cursor === null) return Promise.resolve();
+    const run = this.readPage(list, cur).finally(() => {
+      if (this.inflight.get(which) === run) this.inflight.delete(which);
+    });
+    this.inflight.set(which, run);
+    return run;
+  }
+
+  private async readPage(
+    list: WritableSignal<SessionList | null>,
+    cur: SessionList,
+  ): Promise<void> {
+    list.set({ ...cur, loading: true, error: '' });
     try {
       const page = await this.api.listSessions({
-        scope: 'all',
+        ...cur.query,
         limit: PAGE,
-        ...(this.pagesCursor() ? { before: this.pagesCursor() as string } : {}),
+        ...(cur.cursor ? { before: cur.cursor } : {}),
       });
-      this.pages.update((prev) => [...prev, ...(page.sessions ?? [])]);
-      this.pagesCursor.set(page.nextBefore ?? null);
+      const now = list();
+      if (now?.key !== cur.key) return; // another list since
+      const seen = new Set(now.rows.map((s) => s.id));
+      const fresh = (page.sessions ?? []).filter((s) => !seen.has(s.id));
+      list.set({
+        ...now,
+        rows: [...now.rows, ...fresh],
+        cursor: page.nextBefore ?? null,
+        loading: false,
+      });
     } catch (e) {
-      this.pagesError.set(moveErrorText(e));
-    } finally {
-      this.pagesLoading.set(false);
+      const now = list();
+      if (now?.key === cur.key) list.set({ ...now, loading: false, error: moveErrorText(e) });
+    }
+  }
+
+  /** Ticked conversations not listed get their titles: the list they came
+   * from is read on (a few pages at most) until every one is known. */
+  private async readTitles(ids: readonly string[]): Promise<void> {
+    const which = this.searchQuery() ? 'found' : 'base';
+    for (let i = 0; i < TITLE_PAGES; i++) {
+      const known = this.knownSessions();
+      if (ids.every((id) => known.has(id))) return;
+      const list = which === 'base' ? this.base() : this.found();
+      if (!list || list.cursor === null || list.error) return;
+      await this.loadPage(which);
     }
   }
 
@@ -1149,4 +1356,9 @@ export class MoveDataSheetComponent {
       }
     }
   }
+}
+
+/** A list not read yet. */
+function newList(key: string, query: SessionsQuery): SessionList {
+  return { key, query, rows: [], cursor: undefined, loading: false, error: '' };
 }
