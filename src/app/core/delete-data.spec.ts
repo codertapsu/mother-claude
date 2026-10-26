@@ -203,6 +203,11 @@ describe('delete data helpers', () => {
     })!;
     expect(deletePlanLine(p)).toBe('Deletes 2 conversations (5 files, 3.0 KB).');
     expect(deleteButtonLabel(p)).toBe('Delete 2 conversations');
+    const capped = { ...p, truncated: true };
+    expect(deletePlanLine(capped)).toBe(
+      'Deletes 2+ conversations (5 files, 3.0 KB). The lists show the first 1000; it takes them all.',
+    );
+    expect(deleteButtonLabel(capped)).toBe('Delete 2+ conversations');
     const none = normalizeDeletePlan({ sessions: [], skipped: [{ code: 'not_found' }] })!;
     expect(deletePlanLine(none)).toBe('There is nothing to delete here.');
     expect(deleteButtonLabel(none)).toBe('Nothing to delete');

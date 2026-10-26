@@ -309,18 +309,24 @@ export function mergeDeletePlans(plans: readonly DeletePlan[]): DeletePlan {
   };
 }
 
+/** "12 conversations"; "1000+ conversations" when the list was capped
+ * (the server lists the first 1000 and takes them all). */
+function conversations(p: DeletePlan): string {
+  const n = p.sessions.length;
+  return p.truncated ? `${n}+ conversations` : plural(n, 'conversation');
+}
+
 /** One sentence about what a dry run would take. */
 export function deletePlanLine(p: DeletePlan): string {
   if (!p.sessions.length) return 'There is nothing to delete here.';
   const size = ` (${plural(p.files, 'file')}, ${formatBytes(p.bytes)})`;
   const more = p.truncated ? ' The lists show the first 1000; it takes them all.' : '';
-  return `Deletes ${plural(p.sessions.length, 'conversation')}${size}.${more}`;
+  return `Deletes ${conversations(p)}${size}.${more}`;
 }
 
 /** What the confirm button says: "Delete 12 conversations". */
 export function deleteButtonLabel(p: DeletePlan | null): string {
-  const n = p?.sessions.length ?? 0;
-  return n ? `Delete ${plural(n, 'conversation')}` : 'Nothing to delete';
+  return p?.sessions.length ? `Delete ${conversations(p)}` : 'Nothing to delete';
 }
 
 /** What each skip code means, when the server says nothing. */
