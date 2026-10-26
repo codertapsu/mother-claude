@@ -299,8 +299,14 @@ export const MIXED_ACCOUNTS = 'Pick projects of one account to move or copy them
         flex: 1 1 9rem;
         max-width: 14rem;
       }
-      .rows {
-        padding: 0 0.85rem;
+      .rows,
+      .jobs {
+        padding-top: 0;
+        padding-bottom: 0;
+      }
+      .jrow {
+        display: block;
+        padding: 0.7rem 0;
       }
       .prow {
         display: flex;
@@ -357,9 +363,6 @@ export const MIXED_ACCOUNTS = 'Pick projects of one account to move or copy them
       }
       h2 {
         margin-top: 1.5rem;
-      }
-      .jobs {
-        padding: 0 0.85rem;
       }
       .empty-actions {
         margin-top: 0.75rem;
