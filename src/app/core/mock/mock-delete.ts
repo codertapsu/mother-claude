@@ -132,6 +132,7 @@ export class MockDelete {
     for (const id of ids) {
       const s = known.find((x) => x.id === id && mine(x));
       if (s) candidates.push(s);
+      else if (open.has(id)) skipped.push(openInApi(id));
       else skipped.push({ id, code: 'not_found', message: `there is no conversation ${id} here` });
     }
     for (const cwd of projects) {
@@ -148,11 +149,7 @@ export class MockDelete {
     const planned: Planned[] = [];
     for (const s of candidates) {
       if (open.has(s.id)) {
-        skipped.push({
-          id: s.id,
-          code: 'session_live',
-          message: 'it is open in the API: close it there first',
-        });
+        skipped.push(openInApi(s.id));
       } else if (s.live) {
         skipped.push({
           id: s.id,
@@ -257,6 +254,11 @@ export class MockDelete {
     const a = this.account(home);
     return a?.kind === 'directory' && a.dir ? a.dir : SHARED_DIR;
   }
+}
+
+/** A conversation open in the API's host runs: it is skipped. */
+function openInApi(id: string): Skip {
+  return { id, code: 'session_live', message: 'it is open in the API: close it there first' };
 }
 
 /** A conversation's size in the demo. */
