@@ -86,7 +86,8 @@ pub const API_BODY_MAX: usize = 64 * 1024;
 /// `/bridge/start` defaults may carry a long appended system prompt.
 pub const BRIDGE_START_BODY_MAX: usize = 1024 * 1024;
 
-/// Move data may name thousands of conversations (a selection, §13.6).
+/// Move data and deleting may name thousands of conversations (a selection,
+/// §13.6, §14.4).
 pub const DATA_MOVE_BODY_MAX: usize = 1024 * 1024;
 
 /// Build the `/api` router (nested at `/api` by `server::router_for`).
@@ -163,6 +164,10 @@ pub fn api_router() -> Router<AppState> {
         // ── finding conversations on disk (docs/ACCOUNTS.md §14) ──
         .route("/data/projects", get(disk::projects))
         .route("/data/projects/reveal", post(disk::reveal_project))
+        .route(
+            "/data/delete",
+            post(transfers::post_delete).layer(DefaultBodyLimit::max(DATA_MOVE_BODY_MAX)),
+        )
         .route("/data/jobs", get(transfers::list_jobs))
         .route("/data/jobs/{id}", get(transfers::get_job))
         .route("/data/jobs/{id}/undo", post(transfers::undo_job))

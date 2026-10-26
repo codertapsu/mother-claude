@@ -15,6 +15,11 @@
 //!
 //!   `trust: true`, and the `settings` or `mcpServers` customizations, need
 //!   the dangerous right (a dry run too, without raising a notice).
+//! * `POST /api/data/delete` (the desktop or a paired device, and the
+//!   dangerous right — a dry run too; docs/ACCOUNTS.md §14.3), `{from?,
+//!   items: {sessions?, projects?}, undo?, dryRun?}` → `200 {plan}`, else
+//!   `202 {jobs, job}` (one job per directory, kind `delete`); what runs or is
+//!   not there is skipped with its code.
 //! * `GET /api/data/jobs` and `GET /api/data/jobs/{id}` (Authed): progress,
 //!   result, until when undo works, the accounts involved (`from`/`to`,
 //!   `account`). The list has this run's jobs and earlier ones that can still
@@ -35,7 +40,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 
 use super::Body;
-use crate::claude::transfer::{self, moves, ops, Mode, Request, TransferError, What};
+use crate::claude::transfer::{self, delete, moves, ops, Mode, Request, TransferError, What};
 use crate::server::auth::{self, Authed, ManageData};
 use crate::server::devices::audit::AuditEntry;
 use crate::server::error::{ApiError, ApiResult};
@@ -194,6 +199,46 @@ async fn post_items(
         &state,
         &ctx,
         &format!("started to {mode} {n} conversation(s){customs}"),
+    );
+    let first = jobs.first().cloned();
+    Ok((
+        StatusCode::ACCEPTED,
+        Json(json!({ "jobs": jobs, "job": first })),
+    )
+        .into_response())
+}
+
+/// `POST /api/data/delete` (docs/ACCOUNTS.md §14.3): plan, then (unless a
+/// dry run) one job per directory. Deleting a transcript is a dangerous
+/// action, so a dry run needs the right too.
+pub async fn post_delete(
+    ManageData(ctx): ManageData,
+    State(state): State<AppState>,
+    Body(req): Body<delete::DeleteRequest>,
+) -> ApiResult<Response> {
+    if ops::undo_root(&state).is_none() {
+        return Err(ApiError::conflict(
+            "no_data_dir",
+            "This build has no data directory to keep an undo in.",
+        ));
+    }
+    auth::require_dangerous_unless_dry(&ctx, "Deleting conversations", req.dry_run)?;
+    let plan = delete::plan(&state, &req).await.map_err(transfer_error)?;
+    if req.dry_run {
+        return Ok(Json(json!({ "plan": plan })).into_response());
+    }
+    let n = plan.sessions_total;
+    let mut detail = delete::audit_detail(&plan, &[]);
+    let jobs = delete::start(&state, plan);
+    detail["jobs"] = json!(jobs.iter().map(|j| j.id.clone()).collect::<Vec<_>>());
+    state.devices.audit.record(AuditEntry {
+        detail: Some(detail),
+        ..AuditEntry::from_ctx(&ctx, "data.delete")
+    });
+    auth::note_device_action(
+        &state,
+        &ctx,
+        &format!("started to delete {n} conversation(s)"),
     );
     let first = jobs.first().cloned();
     Ok((

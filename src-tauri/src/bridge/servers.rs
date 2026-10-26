@@ -228,6 +228,23 @@ impl ApiServer {
         }
     }
 
+    /// A conversation was deleted (docs/ACCOUNTS.md §14.3): unaddressed
+    /// messages no longer join it, and neither the defaults in force nor the
+    /// saved ones name it. Whether an added server's saved defaults changed
+    /// (they are written to disk).
+    pub(crate) fn forget_conversation(&self, thread_id: &str) -> bool {
+        self.forget_active(thread_id);
+        let names = |d: &BridgeDefaults| d.default_thread.as_deref() == Some(thread_id);
+        if names(&self.defaults()) {
+            self.update_defaults(|d| d.default_thread = None);
+        }
+        let saved = names(&self.saved());
+        if saved {
+            self.update_saved(|d| d.default_thread = None);
+        }
+        saved && !self.is_main()
+    }
+
     /// The token policy of its current (or last) run.
     pub fn token_policy(&self) -> TokenPolicy {
         get(&self.token)

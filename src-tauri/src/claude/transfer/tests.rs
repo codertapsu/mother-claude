@@ -1369,3 +1369,273 @@ fn customizations_follow_the_in_use_rule_and_are_only_copied() {
         "invalid_transfer"
     );
 }
+
+// ─────────────────────────── deleting (§14.3) ───────────────────────────
+
+/// Delete `ids` from `a`: the job id and what it did.
+fn delete_from_a(
+    w: &World,
+    ids: &[&str],
+    keep_undo: bool,
+    is_live: &dyn Fn(&str) -> bool,
+    may_go: &dyn Fn(&str) -> Result<(), Skipped>,
+) -> Result<(String, delete::TakeReport), TransferError> {
+    let job = new_job_id();
+    let ids: Vec<String> = ids.iter().map(|s| s.to_string()).collect();
+    let r = delete::take(&delete::TakeInputs {
+        home: &w.a,
+        ids: &ids,
+        undo_root: &w.undo,
+        job_id: &job,
+        account: "default",
+        keep_undo,
+        is_live,
+        may_go,
+        progress: &Progress::default(),
+    })?;
+    Ok((job, r))
+}
+
+fn any_may_go(_: &str) -> Result<(), Skipped> {
+    Ok(())
+}
+
+fn codes(skipped: &[Skipped]) -> Vec<(String, String)> {
+    skipped
+        .iter()
+        .map(|s| (s.id.clone().unwrap_or_default(), s.code.clone()))
+        .collect()
+}
+
+/// A delete takes every file of the conversation (§1.4) into the undo
+/// directory and nothing else: another conversation of the folder, the
+/// folder itself, `.claude.json` and `history.jsonl` stay as they are; its
+/// undo puts every file back byte for byte.
+#[test]
+fn a_delete_takes_a_conversations_files_and_nothing_shared() {
+    let w = world();
+    session(w.a.base(), SID, CWD);
+    session(w.a.base(), S2, CWD);
+    std::fs::write(
+        w.a.claude_json(),
+        serde_json::json!({"projects": {CWD: {"hasTrustDialogAccepted": true}}}).to_string(),
+    )
+    .unwrap();
+    std::fs::write(
+        w.a.history_file(),
+        format!("{{\"display\":\"hi\",\"project\":\"{CWD}\",\"timestamp\":1}}\n"),
+    )
+    .unwrap();
+    let shared = || {
+        (
+            std::fs::read(w.a.claude_json()).unwrap(),
+            std::fs::read(w.a.history_file()).unwrap(),
+        )
+    };
+    let (config, history) = shared();
+    let before = snapshot_of(w.a.base());
+    let (job, r) = delete_from_a(&w, &[SID], true, &not_live, &any_may_go).unwrap();
+    assert_eq!(r.deleted, [SID]);
+    assert!(r.skipped.is_empty());
+    let proj = w.a.transcript_dir(CWD);
+    assert!(transcripts_of(&w.a, SID).is_empty());
+    assert!(!proj.join(SID).exists(), "its own folder");
+    assert!(!w.a.file_history_dir().join(SID).exists());
+    assert!(!w.a.session_env_dir().join(SID).exists());
+    assert!(!w
+        .a
+        .todos_dir()
+        .join(format!("{SID}-agent-{SID}.json"))
+        .exists());
+    assert_eq!(transcripts_of(&w.a, S2).len(), 1, "the other one stays");
+    assert!(w.a.file_history_dir().join(S2).is_dir());
+    assert!(proj.is_dir(), "a folder that still holds one stays");
+    assert_eq!(shared(), (config, history), "no shared file is touched");
+    let m = manifest(&w.undo, &job).unwrap();
+    assert_eq!(m.kind.as_deref(), Some(delete::KIND));
+    assert_eq!(m.sessions, [SID]);
+    assert_eq!(m.moved.len(), 4, "transcript, subagent, file history, todo");
+    let v = view_from_manifest(&m);
+    assert_eq!(v.kind, "delete");
+    assert_eq!(v.account.as_deref(), Some("default"));
+    assert_eq!((v.from, v.to), (None, None), "a delete has no target");
+    assert_eq!(v.files_total, 4);
+    assert!(v.undo_until.is_some());
+
+    undo(&w.undo, &job).unwrap();
+    assert_eq!(snapshot_of(w.a.base()), before, "every file back");
+    assert!(
+        w.a.session_env_dir().join(SID).is_dir(),
+        "the empty env dir too"
+    );
+}
+
+/// A project folder its conversations left empty goes too (a `.DS_Store`
+/// with it) and comes back with Undo; one that holds anything else — the
+/// project's memory, say — stays.
+#[test]
+fn a_project_folder_left_empty_goes_and_comes_back() {
+    let w = world();
+    session(w.a.base(), SID, CWD);
+    let proj = w.a.transcript_dir(CWD);
+    std::fs::write(proj.join(".DS_Store"), "finder").unwrap();
+    session(w.a.base(), S2, "/p/other");
+    let other = w.a.transcript_dir("/p/other");
+    std::fs::create_dir_all(other.join("memory")).unwrap();
+    std::fs::write(other.join("memory/MEMORY.md"), "remember").unwrap();
+    let before = snapshot_of(w.a.base());
+    let (job, r) = delete_from_a(&w, &[SID, S2], true, &not_live, &any_may_go).unwrap();
+    assert_eq!(r.deleted, [SID, S2]);
+    assert!(!proj.exists(), "left empty, it goes");
+    assert!(
+        other.join("memory/MEMORY.md").is_file(),
+        "a folder with anything else stays"
+    );
+    assert!(transcripts_of(&w.a, S2).is_empty());
+    undo(&w.undo, &job).unwrap();
+    assert_eq!(snapshot_of(w.a.base()), before, "the folder is back");
+}
+
+/// `undo: false`: every file was taken out first, then the undo directory
+/// goes and the job has no Undo.
+#[test]
+fn without_undo_nothing_is_kept() {
+    let w = world();
+    session(w.a.base(), SID, CWD);
+    let (job, r) = delete_from_a(&w, &[SID], false, &not_live, &any_may_go).unwrap();
+    assert_eq!(r.deleted, [SID]);
+    assert!(r.manifest.is_none());
+    assert!(transcripts_of(&w.a, SID).is_empty());
+    assert!(!w.undo.join(&job).exists(), "the undo directory is gone");
+    assert_eq!(undo(&w.undo, &job).unwrap_err().code(), "not_found");
+}
+
+/// What runs is skipped, never taken: a living pidfile of the directory
+/// (read right before), what the app knows to run (an owned session, a
+/// bridge conversation), and one the request may no longer take.
+#[test]
+fn what_runs_or_may_not_go_is_skipped_and_kept() {
+    let w = world();
+    session(w.a.base(), SID, CWD);
+    session(w.a.base(), S2, CWD);
+    session(w.a.base(), S3, "/p/third");
+    std::fs::create_dir_all(w.a.sessions_dir()).unwrap();
+    std::fs::write(
+        w.a.sessions_dir()
+            .join(format!("{}.json", std::process::id())),
+        serde_json::json!({"pid": std::process::id(), "sessionId": SID}).to_string(),
+    )
+    .unwrap();
+    let live = |id: &str| id == S2;
+    let may_go = |id: &str| {
+        if id == S3 {
+            Err(Skipped::session(id, "session_changed", "given away"))
+        } else {
+            Ok(())
+        }
+    };
+    let before = snapshot_of(w.a.base());
+    let (job, r) = delete_from_a(&w, &[SID, S2, S3], true, &live, &may_go).unwrap();
+    assert!(r.deleted.is_empty());
+    let want = |id: &str, code: &str| (id.to_string(), code.to_string());
+    assert_eq!(
+        codes(&r.skipped),
+        [
+            want(SID, "session_live"),
+            want(S2, "session_live"),
+            want(S3, "session_changed")
+        ]
+    );
+    assert_eq!(snapshot_of(w.a.base()), before, "nothing moved");
+    assert!(!w.undo.join(&job).exists(), "nothing to undo");
+}
+
+/// A conversation that cannot go whole is put back and skipped; the rest
+/// goes.
+#[test]
+fn a_conversation_that_cannot_go_whole_is_put_back() {
+    let w = world();
+    session(w.a.base(), SID, CWD);
+    session(w.a.base(), S2, CWD);
+    let files_of = |id: &str| {
+        snapshot_of(w.a.base())
+            .into_iter()
+            .filter(|(p, _)| p.to_string_lossy().contains(id))
+            .collect::<Vec<_>>()
+    };
+    let sid_before = files_of(SID);
+    // The first conversation's second file fails to move.
+    fail_at("stash", 1);
+    let (job, r) = delete_from_a(&w, &[SID, S2], true, &not_live, &any_may_go).unwrap();
+    clear_failures();
+    assert_eq!(r.deleted, [S2]);
+    assert_eq!(r.skipped[0].id.as_deref(), Some(SID));
+    assert_eq!(r.skipped[0].code, "transfer_io");
+    assert_eq!(files_of(SID), sid_before, "put back whole");
+    assert_eq!(manifest(&w.undo, &job).unwrap().sessions, [S2]);
+}
+
+/// When even putting it back fails, the undo directory stays (an `undo:
+/// false` one too), the job says so, and Undo finishes it.
+#[test]
+fn a_conversation_that_cannot_be_put_back_keeps_the_undo() {
+    let w = world();
+    session(w.a.base(), SID, CWD);
+    let before = snapshot_of(w.a.base());
+    fail_at("stash", 1);
+    fail_at("put_back", 0);
+    let err = delete_from_a(&w, &[SID], false, &not_live, &any_may_go).unwrap_err();
+    clear_failures();
+    assert_eq!(err.code(), "transfer_incomplete");
+    let job = std::fs::read_dir(&w.undo)
+        .unwrap()
+        .flatten()
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .find(|n| is_job_id(n))
+        .expect("the undo directory stays");
+    assert!(w.undo.join(&job).join("manifest.json").exists());
+    undo(&w.undo, &job).unwrap();
+    assert_eq!(snapshot_of(w.a.base()), before);
+}
+
+/// Undo never puts a file over one that is there now (`undo_conflict`), and
+/// then changes nothing.
+#[test]
+fn undo_of_a_delete_refuses_where_something_new_is() {
+    let w = world();
+    session(w.a.base(), SID, CWD);
+    let (job, _) = delete_from_a(&w, &[SID], true, &not_live, &any_may_go).unwrap();
+    let t = w.a.transcript_path(CWD, SID);
+    std::fs::create_dir_all(t.parent().unwrap()).unwrap();
+    std::fs::write(&t, "a new transcript by that name").unwrap();
+    assert_eq!(undo(&w.undo, &job).unwrap_err().code(), "undo_conflict");
+    assert_eq!(
+        std::fs::read_to_string(&t).unwrap(),
+        "a new transcript by that name"
+    );
+    assert!(
+        !w.a.file_history_dir().join(SID).exists(),
+        "nothing else came back either"
+    );
+}
+
+/// A symbolic link in a conversation's place is never followed: what it
+/// points to stays.
+#[cfg(unix)]
+#[test]
+fn a_delete_never_follows_a_symlink() {
+    let w = world();
+    session(w.a.base(), SID, CWD);
+    let outside = w.a.base().parent().unwrap().join("outside");
+    std::fs::create_dir_all(&outside).unwrap();
+    std::fs::write(outside.join("keep.txt"), "mine").unwrap();
+    let fh = w.a.file_history_dir().join(SID);
+    std::fs::remove_dir_all(&fh).unwrap();
+    std::os::unix::fs::symlink(&outside, &fh).unwrap();
+    let (_, r) = delete_from_a(&w, &[SID], true, &not_live, &any_may_go).unwrap();
+    assert_eq!(r.deleted, [SID]);
+    assert_eq!(
+        std::fs::read_to_string(outside.join("keep.txt")).unwrap(),
+        "mine"
+    );
+}

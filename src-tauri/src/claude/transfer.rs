@@ -2195,7 +2195,7 @@ pub enum JobState {
 #[serde(rename_all = "camelCase")]
 pub struct JobView {
     pub id: String,
-    /// `move` | `copy` | `backup` | `restore` | `pull`.
+    /// `move` | `copy` | `backup` | `restore` | `pull` | `delete`.
     pub kind: String,
     pub state: JobState,
     pub started_at: i64,
@@ -2214,7 +2214,8 @@ pub struct JobView {
     pub undo_until: Option<i64>,
     /// The sessions it moved, copied or restored.
     pub sessions: Vec<String>,
-    /// The account whose backup set it used (backup, restore, pull).
+    /// The account whose backup set it used (backup, restore, pull), or
+    /// whose conversations it deleted (delete).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub account: Option<String>,
     /// The accounts it moved or copied from and to (restore: `to` is the
@@ -2337,8 +2338,15 @@ impl Jobs {
     }
 }
 
-/// A finished move's view, from its manifest (after a restart).
+/// A finished move's view, from its manifest (after a restart). A delete's
+/// names its account (`account`) and counts the files it took.
 pub fn view_from_manifest(m: &Manifest) -> JobView {
+    let delete = m.kind.as_deref() == Some(delete::KIND);
+    let files = if delete {
+        m.moved.len()
+    } else {
+        m.created.len()
+    } as u64;
     JobView {
         id: m.job_id.clone(),
         kind: m.kind.clone().unwrap_or_else(|| {
@@ -2355,8 +2363,8 @@ pub fn view_from_manifest(m: &Manifest) -> JobView {
         },
         started_at: m.created_at,
         finished_at: Some(m.created_at),
-        files_done: m.created.len() as u64,
-        files_total: m.created.len() as u64,
+        files_done: files,
+        files_total: files,
         bytes_done: m.created.iter().map(|c| c.size).sum(),
         bytes_total: m.created.iter().map(|c| c.size).sum(),
         error: None,
@@ -2366,9 +2374,9 @@ pub fn view_from_manifest(m: &Manifest) -> JobView {
             .is_none()
             .then(|| m.created_at + UNDO_KEEP.as_millis() as i64),
         sessions: m.sessions.clone(),
-        account: None,
-        from: m.from_account.clone(),
-        to: m.to_account.clone(),
+        account: m.from_account.clone().filter(|_| delete),
+        from: m.from_account.clone().filter(|_| !delete),
+        to: m.to_account.clone().filter(|_| !delete),
         from_storage: m
             .storage
             .as_ref()
@@ -2400,6 +2408,7 @@ pub fn project_folder(cwd: &str) -> String {
 }
 
 pub mod custom;
+pub mod delete;
 pub mod moves;
 pub mod ops;
 

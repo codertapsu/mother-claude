@@ -1585,6 +1585,63 @@ the folder its summary shows. Phones and the local-script token read it too.
   into a config directory, with the same guarantees (re-checked right before,
   undo copy first unless the user said otherwise, audit line).
 
+*As built (2026-10-26):*
+
+- **Replies** as for moves: a dry run → `200 {plan}`; a run → `202 {jobs:
+  [JobView…], job}` (`job` is the first).
+- **The plan:** `{from?, undo, jobs, sessions: [{id, cwd?, title?, account,
+  files, bytes}], skipped: [{id? | cwd?, title?, code, message}], projects,
+  folders, sessionsTotal, skippedTotal, projectsTotal, foldersTotal, files,
+  bytes, truncated?}`. `from` and every `account` are plain account ids; a
+  row's `account` is the account whose conversation it is (in the shared
+  folder, the one it is attributed to); `files` counts its files; `projects`
+  are the projects named that something of goes, `folders` the
+  `projects/<enc>` folders that would be left empty. Each list holds at most
+  1000 entries (`truncated: true` beyond, the run takes them all) and its
+  `…Total` counts them all. A skip carries the conversation's `title` when it
+  has one; one skipped for the same reason in two directories is listed once;
+  what was skipped before any directory was known comes first.
+- **Skipped codes:** `session_live` (also one that starts while its files are
+  being taken: they are put back), `not_found` (not in that directory, a
+  project with no conversation there, another account's conversation in the
+  shared folder), `invalid_transfer` (not a session id, a relative folder),
+  `session_changed` (given to another account since the plan), `transfer_io`
+  (a file could not be moved: the conversation is put back whole).
+- **Refusals** of the request as a whole: `422 invalid_body` (not this shape,
+  no `items`), `422 invalid_transfer` (nothing named; a storage as `from`),
+  `404 not_found` (`from` names no account), `409 no_data_dir`, `403
+  dangerous_blocked`, `403 desktop_only` (the local-script token). The body may
+  be up to 1 MiB. `from: "unregistered"` — the chip of a token no account
+  holds — is the Default: such a conversation is the Default's for every
+  decision (D8).
+- **Jobs:** `account` is `from` when the request named one (a token
+  account's delete is that account's), else the directory's (`default` for
+  the shared folder); `sessions` and `result.deleted` are what went,
+  `result.skipped` is titled as in the plan, `result.warnings` says when the
+  files of an `undo: false` job could not all be removed from its undo
+  directory (they go with it after seven days). A request with nothing to
+  delete still gets one job, which lists what it skipped. A job that could not
+  put a conversation back fails with `transfer_incomplete` and offers Undo,
+  `undo: false` too. After a restart a delete job is listed from its manifest,
+  with its `account`.
+- **Undo** is every data job's (`POST /api/data/jobs/{id}/undo`: the desktop
+  or a paired device, no dangerous right — it only puts files back); `404
+  not_found` once there is no copy (`undo: false`, or pruned), `409
+  undo_conflict` where something new is.
+- **A project folder** goes when nothing else is in it (a `.DS_Store` goes
+  into the undo copy first); one that holds anything else — the project's
+  auto-memory, say — stays.
+- **Running** is checked right before each conversation goes and again once
+  its files moved: the roster, owned sessions, bridge conversations open in
+  the host, and the directory's pidfiles read afresh (the roster can be a tick
+  behind).
+- **API servers:** a deleted conversation is no server's active conversation
+  any more, nor named in its defaults, the main server's included; an added
+  server's saved defaults are written again.
+- **Audit:** `data.delete` with `{jobs, from, undo, sessions, skipped,
+  projects, files, bytes}` — counts, never a path. A device's delete raises the
+  dangerous-action notice and "started to delete N conversation(s)".
+
 ### 14.4 UI
 
 1. **Sessions → Select** is always offered (not only when there is somewhere
@@ -1616,7 +1673,7 @@ anywhere").
 - [x] P8.1 `files` in the session detail; reveal a session's transcript and a
   project's folder (macOS, Windows, Linux).
 - [x] P8.2 `GET /api/data/projects`.
-- [ ] P8.3 `POST /api/data/delete`: plan, skips, jobs per directory, undo,
+- [x] P8.3 `POST /api/data/delete`: plan, skips, jobs per directory, undo,
   `undo: false`, the guards, audit and notice, API servers' active
   conversations.
 - [ ] P8.4 UI: Select with Delete, the Projects view, the session's paths and

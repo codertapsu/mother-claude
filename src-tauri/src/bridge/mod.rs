@@ -462,6 +462,27 @@ impl BridgeState {
     }
 }
 
+/// Conversations deleted from disk (docs/ACCOUNTS.md §14.3): no API server
+/// joins one any more or names one as its default; an added server's saved
+/// defaults are written again without it.
+pub async fn forget_deleted(state: &AppState, ids: &[String]) {
+    if ids.is_empty() {
+        return;
+    }
+    let _admin = state.bridge.servers.admin.lock().await;
+    let mut save = false;
+    for server in state.bridge.servers.all() {
+        for id in ids {
+            save |= server.forget_conversation(id);
+        }
+    }
+    if save {
+        if let Err(e) = state.bridge.servers.save() {
+            tracing::warn!(error = %e.message, "could not save the API servers after a delete");
+        }
+    }
+}
+
 /// End a bridge conversation from outside the bridge's own routes — the
 /// dashboard's Stop button, which would otherwise report success while the
 /// conversation carried on (there is no `ControlRegistry` handle for it).
