@@ -531,6 +531,16 @@ export interface SessionsQuery {
   limit?: number;
   /** Opaque cursor from a previous page's `nextBefore`. */
   before?: string;
+  /** The list's search: title, name, project, folder, branch, last prompt,
+   * model, effort or id contains it, in any case. */
+  q?: string;
+  surface?: string;
+  /** A project's name, as the list shows it. */
+  project?: string;
+  /** An account id. */
+  account?: string;
+  /** Only running sessions, or only those waiting on someone. */
+  only?: 'live' | 'needs';
 }
 
 export interface SessionsPage {

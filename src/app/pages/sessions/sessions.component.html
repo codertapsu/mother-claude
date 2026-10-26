@@ -198,8 +198,14 @@
     @if (selecting()) {
       <div class="selbar" role="region" aria-label="Selected sessions">
         <span class="selcount" aria-live="polite">{{ picked().size }} selected</span>
-        <button class="btn small ghost" type="button" (click)="selectAllShown()">
-          Select all shown
+        <button
+          class="btn small ghost"
+          type="button"
+          [disabled]="selectingAll()"
+          title="Every session the search and filters match, earlier ones too"
+          (click)="selectAll()"
+        >
+          {{ selectingAll() ? 'Selecting…' : selectAllLabel() }}
         </button>
         @if (picked().size) {
           <button class="btn small ghost" type="button" (click)="clearPicked()">Clear</button>
@@ -224,6 +230,9 @@
           </button>
         }
       </div>
+      @if (selectAllError()) {
+        <p class="error-text small selerr" role="alert">{{ selectAllError() }}</p>
+      }
     }
   }
 </div>

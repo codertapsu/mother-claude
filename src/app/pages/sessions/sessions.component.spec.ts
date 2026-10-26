@@ -15,7 +15,8 @@ import { AccountRef, SessionSummary } from '../../core/models';
 import { storageGet, storageRemove } from '../../core/platform';
 import { RealtimeService } from '../../core/realtime.service';
 import { inAccount } from '../../shared/accounts';
-import { SessionsComponent, sessionMatches } from './sessions.component';
+import { sessionMatches } from '../../shared/session-search';
+import { SessionsComponent } from './sessions.component';
 
 const s = (over: Partial<SessionSummary>): SessionSummary =>
   ({
@@ -196,9 +197,13 @@ describe('SessionsComponent accounts', () => {
     fixture.detectChanges();
     expect(text(el.querySelector('.selcount'))).toBe('2 selected');
     expect(el.querySelectorAll('mc-session-card[data-selected]').length).toBe(2);
-    button('Select all shown')?.click();
+    backend.routes.set('/sessions', () => ({ status: 200, body: { ids: ['a', 'b', 'c'] } }));
+    button('Select all')?.click();
+    fixture.detectChanges();
+    await flush();
     fixture.detectChanges();
     expect(text(el.querySelector('.selcount'))).toBe('3 selected');
+    expect(backend.urls).toContain('/sessions?scope=all&view=ids');
 
     button('Move or copy 3')?.click();
     fixture.detectChanges();
@@ -243,6 +248,69 @@ describe('SessionsComponent accounts', () => {
     button('Select')?.click();
     fixture.detectChanges();
     expect(text(el.querySelector('.selcount'))).toBe('0 selected');
+  });
+
+  it('selects every session the search matches, earlier ones not read yet too', async () => {
+    serveAccounts(backend, buildAccounts(Date.now(), false));
+    backend.routes.set('/backup', () => ({ status: 200, body: { settings: { folder: null } } }));
+    store([
+      card('a', undefined, { title: 'Xiangqi engine' }),
+      card('b', undefined, { title: 'Chess clock' }),
+    ]);
+    const el = await render();
+    const button = (label: string) =>
+      [...el.querySelectorAll<HTMLButtonElement>('button')].find((b) => text(b).startsWith(label));
+    const search = el.querySelector<HTMLInputElement>('input[aria-label="Search sessions"]')!;
+    search.value = 'Xiangqi';
+    search.dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+    expect(names(el)).toEqual(['Xiangqi engine']);
+
+    // The server finds the earlier ones; the card shown is taken either way.
+    backend.routes.set('/sessions', () => ({
+      status: 200,
+      body: { ids: ['a', 'old-1', 'old-2'] },
+    }));
+    button('Select')?.click();
+    fixture.detectChanges();
+    button('Select all matching')?.click();
+    fixture.detectChanges();
+    await flush();
+    fixture.detectChanges();
+    expect(text(el.querySelector('.selcount'))).toBe('3 selected');
+    expect(backend.urls).toContain('/sessions?scope=all&q=Xiangqi&view=ids');
+
+    // Without the server, the cards shown are selected, and the bar says so.
+    button('Clear')?.click();
+    backend.routes.set('/sessions', () => ({ status: 500, body: {} }));
+    button('Select all matching')?.click();
+    fixture.detectChanges();
+    await flush();
+    fixture.detectChanges();
+    expect(text(el.querySelector('.selcount'))).toBe('1 selected');
+    expect(text(el.querySelector('.selerr'))).toContain('Only the sessions shown were selected');
+  });
+
+  it('searches earlier sessions on the server', async () => {
+    serveAccounts(backend, buildAccounts(Date.now(), false));
+    store([card('a', undefined, { title: 'Xiangqi engine' })]);
+    backend.routes.set('/sessions', () => ({
+      status: 200,
+      body: { sessions: [card('old', undefined, { title: 'Xiangqi openings', status: 'ended' })] },
+    }));
+    const el = await render();
+    const search = el.querySelector<HTMLInputElement>('input[aria-label="Search sessions"]')!;
+    search.value = 'xiangqi';
+    search.dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+    [...el.querySelectorAll<HTMLButtonElement>('button')]
+      .find((b) => text(b).includes('Show ended sessions'))
+      ?.click();
+    fixture.detectChanges();
+    await flush();
+    fixture.detectChanges();
+    expect(backend.urls).toContain('/sessions?scope=all&limit=25&q=xiangqi');
+    expect(names(el)).toContain('Xiangqi openings');
   });
 
   it('switches to the projects on disk, and remembers it', async () => {

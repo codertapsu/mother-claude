@@ -193,8 +193,13 @@ export const MIXED_ACCOUNTS = 'Pick projects of one account to move or copy them
     @if (selecting()) {
       <div class="selbar" role="region" aria-label="Selected projects">
         <span class="selcount" aria-live="polite">{{ picked().size }} selected</span>
-        <button class="btn small ghost" type="button" (click)="selectAllShown()">
-          Select all shown
+        <button
+          class="btn small ghost"
+          type="button"
+          title="Every project the search and the account filter match"
+          (click)="selectAll()"
+        >
+          {{ query().trim() || account() ? 'Select all matching' : 'Select all' }}
         </button>
         @if (picked().size) {
           <button class="btn small ghost" type="button" (click)="picked.set(none)">Clear</button>
@@ -562,7 +567,9 @@ export class ProjectsViewComponent {
     });
   }
 
-  protected selectAllShown(): void {
+  /** Every project the search and the account filter match (they are all
+   * read at once, so every match is a row). */
+  protected selectAll(): void {
     this.picked.update((prev) => new Set([...prev, ...this.rows().map(projectKey)]));
   }
 

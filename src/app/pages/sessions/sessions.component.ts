@@ -1,4 +1,4 @@
-import { Component, computed, inject, signal } from '@angular/core';
+import { Component, DestroyRef, computed, effect, inject, signal, untracked } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 
@@ -11,7 +11,6 @@ import { anyTarget } from '../../core/move-data';
 import { storageGet, storageSet } from '../../core/platform';
 import { RealtimeService } from '../../core/realtime.service';
 import { StorageService } from '../../core/storage.service';
-import { inAccount } from '../../shared/accounts';
 import {
   DeleteDataSheetComponent,
   DeleteStart,
@@ -23,8 +22,14 @@ import { IconComponent } from '../../shared/icon.component';
 import { LimitOfferComponent } from '../../shared/limit-offer.component';
 import { MoveDataSheetComponent, MoveStart } from '../../shared/move-data-sheet.component';
 import { SessionCardComponent } from '../../shared/session-card.component';
-import { thinkingChip } from '../../shared/session-settings';
-import { effortLabel, effortShortLabel, surfaceLabel } from '../../shared/util';
+import {
+  SessionFilters,
+  filterQuery,
+  filtersActive,
+  needsYou,
+  sessionPasses,
+} from '../../shared/session-search';
+import { surfaceLabel } from '../../shared/util';
 import { ProjectsViewComponent } from './projects-view.component';
 
 type Filter = 'live' | 'needs' | 'all';
@@ -40,10 +45,8 @@ interface Group {
 const FILTER_KEY = 'mc_sessions_filter';
 const VIEW_KEY = 'mc_sessions_view';
 const HISTORY_PAGE = 25;
-
-function needsYou(s: SessionSummary): boolean {
-  return s.status === 'waiting' || (s.pending?.length ?? 0) > 0;
-}
+/** How long typing waits before earlier sessions are searched again. */
+const SEARCH_DEBOUNCE_MS = 300;
 
 function byRecent(a: SessionSummary, b: SessionSummary): number {
   return (b.lastActivityAt ?? b.startedAt ?? 0) - (a.lastActivityAt ?? a.startedAt ?? 0);
@@ -54,8 +57,11 @@ function byRecent(a: SessionSummary, b: SessionSummary): number {
  * searchable and filterable (by surface, project and — while more than the
  * Default exists — Claude account), grouped by what they need; ended
  * sessions page in on demand. A card with one simple pending request can be
- * answered right here. *Select* puts a checkbox on every card and a bar
- * below them: *Select all shown*, *Delete N…* (docs/ACCOUNTS.md §14) and,
+ * answered right here. Earlier sessions are searched and filtered on the
+ * server, so a search finds them all, not only the pages read so far.
+ * *Select* puts a checkbox on every card and a bar below them: *Select all*
+ * (every session the search and filters match, earlier ones not read yet
+ * included), *Delete N…* (docs/ACCOUNTS.md §14) and,
  * when there is somewhere to move them, *Move or copy N…*, which opens Move
  * data with those conversations (from several accounts at once: each goes
  * from where it is). The *Sessions / Projects* switch shows every project
@@ -111,6 +117,10 @@ export class SessionsComponent {
   protected readonly historyError = signal('');
   private historyCursor: string | undefined;
   protected readonly historyDone = signal(false);
+  /** Bumped when the filters change: a page read for older ones is dropped. */
+  private historyGen = 0;
+  private historyKey = '';
+  private historyTimer?: ReturnType<typeof setTimeout>;
 
   protected readonly liveCount = computed(() => this.all().filter((s) => s.live).length);
   protected readonly needsCount = computed(() => this.all().filter(needsYou).length);
@@ -124,25 +134,28 @@ export class SessionsComponent {
     ),
   );
 
-  private readonly matches = computed(() => {
-    const q = this.query().trim().toLowerCase();
-    const surface = this.surface();
-    const project = this.project();
-    const account = this.accountInEffect();
-    return (s: SessionSummary): boolean => {
-      if (surface && s.surface !== surface) return false;
-      if (project && s.projectName !== project) return false;
-      if (!inAccount(s, account)) return false;
-      return !q || sessionMatches(s, q);
+  /** Everything the page filters by: the search, the pickers and the All /
+   * Live / Needs you switch. */
+  protected readonly filters = computed<SessionFilters>(() => {
+    const f = this.filter();
+    return {
+      q: this.query(),
+      surface: this.surface(),
+      project: this.project(),
+      account: this.accountInEffect(),
+      only: f === 'all' ? '' : f,
     };
   });
+  /** The same without the switch: earlier sessions are none of Live or
+   * Needs you. */
+  private readonly historyFilters = computed<SessionFilters>(() => ({
+    ...this.filters(),
+    only: '',
+  }));
 
   protected readonly visible = computed(() => {
-    const match = this.matches();
-    const f = this.filter();
-    return this.all().filter(
-      (s) => match(s) && (f === 'all' || (f === 'live' ? s.live : needsYou(s))),
-    );
+    const f = this.filters();
+    return this.all().filter((s) => sessionPasses(s, f));
   });
 
   protected readonly groups = computed<Group[]>(() => {
@@ -180,8 +193,8 @@ export class SessionsComponent {
 
   protected readonly historyVisible = computed(() => {
     const inStore = new Set(this.all().map((s) => s.id));
-    const match = this.matches();
-    return this.history().filter((s) => !inStore.has(s.id) && match(s));
+    const f = this.historyFilters();
+    return this.history().filter((s) => !inStore.has(s.id) && sessionPasses(s, f));
   });
 
   protected readonly surfaceLabel = surfaceLabel;
@@ -194,6 +207,12 @@ export class SessionsComponent {
   /** Sessions › Select: the cards have checkboxes. */
   protected readonly selecting = signal(false);
   protected readonly picked = signal<ReadonlySet<string>>(new Set());
+  /** *Select all* is asking the server for every match. */
+  protected readonly selectingAll = signal(false);
+  protected readonly selectAllError = signal('');
+  protected readonly selectAllLabel = computed(() =>
+    filtersActive(this.filters()) ? 'Select all matching' : 'Select all',
+  );
   /** Move data with the picked conversations (null: closed). */
   protected readonly moveStart = signal<MoveStart | null>(null);
   /** The delete dialog with the picked conversations (null: closed). */
@@ -201,6 +220,13 @@ export class SessionsComponent {
 
   constructor() {
     void this.storage.ensureLoaded();
+    // Earlier sessions are searched on the server: a new search or filter
+    // reads them again, once the typing stops.
+    effect(() => {
+      const key = JSON.stringify(filterQuery(this.historyFilters()));
+      untracked(() => this.historyFiltersChanged(key));
+    });
+    inject(DestroyRef).onDestroy(() => clearTimeout(this.historyTimer));
   }
 
   setView(v: View): void {
@@ -226,7 +252,7 @@ export class SessionsComponent {
   toggleSelecting(): void {
     const on = !this.selecting();
     this.selecting.set(on);
-    if (!on) this.picked.set(new Set());
+    if (!on) this.clearPicked();
   }
 
   flip(id: string): void {
@@ -238,17 +264,35 @@ export class SessionsComponent {
     });
   }
 
-  /** Every card the filters show now (the earlier ones too, when open). */
-  selectAllShown(): void {
+  /** Every session the search and filters match — the earlier ones not
+   * read yet too, which the server finds — plus every card shown. If the
+   * server cannot be asked, the cards shown are selected and the bar says so. */
+  async selectAll(): Promise<void> {
+    if (this.selectingAll()) return;
     const shown = [
       ...this.groups().flatMap((g) => g.items),
       ...(this.historyOpen() ? this.historyVisible() : []),
-    ];
-    this.picked.update((prev) => new Set([...prev, ...shown.map((s) => s.id)]));
+    ].map((s) => s.id);
+    this.selectingAll.set(true);
+    this.selectAllError.set('');
+    let found: string[] = [];
+    try {
+      found = await this.api.listSessionIds({ scope: 'all', ...filterQuery(this.filters()) });
+    } catch (e) {
+      this.selectAllError.set(
+        `Only the sessions shown were selected; earlier ones could not be found: ${errorMessage(e)}`,
+      );
+    } finally {
+      this.selectingAll.set(false);
+    }
+    // Still selecting (Select may have been turned off meanwhile).
+    if (!this.selecting()) return;
+    this.picked.update((prev) => new Set([...prev, ...shown, ...found]));
   }
 
   clearPicked(): void {
     this.picked.set(new Set());
+    this.selectAllError.set('');
   }
 
   /** Move data with them, each from the account it is in. */
@@ -303,6 +347,7 @@ export class SessionsComponent {
 
   async loadMoreHistory(): Promise<void> {
     if (this.historyLoading() || this.historyDone()) return;
+    const gen = this.historyGen;
     this.historyLoading.set(true);
     this.historyError.set('');
     try {
@@ -310,17 +355,41 @@ export class SessionsComponent {
         scope: 'all',
         limit: HISTORY_PAGE,
         before: this.historyCursor,
+        ...filterQuery(this.historyFilters()),
       });
+      if (gen !== this.historyGen) return; // read for other filters
       const seen = new Set(this.history().map((s) => s.id));
       const fresh = (page.sessions ?? []).filter((s) => !seen.has(s.id));
       this.history.update((prev) => [...prev, ...fresh]);
       this.historyCursor = page.nextBefore;
       if (!page.nextBefore) this.historyDone.set(true);
     } catch (e) {
-      this.historyError.set(errorMessage(e));
+      if (gen === this.historyGen) this.historyError.set(errorMessage(e));
     } finally {
-      this.historyLoading.set(false);
+      if (gen === this.historyGen) this.historyLoading.set(false);
     }
+  }
+
+  /** The search or a filter changed: earlier sessions are read again for
+   * it (once typing stops, and only while they are open; otherwise when
+   * they are opened). */
+  private historyFiltersChanged(key: string): void {
+    if (key === this.historyKey) return;
+    const first = !this.historyKey;
+    this.historyKey = key;
+    if (first) return;
+    clearTimeout(this.historyTimer);
+    this.historyGen += 1;
+    this.history.set([]);
+    this.historyCursor = undefined;
+    this.historyDone.set(false);
+    this.historyError.set('');
+    this.historyLoading.set(false);
+    if (!this.historyOpen()) return;
+    const gen = this.historyGen;
+    this.historyTimer = setTimeout(() => {
+      if (gen === this.historyGen) void this.loadMoreHistory();
+    }, SEARCH_DEBOUNCE_MS);
   }
 }
 
@@ -331,28 +400,4 @@ function oldestPending(s: SessionSummary): number {
 function readFilter(): Filter {
   const v = storageGet(FILTER_KEY);
   return v === 'live' || v === 'needs' ? v : 'all';
-}
-
-/** The search box: `q` (lower case) appears in anything the card shows
- * about the session, or in its id, folder or last prompt. */
-export function sessionMatches(s: SessionSummary, q: string): boolean {
-  return [
-    s.title,
-    s.name,
-    s.projectName,
-    s.cwd,
-    s.gitBranch,
-    s.lastPrompt,
-    s.model?.label,
-    s.effort,
-    effortLabel(s.effort),
-    // What the card's chips say ("X-high", "Thinking off").
-    effortShortLabel(s.effort),
-    thinkingChip(s)?.text,
-    s.ultracode === 'on' ? 'ultracode' : '',
-    s.fast ? 'fast' : '',
-    s.id,
-  ]
-    .filter(Boolean)
-    .some((v) => String(v).toLowerCase().includes(q));
 }

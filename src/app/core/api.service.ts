@@ -154,6 +154,12 @@ export class ApiService {
     return this.req<SessionsPage>(`/sessions${query({ ...q })}`);
   }
 
+  /** Every session the filters match, by id, unpaged (*Select all*). */
+  async listSessionIds(q: Omit<SessionsQuery, 'limit' | 'before'> = {}): Promise<string[]> {
+    const v = await this.req<{ ids?: unknown }>(`/sessions${query({ ...q, view: 'ids' })}`);
+    return Array.isArray(v?.ids) ? v.ids.filter((i): i is string => typeof i === 'string') : [];
+  }
+
   /** Polling fallback: the active list with a conditional GET. Resolves to
    * null when the server answered 304 (nothing changed). */
   async pollSessions(etag?: string): Promise<{ page: SessionsPage; etag?: string } | null> {

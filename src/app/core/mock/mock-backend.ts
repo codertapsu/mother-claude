@@ -45,6 +45,7 @@ import { MockDelete } from './mock-delete';
 import { MockMove } from './mock-move';
 import { MOCK_SERVERS, MockServers } from './mock-servers';
 import { urlParam } from '../platform';
+import { SessionFilters, sessionPasses } from '../../shared/session-search';
 
 const TOKEN = 'mock-token';
 const TICK_MS = 2500;
@@ -266,9 +267,18 @@ class FixtureBackend implements MockBackend {
     // Sessions
     if (path === '/sessions' && method === 'GET') {
       if (q.get('scope') === 'all') {
-        const all = [...this.fx.sessions, ...this.fx.history].sort(
-          (a, b) => (b.lastActivityAt ?? 0) - (a.lastActivityAt ?? 0),
-        );
+        const only = q.get('only');
+        const filters: SessionFilters = {
+          q: q.get('q') ?? '',
+          surface: q.get('surface') ?? '',
+          project: q.get('project') ?? '',
+          account: q.get('account') ?? '',
+          only: only === 'live' || only === 'needs' ? only : '',
+        };
+        const all = [...this.fx.sessions, ...this.fx.history]
+          .filter((s) => sessionPasses(s, filters))
+          .sort((a, b) => (b.lastActivityAt ?? 0) - (a.lastActivityAt ?? 0));
+        if (q.get('view') === 'ids') return json({ ids: all.map((s) => s.id) });
         const start = Number(q.get('before') ?? 0) || 0;
         const limit = Number(q.get('limit') ?? 25) || 25;
         const page = all.slice(start, start + limit);
