@@ -41,6 +41,7 @@ import {
 } from './fixtures';
 import { MockBackend, MockRole, WebSocketLike, mockRole } from './mock-api';
 import { MockData } from './mock-data';
+import { MockDelete } from './mock-delete';
 import { MockMove } from './mock-move';
 import { MOCK_SERVERS, MockServers } from './mock-servers';
 import { urlParam } from '../platform';
@@ -116,6 +117,8 @@ class FixtureBackend implements MockBackend {
   private readonly data: MockData;
   /** Storages and moving data anywhere (`items` moves, `/backup/storage*`). */
   private readonly move: MockMove;
+  /** Conversations on disk: projects, reveal, delete (§14). */
+  private readonly del: MockDelete;
   /** API servers besides the main one (`/bridge/servers*`). */
   private readonly servers: MockServers;
 
@@ -135,6 +138,14 @@ class FixtureBackend implements MockBackend {
     };
     this.data = new MockData(host);
     this.move = new MockMove(host, this.data);
+    this.del = new MockDelete(
+      {
+        ...host,
+        removeSessions: (ids) => this.removeSessions(ids),
+        openThreads: () => (this.fx.bridge.threads ?? []).map((t) => t.threadId),
+      },
+      this.data,
+    );
     if (ACCOUNTS_MODE === '1' || ACCOUNTS_MODE === 'limit' || MOCK_SERVERS) {
       this.fx.accounts = buildAccounts(now, true);
       this.fx.accountUsage = buildAccountUsage(now);
@@ -241,6 +252,8 @@ class FixtureBackend implements MockBackend {
     if (path === '/me') return json(this.me());
 
     // Moves, copies, data jobs, backups, storages
+    const deleted = this.del.route(path, method, body);
+    if (deleted) return deleted;
     const moved = await this.move.route(path, method, body, q);
     if (moved) return moved;
     const data = this.data.route(path, method, body, q);
@@ -1082,6 +1095,32 @@ class FixtureBackend implements MockBackend {
         added: f.additions,
         removed: f.deletions,
       })),
+      files: this.del.filesOf(s),
+    };
+  }
+
+  /** A delete takes sessions out of the store; the answer puts them back
+   * where they were (an undo). */
+  private removeSessions(ids: readonly string[]): () => void {
+    const gone = new Set(ids);
+    const taken = (list: SessionSummary[]) =>
+      list.flatMap((s, i) => (gone.has(s.id) ? [{ s, i }] : [])).reverse();
+    const active = taken(this.fx.sessions);
+    const history = taken(this.fx.history);
+    for (const { i } of active) this.fx.sessions.splice(i, 1);
+    for (const { i } of history) this.fx.history.splice(i, 1);
+    this.seq += 1;
+    this.broadcast({ t: 'sessions', full: false, remove: [...gone], seq: this.seq });
+    return () => {
+      for (const { s, i } of [...active].reverse()) this.fx.sessions.splice(i, 0, s);
+      for (const { s, i } of [...history].reverse()) this.fx.history.splice(i, 0, s);
+      this.seq += 1;
+      this.broadcast({
+        t: 'sessions',
+        full: false,
+        upsert: active.map((x) => x.s),
+        seq: this.seq,
+      });
     };
   }
 
