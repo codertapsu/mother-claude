@@ -37,6 +37,7 @@ export function sessionMatches(s: SessionSummary, q: string): boolean {
     s.gitBranch,
     s.lastPrompt,
     s.model?.label,
+    s.model?.id,
     s.effort,
     effortLabel(s.effort),
     // What the card's chips say ("X-high", "Thinking off").

@@ -385,7 +385,12 @@ export class SessionsComponent {
     this.historyDone.set(false);
     this.historyError.set('');
     this.historyLoading.set(false);
-    if (!this.historyOpen()) return;
+    if (!this.historyOpen()) {
+      // A search looks through earlier sessions too (in the All view: Live
+      // and Needs you are current ones only).
+      if (!this.query().trim() || this.filter() !== 'all') return;
+      this.historyOpen.set(true);
+    }
     const gen = this.historyGen;
     this.historyTimer = setTimeout(() => {
       if (gen === this.historyGen) void this.loadMoreHistory();

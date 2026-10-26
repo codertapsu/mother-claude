@@ -133,7 +133,12 @@
       </div>
     } @else if (!groups().length) {
       <div class="card empty-state">
-        <strong>No sessions match</strong>
+        @if (historyOpen() && filter() === 'all') {
+          <strong>No current sessions match</strong>
+          Earlier sessions are searched below.
+        } @else {
+          <strong>No sessions match</strong>
+        }
         <button class="btn" type="button" (click)="clearFilters()">Clear filters</button>
       </div>
     }

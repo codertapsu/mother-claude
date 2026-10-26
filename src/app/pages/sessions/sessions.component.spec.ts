@@ -54,6 +54,10 @@ describe('session search', () => {
     expect(sessionMatches(s({}), 'thinking off')).toBeFalse();
     expect(sessionMatches(s({ ultracode: 'on' }), 'ultracode')).toBeTrue();
     expect(sessionMatches(s({ ultracode: 'off' }), 'ultracode')).toBeFalse();
+    // The model's id too, as the server matches it.
+    const opus = s({ model: { id: 'claude-opus-4-8', label: 'Opus 4.8' } });
+    expect(sessionMatches(opus, 'claude-opus')).toBeTrue();
+    expect(sessionMatches(opus, 'opus 4.8')).toBeTrue();
   });
 });
 
@@ -291,26 +295,27 @@ describe('SessionsComponent accounts', () => {
     expect(text(el.querySelector('.selerr'))).toContain('Only the sessions shown were selected');
   });
 
-  it('searches earlier sessions on the server', async () => {
+  it('searches earlier sessions on the server as soon as a search is typed', async () => {
     serveAccounts(backend, buildAccounts(Date.now(), false));
-    store([card('a', undefined, { title: 'Xiangqi engine' })]);
+    store([card('a', undefined, { title: 'Chess clock' })]);
     backend.routes.set('/sessions', () => ({
       status: 200,
       body: { sessions: [card('old', undefined, { title: 'Xiangqi openings', status: 'ended' })] },
     }));
     const el = await render();
+    expect(el.querySelector('.history h2')).toBeNull();
     const search = el.querySelector<HTMLInputElement>('input[aria-label="Search sessions"]')!;
     search.value = 'xiangqi';
     search.dispatchEvent(new Event('input'));
     fixture.detectChanges();
-    [...el.querySelectorAll<HTMLButtonElement>('button')]
-      .find((b) => text(b).includes('Show ended sessions'))
-      ?.click();
-    fixture.detectChanges();
+    // Once the typing stops.
+    await new Promise((r) => setTimeout(r, 350));
     await flush();
     fixture.detectChanges();
     expect(backend.urls).toContain('/sessions?scope=all&limit=25&q=xiangqi');
-    expect(names(el)).toContain('Xiangqi openings');
+    expect(names(el)).toEqual(['Xiangqi openings']);
+    // No current one matches, and the page says where the match is.
+    expect(text(el.querySelector('.empty-state strong'))).toBe('No current sessions match');
   });
 
   it('switches to the projects on disk, and remembers it', async () => {
