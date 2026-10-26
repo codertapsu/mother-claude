@@ -112,8 +112,9 @@ export class ConversationFilesComponent {
   readonly account = input<string | undefined>(undefined);
   /** It is open in the API's host (a delete skips it as running). */
   readonly running = input(false);
-  /** It was deleted (and not undone). */
-  readonly deleted = output<string>();
+  /** A delete ran: what it deleted (and was not undone). The server
+   * clears a deleted conversation from every API server. */
+  readonly ran = output<ReadonlySet<string>>();
 
   /** Where its files are (null: not on this Mac yet, or not known). */
   protected readonly files = signal<SessionFiles | null>(null);
@@ -169,7 +170,6 @@ export class ConversationFilesComponent {
 
   protected closed(jobs: JobView[]): void {
     this.deleteStart.set(null);
-    const id = this.id();
-    if (deletedIds(jobs).has(id)) this.deleted.emit(id);
+    if (jobs.length) this.ran.emit(deletedIds(jobs));
   }
 }

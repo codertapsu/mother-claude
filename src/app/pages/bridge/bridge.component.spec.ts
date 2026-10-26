@@ -195,7 +195,7 @@ describe('BridgeComponent conversations on disk', () => {
     expect(button(el, 'Nothing to delete')?.disabled).toBeTrue();
   });
 
-  it('drops a deleted conversation from the picker and asks the server again', async () => {
+  it('asks the server again after every delete, and drops a deleted conversation', async () => {
     backend.routes.set('/sessions', () => ({
       status: 200,
       body: {
@@ -219,11 +219,17 @@ describe('BridgeComponent conversations on disk', () => {
     expect(button(el, revealLabel(desktopOs(navigator.userAgent)))).toBeUndefined();
     const part = fixture.debugElement.query(By.directive(ConversationFilesComponent))
       .componentInstance as ConversationFilesComponent;
-    part.deleted.emit('p1');
+    // Skipped, say: the server is asked again all the same.
+    part.ran.emit(new Set());
+    await flush();
+    fixture.detectChanges();
+    expect(backend.calls.filter((c) => c === 'GET /bridge').length).toBe(2);
+    expect(earlier().length).toBe(1);
+    part.ran.emit(new Set(['p1']));
     await flush();
     fixture.detectChanges();
     expect(earlier()).toEqual([]);
     expect(el.querySelector('mc-conversation-files')).toBeNull();
-    expect(backend.calls.filter((c) => c === 'GET /bridge').length).toBe(2);
+    expect(backend.calls.filter((c) => c === 'GET /bridge').length).toBe(3);
   });
 });

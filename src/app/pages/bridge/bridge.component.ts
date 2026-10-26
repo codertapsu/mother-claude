@@ -360,7 +360,7 @@ interface ClaudeLine {
             [title]="p.title"
             [account]="p.account"
             [running]="p.running"
-            (deleted)="onDeleted($event)"
+            (ran)="onDeleteRan($event)"
           />
         }
 
@@ -987,11 +987,12 @@ export class BridgeComponent {
     };
   });
 
-  /** A deleted conversation leaves the picker; the server cleared it where
-   * it was the active one. */
-  onDeleted(id: string): void {
-    this.sessions.update((list) => list.filter((s) => s.id !== id));
-    if (this.thread() === id) this.thread.set(FRESH);
+  /** A delete ran: what it deleted leaves the picker, and the status is
+   * read again — the server cleared a deleted conversation from every
+   * server's active conversation and defaults. */
+  onDeleteRan(gone: ReadonlySet<string>): void {
+    this.sessions.update((list) => list.filter((s) => !gone.has(s.id)));
+    if (gone.has(this.thread())) this.thread.set(FRESH);
     this.api.getBridge().then(
       (status) => this.apply(status, false),
       () => undefined,
