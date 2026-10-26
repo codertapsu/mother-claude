@@ -5,7 +5,8 @@
 > first when the implementation finds it wrong. The review's answers are in
 > §11; §3 records where building it changed a decision. §13 adds moving data
 > anywhere (storages, bulk moves, customizations) and API servers per account,
-> with its own checklist.
+> with its own checklist; §14 finding conversations on disk and deleting them
+> in bulk, with its own.
 >
 > Verified against Claude Code CLI 2.1.304 and the Agent SDK 0.3.304 on
 > 2026-10-20, on the maintainer's MacBook. Every "verified" claim below was run,
@@ -1678,4 +1679,4 @@ anywhere").
   conversations.
 - [ ] P8.4 UI: Select with Delete, the Projects view, the session's paths and
   reveal, the delete dialog, the API screen's entries, the mock backend.
-- [ ] P8.5 Documents (§14.5).
+- [x] P8.5 Documents (§14.5).

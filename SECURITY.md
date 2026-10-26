@@ -112,7 +112,8 @@ These are **dangerous**:
   text, keys, continuing it), since nobody approves what it then does;
 - raw terminal keys, a leading `!` or a non-allowlisted slash command typed into
   a tmux session, and experimental PTY injection;
-- `rm`, transcript purge and starting a sign-in flow;
+- `rm`, transcript purge, deleting conversations or projects (a dry run too)
+  and starting a sign-in flow;
 - carrying a folder's trust (its `.claude.json` entry: `hasTrustDialogAccepted`,
   allowed tools, MCP choices) with a move, copy, restore or pull, and copying
   the `settings` or `mcpServers` customizations to another account (they
@@ -361,14 +362,14 @@ device, ingress and client address.
   restores, pulls, undo, the backup settings, account defaults, copy consent
   and renaming an account are open to the desktop and to paired devices (LAN or
   tunnel; [ACCOUNTS.md](docs/ACCOUNTS.md) §13.9), never to the local-script
-  token. Every such action of a device is audited with the device and named to
+  token; deleting conversations too, with the dangerous right. Every such action of a device is audited with the device and named to
   the desktop in a notice. Picking an account for a session is allowed to
   anyone who may start one.
-- Our code writes into a Claude config directory in four explicit user
+- Our code writes into a Claude config directory in five explicit user
   actions only — a new account's empty directory (desktop only), move/copy,
-  restore, pull — each refusing while a live process uses a shared file it
-  would write, keeping an undo for seven days, writing atomically and leaving
-  an audit line, whoever asked. A folder's trust (`hasTrustDialogAccepted`,
+  restore, pull, deleting conversations — each refusing while a live process
+  uses a shared file it would write, keeping an undo for seven days, writing
+  atomically and leaving an audit line, whoever asked. A folder's trust (`hasTrustDialogAccepted`,
   its allowed tools and MCP choices) is never copied or restored without the
   explicit opt-in, which is a dangerous action.
 - Backups are encrypted (age, X25519 per set, the set's key under the
@@ -384,6 +385,15 @@ device, ingress and client address.
 - A move, copy, restore or pull checks its preconditions again right before it
   writes, never leaves a file it moved only in a deleted undo directory, and
   never follows a symlink in a session's place.
+- Deleting conversations or projects ([ACCOUNTS.md](docs/ACCOUNTS.md) §14.3)
+  takes each conversation's files — and a project folder left empty — into an
+  undo directory listed before anything moves, kept seven days unless the user
+  asks for no undo, and then removed only once every file was taken out. It
+  never touches `history.jsonl` or `.claude.json`, skips a conversation that
+  runs (checked right before and after its files move), never follows a
+  symlink, and is audited with counts, never paths. Showing a transcript or a
+  project's folder in Finder or File Explorer is desktop-only, and the path is
+  the index's, never the request's.
 - Customizations (`CLAUDE.md`, settings, skills, agents, commands, output
   styles, keybindings, MCP servers, prompt history) are only ever copied,
   between accounts in different directories, each replaced file kept for the

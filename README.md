@@ -109,7 +109,10 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) and [KNOWN_ISSUES.md](KNOWN_ISSUES.md).
   shared `~/.claude` and an account's own folder, and to or from cloud storage
   — plus settings, skills, agents, commands and MCP servers between accounts.
   Each move is previewed first and can be undone for seven days; it works from
-  the phone too, on the LAN or through a tunnel.
+  the phone too, on the LAN or through a tunnel. **Delete N…** beside it
+  removes conversations or whole projects (**Sessions › Projects** lists every
+  project on disk) with the same preview and seven days to undo, and a
+  conversation's transcript is a click away in Finder or File Explorer.
 - **Backups and a second laptop.** **Settings → Backup & sync** keeps encrypted
   backups of each account in a folder you choose (iCloud Drive, Google Drive…),
   and any number of further storages for archives and shared sets; the same

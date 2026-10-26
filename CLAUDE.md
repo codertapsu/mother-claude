@@ -129,7 +129,10 @@ last record). Tail with a byte offset, split on `\n`, buffer the trailing partia
 line; lines can be tens of MB, so never read a whole file. A main transcript
 flushes each API message only when it completes (no live token stream for
 foreign sessions); subagent files are written per block. Transcripts are pruned
-after 30 days. `~/.claude/daemon/roster.json`, `history.jsonl` and `daemon.log`
+after 30 days. Our code deletes one only when the user deletes it
+(docs/ACCOUNTS.md §14.3), into an undo copy unless they chose otherwise, and
+shows one in Finder or File Explorer only for the desktop, by the index's path.
+`~/.claude/daemon/roster.json`, `history.jsonl` and `daemon.log`
 exist but nothing reads them (`home.rs` only knows their paths).
 
 The roster no longer spawns `claude agents --json` (its shape drifts and it is
@@ -279,23 +282,29 @@ the Default sign-in.
   user action: `claude plugin install/uninstall` from the desktop, a standing
   grant the user chose, a transcript purge through the SDK. Tests and scripts
   must never run the plugin installer against the real config. Our own code
-  writes into a config directory in exactly four explicit user actions
+  writes into a config directory in exactly five explicit user actions
   (docs/ACCOUNTS.md D4): creating a new directory account's empty directory
   (mode 0700, `DesktopOnly`), **move/copy** of sessions or projects between
   directory accounts and **copying customizations** (`CLAUDE.md`, settings,
   skills, agents, commands, output styles, keybindings, the user-scope MCP
   servers, prompt history; `claude/transfer.rs`, `claude/transfer/custom.rs`),
-  **restore** from a backup and **pull** from a backup set
-  (`claude/backup.rs`). The last three are the desktop's or a paired
-  device's (`ManageData`, docs/ACCOUNTS.md §13.9): carrying a folder's trust
-  and copying the settings or MCP servers need the dangerous right, and the
-  desktop is told what a device did. Each of them refuses to write a shared
+  **restore** from a backup, **pull** from a backup set
+  (`claude/backup.rs`) and **deleting** conversations and projects
+  (`claude/transfer/delete.rs`, docs/ACCOUNTS.md §14.3). The last four are the
+  desktop's or a paired device's (`ManageData`, docs/ACCOUNTS.md §13.9):
+  carrying a folder's trust and copying the settings or MCP servers need the
+  dangerous right, deleting always does (a dry run too), and the desktop is
+  told what a device did. Each of them refuses to write a shared
   file (`.claude.json`, `history.jsonl`, a file it replaces) while a live
   process uses that directory (a pidfile with a living pid in its `sessions/`,
   or a `.claude.json.lock` younger than 10 s) — only adding new files runs
   alongside; first copies what it will change to
   `<app data dir>/undo/<timestamp>/`; writes atomically (temp + rename, a new
-  file never over another); and writes an audit line. Nothing writes to a config directory in the
+  file never over another); and writes an audit line. A delete writes no
+  shared file at all (never `history.jsonl` or `.claude.json`), so it runs
+  alongside too; it skips a conversation that runs, checked right before and
+  after its files move, renames what it takes into the undo directory, and
+  keeps that copy unless the user chose `undo: false`. Nothing writes to a config directory in the
   background, ever. One exception runs without a user action:
   the plan-usage helper (`claude/usage.rs`), a short-lived `claude -p` that gets
   `initialize` and `get_usage` and never a message. It runs while a dashboard is
