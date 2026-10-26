@@ -39,8 +39,10 @@ pub struct ListQuery {
     /// `active` (default) | `all`.
     pub scope: Option<String>,
     pub limit: Option<usize>,
-    /// Cursor: `lastActivityAt` (epoch ms) of the last row of the previous page.
-    pub before: Option<i64>,
+    /// Cursor: the previous page's `nextBefore` — the last row's
+    /// `lastActivityAt` (epoch ms) and id, `<ms>:<id>` (a bare `<ms>`, from an
+    /// older client, still works, but skips rows that share that time).
+    pub before: Option<String>,
     /// The list's search box: sessions whose title, name, project, folder,
     /// branch, last prompt, model, effort or id contain it, in any case
     /// ([`SessionSummary::matches_search`]).
@@ -63,7 +65,10 @@ fn given(v: &Option<String>) -> Option<&str> {
 }
 
 /// Whether `s` passes the list's filters (all but the scope and the cursor).
-fn passes(s: &SessionSummary, q: &ListQuery, search: Option<&str>) -> bool {
+/// `only_default`: the Default is the only account, so a session without an
+/// account chip is its (with several, no chip means a directory nobody
+/// registered, as the client's account filter reads it).
+fn passes(s: &SessionSummary, q: &ListQuery, search: Option<&str>, only_default: bool) -> bool {
     if let Some(surface) = given(&q.surface) {
         if serde_json::to_value(s.surface)
             .ok()
@@ -77,8 +82,14 @@ fn passes(s: &SessionSummary, q: &ListQuery, search: Option<&str>) -> bool {
     if given(&q.project).is_some_and(|p| s.project_name != p) {
         return false;
     }
-    if given(&q.account).is_some_and(|a| s.account.as_ref().is_none_or(|r| r.id != a)) {
-        return false;
+    if let Some(a) = given(&q.account) {
+        let id = match &s.account {
+            Some(r) => Some(r.id.as_str()),
+            None => only_default.then_some(crate::claude::accounts::DEFAULT_ID),
+        };
+        if id != Some(a) {
+            return false;
+        }
     }
     let only = match given(&q.only) {
         Some("live") => s.live,
@@ -86,6 +97,31 @@ fn passes(s: &SessionSummary, q: &ListQuery, search: Option<&str>) -> bool {
         _ => true,
     };
     only && search.is_none_or(|t| s.matches_search(t))
+}
+
+/// The cursor of a page that ends with `s`: its time and its id, so rows
+/// that share that time are never skipped across the page boundary.
+fn cursor_of(s: &SessionSummary) -> String {
+    format!("{}:{}", s.last_activity_at.unwrap_or(0), s.id)
+}
+
+/// A `before` cursor: the time, and the id when it carries one. `None` when
+/// it is not a cursor this route made.
+fn parse_cursor(before: &str) -> Option<(i64, Option<&str>)> {
+    match before.split_once(':') {
+        Some((t, id)) => Some((t.parse().ok()?, Some(id))),
+        None => Some((before.parse().ok()?, None)),
+    }
+}
+
+/// Whether `s` comes after the cursor in the list's order (newest first,
+/// ties by id, as the snapshot keeps it).
+fn after_cursor(s: &SessionSummary, (at, id): (i64, Option<&str>)) -> bool {
+    let t = s.last_activity_at.unwrap_or(0);
+    match id {
+        Some(id) => t < at || (t == at && s.id.as_str() > id),
+        None => t < at,
+    }
 }
 
 /// `GET /api/sessions?scope=active|all&limit=&before=` →
@@ -102,21 +138,28 @@ pub async fn list_sessions(
     let now = claude::registry::now_ms();
     let all = q.scope.as_deref() == Some("all");
     let search = given(&q.q).map(str::to_lowercase);
+    let only_default = state.accounts.accounts().len() <= 1;
+    let cursor = match given(&q.before).map(parse_cursor) {
+        Some(None) => {
+            return ApiError::bad_request("`before` must be a page's `nextBefore`.").into_response()
+        }
+        Some(Some(c)) => Some(c),
+        None => None,
+    };
     let sessions: Vec<SessionSummary> = state
         .sessions()
         .await
         .into_iter()
         .filter(|s| all || s.in_active_scope(now))
-        .filter(|s| q.before.is_none_or(|b| s.last_activity_at.unwrap_or(0) < b))
-        .filter(|s| passes(s, &q, search.as_deref()))
+        .filter(|s| cursor.is_none_or(|c| after_cursor(s, c)))
+        .filter(|s| passes(s, &q, search.as_deref(), only_default))
         .collect();
     let body = if given(&q.view) == Some("ids") {
         let ids: Vec<&str> = sessions.iter().map(|s| s.id.as_str()).collect();
         json!({ "ids": ids })
     } else {
         let limit = q.limit.unwrap_or(if all { 50 } else { usize::MAX }).max(1);
-        let next_before =
-            (sessions.len() > limit).then(|| sessions[limit - 1].last_activity_at.unwrap_or(0));
+        let next_before = (sessions.len() > limit).then(|| cursor_of(&sessions[limit - 1]));
         let page: Vec<SessionSummary> = sessions.into_iter().take(limit).collect();
         let mut body = json!({ "sessions": page });
         if let Some(nb) = next_before {
@@ -935,6 +978,36 @@ pub fn redact_mcp(servers: Value) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A page boundary between two sessions of the same time skips
+    /// neither: the cursor carries the id; a bare time (an older client's)
+    /// still pages as it did.
+    #[test]
+    fn a_page_cursor_keeps_rows_that_share_a_time() {
+        let row = |id: &str, at: i64| SessionSummary {
+            id: id.into(),
+            last_activity_at: Some(at),
+            ..Default::default()
+        };
+        // The snapshot's order: newest first, ties by id.
+        let rows = [row("a", 30), row("b", 20), row("c", 20), row("d", 10)];
+        let cursor = cursor_of(&rows[1]);
+        assert_eq!(cursor, "20:b");
+        let c = parse_cursor(&cursor).unwrap();
+        let next: Vec<&str> = rows
+            .iter()
+            .filter(|s| after_cursor(s, c))
+            .map(|s| s.id.as_str())
+            .collect();
+        assert_eq!(next, ["c", "d"], "c shares b's time and is not skipped");
+        let bare = parse_cursor("20").unwrap();
+        assert_eq!(
+            rows.iter().filter(|s| after_cursor(s, bare)).count(),
+            1,
+            "a bare time keeps only what is older"
+        );
+        assert!(parse_cursor("soon").is_none() && parse_cursor("x:b").is_none());
+    }
 
     #[test]
     fn mcp_secrets_are_redacted() {

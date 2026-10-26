@@ -766,6 +766,25 @@ async fn the_session_list_searches_and_filters_on_the_server() {
         .all(|s| s["surface"] == "vscode"));
     assert_eq!(ids_of(&list("&project=proj").await).len(), both.len());
     assert!(ids_of(&list("&account=acc_000000000000").await).is_empty());
+    // With only the Default, its sessions carry no chip and are still its.
+    assert_eq!(ids_of(&list("&account=default").await).len(), both.len());
+
+    // A page's cursor is the next page's start, and a made-up one is refused.
+    let first = list("&limit=1").await;
+    assert_eq!(first["sessions"].as_array().unwrap().len(), 1);
+    let next = first["nextBefore"]
+        .as_str()
+        .expect("a string cursor")
+        .to_string();
+    let rest = ids_of(&list(&format!("&limit=50&before={next}")).await);
+    assert!(!rest.contains(&ids_of(&first)[0]) && !rest.is_empty());
+    let r = get(
+        &c,
+        format!("{base}/api/sessions?scope=all&before=soon"),
+        &token,
+    )
+    .await;
+    assert_eq!(r.status(), StatusCode::BAD_REQUEST);
 
     // Every match's id, unpaged, for Select all.
     let v = list("&q=build&view=ids&limit=1").await;
