@@ -1470,3 +1470,129 @@ through a tunnel (ngrok and the like, §2.8 of the remote design): everything in
   device uses the dangerous right.
 - The D4 guarantees do not depend on who asks: the in-use checks, the undo
   copy, atomic writes and the audit line are the same for a phone.
+
+---
+
+## 14. Finding conversations on disk, and deleting them in bulk (2026-10-26)
+
+Asked on 2026-10-26: bulk operations for projects, sessions and conversations;
+open a conversation's exact file (e.g.
+`~/.claude/projects/-Users-marcus/e5ecf333-….jsonl`) in Finder or File
+Explorer; select several projects or conversations and delete them for good
+from the Claude directories they are in. §14.6 is the checklist.
+
+### 14.1 Where a conversation is
+
+- `GET /api/sessions/{id}` (the detail) gains `files: {transcript, folder?,
+  fileHistory?, account}`: the main transcript the index uses (an id in two
+  directories is the most recent copy, §5.3), its `projects/<enc>/<id>/`
+  folder and `file-history/<id>/` when they exist, and the account whose
+  directory holds them. Absolute paths; summaries and frames are unchanged.
+- `POST /api/sessions/{id}/reveal` (`DesktopOnly`) shows the transcript
+  selected in Finder (`open -R <file>`), File Explorer (`explorer.exe
+  /select,"<file>"`, passed raw so a path with spaces works; Explorer's exit
+  code means nothing) or the file manager (`xdg-open <its folder>` on Linux).
+  `204`; `404 session_not_found` / `transcript_not_found`. The path comes from
+  the index, never from the request.
+- `POST /api/data/projects/reveal {account, cwd}` (`DesktopOnly`) opens a
+  project's folder in that account's directory (`projects/<enc>/`, found
+  through the index's sessions of that cwd, never built from the request):
+  `open <dir>`, `explorer.exe <dir>`, `xdg-open <dir>`.
+- Phones get the paths with a copy button; revealing is the Mac's.
+
+### 14.2 Every project on disk
+
+`GET /api/data/projects` (`Authed`): every project folder that holds
+conversations, in every account's directory — `{projects: [{account, cwd,
+name, folder, sessions, live, bytes, lastActivityAt}]}`, newest first; one row
+per (account directory, cwd), a token account's rows being the Default
+directory's conversations attributed to it (§5 attribution). `cwd` is what the
+transcripts record (the folder name decodes ambiguously, §1.4). Built from the
+index; no transcript is read for it.
+
+### 14.3 Deleting
+
+`POST /api/data/delete`:
+
+```jsonc
+{
+  "from": "acc_…" | {"account": "acc_…"},   // optional
+  "items": { "sessions": ["<id>", …], "projects": ["/abs/folder", …] },
+  "undo": true,      // keep a copy for seven days (default); false: gone now
+  "dryRun": false
+}
+```
+
+- **What goes:** each conversation's files as §1.4 lists them — every
+  `projects/*/<id>.jsonl` of it in that directory, `projects/<enc>/<id>/`
+  (subagents, tool results), `file-history/<id>/`, `session-env/<id>/`, its
+  todo files — and a project folder left empty. Never `history.jsonl` or
+  `.claude.json`: prompt history and a folder's settings and trust stay, so a
+  delete writes no shared file and runs while Claude Code runs elsewhere in
+  the same directory.
+- **Where from:** with `from`, that account's conversations (a shared-folder
+  account's: those attributed to it); without it, every directory that has
+  them (a project: every account's conversations of that folder), one job per
+  directory.
+- **Skipped, never refused:** a conversation that runs (a living pidfile, an
+  owned session, a bridge conversation open in the host: `session_live`) or is
+  not there (`not_found`). The dry run lists what goes (id, title, cwd,
+  account, files, bytes), what is skipped and why, and the totals; lists capped
+  at 1000 with `truncated`.
+- **Undo** (`undo: true`): the files go into `<app data dir>/undo/<job>/` as a
+  move's source does (a rename; copy and remove across volumes), the job
+  offers Undo for seven days, and the undo directory is pruned after that — the
+  space comes back then. Undo puts every file back where it was and refuses
+  (`undo_conflict`) where something new is there now. `undo: false`: the files
+  are removed at the end of the job, after every one of them was taken out
+  (all or nothing up to that point); the job has no Undo.
+- **Jobs:** kind `delete`, `account` set to the directory's account, `result:
+  {deleted: [ids], skipped: [...]}`; `POST /api/data/jobs/{id}/undo` as for
+  every data job. An API server's active conversation that was deleted is
+  cleared.
+- **Who may:** deleting a transcript is a dangerous action (§7, the bridge's
+  purge): the desktop, or a paired device with the dangerous right (403
+  `dangerous_blocked` otherwise; the local-script token never). A device's
+  delete is audited and named to the desktop (§13.9). A dry run needs the same
+  right.
+- **D4:** deleting conversations joins the explicit user actions that write
+  into a config directory, with the same guarantees (re-checked right before,
+  undo copy first unless the user said otherwise, audit line).
+
+### 14.4 UI
+
+1. **Sessions → Select** is always offered (not only when there is somewhere
+   to move to): the bar gains *Delete N…* beside *Move or copy N…*.
+2. **Projects**: a view of `GET /api/data/projects` (a *Sessions / Projects*
+   switch on the Sessions page): name, folder, account chip, conversations,
+   size, last activity; *Select* with *Delete N…* and *Move or copy N…*; each
+   row's menu: *Show in Finder* (desktop), *Copy path*, *Move or copy…*,
+   *Delete…*.
+3. **A session**: its info panel shows the transcript's path (and folder) with
+   *Copy path* and, on the desktop, *Show in Finder* / *Show in File Explorer*
+   (the label follows the platform); its menu gains *Delete…*. The API
+   screen's conversations get the same two entries.
+4. **The delete dialog**: the dry run (what goes, sizes, what is skipped and
+   why), *Keep a copy for 7 days so this can be undone* (on by default; off
+   says "deleted for good, right away"), and the confirm button names the
+   count ("Delete 12 conversations"). Then the job row with its Undo.
+5. **Phones**: everything but revealing; deleting needs the dangerous right
+   and says so when the device lacks it.
+
+### 14.5 Documents to change
+
+CLAUDE.md (D4's list; the data sources' note on what our code may delete),
+SECURITY.md, docs/BACKUP.md is untouched, README (a line under "Move data
+anywhere").
+
+### 14.6 Checklist
+
+- [ ] P8.1 `files` in the session detail; reveal a session's transcript and a
+  project's folder (macOS, Windows, Linux).
+- [ ] P8.2 `GET /api/data/projects`.
+- [ ] P8.3 `POST /api/data/delete`: plan, skips, jobs per directory, undo,
+  `undo: false`, the guards, audit and notice, API servers' active
+  conversations.
+- [ ] P8.4 UI: Select with Delete, the Projects view, the session's paths and
+  reveal, the delete dialog, the API screen's entries, the mock backend.
+- [ ] P8.5 Documents (§14.5).
