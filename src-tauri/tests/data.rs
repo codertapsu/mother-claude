@@ -716,3 +716,70 @@ async fn monitor_run_writes_and_resumes_from_checkpoints() {
     task.abort();
     assert_eq!(name.as_deref(), Some("FROM-CACHE"));
 }
+
+/// The list's search and filters on the server: every earlier session that
+/// matches, not only the pages the client has read (*Select all*).
+#[tokio::test]
+async fn the_session_list_searches_and_filters_on_the_server() {
+    let dir = tempfile::tempdir().unwrap();
+    let _cleanup = fixture(dir.path());
+    let st = state(dir.path());
+    monitor::refresh_once(&st).await;
+    let base = serve(server::router(st.clone())).await;
+    let token = st.auth.token.clone();
+    let c = reqwest::Client::new();
+    let ids_of = |v: &Value| -> Vec<String> {
+        v["sessions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|s| s["id"].as_str().unwrap().to_string())
+            .collect()
+    };
+    let list = |query: &str| {
+        let url = format!("{base}/api/sessions?scope=all{query}");
+        let (c, token) = (c.clone(), token.clone());
+        async move { get_json(&c, url, &token).await }
+    };
+
+    // The search, in any case, over the name, branch and prompt.
+    assert_eq!(ids_of(&list("&q=BUILD").await), vec![LIVE.to_string()]);
+    assert_eq!(ids_of(&list("&q=feat%2Fx").await), vec![LIVE.to_string()]);
+    let both = ids_of(&list("&q=proj").await);
+    assert!(both.contains(&LIVE.to_string()) && both.contains(&ENDED.to_string()));
+    assert!(ids_of(&list("&q=no-such-thing").await).is_empty());
+    // A blank search says nothing.
+    assert_eq!(
+        ids_of(&list("&q=%20%20").await).len(),
+        ids_of(&list("").await).len()
+    );
+
+    // The other filters.
+    assert_eq!(ids_of(&list("&only=needs").await), vec![LIVE.to_string()]);
+    assert_eq!(ids_of(&list("&only=live").await), vec![LIVE.to_string()]);
+    let vscode = list("&surface=vscode").await;
+    assert!(ids_of(&vscode).contains(&LIVE.to_string()));
+    assert!(vscode["sessions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|s| s["surface"] == "vscode"));
+    assert_eq!(ids_of(&list("&project=proj").await).len(), both.len());
+    assert!(ids_of(&list("&account=acc_000000000000").await).is_empty());
+
+    // Every match's id, unpaged, for Select all.
+    let v = list("&q=build&view=ids&limit=1").await;
+    assert_eq!(v["ids"], json!([LIVE]));
+    assert!(v.get("sessions").is_none());
+    let v = list("&view=ids&limit=1").await;
+    let all: Vec<&str> = v["ids"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|i| i.as_str().unwrap())
+        .collect();
+    assert!(
+        all.contains(&LIVE) && all.contains(&ENDED),
+        "not paged: {v}"
+    );
+}

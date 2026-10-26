@@ -41,11 +41,58 @@ pub struct ListQuery {
     pub limit: Option<usize>,
     /// Cursor: `lastActivityAt` (epoch ms) of the last row of the previous page.
     pub before: Option<i64>,
+    /// The list's search box: sessions whose title, name, project, folder,
+    /// branch, last prompt, model, effort or id contain it, in any case
+    /// ([`SessionSummary::matches_search`]).
+    pub q: Option<String>,
+    /// Only this surface (`vscode`, `terminal`, …).
+    pub surface: Option<String>,
+    /// Only this project (its name, as the list shows it).
+    pub project: Option<String>,
+    /// Only this account's sessions.
+    pub account: Option<String>,
+    /// `live`: only running sessions; `needs`: only those waiting on someone.
+    pub only: Option<String>,
+    /// `ids`: every match's id, unpaged (`{ids}`): what *Select all* takes.
+    pub view: Option<String>,
+}
+
+/// A query value that says something (blank form fields say nothing).
+fn given(v: &Option<String>) -> Option<&str> {
+    v.as_deref().map(str::trim).filter(|v| !v.is_empty())
+}
+
+/// Whether `s` passes the list's filters (all but the scope and the cursor).
+fn passes(s: &SessionSummary, q: &ListQuery, search: Option<&str>) -> bool {
+    if let Some(surface) = given(&q.surface) {
+        if serde_json::to_value(s.surface)
+            .ok()
+            .as_ref()
+            .and_then(Value::as_str)
+            != Some(surface)
+        {
+            return false;
+        }
+    }
+    if given(&q.project).is_some_and(|p| s.project_name != p) {
+        return false;
+    }
+    if given(&q.account).is_some_and(|a| s.account.as_ref().is_none_or(|r| r.id != a)) {
+        return false;
+    }
+    let only = match given(&q.only) {
+        Some("live") => s.live,
+        Some("needs") => s.needs_you(),
+        _ => true,
+    };
+    only && search.is_none_or(|t| s.matches_search(t))
 }
 
 /// `GET /api/sessions?scope=active|all&limit=&before=` →
-/// `{sessions, nextBefore?}`. Carries an `ETag`; a matching `If-None-Match`
-/// (the phone's polling fallback) gets `304 Not Modified`.
+/// `{sessions, nextBefore?}`, narrowed by `q`, `surface`, `project`,
+/// `account` and `only` when given; `view=ids` → `{ids}`, every match
+/// unpaged. Carries an `ETag`; a matching `If-None-Match` (the phone's
+/// polling fallback) gets `304 Not Modified`.
 pub async fn list_sessions(
     Authed(_ctx): Authed,
     State(state): State<AppState>,
@@ -54,21 +101,29 @@ pub async fn list_sessions(
 ) -> Response {
     let now = claude::registry::now_ms();
     let all = q.scope.as_deref() == Some("all");
+    let search = given(&q.q).map(str::to_lowercase);
     let sessions: Vec<SessionSummary> = state
         .sessions()
         .await
         .into_iter()
         .filter(|s| all || s.in_active_scope(now))
         .filter(|s| q.before.is_none_or(|b| s.last_activity_at.unwrap_or(0) < b))
+        .filter(|s| passes(s, &q, search.as_deref()))
         .collect();
-    let limit = q.limit.unwrap_or(if all { 50 } else { usize::MAX }).max(1);
-    let next_before =
-        (sessions.len() > limit).then(|| sessions[limit - 1].last_activity_at.unwrap_or(0));
-    let page: Vec<SessionSummary> = sessions.into_iter().take(limit).collect();
-    let mut body = json!({ "sessions": page });
-    if let Some(nb) = next_before {
-        body["nextBefore"] = json!(nb);
-    }
+    let body = if given(&q.view) == Some("ids") {
+        let ids: Vec<&str> = sessions.iter().map(|s| s.id.as_str()).collect();
+        json!({ "ids": ids })
+    } else {
+        let limit = q.limit.unwrap_or(if all { 50 } else { usize::MAX }).max(1);
+        let next_before =
+            (sessions.len() > limit).then(|| sessions[limit - 1].last_activity_at.unwrap_or(0));
+        let page: Vec<SessionSummary> = sessions.into_iter().take(limit).collect();
+        let mut body = json!({ "sessions": page });
+        if let Some(nb) = next_before {
+            body["nextBefore"] = json!(nb);
+        }
+        body
+    };
     let text = body.to_string();
     let etag = format!("\"{}\"", &crate::server::auth::sha256_hex(&text)[..32]);
     let fresh = headers

@@ -549,6 +549,51 @@ impl SessionSummary {
                 .or(self.started_at)
                 .is_some_and(|t| now_ms - t < DAY_MS)
     }
+
+    /// Waiting on a person: a question, an approval (the list's "Needs you").
+    pub fn needs_you(&self) -> bool {
+        self.status == SessionStatus::Waiting || !self.pending.is_empty()
+    }
+
+    /// The session list's search: `q` (lower case) appears in its title,
+    /// name, project, folder, branch, last prompt, model, effort (and the
+    /// words its chips use for it), its ultracode, fast and thinking-off
+    /// chips, or its id — what the list's search box matches in the client
+    /// (`sessionMatches`), so a search over earlier sessions finds the same.
+    pub fn matches_search(&self, q: &str) -> bool {
+        let effort_words: &[&str] = match self.effort.as_deref() {
+            Some("low") => &["low"],
+            Some("medium") => &["medium", "med"],
+            Some("high") => &["high"],
+            Some("xhigh") => &["extra high", "x-high"],
+            Some("max") => &["max"],
+            _ => &[],
+        };
+        let thinking_off = self
+            .thinking
+            .as_ref()
+            .is_some_and(|t| t.mode == ThinkingMode::Off);
+        let texts = [
+            self.title.as_deref(),
+            Some(self.name.as_str()),
+            Some(self.project_name.as_str()),
+            Some(self.cwd.as_str()),
+            self.git_branch.as_deref(),
+            self.last_prompt.as_deref(),
+            self.model.as_ref().map(|m| m.label.as_str()),
+            self.model.as_ref().map(|m| m.id.as_str()),
+            self.effort.as_deref(),
+            (self.ultracode == Some(UltracodeState::On)).then_some("ultracode"),
+            (self.fast == Some(true)).then_some("fast"),
+            thinking_off.then_some("thinking off"),
+            Some(self.id.as_str()),
+        ];
+        texts
+            .into_iter()
+            .flatten()
+            .chain(effort_words.iter().copied())
+            .any(|t| t.to_lowercase().contains(q))
+    }
 }
 
 // ─────────────────────────── 4.2 PendingItem & respond ─────────────────────────
@@ -1456,6 +1501,74 @@ pub struct MessageReceipt {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    /// The list's search and its "Needs you" on the server: what the client
+    /// matches (`sessionMatches`), chip words included.
+    #[test]
+    fn a_session_matches_the_search_on_what_the_list_shows() {
+        let s = SessionSummary {
+            id: "e5ecf333-9a45-419a-8c1c-21bd3bab938f".into(),
+            name: "xiangqi-ai".into(),
+            title: Some("Xiangqi engine: opening book".into()),
+            project_name: "games".into(),
+            cwd: "/Users/me/dev/games".into(),
+            git_branch: Some("feat/elephant".into()),
+            last_prompt: Some("make the horse move".into()),
+            model: Some(ModelInfo {
+                id: "claude-opus-4-8".into(),
+                label: "Opus 4.8".into(),
+                context_window: None,
+            }),
+            effort: Some("xhigh".into()),
+            ultracode: Some(UltracodeState::On),
+            fast: Some(true),
+            thinking: Some(ThinkingInfo {
+                mode: ThinkingMode::Off,
+                source: ThinkingSource::Launch,
+                budget: None,
+            }),
+            ..Default::default()
+        };
+        for q in [
+            "xiangqi",
+            "opening book",
+            "games",
+            "dev/games",
+            "elephant",
+            "horse",
+            "opus 4.8",
+            "claude-opus",
+            "xhigh",
+            "x-high",
+            "extra high",
+            "ultracode",
+            "fast",
+            "thinking off",
+            "e5ecf333",
+        ] {
+            assert!(s.matches_search(q), "{q}");
+        }
+        assert!(!s.matches_search("chess"));
+        // Words of chips it does not show do not match.
+        let plain = SessionSummary {
+            effort: Some("low".into()),
+            ..Default::default()
+        };
+        assert!(!plain.matches_search("ultracode") && !plain.matches_search("fast"));
+        assert!(plain.matches_search("low") && !plain.matches_search("x-high"));
+
+        assert!(!plain.needs_you());
+        let waiting = SessionSummary {
+            status: SessionStatus::Waiting,
+            ..Default::default()
+        };
+        assert!(waiting.needs_you());
+        let asking = SessionSummary {
+            pending: vec![PendingPreview::default()],
+            ..Default::default()
+        };
+        assert!(asking.needs_you());
+    }
 
     #[test]
     fn detail_flattens_summary_and_renames_detail_fields() {
