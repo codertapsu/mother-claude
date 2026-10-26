@@ -11,6 +11,12 @@ import {
 import { DEFAULT_ACCOUNT } from '../../core/accounts';
 import { AccountsService } from '../../core/accounts.service';
 import { ApiService } from '../../core/api.service';
+import {
+  deleteErrorText,
+  desktopOs,
+  normalizeSessionFiles,
+  revealLabel,
+} from '../../core/delete-data';
 import { KeyName, LaunchOverrides, McpServerStatus } from '../../core/models';
 import { anyTarget } from '../../core/move-data';
 import { NowService } from '../../core/now.service';
@@ -121,6 +127,45 @@ const KEYS: { key: KeyName; label: string; aria: string }[] = [
             </dd>
           } @else {
             <dd class="mono">{{ short(s.cwd) }}</dd>
+          }
+          @if (files(); as f) {
+            <dt>Transcript</dt>
+            <dd class="path-dd">
+              <span class="mono break" [title]="f.transcript">{{ short(f.transcript) }}</span>
+              <span class="path-acts">
+                <mc-copy-button
+                  [text]="f.transcript"
+                  label="Copy path"
+                  ariaLabel="Copy the transcript's path"
+                />
+                @if (ctx.isDesktop()) {
+                  <button
+                    class="btn small"
+                    type="button"
+                    [disabled]="revealing()"
+                    (click)="reveal()"
+                  >
+                    <mc-icon name="folder" [size]="14" /> {{ revealText }}
+                  </button>
+                }
+              </span>
+              @if (revealError()) {
+                <span class="error-text small" role="alert">{{ revealError() }}</span>
+              }
+            </dd>
+            @if (f.folder) {
+              <dt>Session folder</dt>
+              <dd class="path-dd">
+                <span class="mono break" [title]="f.folder">{{ short(f.folder) }}</span>
+                <span class="path-acts">
+                  <mc-copy-button
+                    [text]="f.folder"
+                    label="Copy path"
+                    ariaLabel="Copy the session folder's path"
+                  />
+                </span>
+              </dd>
+            }
           }
           <dt>Runs in</dt>
           <dd>
@@ -448,6 +493,18 @@ const KEYS: { key: KeyName; label: string; aria: string }[] = [
         flex-wrap: wrap;
         gap: 0.35rem;
       }
+      .kv dd.path-dd {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 0.3rem;
+        min-width: 0;
+      }
+      .path-acts {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.3rem;
+      }
       .kv dd.stack-dd {
         flex-direction: column;
         align-items: flex-start;
@@ -550,8 +607,12 @@ export class InfoPanelComponent {
   protected readonly planAccount = computed(
     () => this.ctx.session()?.account?.id ?? DEFAULT_ACCOUNT,
   );
-  /** The desktop may move or copy the project to another account's
-   * directory (the header's dialog). */
+  /** Where its files are on the Mac (docs/ACCOUNTS.md §14.1). */
+  protected readonly files = computed(() => normalizeSessionFiles(this.ctx.detail()?.files));
+  /** "Show in Finder", "Show in File Explorer", "Show in folder". */
+  protected readonly revealText = revealLabel(desktopOs(navigator.userAgent));
+  protected readonly revealing = signal(false);
+  protected readonly revealError = signal('');
   /** The folder can be moved or copied (the header hosts the sheet). */
   protected readonly moveOffered = computed(
     () => !!this.ctx.session() && anyTarget(this.accounts.list(), this.storage.list() ?? []),
@@ -573,6 +634,21 @@ export class InfoPanelComponent {
   });
 
   protected readonly effortHow = computed(() => effortSourceText(this.ctx.session()?.effortSource));
+
+  /** Desktop: the transcript, selected in the file manager. */
+  protected async reveal(): Promise<void> {
+    const id = this.ctx.id();
+    if (!id || this.revealing()) return;
+    this.revealing.set(true);
+    this.revealError.set('');
+    try {
+      await this.api.revealSession(id);
+    } catch (e) {
+      this.revealError.set(deleteErrorText(e));
+    } finally {
+      this.revealing.set(false);
+    }
+  }
   protected readonly ultracodeHow = computed(() => {
     const s = this.ctx.session();
     if (!s) return '';

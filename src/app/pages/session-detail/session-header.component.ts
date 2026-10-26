@@ -9,7 +9,7 @@ import {
   untracked,
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { RouterLink } from '@angular/router';
+import { Router, RouterLink } from '@angular/router';
 
 import { DEFAULT_ACCOUNT } from '../../core/accounts';
 import { AccountsService } from '../../core/accounts.service';
@@ -18,13 +18,18 @@ import { StorageService } from '../../core/storage.service';
 import { NoticeService } from '../../core/notice.service';
 import { PushService } from '../../core/push.service';
 import { RealtimeService, connectionDetail, connectionLabel } from '../../core/realtime.service';
-import { SessionPushPref } from '../../core/models';
+import { JobView, SessionPushPref } from '../../core/models';
 import { AccountChipComponent } from '../../shared/account-chip.component';
 import { ActivityLineComponent } from '../../shared/activity-line.component';
 import { capRename, capTerminal } from '../../shared/caps';
 import { ContinueOnSheetComponent, canContinue } from '../../shared/continue-on-sheet.component';
 import { CopyButtonComponent } from '../../shared/copy-button.component';
 import { IconComponent } from '../../shared/icon.component';
+import {
+  DeleteDataSheetComponent,
+  DeleteStart,
+  deletedIds,
+} from '../../shared/delete-data-sheet.component';
 import { MoveDataSheetComponent, MoveStart } from '../../shared/move-data-sheet.component';
 import { SheetComponent } from '../../shared/sheet.component';
 import { StatusPillComponent } from '../../shared/status-pill.component';
@@ -37,7 +42,7 @@ import { SessionContext } from './session-context';
  * account (while there are several) and what it is doing right now (with
  * elapsed time), the connection state when it isn't Live, and a ⋯ menu
  * (rename, continue/fork, continue on another account, moving or copying
- * it or its project to another account or a storage,
+ * it or its project to another account or a storage, deleting it,
  * terminal, notifications, resume command, stop/respawn/remove). 48 px tall
  * on phones.
  */
@@ -52,6 +57,7 @@ import { SessionContext } from './session-context';
     ContinueOnSheetComponent,
     CopyButtonComponent,
     IconComponent,
+    DeleteDataSheetComponent,
     MoveDataSheetComponent,
     SheetComponent,
     StatusPillComponent,
@@ -132,6 +138,10 @@ import { SessionContext } from './session-context';
               <span>Move or copy this project…</span>
             </button>
           }
+          <button class="item" type="button" (click)="openDelete()">
+            <mc-icon name="trash" [size]="18" />
+            <span>Delete…</span>
+          </button>
           @if (terminal()) {
             <button class="item" type="button" (click)="openTerminal()">
               <mc-icon name="terminal" [size]="18" />
@@ -278,6 +288,11 @@ import { SessionContext } from './session-context';
           (closed)="ctx.moveCopy.set(null)"
         />
       }
+      <mc-delete-data-sheet
+        [open]="!!deleteStart()"
+        [start]="deleteStart()"
+        (closed)="deleteClosed($event)"
+      />
     }
   `,
   styles: [
@@ -442,6 +457,9 @@ export class SessionHeaderComponent {
   private notices = inject(NoticeService);
   private accounts = inject(AccountsService);
   private storage = inject(StorageService);
+  private router = inject(Router);
+  /** The delete dialog with this conversation (null: closed). */
+  protected readonly deleteStart = signal<DeleteStart | null>(null);
 
   protected readonly menu = signal(false);
   /** The "Continue on another account" choice is open. */
@@ -554,6 +572,25 @@ export class SessionHeaderComponent {
   protected openContinueOn(): void {
     this.menu.set(false);
     this.continueOn.set(true);
+  }
+
+  /** Delete this conversation, from the account it is recorded as. */
+  protected openDelete(): void {
+    const s = this.ctx.session();
+    this.menu.set(false);
+    if (!s) return;
+    const from = s.account?.id ?? (this.accounts.multi() ? undefined : DEFAULT_ACCOUNT);
+    this.deleteStart.set({
+      what: 'this conversation',
+      groups: [{ ...(from ? { from } : {}), sessions: [s.id] }],
+      known: [s],
+    });
+  }
+
+  /** Deleted (and not undone): there is nothing left to show here. */
+  protected deleteClosed(jobs: JobView[]): void {
+    this.deleteStart.set(null);
+    if (deletedIds(jobs).has(this.ctx.id())) void this.router.navigate(['/']);
   }
 
   protected openMoveCopy(kind: 'session' | 'project'): void {

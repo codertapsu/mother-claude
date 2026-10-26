@@ -1,7 +1,8 @@
 import { TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
 
-import { FakeBackend, useFakeServer } from '../../core/mock/fake-server.testing';
+import { desktopOs, revealLabel } from '../../core/delete-data';
+import { FakeBackend, asDesktop, flush, useFakeServer } from '../../core/mock/fake-server.testing';
 import { ownedCaps } from '../../core/mock/fixtures';
 import { setActiveMock } from '../../core/mock/mock-api';
 import { PlanUsage, SessionDetail, SessionSummary } from '../../core/models';
@@ -39,7 +40,11 @@ const plan: PlanUsage = {
 };
 
 describe('InfoPanelComponent', () => {
-  beforeEach(() => useFakeServer(new FakeBackend(), [provideRouter([]), SessionContext]));
+  let backend: FakeBackend;
+  beforeEach(() => {
+    backend = new FakeBackend();
+    useFakeServer(backend, [provideRouter([]), SessionContext]);
+  });
   afterEach(() => setActiveMock(null));
 
   const render = (s: SessionDetail) => {
@@ -159,6 +164,65 @@ describe('InfoPanelComponent', () => {
     );
     expect(row(el, 'Thinking')).toBe(
       'Off (at launch), but used since 3.1k tokens · 25% of output · last used 3m ago',
+    );
+  });
+
+  const files = {
+    transcript: '/Users/me/.claude/projects/-Users-me-dev-api/s1.jsonl',
+    folder: '/Users/me/.claude/projects/-Users-me-dev-api/s1',
+    account: 'default',
+  };
+  const buttons = (el: HTMLElement) =>
+    [...el.querySelectorAll<HTMLButtonElement>('button')].map((b) =>
+      (b.textContent ?? '').replace(/\s+/g, ' ').trim(),
+    );
+
+  it('shows where the transcript and its folder are, each path copyable', () => {
+    const el = render({ ...session({}), files } as SessionDetail);
+    expect(row(el, 'Transcript')).toContain('~/.claude/projects/-Users-me-dev-api/s1.jsonl');
+    expect(row(el, 'Session folder')).toContain('~/.claude/projects/-Users-me-dev-api/s1');
+    expect(
+      el.querySelector('[aria-label="Copy the transcript\'s path"]')?.textContent?.trim(),
+    ).toBe('Copy path');
+    expect(el.querySelector('[aria-label="Copy the session folder\'s path"]')).not.toBeNull();
+    // A phone copies the path; revealing is the Mac's.
+    expect(buttons(el)).not.toContain(revealLabel(desktopOs(navigator.userAgent)));
+    // No files reported (an older Mac): no rows.
+    expect(row(render(session({})), 'Transcript')).toBe('');
+  });
+
+  it('reveals the transcript on the desktop, and says why when it cannot', async () => {
+    asDesktop();
+    let gone = false;
+    backend.routes.set('/sessions/s1/reveal', () =>
+      gone
+        ? {
+            status: 404,
+            body: { error: { code: 'transcript_not_found', message: 'transcript not found' } },
+          }
+        : { status: 200, body: {} },
+    );
+    TestBed.inject(SessionContext).id.set('s1');
+    TestBed.inject(SessionContext).detail.set({ ...session({}), files } as SessionDetail);
+    const fixture = TestBed.createComponent(InfoPanelComponent);
+    fixture.detectChanges();
+    const el = fixture.nativeElement as HTMLElement;
+    const label = revealLabel(desktopOs(navigator.userAgent));
+    const reveal = () =>
+      [...el.querySelectorAll<HTMLButtonElement>('button')].find(
+        (b) => b.textContent?.trim() === label,
+      );
+    reveal()?.click();
+    await flush();
+    fixture.detectChanges();
+    expect(backend.calls).toContain('POST /sessions/s1/reveal');
+    expect(el.querySelector('[role="alert"]')).toBeNull();
+    gone = true;
+    reveal()?.click();
+    await flush();
+    fixture.detectChanges();
+    expect(el.querySelector('[role="alert"]')?.textContent?.trim()).toBe(
+      "Its transcript isn't on this Mac any more.",
     );
   });
 
