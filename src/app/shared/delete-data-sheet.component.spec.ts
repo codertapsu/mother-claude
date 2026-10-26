@@ -184,6 +184,7 @@ describe('DeleteDataSheetComponent', () => {
     expect(text(rows[0])).toContain('Deleted 2 conversations');
     // Nothing kept: no Undo.
     expect(el.querySelector('.undo')).toBeNull();
+    expect(el.querySelector('.later')).toBeNull();
     button(el, 'Close')?.click();
     const ran = closed.calls.mostRecent().args[0] as JobView[];
     expect([...deletedIds(ran)]).toEqual(['s1', 's2', 'w1']);
@@ -213,6 +214,9 @@ describe('DeleteDataSheetComponent', () => {
     await settle();
     expect((bodies()[1] as { undo: boolean }).undo).toBeTrue();
     expect(text(el.querySelector('.undo'))).toContain('Undo');
+    expect(text(el.querySelector('.later'))).toBe(
+      'Undo stays in Sessions › Projects, under Recently deleted, for seven days.',
+    );
     button(el, 'Undo')?.click();
     fixture.detectChanges();
     button(el, 'Tap again to undo')?.click();

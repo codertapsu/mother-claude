@@ -173,6 +173,11 @@ const ROWS = 30;
                   <mc-data-job class="jrow" [job]="j" (changed)="jobChanged($event)" />
                 }
               </div>
+              @if (keep()) {
+                <p class="muted small later">
+                  Undo stays in Sessions › Projects, under Recently deleted, for seven days.
+                </p>
+              }
               @if (error()) {
                 <p class="notice error small" role="alert">{{ error() }}</p>
               }
