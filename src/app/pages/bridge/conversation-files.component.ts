@@ -110,6 +110,8 @@ export class ConversationFilesComponent {
   readonly title = input('');
   /** The account it is recorded as (absent: not known). */
   readonly account = input<string | undefined>(undefined);
+  /** It is open in the API's host (a delete skips it as running). */
+  readonly running = input(false);
   /** It was deleted (and not undone). */
   readonly deleted = output<string>();
 
@@ -161,6 +163,7 @@ export class ConversationFilesComponent {
       what: 'this conversation',
       groups: [{ ...(from ? { from } : {}), sessions: [id] }],
       known: [{ id, title: this.title(), name: '', projectName: '' }],
+      openInApi: this.running() ? [id] : [],
     });
   }
 

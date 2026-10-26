@@ -359,6 +359,7 @@ interface ClaudeLine {
             [id]="p.id"
             [title]="p.title"
             [account]="p.account"
+            [running]="p.running"
             (deleted)="onDeleted($event)"
           />
         }
@@ -978,7 +979,12 @@ export class BridgeComponent {
     const t = this.panel()?.threads?.find((x) => x.threadId === id);
     const s = this.sessions().find((x) => x.id === id);
     const title = t?.title || (s ? sessionName(s) : '');
-    return { id, title, account: t ? (t.account?.id ?? DEFAULT_ACCOUNT) : s?.account?.id };
+    return {
+      id,
+      title,
+      account: t ? (t.account?.id ?? DEFAULT_ACCOUNT) : s?.account?.id,
+      running: !!t,
+    };
   });
 
   /** A deleted conversation leaves the picker; the server cleared it where

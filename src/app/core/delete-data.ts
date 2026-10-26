@@ -1,5 +1,5 @@
 import { ApiError } from './api.service';
-import { formatBytes, plural, sentence } from './data-jobs';
+import { formatBytes, sentence } from './data-jobs';
 import { JobView } from './models';
 import { moveErrorText } from './move-data';
 
@@ -33,6 +33,11 @@ function list<T>(v: unknown, read: (x: unknown) => T | null): T[] {
 
 function texts(v: unknown): string[] {
   return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string' && !!x.trim()) : [];
+}
+
+/** "1,240 conversations": a count with its noun, grouped in thousands. */
+export function counted(n: number, one: string, many = `${one}s`): string {
+  return `${n.toLocaleString('en-US')} ${n === 1 ? one : many}`;
 }
 
 /** An account named on the wire: a bare id or `{account: id}`. */
@@ -229,6 +234,8 @@ export interface DeletePlanSession {
 export interface DeleteSkip {
   id?: string;
   cwd?: string;
+  /** The conversation's title, when it has one. */
+  title?: string;
   code: string;
   message: string;
 }
@@ -237,6 +244,14 @@ export interface DeleteSkip {
 export interface DeletePlan {
   sessions: DeletePlanSession[];
   skipped: DeleteSkip[];
+  /** How many conversations go, and are skipped, in all (the lists hold
+   * at most 1000 each). */
+  sessionsTotal: number;
+  skippedTotal: number;
+  /** The projects named that something of goes. */
+  projectsTotal: number;
+  /** The `projects/<enc>` folders left empty, which go too. */
+  foldersTotal: number;
   files: number;
   bytes: number;
   /** One job per directory. */
@@ -269,10 +284,22 @@ function skip(raw: unknown): DeleteSkip | null {
   if (!r) return null;
   const id = str(r['id']);
   const cwd = str(r['cwd']);
+  const title = str(r['title'])?.trim();
   const code = str(r['code']) ?? '';
   const message = str(r['message']) ?? str(r['reason']) ?? '';
   if (!id && !cwd && !code && !message) return null;
-  return { ...(id ? { id } : {}), ...(cwd ? { cwd } : {}), code, message };
+  return {
+    ...(id ? { id } : {}),
+    ...(cwd ? { cwd } : {}),
+    ...(title ? { title } : {}),
+    code,
+    message,
+  };
+}
+
+/** A `…Total` of the plan, else what its list holds. */
+function total(v: unknown, fallback: number): number {
+  return num(v) !== undefined ? count(v) : fallback;
 }
 
 /** A dry run from the wire (`{plan}`'s value), or null when it isn't one. */
@@ -280,11 +307,16 @@ export function normalizeDeletePlan(raw: unknown): DeletePlan | null {
   const r = obj(raw);
   if (!r || (!Array.isArray(r['sessions']) && !Array.isArray(r['skipped']))) return null;
   const sessions = list(r['sessions'], planSession);
+  const skipped = list(r['skipped'], skip);
   const truncated = r['truncated'];
   const jobs = num(r['jobs']);
   return {
     sessions,
-    skipped: list(r['skipped'], skip),
+    skipped,
+    sessionsTotal: total(r['sessionsTotal'], sessions.length),
+    skippedTotal: total(r['skippedTotal'], skipped.length),
+    projectsTotal: total(r['projectsTotal'], texts(r['projects']).length),
+    foldersTotal: total(r['foldersTotal'], texts(r['folders']).length),
     files:
       num(r['files']) !== undefined ? count(r['files']) : sessions.reduce((n, s) => n + s.files, 0),
     bytes:
@@ -302,42 +334,60 @@ export function mergeDeletePlans(plans: readonly DeletePlan[]): DeletePlan {
   return {
     sessions: plans.flatMap((p) => p.sessions),
     skipped: plans.flatMap((p) => p.skipped),
+    sessionsTotal: plans.reduce((n, p) => n + p.sessionsTotal, 0),
+    skippedTotal: plans.reduce((n, p) => n + p.skippedTotal, 0),
+    projectsTotal: plans.reduce((n, p) => n + p.projectsTotal, 0),
+    foldersTotal: plans.reduce((n, p) => n + p.foldersTotal, 0),
     files: plans.reduce((n, p) => n + p.files, 0),
     bytes: plans.reduce((n, p) => n + p.bytes, 0),
-    jobs: plans.reduce((n, p) => n + (p.sessions.length ? p.jobs : 0), 0),
+    jobs: plans.reduce((n, p) => n + (p.sessionsTotal ? p.jobs : 0), 0),
     truncated: plans.some((p) => p.truncated),
   };
 }
 
-/** "12 conversations"; "1000+ conversations" when the list was capped
- * (the server lists the first 1000 and takes them all). */
-function conversations(p: DeletePlan): string {
-  const n = p.sessions.length;
-  return p.truncated ? `${n}+ conversations` : plural(n, 'conversation');
-}
-
-/** One sentence about what a dry run would take. */
+/** What a dry run would take, in a sentence or three: "Deletes 8
+ * conversations of 2 projects (24 files, 759 KB). The project folder left
+ * empty goes too." */
 export function deletePlanLine(p: DeletePlan): string {
-  if (!p.sessions.length) return 'There is nothing to delete here.';
-  const size = ` (${plural(p.files, 'file')}, ${formatBytes(p.bytes)})`;
-  const more = p.truncated ? ' The lists show the first 1000; it takes them all.' : '';
-  return `Deletes ${conversations(p)}${size}.${more}`;
+  if (!p.sessionsTotal) return 'There is nothing to delete here.';
+  const of = p.projectsTotal ? ` of ${counted(p.projectsTotal, 'project')}` : '';
+  const size = ` (${counted(p.files, 'file')}, ${formatBytes(p.bytes)})`;
+  const folders =
+    p.foldersTotal === 1
+      ? ' The project folder left empty goes too.'
+      : p.foldersTotal > 1
+        ? ` The ${counted(p.foldersTotal, 'project folder')} left empty go too.`
+        : '';
+  const more = p.truncated ? ' The lists show the first 1,000.' : '';
+  return `Deletes ${counted(p.sessionsTotal, 'conversation')}${of}${size}.${folders}${more}`;
 }
 
-/** What the confirm button says: "Delete 12 conversations". */
+/** What the confirm button says: "Delete 1,240 conversations". */
 export function deleteButtonLabel(p: DeletePlan | null): string {
-  return p?.sessions.length ? `Delete ${conversations(p)}` : 'Nothing to delete';
+  return p?.sessionsTotal
+    ? `Delete ${counted(p.sessionsTotal, 'conversation')}`
+    : 'Nothing to delete';
 }
 
 /** What each skip code means, when the server says nothing. */
 const SKIP_TEXT: Record<string, string> = {
-  session_live:
-    'It is running — in Claude Code, a session here or the API: stop it (or close it in the API) first.',
   not_found: 'It is not there any more.',
+  invalid_transfer: 'That is not a conversation or a project folder.',
+  session_changed: 'It was given to another account since: check again.',
+  transfer_io: 'A file of it could not be moved, so it was put back whole.',
 };
 
-/** Why something is not deleted, as a sentence. */
-export function deleteSkipReason(s: DeleteSkip): string {
+/** A running conversation: the server's message names it by its id. */
+export const SKIP_RUNNING = 'It is running: stop it first.';
+/** A conversation open in the API's host runs too. */
+export const SKIP_OPEN_IN_API = 'It is open in the API: close it there first.';
+
+/** Why something is not deleted, as a sentence (`openInApi`: running
+ * conversations the opener knows are open in the API). */
+export function deleteSkipReason(s: DeleteSkip, openInApi?: ReadonlySet<string>): string {
+  if (s.code === 'session_live') {
+    return s.id && openInApi?.has(s.id) ? SKIP_OPEN_IN_API : SKIP_RUNNING;
+  }
   return sentence(s.message) || SKIP_TEXT[s.code] || 'Skipped.';
 }
 
@@ -355,6 +405,15 @@ export function deleteErrorText(e: unknown): string {
   if (e instanceof ApiError && e.code === 'session_not_found') {
     return 'This conversation is not known here any more.';
   }
+  if (e instanceof ApiError && e.code === 'project_not_found') {
+    return 'That account has no conversations of this folder any more.';
+  }
+  if (e instanceof ApiError && e.code === 'reveal_failed') {
+    return "The Mac's file manager did not open.";
+  }
+  if (e instanceof ApiError && e.code === 'invalid_transfer') {
+    return 'There was nothing to delete in the request.';
+  }
   return moveErrorText(e);
 }
 
@@ -364,12 +423,18 @@ export function deleteErrorText(e: unknown): string {
 export interface DeleteResult {
   deleted: string[];
   skipped: DeleteSkip[];
+  /** Said when the files of an `undo: false` job could not all be removed. */
+  warnings: string[];
 }
 
 export function normalizeDeleteResult(raw: unknown): DeleteResult | null {
   const r = obj(raw);
   if (!r || !('deleted' in r || 'skipped' in r)) return null;
-  return { deleted: texts(r['deleted']), skipped: list(r['skipped'], skip) };
+  return {
+    deleted: texts(r['deleted']),
+    skipped: list(r['skipped'], skip),
+    warnings: texts(r['warnings']),
+  };
 }
 
 /** One line about a finished delete ("Deleted 3 conversations · 1
@@ -378,9 +443,12 @@ export function deleteResultSummary(job: JobView): string | null {
   if (job.kind !== 'delete') return null;
   const r = normalizeDeleteResult(job.result);
   const n = r?.deleted.length ?? job.sessions.length;
-  const parts = [
-    n ? `Deleted ${plural(n, 'conversation')}` : 'Nothing was deleted',
-    r?.skipped.length ? `${r.skipped.length} skipped` : '',
-  ].filter(Boolean);
-  return parts.join(' · ');
+  const line = [
+    n ? `Deleted ${counted(n, 'conversation')}` : 'Nothing was deleted',
+    r?.skipped.length ? `${r.skipped.length.toLocaleString('en-US')} skipped` : '',
+  ]
+    .filter(Boolean)
+    .join(' · ');
+  const warnings = (r?.warnings ?? []).map(sentence).filter(Boolean);
+  return warnings.length ? `${line}. ${warnings.join(' ')}` : line;
 }

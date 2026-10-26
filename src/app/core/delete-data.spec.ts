@@ -2,6 +2,9 @@ import { ApiError } from './api.service';
 import { jobTitle, normalizeJob } from './data-jobs';
 import {
   DELETE_DANGEROUS_REASON,
+  SKIP_OPEN_IN_API,
+  SKIP_RUNNING,
+  counted,
   deleteBody,
   deleteButtonLabel,
   deleteErrorText,
@@ -161,10 +164,21 @@ describe('delete data helpers', () => {
         { title: 'no id' },
       ],
       skipped: [
-        { id: 's3', code: 'session_live', message: 'session s3 is running; stop it first' },
+        {
+          id: 's3',
+          title: 'Ship it',
+          code: 'session_live',
+          message: 'session s3 is running; stop it first',
+        },
         'something else',
         {},
       ],
+      projects: ['/p'],
+      folders: [],
+      sessionsTotal: 1240,
+      skippedTotal: 12,
+      projectsTotal: 1,
+      foldersTotal: 0,
       files: 5,
       bytes: 320,
       jobs: 1,
@@ -176,20 +190,38 @@ describe('delete data helpers', () => {
         { id: 's2', account: 'default', files: 2, bytes: 20 },
       ],
       skipped: [
-        { id: 's3', code: 'session_live', message: 'session s3 is running; stop it first' },
+        {
+          id: 's3',
+          title: 'Ship it',
+          code: 'session_live',
+          message: 'session s3 is running; stop it first',
+        },
         { code: '', message: 'something else' },
       ],
+      sessionsTotal: 1240,
+      skippedTotal: 12,
+      projectsTotal: 1,
+      foldersTotal: 0,
       files: 5,
       bytes: 320,
       jobs: 1,
       truncated: true,
     });
-    const b = normalizeDeletePlan({ sessions: [{ id: 'w1', files: 1, bytes: 10 }], skipped: [] })!;
-    expect(b.files).toBe(1);
-    expect(b.jobs).toBe(1);
+    // An older plan without totals: its lists are the totals.
+    const b = normalizeDeletePlan({
+      sessions: [{ id: 'w1', files: 1, bytes: 10 }],
+      skipped: [],
+      folders: ['/x'],
+    })!;
+    expect([b.files, b.jobs, b.sessionsTotal, b.skippedTotal, b.foldersTotal]).toEqual([
+      1, 1, 1, 0, 1,
+    ]);
     const both = mergeDeletePlans([a!, b]);
     expect(both.sessions.map((s) => s.id)).toEqual(['s1', 's2', 'w1']);
     expect([both.files, both.bytes, both.jobs, both.truncated]).toEqual([6, 330, 2, true]);
+    expect([both.sessionsTotal, both.skippedTotal, both.projectsTotal, both.foldersTotal]).toEqual([
+      1241, 12, 1, 1,
+    ]);
     expect(normalizeDeletePlan({ files: 3 })).toBeNull();
   });
 
@@ -203,18 +235,46 @@ describe('delete data helpers', () => {
     })!;
     expect(deletePlanLine(p)).toBe('Deletes 2 conversations (5 files, 3.0 KB).');
     expect(deleteButtonLabel(p)).toBe('Delete 2 conversations');
-    const capped = { ...p, truncated: true };
-    expect(deletePlanLine(capped)).toBe(
-      'Deletes 2+ conversations (5 files, 3.0 KB). The lists show the first 1000; it takes them all.',
+    // The totals count everything; the lists only the first 1000.
+    const big = {
+      ...p,
+      sessionsTotal: 1240,
+      projectsTotal: 2,
+      foldersTotal: 2,
+      files: 3720,
+      truncated: true,
+    };
+    expect(deletePlanLine(big)).toBe(
+      'Deletes 1,240 conversations of 2 projects (3,720 files, 3.0 KB). The 2 project folders left empty go too. The lists show the first 1,000.',
     );
-    expect(deleteButtonLabel(capped)).toBe('Delete 2+ conversations');
+    expect(deleteButtonLabel(big)).toBe('Delete 1,240 conversations');
+    expect(deletePlanLine({ ...p, projectsTotal: 1, foldersTotal: 1 })).toBe(
+      'Deletes 2 conversations of 1 project (5 files, 3.0 KB). The project folder left empty goes too.',
+    );
     const none = normalizeDeletePlan({ sessions: [], skipped: [{ code: 'not_found' }] })!;
     expect(deletePlanLine(none)).toBe('There is nothing to delete here.');
     expect(deleteButtonLabel(none)).toBe('Nothing to delete');
-    expect(deleteSkipReason({ code: 'session_live', message: '' })).toContain('stop it');
-    expect(deleteSkipReason({ code: 'x', message: 'it is open in the API' })).toBe(
-      'It is open in the API.',
-    );
+    expect(counted(1, 'file')).toBe('1 file');
+  });
+
+  it('says why something is skipped', () => {
+    // The server names a running one by its id: the row has its title.
+    const live = {
+      id: 's3',
+      code: 'session_live',
+      message: 'session s3 is running; stop it first',
+    };
+    expect(deleteSkipReason(live)).toBe(SKIP_RUNNING);
+    expect(deleteSkipReason(live, new Set(['s3']))).toBe(SKIP_OPEN_IN_API);
+    expect(
+      deleteSkipReason({
+        id: 's4',
+        code: 'not_found',
+        message: "it is Work's conversation; delete it from there",
+      }),
+    ).toBe("It is Work's conversation; delete it from there.");
+    expect(deleteSkipReason({ code: 'transfer_io', message: '' })).toContain('put back whole');
+    expect(deleteSkipReason({ code: 'x', message: '' })).toBe('Skipped.');
   });
 
   it('sums up a delete job and titles it after its directory', () => {
@@ -225,6 +285,19 @@ describe('delete data helpers', () => {
     ).toBe('Deleted 2 conversations · 1 skipped');
     expect(deleteResultSummary(job({ result: { deleted: [], skipped: [] } }))).toBe(
       'Nothing was deleted',
+    );
+    expect(
+      deleteResultSummary(
+        job({
+          result: {
+            deleted: ['a'],
+            skipped: [],
+            warnings: ['Some deleted files could not be removed from /u/j (busy); they go later.'],
+          },
+        }),
+      ),
+    ).toBe(
+      'Deleted 1 conversation. Some deleted files could not be removed from /u/j (busy); they go later.',
     );
     expect(deleteResultSummary(job({ kind: 'move' }))).toBeNull();
     const view = normalizeJob({ id: 'j', kind: 'delete', state: 'done', account: 'acc_w' })!;
@@ -241,5 +314,11 @@ describe('delete data helpers', () => {
       "isn't on this Mac",
     );
     expect(deleteErrorText(new ApiError('busy', 409, 'http', 'data_job_running'))).toBe('Busy.');
+    expect(deleteErrorText(new ApiError('', 404, 'http', 'project_not_found'))).toContain(
+      'no conversations of this folder',
+    );
+    expect(deleteErrorText(new ApiError('', 500, 'http', 'reveal_failed'))).toBe(
+      "The Mac's file manager did not open.",
+    );
   });
 });

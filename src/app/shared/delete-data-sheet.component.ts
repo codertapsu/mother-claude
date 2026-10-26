@@ -14,7 +14,7 @@ import {
 import { AccountsService } from '../core/accounts.service';
 import { ApiService } from '../core/api.service';
 import { AuthService } from '../core/auth.service';
-import { normalizeJob, plural, formatBytes } from '../core/data-jobs';
+import { canUndo, normalizeJob, plural, formatBytes } from '../core/data-jobs';
 import { DataJobsService } from '../core/data-jobs.service';
 import {
   DELETE_DANGEROUS_REASON,
@@ -31,6 +31,7 @@ import {
   normalizeDeletePlan,
 } from '../core/delete-data';
 import { JobView, SessionSummary } from '../core/models';
+import { NowService } from '../core/now.service';
 import { RealtimeService } from '../core/realtime.service';
 import { DataJobComponent } from './data-job.component';
 import { IconComponent } from './icon.component';
@@ -46,6 +47,9 @@ export interface DeleteStart {
   what: string;
   /** Conversations the opener has at hand (titles for the lists). */
   known?: readonly Pick<SessionSummary, 'id' | 'name' | 'title' | 'projectName'>[];
+  /** Conversations the opener knows are open in the API's host: skipped as
+   * running, they are to be closed there. */
+  openInApi?: readonly string[];
 }
 
 /** Where the dialog is: checking, showing the dry run, running. */
@@ -107,21 +111,24 @@ const ROWS = 30;
                     }
                   </ul>
                   @if (more() > 0) {
-                    <p class="muted small">and {{ more() }} more</p>
+                    <p class="muted small">and {{ count(more()) }} more</p>
                   }
                 }
-                @if (p.skipped.length) {
-                  <h4>Skipped ({{ p.skipped.length }})</h4>
+                @if (p.skippedTotal) {
+                  <h4>Skipped ({{ count(p.skippedTotal) }})</h4>
                   <ul class="plist skips" aria-label="Skipped">
-                    @for (k of p.skipped; track $index) {
+                    @for (k of skippedShown(); track $index) {
                       <li>
                         <span class="ptitle">{{ skipName(k) }}</span>
                         <span class="small why">{{ reason(k) }}</span>
                       </li>
                     }
                   </ul>
+                  @if (skippedMore() > 0) {
+                    <p class="muted small">and {{ count(skippedMore()) }} more</p>
+                  }
                 }
-                @if (p.sessions.length) {
+                @if (p.sessionsTotal) {
                   <label class="check">
                     <input
                       type="checkbox"
@@ -157,7 +164,7 @@ const ROWS = 30;
                 <button
                   class="btn danger"
                   type="button"
-                  [disabled]="busy() || !plan()?.sessions?.length"
+                  [disabled]="busy() || !plan()?.sessionsTotal"
                   (click)="run()"
                 >
                   <mc-icon name="trash" [size]="14" />
@@ -174,7 +181,7 @@ const ROWS = 30;
                   <mc-data-job class="jrow" [job]="j" (changed)="jobChanged($event)" />
                 }
               </div>
-              @if (keep()) {
+              @if (keep() || anyUndoable()) {
                 <p class="muted small later">
                   Undo stays in Sessions › Projects, under Recently deleted, for seven days.
                 </p>
@@ -262,6 +269,7 @@ export class DeleteDataSheetComponent {
   private jobsSvc = inject(DataJobsService);
   private accounts = inject(AccountsService);
   private realtime = inject(RealtimeService);
+  private clock = inject(NowService);
   protected readonly canDangerous = inject(AuthService).canDangerous;
 
   readonly open = input(false);
@@ -292,10 +300,18 @@ export class DeleteDataSheetComponent {
   });
   protected readonly buttonLabel = computed(() => deleteButtonLabel(this.plan()));
   protected readonly shown = computed(() => (this.plan()?.sessions ?? []).slice(0, ROWS));
-  protected readonly more = computed(
-    () => (this.plan()?.sessions.length ?? 0) - this.shown().length,
+  protected readonly more = computed(() => (this.plan()?.sessionsTotal ?? 0) - this.shown().length);
+  protected readonly skippedShown = computed(() => (this.plan()?.skipped ?? []).slice(0, ROWS));
+  protected readonly skippedMore = computed(
+    () => (this.plan()?.skippedTotal ?? 0) - this.skippedShown().length,
   );
   protected readonly anyRunning = computed(() => this.jobs().some((j) => j.state === 'running'));
+  /** A job offers Undo (a kept copy; a failed one that could not put
+   * everything back offers it too). */
+  protected readonly anyUndoable = computed(() =>
+    this.jobs().some((j) => canUndo(j, this.clock.now())),
+  );
+  private readonly openInApi = computed(() => new Set(this.started()?.openInApi ?? []));
   /** Titles the store and the opener know (a running one that is skipped
    * is in the store). */
   private readonly titles = computed(() => {
@@ -351,14 +367,21 @@ export class DeleteDataSheetComponent {
       .join(' · ');
   }
 
+  /** The server's title, else one the store or the opener knows. */
   protected skipName(k: DeleteSkip): string {
+    if (k.title) return k.title;
     if (k.id) return this.titles().get(k.id) || k.id.slice(0, 8);
     if (k.cwd) return shortPath(k.cwd);
     return 'Something';
   }
 
   protected reason(k: DeleteSkip): string {
-    return deleteSkipReason(k);
+    return deleteSkipReason(k, this.openInApi());
+  }
+
+  /** "1,240". */
+  protected count(n: number): string {
+    return n.toLocaleString('en-US');
   }
 
   protected jobChanged(j: JobView): void {
@@ -397,14 +420,14 @@ export class DeleteDataSheetComponent {
   protected async run(): Promise<void> {
     const groups = this.started()?.groups ?? [];
     const plans = this.plans();
-    if (this.busy() || !this.plan()?.sessions.length) return;
+    if (this.busy() || !this.plan()?.sessionsTotal) return;
     this.busy.set(true);
     this.error.set('');
     const list: JobView[] = [];
     try {
       // Only the requests with something to delete.
       for (const [i, g] of groups.entries()) {
-        if (!plans[i]?.sessions.length) continue;
+        if (!plans[i]?.sessionsTotal) continue;
         const res = await this.api.startDelete(deleteBody(g, this.keep()));
         const raw = Array.isArray(res?.jobs) && res.jobs.length ? res.jobs : [res?.job];
         for (const j of raw.map(normalizeJob)) {

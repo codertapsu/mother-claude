@@ -122,6 +122,7 @@ describe('DeleteDataSheetComponent', () => {
         { from: MOCK_ACCOUNT_WORK, sessions: ['w1'] },
       ],
       known: [session('s2', 'Cache the lookups'), session('s3', 'Open in the API')],
+      openInApi: ['s3'],
     });
     expect(bodies()).toEqual([
       { from: 'default', items: { sessions: ['s1', 's2', 's3'] }, undo: true, dryRun: true },
@@ -284,6 +285,55 @@ describe('DeleteDataSheetComponent', () => {
     });
     expect(text(el.querySelector('.skips .ptitle'))).toBe('Running right now');
     expect(text(el.querySelector('[aria-label="What goes"]'))).not.toContain('in Default');
+  });
+
+  it('counts with the totals, and takes the titles the server gives', async () => {
+    backend.routes.set('/data/delete', () => ({
+      status: 200,
+      body: {
+        plan: {
+          from: 'default',
+          undo: true,
+          jobs: 1,
+          sessions: Array.from({ length: 40 }, (_, i) => ({
+            id: `s${i}`,
+            account: 'default',
+            files: 3,
+            bytes: 1024,
+          })),
+          skipped: [
+            {
+              id: 'live1',
+              title: 'Running right now',
+              code: 'session_live',
+              message: 'session live1 is running; stop it first',
+            },
+          ],
+          projects: ['/p'],
+          folders: [],
+          sessionsTotal: 1240,
+          skippedTotal: 12,
+          projectsTotal: 1,
+          foldersTotal: 0,
+          files: 3720,
+          bytes: 1_269_760,
+          truncated: true,
+        },
+      },
+    }));
+    const el = await open({
+      what: 'this project',
+      groups: [{ from: 'default', projects: ['/p'] }],
+    });
+    expect(text(el.querySelector('.planline'))).toBe(
+      'Deletes 1,240 conversations of 1 project (3,720 files, 1.2 MB). The lists show the first 1,000.',
+    );
+    expect(text(el)).toContain('and 1,210 more');
+    expect(text(el)).toContain('Skipped (12)');
+    expect(text(el)).toContain('and 11 more');
+    expect(text(el.querySelector('.skips .ptitle'))).toBe('Running right now');
+    expect(text(el.querySelector('.skips .why'))).toBe('It is running: stop it first.');
+    expect(button(el, 'Delete 1,240 conversations')).toBeDefined();
   });
 
   it('names what it deletes', () => {

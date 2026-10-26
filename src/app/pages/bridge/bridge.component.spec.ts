@@ -164,8 +164,9 @@ describe('BridgeComponent conversations on disk', () => {
           skipped: [
             {
               id: 't1',
+              title: 'Conversation t1',
               code: 'session_live',
-              message: 'it is open in the API: close it there first',
+              message: 'session t1 is running; stop it first',
             },
           ],
         },
