@@ -148,6 +148,9 @@ pub struct Inner {
     /// Data jobs: moves and copies between accounts, backups, restores and
     /// pulls (`claude/transfer.rs`).
     pub jobs: crate::claude::transfer::Jobs,
+    /// Shows a transcript or a project's folder in the file manager; a test
+    /// switches it to recording (`claude/reveal.rs`).
+    pub reveal: crate::claude::reveal::Revealer,
 }
 
 impl std::fmt::Debug for Inner {
@@ -221,6 +224,7 @@ impl Inner {
             usage: UsageStore::new(data_dir),
             accounts,
             jobs: crate::claude::transfer::Jobs::default(),
+            reveal: crate::claude::reveal::Revealer::default(),
             auth,
         })
     }

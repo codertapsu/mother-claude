@@ -1,10 +1,13 @@
-//! Finding conversations on disk, over real HTTP (docs/ACCOUNTS.md §14):
-//! every project folder of every account. Every directory is a test's temp
-//! directory; the Default's `.claude.json` is inside it too.
+//! Finding conversations on disk, over real HTTP (docs/ACCOUNTS.md §14): a
+//! session's files in its detail, every project folder of every account, and
+//! showing them in the file manager (only ever recorded here: no test opens
+//! a window). Every directory is a test's temp directory; the Default's
+//! `.claude.json` is inside it too.
 
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 
+use mother_claude_lib::claude::reveal::{command, Platform, Target};
 use mother_claude_lib::claude::secrets::Secret;
 use mother_claude_lib::claude::ClaudeHome;
 use mother_claude_lib::server::auth::Auth;
@@ -21,8 +24,8 @@ struct Fixture {
 }
 
 /// A Default whose `.claude.json` is inside its temp directory (never the
-/// real `~/.claude.json`), a data dir of its own, and a bridge that binds no
-/// port of its own.
+/// real `~/.claude.json`), a data dir of its own, a bridge that binds no port
+/// of its own, and a file manager that is only recorded.
 async fn boot() -> Fixture {
     let home = tempfile::tempdir().unwrap();
     let scratch = tempfile::tempdir().unwrap();
@@ -43,6 +46,7 @@ async fn boot() -> Fixture {
             allowed_origins: Vec::new(),
         },
     );
+    st.reveal.record_only();
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     let app = server::router_for(st.clone(), Ingress::Loopback);
@@ -267,4 +271,133 @@ async fn every_project_of_every_account_from_the_index() {
         assert_eq!(s, StatusCode::OK);
         assert_eq!(w, v, "the same for a phone and a local script");
     }
+}
+
+/// §14.1: the detail names the conversation's files; the desktop alone shows
+/// the transcript or a project's folder in the file manager, by paths from
+/// the index.
+#[tokio::test]
+async fn a_sessions_files_and_showing_them() {
+    let f = boot().await;
+    let proj = f.cwd("proj");
+    let (work, work_dir) = f.account_dir("Work");
+    write_session(&work_dir, &proj, S1);
+    write_session(f.home.path(), &proj, S2);
+    // Only a file history and no folder of its own.
+    std::fs::remove_dir_all(project_dir(f.home.path(), &proj).join(S2)).unwrap();
+    // S3 runs but has written no transcript yet.
+    run_here(f.home.path(), &proj, S3);
+    f.refresh().await;
+
+    let (s, v) = f
+        .call("GET", &format!("/sessions/{S1}"), &f.desktop(), None)
+        .await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    let t = transcript_path(&work_dir, &proj, S1);
+    assert_eq!(
+        v["files"],
+        json!({
+            "transcript": t.to_string_lossy(),
+            "folder": t.parent().unwrap().join(S1).to_string_lossy(),
+            "fileHistory": work_dir.join("file-history").join(S1).to_string_lossy(),
+            "account": work,
+        })
+    );
+    let (_, v) = f
+        .call("GET", &format!("/sessions/{S2}"), &f.desktop(), None)
+        .await;
+    assert!(v["files"].get("folder").is_none(), "{v}");
+    assert_eq!(v["files"]["account"], "default");
+    let (_, v) = f
+        .call("GET", &format!("/sessions/{S3}"), &f.desktop(), None)
+        .await;
+    assert_eq!(v["id"], S3);
+    assert!(v.get("files").is_none(), "no transcript, no files: {v}");
+
+    // Showing the transcript: the desktop only.
+    let (s, v) = f
+        .call(
+            "POST",
+            &format!("/sessions/{S1}/reveal"),
+            &f.desktop(),
+            None,
+        )
+        .await;
+    assert_eq!(s, StatusCode::NO_CONTENT, "{v}");
+    assert_eq!(
+        f.st.reveal.recorded(),
+        [command(Platform::current(), &Target::File(t.clone()))]
+    );
+    let (_, phone) = f.phone();
+    for token in [phone.as_str(), f.script().as_str()] {
+        let (s, v) = f
+            .call("POST", &format!("/sessions/{S1}/reveal"), token, None)
+            .await;
+        assert_eq!(s, StatusCode::FORBIDDEN, "{v}");
+        assert_eq!(v["error"]["code"], "desktop_only");
+    }
+    let missing = "99999999-9999-4999-8999-999999999999";
+    let (s, v) = f
+        .call(
+            "POST",
+            &format!("/sessions/{missing}/reveal"),
+            &f.desktop(),
+            None,
+        )
+        .await;
+    assert_eq!(s, StatusCode::NOT_FOUND);
+    assert_eq!(v["error"]["code"], "session_not_found");
+    let (s, v) = f
+        .call(
+            "POST",
+            &format!("/sessions/{S3}/reveal"),
+            &f.desktop(),
+            None,
+        )
+        .await;
+    assert_eq!(s, StatusCode::NOT_FOUND, "{v}");
+    assert_eq!(v["error"]["code"], "transcript_not_found");
+    let (s, v) = f
+        .call("POST", "/sessions/..%2F..%2Fetc/reveal", &f.desktop(), None)
+        .await;
+    assert_eq!(s, StatusCode::BAD_REQUEST, "{v}");
+
+    // A project's folder, by a row of the listing.
+    let (s, v) = f
+        .call(
+            "POST",
+            "/data/projects/reveal",
+            &f.desktop(),
+            Some(json!({"account": work, "cwd": format!("{proj}/")})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::NO_CONTENT, "{v}");
+    assert_eq!(
+        f.st.reveal.recorded()[1],
+        command(
+            Platform::current(),
+            &Target::Folder(project_dir(&work_dir, &proj))
+        )
+    );
+    for body in [
+        json!({"account": work, "cwd": f.cwd("elsewhere")}),
+        json!({"account": "acc_000000000000", "cwd": proj}),
+        json!({"account": work, "cwd": "proj"}),
+    ] {
+        let (s, v) = f
+            .call("POST", "/data/projects/reveal", &f.desktop(), Some(body))
+            .await;
+        assert_eq!(s, StatusCode::NOT_FOUND, "{v}");
+        assert_eq!(v["error"]["code"], "project_not_found");
+    }
+    let (s, v) = f
+        .call(
+            "POST",
+            "/data/projects/reveal",
+            &phone,
+            Some(json!({"account": work, "cwd": proj})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::FORBIDDEN, "{v}");
+    assert_eq!(f.st.reveal.recorded().len(), 2, "nothing else was shown");
 }

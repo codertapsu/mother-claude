@@ -112,6 +112,7 @@ pub fn api_router() -> Router<AppState> {
                 .layer(DefaultBodyLimit::max(IMAGE_BODY_MAX)),
         )
         .route("/sessions/{id}", get(data::get_session))
+        .route("/sessions/{id}/reveal", post(disk::reveal_session))
         .route("/sessions/{id}/transcript", get(data::transcript))
         .route("/sessions/{id}/media/{offset}/{uuid}/{block}", get(data::media))
         .route("/sessions/{id}/agents", get(data::session_agents))
@@ -161,6 +162,7 @@ pub fn api_router() -> Router<AppState> {
         )
         // ── finding conversations on disk (docs/ACCOUNTS.md §14) ──
         .route("/data/projects", get(disk::projects))
+        .route("/data/projects/reveal", post(disk::reveal_project))
         .route("/data/jobs", get(transfers::list_jobs))
         .route("/data/jobs/{id}", get(transfers::get_job))
         .route("/data/jobs/{id}/undo", post(transfers::undo_job))

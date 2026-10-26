@@ -24,6 +24,7 @@ pub mod model;
 pub mod owned;
 pub mod pricing;
 pub mod registry;
+pub mod reveal;
 pub mod schema;
 pub mod secrets;
 pub mod settings;

@@ -1237,7 +1237,7 @@ pub async fn detail(state: &AppState, summary: SessionSummary) -> SessionDetail 
     // stat'ed after it is released.
     let st = state.clone();
     let sid = id.clone();
-    let (tasks, todos_detail, files_changed) = tokio::task::spawn_blocking(move || {
+    let (tasks, todos_detail, files_changed, files) = tokio::task::spawn_blocking(move || {
         let (tasks, todos, files) = st
             .index
             .with_main(&sid, |f| {
@@ -1295,7 +1295,9 @@ pub async fn detail(state: &AppState, summary: SessionSummary) -> SessionDetail 
                 task
             })
             .collect();
-        (tasks, todos, files)
+        // Where it is on disk (docs/ACCOUNTS.md §14.1).
+        let on_disk = super::disk::conversation_files(&st, &sid);
+        (tasks, todos, files, on_disk)
     })
     .await
     .unwrap_or_default();
@@ -1336,6 +1338,7 @@ pub async fn detail(state: &AppState, summary: SessionSummary) -> SessionDetail 
         todos_detail,
         queued_messages,
         files_changed,
+        files,
     }
 }
 

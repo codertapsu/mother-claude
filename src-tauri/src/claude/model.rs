@@ -985,6 +985,25 @@ pub struct FileChanged {
     pub removed: Option<u64>,
 }
 
+/// Where a conversation is on disk (`SessionDetail.files`, docs/ACCOUNTS.md
+/// §14.1): absolute paths, from the index.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct ConversationFiles {
+    /// The main transcript the index uses (an id in two directories: the
+    /// most recently written copy).
+    pub transcript: String,
+    /// Its `projects/<enc>/<id>/` folder (subagents, tool results).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub folder: Option<String>,
+    /// `file-history/<id>/` (the `/rewind` snapshots).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub file_history: Option<String>,
+    /// The account whose directory holds them (`default` for the shared
+    /// folder, which token accounts use too).
+    pub account: String,
+}
+
 /// `GET /api/sessions/{id}`: the summary plus everything the detail view needs.
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
@@ -999,6 +1018,9 @@ pub struct SessionDetail {
     pub files_changed: Vec<FileChanged>,
     /// The full pending items (store items first, then observed ones).
     pub pending_detail: Vec<PendingItem>,
+    /// Where it is on disk; left out while it has no transcript.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub files: Option<ConversationFiles>,
 }
 
 /// One session's running agents for `GET /api/agents` and the `fleet` frame.

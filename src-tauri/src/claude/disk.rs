@@ -1,7 +1,8 @@
-//! Where conversations are on disk (docs/ACCOUNTS.md §14.2): every project
-//! folder of every account's directory. Everything comes from the index —
-//! which found the files by listing the directories — never from a request,
-//! and no transcript is read here.
+//! Where conversations are on disk (docs/ACCOUNTS.md §14.1–14.2): a
+//! conversation's files, and every project folder of every account's
+//! directory. Everything comes from the index — which found the files by
+//! listing the directories — never from a request, and no transcript is read
+//! here.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -9,8 +10,13 @@ use std::path::{Path, PathBuf};
 use serde::Serialize;
 
 use super::accounts::{AccountKind, DEFAULT_ID};
-use super::model::SessionSummary;
+use super::model::{ConversationFiles, SessionSummary};
 use crate::state::AppState;
+
+/// A directory, not through a symlink.
+fn plain_dir(p: &Path) -> bool {
+    std::fs::symlink_metadata(p).is_ok_and(|m| m.is_dir())
+}
 
 fn text(p: &Path) -> String {
     p.to_string_lossy().into_owned()
@@ -31,6 +37,32 @@ pub fn owner_in(state: &AppState, dir_account: &str, id: &str) -> String {
         Some(a) if a.kind == AccountKind::Token => acting,
         _ => DEFAULT_ID.to_string(),
     }
+}
+
+/// Where a conversation is (`SessionDetail.files`): the main transcript the
+/// index uses (an id in two directories is the most recently written copy,
+/// §5.3), its `projects/<enc>/<id>/` folder and `file-history/<id>/` when
+/// they are directories, and the account whose directory holds them. `None`
+/// while it has no transcript. Blocking (it stats two directories).
+pub fn conversation_files(state: &AppState, id: &str) -> Option<ConversationFiles> {
+    let files = state.index.session_files(id)?;
+    let transcript = files.main?;
+    let account = files.account.unwrap_or_else(|| DEFAULT_ID.to_string());
+    let folder = transcript
+        .parent()
+        .map(|p| p.join(id))
+        .filter(|p| plain_dir(p));
+    let file_history = state
+        .accounts
+        .home(&account)
+        .map(|h| h.file_history_dir().join(id))
+        .filter(|p| plain_dir(p));
+    Some(ConversationFiles {
+        transcript: text(&transcript),
+        folder: folder.as_deref().map(text),
+        file_history: file_history.as_deref().map(text),
+        account,
+    })
 }
 
 /// One project folder of one account (`GET /api/data/projects`).
@@ -65,6 +97,16 @@ fn name_of(cwd: &str) -> String {
         .and_then(|n| n.to_str())
         .unwrap_or(cwd)
         .to_string()
+}
+
+/// A folder named in a request: absolute, without a trailing separator (a
+/// root keeps its own). `None` for a relative one.
+pub fn clean_cwd(raw: &str) -> Option<String> {
+    let trimmed = raw.trim_end_matches(std::path::is_separator);
+    [trimmed, raw]
+        .into_iter()
+        .find(|c| Path::new(c).is_absolute())
+        .map(str::to_string)
 }
 
 /// Every project folder that holds conversations, in every account's
@@ -138,9 +180,35 @@ pub fn projects(state: &AppState, summaries: &[SessionSummary]) -> Vec<ProjectRo
     out
 }
 
+/// The `projects/<enc>` folder of `account`'s conversations of `cwd`, as the
+/// index found it (never built from the request). Blocking.
+pub fn project_folder(
+    state: &AppState,
+    summaries: &[SessionSummary],
+    account: &str,
+    cwd: &str,
+) -> Option<PathBuf> {
+    let cwd = clean_cwd(cwd)?;
+    projects(state, summaries)
+        .into_iter()
+        .find(|r| r.account == account && r.cwd == cwd)
+        .map(|r| r.folder_path)
+        .filter(|p| plain_dir(p))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    #[cfg(unix)]
+    fn a_folder_in_a_request_is_absolute_without_its_trailing_slash() {
+        assert_eq!(clean_cwd("/a/b/").as_deref(), Some("/a/b"));
+        assert_eq!(clean_cwd("/a/b").as_deref(), Some("/a/b"));
+        assert_eq!(clean_cwd("/").as_deref(), Some("/"));
+        assert_eq!(clean_cwd("a/b"), None);
+        assert_eq!(clean_cwd(""), None);
+    }
 
     #[test]
     fn a_row_is_named_after_its_folder() {

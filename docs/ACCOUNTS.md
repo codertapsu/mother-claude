@@ -1500,6 +1500,21 @@ from the Claude directories they are in. §14.6 is the checklist.
   `open <dir>`, `explorer.exe <dir>`, `xdg-open <dir>`.
 - Phones get the paths with a copy button; revealing is the Mac's.
 
+*As built (2026-10-26):* `files.account` is an account id — `default` for the
+shared folder, which token accounts use too; `folder` and `fileHistory` are
+left out when they are not directories, and `files` while the conversation has
+no transcript (a running session before its first turn). The session's reveal
+answers `400 invalid_id` for a malformed id, `404 session_not_found` when no
+session has that id, `404 transcript_not_found` when it has no transcript on
+disk; the project's takes a row of §14.2 (`cwd` may end in a separator) and
+answers `404 project_not_found` for any account and folder without a row and
+`422 invalid_body` without both fields. Both answer `500 reveal_failed` when the
+file manager does not start, and `403 desktop_only` to phones and the
+local-script token. macOS runs `/usr/bin/open`. The command is built by a pure
+function per platform and run by the app state's `reveal`, which a test
+switches to recording (`record_only`; a unit test's records from the start), so
+no test opens a window.
+
 ### 14.2 Every project on disk
 
 `GET /api/data/projects` (`Authed`): every project folder that holds
@@ -1598,7 +1613,7 @@ anywhere").
 
 ### 14.6 Checklist
 
-- [ ] P8.1 `files` in the session detail; reveal a session's transcript and a
+- [x] P8.1 `files` in the session detail; reveal a session's transcript and a
   project's folder (macOS, Windows, Linux).
 - [x] P8.2 `GET /api/data/projects`.
 - [ ] P8.3 `POST /api/data/delete`: plan, skips, jobs per directory, undo,
