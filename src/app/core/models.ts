@@ -470,6 +470,9 @@ export interface SessionDetail extends SessionSummary {
   filesChanged: ChangedFile[];
   /** Full pending items (with complete `input`). */
   pendingDetail?: PendingItem[];
+  /** Where its files are on the Mac (docs/ACCOUNTS.md §14.1), read with
+   * `normalizeSessionFiles` (delete-data.ts). */
+  files?: unknown;
 }
 
 // ─────────────────────────────────────────────────────────────── 4.4 UiEvent
@@ -784,7 +787,7 @@ export type HooksPluginState = 'installed' | 'off' | 'missing' | 'unknown';
 
 // ──────────────── Data jobs: moves, copies, backups (`/data/*`, `/backup*`)
 
-export type DataJobKind = 'move' | 'copy' | 'backup' | 'restore' | 'pull';
+export type DataJobKind = 'move' | 'copy' | 'backup' | 'restore' | 'pull' | 'delete';
 export type DataJobState = 'running' | 'done' | 'failed' | 'undone';
 
 /** `GET /data/jobs/{id}`: a move, copy, backup, restore or pull. */

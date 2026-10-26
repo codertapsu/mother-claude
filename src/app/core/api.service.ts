@@ -4,6 +4,7 @@ import type { NewServer, ServerDefaults, ServerPatch } from './api-servers';
 import { AuthService } from './auth.service';
 import { ConfigService } from './config.service';
 import { activeMock } from './mock/mock-api';
+import type { DeleteBody } from './delete-data';
 import type { MoveBody } from './move-data';
 import {
   AccountDefaults,
@@ -110,7 +111,9 @@ import {
  *             pasteAccountToken(id, token) · cancelTokenCapture(id) ·
  *             installAccountHooks(id) · uninstallAccountHooks(id)
  *   Data      planMove(body) · startMove(body) · listDataJobs() ·
- *             getDataJob(id) · undoDataJob(id)
+ *             getDataJob(id) · undoDataJob(id) · getDataProjects() ·
+ *             planDelete(body) · startDelete(body) · revealSession(id) ·
+ *             revealProject(account, cwd)
  *   Backup    getBackup() · setBackupSettings(patch) ·
  *             generateBackupPassphrase() · setBackupPassphrase(p) ·
  *             pushBackup(account?) · getBackupIndex(account, into?) ·
@@ -493,6 +496,36 @@ export class ApiService {
    * something it created was changed since). */
   undoDataJob(id: string): Promise<JobView> {
     return this.post<JobView>(`/data/jobs/${enc(id)}/undo`, {});
+  }
+
+  // ─────────────────────── Conversations on disk (docs/ACCOUNTS.md §14)
+
+  /** Every project folder that holds conversations, in every account's
+   * directory (`{projects}`). */
+  getDataProjects(): Promise<unknown> {
+    return this.req('/data/projects');
+  }
+
+  /** What a delete would take, nothing taken yet (`{plan}`). Deleting is a
+   * dangerous action: 403 `dangerous_blocked` without the right. */
+  planDelete(body: DeleteBody): Promise<{ plan: unknown }> {
+    return this.post('/data/delete', { ...body, dryRun: true });
+  }
+
+  /** Run it (202): one job per directory (`job` is the first). */
+  startDelete(body: DeleteBody): Promise<{ jobs?: unknown[]; job?: unknown }> {
+    return this.post('/data/delete', { ...body, dryRun: false });
+  }
+
+  /** Desktop only: show the conversation's transcript in Finder, File
+   * Explorer or the file manager (204). */
+  revealSession(id: string): Promise<void> {
+    return this.post(`/sessions/${enc(id)}/reveal`, {});
+  }
+
+  /** Desktop only: open a project's folder in an account's directory. */
+  revealProject(account: string, cwd: string): Promise<void> {
+    return this.post('/data/projects/reveal', { account, cwd });
   }
 
   // ─────────────────────────────────────────────────── Backup and sync

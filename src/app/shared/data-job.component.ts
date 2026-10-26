@@ -24,6 +24,7 @@ import {
   transferErrorText,
 } from '../core/data-jobs';
 import { JobView } from '../core/models';
+import { deleteResultSummary } from '../core/delete-data';
 import { moveResultSummary } from '../core/move-data';
 import { NowService } from '../core/now.service';
 import { StorageService } from '../core/storage.service';
@@ -36,6 +37,7 @@ const ICONS: Record<JobView['kind'], IconName> = {
   backup: 'upload',
   restore: 'download',
   pull: 'download',
+  delete: 'trash',
 };
 
 /** "28 Oct, 14:30". */
@@ -45,7 +47,7 @@ function dateTime(ms: number): string {
 }
 
 /**
- * One data job (a move, copy, backup, restore or pull): what it is, how far
+ * One data job (a move, copy, backup, restore, pull or delete): what it is, how far
  * it got (a progress bar while it runs), one line about how it ended, and —
  * while its undo has not run out — Undo, confirmed with a second tap, from
  * the desktop or a paired phone alike (docs/ACCOUNTS.md §13.9). Emits the
@@ -229,7 +231,9 @@ export class DataJobComponent {
   });
   protected readonly summary = computed(() => {
     const j = this.job();
-    const moved = j.state === 'done' && (j.kind === 'move' || j.kind === 'copy');
+    const done = j.state === 'done';
+    if (done && j.kind === 'delete') return deleteResultSummary(j) ?? '';
+    const moved = done && (j.kind === 'move' || j.kind === 'copy');
     return (moved ? moveResultSummary(j) : null) ?? jobSummary(j);
   });
   protected readonly undoable = computed(() => canUndo(this.job(), this.clock.now()));

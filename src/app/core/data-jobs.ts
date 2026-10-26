@@ -10,7 +10,7 @@ import { DataJobKind, DataJobState, JobView } from './models';
 /** How often a running job is asked about (ms). */
 export const JOB_POLL_MS = 700;
 
-const KINDS: readonly DataJobKind[] = ['move', 'copy', 'backup', 'restore', 'pull'];
+const KINDS: readonly DataJobKind[] = ['move', 'copy', 'backup', 'restore', 'pull', 'delete'];
 const STATES: readonly DataJobState[] = ['running', 'done', 'failed', 'undone'];
 
 function num(v: unknown): number | undefined {
@@ -119,6 +119,7 @@ const KIND_LABELS: Record<DataJobKind, string> = {
   backup: 'Backup',
   restore: 'Restore',
   pull: 'Pull',
+  delete: 'Delete',
 };
 
 export function jobKindLabel(kind: DataJobKind): string {
@@ -127,7 +128,8 @@ export function jobKindLabel(kind: DataJobKind): string {
 
 /** What a job did, with the places it names: "Move from Default to Work",
  * "Move from Work to iCloud Drive", "Copy from Google Drive · Shared to
- * Personal", "Backup of Work", "Restore of Work into Personal". `nameOf`
+ * Personal", "Backup of Work", "Restore of Work into Personal", "Delete
+ * from Work" (the directory it deleted from). `nameOf`
  * gives an account's name and `storageOf` a storage's (undefined when
  * unknown: then only what is known is said). A storage's set is named
  * unless it is the set of the account on the other side. */
@@ -165,6 +167,8 @@ export function jobTitle(
       if (from) return `${kind} from ${from}`;
       return kind;
     }
+    case 'delete':
+      return set ? `${kind} from ${set}` : kind;
     case 'restore': {
       const into = name(j.to);
       if (set && into && j.to !== j.account) return `${kind} of ${set} into ${into}`;
