@@ -14,6 +14,7 @@ import {
 import { MOCK_ACCOUNT_WORK, buildAccounts } from '../core/mock/fixtures';
 import { setActiveMock } from '../core/mock/mock-api';
 import { JobView, SessionSummary } from '../core/models';
+import { RealtimeService } from '../core/realtime.service';
 import {
   DeleteDataSheetComponent,
   DeleteStart,
@@ -262,6 +263,27 @@ describe('DeleteDataSheetComponent', () => {
     expect(text(el.querySelector('.planline'))).toBe('There is nothing to delete here.');
     expect(text(el.querySelector('.skips'))).toContain('It is not there any more.');
     expect(button(el, 'Nothing to delete')?.disabled).toBeTrue();
+  });
+
+  it('names a skipped conversation from the store, and the accounts only when several', async () => {
+    (
+      TestBed.inject(RealtimeService) as unknown as { replaceStore(l: SessionSummary[]): void }
+    ).replaceStore([{ ...session('live1', 'Running right now'), live: true }]);
+    backend.routes.set('/data/delete', () => ({
+      status: 200,
+      body: {
+        plan: {
+          sessions: [{ id: 'p1', files: 3, bytes: 300, account: 'default' }],
+          skipped: [{ id: 'live1', code: 'session_live' }],
+        },
+      },
+    }));
+    const el = await open({
+      what: 'this project',
+      groups: [{ from: 'default', projects: ['/p'] }],
+    });
+    expect(text(el.querySelector('.skips .ptitle'))).toBe('Running right now');
+    expect(text(el.querySelector('[aria-label="What goes"]'))).not.toContain('in Default');
   });
 
   it('names what it deletes', () => {

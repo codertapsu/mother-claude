@@ -31,6 +31,7 @@ import {
   normalizeDeletePlan,
 } from '../core/delete-data';
 import { JobView, SessionSummary } from '../core/models';
+import { RealtimeService } from '../core/realtime.service';
 import { DataJobComponent } from './data-job.component';
 import { IconComponent } from './icon.component';
 import { SheetComponent } from './sheet.component';
@@ -260,6 +261,7 @@ export class DeleteDataSheetComponent {
   private api = inject(ApiService);
   private jobsSvc = inject(DataJobsService);
   private accounts = inject(AccountsService);
+  private realtime = inject(RealtimeService);
   protected readonly canDangerous = inject(AuthService).canDangerous;
 
   readonly open = input(false);
@@ -294,9 +296,11 @@ export class DeleteDataSheetComponent {
     () => (this.plan()?.sessions.length ?? 0) - this.shown().length,
   );
   protected readonly anyRunning = computed(() => this.jobs().some((j) => j.state === 'running'));
-  /** Titles the opener knows. */
+  /** Titles the store and the opener know (a running one that is skipped
+   * is in the store). */
   private readonly titles = computed(() => {
     const out = new Map<string, string>();
+    for (const s of this.realtime.sessions()) out.set(s.id, sessionName(s));
     for (const s of this.started()?.known ?? []) out.set(s.id, sessionName(s));
     for (const s of this.plan()?.sessions ?? []) if (s.title) out.set(s.id, s.title);
     return out;
@@ -329,8 +333,14 @@ export class DeleteDataSheetComponent {
     return this.titles().get(s.id) || s.id.slice(0, 8);
   }
 
+  /** The plan takes conversations of more than one account: each row
+   * names its own. */
+  private readonly accountsInPlan = computed(
+    () => new Set((this.plan()?.sessions ?? []).map((s) => s.account ?? '')).size > 1,
+  );
+
   protected rowLine(s: DeletePlanSession): string {
-    const account = this.accounts.multi() && s.account ? this.accounts.byId(s.account)?.name : '';
+    const account = this.accountsInPlan() && s.account ? this.accounts.byId(s.account)?.name : '';
     return [
       s.id.slice(0, 8),
       shortPath(s.cwd),
