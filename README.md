@@ -102,7 +102,13 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) and [KNOWN_ISSUES.md](KNOWN_ISSUES.md).
   the macOS Keychain) or a *directory account* (a fully separate Claude Code
   setup such as `~/.claude-work`, with its own sign-in, settings and plugins).
   Pick the account per project or per session, and when one reaches its limit,
-  **Continue on…** another. See [docs/ACCOUNTS.md](docs/ACCOUNTS.md).
+  **Switch account** — a session Mother Claude runs goes on under the other
+  account in place (same conversation, same page); one running in a terminal
+  or editor can **Continue on…** another as a new session. Signing in opens
+  the link in your browser (or a private Chrome window, so a browser already
+  signed in to another Claude account cannot authorize the wrong one), one
+  sign-in at a time, and a sign-in that lands in a different Claude account
+  than expected says so. See [docs/ACCOUNTS.md](docs/ACCOUNTS.md).
 - **Move data anywhere, in bulk.** **Select** on the Sessions list, or *Move or
   copy data…* on an account, moves or copies any number of conversations,
   whole projects or everything an account has — between accounts, between the

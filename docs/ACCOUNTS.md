@@ -1947,5 +1947,5 @@ packed, against a total known from the start.
   sign-in panel, identity warnings.
 - [x] P9.5 Dev builds optimize dependencies.
 - [x] P9.6 A backup's progress by bytes.
-- [ ] P9.7 Documents: CLAUDE.md (owned sessions can change account; sign-in),
+- [x] P9.7 Documents: CLAUDE.md (owned sessions can change account; sign-in),
   SECURITY.md, docs/BACKUP.md (progress), README.
