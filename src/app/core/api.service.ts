@@ -1065,6 +1065,10 @@ export function describeError(e: unknown): DescribedError {
   if (e.status === 400 && code === 'https_required') {
     return { text: e.message || 'Open Mother Claude through the https:// address of your tunnel.' };
   }
+  if (e.status === 409 && code === 'switching_account') {
+    // Its account changes right now (docs/ACCOUNTS.md §15.1).
+    return { text: 'Switching accounts — try again in a moment.', retry: true };
+  }
   if ((e.status === 409 || e.status === 410) && code === 'already_decided') {
     return { text: e.message || 'Already answered elsewhere.', alreadyDecided: true };
   }

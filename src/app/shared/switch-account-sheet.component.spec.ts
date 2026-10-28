@@ -216,4 +216,29 @@ describe('SwitchAccountSheetComponent', () => {
     expect(button(el, 'Continue on Marcus (Pro)')).toBeDefined();
     expect(text(el.querySelector('.notice.error'))).toContain('continue it on the other account');
   });
+
+  it('switches a conversation of the API between turns only', async () => {
+    backend.routes.set('/sessions/s1/account', () => ({
+      status: 200,
+      body: { id: 's1', account: MOCK_ACCOUNT_PRO, moved: false },
+    }));
+    const api = {
+      ...ownedCaps(),
+      limits: [{ code: 'bridge_thread', text: 'A conversation of the API.' }],
+    };
+    let el = await open(session({ status: 'working', control: api }));
+    expect(el.querySelector('[aria-label="When"]')).toBeNull();
+    expect(text(el.querySelector('.between'))).toContain('in the middle of a turn');
+    expect(button(el, 'Switch to Marcus (Pro)')?.disabled).toBeTrue();
+    fixture.destroy();
+
+    el = await open(session({ control: api }));
+    expect(text(el.querySelector('.between'))).toBe(
+      'A conversation of the API changes account between turns.',
+    );
+    button(el, 'Switch to Marcus (Pro)')?.click();
+    await settle();
+    // No "when" for it.
+    expect(sent()).toEqual({ account: MOCK_ACCOUNT_PRO });
+  });
 });

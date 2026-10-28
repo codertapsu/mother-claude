@@ -27,11 +27,17 @@ export interface SwitchBody {
 /** Its answer: switched (`200 {id, account, moved}`), or waiting for the
  * turn to end (`202 {pending: true}`). */
 export type SwitchReply =
-  { pending: true } | { pending: false; id: string; account: string; moved: boolean };
+  { pending: true } | { pending: false; id: string; account: string; moved: boolean; job?: string };
 
 export function switchMode(s: Pick<SessionSummary, 'live' | 'owned'>): SwitchMode {
   if (!s.live) return 'later';
   return s.owned ? 'here' : 'elsewhere';
+}
+
+/** A conversation of the API (its summary's limit `bridge_thread`): its
+ * account changes between turns only — no after-this-turn or now. */
+export function isBridgeThread(s: Pick<SessionSummary, 'control'> | undefined): boolean {
+  return !!s?.control?.limits?.some((l) => l?.code === 'bridge_thread');
 }
 
 /** In the middle of a turn: a switch then waits for it to end, or stops it. */
@@ -60,11 +66,13 @@ export function switchingToOf(s: Pick<SessionSummary, 'switchingTo'> | undefined
 export function normalizeSwitchReply(raw: unknown, asked: string): SwitchReply {
   const r = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
   if (r['pending'] === true) return { pending: true };
+  const job = typeof r['job'] === 'string' && r['job'] ? r['job'] : undefined;
   return {
     pending: false,
     id: typeof r['id'] === 'string' ? r['id'] : '',
     account: typeof r['account'] === 'string' ? r['account'] : asked,
     moved: r['moved'] === true,
+    ...(job ? { job } : {}),
   };
 }
 
@@ -89,6 +97,10 @@ export function switchedText(name: string, moved: boolean): string {
   return moved ? `Now on ${name}: the conversation moved to its folder.` : `Now on ${name}.`;
 }
 
+/** What everything the session is asked answers while its account
+ * changes (`409 switching_account`). */
+export const SWITCHING_TEXT = 'Switching accounts — try again in a moment.';
+
 /** A refusal of a switch, in words. */
 export function switchErrorText(e: unknown, accountName?: string): string {
   if (e instanceof ApiError) {
@@ -101,6 +113,27 @@ export function switchErrorText(e: unknown, accountName?: string): string {
         return 'Its API server runs only as its own account.';
       case 'switch_not_pending':
         return 'No switch is waiting any more.';
+      case 'switch_underway':
+        return "The switch has started already: it can't be cancelled now.";
+      case 'switching_account':
+        return SWITCHING_TEXT;
+      case 'already_exists':
+        return `${accountName || 'That account'} already has a copy of this conversation: continue that copy there instead.`;
+      case 'data_job_running':
+        return 'A move, copy, backup or restore is running: try again once it has finished.';
+      case 'dangerous_blocked':
+        return 'This session runs without permission prompts: switching it needs dangerous actions for this device, granted on the Mac in Remote › Devices.';
+      case 'untrusted_cwd':
+        return (
+          e.message ||
+          `${accountName || 'That account'} has never opened this folder with Claude Code: open it there once, or switch from the Mac.`
+        );
+      case 'not_supported':
+        return e.message || "A fork that hasn't run yet can't move to another folder.";
+      case 'switch_failed':
+      case 'session_live':
+      case 'invalid_when':
+        return e.message || 'The switch did not happen.';
       default:
         break;
     }

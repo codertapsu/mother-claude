@@ -28,6 +28,7 @@ import {
   elsewhereText,
   normalizeSwitchReply,
   runningTasks,
+  isBridgeThread,
   switchBusy,
   switchErrorText,
   switchMode,
@@ -169,7 +170,15 @@ interface ConsentAsk extends CopyConsent {
               }
             </div>
 
-            @if (mode() === 'here' && busyTurn()) {
+            @if (bridge()) {
+              <p class="muted small between">
+                {{
+                  busyTurn()
+                    ? 'This conversation of the API is in the middle of a turn: its account changes between turns. Try again once the turn is over.'
+                    : 'A conversation of the API changes account between turns.'
+                }}
+              </p>
+            } @else if (mode() === 'here' && busyTurn()) {
               <h3>When</h3>
               <div class="whens" role="radiogroup" aria-label="When">
                 <label class="when">
@@ -239,7 +248,7 @@ interface ConsentAsk extends CopyConsent {
                 <button
                   class="btn primary"
                   type="button"
-                  [disabled]="!target() || busy()"
+                  [disabled]="!target() || busy() || (bridge() && busyTurn())"
                   (click)="go()"
                 >
                   <mc-icon [name]="mode() === 'elsewhere' ? 'play' : 'user'" [size]="14" />
@@ -327,6 +336,9 @@ interface ConsentAsk extends CopyConsent {
       }
       .why {
         color: var(--amber);
+      }
+      .between {
+        margin: 0.75rem 0 0;
       }
       .whens {
         display: flex;
@@ -416,6 +428,10 @@ export class SwitchAccountSheetComponent {
     if (!s) return 'here';
     return this.runsElsewhere() ? 'elsewhere' : switchMode(s);
   });
+  /** A conversation of the API: between turns only. */
+  protected readonly bridge = computed(
+    () => this.mode() === 'here' && isBridgeThread(this.session()),
+  );
   protected readonly busyTurn = computed(() => {
     const s = this.session();
     return !!s && switchBusy(s);
@@ -550,7 +566,9 @@ export class SwitchAccountSheetComponent {
         }
         throw res.error;
       }
-      const when = this.mode() === 'here' && this.busyTurn() ? this.when() : undefined;
+      // An API conversation has no "when": between turns only.
+      const when =
+        this.mode() === 'here' && this.busyTurn() && !this.bridge() ? this.when() : undefined;
       const reply = normalizeSwitchReply(
         await this.api.switchSessionAccount(s.id, { account: t.id, ...(when ? { when } : {}) }),
         t.id,

@@ -1,7 +1,9 @@
-import { ApiError } from '../core/api.service';
+import { ApiError, describeError } from '../core/api.service';
 import { SessionSummary } from '../core/models';
 import {
+  SWITCHING_TEXT,
   elsewhereText,
+  isBridgeThread,
   normalizeSwitchReply,
   runningTasks,
   switchBusy,
@@ -51,6 +53,13 @@ describe('switch account helpers', () => {
       account: 'acc_w',
       moved: true,
     });
+    // A switch that moved it: the move's job.
+    expect(
+      normalizeSwitchReply({ id: 's1', account: 'acc_w', moved: true, job: 'j1' }, 'acc_w'),
+    ).toEqual({ pending: false, id: 's1', account: 'acc_w', moved: true, job: 'j1' });
+    expect(normalizeSwitchReply({ id: 's1', account: 'acc_w', pending: true }, 'acc_w')).toEqual({
+      pending: true,
+    });
     expect(normalizeSwitchReply(null, 'acc_w')).toEqual({
       pending: false,
       id: '',
@@ -74,7 +83,34 @@ describe('switch account helpers', () => {
     ).toBe(1);
   });
 
+  it('knows a conversation of the API by its limit', () => {
+    const limits = [{ code: 'bridge_thread', text: 'A conversation of the API.' }];
+    expect(isBridgeThread(s({ control: { limits } as SessionSummary['control'] }))).toBeTrue();
+    expect(
+      isBridgeThread(s({ control: { limits: [] } as unknown as SessionSummary['control'] })),
+    ).toBeFalse();
+    expect(isBridgeThread(undefined)).toBeFalse();
+  });
+
   it('puts a switch and its refusals in words', () => {
+    expect(switchErrorText(new ApiError('', 409, 'http', 'switch_underway'))).toContain(
+      "can't be cancelled now",
+    );
+    expect(switchErrorText(new ApiError('', 409, 'http', 'already_exists'), 'Work')).toBe(
+      'Work already has a copy of this conversation: continue that copy there instead.',
+    );
+    expect(switchErrorText(new ApiError('', 403, 'http', 'dangerous_blocked'))).toContain(
+      'runs without permission prompts',
+    );
+    expect(
+      switchErrorText(
+        new ApiError('the move failed. It goes on under Default.', 500, 'http', 'switch_failed'),
+      ),
+    ).toBe('the move failed. It goes on under Default.');
+    // Everything else the session is asked while it switches.
+    expect(describeError(new ApiError('', 409, 'http', 'switching_account')).text).toBe(
+      SWITCHING_TEXT,
+    );
     expect(switchedText('Work', false)).toBe('Now on Work.');
     expect(switchedText('Work', true)).toBe('Now on Work: the conversation moved to its folder.');
     expect(switchErrorText(new ApiError('', 409, 'http', 'session_not_owned'))).toContain(
