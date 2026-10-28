@@ -19,6 +19,7 @@ import { AccountDefaults, AccountView, JobView, ProjectInfo } from '../../core/m
 import { accountLocation, anyTarget } from '../../core/move-data';
 import { NowService } from '../../core/now.service';
 import { PlanUsageService } from '../../core/plan-usage.service';
+import { accountSigningIn, signInWaitText } from '../../core/sign-in';
 import { StorageService } from '../../core/storage.service';
 import {
   SignInLine,
@@ -26,6 +27,7 @@ import {
   accountKindLabel,
   hooksPluginText,
   secretStoreText,
+  signInErrorText,
   signInLine,
   usageLine,
 } from '../../shared/accounts';
@@ -37,6 +39,7 @@ import { PlanUsageComponent } from '../../shared/plan-usage.component';
 import { Tone, shortPath } from '../../shared/util';
 import { AccountAddSheetComponent } from './account-add-sheet.component';
 import { AccountSheetComponent } from './account-sheet.component';
+import { IdentityWarningComponent } from './identity-warning.component';
 
 /** Recent moves and copies listed (their Undo lasts seven days). */
 const MOVES_SHOWN = 6;
@@ -60,6 +63,12 @@ interface Row {
   hasUsage: boolean;
   /** The one thing it needs from the desktop now. */
   action: 'signin' | 'token' | null;
+  /** Its sign-in runs (its panel is in its sheet). */
+  signingIn: boolean;
+  /** Another account's sign-in runs: "Waiting for Work's sign-in". */
+  wait: string;
+  /** Its email when the sign-in line doesn't say it ('' otherwise). */
+  email: string;
   /** Its hooks plugin in a few words ('' for a token account: it uses the
    * Default's). */
   hooks: string;
@@ -102,6 +111,7 @@ interface ProjectRow {
     AccountSheetComponent,
     DataJobComponent,
     IconComponent,
+    IdentityWarningComponent,
     MoveDataSheetComponent,
     PlanUsageComponent,
   ],
@@ -139,18 +149,23 @@ export class AccountsComponent {
     const d = this.defaults();
     const multi = this.accounts.multi();
     const live = this.accounts.liveCounts();
-    return this.accounts.list().map((a) => {
+    const list = this.accounts.list();
+    return list.map((a) => {
       const roles: string[] = [];
       if (a.isDefault && a.name !== 'Default') roles.push('Default');
       if (multi && d?.newSession === a.id) roles.push('New sessions');
       if (multi && d?.bridge === a.id) roles.push('API');
       const usage = this.plan.usageOf(a.id);
       const compact = compactPlan(usage, now);
+      const line = signInLine(a);
       return {
         a,
         color: isAccountColor(a.color) ? a.color : 'var(--accent)',
         kind: accountKindLabel(a),
-        signIn: signInLine(a),
+        signIn: line,
+        signingIn: accountSigningIn(a),
+        wait: signInWaitText(a, list),
+        email: a.email && !line.text.includes(a.email) ? a.email : '',
         live: live.get(a.id) ?? 0,
         roles,
         meters: compact?.meters ?? [],
@@ -225,7 +240,7 @@ export class AccountsComponent {
     // The project picker's suggestions.
     void this.loadProjects();
     effect((onCleanup) => {
-      if (!this.accounts.list().some((a) => a.signingIn || a.checking)) return;
+      if (!this.accounts.list().some((a) => accountSigningIn(a) || a.checking)) return;
       const timer = setInterval(() => void this.accounts.refresh(), WATCH_MS);
       onCleanup(() => clearInterval(timer));
     });
@@ -284,8 +299,10 @@ export class AccountsComponent {
     this.error.set('');
     try {
       await this.accounts.login(a.id);
+      // Its sheet shows the sign-in: its link, a private window, Cancel.
+      this.managing.set(a.id);
     } catch (e) {
-      this.error.set(`${a.name}: ${describeError(e).text}`);
+      this.error.set(`${a.name}: ${signInErrorText(e, (id) => this.accounts.byId(id)?.name)}`);
     } finally {
       this.busyId.set(null);
     }
@@ -436,7 +453,7 @@ export class AccountsComponent {
 /** What an account needs from the desktop now: a sign-in for a directory
  * account that is signed out (or failed), a token for a token account. */
 function needs(a: AccountView): Row['action'] {
-  if (a.signingIn) return null;
+  if (accountSigningIn(a)) return null;
   if (a.kind === 'token') {
     return !a.tokenStored || a.attention === 'authFailed' ? 'token' : null;
   }

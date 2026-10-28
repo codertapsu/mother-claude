@@ -26,6 +26,7 @@ import { shortPath } from '../../shared/util';
 import { AccountColorsComponent } from './account-colors.component';
 import { AccountSignInComponent } from './account-signin.component';
 import { AccountTokenComponent } from './account-token.component';
+import { IdentityWarningComponent } from './identity-warning.component';
 
 /**
  * One account's administration — its name and colour (the desktop or a
@@ -46,6 +47,7 @@ import { AccountTokenComponent } from './account-token.component';
     AccountSignInComponent,
     AccountTokenComponent,
     IconComponent,
+    IdentityWarningComponent,
     SheetComponent,
   ],
   template: `
@@ -97,6 +99,7 @@ import { AccountTokenComponent } from './account-token.component';
         </form>
 
         <h3>Sign-in</h3>
+        <mc-identity-warning [account]="a" />
         @if (!isDesktop()) {
           <p class="small state" [attr.data-tone]="signIn(a).tone">{{ signIn(a).text }}</p>
           <p class="muted small onmac">

@@ -46,6 +46,10 @@
               }
             </span>
             <span class="small state" [attr.data-tone]="r.signIn.tone">{{ r.signIn.text }}</span>
+            @if (r.email) {
+              <span class="muted small">{{ r.email }}</span>
+            }
+            <mc-identity-warning [account]="r.a" (started)="managing.set(r.a.id)" />
             <span class="muted small"
               >{{ liveText(r.live) }}
               @if (r.hooks) {
@@ -121,19 +125,33 @@
             }
           </div>
           <div class="aacts">
-            @if (isDesktop() && r.action === 'signin') {
+            @if (isDesktop() && r.signingIn) {
+              <button
+                class="btn small"
+                type="button"
+                [attr.aria-label]="'Show the sign-in of ' + r.a.name"
+                (click)="managing.set(r.a.id)"
+              >
+                <span class="spin" aria-hidden="true"></span> Signing in…
+              </button>
+            } @else if (isDesktop() && r.action === 'signin') {
               <button
                 class="btn small primary"
                 type="button"
-                [disabled]="busyId() === r.a.id"
+                [disabled]="busyId() === r.a.id || !!r.wait"
                 (click)="signIn(r.a)"
               >
-                {{ busyId() === r.a.id ? 'Opening the browser…' : 'Sign in' }}
+                {{ r.wait || (busyId() === r.a.id ? 'Starting…' : 'Sign in') }}
               </button>
             } @else if (isDesktop() && r.action === 'token') {
-              <button class="btn small primary" type="button" (click)="managing.set(r.a.id)">
+              <button
+                class="btn small primary"
+                type="button"
+                [disabled]="!!r.wait"
+                (click)="managing.set(r.a.id)"
+              >
                 <mc-icon name="key" [size]="14" />
-                {{ r.a.tokenStored ? 'New token' : 'Get token' }}
+                {{ r.wait || (r.a.tokenStored ? 'New token' : 'Get token') }}
               </button>
             }
             @if (moveOffered()) {

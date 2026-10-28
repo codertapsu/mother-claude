@@ -272,4 +272,60 @@ describe('AccountsComponent', () => {
     expect(text(rows[1])).toContain('Copied 1 session.');
     expect(text(rows[1].querySelector('.undo .btn'))).toBe('Undo');
   });
+
+  it('shows a running sign-in on its row, and the others wait for it', async () => {
+    asDesktop();
+    const view = buildAccounts(Date.now(), true);
+    view.accounts = view.accounts.map((a) =>
+      a.id === MOCK_ACCOUNT_WORK
+        ? {
+            ...a,
+            signedIn: false,
+            attention: 'signedOut' as const,
+            signIn: { kind: 'login' as const, state: 'open' as const, startedAt: 1 },
+          }
+        : a.id === MOCK_ACCOUNT_PRO
+          ? { ...a, tokenStored: false, attention: 'tokenMissing' as const }
+          : a,
+    );
+    serveAccounts(backend, view);
+    const el = await render();
+    const rows = [...el.querySelectorAll('.acct')];
+    const showSignIn = rows[1].querySelector<HTMLButtonElement>(
+      'button[aria-label="Show the sign-in of Work"]',
+    );
+    expect(text(showSignIn)).toBe('Signing in…');
+    // One sign-in at a time: Pro's token waits for Work's.
+    const proButton = [...rows[2].querySelectorAll<HTMLButtonElement>('button.primary')][0];
+    expect(text(proButton)).toBe("Waiting for Work's sign-in");
+    expect(proButton.disabled).toBeTrue();
+    showSignIn?.click();
+    fixture.detectChanges();
+    await flush();
+    fixture.detectChanges();
+    expect(el.querySelector('mc-account-sheet mc-sign-in-panel')).not.toBeNull();
+  });
+
+  it('warns about a changed identity on its row, and keeps it on asking', async () => {
+    asDesktop();
+    const view = buildAccounts(Date.now(), true);
+    view.accounts = view.accounts.map((a) =>
+      a.id === MOCK_ACCOUNT_WORK ? { ...a, identityWarning: { kind: 'changed' as const } } : a,
+    );
+    serveAccounts(backend, view);
+    backend.routes.set(`/accounts/${MOCK_ACCOUNT_WORK}/identity/accept`, () => ({
+      status: 200,
+      body: {},
+    }));
+    const el = await render();
+    const row = [...el.querySelectorAll('.acct')][1];
+    expect(text(row.querySelector('mc-identity-warning'))).toContain(
+      'It signed in as a different Claude account than before.',
+    );
+    [...row.querySelectorAll<HTMLButtonElement>('mc-identity-warning button')]
+      .find((b) => text(b) === 'Keep')
+      ?.click();
+    await flush();
+    expect(backend.calls).toContain(`POST /accounts/${MOCK_ACCOUNT_WORK}/identity/accept`);
+  });
 });

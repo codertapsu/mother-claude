@@ -242,3 +242,15 @@ h3 {
     width: 100%;
   }
 }
+
+/* A sign-in that runs, on its row's button. */
+.spin {
+  display: inline-block;
+  width: 0.8rem;
+  height: 0.8rem;
+  border: 2px solid var(--border-strong);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: mc-spin 0.8s linear infinite;
+  vertical-align: -0.1rem;
+}
