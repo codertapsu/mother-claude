@@ -276,6 +276,9 @@ export interface SessionSummary {
   /** The Claude account it runs (or ran) under. Absent while only the
    * Default account exists (docs/ACCOUNTS.md §4.4). */
   account?: AccountRef;
+  /** The account it switches to once its turn ends (docs/ACCOUNTS.md
+   * §15.1; read with `switchingToOf`, switch-account.ts). */
+  switchingTo?: unknown;
 }
 
 // ─────────────────────────────────────────── 4.2 Pending items & responding
@@ -704,6 +707,35 @@ export interface CaptureView {
   finishedAt?: number;
 }
 
+/** Where an account's sign-in is (docs/ACCOUNTS.md §15.2): `open` once its
+ * link is known, `code` while the CLI asks for the code the browser shows. */
+export type SignInState = 'starting' | 'open' | 'code' | 'done' | 'failed' | 'cancelled';
+
+/** `login`: `claude auth login` (the Default, a directory account);
+ * `token`: `claude setup-token` (a token account). */
+export type SignInKind = 'login' | 'token';
+
+/** A sign-in as clients see it (never a token): its link only in the
+ * desktop's own reads. */
+export interface SignInView {
+  kind: SignInKind;
+  state: SignInState;
+  url?: string;
+  startedAt: number;
+  error?: string;
+}
+
+/** Who signed in is not who signed in before, or is who another account
+ * signed in as (docs/ACCOUNTS.md §15.3). */
+export interface IdentityWarning {
+  kind: 'changed' | 'same-as';
+  /** `same-as`: that other account. */
+  account?: string;
+}
+
+/** Where `POST /accounts/{id}/sign-in/open` opens the sign-in link. */
+export type SignInBrowser = 'default' | 'chrome' | 'chrome-private';
+
 export interface AccountView {
   /** `default` or `acc_` + 12 hex. */
   id: string;
@@ -733,6 +765,9 @@ export interface AccountView {
   /** Live sessions (only in `GET /accounts` answers). */
   live?: number;
   capture?: CaptureView;
+  /** A sign-in that runs, or the last one (docs/ACCOUNTS.md §15.2). */
+  signIn?: SignInView;
+  identityWarning?: IdentityWarning;
 }
 
 /** Which account new work runs under when nobody says. */

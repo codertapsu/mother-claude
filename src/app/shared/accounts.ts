@@ -149,6 +149,30 @@ export function accountErrorText(e: unknown, accountName?: string): string {
   return isTransferRefusal(e) ? transferErrorText(e) : describeError(e).text;
 }
 
+/** A refusal of a sign-in, in words (`nameOf` names the account another
+ * sign-in runs for: one runs at a time, docs/ACCOUNTS.md §15.3). */
+export function signInErrorText(
+  e: unknown,
+  nameOf: (id: string) => string | undefined = () => undefined,
+): string {
+  if (e instanceof ApiError) {
+    switch (e.code) {
+      case 'sign_in_running': {
+        const id = e.detail('account');
+        const name = (id && nameOf(id)) || 'Another account';
+        return `${name}'s sign-in is running: one sign-in runs at a time. Finish or cancel it first.`;
+      }
+      case 'sign_in_not_running':
+        return 'That sign-in is not running any more.';
+      case 'browser_unavailable':
+        return "That browser isn't on this Mac: copy the link instead.";
+      default:
+        break;
+    }
+  }
+  return describeError(e).text;
+}
+
 /** A session belongs to the account an account filter picked ('' = every
  * account). A session that names no account matches only "every account". */
 export function inAccount(s: { account?: { id: string } } | undefined, filter: string): boolean {

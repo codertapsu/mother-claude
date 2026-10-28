@@ -9,6 +9,7 @@ import {
   CopyConsent,
   SecretStoreKind,
 } from './models';
+import { normalizeIdentityWarning, normalizeSignIn } from './sign-in';
 
 /**
  * Pure helpers for the Claude accounts (`GET /accounts`, `accounts` frames;
@@ -95,6 +96,8 @@ function normalizeAccount(raw: unknown): AccountView | null {
   if (!id || !name || !kind) return null;
   const attention = ATTENTION.find((a) => a === r['attention']);
   const capture = normalizeCapture(r['capture']);
+  const signIn = normalizeSignIn(r['signIn']);
+  const identityWarning = normalizeIdentityWarning(r['identityWarning']);
   const live = num(r['live']);
   const color = r['color'];
   const optional = (key: string) => {
@@ -121,6 +124,8 @@ function normalizeAccount(raw: unknown): AccountView | null {
     ...optional('hooksPlugin'),
     ...(live !== undefined && live >= 0 ? { live } : {}),
     ...(capture ? { capture } : {}),
+    ...(signIn ? { signIn } : {}),
+    ...(identityWarning ? { identityWarning } : {}),
   } as AccountView;
 }
 

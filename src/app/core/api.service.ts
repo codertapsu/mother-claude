@@ -59,6 +59,7 @@ import {
   SessionPushPref,
   SessionsPage,
   SessionsQuery,
+  SignInBrowser,
   SpawnBody,
   TerminalText,
   TokenStatus,
@@ -99,14 +100,18 @@ import {
  *             setMode(id, mode) · setEffort(id, e) · setUltracode(id, on) ·
  *             setThinking(id, on) · rename(id, name) ·
  *             stopTask(id, taskId) · respond(id, body) ·
- *             continueSession(id, body) · sendKey(id, key) ·
+ *             continueSession(id, body) · switchSessionAccount(id, body) ·
+ *             cancelSessionSwitch(id) · sendKey(id, key) ·
  *             lifecycle(id, action)
  *   Usage     getPlanUsage() · refreshPlanUsage(account?) ·
  *             setPlanUsageSettings(intervalSecs)
  *   Accounts  getAccounts() · addAccount(body) · updateAccount(id, patch) ·
  *             removeAccount(id) · setAccountDefaults(d) ·
  *             setCopyConsent(from, to, granted) · recheckAccount(id) ·
- *             loginAccount(id, consoleAccount?) · getAccountToken(id) ·
+ *             loginAccount(id, consoleAccount?) · getAccount(id) ·
+ *             getSignInBrowsers(id) · openSignIn(id, browser) ·
+ *             sendSignInCode(id, code) · cancelSignIn(id) ·
+ *             acceptIdentity(id) · getAccountToken(id) ·
  *             startTokenCapture(id) · sendTokenCode(id, code) ·
  *             pasteAccountToken(id, token) · cancelTokenCapture(id) ·
  *             installAccountHooks(id) · uninstallAccountHooks(id)
@@ -348,6 +353,20 @@ export class ApiService {
     return this.post(`/sessions/${enc(id)}/continue`, body);
   }
 
+  /** Switch a session's account (docs/ACCOUNTS.md §15.1): `200 {id,
+   * account, moved}`, or `202 {pending: true}` while its turn runs. */
+  switchSessionAccount(
+    id: string,
+    body: { account: string; when?: 'idle' | 'now' },
+  ): Promise<unknown> {
+    return this.post(`/sessions/${enc(id)}/account`, body);
+  }
+
+  /** Cancel a switch waiting for the end of a turn. */
+  cancelSessionSwitch(id: string): Promise<void> {
+    return this.req(`/sessions/${enc(id)}/account`, { method: 'DELETE' });
+  }
+
   /** tmux sessions only (local / allow-dangerous clients). */
   sendKey(id: string, key: KeyName): Promise<void> {
     return this.post(`/sessions/${enc(id)}/keys`, { key });
@@ -436,6 +455,36 @@ export class ApiService {
       `/accounts/${enc(id)}/login`,
       consoleAccount ? { console: true } : {},
     );
+  }
+
+  /** One account, with its sign-in's link in the desktop's own read. */
+  getAccount(id: string): Promise<AccountView> {
+    return this.req<AccountView>(`/accounts/${enc(id)}`);
+  }
+
+  /** Desktop only: the browsers a sign-in link may open in (§15.2). */
+  getSignInBrowsers(id: string): Promise<unknown> {
+    return this.req(`/accounts/${enc(id)}/sign-in/open`);
+  }
+
+  /** Desktop only: open the running sign-in's link in a browser. */
+  openSignIn(id: string, browser: SignInBrowser): Promise<void> {
+    return this.post(`/accounts/${enc(id)}/sign-in/open`, { browser });
+  }
+
+  /** Desktop only: type the code the browser shows into the sign-in. */
+  sendSignInCode(id: string, code: string): Promise<unknown> {
+    return this.post(`/accounts/${enc(id)}/sign-in/code`, { code });
+  }
+
+  /** Desktop only: stop the account's sign-in. */
+  cancelSignIn(id: string): Promise<void> {
+    return this.req(`/accounts/${enc(id)}/sign-in`, { method: 'DELETE' });
+  }
+
+  /** Keep who the account signed in as (its identity warning goes). */
+  acceptIdentity(id: string): Promise<AccountView> {
+    return this.post<AccountView>(`/accounts/${enc(id)}/identity/accept`, {});
   }
 
   /** Desktop only: a token account's `setup-token` run (with its URL). */
