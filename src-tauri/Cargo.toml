@@ -93,6 +93,13 @@ experimental = ["dep:portable-pty"]
 # (docs/ACCOUNTS.md D3). Without it a token account's token can only be pasted.
 token-capture = ["dep:portable-pty"]
 
+# Dependencies optimized in `tauri dev` and `cargo test` too: backups gzip,
+# encrypt and hash every byte (age, flate2, sha2), which unoptimized run about
+# ten times slower — minutes for one large conversation. Our own crate stays
+# unoptimized, so it still builds fast and debugs well.
+[profile.dev.package."*"]
+opt-level = 3
+
 [profile.release]
 strip = true
 lto = true
