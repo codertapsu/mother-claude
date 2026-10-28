@@ -564,7 +564,8 @@ shared — it authenticates the plugin to us, not an account.
 ### 5.8 Sign-in status per account (`claude/auth.rs`)
 
 `refresh_claude_auth` runs `claude auth status --json` once per account, in
-parallel, at startup and after a login; `begin_login` takes the environment.
+parallel, at startup and after a login; the login runs with the account's
+environment (in a pseudo-terminal since §15.2, `accounts/signin.rs`).
 For token accounts the status comes from the same command with the token
 set. An `authentication_failed` from an owned session or the bridge marks
 the account "needs sign-in" immediately.
