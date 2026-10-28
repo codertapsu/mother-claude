@@ -166,6 +166,12 @@ const POLL_MS = 1_500;
         flex-wrap: wrap;
         gap: 0.4rem;
       }
+      /* A long label wraps on a phone rather than leave the sheet. */
+      .opens .btn {
+        max-width: 100%;
+        white-space: normal;
+        text-align: left;
+      }
     `,
   ],
 })
