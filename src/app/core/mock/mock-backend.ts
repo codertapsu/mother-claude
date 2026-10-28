@@ -160,6 +160,8 @@ class FixtureBackend implements MockBackend {
           sessions: [sessionId],
           undo: true,
         })).id,
+      notice: (level, text, session) =>
+        this.broadcast({ t: 'notice', level, text, ...(session ? { session } : {}) }),
     });
     if (ACCOUNTS_MODE === '1' || ACCOUNTS_MODE === 'limit' || MOCK_SERVERS) {
       this.fx.accounts = buildAccounts(now, true);

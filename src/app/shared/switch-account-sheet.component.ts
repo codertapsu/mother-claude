@@ -578,7 +578,9 @@ export class SwitchAccountSheetComponent {
         this.notices.info(`${sessionName(s)} switches to ${t.name} once its turn ends.`);
         return;
       }
-      this.notices.success(switchedText(t.name, reply.moved));
+      // The Mac tells every client how the switch of a running session
+      // ended ("… goes on under Work"); one that doesn't run, only here.
+      if (this.mode() === 'later') this.notices.success(switchedText(t.name, reply.moved));
       this.closed.emit();
     } catch (e) {
       this.refused(e, t);

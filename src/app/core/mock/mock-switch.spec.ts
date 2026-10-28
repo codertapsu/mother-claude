@@ -19,15 +19,17 @@ describe('MockSwitch (switching and sign-ins, as the server answers)', () => {
   let accounts: AccountView[];
   let owners: Record<string, string>;
   let consent: boolean;
+  let notices: string[];
   let mock: MockSwitch;
 
   beforeEach(() => {
     jasmine.clock().install();
     role = 'desktop';
     consent = false;
+    notices = [];
     sessions = [
-      session('busy', { status: 'working' }),
-      session('idle', {}),
+      session('busy', { status: 'working', name: 'api' }),
+      session('idle', { name: 'web' }),
       session('vscode', { owned: false, surface: 'vscode' }),
       session('ended', { live: false, status: 'ended' }),
     ];
@@ -55,6 +57,7 @@ describe('MockSwitch (switching and sign-ins, as the server answers)', () => {
       accountJson: (id, status = 200) =>
         new Response(JSON.stringify(accounts.find((a) => a.id === id)), { status }),
       moveJob: () => 'job-move-1',
+      notice: (level, text) => notices.push(`${level}: ${text}`),
     };
     mock = new MockSwitch(host);
   });
@@ -75,13 +78,17 @@ describe('MockSwitch (switching and sign-ins, as the server answers)', () => {
       body: { id: 'idle', account: 'acc_p', moved: false },
     });
     expect(owners['idle']).toBe('acc_p');
+    // Every client hears it, as from the Mac.
+    expect(notices).toEqual(['success: web goes on under Pro']);
 
     const pending = await call('/sessions/busy/account', 'POST', { account: 'acc_p' });
     expect(pending).toEqual({ status: 202, body: { id: 'busy', account: 'acc_p', pending: true } });
     expect(sessions[0].switchingTo).toBe('acc_p');
+    expect(notices.length).toBe(1);
     jasmine.clock().tick(4_100);
     expect(owners['busy']).toBe('acc_p');
     expect(sessions[0].switchingTo).toBeUndefined();
+    expect(notices[1]).toBe('success: api goes on under Pro');
 
     // Cancelled before the turn ends: nothing switches.
     owners['busy'] = 'default';
@@ -114,6 +121,8 @@ describe('MockSwitch (switching and sign-ins, as the server answers)', () => {
       moved: true,
       job: 'job-move-1',
     });
+    // One that doesn't run: only its asker hears it.
+    expect(notices).toEqual([]);
     const when = await call('/sessions/idle/account', 'POST', { account: 'acc_w', when: 'later' });
     expect(when?.body.error.code).toBe('invalid_when');
   });

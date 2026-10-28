@@ -16,6 +16,7 @@ import {
 } from '../core/mock/fixtures';
 import { setActiveMock } from '../core/mock/mock-api';
 import { AccountRef, SessionSummary } from '../core/models';
+import { NoticeService } from '../core/notice.service';
 import { SwitchAccountSheetComponent } from './switch-account-sheet.component';
 
 const DEFAULT_REF: AccountRef = {
@@ -95,12 +96,30 @@ describe('SwitchAccountSheetComponent', () => {
     expect(text(el.querySelector('.lede'))).toContain(
       'The same session goes on under the account you pick',
     );
+    const success = spyOn(TestBed.inject(NoticeService), 'success').and.callThrough();
     const closed = jasmine.createSpy('closed');
     fixture.componentInstance.closed.subscribe(closed);
     button(el, 'Switch to Marcus (Pro)')?.click();
     await settle();
     expect(sent()).toEqual({ account: MOCK_ACCOUNT_PRO });
     expect(closed).toHaveBeenCalled();
+    // The Mac's notice to every client says it, not a second one from here.
+    expect(success).not.toHaveBeenCalled();
+  });
+
+  it('says it switched one that does not run: the Mac tells nobody', async () => {
+    backend.routes.set('/sessions/s1/account', () => ({
+      status: 200,
+      body: { id: 's1', account: MOCK_ACCOUNT_WORK, moved: true, job: 'j1' },
+    }));
+    const el = await open(session({ live: false, status: 'ended' }));
+    const success = spyOn(TestBed.inject(NoticeService), 'success').and.callThrough();
+    target(el, 'Work')?.click();
+    await settle();
+    button(el, 'Switch to Work')?.click();
+    await settle();
+    expect(sent()).toEqual({ account: MOCK_ACCOUNT_WORK });
+    expect(success).toHaveBeenCalledWith('Now on Work: the conversation moved to its folder.');
   });
 
   it('waits for the turn by default, shows the switch waiting, and cancels it', async () => {

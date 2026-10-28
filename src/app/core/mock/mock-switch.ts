@@ -6,7 +6,8 @@
 //   (`switchingTo`, a few seconds here) unless asked `now`; one another app
 //   runs is refused (`session_not_owned`); one that doesn't run switches for
 //   its next continue. Another directory needs the copy consent, like
-//   Continue on. `DELETE` cancels a waiting switch.
+//   Continue on. `DELETE` cancels a waiting switch. A running session's
+//   switch is announced to every client (a `notice`), as the Mac does.
 // - Sign-ins: a login (`POST /accounts/{id}/login`) shows its link, then
 //   lands with a changed-identity warning; a token sign-in (`POST
 //   /accounts/{id}/token {}`) shows its link and waits for the code the
@@ -46,6 +47,8 @@ export interface SwitchHost {
   accountJson(id: string, status?: number): Response;
   /** A switch that moved a conversation: its undoable move job's id. */
   moveJob(sessionId: string, from: string, to: string): string;
+  /** A notice to every client (the `notice` frame). */
+  notice(level: 'info' | 'success' | 'warning' | 'error', text: string, session?: string): void;
 }
 
 export class MockSwitch {
@@ -183,6 +186,7 @@ export class MockSwitch {
             activity: { kind: 'idle', label: 'Idle' },
           });
           this.host.reassign(id, target.id);
+          this.announce(s, target);
         }, TURN_ENDS_MS),
       );
       return json({ id, account: target.id, pending: true }, 202);
@@ -196,7 +200,15 @@ export class MockSwitch {
     }
     const job = moved ? this.host.moveJob(id, from, target.id) : undefined;
     this.host.reassign(id, target.id);
+    if (s.live) this.announce(s, target);
     return json({ id, account: target.id, moved, ...(job ? { job } : {}) });
+  }
+
+  /** Like the Mac: every client hears how a running session's switch
+   * ended (one that doesn't run, only its asker). */
+  private announce(s: SessionSummary, target: AccountView): void {
+    const name = s.name?.trim() || `Session ${s.id.slice(0, 8)}`;
+    this.host.notice('success', `${name} goes on under ${target.name}`, s.id);
   }
 
   // ─────────────────────────────────────────────────────── Signing in
