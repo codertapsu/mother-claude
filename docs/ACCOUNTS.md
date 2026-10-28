@@ -1682,3 +1682,122 @@ anywhere").
 - [x] P8.4 UI: Select with Delete, the Projects view, the session's paths and
   reveal, the delete dialog, the API screen's entries, the mock backend.
 - [x] P8.5 Documents (§14.5).
+
+---
+
+## 15. Switching a session's account, and signing in safely (2026-10-28)
+
+Asked on 2026-10-28: switch any running session to another account
+seamlessly where it can be done; sign-ins open Google Chrome or the default
+browser for the user to sign in by hand; every token stays with its own
+account, never mixed up; and backups looked impossible in `tauri dev` (they
+ran 5–7× slower — fixed by optimizing dependencies in dev builds, 4334a0d).
+§15.5 is the checklist.
+
+### 15.1 Switching a session's account
+
+`POST /api/sessions/{id}/account {account, when?: "idle" | "now"}` (`Authed`,
+as continuing a session; a move into another directory needs the pair's copy
+consent, §11.2, as "Continue on" does — `409 copy_consent_required`):
+
+- **A session Mother Claude runs** (an owned process): the same session goes
+  on under the other account — same id, same transcript, same page. Our
+  process stops, its pending approvals are withdrawn, and it is resumed in
+  place (`--resume <id>`, never a fork) with the other account's
+  environment and the settings it had (model, effort, thinking, permission
+  mode). Between accounts that share a directory (the Default and token
+  accounts) nothing moves; into another directory the conversation moves
+  there first (the transfer engine's move; an undo job like any move).
+  Busy with a turn: `when: "idle"` (default) answers `202 {pending: true}`
+  and switches as soon as the turn ends (`switchingTo` on the session's
+  summary; `DELETE /api/sessions/{id}/account` cancels it); `when: "now"`
+  interrupts the turn first. Background tasks the process started stop with
+  it — the summary's `tasks` say how many, and the UI says so before.
+- **A session that does not run**: the next continue runs under the other
+  account (an assign within the shared folder, a move into another one).
+- **A conversation of the API** (a bridge thread): between turns, its account
+  changes the same way (files moved when the directory changes); during one
+  `409 turn_running`; on an `accountOnly` server, `403 account_not_served`.
+- **A session another process runs** (a terminal, VS Code, JetBrains): its
+  process cannot change accounts — `409 session_not_owned`, and the UI offers
+  *Continue on* the other account (a new session from where it stands; the
+  original keeps running), as today.
+- Answers: `200 {id, account, moved}` when switched; audit `session.account`
+  with from/to; a desktop notice when a device did it.
+
+### 15.2 Signing in opens a browser
+
+Both sign-ins run in a pseudo-terminal: `claude auth login` (the Default and
+directory accounts — today it runs without a terminal, so the CLI thinks it is
+headless, never opens a browser and its link is lost) and `claude
+setup-token` (token accounts). Each gets `BROWSER=true`, so the CLI never
+opens a browser itself; the sign-in link is read from its screen (the OSC 8
+link or the visible URL) and **Mother Claude opens it**:
+
+- `GET /api/accounts/{id}` and the accounts view carry `signIn: {kind:
+  "login" | "token", state: "starting" | "open" | "code" | "done" | "failed"
+  | "cancelled", url?, startedAt, error?}` while one runs (the capture view
+  of today, generalized).
+- `POST /api/accounts/{id}/sign-in/open {browser: "default" | "chrome" |
+  "chrome-private"}` (`DesktopOnly`) opens the link: the default browser
+  (macOS `open`, Windows `rundll32 url.dll,FileProtocolHandler`, Linux
+  `xdg-open`), Google Chrome, or a private Chrome window (`--incognito`) —
+  `GET` lists the browsers this Mac has. Only an `https` link to
+  `claude.ai`, `claude.com` or `anthropic.com` (or a subdomain) is ever
+  opened. For a login (the Default, a directory account) the default
+  browser opens on its own as soon as the link is known — what the user
+  asked for — and the panel offers the private window and *Copy link*
+  beside it; who signed in is checked afterwards (§15.3). A token sign-in
+  opens nothing on its own: its account cannot be checked afterwards, so
+  the panel asks first, recommending the private window.
+- `POST /api/accounts/{id}/sign-in/code {code}` types the code the browser
+  shows when the CLI asks for one; `DELETE /api/accounts/{id}/sign-in`
+  cancels. The existing token routes keep working.
+- A re-sign-in of an account whose email is known passes `--email` to `claude
+  auth login`, so the page asks for that account.
+
+### 15.3 Every token stays with its account
+
+- **One sign-in at a time**, across all accounts: starting another while one
+  runs answers `409 sign_in_running` naming the account.
+- A sign-in is bound to the account that started it from the first byte; its
+  token goes to that account's secret only (`SecretName::AccountToken(id)`),
+  and a token another account holds is refused (`set_token`, as today).
+- **Who signed in** is checked where the CLI can say: after a login, `claude
+  auth status --json` in the account's environment gives the email. The
+  registry keeps its SHA-256 (`identitySha256`, never the email). A different
+  one than before, or one another account signed in as too, puts
+  `identityWarning: {kind: "changed" | "same-as", account?}` on the account
+  view; the user keeps it (`POST /api/accounts/{id}/identity/accept`) or
+  signs in again (with `--email`).
+- A token says nothing about its account until it is used (`auth status`
+  reports only `oauth_token`, and accepts any well-formed token), so a token
+  sign-in recommends the private window: a browser already signed in to
+  another Claude account cannot hand its consent to the wrong account there.
+  A pasted token is checked for its shape and that no other account holds
+  it.
+- Tests prove that two accounts' children never get each other's
+  environment, that a sign-in started for one account can only store into
+  that one, and that two sign-ins never run at once.
+
+### 15.4 Backups in `tauri dev`
+
+Not a bundling problem: in `tauri dev` everything ran, about 3 MB/s (a 2.8 GB
+conversation took 16 minutes), and a backup's progress moved only between
+conversations, so it looked stuck. Dependencies are now optimized in dev
+builds (5–7× faster), and a backup's progress counts bytes as they are
+packed, against a total known from the start.
+
+### 15.5 Checklist
+
+- [ ] P9.1 Switching an owned session (same directory, another directory,
+  busy: pending or now), an ended one, an API conversation; the refusals.
+- [ ] P9.2 Sign-ins in a pseudo-terminal with `BROWSER=true`, the link, the
+  browsers, the code, cancel, `--email`.
+- [ ] P9.3 One sign-in at a time; identity checks and warnings.
+- [ ] P9.4 UI: Switch account on a session (and the limit offer), the
+  sign-in panel, identity warnings.
+- [x] P9.5 Dev builds optimize dependencies.
+- [ ] P9.6 A backup's progress by bytes.
+- [ ] P9.7 Documents: CLAUDE.md (owned sessions can change account; sign-in),
+  SECURITY.md, docs/BACKUP.md (progress), README.
