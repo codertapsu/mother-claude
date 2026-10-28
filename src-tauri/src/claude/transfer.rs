@@ -1195,6 +1195,9 @@ pub struct Manifest {
 pub struct Progress {
     pub files_done: AtomicU64,
     pub bytes_done: AtomicU64,
+    /// The bytes it will go through, once the job knows (0: as the job
+    /// started) — a backup learns it only after looking at every session.
+    pub bytes_total: AtomicU64,
 }
 
 pub(crate) fn sha256_file(path: &Path) -> std::io::Result<(u64, String)> {
@@ -2334,6 +2337,10 @@ impl Jobs {
         if v.state == JobState::Running {
             v.files_done = job.progress.files_done.load(Ordering::Relaxed);
             v.bytes_done = job.progress.bytes_done.load(Ordering::Relaxed);
+            let total = job.progress.bytes_total.load(Ordering::Relaxed);
+            if total > 0 {
+                v.bytes_total = total;
+            }
         }
         Some(v)
     }

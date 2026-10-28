@@ -1287,15 +1287,19 @@ struct SessionNow {
     cwd: Option<String>,
     transcript_bytes: u64,
     newest_mtime: i64,
+    /// Every file's bytes: what archiving it goes through.
+    bytes: u64,
 }
 
 fn session_now(home: &ClaudeHome, id: &str) -> Result<SessionNow, BackupError> {
     let plan = transfer::plan_session(home, home, id)?;
     let mut transcript_bytes = 0u64;
     let mut newest = 0i64;
+    let mut bytes = 0u64;
     for f in &plan.files {
         let meta = std::fs::metadata(&f.from).map_err(|e| io("reading", &f.from, e))?;
         newest = newest.max(mtime_ms(&meta));
+        bytes += meta.len();
         if f.from.extension().is_some_and(|e| e == "jsonl")
             && f.from.file_stem().and_then(|s| s.to_str()) == Some(id)
             && f.from
@@ -1312,6 +1316,7 @@ fn session_now(home: &ClaudeHome, id: &str) -> Result<SessionNow, BackupError> {
         cwd: plan.cwd,
         transcript_bytes,
         newest_mtime: newest,
+        bytes,
     })
 }
 
@@ -1483,9 +1488,31 @@ impl<W: Write> Write for HashingWriter<W> {
     }
 }
 
+/// Counts what goes through it into a job's progress: the bytes tar writes
+/// are the files' bytes (and their headers), so a large conversation's
+/// progress moves while it is packed, not only once it is.
+struct CountingWriter<'a, W: Write> {
+    inner: W,
+    counted: Option<&'a std::sync::atomic::AtomicU64>,
+}
+
+impl<W: Write> Write for CountingWriter<'_, W> {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        let n = self.inner.write(buf)?;
+        if let Some(c) = self.counted {
+            c.fetch_add(n as u64, Ordering::Relaxed);
+        }
+        Ok(n)
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.inner.flush()
+    }
+}
+
 /// Write one archive: tar (paths relative to `base`) → gzip → age to the
 /// set's key → a temp file in the set → fsync → rename. Returns its SHA-256
-/// and size.
+/// and size. `counted`: the job's progress, bumped as the bytes are packed.
+#[allow(clippy::too_many_arguments)]
 fn write_archive(
     dir: &Path,
     name_for: &dyn Fn(&str) -> String,
@@ -1494,6 +1521,7 @@ fn write_archive(
     files: &[(PathBuf, PathBuf)],
     dirs: &[PathBuf],
     extra: &[(&str, Vec<u8>)],
+    counted: Option<&std::sync::atomic::AtomicU64>,
 ) -> Result<(String, String, u64), BackupError> {
     use sha2::Digest;
     std::fs::create_dir_all(dir).map_err(|e| io("creating", dir, e))?;
@@ -1513,7 +1541,7 @@ fn write_archive(
             .wrap_output(hashing)
             .map_err(|e| io("encrypting", dest, e))?;
         let gz = flate2::write::GzEncoder::new(sealed, flate2::Compression::default());
-        let mut tar = tar::Builder::new(gz);
+        let mut tar = tar::Builder::new(CountingWriter { inner: gz, counted });
         tar.follow_symlinks(false);
         for d in dirs {
             let rel = d.strip_prefix(base).unwrap_or(d);
@@ -1532,7 +1560,10 @@ fn write_archive(
             tar.append_data(&mut header, name, &data[..])
                 .map_err(|e| io("archiving", Path::new(name), e))?;
         }
-        let gz = tar.into_inner().map_err(|e| io("archiving", dest, e))?;
+        let gz = tar
+            .into_inner()
+            .map_err(|e| io("archiving", dest, e))?
+            .inner;
         let sealed = gz.finish().map_err(|e| io("compressing", dest, e))?;
         let hashing = sealed.finish().map_err(|e| io("encrypting", dest, e))?;
         let sha: String = hashing
@@ -1626,6 +1657,43 @@ enum Pushed {
 /// Push one session (the rule of [`push_step`]); `seen`: what this machine
 /// had of it. `fresh`: a copy the set has as it is here is archived anew all
 /// the same (a move into the set verifies exactly what this machine wrote).
+/// Set a push's total before it starts: the bytes of every session it will
+/// archive (as [`push_session`] decides it, `fresh` alike), so its progress
+/// reads "X of Y" while one is packed.
+fn note_total(
+    inp: &PushInputs<'_>,
+    keys: &Keys,
+    index: &SetIndex,
+    seen: &BTreeMap<String, Seen>,
+    ids: &[String],
+    fresh: bool,
+) {
+    let total: u64 = ids
+        .iter()
+        // Liveness is the push's to decide, once, right before each session:
+        // a running one counts here and is skipped there (an estimate).
+        .filter(|id| super::ids::is_session_id(id))
+        .filter_map(|id| {
+            let now = session_now(inp.home, id).ok()?;
+            let step = push_step(
+                inp.set,
+                keys,
+                inp.home,
+                &now,
+                index.sessions.get(id),
+                seen.get(id),
+            );
+            let archives = match step {
+                Step::Archive(_) => true,
+                Step::Unchanged | Step::Note(_) => fresh,
+                Step::Behind | Step::Conflict => false,
+            };
+            archives.then_some(now.bytes)
+        })
+        .sum();
+    inp.progress.bytes_total.store(total, Ordering::Relaxed);
+}
+
 fn push_session(
     inp: &PushInputs<'_>,
     keys: &Keys,
@@ -1653,10 +1721,8 @@ fn push_session(
     };
     match archive_session(inp, keys, id, &now) {
         Ok(entry) => {
+            // Its bytes were counted as they were packed.
             inp.progress.files_done.fetch_add(1, Ordering::Relaxed);
-            inp.progress
-                .bytes_done
-                .fetch_add(entry.archive_bytes, Ordering::Relaxed);
             let s = now.seen(&entry.archive);
             Pushed::Archived(Box::new(entry), base, s)
         }
@@ -1676,7 +1742,9 @@ pub fn push(inp: &PushInputs<'_>) -> Result<PushReport, BackupError> {
     let mut report = PushReport::default();
     let seen = index.seen.get(&inp.machine.id).cloned().unwrap_or_default();
     let mut changes = Changes::default();
-    for id in session_ids(inp.home) {
+    let ids = session_ids(inp.home);
+    note_total(inp, &keys, &index, &seen, &ids, false);
+    for id in ids {
         match push_session(inp, &keys, &index, seen.get(&id), &id, false) {
             Pushed::Live => report.skipped_live.push(id),
             Pushed::Failed(e) => report.failed.push((id, e.to_string())),
@@ -1785,6 +1853,7 @@ pub fn push_some(
     let seen = index.seen.get(&inp.machine.id).cloned().unwrap_or_default();
     let mut report = SomeReport::default();
     let mut changes = Changes::default();
+    note_total(inp, &keys, &index, &seen, ids, archive);
     // What the set will name of each one: checked before it is marked.
     let mut candidates: Vec<IndexEntry> = Vec::new();
     let mut done: std::collections::HashSet<&str> = std::collections::HashSet::new();
@@ -2017,6 +2086,7 @@ fn archive_session(
         &files,
         &now.dirs,
         &[(".mc/meta.json", meta)],
+        Some(&inp.progress.bytes_done),
     )?;
     Ok(IndexEntry {
         id: id.to_string(),
@@ -2075,6 +2145,7 @@ fn push_config(
         &files,
         &[],
         &[],
+        None,
     )?;
     Ok((
         Some(ConfigEntry {

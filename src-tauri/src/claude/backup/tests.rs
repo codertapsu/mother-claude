@@ -1964,3 +1964,34 @@ fn a_move_between_sets_re_encrypts_and_its_undo_puts_it_back() {
         "the other job's copy stays"
     );
 }
+
+/// §15.4: a push knows its total before it starts and counts the bytes as
+/// it packs them, so a large conversation's progress moves while it is
+/// packed; an unchanged session adds nothing to either.
+#[test]
+fn a_push_counts_its_bytes_against_a_total_known_from_the_start() {
+    use std::sync::atomic::Ordering;
+    let w = world();
+    session(w.home.base(), SID);
+    let size: u64 = transfer::plan_session(&w.home, &w.home, SID)
+        .unwrap()
+        .files
+        .iter()
+        .map(|f| f.size)
+        .sum();
+    let ma = machine("mbp-a");
+    let pp = [pass()];
+    let progress = Progress::default();
+    push(&push_inputs(&w, &w.home, &ma, &pp, &not_live, &progress)).unwrap();
+    assert_eq!(progress.bytes_total.load(Ordering::Relaxed), size);
+    let done = progress.bytes_done.load(Ordering::Relaxed);
+    // The files' bytes and their tar headers and padding.
+    assert!(done >= size && done < size + 64 * 1024, "{done} of {size}");
+    assert_eq!(progress.files_done.load(Ordering::Relaxed), 1);
+
+    // Unchanged: nothing to pack, so nothing to count.
+    let again = Progress::default();
+    push(&push_inputs(&w, &w.home, &ma, &pp, &not_live, &again)).unwrap();
+    assert_eq!(again.bytes_total.load(Ordering::Relaxed), 0);
+    assert_eq!(again.bytes_done.load(Ordering::Relaxed), 0);
+}

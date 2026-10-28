@@ -1798,6 +1798,6 @@ packed, against a total known from the start.
 - [ ] P9.4 UI: Switch account on a session (and the limit offer), the
   sign-in panel, identity warnings.
 - [x] P9.5 Dev builds optimize dependencies.
-- [ ] P9.6 A backup's progress by bytes.
+- [x] P9.6 A backup's progress by bytes.
 - [ ] P9.7 Documents: CLAUDE.md (owned sessions can change account; sign-in),
   SECURITY.md, docs/BACKUP.md (progress), README.

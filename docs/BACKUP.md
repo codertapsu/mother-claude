@@ -104,7 +104,10 @@ Per session, one archive: its transcript, its subagents' and workflows'
 transcripts, its file-history snapshots (what `/rewind` restores), its session
 environment and its todo lists. A session is archived again only when it
 changed here, so after the first run a backup of a large directory writes only
-what changed. A session that is running is skipped until it is idle.
+what changed. A session that is running is skipped until it is idle. A backup's
+progress counts the bytes as they are packed, against the total of everything
+it will archive, so a long first backup (a conversation of several GB takes a
+minute or two) shows how far it is rather than standing still.
 
 Archives are never rewritten: each push of a session writes a new file, the
 set's index then names it, and the file it replaced is removed a day later. A
