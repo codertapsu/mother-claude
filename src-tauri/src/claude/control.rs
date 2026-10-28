@@ -374,6 +374,9 @@ pub struct OwnedLive {
     pub last_error: Option<LastError>,
     /// Launched with `--allow-dangerously-skip-permissions`.
     pub bypass_available: bool,
+    /// Closed to new messages: its account is being switched and the process
+    /// stops next ([`ControlRegistry::close_for_switch`], `claude::switch`).
+    pub closing: bool,
 }
 
 /// Mother Claude's setting changes on an owned session, counted, so a
@@ -539,6 +542,42 @@ pub enum ControlError {
     Closed,
     #[error("could not write to the session: {0}")]
     Io(#[from] std::io::Error),
+    /// Closed for an account switch: the message would reach a process that
+    /// is about to stop.
+    #[error("the session is switching to another account; send it again in a moment")]
+    Switching,
+}
+
+/// The whole of a message queued behind a running turn, kept until the CLI
+/// answers it: an account switch hands it to the resumed process
+/// (`QueuedMessage` keeps only the first 2000 characters, and no images).
+#[derive(Debug, Clone)]
+pub struct QueuedContent {
+    pub text: String,
+    pub images: Vec<ImageInput>,
+}
+
+/// What an owned session ran with when it was closed to new messages for an
+/// account switch ([`ControlRegistry::close_for_switch`]).
+#[derive(Debug, Clone)]
+pub struct Closing {
+    pub cwd: String,
+    /// The account it runs under.
+    pub account: String,
+    pub driver: Driver,
+    /// Its live state then (model, mode, effort, thinking, queue, …).
+    pub live: OwnedLive,
+    /// The whole of each queued message, by message id.
+    pub queued: HashMap<String, QueuedContent>,
+}
+
+/// Why an owned session could not be closed for a switch.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CloseRefused {
+    /// A turn runs or messages are queued (only when it had to be idle).
+    Busy,
+    /// Mother Claude no longer holds it: its process ended.
+    Gone,
 }
 
 type Reply = Result<Value, CliError>;
@@ -563,6 +602,14 @@ struct OwnedHandle {
     outgoing: Mutex<HashMap<String, oneshot::Sender<Reply>>>,
     incoming: Mutex<HashMap<String, Incoming>>,
     stderr_tail: Mutex<VecDeque<String>>,
+    /// The whole of each queued message (locked after `live`, never before).
+    queued_content: Mutex<HashMap<String, QueuedContent>>,
+    /// Stopped on purpose for an account switch: the reaper announces
+    /// nothing (the switch says what happened).
+    quiet: AtomicBool,
+    /// `true` once the reaper has cleaned up after the child: it is out of
+    /// the registry, no longer owned, its pending items withdrawn.
+    reaped: tokio::sync::watch::Sender<bool>,
 }
 
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -751,6 +798,68 @@ impl ControlRegistry {
         }
     }
 
+    /// Whether an owned session is between turns: no turn runs and nothing
+    /// is queued behind one (`None`: Mother Claude holds no process for it).
+    pub fn is_idle(&self, id: &str) -> Option<bool> {
+        self.get(id).map(|h| {
+            let live = h.live();
+            !live.turn_active && live.queued.is_empty()
+        })
+    }
+
+    /// Close an owned session to new messages ahead of an account switch,
+    /// and say what it runs with. With `idle_only`, refused while a turn runs
+    /// or anything is queued: the check and the gate are one step under the
+    /// lock that decides whether a message is sent or queued, so nothing
+    /// slips in between. Control requests (interrupt, taking back a queued
+    /// message) still go through.
+    pub fn close_for_switch(&self, id: &str, idle_only: bool) -> Result<Closing, CloseRefused> {
+        let h = self.get(id).ok_or(CloseRefused::Gone)?;
+        if !h.alive.load(Ordering::SeqCst) {
+            return Err(CloseRefused::Gone);
+        }
+        let mut live = h.live();
+        if idle_only && (live.turn_active || !live.queued.is_empty()) {
+            return Err(CloseRefused::Busy);
+        }
+        live.closing = true;
+        let content = lock(&h.queued_content);
+        let queued = live
+            .queued
+            .iter()
+            .filter_map(|q| content.get(&q.id).map(|c| (q.id.clone(), c.clone())))
+            .collect();
+        Ok(Closing {
+            cwd: h.cwd.clone(),
+            account: h.account.clone(),
+            driver: h.driver,
+            live: live.clone(),
+            queued,
+        })
+    }
+
+    /// Open a session closed for a switch that did not go ahead.
+    pub fn reopen(&self, id: &str) {
+        self.update(id, |l| l.closing = false);
+    }
+
+    /// Stop an owned session's process on purpose (an account switch) and
+    /// wait until the reaper has cleaned up after it — out of the registry,
+    /// no longer owned, its pending items withdrawn — so the same id can be
+    /// launched again without two processes on one transcript. Announces
+    /// nothing. `false` when it had not ended within `wait`.
+    pub async fn stop_and_wait(&self, id: &str, wait: Duration) -> bool {
+        let Some(h) = self.get(id) else {
+            return true;
+        };
+        h.quiet.store(true, Ordering::SeqCst);
+        let mut reaped = h.reaped.subscribe();
+        h.kill.notify_one();
+        tokio::time::timeout(wait, reaped.wait_for(|done| *done))
+            .await
+            .is_ok_and(|r| r.is_ok())
+    }
+
     fn get(&self, id: &str) -> Option<Arc<OwnedHandle>> {
         lock(&self.handles).get(id).cloned()
     }
@@ -853,6 +962,9 @@ impl ControlRegistry {
             outgoing: Mutex::new(HashMap::new()),
             incoming: Mutex::new(HashMap::new()),
             stderr_tail: Mutex::new(VecDeque::new()),
+            queued_content: Mutex::new(HashMap::new()),
+            quiet: AtomicBool::new(false),
+            reaped: tokio::sync::watch::channel(false).0,
         });
 
         {
@@ -999,6 +1111,7 @@ impl ControlRegistry {
                 }
                 live.activity = Activity::new(ActivityKind::Ended, "Ended");
             }
+            lock(&handle.queued_content).clear();
             let mine = {
                 let mut m = lock(&map);
                 let mine = m.get(&sid).is_some_and(|h| Arc::ptr_eq(h, &handle));
@@ -1015,7 +1128,9 @@ impl ControlRegistry {
             let failed = status.as_ref().map(|s| !s.success()).unwrap_or(true);
             let tail: Vec<String> = lock(&handle.stderr_tail).iter().cloned().collect();
             let started = handle.live().started;
-            if failed && !started && !tail.is_empty() {
+            if handle.quiet.load(Ordering::SeqCst) {
+                // Stopped for an account switch, which says what happened.
+            } else if failed && !started && !tail.is_empty() {
                 let text = tail.join("\n");
                 ws::publish_notice(
                     &st,
@@ -1032,6 +1147,7 @@ impl ControlRegistry {
                     Some(&sid),
                 );
             }
+            handle.reaped.send_replace(true);
         });
     }
 
@@ -1150,9 +1266,13 @@ async fn write_user(
         }
     };
     // Decide queued-vs-sent and record the message BEFORE writing, so a fast
-    // answer cannot race the bookkeeping.
+    // answer cannot race the bookkeeping. A session closed for an account
+    // switch takes nothing more (decided under the same lock as the switch).
     let queued = {
         let mut live = h.live();
+        if live.closing {
+            return Err(ControlError::Switching);
+        }
         let queued = live.turn_active || !live.queued.is_empty();
         if h.driver == Driver::Stream && queued {
             live.queued.push(QueuedMessage {
@@ -1163,11 +1283,23 @@ async fn write_user(
                 status: QueueStatus::Queued,
                 cancellable: true,
             });
+            // The whole message, for an account switch to hand on; what the
+            // CLI answered or gave back since is dropped here.
+            let mut content = lock(&h.queued_content);
+            content.retain(|id, _| live.queued.iter().any(|q| &q.id == id));
+            content.insert(
+                uuid.to_string(),
+                QueuedContent {
+                    text: text.to_string(),
+                    images: images.to_vec(),
+                },
+            );
         }
         queued
     };
     if let Err(e) = h.write_line(&line).await {
         h.live().queued.retain(|q| q.id != uuid);
+        lock(&h.queued_content).remove(uuid);
         return Err(e.into());
     }
     start_turn(h);
@@ -2486,10 +2618,10 @@ mod tests {
         assert!(action.is_err());
     }
 
-    #[test]
-    fn tasks_become_agents_and_background_rows() {
-        let h = OwnedHandle {
-            id: "s".into(),
+    /// A handle with no process behind it (stdin closed).
+    fn test_handle(id: &str) -> OwnedHandle {
+        OwnedHandle {
+            id: id.into(),
             cwd: "/".into(),
             started_at: 0,
             account: crate::claude::accounts::DEFAULT_ID.into(),
@@ -2502,7 +2634,92 @@ mod tests {
             outgoing: Mutex::new(HashMap::new()),
             incoming: Mutex::new(HashMap::new()),
             stderr_tail: Mutex::new(VecDeque::new()),
-        };
+            queued_content: Mutex::new(HashMap::new()),
+            quiet: AtomicBool::new(false),
+            reaped: tokio::sync::watch::channel(false).0,
+        }
+    }
+
+    /// The gate an account switch closes: refused while busy when the
+    /// session had to be idle, else closed with what it ran with — and from
+    /// then on no message gets in.
+    #[tokio::test]
+    async fn a_session_closed_for_a_switch_takes_no_message() {
+        let r = ControlRegistry::new();
+        let h = Arc::new(test_handle("s"));
+        lock(&r.handles).insert("s".into(), h.clone());
+        assert_eq!(r.is_idle("s"), Some(true));
+        assert_eq!(r.is_idle("other"), None);
+
+        h.live().turn_active = true;
+        assert_eq!(r.is_idle("s"), Some(false));
+        assert_eq!(
+            r.close_for_switch("s", true).unwrap_err(),
+            CloseRefused::Busy
+        );
+        assert!(!h.live().closing, "a refusal leaves it open");
+
+        // Closed whatever runs, with its settings and the whole of each
+        // queued message.
+        {
+            let mut live = h.live();
+            live.model = Some("opus".into());
+            live.queued.push(QueuedMessage {
+                id: "m1".into(),
+                text: "x".repeat(2000),
+                created_at: 1,
+                via: QueueVia::Owned,
+                status: QueueStatus::Queued,
+                cancellable: true,
+            });
+        }
+        lock(&h.queued_content).insert(
+            "m1".into(),
+            QueuedContent {
+                text: "x".repeat(5000),
+                images: Vec::new(),
+            },
+        );
+        let closing = r.close_for_switch("s", false).unwrap();
+        assert!(h.live().closing);
+        assert_eq!(closing.live.model.as_deref(), Some("opus"));
+        assert_eq!(closing.queued["m1"].text.len(), 5000);
+        assert!(matches!(
+            write_user(&h, "hello", &[], "u1").await,
+            Err(ControlError::Switching)
+        ));
+        assert_eq!(h.live().queued.len(), 1, "nothing was queued");
+
+        // Opened again when the switch does not go ahead.
+        r.reopen("s");
+        assert!(!h.live().closing);
+        assert!(
+            matches!(
+                write_user(&h, "hello", &[], "u2").await,
+                Err(ControlError::Io(_))
+            ),
+            "it is let through (and fails on the closed stdin)"
+        );
+        assert_eq!(h.live().queued.len(), 1, "a failed write is not queued");
+        assert!(!lock(&h.queued_content).contains_key("u2"));
+
+        // A process that is gone cannot be closed.
+        h.alive.store(false, Ordering::SeqCst);
+        assert_eq!(
+            r.close_for_switch("s", false).unwrap_err(),
+            CloseRefused::Gone
+        );
+        assert_eq!(
+            r.close_for_switch("other", false).unwrap_err(),
+            CloseRefused::Gone
+        );
+        // Nothing to stop: done at once.
+        assert!(r.stop_and_wait("other", Duration::from_millis(1)).await);
+    }
+
+    #[test]
+    fn tasks_become_agents_and_background_rows() {
+        let h = test_handle("s");
         on_task(
             &h,
             "task_started",

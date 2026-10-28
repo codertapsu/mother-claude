@@ -698,10 +698,21 @@ pub fn control_error(e: ControlError) -> ApiError {
             e.to_string(),
         ),
         ControlError::NotSupported(msg) => ApiError::conflict("not_supported", msg),
+        ControlError::Switching => switching_account(),
         ControlError::NotOwned(_) | ControlError::Closed | ControlError::Io(_) => {
             ApiError::conflict("owned_session_unavailable", e.to_string())
         }
     }
+}
+
+/// `409 switching_account`: the session is going on under another account
+/// right now (docs/ACCOUNTS.md §15.1) — stopped, maybe moving, about to be
+/// resumed — so nothing reaches it until that is done.
+pub fn switching_account() -> ApiError {
+    ApiError::conflict(
+        "switching_account",
+        "This session is switching to another account. Try again in a moment.",
+    )
 }
 
 /// Spawn a new owned session as a caller without dangerous rights and with
