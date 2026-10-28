@@ -53,9 +53,29 @@ export function normalizeSignIn(raw: unknown): SignInView | undefined {
   const state = STATES.find((x) => x === r?.['state']);
   if (!r || !kind || !state) return undefined;
   const url = safeSignInUrl(r['url']);
+  const opened = BROWSERS.find((b) => b === r['opened']);
   const error = str(r['error']);
   const startedAt = typeof r['startedAt'] === 'number' ? r['startedAt'] : 0;
-  return { kind, state, ...(url ? { url } : {}), startedAt, ...(error ? { error } : {}) };
+  const finishedAt = typeof r['finishedAt'] === 'number' ? r['finishedAt'] : undefined;
+  return {
+    kind,
+    state,
+    ...(url ? { url } : {}),
+    ...(opened ? { opened } : {}),
+    startedAt,
+    ...(finishedAt !== undefined ? { finishedAt } : {}),
+    ...(error ? { error } : {}),
+  };
+}
+
+/** How long a finished sign-in's outcome stays in view: the run stays on
+ * the account, its news goes quietly. */
+export const SIGN_IN_NEWS_MS = 3 * 60_000;
+
+/** A sign-in that ended lately (its outcome is still news). */
+export function signInEndedLately(s: SignInView | null | undefined, now: number): boolean {
+  if (!s || signInRunning(s)) return false;
+  return now - (s.finishedAt ?? s.startedAt) < SIGN_IN_NEWS_MS;
 }
 
 /** An account's identity warning from the wire, or undefined. */
@@ -108,8 +128,10 @@ export function mergeSignIn(
   if (!frame) return own;
   if (own.startedAt !== frame.startedAt) return own.startedAt > frame.startedAt ? own : frame;
   const later = STATES.indexOf(frame.state) > STATES.indexOf(own.state) ? frame : own;
+  const other = later === own ? frame : own;
   const url = own.url ?? frame.url;
-  return { ...later, ...(url ? { url } : {}) };
+  const opened = later.opened ?? other.opened;
+  return { ...later, ...(url ? { url } : {}), ...(opened ? { opened } : {}) };
 }
 
 /** The browsers a sign-in link may open in, as the Mac lists them (the

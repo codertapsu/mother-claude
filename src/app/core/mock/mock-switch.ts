@@ -44,6 +44,8 @@ export interface SwitchHost {
   signedIn(a: AccountView): Partial<AccountView>;
   /** One account as the asker sees it (the link only for the desktop). */
   accountJson(id: string, status?: number): Response;
+  /** A switch that moved a conversation: its undoable move job's id. */
+  moveJob(sessionId: string, from: string, to: string): string;
 }
 
 export class MockSwitch {
@@ -75,13 +77,23 @@ export class MockSwitch {
     if (!desktop) {
       return fail(403, 'desktop_only', 'Only the desktop app can do this.');
     }
-    if (sub === 'login' && method === 'POST') return this.start(a, 'login');
+    if (sub === 'login' && method === 'POST') {
+      const email = b['email'];
+      if (email !== undefined && (typeof email !== 'string' || !/^[^\s@]+@[^\s@]+$/.test(email))) {
+        return fail(422, 'invalid_body', 'email: an email address');
+      }
+      return this.start(a, 'login');
+    }
+    // The token routes answer `{capture, signIn}`; the sign-in ones `{signIn}`.
     if (sub === 'token' && method === 'POST') {
       const code = str(b['code']);
-      return code ? this.code(a, code) : this.start(a, 'token');
+      return code ? this.code(a, code, true) : this.start(a, 'token');
     }
-    if ((sub === 'token' || sub === 'sign-in') && method === 'DELETE') return this.cancel(a);
-    if (sub === 'sign-in/code' && method === 'POST') return this.code(a, str(b['code']) ?? '');
+    if (sub === 'token' && method === 'DELETE') return this.cancel(a, true);
+    if (sub === 'sign-in' && method === 'DELETE') return this.cancel(a, false);
+    if (sub === 'sign-in/code' && method === 'POST') {
+      return this.code(a, str(b['code']) ?? '', false);
+    }
     if (sub === 'sign-in/open' && method === 'GET') {
       return json({ browsers: ['default', 'chrome', 'chrome-private'] });
     }
@@ -90,9 +102,12 @@ export class MockSwitch {
       if (browser !== 'default' && browser !== 'chrome' && browser !== 'chrome-private') {
         return fail(422, 'invalid_body', 'browser: default, chrome or chrome-private');
       }
-      return a.signIn?.url && running(a.signIn)
-        ? new Response(null, { status: 204 })
-        : fail(409, 'sign_in_not_running', 'No sign-in of this account runs.');
+      if (!running(a.signIn)) {
+        return fail(409, 'sign_in_not_running', 'No sign-in of this account runs.');
+      }
+      if (!a.signIn?.url) return fail(409, 'sign_in_no_link', 'The sign-in has no link yet.');
+      this.set(a.id, { ...a.signIn, opened: browser });
+      return this.signInJson(a.id, false);
     }
     if (sub === 'identity/accept' && method === 'POST') {
       this.host.updateAccount(a.id, { identityWarning: undefined });
@@ -113,7 +128,7 @@ export class MockSwitch {
       clearTimeout(timer);
       this.waiting.delete(id);
       this.host.patchSession(id, { switchingTo: undefined });
-      return new Response(null, { status: 204 });
+      return json({ id, account: this.host.accountOf(id), cancelled: true });
     }
     if (method !== 'POST') return fail(405, 'method_not_allowed', 'POST or DELETE');
     const asked = str(b['account']);
@@ -124,6 +139,9 @@ export class MockSwitch {
     }
     const from = this.host.accountOf(id);
     if (from === target.id) return json({ id, account: target.id, moved: false });
+    if (b['when'] !== undefined && b['when'] !== 'idle' && b['when'] !== 'now') {
+      return fail(422, 'invalid_when', 'when: idle or now');
+    }
     if (s.live && !s.owned) {
       return fail(
         409,
@@ -167,7 +185,7 @@ export class MockSwitch {
           this.host.reassign(id, target.id);
         }, TURN_ENDS_MS),
       );
-      return json({ pending: true }, 202);
+      return json({ id, account: target.id, pending: true }, 202);
     }
     if (busy) {
       // Now: the turn is interrupted first.
@@ -176,8 +194,9 @@ export class MockSwitch {
         activity: { kind: 'idle', label: 'Interrupted' },
       });
     }
+    const job = moved ? this.host.moveJob(id, from, target.id) : undefined;
     this.host.reassign(id, target.id);
-    return json({ id, account: target.id, moved });
+    return json({ id, account: target.id, moved, ...(job ? { job } : {}) });
   }
 
   // ─────────────────────────────────────────────────────── Signing in
@@ -189,7 +208,9 @@ export class MockSwitch {
     if (kind === 'token' && a.kind !== 'token') {
       return fail(422, 'not_a_token_account', 'this is not a token account');
     }
-    // One sign-in at a time, across every account.
+    // One sign-in at a time, across every account; the same account's
+    // run is handed back (a double click starts nothing twice).
+    if (running(a.signIn)) return this.started(a.id, kind);
     const other = this.host.accounts().find((x) => x.id !== a.id && running(x.signIn));
     if (other) {
       return json(
@@ -198,6 +219,7 @@ export class MockSwitch {
             code: 'sign_in_running',
             message: `${other.name}'s sign-in is running: finish or cancel it first.`,
             account: other.id,
+            accountName: other.name,
           },
         },
         409,
@@ -210,7 +232,12 @@ export class MockSwitch {
         ? `https://claude.ai/oauth/authorize?client_id=mock-client&response_type=code&scope=user%3Aprofile${a.email ? `&login_hint=${encodeURIComponent(a.email)}` : ''}`
         : 'https://claude.ai/oauth/authorize?code=true&client_id=mock-client&response_type=code&scope=user%3Ainference';
     this.set(a.id, { kind, state: 'starting', startedAt });
-    const timers = [setTimeout(() => this.set(a.id, { kind, state: 'open', url, startedAt }), 700)];
+    // A login's link opens in the default browser by itself (the Mac does
+    // it); a token sign-in's opens only when asked.
+    const opened = kind === 'login' ? { opened: 'default' as const } : {};
+    const timers = [
+      setTimeout(() => this.set(a.id, { kind, state: 'open', url, startedAt, ...opened }), 700),
+    ];
     if (kind === 'login') {
       // The browser opened by itself; the sign-in lands — as someone else
       // than before, here.
@@ -221,7 +248,7 @@ export class MockSwitch {
           this.host.updateAccount(a.id, {
             ...this.host.signedIn(cur),
             signingIn: false,
-            signIn: { kind, state: 'done', startedAt },
+            signIn: { ...cur.signIn, kind, state: 'done', startedAt, finishedAt: Date.now() },
             identityWarning: { kind: 'changed' },
           });
           this.host.publishAccounts();
@@ -235,6 +262,7 @@ export class MockSwitch {
               kind,
               state: 'failed',
               startedAt,
+              finishedAt: Date.now(),
               error: 'setup-token exited before it showed a token',
             }),
           3_000,
@@ -242,19 +270,37 @@ export class MockSwitch {
       );
     } else {
       // The CLI asks for the code the browser shows.
-      timers.push(setTimeout(() => this.set(a.id, { kind, state: 'code', url, startedAt }), 2_000));
+      timers.push(
+        setTimeout(() => {
+          const cur = this.account(a.id)?.signIn;
+          if (cur && running(cur)) this.set(a.id, { ...cur, state: 'code' });
+        }, 2_000),
+      );
     }
     this.runs.set(a.id, timers);
-    return this.host.accountJson(a.id, 202);
+    return this.started(a.id, kind);
   }
 
-  private code(a: AccountView, code: string): Response {
+  /** A start's answer: the account view (a login), `{capture, signIn}` (a
+   * token sign-in). */
+  private started(id: string, kind: SignInView['kind']): Response {
+    return kind === 'login' ? this.host.accountJson(id, 202) : this.signInJson(id, true, 202);
+  }
+
+  /** `{signIn}`, and the token routes' old `capture` view beside it. */
+  private signInJson(id: string, withCapture: boolean, status = 200): Response {
+    const run = this.account(id)?.signIn ?? null;
+    return json({ ...(withCapture ? { capture: captureOf(run) } : {}), signIn: run }, status);
+  }
+
+  private code(a: AccountView, code: string, tokenRoute: boolean): Response {
     const run = a.signIn;
     if (!run || run.state !== 'code') {
       return fail(409, 'sign_in_not_running', 'No sign-in is waiting for a code.');
     }
     if (!code) return fail(422, 'invalid_body', 'Send the code the browser shows.');
     this.stop(a.id);
+    // Back to `open` once a code is typed; it finishes by itself.
     this.set(a.id, { ...run, state: 'open' });
     this.runs.set(a.id, [
       setTimeout(() => {
@@ -263,20 +309,21 @@ export class MockSwitch {
         this.host.updateAccount(a.id, {
           ...this.host.signedIn(cur),
           tokenStored: true,
-          signIn: { kind: run.kind, state: 'done', startedAt: run.startedAt },
+          signIn: { ...run, state: 'done', finishedAt: Date.now() },
         });
         this.host.publishAccounts();
       }, 1_200),
     ]);
-    return this.host.accountJson(a.id);
+    return this.signInJson(a.id, tokenRoute);
   }
 
-  private cancel(a: AccountView): Response {
-    this.stop(a.id);
-    if (running(a.signIn) && a.signIn) {
-      this.set(a.id, { kind: a.signIn.kind, state: 'cancelled', startedAt: a.signIn.startedAt });
+  private cancel(a: AccountView, tokenRoute: boolean): Response {
+    if (!running(a.signIn) || !a.signIn) {
+      return fail(409, 'sign_in_not_running', 'No sign-in of this account runs.');
     }
-    return new Response(null, { status: 204 });
+    this.stop(a.id);
+    this.set(a.id, { ...a.signIn, state: 'cancelled', finishedAt: Date.now() });
+    return this.signInJson(a.id, tokenRoute);
   }
 
   /** The run as the account shows it (an older client reads a running
@@ -294,6 +341,25 @@ export class MockSwitch {
   private account(id: string): AccountView | undefined {
     return this.host.accounts().find((a) => a.id === id);
   }
+}
+
+/** A token run in the token routes' old shape. */
+function captureOf(run: SignInView | null): Record<string, unknown> | null {
+  if (!run || run.kind !== 'token') return null;
+  const state = running(run)
+    ? 'running'
+    : run.state === 'done'
+      ? 'captured'
+      : run.state === 'failed'
+        ? 'failed'
+        : 'cancelled';
+  return {
+    state,
+    asksForCode: run.state === 'code',
+    startedAt: run.startedAt,
+    ...(run.finishedAt ? { finishedAt: run.finishedAt } : {}),
+    ...(run.error ? { error: run.error } : {}),
+  };
 }
 
 /** The sign-in still runs. */

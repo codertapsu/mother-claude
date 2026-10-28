@@ -54,6 +54,7 @@ describe('MockSwitch (switching and sign-ins, as the server answers)', () => {
       signedIn: () => ({ signedIn: true }),
       accountJson: (id, status = 200) =>
         new Response(JSON.stringify(accounts.find((a) => a.id === id)), { status }),
+      moveJob: () => 'job-move-1',
     };
     mock = new MockSwitch(host);
   });
@@ -76,7 +77,7 @@ describe('MockSwitch (switching and sign-ins, as the server answers)', () => {
     expect(owners['idle']).toBe('acc_p');
 
     const pending = await call('/sessions/busy/account', 'POST', { account: 'acc_p' });
-    expect(pending).toEqual({ status: 202, body: { pending: true } });
+    expect(pending).toEqual({ status: 202, body: { id: 'busy', account: 'acc_p', pending: true } });
     expect(sessions[0].switchingTo).toBe('acc_p');
     jasmine.clock().tick(4_100);
     expect(owners['busy']).toBe('acc_p');
@@ -86,7 +87,10 @@ describe('MockSwitch (switching and sign-ins, as the server answers)', () => {
     owners['busy'] = 'default';
     sessions[0] = { ...sessions[0], status: 'working' };
     await call('/sessions/busy/account', 'POST', { account: 'acc_p' });
-    expect((await call('/sessions/busy/account', 'DELETE'))?.status).toBe(204);
+    expect(await call('/sessions/busy/account', 'DELETE')).toEqual({
+      status: 200,
+      body: { id: 'busy', account: 'default', cancelled: true },
+    });
     jasmine.clock().tick(5_000);
     expect(owners['busy']).toBe('default');
     // Now: the turn is interrupted, the switch is done.
@@ -108,7 +112,10 @@ describe('MockSwitch (switching and sign-ins, as the server answers)', () => {
       id: 'ended',
       account: 'acc_w',
       moved: true,
+      job: 'job-move-1',
     });
+    const when = await call('/sessions/idle/account', 'POST', { account: 'acc_w', when: 'later' });
+    expect(when?.body.error.code).toBe('invalid_when');
   });
 
   it('signs in with a link, one at a time, and lands with a changed identity', async () => {
@@ -119,26 +126,42 @@ describe('MockSwitch (switching and sign-ins, as the server answers)', () => {
     expect(of('acc_w').signIn?.url).toContain('https://claude.ai/');
     // Another account waits.
     const busy = await call('/accounts/acc_p/token', 'POST', {});
-    expect([busy?.status, busy?.body.error.code, busy?.body.error.account]).toEqual([
+    expect([busy?.status, busy?.body.error.code, busy?.body.error.accountName]).toEqual([
       409,
       'sign_in_running',
-      'acc_w',
+      'Work',
     ]);
-    expect(
-      (await call('/accounts/acc_w/sign-in/open', 'POST', { browser: 'chrome-private' }))?.status,
-    ).toBe(204);
+    // The Mac opened it in the default browser; a private window on asking.
+    expect(of('acc_w').signIn?.opened).toBe('default');
+    const opened = await call('/accounts/acc_w/sign-in/open', 'POST', {
+      browser: 'chrome-private',
+    });
+    expect([opened?.status, opened?.body.signIn.opened]).toEqual([200, 'chrome-private']);
+    // Asked again, the same run comes back.
+    expect((await call('/accounts/acc_w/login', 'POST', {}))?.body.signIn.startedAt).toBe(
+      of('acc_w').signIn?.startedAt,
+    );
     jasmine.clock().tick(5_000);
     expect(of('acc_w').signIn?.state).toBe('done');
+    expect(of('acc_w').signIn?.finishedAt).toBeDefined();
     expect(of('acc_w').identityWarning).toEqual({ kind: 'changed' });
     await call('/accounts/acc_w/identity/accept', 'POST', {});
     expect(of('acc_w').identityWarning).toBeUndefined();
   });
 
   it('waits for the code of a token sign-in, and keeps it to the desktop', async () => {
-    await call('/accounts/acc_p/token', 'POST', {});
+    const start = await call('/accounts/acc_p/token', 'POST', {});
+    expect([start?.status, start?.body.capture.state, start?.body.signIn.kind]).toEqual([
+      202,
+      'running',
+      'token',
+    ]);
     jasmine.clock().tick(2_800);
     expect(of('acc_p').signIn?.state).toBe('code');
-    await call('/accounts/acc_p/sign-in/code', 'POST', { code: 'abc#123' });
+    // Nothing opened by itself.
+    expect(of('acc_p').signIn?.opened).toBeUndefined();
+    const typed = await call('/accounts/acc_p/sign-in/code', 'POST', { code: 'abc#123' });
+    expect(typed?.body.signIn.state).toBe('open');
     jasmine.clock().tick(1_300);
     expect(of('acc_p').signIn?.state).toBe('done');
     expect(of('acc_p').tokenStored).toBeTrue();

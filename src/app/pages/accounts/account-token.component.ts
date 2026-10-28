@@ -17,7 +17,8 @@ import { normalizeCapture } from '../../core/accounts';
 import { AccountsService } from '../../core/accounts.service';
 import { ApiError, ApiService, describeError } from '../../core/api.service';
 import { AccountView, CaptureView, SignInState } from '../../core/models';
-import { signInRunning, signInWaitText } from '../../core/sign-in';
+import { NowService } from '../../core/now.service';
+import { signInEndedLately, signInRunning, signInWaitText } from '../../core/sign-in';
 import { captureProblem, secretStoreText, signInErrorText } from '../../shared/accounts';
 import { CopyButtonComponent } from '../../shared/copy-button.component';
 import { IconComponent } from '../../shared/icon.component';
@@ -221,6 +222,7 @@ const POLL_MS = 1_500;
 export class AccountTokenComponent {
   private api = inject(ApiService);
   private accounts = inject(AccountsService);
+  private clock = inject(NowService);
 
   readonly account = input.required<AccountView>();
   /** A token was stored (captured or pasted). */
@@ -253,6 +255,8 @@ export class AccountTokenComponent {
   protected readonly wait = computed(() => signInWaitText(this.account(), this.accounts.list()));
   protected readonly problem = computed(() => {
     const r = this.account().signIn;
+    // A run that ended a while ago says nothing any more.
+    if (r?.kind === 'token' && !signInEndedLately(r, this.clock.now())) return '';
     if (r?.kind === 'token' && r.state === 'failed') {
       return r.error
         ? `The sign-in ended without a token: ${r.error}`

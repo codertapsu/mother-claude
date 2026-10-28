@@ -159,13 +159,21 @@ export function signInErrorText(
     switch (e.code) {
       case 'sign_in_running': {
         const id = e.detail('account');
-        const name = (id && nameOf(id)) || 'Another account';
+        const name = (id && nameOf(id)) || e.detail('accountName') || 'Another account';
         return `${name}'s sign-in is running: one sign-in runs at a time. Finish or cancel it first.`;
       }
       case 'sign_in_not_running':
         return 'That sign-in is not running any more.';
+      case 'sign_in_no_link':
+        return "The sign-in hasn't shown its link yet: try again in a moment.";
       case 'browser_unavailable':
-        return "That browser isn't on this Mac: copy the link instead.";
+        return "Google Chrome isn't on this Mac: open the link in another browser, or copy it.";
+      case 'browser_failed':
+        return "The browser couldn't be opened: copy the link and open it yourself.";
+      case 'invalid_sign_in_url':
+        return 'The sign-in showed a link Mother Claude does not open: cancel it and start again.';
+      case 'sign_in_unavailable':
+        return "This build can't run the sign-in itself: sign in in a terminal, or paste a token.";
       default:
         break;
     }

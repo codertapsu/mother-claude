@@ -81,9 +81,22 @@ describe('AccountSignInComponent', () => {
         error: { code: 'sign_in_running', message: 'busy', account: MOCK_ACCOUNT_PRO },
       },
     }));
-    const el = await render({
+    // A run that ended long ago says nothing any more…
+    let el = await render({
       ...work,
-      signIn: { kind: 'login', state: 'cancelled', startedAt: 1 },
+      signIn: { kind: 'login', state: 'cancelled', startedAt: 1, finishedAt: 2 },
+    });
+    expect(el.querySelector('.notice.warn')).toBeNull();
+    fixture.destroy();
+    // …one that just ended does.
+    el = await render({
+      ...work,
+      signIn: {
+        kind: 'login',
+        state: 'cancelled',
+        startedAt: Date.now() - 5_000,
+        finishedAt: Date.now(),
+      },
     });
     expect(text(el.querySelector('.notice.warn'))).toBe('The sign-in was cancelled.');
     button(el, 'Sign in again')?.click();

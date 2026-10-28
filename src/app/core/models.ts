@@ -716,12 +716,16 @@ export type SignInState = 'starting' | 'open' | 'code' | 'done' | 'failed' | 'ca
 export type SignInKind = 'login' | 'token';
 
 /** A sign-in as clients see it (never a token): its link only in the
- * desktop's own reads. */
+ * desktop's own reads. The last run stays on the account after it ended. */
 export interface SignInView {
   kind: SignInKind;
   state: SignInState;
   url?: string;
+  /** The browser its link was last opened in (a login: the default one,
+   * by the Mac itself). */
+  opened?: SignInBrowser;
   startedAt: number;
+  finishedAt?: number;
   error?: string;
 }
 

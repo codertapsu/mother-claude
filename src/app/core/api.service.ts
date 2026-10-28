@@ -467,8 +467,9 @@ export class ApiService {
     return this.req(`/accounts/${enc(id)}/sign-in/open`);
   }
 
-  /** Desktop only: open the running sign-in's link in a browser. */
-  openSignIn(id: string, browser: SignInBrowser): Promise<void> {
+  /** Desktop only: open the running sign-in's link in a browser (answers
+   * `{signIn}`). */
+  openSignIn(id: string, browser: SignInBrowser): Promise<unknown> {
     return this.post(`/accounts/${enc(id)}/sign-in/open`, { browser });
   }
 
@@ -477,8 +478,8 @@ export class ApiService {
     return this.post(`/accounts/${enc(id)}/sign-in/code`, { code });
   }
 
-  /** Desktop only: stop the account's sign-in. */
-  cancelSignIn(id: string): Promise<void> {
+  /** Desktop only: stop the account's sign-in (answers `{signIn}`). */
+  cancelSignIn(id: string): Promise<unknown> {
     return this.req(`/accounts/${enc(id)}/sign-in`, { method: 'DELETE' });
   }
 

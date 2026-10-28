@@ -180,7 +180,13 @@ describe('AccountTokenComponent', () => {
     }));
     account = {
       ...account,
-      signIn: { kind: 'token', state: 'failed', startedAt: 1, error: 'the browser was closed' },
+      signIn: {
+        kind: 'token',
+        state: 'failed',
+        startedAt: Date.now() - 5_000,
+        finishedAt: Date.now(),
+        error: 'the browser was closed',
+      },
     };
     const el = await render();
     expect(text(el.querySelector('.notice.warn'))).toBe(

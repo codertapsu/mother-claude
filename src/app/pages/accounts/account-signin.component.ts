@@ -2,7 +2,8 @@ import { ChangeDetectionStrategy, Component, computed, inject, input, signal } f
 
 import { AccountsService } from '../../core/accounts.service';
 import { AccountView, SignInState } from '../../core/models';
-import { signInRunning, signInWaitText } from '../../core/sign-in';
+import { NowService } from '../../core/now.service';
+import { signInEndedLately, signInRunning, signInWaitText } from '../../core/sign-in';
 import { signInErrorText, signInLine } from '../../shared/accounts';
 import { SignInPanelComponent } from './sign-in-panel.component';
 
@@ -117,6 +118,7 @@ import { SignInPanelComponent } from './sign-in-panel.component';
 })
 export class AccountSignInComponent {
   private accounts = inject(AccountsService);
+  private clock = inject(NowService);
 
   readonly account = input.required<AccountView>();
 
@@ -128,10 +130,11 @@ export class AccountSignInComponent {
   protected readonly runs = computed(() => signInRunning(this.account().signIn));
   /** Another account's sign-in runs: "Waiting for Work's sign-in". */
   protected readonly wait = computed(() => signInWaitText(this.account(), this.accounts.list()));
-  /** How the last sign-in ended, when it brought nothing. */
+  /** How the last sign-in ended, when it brought nothing — while that is
+   * news (the run stays on the account; its news goes quietly). */
   protected readonly outcome = computed(() => {
     const r = this.account().signIn;
-    if (r?.kind !== 'login') return '';
+    if (r?.kind !== 'login' || !signInEndedLately(r, this.clock.now())) return '';
     if (r.state === 'failed') {
       return r.error
         ? `The sign-in ended without signing in: ${r.error}`

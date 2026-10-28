@@ -53,30 +53,54 @@ const POLL_MS = 1_500;
             {{ r.state === 'starting' ? 'Starting the sign-in…' : 'Waiting for the sign-in link…' }}
           </p>
         } @else if (r.kind === 'login') {
+          <!-- The Mac opened it in the default browser itself: never again
+               from here; a private window is the other way. -->
           <p class="wait">
             <span class="spin" aria-hidden="true"></span>
-            The sign-in opened in your default browser.
+            {{
+              r.opened
+                ? 'The sign-in opened in ' + where(r.opened) + '.'
+                : 'The sign-in opens in your default browser…'
+            }}
           </p>
           <p class="muted small">
             Sign in there with the Claude account {{ who() }}. This page updates by itself once it
             is done.
           </p>
           <div class="row opens">
-            @for (b of browsers(); track b) {
-              <button class="btn small" type="button" [disabled]="busy()" (click)="openIn(b)">
-                <mc-icon [name]="b === 'chrome-private' ? 'shield' : 'external'" [size]="14" />
-                {{ b === 'default' ? 'Open it again' : label(b) }}
+            @if (privateOffered() && r.opened !== 'chrome-private') {
+              <button
+                class="btn small"
+                type="button"
+                [disabled]="busy()"
+                (click)="openIn('chrome-private')"
+              >
+                <mc-icon name="shield" [size]="14" /> {{ label('chrome-private') }}
               </button>
             }
             <mc-copy-button [text]="r.url" label="Copy link" ariaLabel="Copy the sign-in link" />
           </div>
-          @if (privateOffered()) {
+          @if (r.opened !== 'chrome-private') {
             <p class="muted small">
-              The wrong Claude account opened? A private window starts signed out.
+              {{
+                privateOffered()
+                  ? 'The wrong Claude account opened? A private window starts signed out.'
+                  : 'The wrong Claude account opened? Copy the link into a private window of your browser.'
+              }}
             </p>
           }
         } @else {
-          <p class="ask">Open the sign-in page to get the token {{ who() }}.</p>
+          <p class="ask">
+            {{
+              r.opened
+                ? 'The sign-in opened in ' +
+                  where(r.opened) +
+                  ': get the token ' +
+                  who() +
+                  ' there.'
+                : 'Open the sign-in page to get the token ' + who() + '.'
+            }}
+          </p>
           <p class="muted small why">
             Use a private window if you can: a browser already signed in to another Claude account
             would give its consent to the wrong one.
@@ -248,12 +272,18 @@ export class SignInPanelComponent {
     return browserLabel(b);
   }
 
+  /** "your default browser", "Chrome", "a private Chrome window". */
+  protected where(b: SignInBrowser): string {
+    if (b === 'chrome') return 'Chrome';
+    return b === 'chrome-private' ? 'a private Chrome window' : 'your default browser';
+  }
+
   protected async openIn(browser: SignInBrowser): Promise<void> {
     if (this.busy()) return;
     this.busy.set(true);
     this.error.set('');
     try {
-      await this.api.openSignIn(this.accountId(), browser);
+      this.take(await this.api.openSignIn(this.accountId(), browser));
     } catch (e) {
       this.error.set(signInErrorText(e));
     } finally {
@@ -268,9 +298,8 @@ export class SignInPanelComponent {
     this.busy.set(true);
     this.error.set('');
     try {
-      await this.api.sendSignInCode(this.accountId(), code);
+      this.take(await this.api.sendSignInCode(this.accountId(), code));
       this.code.set('');
-      await this.load(this.accountId());
     } catch (err) {
       this.error.set(signInErrorText(err));
     } finally {
@@ -282,14 +311,22 @@ export class SignInPanelComponent {
     this.busy.set(true);
     this.error.set('');
     try {
-      await this.api.cancelSignIn(this.accountId());
+      this.take(await this.api.cancelSignIn(this.accountId()));
       await this.accounts.refresh();
-      await this.load(this.accountId());
     } catch (e) {
       this.error.set(signInErrorText(e));
     } finally {
       this.busy.set(false);
     }
+  }
+
+  /** An answer's `{signIn}` (open, code and cancel send it back). */
+  private take(res: unknown): void {
+    const raw = res && typeof res === 'object' ? (res as Record<string, unknown>)['signIn'] : null;
+    const run = normalizeSignIn(raw);
+    // The freshest word there is; the link stays if it left it out.
+    const url = run?.url ?? this.own()?.url;
+    if (run) this.own.set({ ...run, ...(url ? { url } : {}) });
   }
 
   private async load(id: string): Promise<void> {

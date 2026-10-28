@@ -154,6 +154,12 @@ class FixtureBackend implements MockBackend {
       publishAccounts: () => this.publishAccounts(),
       signedIn: (a) => this.signedIn(a),
       accountJson: (id, status) => this.accountJson(id, status),
+      moveJob: (sessionId, from, to) =>
+        this.data.runJob('move', { from, to }, 3, 40_000, [sessionId], 1_200, () => ({
+          result: { moved: [sessionId], skipped: [] },
+          sessions: [sessionId],
+          undo: true,
+        })).id,
     });
     if (ACCOUNTS_MODE === '1' || ACCOUNTS_MODE === 'limit' || MOCK_SERVERS) {
       this.fx.accounts = buildAccounts(now, true);

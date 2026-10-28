@@ -12,6 +12,7 @@ import {
   normalizeIdentityWarning,
   normalizeSignIn,
   safeSignInUrl,
+  signInEndedLately,
   signInRunning,
   signInWaitText,
 } from './sign-in';
@@ -71,6 +72,42 @@ describe('sign-in helpers', () => {
     });
     expect(view?.accounts[0].signIn?.state).toBe('starting');
     expect(view?.accounts[0].identityWarning).toEqual({ kind: 'changed' });
+  });
+
+  it('reads where the link opened and when it ended, and lets the outcome go after a while', () => {
+    const run = normalizeSignIn({
+      kind: 'login',
+      state: 'done',
+      opened: 'default',
+      startedAt: 1_000,
+      finishedAt: 2_000,
+    });
+    expect(run).toEqual({
+      kind: 'login',
+      state: 'done',
+      opened: 'default',
+      startedAt: 1_000,
+      finishedAt: 2_000,
+    });
+    expect(
+      normalizeSignIn({ kind: 'login', state: 'open', opened: 'safari', startedAt: 1 }),
+    ).toEqual({ kind: 'login', state: 'open', startedAt: 1 });
+    expect(signInEndedLately(run, 2_000 + 60_000)).toBeTrue();
+    expect(signInEndedLately(run, 2_000 + 4 * 60_000)).toBeFalse();
+    expect(signInEndedLately({ kind: 'login', state: 'open', startedAt: 1 }, 2)).toBeFalse();
+    // Two reads of one run: the further state, the link and the browser either has.
+    expect(
+      mergeSignIn(
+        { kind: 'token', state: 'open', url: 'https://claude.ai/x', startedAt: 5 },
+        { kind: 'token', state: 'open', opened: 'chrome-private', startedAt: 5 },
+      ),
+    ).toEqual({
+      kind: 'token',
+      state: 'open',
+      url: 'https://claude.ai/x',
+      opened: 'chrome-private',
+      startedAt: 5,
+    });
   });
 
   it('knows which sign-in runs, one at a time', () => {
@@ -137,6 +174,21 @@ describe('sign-in helpers', () => {
     });
     expect(signInErrorText(running, name)).toBe(
       "Work's sign-in is running: one sign-in runs at a time. Finish or cancel it first.",
+    );
+    // An account this view doesn't know yet: the name the Mac sent.
+    const unknown = new ApiError('busy', 409, 'http', 'sign_in_running', undefined, undefined, {
+      account: 'acc_new',
+      accountName: 'Side project',
+    });
+    expect(signInErrorText(unknown, name)).toContain("Side project's sign-in is running");
+    expect(signInErrorText(new ApiError('', 409, 'http', 'sign_in_no_link'))).toContain(
+      "hasn't shown its link yet",
+    );
+    expect(signInErrorText(new ApiError('', 500, 'http', 'browser_failed'))).toContain(
+      "The browser couldn't be opened",
+    );
+    expect(signInErrorText(new ApiError('', 422, 'http', 'sign_in_unavailable'))).toContain(
+      "can't run the sign-in itself",
     );
   });
 });

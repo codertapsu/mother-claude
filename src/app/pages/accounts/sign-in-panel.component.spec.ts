@@ -67,25 +67,48 @@ describe('SignInPanelComponent', () => {
   const work = accountFixture({ id: MOCK_ACCOUNT_WORK, name: 'Work', dir: '/u/.claude-work' });
   const pro = accountFixture({ id: MOCK_ACCOUNT_PRO, name: 'Pro', kind: 'token' });
 
-  it('says a login opened the default browser, and offers a private window and the link', async () => {
-    const el = await render(work, { kind: 'login', state: 'open', startedAt: 1 });
+  it('says the Mac opened a login in the default browser, and offers only a private window and the link', async () => {
+    const el = await render(work, {
+      kind: 'login',
+      state: 'open',
+      opened: 'default',
+      startedAt: 1,
+    });
     expect(text(el)).toContain('The sign-in opened in your default browser.');
     expect(text(el)).toContain('Sign in there with the Claude account for Work.');
-    expect(buttons(el)).toEqual([
-      'Open it again',
-      'Open in Chrome',
-      'Open in a private Chrome window',
-      'Copy link',
-      'Cancel',
-    ]);
+    // Never the default browser again from here.
+    expect(buttons(el)).toEqual(['Open in a private Chrome window', 'Copy link', 'Cancel']);
     expect(text(el)).toContain(
       'The wrong Claude account opened? A private window starts signed out.',
     );
+    backend.routes.set(`/accounts/${MOCK_ACCOUNT_WORK}/sign-in/open`, () => ({
+      status: 200,
+      body: {
+        signIn: {
+          kind: 'login',
+          state: 'open',
+          url: URL,
+          opened: 'chrome-private',
+          startedAt: 1,
+        },
+      },
+    }));
     button(el, 'Open in a private Chrome window')?.click();
     await flush();
+    fixture.detectChanges();
     expect(backend.bodyOf(`POST /accounts/${MOCK_ACCOUNT_WORK}/sign-in/open`)).toEqual({
       browser: 'chrome-private',
     });
+    // The answer says where it opened.
+    expect(text(el)).toContain('The sign-in opened in a private Chrome window.');
+    expect(buttons(el)).toEqual(['Copy link', 'Cancel']);
+  });
+
+  it('says a login is about to open, before the Mac opened it', async () => {
+    const el = await render(work, { kind: 'login', state: 'open', startedAt: 1 }, ['default']);
+    expect(text(el)).toContain('The sign-in opens in your default browser…');
+    expect(text(el)).toContain('Copy the link into a private window of your browser.');
+    expect(buttons(el)).toEqual(['Copy link', 'Cancel']);
   });
 
   it('asks before a token sign-in opens anything, recommending the private window', async () => {
