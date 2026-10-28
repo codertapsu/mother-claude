@@ -33,6 +33,9 @@ import {
 import { MoveDataSheetComponent, MoveStart } from '../../shared/move-data-sheet.component';
 import { SheetComponent } from '../../shared/sheet.component';
 import { StatusPillComponent } from '../../shared/status-pill.component';
+import { runningTasks, switchMode } from '../../shared/switch-account';
+import { SwitchAccountSheetComponent } from '../../shared/switch-account-sheet.component';
+import { SwitchPendingComponent } from '../../shared/switch-pending.component';
 import { TimeAgoComponent } from '../../shared/time-ago.component';
 import { sessionName } from '../../shared/util';
 import { SessionContext } from './session-context';
@@ -61,6 +64,8 @@ import { SessionContext } from './session-context';
     MoveDataSheetComponent,
     SheetComponent,
     StatusPillComponent,
+    SwitchAccountSheetComponent,
+    SwitchPendingComponent,
     TimeAgoComponent,
   ],
   template: `
@@ -106,6 +111,7 @@ import { SessionContext } from './session-context';
           <mc-icon name="moreV" />
         </button>
       </div>
+      <mc-switch-pending [session]="s" />
 
       <mc-sheet [open]="menu()" [title]="name()" (closed)="menu.set(false)">
         <div class="menu">
@@ -120,6 +126,12 @@ import { SessionContext } from './session-context';
             <button class="item" type="button" (click)="continueHere()">
               <mc-icon name="play" [size]="18" />
               <span>{{ s.live ? 'Continue here (fork)' : 'Continue here' }}</span>
+            </button>
+          }
+          @if (switchOffered()) {
+            <button class="item" type="button" (click)="openSwitch()">
+              <mc-icon name="refresh" [size]="18" />
+              <span>Switch account…</span>
             </button>
           }
           @if (continueOnOffered()) {
@@ -279,6 +291,13 @@ import { SessionContext } from './session-context';
         [sessions]="continueOnSessions()"
         [suggested]="continueOnSuggestion()"
         (closed)="continueOn.set(false)"
+      />
+      <mc-switch-account-sheet
+        [open]="switching()"
+        [sessions]="continueOnSessions()"
+        [suggested]="continueOnSuggestion()"
+        [tasks]="taskCount()"
+        (closed)="switching.set(false)"
       />
 
       @if (moveOffered()) {
@@ -503,6 +522,18 @@ export class SessionHeaderComponent {
     const s = this.ctx.session();
     return !!s?.account && canContinue(s);
   });
+  /** Switch account: a session that runs here or not at all, or (another
+   * app runs it) Continue on instead — while there are several accounts. */
+  protected readonly switchOffered = computed(() => {
+    const s = this.ctx.session();
+    return !!s?.account && (switchMode(s) !== 'elsewhere' || canContinue(s));
+  });
+  protected readonly switching = signal(false);
+  /** The background tasks a switch stops (the detail's, when read). */
+  protected readonly taskCount = computed(() => {
+    const s = this.ctx.session();
+    return s ? runningTasks(s, this.ctx.detail()) : 0;
+  });
   protected readonly continueOnSessions = computed(() => {
     const s = this.ctx.session();
     return s ? [s] : [];
@@ -572,6 +603,11 @@ export class SessionHeaderComponent {
   protected openContinueOn(): void {
     this.menu.set(false);
     this.continueOn.set(true);
+  }
+
+  protected openSwitch(): void {
+    this.menu.set(false);
+    this.switching.set(true);
   }
 
   /** Delete this conversation, from the account it is recorded as. */

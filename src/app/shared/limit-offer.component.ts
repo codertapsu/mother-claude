@@ -4,8 +4,10 @@ import { AccountLimit, AccountsService } from '../core/accounts.service';
 import { AccountView, SessionSummary } from '../core/models';
 import { NowService } from '../core/now.service';
 import { RealtimeService } from '../core/realtime.service';
-import { ContinueOnSheetComponent, canContinue } from './continue-on-sheet.component';
+import { canContinue } from './continue-on-sheet.component';
 import { IconComponent } from './icon.component';
+import { switchMode } from './switch-account';
+import { SwitchAccountSheetComponent } from './switch-account-sheet.component';
 import { resetsIn } from './util';
 
 interface Offer {
@@ -13,22 +15,33 @@ interface Offer {
   suggestion: AccountView | null;
   /** "resets in 2h 10m" ('' when unknown). */
   resets: string;
+  /** `switch`: the session goes on under the other account; `continue`:
+   * another app runs it, so a new session continues it there. */
+  verb: 'switch' | 'continue';
+}
+
+/** A session the offer can help: one that switches account (it runs here,
+ * or not at all), or one another app runs that can be continued. */
+function helped(s: SessionSummary): boolean {
+  return switchMode(s) !== 'elsewhere' || canContinue(s);
 }
 
 /**
- * "Account Work has reached its 5-hour limit — continue on Marcus (Pro)?"
- * (docs/ACCOUNTS.md §6.2), with a button that opens the Continue-on choice
+ * "Account Work has reached its 5-hour limit — switch to Marcus (Pro)?"
+ * (docs/ACCOUNTS.md §6.2, §15.1), with a button that opens Switch account
  * with that account suggested: another account that is signed in and free
  * of limits, one sharing the directory first, else one with its own (the
- * conversation is copied there first). On a session page (`session`)
- * it speaks for that session's account; on the sessions list for every
- * account at a limit that has conversations here. Only while more than one
- * account exists; "Not now" hides it until the window resets.
+ * conversation moves there first). A session another app runs can't
+ * switch: for it the offer is to continue on that account. On a session
+ * page (`session`) it speaks for that session's account; on the sessions
+ * list for every account at a limit that has conversations here (picked
+ * in the sheet). Only while more than one account exists; "Not now" hides
+ * it until the window resets.
  */
 @Component({
   selector: 'mc-limit-offer',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [ContinueOnSheetComponent, IconComponent],
+  imports: [IconComponent, SwitchAccountSheetComponent],
   // Parents space it only while it shows something.
   host: { '[class.has-offers]': 'offers().length > 0' },
   template: `
@@ -37,11 +50,12 @@ interface Offer {
         <mc-icon name="alert" [size]="16" />
         <p class="text">
           Account <strong>{{ o.limit.account.name }}</strong> has reached its {{ o.limit.name }} —
+          {{ o.verb === 'switch' ? 'switch to' : 'continue on' }}
           @if (o.suggestion; as sug) {
-            continue on <strong>{{ sug.name }}</strong
+            <strong>{{ sug.name }}</strong
             >?
           } @else {
-            continue on another account?
+            another account?
           }
           @if (o.resets) {
             <span class="muted">({{ o.resets }})</span>
@@ -49,7 +63,11 @@ interface Offer {
         </p>
         <div class="acts">
           <button class="btn small primary" type="button" (click)="choose(o)">
-            {{ o.suggestion ? 'Continue on ' + o.suggestion.name : 'Choose an account' }}
+            {{
+              o.suggestion
+                ? (o.verb === 'switch' ? 'Switch to ' : 'Continue on ') + o.suggestion.name
+                : 'Choose an account'
+            }}
           </button>
           <button
             class="btn small ghost icon-only"
@@ -63,7 +81,7 @@ interface Offer {
         </div>
       </div>
     }
-    <mc-continue-on-sheet
+    <mc-switch-account-sheet
       [open]="!!sheet()"
       [sessions]="sheetSessions()"
       [suggested]="sheet()?.suggestion ?? null"
@@ -116,25 +134,27 @@ export class LimitOfferComponent {
    * account at a limit with conversations here (the sessions list). */
   readonly session = input<SessionSummary | undefined>(undefined);
 
-  /** The offer whose Continue-on choice is open. */
+  /** The offer whose Switch account sheet is open. */
   protected readonly sheet = signal<{ accountId: string; suggestion: string | null } | null>(null);
 
   protected readonly offers = computed<Offer[]>(() => {
     if (!this.accounts.multi()) return [];
     const now = this.clock.now();
-    const offer = (limit: AccountLimit): Offer => ({
+    const offer = (limit: AccountLimit, verb: Offer['verb']): Offer => ({
       limit,
       suggestion: this.accounts.suggestionFor(limit.account),
       resets: resetsIn(limit.window.resetsAt, now),
+      verb,
     });
     const s = this.session();
     if (s) {
       const limit = this.accounts.limitOf(s.account?.id);
-      return limit && !this.accounts.isDismissed(limit) && canContinue(s) ? [offer(limit)] : [];
+      const verb = switchMode(s) === 'elsewhere' ? 'continue' : 'switch';
+      return limit && !this.accounts.isDismissed(limit) && helped(s) ? [offer(limit, verb)] : [];
     }
     return [...this.accounts.limits().values()]
       .filter((l) => !this.accounts.isDismissed(l) && this.sessionsOf(l.account.id).length > 0)
-      .map(offer);
+      .map((l) => offer(l, 'switch'));
   });
 
   protected readonly sheetSessions = computed<SessionSummary[]>(() => {
@@ -152,12 +172,12 @@ export class LimitOfferComponent {
     this.accounts.dismiss(o.limit);
   }
 
-  /** An account's conversations that can be continued: running ones first,
+  /** An account's conversations the offer can help: running ones first,
    * then the most recent. */
   private sessionsOf(accountId: string): SessionSummary[] {
     return this.realtime
       .sessions()
-      .filter((s) => s.account?.id === accountId && canContinue(s))
+      .filter((s) => s.account?.id === accountId && helped(s))
       .sort(
         (a, b) =>
           Number(b.live) - Number(a.live) ||

@@ -84,7 +84,7 @@ describe('LimitOfferComponent', () => {
     expect(el.classList).not.toContain('has-offers');
   });
 
-  it("offers to continue a limited account's conversations on a free one", async () => {
+  it("offers to switch a limited account's conversations to a free one", async () => {
     serveAccounts(backend, buildAccounts(Date.now(), true));
     rt.mergePlanUsage(usage(100));
     rt.mergeAccountUsages({ accounts: { [MOCK_ACCOUNT_PRO]: usage(12) } });
@@ -93,7 +93,7 @@ describe('LimitOfferComponent', () => {
     const offers = el.querySelectorAll('.offer');
     expect(offers.length).toBe(1);
     expect(text(offers[0])).toContain(
-      'Account Default has reached its 5-hour limit — continue on Marcus (Pro)?',
+      'Account Default has reached its 5-hour limit — switch to Marcus (Pro)?',
     );
     expect(text(offers[0])).toMatch(/\(resets in 2h \dm\)/);
     expect(el.classList).toContain('has-offers');
@@ -101,10 +101,28 @@ describe('LimitOfferComponent', () => {
     fixture.detectChanges();
     await flush();
     fixture.detectChanges();
-    // The Continue-on choice opens with that account's conversation in it.
+    // Switch account opens with that account's conversation in it.
     const dialog = el.querySelector('dialog') as HTMLDialogElement;
     expect(dialog.open).toBeTrue();
-    expect(text(dialog)).toContain('Continue on Marcus (Pro)');
+    expect(text(dialog)).toContain('Switch to Marcus (Pro)');
+  });
+
+  it('offers to continue a session another app runs, which cannot switch', () => {
+    serveAccounts(backend, buildAccounts(Date.now(), true));
+    rt.mergePlanUsage(usage(100));
+    const vscode = {
+      ...session('s3', DEFAULT_REF),
+      owned: false,
+      surface: 'vscode' as const,
+      control: { ...ownedCaps(), fork: true },
+    };
+    const el = render(vscode);
+    expect(text(el.querySelector('.offer') as Element)).toContain(
+      'has reached its 5-hour limit — continue on Marcus (Pro)?',
+    );
+    expect(text(el.querySelector('.offer .btn.primary') as Element)).toBe(
+      'Continue on Marcus (Pro)',
+    );
   });
 
   it("on a session page speaks only for that session's account", () => {
