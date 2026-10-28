@@ -15,18 +15,27 @@
 //! * `PUT /api/accounts/defaults {newSession, bridge, byProject}`,
 //!   `PUT /api/accounts/copy-consent {from, to, granted}` (the desktop or a
 //!   paired device).
+//! * `GET /api/accounts/{id}` (Authed) → `AccountView` (the desktop also
+//!   sees a running sign-in's link).
 //! * `POST /api/accounts/{id}/refresh` (Authed): re-check the sign-in.
-//! * `POST /api/accounts/{id}/login {console?}` (DesktopOnly): `claude auth
-//!   login` for the account's directory; watched until it lands.
+//! * `POST /api/accounts/{id}/login {console?, email?}` (DesktopOnly):
+//!   `claude auth login` for the Default or a directory account, in a
+//!   pseudo-terminal; the default browser opens on its own once its link is
+//!   known (docs/ACCOUNTS.md §15.2).
 //! * `POST /api/accounts/{id}/hooks/install|uninstall` (DesktopOnly): the
 //!   hooks plugin in a directory account's own directory.
 //! * `GET|POST|DELETE /api/accounts/{id}/token` (DesktopOnly): a token
-//!   account's `setup-token` capture — `POST {}` starts it, `POST {code}`
+//!   account's `setup-token` run — `POST {}` starts it, `POST {code}`
 //!   types the browser's code into it, `POST {token}` stores a pasted token,
 //!   `DELETE` stops it.
+//! * `GET|POST /api/accounts/{id}/sign-in/open` (DesktopOnly): the browsers
+//!   this machine has; open the running sign-in's link in one. `POST
+//!   /api/accounts/{id}/sign-in/code {code}`, `DELETE
+//!   /api/accounts/{id}/sign-in`: either kind's code and cancel.
 //!
-//! Every change is audited (never with a token) and sent as an `accounts`
-//! frame.
+//! One sign-in runs at a time across all accounts (`409 sign_in_running`,
+//! naming the account). Every change is audited (never with a token, a link
+//! or a code) and sent as an `accounts` frame.
 
 use std::path::PathBuf;
 
@@ -38,10 +47,13 @@ use serde::Deserialize;
 use serde_json::json;
 
 use super::Body;
+use crate::claude::accounts::capture::SignInError;
+use crate::claude::accounts::signin::{self, Failure, LoginOptions, SignInJobView};
 use crate::claude::accounts::view::{self, AccountView, AccountsView};
 use crate::claude::accounts::{
     status, AccountDefaults, AccountEnv, AccountError, AccountKind, AccountPatch,
 };
+use crate::claude::browser::{Browser, OpenError};
 use crate::claude::secrets::Secret;
 use crate::server::auth::{self, Authed, DesktopOnly, ManageData};
 use crate::server::context::ClientContext;
@@ -93,9 +105,58 @@ fn known(state: &AppState, id: &str) -> ApiResult<()> {
         .ok_or_else(|| account_error(AccountError::NotFound(id.to_string())))
 }
 
+/// A sign-in failure as an API error. `fallback`: the code a failure to
+/// start has always had on this route (`login_failed`, `capture_failed`).
+fn sign_in_error(e: Failure, fallback: &'static str) -> ApiError {
+    let message = e.to_string();
+    match e {
+        Failure::Account(e @ (AccountError::NotFound(_) | AccountError::TokenMissing)) => {
+            account_error(e)
+        }
+        Failure::Account(_) | Failure::TokenAccount => ApiError::unprocessable(fallback, message),
+        Failure::SignIn(SignInError::Running { account, name }) => {
+            ApiError::conflict("sign_in_running", message)
+                .with("account", account)
+                .with("accountName", name)
+        }
+        Failure::SignIn(e @ (SignInError::NotRunning | SignInError::NoLink)) => {
+            ApiError::conflict(e.code(fallback), message)
+        }
+        Failure::SignIn(e) => ApiError::unprocessable(e.code(fallback), message),
+        Failure::Browser(e @ OpenError::Unavailable(_)) => {
+            ApiError::unprocessable(e.code(), message)
+        }
+        Failure::Browser(e @ OpenError::Spawn(_)) => {
+            ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, e.code(), message)
+        }
+    }
+}
+
+/// A run's answer on the token routes: the capture they have always had,
+/// and the sign-in.
+fn run_body(run: Option<SignInJobView>) -> serde_json::Value {
+    let (capture, sign_in) = run.map_or((None, None), |r| (r.capture, Some(r.sign_in)));
+    json!({ "capture": capture, "signIn": sign_in })
+}
+
 /// `GET /api/accounts`.
 pub async fn list(Authed(ctx): Authed, State(state): State<AppState>) -> Json<AccountsView> {
     Json(view::view(&state, ctx.is_desktop()).await)
+}
+
+/// `GET /api/accounts/{id}`.
+pub async fn get_one(
+    Authed(ctx): Authed,
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> ApiResult<Json<AccountView>> {
+    let live = view::live_counts(&state).await;
+    view::build(&state, ctx.is_desktop(), Some(&live))
+        .accounts
+        .into_iter()
+        .find(|a| a.id == id)
+        .map(Json)
+        .ok_or_else(|| account_error(AccountError::NotFound(id)))
 }
 
 #[derive(Debug, Deserialize)]
@@ -360,6 +421,10 @@ pub async fn refresh(
 pub struct LoginBody {
     #[serde(default)]
     pub console: bool,
+    /// The email the sign-in page asks for (`--email`); without it, the one
+    /// the account is signed in as, if known.
+    #[serde(default)]
+    pub email: Option<String>,
 }
 
 /// `POST /api/accounts/{id}/login`.
@@ -370,9 +435,13 @@ pub async fn login(
     Body(body): Body<LoginBody>,
 ) -> ApiResult<Response> {
     known(&state, &id)?;
-    status::start_login(&state, &id, body.console)
+    let options = LoginOptions {
+        console: body.console,
+        email: body.email.filter(|e| !e.trim().is_empty()),
+    };
+    signin::start_login(&state, &id, options)
         .await
-        .map_err(|m| ApiError::unprocessable("login_failed", m))?;
+        .map_err(|e| sign_in_error(e, "login_failed"))?;
     ctx.note_dangerous("account sign-in");
     audit(&state, &ctx, "account.login", json!({ "account": id }));
     Ok((StatusCode::ACCEPTED, Json(one(&state, &id)?)).into_response())
@@ -385,10 +454,15 @@ pub async fn token_status(
     Path(id): Path<String>,
 ) -> ApiResult<Json<serde_json::Value>> {
     known(&state, &id)?;
-    let capture = state.accounts.runtime.capture(&id).map(|j| j.view());
+    let job = state.accounts.runtime.sign_in(&id);
+    let capture = job
+        .as_ref()
+        .filter(|j| j.kind == crate::claude::accounts::capture::SignInKind::Token)
+        .map(|j| j.capture_view());
     Ok(Json(json!({
         "available": crate::claude::accounts::capture::AVAILABLE,
         "capture": capture,
+        "signIn": job.map(|j| j.view()),
         "tokenStored": state.accounts.has_token(&id),
     })))
 }
@@ -440,21 +514,25 @@ pub async fn token(
             Ok(Json(one(&state, &id)?).into_response())
         }
         (None, Some(c)) => {
-            let view = status::submit_code(&state, &id, c)
-                .map_err(|m| ApiError::conflict("capture_not_running", m))?;
-            Ok(Json(json!({ "capture": view })).into_response())
+            let run = signin::submit_code(&state, &id, c).map_err(|e| match e {
+                Failure::SignIn(SignInError::NotRunning) => {
+                    ApiError::conflict("capture_not_running", e.to_string())
+                }
+                other => sign_in_error(other, "capture_failed"),
+            })?;
+            Ok(Json(run_body(Some(run))).into_response())
         }
         (None, None) => {
-            let view = status::start_capture(&state, &id)
-                .map_err(|m| ApiError::unprocessable("capture_failed", m))?;
+            let run = signin::start_token(&state, &id)
+                .await
+                .map_err(|e| sign_in_error(e, "capture_failed"))?;
             audit(
                 &state,
                 &ctx,
                 "account.token",
                 json!({ "account": id, "how": "setup-token" }),
             );
-            view::publish(&state).await;
-            Ok((StatusCode::ACCEPTED, Json(json!({ "capture": view }))).into_response())
+            Ok((StatusCode::ACCEPTED, Json(run_body(Some(run)))).into_response())
         }
     }
 }
@@ -466,9 +544,85 @@ pub async fn cancel_token(
     Path(id): Path<String>,
 ) -> ApiResult<Json<serde_json::Value>> {
     known(&state, &id)?;
-    let view = status::cancel_capture(&state, &id);
+    let run = signin::cancel(&state, &id);
     view::publish(&state).await;
-    Ok(Json(json!({ "capture": view })))
+    Ok(Json(run_body(run)))
+}
+
+/// `GET /api/accounts/{id}/sign-in/open`: the browsers a link can be opened
+/// in on this machine.
+pub async fn sign_in_browsers(
+    DesktopOnly(_ctx): DesktopOnly,
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> ApiResult<Json<serde_json::Value>> {
+    known(&state, &id)?;
+    Ok(Json(json!({ "browsers": signin::browsers(&state) })))
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct OpenBody {
+    pub browser: Browser,
+}
+
+/// `POST /api/accounts/{id}/sign-in/open {browser}`.
+pub async fn sign_in_open(
+    DesktopOnly(ctx): DesktopOnly,
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Body(body): Body<OpenBody>,
+) -> ApiResult<Json<serde_json::Value>> {
+    known(&state, &id)?;
+    let view =
+        signin::open(&state, &id, body.browser).map_err(|e| sign_in_error(e, "browser_failed"))?;
+    audit(
+        &state,
+        &ctx,
+        "account.sign_in.open",
+        json!({ "account": id, "browser": body.browser }),
+    );
+    view::publish(&state).await;
+    Ok(Json(json!({ "signIn": view })))
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct CodeBody {
+    pub code: String,
+}
+
+/// `POST /api/accounts/{id}/sign-in/code {code}`.
+pub async fn sign_in_code(
+    DesktopOnly(_ctx): DesktopOnly,
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Body(body): Body<CodeBody>,
+) -> ApiResult<Json<serde_json::Value>> {
+    known(&state, &id)?;
+    let run = signin::submit_code(&state, &id, &body.code)
+        .map_err(|e| sign_in_error(e, "sign_in_failed"))?;
+    view::publish(&state).await;
+    Ok(Json(json!({ "signIn": run.sign_in })))
+}
+
+/// `DELETE /api/accounts/{id}/sign-in`.
+pub async fn sign_in_cancel(
+    DesktopOnly(ctx): DesktopOnly,
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> ApiResult<Json<serde_json::Value>> {
+    known(&state, &id)?;
+    let view =
+        signin::cancel_running(&state, &id).map_err(|e| sign_in_error(e, "sign_in_failed"))?;
+    audit(
+        &state,
+        &ctx,
+        "account.sign_in.cancel",
+        json!({ "account": id }),
+    );
+    view::publish(&state).await;
+    Ok(Json(json!({ "signIn": view })))
 }
 
 /// `POST /api/accounts/{id}/hooks/install`.

@@ -357,6 +357,17 @@ device, ingress and client address.
   is learned as a hash: from the process environment on Linux, from the hooks
   plugin's `X-MC-Token-Sha256` on macOS (the hook hashes it inside the
   session); the value is compared and dropped.
+- Signing in runs `claude auth login` or `claude setup-token` in a
+  pseudo-terminal with `BROWSER=true`, so the CLI opens nothing itself; Mother
+  Claude opens the link it shows, and only an `https` link to `claude.ai`,
+  `claude.com` or `anthropic.com` (or a subdomain), without credentials or a
+  port — any other link is never shown or opened. The link is the desktop's
+  alone (never in a frame, another client's read, an error or an audit line;
+  whoever completes it signs the account in). One sign-in runs at a time,
+  across all accounts, and a run stores its token into the account that
+  started it, never another (a token another account holds is refused).
+  Opening the link, typing the browser's code and cancelling are desktop-only,
+  like starting a sign-in.
 - Adding, removing and signing in accounts, tokens, the backup passphrase and
   the hooks plugin installer are desktop-only. Moving and copying data, backups,
   restores, pulls, undo, the backup settings, account defaults, copy consent

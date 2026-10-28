@@ -317,11 +317,34 @@ pub async fn auth_login(
     }
 
     // A server that runs as one account signs that account in (its own
-    // directory's sign-in, never the Default's).
-    if let Some(account) = mount.only_account() {
-        crate::claude::accounts::status::start_login(&state, account, body.console)
-            .await
-            .map_err(|m| crate::bridge::error::BridgeError::unprocessable("login_failed", m))?;
+    // directory's sign-in, never the Default's); any other signs the Default
+    // in. Either way in a pseudo-terminal, the browser opened by Mother
+    // Claude (docs/ACCOUNTS.md §15.2), one sign-in at a time.
+    use crate::bridge::error::BridgeError;
+    use crate::claude::accounts::{capture::SignInError, signin};
+    let account = mount
+        .only_account()
+        .unwrap_or(crate::claude::accounts::DEFAULT_ID);
+    let options = signin::LoginOptions {
+        console: body.console,
+        email: None,
+    };
+    signin::start_login(&state, account, options)
+        .await
+        .map_err(|e| match e {
+            signin::Failure::SignIn(SignInError::Running { account, name }) => {
+                BridgeError::conflict(
+                    "sign_in_running",
+                    format!("A sign-in for {name:?} is running; finish or cancel it first."),
+                )
+                .with("account", account)
+            }
+            other if mount.only_account().is_some() => {
+                BridgeError::unprocessable("login_failed", other.to_string())
+            }
+            other => BridgeError::claude_error(other.to_string()),
+        })?;
+    if mount.only_account().is_some() {
         ctx.note_dangerous("account sign-in through the API");
         return Ok(ok(json!({
             "status": "started",
@@ -329,9 +352,6 @@ pub async fn auth_login(
                         Poll GET /auth?refresh=true until `authenticated` is true.",
         })));
     }
-    crate::claude::auth::begin_login(body.console)
-        .await
-        .map_err(|e| crate::bridge::error::BridgeError::claude_error(e.to_string()))?;
 
     Ok(ok(json!({
         "status": "started",

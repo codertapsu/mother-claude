@@ -10,6 +10,9 @@ MOTHER_CLAUDE_CLI). It speaks the stream-json control protocol the way CLI
   stdin as `{"in": …}`.
 * `stop|rm|respawn <short>` print a line and exit 0; `logs <short>` prints a
   raw TUI screen (escape sequences, no line feeds).
+* `auth status|login` and `setup-token` sign accounts in (see below); they
+  never open a browser, and write only into a CLAUDE_CONFIG_DIR inside the
+  temp directory.
 * Otherwise it answers control requests and runs one scripted turn per user
   message, chosen by the message text (see `run_turn`).
 """
@@ -18,8 +21,10 @@ import json
 import os
 import queue
 import sys
+import tempfile
 import threading
 import time
+import urllib.parse
 import uuid as uuidlib
 
 ARGS = sys.argv[1:]
@@ -64,8 +69,34 @@ if ARGS and ARGS[0] == "logs":
     sys.exit(0)
 
 # Sign-in, per account (docs/ACCOUNTS.md). Only ever touches the directory in
-# CLAUDE_CONFIG_DIR (a test's temp dir), never the real ~/.claude.
+# CLAUDE_CONFIG_DIR when it is inside the temp directory (a test's), never the
+# real ~/.claude, whatever the environment says.
 SIGNED_IN = ".fake-signed-in"
+# A test scripts an account's next `auth login` here, in the account's own
+# (temp) directory: {"mode": "ok|code|fail|hang|elsewhere", "email": …,
+# "code": …}.
+LOGIN_SCRIPT = ".fake-login.json"
+
+
+def in_temp(path):
+    try:
+        root = os.path.realpath(tempfile.gettempdir())
+        return os.path.realpath(path).startswith(root + os.sep)
+    except OSError:
+        return False
+
+
+def sign_in_facts():
+    """What a test checks about a sign-in's environment, carried in its link
+    (never a file): the directory it signs in, BROWSER, a terminal, a token."""
+    return {
+        "fake_config_dir": os.environ.get("CLAUDE_CONFIG_DIR", ""),
+        "fake_browser": os.environ.get("BROWSER", ""),
+        "fake_tty": "1" if sys.stdout.isatty() else "0",
+        "fake_token": "1" if os.environ.get("CLAUDE_CODE_OAUTH_TOKEN") else "0",
+    }
+
+
 if ARGS[:2] == ["auth", "status"]:
     token = os.environ.get("CLAUDE_CODE_OAUTH_TOKEN")
     cfg = os.environ.get("CLAUDE_CONFIG_DIR")
@@ -86,16 +117,62 @@ if ARGS[:2] == ["auth", "status"]:
     print(json.dumps(status))
     sys.exit(0)
 if ARGS[:2] == ["auth", "login"]:
+    # The CLI's screens in a terminal (2.1.312): it would run `$BROWSER <url>`
+    # (or `open <url>`); this fake opens nothing and only shows the link.
     cfg = os.environ.get("CLAUDE_CONFIG_DIR")
-    if cfg and os.path.isdir(cfg):
+    writable = bool(cfg) and in_temp(cfg) and os.path.isdir(cfg)
+    script = {}
+    if writable:
+        try:
+            with open(os.path.join(cfg, LOGIN_SCRIPT), encoding="utf-8") as f:
+                script = json.load(f)
+        except (OSError, ValueError):
+            script = {}
+    mode = script.get("mode", "ok")
+    email = arg("--email")
+    query = {"code": "true", "client_id": "fake", "state": "s2",
+             "fake_email": email or "", "fake_console": "1" if "--console" in ARGS else "0"}
+    query.update(sign_in_facts())
+    host = "https://platform.claude.com" if "--console" in ARGS else "https://claude.ai"
+    if mode == "elsewhere":
+        host = "https://claude.ai.evil.example"
+    url = f"{host}/oauth/authorize?{urllib.parse.urlencode(query)}"
+    w = sys.stdout.write
+    w("Opening browser to sign in...\r\n")
+    w(f"If the browser didn't open, visit: {url}\r\n")
+    sys.stdout.flush()
+    if mode == "fail":
+        w("OAuth error: the sign-in was cancelled\r\n")
+        sys.stdout.flush()
+        sys.exit(1)
+    if mode in ("hang", "elsewhere"):
+        time.sleep(600)
+        sys.exit(0)
+    if mode == "code":
+        w("The browser can't return the sign-in to Claude Code automatically. "
+          "After you sign in, paste the code shown.\r\n")
+        w("Paste code here if prompted > ")
+        sys.stdout.flush()
+        typed = sys.stdin.readline().strip()
+        if typed != script.get("code", typed):
+            w("Invalid code\r\n")
+            sys.stdout.flush()
+            sys.exit(1)
+    else:
         time.sleep(0.3)  # the browser round trip
+    # Whoever signs in in the browser: the script's, else the one asked for.
+    who = script.get("email") or email or os.environ.get("FAKE_LOGIN_EMAIL", "work@example.test")
+    if writable:
         with open(os.path.join(cfg, SIGNED_IN), "w", encoding="utf-8") as f:
-            f.write(os.environ.get("FAKE_LOGIN_EMAIL", "work@example.test"))
+            f.write(who)
+    w("Login successful.\r\n")
+    sys.stdout.flush()
     sys.exit(0)
 if ARGS[:1] == ["setup-token"]:
     # Ink-like output: colours, cursor moves, an OSC 8 link, then the token.
     mode = os.environ.get("FAKE_SETUP_TOKEN", "token")
-    url = "https://claude.ai/oauth/authorize?code=true&client_id=fake&state=s1"
+    url = ("https://claude.ai/oauth/authorize?code=true&client_id=fake&state=s1&"
+           + urllib.parse.urlencode(sign_in_facts()))
     w = sys.stdout.write
     w("\x1b[?25l\x1b[2K\x1b[G\x1b[2mBrowser didn't open? Use the url below to sign in\x1b[22m\r\n")
     w(f"\x1b]8;;{url}\x1b\\\x1b[2m{url}\x1b[22m\x1b]8;;\x1b\\\r\n")

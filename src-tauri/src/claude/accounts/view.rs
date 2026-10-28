@@ -1,14 +1,14 @@
 //! The accounts as clients see them: `GET /api/accounts` and the `accounts`
 //! WebSocket frame (docs/ACCOUNTS.md §4.4). Never a secret: a token account
-//! says whether its token is stored here, not what it is; the sign-in URL of
-//! a running `setup-token` is only in the desktop's own read.
+//! says whether its token is stored here, not what it is; the link of a
+//! running sign-in is only in the desktop's own read.
 
 use std::collections::{BTreeMap, HashMap};
 use std::hash::{Hash, Hasher};
 
 use serde::Serialize;
 
-use super::capture::CaptureView;
+use super::capture::{CaptureView, SignInKind, SignInView};
 use super::{AccountDefaults, AccountKind, CopyConsent, DEFAULT_ID};
 use crate::claude::model::AccountRef;
 use crate::claude::secrets::SecretStoreKind;
@@ -54,6 +54,7 @@ pub struct AccountView {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub attention: Option<Attention>,
     pub checking: bool,
+    /// A `claude auth login` of this account runs.
     pub signing_in: bool,
     /// A token account's token is in this machine's secret store.
     pub token_stored: bool,
@@ -62,9 +63,14 @@ pub struct AccountView {
     /// Live sessions (only in `GET /accounts`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub live: Option<u32>,
-    /// A `setup-token` capture, running or last finished.
+    /// A `setup-token` run, running or last finished, as the token routes
+    /// show it.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub capture: Option<CaptureView>,
+    /// The account's sign-in (a login or a token run), running or last
+    /// finished (docs/ACCOUNTS.md §15.2).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sign_in: Option<SignInView>,
 }
 
 /// The registry as clients see it.
@@ -76,7 +82,8 @@ pub struct AccountsView {
     pub copy_consent: Vec<CopyConsent>,
     /// Where secrets are kept on this machine.
     pub secret_store: SecretStoreKind,
-    /// This build can run `claude setup-token` itself.
+    /// This build can run sign-ins (`claude auth login`, `claude
+    /// setup-token`) in a terminal itself.
     pub token_capture: bool,
 }
 
@@ -106,7 +113,7 @@ pub async fn live_counts(state: &AppState) -> HashMap<String, u32> {
     out
 }
 
-/// Build the view. `desktop`: include a running capture's sign-in URL.
+/// Build the view. `desktop`: include a sign-in's link.
 pub fn build(state: &AppState, desktop: bool, live: Option<&HashMap<String, u32>>) -> AccountsView {
     let reg = state.accounts.snapshot();
     let runtime = &state.accounts.runtime;
@@ -140,7 +147,22 @@ pub fn build(state: &AppState, desktop: bool, live: Option<&HashMap<String, u32>
                     _ => None,
                 }
             };
-            let capture = runtime.capture(&a.id).map(|j| {
+            let job = runtime.sign_in(&a.id);
+            let signing_in = job
+                .as_ref()
+                .is_some_and(|j| j.kind == SignInKind::Login && j.is_running());
+            let capture = job
+                .as_ref()
+                .filter(|j| j.kind == SignInKind::Token)
+                .map(|j| {
+                    let v = j.capture_view();
+                    if desktop {
+                        v
+                    } else {
+                        v.public()
+                    }
+                });
+            let sign_in = job.as_ref().map(|j| {
                 let v = j.view();
                 if desktop {
                     v
@@ -163,7 +185,7 @@ pub fn build(state: &AppState, desktop: bool, live: Option<&HashMap<String, u32>
                 auth_error: auth.and_then(|x| x.error.clone()),
                 attention,
                 checking: status.checking,
-                signing_in: status.signing_in,
+                signing_in,
                 token_stored,
                 hooks_plugin: if a.is_default() {
                     default_plugin_state(state)
@@ -172,6 +194,7 @@ pub fn build(state: &AppState, desktop: bool, live: Option<&HashMap<String, u32>
                 },
                 live: live.map(|l| l.get(&a.id).copied().unwrap_or(0)),
                 capture,
+                sign_in,
             }
         })
         .collect();

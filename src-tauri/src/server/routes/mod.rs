@@ -131,7 +131,9 @@ pub fn api_router() -> Router<AppState> {
         .route("/accounts/copy-consent", put(accounts::put_copy_consent))
         .route(
             "/accounts/{id}",
-            axum::routing::patch(accounts::update).delete(accounts::remove),
+            get(accounts::get_one)
+                .patch(accounts::update)
+                .delete(accounts::remove),
         )
         .route("/accounts/{id}/refresh", post(accounts::refresh))
         .route("/accounts/{id}/login", post(accounts::login))
@@ -143,6 +145,12 @@ pub fn api_router() -> Router<AppState> {
                 .post(accounts::token)
                 .delete(accounts::cancel_token),
         )
+        .route("/accounts/{id}/sign-in", delete(accounts::sign_in_cancel))
+        .route(
+            "/accounts/{id}/sign-in/open",
+            get(accounts::sign_in_browsers).post(accounts::sign_in_open),
+        )
+        .route("/accounts/{id}/sign-in/code", post(accounts::sign_in_code))
         // ── backups, restores, pulls (docs/ACCOUNTS.md) ──
         .route("/backup", get(backup::get_backup))
         .route("/backup/settings", put(backup::put_settings))

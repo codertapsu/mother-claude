@@ -172,6 +172,20 @@ Claude's own Anthropic sign-in is read via `claude auth status --json` in
 signed-out account is one line in the banner rather than every turn returning the
 string "Not logged in · Please run /login".
 
+**Signing in** (`claude/accounts/signin.rs`, docs/ACCOUNTS.md §15.2–15.3)
+runs `claude auth login` (the Default, a directory account) or `claude
+setup-token` (a token account) in a **pseudo-terminal** — without one the CLI
+decides it is headless, opens no browser and prints its link to nobody — with
+`BROWSER=true`, so the CLI's own opener runs the `true` no-op. The link is read
+from the screen (`accounts/capture.rs`) and **Mother Claude opens it**
+(`claude/browser.rs`): only an `https` link to `claude.ai`, `claude.com` or
+`anthropic.com` (or a subdomain) is ever taken, shown or opened, in the default
+browser, Chrome or a private Chrome window. A login opens the default browser
+on its own; a token sign-in never does (the desktop asks first). The opener only
+records until `lib.rs` turns it on, so no test ever opens a browser. One
+sign-in runs at a time across all accounts, bound to its account from the start:
+a token goes into that account's secret only.
+
 **Set `CLAUDE_CONFIG_DIR` on a child only to a directory account's own
 directory, never for the Default account.** Setting it breaks the CLI's
 credential resolution *even when it points at the default `~/.claude`*: every

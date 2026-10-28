@@ -37,6 +37,7 @@ use super::secrets::{Secret, SecretError, SecretName, SecretStore};
 
 pub mod capture;
 pub mod sessions;
+pub mod signin;
 pub mod status;
 pub mod view;
 

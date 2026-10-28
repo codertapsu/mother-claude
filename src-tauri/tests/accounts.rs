@@ -1,9 +1,12 @@
-//! Accounts over real HTTP (docs/ACCOUNTS.md P1.2, P1.3): who may list and
-//! who may change them, the registry's view (never a token), signing a
-//! directory account in, and `setup-token` captured through a pseudo-terminal
-//! — all against the FAKE `claude` (`tests/fixtures/fake-claude.py`), which
-//! only ever writes into a test's temp directory.
+//! Accounts over real HTTP (docs/ACCOUNTS.md P1.2, P1.3, §15.2–15.3): who may
+//! list and who may change them, the registry's view (never a token), signing
+//! accounts in through a pseudo-terminal (`claude auth login`, `claude
+//! setup-token`), the browsers a link opens in, one sign-in at a time — all
+//! against the FAKE `claude` (`tests/fixtures/fake-claude.py`), which only
+//! ever writes into a test's temp directory. No browser ever opens: the
+//! opener only records.
 
+use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Once;
@@ -11,6 +14,7 @@ use std::time::Duration;
 
 use futures_util::StreamExt;
 use mother_claude_lib::claude::accounts::AccountKind;
+use mother_claude_lib::claude::browser::{self, Browser, Installed, Link, Platform};
 use mother_claude_lib::claude::ClaudeHome;
 use mother_claude_lib::server::auth::Auth;
 use mother_claude_lib::server::{self, Ingress};
@@ -159,6 +163,73 @@ impl Fixture {
         }
         panic!("{what}: {}", self.account(id).await);
     }
+
+    /// Add a directory account (its directory in the scratch dir) and wait
+    /// for its first sign-in check.
+    async fn directory_account(&self, name: &str) -> (String, PathBuf) {
+        let dir = self.scratch.path().join(format!("claude-{name}"));
+        let (s, a) = self
+            .call(
+                "POST",
+                "/accounts",
+                &self.desktop(),
+                Some(json!({"name": name, "kind": "directory", "dir": dir})),
+            )
+            .await;
+        assert_eq!(s, StatusCode::CREATED, "{a}");
+        let id = a["id"].as_str().unwrap().to_string();
+        self.wait_for(&id, "the first check", |a| {
+            a["checking"] == false && a.get("attention").is_some()
+        })
+        .await;
+        // The directory as the registry keeps it (symlinks resolved).
+        let dir = self.st.accounts.get(&id).unwrap().dir.unwrap();
+        (id, dir)
+    }
+
+    /// Start `id`'s login (`body`), expecting it to be accepted.
+    async fn login(&self, id: &str, body: Value) -> Value {
+        let (s, v) = self
+            .call(
+                "POST",
+                &format!("/accounts/{id}/login"),
+                &self.desktop(),
+                Some(body),
+            )
+            .await;
+        assert_eq!(s, StatusCode::ACCEPTED, "{v}");
+        v
+    }
+
+    /// The account's sign-in once `ok` holds for it.
+    async fn sign_in_when(&self, id: &str, what: &str, ok: impl Fn(&Value) -> bool) -> Value {
+        self.wait_for(id, what, |a| ok(&a["signIn"])).await["signIn"].clone()
+    }
+}
+
+/// Script a directory account's next `claude auth login` (the fake reads it
+/// from the account's own temp directory).
+fn script_login(dir: &std::path::Path, script: Value) {
+    std::fs::write(dir.join(".fake-login.json"), script.to_string()).unwrap();
+}
+
+/// The facts the fake put in a sign-in's link (its query).
+fn link_facts(url: &Value) -> HashMap<String, String> {
+    let url = reqwest::Url::parse(url.as_str().expect("a link")).unwrap();
+    url.query_pairs().into_owned().collect()
+}
+
+/// The command this machine would run to open `url` in `browser`.
+fn open_command(browser: Browser, installed: &Installed, url: &Value) -> browser::Command {
+    let root = std::env::var_os("SystemRoot").map(PathBuf::from);
+    browser::command(
+        Platform::current(),
+        browser,
+        installed,
+        &Link::parse(url.as_str().unwrap()).unwrap(),
+        root.as_deref(),
+    )
+    .unwrap()
 }
 
 const TOKEN: &str = "sk-ant-oat01-PastedTokenValue0123456789abcdefghijABCDEFGHIJ";
@@ -466,44 +537,73 @@ async fn the_apis_default_account_is_not_removed_under_it() {
         .unwrap();
 }
 
+/// §15.2: a directory account's `claude auth login` runs in a pseudo-terminal
+/// with its own `CLAUDE_CONFIG_DIR` and `BROWSER=true`; the link it shows
+/// opens in the default browser on its own; the run ends signed in.
 #[tokio::test]
-async fn a_fresh_directory_account_signs_in_without_a_terminal() {
+async fn a_directory_accounts_login_runs_in_a_terminal_and_opens_the_browser() {
     let f = boot().await;
     let desk = f.desktop();
-    let dir = f.scratch.path().join("claude-fresh");
-    let (_, work) = f
-        .call(
-            "POST",
-            "/accounts",
-            &desk,
-            Some(json!({"name": "Fresh", "kind": "directory", "dir": dir})),
-        )
-        .await;
-    let id = work["id"].as_str().unwrap().to_string();
-    let a = f
-        .wait_for(&id, "the first check", |a| {
-            a["checking"] == false && a.get("attention").is_some()
-        })
-        .await;
+    let (id, dir) = f.directory_account("Fresh").await;
+    let a = f.account(&id).await;
     assert_eq!(a["signedIn"], false);
     assert_eq!(a["attention"], "signedOut");
 
-    let (s, v) = f
-        .call(
-            "POST",
-            &format!("/accounts/{id}/login"),
-            &desk,
-            Some(json!({})),
-        )
-        .await;
-    assert_eq!(s, StatusCode::ACCEPTED, "{v}");
+    let v = f.login(&id, json!({})).await;
+    assert_eq!(v["signIn"]["kind"], "login");
+    assert_eq!(v["signingIn"], true);
     let a = f
         .wait_for(&id, "signed in", |a| a["signedIn"] == true)
         .await;
     assert_eq!(a["email"], "work@example.test");
     assert!(a.get("attention").is_none());
-    // The fake signed in only the account's own directory.
+    let run = f.sign_in_when(&id, "done", |s| s["state"] == "done").await;
+    assert_eq!(run["opened"], "default", "{run}");
+    assert!(run["finishedAt"].as_i64().is_some());
+    assert_eq!(f.account(&id).await["signingIn"], false);
+    // The fake signed in only the account's own directory, in a terminal,
+    // with BROWSER=true, no token, and nothing to pre-fill the first time.
     assert!(dir.join(".fake-signed-in").exists());
+    let facts = link_facts(&run["url"]);
+    assert_eq!(facts["fake_config_dir"], dir.to_string_lossy());
+    assert_eq!(facts["fake_browser"], "true");
+    assert_eq!(facts["fake_tty"], "1");
+    assert_eq!(facts["fake_token"], "0");
+    assert_eq!(facts["fake_email"], "");
+    assert_eq!(facts["fake_console"], "0");
+    // Mother Claude opened it, in the default browser, once.
+    assert_eq!(
+        f.st.opener.recorded(),
+        [open_command(
+            Browser::Default,
+            &Installed::default(),
+            &run["url"]
+        )]
+    );
+    // A phone sees the run, never its link.
+    let (_, all) = f.call("GET", "/accounts", &f.phone(), None).await;
+    let phone_view = all["accounts"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|a| a["id"] == id.as_str())
+        .unwrap()
+        .clone();
+    assert_eq!(phone_view["signIn"]["state"], "done");
+    assert!(phone_view["signIn"].get("url").is_none(), "{phone_view}");
+    let (s, one) = f
+        .call("GET", &format!("/accounts/{id}"), &f.phone(), None)
+        .await;
+    assert_eq!(s, StatusCode::OK, "{one}");
+    assert!(one["signIn"].get("url").is_none());
+    assert_eq!(one["live"], 0);
+    let (s, one) = f.call("GET", &format!("/accounts/{id}"), &desk, None).await;
+    assert_eq!(s, StatusCode::OK);
+    assert_eq!(one["signIn"]["url"], run["url"]);
+    let (s, _) = f
+        .call("GET", "/accounts/acc_000000000000", &desk, None)
+        .await;
+    assert_eq!(s, StatusCode::NOT_FOUND);
 
     // A token account has no `auth login`.
     let (_, t) = f
@@ -564,6 +664,293 @@ async fn signing_in_again_as_the_same_email_clears_a_failure() {
         .await;
     assert_eq!(a["signedIn"], true);
     assert_eq!(a["email"], "work@example.test", "the same email");
+    // A re-sign-in of an account whose email is known asks for that account.
+    let run = f.sign_in_when(&id, "done", |s| s["state"] == "done").await;
+    assert_eq!(link_facts(&run["url"])["fake_email"], "work@example.test");
+}
+
+/// §15.2: the Default's login keeps the environment as the app found it — its
+/// `CLAUDE_CONFIG_DIR` is never set by us — and still gets `BROWSER=true`;
+/// `--console` and an email the desktop names reach the CLI.
+#[tokio::test]
+async fn the_defaults_login_never_sets_its_directory() {
+    let f = boot().await;
+    let v = f
+        .login(
+            "default",
+            json!({"console": true, "email": " me@example.test "}),
+        )
+        .await;
+    assert_eq!(v["signIn"]["kind"], "login");
+    let run = f
+        .sign_in_when("default", "finished", |s| {
+            s["state"] != "starting" && s["state"] != "open"
+        })
+        .await;
+    let facts = link_facts(&run["url"]);
+    let inherited = std::env::var("CLAUDE_CONFIG_DIR").unwrap_or_default();
+    assert_eq!(
+        facts["fake_config_dir"], inherited,
+        "left as the app found it"
+    );
+    assert_eq!(facts["fake_browser"], "true");
+    assert_eq!(facts["fake_tty"], "1");
+    assert_eq!(facts["fake_console"], "1");
+    assert_eq!(facts["fake_email"], "me@example.test");
+    assert!(
+        run["url"]
+            .as_str()
+            .unwrap()
+            .starts_with("https://platform.claude.com/oauth/authorize?"),
+        "{run}"
+    );
+    if inherited.is_empty() {
+        // The fake's Default is signed in as default@example.test.
+        assert_eq!(run["state"], "done", "{run}");
+    }
+    // An email that is not one is refused before anything runs.
+    let (s, v) = f
+        .call(
+            "POST",
+            "/accounts/default/login",
+            &f.desktop(),
+            Some(json!({"email": "--sso"})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::UNPROCESSABLE_ENTITY, "{v}");
+    assert_eq!(v["error"]["code"], "invalid_body");
+}
+
+/// §15.3: one sign-in at a time across all accounts; an account's own running
+/// sign-in is handed back; cancelling frees the slot.
+#[tokio::test]
+async fn one_sign_in_runs_at_a_time() {
+    let f = boot().await;
+    let desk = f.desktop();
+    let (a, a_dir) = f.directory_account("Alpha").await;
+    let (b, _) = f.directory_account("Beta").await;
+    let (_, t) = f
+        .call(
+            "POST",
+            "/accounts",
+            &desk,
+            Some(json!({"name": "Tok", "kind": "token"})),
+        )
+        .await;
+    let t = t["id"].as_str().unwrap().to_string();
+    script_login(&a_dir, json!({"mode": "hang"}));
+    f.login(&a, json!({})).await;
+    f.sign_in_when(&a, "open", |s| s["state"] == "open").await;
+
+    for (path, body) in [
+        (format!("/accounts/{b}/login"), json!({})),
+        ("/accounts/default/login".to_string(), json!({})),
+        (format!("/accounts/{t}/token"), json!({})),
+    ] {
+        let (s, v) = f.call("POST", &path, &desk, Some(body)).await;
+        assert_eq!(s, StatusCode::CONFLICT, "{path}: {v}");
+        assert_eq!(v["error"]["code"], "sign_in_running", "{path}");
+        assert_eq!(v["error"]["account"], a.as_str(), "{path}");
+        assert_eq!(v["error"]["accountName"], "Alpha", "{path}");
+    }
+    assert!(f.account(&b).await.get("signIn").is_none(), "nothing ran");
+    // Alpha's own: the running one again.
+    let started = f.account(&a).await["signIn"]["startedAt"].clone();
+    let v = f.login(&a, json!({})).await;
+    assert_eq!(v["signIn"]["startedAt"], started);
+    assert_eq!(v["signIn"]["state"], "open");
+
+    // Nothing to cancel on Beta; then Alpha's is cancelled.
+    let (s, v) = f
+        .call("DELETE", &format!("/accounts/{b}/sign-in"), &desk, None)
+        .await;
+    assert_eq!(s, StatusCode::CONFLICT, "{v}");
+    assert_eq!(v["error"]["code"], "sign_in_not_running");
+    let (s, v) = f
+        .call("DELETE", &format!("/accounts/{a}/sign-in"), &desk, None)
+        .await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    assert_eq!(v["signIn"]["state"], "cancelled");
+    assert!(f
+        .st
+        .devices
+        .audit
+        .recent(50)
+        .iter()
+        .any(|e| e.action == "account.sign_in.cancel"));
+
+    // Now Beta signs in.
+    f.login(&b, json!({})).await;
+    f.sign_in_when(&b, "done", |s| s["state"] == "done").await;
+    assert_eq!(f.account(&a).await["signIn"]["state"], "cancelled");
+}
+
+/// §15.2: the link opens in a browser this machine has, only while the run
+/// runs and only once the link is known; a link to another host is never
+/// shown or opened; a phone may do none of it.
+#[tokio::test]
+async fn a_sign_ins_link_opens_only_where_it_may() {
+    let f = boot().await;
+    let desk = f.desktop();
+    let chrome = Installed {
+        chrome: Some(PathBuf::from("/Applications/Google Chrome.app")),
+    };
+    f.st.opener.pretend_installed(chrome.clone());
+    let (id, dir) = f.directory_account("Opener").await;
+
+    let (s, v) = f
+        .call("GET", &format!("/accounts/{id}/sign-in/open"), &desk, None)
+        .await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    assert_eq!(
+        v["browsers"],
+        json!(["default", "chrome", "chrome-private"])
+    );
+
+    let open_path = format!("/accounts/{id}/sign-in/open");
+    let open = |browser: &'static str| {
+        f.call(
+            "POST",
+            &open_path,
+            &desk,
+            Some(json!({ "browser": browser })),
+        )
+    };
+    // Nothing runs yet.
+    let (s, v) = open("default").await;
+    assert_eq!(s, StatusCode::CONFLICT, "{v}");
+    assert_eq!(v["error"]["code"], "sign_in_not_running");
+
+    // A screen whose link points elsewhere: never shown, never opened.
+    script_login(&dir, json!({"mode": "elsewhere"}));
+    f.login(&id, json!({})).await;
+    let mut refused = (StatusCode::OK, Value::Null);
+    for _ in 0..100 {
+        refused = open("default").await;
+        if refused.1["error"]["code"] != "sign_in_no_link" {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    assert_eq!(refused.0, StatusCode::UNPROCESSABLE_ENTITY, "{}", refused.1);
+    assert_eq!(refused.1["error"]["code"], "invalid_sign_in_url");
+    let run = f.account(&id).await["signIn"].clone();
+    assert_eq!(run["state"], "starting", "{run}");
+    assert!(run.get("url").is_none());
+    assert!(f.st.opener.recorded().is_empty(), "nothing was opened");
+    let (s, v) = f
+        .call("DELETE", &format!("/accounts/{id}/sign-in"), &desk, None)
+        .await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    assert_eq!(v["signIn"]["state"], "cancelled");
+
+    // A good one: the default browser on its own, then a private window.
+    script_login(&dir, json!({"mode": "hang"}));
+    f.login(&id, json!({})).await;
+    let run = f
+        .sign_in_when(&id, "open", |s| {
+            s["state"] == "open" && s["opened"] == "default"
+        })
+        .await;
+    let (s, v) = open("chrome-private").await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    assert_eq!(v["signIn"]["opened"], "chrome-private");
+    assert_eq!(
+        f.st.opener.recorded(),
+        [
+            open_command(Browser::Default, &chrome, &run["url"]),
+            open_command(Browser::ChromePrivate, &chrome, &run["url"]),
+        ]
+    );
+    // A browser this machine lacks, or none at all.
+    f.st.opener.pretend_installed(Installed::default());
+    let (s, v) = open("chrome").await;
+    assert_eq!(s, StatusCode::UNPROCESSABLE_ENTITY, "{v}");
+    assert_eq!(v["error"]["code"], "browser_unavailable");
+    let (s, v) = open("firefox").await;
+    assert_eq!(s, StatusCode::UNPROCESSABLE_ENTITY, "{v}");
+    assert_eq!(v["error"]["code"], "invalid_body");
+    // A phone may not open, type, cancel or even list.
+    let phone = f.phone();
+    for (method, path, body) in [
+        ("GET", format!("/accounts/{id}/sign-in/open"), None),
+        (
+            "POST",
+            format!("/accounts/{id}/sign-in/open"),
+            Some(json!({"browser": "default"})),
+        ),
+        (
+            "POST",
+            format!("/accounts/{id}/sign-in/code"),
+            Some(json!({"code": "x"})),
+        ),
+        ("DELETE", format!("/accounts/{id}/sign-in"), None),
+    ] {
+        let (s, v) = f.call(method, &path, &phone, body).await;
+        assert_eq!(s, StatusCode::FORBIDDEN, "{method} {path}: {v}");
+    }
+    assert_eq!(f.st.opener.recorded().len(), 2);
+    let audit = f.st.devices.audit.recent(50);
+    assert!(audit.iter().any(|e| e.action == "account.sign_in.open"));
+    let audit_text = serde_json::to_string(&audit).unwrap();
+    assert!(!audit_text.contains("oauth"), "no link in the audit");
+    f.call("DELETE", &format!("/accounts/{id}/sign-in"), &desk, None)
+        .await;
+}
+
+/// §15.2: when the browser cannot hand the sign-in back, the screen asks for
+/// the code it shows; the desktop types it in.
+#[tokio::test]
+async fn a_login_takes_the_code_the_browser_shows() {
+    let f = boot().await;
+    let desk = f.desktop();
+    let (id, dir) = f.directory_account("Coded").await;
+    script_login(&dir, json!({"mode": "code", "code": "abc#def"}));
+    f.login(&id, json!({})).await;
+    f.sign_in_when(&id, "asks for the code", |s| s["state"] == "code")
+        .await;
+    let (s, v) = f
+        .call(
+            "POST",
+            &format!("/accounts/{id}/sign-in/code"),
+            &desk,
+            Some(json!({"code": " abc#def\n"})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    assert_ne!(v["signIn"]["state"], "code", "typed: {v}");
+    f.sign_in_when(&id, "done", |s| s["state"] == "done").await;
+    assert_eq!(f.account(&id).await["signedIn"], true);
+    // A finished run takes no code.
+    let (s, v) = f
+        .call(
+            "POST",
+            &format!("/accounts/{id}/sign-in/code"),
+            &desk,
+            Some(json!({"code": "abc#def"})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::CONFLICT, "{v}");
+    assert_eq!(v["error"]["code"], "sign_in_not_running");
+
+    // A wrong code ends it, saying why (never the link).
+    script_login(&dir, json!({"mode": "code", "code": "right"}));
+    f.login(&id, json!({})).await;
+    f.sign_in_when(&id, "asks again", |s| s["state"] == "code")
+        .await;
+    f.call(
+        "POST",
+        &format!("/accounts/{id}/sign-in/code"),
+        &desk,
+        Some(json!({"code": "wrong"})),
+    )
+    .await;
+    let run = f
+        .sign_in_when(&id, "failed", |s| s["state"] == "failed")
+        .await;
+    let error = run["error"].as_str().unwrap();
+    assert!(error.contains("Invalid code"), "{error}");
+    assert!(!error.contains("https://"), "{error}");
 }
 
 #[tokio::test]
@@ -598,13 +985,28 @@ async fn setup_token_is_captured_into_the_secret_store() {
         .await;
     assert_eq!(a["tokenStored"], true);
     assert!(a.get("attention").is_none(), "{a}");
-    // The desktop's own read has the sign-in URL; the token is nowhere.
+    assert_eq!(a["signIn"]["kind"], "token");
+    assert_eq!(a["signIn"]["state"], "done");
+    assert_eq!(a["signingIn"], false, "a login's flag only");
+    // The desktop's own read has the sign-in URL; the token is nowhere. It
+    // ran in a terminal with BROWSER=true and without the inherited token,
+    // and nothing opened on its own (§15.2: the desktop asks first).
     let (_, status) = f
         .call("GET", &format!("/accounts/{id}/token"), &desk, None)
         .await;
-    assert_eq!(
-        status["capture"]["url"],
-        "https://claude.ai/oauth/authorize?code=true&client_id=fake&state=s1"
+    let url = status["capture"]["url"].as_str().unwrap();
+    assert!(
+        url.starts_with("https://claude.ai/oauth/authorize?code=true&client_id=fake&state=s1&"),
+        "{url}"
+    );
+    assert_eq!(status["signIn"]["url"], url);
+    let facts = link_facts(&status["capture"]["url"]);
+    assert_eq!(facts["fake_browser"], "true");
+    assert_eq!(facts["fake_tty"], "1");
+    assert_eq!(facts["fake_token"], "0");
+    assert!(
+        f.st.opener.recorded().is_empty(),
+        "nothing opened by itself"
     );
     let token = format!("sk-ant-oat01-{}-fakeTokenTail0123456789", "Ab1_".repeat(20));
     assert!(!status.to_string().contains(&token));
@@ -718,7 +1120,48 @@ async fn setup_token_is_captured_into_the_secret_store() {
         .await;
     assert_eq!(s, StatusCode::OK, "{v}");
     assert_eq!(v["capture"]["state"], "cancelled");
+    assert_eq!(v["signIn"]["state"], "cancelled");
     std::env::remove_var("FAKE_SETUP_TOKEN");
+
+    // §15.3: a run stores into the account that started it, and only there.
+    // A second account whose browser handed over the first one's token (the
+    // fake shows the same one) is refused, and the first keeps its own.
+    let (_, other) = f
+        .call(
+            "POST",
+            "/accounts",
+            &desk,
+            Some(json!({"name": "Second", "kind": "token"})),
+        )
+        .await;
+    let other = other["id"].as_str().unwrap().to_string();
+    let (s, v) = f
+        .call(
+            "POST",
+            &format!("/accounts/{other}/token"),
+            &desk,
+            Some(json!({})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::ACCEPTED, "{v}");
+    assert_eq!(v["signIn"]["kind"], "token");
+    let a = f
+        .wait_for(&other, "refused", |a| a["capture"]["state"] == "failed")
+        .await;
+    assert!(
+        a["capture"]["error"]
+            .as_str()
+            .unwrap()
+            .contains("already account \"Captured\""),
+        "{a}"
+    );
+    assert_eq!(a["tokenStored"], false);
+    assert!(f.st.accounts.env(&other).is_err(), "nothing stored there");
+    match f.st.accounts.env(&id).unwrap() {
+        mother_claude_lib::claude::accounts::AccountEnv::Token(t) => assert_eq!(t.expose(), token),
+        other => panic!("{other:?}"),
+    }
+    assert!(f.st.opener.recorded().is_empty());
 }
 
 fn transcript(cwd: &str, sid: &str) -> String {

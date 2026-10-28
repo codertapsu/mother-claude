@@ -156,45 +156,10 @@ pub fn parse(value: &Value) -> AuthStatus {
     }
 }
 
-/// Start the interactive sign-in flow.
-///
-/// `claude auth login` opens a browser and completes out of band, so this
-/// spawns it and returns — there is nothing useful to wait for here, and
-/// blocking an HTTP handler on a human finishing an OAuth round trip would only
-/// produce a timeout. Poll [`status`] to see when it lands.
-pub async fn begin_login(console: bool) -> anyhow::Result<()> {
-    begin_login_for(console, &AccountEnv::Inherit).await
-}
-
-/// [`begin_login`] for an account: a directory account signs its own
-/// directory in (its own Keychain item), never the Default's.
-pub async fn begin_login_for(console: bool, account: &AccountEnv) -> anyhow::Result<()> {
-    spawn_login_for(console, account).map(|_| ())
-}
-
-/// [`begin_login_for`], handing back the `claude auth login` process: its
-/// successful exit is a new sign-in even when the account signs in as the
-/// same email again (after an authentication failure, say), which
-/// `claude auth status` alone cannot tell apart from the old one.
-pub fn spawn_login_for(
-    console: bool,
-    account: &AccountEnv,
-) -> anyhow::Result<tokio::process::Child> {
-    let mut command = tokio::process::Command::new(crate::claude::claude_bin());
-    command.arg("auth").arg("login");
-    if console {
-        command.arg("--console");
-    }
-    if !account.is_inherit() {
-        crate::claude::control::scrub_child_env(&mut command, account);
-    }
-    command
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
-        .map_err(|e| anyhow::anyhow!("could not start `claude auth login`: {e}"))
-}
+// Signing in (`claude auth login`) runs in a pseudo-terminal, with the
+// browser opened by Mother Claude: `accounts::signin` (docs/ACCOUNTS.md
+// §15.2). Without a terminal the CLI thinks it is headless, opens no browser
+// and prints its link to nobody.
 
 #[cfg(test)]
 mod tests {

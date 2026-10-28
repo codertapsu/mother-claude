@@ -309,7 +309,11 @@ curl -sS 'http://127.0.0.1:5612/auth?refresh=true'   # poll until authenticated
 
 Signing in opens a browser on the host machine, so `POST /auth/login` is
 restricted to local clients (and devices granted dangerous actions).
-`claude auth login` in a terminal does the same thing.
+`claude auth login` in a terminal does the same thing. Mother Claude runs it
+in a pseudo-terminal and opens the sign-in page itself (only Claude's and
+Anthropic's own https pages); one sign-in runs at a time across all accounts,
+so while another runs it answers `409 sign_in_running` (docs/ACCOUNTS.md
+§15.2–15.3).
 
 **The bridge token** is off by default on `127.0.0.1:5612` for requests from
 this machine, which is what makes the examples in this document work as written.

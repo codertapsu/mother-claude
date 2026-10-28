@@ -1804,41 +1804,94 @@ consent, §11.2, as "Continue on" does — `409 copy_consent_required`):
 ### 15.2 Signing in opens a browser
 
 Both sign-ins run in a pseudo-terminal: `claude auth login` (the Default and
-directory accounts — today it runs without a terminal, so the CLI thinks it is
-headless, never opens a browser and its link is lost) and `claude
+directory accounts — before, it ran without a terminal, so the CLI thought it
+was headless, never opened a browser and its link was lost) and `claude
 setup-token` (token accounts). Each gets `BROWSER=true`, so the CLI never
 opens a browser itself; the sign-in link is read from its screen (the OSC 8
-link or the visible URL) and **Mother Claude opens it**:
+link or the visible URL) and **Mother Claude opens it**
+(`claude/accounts/signin.rs`, `claude/accounts/capture.rs`,
+`claude/browser.rs`):
 
-- `GET /api/accounts/{id}` and the accounts view carry `signIn: {kind:
-  "login" | "token", state: "starting" | "open" | "code" | "done" | "failed"
-  | "cancelled", url?, startedAt, error?}` while one runs (the capture view
-  of today, generalized).
+- `GET /api/accounts`, `GET /api/accounts/{id}` (`Authed`) and the
+  `accounts` frame carry `signIn: {kind: "login" | "token", state:
+  "starting" | "open" | "code" | "done" | "failed" | "cancelled", url?,
+  opened?, startedAt, finishedAt?, error?}` — the account's run, while it
+  runs and the last one after (the capture view of today, generalized).
+  `url` is in the desktop's own reads only; `opened` is the browser the
+  link was last opened in.
 - `POST /api/accounts/{id}/sign-in/open {browser: "default" | "chrome" |
   "chrome-private"}` (`DesktopOnly`) opens the link: the default browser
   (macOS `open`, Windows `rundll32 url.dll,FileProtocolHandler`, Linux
   `xdg-open`), Google Chrome, or a private Chrome window (`--incognito`) —
-  `GET` lists the browsers this Mac has. Only an `https` link to
-  `claude.ai`, `claude.com` or `anthropic.com` (or a subdomain) is ever
-  opened. For a login (the Default, a directory account) the default
-  browser opens on its own as soon as the link is known — what the user
-  asked for — and the panel offers the private window and *Copy link*
-  beside it; who signed in is checked afterwards (§15.3). A token sign-in
-  opens nothing on its own: its account cannot be checked afterwards, so
-  the panel asks first, recommending the private window.
+  `GET` the same path lists the browsers this Mac has, `{browsers:
+  ["default", "chrome", "chrome-private"]}` (Chrome's two only when it is
+  installed). Only an `https` link to `claude.ai`, `claude.com` or
+  `anthropic.com` (or a subdomain) is ever opened. For a login (the
+  Default, a directory account) the default browser opens on its own as
+  soon as the link is known — what the user asked for — and the panel
+  offers the private window and *Copy link* beside it; who signed in is
+  checked afterwards (§15.3). A token sign-in opens nothing on its own: its
+  account cannot be checked afterwards, so the panel asks first,
+  recommending the private window.
 - `POST /api/accounts/{id}/sign-in/code {code}` types the code the browser
   shows when the CLI asks for one; `DELETE /api/accounts/{id}/sign-in`
-  cancels. The existing token routes keep working.
+  cancels. Both answer `{signIn}`, as `open` does. The existing token
+  routes keep working.
 - A re-sign-in of an account whose email is known passes `--email` to `claude
   auth login`, so the page asks for that account.
+
+*Built (P9.2), and what changed while building:*
+
+- **Starting** is still `POST /api/accounts/{id}/login {console?, email?}`
+  (`202`, the account view) and, for a token account, `POST
+  /api/accounts/{id}/token {}` (`202 {capture, signIn}`). `email` is new:
+  the email the page asks for, checked for its shape first (`422
+  invalid_body`); without it the email of the account's last `auth status`
+  is passed. The token routes answer `{capture, signIn}` (`GET` adds
+  `signIn` too); the account view keeps `capture` (a token run, in its old
+  shape) and `signingIn` (a login runs) beside `signIn`.
+- **Errors:** `409 sign_in_running` with `account` and `accountName` (§15.3);
+  `409 sign_in_not_running` for open, code and cancel with nothing
+  running; `409 sign_in_no_link` before the link is known; `422
+  invalid_sign_in_url` when the link the CLI showed is not one Mother Claude
+  opens; `422 browser_unavailable` when Chrome is not installed; `500
+  browser_failed` when the opener could not run; `422 sign_in_unavailable`
+  in a build without a pseudo-terminal (the `token-capture` feature; a
+  token can still be pasted).
+- **The link** is taken only once its line goes on past it (a URL cut by a
+  read is not one yet) and only when it passes the allowlist; any other link
+  is never shown or opened. A run that shows no link it may open within a
+  minute, or does not end within five, fails and says why; the last line of
+  the screen goes into `error` with links and tokens masked.
+- **Done** means: a token was stored (into the run's own account, §15.3), or
+  `claude auth login` exited well and `claude auth status` in the account's
+  environment says signed in. A login that worked clears an "authentication
+  failed" mark even as the same email (as before).
+- **The environment** is the scrubbed one every child gets
+  (`control::SCRUBBED_ENV`, never marked owned), then the account's part —
+  a directory account's `CLAUDE_CONFIG_DIR` with the overrides removed, the
+  Default's left exactly as the app found it, a token run's overrides
+  removed in the Default's directory — then `BROWSER=true`. Verified on
+  macOS; on Windows `BROWSER=true` is set as well, unverified there.
+- **No test opens a browser:** the opener only records what it would run
+  until the app turns it on at startup (`Opener::open_for_real`). The fake
+  CLI shows a link that carries what a test checks (the directory, `BROWSER`,
+  a terminal, a token, the flags).
+- **The bridge's `POST /auth/login`** runs the same login (the Default's, or
+  an `accountOnly` server's account), so its browser now really opens on the
+  host; `409 sign_in_running` while another account's sign-in runs.
 
 ### 15.3 Every token stays with its account
 
 - **One sign-in at a time**, across all accounts: starting another while one
-  runs answers `409 sign_in_running` naming the account.
+  runs answers `409 sign_in_running` naming the account (`account`, and
+  `accountName` beside it). Starting the same account's again hands back
+  the running one (`202`, the same `startedAt`), so a double click starts
+  nothing twice; checked and started under one lock.
 - A sign-in is bound to the account that started it from the first byte; its
   token goes to that account's secret only (`SecretName::AccountToken(id)`),
-  and a token another account holds is refused (`set_token`, as today).
+  and a token another account holds is refused (`set_token`, as today). A
+  token is stored only while its run runs (a cancel cannot slip in between).
 - **Who signed in** is checked where the CLI can say: after a login, `claude
   auth status --json` in the account's environment gives the email. The
   registry keeps its SHA-256 (`identitySha256`, never the email). A different
@@ -1868,7 +1921,7 @@ packed, against a total known from the start.
 
 - [x] P9.1 Switching an owned session (same directory, another directory,
   busy: pending or now), an ended one, an API conversation; the refusals.
-- [ ] P9.2 Sign-ins in a pseudo-terminal with `BROWSER=true`, the link, the
+- [x] P9.2 Sign-ins in a pseudo-terminal with `BROWSER=true`, the link, the
   browsers, the code, cancel, `--email`.
 - [ ] P9.3 One sign-in at a time; identity checks and warnings.
 - [ ] P9.4 UI: Switch account on a session (and the limit offer), the
