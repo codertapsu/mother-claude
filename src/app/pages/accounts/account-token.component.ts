@@ -16,10 +16,12 @@ import { FormsModule } from '@angular/forms';
 import { normalizeCapture } from '../../core/accounts';
 import { AccountsService } from '../../core/accounts.service';
 import { ApiError, ApiService, describeError } from '../../core/api.service';
-import { AccountView, CaptureView } from '../../core/models';
-import { captureProblem, secretStoreText } from '../../shared/accounts';
+import { AccountView, CaptureView, SignInState } from '../../core/models';
+import { signInRunning, signInWaitText } from '../../core/sign-in';
+import { captureProblem, secretStoreText, signInErrorText } from '../../shared/accounts';
 import { CopyButtonComponent } from '../../shared/copy-button.component';
 import { IconComponent } from '../../shared/icon.component';
+import { SignInPanelComponent } from './sign-in-panel.component';
 
 /** A running capture is asked about this often (frames carry its state but
  * not its sign-in link). */
@@ -27,9 +29,12 @@ const POLL_MS = 1_500;
 
 /**
  * Desktop: get a token account its token. First choice: the Mac runs
- * `claude setup-token` and takes the token it shows (the browser opens on
- * the Mac; a "Browser didn't open?" link and, when the terminal asks for
- * it, a field for the code the browser shows). Always offered, and shown
+ * `claude setup-token` and takes the token it shows — while it runs, the
+ * sign-in panel (docs/ACCOUNTS.md §15.2: it opens nothing by itself and
+ * recommends a private window; the code the browser shows; Cancel), or with
+ * an older server the capture's own link and code field. One sign-in runs
+ * at a time: while another account's runs, the button says which and
+ * waits. Always offered, and shown
  * outright when the run can't happen or brought nothing: paste a token
  * made elsewhere. A pasted token is read from the field once, the field is
  * cleared, and the token travels only in that one request's body.
@@ -37,10 +42,12 @@ const POLL_MS = 1_500;
 @Component({
   selector: 'mc-account-token',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [FormsModule, CopyButtonComponent, IconComponent],
+  imports: [FormsModule, CopyButtonComponent, IconComponent, SignInPanelComponent],
   template: `
     @let a = account();
-    @if (capture(); as cap) {
+    @if (signInRuns()) {
+      <mc-sign-in-panel [account]="a" (finished)="finished($event)" />
+    } @else if (capture(); as cap) {
       @if (cap.state === 'running') {
         <div class="flow" role="status">
           <p class="wait">
@@ -102,24 +109,25 @@ const POLL_MS = 1_500;
             class="btn"
             type="button"
             [class.primary]="!a.tokenStored"
-            [disabled]="busy()"
+            [disabled]="busy() || !!wait()"
             (click)="start()"
           >
             <mc-icon name="key" [size]="15" />
             {{
-              busy()
-                ? 'Starting…'
-                : a.tokenStored
-                  ? 'Get a new token'
-                  : capture()
-                    ? 'Try again'
-                    : 'Sign in to get a token'
+              wait() ||
+                (busy()
+                  ? 'Starting…'
+                  : a.tokenStored
+                    ? 'Get a new token'
+                    : capture() || a.signIn
+                      ? 'Try again'
+                      : 'Sign in to get a token')
             }}
           </button>
         </div>
         <p class="muted small">
-          Opens the Claude sign-in in this Mac's browser (claude setup-token); the token it gives is
-          kept in {{ place() }}.
+          Starts the Claude sign-in on this Mac (claude setup-token) and offers its page to open;
+          the token it gives is kept in {{ place() }}.
         </p>
       } @else {
         <p class="muted small">
@@ -233,8 +241,26 @@ export class AccountTokenComponent {
   private readonly accountId = computed(() => this.account().id);
   /** Ours (with the link), else what the account view says (no link). */
   protected readonly capture = computed(() => this.ownCapture() ?? this.account().capture ?? null);
-  protected readonly running = computed(() => this.capture()?.state === 'running');
-  protected readonly problem = computed(() => captureProblem(this.capture()));
+  /** Its token sign-in runs (the panel shows it). */
+  protected readonly signInRuns = computed(() => {
+    const r = this.account().signIn;
+    return r?.kind === 'token' && signInRunning(r);
+  });
+  protected readonly running = computed(
+    () => this.signInRuns() || this.capture()?.state === 'running',
+  );
+  /** Another account's sign-in runs: "Waiting for Work's sign-in". */
+  protected readonly wait = computed(() => signInWaitText(this.account(), this.accounts.list()));
+  protected readonly problem = computed(() => {
+    const r = this.account().signIn;
+    if (r?.kind === 'token' && r.state === 'failed') {
+      return r.error
+        ? `The sign-in ended without a token: ${r.error}`
+        : 'The sign-in ended without a token.';
+    }
+    if (r?.kind === 'token' && r.state === 'cancelled') return 'The sign-in was cancelled.';
+    return r?.kind === 'token' ? '' : captureProblem(this.capture());
+  });
   protected readonly available = computed(
     () => this.availableS() && this.accounts.view()?.tokenCapture !== false,
   );
@@ -265,7 +291,7 @@ export class AccountTokenComponent {
   }
 
   protected async start(): Promise<void> {
-    if (this.busy()) return;
+    if (this.busy() || this.wait()) return;
     this.busy.set(true);
     this.error.set('');
     this.justSaved.set(false);
@@ -273,12 +299,21 @@ export class AccountTokenComponent {
     try {
       const res = await this.api.startTokenCapture(id);
       this.apply(id, res?.capture);
+      // Its sign-in shows on the account (the panel takes over).
+      await this.accounts.refresh();
     } catch (e) {
-      this.error.set(describeError(e).text);
+      this.error.set(signInErrorText(e, (other) => this.accounts.byId(other)?.name));
       if (e instanceof ApiError && e.code === 'capture_failed') this.pasteOpen.set(true);
     } finally {
       this.busy.set(false);
     }
+  }
+
+  /** The token sign-in stopped: a token that arrived is news. */
+  protected finished(state: SignInState): void {
+    if (state !== 'done') return;
+    this.justSaved.set(true);
+    void this.accounts.refresh().then(() => this.done.emit());
   }
 
   protected async sendCode(e: Event): Promise<void> {

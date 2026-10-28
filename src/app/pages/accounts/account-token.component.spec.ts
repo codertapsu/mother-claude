@@ -147,4 +147,44 @@ describe('AccountTokenComponent', () => {
     expect(el.querySelector('input[type="password"]')).not.toBeNull();
     expect(text(button(el, 'Try again'))).toContain('Try again');
   });
+
+  it("shows the sign-in panel while its token sign-in runs, and waits for another account's", async () => {
+    backend.routes.set(PATH, () => ({
+      status: 200,
+      body: { available: true, tokenStored: false },
+    }));
+    account = { ...account, signIn: { kind: 'token', state: 'starting', startedAt: 1 } };
+    let el = await render();
+    expect(el.querySelector('mc-sign-in-panel')).not.toBeNull();
+    expect(button(el, 'Sign in to get a token')).toBeUndefined();
+    fixture.destroy();
+
+    // Another account's sign-in runs: the button says which, and waits.
+    serveAccounts(backend, {
+      ...buildAccounts(Date.now(), true),
+      accounts: buildAccounts(Date.now(), true).accounts.map((a) =>
+        a.isDefault ? { ...a, signIn: { kind: 'login', state: 'open', startedAt: 1 } } : a,
+      ),
+    });
+    account = { ...account, signIn: undefined };
+    el = await render();
+    const wait = button(el, "Waiting for Default's sign-in");
+    expect(wait.disabled).toBeTrue();
+    expect(el.querySelector('mc-sign-in-panel')).toBeNull();
+  });
+
+  it('says a token sign-in was cancelled or ended without a token', async () => {
+    backend.routes.set(PATH, () => ({
+      status: 200,
+      body: { available: true, tokenStored: false },
+    }));
+    account = {
+      ...account,
+      signIn: { kind: 'token', state: 'failed', startedAt: 1, error: 'the browser was closed' },
+    };
+    const el = await render();
+    expect(text(el.querySelector('.notice.warn'))).toBe(
+      'The sign-in ended without a token: the browser was closed',
+    );
+  });
 });
