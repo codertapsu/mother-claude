@@ -205,6 +205,9 @@ pub fn run() {
         }
     };
     let app_state = Inner::new(home, ServerConfig::from_env(), Auth::load_or_create());
+    // Sign-in links open for real only in the app (the opener records
+    // otherwise, so no test opens a browser).
+    app_state.opener.open_for_real();
     let exit_state = app_state.clone();
 
     tauri::Builder::default()

@@ -9,6 +9,7 @@ pub mod activity;
 pub mod agents;
 pub mod auth;
 pub mod backup;
+pub mod browser;
 pub mod caps;
 pub mod control;
 pub mod disk;

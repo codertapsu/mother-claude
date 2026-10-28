@@ -151,6 +151,9 @@ pub struct Inner {
     /// Shows a transcript or a project's folder in the file manager; a test
     /// switches it to recording (`claude/reveal.rs`).
     pub reveal: crate::claude::reveal::Revealer,
+    /// Opens sign-in links in a browser; it only records until the app
+    /// switches it on (`claude/browser.rs`), so no test ever opens one.
+    pub opener: crate::claude::browser::Opener,
 }
 
 impl std::fmt::Debug for Inner {
@@ -225,6 +228,7 @@ impl Inner {
             accounts,
             jobs: crate::claude::transfer::Jobs::default(),
             reveal: crate::claude::reveal::Revealer::default(),
+            opener: crate::claude::browser::Opener::default(),
             auth,
         })
     }
