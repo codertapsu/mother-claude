@@ -557,6 +557,11 @@ async fn handle_frame(state: &AppState, frame: Value) {
 
         "session" => {
             if let Some(id) = frame.get("sessionId").and_then(Value::as_str) {
+                // Closed for an account switch, which opens it again under
+                // the same id once its stream ended: it is not gone.
+                if state.control.switches.note_host_closed(id) {
+                    return;
+                }
                 state.bridge.forget_thread(id).await;
                 // Stop advertising it as an owned, injectable session — and
                 // keep `owned` from growing for the life of the process.

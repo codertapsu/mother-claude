@@ -9,6 +9,8 @@
 // lists those, and the transcripts a test wrote into that directory's
 // `projects`; without one the rest). A turn whose text says "ASK" raises a
 // tool request first and finishes once it is answered (`request.respond`).
+// Closing an open conversation ends its stream: a `session` frame follows the
+// reply, as with the real host.
 'use strict';
 const fs = require('node:fs');
 const path = require('node:path');
@@ -31,6 +33,9 @@ const list = (dir) => {
 
 // sessionId -> { configDir, lastModified }
 const store = new Map();
+// Conversations open now. Closing one ends its stream, which the host reports
+// with a `session` frame after the reply, as the real host does.
+const live = new Set();
 // requestId -> { sessionId, turnId }
 const asked = new Map();
 
@@ -61,6 +66,8 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
     resume: (c.options && c.options.resume) || null,
     forkSession: Boolean(c.options && c.options.forkSession),
     model: (c.options && c.options.model) || null,
+    permissionMode: (c.options && c.options.permissionMode) || null,
+    systemPromptAppend: (c.options && c.options.systemPromptAppend) || null,
     env: env
       ? {
           set: Object.keys(set).sort(),
@@ -77,7 +84,13 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
         configDir: set.CLAUDE_CONFIG_DIR || null,
         lastModified: Date.now() + store.size,
       });
+      live.add(c.sessionId);
       return reply({ sessionId: c.sessionId, cwd: c.options && c.options.cwd });
+    case 'session.close':
+      if (!live.has(c.sessionId)) return reply({ ok: true, alreadyClosed: true });
+      live.delete(c.sessionId);
+      reply({ ok: true });
+      return send({ t: 'session', sessionId: c.sessionId, state: 'closed', reason: 'stream ended' });
     case 'store.list': {
       const dir = c.configDir || null;
       const sessions = [...store.entries()]

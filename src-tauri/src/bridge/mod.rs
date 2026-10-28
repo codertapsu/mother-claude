@@ -284,6 +284,10 @@ pub struct BridgeState {
     pub servers: servers::Servers,
     /// Each live conversation's account, for sync lookups (session rows).
     accounts: std::sync::Mutex<HashMap<String, String>>,
+    /// The options each live conversation was opened with in the host (its
+    /// account's environment left out): switching its account opens it
+    /// again with them (docs/ACCOUNTS.md §15.1).
+    options: std::sync::Mutex<HashMap<String, Value>>,
 }
 
 impl BridgeState {
@@ -312,6 +316,7 @@ impl BridgeState {
             threads: RwLock::new(HashMap::new()),
             servers,
             accounts: std::sync::Mutex::new(HashMap::new()),
+            options: std::sync::Mutex::new(HashMap::new()),
         }
     }
 
@@ -432,14 +437,48 @@ impl BridgeState {
     /// messages joined on any server, stop pointing at it — the next message
     /// should open a fresh conversation rather than fail against a dead id.
     pub async fn forget_thread(&self, id: &str) {
-        self.threads.write().await.remove(id);
-        self.accounts
+        self.take_thread(id).await;
+        self.options
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .remove(id);
         for server in self.servers.all() {
             server.forget_active(id);
         }
+    }
+
+    /// Take a conversation out of the live ones while its account is
+    /// switched (the host closed it; it opens again under the same id): the
+    /// API servers keep pointing at it, and what it was opened with stays.
+    pub(crate) async fn take_thread(&self, id: &str) -> Option<ThreadRecord> {
+        self.accounts
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(id);
+        self.threads.write().await.remove(id)
+    }
+
+    /// Remember what a conversation was opened with in the host, its
+    /// account's environment left out (that is the account's, never kept
+    /// here).
+    pub(crate) fn remember_options(&self, id: &str, options: &Value) {
+        let mut options = options.clone();
+        if let Some(o) = options.as_object_mut() {
+            o.remove("env");
+        }
+        self.options
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(id.to_string(), options);
+    }
+
+    /// What a live conversation was opened with (no environment).
+    pub(crate) fn options_of(&self, id: &str) -> Option<Value> {
+        self.options
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(id)
+            .cloned()
     }
 
     /// Bridge conversations as owned-session metadata for the registry.
@@ -506,6 +545,112 @@ pub async fn close_thread(state: &AppState, thread_id: &str) -> bool {
     state.bridge.forget_thread(thread_id).await;
     state.unmark_owned(thread_id).await;
     true
+}
+
+/// Close a conversation in the host for an account switch
+/// (docs/ACCOUNTS.md §15.1). `Ok(true)`: its stream is still to end — the
+/// host reports that with a `session` frame, and only then may the same id
+/// be opened again (the host forgets a conversation by id when its stream
+/// ends); `Ok(false)`: nothing was open there.
+pub(crate) async fn close_for_switch(
+    state: &AppState,
+    thread_id: &str,
+) -> error::BridgeResult<bool> {
+    match state
+        .bridge
+        .host
+        .call_if_running(
+            state,
+            "session.close",
+            serde_json::json!({ "sessionId": thread_id }),
+            std::time::Duration::from_secs(30),
+        )
+        .await
+    {
+        Ok(v) => Ok(v.get("alreadyClosed").and_then(Value::as_bool) != Some(true)),
+        Err(e) if e.code == "runtime_unavailable" => Ok(false),
+        Err(e) => Err(e),
+    }
+}
+
+/// Open a conversation closed for an account switch again, under the same id,
+/// with `account`'s environment and the options it was opened with — its
+/// model, effort, permission mode and title as the record has them now.
+/// `resume`: it has a transcript to go on from (else it opens as it was
+/// opened, a fork that has not run yet forking again). It is then live, and
+/// the account's, as before.
+pub(crate) async fn reopen_thread(
+    state: &AppState,
+    record: &ThreadRecord,
+    options: Option<Value>,
+    account: &str,
+    env: &crate::claude::accounts::AccountEnv,
+    resume: bool,
+) -> error::BridgeResult<()> {
+    use serde_json::json;
+    let mut options = match options {
+        Some(o) if o.is_object() => o,
+        // Opened before its options were kept: what a resume from disk gets.
+        _ => {
+            let mut o = json!({ "includePartialMessages": true });
+            if let Some(server) = state.bridge.server(&record.server) {
+                let d = server.defaults();
+                if let Some(t) = d.thinking {
+                    o["thinking"] = json!(t);
+                }
+                if let Some(a) = d.system_prompt_append {
+                    o["systemPromptAppend"] = json!(a);
+                }
+                if let Some(s) = d.setting_sources {
+                    o["settingSources"] = json!(s);
+                }
+            }
+            o
+        }
+    };
+    let id = record.thread_id.as_str();
+    if let Some(o) = options.as_object_mut() {
+        o.insert("cwd".into(), json!(record.cwd));
+        o.insert("permissionMode".into(), json!(record.permission_mode));
+        for (key, value) in [("model", &record.model), ("effort", &record.effort)] {
+            match value {
+                Some(v) => o.insert(key.into(), json!(v)),
+                None => o.remove(key),
+            };
+        }
+        if let Some(title) = &record.title {
+            o.insert("title".into(), json!(title));
+        }
+        if resume {
+            o.insert("resume".into(), json!(id));
+            o.remove("forkSession");
+        }
+        o.remove("env");
+        if !env.is_inherit() {
+            o.insert("env".into(), json!(env.overrides()));
+        }
+    }
+    state
+        .bridge
+        .host
+        .call(
+            state,
+            "session.create",
+            json!({ "sessionId": id, "options": options }),
+            host::CREATE_TIMEOUT,
+        )
+        .await?;
+    state.bridge.remember_options(id, &options);
+    state
+        .bridge
+        .insert_thread(ThreadRecord {
+            account: account.to_string(),
+            active_turn: None,
+            ..record.clone()
+        })
+        .await;
+    state.mark_owned(id, &record.cwd, record.created_at).await;
+    Ok(())
 }
 
 /// Send a dashboard instruction to a bridge conversation by starting a turn.
@@ -1253,6 +1398,7 @@ pub async fn ensure_thread_live(
             host::CREATE_TIMEOUT,
         )
         .await?;
+    state.bridge.remember_options(thread_id, &options);
 
     let record = ThreadRecord {
         thread_id: thread_id.to_string(),

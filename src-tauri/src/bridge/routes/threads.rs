@@ -578,8 +578,11 @@ pub async fn create(
     let result = state
         .bridge
         .host
-        .call(&state, "session.create", params, CREATE_TIMEOUT)
+        .call(&state, "session.create", params.clone(), CREATE_TIMEOUT)
         .await?;
+    state
+        .bridge
+        .remember_options(&thread_id, &params["options"]);
 
     let record = ThreadRecord {
         thread_id: thread_id.clone(),

@@ -15,6 +15,12 @@
 //!   summary, cancellable with `DELETE`); `when: now` takes back what is
 //!   queued behind the turn, interrupts it, and hands the queued messages to
 //!   the resumed process.
+//! * **A conversation of the API** (a bridge thread), between turns: closed
+//!   in the host (its stream ended before anything else), moved when the
+//!   directory changes, and opened again under the same id with the other
+//!   account's environment and the options it was opened with. During a turn
+//!   `409 turn_running`; one an `accountOnly` server made stays that
+//!   account's (`403 account_not_served`).
 //! * **A session nobody runs**: its next continue runs under the other
 //!   account — recorded as that account's within the shared folder (an
 //!   assign), moved into another directory.
@@ -50,6 +56,8 @@ const INTERRUPT_WAIT: Duration = Duration::from_secs(10);
 /// How often a pending switch looks at its session's turn (it is also woken
 /// when it is cancelled or replaced).
 const POLL: Duration = Duration::from_millis(200);
+/// How long the bridge host may take to end a closed conversation's stream.
+const HOST_CLOSE_WAIT: Duration = Duration::from_secs(10);
 
 /// When a busy session switches.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize)]
@@ -311,11 +319,8 @@ pub async fn switch(
     // a fallback to another sign-in later.
     state.accounts.env(to).map_err(owned::account_error)?;
     let caller = Caller::of(ctx);
-    if state.bridge.thread(id).await.is_some() {
-        return Err(ApiError::conflict(
-            "not_supported",
-            "Switching the account of a conversation of the API is not available yet.",
-        ));
+    if let Some(record) = state.bridge.thread(id).await {
+        return switch_bridge(state, ctx, caller, record, to).await;
     }
     if owned::has_handle(state, id) {
         return switch_owned(state, ctx, caller, id, to, when).await;
@@ -643,13 +648,11 @@ async fn run_owned(
         match ops::move_for_switch(state, from, to, id).await {
             Ok(j) => job = Some(j),
             Err(e) => {
-                let mut err = move_error(e, from, to).with("account", from.to_string());
-                err.message = format!(
-                    "{} It goes on under {}.",
-                    err.message.trim_end(),
-                    account_name(state, from)
-                );
-                failure = Some(err);
+                failure = Some(goes_on_under(
+                    state,
+                    move_error(e, from, to).with("account", from.to_string()),
+                    from,
+                ));
                 run_as = from.to_string();
             }
         }
@@ -673,13 +676,11 @@ async fn run_owned(
             return Err(nothing_runs(e));
         }
         after_resume(state, id, &closing, held).await;
-        let mut err = e.with("account", from.to_string());
-        err.message = format!(
-            "{} It goes on under {}.",
-            err.message.trim_end(),
-            account_name(state, from)
-        );
-        return Err(err);
+        return Err(goes_on_under(
+            state,
+            e.with("account", from.to_string()),
+            from,
+        ));
     }
     after_resume(state, id, &closing, held).await;
     match failure {
@@ -792,6 +793,221 @@ async fn after_resume(
                 Some(id),
             );
         }
+    }
+}
+
+/// A conversation of the API, between turns: closed in the host, moved when
+/// the directory changes, opened again under `to`.
+async fn switch_bridge(
+    state: &AppState,
+    ctx: &ClientContext,
+    caller: Caller,
+    record: crate::bridge::ThreadRecord,
+    to: &str,
+) -> ApiResult<Outcome> {
+    let id = record.thread_id.clone();
+    let from = record.account.clone();
+    if from == to {
+        return Ok(Outcome::Switched {
+            account: to.to_string(),
+            moved: false,
+            job: None,
+        });
+    }
+    // One an API server that runs only as its account made stays that
+    // account's: that server must never show it under another.
+    if let Some(server) = state.bridge.server(&record.server) {
+        if server.only_account().is_some_and(|only| only != to) {
+            return Err(ApiError::forbidden(
+                "account_not_served",
+                format!(
+                    "This conversation belongs to the API server \"{}\", which runs only as its \
+                     own account.",
+                    server.name()
+                ),
+            )
+            .with("server", server.id.clone())
+            .with("account", to.to_string()));
+        }
+    }
+    // It opens again in the mode it runs in.
+    if owned::is_dangerous_mode(Some(&record.permission_mode)) {
+        crate::server::auth::require_dangerous(
+            ctx,
+            "Switching the account of a conversation without approvals",
+        )?;
+    }
+    let prepared = check_target(state, caller, &id, &from, to, &record.cwd)?;
+    let from_home = state
+        .accounts
+        .home(&from)
+        .unwrap_or_else(|| state.home.clone());
+    let resume = !super::transfer::transcripts_of(&from_home, &id).is_empty();
+    let options = state.bridge.options_of(&id);
+    // A fork that has not run yet forks again from a conversation only its
+    // own directory has.
+    let unstarted_fork = options
+        .as_ref()
+        .is_some_and(|o| o.get("forkSession").and_then(serde_json::Value::as_bool) == Some(true));
+    if !resume && unstarted_fork && !prepared.same_dir {
+        return Err(ApiError::conflict(
+            "not_supported",
+            "This conversation is a fork that has not run yet: send it a first message, then \
+             switch its account.",
+        ));
+    }
+    let entry = state
+        .control
+        .switches
+        .begin(&id, &from, to, Phase::Underway)
+        .map_err(|_| switch_underway())?;
+    // During a turn: refused. Registered first, so no turn starts from here
+    // on (a turn's start looks for a switch after it registered itself).
+    let turn_running = state
+        .bridge
+        .ops
+        .for_thread(&id)
+        .iter()
+        .any(|op| !op.is_finished());
+    if turn_running {
+        state.control.switches.finish(&id, entry.seq);
+        return Err(ApiError::conflict(
+            "turn_running",
+            "This conversation is in the middle of a turn: switch its account between turns.",
+        ));
+    }
+    publish_switching(state, &id).await;
+    let result = run_bridge(state, &record, &from, to, prepared, resume, options, &entry).await;
+    state.control.switches.finish(&id, entry.seq);
+    publish_switching(state, &id).await;
+    announce(state, &id, to, &result).await;
+    result
+}
+
+/// Close the conversation, wait for its stream to end, move it when the
+/// directory changes, and open it again under `to` (under `from` when the
+/// move failed).
+#[allow(clippy::too_many_arguments)]
+async fn run_bridge(
+    state: &AppState,
+    record: &crate::bridge::ThreadRecord,
+    from: &str,
+    to: &str,
+    prepared: Prepared,
+    resume: bool,
+    options: Option<serde_json::Value>,
+    entry: &Entry,
+) -> ApiResult<Outcome> {
+    let id = record.thread_id.as_str();
+    state.accounts.env(to).map_err(owned::account_error)?;
+    let open = crate::bridge::close_for_switch(state, id).await?;
+    if open && !wait_flag(&entry.signal, HOST_CLOSE_WAIT).await {
+        // Its stream did not end: opening the same id now could be undone by
+        // it. Closed it stays — the next call through the API resumes it.
+        crate::bridge::close_thread(state, id).await;
+        return Err(ApiError::new(
+            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+            "switch_failed",
+            "The bridge host did not end the conversation in time, so it was not switched. It \
+             is closed; the next request through the API resumes it.",
+        ));
+    }
+    // Out of the live ones, so the move sees nobody running it; the API
+    // servers keep pointing at it.
+    state.bridge.take_thread(id).await;
+    crate::pending::withdraw_session(state, id, "switching account").await;
+    crate::server::monitor::tick_once(state).await;
+
+    let mut job: Option<String> = None;
+    let mut failure: Option<ApiError> = None;
+    let mut run_as = to.to_string();
+    if !prepared.same_dir && resume {
+        match ops::move_for_switch(state, from, to, id).await {
+            Ok(j) => job = Some(j),
+            Err(e) => {
+                failure = Some(goes_on_under(
+                    state,
+                    move_error(e, from, to).with("account", from.to_string()),
+                    from,
+                ));
+                run_as = from.to_string();
+            }
+        }
+    }
+    if let Err(e) = reopen(state, record, options.clone(), &run_as, resume).await {
+        if run_as == from {
+            return Err(closed_now(e));
+        }
+        // It could not open under the other account: back where it was.
+        let back = match &job {
+            Some(j) => ops::undo(state, j).await.is_ok(),
+            None => true,
+        };
+        if !back || reopen(state, record, options, from, resume).await.is_err() {
+            return Err(closed_now(e));
+        }
+        return Err(goes_on_under(
+            state,
+            e.with("account", from.to_string()),
+            from,
+        ));
+    }
+    match failure {
+        Some(e) => Err(e),
+        None => Ok(Outcome::Switched {
+            account: to.to_string(),
+            moved: job.is_some(),
+            job,
+        }),
+    }
+}
+
+/// Open an API conversation again under `account`, with its environment.
+async fn reopen(
+    state: &AppState,
+    record: &crate::bridge::ThreadRecord,
+    options: Option<serde_json::Value>,
+    account: &str,
+    resume: bool,
+) -> ApiResult<()> {
+    let env = state.accounts.env(account).map_err(owned::account_error)?;
+    crate::bridge::reopen_thread(state, record, options, account, &env, resume)
+        .await
+        .map_err(ApiError::from)
+}
+
+/// The error of a switch after which the session runs where it was.
+fn goes_on_under(state: &AppState, mut e: ApiError, account: &str) -> ApiError {
+    e.message = format!(
+        "{} It goes on under {}.",
+        e.message.trim_end(),
+        account_name(state, account)
+    );
+    e
+}
+
+/// The error of a switch that left an API conversation closed (the next
+/// request through the API resumes it).
+fn closed_now(mut e: ApiError) -> ApiError {
+    e.message = format!(
+        "{} The conversation is closed; the next request through the API resumes it.",
+        e.message.trim_end()
+    );
+    e
+}
+
+/// Wait until the bridge host reported the conversation's stream ended.
+async fn wait_flag(signal: &Signal, wait: Duration) -> bool {
+    let deadline = Instant::now() + wait;
+    loop {
+        if signal.host_closed.load(Ordering::SeqCst) {
+            return true;
+        }
+        let left = deadline.saturating_duration_since(Instant::now());
+        if left.is_zero() {
+            return false;
+        }
+        let _ = tokio::time::timeout(left.min(POLL), signal.closed.notified()).await;
     }
 }
 

@@ -63,6 +63,17 @@ pub(crate) async fn begin_turn(
         .bridge
         .ops
         .create(Some(thread_id.to_string()), Some(turn_id.clone()))?;
+    // Checked after the operation exists: a switch of the conversation's
+    // account looks for running turns after it registered, so one of the
+    // two always sees the other.
+    if state.control.switches.is_underway(thread_id) {
+        state.bridge.ops.discard(&op.id);
+        return Err(BridgeError::conflict(
+            "switching_account",
+            "This conversation is switching to another account. Try again in a moment.",
+        )
+        .with("thread_id", thread_id.to_string()));
+    }
 
     // Announce the turn on its own log before any model output, so a client
     // that streams from event 1 sees the turn open.
