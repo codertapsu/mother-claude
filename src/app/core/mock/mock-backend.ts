@@ -17,7 +17,6 @@ import {
   AccountsView,
   AgentInfo,
   BridgeDefaults,
-  CaptureView,
   FleetSession,
   FleetSummary,
   PairCode,
@@ -42,6 +41,7 @@ import {
 import { MockBackend, MockRole, WebSocketLike, mockRole } from './mock-api';
 import { MockData } from './mock-data';
 import { MockDelete } from './mock-delete';
+import { MockSwitch } from './mock-switch';
 import { MockMove } from './mock-move';
 import { MOCK_SERVERS, MockServers } from './mock-servers';
 import { urlParam } from '../platform';
@@ -81,10 +81,8 @@ const PLAN_INTERVALS = [0, 180, 300, 600];
  * - `1`     plus "Work" (its own directory) and "Marcus (Pro)" (a token);
  * - `limit` the same, with the Default at its 5-hour limit (the offer to
  *           continue on another account shows).
- * `?mockcapture=code|fail`: the token sign-in asks for the browser's code,
- * or ends without a token. */
+ * Sign-ins and switching a session's account: mock-switch.ts. */
 const ACCOUNTS_MODE = urlParam('mockaccounts');
-const CAPTURE_MODE = urlParam('mockcapture');
 /** What a token looks like (a pasted one is "checked" against it). */
 const TOKEN_RE = /^sk-ant-oat\d\d-[\w-]{8,}$/;
 
@@ -110,8 +108,6 @@ class FixtureBackend implements MockBackend {
   private readonly fullUsage: PlanUsage;
   /** Which account each session runs under (absent: the Default). */
   private readonly sessionAccounts = new Map<string, string>();
-  /** Token accounts' `setup-token` runs. */
-  private readonly captures = new Map<string, CaptureView>();
   /** When each other account's usage was last read (429 within a minute). */
   private readonly accountReads = new Map<string, number>();
   /** Moves, copies, data jobs and backups (`/data/*`, `/backup*`). */
@@ -122,6 +118,8 @@ class FixtureBackend implements MockBackend {
   private readonly del: MockDelete;
   /** API servers besides the main one (`/bridge/servers*`). */
   private readonly servers: MockServers;
+  /** Switching a session's account, and sign-ins (§15). */
+  private readonly switching: MockSwitch;
 
   constructor(readonly role: MockRole) {
     const now = Date.now();
@@ -147,6 +145,16 @@ class FixtureBackend implements MockBackend {
       },
       this.data,
     );
+    this.switching = new MockSwitch({
+      ...host,
+      patchSession: (id, change) => this.patch(id, change),
+      hasCopyConsent: (from, to) =>
+        this.fx.accounts.copyConsent.some((c) => c.from === from && c.to === to),
+      updateAccount: (id, change) => this.updateAccount(id, change),
+      publishAccounts: () => this.publishAccounts(),
+      signedIn: (a) => this.signedIn(a),
+      accountJson: (id, status) => this.accountJson(id, status),
+    });
     if (ACCOUNTS_MODE === '1' || ACCOUNTS_MODE === 'limit' || MOCK_SERVERS) {
       this.fx.accounts = buildAccounts(now, true);
       this.fx.accountUsage = buildAccountUsage(now);
@@ -251,6 +259,10 @@ class FixtureBackend implements MockBackend {
 
     // /me
     if (path === '/me') return json(this.me());
+
+    // Switching a session's account; sign-ins
+    const switched = this.switching.route(path, method, body);
+    if (switched) return switched;
 
     // Moves, copies, data jobs, backups, storages
     const deleted = this.del.route(path, method, body);
@@ -1374,11 +1386,7 @@ class FixtureBackend implements MockBackend {
     }
     const view = structuredClone(this.fx.accounts);
     for (const a of view.accounts) {
-      const capture = this.captures.get(a.id);
-      if (capture) {
-        a.capture = { ...capture };
-        if (!desktop) delete a.capture.url;
-      }
+      if (a.signIn && !desktop) delete a.signIn.url;
       if (withLive) a.live = live.get(a.id) ?? 0;
     }
     return view;
@@ -1672,7 +1680,6 @@ class FixtureBackend implements MockBackend {
         if (acc === a.id) this.sessionAccounts.delete(sid);
       }
       delete this.fx.accountUsage[a.id];
-      this.captures.delete(a.id);
       this.publishAccounts();
       return empty();
     }
@@ -1687,45 +1694,11 @@ class FixtureBackend implements MockBackend {
       return this.accountJson(a.id);
     }
 
-    if (sub === 'login' && method === 'POST') {
-      if (!desktop) return deskOnly();
-      if (a.kind === 'token') {
-        return json(
-          {
-            error: {
-              code: 'login_failed',
-              message: 'A token account signs in with its token: get one, or paste one.',
-            },
-          },
-          422,
-        );
-      }
-      this.updateAccount(a.id, { signingIn: true });
-      this.publishAccounts();
-      setTimeout(() => {
-        const cur = this.account(a.id);
-        if (!cur) return;
-        this.updateAccount(a.id, { signingIn: false, ...this.signedIn(cur) });
-        this.publishAccounts();
-      }, 3_500);
-      return this.accountJson(a.id, 202);
-    }
-
+    // A pasted token, and the token's status (a token sign-in, its code
+    // and cancel: mock-switch.ts).
     if (sub === 'token') {
       if (!desktop) return deskOnly();
-      if (method === 'GET') {
-        return json({
-          available: true,
-          ...(this.captures.get(a.id) ? { capture: this.captures.get(a.id) } : {}),
-          tokenStored: a.tokenStored,
-        });
-      }
-      if (method === 'DELETE') {
-        const cap = this.captures.get(a.id);
-        if (cap?.state === 'running') this.finishCapture(a.id, 'cancelled');
-        this.publishAccounts();
-        return json({ capture: this.captures.get(a.id) ?? null });
-      }
+      if (method === 'GET') return json({ available: true, tokenStored: a.tokenStored });
       if (method === 'POST') {
         if (a.kind !== 'token') {
           return json(
@@ -1734,66 +1707,21 @@ class FixtureBackend implements MockBackend {
           );
         }
         const token = typeof b['token'] === 'string' ? b['token'].trim() : '';
-        const code = typeof b['code'] === 'string' ? b['code'].trim() : '';
-        if (token && code) {
+        await delay(500);
+        if (!TOKEN_RE.test(token)) {
           return json(
             {
-              error: { code: 'invalid_body', message: 'Send either `token` or `code`, not both.' },
+              error: {
+                code: 'token_rejected',
+                message: 'Claude Code does not accept this token.',
+              },
             },
             422,
           );
         }
-        if (token) {
-          await delay(500);
-          if (!TOKEN_RE.test(token)) {
-            return json(
-              {
-                error: {
-                  code: 'token_rejected',
-                  message: 'Claude Code does not accept this token.',
-                },
-              },
-              422,
-            );
-          }
-          this.updateAccount(a.id, { tokenStored: true, ...this.signedIn(a) });
-          this.publishAccounts();
-          return this.accountJson(a.id);
-        }
-        if (code) {
-          const cap = this.captures.get(a.id);
-          if (cap?.state !== 'running') {
-            return json(
-              {
-                error: {
-                  code: 'capture_not_running',
-                  message: 'No sign-in is waiting for a code.',
-                },
-              },
-              409,
-            );
-          }
-          this.captures.set(a.id, { ...cap, asksForCode: false });
-          setTimeout(() => this.finishCapture(a.id, 'captured'), 1_200);
-          return json({ capture: this.captures.get(a.id) });
-        }
-        const capture: CaptureView = {
-          state: 'running',
-          url: 'https://claude.ai/oauth/authorize?code=true&client_id=mock-client&response_type=code&scope=user%3Ainference',
-          asksForCode: CAPTURE_MODE === 'code',
-          startedAt: Date.now(),
-        };
-        this.captures.set(a.id, capture);
+        this.updateAccount(a.id, { tokenStored: true, ...this.signedIn(a) });
         this.publishAccounts();
-        if (CAPTURE_MODE === 'fail') {
-          setTimeout(
-            () => this.finishCapture(a.id, 'failed', 'setup-token exited before it showed a token'),
-            3_000,
-          );
-        } else if (CAPTURE_MODE !== 'code') {
-          setTimeout(() => this.finishCapture(a.id, 'captured'), 4_000);
-        }
-        return json({ capture }, 202);
+        return this.accountJson(a.id);
       }
     }
 
@@ -1831,23 +1759,6 @@ class FixtureBackend implements MockBackend {
     }
 
     return json({ error: { code: 'not_found', message: `No mock for ${method} ${sub}` } }, 404);
-  }
-
-  private finishCapture(id: string, state: CaptureView['state'], error?: string): void {
-    const cap = this.captures.get(id);
-    if (!cap || cap.state !== 'running') return;
-    this.captures.set(id, {
-      ...cap,
-      state,
-      asksForCode: false,
-      finishedAt: Date.now(),
-      ...(error ? { error } : {}),
-    });
-    const a = this.account(id);
-    if (state === 'captured' && a) {
-      this.updateAccount(id, { tokenStored: true, ...this.signedIn(a) });
-    }
-    this.publishAccounts();
   }
 
   private putAccountDefaults(body: unknown): Response {
