@@ -234,15 +234,18 @@ describe('SessionsComponent accounts', () => {
     const asked = backend.calls
       .map((c, i) => (c === 'POST /data/delete' ? backend.bodies[i] : null))
       .filter(Boolean);
-    expect(asked).toEqual([
-      { from: 'default', items: { sessions: ['a'] }, undo: true, dryRun: true },
-      {
-        from: MOCK_ACCOUNT_WORK,
-        items: { sessions: jasmine.arrayWithExactContents(['b', 'c']) },
-        undo: true,
-        dryRun: true,
-      },
-    ]);
+    // (In whichever order the cards sorted: they share a time.)
+    expect(asked).toEqual(
+      jasmine.arrayWithExactContents([
+        { from: 'default', items: { sessions: ['a'] }, undo: true, dryRun: true },
+        {
+          from: MOCK_ACCOUNT_WORK,
+          items: { sessions: jasmine.arrayWithExactContents(['b', 'c']) },
+          undo: true,
+          dryRun: true,
+        },
+      ]),
+    );
     expect(text(el.querySelector('mc-delete-data-sheet .planline'))).toContain('Deletes');
 
     // Done leaves Select, and forgets the picks.
