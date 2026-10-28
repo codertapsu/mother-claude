@@ -162,6 +162,9 @@ pub async fn refresh(state: &AppState, id: &str) -> Result<AuthStatus, AccountEr
         s.checked_at = Some(now_ms());
         s.auth = Some(status.clone());
     });
+    // Who it signed in as, kept the first time (docs/ACCOUNTS.md §15.3); a
+    // different one is a warning on the account view, never kept unasked.
+    state.accounts.learn_identities();
     super::view::publish(state).await;
     Ok(status)
 }

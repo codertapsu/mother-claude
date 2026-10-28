@@ -36,6 +36,7 @@ use super::home::{user_home_dir, ClaudeHome};
 use super::secrets::{Secret, SecretError, SecretName, SecretStore};
 
 pub mod capture;
+pub mod identity;
 pub mod sessions;
 pub mod signin;
 pub mod status;
@@ -139,6 +140,11 @@ pub struct Account {
     /// `initialize.account` seen for it (never an email).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub account_uuid: Option<String>,
+    /// SHA-256 of the email the account signed in as (never the email):
+    /// who it should be, for the identity warnings (docs/ACCOUNTS.md §15.3,
+    /// [`identity`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub identity_sha256: Option<String>,
     /// Fields a newer version wrote; kept as they were.
     #[serde(flatten, default)]
     pub extra: BTreeMap<String, Value>,
@@ -165,9 +171,15 @@ impl Account {
             hooks_plugin: None,
             token_sha256: None,
             account_uuid: None,
+            identity_sha256: None,
             extra: BTreeMap::new(),
         }
     }
+}
+
+/// Lowercase hex SHA-256, as the registry keeps hashes: 64 hex characters.
+fn is_sha256_hex(s: &str) -> bool {
+    s.len() == 64 && s.bytes().all(|b| b.is_ascii_hexdigit())
 }
 
 /// Which account new work runs under, when the caller does not say.
@@ -471,6 +483,7 @@ impl Registry {
                 }
                 default.hooks_plugin = account.hooks_plugin;
                 default.account_uuid = account.account_uuid;
+                default.identity_sha256 = account.identity_sha256.filter(|s| is_sha256_hex(s));
                 default.extra = account.extra;
                 continue;
             }
@@ -575,6 +588,12 @@ fn validate_loaded(reg: &Registry, a: &mut Account, default_dir: &Path) -> Resul
     }
     if a.color.as_deref().is_some_and(|c| !is_color(c)) {
         a.color = None;
+    }
+    if a.identity_sha256
+        .as_deref()
+        .is_some_and(|s| !is_sha256_hex(s))
+    {
+        a.identity_sha256 = None;
     }
     match a.kind {
         AccountKind::Directory => {
@@ -1089,6 +1108,7 @@ impl AccountRegistry {
             hooks_plugin: None,
             token_sha256: None,
             account_uuid: None,
+            identity_sha256: None,
             extra: BTreeMap::new(),
         };
         let mut next = guard.clone();
@@ -1132,6 +1152,7 @@ impl AccountRegistry {
             hooks_plugin: None,
             token_sha256: sha,
             account_uuid: None,
+            identity_sha256: None,
             extra: BTreeMap::new(),
         };
         let secret = SecretName::AccountToken(account.id.clone());
@@ -1854,12 +1875,15 @@ mod tests {
         let default_dir = tmp.path().join("default-claude");
         std::fs::create_dir_all(&default_dir).unwrap();
         let work = tmp.path().join("work");
+        let kept = "ab".repeat(32);
         let file = serde_json::json!({
             "version": 1,
             "futureTopLevel": {"keep": true},
             "accounts": [
-                {"id": "default", "name": "Personal", "kind": "token", "dir": "/elsewhere", "color": "#123456"},
-                {"id": "acc_aaaaaaaaaaaa", "name": "Work", "kind": "directory", "dir": work, "createdAt": 5, "futureField": 1},
+                {"id": "default", "name": "Personal", "kind": "token", "dir": "/elsewhere", "color": "#123456",
+                 "identitySha256": kept},
+                {"id": "acc_aaaaaaaaaaaa", "name": "Work", "kind": "directory", "dir": work, "createdAt": 5, "futureField": 1,
+                 "identitySha256": "not a hash"},
                 {"id": "acc_bbbbbbbbbbbb", "name": "work", "kind": "token"},
                 {"id": "acc_cccccccccccc", "name": "Nested", "kind": "directory", "dir": work.join("inner")},
                 {"id": "acc_dddddddddddd", "name": "Relative", "kind": "directory", "dir": "rel"},
@@ -1887,6 +1911,11 @@ mod tests {
         assert_eq!(default.kind, AccountKind::Directory);
         assert!(default.dir.is_none());
         assert_eq!(default.color.as_deref(), Some("#123456"));
+        assert_eq!(default.identity_sha256.as_deref(), Some(kept.as_str()));
+        assert_eq!(
+            snap.accounts[1].identity_sha256, None,
+            "not a hash: dropped"
+        );
         assert_eq!(snap.accounts[1].extra["futureField"], 1);
         assert!(snap.accounts[2].token_sha256.is_none());
         assert!(snap.accounts[2].dir.is_none());

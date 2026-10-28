@@ -368,6 +368,10 @@ device, ingress and client address.
   started it, never another (a token another account holds is refused).
   Opening the link, typing the browser's code and cancelling are desktop-only,
   like starting a sign-in.
+- Who an account signed in as is kept only as the SHA-256 of its email
+  (`identitySha256` in `accounts.json`, never the email), to warn when a
+  sign-in lands in the wrong account or in another account's Claude account;
+  keeping a new one is desktop-only and audited without the email.
 - Adding, removing and signing in accounts, tokens, the backup passphrase and
   the hooks plugin installer are desktop-only. Moving and copying data, backups,
   restores, pulls, undo, the backup settings, account defaults, copy consent

@@ -32,6 +32,8 @@
 //!   this machine has; open the running sign-in's link in one. `POST
 //!   /api/accounts/{id}/sign-in/code {code}`, `DELETE
 //!   /api/accounts/{id}/sign-in`: either kind's code and cancel.
+//! * `POST /api/accounts/{id}/identity/accept` (DesktopOnly): keep who the
+//!   account signed in as now (its `identityWarning` goes).
 //!
 //! One sign-in runs at a time across all accounts (`409 sign_in_running`,
 //! naming the account). Every change is audited (never with a token, a link
@@ -623,6 +625,28 @@ pub async fn sign_in_cancel(
     );
     view::publish(&state).await;
     Ok(Json(json!({ "signIn": view })))
+}
+
+/// `POST /api/accounts/{id}/identity/accept`: keep who the account signed in
+/// as now, so its identity warning goes (docs/ACCOUNTS.md §15.3). Without a
+/// warning there is nothing to keep, and the account comes back as it is.
+pub async fn accept_identity(
+    DesktopOnly(ctx): DesktopOnly,
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> ApiResult<Json<AccountView>> {
+    known(&state, &id)?;
+    if let Some(warning) = state.accounts.identity_warnings().remove(&id) {
+        state.accounts.accept_identity(&id).map_err(account_error)?;
+        audit(
+            &state,
+            &ctx,
+            "account.identity.accept",
+            json!({ "account": id, "kind": warning.kind, "other": warning.account }),
+        );
+        view::publish(&state).await;
+    }
+    Ok(Json(one(&state, &id)?))
 }
 
 /// `POST /api/accounts/{id}/hooks/install`.

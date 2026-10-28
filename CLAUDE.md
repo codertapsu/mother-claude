@@ -184,7 +184,11 @@ browser, Chrome or a private Chrome window. A login opens the default browser
 on its own; a token sign-in never does (the desktop asks first). The opener only
 records until `lib.rs` turns it on, so no test ever opens a browser. One
 sign-in runs at a time across all accounts, bound to its account from the start:
-a token goes into that account's secret only.
+a token goes into that account's secret only. **Who signed in** is checked with
+`claude auth status` (after a login and at every check): the registry keeps the
+email's SHA-256 (`identitySha256`, never the email), and a sign-in as someone
+else, or as another account's Claude account, is an `identityWarning` until the
+user keeps it (`accounts/identity.rs`; nothing while only the Default exists).
 
 **Set `CLAUDE_CONFIG_DIR` on a child only to a directory account's own
 directory, never for the Default account.** Setting it breaks the CLI's

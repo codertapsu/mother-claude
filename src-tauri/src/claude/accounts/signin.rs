@@ -146,8 +146,13 @@ pub fn clean_email(raw: &str) -> Result<String, SignInError> {
     Ok(email.to_string())
 }
 
-/// The email a re-sign-in asks for: the one the account is signed in as.
+/// The email a re-sign-in asks for: the one the account is signed in as —
+/// unless that is the one its identity warning is about (§15.3), which the
+/// page must not ask for again.
 fn known_email(state: &AppState, id: &str) -> Option<String> {
+    if state.accounts.identity_warnings().contains_key(id) {
+        return None;
+    }
     state
         .accounts
         .runtime

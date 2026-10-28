@@ -151,6 +151,10 @@ pub fn api_router() -> Router<AppState> {
             get(accounts::sign_in_browsers).post(accounts::sign_in_open),
         )
         .route("/accounts/{id}/sign-in/code", post(accounts::sign_in_code))
+        .route(
+            "/accounts/{id}/identity/accept",
+            post(accounts::accept_identity),
+        )
         // ── backups, restores, pulls (docs/ACCOUNTS.md) ──
         .route("/backup", get(backup::get_backup))
         .route("/backup/settings", put(backup::put_settings))

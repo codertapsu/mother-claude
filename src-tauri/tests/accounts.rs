@@ -953,6 +953,146 @@ async fn a_login_takes_the_code_the_browser_shows() {
     assert!(!error.contains("https://"), "{error}");
 }
 
+/// The registry file, as written.
+fn registry_text(f: &Fixture) -> String {
+    std::fs::read_to_string(f.scratch.path().join("app-data/accounts.json")).unwrap_or_default()
+}
+
+/// §15.3: who a login signed in as is kept (its SHA-256, never the email); a
+/// different one raises `changed` — never kept unasked — until the user signs
+/// in again as before (the page not asked for the email the warning is about)
+/// or keeps the new one.
+#[tokio::test]
+async fn a_login_as_someone_else_is_named_until_kept() {
+    use mother_claude_lib::claude::accounts::identity::email_sha256;
+    let f = boot().await;
+    let desk = f.desktop();
+    let (id, dir) = f.directory_account("Who").await;
+    let kept = || f.st.accounts.get(&id).unwrap().identity_sha256;
+    f.login(&id, json!({})).await;
+    f.sign_in_when(&id, "done", |s| s["state"] == "done").await;
+    assert_eq!(kept(), Some(email_sha256("work@example.test")));
+    assert!(f.account(&id).await.get("identityWarning").is_none());
+    let text = registry_text(&f);
+    assert!(text.contains("identitySha256"), "{text}");
+    assert!(!text.contains("example.test"), "the hash only: {text}");
+
+    // The browser handed another Claude account over.
+    script_login(&dir, json!({"email": "other@example.test"}));
+    f.login(&id, json!({})).await;
+    let run = f.sign_in_when(&id, "done", |s| s["state"] == "done").await;
+    assert_eq!(
+        link_facts(&run["url"])["fake_email"],
+        "work@example.test",
+        "the page was asked for the account's own"
+    );
+    let a = f.account(&id).await;
+    assert_eq!(a["email"], "other@example.test");
+    assert_eq!(a["identityWarning"], json!({"kind": "changed"}), "{a}");
+    assert_eq!(
+        kept(),
+        Some(email_sha256("work@example.test")),
+        "not kept unasked"
+    );
+    let (_, phone_view) = f
+        .call("GET", &format!("/accounts/{id}"), &f.phone(), None)
+        .await;
+    assert_eq!(phone_view["identityWarning"]["kind"], "changed");
+
+    // Signing in again as before: the page is not asked for the other one,
+    // and the warning goes.
+    script_login(&dir, json!({"email": "work@example.test"}));
+    f.login(&id, json!({})).await;
+    let run = f.sign_in_when(&id, "done", |s| s["state"] == "done").await;
+    assert_eq!(link_facts(&run["url"])["fake_email"], "");
+    assert!(f.account(&id).await.get("identityWarning").is_none());
+
+    // Or the user keeps the new one (on the desktop only).
+    script_login(&dir, json!({"email": "other@example.test"}));
+    f.login(&id, json!({})).await;
+    f.sign_in_when(&id, "done", |s| s["state"] == "done").await;
+    assert_eq!(f.account(&id).await["identityWarning"]["kind"], "changed");
+    let accept = format!("/accounts/{id}/identity/accept");
+    let (s, v) = f.call("POST", &accept, &f.phone(), Some(json!({}))).await;
+    assert_eq!(s, StatusCode::FORBIDDEN, "{v}");
+    let (s, v) = f.call("POST", &accept, &desk, Some(json!({}))).await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    assert!(v.get("identityWarning").is_none(), "{v}");
+    assert_eq!(kept(), Some(email_sha256("other@example.test")));
+    // Nothing to keep any more: as it is.
+    let (s, v) = f.call("POST", &accept, &desk, Some(json!({}))).await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    let audit = f.st.devices.audit.recent(50);
+    assert_eq!(
+        audit
+            .iter()
+            .filter(|e| e.action == "account.identity.accept")
+            .count(),
+        1
+    );
+    assert!(
+        !serde_json::to_string(&audit)
+            .unwrap()
+            .contains("example.test"),
+        "never an email in the audit"
+    );
+}
+
+/// §15.3: two accounts signed in as one Claude account are named, on the one
+/// that signed in second; keeping it quiets it. Nothing is ever kept unasked
+/// for it.
+#[tokio::test]
+async fn the_same_claude_account_in_two_accounts_is_named() {
+    use mother_claude_lib::claude::accounts::identity::email_sha256;
+    let f = boot().await;
+    let (a, a_dir) = f.directory_account("Personal").await;
+    let (b, b_dir) = f.directory_account("Office").await;
+    script_login(&a_dir, json!({"email": "me@example.test"}));
+    f.login(&a, json!({})).await;
+    f.sign_in_when(&a, "done", |s| s["state"] == "done").await;
+    // A browser still signed in to it hands the same account over to B.
+    script_login(&b_dir, json!({"email": "Me@Example.test"}));
+    f.login(&b, json!({})).await;
+    f.sign_in_when(&b, "done", |s| s["state"] == "done").await;
+    let view_b = f.account(&b).await;
+    assert_eq!(
+        view_b["identityWarning"],
+        json!({"kind": "same-as", "account": a.as_str()}),
+        "{view_b}"
+    );
+    assert!(f.account(&a).await.get("identityWarning").is_none());
+    assert!(f.st.accounts.get(&b).unwrap().identity_sha256.is_none());
+
+    let (s, v) = f
+        .call(
+            "POST",
+            &format!("/accounts/{b}/identity/accept"),
+            &f.desktop(),
+            Some(json!({})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    assert!(v.get("identityWarning").is_none(), "{v}");
+    assert_eq!(
+        f.st.accounts.get(&b).unwrap().identity_sha256,
+        Some(email_sha256("me@example.test"))
+    );
+    assert!(f.account(&a).await.get("identityWarning").is_none());
+}
+
+/// Goal 7: with only the Default nothing is kept (no `accounts.json`) and
+/// nothing is warned, whoever it signs in as.
+#[tokio::test]
+async fn only_the_default_keeps_no_identity() {
+    use mother_claude_lib::claude::accounts::status;
+    let f = boot().await;
+    status::refresh(&f.st, "default").await.unwrap();
+    assert!(f.st.accounts.learn_identities() == 0);
+    assert!(registry_text(&f).is_empty(), "no file");
+    assert!(f.account("default").await.get("identityWarning").is_none());
+    assert!(f.st.accounts.identity_warnings().is_empty());
+}
+
 #[tokio::test]
 async fn setup_token_is_captured_into_the_secret_store() {
     let f = boot().await;

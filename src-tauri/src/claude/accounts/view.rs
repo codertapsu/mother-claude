@@ -9,6 +9,7 @@ use std::hash::{Hash, Hasher};
 use serde::Serialize;
 
 use super::capture::{CaptureView, SignInKind, SignInView};
+use super::identity::{self, IdentityWarning};
 use super::{AccountDefaults, AccountKind, CopyConsent, DEFAULT_ID};
 use crate::claude::model::AccountRef;
 use crate::claude::secrets::SecretStoreKind;
@@ -71,6 +72,10 @@ pub struct AccountView {
     /// finished (docs/ACCOUNTS.md §15.2).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sign_in: Option<SignInView>,
+    /// Who it signed in as is not who it was, or is another account's
+    /// Claude account too (docs/ACCOUNTS.md §15.3).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub identity_warning: Option<IdentityWarning>,
 }
 
 /// The registry as clients see it.
@@ -117,6 +122,7 @@ pub async fn live_counts(state: &AppState) -> HashMap<String, u32> {
 pub fn build(state: &AppState, desktop: bool, live: Option<&HashMap<String, u32>>) -> AccountsView {
     let reg = state.accounts.snapshot();
     let runtime = &state.accounts.runtime;
+    let mut warnings = identity::warnings(&reg, &state.accounts.current_identities(&reg));
     let accounts = reg
         .accounts
         .iter()
@@ -195,6 +201,7 @@ pub fn build(state: &AppState, desktop: bool, live: Option<&HashMap<String, u32>
                 live: live.map(|l| l.get(&a.id).copied().unwrap_or(0)),
                 capture,
                 sign_in,
+                identity_warning: warnings.remove(&a.id),
             }
         })
         .collect();

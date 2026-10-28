@@ -422,7 +422,8 @@ account's directory, created with mode 0700 when missing; a token account has
 no `dir`. `accountUuid` is learned from the first `initialize.account` seen
 for the account (owned session or helper) and used to attribute the CLI's own
 usage cache (`cachedUsageUtilization`) correctly; it is an opaque id, not an
-email. The file is parsed tolerantly (unknown fields kept, bad entries
+email. `identitySha256` (the Default and directory accounts) is the SHA-256 of
+the email the account signed in as, never the email (§15.3). The file is parsed tolerantly (unknown fields kept, bad entries
 skipped with a log line), like every other file we read.
 
 ### 4.2 Secrets
@@ -1899,6 +1900,23 @@ link or the visible URL) and **Mother Claude opens it**
   `identityWarning: {kind: "changed" | "same-as", account?}` on the account
   view; the user keeps it (`POST /api/accounts/{id}/identity/accept`) or
   signs in again (with `--email`).
+
+  *Built (P9.3, `claude/accounts/identity.rs`):* the email is checked at every
+  `claude auth status` of a Default or directory account — after a login, at
+  startup, on Refresh — so a sign-in made in a terminal shows too. Its SHA-256
+  (trimmed, lowercased) is kept from the first check that shows one, unless
+  another account here signed in as the same; it is saved like `accountUuid`
+  (only when it changes, never while only the Default exists — goal 7 — and a
+  malformed one in the file is dropped, unknown fields kept) and replaced
+  only when the user keeps a new one. The warning is derived each time,
+  never stored: `same-as` (naming the other account, whose kept or shown
+  email it is) wins over `changed`; once kept, a `same-as` stays quiet. `POST
+  /api/accounts/{id}/identity/accept` is `DesktopOnly` and answers `200` with
+  the account view (without a warning nothing changes); audited as
+  `account.identity.accept` with the kind, never an email. While a warning
+  is up a re-sign-in passes no `--email` (the email shown is the one the
+  warning is about) unless the desktop names one (`email`). A token account
+  has no identity here: its `auth status` names no email.
 - A token says nothing about its account until it is used (`auth status`
   reports only `oauth_token`, and accepts any well-formed token), so a token
   sign-in recommends the private window: a browser already signed in to
@@ -1923,7 +1941,7 @@ packed, against a total known from the start.
   busy: pending or now), an ended one, an API conversation; the refusals.
 - [x] P9.2 Sign-ins in a pseudo-terminal with `BROWSER=true`, the link, the
   browsers, the code, cancel, `--email`.
-- [ ] P9.3 One sign-in at a time; identity checks and warnings.
+- [x] P9.3 One sign-in at a time; identity checks and warnings.
 - [ ] P9.4 UI: Switch account on a session (and the limit offer), the
   sign-in panel, identity warnings.
 - [x] P9.5 Dev builds optimize dependencies.
