@@ -800,6 +800,7 @@ Every failure is the same envelope, with context fields flattened alongside:
 | 409 | `already_answered`, `invalid_state` | Someone else got there first |
 | 409 | `thread_live_elsewhere` | The conversation is running in another window: fork it (`resume` on `POST /threads` does that for you) |
 | 409 | `already_owned` | Mother Claude already drives that session: use its existing conversation |
+| 409 | `switching_account` | The conversation (or session) is switching to another account on the dashboard (docs/ACCOUNTS.md §15.1): try again in a moment — it goes on under the same id |
 | 410 | `events_expired` | Your cursor fell out of the replay window; read the operation result |
 | 413 | `request_size`, `image_size`, `image_dimensions` | Shrink it |
 | 415 | `content_type` | Send `application/json` |

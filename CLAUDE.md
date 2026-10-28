@@ -53,7 +53,14 @@ a rotating key and an undocumented protocol).
   provider or auth variables), their account's part (`accounts::AccountEnv`,
   below) and `MOTHER_CLAUDE_OWNED=1`. Continuing a
   session another process holds **forks** it (`--resume --fork-session
-  --session-id <new>`); never two writers on one transcript. The Agent SDK
+  --session-id <new>`); never two writers on one transcript. An owned
+  session **changes account in place**, never by a fork: closed to new
+  messages, its process stopped and reaped first, its conversation moved
+  into the other account's directory when that keeps its own (a move job,
+  the pair's copy consent), then `--resume <id>` under the other account's
+  environment with the settings it ran with (`claude/switch.rs`,
+  docs/ACCOUNTS.md §15.1); a foreign session's process cannot change
+  accounts (`409 session_not_owned`: *Continue on* forks it). The Agent SDK
   sidecar (Path A) stays behind `MOTHER_CLAUDE_SIDECAR=1`. Background jobs are
   addressed by their SHORT job id only.
 - **Foreign sessions** → monitoring (transcripts, pidfiles, hook events),
@@ -294,7 +301,10 @@ the Default sign-in.
   desktop's or a paired device's (`ManageData`, docs/ACCOUNTS.md §13.9):
   carrying a folder's trust and copying the settings or MCP servers need the
   dangerous right, deleting always does (a dry run too), and the desktop is
-  told what a device did. Each of them refuses to write a shared
+  told what a device did. *Continue on* (a copy) and switching a session's
+  account (a move) also move or copy one conversation, for any
+  authenticated caller, but only between two accounts the desktop gave copy
+  consent (docs/ACCOUNTS.md §11.2, §15.1). Each of them refuses to write a shared
   file (`.claude.json`, `history.jsonl`, a file it replaces) while a live
   process uses that directory (a pidfile with a living pid in its `sessions/`,
   or a `.claude.json.lock` younger than 10 s) — only adding new files runs

@@ -1725,6 +1725,82 @@ consent, §11.2, as "Continue on" does — `409 copy_consent_required`):
 - Answers: `200 {id, account, moved}` when switched; audit `session.account`
   with from/to; a desktop notice when a device did it.
 
+*As built (2026-10-28, P9.1; `claude/switch.rs`):*
+
+- **Wire.** `200 {id, account, moved, job?}` — `job` is the move's data job
+  when it moved (`GET /api/data/jobs/{id}`; its Undo works once the session
+  stopped, `session_live` before). `202 {id, account, pending: true}`.
+  `switchingTo` on the summary is the target account's **id** (a string),
+  there while a switch waits for its turn or is under way, left out
+  otherwise. `DELETE /api/sessions/{id}/account` → `200 {id, account,
+  cancelled: true}` (`account`: the one it stays on); `409 switch_underway`
+  once the switch started, `409 switch_not_pending` without one.
+  Background tasks: the session's `tasks` (`GET /api/sessions/{id}`, status
+  `running`) and the summary's `agents.running` / `agents.backgroundRunning`
+  say how many (the "summary's `tasks`" above was loose). An API
+  conversation's summary has the limit code `bridge_thread` in
+  `control.limits`: it has no after-this-turn / now choice.
+- **An owned session, step by step.** It is closed to new messages under the
+  lock that decides whether a message is sent or queued (from then on
+  messages, controls, *Continue* and a resume through the API answer `409
+  switching_account`); its process is stopped and the reaper has finished
+  (out of the registry, unowned, its pending items withdrawn) before
+  anything else; into another directory the conversation moves (the transfer
+  engine's move, `transfer::ops::move_for_switch`: the pair's copy consent,
+  never queued behind another data job — `409 data_job_running`); then it is
+  launched with `--resume <id>` (with `--session-id <id>` when it has no
+  transcript yet). It gets the model it ran (as `get_settings` resolved
+  it), the effort asked for (else the applied one), thinking on or off as set
+  here, ultracode switched on again once it runs when it was on or asked for,
+  and its permission mode — always explicit;
+  `--allow-dangerously-skip-permissions` only when it had it and the caller
+  may launch with it. Fast mode is not carried (the target account's own
+  applies), and thinking on starts with a launch's budget.
+- **Before anything stops**, every refusal is checked: `422
+  invalid_session_id`, `unknown_account` (also an empty `account`),
+  `invalid_when`; `409 account_token_missing`; a session without permission
+  prompts needs the dangerous right (`403 dangerous_blocked`, as resuming it
+  in that mode would); the folder's trust is the target account's for a
+  caller other than the desktop (`403 untrusted_cwd`, as every launch);
+  into another directory `409 copy_consent_required` (with `from` and `to`),
+  `already_exists` (the target has a copy already: continue that one there)
+  and `data_job_running`. A pending switch checks them again when the turn
+  ends; if one fails then, the session keeps running and a notice says why.
+- **Busy.** `idle` waits for the turn and for what is queued behind it (a
+  message sent meanwhile is taken, and the switch waits for that turn too).
+  `now` takes back the messages queued behind the turn
+  (`cancel_async_message`), interrupts the turn so the transcript ends
+  cleanly (at most 10 s, then it stops anyway), and hands those messages —
+  whole, images too, a restricted caller's still restricted — to the
+  resumed process. A new request replaces a waiting switch; stopping or
+  removing the session drops it; a session whose process ends while it waits
+  is not switched (a notice says so).
+- **Failures.** A move that fails resumes the session where it was, under
+  its own account: the error carries the move's code with `account` (where
+  it runs) and its message ends "It goes on under …". A launch under the
+  other account that fails undoes the move and resumes it under its own
+  account the same way; only if that fails too is the session left stopped
+  (the message says so). Every switch of a running session ends with a
+  notice to every client (success or why not).
+- **An API conversation.** Between turns (a running turn: `409
+  turn_running`; the switch registers first and a turn's start checks after
+  it registered itself, so none starts in between): closed in the host, and
+  only after the host reported its stream ended (it forgets a conversation
+  by id then) taken out of the live ones — the API servers keep pointing at
+  it — then moved, then opened again under the same id with the other
+  account's environment and the options it was opened with (kept per
+  conversation, without the environment), its model, effort, mode and title
+  as now. A fork that has not run yet cannot change directory (`409
+  not_supported`). One an `accountOnly` server made: `403
+  account_not_served` (with `server`).
+- **A session nobody runs.** In the shared folder it is recorded as the
+  target account's (`account-sessions.json` for a token account) and its
+  chip changes; into another directory it moves as above (`200 {moved:
+  true, job}`); a session that runs meanwhile is refused (`409
+  session_not_owned`, or `session_live` from the move).
+- Audit: `session.account` (`session`, `from`, `to`, `when`, and `pending`,
+  or `moved` and `job`) and `session.account.cancel`.
+
 ### 15.2 Signing in opens a browser
 
 Both sign-ins run in a pseudo-terminal: `claude auth login` (the Default and
@@ -1790,7 +1866,7 @@ packed, against a total known from the start.
 
 ### 15.5 Checklist
 
-- [ ] P9.1 Switching an owned session (same directory, another directory,
+- [x] P9.1 Switching an owned session (same directory, another directory,
   busy: pending or now), an ended one, an API conversation; the refusals.
 - [ ] P9.2 Sign-ins in a pseudo-terminal with `BROWSER=true`, the link, the
   browsers, the code, cancel, `--email`.
