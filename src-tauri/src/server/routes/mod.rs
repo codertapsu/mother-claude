@@ -200,6 +200,10 @@ pub fn api_router() -> Router<AppState> {
             "/sessions/{id}/continue",
             post(control::continue_session).layer(DefaultBodyLimit::max(IMAGE_BODY_MAX)),
         )
+        .route(
+            "/sessions/{id}/account",
+            post(control::switch_account).delete(control::cancel_switch),
+        )
         .route("/sessions/{id}/stop", post(control::stop))
         .route("/sessions/{id}/respawn", post(control::respawn))
         .route("/sessions/{id}/rm", post(control::rm))

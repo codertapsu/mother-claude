@@ -69,6 +69,10 @@ pub async fn route_for(state: &AppState, id: &str) -> ApiResult<Route> {
     if owned::has_handle(state, id) {
         return Ok(Route::Owned);
     }
+    // Between its stop and its resume under another account.
+    if state.control.switches.is_underway(id) {
+        return Err(owned::switching_account());
+    }
     let s = state
         .find_session(id)
         .await
@@ -543,6 +547,97 @@ pub async fn continue_session(
         .into_response())
 }
 
+/// `POST /api/sessions/{id}/account {account, when?}` (docs/ACCOUNTS.md
+/// §15.1): the session goes on under another account — `200 {id, account,
+/// moved, job?}` once it does, `202 {id, account, pending: true}` while it
+/// waits for its turn to end. Audited (`session.account`); the desktop is
+/// told when a device did it.
+pub async fn switch_account(
+    Authed(ctx): Authed,
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Body(body): Body<crate::claude::switch::SwitchBody>,
+) -> ApiResult<Response> {
+    use crate::claude::switch::{self, Outcome};
+    let from = crate::claude::summaries::session_account(&state, &id);
+    let outcome = switch::switch(&state, &ctx, &id, &body).await?;
+    let to = match &outcome {
+        Outcome::Switched { account, .. } | Outcome::Pending { account } => account.clone(),
+    };
+    let mut detail = json!({
+        "session": id, "from": from, "to": to,
+        "when": switch::When::parse(body.when.as_deref()).unwrap_or_default(),
+    });
+    let name = switch::account_name(&state, &to);
+    let short: String = id.chars().take(8).collect();
+    let (status, answer, what) = match outcome {
+        Outcome::Switched {
+            account,
+            moved,
+            job,
+        } => {
+            detail["moved"] = json!(moved);
+            if let Some(job) = &job {
+                detail["job"] = json!(job);
+            }
+            let mut answer = json!({ "id": id, "account": account, "moved": moved });
+            if let Some(job) = job {
+                answer["job"] = json!(job);
+            }
+            (
+                StatusCode::OK,
+                answer,
+                format!("switched session {short} to the account {name:?}"),
+            )
+        }
+        Outcome::Pending { account } => {
+            detail["pending"] = json!(true);
+            (
+                StatusCode::ACCEPTED,
+                json!({ "id": id, "account": account, "pending": true }),
+                format!("asked session {short} to switch to the account {name:?} after its turn"),
+            )
+        }
+    };
+    state
+        .devices
+        .audit
+        .record(crate::server::devices::audit::AuditEntry {
+            detail: Some(detail),
+            ..crate::server::devices::audit::AuditEntry::from_ctx(&ctx, "session.account")
+        });
+    crate::server::auth::note_device_action(&state, &ctx, &what);
+    Ok((status, Json(answer)).into_response())
+}
+
+/// `DELETE /api/sessions/{id}/account`: cancel a switch that waits for the
+/// turn to end → `{id, account, cancelled: true}` (`account`: the one it
+/// stays on). `409 switch_underway` once it has started, `409
+/// switch_not_pending` without one.
+pub async fn cancel_switch(
+    Authed(ctx): Authed,
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> ApiResult<Json<Value>> {
+    let account = crate::claude::switch::cancel(&state, &id).await?;
+    state
+        .devices
+        .audit
+        .record(crate::server::devices::audit::AuditEntry {
+            detail: Some(json!({ "session": id })),
+            ..crate::server::devices::audit::AuditEntry::from_ctx(&ctx, "session.account.cancel")
+        });
+    let short: String = id.chars().take(8).collect();
+    crate::server::auth::note_device_action(
+        &state,
+        &ctx,
+        &format!("cancelled the account switch of session {short}"),
+    );
+    Ok(Json(
+        json!({ "id": id, "account": account, "cancelled": true }),
+    ))
+}
+
 /// `claude stop|respawn|rm <short>` for a background session (422
 /// `not_a_background_session` when it has no short job id).
 async fn run_lifecycle(state: &AppState, action: &str, id: &str) -> ApiResult<Json<Value>> {
@@ -562,6 +657,8 @@ pub async fn stop(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> ApiResult<Json<Value>> {
+    // Stopped by hand: a switch waiting for its turn must not start it again.
+    crate::claude::switch::drop_waiting(&state, &id).await?;
     // Bridge conversations have no ControlRegistry handle; close them through
     // the bridge so "stopped" is true.
     if crate::bridge::close_thread(&state, &id).await {
@@ -609,6 +706,7 @@ pub async fn rm(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> ApiResult<Json<Value>> {
+    crate::claude::switch::drop_waiting(&state, &id).await?;
     let owned_here = if crate::bridge::close_thread(&state, &id).await {
         true
     } else if owned::has_handle(&state, &id) || state.is_owned(&id).await {

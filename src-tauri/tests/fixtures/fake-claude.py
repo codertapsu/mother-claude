@@ -3,9 +3,9 @@
 MOTHER_CLAUDE_CLI). It speaks the stream-json control protocol the way CLI
 2.1.282 does and records everything it receives.
 
-* argv, a few environment variables and the account part of the environment
-  (`account`: CLAUDE_CONFIG_DIR, whether CLAUDE_CODE_OAUTH_TOKEN is set and its
-  SHA-256, which override variables are present) are appended to
+* argv, its pid, a few environment variables and the account part of the
+  environment (`account`: CLAUDE_CONFIG_DIR, whether CLAUDE_CODE_OAUTH_TOKEN is
+  set and its SHA-256, which override variables are present) are appended to
   `<cwd>/fake-claude.log` as the first JSON line, then every line read from
   stdin as `{"in": …}`.
 * `stop|rm|respawn <short>` print a line and exit 0; `logs <short>` prints a
@@ -147,7 +147,8 @@ def account_env():
     }
 
 
-log({"argv": ARGS, "env": {k: os.environ.get(k) for k in ENV_KEYS}, "account": account_env()})
+log({"argv": ARGS, "pid": os.getpid(), "env": {k: os.environ.get(k) for k in ENV_KEYS},
+     "account": account_env()})
 
 SESSION = arg("--session-id") or arg("--resume") or str(uuidlib.uuid4())
 MODE = arg("--permission-mode") or "default"

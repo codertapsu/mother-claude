@@ -344,7 +344,52 @@ pub async fn copy_for_continue(
     }
 }
 
-/// Why a continue-on copy did not happen.
+/// Switching a session's account into another directory (docs/ACCOUNTS.md
+/// §15.1): the conversation moves there — nothing runs it any more, the
+/// switch stopped its process first — as an undo job like any move. Needs the
+/// account pair's copy consent, as "continue on" does, and never waits behind
+/// another data job. Into a token account's shared folder it is recorded as
+/// that account's. Returns the job id.
+pub async fn move_for_switch(
+    state: &AppState,
+    from: &str,
+    to: &str,
+    session: &str,
+) -> Result<String, ContinueCopyError> {
+    if !state.accounts.has_copy_consent(from, to) {
+        return Err(ContinueCopyError::ConsentRequired);
+    }
+    let Ok(one) = state.jobs.lock.try_lock() else {
+        return Err(ContinueCopyError::Transfer(TransferError::Busy));
+    };
+    let req = Request {
+        what: What::Session {
+            id: session.to_string(),
+        },
+        mode: Mode::Move,
+        trust: false,
+        snapshot: false,
+        refresh: false,
+    };
+    let p = plan(state, from, to, req)
+        .await
+        .map_err(ContinueCopyError::Transfer)?;
+    let job_id = super::new_job_id();
+    execute_locked(state, &job_id, p, one)
+        .await
+        .map_err(ContinueCopyError::Transfer)?;
+    if state
+        .accounts
+        .get(to)
+        .is_some_and(|a| a.kind == crate::claude::accounts::AccountKind::Token)
+    {
+        state.accounts.remember_session(session, to);
+    }
+    tracing::info!(session, from, to, job = %job_id, "moved for an account switch");
+    Ok(job_id)
+}
+
+/// Why a continue-on copy (or a switch's move) did not happen.
 #[derive(Debug)]
 pub enum ContinueCopyError {
     /// The desktop has not allowed copying between these two accounts.

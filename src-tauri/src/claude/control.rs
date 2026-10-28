@@ -685,6 +685,9 @@ pub struct ControlRegistry {
     handles: HandleMap,
     /// Mirror of `state.owned` (bridge threads included) for sync lookups.
     owned_mirror: Mutex<HashSet<String>>,
+    /// Account switches waiting for a turn to end or under way, owned
+    /// sessions' and bridge conversations' (`claude::switch`).
+    pub switches: crate::claude::switch::Switches,
 }
 
 impl ControlRegistry {

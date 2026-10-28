@@ -487,7 +487,7 @@ pub async fn runs_unapproved(state: &AppState, id: &str) -> bool {
 
 /// The permission mode a launch runs in: always explicit; callers without
 /// dangerous rights get `default|acceptEdits|plan|auto` only.
-fn launch_mode(requested: Option<&str>, caller: Caller) -> ApiResult<String> {
+pub(crate) fn launch_mode(requested: Option<&str>, caller: Caller) -> ApiResult<String> {
     let mode = requested.unwrap_or("default").to_string();
     if !SAFE_MODES.contains(&mode.as_str()) && !caller.may_dangerous {
         return Err(ApiError::dangerous_blocked(
@@ -552,7 +552,11 @@ fn launch_account(
 /// (not canonicalized): `--resume` finds a transcript by the cwd it was
 /// recorded under, which may go through a symlink.
 /// Trust is read from the config directory of the account it runs under.
-fn launch_cwd(home: &crate::claude::ClaudeHome, raw: &str, caller: Caller) -> ApiResult<String> {
+pub(crate) fn launch_cwd(
+    home: &crate::claude::ClaudeHome,
+    raw: &str,
+    caller: Caller,
+) -> ApiResult<String> {
     let raw = raw.trim();
     let raw = match raw.trim_end_matches('/') {
         "" => raw,
@@ -672,7 +676,7 @@ pub fn transcripts_recorded_in(projects_dir: &Path, dir: &Path) -> bool {
         })
 }
 
-fn spawn_error(e: anyhow::Error) -> ApiError {
+pub(crate) fn spawn_error(e: anyhow::Error) -> ApiError {
     let msg = format!("{e:#}");
     if msg.contains("already controlled") {
         ApiError::conflict("already_owned", msg)
@@ -812,6 +816,11 @@ pub async fn continue_as(
             "invalid_session_id",
             "Only Claude Code sessions (UUID ids) can be continued.",
         ));
+    }
+    // Between its stop and its resume under another account nothing holds
+    // it, and continuing it then would make two writers.
+    if state.control.switches.is_underway(id) {
+        return Err(switching_account());
     }
     // The session's own account; one that ran with a token no account holds
     // is the Default's for every decision below (its chip says otherwise).

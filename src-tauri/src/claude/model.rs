@@ -525,6 +525,11 @@ pub struct SessionSummary {
     /// the Default account exists (docs/ACCOUNTS.md §4.4).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub account: Option<AccountRef>,
+    /// The id of the account it is switching to, while a switch waits for
+    /// its turn to end or is under way (docs/ACCOUNTS.md §15.1); absent
+    /// otherwise.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub switching_to: Option<String>,
 }
 
 /// An account as a chip on a session, a conversation or a job.

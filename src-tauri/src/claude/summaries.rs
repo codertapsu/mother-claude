@@ -1153,6 +1153,7 @@ pub fn build_one(state: &AppState, id: &str, ctx: &BuildCtx) -> Option<SessionSu
         control,
         cli_name: pid.as_ref().and_then(|p| p.name.clone()),
         account: account_chip(state, id, ctx),
+        switching_to: state.control.switches.target(id),
     };
     if owned_handle {
         // What the control protocol reported (model, mode, effort,

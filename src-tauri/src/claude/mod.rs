@@ -29,6 +29,7 @@ pub mod schema;
 pub mod secrets;
 pub mod settings;
 pub mod summaries;
+pub mod switch;
 pub mod tmux;
 pub mod transcript;
 pub mod transfer;

@@ -508,6 +508,15 @@ pub async fn takeover(state: &AppState, id: &str) -> BridgeResult<Takeover> {
         )
         .with("thread_id", id.to_string()));
     }
+    // Between its stop and its resume under another account nobody holds
+    // it, and resuming it here then would make two writers.
+    if state.control.switches.is_underway(id) {
+        return Err(BridgeError::conflict(
+            "switching_account",
+            "That conversation is switching to another account. Try again in a moment.",
+        )
+        .with("thread_id", id.to_string()));
+    }
     Ok(if crate::claude::owned::live_elsewhere(state, id).await {
         Takeover::Fork
     } else {
