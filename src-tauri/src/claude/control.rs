@@ -196,6 +196,9 @@ pub struct SpawnOptions {
     pub account: Option<String>,
     /// That account's part of the child environment (docs/ACCOUNTS.md D5).
     pub account_env: AccountEnv,
+    /// No "Spawned/Continuing owned session" notice: the caller announces
+    /// what happened itself (a switch of account says where it goes on).
+    pub quiet: bool,
 }
 
 /// Lightweight metadata for a live owned session, so the registry can list it
@@ -1058,17 +1061,19 @@ impl ControlRegistry {
             crate::claude::owned::overlay_settings(s, &live, always_thinking);
         })
         .await;
-        let verb = match (&opts.resume, opts.fork) {
-            (Some(_), true) => "Forked",
-            (Some(_), false) => "Continuing",
-            (None, _) => "Spawned",
-        };
-        ws::publish_notice(
-            state,
-            NoticeLevel::Info,
-            format!("{verb} owned session {id}"),
-            Some(&id),
-        );
+        if !opts.quiet {
+            let verb = match (&opts.resume, opts.fork) {
+                (Some(_), true) => "Forked",
+                (Some(_), false) => "Continuing",
+                (None, _) => "Spawned",
+            };
+            ws::publish_notice(
+                state,
+                NoticeLevel::Info,
+                format!("{verb} owned session {id}"),
+                Some(&id),
+            );
+        }
         Ok(id)
     }
 

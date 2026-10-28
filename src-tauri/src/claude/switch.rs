@@ -738,6 +738,8 @@ async fn spawn_resumed(
         caller_may_dangerous: caller.may_dangerous,
         account: Some(account.to_string()),
         account_env,
+        // The switch's own notice says where it goes on.
+        quiet: true,
         ..Default::default()
     };
     state

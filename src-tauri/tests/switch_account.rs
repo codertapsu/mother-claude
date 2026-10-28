@@ -287,6 +287,7 @@ async fn an_owned_session_switches_between_a_token_account_and_the_default_in_pl
         Secret::new(TOKEN).sha256_hex()
     );
 
+    let mut notices = f.st.bus.subscribe();
     let out = f.switch(&desktop(), &id, "default", None).await;
     assert_eq!(
         out,
@@ -295,6 +296,17 @@ async fn an_owned_session_switches_between_a_token_account_and_the_default_in_pl
             moved: false,
             job: None
         }
+    );
+    // One notice says where it goes on; the resume itself announces nothing.
+    let mut texts = Vec::new();
+    while let Ok(ev) = notices.try_recv() {
+        if let ServerEvent::Notice { text, .. } = &*ev {
+            texts.push(text.clone());
+        }
+    }
+    assert!(
+        !texts.iter().any(|t| t.contains("owned session")),
+        "{texts:?}"
     );
     // Same id, one process, under the Default.
     assert!(owned::has_handle(&f.st, &id));
