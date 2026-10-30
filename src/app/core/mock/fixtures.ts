@@ -797,6 +797,69 @@ export function buildFixtures(now: number): Fixtures {
       control: noneCaps(),
     }),
     base(now, {
+      // A VS Code turn that ended with its release build still running in
+      // the background: not done — Claude picks it up when the build ends,
+      // and closing VS Code now would stop it.
+      id: 's-build',
+      name: 'release-build',
+      title: 'Build and notarize v0.5.1',
+      projectName: 'mother-claude',
+      cwd: '/Users/marcus/dev/mother-claude',
+      surface: 'vscode',
+      entrypoint: 'claude-vscode',
+      status: 'background',
+      activity: {
+        kind: 'background',
+        label: 'Background work',
+        detail: 'Release build',
+        since: now - 6 * M,
+      },
+      model: OPUS,
+      effort: 'high',
+      effortSource: 'observed',
+      gitBranch: 'release/v0.5.1',
+      startedAt: now - 48 * M,
+      lastActivityAt: now - 6 * M,
+      usage: { input: 64_000, output: 11_000, cacheRead: 520_000, cacheWrite: 48_000 },
+      costUsd: 1.08,
+      context: { used: 180_000, window: 1_000_000, pct: 18 },
+      messageCount: 27,
+      lastMessage:
+        "The release build is running: gate, archive, notarization of the app and the disk image, then verification. When it finishes I'll verify the artifacts and report back.",
+      agents: { running: 0, total: 0, workflowsRunning: 0, backgroundRunning: 1 },
+      control: hookCaps(),
+    }),
+    base(now, {
+      // A terminal `/loop` between two ticks: its next wakeup is due in 12
+      // minutes.
+      id: 's-watch',
+      name: 'deploy-watch',
+      title: 'Watch the staging rollout',
+      projectName: 'infra',
+      cwd: '/Users/marcus/dev/infra',
+      surface: 'terminal',
+      entrypoint: 'cli',
+      status: 'background',
+      activity: {
+        kind: 'scheduled',
+        label: 'Scheduled to resume',
+        detail: 'Check whether the staging rollout finished',
+        since: now - 3 * M,
+        resumesAt: now + 12 * M,
+      },
+      model: SONNET,
+      effort: 'medium',
+      effortSource: 'observed',
+      startedAt: now - 70 * M,
+      lastActivityAt: now - 3 * M,
+      usage: { input: 22_000, output: 3_100, cacheRead: 140_000, cacheWrite: 9_000 },
+      costUsd: 0.24,
+      context: { used: 41_000, window: 1_000_000, pct: 4 },
+      messageCount: 12,
+      lastMessage: "The rollout is at 60%. I'll check again in 15 minutes.",
+      control: noneCaps(),
+    }),
+    base(now, {
       // A VS Code conversation opened but not written in yet: no transcript,
       // so nothing is known about its ultracode until the first message.
       id: 's-fresh',
@@ -1426,6 +1489,23 @@ export function buildFixtures(now: number): Fixtures {
       }),
       ev('b2', now - 6 * M, 'assistant', 'plan', { plan: { text: MIGRATION_PLAN } }),
     ],
+    's-build': [
+      ev('rb1', now - 9 * M, 'user', 'prompt', { text: 'Cut v0.5.1 and notarize it' }),
+      ev('rb2', now - 8 * M, 'assistant', 'tool', {
+        tool: { id: 'toolu_rb', name: 'Bash', summary: 'Release build' },
+      }),
+      ev('rb3', now - 6 * M, 'assistant', 'text', {
+        text: "The release build is running: gate, archive, notarization of the app and the disk image, then verification. When it finishes I'll verify the artifacts and report back.",
+      }),
+    ],
+    's-watch': [
+      ev('dw1', now - 70 * M, 'user', 'prompt', {
+        text: '/loop watch the staging rollout and tell me when it is done',
+      }),
+      ev('dw2', now - 3 * M, 'assistant', 'text', {
+        text: "The rollout is at 60%. I'll check again in 15 minutes.",
+      }),
+    ],
     's-docs': [
       ev('w1', now - 14 * M, 'user', 'prompt', { text: 'Polish the docs site before the launch.' }),
       ev('w2', now - 95 * S, 'assistant', 'tool', {
@@ -1465,6 +1545,16 @@ export function buildFixtures(now: number): Fixtures {
   }));
 
   const tasks: Record<string, BackgroundTask[]> = {
+    's-build': [
+      {
+        id: 'brel1',
+        kind: 'bash',
+        label: 'Release build',
+        status: 'running',
+        startedAt: now - 8 * M,
+        outputAvailable: true,
+      },
+    ],
     's-auth': [
       {
         id: 'bash-tests',

@@ -4,6 +4,7 @@ import { ActivatedRoute, ParamMap, Router, RouterLink } from '@angular/router';
 import { ViewportService } from '../../core/viewport.service';
 import { IconComponent } from '../../shared/icon.component';
 import { LimitOfferComponent } from '../../shared/limit-offer.component';
+import { ResumeNoteComponent } from '../../shared/resume-note.component';
 import { AgentsPanelComponent } from './agents-panel.component';
 import { ChangesPanelComponent } from './changes-panel.component';
 import { ComposerComponent } from './composer.component';
@@ -28,7 +29,9 @@ const TABS: TabDef[] = [
 ];
 
 /**
- * One session: a sticky header, tabs (Chat · Agents · Changes · Info), the
+ * One session: a sticky header (and under it, while it applies, the offer of
+ * another account at a limit and the note that the session resumes by
+ * itself, with what closing its app would do), tabs (Chat · Agents · Changes · Info), the
  * active panel in the page's one scroll area (the chip row scrolls away with
  * it), and — on Chat — the pending requests and the composer pinned to the
  * bottom. On phones the page takes the whole screen (the shell hides its
@@ -51,6 +54,7 @@ const TABS: TabDef[] = [
     InfoPanelComponent,
     LimitOfferComponent,
     PendingDockComponent,
+    ResumeNoteComponent,
     SessionChipsComponent,
     SessionHeaderComponent,
     TerminalSheetComponent,

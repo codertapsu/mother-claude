@@ -108,7 +108,7 @@ const KEYS: { key: KeyName; label: string; aria: string }[] = [
           </dd>
           <dt>Status</dt>
           <dd>
-            <mc-status-pill [status]="s.status" [live]="s.live" />
+            <mc-status-pill [status]="s.status" [live]="s.live" [activity]="s.activity" />
             @if (s.waitingFor) {
               <span class="muted small"> · {{ s.waitingFor }}</span>
             }

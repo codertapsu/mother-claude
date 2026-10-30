@@ -8,8 +8,12 @@
 
 // ─────────────────────────────────────────────────────────── 4.1 Sessions
 
+/** `background`: no turn runs, but the session resumes by itself — work it
+ * started still runs (activity `background`), or a `/loop` wakeup or cron
+ * job will wake it (activity `scheduled`). Not done; takes messages like
+ * `idle`. */
 export type SessionStatus =
-  'working' | 'waiting' | 'idle' | 'starting' | 'ended' | 'failed' | 'stopped';
+  'working' | 'waiting' | 'background' | 'idle' | 'starting' | 'ended' | 'failed' | 'stopped';
 
 export type Surface =
   | 'vscode'
@@ -28,6 +32,7 @@ export type ActivityKind =
   | 'waiting'
   | 'delegating'
   | 'background'
+  | 'scheduled'
   | 'compacting'
   | 'retrying'
   | 'idle'
@@ -43,6 +48,9 @@ export interface Activity {
   /** Salient detail, e.g. the command or the file path (≤ 120 chars). */
   detail?: string;
   since?: number;
+  /** `scheduled`: when the wakeup or job is due (epoch ms); absent for a
+   * recurring job whose next run isn't known. */
+  resumesAt?: number;
 }
 
 export interface Usage {
@@ -590,6 +598,8 @@ export interface FleetSession {
 export interface AccountFleet {
   /** Its live sessions currently working. */
   working: number;
+  /** Its live sessions that resume by themselves (older servers: absent). */
+  background?: number;
   /** Its sessions with a request answerable from here. */
   needYou: number;
   /** Its live sessions. */
@@ -602,6 +612,9 @@ export interface AccountFleet {
 export interface FleetSummary {
   /** Live sessions currently working. */
   working: number;
+  /** Live sessions between turns that resume by themselves (status
+   * `background`; older servers: absent). */
+  background?: number;
   /** Running subagents and workflow agents. */
   agentsRunning: number;
   workflowsRunning?: number;

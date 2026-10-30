@@ -73,7 +73,7 @@ interface PackedPart {
           />
         </label>
       }
-      <mc-status-pill [status]="s.status" [live]="s.live" />
+      <mc-status-pill [status]="s.status" [live]="s.live" [activity]="s.activity" />
       <a class="name" [routerLink]="['/session', s.id]">{{ name() }}</a>
       <mc-time class="when" [ms]="s.lastActivityAt" />
     </div>

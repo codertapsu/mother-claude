@@ -174,6 +174,13 @@ export class SessionsComponent {
         items: rest.filter((s) => s.status === 'working' || s.status === 'starting').sort(byRecent),
       },
       {
+        // Between turns, but not done: background work or a wakeup resumes
+        // them by themselves.
+        key: 'background',
+        title: 'Will resume',
+        items: rest.filter((s) => s.status === 'background').sort(byRecent),
+      },
+      {
         key: 'idle',
         title: 'Idle',
         items: rest.filter((s) => s.status === 'idle').sort(byRecent),

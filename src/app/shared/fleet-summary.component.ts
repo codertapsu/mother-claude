@@ -23,6 +23,8 @@ import { Tone, formatCountdown, formatTokens, formatUsd, resetsIn, severityTone 
 /** The fleet summary with the server's rules (`GET /agents` `summary`), from
  * the active session store, plus what the cost fallback needs. */
 export interface FleetCounts extends Pick<FleetSummary, 'working' | 'agentsRunning' | 'needYou'> {
+  /** Live sessions that resume by themselves. */
+  background: number;
   costToday: number;
   /** Sessions active since midnight. */
   todaySessions: number;
@@ -35,6 +37,8 @@ export interface FleetCounts extends Pick<FleetSummary, 'working' | 'agentsRunni
 /**
  * Same rules as the server's fleet summary:
  * - working: live sessions whose status is `working`;
+ * - background: live sessions between turns that resume by themselves
+ *   (status `background`: not done, not working either);
  * - agentsRunning: running subagents and workflow agents (shells and
  *   monitors are background work, not agents);
  * - needYou: sessions with at least one request answerable from here;
@@ -44,6 +48,7 @@ export interface FleetCounts extends Pick<FleetSummary, 'working' | 'agentsRunni
 export function fleetCounts(sessions: readonly SessionSummary[], midnight: number): FleetCounts {
   const out: FleetCounts = {
     working: 0,
+    background: 0,
     agentsRunning: 0,
     needYou: 0,
     costToday: 0,
@@ -53,6 +58,7 @@ export function fleetCounts(sessions: readonly SessionSummary[], midnight: numbe
   };
   for (const s of sessions) {
     if (s.live && s.status === 'working') out.working += 1;
+    if (s.live && s.status === 'background') out.background += 1;
     if ((s.pending ?? []).some((p) => p.answerable)) out.needYou += 1;
     out.agentsRunning += s.agents?.running ?? 0;
     out.costToday += s.costToday ?? 0;
@@ -68,17 +74,19 @@ export function fleetCounts(sessions: readonly SessionSummary[], midnight: numbe
 
 /**
  * The fleet summary per Claude account, with the server's rules (`GET
- * /agents` `summary.accounts`): working, needing you and live sessions and
- * today's cost, for every account a session names (sessions name one only
- * while more than the Default exists, so this is empty with only it).
+ * /agents` `summary.accounts`): working, resuming by themselves, needing
+ * you and live sessions and today's cost, for every account a session names
+ * (sessions name one only while more than the Default exists, so this is
+ * empty with only it).
  */
 export function fleetByAccount(sessions: readonly SessionSummary[]): Map<string, AccountFleet> {
   const out = new Map<string, AccountFleet>();
   for (const s of sessions) {
     const id = s.account?.id;
     if (!id) continue;
-    const a = out.get(id) ?? { working: 0, needYou: 0, live: 0, costToday: 0 };
+    const a = out.get(id) ?? { working: 0, background: 0, needYou: 0, live: 0, costToday: 0 };
     if (s.live && s.status === 'working') a.working += 1;
+    if (s.live && s.status === 'background') a.background = (a.background ?? 0) + 1;
     if ((s.pending ?? []).some((p) => p.answerable)) a.needYou += 1;
     if (s.live) a.live += 1;
     a.costToday += s.costToday ?? 0;
@@ -141,7 +149,8 @@ export function compactPlan(
 
 /**
  * "3 working · 7 agents running · 2 need you · $4.12 today" across every
- * session, then the Claude plan's usage ("Session 42% · Week 18%", with the
+ * session ("1 will resume" after working while a session between turns
+ * resumes by itself), then the Claude plan's usage ("Session 42% · Week 18%", with the
  * time until the session window resets). Each part is a shortcut (a list
  * filter, the Agents page, the plan-usage sheet). Cost is what was priced
  * since local midnight (each session's `costToday`, not its lifetime cost),
@@ -165,6 +174,17 @@ export function compactPlan(
             <mc-icon name="activity" [size]="14" />
             <strong>{{ working() }}</strong> working
           </button>
+          @if (resuming()) {
+            <button
+              type="button"
+              class="seg"
+              title="Between turns, but not done: background work or a scheduled wakeup resumes them by themselves"
+              (click)="filter.emit('live')"
+            >
+              <mc-icon name="layers" [size]="14" />
+              <strong>{{ resuming() }}</strong> will resume
+            </button>
+          }
           <a class="seg" routerLink="/agents">
             <mc-icon name="agents" [size]="14" />
             <strong>{{ agents() }}</strong> {{ agents() === 1 ? 'agent' : 'agents' }} running
@@ -447,6 +467,8 @@ export class FleetSummaryComponent {
     return fleetCounts(this.realtime.sessions(), midnight.getTime());
   });
   protected readonly working = computed(() => this.counts().working);
+  /** Sessions that resume by themselves (shown only when there are some). */
+  protected readonly resuming = computed(() => this.counts().background);
   protected readonly agents = computed(() => this.counts().agentsRunning);
   protected readonly needs = computed(() => this.counts().needYou);
   protected readonly today = computed(() => {
@@ -489,6 +511,7 @@ export class FleetSummaryComponent {
       if (!f || (!f.live && !f.needYou && !f.costToday)) continue;
       const parts: AccountLine['parts'] = [{ text: `${f.live} live` }];
       if (f.working) parts.push({ text: `${f.working} working` });
+      if (f.background) parts.push({ text: `${f.background} will resume` });
       if (f.needYou) {
         parts.push({ text: `${f.needYou} ${f.needYou === 1 ? 'needs' : 'need'} you`, warn: true });
       }

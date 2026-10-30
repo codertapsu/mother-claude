@@ -1,11 +1,14 @@
 import { ChangeDetectionStrategy, Component, computed, inject, input } from '@angular/core';
 
 import { Activity } from '../core/models';
+import { NowService } from '../core/now.service';
 import { RealtimeService } from '../core/realtime.service';
 import { ElapsedPipe } from './time.pipes';
-import { activityIsBusy, activityLabel } from './util';
+import { activityIsBusy, activityLabel, resumesIn } from './util';
 
-/** "Running Bash · npm test · 12s" — what a session or agent is doing now. */
+/** "Running Bash · npm test · 12s" — what a session or agent is doing now;
+ * "Scheduled to resume · Check the deploy · resumes in 12m" when a wakeup
+ * or job will wake it. */
 @Component({
   selector: 'mc-activity-line',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -19,7 +22,9 @@ import { activityIsBusy, activityLabel } from './util';
         @if (a.detail) {
           <span class="sep">·</span><span class="detail">{{ a.detail }}</span>
         }
-        @if ((busy() || a.kind === 'waiting') && a.since) {
+        @if (resumes(); as r) {
+          <span class="sep">·</span><span class="elapsed">{{ r }}</span>
+        } @else if ((busy() || a.kind === 'waiting') && a.since) {
           <span class="sep">·</span><span class="elapsed">{{ a.since | elapsed }}</span>
         }
       </span>
@@ -58,6 +63,9 @@ import { activityIsBusy, activityLabel } from './util';
         background: var(--red);
         color: var(--red);
       }
+      :host([data-kind='scheduled']) .dot {
+        background: var(--accent);
+      }
       .line {
         min-width: 0;
         overflow: hidden;
@@ -84,9 +92,15 @@ import { activityIsBusy, activityLabel } from './util';
 })
 export class ActivityLineComponent {
   private realtime = inject(RealtimeService);
+  private clock = inject(NowService);
   /** Not Live: the dot greys out (the activity may be out of date). */
   protected readonly stale = computed(() => this.realtime.connection() !== 'open');
   readonly activity = input<Activity | undefined>(undefined);
   protected readonly label = computed(() => activityLabel(this.activity()));
   protected readonly busy = computed(() => activityIsBusy(this.activity()));
+  /** "resumes in 12m", ticking (only a scheduled activity reads the clock). */
+  protected readonly resumes = computed(() => {
+    const a = this.activity();
+    return a?.kind === 'scheduled' && a.resumesAt ? resumesIn(a.resumesAt, this.clock.now()) : '';
+  });
 }

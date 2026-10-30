@@ -32,8 +32,23 @@ describe('fleetCounts', () => {
       midnight,
     );
     expect(c.working).toBe(1);
+    expect(c.background).toBe(0);
     expect(c.agentsRunning).toBe(2);
     expect(c.needYou).toBe(1);
+  });
+
+  it('counts a session that resumes by itself apart from the working ones', () => {
+    const c = fleetCounts(
+      [
+        s({ status: 'working' }),
+        s({ status: 'background', activity: { kind: 'background', label: 'Background work' } }),
+        s({ status: 'background', activity: { kind: 'scheduled', label: 'Scheduled to resume' } }),
+        s({ live: false, status: 'background' }),
+      ],
+      midnight,
+    );
+    expect(c.working).toBe(1);
+    expect(c.background).toBe(2);
   });
 
   it("sums each session's costToday, and falls back to tokens when unpriced", () => {
@@ -69,12 +84,25 @@ describe('fleetByAccount', () => {
       s({ account: work, status: 'waiting', pending: [{ answerable: true }], costToday: 0.2 }),
       s({ account: work, live: false, status: 'ended', costToday: 1 }),
       s({ account: def, status: 'idle', pending: [{ answerable: false }] }),
+      s({ account: def, status: 'background' }),
       // A session in a directory nobody registered counts for no account.
       s({ status: 'working' }),
     ]);
     expect([...by.keys()]).toEqual(['acc_w', 'default']);
-    expect(by.get('acc_w')).toEqual({ working: 1, needYou: 1, live: 2, costToday: 1.3 });
-    expect(by.get('default')).toEqual({ working: 0, needYou: 0, live: 1, costToday: 0 });
+    expect(by.get('acc_w')).toEqual({
+      working: 1,
+      background: 0,
+      needYou: 1,
+      live: 2,
+      costToday: 1.3,
+    });
+    expect(by.get('default')).toEqual({
+      working: 0,
+      background: 1,
+      needYou: 0,
+      live: 2,
+      costToday: 0,
+    });
     // With only the Default, sessions name no account: nothing per account.
     expect(fleetByAccount([s({ status: 'working' })]).size).toBe(0);
   });

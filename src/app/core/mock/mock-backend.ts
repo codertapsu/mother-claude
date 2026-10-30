@@ -1089,18 +1089,33 @@ class FixtureBackend implements MockBackend {
   /** The fleet header, by the server's rules (per account once there are
    * several). */
   private fleetSummary(): FleetSummary {
-    const out: FleetSummary = { working: 0, agentsRunning: 0, needYou: 0, costToday: 0 };
+    const out: FleetSummary = {
+      working: 0,
+      background: 0,
+      agentsRunning: 0,
+      needYou: 0,
+      costToday: 0,
+    };
     const accounts: NonNullable<FleetSummary['accounts']> = {};
     for (const s of this.fx.sessions) {
       const working = s.live && s.status === 'working';
+      const resumes = s.live && s.status === 'background';
       const needYou = s.pending.some((p) => p.answerable);
       out.working += Number(working);
+      out.background = (out.background ?? 0) + Number(resumes);
       out.needYou += Number(needYou);
       out.agentsRunning += s.agents.running;
       out.costToday = (out.costToday ?? 0) + (s.costToday ?? 0);
       if (s.account) {
-        const a = (accounts[s.account.id] ??= { working: 0, needYou: 0, live: 0, costToday: 0 });
+        const a = (accounts[s.account.id] ??= {
+          working: 0,
+          background: 0,
+          needYou: 0,
+          live: 0,
+          costToday: 0,
+        });
         a.working += Number(working);
+        a.background = (a.background ?? 0) + Number(resumes);
         a.needYou += Number(needYou);
         a.live += Number(s.live);
         a.costToday = Math.round((a.costToday + (s.costToday ?? 0)) * 100) / 100;

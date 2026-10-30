@@ -77,7 +77,12 @@ import { SessionContext } from './session-context';
         <div class="titles">
           <div class="nameline">
             <h1 class="name">{{ name() }}</h1>
-            <mc-status-pill class="pill" [status]="s.status" [live]="s.live" />
+            <mc-status-pill
+              class="pill"
+              [status]="s.status"
+              [live]="s.live"
+              [activity]="s.activity"
+            />
             @if (s.account; as a) {
               <mc-account-chip class="acct" [account]="a" />
             }

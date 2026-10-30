@@ -63,6 +63,14 @@ export function resetsIn(resetsAt: number | undefined, now = Date.now()): string
   return `resets in ${formatCountdown(resetsAt - now)}`;
 }
 
+/** A scheduled session's "resumes in 12m" · "due now" (the time has come;
+ * a fire can be a little late) · '' (unknown). */
+export function resumesIn(resumesAt: number | undefined, now = Date.now()): string {
+  if (!resumesAt) return '';
+  if (resumesAt <= now) return 'due now';
+  return `resumes in ${formatCountdown(resumesAt - now)}`;
+}
+
 /** A reset time people can place: "14:30" today, "Tue 14:30" this week,
  * else "3 Oct, 14:30". */
 export function resetClock(resetsAt: number | undefined, now = Date.now()): string {
@@ -112,6 +120,7 @@ export function formatMinor(minor: number, currency: string | undefined, decimal
 const STATUS: Record<SessionStatus, { label: string; tone: Tone }> = {
   working: { label: 'Working', tone: 'green' },
   waiting: { label: 'Needs you', tone: 'amber' },
+  background: { label: 'Background work', tone: 'accent' },
   idle: { label: 'Idle', tone: 'muted' },
   starting: { label: 'Starting', tone: 'blue' },
   ended: { label: 'Ended', tone: 'faint' },
@@ -119,7 +128,15 @@ const STATUS: Record<SessionStatus, { label: string; tone: Tone }> = {
   stopped: { label: 'Stopped', tone: 'faint' },
 };
 
-export function statusLabel(status: SessionStatus | string): string {
+/** A status in words. A session that resumes by itself says what wakes it:
+ * "Background work" (it still runs), or "Scheduled" (a wakeup or a job;
+ * pass its activity). Never the bare "Background": the surface chip says
+ * that of `--bg` jobs. */
+export function statusLabel(
+  status: SessionStatus | string,
+  activity?: Pick<Activity, 'kind'>,
+): string {
+  if (status === 'background' && activity?.kind === 'scheduled') return 'Scheduled';
   return STATUS[status as SessionStatus]?.label ?? capitalize(String(status || 'unknown'));
 }
 
@@ -141,6 +158,56 @@ const SURFACES: Record<Surface, string> = {
 
 export function surfaceLabel(surface: Surface | string | undefined): string {
   return SURFACES[surface as Surface] ?? capitalize(String(surface || 'unknown'));
+}
+
+/** What stops a session's process, as a phrase ("closing VS Code"): the
+ * app that runs it. '' for a tmux pane or a `--bg` job, which outlive a
+ * closed window. */
+export function stoppedBy(s: Pick<SessionSummary, 'surface' | 'owned'>): string {
+  if (s.owned) return 'quitting Mother Claude';
+  switch (s.surface) {
+    case 'vscode':
+      return 'closing VS Code';
+    case 'jetbrains':
+      return 'closing JetBrains';
+    case 'terminal':
+      return 'closing its terminal';
+    case 'desktop':
+      return 'quitting Claude Desktop';
+    case 'mother-claude':
+      return 'quitting Mother Claude';
+    case 'sdk':
+      return 'stopping the program that runs it';
+    case 'tmux':
+    case 'background':
+      return '';
+    default:
+      return 'closing the app that runs it';
+  }
+}
+
+/** A session that resumes by itself, in a sentence for its page: what it
+ * waits on, when, and whether closing the app that runs it stops that.
+ * '' for any other session. */
+export function resumeNote(
+  s: Pick<SessionSummary, 'live' | 'status' | 'activity' | 'surface' | 'owned'>,
+  now = Date.now(),
+): string {
+  if (!s.live || s.status !== 'background') return '';
+  let lead = 'Claude picks this up when its background work finishes';
+  if (s.activity?.kind === 'scheduled') {
+    const at = s.activity.resumesAt;
+    const when = !at
+      ? ' on its schedule'
+      : at <= now
+        ? ' any moment'
+        : ` in ${formatCountdown(at - now)}`;
+    lead = `Claude resumes this by itself${when}`;
+  }
+  const stop = stoppedBy(s);
+  if (stop) return `${lead} — ${stop} now stops it.`;
+  const runs = s.surface === 'tmux' ? 'in tmux' : 'as a background job';
+  return `${lead}. It runs ${runs}, so closing a window doesn't stop it.`;
 }
 
 const CHANNELS: Record<ControlChannel, { label: string; tone: Tone; hint: string }> = {
@@ -337,6 +404,7 @@ const ACTIVITY_VERBS: Record<ActivityKind, string> = {
   waiting: 'Waiting for you',
   delegating: 'Delegating',
   background: 'Background work',
+  scheduled: 'Scheduled to resume',
   compacting: 'Compacting',
   retrying: 'Retrying',
   idle: 'Idle',

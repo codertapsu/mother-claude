@@ -537,7 +537,7 @@ export class SwitchAccountSheetComponent {
   }
 
   protected status(s: SessionSummary): string {
-    return s.live ? statusLabel(s.status) : 'Ended';
+    return s.live ? statusLabel(s.status, s.activity) : 'Ended';
   }
 
   protected pickSession(id: string): void {

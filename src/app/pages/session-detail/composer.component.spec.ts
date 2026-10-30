@@ -89,6 +89,29 @@ describe('ComposerComponent', () => {
     expect(cmp.palette()).toBeNull();
   });
 
+  it('sends to a session that resumes by itself as to an idle one', () => {
+    const ctx = TestBed.inject(SessionContext);
+    const at = (status: string, kind: string) =>
+      ctx.detail.set({
+        id: 's1',
+        live: true,
+        status,
+        activity: { kind, label: '' },
+        pending: [],
+        control: { message: 'direct', slashCommands: true, limits: [] } as unknown as ControlCaps,
+      } as unknown as SessionDetail);
+    // Between turns, its background work or a wakeup resumes it later:
+    // not in a turn, so a message goes in now rather than in the queue.
+    at('background', 'background');
+    expect(ctx.busy()).toBeFalse();
+    at('background', 'scheduled');
+    expect(ctx.busy()).toBeFalse();
+    at('working', 'tool');
+    expect(ctx.busy()).toBeTrue();
+    at('idle', 'idle');
+    expect(ctx.busy()).toBeFalse();
+  });
+
   it('opens the palette when the answer is still current', async () => {
     backend.routes.set('/sessions/s1/commands', () => ({
       status: 200,

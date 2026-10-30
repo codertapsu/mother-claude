@@ -1,6 +1,6 @@
 import { ChangeDetectionStrategy, Component, computed, inject, input } from '@angular/core';
 
-import { SessionStatus } from '../core/models';
+import { Activity, SessionStatus } from '../core/models';
 import { RealtimeService } from '../core/realtime.service';
 import { IconComponent, IconName } from './icon.component';
 import { statusLabel, statusTone } from './util';
@@ -9,6 +9,7 @@ import { statusLabel, statusTone } from './util';
 const STATUS_ICONS: Record<string, IconName> = {
   working: 'activity',
   waiting: 'hand',
+  background: 'layers',
   idle: 'pauseCircle',
   starting: 'hourglass',
   ended: 'stopCircle',
@@ -18,12 +19,14 @@ const STATUS_ICONS: Record<string, IconName> = {
 
 /** Session status: a distinct icon + text; the icon pulses while the
  * process is alive and busy (static under prefers-reduced-motion) and says
- * "live" to screen readers. */
+ * "live" to screen readers. Given the session's activity, a session that
+ * resumes by itself reads "Background work" (pulsing: it still runs) or
+ * "Scheduled" (a clock: a wakeup or job will wake it). */
 @Component({
   selector: 'mc-status-pill',
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [IconComponent],
-  host: { '[attr.data-tone]': 'tone()' },
+  host: { '[attr.data-tone]': 'tone()', '[attr.title]': 'hint()' },
   template: `<span class="ico" [class.pulse]="pulse()"
       ><mc-icon [name]="icon()" [size]="12" [stroke]="2.4"
     /></span>
@@ -64,15 +67,31 @@ export class StatusPillComponent {
   readonly live = input(false);
   /** Override the label. */
   readonly label = input<string | undefined>(undefined);
+  /** The session's activity: says which kind of `background` it is. */
+  readonly activity = input<Pick<Activity, 'kind'> | undefined>(undefined);
 
+  private readonly scheduled = computed(
+    () => this.status() === 'background' && this.activity()?.kind === 'scheduled',
+  );
   protected readonly tone = computed(() => statusTone(this.status()));
-  protected readonly text = computed(() => this.label() ?? statusLabel(this.status()));
-  protected readonly icon = computed<IconName>(() => STATUS_ICONS[this.status()] ?? 'circle');
+  protected readonly text = computed(
+    () => this.label() ?? statusLabel(this.status(), this.activity()),
+  );
+  protected readonly icon = computed<IconName>(() =>
+    this.scheduled() ? 'clock' : (STATUS_ICONS[this.status()] ?? 'circle'),
+  );
+  protected readonly hint = computed(() => {
+    if (this.status() !== 'background') return null;
+    return this.scheduled()
+      ? 'No turn is running: a scheduled wakeup or job resumes this session by itself.'
+      : 'No turn is running: Claude resumes this session by itself when its background work finishes.';
+  });
   /** Only while the data is live: a stale page shouldn't look busy. */
   protected readonly pulse = computed(
     () =>
       this.live() &&
       this.realtime.connection() === 'open' &&
-      ['working', 'starting', 'waiting'].includes(this.status()),
+      (['working', 'starting', 'waiting'].includes(this.status()) ||
+        (this.status() === 'background' && !this.scheduled())),
   );
 }

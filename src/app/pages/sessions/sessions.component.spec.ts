@@ -126,6 +126,52 @@ describe('SessionsComponent accounts', () => {
   const names = (el: HTMLElement) =>
     [...el.querySelectorAll('mc-session-card .name')].map((n) => text(n)).sort();
 
+  it('groups sessions that resume by themselves apart from idle ones', async () => {
+    serveAccounts(backend, buildAccounts(Date.now(), false));
+    store([
+      card('a'),
+      card('b', undefined, {
+        surface: 'vscode',
+        status: 'background',
+        activity: { kind: 'background', label: 'Background work', detail: 'Release build' },
+      }),
+      card('c', undefined, {
+        status: 'background',
+        activity: {
+          kind: 'scheduled',
+          label: 'Scheduled to resume',
+          detail: 'Check the rollout',
+          resumesAt: Date.now() + 12 * 60_000,
+        },
+      }),
+      card('d', undefined, { status: 'idle', activity: { kind: 'idle', label: 'Idle' } }),
+    ]);
+    const el = await render();
+    const groups = [...el.querySelectorAll('section.group')].map((g) => ({
+      title: g.getAttribute('aria-label'),
+      cards: [...g.querySelectorAll('mc-session-card .name')].map((n) => text(n)),
+      pills: [...g.querySelectorAll('mc-status-pill')].map((p) => text(p).replace(', live', '')),
+    }));
+    expect(groups).toEqual([
+      { title: 'Working', cards: ['Session a'], pills: ['Working'] },
+      {
+        title: 'Will resume',
+        cards: jasmine.arrayWithExactContents(['Session b', 'Session c']),
+        pills: jasmine.arrayWithExactContents(['Background work', 'Scheduled']),
+      },
+      { title: 'Idle', cards: ['Session d'], pills: ['Idle'] },
+    ]);
+    // What it waits on, and when.
+    const scheduled = [...el.querySelectorAll('mc-session-card')].find((c) =>
+      text(c).includes('Session c'),
+    );
+    expect(text(scheduled?.querySelector('mc-activity-line'))).toMatch(
+      /^Scheduled to resume\s*·\s*Check the rollout\s*·\s*resumes in 1[12]m$/,
+    );
+    // The fleet counts them apart.
+    expect(text(el.querySelector('mc-fleet-summary'))).toContain('2 will resume');
+  });
+
   it('with only the Default shows no account filter and no per-account counts', async () => {
     serveAccounts(backend, buildAccounts(Date.now(), false));
     store([card('a'), card('b')]);

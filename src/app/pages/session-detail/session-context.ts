@@ -78,9 +78,16 @@ export class SessionContext {
     const s = this.session();
     return s ? (s.pending ?? []).map((p) => ({ ...p, sessionId: s.id })) : [];
   });
+  /** In a turn. A session that resumes by itself between turns
+   * (`background`) takes a message like an idle one. */
   readonly busy = computed(() => {
     const s = this.session();
-    return !!s && s.live && (s.status === 'working' || activityIsBusy(s.activity));
+    return (
+      !!s &&
+      s.live &&
+      s.status !== 'background' &&
+      (s.status === 'working' || activityIsBusy(s.activity))
+    );
   });
   readonly ended = computed(() => {
     const s = this.session();

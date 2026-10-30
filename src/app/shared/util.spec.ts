@@ -12,9 +12,13 @@ import {
   modeLabel,
   relativeTime,
   resetsIn,
+  resumeNote,
+  resumesIn,
   severityTone,
   shortPath,
   statusLabel,
+  statusTone,
+  stoppedBy,
   surfaceLabel,
   switchPlace,
   thinkingModeLabel,
@@ -24,7 +28,7 @@ import {
   toolSummary,
   ultracodeLabel,
 } from './util';
-import { FileChange } from '../core/models';
+import { FileChange, SessionSummary } from '../core/models';
 
 const fc = (path: string): FileChange => ({ path, status: 'modified', additions: 1, deletions: 0 });
 
@@ -96,6 +100,61 @@ describe('shared/util', () => {
     expect(thinkingShare({ ...u, output: 0, thinking: 10 })).toBeNull();
     expect(thinkingShare({ ...u, output: 10_000, thinking: 1 })).toBe(1);
     expect(thinkingShare({ ...u, output: 10, thinking: 40 })).toBe(100);
+  });
+
+  it('names a session that resumes by itself by what wakes it', () => {
+    expect(statusLabel('background')).toBe('Background work');
+    expect(statusLabel('background', { kind: 'background' })).toBe('Background work');
+    expect(statusLabel('background', { kind: 'scheduled' })).toBe('Scheduled');
+    expect(statusLabel('idle', { kind: 'scheduled' })).toBe('Idle');
+    expect(statusTone('background')).toBe('accent');
+    expect(activityLabel({ kind: 'scheduled', label: '' })).toBe('Scheduled to resume');
+    const now = 1_000_000_000;
+    expect(resumesIn(now + 12 * 60_000, now)).toBe('resumes in 12m');
+    expect(resumesIn(now - 1, now)).toBe('due now');
+    expect(resumesIn(undefined, now)).toBe('');
+  });
+
+  it('says whether closing the app that runs a session stops what resumes it', () => {
+    const now = 1_000_000_000;
+    const s = (over: Partial<SessionSummary>) =>
+      ({
+        live: true,
+        owned: false,
+        surface: 'vscode',
+        status: 'background',
+        activity: { kind: 'background', label: 'Background work' },
+        ...over,
+      }) as SessionSummary;
+    expect(resumeNote(s({}), now)).toBe(
+      'Claude picks this up when its background work finishes — closing VS Code now stops it.',
+    );
+    const wakeup = (resumesAt?: number) =>
+      ({ kind: 'scheduled', label: 'Scheduled to resume', resumesAt }) as const;
+    expect(resumeNote(s({ surface: 'terminal', activity: wakeup(now + 12 * 60_000) }), now)).toBe(
+      'Claude resumes this by itself in 12m — closing its terminal now stops it.',
+    );
+    expect(resumeNote(s({ surface: 'jetbrains', activity: wakeup(now - 1) }), now)).toBe(
+      'Claude resumes this by itself any moment — closing JetBrains now stops it.',
+    );
+    expect(resumeNote(s({ surface: 'desktop', activity: wakeup() }), now)).toBe(
+      'Claude resumes this by itself on its schedule — quitting Claude Desktop now stops it.',
+    );
+    // Owned: it runs in Mother Claude.
+    expect(resumeNote(s({ owned: true, surface: 'mother-claude' }), now)).toContain(
+      '— quitting Mother Claude now stops it.',
+    );
+    // A tmux pane and a `--bg` job outlive a closed window.
+    expect(resumeNote(s({ surface: 'tmux' }), now)).toBe(
+      "Claude picks this up when its background work finishes. It runs in tmux, so closing a window doesn't stop it.",
+    );
+    expect(resumeNote(s({ surface: 'background' }), now)).toContain(
+      "It runs as a background job, so closing a window doesn't stop it.",
+    );
+    expect(stoppedBy({ surface: 'unknown', owned: false })).toBe('closing the app that runs it');
+    // Nothing to say of any other session.
+    expect(resumeNote(s({ status: 'idle' }), now)).toBe('');
+    expect(resumeNote(s({ live: false }), now)).toBe('');
   });
 
   it('counts down to a reset', () => {
