@@ -124,6 +124,7 @@ undocumented research-preview internals.
 | tmux panes | pidfile `tmux` (`session:@win.%pane`) + `tmux list-panes -a` on the default socket, then `${TMUX_TMPDIR:-/tmp}/tmux-<uid>/*` | the pane to type into / capture (`claude/tmux.rs`) |
 | Live events | **Hooks plugin** (`mc-hook` → `POST /hooks/event`, `mc-wake` → `POST /hooks/wait?pid=`), installed via `claude plugin …` (per directory account: run with its `CLAUDE_CONFIG_DIR`), status from `claude plugin list --json`; `mc-hook` sends the SHA-256 of a session's `CLAUDE_CODE_OAUTH_TOKEN` (`X-MC-Token-Sha256`) so a token account's session is recognised | tool, prompt, permission, subagent, compaction, notification, stop and session events; held approvals; relays and wake-ups (`server/hooks.rs`, `claude/hooks.rs`) |
 | Session settings | transcript `perTurnEffort ?? effort` and `message.usage.speed`; `ultra_effort_enter`/`ultra_effort_exit` attachments; hook `effort.level`; launch argv (`--effort`, `--max-thinking-tokens`, `--thinking`, inline `--settings`); settings `alwaysThinkingEnabled`; owned sessions: `get_settings.applied` | effort, ultracode, thinking and fast mode, each with its source (`claude/summaries.rs` `derive_settings`, `claude/live.rs` `LaunchFlags`) |
+| Wakeups and cron jobs | main-chain `ScheduleWakeup` results (`scheduledFor`, `stopped`), `CronCreate`/`CronDelete`/`CronList` results (`id`, `humanSchedule`, `recurring`, `nextFireAt`, `jobs`), `system`/`scheduled_task_fire` records and a fire prompt's `wakeupSource` | what will wake a session between turns (`claude/index/agg.rs` scheduler notes, `Aggregates::schedule`) |
 | Accounts | `<app data dir>/accounts.json` (ours, 0600), secrets in the Keychain (`dev.motherclaude.desktop`), `<app data dir>/account-sessions.json` (0600, token accounts' sessions only) | the Default, directory and token accounts, defaults per project, copy consent, backup settings and the storages besides the backup folder, which token account a session ran under (`claude/accounts.rs`, `claude/secrets.rs`, `claude/backup/storage.rs`) |
 | Plan usage | owned streams' `rate_limit_event` (`unifiedWindows`: 0–1 fraction, epoch seconds); `get_usage {skip_behaviors:true}` through an owned session or a short-lived helper `claude -p` in `<app data dir>/usage-helper`; fallback `~/.claude.json` `cachedUsageUtilization` (≤ 1 h, same account, the account id compared in-process only) | 5-hour and weekly windows, reset times, extra usage (`claude/usage.rs`, `/api/usage*`, `planUsage` frame) |
 
@@ -150,6 +151,23 @@ and the transcript tail; summaries are built by `claude/summaries.rs` and
 published as WebSocket diffs by `server/monitor.rs`. Every id from a request is
 validated with `claude::ids` and files are found through the index, never built
 from request input.
+
+Claude Code writes `idle` the moment a turn ends, whatever still runs, so
+"idle" alone does not mean done. Between turns a live session is
+`background` while background work it started runs (background agents,
+workflow runs, shells, monitors — `agents.rs`; activity `background`) or a
+`/loop` wakeup or session cron job will wake it (activity `scheduled`, with
+`resumesAt`), and only then `idle` (`activity::between_turns`). As verified
+on CLI 2.1.314: one wakeup is pending at a time (a newer `ScheduleWakeup`
+supersedes it, `stop: true` cancels it) and its fire can come early or late,
+so it counts until five minutes past `scheduledFor`; cron jobs live in the
+process (one-shots delete themselves after their run, recurring ones expire
+after 7 days); a new process resuming the session revives its `CronCreate`
+jobs and a wakeup still ahead, never one that fell due while nothing ran.
+`background` is not done (the push "finished" waits for idle; fleet, usage
+and backup count it as active) and takes input like an idle session; a turn's
+end knows it at once from the last refresh (`ActivityTracker::between`) and,
+for owned sessions, the stream's own `task_*` reports.
 
 Ultracode of a session we don't own is in its transcript and, at most, its
 launch argv (`--effort ultracode`, an inline `--settings '{"ultracode":…}'`);

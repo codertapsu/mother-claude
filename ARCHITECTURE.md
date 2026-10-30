@@ -113,6 +113,15 @@ stream; the latest hook event (a `PreToolUse` without its `PostToolUse` means th
 tool is running); and the transcript tail (a tool call without a result, a
 prompt waiting for an answer, an API error).
 
+Between turns the pidfile says `idle` even when the session will resume by
+itself, so the status asks what else could wake it: background work it
+started that still runs (background agents, workflow runs, shells, monitors)
+or a pending `/loop` wakeup or session cron job, tracked in the transcript
+index from the `ScheduleWakeup` and `Cron*` tool results. Either makes it
+`background` ("Background work" or "Scheduled", with the time it resumes),
+which is not done — no "finished" notification, counted apart in the fleet —
+but takes messages like an idle session. Only nothing of the kind is `idle`.
+
 ## Networking model
 
 - `127.0.0.1:<port>` (default 6725), plain HTTP: the desktop webview, local
