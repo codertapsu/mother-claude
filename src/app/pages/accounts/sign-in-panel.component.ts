@@ -1,6 +1,7 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  ElementRef,
   computed,
   effect,
   inject,
@@ -8,14 +9,18 @@ import {
   output,
   signal,
   untracked,
+  viewChild,
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 
 import { AccountsService } from '../../core/accounts.service';
-import { ApiService } from '../../core/api.service';
+import { ApiService, describeError } from '../../core/api.service';
 import { AccountView, SignInBrowser, SignInState, SignInView } from '../../core/models';
 import {
+  advanceSignIn,
   browserLabel,
+  isLongLivedToken,
+  looksLikeToken,
   mergeSignIn,
   normalizeBrowsers,
   normalizeSignIn,
@@ -32,13 +37,19 @@ const POLL_MS = 1_500;
 /**
  * Desktop: an account's sign-in while it runs (docs/ACCOUNTS.md §15.2) — the
  * link with Copy link, *Open in browser* and, when the Mac has Chrome,
- * *Open in a private Chrome window*; the code field when the CLI asks for
- * the code the browser shows; and Cancel. A login opened the default browser
- * by itself (the panel says so, and offers the private window in case the
- * wrong Claude account opened there); a token sign-in opens nothing by
- * itself: the panel asks first, recommending the private window, since a
- * browser signed in to another Claude account would give that account's
- * consent.
+ * *Open in a private Chrome window*; the field for the code the browser
+ * shows, from the moment there is a link (the page never hands the sign-in
+ * back by itself: after approving, Claude shows a code to paste here); and
+ * Cancel. A login opened the default browser by itself (the panel says so,
+ * and offers the private window in case the wrong Claude account opened
+ * there); a token sign-in opens nothing by itself: the panel asks first,
+ * recommending the private window, since a browser signed in to another
+ * Claude account would give that account's consent.
+ *
+ * A code sent shows as such until Claude Code answers; one it turns down
+ * comes back with its words, and the field with it. A token pasted where
+ * the code goes is never sent as one: a token account keeps it as its token
+ * (the sign-in then ends), a login says it is not the code.
  */
 @Component({
   selector: 'mc-sign-in-panel',
@@ -63,10 +74,7 @@ const POLL_MS = 1_500;
                 : 'The sign-in opens in your default browser…'
             }}
           </p>
-          <p class="muted small">
-            Sign in there with the Claude account {{ who() }}. This page updates by itself once it
-            is done.
-          </p>
+          <p class="muted small">Sign in there with the Claude account {{ who() }}.</p>
           <div class="row opens">
             @if (privateOffered() && r.opened !== 'chrome-private') {
               <button
@@ -122,23 +130,43 @@ const POLL_MS = 1_500;
           </div>
         }
 
-        @if (r.state === 'code') {
-          <form class="code" (submit)="sendCode($event)">
-            <label class="field">
-              <span class="field-label">Paste the code the browser shows</span>
-              <input
-                name="code"
-                autocomplete="off"
-                spellcheck="false"
-                autocapitalize="off"
-                [ngModel]="code()"
-                (ngModelChange)="code.set($event)"
-              />
-            </label>
-            <button class="btn primary small" type="submit" [disabled]="!code().trim() || busy()">
-              Send the code
-            </button>
-          </form>
+        @if (r.url) {
+          @if (r.codeSent) {
+            <p class="wait">
+              <span class="spin" aria-hidden="true"></span>
+              Code sent: Claude Code is finishing the sign-in…
+            </p>
+          } @else {
+            @if (r.codeError) {
+              <p class="notice warn small" role="alert">
+                Claude Code didn't take that code: {{ r.codeError }}
+              </p>
+            }
+            <form class="code" [class.asked]="r.state === 'code'" (submit)="sendCode($event)">
+              <label class="field">
+                <span class="field-label">Code from the browser</span>
+                <input
+                  #codeInput
+                  name="code"
+                  autocomplete="off"
+                  spellcheck="false"
+                  autocapitalize="off"
+                  [ngModel]="code()"
+                  (ngModelChange)="code.set($event)"
+                />
+              </label>
+              <p class="field-hint">
+                {{
+                  r.codeError
+                    ? 'Paste the whole code the page shows. A code works once: for a new one, open the sign-in page again and approve.'
+                    : 'After you approve in the browser, Claude shows a code: copy it and paste it here.'
+                }}
+              </p>
+              <button class="btn primary small" type="submit" [disabled]="!code().trim() || busy()">
+                Send the code
+              </button>
+            </form>
+          }
         }
 
         <div class="row">
@@ -190,6 +218,10 @@ const POLL_MS = 1_500;
         flex-wrap: wrap;
         gap: 0.4rem;
       }
+      /* The CLI asks for the code now. */
+      .code.asked input {
+        border-color: var(--accent);
+      }
       /* A long label wraps on a phone rather than leave the sheet. */
       .opens .btn {
         max-width: 100%;
@@ -206,6 +238,8 @@ export class SignInPanelComponent {
   readonly account = input.required<AccountView>();
   /** The sign-in stopped running: how it ended. */
   readonly finished = output<SignInState>();
+
+  private readonly codeInput = viewChild<ElementRef<HTMLInputElement>>('codeInput');
 
   /** The sign-in as the desktop's own read says it (with its link). */
   private readonly own = signal<SignInView | null>(null);
@@ -258,6 +292,27 @@ export class SignInPanelComponent {
         );
       });
     });
+    // A frame later than our read: read again at once for its link (a run
+    // that starts over shows a new one; frames never carry it).
+    effect(() => {
+      const frame = this.account().signIn;
+      const own = untracked(() => this.own());
+      if (!frame || !signInRunning(frame) || frame.rev === undefined) return;
+      if (own?.startedAt === frame.startedAt && (own.rev ?? -1) >= frame.rev) return;
+      untracked(() => void this.load(this.accountId()));
+    });
+    // The field takes the focus when the CLI asks for the code (once per
+    // ask, once the field is there).
+    let asked = '';
+    effect(() => {
+      const r = this.run();
+      const input = this.codeInput()?.nativeElement;
+      const now = r?.state === 'code' && !r.codeSent ? `${r.startedAt}:${r.url ?? ''}` : '';
+      if (!now) asked = '';
+      if (!now || !input || now === asked) return;
+      asked = now;
+      if (document.activeElement !== input) input.focus();
+    });
     // Tell the host once it stops running.
     let wasRunning = false;
     effect(() => {
@@ -295,13 +350,44 @@ export class SignInPanelComponent {
     e.preventDefault();
     const code = this.code().trim();
     if (!code || this.busy()) return;
-    this.busy.set(true);
     this.error.set('');
+    if (looksLikeToken(code)) {
+      // Never sent as a code, nor kept in the field.
+      this.code.set('');
+      const kind = this.run()?.kind;
+      if (kind === 'token' && isLongLivedToken(code)) {
+        await this.keepToken(code);
+      } else {
+        this.error.set(
+          kind === 'token'
+            ? "That's a key, not the code or a token from claude setup-token: nothing was sent."
+            : "That's a token, not the code: nothing was sent. Paste the code Claude shows after you approve in the browser.",
+        );
+      }
+      return;
+    }
+    this.busy.set(true);
     try {
       this.take(await this.api.sendSignInCode(this.accountId(), code));
       this.code.set('');
     } catch (err) {
       this.error.set(signInErrorText(err));
+    } finally {
+      this.busy.set(false);
+    }
+  }
+
+  /** A long-lived token pasted where the code goes: the account's token
+   * (checked, refused when another account holds it); the sign-in, which
+   * has what it was for, ends. */
+  private async keepToken(token: string): Promise<void> {
+    const id = this.accountId();
+    this.busy.set(true);
+    try {
+      await this.api.pasteAccountToken(id, token);
+      await this.load(id);
+    } catch (err) {
+      this.error.set(describeError(err).text);
     } finally {
       this.busy.set(false);
     }
@@ -324,17 +410,15 @@ export class SignInPanelComponent {
   private take(res: unknown): void {
     const raw = res && typeof res === 'object' ? (res as Record<string, unknown>)['signIn'] : null;
     const run = normalizeSignIn(raw);
-    // The freshest word there is; the link stays if it left it out.
-    const url = run?.url ?? this.own()?.url;
-    if (run) this.own.set({ ...run, ...(url ? { url } : {}) });
+    if (run) this.own.set(advanceSignIn(this.own(), run));
   }
 
   private async load(id: string): Promise<void> {
     try {
       const view = await this.api.getAccount(id);
       if (id !== this.accountId()) return;
-      const r = (view as unknown as Record<string, unknown> | null)?.['signIn'];
-      this.own.set(normalizeSignIn(r) ?? null);
+      const r = normalizeSignIn((view as unknown as Record<string, unknown> | null)?.['signIn']);
+      this.own.set(r ? advanceSignIn(this.own(), r) : null);
     } catch {
       // The account view still says how it goes.
     }

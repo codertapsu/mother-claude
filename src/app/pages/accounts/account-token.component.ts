@@ -18,7 +18,13 @@ import { AccountsService } from '../../core/accounts.service';
 import { ApiError, ApiService, describeError } from '../../core/api.service';
 import { AccountView, CaptureView, SignInState } from '../../core/models';
 import { NowService } from '../../core/now.service';
-import { signInEndedLately, signInRunning, signInWaitText } from '../../core/sign-in';
+import {
+  isLongLivedToken,
+  looksLikeToken,
+  signInEndedLately,
+  signInRunning,
+  signInWaitText,
+} from '../../core/sign-in';
 import { captureProblem, secretStoreText, signInErrorText } from '../../shared/accounts';
 import { CopyButtonComponent } from '../../shared/copy-button.component';
 import { IconComponent } from '../../shared/icon.component';
@@ -33,9 +39,10 @@ const POLL_MS = 1_500;
  * `claude setup-token` and takes the token it shows — while it runs, the
  * sign-in panel (docs/ACCOUNTS.md §15.2: it opens nothing by itself and
  * recommends a private window; the code the browser shows; Cancel), or with
- * an older server the capture's own link and code field. One sign-in runs
- * at a time: while another account's runs, the button says which and
- * waits. Always offered, and shown
+ * an older server the capture's own link and code field (offered once the
+ * link shows; a token pasted there is kept as the token and the run
+ * stopped). One sign-in runs at a time: while another account's runs, the
+ * button says which and waits. Always offered, and shown
  * outright when the run can't happen or brought nothing: paste a token
  * made elsewhere. A pasted token is read from the field once, the field is
  * cleared, and the token travels only in that one request's body.
@@ -66,10 +73,15 @@ const POLL_MS = 1_500;
               <mc-copy-button [text]="url" label="Copy link" />
             </p>
           }
-          @if (cap.asksForCode) {
+          @if (codeSent()) {
+            <p class="wait">
+              <span class="spin" aria-hidden="true"></span>
+              Code sent: Claude Code is finishing the sign-in…
+            </p>
+          } @else if (cap.url || cap.asksForCode) {
             <form class="code" (submit)="sendCode($event)">
               <label class="field">
-                <span class="field-label">Paste the code the browser shows</span>
+                <span class="field-label">Code from the browser</span>
                 <input
                   name="code"
                   autocomplete="off"
@@ -79,6 +91,9 @@ const POLL_MS = 1_500;
                   (ngModelChange)="code.set($event)"
                 />
               </label>
+              <p class="field-hint">
+                After you approve in the browser, Claude shows a code: copy it and paste it here.
+              </p>
               <button class="btn primary small" type="submit" [disabled]="!code().trim() || busy()">
                 Send the code
               </button>
@@ -94,12 +109,12 @@ const POLL_MS = 1_500;
     }
 
     @if (!running()) {
-      @if (problem()) {
-        <p class="notice warn small" role="status">{{ problem() }}</p>
-      } @else if (justSaved()) {
+      @if (justSaved()) {
         <p class="notice ok small" role="status">
           <mc-icon name="check" [size]="14" /> Token saved for {{ a.name }}.
         </p>
+      } @else if (problem()) {
+        <p class="notice warn small" role="status">{{ problem() }}</p>
       } @else if (a.tokenStored) {
         <p class="small muted">A token for this account is stored on this Mac.</p>
       }
@@ -236,6 +251,8 @@ export class AccountTokenComponent {
   protected readonly busy = signal(false);
   protected readonly error = signal('');
   protected readonly code = signal('');
+  /** A code went into the capture; the CLI has not asked again. */
+  protected readonly codeSent = signal(false);
   protected readonly pasteOpen = signal(false);
   protected readonly tokenTyped = signal(false);
   protected readonly justSaved = signal(false);
@@ -292,6 +309,11 @@ export class AccountTokenComponent {
       const timer = setInterval(() => void this.load(this.accountId()), POLL_MS);
       onCleanup(() => clearInterval(timer));
     });
+    // The capture asks for the code again, or ended: nothing is sent now.
+    effect(() => {
+      const cap = this.capture();
+      if (cap?.asksForCode || cap?.state !== 'running') untracked(() => this.codeSent.set(false));
+    });
   }
 
   protected async start(): Promise<void> {
@@ -324,13 +346,46 @@ export class AccountTokenComponent {
     e.preventDefault();
     const code = this.code().trim();
     if (!code || this.busy()) return;
-    this.busy.set(true);
     this.error.set('');
+    if (looksLikeToken(code)) {
+      // Never sent as a code, nor kept in the field.
+      this.code.set('');
+      if (isLongLivedToken(code)) {
+        await this.keepToken(code);
+      } else {
+        this.error.set(
+          "That's a key, not the code or a token from claude setup-token: nothing was sent.",
+        );
+      }
+      return;
+    }
+    this.busy.set(true);
     const id = this.accountId();
     try {
       const res = await this.api.sendTokenCode(id, code);
       this.code.set('');
+      this.codeSent.set(true);
       this.apply(id, res?.capture);
+    } catch (err) {
+      this.error.set(describeError(err).text);
+    } finally {
+      this.busy.set(false);
+    }
+  }
+
+  /** A long-lived token pasted where the code goes: the account's token;
+   * the capture, which has what it was for, is stopped (a server that does
+   * not stop it itself). */
+  private async keepToken(token: string): Promise<void> {
+    const id = this.accountId();
+    this.busy.set(true);
+    try {
+      await this.api.pasteAccountToken(id, token);
+      await this.api.cancelTokenCapture(id).catch(() => undefined);
+      this.ownCapture.set(null);
+      this.justSaved.set(true);
+      await this.accounts.refresh();
+      this.done.emit();
     } catch (err) {
       this.error.set(describeError(err).text);
     } finally {

@@ -77,7 +77,12 @@ describe('SignInPanelComponent', () => {
     expect(text(el)).toContain('The sign-in opened in your default browser.');
     expect(text(el)).toContain('Sign in there with the Claude account for Work.');
     // Never the default browser again from here.
-    expect(buttons(el)).toEqual(['Open in a private Chrome window', 'Copy link', 'Cancel']);
+    expect(buttons(el)).toEqual([
+      'Open in a private Chrome window',
+      'Copy link',
+      'Send the code',
+      'Cancel',
+    ]);
     expect(text(el)).toContain(
       'The wrong Claude account opened? A private window starts signed out.',
     );
@@ -101,14 +106,14 @@ describe('SignInPanelComponent', () => {
     });
     // The answer says where it opened.
     expect(text(el)).toContain('The sign-in opened in a private Chrome window.');
-    expect(buttons(el)).toEqual(['Copy link', 'Cancel']);
+    expect(buttons(el)).toEqual(['Copy link', 'Send the code', 'Cancel']);
   });
 
   it('says a login is about to open, before the Mac opened it', async () => {
     const el = await render(work, { kind: 'login', state: 'open', startedAt: 1 }, ['default']);
     expect(text(el)).toContain('The sign-in opens in your default browser…');
     expect(text(el)).toContain('Copy the link into a private window of your browser.');
-    expect(buttons(el)).toEqual(['Copy link', 'Cancel']);
+    expect(buttons(el)).toEqual(['Copy link', 'Send the code', 'Cancel']);
   });
 
   it('asks before a token sign-in opens anything, recommending the private window', async () => {
@@ -148,6 +153,104 @@ describe('SignInPanelComponent', () => {
     button(el, 'Cancel')?.click();
     await flush();
     expect(backend.calls).toContain(`DELETE /accounts/${MOCK_ACCOUNT_PRO}/sign-in`);
+  });
+
+  it('offers the code field as soon as the link shows, and says what happens', async () => {
+    for (const a of [work, pro]) {
+      const el = await render(a, {
+        kind: a === work ? 'login' : 'token',
+        state: 'open',
+        startedAt: 1,
+      });
+      expect(el.querySelector('input[name="code"]')).withContext(a.name).not.toBeNull();
+      expect(text(el)).toContain(
+        'After you approve in the browser, Claude shows a code: copy it and paste it here.',
+      );
+      expect(el.querySelector('form.code.asked')).toBeNull();
+      fixture.destroy();
+    }
+    // Once the CLI asks for it, it stands out and takes the focus.
+    const el = await render(pro, { kind: 'token', state: 'code', startedAt: 2 });
+    expect(el.querySelector('form.code.asked')).not.toBeNull();
+    expect(document.activeElement).toBe(el.querySelector('input[name="code"]'));
+  });
+
+  it('says a code went in, then why Claude Code turned it down, and takes another', async () => {
+    const sent: SignInView = { kind: 'token', state: 'open', codeSent: true, startedAt: 1, rev: 4 };
+    let el = await render(pro, sent);
+    expect(el.querySelector('input[name="code"]')).toBeNull();
+    expect(text(el)).toContain('Code sent: Claude Code is finishing the sign-in…');
+    expect(buttons(el)).toContain('Cancel');
+
+    // Turned down: the field is back, with why.
+    const why = 'Invalid code. Please make sure the full code was copied';
+    const refused: SignInView = {
+      kind: 'token',
+      state: 'code',
+      codeError: why,
+      startedAt: 1,
+      rev: 5,
+    };
+    backend.routes.set(`/accounts/${pro.id}`, () => ({
+      status: 200,
+      body: { ...pro, signIn: { ...refused, url: URL } },
+    }));
+    fixture.componentRef.setInput('account', { ...pro, signIn: refused });
+    for (let i = 0; i < 3; i++) {
+      await flush();
+      fixture.detectChanges();
+    }
+    el = fixture.nativeElement as HTMLElement;
+    expect(text(el.querySelector('.notice.warn'))).toBe(
+      `Claude Code didn't take that code: ${why}`,
+    );
+    expect(text(el)).toContain('Paste the whole code the page shows.');
+    expect(el.querySelector('input[name="code"]')).not.toBeNull();
+    expect(text(el)).not.toContain('Code sent');
+  });
+
+  it('keeps a token pasted in a token sign-in as the token, never sending it as a code', async () => {
+    const token = 'sk-ant-oat01-abcdefghijklmnop_-0123456789';
+    const el = await render(pro, { kind: 'token', state: 'code', startedAt: 1, rev: 2 });
+    backend.routes.set(`/accounts/${pro.id}/token`, () => ({
+      status: 200,
+      body: {
+        ...pro,
+        tokenStored: true,
+        signIn: { kind: 'token', state: 'done', startedAt: 1, rev: 3 },
+      },
+    }));
+    const input = el.querySelector<HTMLInputElement>('input[name="code"]')!;
+    input.value = ` ${token} `;
+    input.dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+    button(el, 'Send the code')?.click();
+    await flush();
+    fixture.detectChanges();
+    expect(backend.bodyOf(`POST /accounts/${pro.id}/token`)).toEqual({ token });
+    expect(backend.calls).not.toContain(`POST /accounts/${pro.id}/sign-in/code`);
+    // It went only there, and the field is empty.
+    expect(
+      JSON.stringify(
+        backend.bodies.filter((b) => !!b && (b as { token?: string }).token !== token),
+      ),
+    ).not.toContain(token);
+    expect(fixture.componentInstance['code']()).toBe('');
+  });
+
+  it('says a token is not the code in a login, and sends nothing', async () => {
+    const el = await render(work, { kind: 'login', state: 'code', startedAt: 1 });
+    const before = backend.calls.filter((c) => c.startsWith('POST')).length;
+    const input = el.querySelector<HTMLInputElement>('input[name="code"]')!;
+    input.value = 'sk-ant-oat01-abcdefghijklmnop_-0123456789';
+    input.dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+    button(el, 'Send the code')?.click();
+    await flush();
+    fixture.detectChanges();
+    expect(backend.calls.filter((c) => c.startsWith('POST')).length).toBe(before);
+    expect(text(el.querySelector('[role="alert"]'))).toContain("That's a token, not the code");
+    expect(fixture.componentInstance['code']()).toBe('');
   });
 
   it('tells its host how the sign-in ended', async () => {

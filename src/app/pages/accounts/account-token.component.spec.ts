@@ -133,6 +133,94 @@ describe('AccountTokenComponent', () => {
     expect(backend.bodyOf(`POST ${PATH}`)).toEqual({ code: 'ABC-123' });
   });
 
+  it('offers the code field from the link on, and says when a code went in', async () => {
+    let asks = false;
+    backend.routes.set(PATH, (method) =>
+      method === 'GET'
+        ? {
+            status: 200,
+            body: {
+              available: true,
+              tokenStored: false,
+              capture: {
+                state: 'running',
+                url: 'https://claude.ai/oauth/authorize?code=true',
+                asksForCode: asks,
+                startedAt: 1,
+              },
+            },
+          }
+        : {
+            status: 200,
+            body: { capture: { state: 'running', asksForCode: false, startedAt: 1 } },
+          },
+    );
+    const el = await render();
+    // The screen asks for nothing yet: the field is there all the same.
+    const code = el.querySelector('input[name="code"]') as HTMLInputElement;
+    expect(code).not.toBeNull();
+    expect(text(el)).toContain(
+      'After you approve in the browser, Claude shows a code: copy it and paste it here.',
+    );
+    code.value = 'abc#def';
+    code.dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+    button(el, 'Send the code').click();
+    await flush();
+    fixture.detectChanges();
+    expect(backend.bodyOf(`POST ${PATH}`)).toEqual({ code: 'abc#def' });
+    expect(text(el)).toContain('Code sent: Claude Code is finishing the sign-in…');
+    expect(el.querySelector('input[name="code"]')).toBeNull();
+    // It asks again (the code was turned down): the field is back.
+    asks = true;
+    await new Promise((r) => setTimeout(r, 1_600));
+    await flush();
+    fixture.detectChanges();
+    expect(el.querySelector('input[name="code"]')).not.toBeNull();
+  });
+
+  it('keeps a token pasted in the code field as the token, and stops the capture', async () => {
+    const tokenBodies: unknown[] = [];
+    backend.routes.set(PATH, (method, body) => {
+      if (method === 'POST') tokenBodies.push(body);
+      if (method === 'GET') {
+        return {
+          status: 200,
+          body: {
+            available: true,
+            tokenStored: false,
+            capture: {
+              state: 'running',
+              url: 'https://claude.ai/oauth/x',
+              asksForCode: true,
+              startedAt: 1,
+            },
+          },
+        };
+      }
+      return method === 'DELETE'
+        ? {
+            status: 200,
+            body: { capture: { state: 'captured', asksForCode: false, startedAt: 1 } },
+          }
+        : { status: 200, body: { ...account, tokenStored: true, signedIn: true } };
+    });
+    const done = jasmine.createSpy('done');
+    const el = await render();
+    fixture.componentInstance.done.subscribe(done);
+    const code = el.querySelector('input[name="code"]') as HTMLInputElement;
+    code.value = TOKEN;
+    code.dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+    button(el, 'Send the code').click();
+    await flush();
+    fixture.detectChanges();
+    expect(tokenBodies).toEqual([{ token: TOKEN }]);
+    expect(backend.calls).toContain(`DELETE ${PATH}`);
+    expect(done).toHaveBeenCalled();
+    expect(text(el)).toContain('Token saved for Marcus (Pro).');
+  });
+
   it('offers the paste field outright when the sign-in ran out of time', async () => {
     backend.routes.set(PATH, () => ({
       status: 200,
