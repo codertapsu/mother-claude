@@ -16,10 +16,16 @@
 //! securely". It never stores the token itself (CLI 2.1.304: the success
 //! branch only displays it) and exits half a second later. `auth login`
 //! stores its sign-in in the account's own place and exits; whether it worked
-//! is what its exit status and `claude auth status` say afterwards. When the
-//! browser cannot reach the CLI's local callback, either screen asks for the
-//! code the browser shows ("Paste code here if prompted"), which the desktop
-//! can type into the terminal for the user.
+//! is what its exit status and `claude auth status` say afterwards.
+//!
+//! The link either screen shows is the manual one (`code=true`, sent back to
+//! Claude's code page; CLI 2.1.314): the browser ends on a page that shows a
+//! code and never hands the sign-in back by itself, so every run finishes
+//! with that code ("Paste code here if prompted"), which the desktop types
+//! into the screen for the user — as one bracketed paste where the CLI takes
+//! pastes. A code the CLI turns down comes back with its words; where
+//! `setup-token` offers to start over, Enter is pressed for it (the same page
+//! after a code cut short, a new link after one it did not accept).
 //!
 //! The screen is read here and never logged or kept: terminal escapes are
 //! stripped as the bytes arrive, and the first complete token goes straight
@@ -235,35 +241,34 @@ pub fn find_token(text: &str) -> Option<String> {
 /// What a look for the sign-in link found.
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct LinkScan {
-    /// The first sign-in link Mother Claude may open.
+    /// The last sign-in link Mother Claude may open among those looked at.
     pub link: Option<Link>,
     /// A link that looked like a sign-in page was refused: not `https`, or
     /// not one of Anthropic's hosts ([`Link`]).
     pub refused: bool,
 }
 
-/// The sign-in link: an OSC 8 link target or visible `http(s)://` text
-/// naming an OAuth authorize page, taken only when Mother Claude may open it
-/// ([`Link`]). A link to anywhere else is never taken, so it is never shown
-/// or opened; that one was seen is `refused`. Visible text counts only once
-/// the line goes on past it: a URL cut by a chunk boundary is not one yet.
-pub fn find_url(links: &[String], text: &str) -> LinkScan {
-    let mut refused = false;
-    let mut good = |u: &str| {
+/// The sign-in link in what the screen just showed: OSC 8 link targets
+/// (`links`) and visible `http(s)://` text naming an OAuth authorize page,
+/// taken only when Mother Claude may open it ([`Link`]). A link to anywhere
+/// else is never taken, so it is never shown or opened; that one was seen is
+/// `refused`. Visible text counts once the line goes on past it there, in
+/// `text[fresh..]` (what was just added): a URL cut by a chunk boundary is
+/// not one yet, and one looked at before is not looked at again. The last
+/// one wins: `setup-token` shows a new link when it starts over.
+pub fn find_url(links: &[String], text: &str, fresh: usize) -> LinkScan {
+    let mut scan = LinkScan::default();
+    let mut look = |u: &str| {
         if !(u.contains("oauth") || u.contains("authorize")) {
-            return None;
+            return;
         }
-        let link = Link::parse(u);
-        refused |= link.is_none();
-        link
+        match Link::parse(u) {
+            Some(link) => scan.link = Some(link),
+            None => scan.refused = true,
+        }
     };
     for u in links {
-        if let Some(link) = good(u) {
-            return LinkScan {
-                link: Some(link),
-                refused,
-            };
-        }
+        look(u);
     }
     let mut from = 0;
     while let Some(pos) = text[from..].find("http") {
@@ -276,33 +281,56 @@ pub fn find_url(links: &[String], text: &str) -> LinkScan {
         let Some(len) = text[start..].find(|c: char| c.is_whitespace() || c.is_control()) else {
             break;
         };
-        if let Some(link) = good(&text[start..start + len]) {
-            return LinkScan {
-                link: Some(link),
-                refused,
-            };
+        if start + len >= fresh {
+            look(&text[start..start + len]);
         }
+        // Never a link inside this one.
+        from = start + len;
     }
-    LinkScan {
-        link: None,
-        refused,
-    }
+    scan
 }
 
 /// How far back each new piece of the screen is scanned from: a whole link
 /// ([`crate::claude::browser`] opens none longer) and then some.
 const RESCAN: usize = 4200;
+/// The longest line passed on (the last one, a refusal).
+const LINE_MAX: usize = 200;
+/// How the CLI asks for the code the browser shows (CLI 2.1.314): "Paste
+/// code here if prompted >", and "… paste the code shown." where it knows
+/// the browser cannot hand the sign-in back.
+const CODE_PROMPTS: [&str; 2] = ["paste code", "paste the code"];
+/// How it turns a code down (CLI 2.1.314): `setup-token` shows "OAuth error:
+/// …" above "Press Enter to retry."; `auth login` says "Invalid code. …" and
+/// asks again, or "Login failed: …" and exits.
+const REFUSALS: [&str; 4] = [
+    "oauth error",
+    "login failed",
+    "invalid code",
+    "wasn't accepted",
+];
+/// How `setup-token` offers to start over after an error.
+const RETRY_PROMPT: &str = "enter to retry";
 
-/// What the screen showed, as far as a sign-in cares.
+/// What the screen showed, as far as a sign-in cares. A prompt for the code,
+/// a refusal and an offer to start over are counted when they appear, so a
+/// run takes each in once.
 #[derive(Debug, Default)]
 pub struct Screen {
     stripper: Stripper,
     text: String,
+    /// The latest sign-in link Mother Claude may open: `setup-token` shows a
+    /// new one when it starts over after turning a code down.
     pub url: Option<Link>,
     /// A link that looked like the sign-in page was refused.
     pub refused_url: bool,
     pub token: Option<Secret>,
-    pub asks_for_code: bool,
+    /// How many times it asked for the code the browser shows.
+    pub prompts: usize,
+    /// How many times it turned a code down, and its words the last time.
+    pub refusals: usize,
+    pub refusal: Option<String>,
+    /// How many times it offered to start over ("Press Enter to retry").
+    pub retries: usize,
 }
 
 impl Screen {
@@ -314,16 +342,27 @@ impl Screen {
         let rescan_from = (rescan_from..=self.text.len())
             .find(|i| self.text.is_char_boundary(*i))
             .unwrap_or(self.text.len());
+        let fresh = self.text.len() - rescan_from;
         self.text.push_str(&added);
         let window = &self.text[rescan_from..];
-        if self.url.is_none() {
-            let scan = find_url(&self.stripper.links, window);
+        let scan = find_url(&std::mem::take(&mut self.stripper.links), window, fresh);
+        if scan.link.is_some() {
             self.url = scan.link;
-            self.refused_url |= scan.refused;
         }
-        if !self.asks_for_code {
-            let lower = window.to_ascii_lowercase();
-            self.asks_for_code = lower.contains("paste code") || lower.contains("paste the code");
+        self.refused_url |= scan.refused;
+        // Each counted once: when it ends in what was just added.
+        let lower = window.to_ascii_lowercase();
+        let ended_now = |needle: &str| {
+            lower
+                .match_indices(needle)
+                .filter(|(at, m)| at + m.len() > fresh)
+                .count()
+        };
+        self.prompts += CODE_PROMPTS.iter().map(|p| ended_now(p)).sum::<usize>();
+        self.retries += ended_now(RETRY_PROMPT);
+        for why in refusals(window, fresh) {
+            self.refusals += 1;
+            self.refusal = Some(why);
         }
         let mut found = false;
         if self.token.is_none() {
@@ -342,33 +381,83 @@ impl Screen {
         found
     }
 
+    /// It asked for the code the browser shows.
+    pub fn asks_for_code(&self) -> bool {
+        self.prompts > 0
+    }
+
     /// The CLI takes a paste as one: what is typed into it goes in as a
     /// bracketed paste.
     pub fn bracketed_paste(&self) -> bool {
         self.stripper.bracketed_paste
     }
 
-    /// The last visible line, for "it ended without a token": anything that
-    /// looks like a token or a link is masked (the link is the desktop's
-    /// alone, and an error goes to every client).
+    /// The last visible line, for "it ended without a token" (masked).
     pub fn last_line(&self) -> Option<String> {
         let line = self
             .text
             .lines()
             .map(str::trim)
             .rfind(|l| l.chars().any(|c| c.is_alphanumeric()))?;
-        let mut masked = match line.find("sk-ant-") {
-            Some(p) => format!("{}…", &line[..p]),
-            None => line.to_string(),
-        };
-        while let Some(p) = masked.find("https://").or_else(|| masked.find("http://")) {
-            let end = masked[p..]
-                .find(char::is_whitespace)
-                .map_or(masked.len(), |e| p + e);
-            masked.replace_range(p..end, "<link>");
-        }
-        Some(masked.chars().take(200).collect())
+        Some(mask(line))
     }
+}
+
+/// The lines turning a code down that ended in `text[fresh..]` (a line ends
+/// at its break: a message cut by a read is not one yet), in the CLI's words.
+fn refusals(text: &str, fresh: usize) -> impl Iterator<Item = String> + '_ {
+    let first = text[..fresh].rfind('\n').map_or(0, |p| p + 1);
+    text[first..]
+        .split_inclusive('\n')
+        .filter_map(|l| l.strip_suffix('\n'))
+        .filter_map(refusal_words)
+}
+
+/// A line's words when it turns a code down: past the prompt on the same
+/// line (`auth login` never ends the prompt's line, and nothing the user
+/// types shows), without the "OAuth error:" kind of lead (masked).
+fn refusal_words(line: &str) -> Option<String> {
+    let lower = line.to_ascii_lowercase();
+    if !REFUSALS.iter().any(|r| lower.contains(r)) {
+        return None;
+    }
+    let from = CODE_PROMPTS
+        .iter()
+        .filter_map(|p| lower.find(p))
+        .min()
+        .and_then(|p| lower[p..].find('>').map(|gt| p + gt + 1))
+        .unwrap_or(0);
+    let words = line[from..].trim();
+    let lower = words.to_ascii_lowercase();
+    let words = ["oauth error:", "login failed:", "error:"]
+        .iter()
+        .find(|lead| lower.starts_with(*lead))
+        .map_or(words, |lead| words[lead.len()..].trim_start());
+    (!words.is_empty()).then(|| mask(words))
+}
+
+/// A line as every client may see it: anything that looks like a token or a
+/// link, or the code typed as the CLI echoes it (`*`s and its last
+/// characters), is masked — the link is the desktop's alone.
+fn mask(line: &str) -> String {
+    let mut masked = match line.find("sk-ant-") {
+        Some(p) => format!("{}…", &line[..p]),
+        None => line.to_string(),
+    };
+    while let Some(p) = masked.find("https://").or_else(|| masked.find("http://")) {
+        let end = masked[p..]
+            .find(char::is_whitespace)
+            .map_or(masked.len(), |e| p + e);
+        masked.replace_range(p..end, "<link>");
+    }
+    masked
+        .split(' ')
+        .map(|w| if w.starts_with("***") { "***" } else { w })
+        .collect::<Vec<_>>()
+        .join(" ")
+        .chars()
+        .take(LINE_MAX)
+        .collect()
 }
 
 // ─────────────────────────────── a run ────────────────────────────────
@@ -435,6 +524,17 @@ pub struct SignInView {
     pub finished_at: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+    /// A code was typed in and Claude Code has not answered yet.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub code_sent: bool,
+    /// Why Claude Code turned the last code typed down, in its words (masked
+    /// like `error`); there until another code is typed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub code_error: Option<String>,
+    /// Counts the run's changes: of two reads of one run, the one with the
+    /// higher `rev` is the later (its state can go back from `code` to
+    /// `open`).
+    pub rev: u32,
 }
 
 impl SignInView {
@@ -585,13 +685,27 @@ struct RunState {
     /// The default browser is still to be opened once the link is known.
     auto_open: bool,
     timed_out: bool,
-    /// A code was typed since the screen asked for one (its prompt stays on
-    /// the screen, asking for nothing more).
-    code_typed: bool,
+    /// The screen's prompts for the code, refusals and offers to start over
+    /// taken in so far ([`Screen`] counts them).
+    prompts: usize,
+    refusals: usize,
+    retries: usize,
+    /// The CLI turned the code typed down: Enter is pressed once where it
+    /// offers to start over.
+    retry_owed: bool,
     /// The CLI turned bracketed paste on: a code goes in as one paste.
     bracketed_paste: bool,
     /// The last line the screen showed (masked), for a run that stops.
     last_line: Option<String>,
+}
+
+/// What a look at the screen asks of the run.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+struct Saw {
+    /// The view changed: clients are told.
+    changed: bool,
+    /// Press Enter: the CLI turned the code down and offers to start over.
+    retry: bool,
 }
 
 /// One running (or finished) sign-in, bound to its account from the start.
@@ -638,12 +752,18 @@ impl SignInJob {
                     started_at: now_ms(),
                     finished_at: None,
                     error: None,
+                    code_sent: false,
+                    code_error: None,
+                    rev: 0,
                 },
                 link: None,
                 link_refused: false,
                 auto_open,
                 timed_out: false,
-                code_typed: false,
+                prompts: 0,
+                refusals: 0,
+                retries: 0,
+                retry_owed: false,
                 bracketed_paste: false,
                 last_line: None,
             }),
@@ -673,7 +793,7 @@ impl SignInJob {
                 SignInState::Cancelled => CaptureState::Cancelled,
             },
             url: v.url.clone(),
-            asks_for_code: v.state == SignInState::Code,
+            asks_for_code: v.state == SignInState::Code && !v.code_sent,
             error: v.error.clone(),
             started_at: v.started_at,
             finished_at: v.finished_at,
@@ -707,6 +827,8 @@ impl SignInJob {
         run.view.state = state;
         run.view.error = error;
         run.view.finished_at = Some(now_ms());
+        run.view.code_sent = false;
+        run.view.rev += 1;
         true
     }
 
@@ -733,43 +855,72 @@ impl SignInJob {
 
     /// The link was opened in `browser`.
     pub fn note_opened(&self, browser: Browser) {
-        lock(&self.run).view.opened = Some(browser);
+        let mut run = lock(&self.run);
+        if run.view.opened != Some(browser) {
+            run.view.opened = Some(browser);
+            run.view.rev += 1;
+        }
     }
 
-    /// The screen changed: the link (or one refused), the code prompt,
-    /// bracketed paste, the last line. Returns whether the view changed.
-    fn saw(
-        &self,
-        link: Option<&Link>,
-        refused: bool,
-        asks_for_code: bool,
-        bracketed_paste: bool,
-        last_line: Option<String>,
-    ) -> bool {
+    /// The screen changed: a refusal of the code typed (the field comes back
+    /// with why), an offer to start over (Enter is pressed once for a
+    /// refusal), the link (a new one: it started over), a prompt for the
+    /// code, bracketed paste, the last line.
+    fn saw(&self, screen: &Screen) -> Saw {
         let mut run = lock(&self.run);
-        run.last_line = last_line;
-        run.link_refused |= refused;
-        run.bracketed_paste = bracketed_paste;
+        run.last_line = screen.last_line();
+        run.link_refused |= screen.refused_url;
+        run.bracketed_paste = screen.bracketed_paste();
         if !run.view.state.is_running() {
-            return false;
+            return Saw::default();
         }
-        let before = (run.view.state, run.view.url.clone());
-        if run.link.is_none() {
-            if let Some(link) = link {
-                run.link = Some(link.clone());
-                run.view.url = Some(link.as_str().to_string());
-                if run.view.state == SignInState::Starting {
-                    run.view.state = SignInState::Open;
-                }
+        let before = run.view.clone();
+        if screen.refusals > run.refusals {
+            run.refusals = screen.refusals;
+            if run.view.code_sent {
+                run.view.code_sent = false;
+                run.view.code_error = screen.refusal.clone();
+                run.view.state = SignInState::Code;
+                run.retry_owed = true;
             }
         }
-        if asks_for_code && run.view.state != SignInState::Code && !run.code_typed {
-            run.view.state = SignInState::Code;
+        let mut retry = false;
+        if screen.retries > run.retries {
+            run.retries = screen.retries;
+            retry = std::mem::take(&mut run.retry_owed);
         }
-        before != (run.view.state, run.view.url.clone())
+        if let Some(link) = screen
+            .url
+            .as_ref()
+            .filter(|l| run.link.as_ref() != Some(*l))
+        {
+            if run.link.is_some() {
+                // It started over: a new page to open, no code typed for it.
+                run.view.opened = None;
+                run.view.code_sent = false;
+                run.view.state = SignInState::Open;
+            } else if run.view.state == SignInState::Starting {
+                run.view.state = SignInState::Open;
+            }
+            run.link = Some(link.clone());
+            run.view.url = Some(link.as_str().to_string());
+        }
+        if screen.prompts > run.prompts {
+            run.prompts = screen.prompts;
+            if !run.view.code_sent {
+                run.view.state = SignInState::Code;
+            }
+        }
+        let changed = run.view != before;
+        if changed {
+            run.view.rev += 1;
+        }
+        Saw { changed, retry }
     }
 
-    /// Type the code the browser shows into the screen.
+    /// Type the code the browser shows into the screen. It counts as sent
+    /// before it goes in (the CLI may answer at once) until the CLI turns it
+    /// down, starts over or the run ends.
     pub fn submit_code(&self, code: &str) -> Result<(), SignInError> {
         let code: String = code.trim().chars().filter(|c| !c.is_control()).collect();
         if code.is_empty() || code.len() > CODE_MAX {
@@ -782,20 +933,33 @@ impl SignInJob {
         }
         #[cfg(feature = "token-capture")]
         {
-            let keys = keys_for(&code, lock(&self.run).bracketed_paste);
             let mut w = lock(&self.writer);
             let w = w.as_mut().ok_or(SignInError::NotRunning)?;
-            w.write_all(&keys)
-                .and_then(|_| w.flush())
-                .map_err(|e| SignInError::Input(e.kind().to_string()))?;
-            let mut run = lock(&self.run);
-            run.code_typed = true;
-            if run.view.state == SignInState::Code {
-                run.view.state = if run.link.is_some() {
-                    SignInState::Open
-                } else {
-                    SignInState::Starting
-                };
+            let keys = {
+                let mut run = lock(&self.run);
+                if !run.view.state.is_running() {
+                    return Err(SignInError::NotRunning);
+                }
+                run.view.code_sent = true;
+                run.view.code_error = None;
+                run.retry_owed = false;
+                if run.view.state == SignInState::Code {
+                    run.view.state = if run.link.is_some() {
+                        SignInState::Open
+                    } else {
+                        SignInState::Starting
+                    };
+                }
+                run.view.rev += 1;
+                keys_for(&code, run.bracketed_paste)
+            };
+            if let Err(e) = w.write_all(&keys).and_then(|_| w.flush()) {
+                let mut run = lock(&self.run);
+                if run.view.code_sent {
+                    run.view.code_sent = false;
+                    run.view.rev += 1;
+                }
+                return Err(SignInError::Input(e.kind().to_string()));
             }
             Ok(())
         }
@@ -825,6 +989,22 @@ impl SignInJob {
         }
     }
 
+    /// Take in what the screen shows ([`Self::saw`]) and press Enter where
+    /// the CLI offers to start over after turning the code down
+    /// (`setup-token`: the same page after a code cut short, a new one after
+    /// a code it did not accept). The writer is held throughout, so a code
+    /// typed meanwhile goes in after that Enter. Returns whether the view
+    /// changed.
+    #[cfg(feature = "token-capture")]
+    fn take_in(&self, screen: &Screen) -> bool {
+        let mut w = lock(&self.writer);
+        let saw = self.saw(screen);
+        if let Some(w) = w.as_mut().filter(|_| saw.retry) {
+            let _ = w.write_all(b"\r").and_then(|_| w.flush());
+        }
+        saw.changed
+    }
+
     /// Store the token the screen showed while the run runs, so a cancel
     /// cannot slip in between; the run ends with the store's verdict.
     /// Returns false (nothing stored) when the run had already ended.
@@ -841,6 +1021,8 @@ impl SignInJob {
         };
         run.view.error = verdict.err();
         run.view.finished_at = Some(now_ms());
+        run.view.code_sent = false;
+        run.view.rev += 1;
         true
     }
 
@@ -1013,13 +1195,7 @@ pub fn start(
                         break;
                     }
                 }
-                if reading.saw(
-                    screen.url.as_ref(),
-                    screen.refused_url,
-                    screen.asks_for_code,
-                    screen.bracketed_paste(),
-                    screen.last_line(),
-                ) {
+                if reading.take_in(&screen) {
                     reader_sink.changed(&reading);
                 }
             }
@@ -1139,7 +1315,7 @@ mod tests {
         assert!(screen.feed(&ink_screen(TOKEN)));
         assert_eq!(screen.token.as_ref().unwrap().expose(), TOKEN);
         assert_eq!(screen.url.as_ref().map(Link::as_str), Some(URL));
-        assert!(!screen.asks_for_code);
+        assert!(!screen.asks_for_code());
     }
 
     #[test]
@@ -1169,14 +1345,14 @@ mod tests {
     fn the_code_prompt_is_noticed() {
         let mut screen = Screen::default();
         screen.feed(b"\x1b[1mPaste code here if prompted >\x1b[22m ");
-        assert!(screen.asks_for_code);
+        assert!(screen.asks_for_code());
         // The login's own words for it.
         let mut screen = Screen::default();
         screen.feed(
             b"The browser can't return the sign-in to Claude Code automatically. \
               After you sign in, paste the code shown.\r\n",
         );
-        assert!(screen.asks_for_code);
+        assert!(screen.asks_for_code());
     }
 
     /// The link `claude setup-token` shows (CLI 2.1.314; its client id,
@@ -1261,7 +1437,7 @@ mod tests {
         let bytes = setup_token_screen();
         let mut screen = Screen::default();
         screen.feed(&bytes);
-        assert!(screen.asks_for_code);
+        assert!(screen.asks_for_code());
         assert_eq!(screen.url.as_ref().map(Link::as_str), Some(SETUP_URL));
         assert!(screen.token.is_none() && !screen.refused_url);
         // Whatever the reads cut the escapes into.
@@ -1270,7 +1446,7 @@ mod tests {
             for chunk in bytes.chunks(size) {
                 screen.feed(chunk);
             }
-            assert!(screen.asks_for_code, "chunks of {size}");
+            assert!(screen.asks_for_code(), "chunks of {size}");
             assert_eq!(
                 screen.url.as_ref().map(Link::as_str),
                 Some(SETUP_URL),
@@ -1354,16 +1530,219 @@ mod tests {
         let (job, keys) = typed_into(SignInKind::Token);
         let mut screen = Screen::default();
         screen.feed(&setup_token_screen());
-        job.saw(
-            screen.url.as_ref(),
-            screen.refused_url,
-            screen.asks_for_code,
-            screen.bracketed_paste(),
-            screen.last_line(),
-        );
+        job.saw(&screen);
         assert_eq!(job.view().state, SignInState::Code);
         job.submit_code("abc#def").unwrap();
         assert_eq!(*lock(&keys.0), b"\x1b[200~abc#def\x1b[201~\r");
+    }
+
+    /// What `setup-token` (CLI 2.1.314) wrote after a code it did not
+    /// accept: the code echoed as `*`s and its last characters, the error,
+    /// the offer to start over.
+    const SETUP_REFUSAL: &[u8] = b"\r\x1b[31C\x1b[1A**********************************************************rfqo_w\r\r\n\
+        \x1b[2K\x1b[1A\x1b[2K\x1b[G\x1b[1A\r\x1b[1C\x1b[4A\x1b[38;5;211mOAuth error: That code wasn't \
+        accepted. It may be incomplete, expired, already used, or from an earlier sign-in attempt. \
+        Sign in again to get a new code.\r\x1b[2B\x1b[39m\x1b[K\r\x1b[1C\x1b[1B\x1b[38;5;153mPress \
+        \x1b[1mEnter\x1b[22m to retry. \r\x1b[1B\x1b[39m\x1b[K\r\x1b[1B\x1b[K\r\x1b[1A";
+    const NOT_ACCEPTED: &str = "That code wasn't accepted. It may be incomplete, expired, \
+        already used, or from an earlier sign-in attempt. Sign in again to get a new code.";
+
+    /// …and once Enter was pressed: it starts over with a new link.
+    fn setup_token_again(url: &str) -> Vec<u8> {
+        let mut s = format!(
+            "\x1b[2K\x1b[1A\x1b[2K\x1b[1A\x1b[2K\x1b[G\x1b[1A\r\x1b[1C\x1b[1A\x1b[38;5;153mRetrying\
+             \u{2026}\x1b[39m\x1b[K\r\x1b[1B\x1b[K\r\x1b[2A\x1b[2K\x1b[G\x1b[1A\x1b[K\x1b[2G\
+             \x1b[38;5;231m\u{2722}\x1b[4G\x1b[39mOpening\x1b[12Gbrowser\x1b[20Gto\x1b[23Gsign\
+             \x1b[28Gin\u{2026}\r\r\n\r\x1b[1C\x1b[1A\x1b[38;5;246mBrowser didn't open? Use the url \
+             below to sign in (c to copy)\x1b[39m\r\r\n\r\r\n\x1b]8;id=1u6bt8l;{url}\x07\
+             \x1b[38;5;246m{url}\x1b[39m\x1b]8;;\x07\r\r\n\r\r\n\r\r\n"
+        )
+        .into_bytes();
+        s.extend_from_slice(SETUP_PROMPT);
+        s
+    }
+
+    /// A code Claude Code turns down comes back with its words, and the
+    /// field is offered again; `setup-token` starts over (Enter pressed
+    /// once) and shows a new link, not opened yet.
+    #[cfg(feature = "token-capture")]
+    #[test]
+    fn a_code_turned_down_says_why_and_setup_token_starts_over() {
+        let (job, keys) = typed_into(SignInKind::Token);
+        let mut screen = Screen::default();
+        screen.feed(&setup_token_screen());
+        job.saw(&screen);
+        job.note_opened(Browser::ChromePrivate);
+        let rev = job.view().rev;
+        job.submit_code("abc#wrong").unwrap();
+        let v = job.view();
+        assert!(v.code_sent && v.code_error.is_none());
+        assert_eq!(v.state, SignInState::Open, "it asks for nothing now");
+        assert!(v.rev > rev);
+        assert!(!job.capture_view().asks_for_code);
+        let json = serde_json::to_value(v.public()).unwrap();
+        assert_eq!(json["codeSent"], true);
+
+        lock(&keys.0).clear();
+        screen.feed(SETUP_REFUSAL);
+        assert!(job.take_in(&screen));
+        let v = job.view();
+        assert_eq!(v.code_error.as_deref(), Some(NOT_ACCEPTED));
+        assert!(!v.code_sent);
+        assert_eq!(v.state, SignInState::Code);
+        assert!(job.capture_view().asks_for_code);
+        // The code never shows, not even its end.
+        let last = screen.last_line().unwrap();
+        assert!(!format!("{last}{:?}", v.error).contains("rfqo_w"), "{last}");
+        assert_eq!(*lock(&keys.0), b"\r", "Enter where it offers to start over");
+        // Pressed once: the offer looked at again asks for nothing more.
+        assert!(!job.take_in(&screen));
+        assert_eq!(*lock(&keys.0), b"\r");
+
+        let again = SETUP_URL.replace("state=Rk1y", "state=Zz9q");
+        screen.feed(&setup_token_again(&again));
+        assert_eq!(
+            job.saw(&screen),
+            Saw {
+                changed: true,
+                retry: false
+            }
+        );
+        let v = job.view();
+        assert_eq!(v.url.as_deref(), Some(again.as_str()), "the new link");
+        assert_eq!(job.open_link().unwrap().as_str(), again);
+        assert_eq!(v.opened, None, "not opened yet");
+        assert_eq!(v.state, SignInState::Code);
+        assert_eq!(v.code_error.as_deref(), Some(NOT_ACCEPTED), "still why");
+
+        // The next code clears it.
+        job.submit_code("abc#def").unwrap();
+        assert_eq!(job.view().code_error, None);
+        assert!(job.view().code_sent);
+    }
+
+    /// `auth login` (CLI 2.1.314) asks again after a code cut short (no
+    /// `#state`), the same link; a code it did not accept ends it.
+    #[cfg(feature = "token-capture")]
+    #[test]
+    fn a_login_asks_again_after_a_code_cut_short() {
+        let (job, _keys) = typed_into(SignInKind::Login);
+        let mut screen = Screen::default();
+        screen.feed(
+            format!(
+                "Opening browser to sign in\u{2026}\r\nIf the browser didn't open, visit: \
+                 {URL}\r\nPaste code here if prompted > "
+            )
+            .as_bytes(),
+        );
+        job.saw(&screen);
+        assert_eq!(job.view().state, SignInState::Code);
+        job.submit_code("abc").unwrap();
+        screen.feed(b"Invalid code. Please make sure the full code was copied.\r\n");
+        let saw = job.saw(&screen);
+        assert!(saw.changed && !saw.retry);
+        let v = job.view();
+        assert_eq!(
+            v.code_error.as_deref(),
+            Some("Invalid code. Please make sure the full code was copied.")
+        );
+        assert_eq!((v.state, v.code_sent), (SignInState::Code, false));
+        assert_eq!(v.url.as_deref(), Some(URL));
+        job.submit_code("abc#def").unwrap();
+        screen.feed(format!("Login failed: {NOT_ACCEPTED}\r\n").as_bytes());
+        assert_eq!(
+            job.saw(&screen),
+            Saw {
+                changed: true,
+                retry: false
+            }
+        );
+        assert_eq!(job.view().code_error.as_deref(), Some(NOT_ACCEPTED));
+        assert_eq!(
+            screen.last_line().unwrap(),
+            format!("Login failed: {NOT_ACCEPTED}")
+        );
+        // When it ends, nothing is waiting for an answer.
+        assert!(job.complete(Err("it ended".into())));
+        assert!(!job.view().code_sent);
+    }
+
+    /// A prompt, a refusal or an offer to start over counts when it appears:
+    /// not again when it is scanned again, not before its line ended.
+    #[test]
+    fn what_the_screen_says_counts_once() {
+        let mut screen = Screen::default();
+        screen.feed(SETUP_PROMPT);
+        assert_eq!(screen.prompts, 1);
+        screen.feed("\r\x1b[1C\x1b[1A\u{2722}\r\r\n".as_bytes());
+        assert_eq!(screen.prompts, 1, "rescanned, not counted again");
+        screen.feed(SETUP_PROMPT);
+        assert_eq!(screen.prompts, 2, "drawn again");
+        // A refusal cut by a read is not one yet.
+        let (head, tail) = SETUP_REFUSAL.split_at(160);
+        screen.feed(head);
+        assert_eq!((screen.refusals, screen.retries), (0, 0));
+        screen.feed(tail);
+        assert_eq!((screen.refusals, screen.retries), (1, 1));
+        assert_eq!(screen.refusal.as_deref(), Some(NOT_ACCEPTED));
+        screen.feed(b"\r\n");
+        assert_eq!((screen.refusals, screen.retries), (1, 1));
+        // The CLI's other words for it.
+        for (line, words) in [
+            (
+                "OAuth error: Invalid code. Please make sure the full code was copied",
+                "Invalid code. Please make sure the full code was copied",
+            ),
+            (
+                "Login failed: That code is not valid",
+                "That code is not valid",
+            ),
+            (
+                "Error: invalid code for https://claude.ai/x",
+                "invalid code for <link>",
+            ),
+            // On the prompt's line, where `auth login` writes it.
+            (
+                "Paste code here if prompted > Invalid code. Please make sure the full code was \
+                 copied.",
+                "Invalid code. Please make sure the full code was copied.",
+            ),
+        ] {
+            let mut screen = Screen::default();
+            screen.feed(format!("{line}\r\n").as_bytes());
+            assert_eq!(screen.refusal.as_deref(), Some(words), "{line}");
+        }
+        let mut screen = Screen::default();
+        screen.feed(b"Opening browser to sign in\r\nLogin successful.\r\n");
+        assert_eq!(screen.refusals, 0);
+    }
+
+    /// `setup-token` shows a new link when it starts over: the latest wins,
+    /// and one looked at before never comes back.
+    #[test]
+    fn a_new_link_replaces_the_one_before() {
+        let again = URL.replace("state=abc", "state=def");
+        let mut screen = Screen::default();
+        screen.feed(format!("visit: {URL}\r\n").as_bytes());
+        assert_eq!(screen.url.as_ref().map(Link::as_str), Some(URL));
+        screen.feed(format!("\x1b]8;;{again}\x07here\x1b]8;;\x07\r\n").as_bytes());
+        assert_eq!(screen.url.as_ref().map(Link::as_str), Some(again.as_str()));
+        screen.feed("\x1b[2K\u{2722} working\r\n".as_bytes());
+        assert_eq!(
+            screen.url.as_ref().map(Link::as_str),
+            Some(again.as_str()),
+            "the old one, still rescanned, is not taken again"
+        );
+        // Never a link inside another one.
+        let mut screen = Screen::default();
+        screen.feed(
+            format!("visit: {URL}&redirect_uri=https://claude.ai/oauth/code/callback\r\n")
+                .as_bytes(),
+        );
+        assert_eq!(
+            screen.url.as_ref().map(Link::as_str),
+            Some(format!("{URL}&redirect_uri=https://claude.ai/oauth/code/callback").as_str())
+        );
     }
 
     /// `claude auth login` in a terminal (CLI 2.1.312): plain lines, the link
@@ -1451,6 +1830,11 @@ mod tests {
             "visit: <link> or <link> now",
             "the link is the desktop's alone"
         );
+        // Nor the code typed, which `setup-token` echoes as `*`s and its
+        // last characters.
+        let mut screen = Screen::default();
+        screen.feed(b"\r\x1b[31C\x1b[1A**********************rfqo_w\r\r\n");
+        assert_eq!(screen.last_line().unwrap(), "***");
     }
 
     #[test]
@@ -1463,6 +1847,15 @@ mod tests {
         assert!(screen.feed(&ink_screen(TOKEN)));
     }
 
+    /// A screen that showed `url` and asked for the code `prompts` times.
+    fn shown(url: Option<&str>, prompts: usize) -> Screen {
+        Screen {
+            url: url.map(|u| Link::parse(u).unwrap()),
+            prompts,
+            ..Default::default()
+        }
+    }
+
     #[test]
     fn a_runs_states_follow_the_screen() {
         let job = SignInJob::new("acc_000000000001", SignInKind::Login, true);
@@ -1470,21 +1863,22 @@ mod tests {
         assert!(job.take_auto_open().is_none(), "no link yet");
         assert!(matches!(job.open_link(), Err(SignInError::NoLink)));
         let link = Link::parse(URL).unwrap();
-        assert!(job.saw(Some(&link), false, false, false, None));
+        let mut screen = shown(Some(URL), 0);
+        assert!(job.saw(&screen).changed);
         assert_eq!(job.view().state, SignInState::Open);
         assert_eq!(job.view().url.as_deref(), Some(URL));
         assert_eq!(job.take_auto_open(), Some(link.clone()));
         assert!(job.take_auto_open().is_none(), "once");
         assert_eq!(job.open_link().unwrap(), link);
-        assert!(job.saw(Some(&link), false, true, false, None));
+        screen.prompts = 1;
+        assert!(job.saw(&screen).changed);
         assert_eq!(job.view().state, SignInState::Code);
-        assert!(
-            !job.saw(Some(&link), false, true, false, None),
-            "nothing new"
-        );
+        assert!(!job.saw(&screen).changed, "nothing new");
+        let rev = job.view().rev;
         assert!(job.complete(Ok(())));
         assert_eq!(job.view().state, SignInState::Done);
         assert!(job.view().finished_at.is_some());
+        assert!(job.view().rev > rev, "every change counts");
         assert!(!job.cancel(), "a finished run stays as it ended");
         assert!(
             matches!(job.open_link(), Err(SignInError::NotRunning)),
@@ -1499,7 +1893,11 @@ mod tests {
     #[test]
     fn a_refused_link_is_never_opened_and_says_so() {
         let job = SignInJob::new("acc_000000000005", SignInKind::Login, true);
-        assert!(!job.saw(None, true, false, false, None), "nothing to show");
+        let refused = Screen {
+            refused_url: true,
+            ..Default::default()
+        };
+        assert!(!job.saw(&refused).changed, "nothing to show");
         assert!(job.take_auto_open().is_none());
         assert!(matches!(job.open_link(), Err(SignInError::LinkRefused)));
         assert_eq!(SignInError::LinkRefused.code("x"), "invalid_sign_in_url");
@@ -1511,7 +1909,7 @@ mod tests {
     #[test]
     fn a_token_run_never_opens_on_its_own_and_reads_as_a_capture() {
         let job = SignInJob::new("acc_000000000002", SignInKind::Token, false);
-        job.saw(Some(&Link::parse(URL).unwrap()), false, true, false, None);
+        job.saw(&shown(Some(URL), 1));
         assert!(job.take_auto_open().is_none());
         let c = job.capture_view();
         assert_eq!(c.state, CaptureState::Running);
@@ -1528,7 +1926,9 @@ mod tests {
     #[test]
     fn a_run_without_a_link_stops_after_a_minute() {
         let job = SignInJob::new("acc_000000000003", SignInKind::Login, true);
-        job.saw(None, false, false, false, Some("Select a method".into()));
+        let mut screen = Screen::default();
+        screen.feed(b"Select a method\r\n");
+        job.saw(&screen);
         assert!(!job.check_deadlines(Duration::from_secs(59), SIGN_IN_TIMEOUT, LINK_TIMEOUT));
         assert!(job.check_deadlines(LINK_TIMEOUT, SIGN_IN_TIMEOUT, LINK_TIMEOUT));
         let v = job.view();
@@ -1543,7 +1943,7 @@ mod tests {
     #[test]
     fn views_for_everyone_have_no_url() {
         let job = SignInJob::new("acc_000000000004", SignInKind::Login, false);
-        job.saw(Some(&Link::parse(URL).unwrap()), false, false, false, None);
+        job.saw(&shown(Some(URL), 0));
         job.note_opened(Browser::ChromePrivate);
         let json = serde_json::to_value(job.view().public()).unwrap();
         assert_eq!(json["state"], "open");

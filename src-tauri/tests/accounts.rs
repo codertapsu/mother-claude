@@ -919,7 +919,9 @@ async fn a_login_takes_the_code_the_browser_shows() {
         .await;
     assert_eq!(s, StatusCode::OK, "{v}");
     assert_ne!(v["signIn"]["state"], "code", "typed: {v}");
-    f.sign_in_when(&id, "done", |s| s["state"] == "done").await;
+    assert_eq!(v["signIn"]["codeSent"], true, "typed: {v}");
+    let run = f.sign_in_when(&id, "done", |s| s["state"] == "done").await;
+    assert!(run.get("codeSent").is_none(), "nothing waits: {run}");
     assert_eq!(f.account(&id).await["signedIn"], true);
     // A finished run takes no code.
     let (s, v) = f
@@ -933,24 +935,44 @@ async fn a_login_takes_the_code_the_browser_shows() {
     assert_eq!(s, StatusCode::CONFLICT, "{v}");
     assert_eq!(v["error"]["code"], "sign_in_not_running");
 
-    // A wrong code ends it, saying why (never the link).
-    script_login(&dir, json!({"mode": "code", "code": "right"}));
+    // A code cut short (no `#state`): Claude Code says why and asks again.
+    script_login(&dir, json!({"mode": "code", "code": "right#s2"}));
     f.login(&id, json!({})).await;
     f.sign_in_when(&id, "asks again", |s| s["state"] == "code")
         .await;
-    f.call(
-        "POST",
-        &format!("/accounts/{id}/sign-in/code"),
-        &desk,
-        Some(json!({"code": "wrong"})),
-    )
-    .await;
+    let code_path = format!("/accounts/{id}/sign-in/code");
+    let (s, v) = f
+        .call("POST", &code_path, &desk, Some(json!({"code": "wrong"})))
+        .await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    let run = f
+        .sign_in_when(&id, "turned down", |s| s.get("codeError").is_some())
+        .await;
+    assert_eq!(
+        run["codeError"],
+        "Invalid code. Please make sure the full code was copied."
+    );
+    assert_eq!(run["state"], "code", "{run}");
+    assert!(run.get("codeSent").is_none(), "{run}");
+    // One it does not accept ends it, saying why (never the link).
+    let (s, v) = f
+        .call("POST", &code_path, &desk, Some(json!({"code": "wrong#s2"})))
+        .await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    assert!(v["signIn"].get("codeError").is_none(), "a new code: {v}");
     let run = f
         .sign_in_when(&id, "failed", |s| s["state"] == "failed")
         .await;
     let error = run["error"].as_str().unwrap();
-    assert!(error.contains("Invalid code"), "{error}");
+    assert!(error.contains("wasn't accepted"), "{error}");
     assert!(!error.contains("https://"), "{error}");
+    assert!(
+        run["codeError"]
+            .as_str()
+            .unwrap()
+            .starts_with("That code wasn't accepted."),
+        "{run}"
+    );
 }
 
 /// The registry file, as written.
@@ -1205,6 +1227,54 @@ async fn setup_token_is_captured_into_the_secret_store() {
         a["capture"]["asksForCode"] == true
     })
     .await;
+    // A code cut short: Claude Code says why and starts over on the same
+    // page (Enter pressed for it).
+    let (s, v) = f
+        .call(
+            "POST",
+            &format!("/accounts/{id}/token"),
+            &desk,
+            Some(json!({"code": "abc"})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    assert_eq!(v["signIn"]["codeSent"], true, "{v}");
+    assert_eq!(v["capture"]["asksForCode"], false, "{v}");
+    let a = f
+        .wait_for(&id, "turned down", |a| {
+            a["signIn"]["codeError"].is_string() && a["capture"]["asksForCode"] == true
+        })
+        .await;
+    assert_eq!(
+        a["signIn"]["codeError"],
+        "Invalid code. Please make sure the full code was copied"
+    );
+    assert_eq!(link_facts(&a["signIn"]["url"])["state"], "s1");
+    // One it does not accept: it starts over with a new link.
+    let (s, v) = f
+        .call(
+            "POST",
+            &format!("/accounts/{id}/sign-in/code"),
+            &desk,
+            Some(json!({"code": "abc#wrong"})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    let a = f
+        .wait_for(&id, "started over", |a| {
+            a["signIn"]["url"]
+                .as_str()
+                .is_some_and(|u| u.contains("state=s2&"))
+                && a["capture"]["asksForCode"] == true
+        })
+        .await;
+    assert!(
+        a["signIn"]["codeError"]
+            .as_str()
+            .unwrap()
+            .starts_with("That code wasn't accepted."),
+        "{a}"
+    );
     let (s, v) = f
         .call(
             "POST",

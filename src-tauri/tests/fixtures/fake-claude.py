@@ -76,6 +76,9 @@ SIGNED_IN = ".fake-signed-in"
 # (temp) directory: {"mode": "ok|code|fail|hang|elsewhere", "email": …,
 # "code": …}.
 LOGIN_SCRIPT = ".fake-login.json"
+# What the CLI (2.1.314) says of a whole code it did not accept.
+NOT_ACCEPTED = ("That code wasn't accepted. It may be incomplete, expired, already used, or "
+                "from an earlier sign-in attempt. Sign in again to get a new code.")
 
 
 def in_temp(path):
@@ -170,11 +173,20 @@ if ARGS[:2] == ["auth", "login"]:
           "After you sign in, paste the code shown.\r\n")
         w("Paste code here if prompted > ")
         sys.stdout.flush()
-        typed = read_code().strip()
-        if typed != script.get("code", typed):
-            w("Invalid code\r\n")
-            sys.stdout.flush()
-            sys.exit(1)
+        # As 2.1.314: a code without its `#state` is cut short and it asks
+        # again (on the prompt's line); one it does not accept ends it.
+        while True:
+            typed = read_code().strip()
+            code, _, state = typed.partition("#")
+            if not code or not state:
+                w("Invalid code. Please make sure the full code was copied.\r\n")
+                sys.stdout.flush()
+                continue
+            if typed != script.get("code", typed):
+                w(f"Login failed: {NOT_ACCEPTED}\r\n")
+                sys.stdout.flush()
+                sys.exit(1)
+            break
     else:
         time.sleep(0.3)  # the browser round trip
     # Whoever signs in in the browser: the script's, else the one asked for.
@@ -189,13 +201,18 @@ if ARGS[:1] == ["setup-token"]:
     # Ink-like output (2.1.314): bracketed paste on, colours, cursor moves,
     # an OSC 8 link, words placed one by one, then the token.
     mode = os.environ.get("FAKE_SETUP_TOKEN", "token")
-    url = ("https://claude.ai/oauth/authorize?code=true&client_id=fake&state=s1&"
-           + urllib.parse.urlencode(sign_in_facts()))
     w = sys.stdout.write
+
+    def show_link(attempt):
+        url = (f"https://claude.ai/oauth/authorize?code=true&client_id=fake&state=s{attempt}&"
+               + urllib.parse.urlencode(sign_in_facts()))
+        w("\x1b[?25l\x1b[2K\x1b[G\x1b[2mBrowser didn't open? Use the url below to sign in"
+          "\x1b[22m\r\n")
+        w(f"\x1b]8;;{url}\x1b\\\x1b[2m{url}\x1b[22m\x1b]8;;\x1b\\\r\n")
+        sys.stdout.flush()
+
     w("\x1b[?2004h")
-    w("\x1b[?25l\x1b[2K\x1b[G\x1b[2mBrowser didn't open? Use the url below to sign in\x1b[22m\r\n")
-    w(f"\x1b]8;;{url}\x1b\\\x1b[2m{url}\x1b[22m\x1b]8;;\x1b\\\r\n")
-    sys.stdout.flush()
+    show_link(1)
     if mode == "fail":
         w("\x1b[31mOAuth error: the sign-in was cancelled\x1b[39m\r\n")
         sys.stdout.flush()
@@ -204,12 +221,34 @@ if ARGS[:1] == ["setup-token"]:
         time.sleep(600)
         sys.exit(0)
     if mode == "code":
-        w("\x1b[2GPaste\x1b[8Gcode\x1b[13Ghere\x1b[18Gif\x1b[21Gprompted\x1b[30G>\r\r\n")
-        sys.stdout.flush()
-        # Ink takes a code and its Enter arriving together for pasted text
-        # and submits nothing: only a bracketed paste goes in.
-        while "\x1b[201~" not in read_code():
-            pass
+        # As 2.1.314: a code cut short (no `#state`) or one it does not
+        # accept is an "OAuth error" over "Press Enter to retry."; Enter
+        # shows the same link again after the first, a new one after the
+        # other. "abc#def" is accepted.
+        attempt = 1
+        while True:
+            w("\x1b[2GPaste\x1b[8Gcode\x1b[13Ghere\x1b[18Gif\x1b[21Gprompted\x1b[30G>\r\r\n")
+            sys.stdout.flush()
+            # Ink takes a code and its Enter arriving together for pasted
+            # text and submits nothing: only a bracketed paste goes in.
+            line = read_code()
+            while "\x1b[201~" not in line:
+                line = read_code()
+            typed = line.replace("\x1b[200~", "").replace("\x1b[201~", "").strip()
+            if typed == "abc#def":
+                break
+            code, _, state = typed.partition("#")
+            cut_short = not code or not state
+            why = ("Invalid code. Please make sure the full code was copied" if cut_short
+                   else NOT_ACCEPTED)
+            w(f"\x1b[38;5;211mOAuth error: {why}\x1b[39m\r\r\n"
+              "\x1b[38;5;153mPress \x1b[1mEnter\x1b[22m to retry. \x1b[39m\r\r\n")
+            sys.stdout.flush()
+            read_code()
+            if not cut_short:
+                attempt += 1
+                w("\x1b[38;5;153mRetrying…\x1b[39m\r\r\n")
+            show_link(attempt)
     token = os.environ.get(
         "FAKE_SETUP_TOKEN_VALUE",
         "sk-ant-oat01-" + "Ab1_" * 20 + "-fakeTokenTail0123456789",
