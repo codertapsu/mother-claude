@@ -2,11 +2,15 @@ import { signInErrorText } from '../shared/accounts';
 import { normalizeAccounts } from './accounts';
 import { ApiError } from './api.service';
 import { accountFixture } from './mock/fixtures';
+import { SignInView } from './models';
 import {
   accountSigningIn,
   activeSignIn,
+  advanceSignIn,
   browserLabel,
   identityWarningText,
+  isLongLivedToken,
+  looksLikeToken,
   mergeSignIn,
   normalizeBrowsers,
   normalizeIdentityWarning,
@@ -148,6 +152,72 @@ describe('sign-in helpers', () => {
     const next = { kind: 'token' as const, state: 'starting' as const, startedAt: 9 };
     expect(mergeSignIn(own, next)).toEqual(next);
     expect(mergeSignIn(null, frame)).toEqual(frame);
+  });
+
+  it('reads whether a code went in, why one was turned down, and the run’s count', () => {
+    expect(
+      normalizeSignIn({ kind: 'token', state: 'open', startedAt: 1, codeSent: true, rev: 4 }),
+    ).toEqual({ kind: 'token', state: 'open', startedAt: 1, codeSent: true, rev: 4 });
+    expect(
+      normalizeSignIn({
+        kind: 'login',
+        state: 'code',
+        startedAt: 1,
+        codeSent: 'yes',
+        codeError: ' Invalid code. ',
+        rev: 'x',
+      }),
+    ).toEqual({ kind: 'login', state: 'code', startedAt: 1, codeError: 'Invalid code.' });
+  });
+
+  it('takes the later read of one run by its count, though its state went back', () => {
+    const asked = {
+      kind: 'token' as const,
+      state: 'code' as const,
+      url: 'https://claude.ai/a',
+      opened: 'chrome-private' as const,
+      startedAt: 7,
+      rev: 3,
+    };
+    // A code went in: back to `open`, the link kept, where it opened too.
+    const sent = { ...asked, state: 'open' as const, codeSent: true, rev: 4 };
+    const sentFrame: SignInView = { ...sent, url: undefined };
+    expect(mergeSignIn(asked, sentFrame)).toEqual(sent);
+    // An older frame does not win back.
+    expect(mergeSignIn(sent, { ...asked, url: undefined })).toEqual(sent);
+    // It started over: a new link, not opened yet (the desktop's read has it).
+    const again = {
+      kind: 'token' as const,
+      state: 'open' as const,
+      url: 'https://claude.ai/b',
+      startedAt: 7,
+      rev: 6,
+    };
+    expect(mergeSignIn(again, sentFrame)).toEqual(again);
+    // Answers that cross: the earlier one does not undo the later.
+    expect(advanceSignIn(again, sent)).toEqual(again);
+    expect(advanceSignIn(sent, again)).toEqual(again);
+    // A later answer without the link keeps ours.
+    expect(advanceSignIn(sent, { ...sentFrame, rev: 5 })).toEqual({ ...sent, rev: 5 });
+    // Without counts, an answer is the freshest word; another run, whole.
+    const noRev: SignInView = { ...asked, rev: undefined };
+    expect(advanceSignIn(noRev, { ...noRev, state: 'open', url: undefined })).toEqual({
+      ...noRev,
+      state: 'open',
+    });
+    const next = { kind: 'token' as const, state: 'starting' as const, startedAt: 9 };
+    expect(advanceSignIn(sent, next)).toEqual(next);
+  });
+
+  it('tells a token from a code', () => {
+    const token = 'sk-ant-oat01-abcdefghijklmnop_-0123456789';
+    expect(looksLikeToken(token)).toBeTrue();
+    expect(looksLikeToken(`export CLAUDE_CODE_OAUTH_TOKEN=${token}`)).toBeTrue();
+    expect(looksLikeToken('SK-ANT-API03-abc')).toBeTrue();
+    expect(looksLikeToken('Xq3vYz0123#Rk1yZ0123')).toBeFalse();
+    expect(isLongLivedToken(` ${token}\n`)).toBeTrue();
+    expect(isLongLivedToken('sk-ant-api03-abcdefghijklmnop')).toBeFalse();
+    expect(isLongLivedToken(`token: ${token}`)).toBeFalse();
   });
 
   it('lists the browsers, the default one always, and names them', () => {

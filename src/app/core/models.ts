@@ -721,7 +721,8 @@ export interface CaptureView {
 }
 
 /** Where an account's sign-in is (docs/ACCOUNTS.md §15.2): `open` once its
- * link is known, `code` while the CLI asks for the code the browser shows. */
+ * link is known, `code` while the CLI asks for the code the browser shows
+ * (back to `open` while a code typed is checked, or a new link is shown). */
 export type SignInState = 'starting' | 'open' | 'code' | 'done' | 'failed' | 'cancelled';
 
 /** `login`: `claude auth login` (the Default, a directory account);
@@ -740,6 +741,13 @@ export interface SignInView {
   startedAt: number;
   finishedAt?: number;
   error?: string;
+  /** A code was typed in and Claude Code has not answered yet. */
+  codeSent?: boolean;
+  /** Why Claude Code turned the last code typed down, in its words. */
+  codeError?: string;
+  /** Counts the run's changes: of two reads of one run, the higher is the
+   * later. */
+  rev?: number;
 }
 
 /** Who signed in is not who signed in before, or is who another account

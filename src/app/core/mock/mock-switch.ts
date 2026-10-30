@@ -8,12 +8,15 @@
 //   its next continue. Another directory needs the copy consent, like
 //   Continue on. `DELETE` cancels a waiting switch. A running session's
 //   switch is announced to every client (a `notice`), as the Mac does.
-// - Sign-ins: a login (`POST /accounts/{id}/login`) shows its link, then
-//   lands with a changed-identity warning; a token sign-in (`POST
-//   /accounts/{id}/token {}`) shows its link and waits for the code the
-//   browser shows (`?mockcapture=fail`: it fails instead). One runs at a
-//   time. `GET|POST /accounts/{id}/sign-in/open`, `POST …/sign-in/code`,
-//   `DELETE …/sign-in`, `POST /accounts/{id}/identity/accept`.
+// - Sign-ins: a login (`POST /accounts/{id}/login`) or a token sign-in
+//   (`POST /accounts/{id}/token {}`) shows its link and waits for the code
+//   the browser shows, as the Mac's always do; a code is taken while it
+//   runs, one without its `#state` part is turned down as Claude Code does,
+//   and a token never goes in as one. Then a login lands with a
+//   changed-identity warning, a token sign-in with its token
+//   (`?mockcapture=fail`: it fails instead); a token pasted meanwhile ends
+//   it. One runs at a time. `GET|POST /accounts/{id}/sign-in/open`, `POST
+//   …/sign-in/code`, `DELETE …/sign-in`, `POST /accounts/{id}/identity/accept`.
 
 import { needsCopy } from '../accounts';
 import { AccountView, SessionSummary, SignInView } from '../models';
@@ -54,6 +57,8 @@ export interface SwitchHost {
 export class MockSwitch {
   /** The timers of each running sign-in, by account. */
   private readonly runs = new Map<string, ReturnType<typeof setTimeout>[]>();
+  /** Claude Code's answer to the code typed last, by account. */
+  private readonly answers = new Map<string, ReturnType<typeof setTimeout>>();
   /** The timer of each switch waiting for its turn, by session. */
   private readonly waiting = new Map<string, ReturnType<typeof setTimeout>>();
 
@@ -243,49 +248,35 @@ export class MockSwitch {
       kind === 'login'
         ? `https://claude.ai/oauth/authorize?client_id=mock-client&response_type=code&scope=user%3Aprofile${a.email ? `&login_hint=${encodeURIComponent(a.email)}` : ''}`
         : 'https://claude.ai/oauth/authorize?code=true&client_id=mock-client&response_type=code&scope=user%3Ainference';
-    this.set(a.id, { kind, state: 'starting', startedAt });
+    this.set(a.id, { kind, state: 'starting', startedAt, rev: 0 });
     // A login's link opens in the default browser by itself (the Mac does
     // it); a token sign-in's opens only when asked.
     const opened = kind === 'login' ? { opened: 'default' as const } : {};
     const timers = [
-      setTimeout(() => this.set(a.id, { kind, state: 'open', url, startedAt, ...opened }), 700),
+      setTimeout(() => {
+        const cur = this.account(a.id)?.signIn;
+        if (cur && running(cur)) this.set(a.id, { ...cur, state: 'open', url, ...opened });
+      }, 700),
     ];
-    if (kind === 'login') {
-      // The browser opened by itself; the sign-in lands — as someone else
-      // than before, here.
-      timers.push(
-        setTimeout(() => {
-          const cur = this.account(a.id);
-          if (!cur || !running(cur.signIn)) return;
-          this.host.updateAccount(a.id, {
-            ...this.host.signedIn(cur),
-            signingIn: false,
-            signIn: { ...cur.signIn, kind, state: 'done', startedAt, finishedAt: Date.now() },
-            identityWarning: { kind: 'changed' },
-          });
-          this.host.publishAccounts();
-        }, 5_000),
-      );
-    } else if (CAPTURE_MODE === 'fail') {
-      timers.push(
-        setTimeout(
-          () =>
-            this.set(a.id, {
-              kind,
-              state: 'failed',
-              startedAt,
-              finishedAt: Date.now(),
-              error: 'setup-token exited before it showed a token',
-            }),
-          3_000,
-        ),
-      );
-    } else {
-      // The CLI asks for the code the browser shows.
+    if (kind === 'token' && CAPTURE_MODE === 'fail') {
       timers.push(
         setTimeout(() => {
           const cur = this.account(a.id)?.signIn;
-          if (cur && running(cur)) this.set(a.id, { ...cur, state: 'code' });
+          if (!cur || !running(cur)) return;
+          this.set(a.id, {
+            ...cur,
+            state: 'failed',
+            finishedAt: Date.now(),
+            error: 'setup-token exited before it showed a token',
+          });
+        }, 3_000),
+      );
+    } else {
+      // The page shows a code once approved; the CLI asks for it.
+      timers.push(
+        setTimeout(() => {
+          const cur = this.account(a.id)?.signIn;
+          if (cur && running(cur) && !cur.codeSent) this.set(a.id, { ...cur, state: 'code' });
         }, 2_000),
       );
     }
@@ -305,28 +296,64 @@ export class MockSwitch {
     return json({ ...(withCapture ? { capture: captureOf(run) } : {}), signIn: run }, status);
   }
 
+  /** A code is taken while the run runs, as the Mac takes it: sent (back
+   * to `open` while Claude Code checks it), never a token. */
   private code(a: AccountView, code: string, tokenRoute: boolean): Response {
     const run = a.signIn;
-    if (!run || run.state !== 'code') {
-      return fail(409, 'sign_in_not_running', 'No sign-in is waiting for a code.');
+    if (!run || !running(run)) {
+      return fail(409, 'sign_in_not_running', 'No sign-in of this account runs.');
     }
     if (!code) return fail(422, 'invalid_body', 'Send the code the browser shows.');
-    this.stop(a.id);
-    // Back to `open` once a code is typed; it finishes by itself.
-    this.set(a.id, { ...run, state: 'open' });
-    this.runs.set(a.id, [
-      setTimeout(() => {
-        const cur = this.account(a.id);
-        if (!cur) return;
-        this.host.updateAccount(a.id, {
-          ...this.host.signedIn(cur),
-          tokenStored: true,
-          signIn: { ...run, state: 'done', finishedAt: Date.now() },
-        });
-        this.host.publishAccounts();
-      }, 1_200),
-    ]);
+    if (/sk-ant-/i.test(code)) {
+      return fail(
+        422,
+        'invalid_body',
+        'that is a token (sk-ant-…), not the code the browser shows; it was not typed in',
+      );
+    }
+    const state = run.state === 'code' ? 'open' : run.state;
+    this.set(a.id, { ...run, state, codeSent: true, codeError: undefined });
+    clearTimeout(this.answers.get(a.id));
+    this.answers.set(
+      a.id,
+      setTimeout(() => this.answer(a.id, code), 1_200),
+    );
     return this.signInJson(a.id, tokenRoute);
+  }
+
+  /** Claude Code's answer to a code (CLI 2.1.314): one without its
+   * `#state` part is cut short, and it asks again; any other lands here —
+   * a login as someone else than before, a token sign-in with its token. */
+  private answer(id: string, code: string): void {
+    this.answers.delete(id);
+    const cur = this.account(id);
+    const run = cur?.signIn;
+    if (!cur || !run || !running(run)) return;
+    if (!code.includes('#')) {
+      this.set(id, {
+        ...run,
+        state: 'code',
+        codeSent: undefined,
+        codeError: 'Invalid code. Please make sure the full code was copied',
+      });
+      return;
+    }
+    this.stop(id);
+    this.host.updateAccount(id, {
+      ...this.host.signedIn(cur),
+      ...(run.kind === 'login' ? { identityWarning: { kind: 'changed' as const } } : {}),
+      ...(run.kind === 'token' ? { tokenStored: true } : {}),
+    });
+    this.set(id, { ...run, state: 'done', codeSent: undefined, finishedAt: Date.now() });
+  }
+
+  /** A token was pasted for the account: a token sign-in running for it
+   * has what it was for, and ends done (as the Mac's does). */
+  tokenPasted(id: string): void {
+    const run = this.account(id)?.signIn;
+    if (!run || run.kind !== 'token' || !running(run)) return;
+    this.stop(id);
+    this.set(id, { ...run, state: 'done', codeSent: undefined, finishedAt: Date.now() });
   }
 
   private cancel(a: AccountView, tokenRoute: boolean): Response {
@@ -334,20 +361,36 @@ export class MockSwitch {
       return fail(409, 'sign_in_not_running', 'No sign-in of this account runs.');
     }
     this.stop(a.id);
-    this.set(a.id, { ...a.signIn, state: 'cancelled', finishedAt: Date.now() });
+    this.set(a.id, {
+      ...a.signIn,
+      state: 'cancelled',
+      codeSent: undefined,
+      finishedAt: Date.now(),
+    });
     return this.signInJson(a.id, tokenRoute);
   }
 
   /** The run as the account shows it (an older client reads a running
-   * login as `signingIn`). */
+   * login as `signingIn`), its `rev` counting the change. */
   private set(id: string, run: SignInView): void {
-    this.host.updateAccount(id, { signIn: run, signingIn: run.kind === 'login' && running(run) });
+    const cur = this.account(id)?.signIn;
+    const rev = cur?.startedAt === run.startedAt ? (cur.rev ?? 0) + 1 : (run.rev ?? 0);
+    const next: SignInView = { ...run, rev };
+    for (const k of Object.keys(next) as (keyof SignInView)[]) {
+      if (next[k] === undefined) delete next[k];
+    }
+    this.host.updateAccount(id, {
+      signIn: next,
+      signingIn: next.kind === 'login' && running(next),
+    });
     this.host.publishAccounts();
   }
 
   private stop(id: string): void {
     for (const t of this.runs.get(id) ?? []) clearTimeout(t);
     this.runs.delete(id);
+    clearTimeout(this.answers.get(id));
+    this.answers.delete(id);
   }
 
   private account(id: string): AccountView | undefined {

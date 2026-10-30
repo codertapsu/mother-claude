@@ -1743,6 +1743,9 @@ class FixtureBackend implements MockBackend {
           );
         }
         this.updateAccount(a.id, { tokenStored: true, ...this.signedIn(a) });
+        // A token sign-in running for it has what it was for (the Mac's
+        // ends done).
+        this.switching.tokenPasted(a.id);
         this.publishAccounts();
         return this.accountJson(a.id);
       }

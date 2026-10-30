@@ -55,8 +55,10 @@ export function normalizeSignIn(raw: unknown): SignInView | undefined {
   const url = safeSignInUrl(r['url']);
   const opened = BROWSERS.find((b) => b === r['opened']);
   const error = str(r['error']);
+  const codeError = str(r['codeError']);
   const startedAt = typeof r['startedAt'] === 'number' ? r['startedAt'] : 0;
   const finishedAt = typeof r['finishedAt'] === 'number' ? r['finishedAt'] : undefined;
+  const rev = r['rev'];
   return {
     kind,
     state,
@@ -65,7 +67,22 @@ export function normalizeSignIn(raw: unknown): SignInView | undefined {
     startedAt,
     ...(finishedAt !== undefined ? { finishedAt } : {}),
     ...(error ? { error } : {}),
+    ...(r['codeSent'] === true ? { codeSent: true } : {}),
+    ...(codeError ? { codeError } : {}),
+    ...(typeof rev === 'number' && Number.isFinite(rev) ? { rev } : {}),
   };
+}
+
+/** Text holding a token or a key (`sk-ant-…`): never sent as a sign-in's
+ * code (docs/ACCOUNTS.md §15.2). */
+export function looksLikeToken(text: string): boolean {
+  return /sk-ant-/i.test(text);
+}
+
+/** A long-lived token from `claude setup-token`, alone: what a token
+ * account keeps. */
+export function isLongLivedToken(text: string): boolean {
+  return /^sk-ant-oat\d\d-[\w-]+$/.test(text.trim());
 }
 
 /** How long a finished sign-in's outcome stays in view: the run stays on
@@ -118,8 +135,10 @@ export function signInWaitText(
 
 /** The same sign-in as two reads say it: ours (with its link, from the
  * desktop's own read) and the frame's (the latest state, without the
- * link). The later run wins; within one run, the further state, and the
- * link either has. */
+ * link). The later run wins; within one run, the later read (the higher
+ * `rev`: a run goes back from `code` to `open` while a code is checked, or
+ * when it starts over with a new link), else the further state — and the
+ * later read's link, else the other's. */
 export function mergeSignIn(
   own: SignInView | null | undefined,
   frame: SignInView | null | undefined,
@@ -127,11 +146,32 @@ export function mergeSignIn(
   if (!own) return frame ?? undefined;
   if (!frame) return own;
   if (own.startedAt !== frame.startedAt) return own.startedAt > frame.startedAt ? own : frame;
-  const later = STATES.indexOf(frame.state) > STATES.indexOf(own.state) ? frame : own;
+  const byRev = own.rev !== undefined && frame.rev !== undefined && own.rev !== frame.rev;
+  const later = byRev
+    ? (frame.rev ?? 0) > (own.rev ?? 0)
+      ? frame
+      : own
+    : STATES.indexOf(frame.state) > STATES.indexOf(own.state)
+      ? frame
+      : own;
   const other = later === own ? frame : own;
-  const url = own.url ?? frame.url;
-  const opened = later.opened ?? other.opened;
-  return { ...later, ...(url ? { url } : {}), ...(opened ? { opened } : {}) };
+  const url = later.url ?? other.url;
+  // A later read says where its link was opened (a new link: nowhere yet).
+  const opened = byRev ? later.opened : (later.opened ?? other.opened);
+  const merged: SignInView = { ...later, ...(url ? { url } : {}) };
+  if (opened) merged.opened = opened;
+  return merged;
+}
+
+/** Our read of a sign-in moved on by `next` (an answer, or a read of
+ * ours): `next`, the freshest word there is — unless it is an earlier read
+ * of the same run (a lower `rev`: answers can cross). The link stays if it
+ * left it out. */
+export function advanceSignIn(own: SignInView | null | undefined, next: SignInView): SignInView {
+  if (!own || own.startedAt !== next.startedAt) return next;
+  if (own.rev !== undefined && next.rev !== undefined && own.rev > next.rev) return own;
+  const url = next.url ?? own.url;
+  return { ...next, ...(url ? { url } : {}) };
 }
 
 /** The browsers a sign-in link may open in, as the Mac lists them (the

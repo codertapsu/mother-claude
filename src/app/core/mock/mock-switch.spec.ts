@@ -150,9 +150,15 @@ describe('MockSwitch (switching and sign-ins, as the server answers)', () => {
     expect((await call('/accounts/acc_w/login', 'POST', {}))?.body.signIn.startedAt).toBe(
       of('acc_w').signIn?.startedAt,
     );
+    // It never lands by itself: the page shows a code to paste.
     jasmine.clock().tick(5_000);
+    expect(of('acc_w').signIn?.state).toBe('code');
+    await call('/accounts/acc_w/sign-in/code', 'POST', { code: 'abc#123' });
+    jasmine.clock().tick(1_300);
     expect(of('acc_w').signIn?.state).toBe('done');
     expect(of('acc_w').signIn?.finishedAt).toBeDefined();
+    expect(of('acc_w').signIn?.codeSent).toBeUndefined();
+    expect(of('acc_w').signingIn).toBeFalse();
     expect(of('acc_w').identityWarning).toEqual({ kind: 'changed' });
     await call('/accounts/acc_w/identity/accept', 'POST', {});
     expect(of('acc_w').identityWarning).toBeUndefined();
@@ -171,6 +177,7 @@ describe('MockSwitch (switching and sign-ins, as the server answers)', () => {
     expect(of('acc_p').signIn?.opened).toBeUndefined();
     const typed = await call('/accounts/acc_p/sign-in/code', 'POST', { code: 'abc#123' });
     expect(typed?.body.signIn.state).toBe('open');
+    expect(typed?.body.signIn.codeSent).toBeTrue();
     jasmine.clock().tick(1_300);
     expect(of('acc_p').signIn?.state).toBe('done');
     expect(of('acc_p').tokenStored).toBeTrue();
@@ -178,5 +185,40 @@ describe('MockSwitch (switching and sign-ins, as the server answers)', () => {
     expect(mock.route('/accounts/acc_p/token', 'POST', { token: 'sk-ant-oat01-x' })).toBeNull();
     role = 'device';
     expect((await call('/accounts/acc_w/login', 'POST', {}))?.status).toBe(403);
+  });
+
+  it('takes a code while the run runs, turns one down as Claude Code does, never a token', async () => {
+    await call('/accounts/acc_p/token', 'POST', {});
+    // Before it shows its link: taken all the same, as the Mac does.
+    const early = await call('/accounts/acc_p/sign-in/code', 'POST', { code: 'abc' });
+    expect([early?.status, early?.body.signIn.codeSent]).toEqual([200, true]);
+    const rev = of('acc_p').signIn?.rev ?? 0;
+    jasmine.clock().tick(1_300);
+    // Cut short (no `#state`): why, and it asks again; nothing landed.
+    let run = of('acc_p').signIn;
+    expect(run?.state).toBe('code');
+    expect(run?.codeError).toBe('Invalid code. Please make sure the full code was copied');
+    expect(run?.codeSent).toBeUndefined();
+    expect(run?.rev).toBeGreaterThan(rev);
+    // Its link shows all the same.
+    expect(run?.url).toContain('https://claude.ai/');
+    // A token is never typed in, nor repeated.
+    const token = 'sk-ant-oat01-abcdefghijklmnop';
+    const refused = await call('/accounts/acc_p/token', 'POST', { code: token });
+    expect([refused?.status, refused?.body.error.code]).toEqual([422, 'invalid_body']);
+    expect(JSON.stringify(refused?.body)).not.toContain(token);
+    expect(of('acc_p').signIn?.codeSent).toBeUndefined();
+    // The next code clears why.
+    const again = await call('/accounts/acc_p/sign-in/code', 'POST', { code: 'abc#def' });
+    expect(again?.body.signIn.codeError).toBeUndefined();
+    // A token pasted meanwhile ends the run: it has what it was for.
+    mock.tokenPasted('acc_p');
+    run = of('acc_p').signIn;
+    expect([run?.state, run?.codeSent]).toEqual(['done', undefined]);
+    jasmine.clock().tick(2_000);
+    expect(of('acc_p').signIn?.state).toBe('done');
+    // A finished run takes no code.
+    const late = await call('/accounts/acc_p/sign-in/code', 'POST', { code: 'abc#def' });
+    expect([late?.status, late?.body.error.code]).toEqual([409, 'sign_in_not_running']);
   });
 });
