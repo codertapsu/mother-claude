@@ -296,12 +296,20 @@ fn auth_body(status: &AuthStatus) -> Value {
     })
 }
 
+/// What `POST /auth/login` answers. The page the browser ends on shows a
+/// code, and only the desktop's sign-in takes it (docs/ACCOUNTS.md §15.2).
+const LOGIN_STARTED: &str = "A browser sign-in flow was launched on the host machine. \
+                             After approving it, paste the code Claude shows into the \
+                             sign-in on the Mother Claude desktop (Accounts), then poll \
+                             GET /auth?refresh=true until `authenticated` is true.";
+
 /// `POST /auth/login` — start the interactive sign-in flow.
 ///
 /// Opens a browser on *this* machine, so it is restricted to local clients for
 /// the same reason every other irreversible action is. It returns as soon as the
 /// flow is launched: waiting for a human to finish an OAuth round trip inside an
-/// HTTP handler would only ever produce a timeout. Poll `GET /auth?refresh=true`.
+/// HTTP handler would only ever produce a timeout. The code the browser shows
+/// goes into the desktop's sign-in; then poll `GET /auth?refresh=true`.
 pub async fn auth_login(
     State(state): State<AppState>,
     mount: MountPolicy,
@@ -346,17 +354,10 @@ pub async fn auth_login(
         })?;
     if mount.only_account().is_some() {
         ctx.note_dangerous("account sign-in through the API");
-        return Ok(ok(json!({
-            "status": "started",
-            "message": "A browser sign-in flow was launched on the host machine. \
-                        Poll GET /auth?refresh=true until `authenticated` is true.",
-        })));
+        return Ok(ok(json!({ "status": "started", "message": LOGIN_STARTED })));
     }
 
-    Ok(ok(json!({
-        "status": "started",
-        "message": "A browser sign-in flow was launched on the host machine.                     Poll GET /auth?refresh=true until `authenticated` is true.",
-    })))
+    Ok(ok(json!({ "status": "started", "message": LOGIN_STARTED })))
 }
 
 #[derive(Debug, Default, serde::Deserialize)]

@@ -106,8 +106,10 @@ pub fn document(token: crate::bridge::TokenPolicy, messages_api: bool, mount: &s
             "authLogin",
             "Start the Claude sign-in flow",
             "Opens a browser on the host machine, so it is restricted to local \
-             clients. Returns as soon as the flow is launched; poll \
-             `GET /auth?refresh=true` until `authenticated` is true.",
+             clients. Returns as soon as the flow is launched. After approving \
+             in the browser, paste the code Claude shows into the sign-in on the \
+             Mother Claude desktop (Accounts), then poll `GET /auth?refresh=true` \
+             until `authenticated` is true.",
             &[],
             Some(json!({
                 "type": "object",
