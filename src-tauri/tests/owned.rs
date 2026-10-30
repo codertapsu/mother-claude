@@ -16,9 +16,9 @@ use std::time::Duration;
 use axum::http::HeaderMap;
 use base64::Engine as _;
 use mother_claude_lib::claude::model::{
-    Delivery, EffortSource, ImageInput, PendingKind, PendingOutcome, PendingSource,
-    PlanUsageSource, ResolverKind, SessionSummary, StreamKind, ThinkingInfo, ThinkingMode,
-    ThinkingSource, UltracodeSource, UltracodeState,
+    ActivityKind, Delivery, EffortSource, ImageInput, PendingKind, PendingOutcome, PendingSource,
+    PlanUsageSource, ResolverKind, SessionStatus, SessionSummary, StreamKind, ThinkingInfo,
+    ThinkingMode, ThinkingSource, UltracodeSource, UltracodeState,
 };
 use mother_claude_lib::claude::owned::{self, Caller, ContinueRequest, SpawnRequest};
 use mother_claude_lib::claude::usage;
@@ -578,12 +578,45 @@ async fn live_control_requests_and_cli_errors() {
     assert_eq!(s.effort.as_deref(), Some("high"));
 
     // Tasks: reported live, stoppable.
+    let mut rx = f.st.bus.subscribe();
     owned::send(&f.st, &id, "task", &[]).await.unwrap();
     wait_turn_done(&f.st, &id).await;
     wait_for("the task", || !owned::tasks(&f.st, &id).0.is_empty()).await;
     let (agents, _) = owned::tasks(&f.st, &id);
     assert_eq!(agents[0].agent_type.as_deref(), Some("Explore"));
     assert!(agents[0].can_stop);
+    // The turn ended with its background agent running: the session
+    // resumes by itself, and says so at once.
+    let mut s = f.st.find_session(&id).await.unwrap();
+    for _ in 0..100 {
+        if s.status == SessionStatus::Background {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        s = f.st.find_session(&id).await.unwrap();
+    }
+    assert_eq!(s.status, SessionStatus::Background);
+    assert_eq!(s.activity.kind, ActivityKind::Background);
+    assert_eq!(s.activity.detail.as_deref(), Some("Explore the repo"));
+    let resumes_notice = |e: &Arc<ServerEvent>| {
+        matches!(&**e,
+            ServerEvent::Notice { text, .. } if text.ends_with("finished a turn and resumes by itself"))
+    };
+    let mut events = drain(&mut rx);
+    for _ in 0..100 {
+        if events.iter().any(resumes_notice) {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        events.extend(drain(&mut rx));
+    }
+    assert!(events.iter().any(resumes_notice));
+    // The owned overlay keeps it so on a rebuild, before the files show it.
+    let mut rebuilt = s.clone();
+    rebuilt.status = SessionStatus::Idle;
+    owned::overlay(&f.st, &mut rebuilt);
+    assert_eq!(rebuilt.status, SessionStatus::Background);
+    assert_eq!(rebuilt.activity.detail.as_deref(), Some("Explore the repo"));
     assert_eq!(
         owned::stop_task(&f.st, &id, "../../x")
             .await

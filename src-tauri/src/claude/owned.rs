@@ -298,6 +298,7 @@ pub fn overlay(state: &AppState, summary: &mut SessionSummary) {
         &super::summaries::session_home(state, &summary.id),
     );
     overlay_settings(summary, &live, always_thinking);
+    let work = control::stream_work(&live);
     if let Some(mode) = live.permission_mode {
         summary.permission_mode = Some(mode);
     }
@@ -314,13 +315,22 @@ pub fn overlay(state: &AppState, summary: &mut SessionSummary) {
     if live.last_error.is_some() && summary.last_error.is_none() {
         summary.last_error = live.last_error;
     }
-    // Between turns the stream says only "idle": what resumes the session
-    // (`activity::between_turns`) stays.
-    if !summary.pending.iter().any(|p| p.answerable)
-        && live.started
-        && summary.status != SessionStatus::Background
-    {
-        summary.activity = live.activity;
+    if !summary.pending.iter().any(|p| p.answerable) && live.started {
+        // Between turns the stream says only "idle": what resumes the
+        // session (`activity::between_turns`) stays, and background work
+        // the stream reports resumes it before the files show it.
+        if summary.status == SessionStatus::Idle && !live.turn_active && work.any() {
+            let inputs = super::activity::Inputs {
+                background: Some(&work),
+                ..Default::default()
+            };
+            if let Some(a) = super::activity::between_turns(&inputs, live.activity.since) {
+                summary.status = SessionStatus::Background;
+                summary.activity = a;
+            }
+        } else if summary.status != SessionStatus::Background {
+            summary.activity = live.activity;
+        }
     }
 }
 

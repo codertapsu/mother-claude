@@ -1586,24 +1586,75 @@ async fn note_activity(state: &AppState, h: &OwnedHandle, mut a: Activity) {
             true
         }
     };
-    if !changed {
+    let turn_active = h.live().turn_active;
+    // A turn that ended with work that resumes the session: background at
+    // once (even after a turn that streamed nothing), not idle until the
+    // next refresh.
+    let between = (!turn_active && a.kind == ActivityKind::Idle)
+        .then(|| resumes_by_itself(state, h, now))
+        .flatten();
+    if !changed && between.is_none() {
         return;
     }
-    state.activity.note_owned(&h.id, a.clone());
-    let turn_active = h.live().turn_active;
+    if changed {
+        state.activity.note_owned(&h.id, a.clone());
+    }
     ws::patch_session(state, &h.id, |s| {
         if s.pending.iter().any(|p| p.answerable) {
             return; // waiting on a human wins
         }
-        s.activity = a;
-        s.status = if turn_active {
-            SessionStatus::Working
-        } else {
-            SessionStatus::Idle
+        (s.status, s.activity) = match between {
+            Some(b) => (SessionStatus::Background, b),
+            None if turn_active => (SessionStatus::Working, a),
+            None => (SessionStatus::Idle, a),
         };
         s.last_activity_at = Some(now);
     })
     .await;
+}
+
+/// The background work an owned session's stream reports still running
+/// (`task_*`, not Claude Code's own housekeeping): it outlives the turn, and
+/// the stream knows it before the transcript shows it.
+pub fn stream_work(live: &OwnedLive) -> super::activity::BackgroundWork {
+    let mut work = super::activity::BackgroundWork::default();
+    let mut labels: Vec<&str> = Vec::new();
+    for t in live
+        .tasks
+        .iter()
+        .filter(|t| t.running() && t.background && !t.ambient)
+    {
+        match t.task_type.as_deref() {
+            Some("local_agent" | "remote_agent") => work.agents += 1,
+            Some("local_workflow" | "workflow") => work.workflows += 1,
+            _ => work.shells += 1,
+        }
+        labels.push(t.description.trim());
+    }
+    if let [one] = labels.as_slice() {
+        work.label = Some(one.to_string()).filter(|l| !l.is_empty());
+    }
+    work
+}
+
+/// What resumes an owned session between turns, if anything
+/// ([`super::activity::between_turns`]): the background work its stream
+/// reports, else what the last refresh saw (work on disk, a `/loop` wakeup
+/// or cron job). `since`: when the turn ended.
+fn resumes_by_itself(state: &AppState, h: &OwnedHandle, since: i64) -> Option<Activity> {
+    let work = stream_work(&h.live());
+    if work.any() {
+        return super::activity::between_turns(
+            &super::activity::Inputs {
+                background: Some(&work),
+                ..Default::default()
+            },
+            Some(since),
+        );
+    }
+    let mut a = state.activity.between(&h.id)?;
+    a.since = Some(since);
+    Some(a)
 }
 
 fn model_info(id: &str) -> ModelInfo {
@@ -2021,8 +2072,11 @@ async fn on_result(state: &AppState, h: &OwnedHandle, v: &Value) {
         crate::server::push::on_session_failed(state, &h.id, &text);
     }
     // Only when the session is really done: queued messages keep it working,
-    // and the push fired at the end covers the whole busy period.
-    if !still_busy {
+    // and the push fired at the end covers the whole busy period. Work that
+    // resumes it by itself keeps it going too: the push derived from its
+    // status says "finished" once it is idle.
+    let resumes = !still_busy && resumes_by_itself(state, h, now).is_some();
+    if !still_busy && !resumes {
         crate::server::push::on_turn_finished(state, &h.id, worked_ms);
     }
     if still_busy {
@@ -2041,7 +2095,11 @@ async fn on_result(state: &AppState, h: &OwnedHandle, v: &Value) {
     ws::publish_notice(
         state,
         NoticeLevel::Success,
-        format!("{name} finished a turn"),
+        if resumes {
+            format!("{name} finished a turn and resumes by itself")
+        } else {
+            format!("{name} finished a turn")
+        },
         Some(&h.id),
     );
 }

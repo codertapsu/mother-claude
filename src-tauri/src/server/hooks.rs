@@ -487,7 +487,7 @@ async fn apply(state: &AppState, session: &str, out: machine::Outcome) -> Value 
     }
     record_delivered(session, &out.delivered);
     if let Some(ms) = out.turn_finished_ms {
-        crate::server::push::on_turn_finished(state, session, ms);
+        crate::server::push::on_turn_ended(state, session, ms);
     }
     if out.turn_failed {
         crate::server::push::on_session_failed(state, session, "The turn ended with an error.");

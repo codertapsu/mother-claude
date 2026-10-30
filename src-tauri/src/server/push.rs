@@ -14,11 +14,13 @@
 //!   The sending client has redirects disabled, a 10 s timeout and no proxy.
 //! * **Triggers** — called by other subsystems (cheap, non-blocking: they only
 //!   enqueue): [`on_pending_added`] (every channel via `pending::raise`),
-//!   [`on_turn_finished`], [`on_session_failed`], [`on_claude_notification`],
-//!   [`on_notification_hook`]. The same facts are also derived from the event
-//!   bus (`sessions` diffs, `transcript` appends), so a subsystem that forgets
-//!   to call a trigger still produces the push; a [`engine::Suppressor`]
-//!   makes the two paths yield one notification.
+//!   [`on_turn_finished`] / [`on_turn_ended`], [`on_session_failed`],
+//!   [`on_claude_notification`], [`on_notification_hook`]. The same facts are
+//!   also derived from the event bus (`sessions` diffs, `transcript`
+//!   appends), so a subsystem that forgets to call a trigger still produces
+//!   the push; a [`engine::Suppressor`] makes the two paths yield one
+//!   notification. A turn that ends with work that resumes the session by
+//!   itself is not "finished": that comes from the bus once it is idle.
 //! * **Coalescing** — per session, 10 s ([`engine::Coalescer`]): the first
 //!   event goes out at once, the rest of the window becomes one follow-up. The
 //!   `Topic` header (per session) lets the push service replace undelivered
@@ -757,6 +759,16 @@ pub fn on_turn_finished(state: &AppState, session_id: &str, worked_ms: u64) {
     let mut e = PushEvent::new(session_id, PushKind::Finished, "finished");
     e.worked_ms = Some(worked_ms);
     state.push.enqueue(Msg::Event(e));
+}
+
+/// A hooked session's turn ended (B4's `Stop`): finished, unless work it
+/// started (or a `/loop` wakeup, a cron job) resumes it by itself, as of the
+/// last refresh (`ActivityTracker::between`) — then the push derived from
+/// its status says "finished" once it is idle.
+pub fn on_turn_ended(state: &AppState, session_id: &str, worked_ms: u64) {
+    if state.activity.between(session_id).is_none() {
+        on_turn_finished(state, session_id, worked_ms);
+    }
 }
 
 /// A session failed or stopped on an API error. `text` is shown only to

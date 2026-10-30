@@ -423,6 +423,44 @@ async fn turn_finished_threshold_and_one_shot() {
 }
 
 #[tokio::test]
+async fn a_turn_that_resumes_by_itself_is_finished_only_once_idle() {
+    use crate::claude::model::{Activity, ActivityKind};
+    let (base, mock) = mock_server().await;
+    let st = started(100);
+    let sk = subscribe_mock(&st, &base, "d1", "p");
+    // A Stop while a background build still runs: not finished.
+    st.activity.note_between(
+        "s1",
+        Some(Activity::new(ActivityKind::Background, "Background work")),
+    );
+    on_turn_ended(&st, "s1", 95_000);
+    settle().await;
+    assert_eq!(mock.total(), 0);
+    // Nothing resumes it: finished.
+    st.activity.note_between("s2", None);
+    on_turn_ended(&st, "s2", 95_000);
+    wait_until("finished push", || mock.total() == 1).await;
+    let v = decrypt(&mock.hits("p")[0], &sk);
+    assert_eq!(v["kind"], "finished");
+
+    // From the bus (the one-shot armed, so a short test turn counts):
+    // working, background (no push), then idle (one).
+    let arm: PrefsPatch =
+        serde_json::from_value(serde_json::json!({"turnFinished": {"s3": true}})).unwrap();
+    st.push.update_prefs("d1", arm).unwrap();
+    session(&st, "s3", "release", SessionStatus::Working).await;
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    crate::server::ws::patch_session(&st, "s3", |s| s.status = SessionStatus::Background).await;
+    settle().await;
+    assert_eq!(mock.total(), 1);
+    crate::server::ws::patch_session(&st, "s3", |s| s.status = SessionStatus::Idle).await;
+    wait_until("derived finished push", || mock.total() == 2).await;
+    let v = decrypt(&mock.hits("p")[1], &sk);
+    assert_eq!(v["title"], "release");
+    assert_eq!(v["kind"], "finished");
+}
+
+#[tokio::test]
 async fn bus_derived_waits_and_claude_notifications() {
     let (base, mock) = mock_server().await;
     let st = started(100);
