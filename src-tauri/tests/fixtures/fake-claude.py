@@ -97,6 +97,23 @@ def sign_in_facts():
     }
 
 
+def read_code():
+    """A line typed at the code prompt, never echoed (the CLI reads it in
+    raw mode). Exits when the terminal closes."""
+    try:
+        import termios
+        fd = sys.stdin.fileno()
+        attrs = termios.tcgetattr(fd)
+        attrs[3] &= ~termios.ECHO
+        termios.tcsetattr(fd, termios.TCSANOW, attrs)
+    except (ImportError, OSError, ValueError):
+        pass
+    line = sys.stdin.readline()
+    if not line:
+        sys.exit(1)
+    return line
+
+
 if ARGS[:2] == ["auth", "status"]:
     token = os.environ.get("CLAUDE_CODE_OAUTH_TOKEN")
     cfg = os.environ.get("CLAUDE_CONFIG_DIR")
@@ -153,7 +170,7 @@ if ARGS[:2] == ["auth", "login"]:
           "After you sign in, paste the code shown.\r\n")
         w("Paste code here if prompted > ")
         sys.stdout.flush()
-        typed = sys.stdin.readline().strip()
+        typed = read_code().strip()
         if typed != script.get("code", typed):
             w("Invalid code\r\n")
             sys.stdout.flush()
@@ -169,11 +186,13 @@ if ARGS[:2] == ["auth", "login"]:
     sys.stdout.flush()
     sys.exit(0)
 if ARGS[:1] == ["setup-token"]:
-    # Ink-like output: colours, cursor moves, an OSC 8 link, then the token.
+    # Ink-like output (2.1.314): bracketed paste on, colours, cursor moves,
+    # an OSC 8 link, words placed one by one, then the token.
     mode = os.environ.get("FAKE_SETUP_TOKEN", "token")
     url = ("https://claude.ai/oauth/authorize?code=true&client_id=fake&state=s1&"
            + urllib.parse.urlencode(sign_in_facts()))
     w = sys.stdout.write
+    w("\x1b[?2004h")
     w("\x1b[?25l\x1b[2K\x1b[G\x1b[2mBrowser didn't open? Use the url below to sign in\x1b[22m\r\n")
     w(f"\x1b]8;;{url}\x1b\\\x1b[2m{url}\x1b[22m\x1b]8;;\x1b\\\r\n")
     sys.stdout.flush()
@@ -185,9 +204,12 @@ if ARGS[:1] == ["setup-token"]:
         time.sleep(600)
         sys.exit(0)
     if mode == "code":
-        w("\x1b[1mPaste code here if prompted >\x1b[22m ")
+        w("\x1b[2GPaste\x1b[8Gcode\x1b[13Ghere\x1b[18Gif\x1b[21Gprompted\x1b[30G>\r\r\n")
         sys.stdout.flush()
-        sys.stdin.readline()
+        # Ink takes a code and its Enter arriving together for pasted text
+        # and submits nothing: only a bracketed paste goes in.
+        while "\x1b[201~" not in read_code():
+            pass
     token = os.environ.get(
         "FAKE_SETUP_TOKEN_VALUE",
         "sk-ant-oat01-" + "Ab1_" * 20 + "-fakeTokenTail0123456789",

@@ -62,6 +62,9 @@ pub struct Stripper {
     csi: Vec<u8>,
     /// Link targets seen in OSC 8 sequences.
     pub links: Vec<String>,
+    /// The program turned bracketed paste on (`CSI ? 2004 h`): a paste
+    /// into it goes between `CSI 200 ~` and `CSI 201 ~`.
+    pub bracketed_paste: bool,
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -129,6 +132,14 @@ impl Stripper {
                             // A cursor jump (VPA too) or erase ends the visible run.
                             b'H' | b'f' | b'E' | b'F' | b'J' | b'K' | b'A' | b'B' | b'd' => {
                                 out.push('\n')
+                            }
+                            // Bracketed paste on or off (`?2004`, alone or
+                            // among other modes).
+                            b'h' | b'l' => {
+                                let modes = self.csi.strip_prefix(b"?").unwrap_or_default();
+                                if modes.split(|c| *c == b';').any(|m| m == b"2004") {
+                                    self.bracketed_paste = b == b'h';
+                                }
                             }
                             _ => {}
                         }
@@ -329,6 +340,12 @@ impl Screen {
             self.text.drain(..cut);
         }
         found
+    }
+
+    /// The CLI takes a paste as one: what is typed into it goes in as a
+    /// bracketed paste.
+    pub fn bracketed_paste(&self) -> bool {
+        self.stripper.bracketed_paste
     }
 
     /// The last visible line, for "it ended without a token": anything that
@@ -571,6 +588,8 @@ struct RunState {
     /// A code was typed since the screen asked for one (its prompt stays on
     /// the screen, asking for nothing more).
     code_typed: bool,
+    /// The CLI turned bracketed paste on: a code goes in as one paste.
+    bracketed_paste: bool,
     /// The last line the screen showed (masked), for a run that stops.
     last_line: Option<String>,
 }
@@ -625,6 +644,7 @@ impl SignInJob {
                 auto_open,
                 timed_out: false,
                 code_typed: false,
+                bracketed_paste: false,
                 last_line: None,
             }),
             #[cfg(feature = "token-capture")]
@@ -716,18 +736,20 @@ impl SignInJob {
         lock(&self.run).view.opened = Some(browser);
     }
 
-    /// The screen changed: the link (or one refused), the code prompt, the
-    /// last line. Returns whether the view changed.
+    /// The screen changed: the link (or one refused), the code prompt,
+    /// bracketed paste, the last line. Returns whether the view changed.
     fn saw(
         &self,
         link: Option<&Link>,
         refused: bool,
         asks_for_code: bool,
+        bracketed_paste: bool,
         last_line: Option<String>,
     ) -> bool {
         let mut run = lock(&self.run);
         run.last_line = last_line;
         run.link_refused |= refused;
+        run.bracketed_paste = bracketed_paste;
         if !run.view.state.is_running() {
             return false;
         }
@@ -760,10 +782,10 @@ impl SignInJob {
         }
         #[cfg(feature = "token-capture")]
         {
+            let keys = keys_for(&code, lock(&self.run).bracketed_paste);
             let mut w = lock(&self.writer);
             let w = w.as_mut().ok_or(SignInError::NotRunning)?;
-            w.write_all(code.as_bytes())
-                .and_then(|_| w.write_all(b"\r"))
+            w.write_all(&keys)
                 .and_then(|_| w.flush())
                 .map_err(|e| SignInError::Input(e.kind().to_string()))?;
             let mut run = lock(&self.run);
@@ -877,6 +899,24 @@ impl SignInJob {
     }
 }
 
+/// The keys a code goes in as: the code and Enter, the code as one paste
+/// while the CLI has bracketed paste on. `setup-token`'s input (CLI 2.1.314)
+/// took a long code and its Enter arriving in one read for pasted text and
+/// never submitted it; a bracketed paste ends where the code does.
+#[cfg(feature = "token-capture")]
+fn keys_for(code: &str, bracketed_paste: bool) -> Vec<u8> {
+    let mut keys = Vec::with_capacity(code.len() + 13);
+    if bracketed_paste {
+        keys.extend_from_slice(b"\x1b[200~");
+    }
+    keys.extend_from_slice(code.as_bytes());
+    if bracketed_paste {
+        keys.extend_from_slice(b"\x1b[201~");
+    }
+    keys.push(b'\r');
+    keys
+}
+
 /// What a run reports back as it goes (from its own threads).
 pub trait SignInSink: Send + Sync + 'static {
     /// The view changed (link seen, code asked for, finished).
@@ -977,6 +1017,7 @@ pub fn start(
                     screen.url.as_ref(),
                     screen.refused_url,
                     screen.asks_for_code,
+                    screen.bracketed_paste(),
                     screen.last_line(),
                 ) {
                     reader_sink.changed(&reading);
@@ -1261,6 +1302,70 @@ mod tests {
         assert_eq!(screen.token.unwrap().expose(), TOKEN);
     }
 
+    /// What is typed into a run, as the CLI reads it.
+    #[cfg(feature = "token-capture")]
+    #[derive(Clone, Default)]
+    struct Keys(Arc<Mutex<Vec<u8>>>);
+
+    #[cfg(feature = "token-capture")]
+    impl std::io::Write for Keys {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            lock(&self.0).extend_from_slice(buf);
+            Ok(buf.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    /// A run that reads what is typed into it.
+    #[cfg(feature = "token-capture")]
+    fn typed_into(kind: SignInKind) -> (SignInJob, Keys) {
+        let job = SignInJob::new("acc_000000000006", kind, false);
+        let keys = Keys::default();
+        *lock(&job.writer) = Some(Box::new(keys.clone()));
+        (job, keys)
+    }
+
+    #[test]
+    fn the_screen_says_when_it_takes_a_paste_as_one() {
+        let mut screen = Screen::default();
+        assert!(!screen.bracketed_paste());
+        // `setup-token` turns it on first thing (`auth login` never does).
+        screen.feed(&setup_token_screen());
+        assert!(screen.bracketed_paste());
+        screen.feed(b"\x1b[?1004;2004l");
+        assert!(!screen.bracketed_paste());
+        // Another mode, or the ANSI mode of the same number, is not it.
+        screen.feed(b"\x1b[?20045h\x1b[2004h\x1b[?25h");
+        assert!(!screen.bracketed_paste());
+    }
+
+    /// `setup-token` (CLI 2.1.314) takes a long code and its Enter arriving
+    /// in one read for pasted text and submits nothing; bracketed, the
+    /// Enter after the paste submits it. `auth login` reads a plain line.
+    #[cfg(feature = "token-capture")]
+    #[test]
+    fn a_code_goes_in_as_one_paste_when_the_cli_takes_pastes() {
+        let (job, keys) = typed_into(SignInKind::Login);
+        job.submit_code(" abc#def\n").unwrap();
+        assert_eq!(*lock(&keys.0), b"abc#def\r");
+
+        let (job, keys) = typed_into(SignInKind::Token);
+        let mut screen = Screen::default();
+        screen.feed(&setup_token_screen());
+        job.saw(
+            screen.url.as_ref(),
+            screen.refused_url,
+            screen.asks_for_code,
+            screen.bracketed_paste(),
+            screen.last_line(),
+        );
+        assert_eq!(job.view().state, SignInState::Code);
+        job.submit_code("abc#def").unwrap();
+        assert_eq!(*lock(&keys.0), b"\x1b[200~abc#def\x1b[201~\r");
+    }
+
     /// `claude auth login` in a terminal (CLI 2.1.312): plain lines, the link
     /// as text, a frame drawn right after it.
     #[test]
@@ -1365,15 +1470,18 @@ mod tests {
         assert!(job.take_auto_open().is_none(), "no link yet");
         assert!(matches!(job.open_link(), Err(SignInError::NoLink)));
         let link = Link::parse(URL).unwrap();
-        assert!(job.saw(Some(&link), false, false, None));
+        assert!(job.saw(Some(&link), false, false, false, None));
         assert_eq!(job.view().state, SignInState::Open);
         assert_eq!(job.view().url.as_deref(), Some(URL));
         assert_eq!(job.take_auto_open(), Some(link.clone()));
         assert!(job.take_auto_open().is_none(), "once");
         assert_eq!(job.open_link().unwrap(), link);
-        assert!(job.saw(Some(&link), false, true, None));
+        assert!(job.saw(Some(&link), false, true, false, None));
         assert_eq!(job.view().state, SignInState::Code);
-        assert!(!job.saw(Some(&link), false, true, None), "nothing new");
+        assert!(
+            !job.saw(Some(&link), false, true, false, None),
+            "nothing new"
+        );
         assert!(job.complete(Ok(())));
         assert_eq!(job.view().state, SignInState::Done);
         assert!(job.view().finished_at.is_some());
@@ -1391,7 +1499,7 @@ mod tests {
     #[test]
     fn a_refused_link_is_never_opened_and_says_so() {
         let job = SignInJob::new("acc_000000000005", SignInKind::Login, true);
-        assert!(!job.saw(None, true, false, None), "nothing to show");
+        assert!(!job.saw(None, true, false, false, None), "nothing to show");
         assert!(job.take_auto_open().is_none());
         assert!(matches!(job.open_link(), Err(SignInError::LinkRefused)));
         assert_eq!(SignInError::LinkRefused.code("x"), "invalid_sign_in_url");
@@ -1403,7 +1511,7 @@ mod tests {
     #[test]
     fn a_token_run_never_opens_on_its_own_and_reads_as_a_capture() {
         let job = SignInJob::new("acc_000000000002", SignInKind::Token, false);
-        job.saw(Some(&Link::parse(URL).unwrap()), false, true, None);
+        job.saw(Some(&Link::parse(URL).unwrap()), false, true, false, None);
         assert!(job.take_auto_open().is_none());
         let c = job.capture_view();
         assert_eq!(c.state, CaptureState::Running);
@@ -1420,7 +1528,7 @@ mod tests {
     #[test]
     fn a_run_without_a_link_stops_after_a_minute() {
         let job = SignInJob::new("acc_000000000003", SignInKind::Login, true);
-        job.saw(None, false, false, Some("Select a method".into()));
+        job.saw(None, false, false, false, Some("Select a method".into()));
         assert!(!job.check_deadlines(Duration::from_secs(59), SIGN_IN_TIMEOUT, LINK_TIMEOUT));
         assert!(job.check_deadlines(LINK_TIMEOUT, SIGN_IN_TIMEOUT, LINK_TIMEOUT));
         let v = job.view();
@@ -1435,7 +1543,7 @@ mod tests {
     #[test]
     fn views_for_everyone_have_no_url() {
         let job = SignInJob::new("acc_000000000004", SignInKind::Login, false);
-        job.saw(Some(&Link::parse(URL).unwrap()), false, false, None);
+        job.saw(Some(&Link::parse(URL).unwrap()), false, false, false, None);
         job.note_opened(Browser::ChromePrivate);
         let json = serde_json::to_value(job.view().public()).unwrap();
         assert_eq!(json["state"], "open");
