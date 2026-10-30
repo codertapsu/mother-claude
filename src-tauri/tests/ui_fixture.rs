@@ -18,6 +18,13 @@
 //! spent): send `hello`, `bash`, `ask` or `plan` to see each kind of card.
 //! `MC_UI_REVEAL=record` makes *Show in Finder* record its command (printed
 //! on stdout) instead of opening a window, for unattended runs.
+//!
+//! Two more live sessions are between turns (Claude Code's pidfile says
+//! `idle`), each "run" by a `sleep` child of this process: a VS Code session
+//! whose last turn left a release build running in the background (background
+//! work), and a terminal `/loop` waiting for its next wakeup (scheduled).
+//! Creating `<dataDir>/finish-build` appends the build's task-notification:
+//! nothing resumes that session any more, and it turns idle.
 
 use std::io::Write;
 use std::net::SocketAddr;
@@ -34,6 +41,10 @@ use serde_json::json;
 
 const SID: &str = "0f1e2d3c-4b5a-4968-8776-655443322110";
 const ENDED: &str = "1a2b3c4d-5e6f-4a0b-8c1d-2e3f4a5b6c7d";
+/// Between turns, its release build running in the background.
+const BUILD: &str = "2b3c4d5e-6f70-4a81-9b2c-3d4e5f607182";
+/// Between turns, a `/loop` wakeup ahead.
+const LOOP: &str = "3c4d5e6f-7081-4b92-8c3d-4e5f60718293";
 
 fn iso(ms: i64) -> String {
     chrono::DateTime::from_timestamp_millis(ms)
@@ -78,6 +89,66 @@ fn fixture(base: &Path) {
     std::fs::write(proj.join(format!("{ENDED}.jsonl")), text).unwrap();
 }
 
+/// The sessions between turns, their processes `build_pid` and `loop_pid`.
+fn between_turns(base: &Path, build_pid: u32, loop_pid: u32) {
+    let t0 = now() - 600_000;
+    let pidfile = |pid: u32, sid: &str, cwd: &str, entrypoint: &str| {
+        std::fs::write(
+            base.join(format!("sessions/{pid}.json")),
+            json!({
+                "pid": pid, "sessionId": sid, "cwd": cwd, "startedAt": t0,
+                "kind": "interactive", "entrypoint": entrypoint, "version": "2.1.314",
+                "status": "idle", "statusUpdatedAt": now() - 60_000
+            })
+            .to_string(),
+        )
+        .unwrap();
+    };
+    let write = |dir: &str, sid: &str, lines: &[serde_json::Value]| {
+        let proj = base.join("projects").join(dir);
+        std::fs::create_dir_all(&proj).unwrap();
+        let text: String = lines.iter().map(|l| l.to_string() + "\n").collect();
+        std::fs::write(proj.join(format!("{sid}.jsonl")), text).unwrap();
+    };
+    pidfile(build_pid, BUILD, "/tmp/ui-release", "claude-vscode");
+    write(
+        "-tmp-ui-release",
+        BUILD,
+        &[
+            json!({"type":"user","uuid":"rb-u1","timestamp":iso(t0 + 1000),"cwd":"/tmp/ui-release","gitBranch":"release/v0.5.1","origin":{"kind":"human"},"message":{"role":"user","content":"Cut v0.5.1 and notarize it"}}),
+            json!({"type":"assistant","uuid":"rb-a1","timestamp":iso(t0 + 3000),"message":{"id":"msg_rb1","model":"claude-opus-5-5","stop_reason":"tool_use","content":[{"type":"tool_use","id":"tu_build","name":"Bash","input":{"command":"scripts/release/release-macos.sh 0.5.1","description":"Release build","run_in_background":true}}],"usage":{"input_tokens":900,"output_tokens":60}}}),
+            json!({"type":"user","uuid":"rb-r1","timestamp":iso(t0 + 3500),"message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"tu_build","content":"Command running in background with ID: brel1."}]},"toolUseResult":{"stdout":"","backgroundTaskId":"brel1"}}),
+            json!({"type":"assistant","uuid":"rb-a2","timestamp":iso(t0 + 6000),"message":{"id":"msg_rb2","model":"claude-opus-5-5","stop_reason":"end_turn","content":[{"type":"text","text":"The release build is running: gate, archive, notarization of the app and the disk image, then verification. When it finishes I'll verify the artifacts and report back."}],"usage":{"input_tokens":20,"output_tokens":45}}}),
+            json!({"type":"ai-title","aiTitle":"Build and notarize v0.5.1"}),
+        ],
+    );
+    pidfile(loop_pid, LOOP, "/tmp/ui-infra", "cli");
+    write(
+        "-tmp-ui-infra",
+        LOOP,
+        &[
+            json!({"type":"user","uuid":"lp-u1","timestamp":iso(t0 + 1000),"cwd":"/tmp/ui-infra","origin":{"kind":"human"},"message":{"role":"user","content":"/loop watch the staging rollout"}}),
+            json!({"type":"assistant","uuid":"lp-a1","timestamp":iso(t0 + 4000),"message":{"id":"msg_lp1","model":"claude-sonnet-5","stop_reason":"tool_use","content":[{"type":"tool_use","id":"tu_wake","name":"ScheduleWakeup","input":{"delaySeconds":900,"reason":"Check whether the staging rollout finished","prompt":"/loop watch the staging rollout","noop":false}}],"usage":{"input_tokens":700,"output_tokens":50}}}),
+            json!({"type":"user","uuid":"lp-r1","timestamp":iso(now() - 120_000),"message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"tu_wake","content":"Next wakeup scheduled."}]},"toolUseResult":{"scheduledFor":now() + 780_000,"clampedDelaySeconds":900,"wasClamped":false}}),
+            json!({"type":"assistant","uuid":"lp-a2","timestamp":iso(now() - 110_000),"message":{"id":"msg_lp2","model":"claude-sonnet-5","stop_reason":"end_turn","content":[{"type":"text","text":"The rollout is at 60%. I'll check again in 15 minutes."}],"usage":{"input_tokens":20,"output_tokens":15}}}),
+            json!({"type":"ai-title","aiTitle":"Watch the staging rollout"}),
+        ],
+    );
+}
+
+/// The release build finishes: its task-notification lands in the
+/// transcript, and nothing else will wake the session.
+fn finish_build(base: &Path) {
+    let path = base.join(format!("projects/-tmp-ui-release/{BUILD}.jsonl"));
+    if let Ok(mut f) = std::fs::OpenOptions::new().append(true).open(path) {
+        let _ = writeln!(
+            f,
+            "{}",
+            json!({"type":"user","uuid":"rb-n1","timestamp":iso(now()),"origin":{"kind":"task-notification"},"message":{"role":"user","content":"<task-notification>\n<task-id>brel1</task-id>\n<tool-use-id>tu_build</tool-use-id>\n<status>completed</status>\n<summary>Release build finished</summary>\n</task-notification>"}})
+        );
+    }
+}
+
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "manual helper: serves the SPA over a synthetic home"]
 async fn serve_a_synthetic_home_for_ui_checks() {
@@ -93,6 +164,20 @@ async fn serve_a_synthetic_home_for_ui_checks() {
     let data = tempfile::tempdir().unwrap();
     let work = tempfile::tempdir().unwrap();
     fixture(home.path());
+    // The processes of the sessions between turns (alive while we serve).
+    let sleeper = || {
+        tokio::process::Command::new("sleep")
+            .arg((seconds + 60).to_string())
+            .kill_on_drop(true)
+            .spawn()
+            .unwrap()
+    };
+    let (build_proc, loop_proc) = (sleeper(), sleeper());
+    between_turns(
+        home.path(),
+        build_proc.id().unwrap(),
+        loop_proc.id().unwrap(),
+    );
     // Owned sessions run the scripted fake CLI, never the real one.
     let fake =
         std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/fake-claude.py");
@@ -159,6 +244,8 @@ async fn serve_a_synthetic_home_for_ui_checks() {
         "hookToken": st.auth.hook_token,
         "dataDir": data.path(),
         "session": SID,
+        "buildSession": BUILD,
+        "loopSession": LOOP,
         "workDir": work.path(),
         "pid": std::process::id(),
     });
@@ -170,6 +257,7 @@ async fn serve_a_synthetic_home_for_ui_checks() {
     write_plugin_files(&plugin).unwrap();
     write_runtime_files(&plugin, port, &st.auth.hook_token).unwrap();
     let trigger = data.path().join("raise-permission");
+    let build_done = data.path().join("finish-build");
     // Keep the live session talking.
     let transcript = home
         .path()
@@ -178,6 +266,9 @@ async fn serve_a_synthetic_home_for_ui_checks() {
     let mut n = 0u32;
     while tokio::time::Instant::now() < deadline {
         tokio::time::sleep(Duration::from_secs(1)).await;
+        if std::fs::remove_file(&build_done).is_ok() {
+            finish_build(home.path());
+        }
         if std::fs::remove_file(&trigger).is_ok() {
             let script = plugin.plugin.mc_hook.clone();
             tokio::spawn(async move {
