@@ -108,6 +108,20 @@ pub struct Rec {
     /// `compact_boundary`: how it was triggered and what it kept.
     #[serde(rename = "compactMetadata")]
     pub compact_metadata: Obj<CompactMeta>,
+    /// `scheduled_task_fire`: the job that fired, `taskKind: "loop"` for a
+    /// dynamic `/loop` wakeup.
+    #[serde(rename = "taskId")]
+    pub task_id: LStr,
+    #[serde(rename = "taskKind")]
+    pub task_kind: LStr,
+    /// A scheduler fire's prompt: `loop_wakeup` | `schedule_wakeup`, with
+    /// the time a wakeup was set for or the job that fired.
+    #[serde(rename = "wakeupSource")]
+    pub wakeup_source: LStr,
+    #[serde(rename = "wakeupScheduledFor")]
+    pub wakeup_scheduled_for: LU64,
+    #[serde(rename = "scheduledTaskId")]
+    pub scheduled_task_id: LStr,
 }
 
 /// `compactMetadata` of a `compact_boundary` record.
@@ -311,6 +325,35 @@ pub struct Tur {
     #[serde(rename = "bashEditDiff")]
     pub bash_edit_diff: Obj<BashEditDiff>,
     pub persistent: LBool,
+    /// ScheduleWakeup: epoch ms the wakeup fires (0: none armed).
+    #[serde(rename = "scheduledFor")]
+    pub scheduled_for: LU64,
+    /// ScheduleWakeup `stop: true`: the dynamic loop ended.
+    pub stopped: LBool,
+    /// CronCreate / CronDelete: the job.
+    pub id: LStr,
+    #[serde(rename = "humanSchedule")]
+    pub human_schedule: CapStr<256>,
+    pub recurring: LBool,
+    /// CronCreate: epoch ms of its next run (the scheduler's per-job offset
+    /// included).
+    #[serde(rename = "nextFireAt")]
+    pub next_fire_at: LU64,
+    /// CronList: every job scheduled.
+    pub jobs: Seq<CronRec>,
+}
+
+/// One `CronList` job.
+#[derive(Debug, Default, Deserialize)]
+#[serde(default)]
+pub struct CronRec {
+    pub id: LStr,
+    #[serde(rename = "humanSchedule")]
+    pub human_schedule: CapStr<256>,
+    /// Present (true) only for a recurring job.
+    pub recurring: LBool,
+    #[serde(rename = "nextFireAt")]
+    pub next_fire_at: LU64,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -917,6 +960,101 @@ pub struct WorkflowLaunch {
     pub ts: Option<i64>,
 }
 
+// ─────────────────────────────── scheduler ───────────────────────────────
+//
+// Claude Code wakes an idle session by itself for a dynamic `/loop` wakeup or
+// a session cron job (verified in CLI 2.1.314, from its tool code):
+//
+// * `ScheduleWakeup {delaySeconds, reason, prompt, noop, stop?}` answers
+//   `{scheduledFor: <epoch ms>, clampedDelaySeconds, wasClamped}`; one wakeup
+//   is pending at a time (a newer call supersedes it), `stop: true` answers
+//   `{scheduledFor: 0, stopped: true, cancelledWakeups}` and a call that armed
+//   nothing (the loop aged out) `scheduledFor: 0`. The fire can come up to a
+//   couple of minutes early or late, and one that never starts leaves no
+//   trace, so a wakeup counts until [`FIRE_GRACE_MS`] past its time;
+// * `CronCreate {cron, prompt, recurring = true, durable}` answers `{id,
+//   humanSchedule, recurring, durable?, nextFireAt?}`, `CronDelete {id}`
+//   cancels one, and `CronList` answers `{jobs: […]}`, the scheduler's whole
+//   list. A one-shot job fires once and deletes itself; a recurring one
+//   expires [`CRON_MAX_AGE_MS`] after it was created;
+// * the interactive CLI notes each fire as a `system` / `scheduled_task_fire`
+//   record (`taskId`, `taskKind: "loop"` for a wakeup), and a fire's prompt
+//   may carry `wakeupSource` (`loop_wakeup`, with `wakeupScheduledFor`, or
+//   `schedule_wakeup`, with `scheduledTaskId`). Headless sessions (VS Code)
+//   write neither, so the times above are what ends a fire there;
+// * all of it lives in the process. A new process resuming the session
+//   revives the cron jobs of its `CronCreate` calls (a recurring one younger
+//   than its maximum age, a one-shot one whose run is still ahead) and
+//   re-arms a wakeup still in the future; one that fell due while no process
+//   ran never fires (Claude Code says so in a task notification).
+
+/// How long past its time a wakeup or a run of a job still counts.
+pub const FIRE_GRACE_MS: i64 = 5 * 60 * 1000;
+/// A recurring session cron job expires this long after it was created (the
+/// CLI's `recurringMaxAgeMs`).
+pub const CRON_MAX_AGE_MS: i64 = 7 * 24 * 3600 * 1000;
+/// The CLI schedules at most 50 jobs.
+const CRON_CAP: usize = 50;
+/// Records written this long before a process started still belong to it.
+const SCHEDULE_SLACK_MS: i64 = 5_000;
+
+/// The dynamic `/loop` wakeup armed last (`ScheduleWakeup`).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct Wakeup {
+    /// Epoch ms it is set for.
+    pub at: i64,
+    /// Why (the call's `reason`), clipped.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+    /// When it was armed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub armed_at: Option<i64>,
+}
+
+/// A session cron job (`CronCreate`, or a `CronList` entry).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct CronJob {
+    pub id: String,
+    /// `humanSchedule` ("every 10 minutes"), clipped.
+    pub schedule: String,
+    #[serde(skip_serializing_if = "is_false")]
+    pub recurring: bool,
+    /// Epoch ms of its next run, while known.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_at: Option<i64>,
+    /// When its `CronCreate` answered (unknown for a job only listed).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub created_at: Option<i64>,
+    /// The latest record that showed it scheduled (created, listed, fired).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub seen_at: Option<i64>,
+}
+
+/// What will wake a session by itself ([`Aggregates::schedule`]).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Schedule {
+    /// The earliest known run (epoch ms); `None` when only recurring jobs
+    /// without a known next run are pending.
+    pub next_at: Option<i64>,
+    /// What runs first: the wakeup's reason or the job's schedule.
+    pub detail: String,
+    /// Wakeups and jobs pending.
+    pub pending: u32,
+}
+
+/// Epoch ms from a `scheduledFor` / `nextFireAt` (0 and nonsense: none).
+fn epoch_ms(v: &LU64) -> Option<i64> {
+    v.0.and_then(|v| i64::try_from(v).ok())
+        .filter(|v| (1_000_000_000_000..10_000_000_000_000).contains(v))
+}
+
+/// A cron job id as the CLI hands it out (anything else: none).
+fn job_id(id: Option<&str>) -> Option<&str> {
+    id.filter(|id| !id.is_empty() && id.len() <= 64)
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct LastErrorRec {
@@ -1351,6 +1489,13 @@ pub struct Aggregates {
     pub agent_calls: Vec<AgentCall>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub workflow_runs: Vec<WorkflowLaunch>,
+    /// The main chain's dynamic `/loop` wakeup, until it fires, is
+    /// superseded or stopped (see the scheduler notes).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub wakeup: Option<Wakeup>,
+    /// The main chain's session cron jobs not deleted, nor fired for good.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub crons: Vec<CronJob>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_error: Option<LastErrorRec>,
     #[serde(skip_serializing_if = "is_zero_u32")]
@@ -1905,6 +2050,10 @@ impl Aggregates {
             .get()
             .and_then(|o| o.kind.get())
             .map(str::to_string);
+        let main_chain = !rec.is_sidechain.yes();
+        if main_chain {
+            self.fire_prompt(&rec, ts);
+        }
         let Some(msg) = rec.message.0 else { return };
         let mut text_blocks: Vec<String> = Vec::new();
         let mut results: Vec<(String, bool)> = Vec::new();
@@ -1972,6 +2121,9 @@ impl Aggregates {
                 }
                 if let Some(t) = &tur {
                     self.apply_tool_result(id, pending.as_ref(), t, ts);
+                    if main_chain && !*is_error {
+                        self.apply_schedule(pending.as_ref(), t, ts);
+                    }
                 }
             }
             self.last_mark = Mark {
@@ -2042,6 +2194,170 @@ impl Aggregates {
                 ..Default::default()
             });
         }
+    }
+
+    /// The prompt of a scheduler fire, when the CLI names what fired.
+    fn fire_prompt(&mut self, rec: &Rec, ts: Option<i64>) {
+        match rec.wakeup_source.get() {
+            Some("loop_wakeup") => {
+                let set_for = epoch_ms(&rec.wakeup_scheduled_for);
+                if self
+                    .wakeup
+                    .as_ref()
+                    .is_some_and(|w| set_for.is_none_or(|t| t == w.at))
+                {
+                    self.wakeup = None;
+                }
+            }
+            Some("schedule_wakeup") => {
+                if let Some(id) = rec.scheduled_task_id.get() {
+                    self.job_fired(id, ts);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// A cron job ran: a one-shot one is gone, a recurring one's next run is
+    /// unknown until the next `CronList`.
+    fn job_fired(&mut self, id: &str, ts: Option<i64>) {
+        let Some(i) = self.crons.iter().position(|j| j.id == id) else {
+            return;
+        };
+        if self.crons[i].recurring {
+            let j = &mut self.crons[i];
+            j.next_at = None;
+            j.seen_at = ts.or(j.seen_at);
+        } else {
+            self.crons.remove(i);
+        }
+    }
+
+    /// A main-chain `ScheduleWakeup` / `CronCreate` / `CronDelete` /
+    /// `CronList` result (see the scheduler notes).
+    fn apply_schedule(&mut self, p: Option<&PendingTool>, t: &Tur, ts: Option<i64>) {
+        let input = |k: &str| {
+            p.and_then(|p| p.input.as_ref())
+                .and_then(|i| i.get(k))
+                .and_then(Value::as_str)
+        };
+        match p.map(|p| p.name.as_str()) {
+            Some("ScheduleWakeup") => {
+                // A newer call supersedes the pending wakeup; `stop` and a
+                // call that armed nothing leave none.
+                self.wakeup = epoch_ms(&t.scheduled_for)
+                    .filter(|_| !t.stopped.yes())
+                    .map(|at| Wakeup {
+                        at,
+                        reason: input("reason")
+                            .map(|r| clip_chars(r, 160))
+                            .filter(|r| !r.is_empty()),
+                        armed_at: ts,
+                    });
+            }
+            Some("CronCreate") => {
+                let Some(id) = job_id(t.id.get()) else {
+                    return;
+                };
+                let schedule = t
+                    .human_schedule
+                    .get()
+                    .or(input("cron"))
+                    .map(|s| clip_chars(s, 120))
+                    .unwrap_or_default();
+                self.crons.retain(|j| j.id != id);
+                self.crons.push(CronJob {
+                    id: id.to_string(),
+                    schedule,
+                    recurring: t.recurring.0.unwrap_or(true),
+                    next_at: epoch_ms(&t.next_fire_at),
+                    created_at: ts,
+                    seen_at: ts,
+                });
+                if self.crons.len() > CRON_CAP {
+                    self.crons.remove(0);
+                }
+            }
+            Some("CronDelete") => {
+                if let Some(id) = job_id(t.id.get().or(input("id"))) {
+                    self.crons.retain(|j| j.id != id);
+                }
+            }
+            Some("CronList") => {
+                // The scheduler's whole list (the pending wakeup included).
+                let known = std::mem::take(&mut self.crons);
+                self.crons = t
+                    .jobs
+                    .0
+                    .iter()
+                    .filter_map(|j| {
+                        let id = job_id(j.id.get())?;
+                        let before = known.iter().find(|k| k.id == id);
+                        Some(CronJob {
+                            id: id.to_string(),
+                            schedule: j
+                                .human_schedule
+                                .get()
+                                .map(|s| clip_chars(s, 120))
+                                .or_else(|| before.map(|b| b.schedule.clone()))
+                                .unwrap_or_default(),
+                            recurring: j.recurring.yes(),
+                            next_at: epoch_ms(&j.next_fire_at),
+                            created_at: before.and_then(|b| b.created_at),
+                            seen_at: ts,
+                        })
+                    })
+                    .take(CRON_CAP)
+                    .collect();
+            }
+            _ => {}
+        }
+    }
+
+    /// What will wake this transcript's session by itself as of `now`, for
+    /// the live process that started at `started` (`None`: unknown, taken as
+    /// the one that wrote the records). See the scheduler notes; ask only
+    /// for a session whose process is alive.
+    pub fn schedule(&self, now: i64, started: Option<i64>) -> Option<Schedule> {
+        let this_process = |t: Option<i64>| match (t, started) {
+            (_, None) => true,
+            (Some(t), Some(s)) => t + SCHEDULE_SLACK_MS >= s,
+            (None, Some(_)) => false,
+        };
+        // A run due before this process started was an earlier one's.
+        let ahead = |at: i64| started.is_none_or(|s| at > s);
+        let mut due: Vec<(Option<i64>, &str)> = Vec::new();
+        if let Some(w) = &self.wakeup {
+            // A new process re-arms it only while it is still ahead.
+            if (this_process(w.armed_at) || ahead(w.at)) && now <= w.at + FIRE_GRACE_MS {
+                due.push((Some(w.at), w.reason.as_deref().unwrap_or_default()));
+            }
+        }
+        for j in &self.crons {
+            let here = this_process(j.seen_at);
+            // A new process revives only the jobs of `CronCreate` calls.
+            if !here && j.created_at.is_none() {
+                continue;
+            }
+            let next = j
+                .next_at
+                .filter(|n| now <= n + FIRE_GRACE_MS && (here || ahead(*n)));
+            if j.recurring {
+                if j.created_at.is_some_and(|c| now - c >= CRON_MAX_AGE_MS) {
+                    continue;
+                }
+            } else if j.next_at.is_some() && next.is_none() {
+                // A one-shot run that passed (or fell due between processes).
+                continue;
+            }
+            due.push((next, j.schedule.as_str()));
+        }
+        let first = due.iter().min_by_key(|(at, _)| (at.is_none(), *at))?;
+        Some(Schedule {
+            next_at: first.0,
+            detail: first.1.to_string(),
+            pending: due.len() as u32,
+        })
     }
 
     fn apply_tool_result(
@@ -2280,6 +2596,15 @@ impl Aggregates {
                         .map(|a| (a, rec.max_retries.0.unwrap_or(0))),
                 };
             }
+            // The interactive CLI notes each scheduler fire.
+            Some("scheduled_task_fire") if !rec.is_sidechain.yes() => {
+                if rec.task_kind.is("loop") {
+                    self.wakeup = None;
+                }
+                if let Some(id) = rec.task_id.get() {
+                    self.job_fired(id, ts);
+                }
+            }
             Some("stop_hook_summary") | Some("turn_duration")
                 if !matches!(self.last_mark.kind, MarkKind::Prompt | MarkKind::ToolResult) =>
             {
@@ -2348,6 +2673,8 @@ impl Aggregates {
             tasks: Vec::new(),
             agent_calls: Vec::new(),
             workflow_runs: Vec::new(),
+            wakeup: self.wakeup.clone(),
+            crons: self.crons.clone(),
             last_error: self.last_error.clone(),
             compactions: self.compactions,
             last_compact_ts: self.last_compact_ts,
@@ -3863,6 +4190,239 @@ mod tests {
         let fi = scan_str(&lines);
         assert_eq!(fi.agg.queue.len(), QUEUE_CAP);
         assert_eq!(fi.agg.queue[0].text, "keep me");
+    }
+
+    // ─── scheduler ───
+
+    /// 2026-09-22T…: a fixed clock for the scheduler records.
+    const T0: i64 = 1_790_000_000_000;
+    const MIN: i64 = 60_000;
+
+    fn iso_ms(ms: i64) -> String {
+        chrono::DateTime::from_timestamp_millis(ms)
+            .unwrap()
+            .to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
+    }
+
+    fn tool_call(at: i64, id: &str, name: &str, input: Value) -> String {
+        serde_json::json!({"type":"assistant","timestamp":iso_ms(at),"message":{"id":format!("m-{id}"),"model":"claude-opus-5","stop_reason":"tool_use","content":[{"type":"tool_use","id":id,"name":name,"input":input}],"usage":{"input_tokens":1,"output_tokens":1}}}).to_string() + "\n"
+    }
+
+    fn tool_done(at: i64, id: &str, result: Value) -> String {
+        serde_json::json!({"type":"user","timestamp":iso_ms(at),"message":{"role":"user","content":[{"type":"tool_result","tool_use_id":id,"content":"ok"}]},"toolUseResult":result}).to_string() + "\n"
+    }
+
+    /// A `ScheduleWakeup` call at `at` for `delay` ms, and its answer.
+    fn wakeup(at: i64, id: &str, delay: i64, reason: &str) -> String {
+        tool_call(
+            at,
+            id,
+            "ScheduleWakeup",
+            serde_json::json!({"delaySeconds": delay / 1000, "reason": reason, "prompt": "/loop", "noop": false}),
+        ) + &tool_done(
+            at + 100,
+            id,
+            serde_json::json!({"scheduledFor": at + delay, "clampedDelaySeconds": delay / 1000, "wasClamped": false}),
+        )
+    }
+
+    /// A `CronCreate` call at `at` and its answer.
+    fn cron(at: i64, id: &str, schedule: &str, recurring: bool, next: i64) -> String {
+        let call = format!("tc-{id}");
+        tool_call(
+            at,
+            &call,
+            "CronCreate",
+            serde_json::json!({"cron": "*/10 * * * *", "prompt": "check", "recurring": recurring}),
+        ) + &tool_done(
+            at + 100,
+            &call,
+            serde_json::json!({"id": id, "humanSchedule": schedule, "recurring": recurring, "nextFireAt": next}),
+        )
+    }
+
+    fn fire(at: i64, task: &str, loop_wakeup: bool) -> String {
+        let mut rec = serde_json::json!({"type":"system","subtype":"scheduled_task_fire","timestamp":iso_ms(at),"content":"Running scheduled task","taskId":task,"cron":"* * * * *","prompt":"check"});
+        if loop_wakeup {
+            rec["taskKind"] = "loop".into();
+        }
+        rec.to_string() + "\n"
+    }
+
+    fn sched(lines: &str, now: i64, started: Option<i64>) -> Option<Schedule> {
+        scan_str(lines).agg.schedule(now, started)
+    }
+
+    #[test]
+    fn a_wakeup_counts_until_it_fires_or_its_grace_runs_out() {
+        let armed = wakeup(T0, "w1", 10 * MIN, "Check the release build");
+        let at = T0 + 10 * MIN;
+        let s = sched(&armed, T0 + MIN, Some(T0 - MIN)).unwrap();
+        assert_eq!(s.next_at, Some(at));
+        assert_eq!(s.detail, "Check the release build");
+        assert_eq!(s.pending, 1);
+        // Due: it may fire a little late, so it still counts…
+        assert_eq!(sched(&armed, at + 2 * MIN, None).unwrap().next_at, Some(at));
+        // …until the grace runs out (a fire that never starts leaves no trace).
+        assert!(sched(&armed, at + FIRE_GRACE_MS + 1, None).is_none());
+        // The interactive CLI notes the fire.
+        assert!(sched(&(armed.clone() + &fire(at, "j1", true)), at, None).is_none());
+        // A fire's prompt names the wakeup it was set for: only that one.
+        let prompt = |set_for: i64| {
+            serde_json::json!({"type":"user","isMeta":true,"timestamp":iso_ms(at),"wakeupSource":"loop_wakeup","wakeupScheduledFor":set_for,"message":{"role":"user","content":"/loop"}}).to_string() + "\n"
+        };
+        assert!(sched(&(armed.clone() + &prompt(at)), at, None).is_none());
+        assert!(sched(&(armed.clone() + &prompt(at - MIN)), at, None).is_some());
+        // A subagent's call is not the session's.
+        let side: String = armed
+            .lines()
+            .map(|l| {
+                let mut v: Value = serde_json::from_str(l).unwrap();
+                v["isSidechain"] = true.into();
+                v.to_string() + "\n"
+            })
+            .collect();
+        assert!(sched(&side, T0 + MIN, None).is_none());
+    }
+
+    #[test]
+    fn a_newer_wakeup_supersedes_and_stop_cancels() {
+        let two = wakeup(T0, "w1", 30 * MIN, "first") + &wakeup(T0 + MIN, "w2", 2 * MIN, "second");
+        let s = sched(&two, T0 + MIN, None).unwrap();
+        assert_eq!((s.next_at, s.pending), (Some(T0 + 3 * MIN), 1));
+        assert_eq!(s.detail, "second");
+        // `stop: true` ends the loop; a call that armed nothing leaves none.
+        let stop = tool_call(
+            T0 + 2 * MIN,
+            "w3",
+            "ScheduleWakeup",
+            serde_json::json!({"stop": true}),
+        ) + &tool_done(
+            T0 + 2 * MIN,
+            "w3",
+            serde_json::json!({"scheduledFor":0,"clampedDelaySeconds":0,"wasClamped":false,"stopped":true,"cancelledWakeups":1}),
+        );
+        assert!(sched(&(two.clone() + &stop), T0 + 2 * MIN, None).is_none());
+        let aged = tool_call(
+            T0 + 2 * MIN,
+            "w4",
+            "ScheduleWakeup",
+            serde_json::json!({"delaySeconds": 60}),
+        ) + &tool_done(
+            T0 + 2 * MIN,
+            "w4",
+            serde_json::json!({"scheduledFor":0,"clampedDelaySeconds":0,"wasClamped":false}),
+        );
+        assert!(sched(&(two.clone() + &aged), T0 + 2 * MIN, None).is_none());
+        // A refused call changes nothing.
+        let refused = tool_call(T0 + 2 * MIN, "w5", "ScheduleWakeup", serde_json::json!({"delaySeconds": 60}))
+            + &serde_json::json!({"type":"user","timestamp":iso_ms(T0 + 2 * MIN),"message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"w5","content":"refused","is_error":true}]},"toolUseResult":"Error: refused"}).to_string()
+            + "\n";
+        assert_eq!(
+            sched(&(two + &refused), T0 + 2 * MIN, None).unwrap().detail,
+            "second"
+        );
+    }
+
+    #[test]
+    fn cron_jobs_follow_create_delete_list_and_their_runs() {
+        let jobs = cron(T0, "c1", "every 10 minutes", true, T0 + 10 * MIN)
+            + &cron(T0, "c2", "once at 15:02", false, T0 + 2 * MIN);
+        let s = sched(&jobs, T0 + MIN, None).unwrap();
+        assert_eq!((s.next_at, s.pending), (Some(T0 + 2 * MIN), 2));
+        assert_eq!(s.detail, "once at 15:02");
+        // The one-shot run passes: it deleted itself.
+        let s = sched(&jobs, T0 + 2 * MIN + FIRE_GRACE_MS + 1, None).unwrap();
+        assert_eq!((s.next_at, s.pending), (Some(T0 + 10 * MIN), 1));
+        // Its fire, noted, takes it at once.
+        let fired = jobs.clone() + &fire(T0 + 2 * MIN, "c2", false);
+        assert_eq!(sched(&fired, T0 + 2 * MIN, None).unwrap().pending, 1);
+        // A recurring job past its run: still scheduled, next run unknown.
+        let s = sched(&jobs, T0 + 20 * MIN, None).unwrap();
+        assert_eq!((s.next_at, s.detail.as_str()), (None, "every 10 minutes"));
+        // It expires seven days after it was created.
+        assert!(sched(&jobs, T0 + 100 + CRON_MAX_AGE_MS - 1, None).is_some());
+        assert!(sched(&jobs, T0 + 100 + CRON_MAX_AGE_MS, None).is_none());
+        // CronDelete cancels one.
+        let deleted = jobs.clone()
+            + &tool_call(
+                T0 + MIN,
+                "td",
+                "CronDelete",
+                serde_json::json!({"id": "c1"}),
+            )
+            + &tool_done(T0 + MIN, "td", serde_json::json!({"id": "c1"}));
+        let s = sched(&deleted, T0 + MIN, None).unwrap();
+        assert_eq!((s.pending, s.detail.as_str()), (1, "once at 15:02"));
+        // CronList is the scheduler's whole list.
+        let listed = jobs
+            + &tool_call(T0 + MIN, "tl", "CronList", serde_json::json!({}))
+            + &tool_done(
+                T0 + MIN,
+                "tl",
+                serde_json::json!({"jobs":[{"id":"c1","cron":"*/10 * * * *","humanSchedule":"every 10 minutes","prompt":"check","recurring":true,"nextFireAt":T0 + 10 * MIN}]}),
+            );
+        let fi = scan_str(&listed);
+        assert_eq!(fi.agg.crons.len(), 1);
+        assert_eq!(
+            fi.agg.crons[0].created_at,
+            Some(T0 + 100),
+            "kept from its CronCreate"
+        );
+        let empty = tool_call(T0, "tl", "CronList", serde_json::json!({}))
+            + &tool_done(T0, "tl", serde_json::json!({"jobs": []}));
+        assert!(sched(
+            &(cron(T0, "c1", "hourly", true, T0 + MIN) + &empty),
+            T0,
+            None
+        )
+        .is_none());
+    }
+
+    #[test]
+    fn a_new_process_revives_jobs_and_wakeups_still_ahead() {
+        let lines = cron(T0, "c1", "every 10 minutes", true, T0 + 10 * MIN)
+            + &cron(T0, "c2", "once at 16:00", false, T0 + 60 * MIN)
+            + &wakeup(T0, "w1", 5 * MIN, "poll the deploy")
+            + &tool_call(T0 + 1000, "tl", "CronList", serde_json::json!({}))
+            + &tool_done(
+                T0 + 1000,
+                "tl",
+                serde_json::json!({"jobs":[
+                    {"id":"c1","humanSchedule":"every 10 minutes","recurring":true,"nextFireAt":T0 + 10 * MIN},
+                    {"id":"c2","humanSchedule":"once at 16:00","nextFireAt":T0 + 60 * MIN},
+                    {"id":"loopjob","humanSchedule":"at 15:05","nextFireAt":T0 + 5 * MIN}
+                ]}),
+            );
+        // The same process: everything, the wakeup first.
+        let s = sched(&lines, T0 + MIN, Some(T0 - MIN)).unwrap();
+        assert_eq!((s.next_at, s.pending), (Some(T0 + 5 * MIN), 4));
+        // A process resumed it after the wakeup fell due: that wakeup never
+        // fires, the jobs of its CronCreate calls come back, a job it only
+        // listed does not.
+        let started = T0 + 8 * MIN;
+        let s = sched(&lines, started + 1000, Some(started)).unwrap();
+        assert_eq!((s.next_at, s.pending), (Some(T0 + 10 * MIN), 2));
+        // Resumed after the recurring job's run: its next run is unknown.
+        let started = T0 + 12 * MIN;
+        let s = sched(&lines, started + 1000, Some(started)).unwrap();
+        assert_eq!((s.next_at, s.pending), (Some(T0 + 60 * MIN), 2));
+        // Resumed after the one-shot run: only the recurring job is left.
+        let started = T0 + 70 * MIN;
+        let s = sched(&lines, started + 1000, Some(started)).unwrap();
+        assert_eq!((s.next_at, s.pending), (None, 1));
+        // A wakeup still ahead when a process takes over is re-armed.
+        let started = T0 + 2 * MIN;
+        assert_eq!(
+            sched(
+                &wakeup(T0, "w1", 5 * MIN, "poll"),
+                started + 1000,
+                Some(started)
+            )
+            .unwrap()
+            .next_at,
+            Some(T0 + 5 * MIN)
+        );
     }
 
     #[test]

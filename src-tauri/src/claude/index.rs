@@ -40,9 +40,9 @@ use std::time::{Duration, Instant};
 use serde::{Deserialize, Serialize};
 
 pub use agg::{
-    classify_path, notes_ultracode, stamp_of, AgentCall, Aggregates, BgTask, FileIndex, FileKind,
-    LastAct, Mark, MarkKind, PendingTool, QueuedPrompt, QuotaHit, Stamp, Totals, UltraReplay,
-    UltraSeen, UltraState, UltraUnknown,
+    classify_path, notes_ultracode, stamp_of, AgentCall, Aggregates, BgTask, CronJob, FileIndex,
+    FileKind, LastAct, Mark, MarkKind, PendingTool, QueuedPrompt, QuotaHit, Schedule, Stamp,
+    Totals, UltraReplay, UltraSeen, UltraState, UltraUnknown, Wakeup,
 };
 
 use super::home::ClaudeHome;
@@ -69,7 +69,10 @@ const RECENT_SUBAGENT: Duration = Duration::from_secs(15 * 60);
 /// Claude Code sees (`Aggregates::ultra`): a regular prompt without a marker
 /// confirms the state, dated to that prompt, and compactions hide markers —
 /// without the bump, ended sessions would keep no ultracode state at all.
-const CACHE_VERSION: u32 = 6;
+/// 7: the `/loop` wakeup and the session cron jobs (`Aggregates::wakeup`,
+/// `crons`) — without the bump, a session live across the upgrade would miss
+/// what it scheduled before it and show as idle while it will resume.
+const CACHE_VERSION: u32 = 7;
 const PERSIST_EVERY: Duration = Duration::from_secs(30);
 
 /// A subagent / workflow-agent transcript of a session.
