@@ -941,6 +941,15 @@ async fn a_login_takes_the_code_the_browser_shows() {
     f.sign_in_when(&id, "asks again", |s| s["state"] == "code")
         .await;
     let code_path = format!("/accounts/{id}/sign-in/code");
+    // A token is never typed in, nor repeated.
+    let (s, v) = f
+        .call("POST", &code_path, &desk, Some(json!({ "code": TOKEN })))
+        .await;
+    assert_eq!(s, StatusCode::UNPROCESSABLE_ENTITY, "{v}");
+    assert_eq!(v["error"]["code"], "invalid_body");
+    assert!(!v.to_string().contains(&TOKEN[..20]), "{v}");
+    let run = f.account(&id).await["signIn"].clone();
+    assert!(run.get("codeSent").is_none(), "nothing went in: {run}");
     let (s, v) = f
         .call("POST", &code_path, &desk, Some(json!({"code": "wrong"})))
         .await;
@@ -1369,6 +1378,41 @@ async fn setup_token_is_captured_into_the_secret_store() {
     assert!(f.st.accounts.env(&other).is_err(), "nothing stored there");
     match f.st.accounts.env(&id).unwrap() {
         mother_claude_lib::claude::accounts::AccountEnv::Token(t) => assert_eq!(t.expose(), token),
+        other => panic!("{other:?}"),
+    }
+
+    // A token pasted while a run waits for the code is the account's token:
+    // the run has what it was for, ends done and stops.
+    std::env::set_var("FAKE_SETUP_TOKEN", "code");
+    f.call(
+        "POST",
+        &format!("/accounts/{other}/token"),
+        &desk,
+        Some(json!({})),
+    )
+    .await;
+    f.wait_for(&other, "asks for the code", |a| {
+        a["capture"]["asksForCode"] == true
+    })
+    .await;
+    let pasted = "sk-ant-oat01-SecondAccountsOwnToken0123456789abcdefghijABCD";
+    let (s, v) = f
+        .call(
+            "POST",
+            &format!("/accounts/{other}/token"),
+            &desk,
+            Some(json!({ "token": pasted })),
+        )
+        .await;
+    std::env::remove_var("FAKE_SETUP_TOKEN");
+    assert_eq!(s, StatusCode::OK, "{v}");
+    assert_eq!(v["signIn"]["state"], "done", "{v}");
+    assert_eq!(v["capture"]["state"], "captured", "{v}");
+    assert_eq!(v["tokenStored"], true, "{v}");
+    match f.st.accounts.env(&other).unwrap() {
+        mother_claude_lib::claude::accounts::AccountEnv::Token(t) => {
+            assert_eq!(t.expose(), pasted)
+        }
         other => panic!("{other:?}"),
     }
     assert!(f.st.opener.recorded().is_empty());

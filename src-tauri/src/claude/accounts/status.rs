@@ -222,7 +222,9 @@ pub async fn note_auth_failed(state: &AppState, id: &str) {
 
 /// Store a token the user pasted, after `claude auth status` with it accepts
 /// it (it checks the shape and the sign-in it implies; whether the token
-/// works shows on its first use).
+/// works shows on its first use). A token sign-in running for the account
+/// has what it was for: it ends done and its `setup-token` stops (the token
+/// pasted where the code goes, docs/ACCOUNTS.md §15.2).
 pub async fn paste_token(state: &AppState, id: &str, token: Secret) -> Result<AuthStatus, String> {
     let account = state
         .accounts
@@ -246,6 +248,9 @@ pub async fn paste_token(state: &AppState, id: &str, token: Secret) -> Result<Au
         s.auth = Some(status.clone());
         s.checked_at = Some(now_ms());
     });
+    if let Some(job) = state.accounts.runtime.sign_in(id) {
+        job.got_token();
+    }
     super::view::publish(state).await;
     Ok(status)
 }

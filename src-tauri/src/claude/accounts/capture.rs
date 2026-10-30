@@ -208,6 +208,12 @@ fn is_token_char(c: u8) -> bool {
     c.is_ascii_alphanumeric() || c == b'-' || c == b'_'
 }
 
+/// Text holding a token or a key (`sk-ant-…`), which is never typed into a
+/// sign-in.
+fn looks_like_token(text: &str) -> bool {
+    text.to_ascii_lowercase().contains("sk-ant-")
+}
+
 /// The first complete `sk-ant-oat<2 digits>-…` in `text`: followed by a
 /// character that cannot be part of it, so a token cut by a chunk boundary is
 /// never taken.
@@ -920,12 +926,19 @@ impl SignInJob {
 
     /// Type the code the browser shows into the screen. It counts as sent
     /// before it goes in (the CLI may answer at once) until the CLI turns it
-    /// down, starts over or the run ends.
+    /// down, starts over or the run ends. A token is never typed in: the CLI
+    /// would take it for a code (the refusal never repeats it).
     pub fn submit_code(&self, code: &str) -> Result<(), SignInError> {
         let code: String = code.trim().chars().filter(|c| !c.is_control()).collect();
         if code.is_empty() || code.len() > CODE_MAX {
             return Err(SignInError::Invalid(
                 "the code is empty or too long".to_string(),
+            ));
+        }
+        if looks_like_token(&code) {
+            return Err(SignInError::Invalid(
+                "that is a token (sk-ant-…), not the code the browser shows; it was not typed in"
+                    .to_string(),
             ));
         }
         if !self.is_running() {
@@ -977,6 +990,16 @@ impl SignInJob {
             self.kill();
         }
         stopped
+    }
+
+    /// The run's account got its token another way (pasted): a token run
+    /// still going has what it was for, so it ends done and its CLI stops.
+    pub fn got_token(&self) -> bool {
+        if self.kind != SignInKind::Token || !self.finish(SignInState::Done, None) {
+            return false;
+        }
+        self.kill();
+        true
     }
 
     /// Stop the CLI and reap it. The child leaves the job here: nothing
@@ -1665,6 +1688,45 @@ mod tests {
         // When it ends, nothing is waiting for an answer.
         assert!(job.complete(Err("it ended".into())));
         assert!(!job.view().code_sent);
+    }
+
+    /// A token pasted where the code goes is never typed in, and the refusal
+    /// never repeats it.
+    #[cfg(feature = "token-capture")]
+    #[test]
+    fn a_token_is_never_typed_in_as_a_code() {
+        let (job, keys) = typed_into(SignInKind::Token);
+        job.saw(&shown(Some(URL), 1));
+        let padded = format!("  {TOKEN}\n");
+        let api_key = "sk-ant-api03-AbCdEfGhIjKlMnOpQrStUvWxYz0123456789";
+        let shouted = TOKEN.to_ascii_uppercase();
+        for pasted in [TOKEN, padded.as_str(), api_key, shouted.as_str()] {
+            let e = job.submit_code(pasted).unwrap_err();
+            assert_eq!(e.code("x"), "invalid_body");
+            let said = e.to_string();
+            assert!(said.contains("not the code"), "{said}");
+            assert!(!said.contains(&pasted.trim()[..14]), "{said}");
+        }
+        assert!(lock(&keys.0).is_empty(), "nothing typed");
+        let v = job.view();
+        assert_eq!((v.state, v.code_sent), (SignInState::Code, false));
+    }
+
+    /// The account got its token pasted: its token run ends done and stops;
+    /// a login, or a run that ended, stays as it is.
+    #[test]
+    fn a_token_run_ends_when_the_token_arrives_another_way() {
+        let job = SignInJob::new("acc_000000000007", SignInKind::Token, false);
+        job.saw(&shown(Some(URL), 1));
+        assert!(job.got_token());
+        let v = job.view();
+        assert_eq!(v.state, SignInState::Done);
+        assert!(v.finished_at.is_some() && v.error.is_none());
+        assert_eq!(job.capture_view().state, CaptureState::Captured);
+        assert!(!job.got_token(), "once");
+        let login = SignInJob::new("acc_000000000008", SignInKind::Login, false);
+        assert!(!login.got_token());
+        assert!(login.is_running());
     }
 
     /// A prompt, a refusal or an offer to start over counts when it appears:
