@@ -63,12 +63,13 @@ export function resetsIn(resetsAt: number | undefined, now = Date.now()): string
   return `resets in ${formatCountdown(resetsAt - now)}`;
 }
 
-/** A scheduled session's "resumes in 12m" · "due now" (the time has come;
- * a fire can be a little late) · '' (unknown). */
+/** When a scheduled session resumes, after its "Scheduled to resume":
+ * "in 12m" · "due now" (the time has come; a fire can be a little late) ·
+ * '' (unknown). */
 export function resumesIn(resumesAt: number | undefined, now = Date.now()): string {
   if (!resumesAt) return '';
   if (resumesAt <= now) return 'due now';
-  return `resumes in ${formatCountdown(resumesAt - now)}`;
+  return `in ${formatCountdown(resumesAt - now)}`;
 }
 
 /** A reset time people can place: "14:30" today, "Tue 14:30" this week,

@@ -166,7 +166,7 @@ describe('SessionsComponent accounts', () => {
       text(c).includes('Session c'),
     );
     expect(text(scheduled?.querySelector('mc-activity-line'))).toMatch(
-      /^Scheduled to resume\s*·\s*Check the rollout\s*·\s*resumes in 1[12]m$/,
+      /^Scheduled to resume\s*·\s*in 1[12]m\s*·\s*Check the rollout$/,
     );
     // The fleet counts them apart.
     expect(text(el.querySelector('mc-fleet-summary'))).toContain('2 will resume');

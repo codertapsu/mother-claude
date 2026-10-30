@@ -110,7 +110,7 @@ describe('shared/util', () => {
     expect(statusTone('background')).toBe('accent');
     expect(activityLabel({ kind: 'scheduled', label: '' })).toBe('Scheduled to resume');
     const now = 1_000_000_000;
-    expect(resumesIn(now + 12 * 60_000, now)).toBe('resumes in 12m');
+    expect(resumesIn(now + 12 * 60_000, now)).toBe('in 12m');
     expect(resumesIn(now - 1, now)).toBe('due now');
     expect(resumesIn(undefined, now)).toBe('');
   });

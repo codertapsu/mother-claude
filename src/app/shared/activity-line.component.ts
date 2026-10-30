@@ -7,8 +7,8 @@ import { ElapsedPipe } from './time.pipes';
 import { activityIsBusy, activityLabel, resumesIn } from './util';
 
 /** "Running Bash · npm test · 12s" — what a session or agent is doing now;
- * "Scheduled to resume · Check the deploy · resumes in 12m" when a wakeup
- * or job will wake it. */
+ * "Scheduled to resume · in 12m · Check the deploy" when a wakeup or job
+ * will wake it (the time first: a long reason is cut, the time never). */
 @Component({
   selector: 'mc-activity-line',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -19,12 +19,13 @@ import { activityIsBusy, activityLabel, resumesIn } from './util';
       <span class="dot" [class.busy]="busy()" [class.stale]="stale()"></span>
       <span class="line">
         <span class="label">{{ label() }}</span>
+        @if (resumes(); as r) {
+          <span class="sep">·</span><span class="elapsed">{{ r }}</span>
+        }
         @if (a.detail) {
           <span class="sep">·</span><span class="detail">{{ a.detail }}</span>
         }
-        @if (resumes(); as r) {
-          <span class="sep">·</span><span class="elapsed">{{ r }}</span>
-        } @else if ((busy() || a.kind === 'waiting') && a.since) {
+        @if (!resumes() && (busy() || a.kind === 'waiting') && a.since) {
           <span class="sep">·</span><span class="elapsed">{{ a.since | elapsed }}</span>
         }
       </span>
@@ -98,7 +99,8 @@ export class ActivityLineComponent {
   readonly activity = input<Activity | undefined>(undefined);
   protected readonly label = computed(() => activityLabel(this.activity()));
   protected readonly busy = computed(() => activityIsBusy(this.activity()));
-  /** "resumes in 12m", ticking (only a scheduled activity reads the clock). */
+  /** "in 12m" / "due now", ticking (only a scheduled activity reads the
+   * clock). */
   protected readonly resumes = computed(() => {
     const a = this.activity();
     return a?.kind === 'scheduled' && a.resumesAt ? resumesIn(a.resumesAt, this.clock.now()) : '';
