@@ -1883,6 +1883,50 @@ link or the visible URL) and **Mother Claude opens it**
   an `accountOnly` server's account), so its browser now really opens on the
   host; `409 sign_in_running` while another account's sign-in runs.
 
+*The code the browser shows, as built (2026-10-30; CLI 2.1.314, typed in a
+pseudo-terminal under a throwaway config directory):*
+
+- **Every sign-in ends with it.** The link both commands show is the manual
+  one (`code=true`, sent back to Claude's code page on
+  `platform.claude.com`); the one with a local callback only ever goes to
+  `$BROWSER`, the `true` no-op. So the browser ends on a page that shows a
+  code and never hands the sign-in back by itself — in a private window or
+  not. The panel offers the field from the moment the link shows (`open`
+  or `code`) and says what happens: after you approve in the browser,
+  Claude shows a code; paste it here. `code` only makes the field stand out
+  and take the focus.
+- **The screen.** Claude Code's renderer writes only the cells that change
+  and moves along the line over the rest, so `setup-token` places each word
+  of a line on blank cells with CHA: its prompt read
+  "Pastecodehereifprompted>" and the run never reached `code` (the token
+  sign-ins, the ones done in a private window, never showed the field).
+  CHA, HPA and HPR end a word now, VPA a line.
+- **Typing it.** `setup-token` took a long code and its Enter arriving in
+  one read for pasted text and never submitted it. It turns bracketed paste
+  on (`CSI ? 2004 h`), so there a code goes in between `CSI 200 ~` and
+  `CSI 201 ~`, its Enter after; `auth login` reads a plain line.
+- **A code turned down.** `setup-token`: "OAuth error: Invalid code. Please
+  make sure the full code was copied" (no `#state`) or "OAuth error: That
+  code wasn't accepted. It may be incomplete, expired, already used, or
+  from an earlier sign-in attempt. Sign in again to get a new code.", each
+  over "Press Enter to retry."; Enter goes back to the same link after the
+  first and starts over with a new link after the second. `auth login`:
+  "Invalid code. …" on the prompt's line, and it asks again; "Login failed:
+  That code wasn't accepted. …", and it exits 1 (the run fails with it).
+  Mother Claude presses that Enter once per refused code; a new link
+  replaces the old one, not opened yet.
+- **Wire.** `signIn` gains `codeSent` (a code went in, no answer yet),
+  `codeError` (the CLI's words for the last code it turned down, masked
+  like `error`, until another is typed) and `rev`, which counts the run's
+  changes: its state goes back from `code` to `open` while a code is
+  checked or when a new link shows, so clients merge two reads by `rev`.
+  The capture's `asksForCode` is false while a code is checked.
+- **A token where the code goes** is never typed in: the code routes answer
+  `422 invalid_body` for anything holding `sk-ant-`, without repeating it.
+  In a token sign-in the panel stores a long-lived token through the token
+  paste instead (§15.3), which ends the run; in a login it says it is a
+  token, not the code.
+
 ### 15.3 Every token stays with its account
 
 - **One sign-in at a time**, across all accounts: starting another while one
@@ -1923,7 +1967,8 @@ link or the visible URL) and **Mother Claude opens it**
   sign-in recommends the private window: a browser already signed in to
   another Claude account cannot hand its consent to the wrong account there.
   A pasted token is checked for its shape and that no other account holds
-  it.
+  it; pasted while the account's token sign-in runs, it ends that run
+  `done` (it has what it was for) and its `setup-token` stops.
 - Tests prove that two accounts' children never get each other's
   environment, that a sign-in started for one account can only store into
   that one, and that two sign-ins never run at once.
@@ -1949,3 +1994,6 @@ packed, against a total known from the start.
 - [x] P9.6 A backup's progress by bytes.
 - [x] P9.7 Documents: CLAUDE.md (owned sessions can change account; sign-in),
   SECURITY.md, docs/BACKUP.md (progress), README.
+- [x] P9.8 The code the browser shows (2026-10-30): the field from the link
+  on, `setup-token`'s screen read, the code typed as one paste, a refused
+  code's words and starting over, a token never typed in.
