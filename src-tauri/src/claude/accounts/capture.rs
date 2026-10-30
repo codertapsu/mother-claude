@@ -111,18 +111,26 @@ impl Stripper {
                 StripState::EscOne => self.state = StripState::Text,
                 StripState::Csi => {
                     if (0x40..=0x7e).contains(&b) {
-                        // Cursor forward stands in for spaces in some renderers.
-                        if b == b'C' {
-                            let n = std::str::from_utf8(&self.csi)
-                                .ok()
-                                .and_then(|s| s.parse::<usize>().ok())
-                                .unwrap_or(1)
-                                .min(500);
-                            out.extend(std::iter::repeat_n(' ', n));
-                        } else if matches!(b, b'H' | b'f' | b'E' | b'F' | b'J' | b'K' | b'A' | b'B')
-                        {
-                            // A cursor jump or erase ends the visible run.
-                            out.push('\n');
+                        match b {
+                            // Cursor forward stands in for spaces in some renderers.
+                            b'C' => {
+                                let n = std::str::from_utf8(&self.csi)
+                                    .ok()
+                                    .and_then(|s| s.parse::<usize>().ok())
+                                    .unwrap_or(1)
+                                    .min(500);
+                                out.extend(std::iter::repeat_n(' ', n));
+                            }
+                            // Claude Code's renderer writes only the cells that
+                            // change and moves along the line over the rest, so
+                            // the words of a line drawn on blank cells are placed
+                            // one by one (CHA, HPA, HPR): a move ends a word.
+                            b'G' | b'`' | b'a' => out.push(' '),
+                            // A cursor jump (VPA too) or erase ends the visible run.
+                            b'H' | b'f' | b'E' | b'F' | b'J' | b'K' | b'A' | b'B' | b'd' => {
+                                out.push('\n')
+                            }
+                            _ => {}
                         }
                         self.state = StripState::Text;
                     } else if self.csi.len() < 32 {
@@ -1128,6 +1136,129 @@ mod tests {
               After you sign in, paste the code shown.\r\n",
         );
         assert!(screen.asks_for_code);
+    }
+
+    /// The link `claude setup-token` shows (CLI 2.1.314; its client id,
+    /// challenge and state made up here).
+    const SETUP_URL: &str = "https://claude.com/cai/oauth/authorize?code=true&client_id=9d1c250a-e61b-44d9-88ed-5944d1962f5e&response_type=code&redirect_uri=https%3A%2F%2Fplatform.claude.com%2Foauth%2Fcode%2Fcallback&scope=user%3Ainference&code_challenge=Xq3vYz0123456789abcdefghijklmnopqrstuvwxyzA&code_challenge_method=S256&state=Rk1yZ0123456789abcdefghijklmnopqrstuvwxyzAB";
+    /// Its prompt for the code, as drawn: every word placed with CHA.
+    const SETUP_PROMPT: &[u8] =
+        b"\x1b[2GPaste\x1b[8Gcode\x1b[13Ghere\x1b[18Gif\x1b[21Gprompted\x1b[30G>\r\r\n";
+
+    /// `claude setup-token` in a pseudo-terminal (CLI 2.1.314), as it wrote
+    /// it up to the prompt: words on blank cells placed one by one with CHA,
+    /// terminal queries, a spinner redrawn in place, and the link as an OSC 8
+    /// target (with an `id`, ended by BEL) and as text.
+    fn setup_token_screen() -> Vec<u8> {
+        let mut s = Vec::new();
+        s.extend_from_slice(b"\x1b7\x1b[r\x1b8\x1b[?25h\x1b[?25l\x1b[?2004h\x1b[?2031h\x1b[?1004h");
+        s.extend_from_slice(
+            b"\x1b[38;5;174mWelcome\x1b[9Gto\x1b[12GClaude\x1b[19GCode\x1b[24G\
+              \x1b[38;5;246mv2.1.314\x1b[39m\r\r\n",
+        );
+        s.extend_from_slice(
+            b"\x1b[2G\x1b[1mThis\x1b[7Gwill\x1b[12Gguide\x1b[18Gyou\x1b[22Gthrough\
+              \x1b[30Glong-lived\x1b[41G(1-year)\x1b[50Gauth\x1b[55Gtoken\x1b[61Gsetup\
+              \x1b[67Gfor\x1b[71Gyour\x1b[76GClaude\x1b[83Gaccount.\x1b[22m\r\r\n\r\r\n",
+        );
+        s.extend_from_slice(
+            "\x1b[2G\x1b[38;5;231m\u{b7}\x1b[4G\x1b[39mOpening\x1b[12Gbrowser\x1b[20Gto\
+             \x1b[23Gsign\x1b[28Gin\u{2026}\r\r\n"
+                .as_bytes(),
+        );
+        s.extend_from_slice(b"\x1b[>0q\x1b[?u\x1b]7501;?\x07\x1b[c");
+        for spinner in ['\u{2722}', '\u{2733}', '\u{2736}'] {
+            s.extend_from_slice(
+                format!("\r\x1b[1C\x1b[1A\x1b[38;5;231m{spinner}\x1b[39m\r\r\n").as_bytes(),
+            );
+        }
+        s.extend_from_slice(
+            b"\r\x1b[1C\x1b[1A\x1b[38;5;246mBrowser didn't open? Use the url below to sign in \
+              (c to copy)\x1b[39m\r\r\n\r\r\n",
+        );
+        s.extend_from_slice(
+            format!(
+                "\x1b]8;id=14i6zrz;{SETUP_URL}\x07\x1b[38;5;246m{SETUP_URL}\x1b[39m\
+                 \x1b]8;;\x07\r\r\n\r\r\n\r\r\n"
+            )
+            .as_bytes(),
+        );
+        s.extend_from_slice(SETUP_PROMPT);
+        s
+    }
+
+    /// What it shows once it has the token: the token in its own colour,
+    /// the words around it placed one by one.
+    fn setup_token_success(token: &str) -> Vec<u8> {
+        format!(
+            "\x1b[2K\x1b[1A\x1b[2K\x1b[G\x1b[2G\x1b[38;5;114m\u{2713}\x1b[4GLong-lived\
+             \x1b[15Gauthentication\x1b[30Gtoken\x1b[36Gcreated\x1b[44Gsuccessfully!\x1b[39m\r\r\n\
+             \r\r\n\x1b[2GYour\x1b[7GOAuth\x1b[13Gtoken\x1b[19G(valid\x1b[26Gfor\x1b[30G1\
+             \x1b[32Gyear):\r\r\n\r\r\n\x1b[2G\x1b[38;5;220m{token}\x1b[39m\r\r\n"
+        )
+        .into_bytes()
+    }
+
+    /// Words placed one by one end there (CHA before: "Pastecodehere…",
+    /// and the prompt was never noticed).
+    #[test]
+    fn words_placed_one_by_one_are_words() {
+        let mut stripper = Stripper::default();
+        assert_eq!(
+            stripper.feed(SETUP_PROMPT),
+            " Paste code here if prompted >\n\n\n"
+        );
+        // HPA and HPR end a word too; VPA ends the line.
+        assert_eq!(
+            stripper.feed(b"one\x1b[10`two\x1b[3athree\x1b[5dfour"),
+            "one two three\nfour"
+        );
+    }
+
+    #[test]
+    fn setup_tokens_screen_asks_for_the_code_and_shows_its_link() {
+        let bytes = setup_token_screen();
+        let mut screen = Screen::default();
+        screen.feed(&bytes);
+        assert!(screen.asks_for_code);
+        assert_eq!(screen.url.as_ref().map(Link::as_str), Some(SETUP_URL));
+        assert!(screen.token.is_none() && !screen.refused_url);
+        // Whatever the reads cut the escapes into.
+        for size in [1, 2, 3, 7, 64] {
+            let mut screen = Screen::default();
+            for chunk in bytes.chunks(size) {
+                screen.feed(chunk);
+            }
+            assert!(screen.asks_for_code, "chunks of {size}");
+            assert_eq!(
+                screen.url.as_ref().map(Link::as_str),
+                Some(SETUP_URL),
+                "chunks of {size}"
+            );
+        }
+        // The OSC 8 target alone is enough.
+        let mut screen = Screen::default();
+        screen
+            .feed(format!("\x1b]8;id=1u6bt8l;{SETUP_URL}\x07sign in\x1b]8;;\x07\r\r\n").as_bytes());
+        assert_eq!(screen.url.as_ref().map(Link::as_str), Some(SETUP_URL));
+    }
+
+    /// The token cut by a read is not taken, now that a move ends a word.
+    #[test]
+    fn setup_tokens_token_cut_across_chunks_is_taken_only_when_complete() {
+        let mut bytes = setup_token_screen();
+        bytes.extend_from_slice(&setup_token_success(TOKEN));
+        let at = bytes.windows(10).position(|w| w == b"sk-ant-oat").unwrap() + 40;
+        let mut screen = Screen::default();
+        assert!(!screen.feed(&bytes[..at]), "half a token is not a token");
+        assert!(screen.token.is_none());
+        assert!(screen.feed(&bytes[at..]));
+        assert_eq!(screen.token.unwrap().expose(), TOKEN);
+        // A byte at a time, too.
+        let mut screen = Screen::default();
+        let found: Vec<bool> = bytes.chunks(1).map(|c| screen.feed(c)).collect();
+        assert_eq!(found.iter().filter(|f| **f).count(), 1);
+        assert_eq!(screen.token.unwrap().expose(), TOKEN);
     }
 
     /// `claude auth login` in a terminal (CLI 2.1.312): plain lines, the link
