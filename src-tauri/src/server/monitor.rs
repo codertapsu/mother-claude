@@ -510,10 +510,13 @@ async fn run_cycle(state: &AppState, cycle: &mut Cycle, trigger: Trigger) {
     let mut summary = FleetSummary::default();
     for s in &summaries {
         let working = s.live && s.status == SessionStatus::Working;
+        // Not done either: it resumes by itself.
+        let background = s.live && s.status == SessionStatus::Background;
         let need_you = s.pending.iter().any(|p| p.answerable);
         if working {
             summary.working += 1;
         }
+        summary.background += u32::from(background);
         if need_you {
             summary.need_you += 1;
         }
@@ -526,6 +529,7 @@ async fn run_cycle(state: &AppState, cycle: &mut Cycle, trigger: Trigger) {
         if let Some(account) = &s.account {
             let a = summary.accounts.entry(account.id.clone()).or_default();
             a.working += u32::from(working);
+            a.background += u32::from(background);
             a.need_you += u32::from(need_you);
             a.live += u32::from(s.live);
             a.cost_today += s.cost_today.unwrap_or(0.0);

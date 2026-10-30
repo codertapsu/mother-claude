@@ -305,6 +305,7 @@ pub fn activity_for<P: PendingLike>(status: SessionStatus, pending: &[P]) -> Act
             Some(p) => activity::waiting_activity(p),
             None => Activity::new(ActivityKind::Waiting, "Waiting for you"),
         },
+        SessionStatus::Background => Activity::new(ActivityKind::Background, "Background work"),
         SessionStatus::Idle => Activity::new(ActivityKind::Idle, "Idle"),
         SessionStatus::Starting => Activity::new(ActivityKind::Starting, "Starting"),
         SessionStatus::Ended | SessionStatus::Stopped => {
@@ -931,10 +932,16 @@ pub fn build_one(state: &AppState, id: &str, ctx: &BuildCtx) -> Option<SessionSu
         ..Default::default()
     });
 
-    // Activity + status.
+    // Activity + status. Between turns, what still runs or is scheduled
+    // resumes the session by itself (only a live process's).
     let owned_hint = state.activity.owned_hint(id);
     let hook_hint = state.activity.hook_hint(id);
-    let (status, act) = activity::derive(&activity::Inputs {
+    let background = live.then(|| state.agents.background_work(id)).flatten();
+    let process_start = process_started.or_else(|| ctx.owned_meta.get(id).map(|(_, t)| *t));
+    let schedule = agg
+        .filter(|_| live)
+        .and_then(|a| a.schedule(ctx.now, process_start));
+    let inputs = activity::Inputs {
         live,
         owned,
         pidfile: pid.as_ref(),
@@ -952,7 +959,14 @@ pub fn build_one(state: &AppState, id: &str, ctx: &BuildCtx) -> Option<SessionSu
             Ok((t, _)) => Some(t),
             Err(_) => None,
         }),
-    });
+        background: background.as_ref(),
+        schedule: schedule.as_ref(),
+    };
+    let (status, act) = activity::derive(&inputs);
+    // For the end of a turn, before the next refresh sees it.
+    state
+        .activity
+        .note_between(id, activity::between_turns(&inputs, None));
 
     // Model + context.
     let model_id = agg
@@ -1507,6 +1521,138 @@ mod tests {
         assert_eq!(item.tool_name, None);
         assert_eq!(item.detail.as_deref(), Some("Explore the repo"));
         assert_eq!(s.activity.tool, None);
+    }
+
+    #[test]
+    fn a_turn_that_left_work_running_or_scheduled_resumes_by_itself() {
+        let tmp = tempfile::tempdir().unwrap();
+        let home = crate::claude::ClaudeHome::for_account_dir(tmp.path().to_path_buf());
+        let sid = "7c1d2e3f-4a5b-4c6d-8e7f-9a0b1c2d3e4f";
+        let me = std::process::id();
+        let now = chrono::Utc::now().timestamp_millis();
+        let started = now - 300_000;
+        let iso = |ms: i64| {
+            chrono::DateTime::from_timestamp_millis(ms)
+                .unwrap()
+                .to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
+        };
+        std::fs::create_dir_all(tmp.path().join("sessions")).unwrap();
+        // Claude Code says `idle` as soon as a turn ends.
+        std::fs::write(
+            tmp.path().join(format!("sessions/{me}.json")),
+            format!(
+                r#"{{"pid":{me},"sessionId":"{sid}","cwd":"/p","startedAt":{started},"status":"idle","statusUpdatedAt":{},"entrypoint":"claude-vscode"}}"#,
+                now - 60_000
+            ),
+        )
+        .unwrap();
+        let proj = tmp.path().join("projects/-p");
+        std::fs::create_dir_all(&proj).unwrap();
+        let path = proj.join(format!("{sid}.jsonl"));
+        // The last turn started a release build in the background and ended.
+        let turn = [
+            format!(
+                r#"{{"type":"user","timestamp":"{}","cwd":"/p","origin":{{"kind":"human"}},"message":{{"role":"user","content":"Cut the release"}}}}"#,
+                iso(now - 120_000)
+            ),
+            format!(
+                r#"{{"type":"assistant","timestamp":"{}","message":{{"id":"m1","model":"claude-opus-5-5","stop_reason":"tool_use","content":[{{"type":"tool_use","id":"tu_build","name":"Bash","input":{{"command":"scripts/release.sh","description":"Release build","run_in_background":true}}}}],"usage":{{"input_tokens":1,"output_tokens":1}}}}}}"#,
+                iso(now - 110_000)
+            ),
+            format!(
+                r#"{{"type":"user","timestamp":"{}","message":{{"role":"user","content":[{{"type":"tool_result","tool_use_id":"tu_build","content":"started"}}]}},"toolUseResult":{{"stdout":"","backgroundTaskId":"brel1"}}}}"#,
+                iso(now - 109_000)
+            ),
+            format!(
+                r#"{{"type":"assistant","timestamp":"{}","message":{{"id":"m2","model":"claude-opus-5-5","stop_reason":"end_turn","content":[{{"type":"text","text":"The release build is running. When it finishes I'll verify the artifacts and report back."}}],"usage":{{"input_tokens":1,"output_tokens":1}}}}}}"#,
+                iso(now - 100_000)
+            ),
+        ];
+        std::fs::write(&path, turn.join("\n") + "\n").unwrap();
+        let append = |line: String| {
+            let mut f = std::fs::OpenOptions::new()
+                .append(true)
+                .open(&path)
+                .unwrap();
+            std::io::Write::write_all(&mut f, (line + "\n").as_bytes()).unwrap();
+        };
+        let load = || {
+            let state = crate::state::Inner::new(
+                home.clone(),
+                crate::state::ServerConfig {
+                    host: "127.0.0.1".into(),
+                    port: 0,
+                },
+                crate::server::auth::Auth::ephemeral(),
+            );
+            state.live.refresh(&home);
+            state.index.discover(&home);
+            state.index.queue_all();
+            state.index.drain_jobs_blocking();
+            state.agents.recompute(
+                &state.index,
+                sid,
+                &crate::claude::agents::AgentCtx {
+                    live: true,
+                    process_started: Some(started),
+                    owned: false,
+                    now,
+                },
+            );
+            state
+        };
+        let ctx = BuildCtx {
+            now,
+            ..Default::default()
+        };
+        let state = load();
+        let s = build_one(&state, sid, &ctx).unwrap();
+        assert!(s.live);
+        assert_eq!(s.status, SessionStatus::Background);
+        assert_eq!(s.activity.kind, ActivityKind::Background);
+        assert_eq!(s.activity.label, "Background work");
+        assert_eq!(s.activity.detail.as_deref(), Some("Release build"));
+        assert_eq!(s.activity.since, Some(now - 60_000));
+        assert!(state.activity.between(sid).is_some());
+
+        // The build finishes: its notification arrives, and nothing else
+        // will wake the session.
+        append(format!(
+            r#"{{"type":"user","timestamp":"{}","origin":{{"kind":"task-notification"}},"message":{{"role":"user","content":"<task-notification>\n<task-id>brel1</task-id>\n<tool-use-id>tu_build</tool-use-id>\n<status>completed</status>\n<summary>Release build finished</summary>\n</task-notification>"}}}}"#,
+            iso(now - 30_000)
+        ));
+        let state = load();
+        let s = build_one(&state, sid, &ctx).unwrap();
+        assert_eq!(s.status, SessionStatus::Idle);
+        assert_eq!(s.activity.kind, ActivityKind::Idle);
+        assert!(state.activity.between(sid).is_none());
+
+        // A wakeup for in ten minutes: scheduled, and when.
+        append(format!(
+            r#"{{"type":"assistant","timestamp":"{}","message":{{"id":"m3","model":"claude-opus-5-5","stop_reason":"tool_use","content":[{{"type":"tool_use","id":"tu_wake","name":"ScheduleWakeup","input":{{"delaySeconds":600,"reason":"Verify the notarized disk image","prompt":"Verify the artifacts","noop":false}}}}],"usage":{{"input_tokens":1,"output_tokens":1}}}}}}"#,
+            iso(now - 20_000)
+        ));
+        append(format!(
+            r#"{{"type":"user","timestamp":"{}","message":{{"role":"user","content":[{{"type":"tool_result","tool_use_id":"tu_wake","content":"scheduled"}}]}},"toolUseResult":{{"scheduledFor":{},"clampedDelaySeconds":600,"wasClamped":false}}}}"#,
+            iso(now - 19_000),
+            now + 580_000
+        ));
+        let state = load();
+        let s = build_one(&state, sid, &ctx).unwrap();
+        assert_eq!(s.status, SessionStatus::Background);
+        assert_eq!(s.activity.kind, ActivityKind::Scheduled);
+        assert_eq!(s.activity.label, "Scheduled to resume");
+        assert_eq!(
+            s.activity.detail.as_deref(),
+            Some("Verify the notarized disk image")
+        );
+        assert_eq!(s.activity.resumes_at, Some(now + 580_000));
+        // The process is gone: nothing resumes it.
+        std::fs::remove_file(tmp.path().join(format!("sessions/{me}.json"))).unwrap();
+        let state = load();
+        let s = build_one(&state, sid, &ctx).unwrap();
+        assert!(!s.live);
+        assert_eq!(s.status, SessionStatus::Ended);
     }
 
     /// Aggregates whose last regular prompt (at `at`) says `on`.

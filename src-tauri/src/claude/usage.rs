@@ -1180,9 +1180,10 @@ fn newest_quota_hit(state: &AppState, ids: &[String]) -> Option<i64> {
         .max()
 }
 
-/// Whether some session of `account` worked, waited or wrote after
-/// `since`, and its sessions active since `recent` (the only ones that can
-/// hold a new limit hit). A session without an account is the Default's.
+/// Whether some session of `account` worked, waited, ran background work
+/// (or waits to resume by itself) or wrote after `since`, and its sessions
+/// active since `recent` (the only ones that can hold a new limit hit). A
+/// session without an account is the Default's.
 async fn activity_since(
     state: &AppState,
     account: &str,
@@ -1194,7 +1195,11 @@ async fn activity_since(
         s.account.as_ref().map_or(DEFAULT_ID, |a| a.id.as_str()) == account
     };
     let active = snap.sessions.iter().filter(mine).any(|s| {
-        (s.live && matches!(s.status, SessionStatus::Working | SessionStatus::Waiting))
+        (s.live
+            && matches!(
+                s.status,
+                SessionStatus::Working | SessionStatus::Waiting | SessionStatus::Background
+            ))
             || since.is_some_and(|r| s.last_activity_at.is_some_and(|t| t > r))
     });
     let ids = snap

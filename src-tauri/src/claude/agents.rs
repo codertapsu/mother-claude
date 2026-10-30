@@ -29,7 +29,7 @@ use std::sync::{Mutex, MutexGuard};
 
 use serde::Deserialize;
 
-use super::activity::tool_activity;
+use super::activity::{tool_activity, BackgroundWork};
 use super::index::loose::{parse_line, CapStr, LStr, Seq, LU64};
 use super::index::{AgentCall, BgTask, LastAct, SessionFiles, TranscriptIndex};
 use super::model::{
@@ -120,6 +120,8 @@ pub struct SessionAgents {
     pub agents: Vec<AgentInfo>,
     pub workflows: Vec<WorkflowRun>,
     pub counts: AgentCounts,
+    /// What of it outlives a turn.
+    pub work: BackgroundWork,
     hash: u64,
 }
 
@@ -286,6 +288,12 @@ impl AgentTracker {
     /// The session's agent counts.
     pub fn counts(&self, session_id: &str) -> Option<AgentCounts> {
         self.lock().sessions.get(session_id).map(|s| s.counts)
+    }
+
+    /// The session's background work still running (what resumes it once a
+    /// turn has ended).
+    pub fn background_work(&self, session_id: &str) -> Option<BackgroundWork> {
+        self.lock().sessions.get(session_id).map(|s| s.work.clone())
     }
 
     /// Running agents across all sessions (`GET /agents`, `fleet` frame).
@@ -740,6 +748,29 @@ impl AgentTracker {
             .iter()
             .filter(|w| w.status == WorkflowStatus::Running)
             .count() as u32;
+        // What outlives a turn: a foreground subagent ends with it, and a
+        // workflow's agents count as their run.
+        let mut work = BackgroundWork::default();
+        let mut labels: Vec<&str> = Vec::new();
+        for a in agents.iter().filter(|a| a.status == AgentStatus::Running) {
+            match a.kind {
+                AgentKind::Bash | AgentKind::Monitor => work.shells += 1,
+                AgentKind::Subagent if a.background => work.agents += 1,
+                AgentKind::Teammate => work.agents += 1,
+                AgentKind::Subagent | AgentKind::WorkflowAgent => continue,
+            }
+            labels.push(&a.label);
+        }
+        for w in workflows
+            .iter()
+            .filter(|w| w.status == WorkflowStatus::Running)
+        {
+            work.workflows += 1;
+            labels.push(&w.name);
+        }
+        if let [one] = labels.as_slice() {
+            work.label = Some(one.trim().to_string()).filter(|l| !l.is_empty());
+        }
         // Running first, then most recent; long histories keep only the
         // newest finished entries (counts above cover everything).
         agents.sort_by(|a, b| {
@@ -769,6 +800,7 @@ impl AgentTracker {
             agents,
             workflows,
             counts,
+            work,
             hash,
         }
     }
@@ -956,6 +988,11 @@ mod tests {
         assert_eq!(c.total, 4 + 3);
         assert_eq!(c.workflows_running, 1);
         assert_eq!(c.background_running, 1);
+        // What outlives the turn: the background agent (not the foreground
+        // ones), the workflow run (its agents count as it) and the shell.
+        let w = tracker.background_work(SID).unwrap();
+        assert_eq!((w.agents, w.workflows, w.shells), (1, 1, 1));
+        assert_eq!(w.label, None);
         // Fleet entry has only running things.
         let f = fleet_entry(SID, "s", &agents, &workflows).unwrap();
         assert!(f.agents.iter().all(|a| a.status == AgentStatus::Running));
@@ -979,6 +1016,7 @@ mod tests {
         assert!(agents.iter().all(|a| a.status != AgentStatus::Running));
         assert_eq!(workflows[0].status, WorkflowStatus::Killed);
         assert_eq!(tracker.counts(SID).unwrap().running, 0);
+        assert!(!tracker.background_work(SID).unwrap().any());
 
         // The run finishes: `workflows/<run>.json` appears.
         let wdir = tmp.path().join("projects/-p").join(SID).join("workflows");

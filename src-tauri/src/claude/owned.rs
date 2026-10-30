@@ -40,8 +40,8 @@ use super::control::{
 };
 use super::model::{
     AgentInfo, BackgroundTask, CommandInfo, ControlChannel, Delivery, EffortSource, ImageInput,
-    MessageReceipt, ModelInfo, QueuedMessage, SessionSummary, ThinkingInfo, ThinkingMode,
-    ThinkingSource, UltracodeSource, UltracodeState,
+    MessageReceipt, ModelInfo, QueuedMessage, SessionStatus, SessionSummary, ThinkingInfo,
+    ThinkingMode, ThinkingSource, UltracodeSource, UltracodeState,
 };
 use crate::server::context::ClientContext;
 use crate::server::error::{ApiError, ApiResult};
@@ -314,7 +314,12 @@ pub fn overlay(state: &AppState, summary: &mut SessionSummary) {
     if live.last_error.is_some() && summary.last_error.is_none() {
         summary.last_error = live.last_error;
     }
-    if !summary.pending.iter().any(|p| p.answerable) && live.started {
+    // Between turns the stream says only "idle": what resumes the session
+    // (`activity::between_turns`) stays.
+    if !summary.pending.iter().any(|p| p.answerable)
+        && live.started
+        && summary.status != SessionStatus::Background
+    {
         summary.activity = live.activity;
     }
 }

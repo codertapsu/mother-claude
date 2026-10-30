@@ -11,7 +11,9 @@
 //!   event.
 //! * [`SessionTracker`]: turns `sessions` / `transcript` bus frames into
 //!   derived events (a turn finished after ≥ 30 s, a session failed, a session
-//!   started waiting at the Mac, Claude called PushNotification).
+//!   started waiting at the Mac, Claude called PushNotification). A session
+//!   that resumes by itself (`background`) has not finished: "finished"
+//!   comes once it is idle, for the whole time since it started working.
 //!
 //! Times are milliseconds on a caller-supplied clock (monotonic in the driver,
 //! synthetic in tests).
@@ -360,11 +362,18 @@ struct Seen {
     last_error_at: Option<i64>,
 }
 
-fn busy(s: SessionStatus) -> bool {
+/// In a turn.
+fn mid_turn(s: SessionStatus) -> bool {
     matches!(
         s,
         SessionStatus::Working | SessionStatus::Waiting | SessionStatus::Starting
     )
+}
+
+/// Not done: in a turn, or between turns with work that resumes it by
+/// itself ("finished" waits until it is idle).
+fn busy(s: SessionStatus) -> bool {
+    mid_turn(s) || s == SessionStatus::Background
 }
 
 /// Derives events from `sessions` diffs and `transcript` appends.
@@ -502,14 +511,14 @@ impl SessionTracker {
                 _ => {}
             }
         }
-        // A new error that left the session stopped (not one being retried
-        // mid-turn) is a failure too.
+        // A new error that ended the turn (not one being retried mid-turn) is
+        // a failure too, even when background work goes on.
         let new_error = match (error_at, prev.last_error_at) {
             (Some(a), Some(b)) => a > b,
             (Some(_), None) => true,
             _ => false,
         };
-        if new_error && !busy(s.status) && !out.iter().any(|e| e.kind == PushKind::Failed) {
+        if new_error && !mid_turn(s.status) && !out.iter().any(|e| e.kind == PushKind::Failed) {
             let mut e = PushEvent::new(&s.id, PushKind::Failed, "failed");
             e.label = s.last_error.as_ref().map(|e| e.kind.clone());
             e.detail = s.last_error.as_ref().map(|e| e.text.clone());
@@ -793,6 +802,50 @@ mod tests {
         );
         assert!(e.is_empty(), "first sight of b");
         assert_eq!(gone, vec!["a".to_string()]);
+    }
+
+    #[test]
+    fn a_session_that_resumes_by_itself_finishes_once_it_is_idle() {
+        fn at(t: &mut SessionTracker, status: SessionStatus, now: i64) -> Vec<PushEvent> {
+            t.observe_sessions(false, None, Some(&[summary("s1", status)]), None, now)
+                .0
+        }
+        let mut t = SessionTracker::default();
+        assert!(at(&mut t, SessionStatus::Idle, 0).is_empty());
+        assert!(at(&mut t, SessionStatus::Working, 1_000).is_empty());
+        // The turn ends with a build running, then a wakeup ahead: not done.
+        assert!(at(&mut t, SessionStatus::Background, 40_000).is_empty());
+        assert!(at(&mut t, SessionStatus::Working, 600_000).is_empty());
+        assert!(at(&mut t, SessionStatus::Background, 650_000).is_empty());
+        // Idle at last: one "finished", for the whole time.
+        let e = at(&mut t, SessionStatus::Idle, 700_000);
+        assert_eq!(e.len(), 1);
+        assert_eq!(e[0].kind, PushKind::Finished);
+        assert_eq!(e[0].worked_ms, Some(699_000));
+        // A session first seen between turns finishes once idle too.
+        let mut t = SessionTracker::default();
+        assert!(at(&mut t, SessionStatus::Background, 800_000).is_empty());
+        let e = at(&mut t, SessionStatus::Idle, 900_000);
+        assert_eq!(e.len(), 1);
+        assert_eq!(e[0].worked_ms, Some(100_000));
+        // An error that ended the turn is a failure, background work or not.
+        let mut t = SessionTracker::default();
+        t.observe_sessions(
+            false,
+            None,
+            Some(&[summary("s2", SessionStatus::Working)]),
+            None,
+            0,
+        );
+        let mut bg = summary("s2", SessionStatus::Background);
+        bg.last_error = Some(LastError {
+            kind: "rate_limit".into(),
+            text: "429".into(),
+            at: 10_000,
+        });
+        let (e, _) = t.observe_sessions(false, None, Some(&[bg]), None, 10_000);
+        assert_eq!(e.len(), 1);
+        assert_eq!(e[0].kind, PushKind::Failed);
     }
 
     #[test]

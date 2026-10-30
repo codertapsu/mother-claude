@@ -751,7 +751,8 @@ async fn current_status(
     let status = match session.status {
         SessionStatus::Waiting => "waiting",
         SessionStatus::Working | SessionStatus::Starting => "busy",
-        SessionStatus::Idle => "idle",
+        // Between turns (what runs in the background takes no keystrokes).
+        SessionStatus::Idle | SessionStatus::Background => "idle",
         _ => "ended",
     };
     let waiting = session.waiting_for.clone().or_else(|| {

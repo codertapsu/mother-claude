@@ -366,6 +366,7 @@ where
 pub async fn sync_pending(state: &AppState, session_id: &str) {
     let live = state.pending.list(session_id);
     patch_session(state, session_id, |s| {
+        let before = s.status;
         let observed: Vec<PendingPreview> = s.pending.drain(..).filter(|p| !p.answerable).collect();
         s.pending = live.iter().map(PendingPreview::from).collect();
         s.pending.extend(observed);
@@ -378,7 +379,11 @@ pub async fn sync_pending(state: &AppState, session_id: &str) {
                 SessionStatus::Ended
             };
         }
-        s.activity = crate::claude::summaries::activity_for(s.status, &s.pending);
+        // The refresh's activity says more (what runs, what resumes it,
+        // since when) while the status it goes with holds.
+        if s.status != before || s.status == SessionStatus::Waiting {
+            s.activity = crate::claude::summaries::activity_for(s.status, &s.pending);
+        }
     })
     .await;
     // Announce each store item once, whether or not the session is in the

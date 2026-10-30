@@ -23,6 +23,11 @@ use serde_json::Value;
 pub enum SessionStatus {
     Working,
     Waiting,
+    /// No turn runs, but the session resumes by itself: background work it
+    /// started still runs (`activity.kind` `background`), or a `/loop`
+    /// wakeup or cron job will wake it (`scheduled`). Not done, and it takes
+    /// input like an idle session.
+    Background,
     #[default]
     Idle,
     Starting,
@@ -55,6 +60,9 @@ pub enum ActivityKind {
     Waiting,
     Delegating,
     Background,
+    /// Between turns, waiting for a `/loop` wakeup or a cron job
+    /// (`resumes_at`).
+    Scheduled,
     Compacting,
     Retrying,
     #[default]
@@ -76,6 +84,10 @@ pub struct Activity {
     /// Epoch ms the current activity started.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub since: Option<i64>,
+    /// `scheduled`: epoch ms of the earliest known run of what wakes the
+    /// session (absent for a recurring job whose next run is unknown).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub resumes_at: Option<i64>,
 }
 
 impl Activity {
@@ -1095,6 +1107,9 @@ pub struct FleetSession {
 pub struct FleetSummary {
     /// Live sessions currently working.
     pub working: u32,
+    /// Live sessions between turns that resume by themselves (status
+    /// `background`: background work, a scheduled wakeup or job).
+    pub background: u32,
     /// Running subagents + workflow agents across sessions.
     pub agents_running: u32,
     /// Running workflow runs.
@@ -1116,6 +1131,7 @@ pub struct FleetSummary {
 #[serde(rename_all = "camelCase", default)]
 pub struct AccountFleet {
     pub working: u32,
+    pub background: u32,
     pub need_you: u32,
     pub live: u32,
     pub cost_today: f64,
@@ -1608,6 +1624,13 @@ mod tests {
         assert_eq!(json!(TodoStatus::InProgress), json!("in_progress"));
         assert_eq!(json!(QueueVia::HookBusy), json!("hook-busy"));
         assert_eq!(json!(SessionStatus::Waiting), json!("waiting"));
+        assert_eq!(json!(SessionStatus::Background), json!("background"));
+        let mut a = Activity::new(ActivityKind::Scheduled, "Scheduled to resume");
+        a.resumes_at = Some(9);
+        assert_eq!(
+            json!(a),
+            json!({"kind": "scheduled", "label": "Scheduled to resume", "resumesAt": 9})
+        );
     }
 
     #[test]

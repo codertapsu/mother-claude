@@ -15,10 +15,17 @@
 //! PostToolUse ⇒ that tool; PreCompact ⇒ compacting; UserPromptSubmit ⇒
 //! thinking); pidfile busy + transcript tail (tool_use without result ⇒ tool,
 //! prompt/tool_result ⇒ thinking, end of turn with background work ⇒
-//! background, api_error ⇒ retrying); idle ⇒ idle.
+//! background, api_error ⇒ retrying); between turns (pidfile idle, or an
+//! owned stream idle) ⇒ [`between_turns`]: background work the session
+//! started still runs ⇒ background (activity `background`), else a `/loop`
+//! wakeup or cron job will wake it ⇒ background (activity `scheduled`, with
+//! `resumes_at`), else idle. Claude Code writes `idle` the moment a turn
+//! ends, whatever still runs, so only this tells "done" from "resumes by
+//! itself".
 //!
-//! Labels never contain durations (clients render elapsed time from `since`),
-//! so an unchanged activity hashes the same on every refresh.
+//! Labels never contain durations (clients render elapsed time from `since`
+//! and the time left from `resumes_at`), so an unchanged activity hashes the
+//! same on every refresh.
 //!
 //! The tracker also holds the *observed* pending items of foreign sessions
 //! (seen on disk, not answerable here) so `GET /inbox` and the session detail
@@ -28,7 +35,7 @@
 use std::collections::HashMap;
 use std::sync::{Mutex, MutexGuard};
 
-use super::index::{Mark, MarkKind, PendingTool};
+use super::index::{Mark, MarkKind, PendingTool, Schedule};
 use super::live::{JobState, LiveSession};
 use super::model::{
     Activity, ActivityKind, PendingItem, PendingKind, PendingPreview, SessionStatus,
@@ -61,6 +68,8 @@ struct Hints {
     /// SHA-256 of the session's `CLAUDE_CODE_OAUTH_TOKEN`, as its hook
     /// reported it (docs/ACCOUNTS.md D8; never the token).
     token_sha256: Option<String>,
+    /// What it would be up to between turns, as of the last refresh.
+    between: Option<Activity>,
 }
 
 /// Live activity hints per session.
@@ -215,7 +224,28 @@ impl ActivityTracker {
             h.hook = HookHints::default();
             h.effort = None;
             h.token_sha256 = None;
+            h.between = None;
         }
+    }
+
+    /// What a live session would be up to between turns ([`between_turns`]),
+    /// noted on each refresh, so the end of a turn (an owned `result`, a
+    /// `Stop` hook) knows at once whether the session resumes by itself.
+    pub fn note_between(&self, session_id: &str, activity: Option<Activity>) {
+        let mut g = self.lock();
+        match activity {
+            Some(a) => g.entry(session_id.to_string()).or_default().between = Some(a),
+            None => {
+                if let Some(h) = g.get_mut(session_id) {
+                    h.between = None;
+                }
+            }
+        }
+    }
+
+    /// [`Self::note_between`]'s last note.
+    pub fn between(&self, session_id: &str) -> Option<Activity> {
+        self.lock().get(session_id).and_then(|h| h.between.clone())
     }
 
     /// The owned stream hint.
@@ -368,6 +398,47 @@ pub fn waiting_activity<P: PendingLike>(p: &P) -> Activity {
     a
 }
 
+/// Background work of a session's process that outlives its turn:
+/// background subagents and teammates, workflow runs, background shells and
+/// monitors (a foreground subagent ends with its turn).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct BackgroundWork {
+    pub agents: u32,
+    pub workflows: u32,
+    pub shells: u32,
+    /// The one item's own label (a shell's description or command, an
+    /// agent's description, a workflow's name) when exactly one runs.
+    pub label: Option<String>,
+}
+
+impl BackgroundWork {
+    pub fn any(&self) -> bool {
+        self.agents + self.workflows + self.shells > 0
+    }
+
+    /// "Release build" (the one item), "1 background task", "2 agents, 1
+    /// workflow, 1 background task".
+    pub fn detail(&self) -> String {
+        if let Some(label) = &self.label {
+            return label.clone();
+        }
+        let count = |n: u32, one: &str, many: &str| match n {
+            0 => None,
+            1 => Some(format!("1 {one}")),
+            n => Some(format!("{n} {many}")),
+        };
+        [
+            count(self.agents, "agent", "agents"),
+            count(self.workflows, "workflow", "workflows"),
+            count(self.shells, "background task", "background tasks"),
+        ]
+        .into_iter()
+        .flatten()
+        .collect::<Vec<_>>()
+        .join(", ")
+    }
+}
+
 /// Everything [`derive`] looks at.
 #[derive(Debug, Clone, Default)]
 pub struct Inputs<'a> {
@@ -394,6 +465,49 @@ pub struct Inputs<'a> {
     /// the `Agent` call), `Some(None)` means a subagent waits on something
     /// unknown, `None` falls back to the newest main-chain tool.
     pub waiting_on: Option<Option<&'a PendingTool>>,
+    /// Background work still running (a live process's).
+    pub background: Option<&'a BackgroundWork>,
+    /// What will wake the session by itself (a live process's; see
+    /// [`super::index::Aggregates::schedule`]).
+    pub schedule: Option<&'a Schedule>,
+}
+
+/// What a session between turns is up to, when it resumes by itself: the
+/// background work it started (`background`), else the wakeup or cron job
+/// that will wake it (`scheduled`, `resumes_at` its earliest known run).
+/// `None`: it is idle. `since`: when its turn ended.
+pub fn between_turns(i: &Inputs, since: Option<i64>) -> Option<Activity> {
+    let mut a = match i.background.filter(|w| w.any()) {
+        Some(w) => {
+            let mut a = Activity::new(ActivityKind::Background, "Background work");
+            a.detail = Some(w.detail()).filter(|d| !d.is_empty());
+            a
+        }
+        None => {
+            let s = i.schedule?;
+            let mut a = Activity::new(ActivityKind::Scheduled, "Scheduled to resume");
+            let more = s.pending.saturating_sub(1);
+            a.detail = match (s.detail.trim(), more) {
+                ("", 0) => None,
+                ("", n) => Some(format!("{} scheduled", n + 1)),
+                (d, 0) => Some(d.to_string()),
+                (d, n) => Some(format!("{d} (+{n} more)")),
+            };
+            a.resumes_at = s.next_at;
+            a
+        }
+    };
+    a.since = since;
+    Some(a)
+}
+
+/// Between turns: background when the session resumes by itself, else
+/// `idle`.
+fn not_busy(i: &Inputs, idle: Activity) -> (SessionStatus, Activity) {
+    match between_turns(i, idle.since) {
+        Some(a) => (SessionStatus::Background, a),
+        None => (SessionStatus::Idle, idle),
+    }
 }
 
 /// Status + activity for one session.
@@ -436,7 +550,12 @@ pub fn derive(i: &Inputs) -> (SessionStatus, Activity) {
     if i.owned {
         if let Some(a) = &i.owned_hint {
             let status = match a.kind {
-                ActivityKind::Idle => SessionStatus::Idle,
+                // The stream between turns.
+                ActivityKind::Idle | ActivityKind::Background | ActivityKind::Scheduled => {
+                    let mut idle = Activity::new(ActivityKind::Idle, "Idle");
+                    idle.since = a.since;
+                    return not_busy(i, idle);
+                }
                 ActivityKind::Starting => SessionStatus::Starting,
                 ActivityKind::Waiting => SessionStatus::Waiting,
                 _ => SessionStatus::Working,
@@ -463,7 +582,7 @@ pub fn derive(i: &Inputs) -> (SessionStatus, Activity) {
     if !busy {
         let mut a = Activity::new(ActivityKind::Idle, "Idle");
         a.since = status_since.or_else(|| i.mark.and_then(|m| m.ts));
-        return (SessionStatus::Idle, a);
+        return not_busy(i, a);
     }
     if let Some(a) = &i.hook_hint {
         return (SessionStatus::Working, a.clone());
@@ -764,6 +883,170 @@ mod tests {
         });
         assert_eq!(s, SessionStatus::Idle);
         assert_eq!(a.kind, ActivityKind::Idle);
+    }
+
+    #[test]
+    fn between_turns_background_work_or_a_schedule_resumes_the_session() {
+        let idle = pidfile("idle", None);
+        let end = Mark {
+            kind: MarkKind::EndTurn,
+            ts: Some(4),
+            retry: None,
+        };
+        let between = |background: Option<&BackgroundWork>, schedule: Option<&Schedule>| {
+            derive(&Inputs {
+                live: true,
+                pidfile: Some(&idle),
+                mark: Some(&end),
+                background,
+                schedule,
+                ..Default::default()
+            })
+        };
+        // Nothing runs and nothing is scheduled: idle.
+        let (s, a) = between(None, None);
+        assert_eq!((s, a.kind), (SessionStatus::Idle, ActivityKind::Idle));
+        let (s, _) = between(Some(&BackgroundWork::default()), None);
+        assert_eq!(s, SessionStatus::Idle);
+        // The background shell the turn launched still runs: named by it.
+        let shell = BackgroundWork {
+            shells: 1,
+            label: Some("Release build".into()),
+            ..Default::default()
+        };
+        let (s, a) = between(Some(&shell), None);
+        assert_eq!(s, SessionStatus::Background);
+        assert_eq!(a.kind, ActivityKind::Background);
+        assert_eq!(a.label, "Background work");
+        assert_eq!(a.detail.as_deref(), Some("Release build"));
+        assert_eq!(a.since, Some(50), "since the turn ended");
+        assert_eq!(a.resumes_at, None);
+        // Several things: counted.
+        let many = BackgroundWork {
+            agents: 2,
+            shells: 1,
+            ..Default::default()
+        };
+        let (_, a) = between(Some(&many), None);
+        assert_eq!(a.detail.as_deref(), Some("2 agents, 1 background task"));
+        let (_, a) = between(
+            Some(&BackgroundWork {
+                shells: 1,
+                ..Default::default()
+            }),
+            None,
+        );
+        assert_eq!(a.detail.as_deref(), Some("1 background task"));
+        // A wakeup will wake it: scheduled, with when.
+        let wake = Schedule {
+            next_at: Some(1_000),
+            detail: "Check the deploy".into(),
+            pending: 1,
+        };
+        let (s, a) = between(None, Some(&wake));
+        assert_eq!(
+            (s, a.kind),
+            (SessionStatus::Background, ActivityKind::Scheduled)
+        );
+        assert_eq!(a.label, "Scheduled to resume");
+        assert_eq!(a.detail.as_deref(), Some("Check the deploy"));
+        assert_eq!(a.resumes_at, Some(1_000));
+        assert!(
+            !a.label.chars().any(|c| c.is_ascii_digit()),
+            "no times in labels"
+        );
+        // Several jobs, the next run unknown.
+        let jobs = Schedule {
+            next_at: None,
+            detail: "every hour".into(),
+            pending: 3,
+        };
+        let (_, a) = between(None, Some(&jobs));
+        assert_eq!(a.detail.as_deref(), Some("every hour (+2 more)"));
+        assert_eq!(a.resumes_at, None);
+        // Running work comes first.
+        let (_, a) = between(Some(&shell), Some(&wake));
+        assert_eq!(a.kind, ActivityKind::Background);
+        // Mid-turn the same work is the turn's: working.
+        let busy = pidfile("busy", None);
+        let (s, a) = derive(&Inputs {
+            live: true,
+            pidfile: Some(&busy),
+            mark: Some(&end),
+            background: Some(&shell),
+            schedule: Some(&wake),
+            ..Default::default()
+        });
+        assert_eq!(
+            (s, a.kind),
+            (SessionStatus::Working, ActivityKind::Thinking)
+        );
+        // A waiting dialog wins, and a dead process resumes nothing.
+        let waiting = pidfile("waiting", Some("permission prompt"));
+        let (s, _) = derive(&Inputs {
+            live: true,
+            pidfile: Some(&waiting),
+            background: Some(&shell),
+            ..Default::default()
+        });
+        assert_eq!(s, SessionStatus::Waiting);
+        let (s, _) = derive(&Inputs {
+            background: Some(&shell),
+            schedule: Some(&wake),
+            ..Default::default()
+        });
+        assert_eq!(s, SessionStatus::Ended);
+    }
+
+    #[test]
+    fn an_owned_stream_between_turns_with_agents_running_is_background() {
+        let mut idle = Activity::new(ActivityKind::Idle, "Idle");
+        idle.since = Some(77);
+        let agents = BackgroundWork {
+            agents: 1,
+            label: Some("Long task".into()),
+            ..Default::default()
+        };
+        let (s, a) = derive(&Inputs {
+            live: true,
+            owned: true,
+            owned_hint: Some(idle.clone()),
+            background: Some(&agents),
+            ..Default::default()
+        });
+        assert_eq!(
+            (s, a.kind),
+            (SessionStatus::Background, ActivityKind::Background)
+        );
+        assert_eq!(a.detail.as_deref(), Some("Long task"));
+        assert_eq!(a.since, Some(77));
+        let (s, a) = derive(&Inputs {
+            live: true,
+            owned: true,
+            owned_hint: Some(idle),
+            ..Default::default()
+        });
+        assert_eq!((s, a.kind), (SessionStatus::Idle, ActivityKind::Idle));
+        assert_eq!(a.since, Some(77));
+    }
+
+    #[test]
+    fn the_between_turns_note_is_kept_until_the_process_is_gone() {
+        let t = ActivityTracker::new();
+        assert!(t.between("s").is_none());
+        t.note_between("s", None);
+        assert!(t.lock().is_empty(), "no entry for a session with nothing");
+        let a = Activity::new(ActivityKind::Scheduled, "Scheduled to resume");
+        t.note_between("s", Some(a.clone()));
+        assert_eq!(t.between("s"), Some(a));
+        t.note_between("s", None);
+        assert!(t.between("s").is_none());
+        t.note_between(
+            "s",
+            Some(Activity::new(ActivityKind::Background, "Background work")),
+        );
+        t.forget("s");
+        assert!(t.between("s").is_none());
     }
 
     #[test]

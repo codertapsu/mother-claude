@@ -1176,7 +1176,8 @@ async fn rediscover(state: &AppState) {
 }
 
 /// Whether no session in `owner`'s directory (its own and, for the Default,
-/// its token accounts') was active in the last ten minutes.
+/// its token accounts') was active in the last ten minutes, nor works or
+/// resumes by itself now (its transcript is about to change).
 async fn idle(state: &AppState, owner: &str, now: i64) -> bool {
     let Some(dir) = state.accounts.home(owner).map(|h| h.base().to_path_buf()) else {
         return true;
@@ -1192,7 +1193,12 @@ async fn idle(state: &AppState, owner: &str, now: i64) -> bool {
             .home(account)
             .is_some_and(|h| h.base() == dir.as_path());
         here && (s.last_activity_at.is_some_and(|t| now - t < IDLE_FOR_MS)
-            || (s.live && s.status == crate::claude::model::SessionStatus::Working))
+            || (s.live
+                && matches!(
+                    s.status,
+                    crate::claude::model::SessionStatus::Working
+                        | crate::claude::model::SessionStatus::Background
+                )))
     })
 }
 
