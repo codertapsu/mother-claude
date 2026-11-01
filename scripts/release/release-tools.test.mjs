@@ -27,6 +27,7 @@ import {
   verify,
   verifyParsed,
 } from './minisign.mjs';
+import { main as prune, parseArgs, planPrune } from './prune-releases.mjs';
 
 const ROOT = fileURLToPath(new URL('../..', import.meta.url));
 
@@ -900,5 +901,126 @@ describe('setting the version', () => {
     const check = run('--check');
     assert.equal(check.status, 1);
     assert.match(check.stderr, /the version spots disagree/);
+  });
+});
+
+describe('pruning old releases', () => {
+  const release = (tagName, more = {}) => ({
+    tagName,
+    isDraft: false,
+    isPrerelease: false,
+    isLatest: false,
+    publishedAt: '2026-10-28T09:00:42Z',
+    ...more,
+  });
+  const tags = (list) => list.map((r) => r.tagName);
+
+  it('keeps the newest two versions by default and deletes the rest', () => {
+    const plan = planPrune([
+      release('v0.5.0', { isLatest: true }),
+      release('v0.4.0'),
+      release('v0.3.0'),
+      release('v0.2.0'),
+    ]);
+    assert.deepEqual(tags(plan.keep), ['v0.5.0', 'v0.4.0']);
+    assert.deepEqual(tags(plan.remove), ['v0.3.0', 'v0.2.0']);
+  });
+
+  it('orders by version, not by date or as text', () => {
+    // GitHub lists by date, so a fix to an older line published last comes
+    // first; as text, v0.10.0 sorts before v0.9.0 and beta.10 before beta.2.
+    const plan = planPrune(
+      [
+        release('v0.9.1'),
+        release('v0.10.0', { isLatest: true }),
+        release('v0.10.0-beta.10', { isPrerelease: true }),
+        release('v0.10.0-beta.2', { isPrerelease: true }),
+        release('v0.9.0'),
+      ],
+      3,
+    );
+    assert.deepEqual(tags(plan.keep), ['v0.10.0', 'v0.10.0-beta.10', 'v0.10.0-beta.2']);
+    assert.deepEqual(tags(plan.remove), ['v0.9.1', 'v0.9.0']);
+  });
+
+  it('never deletes the Latest release, a draft or a tag that is not a version', () => {
+    const plan = planPrune(
+      [
+        release('v0.6.0', { isDraft: true }),
+        release('v0.5.0'),
+        release('v0.4.0'),
+        release('nightly'),
+        release('v0.3.0', { isLatest: true }),
+      ],
+      1,
+    );
+    assert.deepEqual(tags(plan.keep), ['v0.5.0', 'v0.3.0']);
+    assert.deepEqual(tags(plan.remove), ['v0.4.0']);
+    assert.deepEqual(tags(plan.leave), ['v0.6.0', 'nightly']);
+  });
+
+  it('refuses to guess which release is Latest', () => {
+    // An older gh leaves isLatest out of `release list --json`.
+    assert.throws(() => planPrune([release('v0.2.0'), release('v0.1.0')]), /Latest/);
+  });
+
+  it('takes --keep as a whole number, 1 or more', () => {
+    assert.equal(parseArgs([]).keep, 2);
+    assert.equal(parseArgs(['--keep', '3']).keep, 3);
+    assert.equal(parseArgs(['--keep=1']).keep, 1);
+    for (const bad of [['--keep', '0'], ['--keep=two'], ['--keep']]) {
+      assert.throws(() => parseArgs(bad), /--keep needs a whole number/);
+    }
+  });
+
+  /** A stand-in for `gh`: lists `releases`, and a delete takes one off the list. */
+  const fakeGh = (releases) => {
+    let listed = releases;
+    const calls = [];
+    const run = (args) => {
+      calls.push(args);
+      if (args[1] === 'list') {
+        return JSON.stringify(listed);
+      }
+      if (args[1] === 'delete') {
+        listed = listed.filter((r) => r.tagName !== args[2]);
+        return '';
+      }
+      throw new Error(`unexpected gh ${args.join(' ')}`);
+    };
+    return { run, calls, deletes: () => calls.filter((args) => args[1] === 'delete') };
+  };
+  const four = () => [
+    release('v0.4.0', { isLatest: true }),
+    release('v0.3.0'),
+    release('v0.2.0'),
+    release('v0.1.0'),
+  ];
+  const quiet = { log: () => {}, error: () => {}, env: {} };
+
+  it('deletes nothing on a dry run, or without a yes', async () => {
+    const gh = fakeGh(four());
+    assert.equal(await prune(['--dry-run'], { ...quiet, run: gh.run }), 0);
+    assert.equal(await prune([], { ...quiet, run: gh.run, ask: async () => 'n' }), 1);
+    await assert.rejects(prune([], { ...quiet, run: gh.run, ask: async () => null }), /--yes/);
+    assert.deepEqual(gh.deletes(), []);
+  });
+
+  it('deletes what it planned in the release repo, then checks they are gone', async () => {
+    const gh = fakeGh(four());
+    assert.equal(
+      await prune(['--cleanup-tag'], { ...quiet, run: gh.run, ask: async () => 'y' }),
+      0,
+    );
+    const repo = 'codertapsu/mother-claude';
+    assert.deepEqual(gh.deletes(), [
+      ['release', 'delete', 'v0.2.0', '--repo', repo, '--yes', '--cleanup-tag'],
+      ['release', 'delete', 'v0.1.0', '--repo', repo, '--yes', '--cleanup-tag'],
+    ]);
+    assert.equal(gh.calls.at(-1)[1], 'list', 'it lists the releases again at the end');
+
+    const stubborn = fakeGh(four());
+    const ignoresDeletes = (args) => (args[1] === 'delete' ? '' : stubborn.run(args));
+    assert.equal(await prune(['--yes'], { ...quiet, run: ignoresDeletes }), 1);
   });
 });

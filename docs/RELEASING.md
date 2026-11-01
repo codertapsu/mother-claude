@@ -436,6 +436,24 @@ applies: cut a new version instead.
 
 ---
 
+## Pruning old releases
+
+The updater only ever downloads the newest release — every installed copy, back
+to v0.1.0, polls `releases/latest/download/latest.json` — so an older release
+is a few hundred megabytes of installers nobody is sent to. Once a new one is
+published:
+
+```bash
+node scripts/release/prune-releases.mjs --dry-run   # what would go
+node scripts/release/prune-releases.mjs             # asks, then deletes
+```
+
+It keeps the newest two versions (`--keep N` for another number; newest by
+version, not date) and never deletes the release marked Latest, a draft, or a
+release whose tag is not a version. The git tags stay unless `--cleanup-tag`.
+
+---
+
 ## Uploading something by hand
 
 Both legs use the same helper, which creates the draft if it does not exist and
