@@ -660,6 +660,7 @@ pub async fn dispatch_from(
     if name == "StopFailure" && p.error.is("rate_limit") {
         let account = crate::claude::summaries::acting_account(state, &p.session_id);
         crate::claude::usage::note_limit_hit_for(state, &account);
+        crate::orchestration::scheduler::note_rate_limited(state, &account);
     }
     match name {
         "Notification" => crate::server::push::on_notification_hook(

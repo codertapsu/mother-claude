@@ -1509,6 +1509,7 @@ async fn dispatch(
         // percentage or reset time moves (5-hour and weekly only) — from a
         // session on the machine's own plan only.
         "rate_limit_event" => {
+            crate::orchestration::scheduler::note_rate_limit_event(state, &h.account, &v);
             if let Some(update) = crate::claude::usage::parse_rate_limit_event(&v) {
                 let account = h.live().account;
                 if crate::claude::usage::plan_session_ok_for(state, &h.account, account) {

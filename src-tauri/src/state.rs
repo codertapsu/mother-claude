@@ -154,6 +154,9 @@ pub struct Inner {
     /// Opens sign-in links in a browser; it only records until the app
     /// switches it on (`claude/browser.rs`), so no test ever opens one.
     pub opener: crate::claude::browser::Opener,
+    /// Model routing, admission control, budgets and task outcomes
+    /// (`orchestration/scheduler.rs`, docs/ROUTING.md).
+    pub scheduler: crate::orchestration::scheduler::Scheduler,
 }
 
 impl std::fmt::Debug for Inner {
@@ -229,6 +232,7 @@ impl Inner {
             jobs: crate::claude::transfer::Jobs::default(),
             reveal: crate::claude::reveal::Revealer::default(),
             opener: crate::claude::browser::Opener::default(),
+            scheduler: crate::orchestration::scheduler::Scheduler::load(data_dir),
             auth,
         })
     }
