@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Misc</title>
+  </head>
+  <body>
+    <h1>Uploads, links and downloads</h1>
+    <label for="file">Attachment</label>
+    <input id="file" type="file" />
+    <p>File: <output id="file-out">none</output></p>
+    <a id="newtab" href="/form.html" target="_blank">Open the form in a new tab</a>
+    <a id="dl" href="/download/report.txt" download>Download the report</a>
+    <button
+      id="log"
+      onclick="
+        console.warn('warned from the page');
+        console.error('failed from the page');
+      "
+    >
+      Log something
+    </button>
+    <div id="later"></div>
+    <button
+      id="add"
+      onclick="
+        setTimeout(
+          () => (document.getElementById('later').innerHTML = '<p id=late>Late content</p>'),
+          400,
+        )
+      "
+    >
+      Add later
+    </button>
+    <script>
+      document.getElementById('file').addEventListener('change', async (e) => {
+        const f = e.target.files[0];
+        document.getElementById('file-out').textContent =
+          `${f.name} ${f.type} ${f.size} ${await f.text()}`;
+      });
+    </script>
+  </body>
+</html>

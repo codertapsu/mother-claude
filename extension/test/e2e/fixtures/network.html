@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Network</title>
+  </head>
+  <body>
+    <h1>Loading data</h1>
+    <ul id="list"></ul>
+    <script>
+      // After load, two slow requests in a row: the network is busy ~1.2 s.
+      addEventListener('load', async () => {
+        const a = await fetch('/api/slow?ms=600').then((r) => r.json());
+        const b = await fetch('/api/slow?ms=600').then((r) => r.json());
+        document.getElementById('list').innerHTML = `<li>${a.ok}</li><li>${b.ok}</li>`;
+        document.title = 'Network — done';
+      });
+    </script>
+  </body>
+</html>

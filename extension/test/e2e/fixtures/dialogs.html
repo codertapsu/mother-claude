@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Dialogs</title>
+  </head>
+  <body>
+    <h1>Dialogs</h1>
+    <button
+      id="alert"
+      onclick="
+        alert('Saved!');
+        document.getElementById('out').textContent = 'after alert';
+      "
+    >
+      Show alert
+    </button>
+    <button
+      id="confirm"
+      onclick="
+        document.getElementById('out').textContent = confirm('Delete the draft?')
+          ? 'confirmed'
+          : 'cancelled'
+      "
+    >
+      Delete draft
+    </button>
+    <button
+      id="prompt"
+      onclick="document.getElementById('out').textContent = 'name: ' + prompt('Your name?', '')"
+    >
+      Ask name
+    </button>
+    <p>Result: <output id="out">none</output></p>
+  </body>
+</html>

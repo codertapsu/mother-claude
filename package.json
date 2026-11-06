@@ -29,6 +29,7 @@
     "ext:build:firefox": "node extension/build.mjs --target firefox",
     "ext:watch": "node extension/build.mjs --watch",
     "ext:test": "node --test \"extension/test/unit/**/*.test.ts\"",
+    "ext:e2e": "node extension/build.mjs --target chrome-e2e && node --test --test-concurrency=1 --test-timeout=600000 \"extension/test/e2e/**/*.e2e.ts\"",
     "ext:lint": "tsc -p extension/tsconfig.json && tsc -p extension/test/tsconfig.json && eslint extension && prettier --check \"extension/**/*.{ts,mjs,html,css,json,md}\""
   },
   "dependencies": {
@@ -53,6 +54,7 @@
     "@tauri-apps/cli": "2.12.3",
     "@types/chrome": "0.3.6",
     "@types/jasmine": "6.0.0",
+    "@types/ws": "8.18.2",
     "angular-eslint": "22.6.0",
     "eslint": "10.13.0",
     "happy-dom": "21.0.4",
@@ -64,6 +66,7 @@
     "karma-jasmine-html-reporter": "2.3.0",
     "prettier": "3.9.10",
     "typescript": "6.0.3",
-    "typescript-eslint": "8.72.0"
+    "typescript-eslint": "8.72.0",
+    "ws": "8.21.3"
   }
 }

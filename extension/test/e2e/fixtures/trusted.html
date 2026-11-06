@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Trusted only</title>
+  </head>
+  <body>
+    <h1>Bot check</h1>
+    <!-- Like a site that ignores scripted events: only real (trusted) input counts. -->
+    <button id="go">Continue</button>
+    <input id="field" aria-label="Trusted field" />
+    <p>State: <output id="out">waiting</output></p>
+    <p>Typed: <output id="typed"></output></p>
+    <script>
+      document.getElementById('go').addEventListener('click', (e) => {
+        document.getElementById('out').textContent = e.isTrusted
+          ? 'trusted click'
+          : 'ignored synthetic click';
+      });
+      document.getElementById('field').addEventListener('keydown', (e) => {
+        if (e.isTrusted) document.getElementById('typed').textContent += e.key;
+      });
+      document
+        .getElementById('go')
+        .addEventListener('click', () => console.log('continue pressed'));
+    </script>
+  </body>
+</html>

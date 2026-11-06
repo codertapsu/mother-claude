@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>App — home</title>
+  </head>
+  <body>
+    <nav aria-label="App">
+      <a href="/spa.html" data-route="home">Home</a>
+      <a href="/spa/settings" data-route="settings">Settings</a>
+    </nav>
+    <main id="view">
+      <h1>Home</h1>
+      <p>Welcome to the app.</p>
+    </main>
+    <script>
+      const views = {
+        home: '<h1>Home</h1><p>Welcome to the app.</p>',
+        settings:
+          '<h1>Settings</h1><label for="theme">Theme</label><select id="theme"><option>Light</option><option>Dark</option></select><button id="save">Save settings</button><p id="saved"></p>',
+      };
+      function show(route) {
+        document.getElementById('view').innerHTML = views[route];
+        document.title = `App — ${route}`;
+        const save = document.getElementById('save');
+        if (save)
+          save.addEventListener(
+            'click',
+            () => (document.getElementById('saved').textContent = 'Saved'),
+          );
+      }
+      for (const a of document.querySelectorAll('[data-route]')) {
+        a.addEventListener('click', (e) => {
+          e.preventDefault();
+          history.pushState({ route: a.dataset.route }, '', a.getAttribute('href'));
+          show(a.dataset.route);
+        });
+      }
+      addEventListener('popstate', (e) => show(e.state?.route ?? 'home'));
+    </script>
+  </body>
+</html>

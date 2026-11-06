@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Frames</title>
+  </head>
+  <body>
+    <h1>Frames</h1>
+    <iframe
+      id="same"
+      title="Same-origin settings"
+      src="/frame-inner.html"
+      width="400"
+      height="160"
+    ></iframe>
+    <iframe id="cross" title="Captcha" width="400" height="120"></iframe>
+    <script>
+      // The cross-origin frame is the same page on the other fixture host.
+      const other = new URL(location.href);
+      other.hostname = other.hostname === '127.0.0.1' ? 'localhost' : '127.0.0.1';
+      other.pathname = '/frame-inner.html';
+      document.getElementById('cross').src = other.href;
+    </script>
+  </body>
+</html>

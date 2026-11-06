@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Shadow DOM</title>
+  </head>
+  <body>
+    <h1>Components</h1>
+    <search-box></search-box>
+    <closed-widget></closed-widget>
+    <p>Searched: <output id="out">nothing</output></p>
+    <script>
+      customElements.define(
+        'search-box',
+        class extends HTMLElement {
+          connectedCallback() {
+            const root = this.attachShadow({ mode: 'open' });
+            root.innerHTML = `<form><label for="q">Search issues</label><input id="q"><button>Search</button></form>`;
+            root.querySelector('form').addEventListener('submit', (e) => {
+              e.preventDefault();
+              document.getElementById('out').textContent = root.querySelector('input').value;
+            });
+          }
+        },
+      );
+      customElements.define(
+        'closed-widget',
+        class extends HTMLElement {
+          connectedCallback() {
+            const root = this.attachShadow({ mode: 'closed' });
+            root.innerHTML = `<button aria-label="Closed shadow button">x</button>`;
+            root.querySelector('button').addEventListener('click', () => {
+              document.getElementById('out').textContent = 'closed button clicked';
+            });
+          }
+        },
+      );
+    </script>
+  </body>
+</html>
