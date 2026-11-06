@@ -1,7 +1,8 @@
 //! Mother Claude's MCP server over real HTTP (docs/MCP.md): who may call
 //! `/mcp` and from where, the JSON-RPC surface, the calling session's
 //! identity, and the dashboard's panel. Nothing here touches `~/.claude` or
-//! spawns `claude`.
+//! spawns `claude`, except the `#[ignore]`d live test at the end (Spike B),
+//! which runs the real CLI and spends tokens.
 
 use std::net::SocketAddr;
 use std::path::Path;
@@ -779,4 +780,240 @@ async fn a_call_is_cancelled_by_its_client() {
     let calls = f.st.mcp.recent_calls();
     assert_eq!(calls[0].tool, "wait");
     assert!(!calls[0].ok);
+}
+
+/// Spike B on the real CLI (docs/MCP.md "Spike B"): a throwaway server on an
+/// ephemeral port, the plugin written into a temp data dir and loaded with
+/// `--plugin-dir`, and `claude -p` (haiku, $0.25 cap) asked to call
+/// `mc_ping`. Checks that the tool is listed and called under its plugin
+/// name and that the server knew the session from `X-MC-Pid`.
+///
+/// ```sh
+/// cargo test --manifest-path src-tauri/Cargo.toml --test mcp -- --ignored --nocapture
+/// ```
+#[tokio::test]
+#[ignore = "runs the real claude CLI and spends tokens (haiku, $0.25 cap)"]
+async fn live_claude_code_calls_mc_ping_through_the_plugin() {
+    use mother_claude_lib::claude::hooks::PluginPaths;
+    use mother_claude_lib::mcp::plugin;
+
+    let home = tempfile::tempdir().unwrap();
+    let data = tempfile::Builder::new()
+        .prefix("mc mcp spike ")
+        .tempdir()
+        .unwrap();
+    let cwd = tempfile::tempdir().unwrap();
+    let st = state_in(home.path());
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    assert!(![6725, 6726, 5612].contains(&port));
+    let app = server::router(st.clone());
+    tokio::spawn(async move {
+        axum::serve(
+            listener,
+            app.into_make_service_with_connect_info::<SocketAddr>(),
+        )
+        .await
+        .unwrap();
+    });
+    // The real plugin folder (hooks, scripts, `.mcp.json`) in a data dir with
+    // a space in its path, as on macOS.
+    let paths = PluginPaths::new(data.path());
+    plugin::write_all(&paths, port, st.mcp.token()).unwrap();
+
+    let session = uuid::Uuid::new_v4().to_string();
+    let tool = format!("{}mc_ping", plugin::TOOL_PREFIX);
+    let mut cmd = tokio::process::Command::new(
+        std::env::var("MOTHER_CLAUDE_CLI").unwrap_or_else(|_| "claude".into()),
+    );
+    // The prompt first: `--allowedTools` is variadic and would take it.
+    cmd.current_dir(cwd.path())
+        .args([
+            "-p",
+            "Call the mc_ping tool once and print exactly what it returns.",
+        ])
+        .args(["--model", "haiku", "--max-budget-usd", "0.25"])
+        .args(["--output-format", "stream-json", "--verbose"])
+        .args(["--setting-sources", "project,local"])
+        .args(["--session-id", &session])
+        .arg("--plugin-dir")
+        .arg(&paths.plugin.root)
+        .args(["--allowedTools", &tool])
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .kill_on_drop(true);
+    for k in [
+        "CLAUDECODE",
+        "CLAUDE_CODE_ENTRYPOINT",
+        "CLAUDE_CODE_SESSION_ID",
+        "CLAUDE_CODE_MESSAGING_SOCKET",
+        "CLAUDE_CODE_MESSAGING_TOKEN",
+        "CLAUDE_CODE_CHILD_SESSION",
+        "CLAUDE_CODE_SSE_PORT",
+        "CLAUDE_CODE_SESSION_ATTENDED",
+        "CLAUDE_CODE_EXECPATH",
+        "CLAUDE_PID",
+        "CLAUDE_AGENT_SDK_VERSION",
+        "MOTHER_CLAUDE_TOKEN",
+        "MOTHER_CLAUDE_SESSION",
+    ] {
+        cmd.env_remove(k);
+    }
+    // The user's installed plugin (if its hooks load at all) stays quiet.
+    cmd.env("MOTHER_CLAUDE_OWNED", "1");
+    let child = cmd.spawn().expect("the claude CLI");
+    let pid = child.id().unwrap();
+    // The CLI writes its real pidfile under the real config dir; the server
+    // here reads a synthetic one, so put the same record there.
+    std::fs::create_dir_all(home.path().join("sessions")).unwrap();
+    std::fs::write(
+        home.path().join(format!("sessions/{pid}.json")),
+        json!({"pid": pid, "sessionId": session, "cwd": cwd.path(), "kind": "interactive",
+               "entrypoint": "sdk-cli"})
+        .to_string(),
+    )
+    .unwrap();
+    let out = tokio::time::timeout(Duration::from_secs(240), child.wait_with_output())
+        .await
+        .expect("claude finished")
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let mut listed = Vec::new();
+    let mut used = Vec::new();
+    let mut result = String::new();
+    for line in stdout.lines() {
+        let Ok(v) = serde_json::from_str::<Value>(line) else {
+            continue;
+        };
+        match v["type"].as_str() {
+            Some("system") if v["subtype"] == "init" => {
+                for t in v["tools"].as_array().into_iter().flatten() {
+                    if let Some(t) = t.as_str().filter(|t| t.contains("mother-claude")) {
+                        listed.push(t.to_string());
+                    }
+                }
+                println!("mcp_servers: {}", v["mcp_servers"]);
+            }
+            Some("assistant") => {
+                for b in v["message"]["content"].as_array().into_iter().flatten() {
+                    if b["type"] == "tool_use" {
+                        used.push(b["name"].as_str().unwrap_or_default().to_string());
+                    }
+                }
+            }
+            Some("result") => {
+                result = v["result"].as_str().unwrap_or_default().to_string();
+                println!("cost: {}", v["total_cost_usd"]);
+            }
+            _ => {}
+        }
+    }
+    println!("listed: {listed:?}\nused: {used:?}\nresult: {result}");
+    println!("stderr: {}", String::from_utf8_lossy(&out.stderr));
+    let calls = st.mcp.recent_calls();
+    println!("server saw: {calls:?}");
+    assert!(listed.contains(&tool), "the model was offered {tool}");
+    assert!(used.contains(&tool), "the model called {tool}");
+    let call = calls
+        .iter()
+        .find(|c| c.tool == "mc_ping")
+        .expect("the server ran mc_ping");
+    assert!(call.ok);
+    assert_eq!(
+        call.session.as_deref(),
+        Some(session.as_str()),
+        "known by X-MC-Pid"
+    );
+    assert!(result.contains(&session), "the answer names the session");
+}
+
+/// The owned half of Spike B: a session Mother Claude launches itself (Path
+/// B, the real CLI) loads the plugin inline (`--plugin-dir`) and names
+/// itself with `X-MC-Session` (from `MOTHER_CLAUDE_SESSION`). The CLI's own
+/// pidfile is in the real config dir, which this server does not read, so
+/// only the header can tell the session here.
+#[tokio::test]
+#[ignore = "runs the real claude CLI as an owned session and spends tokens (haiku, $0.25 cap)"]
+async fn live_owned_session_gets_the_tools_inline() {
+    use mother_claude_lib::claude::SpawnOptions;
+    use mother_claude_lib::mcp::plugin;
+
+    let home = tempfile::tempdir().unwrap();
+    let data = tempfile::Builder::new()
+        .prefix("mc mcp owned ")
+        .tempdir()
+        .unwrap();
+    let cwd = tempfile::tempdir().unwrap();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let mut auth = Auth::ephemeral();
+    auth.config_dir = Some(data.path().to_path_buf());
+    let st = Inner::new(
+        ClaudeHome::with_base(home.path()),
+        ServerConfig {
+            host: "127.0.0.1".into(),
+            port,
+        },
+        auth,
+    );
+    let app = server::router(st.clone());
+    tokio::spawn(async move {
+        axum::serve(
+            listener,
+            app.into_make_service_with_connect_info::<SocketAddr>(),
+        )
+        .await
+        .unwrap();
+    });
+    plugin::apply(&st);
+    assert!(
+        plugin::owned_plugin_dir().is_some(),
+        "the inline plugin is ready"
+    );
+
+    let tool = format!("{}mc_session", plugin::TOOL_PREFIX);
+    let cwd_s = std::fs::canonicalize(cwd.path())
+        .unwrap()
+        .to_string_lossy()
+        .into_owned();
+    let id = st
+        .control
+        .spawn(
+            &st,
+            SpawnOptions {
+                cwd: cwd_s,
+                prompt: "Call the mc_session tool once and print exactly what it returns.".into(),
+                model: Some("haiku".into()),
+                permission_mode: Some("default".into()),
+                setting_sources: Some("project,local".into()),
+                extra_args: vec![
+                    "--allowedTools".into(),
+                    tool,
+                    "--max-budget-usd".into(),
+                    "0.25".into(),
+                ],
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    let mut seen = None;
+    for _ in 0..1500 {
+        seen = st
+            .mcp
+            .recent_calls()
+            .into_iter()
+            .find(|c| c.tool == "mc_session");
+        if seen.is_some() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    let _ = st.control.kill(&id).await;
+    println!("server saw: {:?}", st.mcp.recent_calls());
+    let call = seen.expect("the owned session called mc_session");
+    assert!(call.ok, "{call:?}");
+    assert_eq!(call.session.as_deref(), Some(id.as_str()));
+    assert!(call.owned);
 }
