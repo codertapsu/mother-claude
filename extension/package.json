@@ -1,0 +1,6 @@
+{
+  "name": "mother-claude-extension",
+  "private": true,
+  "type": "module",
+  "description": "The Mother Claude browser extension. Built, linted and tested from the repository root: npm run ext:build | ext:lint | ext:test | ext:e2e."
+}
