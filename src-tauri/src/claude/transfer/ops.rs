@@ -271,13 +271,11 @@ fn view_of(state: &AppState, m: &super::Manifest) -> super::JobView {
 /// The account whose directory `dir` is (the Default for its own, since
 /// token accounts share it).
 fn account_of_dir(state: &AppState, dir: &Path) -> Option<String> {
-    let canon = |p: &Path| std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
-    let dir = canon(dir);
     state
         .accounts
         .homes()
         .into_iter()
-        .find(|(_, h)| canon(h.base()) == dir)
+        .find(|(_, h)| crate::claude::paths::same_dir(h.base(), dir))
         .map(|(id, _)| id)
 }
 

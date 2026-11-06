@@ -372,8 +372,7 @@ struct Prepared {
 }
 
 fn same_dir(a: &ClaudeHome, b: &ClaudeHome) -> bool {
-    let canon = |p: &std::path::Path| std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
-    canon(a.base()) == canon(b.base())
+    super::paths::same_dir(a.base(), b.base())
 }
 
 /// The refusals of resuming `id` (in `cwd`) under `to` instead of `from`

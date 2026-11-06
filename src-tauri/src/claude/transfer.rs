@@ -48,6 +48,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use super::home::{encode_cwd, ClaudeHome};
+use super::paths;
 
 /// A `.claude.json.lock` younger than this means the CLI is writing it.
 const LOCK_FRESH: Duration = Duration::from_secs(10);
@@ -391,14 +392,26 @@ pub(crate) fn plan_session(
     })
 }
 
-/// A project's entry in a `.claude.json` (`projects[<cwd>]`).
+/// A project's entry in a `.claude.json` (`projects[<cwd>]`): under `cwd`
+/// itself, else under the same folder written otherwise — on Windows Claude
+/// Code keys `C:/Users/me/app` while its transcripts record
+/// `C:\Users\me\app` ([`paths::find_path`]).
 pub(crate) fn project_entry(claude_json: &Path, cwd: &str) -> Option<Value> {
-    let text = std::fs::read_to_string(claude_json).ok()?;
-    let v: Value = serde_json::from_str(&text).ok()?;
-    v.get("projects")?.get(cwd).cloned()
+    project_entry_keyed(claude_json, cwd).map(|(_, entry)| entry)
 }
 
-/// `history.jsonl` lines whose `project` is `cwd`.
+/// [`project_entry`] with the key it is under (what a copy writes and a move
+/// removes).
+pub(crate) fn project_entry_keyed(claude_json: &Path, cwd: &str) -> Option<(String, Value)> {
+    let text = std::fs::read_to_string(claude_json).ok()?;
+    let v: Value = serde_json::from_str(&text).ok()?;
+    let projects = v.get("projects")?.as_object()?;
+    let key = paths::find_path(projects.keys().map(String::as_str), cwd)?;
+    Some((key.to_string(), projects.get(key)?.clone()))
+}
+
+/// `history.jsonl` lines whose `project` is the folder `cwd`
+/// ([`paths::same_path`]: on Windows in any case, with either separator).
 pub(crate) fn history_lines(history: &Path, cwd: &str) -> Vec<String> {
     let Ok(file) = std::fs::File::open(history) else {
         return Vec::new();
@@ -412,7 +425,11 @@ pub(crate) fn history_lines(history: &Path, cwd: &str) -> Vec<String> {
         .filter(|line| {
             serde_json::from_str::<Value>(line)
                 .ok()
-                .and_then(|v| v.get("project").and_then(Value::as_str).map(|p| p == cwd))
+                .and_then(|v| {
+                    v.get("project")
+                        .and_then(Value::as_str)
+                        .map(|p| paths::same_path(p, cwd))
+                })
                 .unwrap_or(false)
         })
         .collect()
@@ -467,19 +484,15 @@ fn in_use_at(base: &Path, claude_json: &Path) -> Option<TransferError> {
 /// Check every precondition and work out what would be written. Nothing is
 /// touched. Blocking.
 pub fn plan(ctx: &Context<'_>, req: &Request) -> Result<Plan, TransferError> {
-    let same = |a: &Path, b: &Path| {
-        let a = std::fs::canonicalize(a).unwrap_or_else(|_| a.to_path_buf());
-        let b = std::fs::canonicalize(b).unwrap_or_else(|_| b.to_path_buf());
-        a == b
-    };
-    if same(ctx.from.base(), ctx.to.base()) {
+    if paths::same_dir(ctx.from.base(), ctx.to.base()) {
         return Err(TransferError::SameDirectory);
     }
     let (ids, cwd): (Vec<String>, Option<String>) = match &req.what {
         What::Session { id } => (vec![id.clone()], None),
         What::Project { cwd } => {
-            let cwd = cwd.trim_end_matches('/').to_string();
-            if !Path::new(&cwd).is_absolute() {
+            // A folder as its conversations recorded it, on either system.
+            let cwd = paths::trim_end_separators(cwd).to_string();
+            if !paths::is_absolute_anywhere(&cwd) {
                 return Err(TransferError::Invalid(
                     "a project is named by its absolute directory".into(),
                 ));
@@ -493,9 +506,9 @@ pub fn plan(ctx: &Context<'_>, req: &Request) -> Result<Plan, TransferError> {
                     let name = e.file_name().to_string_lossy().into_owned();
                     let id = name.strip_suffix(".jsonl")?.to_string();
                     // A look-alike folder encodes the same: only sessions
-                    // that recorded exactly this cwd.
+                    // that recorded this very folder.
                     (super::ids::is_session_id(&id)
-                        && recorded_cwd(&e.path()).as_deref() == Some(cwd.as_str()))
+                        && recorded_cwd(&e.path()).is_some_and(|c| paths::same_path(&c, &cwd)))
                     .then_some(id)
                 })
                 .collect();
@@ -546,10 +559,11 @@ pub fn plan(ctx: &Context<'_>, req: &Request) -> Result<Plan, TransferError> {
     let project_cwd = cwd
         .clone()
         .or_else(|| sessions.first().and_then(|s| s.cwd.clone()));
-    // The project's entry, with the trust opt-in only, and never over one.
+    // The project's entry, with the trust opt-in only, and never over one;
+    // under the key the source has it by.
     let entry = match (&project_cwd, req.trust) {
         (Some(cwd), true) if project_entry(&ctx.to.claude_json(), cwd).is_none() => {
-            project_entry(&ctx.from.claude_json(), cwd).map(|e| (cwd.clone(), e))
+            project_entry_keyed(&ctx.from.claude_json(), cwd)
         }
         _ => None,
     };
@@ -569,9 +583,10 @@ pub fn plan(ctx: &Context<'_>, req: &Request) -> Result<Plan, TransferError> {
     // A move takes the source's entry along only where it is carried to (the
     // trust opt-in, a target without one): it holds the project's MCP servers
     // and allowed tools, so without the opt-in it stays where it is.
-    let removes = (req.mode == Mode::Move && entry.is_some())
-        .then_some(cwd.clone())
-        .flatten();
+    let removes = entry
+        .as_ref()
+        .filter(|_| req.mode == Mode::Move && cwd.is_some())
+        .map(|(key, _)| key.clone());
     let history_cwds: Vec<String> = cwd
         .iter()
         .filter(|_| req.mode == Mode::Move)
@@ -694,8 +709,9 @@ pub struct Items {
 /// `Err((code, message))` leaves it out.
 pub type Belongs<'a> = &'a dyn Fn(&str) -> Result<(), (String, String)>;
 
-/// The conversations of `from` that recorded exactly `cwd` (a look-alike
-/// folder encodes the same).
+/// The conversations of `from` that recorded the folder `cwd` itself (a
+/// look-alike folder encodes the same; a Windows folder may be recorded in
+/// any case, with either separator: [`paths::same_path`]).
 fn project_sessions(from: &ClaudeHome, cwd: &str) -> Vec<String> {
     let mut ids: Vec<String> = std::fs::read_dir(from.transcript_dir(cwd))
         .into_iter()
@@ -704,8 +720,9 @@ fn project_sessions(from: &ClaudeHome, cwd: &str) -> Vec<String> {
         .filter_map(|e| {
             let name = e.file_name().to_string_lossy().into_owned();
             let id = name.strip_suffix(".jsonl")?.to_string();
-            (super::ids::is_session_id(&id) && recorded_cwd(&e.path()).as_deref() == Some(cwd))
-                .then_some(id)
+            (super::ids::is_session_id(&id)
+                && recorded_cwd(&e.path()).is_some_and(|c| paths::same_path(&c, cwd)))
+            .then_some(id)
         })
         .collect();
     ids.sort();
@@ -724,12 +741,7 @@ pub fn plan_items(
     req: &Items,
     belongs: Belongs<'_>,
 ) -> Result<(Plan, Vec<Skipped>), TransferError> {
-    let same = |a: &Path, b: &Path| {
-        let a = std::fs::canonicalize(a).unwrap_or_else(|_| a.to_path_buf());
-        let b = std::fs::canonicalize(b).unwrap_or_else(|_| b.to_path_buf());
-        a == b
-    };
-    if same(ctx.from.base(), ctx.to.base()) {
+    if paths::same_dir(ctx.from.base(), ctx.to.base()) {
         return Err(TransferError::SameDirectory);
     }
     if req.mode == Mode::Move && !req.customs.is_empty() {
@@ -743,11 +755,9 @@ pub fn plan_items(
     // account's and whether those are all of them.
     let mut projects: Vec<(String, Vec<String>, bool)> = Vec::new();
     for raw in &req.projects {
-        let cwd = match raw.trim_end_matches('/') {
-            "" => "/".to_string(),
-            c => c.to_string(),
-        };
-        if !Path::new(&cwd).is_absolute() {
+        // A folder as its conversations recorded it, on either system.
+        let cwd = paths::trim_end_separators(raw).to_string();
+        if !paths::is_absolute_anywhere(&cwd) {
             skipped.push(Skipped::project(
                 raw,
                 "invalid_transfer",
@@ -755,7 +765,7 @@ pub fn plan_items(
             ));
             continue;
         }
-        if projects.iter().any(|(c, _, _)| *c == cwd) {
+        if projects.iter().any(|(c, _, _)| paths::same_path(c, &cwd)) {
             continue;
         }
         let all = project_sessions(ctx.from, &cwd);
@@ -836,13 +846,14 @@ pub fn plan_items(
                 .filter_map(|s| s.cwd.clone()),
         );
         for cwd in cwds {
-            if entries.iter().any(|(c, _)| *c == cwd)
+            if entries.iter().any(|(c, _)| paths::same_path(c, &cwd))
                 || project_entry(&ctx.to.claude_json(), &cwd).is_some()
             {
                 continue;
             }
-            if let Some(e) = project_entry(&ctx.from.claude_json(), &cwd) {
-                entries.push((cwd, e));
+            // Under the key the source has it by.
+            if let Some(entry) = project_entry_keyed(&ctx.from.claude_json(), &cwd) {
+                entries.push(entry);
             }
         }
     }
@@ -875,8 +886,8 @@ pub fn plan_items(
                 continue;
             }
             history_cwds.push(cwd.clone());
-            if entries.iter().any(|(c, _)| c == cwd) {
-                removes.push(cwd.clone());
+            if let Some((key, _)) = entries.iter().find(|(c, _)| paths::same_path(c, cwd)) {
+                removes.push(key.clone());
             }
         }
     }

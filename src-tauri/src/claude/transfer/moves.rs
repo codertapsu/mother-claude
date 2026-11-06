@@ -23,6 +23,7 @@ use super::custom::{Custom, CustomItem};
 use super::{JobState, JobView, Mode, Skipped, TransferError};
 use crate::claude::accounts::{AccountKind, DEFAULT_ID};
 use crate::claude::backup::{self, storage::Storage, BackupError, Set};
+use crate::claude::paths;
 use crate::claude::summaries::{acting_account, session_account};
 use crate::claude::ClaudeHome;
 use crate::state::AppState;
@@ -298,8 +299,7 @@ fn home_of(state: &AppState, id: &str) -> Result<ClaudeHome, TransferError> {
 }
 
 fn same_dir(a: &ClaudeHome, b: &ClaudeHome) -> bool {
-    let canon = |p: &std::path::Path| std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
-    canon(a.base()) == canon(b.base())
+    paths::same_dir(a.base(), b.base())
 }
 
 /// The name of the set an account's conversations go to by default: its own
@@ -516,9 +516,10 @@ fn expand_all(state: &AppState, from: &str, home: &ClaudeHome) -> (Vec<String>, 
         let cwd = super::transcripts_of(home, &id)
             .first()
             .and_then(|t| super::recorded_cwd(t));
+        // A folder as the conversation recorded it, on either system.
         match cwd {
-            Some(c) if std::path::Path::new(&c).is_absolute() => {
-                if !projects.contains(&c) {
+            Some(c) if paths::is_absolute_anywhere(&c) => {
+                if !projects.iter().any(|p| paths::same_path(p, &c)) {
                     projects.push(c);
                 }
             }
@@ -539,11 +540,9 @@ fn sessions_of_projects(
     let mut ids = Vec::new();
     let mut skipped = Vec::new();
     for raw in projects {
-        let cwd = match raw.trim_end_matches('/') {
-            "" => "/".to_string(),
-            c => c.to_string(),
-        };
-        if !std::path::Path::new(&cwd).is_absolute() {
+        // A folder as its conversations recorded it, on either system.
+        let cwd = paths::trim_end_separators(raw).to_string();
+        if !paths::is_absolute_anywhere(&cwd) {
             skipped.push(Skipped::project(
                 raw,
                 "invalid_transfer",
@@ -659,9 +658,7 @@ async fn plan_one(
                 None => from_name.clone(),
             };
             let to_set = to_storage.set(&to_name);
-            let canon =
-                |p: &std::path::Path| std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
-            if canon(&from_set.dir) == canon(&to_set.dir) {
+            if paths::same_dir(&from_set.dir, &to_set.dir) {
                 return Err(invalid("that is the same set"));
             }
             plan_between(

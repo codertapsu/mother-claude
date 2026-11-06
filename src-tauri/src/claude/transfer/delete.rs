@@ -36,7 +36,7 @@ use serde_json::{json, Value};
 use super::moves::{Location, LIST_CAP};
 use super::{JobState, JobView, Manifest, Mode, Moved, Progress, Skipped, TransferError, What};
 use crate::claude::accounts::{AccountKind, DEFAULT_ID, UNREGISTERED_TOKEN_ID};
-use crate::claude::{disk, ClaudeHome};
+use crate::claude::{disk, paths, ClaudeHome};
 use crate::state::AppState;
 
 /// A delete job's kind, and its manifest's.
@@ -288,7 +288,7 @@ fn plan_dirs(
     let mut cwds: Vec<String> = Vec::new();
     for raw in &items.projects {
         match disk::clean_cwd(raw) {
-            Some(c) if !cwds.contains(&c) => cwds.push(c),
+            Some(c) if !cwds.iter().any(|x| paths::same_path(x, &c)) => cwds.push(c),
             Some(_) => {}
             None => unsourced.push(titled(Skipped::project(
                 raw,

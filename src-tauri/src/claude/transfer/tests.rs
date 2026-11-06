@@ -8,11 +8,18 @@ const CWD: &str = "/p/app";
 
 /// A session's whole file set in `home`.
 fn session(home: &Path, id: &str, cwd: &str) {
+    session_recording(home, id, cwd, cwd);
+}
+
+/// [`session`] in the folder `cwd` encodes to, its transcript recording
+/// `recorded` (on Windows `c:\x` and `C:\x` are one folder, `C--x`).
+fn session_recording(home: &Path, id: &str, cwd: &str, recorded: &str) {
     let proj = home.join("projects").join(encode_cwd(cwd));
     std::fs::create_dir_all(proj.join(id).join("subagents")).unwrap();
+    let recorded = recorded.replace('\\', r"\\");
     std::fs::write(
         proj.join(format!("{id}.jsonl")),
-        format!("{{\"type\":\"user\",\"cwd\":\"{cwd}\",\"sessionId\":\"{id}\"}}\n{{\"type\":\"assistant\"}}\n"),
+        format!("{{\"type\":\"user\",\"cwd\":\"{recorded}\",\"sessionId\":\"{id}\"}}\n{{\"type\":\"assistant\"}}\n"),
     )
     .unwrap();
     std::fs::write(proj.join(id).join("subagents/agent-a1.jsonl"), "{}\n").unwrap();
@@ -921,6 +928,86 @@ fn bulk_skips_what_cannot_go_where_the_old_body_refuses() {
 
 /// Two projects in one job: their conversations, prompt history and (trust)
 /// entries go together, and one undo puts all of it back.
+/// A Windows machine's project, whatever this machine is: its conversations
+/// as the CLI and VS Code record the folder (`C:\Users\me\app`, `c:\…`), its
+/// `.claude.json` entry under the key Claude Code gives it on Windows
+/// (`C:/Users/me/app`), its prompt history.
+#[test]
+fn a_windows_project_moves_whole_whatever_this_machine_is() {
+    const WIN: &str = r"C:\Users\me\app";
+    let w = world();
+    session(w.a.base(), SID, WIN);
+    session_recording(w.a.base(), S2, WIN, r"c:\Users\me\app");
+    // A look-alike folder encodes the same (`C--Users-me-app`) and stays.
+    session(w.a.base(), S3, r"C:\Users\me-app");
+    std::fs::write(
+        w.a.claude_json(),
+        serde_json::json!({"projects": {
+            "C:/Users/me/app": {"hasTrustDialogAccepted": true},
+            "C:/Users/me/web": {"x": 1}}})
+        .to_string(),
+    )
+    .unwrap();
+    let line = |t: i64, d: &str, p: &str| {
+        serde_json::json!({"display": d, "timestamp": t, "project": p}).to_string()
+    };
+    std::fs::write(
+        w.a.history_file(),
+        [
+            line(1, "one", WIN),
+            line(2, "web", r"C:\Users\me\web"),
+            line(3, "two", WIN),
+        ]
+        .join("\n")
+            + "\n",
+    )
+    .unwrap();
+    let ctx = Context {
+        from: &w.a,
+        to: &w.b,
+        is_live: &not_live,
+    };
+    // Named in any case, with either separator, with a trailing one.
+    let single = What::Project {
+        cwd: "c:/users/me/app/".into(),
+    };
+    let p = plan(&ctx, &req(single, Mode::Move, true)).unwrap();
+    let ids: Vec<&str> = p.sessions.iter().map(|s| s.id.as_str()).collect();
+    assert_eq!(ids, [S2, SID], "the look-alike's conversation stays");
+    assert_eq!(p.adds_project_entry.as_deref(), Some("C:/Users/me/app"));
+    assert_eq!(p.removes_project_entry.as_deref(), Some("C:/Users/me/app"));
+    assert_eq!(p.history_lines, 2);
+
+    let (p, skipped) = plan_items(
+        &ctx,
+        &items(&[], &[WIN, r"c:\users\me\app\"], Mode::Move, true),
+        &mine,
+    )
+    .unwrap();
+    assert!(skipped.is_empty(), "{skipped:?}");
+    assert_eq!(p.projects, [WIN], "one folder, named twice");
+    assert_eq!(p.sessions.len(), 2);
+    assert_eq!(p.added_entries(), ["C:/Users/me/app"]);
+    assert_eq!(p.removed_entries(), ["C:/Users/me/app"]);
+    assert_eq!(p.history_lines, 2);
+    run(&p, &w.undo, &new_job_id(), &Progress::default(), &not_live).unwrap();
+    let read = |h: &ClaudeHome| -> Value {
+        serde_json::from_str(&std::fs::read_to_string(h.claude_json()).unwrap()).unwrap()
+    };
+    // Under the key Claude Code looks it up by there.
+    assert_eq!(
+        read(&w.b)["projects"]["C:/Users/me/app"]["hasTrustDialogAccepted"],
+        true
+    );
+    assert!(read(&w.a)["projects"].get("C:/Users/me/app").is_none());
+    assert_eq!(read(&w.a)["projects"]["C:/Users/me/web"]["x"], 1);
+    let hist = |h: &ClaudeHome| std::fs::read_to_string(h.history_file()).unwrap();
+    assert_eq!(hist(&w.b).lines().count(), 2);
+    assert_eq!(hist(&w.a).lines().count(), 1, "only the other project's");
+    assert_eq!(transcripts_of(&w.b, S2).len(), 1);
+    assert_eq!(transcripts_of(&w.a, S3).len(), 1);
+}
+
 #[test]
 fn several_projects_move_in_one_job_and_one_undo() {
     let w = world();

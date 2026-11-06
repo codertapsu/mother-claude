@@ -11,6 +11,7 @@ use serde::Serialize;
 
 use super::accounts::{AccountKind, DEFAULT_ID};
 use super::model::{ConversationFiles, SessionSummary};
+use super::paths;
 use crate::state::AppState;
 
 /// A directory, not through a symlink.
@@ -91,22 +92,17 @@ pub struct ProjectRow {
     pub folder_path: PathBuf,
 }
 
+/// Its last component, by the separators of the system that recorded it.
 fn name_of(cwd: &str) -> String {
-    Path::new(cwd)
-        .file_name()
-        .and_then(|n| n.to_str())
-        .unwrap_or(cwd)
-        .to_string()
+    paths::last_component(cwd).unwrap_or(cwd).to_string()
 }
 
-/// A folder named in a request: absolute, without a trailing separator (a
-/// root keeps its own). `None` for a relative one.
+/// A folder named in a request, as conversations recorded it — a Mac's or a
+/// Windows one, whatever this machine is: absolute, without a trailing
+/// separator (a root keeps its own). `None` for a relative one.
 pub fn clean_cwd(raw: &str) -> Option<String> {
-    let trimmed = raw.trim_end_matches(std::path::is_separator);
-    [trimmed, raw]
-        .into_iter()
-        .find(|c| Path::new(c).is_absolute())
-        .map(str::to_string)
+    let cwd = paths::trim_end_separators(raw);
+    paths::is_absolute_anywhere(cwd).then(|| cwd.to_string())
 }
 
 /// Every project folder that holds conversations, in every account's
@@ -144,8 +140,10 @@ pub fn projects(state: &AppState, summaries: &[SessionSummary]) -> Vec<ProjectRo
             .unwrap_or(files.main_mtime)
             .max(files.main_mtime);
         let live = super::transfer::ops::is_live(state, &id);
+        // One row per folder: a Windows one recorded in any case, with
+        // either separator, is one folder.
         let row = rows
-            .entry((account.clone(), cwd.clone()))
+            .entry((account.clone(), paths::path_key(&cwd)))
             .or_insert_with(|| ProjectRow {
                 account,
                 name: name_of(&cwd),
@@ -191,7 +189,7 @@ pub fn project_folder(
     let cwd = clean_cwd(cwd)?;
     projects(state, summaries)
         .into_iter()
-        .find(|r| r.account == account && r.cwd == cwd)
+        .find(|r| r.account == account && paths::same_path(&r.cwd, &cwd))
         .map(|r| r.folder_path)
         .filter(|p| plain_dir(p))
 }
@@ -201,18 +199,22 @@ mod tests {
     use super::*;
 
     #[test]
-    #[cfg(unix)]
     fn a_folder_in_a_request_is_absolute_without_its_trailing_slash() {
         assert_eq!(clean_cwd("/a/b/").as_deref(), Some("/a/b"));
         assert_eq!(clean_cwd("/a/b").as_deref(), Some("/a/b"));
         assert_eq!(clean_cwd("/").as_deref(), Some("/"));
         assert_eq!(clean_cwd("a/b"), None);
         assert_eq!(clean_cwd(""), None);
+        // A folder another system recorded, whichever this one is.
+        assert_eq!(clean_cwd(r"D:\dev\app\").as_deref(), Some(r"D:\dev\app"));
+        assert_eq!(clean_cwd(r"C:\").as_deref(), Some(r"C:\"));
+        assert_eq!(clean_cwd(r"dev\app"), None);
     }
 
     #[test]
     fn a_row_is_named_after_its_folder() {
         assert_eq!(name_of("/Users/me/dev/app"), "app");
+        assert_eq!(name_of(r"C:\Users\me\dev\app"), "app");
         assert_eq!(name_of("/"), "/");
     }
 }
