@@ -73,6 +73,10 @@ flate2 = "1.1.10"
 # path names the same folder (`claude::paths`). Already in the dependency
 # graph through Tauri.
 dunce = "1.0.5"
+# Host metrics for admission control (orchestration::host): free memory, load
+# and each live session's resident memory, on macOS and Windows alike. Only
+# the `system` feature; pinned (0.39+ needs Rust 1.95, above our 1.89).
+sysinfo = { version = "=0.38.4", default-features = false, features = ["system"] }
 
 # The accounts feature keeps token accounts' tokens and the backup passphrase
 # in the login Keychain (docs/ACCOUNTS.md D3). Already in the tree through

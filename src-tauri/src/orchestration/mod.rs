@@ -17,3 +17,7 @@
 pub mod capacity;
 pub mod metrics;
 pub mod router;
+
+// The scheduler side behind those three (docs/ROUTING.md): host metrics,
+// settings, the routing policy, outcomes, budgets, reports and its routes.
+pub mod host;
