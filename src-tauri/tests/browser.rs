@@ -1003,3 +1003,67 @@ async fn oversized_frames_are_refused_and_fail_their_request() {
         text_of(&out)
     );
 }
+
+// ───────────────────────────────────────────────────────── dashboards
+
+/// The next dashboard frame (`/ws`) `pick` accepts.
+async fn dash_frame(ws: &mut Ws, pick: impl Fn(&Value) -> bool) -> Value {
+    loop {
+        let msg = tokio::time::timeout(Duration::from_secs(10), ws.next())
+            .await
+            .expect("a dashboard frame within 10 s")
+            .expect("open")
+            .expect("a frame");
+        if let Message::Text(t) = msg {
+            let v: Value = serde_json::from_str(&t).unwrap();
+            if pick(&v) {
+                return v;
+            }
+        }
+    }
+}
+
+#[tokio::test]
+async fn dashboards_hear_of_changes_over_the_realtime_socket() {
+    let (base, st) = boot().await;
+    let url = format!(
+        "{}/ws?token={}",
+        base.replacen("http", "ws", 1),
+        st.auth.token
+    );
+    let mut dash = tokio_tungstenite::connect_async(url).await.unwrap().0;
+    dash_frame(&mut dash, |v| v["t"] == "hello").await;
+    let is = |what: &'static str| move |v: &Value| v["t"] == "browser" && v["what"] == what;
+
+    // A site mode set on the page.
+    let r = reqwest::Client::new()
+        .put(format!("{base}/api/browser/sites"))
+        .bearer_auth(&st.auth.token)
+        .json(&json!({"origin": "https://example.test", "mode": "act"}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), StatusCode::OK);
+    dash_frame(&mut dash, is("sites")).await;
+
+    // A browser connects; an approval is raised, then answered.
+    let (mut ws, _, _) = paired(&base, &st).await;
+    dash_frame(&mut dash, is("browsers")).await;
+    let task = call(&st, SESSION, "browser_eval", json!({"expression": "1"}));
+    open_lease_with_tab(&mut ws, "https://example.test/").await;
+    dash_frame(&mut dash, is("leases")).await;
+    let id = pending_approval(&st).await;
+    dash_frame(&mut dash, is("approvals")).await;
+    let r = reqwest::Client::new()
+        .post(format!("{base}/api/sessions/{SESSION}/respond"))
+        .bearer_auth(&st.auth.token)
+        .json(&json!({"requestId": id, "decision": "deny"}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), StatusCode::OK);
+    assert!(text_of(&task.await.unwrap()).contains("(denied)"));
+    dash_frame(&mut dash, is("approvals")).await;
+    // Every action shows in the activity, soon after.
+    dash_frame(&mut dash, is("activity")).await;
+}

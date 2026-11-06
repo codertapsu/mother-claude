@@ -1022,9 +1022,11 @@ async fn approve(
         created_at: crate::claude::registry::now_ms(),
     });
     super::push_state(state, &lease.browser);
+    super::notify(state, "approvals");
     let end = pending::wait_end(rx, APPROVAL_TIMEOUT).await;
     ext.untrack_approval(&id);
     super::push_state(state, &lease.browser);
+    super::notify(state, "approvals");
     match end {
         WaitEnd::Decided(d) if d.is_allow() => {
             if let (Some(_), Some(s)) = (d.suggestion, &suggestion) {

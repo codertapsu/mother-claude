@@ -1764,7 +1764,8 @@ export interface PairRequestFrame {
  * `GET /api/browser` (docs/BROWSER.md). */
 export interface BrowserFrame {
   t: 'browser';
-  /** `browsers` | `sites` | `settings` | `grants` | `leases` | `activity`. */
+  /** `browsers` | `sites` | `settings` | `grants` | `leases` | `approvals` |
+   * `activity`. */
   what?: string;
 }
 

@@ -176,7 +176,8 @@ pub enum ServerEvent {
     },
     /// The browser extension's state changed (everyone): `{t:"browser",
     /// what}` with `what` one of `browsers`, `sites`, `settings`, `grants`,
-    /// `leases`, `activity` — refetch `/api/browser` (docs/BROWSER.md).
+    /// `leases`, `approvals`, `activity` — refetch `/api/browser`
+    /// (docs/BROWSER.md).
     Browser { what: String },
 }
 
