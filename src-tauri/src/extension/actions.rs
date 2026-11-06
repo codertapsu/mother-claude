@@ -414,6 +414,35 @@ pub async fn ensure_lease(
     Ok((lease, conn))
 }
 
+/// The session's lease in the browser `conn` is: the one it has there, or a
+/// new one. The user chose this browser (the side panel's Connect), so a
+/// lease the session has in another browser closes, and a Stop of it lifts.
+pub async fn lease_in(
+    state: &AppState,
+    session: &str,
+    conn: &Arc<Conn>,
+) -> Result<Lease, ToolError> {
+    let ext = &state.extension;
+    let lock = ext.lease_lock(session);
+    let _held = lock.lock().await;
+    if ext.leases.stopped(session).is_some() && ext.leases.resume(session) {
+        super::activity::audit_change(
+            state,
+            None,
+            "browser.resume",
+            json!({ "session": session, "browser": conn.browser, "by": "connect" }),
+        );
+    }
+    if let Some(lease) = ext.leases.get(session) {
+        if lease.browser == conn.browser && ext.hub.get(&lease.browser).is_some() {
+            ext.leases.touch(session);
+            return Ok(lease);
+        }
+        close_lease(state, &lease, "connected in another browser").await;
+    }
+    open_lease(state, session, conn).await
+}
+
 /// `lease.open` → `lease.opened`.
 async fn open_lease(state: &AppState, session: &str, conn: &Arc<Conn>) -> Result<Lease, ToolError> {
     let ext = &state.extension;

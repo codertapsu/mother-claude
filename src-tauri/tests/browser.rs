@@ -1203,3 +1203,150 @@ async fn dashboards_hear_of_changes_over_the_realtime_socket() {
     // Every action shows in the activity, soon after.
     dash_frame(&mut dash, is("activity")).await;
 }
+
+// ─────────────────────────────────── connecting a session from the side panel
+
+/// A live foreign session in VS Code, on the hooks channel (its SessionStart
+/// came from this process, as a session's hook would).
+async fn hooked_session(base: &str, st: &AppState, id: &str, mode: Option<&str>) {
+    use mother_claude_lib::claude::model::{SessionStatus, SessionSummary, Surface};
+    mother_claude_lib::server::ws::upsert_session(
+        st,
+        SessionSummary {
+            id: id.into(),
+            name: "Polish the docs site".into(),
+            project_name: "docs".into(),
+            cwd: "/tmp/docs".into(),
+            surface: Surface::Vscode,
+            entrypoint: Some("claude-vscode".into()),
+            live: true,
+            status: SessionStatus::Idle,
+            permission_mode: mode.map(str::to_string),
+            last_activity_at: Some(mother_claude_lib::claude::registry::now_ms()),
+            ..Default::default()
+        },
+    )
+    .await;
+    let r = reqwest::Client::new()
+        .post(format!("{base}/hooks/event"))
+        .bearer_auth(&st.auth.hook_token)
+        .header("x-mc-pid", std::process::id().to_string())
+        .json(&json!({"hook_event_name": "SessionStart", "session_id": id, "source": "startup"}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), StatusCode::OK);
+}
+
+/// `session.connect` for `session`, answering the `lease.open` it causes.
+async fn connect_session(ws: &mut Ws, session: &str, id: &str) -> (Value, Value) {
+    send(
+        ws,
+        json!({"type": "session.connect", "id": id, "session": session,
+               "tab": {"tabId": 7, "url": "https://example.test/a"}}),
+    )
+    .await;
+    let open = next_of(ws, "lease.open").await;
+    send(
+        ws,
+        json!({"type": "lease.opened", "id": open["id"], "lease": open["lease"], "groupId": 3}),
+    )
+    .await;
+    (open, next_of(ws, "ok").await)
+}
+
+fn row<'a>(list: &'a Value, session: &str) -> &'a Value {
+    list["data"]["sessions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|s| s["id"] == session)
+        .expect("the session is listed")
+}
+
+#[tokio::test]
+async fn the_side_panel_connects_a_running_session_and_tells_it_what_to_do() {
+    let (base, st) = boot().await;
+    let (mut ws, _, _) = paired(&base, &st).await;
+    hooked_session(&base, &st, SESSION, None).await;
+    // The list: reachable through the hooks, no tools seen yet, not here.
+    send(&mut ws, json!({"type": "sessions", "id": "s1"})).await;
+    let list = next_of(&mut ws, "ok").await;
+    assert_eq!(list["id"], "s1");
+    let r = row(&list, SESSION);
+    assert_eq!(r["surface"], "VS Code");
+    assert_eq!(r["canTell"], true);
+    assert_eq!(r["tellHow"], "relay");
+    assert_eq!(r["hasTools"], false);
+    assert!(r["lease"].is_null());
+    // Telling it before it is connected here: refused.
+    send(
+        &mut ws,
+        json!({"type": "session.tell", "id": "t0", "session": SESSION, "message": "hi"}),
+    )
+    .await;
+    assert_eq!(next_of(&mut ws, "error").await["code"], "not_connected");
+    // Connect: its lease opens in this browser before the answer.
+    let (open, ok) = connect_session(&mut ws, SESSION, "c1").await;
+    assert_eq!(open["session"]["id"], SESSION);
+    assert_eq!(ok["id"], "c1");
+    assert_eq!(ok["data"]["lease"], open["lease"]);
+    assert_eq!(
+        st.extension.leases.get(SESSION).map(|l| l.id),
+        open["lease"].as_str().map(str::to_string)
+    );
+    // Tell: relayed through the hooks with the user's words and the site's
+    // origin, never the page's path or query.
+    send(
+        &mut ws,
+        json!({"type": "session.tell", "id": "t1", "session": SESSION,
+               "message": "List the plans.",
+               "tab": {"tabId": 7, "url": "https://example.test/pricing?token=zzz"}}),
+    )
+    .await;
+    let told = next_of(&mut ws, "ok").await;
+    assert_eq!(told["id"], "t1");
+    assert_eq!(told["data"]["delivery"], "queued");
+    let queued = mother_claude_lib::server::hooks::queued(&st, SESSION);
+    assert_eq!(queued.len(), 1);
+    let text = &queued[0].text;
+    assert!(text.contains("List the plans."), "{text}");
+    assert!(text.contains("on https://example.test,"), "{text}");
+    assert!(
+        !text.contains("/pricing") && !text.contains("token=zzz"),
+        "{text}"
+    );
+    // The list now says it works in this browser.
+    send(&mut ws, json!({"type": "sessions", "id": "s2"})).await;
+    let list = next_of(&mut ws, "ok").await;
+    assert_eq!(row(&list, SESSION)["lease"], open["lease"]);
+    // Neither connecting nor telling is ever about a session that is not running.
+    send(
+        &mut ws,
+        json!({"type": "session.connect", "id": "c2", "session": OTHER_SESSION}),
+    )
+    .await;
+    assert_eq!(next_of(&mut ws, "error").await["code"], "not_found");
+}
+
+#[tokio::test]
+async fn a_session_without_permission_prompts_is_told_what_to_do_on_the_desktop_only() {
+    let (base, st) = boot().await;
+    let (mut ws, _, _) = paired(&base, &st).await;
+    hooked_session(&base, &st, SESSION, Some("bypassPermissions")).await;
+    send(&mut ws, json!({"type": "sessions", "id": "s1"})).await;
+    let list = next_of(&mut ws, "ok").await;
+    let r = row(&list, SESSION);
+    assert_eq!(r["canTell"], false);
+    assert!(r["whyNot"].as_str().unwrap().contains("permission prompts"));
+    // It may still get the tab; its own approvals guard what it does there.
+    let (_, ok) = connect_session(&mut ws, SESSION, "c1").await;
+    assert_eq!(ok["id"], "c1");
+    send(
+        &mut ws,
+        json!({"type": "session.tell", "id": "t1", "session": SESSION, "message": "go"}),
+    )
+    .await;
+    assert_eq!(next_of(&mut ws, "error").await["code"], "needs_desktop");
+    assert!(mother_claude_lib::server::hooks::queued(&st, SESSION).is_empty());
+}

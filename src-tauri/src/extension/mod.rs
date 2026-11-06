@@ -30,6 +30,7 @@
 pub mod actions;
 pub mod activity;
 pub mod channel;
+pub mod connect;
 pub mod danger;
 pub mod hub;
 pub mod leases;

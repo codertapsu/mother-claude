@@ -123,6 +123,13 @@ fn ok_frame(id: Option<&str>) -> Value {
     f
 }
 
+/// `ok` with what the request asked for (an addition to v1: `data`).
+fn ok_data_frame(id: Option<&str>, data: Value) -> Value {
+    let mut f = ok_frame(id);
+    f["data"] = data;
+    f
+}
+
 fn queue(tx: &mpsc::Sender<String>, frame: &Value) {
     if tx.try_send(frame.to_string()).is_err() {
         tracing::debug!("browser connection queue full; frame dropped");
@@ -336,6 +343,25 @@ async fn handle(
         "event" => event(state, conn, &v),
         "setSiteMode" => set_site_mode(state, ctx, conn, tx, id, &v),
         "answer" => answer(state, ctx, conn, tx, id, &v).await,
+        // The side panel's sessions (`extension::connect`). Off the read
+        // loop: connecting waits for this same socket's `lease.opened`.
+        "sessions" | "session.connect" | "session.tell" => {
+            conn.mark_active();
+            let (state, ctx, conn, tx) = (state.clone(), ctx.clone(), conn.clone(), tx.clone());
+            let id = id.map(str::to_string);
+            tokio::spawn(async move {
+                let reply = match kind.as_str() {
+                    "sessions" => Ok(super::connect::sessions(&state, &conn).await),
+                    "session.connect" => super::connect::connect(&state, &conn, &v).await,
+                    _ => super::connect::tell(&state, &ctx, &conn, &v).await,
+                };
+                let frame = match reply {
+                    Ok(data) => ok_data_frame(id.as_deref(), data),
+                    Err(r) => error_frame(id.as_deref(), &r.code, &r.message),
+                };
+                queue(&tx, &frame);
+            });
+        }
         "pair" => pair(state, origin, tx, id, &v),
         "hello" => {
             // Again on an authenticated connection: fine for the same browser.
