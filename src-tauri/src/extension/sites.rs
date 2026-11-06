@@ -329,7 +329,7 @@ pub struct Grant {
     /// An exact origin.
     pub origin: String,
     pub created_at: i64,
-    /// Who created it ("Mac", a device's name).
+    /// Who created it ("Mac" or "PC" for this computer, a device's name).
     #[serde(default)]
     pub created_by: String,
 }

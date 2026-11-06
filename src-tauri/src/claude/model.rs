@@ -817,7 +817,7 @@ pub enum PendingOutcome {
 pub enum ResolverKind {
     /// A paired device (`name` = the device name).
     Device,
-    /// This computer (`name` = "Mac").
+    /// This computer (`name` = "Mac" or "PC", `paths::machine_noun`).
     Desktop,
     /// The session's own host answered or dropped it (VS Code, the terminal,
     /// the CLI cancelling, the process exiting).

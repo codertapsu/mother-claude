@@ -420,7 +420,7 @@ pub async fn post_grant(
     require_dangerous(&ctx, "A standing browser grant")?;
     let by = match ctx.device_id().and_then(|id| state.devices.get(id)) {
         Some(d) => d.name,
-        None => "Mac".to_string(),
+        None => crate::claude::paths::machine_noun().to_string(),
     };
     let id = super::actions::add_grant(&state, action, &origin, &by, Some(&ctx))
         .map_err(ApiError::internal)?;

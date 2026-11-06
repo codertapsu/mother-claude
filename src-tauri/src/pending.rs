@@ -633,7 +633,7 @@ fn resolution_for_decision(
         ),
         _ => (
             ResolverKind::Desktop,
-            Some(name.unwrap_or_else(|| "Mac".into())),
+            Some(name.unwrap_or_else(|| crate::claude::paths::machine_noun().into())),
         ),
     };
     let mut r = resolved(item, outcome, Some(kind), name, None);

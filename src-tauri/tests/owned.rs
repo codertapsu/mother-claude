@@ -1178,7 +1178,10 @@ async fn http_routes_drive_an_owned_session() {
     assert_eq!(r.status(), 200);
     let v: Value = r.json().await.unwrap();
     assert_eq!(v["resolution"]["outcome"], "allowed");
-    assert_eq!(v["resolution"]["by"]["name"], "Mac");
+    assert_eq!(
+        v["resolution"]["by"]["name"],
+        mother_claude_lib::claude::paths::machine_noun()
+    );
     // Too late: 409 with how it was resolved.
     let r = post(
         &format!("/sessions/{id}/respond"),

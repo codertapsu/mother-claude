@@ -1103,7 +1103,7 @@ async fn approve(
                     .resolution(&id)
                     .and_then(|r| r.by)
                     .and_then(|b| b.name)
-                    .unwrap_or_else(|| "Mac".into());
+                    .unwrap_or_else(|| crate::claude::paths::machine_noun().into());
                 apply_grants(state, &s.raw, &by);
             }
             Ok(())
