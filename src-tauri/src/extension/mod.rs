@@ -20,7 +20,7 @@
 //!   dangerous grant, or the side panel answers; the first answer wins).
 //! * [`redact`] — what the extension reads is redacted again before it
 //!   reaches a model.
-//! * [`routes`] — `/api/browser/*`;
+//! * [`mcp`] — the `browser_*` tools; [`routes`] — `/api/browser/*`;
 //!   [`activity`] — the activity log and audit lines.
 //!
 //! AppState field: `state.extension` ([`ExtensionState::load`] from the app
@@ -33,6 +33,7 @@ pub mod channel;
 pub mod danger;
 pub mod hub;
 pub mod leases;
+pub mod mcp;
 pub mod page;
 pub mod pairing;
 pub mod redact;

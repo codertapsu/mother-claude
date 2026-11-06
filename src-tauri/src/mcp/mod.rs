@@ -245,6 +245,7 @@ impl Registry {
 pub fn registry() -> Registry {
     let mut r = Registry::default();
     core_tools(&mut r);
+    crate::extension::mcp::register(&mut r);
     r
 }
 
