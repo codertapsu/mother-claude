@@ -1,22 +1,33 @@
-/* Mother Claude extension pages: the side panel, options and the lease placeholder. */
+/* Mother Claude extension pages: the side panel, options and the lease placeholder.
+   Sizes are for reading at arm's length: text 15px, nothing under 13px, every
+   control at least 40px tall. Colours follow the desktop app. */
 
 :root {
   color-scheme: light dark;
-  --bg: #ffffff;
-  --fg: #1f2328;
-  --muted: #59636e;
-  --line: #d1d9e0;
-  --card: #f6f8fa;
-  --accent: #6e4fc2;
+  --bg: #f5f5f9;
+  --surface: #ffffff;
+  --surface-2: #f0eff7;
+  --fg: #191a22;
+  --muted: #5b5e6c;
+  --line: #dcdbe6;
+  --line-strong: #c3c1d3;
+  --accent: #6c4fd6;
+  --accent-hover: #5b3fc4;
   --accent-fg: #ffffff;
-  --danger: #c4321b;
-  --warn-bg: #fff4e5;
+  --accent-soft: #ece7fc;
+  --danger: #c2341f;
+  --danger-soft: #fdecea;
+  --warn-bg: #fff3e0;
   --warn-fg: #7a4100;
-  --ok: #1a7f37;
-  --focus: #6e4fc2;
-  --radius: 8px;
+  --warn-line: #f3c98b;
+  --ok: #1b8a43;
+  --ok-soft: #e4f5ea;
+  --focus: #6c4fd6;
+  --shadow: 0 1px 2px rgb(20 20 40 / 6%), 0 4px 14px rgb(20 20 40 / 6%);
+  --radius: 14px;
+  --radius-sm: 10px;
   font:
-    13px/1.45 system-ui,
+    15px/1.5 system-ui,
     -apple-system,
     'Segoe UI',
     Roboto,
@@ -25,18 +36,26 @@
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #17181c;
-    --fg: #e6e7eb;
-    --muted: #a0a4ad;
-    --line: #34363d;
-    --card: #202228;
-    --accent: #9d86e8;
-    --accent-fg: #14121b;
-    --danger: #ff7b63;
-    --warn-bg: #3a2a12;
-    --warn-fg: #ffd08a;
-    --ok: #57c77a;
-    --focus: #b39cf5;
+    --bg: #111217;
+    --surface: #1a1b22;
+    --surface-2: #22232c;
+    --fg: #eceef4;
+    --muted: #a3a6b4;
+    --line: #2e303b;
+    --line-strong: #444756;
+    --accent: #a78bfa;
+    --accent-hover: #b9a2fb;
+    --accent-fg: #15121f;
+    --accent-soft: #2a2440;
+    --danger: #ff7b66;
+    --danger-soft: #3a1f1b;
+    --warn-bg: #362813;
+    --warn-fg: #ffd28f;
+    --warn-line: #6b4d1c;
+    --ok: #5fd08a;
+    --ok-soft: #173023;
+    --focus: #c4b1ff;
+    --shadow: none;
   }
 }
 
@@ -45,181 +64,349 @@
 }
 
 body {
+  /* Chrome styles extension pages `font-size: 75%` of their own, which made
+     every inherited size three quarters of what is written here. */
+  font: inherit;
   margin: 0;
-  padding: 12px 14px 24px;
+  padding: 16px 16px 28px;
   background: var(--bg);
   color: var(--fg);
+  -webkit-font-smoothing: antialiased;
 }
 
 h1 {
-  font-size: 16px;
+  font-size: 18px;
+  font-weight: 650;
   margin: 0;
+  letter-spacing: -0.01em;
 }
 h2 {
-  font-size: 13px;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--muted);
-  margin: 20px 0 8px;
+  font-size: 16px;
+  font-weight: 650;
+  margin: 0 0 4px;
+}
+h3 {
+  font-size: 15px;
+  font-weight: 650;
+  margin: 20px 0 6px;
+}
+p {
+  margin: 0 0 8px;
 }
 
 a {
   color: var(--accent);
+  text-underline-offset: 2px;
 }
+
+code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.92em;
+  background: var(--surface-2);
+  border-radius: 6px;
+  padding: 1px 6px;
+}
+
+/* ── header ───────────────────────────────────────────────────────────── */
 
 header.top {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
+  margin-bottom: 14px;
 }
 header.top img {
-  width: 22px;
-  height: 22px;
+  width: 28px;
+  height: 28px;
+}
+header.top h1 {
+  flex: 1;
 }
 
 .status {
-  display: flex;
+  display: inline-flex;
   align-items: center;
   gap: 8px;
-  margin: 10px 0 0;
+  margin: 0;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: var(--surface);
+  border: 1px solid var(--line);
   color: var(--muted);
+  font-size: 14px;
+  white-space: nowrap;
+}
+.status .text {
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .dot {
-  width: 9px;
-  height: 9px;
+  width: 10px;
+  height: 10px;
   border-radius: 50%;
   flex: none;
   background: var(--muted);
 }
 .dot.on {
   background: var(--ok);
+  box-shadow: 0 0 0 3px var(--ok-soft);
 }
 .dot.off {
   background: var(--danger);
 }
 
+/* ── sections and cards ──────────────────────────────────────────────── */
+
+section {
+  margin: 0 0 16px;
+}
+section > .section-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 0 2px 8px;
+}
+section > .section-head h2 {
+  margin: 0;
+}
+
 .card {
-  background: var(--card);
+  background: var(--surface);
   border: 1px solid var(--line);
   border-radius: var(--radius);
-  padding: 10px 12px;
-  margin: 8px 0;
+  padding: 16px;
+  margin: 0 0 10px;
+  box-shadow: var(--shadow);
+}
+.card.attention {
+  border-color: var(--warn-line);
+  background: var(--warn-bg);
+  color: var(--warn-fg);
+}
+.card.attention .muted {
+  color: inherit;
+  opacity: 0.85;
 }
 .card .row {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 12px;
 }
-.card .grow {
+.grow {
   flex: 1;
   min-width: 0;
 }
 .title {
-  font-weight: 600;
+  font-size: 15.5px;
+  font-weight: 650;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.muted,
-.help {
+.site {
+  font-size: 17px;
+  font-weight: 650;
+  word-break: break-all;
+}
+.muted {
   color: var(--muted);
 }
+.small {
+  font-size: 13.5px;
+}
 .help {
-  margin: 4px 0 10px;
-  font-size: 12px;
+  color: var(--muted);
+  font-size: 14px;
+  margin: 6px 0 12px;
 }
 .swatch {
-  width: 10px;
-  height: 10px;
-  border-radius: 3px;
+  width: 14px;
+  height: 14px;
+  border-radius: 4px;
   flex: none;
 }
 .badge {
-  font-size: 11px;
-  padding: 1px 6px;
-  border-radius: 10px;
-  border: 1px solid currentColor;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 13px;
+  font-weight: 550;
+  line-height: 1;
+  padding: 5px 9px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--muted);
+  white-space: nowrap;
 }
 .badge.danger {
+  background: var(--danger-soft);
   color: var(--danger);
+}
+.badge.ok {
+  background: var(--ok-soft);
+  color: var(--ok);
+}
+.badge.accent {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.badge.warn {
+  background: var(--warn-bg);
+  color: var(--warn-fg);
+}
+.badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
 }
 
 .notice {
   background: var(--warn-bg);
   color: var(--warn-fg);
-  border-radius: var(--radius);
-  padding: 8px 10px;
-  margin: 8px 0;
+  border: 1px solid var(--warn-line);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  margin: 10px 0;
+  font-size: 14px;
+}
+.note {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  font-size: 14px;
+  color: var(--muted);
+  margin: 8px 0 0;
+}
+.note.warn {
+  color: var(--warn-fg);
+}
+.success {
+  color: var(--ok);
+  font-weight: 550;
+  margin: 10px 0 0;
 }
 
 .error {
   color: var(--danger);
-  min-height: 1em;
-  margin: 6px 0 0;
+  font-size: 14px;
+  margin: 8px 0 0;
 }
+.error:empty {
+  display: none;
+}
+
+/* ── controls ────────────────────────────────────────────────────────── */
 
 button {
   font: inherit;
-  border-radius: 6px;
-  border: 1px solid var(--line);
-  background: var(--bg);
+  font-weight: 550;
+  min-height: 40px;
+  padding: 0 16px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--line-strong);
+  background: var(--surface);
   color: var(--fg);
-  padding: 4px 10px;
   cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  transition:
+    background-color 0.12s,
+    border-color 0.12s;
 }
 button:hover {
   border-color: var(--muted);
+  background: var(--surface-2);
 }
 button.primary {
   background: var(--accent);
   border-color: var(--accent);
   color: var(--accent-fg);
 }
+button.primary:hover {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+}
+button.wide {
+  width: 100%;
+  min-height: 46px;
+  font-size: 16px;
+}
 button.stop {
   background: var(--danger);
   border-color: var(--danger);
   color: #fff;
-  font-weight: 600;
+}
+button.stop:hover {
+  filter: brightness(1.08);
+}
+button.link {
+  min-height: 0;
+  padding: 2px 4px;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
 }
 button:disabled {
-  opacity: 0.55;
+  opacity: 0.5;
   cursor: default;
+  filter: none;
 }
 :focus-visible {
-  outline: 2px solid var(--focus);
+  outline: 3px solid var(--focus);
   outline-offset: 2px;
 }
 
 input,
-select {
+select,
+textarea {
   font: inherit;
   color: var(--fg);
-  background: var(--bg);
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  padding: 5px 8px;
+  background: var(--surface);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  min-height: 44px;
   width: 100%;
+}
+textarea {
+  min-height: 96px;
+  resize: vertical;
+  line-height: 1.45;
+}
+input::placeholder,
+textarea::placeholder {
+  color: var(--muted);
+  opacity: 0.8;
 }
 label {
   display: block;
   font-weight: 600;
-  margin: 10px 0 4px;
+  margin: 14px 0 6px;
 }
 form.pair button {
-  margin-top: 12px;
+  margin-top: 16px;
 }
 
 .modes {
-  display: inline-flex;
-  border: 1px solid var(--line);
-  border-radius: 6px;
+  display: flex;
+  width: 100%;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
   overflow: hidden;
+  background: var(--surface);
 }
 .modes button {
+  flex: 1;
   border: 0;
   border-radius: 0;
-  border-right: 1px solid var(--line);
-  padding: 4px 12px;
+  border-right: 1px solid var(--line-strong);
+  min-height: 42px;
 }
 .modes button:last-child {
   border-right: 0;
@@ -232,9 +419,96 @@ form.pair button {
 .actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
-  margin-top: 8px;
+  gap: 8px;
+  margin-top: 12px;
 }
+
+/* ── the session picker ──────────────────────────────────────────────── */
+
+.picker {
+  display: grid;
+  gap: 8px;
+  margin: 12px 0 4px;
+}
+.pick {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 2px 12px;
+  align-items: start;
+  padding: 12px 14px;
+  margin: 0;
+  font-weight: 400;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  cursor: pointer;
+}
+.pick:hover {
+  border-color: var(--line-strong);
+}
+.pick:has(input:checked) {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.pick input {
+  width: 18px;
+  height: 18px;
+  min-height: 0;
+  margin: 3px 0 0;
+  accent-color: var(--accent);
+}
+.pick .name {
+  font-size: 16px;
+  font-weight: 650;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pick .meta {
+  grid-column: 2;
+  font-size: 14px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pick .badges,
+.pick .note {
+  grid-column: 2;
+}
+.pick.unavailable {
+  cursor: default;
+  opacity: 0.75;
+}
+.state {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.state::before {
+  content: '';
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--muted);
+}
+.state.working::before {
+  background: var(--accent);
+}
+.state.waiting::before {
+  background: #e8a23a;
+}
+.state.idle::before {
+  background: var(--ok);
+}
+.empty {
+  text-align: center;
+  color: var(--muted);
+  padding: 18px 8px;
+  font-size: 14px;
+}
+
+/* ── tables (options) ────────────────────────────────────────────────── */
 
 table {
   border-collapse: collapse;
@@ -243,9 +517,14 @@ table {
 td,
 th {
   text-align: left;
-  padding: 6px 4px;
+  padding: 12px 8px;
   border-bottom: 1px solid var(--line);
   vertical-align: top;
+}
+th {
+  font-size: 14px;
+  color: var(--muted);
+  font-weight: 600;
 }
 
 .visually-hidden {
@@ -257,17 +536,51 @@ th {
   white-space: nowrap;
 }
 
+footer {
+  margin-top: 20px;
+  font-size: 14px;
+}
+
+/* ── the options page ────────────────────────────────────────────────── */
+
 main.options {
-  max-width: 760px;
+  max-width: 820px;
   margin: 0 auto;
-  padding: 12px 8px 40px;
+  padding: 20px 8px 48px;
+}
+main.options header.top img {
+  width: 34px;
+  height: 34px;
+}
+main.options header.top h1 {
+  font-size: 22px;
 }
 main.options section {
-  margin-bottom: 28px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 20px 22px;
+  margin-bottom: 16px;
+  box-shadow: var(--shadow);
+}
+main.options section h2 {
+  font-size: 18px;
+  margin-bottom: 8px;
 }
 main.options .grid {
   display: grid;
-  grid-template-columns: 1fr 140px auto;
-  gap: 8px;
+  grid-template-columns: 1fr 150px auto;
+  gap: 10px;
   align-items: end;
+}
+main.options ul {
+  padding-left: 20px;
+}
+main.options li {
+  margin: 6px 0;
+}
+@media (max-width: 560px) {
+  main.options .grid {
+    grid-template-columns: 1fr;
+  }
 }
