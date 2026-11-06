@@ -387,6 +387,32 @@ bridge's Messages API client (an API key).
   exit) and refreshes its own caches in `~/.claude.json`. Our code still writes
   nothing there.
 
+## Mother Claude's MCP server (docs/MCP.md)
+
+- **`POST /mcp` on the loopback listener only**: `404` on the LAN and tunnel
+  listeners and through a tunnel or proxy, `403` for an `Origin` that is not
+  this machine's, `503` while Services › Claude Code tools is off. JSON-RPC,
+  JSON answers, no SSE. Tools register in `mcp::registry()` (`mcp/mod.rs`
+  is the contract); a tool's failure is an `isError` result, never a
+  protocol error, and a tool never panics (release builds abort).
+- **Principal `Mcp`**: the per-launch `mcm_…` token in `<app data>/mcp.token`
+  (0600), never in a log, frame, error, answer or audit line. It reaches
+  `/mcp` only — never a data, control or admin route — and is never
+  dangerous: a tool's dangerous effect is an approval through
+  `crate::pending`.
+- **Every session sees `mcp__plugin_mother-claude_mc__<tool>`**: foreign
+  sessions through the installed plugin's `.mcp.json` (written in our data
+  dir, and only into a plugin folder foreign control created); owned Path B
+  sessions through their own copy loaded inline (`--plugin-dir <app
+  data>/mcp-plugin/mother-claude`, which shadows an installed copy). Never
+  `--mcp-config` for them (other names, a duplicate server), never `claude
+  plugin configure`, never a file under a config directory.
+- **The caller** is `X-MC-Pid` (the headers helper's `$PPID`, the CLI) mapped
+  through the pidfiles; `X-MC-Session` (from `MOTHER_CLAUDE_SESSION`, set on
+  owned children) counts only for an owned session the pid does not
+  contradict. Both are advisory. The helper's path in `.mcp.json` stays
+  quoted: Claude Code runs it through a shell, and the data dir has a space.
+
 ## Build / lint / test commands
 
 ```bash
