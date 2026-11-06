@@ -1,6 +1,15 @@
 import { Injectable, inject, signal } from '@angular/core';
 
 import type { NewServer, ServerDefaults, ServerPatch } from './api-servers';
+import type {
+  CapacityView,
+  Classification,
+  HostView,
+  PolicyView,
+  RoutingPolicy,
+  RoutingReport,
+  SettingsPatch,
+} from './capacity';
 import { AuthService } from './auth.service';
 import { ConfigService } from './config.service';
 import { activeMock } from './mock/mock-api';
@@ -396,6 +405,72 @@ export class ApiService {
   /** Desktop only: seconds between reads, 0 (manual only), 180, 300 or 600. */
   setPlanUsageSettings(intervalSecs: number): Promise<PlanUsage | null> {
     return this.req('/usage/settings', { method: 'PUT', body: JSON.stringify({ intervalSecs }) });
+  }
+
+  // ─────────────────────────── Capacity, routing, budgets (docs/ROUTING.md)
+
+  /** Memory, load and each live session's memory, with the estimate. */
+  getHost(): Promise<HostView> {
+    return this.req<HostView>('/host');
+  }
+
+  /** Caps and signals, who runs and who waits (and why), budgets, recent
+   * routing decisions and the settings. */
+  getCapacity(): Promise<CapacityView> {
+    return this.req<CapacityView>('/capacity');
+  }
+
+  /** The desktop or a paired device: change some settings (`null` turns an
+   * optional cap off; maps are replaced whole). 422 names the `field`. */
+  setCapacitySettings(patch: SettingsPatch): Promise<CapacityView> {
+    return this.req<CapacityView>('/capacity/settings', {
+      method: 'PUT',
+      body: JSON.stringify(patch),
+    });
+  }
+
+  getRoutingPolicy(): Promise<PolicyView> {
+    return this.req<PolicyView>('/routing/policy');
+  }
+
+  /** Desktop only: replace the routing policy (validated; 422 names the field). */
+  setRoutingPolicy(policy: RoutingPolicy): Promise<PolicyView> {
+    return this.req<PolicyView>('/routing/policy', {
+      method: 'PUT',
+      body: JSON.stringify(policy),
+    });
+  }
+
+  /** Desktop only: back to the built-in policy. */
+  resetRoutingPolicy(): Promise<PolicyView> {
+    return this.req<PolicyView>('/routing/policy', { method: 'DELETE' });
+  }
+
+  /** Cost and outcomes of tasks over the last `days` (estimates). */
+  getRoutingReport(days: number, project?: string): Promise<RoutingReport> {
+    return this.req<RoutingReport>(`/routing/report${query({ days, project })}`);
+  }
+
+  /** The report as CSV text: by class × model × effort, or every task end. */
+  async getRoutingReportCsv(
+    days: number,
+    rows: 'groups' | 'outcomes' = 'groups',
+    project?: string,
+  ): Promise<string> {
+    const res = await this.send(
+      `/routing/report.csv${query({ days, rows, project })}`,
+      {},
+      {
+        accept: 'text/csv',
+      },
+    );
+    return res.text();
+  }
+
+  /** The class a task would get (keyword rules; `haiku` asks Claude Haiku
+   * when it is on, spending tokens). */
+  classifyTask(title: string, goal: string, haiku = false): Promise<Classification> {
+    return this.post<Classification>('/routing/classify', { title, goal, haiku });
   }
 
   // ───────────────────────────────────────────────────────────── Accounts
