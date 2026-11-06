@@ -599,7 +599,8 @@ async fn the_panel_lists_calls_and_never_the_token() {
         .await
         .unwrap();
     assert_eq!(p["enabled"], true);
-    assert_eq!(p["toolCount"], 2);
+    // Every area's tools (core, browser, teams): however many there are.
+    assert_eq!(p["toolCount"], mother_claude_lib::mcp::registry().len());
     assert_eq!(p["toolPrefix"], "mcp__plugin_mother-claude_mc__");
     assert_eq!(p["url"], "http://127.0.0.1:0/mcp");
     assert_eq!(p["callsTotal"], 3);
