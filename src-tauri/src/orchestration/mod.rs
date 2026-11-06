@@ -26,4 +26,5 @@ pub mod host;
 pub mod limits;
 pub mod outcomes;
 pub mod policy;
+pub mod reports;
 pub mod scheduler;
