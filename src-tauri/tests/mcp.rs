@@ -484,6 +484,49 @@ async fn the_caller_is_known_by_its_pid_or_its_owned_session() {
     assert!(calls.iter().all(|c| c.tool == "mc_ping" && c.ok));
 }
 
+#[tokio::test]
+async fn mc_session_describes_the_calling_session() {
+    let f = boot().await;
+    let v = f.call(&rpc(json!(1), "tools/list", json!({}))).await;
+    let names: Vec<&str> = v["result"]["tools"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|t| t["name"].as_str().unwrap())
+        .collect();
+    assert!(names.contains(&"mc_session"), "{names:?}");
+    // Nobody it can tell: a result saying so, not a protocol error.
+    let v = f
+        .call(&rpc(json!(2), "tools/call", json!({"name": "mc_session"})))
+        .await;
+    assert_eq!(v["result"]["isError"], true);
+    assert!(v["result"]["content"][0]["text"]
+        .as_str()
+        .unwrap()
+        .ends_with("(unknown_session)"));
+
+    let me = std::process::id();
+    std::fs::create_dir_all(f.home.path().join("sessions")).unwrap();
+    std::fs::write(
+        f.home.path().join(format!("sessions/{me}.json")),
+        json!({"pid": me, "sessionId": SID, "cwd": "/tmp/mcp-demo", "kind": "interactive"})
+            .to_string(),
+    )
+    .unwrap();
+    let r = f
+        .post_current(&rpc(json!(3), "tools/call", json!({"name": "mc_session"})))
+        .header("x-mc-pid", me.to_string())
+        .send()
+        .await
+        .unwrap();
+    let v: Value = r.json().await.unwrap();
+    let s = &v["result"]["structuredContent"];
+    assert_eq!(s["session"], SID, "{v}");
+    assert_eq!(s["cwd"], "/tmp/mcp-demo");
+    assert_eq!(s["pid"], me);
+    assert_eq!(s["owned"], false);
+}
+
 fn def(name: &str) -> ToolDef {
     ToolDef {
         name: name.into(),

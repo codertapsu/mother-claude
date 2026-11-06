@@ -17,6 +17,7 @@ pub mod identity;
 pub mod jsonrpc;
 pub mod plugin;
 pub mod server;
+mod session_tool;
 
 use std::future::Future;
 use std::pin::Pin;
@@ -241,7 +242,8 @@ pub fn registry() -> Registry {
     r
 }
 
-/// `mc_ping`: whether Mother Claude answers, and who it thinks is calling.
+/// `mc_ping`: whether Mother Claude answers, and who it thinks is calling;
+/// `mc_session`: the calling session as Mother Claude sees it.
 fn core_tools(r: &mut Registry) {
     r.add(
         ToolDef {
@@ -266,6 +268,7 @@ fn core_tools(r: &mut Registry) {
             })))
         },
     );
+    session_tool::register(r);
 }
 
 #[cfg(test)]
