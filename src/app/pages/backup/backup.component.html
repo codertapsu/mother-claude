@@ -314,6 +314,11 @@
       <p class="muted small last">Last pull on this Mac <mc-time [ms]="v.lastPull" />.</p>
     }
 
+    <!-- ─────────────── Folder pairs ─────────────── -->
+    @if (v.settings.folder) {
+      <mc-folder-pairs [pairs]="v.folderPairs ?? null" />
+    }
+
     <!-- ─────────────── Storage ─────────────── -->
     <mc-storage-section [suggestions]="v.suggestions" (changed)="load()" />
 

@@ -121,11 +121,12 @@ import {
  *             revealProject(account, cwd)
  *   Backup    getBackup() · setBackupSettings(patch) ·
  *             generateBackupPassphrase() · setBackupPassphrase(p) ·
- *             pushBackup(account?) · getBackupIndex(account, into?) ·
+ *             pushBackup(account?, force?) · getBackupIndex(account, into?) ·
  *             restoreBackup(body) · restoreBackupSettings(account) ·
  *             pullBackup(body) · addStorage(body) ·
  *             renameStorage(id, label) · removeStorage(id) ·
- *             getStorageIndex(storage, set)
+ *             getStorageIndex(storage, set) · getFolderPairs(refresh?) ·
+ *             addFolderPair(body) · removeFolderPair(id)
  *   Pairing   createPairCode(req) · exchangePairCode(body) ·
  *             pollPairPending(pendingId, secret) · getMe() · unpairSelf()
  *   Devices   listDevices() · approvePair(id, fingerprint) · denyPair(id) ·
@@ -680,6 +681,22 @@ export class ApiService {
    * storage only). */
   getStorageIndex(storage: string, set: string): Promise<BackupIndex> {
     return this.req<BackupIndex>(`/backup/index${query({ storage, set })}`);
+  }
+
+  /** The folder pairs as the backups last said (`refresh`: read them again,
+   * which opens every set). */
+  getFolderPairs(refresh = false): Promise<unknown> {
+    return this.req(`/backup/pairs${refresh ? '?refresh=true' : ''}`);
+  }
+
+  /** Pair this machine's folder with another machine's (201: the pairs). */
+  addFolderPair(body: { folder: string; machine: string; otherFolder: string }): Promise<unknown> {
+    return this.post('/backup/pairs', body);
+  }
+
+  /** Remove a folder pair from every backup (the pairs left). */
+  removeFolderPair(id: string): Promise<unknown> {
+    return this.req(`/backup/pairs/${enc(id)}`, { method: 'DELETE' });
   }
 
   // ────────────────────────────────────────────────────────────── Pairing

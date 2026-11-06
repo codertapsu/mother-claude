@@ -1,6 +1,6 @@
 import { AccountView, SessionSummary } from '../models';
 import { accountFixture } from './fixtures';
-import { DataHost, MockData } from './mock-data';
+import { DataHost, MockData, WIN_HOST, WIN_MACHINE } from './mock-data';
 
 const s = (id: string, over: Partial<SessionSummary> = {}): SessionSummary =>
   ({
@@ -97,6 +97,83 @@ describe('MockData backups (the mock backend of Backup & sync, as the server ans
     jasmine.clock().tick(2_000);
     const done = await job(forced?.body.jobs[0]);
     expect(done.result.force).toBeTrue();
+  });
+
+  it('keeps folder pairs as the server does: checked, listed, never twice, removed', async () => {
+    const pair = (body: unknown) => call('/backup/pairs', 'POST', body);
+    // Nothing to keep them in before a backup.
+    await call('/backup/settings', 'PUT', { folder: '/Volumes/NAS/MotherClaude' });
+    await call('/backup/passphrase', 'POST', { passphrase: 'correct horse battery staple' });
+    const none = await pair({
+      folder: '/Users/m/dev',
+      machine: WIN_MACHINE,
+      otherFolder: 'D:\\dev',
+    });
+    expect([none?.status, none?.body.error.code]).toEqual([422, 'invalid_pair']);
+    await ready();
+    // A machine the backups do not know.
+    let r = await pair({ folder: '/Users/m/dev', machine: WIN_MACHINE, otherFolder: 'D:\\dev' });
+    expect(r?.body.error.code).toBe('invalid_pair');
+    mock.noteMachine('default', WIN_MACHINE, WIN_HOST);
+    const listed = (await call('/backup/pairs', 'GET'))?.body;
+    expect(listed.machines).toEqual([{ id: WIN_MACHINE, name: WIN_HOST, os: 'windows' }]);
+    // Each folder the way its machine writes paths.
+    r = await pair({ folder: 'dev', machine: WIN_MACHINE, otherFolder: 'D:\\dev' });
+    expect(r?.body.error.code).toBe('invalid_pair');
+    r = await pair({ folder: '/Users/m/dev', machine: WIN_MACHINE, otherFolder: '/Users/m/dev' });
+    expect(r?.body.error.message).toContain('is not a Windows path');
+    r = await pair({ folder: '/Users/m/dev', machine: WIN_MACHINE, otherFolder: 'D:\\dev', x: 1 });
+    expect(r?.body.error.code).toBe('invalid_body');
+    // A device may (as with the backup settings).
+    desktop = false;
+    r = await pair({ folder: '/Users/m/dev/', machine: WIN_MACHINE, otherFolder: 'D:\\dev\\' });
+    expect(r?.status).toBe(201);
+    expect(r?.body.pairs[0].folders.map((f: { folder: string }) => f.folder)).toEqual([
+      '/Users/m/dev',
+      'D:\\dev',
+    ]);
+    r = await pair({ folder: '/Users/m/dev', machine: WIN_MACHINE, otherFolder: 'd:/DEV' });
+    expect(r?.body.error.message).toBe('these two folders are paired already');
+    expect((await call('/backup', 'GET'))?.body.folderPairs.pairs.length).toBe(1);
+    const id = (await call('/backup/pairs', 'GET'))?.body.pairs[0].id;
+    expect((await call(`/backup/pairs/${id}`, 'DELETE'))?.body.pairs).toEqual([]);
+    expect((await call(`/backup/pairs/${id}`, 'DELETE'))?.body.error.code).toBe('pair_not_found');
+  });
+
+  it("pairs a Windows desktop's folder its way, the other machine's in its form", async () => {
+    localStorage.setItem('mc_mock_os', 'windows');
+    try {
+      await call('/backup/settings', 'PUT', { folder: 'D:\\Backups\\Mother Claude' });
+      await call('/backup/passphrase', 'POST', { passphrase: 'correct horse battery staple' });
+      await call('/backup/push', 'POST', {});
+      jasmine.clock().tick(2_000);
+      // A machine that has not said its system yet.
+      const box = 'ab'.repeat(16);
+      mock.noteMachine('default', box, 'linux-box');
+      const pair = (body: unknown) => call('/backup/pairs', 'POST', body);
+      let r = await pair({ folder: '/Users/m/dev', machine: box, otherFolder: '/home/m/dev' });
+      expect(r?.body.error.message).toBe(
+        '/Users/m/dev is not a full path on this computer: start it with a drive like C:\\ or a share like \\\\server\\share (or ~ for your home folder)',
+      );
+      // `~\` is the home folder here; the other side is written plainly.
+      r = await pair({ folder: '~\\dev', machine: box, otherFolder: '/home/m//dev/' });
+      expect(r?.status).toBe(201);
+      expect(r?.body.os).toBe('windows');
+      expect(r?.body.pairs[0].folders.map((f: { folder: string }) => f.folder)).toEqual([
+        'C:\\Users\\marcus\\dev',
+        '/home/m/dev',
+      ]);
+      // Its form is its folder's own while it has not said.
+      r = await pair({ folder: 'd:/work', machine: box, otherFolder: 'e:/work/' });
+      expect(r?.body.pairs[1].folders.map((f: { folder: string }) => f.folder)).toEqual([
+        'D:\\work',
+        'E:\\work',
+      ]);
+      r = await pair({ folder: 'D:\\WORK', machine: box, otherFolder: 'E:\\Work' });
+      expect(r?.body.error.message).toBe('these two folders are paired already');
+    } finally {
+      localStorage.removeItem('mc_mock_os');
+    }
   });
 
   it('force-restores over a copy here, and skips one as the backup has it', async () => {

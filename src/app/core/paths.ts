@@ -152,28 +152,33 @@ export function folderPathProblem(path: string, os: HostOs, field: FolderField =
   return '';
 }
 
-/** What a placeholder shows. */
-export type FolderExample = 'backup' | 'storage' | 'project';
+/** What a placeholder shows (`projects`: a folder that holds projects, as
+ * a folder pair names one). */
+export type FolderExample = 'backup' | 'storage' | 'project' | 'projects';
 
 const EXAMPLES: Record<HostOs, Record<FolderExample, string>> = {
   macos: {
     backup: '/Users/you/Library/Mobile Documents/com~apple~CloudDocs/Mother Claude',
     storage: '/Volumes/NAS/Mother Claude',
     project: '/Users/you/project',
+    projects: '/Users/you/dev',
   },
   windows: {
     backup: 'D:\\Backups\\Mother Claude',
     storage: '\\\\nas\\share\\Mother Claude',
     project: 'C:\\Users\\you\\project',
+    projects: 'D:\\dev',
   },
   linux: {
     backup: '/home/you/Mother Claude',
     storage: '/mnt/nas/Mother Claude',
     project: '/home/you/project',
+    projects: '/home/you/dev',
   },
 };
 
-/** An example folder in the desktop's form. */
+/** An example folder in the form of `os`: the desktop's, or another
+ * machine's of the backups (a folder pair's other side). */
 export function folderExample(os: HostOs, kind: FolderExample): string {
   return EXAMPLES[os][kind];
 }

@@ -2,7 +2,8 @@ import { ChangeDetectionStrategy, Component, computed, inject, input } from '@an
 
 import { normalizePullResult, normalizePushResult } from '../../core/backup';
 import { plural, sentence } from '../../core/data-jobs';
-import { JobView } from '../../core/models';
+import { FolderPairDraftService } from '../../core/folder-pair-draft.service';
+import { ForeignProject, JobView } from '../../core/models';
 import { RealtimeService } from '../../core/realtime.service';
 import { sessionName, shortPath } from '../../shared/util';
 
@@ -20,12 +21,46 @@ interface Named {
  * backup (a Pull brings them), what failed or was left out, and the old
  * files it removed. A restore or pull: the conflicts (each session and the
  * file written beside its own transcript), the sessions it skipped and why,
- * and its warnings. Nothing for other jobs.
+ * and its warnings. Nothing for other jobs. A pull or restore also says
+ * what a folder pair moved into the folder here, and which projects kept
+ * another machine's path (with "Pair a folder…", which fills the Folder
+ * pairs form); a force job, what it replaced.
  */
 @Component({
   selector: 'mc-job-details',
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
+    @if (relocated().length) {
+      <p class="h small">Moved into the folder a folder pair maps them to here:</p>
+      <ul>
+        @for (s of relocated(); track s.id) {
+          <li class="small">
+            <span class="mono">{{ s.short }}</span>
+            @if (s.name) {
+              {{ s.name }}
+            }
+          </li>
+        }
+      </ul>
+    }
+    @if (foreign().length) {
+      <p class="h small">
+        Kept another machine's path — no folder pair maps these projects, so Claude Code here lists
+        them only under that path. Pair the folder, then pull again, and they move into the matching
+        project here:
+      </p>
+      <ul class="foreign">
+        @for (f of foreign(); track f.folder + f.machine) {
+          <li class="small">
+            <span class="mono path">{{ f.folder }}</span>
+            <span class="muted"> from {{ f.host || 'another machine' }}</span>
+            <button class="btn small ghost pair" type="button" (click)="offerPair(f)">
+              Pair a folder…
+            </button>
+          </li>
+        }
+      </ul>
+    }
     @if (replaced().length) {
       <p class="h small">{{ replacedLabel() }}</p>
       <ul class="replaced">
@@ -137,11 +172,18 @@ interface Named {
       .gone {
         margin: 0.3rem 0 0;
       }
+      .foreign li {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 0 0.4rem;
+      }
     `,
   ],
 })
 export class JobDetailsComponent {
   private realtime = inject(RealtimeService);
+  private drafts = inject(FolderPairDraftService);
 
   readonly job = input.required<JobView>();
 
@@ -161,6 +203,23 @@ export class JobDetailsComponent {
   protected readonly pushConflicts = computed(() =>
     (this.push()?.conflicts ?? []).map((id) => this.named(id)),
   );
+  /** A pull or restore: what a folder pair moved into the folder here. */
+  protected readonly relocated = computed(() => {
+    const j = this.done();
+    return j?.kind === 'pull'
+      ? normalizePullResult(j.result).relocated.map((id) => this.named(id))
+      : [];
+  });
+  /** A pull or restore: projects that kept another machine's path. */
+  protected readonly foreign = computed(() => {
+    const j = this.done();
+    return j?.kind === 'pull' || j?.kind === 'restore' ? normalizePullResult(j.result).foreign : [];
+  });
+
+  protected offerPair(f: ForeignProject): void {
+    this.drafts.offer(f.machine, f.folder);
+  }
+
   /** What a force backup, pull or restore replaced. */
   protected readonly replaced = computed(() => {
     const j = this.done();

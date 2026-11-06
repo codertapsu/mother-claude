@@ -997,6 +997,54 @@ export interface BackupView {
   suggestions: BackupSuggestion[];
   lastPull?: number;
   jobs: JobView[];
+  /** Folder pairs, as the backups last said (once a folder is set). */
+  folderPairs?: FolderPairsView;
+}
+
+/** Another machine of the backups, for a folder pair. */
+export interface PairMachine {
+  id: string;
+  name: string;
+  /** `macos`, `windows`, `linux`… once it said (how its folders look). */
+  os?: string;
+}
+
+/** One machine's folder of a pair. */
+export interface PairSide {
+  machine: string;
+  name: string;
+  os?: string;
+  folder: string;
+  /** This machine's side. */
+  here: boolean;
+}
+
+export interface FolderPair {
+  id: string;
+  /** This machine's folder first. */
+  folders: PairSide[];
+  createdAt: number;
+}
+
+/** `GET /backup/pairs` (and `folderPairs` of `GET /backup`). */
+export interface FolderPairsView {
+  /** This machine's id, once it has backed up or pulled. */
+  machine?: string;
+  host: string;
+  os: string;
+  /** The other machines the backups know. */
+  machines: PairMachine[];
+  pairs: FolderPair[];
+  /** When the backups were last read for them. */
+  readAt?: number;
+}
+
+/** A project that came under another machine's path (no folder pair). */
+export interface ForeignProject {
+  folder: string;
+  machine: string;
+  host: string;
+  sessions: number;
 }
 
 /** What a pull (or restore) does with one session of a set. */
@@ -1020,6 +1068,10 @@ export interface BackupIndexSession {
   /** The account has it, and not as the backup has it (by size and time),
    * whatever `action` says: what a force pull or restore replaces. */
   differs?: boolean;
+  /** The folder it lived in on the machine that backed it up. */
+  folder?: string;
+  /** The folder here a folder pair maps that to (where it goes). */
+  mapped?: string;
 }
 
 export interface BackupConfigEntry {
@@ -1065,6 +1117,12 @@ export interface RestoreResult {
   replaced: string[];
   /** It was a force restore or pull. */
   force: boolean;
+  /** `[session, folder here]`: placed by a folder pair. */
+  mapped: [string, string][];
+  /** Projects that kept another machine's path (no pair maps them). */
+  foreign: ForeignProject[];
+  /** A pull: sessions moved into the folder a pair added since maps them to. */
+  relocated: string[];
 }
 
 /** A pull's `result`. */

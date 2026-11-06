@@ -26,6 +26,7 @@ import { DataJobComponent } from '../../shared/data-job.component';
 import { IconComponent } from '../../shared/icon.component';
 import { TimeAgoComponent } from '../../shared/time-ago.component';
 import { shortPath } from '../../shared/util';
+import { FolderPairsComponent } from './folder-pairs.component';
 import { ForceBackupSheetComponent } from './force-backup-sheet.component';
 import { JobDetailsComponent } from './job-details.component';
 import { PassphraseSheetComponent } from './passphrase-sheet.component';
@@ -67,7 +68,8 @@ interface SetRow {
  * dangerous right. Each set has Force backup… (this Mac's copies replace
  * the backup's, after a confirmation that says what is replaced and what
  * stays; the dangerous right too); force pull and force restore are in
- * their dialogs.
+ * their dialogs. Folder pairs map a project folder here to another
+ * machine's ({@link FolderPairsComponent}).
  */
 @Component({
   selector: 'mc-backup',
@@ -76,6 +78,7 @@ interface SetRow {
     RouterLink,
     CopyButtonComponent,
     DataJobComponent,
+    FolderPairsComponent,
     ForceBackupSheetComponent,
     IconComponent,
     JobDetailsComponent,

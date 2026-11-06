@@ -72,6 +72,9 @@ describe('paths', () => {
     expect(folderExample('macos', 'storage')).toBe('/Volumes/NAS/Mother Claude');
     expect(folderExample('macos', 'project')).toBe('/Users/you/project');
     expect(folderExample('windows', 'project')).toBe('C:\\Users\\you\\project');
+    expect(folderExample('macos', 'projects')).toBe('/Users/you/dev');
+    expect(folderExample('windows', 'projects')).toBe('D:\\dev');
+    expect(folderExample('linux', 'projects')).toBe('/home/you/dev');
     expect(homeFolder('windows', '.claude-work')).toBe('~\\.claude-work');
     expect(homeFolder('linux', '.claude-work')).toBe('~/.claude-work');
   });

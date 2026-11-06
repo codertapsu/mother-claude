@@ -32,7 +32,16 @@ import {
   TransferPlan,
   TransferSessionPlan,
 } from '../models';
-import { joinPath } from '../paths';
+import {
+  HostOs,
+  isAbsoluteAnywhere,
+  isWindowsAbsolute,
+  joinPath,
+  pathDepth,
+  pathWithin,
+  samePath,
+  trimSeparators,
+} from '../paths';
 import { urlParam } from '../platform';
 import { MOCK_ACCOUNT_WORK } from './fixtures';
 import { mockFolder, mockHostOs } from './mock-os';
@@ -54,6 +63,11 @@ export const OTHER_HOST = 'marcus-air';
 /** The machines' per-install ids (sets tell them apart by these). */
 export const THIS_MACHINE = '9f3c2a7e5b1d4c6f8a0b2c4d6e8f0a1b';
 const OTHER_MACHINE = '4e6a8c0e2a4c6e8a0c2e4a6c8e0a2c4e';
+/** A Windows desktop that backs up too: its folders are `D:\\…`, so its
+ * sessions keep its path here until a folder pair maps them. */
+export const WIN_HOST = 'DESKTOP-PC';
+export const WIN_MACHINE = '7b9d1f3a5c7e9b1d3f5a7c9e1b3d5f7a';
+const WIN_SESSION = 'f7c5b6d8-9e0f-4a1b-8c2d-3e4f5a6b7c8d';
 /** The demo's sessions another Mac changed: one newer in the set, one
  * changed on both (a backup reports them; a pull brings them). */
 const NEWER_IN_SET = 'c4a2e3f5-6a7b-4c8d-9e0f-1a2b3c4d5e6f';
@@ -90,12 +104,69 @@ interface SetState {
 interface RemoteSession {
   id: string;
   cwd: string;
+  /** The machine that pushed it (the other Mac when absent). */
+  machine?: string;
+  host?: string;
   title: string;
   bytes: number;
   pushedAt: number;
   newestMtime: number;
   /** For an existing session: what the set's copy is compared with here. */
   action?: BackupAction;
+}
+
+/** A folder pair as the mock keeps it (this Mac's folder and another
+ * machine's). */
+interface MockPair {
+  id: string;
+  folders: { machine: string; folder: string }[];
+  createdAt: number;
+}
+
+/** The OS each other machine of the demo writes paths for. */
+const MACHINE_OS: Record<string, HostOs> = {
+  [OTHER_MACHINE]: 'macos',
+  [WIN_MACHINE]: 'windows',
+};
+
+/** The OS a machine of the demo writes paths for: this desktop's
+ * (`?os=`), or another machine's. */
+function osOf(machine: string): HostOs | undefined {
+  return machine === THIS_MACHINE ? mockHostOs() : MACHINE_OS[machine];
+}
+
+/** A path's components below its root, the ones `pathDepth` counts. */
+function segments(p: string): string[] {
+  return trimSeparators(p)
+    .split(isWindowsAbsolute(p) ? /[\\/]/ : /\//)
+    .filter((s) => s && !/^[A-Za-z]:$/.test(s));
+}
+
+/** A folder of a pair written plainly in the form of `os`, as the server
+ * writes it (`paths::clean_folder`), or why not, in its words. */
+function pairFolder(raw: string, os: HostOs | undefined): { path: string } | { error: string } {
+  const t = raw.trim();
+  if (!t) return { error: 'name a folder' };
+  if (!isAbsoluteAnywhere(t)) return { error: `${t} is not a full path` };
+  const windows = os ? os === 'windows' : isWindowsAbsolute(t);
+  if (windows !== isWindowsAbsolute(t)) {
+    return {
+      error: windows
+        ? `${t} is not a Windows path (one like D:\\dev or \\\\server\\share)`
+        : `${t} is not a macOS or Linux path (one like /Users/me/dev)`,
+    };
+  }
+  const parts = t.split(windows ? /[\\/]/ : /\//).filter(Boolean);
+  if (parts.some((s) => s === '.' || s === '..')) {
+    return { error: `${t} names . or .., which a folder pair does not follow` };
+  }
+  if (!windows) return { path: `/${parts.join('/')}` };
+  const [first, ...rest] = parts;
+  return {
+    path: /^[A-Za-z]:$/.test(first)
+      ? `${first.toUpperCase()}\\${rest.join('\\')}`
+      : `\\\\${parts.join('\\')}`,
+  };
 }
 
 interface TransferUndo {
@@ -139,6 +210,8 @@ export class MockData {
   private readonly remote = new Map<string, RemoteSession[]>();
   /** The backup or pull running per set: a second one answers it. */
   private readonly flights = new Map<string, string>();
+  /** Folder pairs (as the sets' indexes keep them). */
+  private pairs: MockPair[] = [];
   private seq = 0;
 
   constructor(private readonly host: DataHost) {
@@ -154,6 +227,7 @@ export class MockData {
         machines: [
           { id: THIS_MACHINE, host: HOST, lastPush: now - 2 * H },
           { id: OTHER_MACHINE, host: OTHER_HOST, lastPush: now - 5 * H },
+          { id: WIN_MACHINE, host: WIN_HOST, lastPush: now - 3 * H },
         ],
       });
       if (BACKUP_MODE === 'nokey') {
@@ -198,6 +272,16 @@ export class MockData {
           pushedAt: now - 40 * D,
           newestMtime: now - 45 * D,
         },
+        {
+          id: WIN_SESSION,
+          cwd: 'D:\\dev\\shop',
+          machine: WIN_MACHINE,
+          host: WIN_HOST,
+          title: 'Checkout page on the Windows desktop',
+          bytes: 268_000,
+          pushedAt: now - 3 * H,
+          newestMtime: now - 3 * H - 9 * M,
+        },
       ]);
     }
   }
@@ -234,10 +318,23 @@ export class MockData {
       return this.trusted(b, () => this.restore(b));
     }
     if (path === '/backup/pull' && method === 'POST') return this.trusted(b, () => this.pull(b));
+    // Folder pairs: the desktop and paired devices alike (as the settings).
+    if (path === '/backup/pairs' && method === 'GET') return json(this.pairsView());
+    if (path === '/backup/pairs' && method === 'POST') return this.addPair(b);
+    const pairPath = /^\/backup\/pairs\/([^/]+)$/.exec(path);
+    if (pairPath && method === 'DELETE') return this.removePair(decodeURIComponent(pairPath[1]));
     if (path.startsWith('/data/') || path.startsWith('/backup')) {
       return fail(404, 'not_found', `No mock for ${method} ${path}`);
     }
     return null;
+  }
+
+  /** Dev and spec hook: another machine has backed up to `account`'s set
+   * (the folder pairs section lists it). */
+  noteMachine(account: string, id: string, host: string): void {
+    const st = this.setStates.get(account) ?? { exists: true, machines: [] };
+    if (!st.machines.some((m) => m.id === id)) st.machines.push({ id, host });
+    this.setStates.set(account, st);
   }
 
   /** "Continue on" a directory account copies the conversation first (P3.3). */
@@ -480,7 +577,116 @@ export class MockData {
             ],
       ...(this.lastPull ? { lastPull: this.lastPull } : {}),
       jobs: [...this.jobs.values()].filter((j) => ['backup', 'restore', 'pull'].includes(j.kind)),
+      ...(folder ? { folderPairs: this.pairsView() } : {}),
     };
+  }
+
+  // ───────────────────────────────────────────────────── Folder pairs
+
+  /** `GET /backup/pairs`: this desktop, the other machines the sets know,
+   * the pairs (this desktop's folder first). */
+  private pairsView() {
+    const known = new Map<string, string>();
+    for (const st of this.setStates.values()) {
+      for (const m of st.machines) if (m.id && m.id !== THIS_MACHINE) known.set(m.id, m.host);
+    }
+    const side = (machine: string, folder: string) => ({
+      machine,
+      name: machine === THIS_MACHINE ? HOST : (known.get(machine) ?? ''),
+      ...(osOf(machine) ? { os: osOf(machine) } : {}),
+      folder,
+      here: machine === THIS_MACHINE,
+    });
+    return {
+      machine: THIS_MACHINE,
+      host: HOST,
+      os: mockHostOs(),
+      machines: [...known].map(([id, name]) => ({
+        id,
+        name,
+        ...(osOf(id) ? { os: osOf(id) } : {}),
+      })),
+      pairs: this.pairs.map((pair) => ({
+        id: pair.id,
+        folders: pair.folders
+          .map((f) => side(f.machine, f.folder))
+          .sort((a, b) => Number(b.here) - Number(a.here)),
+        createdAt: pair.createdAt,
+      })),
+      readAt: Date.now(),
+    };
+  }
+
+  /** `POST /backup/pairs`: checked as the server checks it. */
+  private addPair(b: Record<string, unknown>): Response {
+    const unknown = Object.keys(b).find((k) => !['folder', 'machine', 'otherFolder'].includes(k));
+    if (unknown) return fail(422, 'invalid_body', `unknown field \`${unknown}\``);
+    const pre = this.prerequisites();
+    if (pre) return pre;
+    const bad = (why: string) => fail(422, 'invalid_pair', why);
+    if (![...this.setStates.values()].some((st) => st.exists)) {
+      return bad('there is no backup here yet to keep folder pairs in: back up once first');
+    }
+    const text = (x: unknown) => (typeof x === 'string' ? x.trim() : '');
+    // This desktop's folder by its own rules (`~` expanded), the other
+    // machine's in its form, both written plainly.
+    if (!text(b['folder'])) return bad("name this machine's folder");
+    const typed = mockFolder(text(b['folder']));
+    if ('error' in typed) return bad(typed.error);
+    const mine = pairFolder(typed.path, mockHostOs());
+    if ('error' in mine) return bad(mine.error);
+    const folder = mine.path;
+    const machine = text(b['machine']);
+    const known = this.pairsView().machines.find((m) => m.id === machine);
+    if (!known) return bad('that machine has not backed up to or pulled from these backups');
+    const theirs = pairFolder(text(b['otherFolder']), osOf(machine));
+    if ('error' in theirs) return bad(theirs.error);
+    const other = theirs.path;
+    if (
+      this.pairs.some(
+        (p) =>
+          p.folders.some((f) => f.machine === THIS_MACHINE && samePath(f.folder, folder)) &&
+          p.folders.some((f) => f.machine === machine && samePath(f.folder, other)),
+      )
+    ) {
+      return bad('these two folders are paired already');
+    }
+    this.pairs.push({
+      id: `fp_${randomHex(16)}`,
+      folders: [
+        { machine: THIS_MACHINE, folder },
+        { machine, folder: other },
+      ],
+      createdAt: Date.now(),
+    });
+    return json(this.pairsView(), 201);
+  }
+
+  private removePair(id: string): Response {
+    const before = this.pairs.length;
+    this.pairs = this.pairs.filter((p) => p.id !== id);
+    if (this.pairs.length === before) {
+      return fail(404, 'pair_not_found', 'No folder pair with that id is in the backups.');
+    }
+    return json(this.pairsView());
+  }
+
+  /** `folder` (as `machine` writes it) in this desktop's folder, in its
+   * form, by the pair whose other folder is the longest it is under (by
+   * whole components; a Windows one in any case, either separator). */
+  private mapFolder(machine: string, folder: string): string | undefined {
+    let best: { depth: number; out: string } | undefined;
+    for (const p of this.pairs) {
+      const here = p.folders.find((f) => f.machine === THIS_MACHINE)?.folder;
+      const there = p.folders.find((f) => f.machine === machine)?.folder;
+      if (!here || !there || !pathWithin(folder, there)) continue;
+      const depth = pathDepth(there);
+      const out = segments(folder)
+        .slice(depth)
+        .reduce((at, name) => joinPath(at, name), here);
+      if (!best || depth > best.depth) best = { depth, out };
+    }
+    return best?.out;
   }
 
   private putSettings(b: Record<string, unknown>): Response {
@@ -689,7 +895,11 @@ export class MockData {
         title: r.title,
         remoteBytes: r.bytes,
         ...(here || (pull && r.action) ? { localBytes: Math.round(r.bytes * 0.8) } : {}),
-        host: OTHER_HOST,
+        host: r.host ?? OTHER_HOST,
+        folder: r.cwd,
+        ...(this.mapFolder(r.machine ?? OTHER_MACHINE, r.cwd)
+          ? { mapped: this.mapFolder(r.machine ?? OTHER_MACHINE, r.cwd) }
+          : {}),
         pushedAt: r.pushedAt,
         newestMtime: r.newestMtime,
         ...(old
@@ -911,6 +1121,22 @@ export class MockData {
       const brought = [...restored, ...updated, ...replaced, ...conflicts.map((c) => c[0])];
       for (const sid of brought) this.copyTo(sid, home);
       this.lastPull = Date.now();
+      // Folder pairs: where another machine's sessions went here, and the
+      // projects that kept a path of another system (no pair maps them).
+      const mapped = plan
+        .filter((s) => s.mapped && [...restored, ...updated, ...replaced].includes(s.id))
+        .map((s): [string, string] => [s.id, s.mapped as string]);
+      const foreign: { folder: string; machine: string; host: string; sessions: number }[] = [];
+      const windowsHere = mockHostOs() === 'windows';
+      for (const r of this.remote.get(owner.id) ?? []) {
+        const machine = r.machine ?? OTHER_MACHINE;
+        const took = restored.includes(r.id) || updated.includes(r.id);
+        const elsewhere = isWindowsAbsolute(r.cwd) !== windowsHere;
+        if (!took || !elsewhere || this.mapFolder(machine, r.cwd)) continue;
+        const f = foreign.find((x) => samePath(x.folder, r.cwd));
+        if (f) f.sessions += 1;
+        else foreign.push({ folder: r.cwd, machine, host: r.host ?? OTHER_HOST, sessions: 1 });
+      }
       return {
         result: {
           restored,
@@ -921,6 +1147,8 @@ export class MockData {
           historyLines: 12,
           ...(replaced.length ? { replaced } : {}),
           ...(force ? { force: true } : {}),
+          ...(mapped.length ? { mapped } : {}),
+          ...(foreign.length ? { foreign } : {}),
         },
         sessions: [...restored, ...updated, ...replaced],
         undo: brought.length > 0,

@@ -1,5 +1,6 @@
 import { TestBed } from '@angular/core/testing';
 
+import { FolderPairDraftService } from '../../core/folder-pair-draft.service';
 import { FakeBackend, useFakeServer } from '../../core/mock/fake-server.testing';
 import { setActiveMock } from '../../core/mock/mock-api';
 import { JobView, SessionSummary } from '../../core/models';
@@ -74,5 +75,40 @@ describe('JobDetailsComponent', () => {
   it('says nothing more about a backup that found nothing to tell', () => {
     const el = render(backup({ archived: ['a'], unchanged: 4, skippedLive: [], failed: [] }));
     expect(text(el)).toBe('');
+  });
+
+  it("names what kept another machine's path, offers a pair, and what a pair moved", () => {
+    const el = render({
+      ...backup({
+        restored: ['a1a1a1a1-0000'],
+        updated: [],
+        conflicts: [],
+        skipped: [],
+        warnings: [],
+        historyLines: 0,
+        relocated: [NEWER],
+        mapped: [[NEWER, '/Users/marcus/dev/api-server']],
+        foreign: [
+          {
+            folder: 'D:\\dev\\shop',
+            machine: '7b9d1f3a5c7e9b1d3f5a7c9e1b3d5f7a',
+            host: 'DESKTOP-PC',
+            sessions: 1,
+          },
+        ],
+      }),
+      kind: 'pull',
+    });
+    const heads = [...el.querySelectorAll('.h')].map((h) => text(h));
+    expect(heads[0]).toBe('Moved into the folder a folder pair maps them to here:');
+    expect(heads[1]).toContain("Kept another machine's path — no folder pair maps these projects");
+    expect(text(el.querySelector('.foreign li'))).toBe(
+      'D:\\dev\\shop from DESKTOP-PC Pair a folder…',
+    );
+    (el.querySelector('.foreign .pair') as HTMLButtonElement).click();
+    expect(TestBed.inject(FolderPairDraftService).draft()).toEqual({
+      machine: '7b9d1f3a5c7e9b1d3f5a7c9e1b3d5f7a',
+      otherFolder: 'D:\\dev',
+    });
   });
 });

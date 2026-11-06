@@ -11,13 +11,19 @@ import {
   BackupSuggestion,
   BackupView,
   BackupWarning,
+  FolderPair,
+  FolderPairsView,
+  ForeignProject,
   JobView,
+  PairMachine,
+  PairSide,
   PassphraseChange,
   PullResult,
   PullSkip,
   PushResult,
   RestoreResult,
 } from './models';
+import { HostOs, folderPathProblem, fullPathText, hostOsOf, isWindowsAbsolute } from './paths';
 
 /**
  * Pure helpers for Backup & sync (`/backup*`, docs/BACKUP.md): the view
@@ -169,6 +175,7 @@ export function normalizeBackupView(raw: unknown): BackupView | null {
   const hours = num(s['everyHours']);
   const lastPull = num(r['lastPull']);
   const machine = str(r['machine']);
+  const pairs = normalizeFolderPairs(r['folderPairs']);
   return {
     settings: {
       folder: str(s['folder']) ?? null,
@@ -183,7 +190,92 @@ export function normalizeBackupView(raw: unknown): BackupView | null {
     suggestions: list(r['suggestions'], suggestion),
     ...(lastPull !== undefined ? { lastPull } : {}),
     jobs: list(r['jobs'], normalizeJob),
+    ...(pairs ? { folderPairs: pairs } : {}),
   };
+}
+
+function pairMachine(raw: unknown): PairMachine | null {
+  const r = obj(raw);
+  const id = str(r?.['id']);
+  if (!r || !id) return null;
+  const os = str(r['os']);
+  return { id, name: str(r['name']) ?? '', ...(os ? { os } : {}) };
+}
+
+function pairSide(raw: unknown): PairSide | null {
+  const r = obj(raw);
+  const machine = str(r?.['machine']);
+  const folder = str(r?.['folder']);
+  if (!r || !machine || !folder) return null;
+  const os = str(r['os']);
+  return {
+    machine,
+    name: str(r['name']) ?? '',
+    ...(os ? { os } : {}),
+    folder,
+    here: r['here'] === true,
+  };
+}
+
+function folderPair(raw: unknown): FolderPair | null {
+  const r = obj(raw);
+  const id = str(r?.['id']);
+  const folders = list(r?.['folders'], pairSide);
+  if (!r || !id || folders.length < 2) return null;
+  return { id, folders, createdAt: num(r['createdAt']) ?? 0 };
+}
+
+/** `GET /backup/pairs` (or `folderPairs`), or null when it isn't one. */
+export function normalizeFolderPairs(raw: unknown): FolderPairsView | null {
+  const r = obj(raw);
+  if (!r || !Array.isArray(r['pairs'])) return null;
+  const machine = str(r['machine']);
+  const readAt = num(r['readAt']);
+  return {
+    ...(machine ? { machine } : {}),
+    host: str(r['host']) ?? '',
+    os: str(r['os']) ?? '',
+    machines: list(r['machines'], pairMachine),
+    pairs: list(r['pairs'], folderPair),
+    ...(readAt !== undefined ? { readAt } : {}),
+  };
+}
+
+/** A machine's OS in words ("Windows", "macOS"…; '' when unknown). */
+export function osLabel(os: string | undefined): string {
+  switch ((os ?? '').toLowerCase()) {
+    case 'windows':
+      return 'Windows';
+    case 'macos':
+      return 'macOS';
+    case 'linux':
+      return 'Linux';
+    case '':
+      return '';
+    default:
+      return os ?? '';
+  }
+}
+
+/** The system whose paths a machine of the backups writes, by the `os` it
+ * recorded (any other Unix writes them as Linux does); undefined while it
+ * has not said. */
+export function pathOsOf(os: string | undefined): HostOs | undefined {
+  return os ? (hostOsOf(os.toLowerCase()) ?? 'linux') : undefined;
+}
+
+/** Why a folder typed for another machine of the backups can't be paired
+ * ('' when it may be): {@link folderPathProblem} in that machine's terms,
+ * without `~` (which would be this desktop's home folder), and once the
+ * machine said its system (`os`), a full path of that system. The desktop
+ * checks it again by the same rule; `desktop` words it while `os` is
+ * unknown. */
+export function otherFolderProblem(path: string, os: HostOs | undefined, desktop: HostOs): string {
+  const problem = folderPathProblem(path, os ?? desktop, { home: false });
+  if (problem || !os) return problem;
+  const p = path.trim();
+  const own = os === 'windows' ? isWindowsAbsolute(p) : p.startsWith('/');
+  return own ? '' : fullPathText(os, { home: false });
 }
 
 function indexSession(raw: unknown): BackupIndexSession | null {
@@ -210,6 +302,8 @@ function indexSession(raw: unknown): BackupIndexSession | null {
     ...(pruneWarning ? { pruneWarning } : {}),
     ...(archived ? { archived } : {}),
     ...(r['differs'] === true ? { differs: true } : {}),
+    ...(str(r['folder']) ? { folder: str(r['folder']) } : {}),
+    ...(str(r['mapped']) ? { mapped: str(r['mapped']) } : {}),
   };
 }
 
@@ -412,6 +506,29 @@ function ids(v: unknown): string[] {
   return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string' && !!x) : [];
 }
 
+function foreignProject(raw: unknown): ForeignProject | null {
+  const r = obj(raw);
+  const folder = str(r?.['folder']);
+  if (!r || !folder) return null;
+  return {
+    folder,
+    machine: str(r['machine']) ?? '',
+    host: str(r['host']) ?? '',
+    sessions: count(r['sessions']),
+  };
+}
+
+function pairsOf(v: unknown): [string, string][] {
+  return Array.isArray(v)
+    ? v
+        .filter(
+          (c): c is [string, string] =>
+            Array.isArray(c) && typeof c[0] === 'string' && typeof c[1] === 'string',
+        )
+        .map(([a, b]) => [a, b])
+    : [];
+}
+
 /** A restore job's `result`. */
 export function normalizeRestoreResult(raw: unknown): RestoreResult {
   const r = obj(raw) ?? {};
@@ -421,24 +538,19 @@ export function normalizeRestoreResult(raw: unknown): RestoreResult {
     warnings: list(r['warnings'], warning),
     replaced: ids(r['replaced']),
     force: r['force'] === true,
+    mapped: pairsOf(r['mapped']),
+    foreign: list(r['foreign'], foreignProject),
+    relocated: ids(r['relocated']),
   };
 }
 
 /** A pull job's `result`. */
 export function normalizePullResult(raw: unknown): PullResult {
   const r = obj(raw) ?? {};
-  const conflicts: [string, string][] = Array.isArray(r['conflicts'])
-    ? r['conflicts']
-        .filter(
-          (c): c is [string, string] =>
-            Array.isArray(c) && typeof c[0] === 'string' && typeof c[1] === 'string',
-        )
-        .map(([id, path]) => [id, path])
-    : [];
   return {
     ...normalizeRestoreResult(raw),
     updated: ids(r['updated']),
-    conflicts,
+    conflicts: pairsOf(r['conflicts']),
     historyLines: count(r['historyLines']),
   };
 }
@@ -541,6 +653,7 @@ export function jobSummary(job: JobView): string {
         r.restored.length ? `${r.restored.length} new` : '',
         r.updated.length ? `${r.updated.length} updated` : '',
         r.replaced.length ? `${r.replaced.length} replaced` : '',
+        r.relocated.length ? `${r.relocated.length} moved into a paired folder` : '',
         r.conflicts.length ? plural(r.conflicts.length, 'conflict') : '',
         r.skipped.length ? `${r.skipped.length} skipped` : '',
         r.historyLines ? `${plural(r.historyLines, 'prompt-history line')} added` : '',
@@ -568,6 +681,8 @@ const BACKUP_TEXT: Record<string, string> = {
   backup_io: 'The backup folder could not be read or written.',
   invalid_schedule: 'Back up at least once a week, or by hand only.',
   invalid_folder: 'That folder can’t be used.',
+  invalid_pair: 'That folder pair can’t be added.',
+  pair_not_found: 'That folder pair is gone already.',
 };
 
 /** Said our way, whatever the server's words: the prerequisites, and the

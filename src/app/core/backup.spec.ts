@@ -10,13 +10,17 @@ import {
   jobSummary,
   normalizeBackupIndex,
   normalizeBackupView,
+  normalizeFolderPairs,
   normalizePassphraseChange,
   normalizePullResult,
   normalizePullSkips,
   normalizePushResult,
+  osLabel,
+  otherFolderProblem,
   otherMachines,
   ownSets,
   passphraseFailure,
+  pathOsOf,
   preselect,
   prunedOf,
   pullTakesSession,
@@ -273,6 +277,82 @@ describe('backup helpers', () => {
     expect(jobTitle(forced, name)).toBe('Force backup of Default');
     expect(jobTitle({ ...forced, result: {} }, name)).toBe('Backup of Default');
     expect(jobTitle({ ...forced, kind: 'pull' }, name)).toBe('Force pull of Default');
+  });
+
+  it('reads folder pairs tolerantly, and checks folders the way their machine writes them', () => {
+    const v = normalizeFolderPairs({
+      machine: 'm1',
+      host: 'mbp',
+      os: 'macos',
+      machines: [{ id: 'w1', name: 'PC', os: 'windows' }, { name: 'no id' }],
+      pairs: [
+        {
+          id: 'fp_1',
+          folders: [
+            { machine: 'm1', name: 'mbp', folder: '/Users/m/dev', here: true },
+            { machine: 'w1', name: 'PC', os: 'windows', folder: 'D:\\dev' },
+          ],
+          createdAt: 5,
+        },
+        { id: 'fp_2', folders: [{ machine: 'm1', folder: '/x' }] },
+      ],
+    });
+    expect(v?.machines).toEqual([{ id: 'w1', name: 'PC', os: 'windows' }]);
+    expect(v?.pairs.map((p) => p.id)).toEqual(['fp_1']);
+    expect(v?.pairs[0].folders[1].here).toBeFalse();
+    expect(normalizeFolderPairs({})).toBeNull();
+    expect(osLabel('windows')).toBe('Windows');
+    expect(osLabel('macos')).toBe('macOS');
+    expect(osLabel(undefined)).toBe('');
+  });
+
+  it("checks another machine's folder in that machine's form", () => {
+    expect(pathOsOf('windows')).toBe('windows');
+    expect(pathOsOf('macos')).toBe('macos');
+    expect(pathOsOf('freebsd')).toBe('linux');
+    expect(pathOsOf(undefined)).toBeUndefined();
+    const windows =
+      "Enter the folder's full path, starting with a drive like C:\\ or a share like \\\\server\\share.";
+    for (const ok of ['D:\\dev', 'd:/dev', '\\\\nas\\share']) {
+      expect(otherFolderProblem(ok, 'windows', 'macos'))
+        .withContext(ok)
+        .toBe('');
+    }
+    for (const bad of ['/Users/m/dev', '~\\dev', 'dev']) {
+      expect(otherFolderProblem(bad, 'windows', 'macos'))
+        .withContext(bad)
+        .toBe(windows);
+    }
+    expect(otherFolderProblem('/Users/m/dev', 'macos', 'windows')).toBe('');
+    expect(otherFolderProblem('D:\\dev', 'linux', 'windows')).toBe(
+      "Enter the folder's full path, starting with /.",
+    );
+    expect(otherFolderProblem('D:\\dev\\..\\x', 'windows', 'macos')).toBe(
+      'Enter the path without . or .. in it.',
+    );
+    // A machine that has not said takes either system's full path.
+    expect(otherFolderProblem('D:\\dev', undefined, 'macos')).toBe('');
+    expect(otherFolderProblem('/Users/m/dev', undefined, 'windows')).toBe('');
+    expect(otherFolderProblem('~/dev', undefined, 'macos')).toBe(
+      "Enter the folder's full path, starting with /.",
+    );
+  });
+
+  it("reads what a pull placed by a pair and what kept another machine's path", () => {
+    const r = normalizePullResult({
+      restored: ['a'],
+      mapped: [['a', '/Users/m/dev/app'], ['bad']],
+      relocated: ['b'],
+      foreign: [{ folder: 'D:\\dev\\shop', machine: 'w1', host: 'PC', sessions: 2 }, {}],
+    });
+    expect(r.mapped).toEqual([['a', '/Users/m/dev/app']]);
+    expect(r.relocated).toEqual(['b']);
+    expect(r.foreign).toEqual([
+      { folder: 'D:\\dev\\shop', machine: 'w1', host: 'PC', sessions: 2 },
+    ]);
+    expect(jobSummary(done('pull', { restored: ['a'], relocated: ['b'] }))).toBe(
+      '1 new · 1 moved into a paired folder',
+    );
   });
 
   it('finds the selected sessions Claude Code would prune again', () => {

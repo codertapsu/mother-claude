@@ -87,15 +87,15 @@ const TONES: Record<BackupAction, string> = {
               <span class="stitle">{{ s.title }}</span>
               <span class="sline muted small">
                 <span class="mono">{{ s.id.slice(0, 8) }}</span>
-                @if (s.cwd) {
-                  <span>{{ short(s.cwd) }}</span>
+                @if (s.mapped || s.cwd) {
+                  <span [title]="mappedTitle(s)">{{ short(s.mapped || s.cwd) }}</span>
                 }
               </span>
             } @else {
               <span class="sline">
                 <span class="mono">{{ s.id.slice(0, 8) }}</span>
-                @if (s.cwd) {
-                  <span class="small">{{ short(s.cwd) }}</span>
+                @if (s.mapped || s.cwd) {
+                  <span class="small" [title]="mappedTitle(s)">{{ short(s.mapped || s.cwd) }}</span>
                 }
               </span>
             }
@@ -276,8 +276,14 @@ export class BackupSessionsComponent {
     return TONES[action];
   }
 
-  protected short(p: string): string {
-    return shortPath(p);
+  protected short(p: string | undefined): string {
+    return shortPath(p ?? '');
+  }
+
+  /** A session a folder pair puts in the folder here: where it lived. */
+  protected mappedTitle(s: BackupIndexSession): string {
+    const there = s.folder || s.cwd;
+    return s.mapped && there ? `${there} on ${s.host || 'the other machine'}` : '';
   }
 
   protected bytes(n: number): string {
