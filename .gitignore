@@ -7,6 +7,8 @@ dist/
 /.angular/
 src-tauri/target/
 sidecar/dist/
+# Browser extension builds, zips and e2e reports (extension/build.mjs)
+dist-extension/
 
 # Rust
 **/*.rs.bk

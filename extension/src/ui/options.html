@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Mother Claude — Options</title>
+    <link rel="stylesheet" href="ui.css" />
+  </head>
+  <body>
+    <main class="options">
+      <header class="top">
+        <img src="icons/icon-32.png" alt="" />
+        <h1>Mother Claude</h1>
+      </header>
+      <p class="status" id="connection" role="status" aria-live="polite">
+        <span class="dot" aria-hidden="true"></span><span class="text">Starting…</span>
+      </p>
+      <p class="error" id="connection-error"></p>
+
+      <section aria-labelledby="desktop-title">
+        <h2 id="desktop-title">The app on this computer</h2>
+        <form id="desktop-form" class="grid" novalidate>
+          <div>
+            <label for="host">Address</label>
+            <input id="host" name="host" autocomplete="off" spellcheck="false" />
+          </div>
+          <div>
+            <label for="port">Port</label>
+            <input id="port" name="port" inputmode="numeric" autocomplete="off" />
+          </div>
+          <button type="submit">Save and reconnect</button>
+        </form>
+        <p class="help">
+          Mother Claude listens on 127.0.0.1, port 6725 unless you changed
+          <code>MOTHER_CLAUDE_PORT</code>. The extension only ever connects to this computer.
+        </p>
+        <p class="error" id="desktop-error" role="alert"></p>
+      </section>
+
+      <section aria-labelledby="pairing-title">
+        <h2 id="pairing-title">Pairing</h2>
+        <div id="pairing"></div>
+      </section>
+
+      <section aria-labelledby="permissions-title">
+        <h2 id="permissions-title">Permissions</h2>
+        <p class="help">
+          A fresh install can do nothing in your pages. Each permission below is asked for only when
+          you press its button, and you can take it back here at any time.
+        </p>
+        <table>
+          <thead>
+            <tr>
+              <th scope="col">Permission</th>
+              <th scope="col">Why</th>
+              <th scope="col">Status</th>
+            </tr>
+          </thead>
+          <tbody id="permission-rows"></tbody>
+        </table>
+        <h3>Sites</h3>
+        <p class="help">
+          Sessions can read or act only on sites you let the extension into, and only as far as the
+          site's mode in Mother Claude allows (off, read or act).
+        </p>
+        <ul id="sites"></ul>
+        <form id="site-form" class="grid" novalidate>
+          <div>
+            <label for="site">Let the extension into a site</label>
+            <input
+              id="site"
+              placeholder="https://github.com"
+              autocomplete="off"
+              spellcheck="false"
+            />
+          </div>
+          <div></div>
+          <button type="submit">Allow</button>
+        </form>
+        <div class="actions">
+          <button type="button" id="all-sites">Allow on all sites</button>
+        </div>
+        <p class="error" id="site-error" role="alert"></p>
+      </section>
+
+      <section aria-labelledby="behaviour-title">
+        <h2 id="behaviour-title">How it behaves</h2>
+        <ul>
+          <li>
+            Each Claude Code session that uses the browser gets its own colored tab group, named
+            after the session. It works only in the tabs of its group, plus a tab you add to the
+            group or share from the side panel.
+          </li>
+          <li>
+            <strong>Stop</strong> in the side panel ends a session's current browser command at once
+            and refuses its next ones for a minute, unless you press Resume. Closing the group does
+            the same.
+          </li>
+          <li>
+            Each site is <em>off</em>, <em>read</em> or <em>act</em>, set in Mother Claude (and from
+            the side panel). Unknown sites are off. Sensitive sites such as banks are raised to act
+            only on the desktop.
+          </li>
+          <li>
+            Password fields and fields that look like secrets are never read and never typed into
+            unless you allowed it in Mother Claude for that site. Mark anything else private with a
+            <code>data-mc-redact</code> attribute.
+          </li>
+          <li>
+            Risky actions wait for your answer: in the side panel, in Mother Claude, or on your
+            phone.
+          </li>
+          <li>
+            Everything stays on this computer: the extension talks only to the Mother Claude app.
+          </li>
+        </ul>
+      </section>
+
+      <section aria-labelledby="about-title">
+        <h2 id="about-title">About</h2>
+        <p class="muted" id="about"></p>
+      </section>
+    </main>
+    <script src="options.js"></script>
+  </body>
+</html>

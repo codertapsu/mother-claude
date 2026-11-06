@@ -1,0 +1,35 @@
+{
+  "manifest_version": 3,
+  "name": "Mother Claude",
+  "short_name": "Mother Claude",
+  "description": "Lets your Claude Code sessions read and act in this browser, through the Mother Claude app on this computer.",
+  "version": "0.1.0",
+  "minimum_chrome_version": "116",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEArNMWSiYGaajd1US6gxNoEV3mpfp1jvsihpFVY14wL8IPPJFoMjNkDq6Rfdsd69mWr+MYMJf3aclMetYPiqHRynmtZBQ4hocZn/TeSGJhrhurxvu+g6kLmbkdjDv+Z+0NrRYD70Nm346mZWTKxKIbALNy3k+02AZlCx6/44kDj5kLhmjpOzrDMvoPC0HYXbJzvE+TH7Q2pxfx+zzlUrP76uJD+5LPxvvbDXMAVTDAZVTFpPU7o12PM0uuxYJgEAZWOOwrclpCElFMnNciDprxqd4p+r95kZmy0m3RPcDQKBqm9GWSWxho5lLhJxv63sWGXvDCtIjkUlKGHVZYoma9/wIDAQAB",
+  "icons": {
+    "16": "icons/icon-16.png",
+    "32": "icons/icon-32.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
+  },
+  "action": {
+    "default_title": "Mother Claude",
+    "default_icon": {
+      "16": "icons/icon-16.png",
+      "32": "icons/icon-32.png"
+    }
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "side_panel": {
+    "default_path": "sidepanel.html"
+  },
+  "options_ui": {
+    "page": "options.html",
+    "open_in_tab": true
+  },
+  "permissions": ["storage", "tabs", "tabGroups", "scripting", "activeTab", "sidePanel", "alarms"],
+  "optional_permissions": ["debugger", "webNavigation", "downloads"],
+  "optional_host_permissions": ["<all_urls>"]
+}

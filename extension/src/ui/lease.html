@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Claude Code session</title>
+    <link rel="stylesheet" href="ui.css" />
+  </head>
+  <body>
+    <main class="options">
+      <header class="top">
+        <img src="icons/icon-32.png" alt="" />
+        <h1 id="title">A Claude Code session</h1>
+      </header>
+      <p>
+        This tab group belongs to the session above. It works only in the tabs of this group: this
+        page turns into the first one it opens.
+      </p>
+      <p class="muted">
+        Stop it at any time from the Mother Claude side panel (the toolbar button), or close the
+        group.
+      </p>
+      <p class="notice" id="stopped" hidden>The session is stopped in this browser.</p>
+    </main>
+    <script src="lease.js"></script>
+  </body>
+</html>

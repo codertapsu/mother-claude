@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Mother Claude</title>
+    <link rel="stylesheet" href="ui.css" />
+  </head>
+  <body>
+    <header class="top">
+      <img src="icons/icon-32.png" alt="" />
+      <h1>Mother Claude</h1>
+    </header>
+    <p class="status" id="connection" role="status" aria-live="polite">
+      <span class="dot" aria-hidden="true"></span><span class="text">Starting…</span>
+    </p>
+    <p class="error" id="connection-error"></p>
+
+    <section id="pairing" hidden aria-labelledby="pairing-title">
+      <h2 id="pairing-title">Pair this browser</h2>
+      <p class="muted">
+        Pairing lets the Mother Claude app on this computer send this browser work from your Claude
+        Code sessions. Nothing leaves this computer.
+      </p>
+      <div id="pairing-form"></div>
+    </section>
+
+    <section id="sessions" hidden aria-labelledby="sessions-title">
+      <h2 id="sessions-title">Sessions in this browser</h2>
+      <div id="session-list"></div>
+    </section>
+
+    <section id="approvals" hidden aria-labelledby="approvals-title">
+      <h2 id="approvals-title">Waiting for you</h2>
+      <div id="approval-list" aria-live="polite"></div>
+    </section>
+
+    <section id="this-tab" hidden aria-labelledby="tab-title">
+      <h2 id="tab-title">This tab</h2>
+      <div id="tab-card"></div>
+    </section>
+
+    <p class="notice" id="debugger-note" hidden>
+      While a session works with the debugger permission, Chrome shows “Mother Claude started
+      debugging this browser”. That is this extension; the bar goes away when the sessions’ leases
+      end. Cancelling it turns trusted clicks, screenshots of background tabs and the console off
+      for those tabs.
+    </p>
+
+    <footer>
+      <p class="muted">
+        <a href="options.html" target="_blank">Options and permissions</a> ·
+        <span id="version"></span>
+      </p>
+    </footer>
+    <script src="sidepanel.js"></script>
+  </body>
+</html>

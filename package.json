@@ -25,6 +25,9 @@
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build",
+    "ext:build": "node extension/build.mjs",
+    "ext:build:firefox": "node extension/build.mjs --target firefox",
+    "ext:watch": "node extension/build.mjs --watch",
     "ext:test": "node --test \"extension/test/unit/**/*.test.ts\"",
     "ext:lint": "tsc -p extension/tsconfig.json && tsc -p extension/test/tsconfig.json && eslint extension && prettier --check \"extension/**/*.{ts,mjs,html,css,json,md}\""
   },

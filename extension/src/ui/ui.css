@@ -1,0 +1,273 @@
+/* Mother Claude extension pages: the side panel, options and the lease placeholder. */
+
+:root {
+  color-scheme: light dark;
+  --bg: #ffffff;
+  --fg: #1f2328;
+  --muted: #59636e;
+  --line: #d1d9e0;
+  --card: #f6f8fa;
+  --accent: #6e4fc2;
+  --accent-fg: #ffffff;
+  --danger: #c4321b;
+  --warn-bg: #fff4e5;
+  --warn-fg: #7a4100;
+  --ok: #1a7f37;
+  --focus: #6e4fc2;
+  --radius: 8px;
+  font:
+    13px/1.45 system-ui,
+    -apple-system,
+    'Segoe UI',
+    Roboto,
+    sans-serif;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #17181c;
+    --fg: #e6e7eb;
+    --muted: #a0a4ad;
+    --line: #34363d;
+    --card: #202228;
+    --accent: #9d86e8;
+    --accent-fg: #14121b;
+    --danger: #ff7b63;
+    --warn-bg: #3a2a12;
+    --warn-fg: #ffd08a;
+    --ok: #57c77a;
+    --focus: #b39cf5;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  padding: 12px 14px 24px;
+  background: var(--bg);
+  color: var(--fg);
+}
+
+h1 {
+  font-size: 16px;
+  margin: 0;
+}
+h2 {
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  margin: 20px 0 8px;
+}
+
+a {
+  color: var(--accent);
+}
+
+header.top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+header.top img {
+  width: 22px;
+  height: 22px;
+}
+
+.status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 10px 0 0;
+  color: var(--muted);
+}
+.dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  flex: none;
+  background: var(--muted);
+}
+.dot.on {
+  background: var(--ok);
+}
+.dot.off {
+  background: var(--danger);
+}
+
+.card {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  margin: 8px 0;
+}
+.card .row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.card .grow {
+  flex: 1;
+  min-width: 0;
+}
+.title {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.muted,
+.help {
+  color: var(--muted);
+}
+.help {
+  margin: 4px 0 10px;
+  font-size: 12px;
+}
+.swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  flex: none;
+}
+.badge {
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 10px;
+  border: 1px solid currentColor;
+}
+.badge.danger {
+  color: var(--danger);
+}
+
+.notice {
+  background: var(--warn-bg);
+  color: var(--warn-fg);
+  border-radius: var(--radius);
+  padding: 8px 10px;
+  margin: 8px 0;
+}
+
+.error {
+  color: var(--danger);
+  min-height: 1em;
+  margin: 6px 0 0;
+}
+
+button {
+  font: inherit;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  background: var(--bg);
+  color: var(--fg);
+  padding: 4px 10px;
+  cursor: pointer;
+}
+button:hover {
+  border-color: var(--muted);
+}
+button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-fg);
+}
+button.stop {
+  background: var(--danger);
+  border-color: var(--danger);
+  color: #fff;
+  font-weight: 600;
+}
+button:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+input,
+select {
+  font: inherit;
+  color: var(--fg);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 5px 8px;
+  width: 100%;
+}
+label {
+  display: block;
+  font-weight: 600;
+  margin: 10px 0 4px;
+}
+form.pair button {
+  margin-top: 12px;
+}
+
+.modes {
+  display: inline-flex;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  overflow: hidden;
+}
+.modes button {
+  border: 0;
+  border-radius: 0;
+  border-right: 1px solid var(--line);
+  padding: 4px 12px;
+}
+.modes button:last-child {
+  border-right: 0;
+}
+.modes button[aria-pressed='true'] {
+  background: var(--accent);
+  color: var(--accent-fg);
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+table {
+  border-collapse: collapse;
+  width: 100%;
+}
+td,
+th {
+  text-align: left;
+  padding: 6px 4px;
+  border-bottom: 1px solid var(--line);
+  vertical-align: top;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+main.options {
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 12px 8px 40px;
+}
+main.options section {
+  margin-bottom: 28px;
+}
+main.options .grid {
+  display: grid;
+  grid-template-columns: 1fr 140px auto;
+  gap: 8px;
+  align-items: end;
+}
