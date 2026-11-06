@@ -86,6 +86,12 @@ const pages: Routes = [
     path: 'api',
     loadComponent: () => import('./pages/bridge/bridge.component').then((m) => m.BridgeComponent),
   },
+  // The browser extension: pairing, site modes, approvals (docs/BROWSER.md).
+  {
+    path: 'browser',
+    loadComponent: () =>
+      import('./pages/browser/browser.component').then((m) => m.BrowserComponent),
+  },
   {
     path: 'services',
     loadComponent: () =>

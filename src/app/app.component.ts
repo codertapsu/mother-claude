@@ -37,6 +37,7 @@ const MORE_SECTIONS = [
   'new',
   'remote',
   'api',
+  'browser',
   'settings',
   'accounts',
   'backup',
@@ -54,6 +55,7 @@ const TITLES: Record<string, string> = {
   new: 'New session',
   remote: 'Remote',
   api: 'API',
+  browser: 'Browser',
   settings: 'Settings',
   accounts: 'Accounts',
   backup: 'Backup & sync',
@@ -160,6 +162,7 @@ export class AppComponent {
     { path: '/remote', label: 'Remote', icon: 'phone', desktopOnly: true },
     { path: '/api', label: 'API', icon: 'code' },
     { path: '/capacity', label: 'Capacity', icon: 'gauge' },
+    { path: '/browser', label: 'Browser', icon: 'globe' },
     { path: '/settings', label: 'Settings', icon: 'settings' },
   ];
   protected readonly desktopNav = computed(() =>

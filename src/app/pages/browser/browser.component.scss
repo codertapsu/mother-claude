@@ -1,0 +1,196 @@
+h2 {
+  margin-top: 1.5rem;
+}
+
+.block {
+  display: block;
+}
+
+.grow {
+  flex: 1 1 12rem;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.list {
+  padding-top: 0;
+  padding-bottom: 0;
+}
+
+.list-row {
+  flex-wrap: wrap;
+  gap: 0.4rem 0.75rem;
+}
+
+.row-actions {
+  display: inline-flex;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+}
+
+.approvals mc-pending-card + mc-pending-card {
+  margin-top: 0.75rem;
+}
+
+.browser .name {
+  font-weight: 500;
+  margin-right: 0.4rem;
+}
+
+.dot {
+  width: 0.6rem;
+  height: 0.6rem;
+  border-radius: 50%;
+  background: var(--faint);
+  flex: 0 0 auto;
+}
+
+.dot.on {
+  background: var(--ok, #2e9d5b);
+}
+
+.pair {
+  margin-top: 0.75rem;
+}
+
+.pair .code {
+  font-size: 1.8rem;
+  letter-spacing: 0.12em;
+  margin: 0.4rem 0;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.steps {
+  margin: 0 0 0.75rem;
+  padding-left: 1.2rem;
+}
+
+.steps li + li {
+  margin-top: 0.3rem;
+}
+
+.swatch {
+  width: 0.75rem;
+  height: 0.75rem;
+  border-radius: 0.2rem;
+  flex: 0 0 auto;
+  background: var(--faint);
+}
+
+.swatch[data-color='blue'] {
+  background: #1a73e8;
+}
+.swatch[data-color='green'] {
+  background: #1e8e3e;
+}
+.swatch[data-color='purple'] {
+  background: #a142f4;
+}
+.swatch[data-color='orange'] {
+  background: #fa903e;
+}
+.swatch[data-color='cyan'] {
+  background: #007b83;
+}
+.swatch[data-color='pink'] {
+  background: #d01884;
+}
+.swatch[data-color='yellow'] {
+  background: #f9ab00;
+}
+.swatch[data-color='red'] {
+  background: #d93025;
+}
+
+.stopped mc-icon {
+  color: var(--faint);
+}
+
+.site .origin {
+  margin-right: 0.4rem;
+}
+
+.site .segmented {
+  flex: 0 0 auto;
+}
+
+// Form controls are full width by default; here they share a row while
+// there is room, and wrap on a phone.
+.add-site input,
+.add-grant input,
+.folder.add input {
+  width: auto;
+  flex: 1 1 12rem;
+  min-width: 0;
+}
+
+.add-site select,
+.add-grant select,
+.activity-head select {
+  width: auto;
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+.hint {
+  margin: 0;
+  padding: 0 0.9rem 0.6rem;
+}
+
+.disclosure {
+  margin-top: 0.6rem;
+}
+
+.sensitive .cat {
+  text-transform: capitalize;
+  margin-right: 0.4rem;
+}
+
+.add-grant {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.6rem;
+}
+
+.add-grant input {
+  flex: 1 1 12rem;
+}
+
+.settings {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.settings input[type='number'] {
+  max-width: 7rem;
+}
+
+.folder {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.35rem;
+}
+
+.activity-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 1.5rem;
+}
+
+.activity-head h2 {
+  margin: 0;
+}
+
+.activity-head select {
+  max-width: 55%;
+}
+
+.entry .what {
+  overflow-wrap: anywhere;
+}

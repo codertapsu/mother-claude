@@ -10,6 +10,14 @@ import type {
   RoutingReport,
   SettingsPatch,
 } from './capacity';
+import type {
+  BrowserActivity,
+  BrowserOverview,
+  BrowserPairCode,
+  BrowserSettingsPatch,
+  GrantAction,
+  SiteMode,
+} from './browser';
 import { AuthService } from './auth.service';
 import { ConfigService } from './config.service';
 import { activeMock } from './mock/mock-api';
@@ -148,6 +156,11 @@ import {
  *   Push      getVapidKey() · pushSubscribe(sub) · pushUnsubscribe(endpoint) ·
  *             pushTest() · getPushPrefs() · setPushPrefs(prefs) ·
  *             setSessionPush(id, pref)
+ *   Browser   getBrowser() · getBrowserActivity(session?) ·
+ *             createBrowserPairCode() · revokeBrowser(id) ·
+ *             setBrowserSite(origin, mode) · setBrowserSettings(patch) ·
+ *             addBrowserGrant(action, origin) · removeBrowserGrant(id) ·
+ *             stopBrowserSession(id) · resumeBrowserSession(id)
  *
  * `describeError(e)` turns any failure into one user-facing sentence (plus
  * a retry hint), so every page reports errors the same way.
@@ -996,6 +1009,61 @@ export class ApiService {
   /** Change which conversation its unaddressed messages join. */
   setBridgeServerThread(id: string, threadId: string | null): Promise<unknown> {
     return this.post<unknown>(`/bridge/servers/${enc(id)}/active-thread`, { threadId });
+  }
+
+  // ─────────────────────────── The browser extension (docs/BROWSER.md)
+
+  /** Paired browsers, site modes, settings, grants, leases, approvals. */
+  getBrowser(): Promise<BrowserOverview> {
+    return this.req<BrowserOverview>('/browser');
+  }
+
+  /** Recent browser actions (no values), of one session or all. */
+  getBrowserActivity(session?: string, limit = 100): Promise<{ entries: BrowserActivity[] }> {
+    const q = new URLSearchParams({ limit: String(limit) });
+    if (session) q.set('session', session);
+    return this.req<{ entries: BrowserActivity[] }>(`/browser/activity?${q}`);
+  }
+
+  /** A pairing code for the extension (the desktop, or a granted device). */
+  createBrowserPairCode(): Promise<BrowserPairCode> {
+    return this.post<BrowserPairCode>('/browser/pair', {});
+  }
+
+  async revokeBrowser(id: string): Promise<void> {
+    await this.req<unknown>(`/browser/browsers/${enc(id)}`, { method: 'DELETE' });
+  }
+
+  /** Set a site's mode; `null` removes its own (it follows the default). */
+  setBrowserSite(origin: string, mode: SiteMode | null): Promise<BrowserOverview> {
+    return this.req<BrowserOverview>('/browser/sites', {
+      method: 'PUT',
+      body: JSON.stringify({ origin, mode }),
+    });
+  }
+
+  setBrowserSettings(patch: BrowserSettingsPatch): Promise<BrowserOverview> {
+    return this.req<BrowserOverview>('/browser/settings', {
+      method: 'PUT',
+      body: JSON.stringify(patch),
+    });
+  }
+
+  addBrowserGrant(action: GrantAction, origin: string): Promise<{ id: string }> {
+    return this.post<{ id: string }>('/browser/grants', { action, origin });
+  }
+
+  async removeBrowserGrant(id: string): Promise<void> {
+    await this.req<unknown>(`/browser/grants/${enc(id)}`, { method: 'DELETE' });
+  }
+
+  /** Stop a session's browser use now (refused for a minute). */
+  stopBrowserSession(id: string): Promise<unknown> {
+    return this.post<unknown>(`/browser/sessions/${enc(id)}/stop`, {});
+  }
+
+  async resumeBrowserSession(id: string): Promise<void> {
+    await this.req<unknown>(`/browser/sessions/${enc(id)}/resume`, { method: 'POST' });
   }
 
   // ──────────────────────────────────────────────────────────── Transport

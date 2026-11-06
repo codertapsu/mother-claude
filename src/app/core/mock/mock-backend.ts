@@ -40,6 +40,7 @@ import {
 } from './fixtures';
 import { MockBackend, MockRole, WebSocketLike, mockRole } from './mock-api';
 import { MockCapacity } from './mock-capacity';
+import { MockBrowser } from './mock-browser';
 import { MockData } from './mock-data';
 import { MockDelete } from './mock-delete';
 import { MockMcp } from './mock-mcp';
@@ -128,6 +129,8 @@ class FixtureBackend implements MockBackend {
   private readonly capacity: MockCapacity;
   /** Mother Claude's MCP server, as the Services page shows it (`/mcp*`). */
   private readonly mcp: MockMcp;
+  /** The browser extension (`/browser*`, docs/BROWSER.md). */
+  private readonly browser: MockBrowser;
 
   constructor(readonly role: MockRole) {
     const now = Date.now();
@@ -244,6 +247,12 @@ class FixtureBackend implements MockBackend {
       };
     }
     this.capacity = new MockCapacity({ desktop: role === 'desktop' });
+    this.browser = new MockBrowser({
+      desktop: role === 'desktop',
+      pendingItems: () => this.fx.pendingItems,
+      addPending: (item) => this.addPending(item),
+      broadcast: (frame) => this.broadcast(frame),
+    });
     this.servers = new MockServers({
       desktop: role === 'desktop',
       main: () => this.fx.bridge,
@@ -300,6 +309,9 @@ class FixtureBackend implements MockBackend {
     // Claude Code tools (the MCP server's panel)
     const mcp = this.mcp.route(path, method, body);
     if (mcp) return mcp;
+    // The browser extension
+    const browser = this.browser.route(path, method, body, q);
+    if (browser) return browser;
 
     // Sessions
     if (path === '/sessions' && method === 'GET') {
@@ -1069,6 +1081,17 @@ class FixtureBackend implements MockBackend {
       outcome: 'withdrawn',
       by: { kind: 'host', name: byName },
       at: Date.now(),
+    });
+  }
+
+  /** A new pending item, shown on its session (the browser mock's approval). */
+  private addPending(item: PendingItem): void {
+    this.fx.pendingItems = [...this.fx.pendingItems, item];
+    const s = this.find(item.sessionId);
+    if (!s) return;
+    this.patch(s.id, {
+      pending: this.fx.pendingItems.filter((p) => p.sessionId === s.id).map(toPreview),
+      status: 'waiting',
     });
   }
 

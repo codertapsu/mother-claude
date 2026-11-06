@@ -18,6 +18,7 @@ import { WebSocketLike, activeMock } from './mock/mock-api';
 import {
   AccountsView,
   AgentsFrame,
+  BrowserFrame,
   ClientFrame,
   FleetFrame,
   HelloFrame,
@@ -258,6 +259,7 @@ export class RealtimeService {
   private readonly noticeS = new Subject<NoticeFrame>();
   private readonly devicesS = new Subject<void>();
   private readonly pairRequestS = new Subject<PairRequestFrame>();
+  private readonly browserS = new Subject<BrowserFrame>();
   private readonly refetchS = new Subject<RefetchReason>();
   private readonly pollTickS = new Subject<void>();
 
@@ -275,6 +277,8 @@ export class RealtimeService {
   readonly notice$: Observable<NoticeFrame> = this.noticeS.asObservable();
   readonly devices$: Observable<void> = this.devicesS.asObservable();
   readonly pairRequest$: Observable<PairRequestFrame> = this.pairRequestS.asObservable();
+  /** The browser extension's state changed: refetch `/api/browser`. */
+  readonly browser$: Observable<BrowserFrame> = this.browserS.asObservable();
   readonly refetch$: Observable<RefetchReason> = this.refetchS.asObservable();
   readonly pollTick$: Observable<void> = this.pollTickS.asObservable();
 
@@ -844,6 +848,9 @@ export class RealtimeService {
         break;
       case 'pairRequest':
         this.pairRequestS.next(frame);
+        break;
+      case 'browser':
+        this.browserS.next(frame);
         break;
       case 'resync':
         this.resync();
