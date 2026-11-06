@@ -131,6 +131,21 @@ Edge, Chrome for Testing); `MC_E2E_HEADFUL=1` shows the window. All 37 tests
 pass on macOS in Google Chrome 156.0.8078.80 and in Brave 1.99.55 (Chromium
 157); Edge has not been run.
 
+`test/e2e/desktop.e2e.ts` runs the same build against the **real desktop**
+instead of the mock: the Rust server's `/ws/browser`, `/api/browser/*` and
+`/mcp`, as the UI fixture serves them on a spare port over a synthetic home
+(never the app you run). It pairs with a code the desktop made, calls the
+`browser_*` tools over `/mcp` as a session (this process, named by a pidfile
+in the fixture's home), answers approvals through the desktop's API and
+stops the session. It is skipped unless `MC_E2E_DESKTOP` names the fixture's
+info file:
+
+```sh
+MC_UI_PORT=6799 MC_UI_SECONDS=900 MC_UI_OUT=/tmp/mc-ui.json \
+  cargo test --manifest-path src-tauri/Cargo.toml --test ui_fixture -- --ignored --nocapture
+MC_E2E_DESKTOP=/tmp/mc-ui.json npm run ext:e2e
+```
+
 Measured on the "typical" fixture (an issue list with 25 rows), loopback, Chrome
 156: `snapshot` with `interactiveOnly: true` is about 10 KB (~2,500 tokens;
 the target is 4,000), the full snapshot about 11 KB; round trips desktop →
