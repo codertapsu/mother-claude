@@ -45,6 +45,7 @@ import { MockData } from './mock-data';
 import { MockDelete } from './mock-delete';
 import { MockMcp } from './mock-mcp';
 import { MockSwitch } from './mock-switch';
+import { MockTeams } from './mock-teams';
 import { MockMove } from './mock-move';
 import { mockFolder, mockHostOs } from './mock-os';
 import { MOCK_SERVERS, MockServers } from './mock-servers';
@@ -131,6 +132,9 @@ class FixtureBackend implements MockBackend {
   private readonly mcp: MockMcp;
   /** The browser extension (`/browser*`, docs/BROWSER.md). */
   private readonly browser: MockBrowser;
+  /** Teams of sessions: templates, teams, boards (`/team-templates*`,
+   * `/teams*`). */
+  private readonly teams: MockTeams;
 
   constructor(readonly role: MockRole) {
     const now = Date.now();
@@ -261,6 +265,12 @@ class FixtureBackend implements MockBackend {
       remote: () => this.fx.remote,
       accountRef: (id) => (this.multi() ? this.accountRef(id) : undefined),
     });
+    this.teams = new MockTeams({
+      desktop: role === 'desktop',
+      broadcast: (frame) => this.broadcast(frame),
+      projects: () => this.fx.projects,
+      sessions: () => this.fx.sessions,
+    });
   }
 
   // ─────────────────────────────────────────────────────────────── REST
@@ -312,6 +322,9 @@ class FixtureBackend implements MockBackend {
     // The browser extension
     const browser = this.browser.route(path, method, body, q);
     if (browser) return browser;
+    // Teams of sessions (docs/TEAMS.md)
+    const teams = this.teams.route(path, method, body);
+    if (teams) return teams;
 
     // Sessions
     if (path === '/sessions' && method === 'GET') {
