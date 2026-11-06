@@ -19,10 +19,20 @@ and every pull can be undone for seven days.
 only on the desktop):
 
 1. **Folder.** Pick one of the suggestions (iCloud Drive, Google Drive, OneDrive
-   or Dropbox when the Mac has them) or any folder. Each account with a
-   directory of its own gets a sub-folder named after it, e.g.
-   `Mother Claude/Work/`. A token account uses the Default's directory, so its
-   sessions are backed up in the Default's set.
+   or Dropbox when the Mac has them; iCloud Drive on Windows) or type any
+   folder's full path the way the desktop's system writes it — on a Mac
+   `/Volumes/NAS/Mother Claude` or `~/Backups`, on Windows a drive
+   (`D:\Backups\Mother Claude`, or `D:/Backups/Mother Claude`), a share
+   (`\\nas\backups\Mother Claude`) or `~\Backups`. The field takes either
+   system's full path, since a phone may set up a Windows PC; the desktop says
+   so when its own system cannot use one, and its hints and examples follow
+   its system. Each account with a directory of its own gets a sub-folder
+   named after it, e.g. `Mother Claude/Work/`, the same on every machine: a
+   name Windows cannot keep as a folder's — one ending in a dot, or a device
+   name such as `CON` or `NUL` — gets a `_` (`Acme Inc.` → `Acme Inc._`), and
+   a set an older version made under the name itself is still found there. A
+   token account uses the Default's directory, so its sessions are backed up
+   in the Default's set.
 2. **Passphrase.** *Generate* one — eight groups of four characters, 160 bits —
    and write it down: it is shown **once**, then kept in the macOS Keychain
    (`dev.motherclaude.desktop`). *Use my own* takes any one-line passphrase of
@@ -52,10 +62,12 @@ phone, and the desktop shows a notice naming the phone and what it did.
 
 The backup folder is the first **storage**. Under **Storage** you can add more:
 another cloud's folder, a NAS share, an external disk (**Add storage…** offers
-the same suggestions as the folder). A storage is any absolute folder that is
-not inside an account's directory, the backup folder or another storage; its
-folder is made when only it is missing, and a folder on a disk that is not
-plugged in is refused.
+the same suggestions as the folder). A storage is any full path of the
+desktop's system (on Windows also a drive or a share: `E:\Mother Claude`,
+`\\nas\backups\Mother Claude`) that is not inside an account's directory, the
+backup folder or another storage — compared by whole folders, on Windows in
+any case; its folder is made when only it is missing, and a folder on a disk
+that is not plugged in is refused.
 
 Every set in every storage opens with the one passphrase. Changing it re-keys
 every set in every storage, opening them all first — and never while a storage
@@ -160,8 +172,9 @@ passphrase**, then **Pull…**:
   undo);
 - a session that changed **on both** laptops is never merged: the set's
   transcript lands beside the local one as
-  `<id>.conflict-<laptop>-<time it was pushed>.jsonl` and the pull lists it
-  under *Conflicts*. Pulling again adds no second copy of the same version, and
+  `<id>.conflict-<laptop>-<time it was pushed>.jsonl` — the time in UTC
+  without a `:` (`20261106T134759`), the laptop's name in letters, digits and
+  `-`, so any system can hold it — and the pull lists it under *Conflicts*. Pulling again adds no second copy of the same version, and
   neither laptop replaces the other's copy until one of them continues the
   conversation;
 - a session running here is never touched;
@@ -238,6 +251,18 @@ A session's archive is named after its id and the start of the file's SHA-256;
 an older one may still be there for a day after a newer push. The paths inside
 an archive are relative to the config directory
 (`projects/<folder>/<id>.jsonl`, `file-history/<id>/…`), so `-C` names the
-directory to restore into. `set.json` is the set's only plaintext, for display:
+directory to restore into. On Windows (PowerShell; `tar` comes with Windows,
+`age` is installed as anywhere else) decrypt to a file first — Windows
+PowerShell 5.1 does not pipe bytes between two programs unchanged:
+
+```powershell
+cd "D:\Backups\Mother Claude\Work"
+age -d -o key.txt identity.age
+age -d -i key.txt -o session.tar.gz sessions\<id>.<hash>.tar.gz.age
+tar xzf session.tar.gz -C "$env:USERPROFILE\.claude"
+Remove-Item key.txt, session.tar.gz
+```
+
+`set.json` is the set's only plaintext, for display:
 the account name, the set's public key, the machines that pushed (their id and
 name) and when.

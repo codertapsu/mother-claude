@@ -417,9 +417,17 @@ removing accounts stay on the desktop. §13.9 has the split.
 ```
 
 Rules: `id` is `default` or `acc_` + 12 hex; `name` unique, 1–40 characters,
-trimmed; `dir` absolute, not the Default directory, not inside another
-account's directory, created with mode 0700 when missing; a token account has
-no `dir`. `accountUuid` is learned from the first `initialize.account` seen
+trimmed, and no two accounts with a set of their own whose names give one set
+folder (`Acme Inc.` and `Acme Inc._`, §13.1); `dir` a full path of this
+machine by its own rules (on Windows a drive or a share; `~`, `~/…` and on
+Windows `~\…` expanded as Claude Code expands them), kept without Windows'
+`\\?\` prefix, not the Default directory, not inside another account's
+directory — compared by whole components, on Windows in any case —, created
+with mode 0700 when missing; a token account has no `dir`. `byProject` keys a
+folder as conversations record it, a Mac's or a Windows one whatever this
+machine is (`/Users/me/app`, `D:\dev\app`), without `.`/`..` or a trailing
+separator; a Windows folder holds a session's in any case and with either
+separator, a Mac's by whole components. `accountUuid` is learned from the first `initialize.account` seen
 for the account (owned session or helper) and used to attribute the CLI's own
 usage cache (`cachedUsageUtilization`) correctly; it is an opaque id, not an
 email. `identitySha256` (the Default and directory accounts) is the SHA-256 of
@@ -1009,10 +1017,20 @@ section is the design; §13.8 is its checklist.
 - **Set**: `<storage>/<name>/`. A set named after an account is that
   account's backup (backed up, pulled, scheduled as §5.10–5.11). A set no
   account is named after ("Shared", "Archive 2026") is never backed up, pulled
-  or scheduled: only Move data reads and writes it.
+  or scheduled: only Move data reads and writes it. Its folder is the same on
+  every machine: the name itself, unless Windows could not keep it as a
+  folder's — a trailing dot or space, a device name (`CON`, `PRN`, `AUX`,
+  `NUL`, `COM0`–`COM9`, `LPT0`–`LPT9`, also before an extension) —, which gets
+  a `_` (`Acme Inc.` → `Acme Inc._`, `Con` → `Con_`; `paths::portable_name`).
+  A set an older version made under the name itself is still found there,
+  and a storage lists a portable folder as the account's.
 - **Items**: conversations (by id); projects (by folder: every conversation
   of it, its prompt-history lines and, with the trust opt-in, its
-  `.claude.json` entry); everything of an account; and **customizations**:
+  `.claude.json` entry — the folder as its conversations recorded it, a Mac's
+  or a Windows one whatever this machine is, a Windows one in any case and
+  with either separator; on Windows the entry is the one Claude Code keys
+  `C:/Users/me/app` while transcripts record `C:\Users\me\app`, and a copy
+  writes that key); everything of an account; and **customizations**:
   `memory` (`CLAUDE.md`), `settings` (`settings.json`), `skills`, `agents`,
   `commands`, `outputStyles` (`output-styles/`), `keybindings`, `mcpServers`
   (the user-scope `mcpServers` of `.claude.json`) and `history`
@@ -1070,8 +1088,9 @@ different directories.
 8. **Storages**: a passphrase change re-keys every set in every storage
    (every one opened first, as docs/BACKUP.md says for the backup folder); the
    schedule and pull on launch use the backup folder only; removing a storage
-   forgets it and never deletes its files. A storage is an absolute folder, not
-   inside an account's directory, not another storage.
+   forgets it and never deletes its files. A storage is a full path of this
+   machine (on Windows a drive or a share), not inside an account's
+   directory, not another storage.
 9. **Goal 7 still holds**: with only the Default account, no storage besides
    the backup folder and no API server besides the main one, every response
    is what it was before this section.
