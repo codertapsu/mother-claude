@@ -100,6 +100,30 @@ a rotating key and an undocumented protocol).
 
 **Design the product around owning sessions.** Do not block on foreign injection.
 
+## Teams of sessions
+
+([docs/TEAMS.md](docs/TEAMS.md); `src-tauri/src/orchestration/`.) A team is a
+workflow template applied to a project, an account and per-role overrides: a
+lead writes task packets on the project's board, role sessions do them.
+**Only owned sessions are scheduled** — started, woken, idle-stopped and
+resumed (`--resume`, a fork when another process holds the transcript) by
+`orchestration::launcher`, which asks `router::choose` for the model and
+`capacity::admit` (with every running role session) whether it may start; a
+foreign session that takes a role is guarded and told about its tasks
+through the hooks relay, never started or stopped. Templates, teams and
+boards live in the app data dir (`workflows/`, `teams.json`, `boards/`, 0600,
+atomic), never in a project or a config directory; worktrees are Claude
+Code's own (`-w <role>`, `<project>/.claude/worktrees/<role>`). The
+**ownership guard** denies a role session's write outside its path globs
+(Mac and Windows paths alike) with the reason, and audits it: for owned
+sessions through the `PreToolUse` callback registered in `initialize`
+(asked in every permission mode) and `can_use_tool`, for foreign ones in the
+plugin's `PreToolUse` decide path. Never register a `WorktreeCreate` or
+`WorktreeRemove` hook in the plugin: it would replace Claude Code's worktrees
+for every session. Role sessions never get `--agent` (it replaces the system
+prompt); their `--settings` carry `crossSessionInbound: accept` and nothing
+else. Every end of a task goes to `metrics::record_outcome`.
+
 ## Data sources (adapter contains all version drift)
 
 Everything lives under `CLAUDE_CONFIG_DIR` or `~/.claude`. Keep all reads in
