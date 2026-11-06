@@ -9,6 +9,7 @@ import { pathWithin } from '../../core/paths';
 import { RealtimeService } from '../../core/realtime.service';
 import {
   PRIORITY_LABELS,
+  ROLE_STATE_LABELS,
   ROLE_STATE_TONE,
   RoleView,
   STATUS_LABELS,
@@ -83,17 +84,29 @@ import { TaskSheetComponent } from './task-sheet.component';
                 @if (r.lead) {
                   <span class="badge accent">lead</span>
                 }
-                <span [class]="'badge ' + tone(r)">{{ statusLine(r) }}</span>
+                <span [class]="'badge ' + tone(r)" [title]="statusLine(r)">{{
+                  stateLabel(r)
+                }}</span>
               </div>
               @if (r.sessionId) {
-                <a class="mono small" [routerLink]="['/session', r.sessionId]">{{
+                <a class="mono small wrap" [routerLink]="['/session', r.sessionId]">{{
                   r.sessionName
                 }}</a>
               } @else {
-                <span class="mono small faint">{{ r.sessionName }}</span>
+                <span class="mono small faint wrap">{{ r.sessionName }}</span>
               }
-              @if (r.state === 'waiting' && r.waitingSince) {
-                <span class="small muted">Waiting <mc-time [ms]="r.waitingSince" /></span>
+              @if (r.state === 'waiting') {
+                <div class="small reasons">
+                  @for (why of r.waitReasons ?? []; track $index) {
+                    <div>{{ why }}</div>
+                  }
+                  @if (r.waitingSince) {
+                    <span class="muted">Waiting <mc-time [ms]="r.waitingSince" /></span>
+                  }
+                </div>
+              }
+              @if (r.lastError && (r.state === 'stopped' || r.state === 'notStarted')) {
+                <div class="small error-line wrap">{{ r.lastError }}</div>
               }
               <div class="small facts">
                 <span>{{ r.model || 'default model' }}{{ r.effort ? ' @ ' + r.effort : '' }}</span>
@@ -290,8 +303,18 @@ import { TaskSheetComponent } from './task-sheet.component';
       .actions {
         margin-top: 0.2rem;
       }
+      .reasons {
+        color: var(--amber);
+        overflow-wrap: anywhere;
+      }
+      .error-line {
+        color: var(--red);
+      }
       .take {
         max-width: 11rem;
+        font-size: 0.8rem;
+        padding: 0.25rem 0.5rem;
+        min-height: 0;
       }
       .board-head {
         margin-top: 1.25rem;
@@ -388,6 +411,10 @@ export class TeamComponent {
 
   protected tone(r: RoleView): string {
     return ROLE_STATE_TONE[r.state] ?? '';
+  }
+
+  protected stateLabel(r: RoleView): string {
+    return ROLE_STATE_LABELS[r.state] ?? r.state;
   }
 
   protected statusLine(r: RoleView): string {

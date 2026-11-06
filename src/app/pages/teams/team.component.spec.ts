@@ -134,7 +134,11 @@ describe('TeamComponent', () => {
     expect(roles[1]).toContain('On task #3');
     expect(roles[1]).toContain('2 guard denials');
     expect(roles[1]).toContain('$5 (plan)');
-    expect(roles[2]).toContain('Waiting: 3 role sessions run already (the limit is 3)');
+    expect(roles[2]).toContain('Waiting');
+    const reasons = el.querySelectorAll('.role')[2].querySelector('.reasons');
+    expect(reasons?.textContent).toContain('3 role sessions run already (the limit is 3)');
+    const badge = el.querySelectorAll('.role')[2].querySelector('.badge.warn') as HTMLElement;
+    expect(badge.title).toBe('Waiting: 3 role sessions run already (the limit is 3)');
     const link = el.querySelector('.role a.mono') as HTMLAnchorElement;
     expect(link.getAttribute('href')).toBe('/session/b2c3d4e5-0000-4000-8000-00000000a001');
     // A waiting role can be started by hand; a running one stopped.
