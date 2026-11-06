@@ -492,87 +492,95 @@ Dependencies flow downward. Durations assume one developer directing Claude Code
 
 ### Phase 0 — spikes and foundations
 
-- [ ] **Spike A — Claude in Chrome from an owned session**: launch `claude -p --input-format stream-json --chrome` under a claude.ai-signed-in Default account; observe whether the host receives `get_chrome_dialog`/`chrome_permission_prompt`-style requests and whether `mcp__claude-in-chrome__*` tools appear in `initialize`/`get_settings`. Record the exact subtypes. Outcome decides whether §5's "complement" includes owned sessions.
-- [ ] **Spike B — plugin HTTP MCP** (macOS CLI done, 2.1.319 and VS Code's bundled 2.1.318 in print mode: `headersHelper` works, no `user_config` needed — results in docs/MCP.md; the VS Code UI, the Desktop Code tab and Windows remain): add an `http` server with `${user_config.port}`/`${user_config.token}` headers to the plugin; `claude plugin configure --values-stdin`; confirm the tools appear in a terminal session, a VS Code session and (if available) the Desktop Code tab, on macOS and on the Windows desktop. If headers substitution fails anywhere, build the `mc-mcp` stdio shim and repeat.
-- [ ] **Spike C — `-p` workers on cross-session messaging**: two owned sessions, one with `--settings '{"crossSessionInbound":"accept"}'`; `ListAgents` from the other; `SendMessage` by name; `notify_when_idle`; measure latency; confirm nothing transits the network (`lsof`/no outbound). Test the `hold` default class mismatch (`bypassPermissions` ↔ `default`).
-- [ ] **Spike D — `--agent <role>` semantics** for a main session: model, tools, prompt, permission mode; compare with `--append-system-prompt` + `--agents`.
-- [ ] **Spike E — MV3 prototype**: unpacked extension, WebSocket to a throwaway loopback server, `browser_snapshot` + `browser_click` on a signed-in site (GitHub), keepalive, service worker restart recovery, `chrome.debugger` trusted click on a site that ignores synthetic clicks.
-- [ ] **Spike F — `CLAUDE_CODE_HOST_WORKTREE*`** and memory behaviour across worktrees.
-- [ ] **Spike G — Windows**: `claude.exe` spawn of owned sessions; Edge native messaging key path (for the record); extension pairing on Windows Chrome and Edge.
+- [ ] **Spike A — Claude in Chrome from an owned session**: launch `claude -p --input-format stream-json --chrome` under a claude.ai-signed-in Default account; observe whether the host receives `get_chrome_dialog`/`chrome_permission_prompt`-style requests and whether `mcp__claude-in-chrome__*` tools appear in `initialize`/`get_settings`. Record the exact subtypes. Outcome decides whether §5's "complement" includes owned sessions. **Status:** not run.
+- [ ] **Spike B — plugin HTTP MCP** (macOS CLI done, 2.1.319 and VS Code's bundled 2.1.318 in print mode: `headersHelper` works, no `user_config` needed — results in docs/MCP.md; the VS Code UI, the Desktop Code tab and Windows remain): add an `http` server with `${user_config.port}`/`${user_config.token}` headers to the plugin; `claude plugin configure --values-stdin`; confirm the tools appear in a terminal session, a VS Code session and (if available) the Desktop Code tab, on macOS and on the Windows desktop. If headers substitution fails anywhere, build the `mc-mcp` stdio shim and repeat. **Status:** partly: done on macOS in print mode (docs/MCP.md); the VS Code UI, the Desktop Code tab and Windows not run.
+- [x] **Spike C — `-p` workers on cross-session messaging**: two owned sessions, one with `--settings '{"crossSessionInbound":"accept"}'`; `ListAgents` from the other; `SendMessage` by name; `notify_when_idle`; measure latency; confirm nothing transits the network (`lsof`/no outbound). Test the `hold` default class mismatch (`bypassPermissions` ↔ `default`). **Status:** done on CLI 2.1.319: a `-p` worker with `crossSessionInbound: accept` takes a message in about 40 ms (docs/TEAMS.md "Spike"); the network check and the `hold` class mismatch were not run.
+- [x] **Spike D — `--agent <role>` semantics** for a main session: model, tools, prompt, permission mode; compare with `--append-system-prompt` + `--agents`. **Status:** done: `--agent` replaces the whole system prompt, so role sessions use `--append-system-prompt` + `--agents` (docs/TEAMS.md).
+- [x] **Spike E — MV3 prototype**: unpacked extension, WebSocket to a throwaway loopback server, `browser_snapshot` + `browser_click` on a signed-in site (GitHub), keepalive, service worker restart recovery, `chrome.debugger` trusted click on a site that ignores synthetic clicks. **Status:** done as the extension itself (`extension/`), end to end in Chrome 156 and Brave against fixture pages and against the real desktop; not yet on a signed-in site such as GitHub.
+- [ ] **Spike F — `CLAUDE_CODE_HOST_WORKTREE*`** and memory behaviour across worktrees. **Status:** not run.
+- [ ] **Spike G — Windows**: `claude.exe` spawn of owned sessions; Edge native messaging key path (for the record); extension pairing on Windows Chrome and Edge. **Status:** not run (needs the Windows desktop).
 - [x] Decide `rmcp` vs hand-rolled Streamable HTTP after a two-day trial; land `/mcp` with one tool (`mc_ping`) behind a feature flag. (Hand-rolled; `mc_ping` and `mc_session`, behind the Services › Claude Code tools setting; docs/MCP.md.)
-- [ ] Add `sysinfo`; replace `ps`-based memory reads; expose `/api/host` (RAM, load, per-session RSS).
-- [ ] Windows Credential Manager store in `secrets.rs`; migration from 0600 files; tests on the Windows desktop.
-- [ ] Write the ADRs for decisions 1–5 of §0 into `docs/` (short).
+- [x] Add `sysinfo`; replace `ps`-based memory reads; expose `/api/host` (RAM, load, per-session RSS). **Status:** `sysinfo` 0.38.4 for RAM, load and each live session's RSS; `/api/host`. `ps` stays for process start times.
+- [x] Windows Credential Manager store in `secrets.rs`; migration from 0600 files; tests on the Windows desktop. **Status:** the store and the migration from 0600 files are in; type-checked for Windows, not yet run there.
+- [ ] Write the ADRs for decisions 1–5 of §0 into `docs/` (short). **Status:** not written; the decisions are in §0 and in each area's doc.
 
 Exit criteria: every spike has a written result; `/mcp` serves a tool to a VS Code session through the plugin on both OSes.
 
 ### Phase 1 — browser extension MVP
 
 Extension
-- [ ] Repository layout `extension/` (TypeScript, no framework or Preact; esbuild), `npm run ext:build`, lint, unit tests (Vitest), e2e (Playwright launching Chrome with the unpacked extension).
-- [ ] Manifest with optional permissions; options page with host/port and pairing; `chrome.storage.local` token.
-- [ ] Service worker: socket client, reconnect, 20 s keepalive, command router, timeouts, tab registry, leases, tab groups.
-- [ ] Content scripts: snapshot with refs, `read`, `find`, `click`, `type`, `select`, `check`, `scroll`, `wait`, form fill with framework-safe events, element highlight.
-- [ ] Debugger-backed `trusted` input, `screenshot`, `console`, `upload`; attach/detach lifecycle; infobar explanation.
-- [ ] Side panel: activity, Stop, site mode switch, approval cards, connection state.
-- [ ] Redaction of secret fields in snapshots/reads.
-- [ ] Packaging for side-load from the desktop (zip + instructions) before any store.
+- [x] Repository layout `extension/` (TypeScript, no framework or Preact; esbuild), `npm run ext:build`, lint, unit tests (Vitest), e2e (Playwright launching Chrome with the unpacked extension). **Status:** esbuild, `ext:build|lint|test|e2e`; unit tests run on `node --test` with happy-dom, e2e drives Chrome over the DevTools pipe (`Extensions.loadUnpacked`) instead of Playwright.
+- [x] Manifest with optional permissions; options page with host/port and pairing; `chrome.storage.local` token. **Status:** done.
+- [x] Service worker: socket client, reconnect, 20 s keepalive, command router, timeouts, tab registry, leases, tab groups. **Status:** done.
+- [x] Content scripts: snapshot with refs, `read`, `find`, `click`, `type`, `select`, `check`, `scroll`, `wait`, form fill with framework-safe events, element highlight. **Status:** done.
+- [x] Debugger-backed `trusted` input, `screenshot`, `console`, `upload`; attach/detach lifecycle; infobar explanation. **Status:** done.
+- [x] Side panel: activity, Stop, site mode switch, approval cards, connection state. **Status:** done; tested as a page in a tab, not inside Chrome's side-panel frame.
+- [x] Redaction of secret fields in snapshots/reads. **Status:** in the extension and again on the desktop.
+- [x] Packaging for side-load from the desktop (zip + instructions) before any store. **Status:** `npm run ext:build` writes an 88 KiB zip; docs/BROWSER-EXTENSION.md.
 
 Server
-- [ ] `Principal::Extension`, `mcx_` tokens, pairing flow reusing `server::pairing`, revocation in Remote › Devices.
-- [ ] `/ws/browser` on loopback only; Origin check; frame protocol; per-command timeouts; leases; queue per browser.
-- [ ] `browser::danger` classifier; sensitive-site list; approvals through `crate::pending` with the existing cards and `note_dangerous`; standing grants as dangerous settings.
-- [ ] `/mcp` `browser_*` tools (§5.3) with schemas; session identity per call; site-mode enforcement; snapshot size caps; audit lines.
-- [ ] Settings UI: site modes, sensitive sites, "always ask" categories, screenshot policy.
-- [ ] Docs: `docs/BROWSER.md` (setup, modes, approvals, limits), plugin changes, `CLAUDE.md` section.
+- [x] `Principal::Extension`, `mcx_` tokens, pairing flow reusing `server::pairing`, revocation in Remote › Devices. **Status:** pairing with an 8-character code; revoking is on the Browser page rather than Remote › Devices.
+- [x] `/ws/browser` on loopback only; Origin check; frame protocol; per-command timeouts; leases; queue per browser. **Status:** done.
+- [x] `browser::danger` classifier; sensitive-site list; approvals through `crate::pending` with the existing cards and `note_dangerous`; standing grants as dangerous settings. **Status:** `extension::danger`; done.
+- [x] `/mcp` `browser_*` tools (§5.3) with schemas; session identity per call; site-mode enforcement; snapshot size caps; audit lines. **Status:** 22 tools; a real Claude Code session (2.1.319, Haiku) drove the real extension through them.
+- [ ] Settings UI: site modes, sensitive sites, "always ask" categories, screenshot policy. **Status:** partly: site modes, the sensitive list and a global screenshot switch; no "always ask" categories.
+- [x] Docs: `docs/BROWSER.md` (setup, modes, approvals, limits), plugin changes, `CLAUDE.md` section. **Status:** done.
 
 Exit criteria (acceptance): a VS Code session, a terminal session and an owned session each complete "open GitHub, find the newest issue in repo X, read it, post a comment draft without submitting" on the user's signed-in Chrome, with the submit blocked pending an approval that is answered from the phone; Stop in the side panel aborts within 1 s; snapshot of a typical page ≤ 4,000 tokens with `interactiveOnly: true`.
 
+Status: Stop answers in about 1 ms and an interactive-only snapshot of the typical fixture page is about 2,500 tokens (docs/BENCHMARKS.md). A real `claude -p` session completed a form on a fixture page with two approvals answered through the desktop's API. The GitHub run from a VS Code, a terminal and an owned session, with the approval answered on a phone, has not been done.
+
 ### Phase 2 — teams and the board
 
-- [ ] Data model: `workflows/*.json`, `board.json` per project (tasks, packets, results, history), 0600, atomic writes via `persist`.
-- [ ] `/mcp` tools: `task_create|list|get|claim|update|done`, `team_roles`, `team_request_role`, `session_summary` (CEO only), `project_info`.
-- [ ] Launcher: role → `claude -p` argv builder (name, model, effort, permission mode, `--agents`, `--settings` with `crossSessionInbound`, `--add-dir`, `--worktree`, `--max-budget-usd`, `--mcp-config`); account environment as today; `SessionStart` packet injection.
-- [ ] Transport adapter: cross-session messaging (primary), relay fallback; CEO notifications on board events.
-- [ ] Ownership guard in the `PreToolUse` decision path; Bash write-target extraction reuse; tests for globs, worktree paths, Windows paths.
-- [ ] Worktree management: create/prune, disk check, `.claude/worktrees/<role>`; `WorktreeCreate/Remove` hooks.
-- [ ] Hooks plugin: add `TeammateIdle`, `TaskCreated`, `TaskCompleted`, `WorktreeCreate`, `WorktreeRemove`, `PreModelSwitch`, `PostModelSwitch`, `FileChanged`, `ConfigChange`, `Elicitation`, `ElicitationResult` (observe); bump plugin version; reinstall flow.
-- [ ] Idle stop and resume (`--resume`, fork rule unchanged).
-- [ ] UI: workflow templates editor, team view (roles, sessions, state, queue), board (kanban: todo/claimed/review/done), packet editor, "assign to role".
-- [ ] Interactive sessions: "take role X" for a foreign session (packet on next prompt), board visible via MCP.
-- [ ] Docs: `docs/TEAMS.md`; `CLAUDE.md` section (the invariant restated: only owned sessions are scheduled).
+- [x] Data model: `workflows/*.json`, `board.json` per project (tasks, packets, results, history), 0600, atomic writes via `persist`. **Status:** per-project boards and templates in the app data dir (0600, atomic).
+- [x] `/mcp` tools: `task_create|list|get|claim|update|done`, `team_roles`, `team_request_role`, `session_summary` (CEO only), `project_info`. **Status:** ten tools; `team_status` instead of `project_info`.
+- [x] Launcher: role → `claude -p` argv builder (name, model, effort, permission mode, `--agents`, `--settings` with `crossSessionInbound`, `--add-dir`, `--worktree`, `--max-budget-usd`, `--mcp-config`); account environment as today; `SessionStart` packet injection. **Status:** the MCP server comes through `--plugin-dir` rather than `--mcp-config`, and the task packet is the session's first message rather than a SessionStart injection.
+- [x] Transport adapter: cross-session messaging (primary), relay fallback; CEO notifications on board events. **Status:** done.
+- [x] Ownership guard in the `PreToolUse` decision path; Bash write-target extraction reuse; tests for globs, worktree paths, Windows paths. **Status:** a `PreToolUse` callback for owned sessions and the plugin's decide path for foreign ones; both path forms tested.
+- [ ] Worktree management: create/prune, disk check, `.claude/worktrees/<role>`; `WorktreeCreate/Remove` hooks. **Status:** partly: `-w` creates and reuses `.claude/worktrees/<role>`; no pruning or disk check; `WorktreeCreate/Remove` hooks deliberately not registered (a `WorktreeCreate` hook replaces worktree creation for every session).
+- [ ] Hooks plugin: add `TeammateIdle`, `TaskCreated`, `TaskCompleted`, `WorktreeCreate`, `WorktreeRemove`, `PreModelSwitch`, `PostModelSwitch`, `FileChanged`, `ConfigChange`, `Elicitation`, `ElicitationResult` (observe); bump plugin version; reinstall flow. **Status:** partly: `TeammateIdle`, `TaskCreated`, `TaskCompleted`, `PreModelSwitch`, `PostModelSwitch`, `ConfigChange` (observe only); not `WorktreeCreate`/`WorktreeRemove` (above), `FileChanged`, `Elicitation`, `ElicitationResult`. The plugin version is `0.7.0+mcp.1`.
+- [x] Idle stop and resume (`--resume`, fork rule unchanged). **Status:** done.
+- [x] UI: workflow templates editor, team view (roles, sessions, state, queue), board (kanban: todo/claimed/review/done), packet editor, "assign to role". **Status:** done.
+- [x] Interactive sessions: "take role X" for a foreign session (packet on next prompt), board visible via MCP. **Status:** done.
+- [x] Docs: `docs/TEAMS.md`; `CLAUDE.md` section (the invariant restated: only owned sessions are scheduled). **Status:** done.
 
 Exit criteria: on this repository, template `software-delivery` with CEO + frontend + backend + scout completes a three-task feature (one per role) end to end: packets written by the CEO, workers in worktrees, guard denies one out-of-scope edit (verified in the audit), CEO merges after `npm test && cargo test`, the phone shows every state change.
 
+Status: the board and delegation run end to end against the fake CLI (`tests/teams.rs`), and a real role session launches with the full argv (`tests/teams_live.rs`). The three-task feature on this repository with real sessions has not been run.
+
 ### Phase 3 — routing and scheduling
 
-- [ ] Router: policy table, task classes, escalation ladder, de-escalation, budget gate, `--fallback-model` per role, live `set_model`/effort for running roles between turns.
-- [ ] Haiku classifier via the sidecar (Agent SDK or a direct Messages call with `claude-haiku-5-5`), only for unclassified tasks; its cost recorded.
-- [ ] Measurement records per task; reports (cost per completed task by class × model × effort; escalation rate; cache hit ratio); export CSV.
-- [ ] Scheduler: `sysinfo` headroom, plan windows per family, rate-limit backpressure, repo cap, user cap, priorities, idle stop, queue reasons.
-- [ ] Budgets: per project/day, per task, per worker; alerts (desktop notice, push).
-- [ ] UI: queue with reasons, budgets, reports; phone: read-only reports + alerts.
-- [ ] Docs: `docs/ROUTING.md` with the policy and what the numbers mean.
+- [ ] Router: policy table, task classes, escalation ladder, de-escalation, budget gate, `--fallback-model` per role, live `set_model`/effort for running roles between turns. **Status:** partly: policy, classes, escalation and de-escalation, the budget gate and `--fallback-model` per role are in; changing a running role's model or effort between turns is not.
+- [x] Haiku classifier via the sidecar (Agent SDK or a direct Messages call with `claude-haiku-5-5`), only for unclassified tasks; its cost recorded. **Status:** through the bridge's Messages API client (needs an API key), off by default; its spend is recorded. Teams classify new tasks through it (keyword rules otherwise).
+- [x] Measurement records per task; reports (cost per completed task by class × model × effort; escalation rate; cache hit ratio); export CSV. **Status:** `outcomes.jsonl`, reports, CSV.
+- [x] Scheduler: `sysinfo` headroom, plan windows per family, rate-limit backpressure, repo cap, user cap, priorities, idle stop, queue reasons. **Status:** done.
+- [x] Budgets: per project/day, per task, per worker; alerts (desktop notice, push). **Status:** desktop notices and push.
+- [x] UI: queue with reasons, budgets, reports; phone: read-only reports + alerts. **Status:** the Capacity page; its policy editor is desktop only.
+- [x] Docs: `docs/ROUTING.md` with the policy and what the numbers mean. **Status:** done.
 
 Exit criteria: a synthetic load of 12 tasks across 4 roles never exceeds the user cap or 85% of the 5-hour window in a simulation driven by the fixture fake CLI (`tests/fixtures/fake-claude.py`) with injected `rate_limit_event`s; the report shows cost per completed task per model; an escalation is triggered by two failed gates and recorded.
 
+Status: the simulation runs on synthetic memory, window and rate-limit signals (`tests/capacity.rs`), not yet through the fake CLI.
+
 ### Phase 4 — remote management
 
-- [ ] Phone: team view, board, assign/reprioritise, packet editing (ManageData-class routes), browser approvals and activity, budget alerts, queue reasons.
-- [ ] Push: task done/failed/blocked, approval needed, budget threshold, role idle-stopped.
-- [ ] Grants: new dangerous classes (browser `act` on sensitive sites, `browser_eval`, standing site grants, `bypassPermissions` roles) under the existing per-device LAN/internet grants.
-- [ ] Audit viewer on the phone (read-only).
-- [ ] Docs: `docs/REMOTE.md` additions.
+- [x] Phone: team view, board, assign/reprioritise, packet editing (ManageData-class routes), browser approvals and activity, budget alerts, queue reasons. **Status:** the Teams, Browser and Capacity pages work at phone width; their editing routes are `ManageData`.
+- [x] Push: task done/failed/blocked, approval needed, budget threshold, role idle-stopped. **Status:** task done, ready for review, failed, blocked, a role waiting long, budget thresholds; approvals as before.
+- [x] Grants: new dangerous classes (browser `act` on sensitive sites, `browser_eval`, standing site grants, `bypassPermissions` roles) under the existing per-device LAN/internet grants. **Status:** under the existing per-device grants.
+- [ ] Audit viewer on the phone (read-only). **Status:** not built.
+- [ ] Docs: `docs/REMOTE.md` additions. **Status:** not written; docs/BROWSER.md, TEAMS.md and ROUTING.md say what a phone can do.
 
 Exit criteria: start a workflow on the Mac, leave, and from the phone: see progress, answer a browser approval, re-prioritise a task, receive the "done" push; every action audited with the device's name on the desktop.
 
+Status: not run on a real phone.
+
 ### Phase 5 — beyond development, browsers, polish
 
-- [ ] Templates: content production, research, browser operations, documentation; example projects.
-- [ ] `browser_record` → macro → skill file in the project.
-- [ ] Firefox port with the capability matrix; Edge Add-ons and Chrome Web Store listings.
-- [ ] Windows polish: Credential Manager everywhere, Edge pairing by default, native messaging discovery host if pairing friction is reported.
-- [ ] Cross-machine teams through Mother Claude's own relay (Mac ↔ Windows) — design only unless requested.
+- [x] Templates: content production, research, browser operations, documentation; example projects. **Status:** built-in templates for software, content production, research, browser operations and documentation; no example projects.
+- [ ] `browser_record` → macro → skill file in the project. **Status:** not built.
+- [ ] Firefox port with the capability matrix; Edge Add-ons and Chrome Web Store listings. **Status:** partly: `npm run ext:build:firefox` builds, never run; no store listings (they need your developer accounts).
+- [ ] Windows polish: Credential Manager everywhere, Edge pairing by default, native messaging discovery host if pairing friction is reported. **Status:** partly: Credential Manager is in (type-checked); no Edge default or native messaging.
+- [ ] Cross-machine teams through Mother Claude's own relay (Mac ↔ Windows) — design only unless requested. **Status:** not designed beyond this note.
 
 ---
 
