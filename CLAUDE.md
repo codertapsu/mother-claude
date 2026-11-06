@@ -245,6 +245,26 @@ inherited token, API key and provider switches). A token account whose token is
 not on this machine fails with `account_token_missing`; it never falls back to
 the Default sign-in.
 
+## Scheduler: routing, admission control, budgets
+
+[docs/ROUTING.md](docs/ROUTING.md). The teams side calls three functions —
+`router::choose`, `capacity::admit`, `metrics::record_outcome` (their types
+are a contract: never rename or remove; add only fields with serde defaults)
+— and the scheduler side never launches, stops or messages a session.
+Admission reads the account's 5-hour window (`claude::usage`), owned
+sessions' `rate_limit_event`s and hooked `StopFailure`s on a rate limit,
+memory from `sysinfo` (every 5 s, only the roster's pids), your cap (the
+lead not counted), project caps and budgets, and says every reason in the
+user's words; the last decision per (project, role) is kept for the
+Capacity page (`#/capacity`). Outcomes go to `outcomes.jsonl` and are
+joined with the session's usage from its transcripts through the index
+(`claude/index/window.rs`, a line at a time); every dollar is an estimate.
+`scheduler.json` and `routing-policy.json` are ours (0600, read field by
+field). Settings: the desktop or a paired device (`ManageData`; the Haiku
+classifier and billing overrides desktop only); the policy: desktop only.
+The optional Haiku classifier is off by default and goes through the
+bridge's Messages API client (an API key).
+
 ## Architecture rules (enforced)
 
 - **All data for both desktop and mobile flows through the axum server, never
