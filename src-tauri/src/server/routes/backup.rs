@@ -11,9 +11,13 @@
 //!   far as it can be (`ops::set_passphrase`); the passphrase is kept in the
 //!   Keychain. A failure after some set has it already carries
 //!   `error.applied: true` and, for a generated one, `error.passphrase`.
-//! * `POST /api/backup/push {account?}` (desktop or device) → `202 {jobs}`; without
-//!   `account`, one job per set (a token account's is the Default's); a set
-//!   being backed up already gives that job's id.
+//! * `POST /api/backup/push {account?, force?}` (desktop or device) → `202
+//!   {jobs}`; without `account`, one job per set (a token account's is the
+//!   Default's); a set being backed up already gives that job's id.
+//!   `force: true` is a force backup: this machine's copy of every session
+//!   replaces the set's wherever they differ (the replaced archives stay
+//!   seven days); a device needs the dangerous right for it, as for every
+//!   `force` below.
 //! * `GET /api/backup/index?account=&into=` (Authed): the set's sessions
 //!   compared with an account's directory, each with what a pull or restore
 //!   would do and the pruning warning; `?storage=<id>&set=<name>&into=` the
@@ -23,15 +27,17 @@
 //!   `PATCH /api/backup/storage/{id} {label}` → the storage;
 //!   `DELETE /api/backup/storage/{id}` → `204` (forgotten, its files stay)
 //!   (desktop or device).
-//! * `POST /api/backup/restore {account, into?, ids, trust?}` → `202 {job}`, or
-//!   `{account, config: true}` → `{folder}` (the configuration bundle unpacked
-//!   for review, never over the live one) (desktop or device; `trust: true`
-//!   needs the dangerous right).
-//! * `POST /api/backup/pull {account?, ids?, trust?}` (desktop or device;
-//!   `trust: true` needs the dangerous right) →
+//! * `POST /api/backup/restore {account, into?, ids, trust?, force?}` → `202
+//!   {job}`, or `{account, config: true}` → `{folder}` (the configuration
+//!   bundle unpacked for review, never over the live one) (desktop or device;
+//!   `trust: true` needs the dangerous right). `force: true` replaces a
+//!   conversation the account has with the set's copy (kept for undo).
+//! * `POST /api/backup/pull {account?, ids?, trust?, force?}` (desktop or
+//!   device; `trust: true` needs the dangerous right) →
 //!   `202 {jobs, skipped: [{account, code, message}]}`: without `account`,
 //!   every set, a set that cannot be read named in `skipped` and the rest
-//!   pulled.
+//!   pulled. `force: true` is a force pull: the set's copy replaces this
+//!   machine's wherever they differ (kept for undo).
 //!
 //! The passphrase stays the desktop's (`POST /api/backup/passphrase`), and
 //! never reaches a log, a frame or the audit line.
@@ -231,6 +237,20 @@ pub async fn post_passphrase(
 pub struct PushBody {
     #[serde(default)]
     pub account: Option<String>,
+    /// A force push: this machine's copy replaces the set's wherever they
+    /// differ (`backup::push_with`).
+    #[serde(default)]
+    pub force: bool,
+}
+
+/// A force overwrites what another machine (or this one) has, so a device
+/// needs the dangerous right for it, as for deleting (docs/ACCOUNTS.md
+/// §13.9); the desktop always may.
+fn require_force(ctx: &ClientContext, force: bool, what: &str) -> ApiResult<()> {
+    if force {
+        auth::require_dangerous(ctx, what)?;
+    }
+    Ok(())
 }
 
 /// `POST /api/backup/push`.
@@ -239,17 +259,30 @@ pub async fn post_push(
     State(state): State<AppState>,
     Body(body): Body<PushBody>,
 ) -> ApiResult<Response> {
+    require_force(&ctx, body.force, "A force backup")?;
     let jobs = match &body.account {
-        Some(a) => vec![ops::push(&state, a).await.map_err(backup_error)?],
-        None => ops::push_all(&state).await.map_err(backup_error)?,
+        Some(a) => vec![ops::push(&state, a, body.force)
+            .await
+            .map_err(backup_error)?],
+        None => ops::push_all(&state, body.force)
+            .await
+            .map_err(backup_error)?,
     };
     audit(
         &state,
         &ctx,
         "backup.push",
-        json!({ "account": body.account, "jobs": jobs }),
+        json!({ "account": body.account, "jobs": jobs, "force": body.force }),
     );
-    auth::note_device_action(&state, &ctx, "started a backup");
+    auth::note_device_action(
+        &state,
+        &ctx,
+        if body.force {
+            "started a force backup, which replaces the backup's copies with this Mac's"
+        } else {
+            "started a backup"
+        },
+    );
     Ok((StatusCode::ACCEPTED, Json(json!({ "jobs": jobs }))).into_response())
 }
 
@@ -404,6 +437,10 @@ pub struct RestoreBody {
     pub trust: bool,
     #[serde(default)]
     pub config: bool,
+    /// A force restore: the set's copy replaces one the account has
+    /// (`backup::restore_with`).
+    #[serde(default)]
+    pub force: bool,
 }
 
 /// `POST /api/backup/restore`.
@@ -415,6 +452,13 @@ pub async fn post_restore(
     if body.trust && !body.config {
         auth::require_dangerous(&ctx, "Restoring a folder's trust")?;
     }
+    if body.config && body.force {
+        return Err(ApiError::unprocessable(
+            "invalid_body",
+            "`force` replaces conversations; the settings bundle is only unpacked for review.",
+        ));
+    }
+    require_force(&ctx, body.force, "A force restore")?;
     if body.config {
         let folder = ops::extract_config(&state, &body.account)
             .await
@@ -435,20 +479,34 @@ pub async fn post_restore(
         ));
     }
     let into = body.into.clone().unwrap_or_else(|| body.account.clone());
-    let job = ops::restore(&state, &body.account, &into, body.ids.clone(), body.trust)
-        .await
-        .map_err(backup_error)?;
+    let job = ops::restore(
+        &state,
+        &body.account,
+        &into,
+        body.ids.clone(),
+        body.trust,
+        body.force,
+    )
+    .await
+    .map_err(backup_error)?;
     audit(
         &state,
         &ctx,
         "backup.restore",
         json!({ "account": body.account, "into": into, "sessions": body.ids.len(),
-                "trust": body.trust, "job": job }),
+                "trust": body.trust, "force": body.force, "job": job }),
     );
     auth::note_device_action(
         &state,
         &ctx,
-        &format!("started to restore {} conversation(s)", body.ids.len()),
+        &if body.force {
+            format!(
+                "started a force restore of {} conversation(s), which replaces the copies there",
+                body.ids.len()
+            )
+        } else {
+            format!("started to restore {} conversation(s)", body.ids.len())
+        },
     );
     Ok((StatusCode::ACCEPTED, Json(json!({ "job": job }))).into_response())
 }
@@ -462,6 +520,10 @@ pub struct PullBody {
     pub ids: Option<Vec<String>>,
     #[serde(default)]
     pub trust: bool,
+    /// A force pull: the set's copy replaces this machine's wherever they
+    /// differ (`backup::pull`).
+    #[serde(default)]
+    pub force: bool,
 }
 
 /// `POST /api/backup/pull`.
@@ -473,6 +535,7 @@ pub async fn post_pull(
     if body.trust {
         auth::require_dangerous(&ctx, "Pulling folders' trust")?;
     }
+    require_force(&ctx, body.force, "A force pull")?;
     // Everything: each set once (a token account's is the Default's).
     let accounts: Vec<String> = match &body.account {
         Some(a) => vec![a.clone()],
@@ -481,7 +544,7 @@ pub async fn post_pull(
     let mut jobs = Vec::new();
     let mut skipped = Vec::new();
     for a in &accounts {
-        match ops::pull(&state, a, body.ids.clone(), body.trust).await {
+        match ops::pull(&state, a, body.ids.clone(), body.trust, body.force).await {
             Ok(j) => jobs.push(j),
             // No folder or passphrase: nothing can be pulled at all.
             Err(e @ (BackupError::NoFolder | BackupError::NoPassphrase)) => {
@@ -502,9 +565,17 @@ pub async fn post_pull(
         &state,
         &ctx,
         "backup.pull",
-        json!({ "account": body.account, "jobs": jobs, "trust": body.trust }),
+        json!({ "account": body.account, "jobs": jobs, "trust": body.trust, "force": body.force }),
     );
-    auth::note_device_action(&state, &ctx, "started a pull");
+    auth::note_device_action(
+        &state,
+        &ctx,
+        if body.force {
+            "started a force pull, which replaces this Mac's copies with the backup's"
+        } else {
+            "started a pull"
+        },
+    );
     Ok((
         StatusCode::ACCEPTED,
         Json(json!({ "jobs": jobs, "skipped": skipped })),

@@ -2289,6 +2289,13 @@ async fn a_phone_manages_data_but_never_secrets() {
             json!({"account": work.id, "into": "default", "ids": [sid], "trust": true}),
         ),
         ("/backup/pull", json!({"account": work.id, "trust": true})),
+        // A force overwrites, so it needs the right too (as deleting does).
+        ("/backup/push", json!({"account": work.id, "force": true})),
+        ("/backup/pull", json!({"account": work.id, "force": true})),
+        (
+            "/backup/restore",
+            json!({"account": work.id, "into": "default", "ids": [sid], "force": true}),
+        ),
     ] {
         let (s, v) = f.call("POST", path, &phone, Some(body)).await;
         assert_eq!(s, StatusCode::FORBIDDEN, "{path}: {v}");
@@ -2326,6 +2333,19 @@ async fn a_phone_manages_data_but_never_secrets() {
         .await;
     assert_eq!(s, StatusCode::ACCEPTED, "{v}");
     finished_job(&f, &phone, v["jobs"][0].as_str().unwrap()).await;
+    // And so does a force backup, which says what it was.
+    let (s, v) = f
+        .call(
+            "POST",
+            "/backup/push",
+            &phone,
+            Some(json!({"account": work.id, "force": true})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::ACCEPTED, "{v}");
+    let forced = finished_job(&f, &phone, v["jobs"][0].as_str().unwrap()).await;
+    assert_eq!(forced["state"], "done", "{forced}");
+    assert_eq!(forced["result"]["force"], true, "{forced}");
 
     // The desktop was told, by the phone's name; the audit names the device.
     let notices = desktop_notices(&mut bus);
@@ -2334,6 +2354,7 @@ async fn a_phone_manages_data_but_never_secrets() {
         "undid a data job",
         "started a backup",
         "started to restore 1 conversation(s)",
+        "started a force backup",
     ] {
         assert!(
             notices

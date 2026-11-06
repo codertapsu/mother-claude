@@ -379,6 +379,7 @@ fn pull_once(
         undo_root: &w.undo,
         job_id: job,
         progress: &Progress::default(),
+        force: false,
     })
     .unwrap()
 }
@@ -734,6 +735,7 @@ fn an_index_not_written_with_the_sets_key_is_refused() {
         undo_root: &w.undo,
         job_id: "20261021T140000-00000001",
         progress: &Progress::default(),
+        force: false,
     })
     .unwrap_err();
     assert_eq!(err.code(), "backup_unauthenticated");
@@ -905,6 +907,7 @@ fn two_machines_with_one_name_stay_apart() {
             undo_root: &w.undo,
             job_id: job,
             progress: &Progress::default(),
+            force: false,
         })
         .unwrap()
     };
@@ -1643,6 +1646,7 @@ fn a_move_into_a_set_archives_and_its_undo_brings_it_back() {
         undo_root: &w.undo,
         job_id: "20261021T190002-00000003",
         progress: &Progress::default(),
+        force: false,
     })
     .unwrap();
     assert_eq!(r.skipped[0].code, "archived", "{r:?}");
@@ -2054,3 +2058,5 @@ fn a_backup_set_on_a_share_that_cannot_flush_the_drive_round_trips() {
     assert_eq!(report.restored, vec![SID.to_string()]);
     assert!(report.skipped.is_empty(), "{:?}", report.skipped);
 }
+
+mod force;

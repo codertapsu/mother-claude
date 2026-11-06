@@ -760,8 +760,10 @@ pub(crate) async fn titles(state: &AppState) -> BTreeMap<String, String> {
 
 /// Back up an account (a data job; one backup job at a time with the rest).
 /// A token account is backed up with the Default, whose directory it uses;
-/// a set that is being backed up already returns that job.
-pub async fn push(state: &AppState, account_id: &str) -> Result<String, BackupError> {
+/// a set that is being backed up already returns that job. With `force`, a
+/// force push ([`super::push_with`]): its own job, queued behind a backup
+/// of the set that runs already rather than answered by it.
+pub async fn push(state: &AppState, account_id: &str, force: bool) -> Result<String, BackupError> {
     let (folder, pass) = prerequisites(state)?;
     let a = set_owner(state, account(state, account_id)?);
     let home = state
@@ -770,7 +772,7 @@ pub async fn push(state: &AppState, account_id: &str) -> Result<String, BackupEr
         .ok_or_else(|| BackupError::Invalid("the account has no directory".into()))?;
     let machine = this_machine(state)?;
     let set = Set::new(&folder, &a.name);
-    let key = flight_key("backup", &set);
+    let key = flight_key(if force { "backup-force" } else { "backup" }, &set);
     let job = transfer::new_job_id();
     let flight = match claim(&key, &job) {
         Ok(f) => f,
@@ -789,16 +791,19 @@ pub async fn push(state: &AppState, account_id: &str) -> Result<String, BackupEr
         let result = tokio::task::spawn_blocking(move || {
             let live = |s: &str| is_live(&st2, s);
             let title_of = |s: &str| titles.get(s).cloned();
-            super::push(&super::PushInputs {
-                home: &home,
-                set: &set,
-                account_name: &a.name,
-                passphrases: &pass,
-                machine: &machine,
-                is_live: &live,
-                title_of: &title_of,
-                progress: &progress,
-            })
+            super::push_with(
+                &super::PushInputs {
+                    home: &home,
+                    set: &set,
+                    account_name: &a.name,
+                    passphrases: &pass,
+                    machine: &machine,
+                    is_live: &live,
+                    title_of: &title_of,
+                    progress: &progress,
+                },
+                force,
+            )
         })
         .await
         .unwrap_or_else(|e| Err(BackupError::Io(e.to_string())));
@@ -824,12 +829,13 @@ pub async fn push(state: &AppState, account_id: &str) -> Result<String, BackupEr
 }
 
 /// Back up every set (the schedule's and "Back up now"'s): the Default and
-/// each directory account, never the Default's directory twice.
-pub async fn push_all(state: &AppState) -> Result<Vec<String>, BackupError> {
+/// each directory account, never the Default's directory twice. `force`:
+/// a force push of each.
+pub async fn push_all(state: &AppState, force: bool) -> Result<Vec<String>, BackupError> {
     prerequisites(state)?;
     let mut jobs = Vec::new();
     for id in set_owner_ids(state) {
-        jobs.push(push(state, &id).await?);
+        jobs.push(push(state, &id, force).await?);
     }
     Ok(jobs)
 }
@@ -1004,13 +1010,15 @@ pub async fn index_of_set(
 }
 
 /// Restore sessions of `account`'s set (a token account's: the Default's)
-/// into `into`'s directory (a data job with an undo).
+/// into `into`'s directory (a data job with an undo). `force`: one `into`
+/// has is replaced by the set's copy too ([`super::restore_with`]).
 pub async fn restore(
     state: &AppState,
     account_id: &str,
     into: &str,
     ids: Vec<String>,
     trust: bool,
+    force: bool,
 ) -> Result<String, BackupError> {
     let (folder, pass) = prerequisites(state)?;
     let a = set_owner(state, account(state, account_id)?);
@@ -1036,29 +1044,32 @@ pub async fn restore(
         let id2 = id.clone();
         let result = tokio::task::spawn_blocking(move || {
             let live = |s: &str| is_live(&st2, s);
-            super::restore(&super::RestoreInputs {
-                set: &set,
-                passphrases: &pass,
-                target: &home,
-                ids: &ids,
-                trust,
-                is_live: &live,
-                undo_root: &undo_root,
-                job_id: &id2,
-                progress: &progress,
-                kind: "restore",
-            })
+            super::restore_with(
+                &super::RestoreInputs {
+                    set: &set,
+                    passphrases: &pass,
+                    target: &home,
+                    ids: &ids,
+                    trust,
+                    is_live: &live,
+                    undo_root: &undo_root,
+                    job_id: &id2,
+                    progress: &progress,
+                    kind: "restore",
+                },
+                force,
+            )
         })
         .await
         .unwrap_or_else(|e| Err(BackupError::Io(e.to_string())));
         let undo = result
             .as_ref()
             .ok()
-            .filter(|(_, m)| !m.created.is_empty())
+            .filter(|(_, m)| !m.created.is_empty() || !m.moved.is_empty())
             .map(|(_, m)| m.created_at + transfer::UNDO_KEEP.as_millis() as i64);
         let sessions = result
             .as_ref()
-            .map(|(r, _)| r.restored.clone())
+            .map(|(r, _)| r.restored.iter().chain(&r.replaced).cloned().collect())
             .unwrap_or_default();
         // In the lists before the job says it is done.
         rediscover(&st).await;
@@ -1099,12 +1110,14 @@ pub async fn extract_config(state: &AppState, account_id: &str) -> Result<PathBu
 
 /// Pull `account`'s set into its own directory (§5.11; a data job with an
 /// undo; a token account's is the Default's). `ids`: only these sessions. A
-/// set that is being pulled already returns that job.
+/// set that is being pulled already returns that job. `force`: a force
+/// pull ([`super::pull`]), its own job like a force push's.
 pub async fn pull(
     state: &AppState,
     account_id: &str,
     ids: Option<Vec<String>>,
     trust: bool,
+    force: bool,
 ) -> Result<String, BackupError> {
     let (folder, pass) = prerequisites(state)?;
     let a = set_owner(state, account(state, account_id)?);
@@ -1117,7 +1130,7 @@ pub async fn pull(
     let undo_root = transfer::ops::undo_root(state)
         .ok_or_else(|| BackupError::Invalid("this build has no data directory".into()))?;
     let machine = this_machine(state)?;
-    let key = flight_key("pull", &set);
+    let key = flight_key(if force { "pull-force" } else { "pull" }, &set);
     let job = transfer::new_job_id();
     let flight = match claim(&key, &job) {
         Ok(f) => f,
@@ -1145,6 +1158,7 @@ pub async fn pull(
                 undo_root: &undo_root,
                 job_id: &id2,
                 progress: &progress,
+                force,
             })
         })
         .await
@@ -1156,7 +1170,14 @@ pub async fn pull(
             .map(|(_, m)| m.created_at + transfer::UNDO_KEEP.as_millis() as i64);
         let sessions = result
             .as_ref()
-            .map(|(r, _)| r.restored.iter().chain(&r.updated).cloned().collect())
+            .map(|(r, _)| {
+                r.restored
+                    .iter()
+                    .chain(&r.updated)
+                    .chain(&r.replaced)
+                    .cloned()
+                    .collect()
+            })
             .unwrap_or_default();
         // In the lists before the job says it is done.
         rediscover(&st).await;
@@ -1228,7 +1249,7 @@ pub fn start(state: &AppState) {
             && !st.sessions().await.iter().any(|s| s.live)
         {
             for id in set_owner_ids(&st) {
-                if let Err(e) = pull(&st, &id, None, false).await {
+                if let Err(e) = pull(&st, &id, None, false, false).await {
                     tracing::info!(account = %id, error = %e, "pull on launch skipped");
                 }
             }
@@ -1252,7 +1273,7 @@ pub fn start(state: &AppState) {
                     .is_none_or(|t| now - t >= every);
                 // A set still being backed up is not queued again (`push`).
                 if due && idle(&st, &id, now).await {
-                    if let Err(e) = push(&st, &id).await {
+                    if let Err(e) = push(&st, &id, false).await {
                         tracing::info!(account = %id, error = %e, "scheduled backup skipped");
                     }
                 }

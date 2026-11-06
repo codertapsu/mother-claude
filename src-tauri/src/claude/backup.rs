@@ -953,6 +953,11 @@ fn present(path: &Path) -> bool {
     path.exists() || placeholder(path).exists()
 }
 
+/// How long a force push keeps an archive it replaced: as long as a move's
+/// undo keeps one (seven days), so another machine's copy it overwrote can be
+/// fetched back from the folder.
+pub const FORCE_KEEP_MS: i64 = 7 * 24 * 3600 * 1000;
+
 /// What one push or pull changes in a set's index.
 #[derive(Debug, Default)]
 struct Changes {
@@ -960,6 +965,10 @@ struct Changes {
     /// the entry it replaces (`None`: the set had none). It lands only when
     /// the set still holds that one.
     sessions: BTreeMap<String, (IndexEntry, Option<String>)>,
+    /// A force push: its entries replace whatever entry the set has when
+    /// the index is written (another machine's newer copy too), and each
+    /// archive they replace is kept until then, for [`FORCE_KEEP_MS`].
+    force_until: Option<i64>,
     /// A new configuration bundle.
     config: Option<ConfigEntry>,
     /// What this machine has now of the sessions it pushed, pulled or
@@ -1013,12 +1022,22 @@ fn write_index_merged(
     let mut superseded = std::mem::take(&mut merged.superseded);
     for (id, (entry, base)) in &changes.sessions {
         let current = merged.sessions.get(id).map(|t| t.archive.clone());
-        if current == *base {
-            if let Some(old) = base.as_ref().filter(|old| **old != entry.archive) {
-                superseded.push(Superseded {
-                    path: format!("sessions/{old}"),
-                    at: now,
-                    until: None,
+        if current == *base || changes.force_until.is_some() {
+            if let Some(old) = current.as_ref().filter(|old| **old != entry.archive) {
+                superseded.push(match changes.force_until {
+                    // Recoverable as long as a move's undo keeps one; `at` a
+                    // day before, so a build that knows only `at` keeps it as
+                    // long.
+                    Some(until) => Superseded {
+                        path: format!("sessions/{old}"),
+                        at: until - GRACE_MS,
+                        until: Some(until),
+                    },
+                    None => Superseded {
+                        path: format!("sessions/{old}"),
+                        at: now,
+                        until: None,
+                    },
                 });
             }
             merged.sessions.insert(id.clone(), entry.clone());
@@ -1251,6 +1270,16 @@ pub struct PushReport {
     pub warnings: Vec<String>,
     /// Files no index names any more, removed.
     pub removed: usize,
+    /// A force push: this machine's copy replaced the set's wherever they
+    /// differ.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub force: bool,
+    /// What a force push replaced although the set's copy was another
+    /// machine's (pushed since this one last had it) or newer than this
+    /// one's; listed in `archived` too. The archives it replaced stay in the
+    /// set for seven days ([`FORCE_KEEP_MS`]).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub replaced: Vec<String>,
 }
 
 /// What a push needs.
@@ -1429,6 +1458,10 @@ enum Step {
     Note(Seen),
     /// Archived; it replaces the entry with this archive (`None`: none).
     Archive(Option<String>),
+    /// Archived by a force push only: the set's copy is another machine's
+    /// (newer, or changed there too) or newer than this one, and this
+    /// machine's copy replaces it all the same.
+    Force(String),
     /// Changed only in the set (another machine pushed since): a pull
     /// brings it.
     Behind,
@@ -1440,7 +1473,9 @@ enum Step {
 /// set's copy only when the set still holds what this machine last had (it
 /// changed here, nowhere else), or when the set's transcript is where the
 /// local one came from (a byte prefix of it), which a content check shows.
-/// Never an entry another machine changed since.
+/// Never an entry another machine changed since — unless `force`: then this
+/// machine's copy replaces any other ([`Step::Force`]), and only a copy the
+/// set has as it is here is left as it is.
 fn push_step(
     set: &Set,
     keys: &Keys,
@@ -1448,6 +1483,7 @@ fn push_step(
     now: &SessionNow,
     entry: Option<&IndexEntry>,
     seen: Option<&Seen>,
+    force: bool,
 ) -> Step {
     let Some(e) = entry else {
         return Step::Archive(None);
@@ -1457,16 +1493,27 @@ fn push_step(
             let there = set.session_archive(e).is_some_and(|p| present(&p));
             if now.is(s) && there {
                 Step::Unchanged
+            } else if now.same_as(e) && there {
+                // The set's copy, which this machine has now although it
+                // last noted another (a force pull leaves `seen` as it was).
+                Step::Note(now.seen(&e.archive))
             } else if now.transcript_bytes < s.bytes {
                 // Older here than what this machine had (a pull undone):
                 // the set's copy stands, a pull brings it back.
-                Step::Behind
+                if force {
+                    Step::Force(e.archive.clone())
+                } else {
+                    Step::Behind
+                }
             } else {
                 // Changed here (or its archive is gone: written again).
                 Step::Archive(Some(e.archive.clone()))
             }
         }
         _ if now.same_as(e) => Step::Note(now.seen(&e.archive)),
+        // Another machine pushed it since this one last had it (or this one
+        // never did): replaced without looking.
+        _ if force => Step::Force(e.archive.clone()),
         Some(s) if now.is(s) => Step::Behind,
         _ => {
             let ours = transfer::transcripts_of(home, &e.id);
@@ -1669,9 +1716,10 @@ enum Pushed {
     Behind,
     /// Changed here and in the set: not pushed.
     Conflict,
-    /// Archived now: its new entry, the archive it replaces, and what this
-    /// machine records of it.
-    Archived(Box<IndexEntry>, Option<String>, Seen),
+    /// Archived now: its new entry, the archive it replaces, what this
+    /// machine records of it, and whether only a force push takes it (over
+    /// another machine's copy, or a newer one: [`Step::Force`]).
+    Archived(Box<IndexEntry>, Option<String>, Seen, bool),
 }
 
 /// Push one session (the rule of [`push_step`]); `seen`: what this machine
@@ -1680,6 +1728,7 @@ enum Pushed {
 /// Set a push's total before it starts: the bytes of every session it will
 /// archive (as [`push_session`] decides it, `fresh` alike), so its progress
 /// reads "X of Y" while one is packed.
+#[allow(clippy::too_many_arguments)]
 fn note_total(
     inp: &PushInputs<'_>,
     keys: &Keys,
@@ -1687,6 +1736,7 @@ fn note_total(
     seen: &BTreeMap<String, Seen>,
     ids: &[String],
     fresh: bool,
+    force: bool,
 ) {
     let total: u64 = ids
         .iter()
@@ -1702,9 +1752,10 @@ fn note_total(
                 &now,
                 index.sessions.get(id),
                 seen.get(id),
+                force,
             );
             let archives = match step {
-                Step::Archive(_) => true,
+                Step::Archive(_) | Step::Force(_) => true,
                 Step::Unchanged | Step::Note(_) => fresh,
                 Step::Behind | Step::Conflict => false,
             };
@@ -1721,6 +1772,7 @@ fn push_session(
     seen: Option<&Seen>,
     id: &str,
     fresh: bool,
+    force: bool,
 ) -> Pushed {
     if (inp.is_live)(id) {
         return Pushed::Live;
@@ -1729,22 +1781,22 @@ fn push_session(
         Ok(n) => n,
         Err(e) => return Pushed::Failed(e),
     };
-    let base = match push_step(inp.set, keys, inp.home, &now, index.sessions.get(id), seen) {
-        Step::Unchanged | Step::Note(_) if fresh => {
-            index.sessions.get(id).map(|e| e.archive.clone())
-        }
+    let entry = index.sessions.get(id);
+    let (base, forced) = match push_step(inp.set, keys, inp.home, &now, entry, seen, force) {
+        Step::Unchanged | Step::Note(_) if fresh => (entry.map(|e| e.archive.clone()), false),
         Step::Unchanged => return Pushed::Same(None),
         Step::Note(s) => return Pushed::Same(Some(s)),
         Step::Behind => return Pushed::Behind,
         Step::Conflict => return Pushed::Conflict,
-        Step::Archive(base) => base,
+        Step::Archive(base) => (base, false),
+        Step::Force(base) => (Some(base), true),
     };
     match archive_session(inp, keys, id, &now) {
         Ok(entry) => {
             // Its bytes were counted as they were packed.
             inp.progress.files_done.fetch_add(1, Ordering::Relaxed);
             let s = now.seen(&entry.archive);
-            Pushed::Archived(Box::new(entry), base, s)
+            Pushed::Archived(Box::new(entry), base, s, forced)
         }
         Err(e) => Pushed::Failed(e),
     }
@@ -1757,15 +1809,33 @@ fn push_session(
 /// so the set always opens as of its last index. Nothing after the archives
 /// (the configuration bundle, `set.json`) can cost the index.
 pub fn push(inp: &PushInputs<'_>) -> Result<PushReport, BackupError> {
+    push_with(inp, false)
+}
+
+/// [`push`], or with `force` a force push ("like `git push --force`"):
+/// this machine's copy of every session it has replaces the set's wherever
+/// they differ — also a copy another machine pushed since this one last had
+/// it, newer or changed there too. A session only the set has stays, a
+/// running one is skipped, and every archive it replaces is kept in the set
+/// for seven days. This machine's `seen` names what it pushed, as after any
+/// push; the other machine's next pull finds its copy changed in the set
+/// (an update, or a conflict copy beside its own: §5.11 as usual).
+pub fn push_with(inp: &PushInputs<'_>, force: bool) -> Result<PushReport, BackupError> {
     let (keys, mut info) = open_or_create(inp.set, inp.account_name, inp.passphrases)?;
     let index = read_index(inp.set, &keys)?;
-    let mut report = PushReport::default();
+    let mut report = PushReport {
+        force,
+        ..PushReport::default()
+    };
     let seen = index.seen.get(&inp.machine.id).cloned().unwrap_or_default();
-    let mut changes = Changes::default();
+    let mut changes = Changes {
+        force_until: force.then(|| now_ms() + FORCE_KEEP_MS),
+        ..Changes::default()
+    };
     let ids = session_ids(inp.home);
-    note_total(inp, &keys, &index, &seen, &ids, false);
+    note_total(inp, &keys, &index, &seen, &ids, false, force);
     for id in ids {
-        match push_session(inp, &keys, &index, seen.get(&id), &id, false) {
+        match push_session(inp, &keys, &index, seen.get(&id), &id, false, force) {
             Pushed::Live => report.skipped_live.push(id),
             Pushed::Failed(e) => report.failed.push((id, e.to_string())),
             Pushed::Same(note) => {
@@ -1779,10 +1849,13 @@ pub fn push(inp: &PushInputs<'_>) -> Result<PushReport, BackupError> {
                 report.newer_in_set.push(id);
             }
             Pushed::Conflict => report.conflicts.push(id),
-            Pushed::Archived(entry, base, s) => {
+            Pushed::Archived(entry, base, s, forced) => {
                 report.bytes += entry.archive_bytes;
                 changes.seen.insert(id.clone(), s);
                 changes.sessions.insert(id.clone(), (*entry, base));
+                if forced {
+                    report.replaced.push(id.clone());
+                }
                 report.archived.push(id);
             }
         }
@@ -1807,6 +1880,7 @@ pub fn push(inp: &PushInputs<'_>) -> Result<PushReport, BackupError> {
     let merged = write_index_merged(inp.set, &keys, &changes, &inp.machine.id, at)?;
     for id in merged.lost {
         report.archived.retain(|a| *a != id);
+        report.replaced.retain(|a| *a != id);
         report.conflicts.push(id);
     }
     report.removed = collect_garbage(inp.set, &merged.index, at);
@@ -1873,7 +1947,7 @@ pub fn push_some(
     let seen = index.seen.get(&inp.machine.id).cloned().unwrap_or_default();
     let mut report = SomeReport::default();
     let mut changes = Changes::default();
-    note_total(inp, &keys, &index, &seen, ids, archive);
+    note_total(inp, &keys, &index, &seen, ids, archive, false);
     // What the set will name of each one: checked before it is marked.
     let mut candidates: Vec<IndexEntry> = Vec::new();
     let mut done: std::collections::HashSet<&str> = std::collections::HashSet::new();
@@ -1895,7 +1969,7 @@ pub fn push_some(
             ));
             continue;
         }
-        match push_session(inp, &keys, &index, seen.get(id), id, archive) {
+        match push_session(inp, &keys, &index, seen.get(id), id, archive, false) {
             Pushed::Live => {
                 report
                     .skipped
@@ -1921,7 +1995,8 @@ pub fn push_some(
                 "conflict",
                 "it changed here and, from another machine, in the set too",
             )),
-            Pushed::Archived(entry, base, s) => {
+            // Never forced: Move data pushes by the usual rule.
+            Pushed::Archived(entry, base, s, _) => {
                 report.bytes += entry.archive_bytes;
                 changes.seen.insert(id.clone(), s);
                 candidates.push((*entry).clone());
@@ -2226,6 +2301,12 @@ pub struct RestoreReport {
     pub restored: Vec<String>,
     pub skipped: Vec<Skip>,
     pub warnings: Vec<Warning>,
+    /// A force restore: the set's copy replaced the one the account had
+    /// (that one kept for undo). Not in `restored`.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub replaced: Vec<String>,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub force: bool,
 }
 
 /// What a restore needs.
@@ -2365,16 +2446,28 @@ fn staged(stage: &Path) -> (Vec<PathBuf>, Vec<PathBuf>) {
 /// Bring sessions back from a set into a config directory. Only new files
 /// are written; an undo manifest is kept like a transfer's. Blocking.
 pub fn restore(inp: &RestoreInputs<'_>) -> Result<(RestoreReport, Manifest), BackupError> {
-    let keys = open_keys_any(inp.set, inp.passphrases)?;
-    let index = read_index(inp.set, &keys)?;
-    restore_open(inp, &keys, &index)
+    restore_with(inp, false)
 }
 
-/// [`restore`] with the set's keys and index open already.
+/// [`restore`], or with `force` a force restore: a session the target has
+/// is replaced by the set's copy too (`replaced`; its files here are moved
+/// into the undo directory first, so the undo puts them back), even one
+/// that changed here or is newer here. One that runs here is still skipped.
+pub fn restore_with(
+    inp: &RestoreInputs<'_>,
+    force: bool,
+) -> Result<(RestoreReport, Manifest), BackupError> {
+    let keys = open_keys_any(inp.set, inp.passphrases)?;
+    let index = read_index(inp.set, &keys)?;
+    restore_open(inp, &keys, &index, force)
+}
+
+/// [`restore_with`] with the set's keys and index open already.
 fn restore_open(
     inp: &RestoreInputs<'_>,
     keys: &Keys,
     index: &SetIndex,
+    force: bool,
 ) -> Result<(RestoreReport, Manifest), BackupError> {
     let now = now_ms();
     let days = cleanup_days(inp.target);
@@ -2396,7 +2489,10 @@ fn restore_open(
             inp.target.base().to_path_buf(),
         )
     };
-    let mut report = RestoreReport::default();
+    let mut report = RestoreReport {
+        force,
+        ..RestoreReport::default()
+    };
     let target_busy = transfer::in_use(inp.target);
     let stage_root = inp
         .target
@@ -2416,6 +2512,7 @@ fn restore_open(
         days,
         &undo_dir,
         &target_busy,
+        force,
     );
     let _ = std::fs::remove_dir_all(&stage_root);
     result.map(|()| (report, m))
@@ -2434,6 +2531,7 @@ fn restore_into(
     days: i64,
     undo_dir: &Path,
     target_busy: &Option<transfer::TransferError>,
+    force: bool,
 ) -> Result<(), BackupError> {
     for id in inp.ids {
         let skip = |code: &str, reason: String| Skip {
@@ -2459,21 +2557,38 @@ fn restore_into(
                 .push(skip("session_live", "it is running here".into()));
             continue;
         }
-        if !transfer::transcripts_of(inp.target, id).is_empty() {
+        let here = !transfer::transcripts_of(inp.target, id).is_empty();
+        if here && !force {
             report
                 .skipped
                 .push(skip("already_exists", "this account has it already".into()));
             continue;
         }
+        if here && session_now(inp.target, id).is_ok_and(|l| l.same_as(entry)) {
+            report.skipped.push(skip(
+                "already_exists",
+                "this account has it as the backup has it".into(),
+            ));
+            continue;
+        }
         let one = stage_session(inp.set, keys, entry, stage_root).and_then(|st| {
-            place_staged(&st, inp.target, m, inp.progress)?;
+            if here {
+                // A force restore: the copy here goes into the undo first.
+                replace_local(inp.target, id, &st, undo_dir, m, inp.progress)?;
+            } else {
+                place_staged(&st, inp.target, m, inp.progress)?;
+            }
             inp.progress.files_done.fetch_add(1, Ordering::Relaxed);
             Ok(st.meta)
         });
         match one {
             Ok(meta) => {
                 m.sessions.push(id.clone());
-                report.restored.push(id.clone());
+                if here {
+                    report.replaced.push(id.clone());
+                } else {
+                    report.restored.push(id.clone());
+                }
                 if let Some(w) = prune_warning(entry.newest_mtime, days, now) {
                     report.warnings.push(Warning {
                         id: id.clone(),
@@ -2656,6 +2771,12 @@ pub struct PullItem {
     /// to a directory that does not.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub archived: Option<Archived>,
+    /// This directory has it, and not as the set has it (by size and time),
+    /// whatever `action` says: what a force pull or restore replaces. A
+    /// session changed on both sides whose conflict copy this machine has
+    /// is `same` (neither side pushes or pulls it again) yet differs.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub differs: bool,
 }
 
 /// What the set holds, compared with this machine's directory (`machine`:
@@ -2696,6 +2817,7 @@ pub fn compare(
                     .then(|| prune_warning(e.newest_mtime, days, now))
                     .flatten(),
                 archived: e.archived.clone(),
+                differs: local.as_ref().is_some_and(|l| !l.same_as(e)),
             }
         })
         .collect();
@@ -2752,6 +2874,9 @@ pub struct PullInputs<'a> {
     pub undo_root: &'a Path,
     pub job_id: &'a str,
     pub progress: &'a Progress,
+    /// A force pull: the set's copy of every session replaces this
+    /// machine's wherever they differ ([`pull`]).
+    pub force: bool,
 }
 
 /// What one pull did.
@@ -2766,6 +2891,13 @@ pub struct PullReport {
     pub warnings: Vec<Warning>,
     /// Prompt-history lines added.
     pub history_lines: usize,
+    /// A force pull: the set's copy replaced this machine's although it
+    /// changed here, is newer here or changed on both (this machine's kept
+    /// for undo). Not in `updated`.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub replaced: Vec<String>,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub force: bool,
 }
 
 /// Bring this machine up to date from the set (§5.11). Blocking.
@@ -2775,13 +2907,25 @@ pub struct PullReport {
 /// the set's copy is fetched, checked and unpacked before anything local
 /// moves, the undo lists what will move before it does, and on any error the
 /// local copy is put back.
+///
+/// A force pull (`inp.force`) replaces this machine's copy with the set's
+/// wherever they differ — also one that changed here, is newer here or
+/// changed on both (`replaced`) — the same way, kept for undo. A session
+/// only this machine has stays, one that runs here is skipped (and said),
+/// and one in storage only keeps the rule above. What it replaces leaves
+/// this machine's `seen` as it was: the next push or pull notes the copy,
+/// now the set's, as the same (§13.3), and after an undo of the pull the
+/// copy that is back compares as it did before it.
 pub fn pull(inp: &PullInputs<'_>) -> Result<(PullReport, Manifest), BackupError> {
     let keys = open_keys_any(inp.set, inp.passphrases)?;
     let index = read_index(inp.set, &keys)?;
     let now = now_ms();
     let plan = compare(&index, inp.home, &inp.machine.id, inp.is_live, now);
     let wanted = |id: &str| inp.ids.is_none_or(|ids| ids.iter().any(|i| i == id));
-    let mut report = PullReport::default();
+    let mut report = PullReport {
+        force: inp.force,
+        ..PullReport::default()
+    };
     let mut seen = index.seen.get(&inp.machine.id).cloned().unwrap_or_default();
 
     // New sessions: a restore, with the keys and index open already. One
@@ -2819,6 +2963,7 @@ pub fn pull(inp: &PullInputs<'_>) -> Result<(PullReport, Manifest), BackupError>
         },
         &keys,
         &index,
+        false,
     )?;
     for id in &restored.restored {
         if let Some(e) = index.sessions.get(id) {
@@ -2843,28 +2988,74 @@ pub fn pull(inp: &PullInputs<'_>) -> Result<(PullReport, Manifest), BackupError>
             code: err.code().to_string(),
             reason: err.to_string(),
         };
-        match item.action {
-            PullAction::Update => match update(inp, &keys, e, &stage_root, &undo_dir, &mut m) {
-                Ok(None) => {
-                    seen.insert(item.id.clone(), e.seen());
-                    m.sessions.push(item.id.clone());
-                    report.updated.push(item.id.clone());
-                    if let Some(w) = prune_warning(e.newest_mtime, cleanup_days(inp.home), now) {
-                        report.warnings.push(Warning {
-                            id: item.id.clone(),
-                            text: w,
-                        });
-                    }
+        let prune = |report: &mut PullReport| {
+            if let Some(w) = prune_warning(e.newest_mtime, cleanup_days(inp.home), now) {
+                report.warnings.push(Warning {
+                    id: item.id.clone(),
+                    text: w,
+                });
+            }
+        };
+        // A force pull replaces whatever differs here — also a copy this
+        // machine noted as "the same" after a conflict copy, which is still
+        // its own — and `seen` stays as it was.
+        let forced = inp.force
+            && match item.action {
+                PullAction::Conflict | PullAction::LocalNewer | PullAction::Live => true,
+                PullAction::Same => item.differs,
+                PullAction::New | PullAction::Update => false,
+            };
+        if forced {
+            if item.action == PullAction::Live {
+                // Never touched; said when its copy here is not the set's.
+                if item.differs {
+                    report.skipped.push(Skip {
+                        id: item.id.clone(),
+                        code: "session_live".into(),
+                        reason: "it is running here, so the backup's copy did not replace it"
+                            .into(),
+                    });
                 }
-                // Changed here after all: the set's copy goes beside it.
-                Ok(Some(staged)) => match place_conflict(inp.home, e, &staged) {
-                    Ok(created) => {
-                        note_conflict(inp.home, e, created, &mut seen, &mut m, &mut report)
+                continue;
+            }
+            match stage_session(inp.set, &keys, e, &stage_root).and_then(|staged| {
+                replace_local(inp.home, &e.id, &staged, &undo_dir, &mut m, inp.progress)
+            }) {
+                Ok(()) => {
+                    m.sessions.push(item.id.clone());
+                    report.replaced.push(item.id.clone());
+                    prune(&mut report);
+                }
+                Err(err) => report.skipped.push(skip(err)),
+            }
+            continue;
+        }
+        match item.action {
+            PullAction::Update => {
+                match update(inp, &keys, e, &stage_root, &undo_dir, &mut m, inp.force) {
+                    Ok(UpdateOutcome::CameFrom) => {
+                        seen.insert(item.id.clone(), e.seen());
+                        m.sessions.push(item.id.clone());
+                        report.updated.push(item.id.clone());
+                        prune(&mut report);
+                    }
+                    Ok(UpdateOutcome::Forced) => {
+                        m.sessions.push(item.id.clone());
+                        report.replaced.push(item.id.clone());
+                        prune(&mut report);
+                    }
+                    // Changed here after all: the set's copy goes beside it.
+                    Ok(UpdateOutcome::NotFrom(staged)) => {
+                        match place_conflict(inp.home, e, &staged) {
+                            Ok(created) => {
+                                note_conflict(inp.home, e, created, &mut seen, &mut m, &mut report)
+                            }
+                            Err(err) => report.skipped.push(skip(err)),
+                        }
                     }
                     Err(err) => report.skipped.push(skip(err)),
-                },
-                Err(err) => report.skipped.push(skip(err)),
-            },
+                }
+            }
             PullAction::Conflict => {
                 match stage_session(inp.set, &keys, e, &stage_root)
                     .and_then(|staged| place_conflict(inp.home, e, &staged))
@@ -3140,10 +3331,21 @@ fn note_conflict(
     }
 }
 
-/// Replace the local copy of a session with the set's (§5.11 "update").
-/// `Ok(Some(staged))`: the local transcript is not where the set's came from
-/// (changed here after all), so nothing was replaced and the staged copy is
-/// handed back for a conflict copy.
+/// What [`update`] did.
+enum UpdateOutcome {
+    /// The local transcript is where the set's came from: replaced.
+    CameFrom,
+    /// It is not, and a force pull replaced it all the same.
+    Forced,
+    /// It is not (changed here after all): nothing was replaced, and the
+    /// staged copy is handed back for a conflict copy.
+    NotFrom(Staged),
+}
+
+/// Replace the local copy of a session with the set's (§5.11 "update"),
+/// only when the local transcript is where the set's came from, unless
+/// `force`.
+#[allow(clippy::too_many_arguments)]
 fn update(
     inp: &PullInputs<'_>,
     keys: &Keys,
@@ -3151,20 +3353,41 @@ fn update(
     stage_root: &Path,
     undo_dir: &Path,
     m: &mut Manifest,
-) -> Result<Option<Staged>, BackupError> {
+    force: bool,
+) -> Result<UpdateOutcome, BackupError> {
     // The set's copy first: fetched, checked and unpacked.
     let staged = stage_session(inp.set, keys, e, stage_root)?;
-    let local = session_now(inp.home, &e.id)?;
     let ours = transfer::transcripts_of(inp.home, &e.id);
     let came_from = match (ours.first(), main_transcript(&staged, &e.id)) {
         (Some(mine), Some(theirs)) => file_is_prefix_of_file(mine, &staged.dir.join(theirs))?,
         _ => false,
     };
-    if !came_from {
-        return Ok(Some(staged));
+    if !came_from && !force {
+        return Ok(UpdateOutcome::NotFrom(staged));
     }
+    replace_local(inp.home, &e.id, &staged, undo_dir, m, inp.progress)?;
+    Ok(if came_from {
+        UpdateOutcome::CameFrom
+    } else {
+        UpdateOutcome::Forced
+    })
+}
+
+/// Put a staged copy of session `id` in the place of the one in `home`: the
+/// undo manifest lists the local files before they move, they move into the
+/// undo directory, then the staged files are placed; on any error the local
+/// copy is put back (what cannot go back stays listed, for Undo to finish).
+fn replace_local(
+    home: &ClaudeHome,
+    id: &str,
+    staged: &Staged,
+    undo_dir: &Path,
+    m: &mut Manifest,
+    progress: &Progress,
+) -> Result<(), BackupError> {
+    let local = session_now(home, id)?;
     // The undo lists what will move before it moves.
-    let base = inp.home.base();
+    let base = home.base();
     let planned: Vec<transfer::Moved> = local
         .files
         .iter()
@@ -3190,7 +3413,7 @@ fn update(
         Ok(())
     });
     if result.is_ok() {
-        result = place_staged(&staged, inp.home, m, inp.progress);
+        result = place_staged(staged, home, m, progress);
     }
     if let Err(err) = result {
         // Put the local copy back: nothing of it is lost.
@@ -3204,8 +3427,7 @@ fn update(
         let _ = save(m);
         return Err(err);
     }
-    save(m)?;
-    Ok(None)
+    save(m)
 }
 
 /// Move a file (a rename, else a copy and a delete), never over another.
@@ -3506,7 +3728,7 @@ pub fn move_out_of_set(
 ) -> Result<(RestoreReport, Manifest), BackupError> {
     let keys = open_keys_any(inp.set, inp.passphrases)?;
     let index = read_index(inp.set, &keys)?;
-    let (mut report, mut m) = restore_open(inp, &keys, &index)?;
+    let (mut report, mut m) = restore_open(inp, &keys, &index, false)?;
     m.storage = Some(storage);
     m.to_account = to_account;
     let undo_dir = inp.undo_root.join(inp.job_id);
@@ -3660,7 +3882,7 @@ pub fn plan_push_some(
         };
         if let Some((keys, index)) = &opened {
             let seen = index.seen.get(machine).and_then(|s| s.get(id));
-            match push_step(set, keys, home, &now, index.sessions.get(id), seen) {
+            match push_step(set, keys, home, &now, index.sessions.get(id), seen, false) {
                 Step::Behind => {
                     skipped.push(skip_of(
                         id,
