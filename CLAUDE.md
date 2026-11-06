@@ -127,8 +127,11 @@ undocumented research-preview internals.
 | Wakeups and cron jobs | main-chain `ScheduleWakeup` results (`scheduledFor`, `stopped`), `CronCreate`/`CronDelete`/`CronList` results (`id`, `humanSchedule`, `recurring`, `nextFireAt`, `jobs`), `system`/`scheduled_task_fire` records and a fire prompt's `wakeupSource` | what will wake a session between turns (`claude/index/agg.rs` scheduler notes, `Aggregates::schedule`) |
 | Accounts | `<app data dir>/accounts.json` (ours, 0600), secrets in the Keychain (`dev.motherclaude.desktop`), `<app data dir>/account-sessions.json` (0600, token accounts' sessions only) | the Default, directory and token accounts, defaults per project, copy consent, backup settings and the storages besides the backup folder, which token account a session ran under (`claude/accounts.rs`, `claude/secrets.rs`, `claude/backup/storage.rs`) |
 | Plan usage | owned streams' `rate_limit_event` (`unifiedWindows`: 0–1 fraction, epoch seconds); `get_usage {skip_behaviors:true}` through an owned session or a short-lived helper `claude -p` in `<app data dir>/usage-helper`; fallback `~/.claude.json` `cachedUsageUtilization` (≤ 1 h, same account, the account id compared in-process only) | 5-hour and weekly windows, reset times, extra usage (`claude/usage.rs`, `/api/usage*`, `planUsage` frame) |
+| Folder pairs | a backup set's encrypted index (`folderPairs`, `machines`), cached in `<app data dir>/backup-pairs.json` (0600) | the folder a session another machine started maps to here: where pull and restore place it, and the cwd the session list shows and continues it in (`claude/backup/pairs.rs`, `claude/paths.rs` `view_cwd`, docs/BACKUP.md "Folder pairs") |
 
-Key facts: `<encoded-cwd>` = absolute path with every non-alphanumeric char → `-`.
+Key facts: `<encoded-cwd>` = absolute path with every non-alphanumeric char → `-`
+(per UTF-16 unit; past 200 characters cut and given a hash, as the CLI does:
+`paths::project_dir_name`).
 The *same* `projects` store is written by CLI, VS Code/JetBrains, and Claude
 Desktop — reading it captures all surfaces for free. Transcript `tool_use`/
 `tool_result` are content blocks inside `message.content`, **not** top-level event
@@ -333,7 +336,10 @@ the Default sign-in.
   skills, agents, commands, output styles, keybindings, the user-scope MCP
   servers, prompt history; `claude/transfer.rs`, `claude/transfer/custom.rs`),
   **restore** from a backup, **pull** from a backup set
-  (`claude/backup.rs`) and **deleting** conversations and projects
+  (`claude/backup.rs`; with a folder pair, into the project folder it maps
+  a session to, moving one an earlier pull placed under the other machine's
+  path — kept for undo; a force pull or restore replaces the copy here,
+  also kept for undo) and **deleting** conversations and projects
   (`claude/transfer/delete.rs`, docs/ACCOUNTS.md §14.3). The last four are the
   desktop's or a paired device's (`ManageData`, docs/ACCOUNTS.md §13.9):
   carrying a folder's trust and copying the settings or MCP servers need the

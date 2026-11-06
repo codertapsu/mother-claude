@@ -189,6 +189,70 @@ fails half-way puts the local copy back.
 *Pull on launch* (off by default) pulls every set when the app starts — only
 when no session is running.
 
+## Folder pairs: the same project on a Mac and on Windows
+
+Claude Code keeps a project's sessions in a folder named after the project's
+path (`/Users/marcus/dev/app` → `projects/-Users-marcus-dev-app`,
+`D:\dev\app` → `projects/D--dev-app`), and its session lists — `/resume`,
+VS Code's — show the folder of the project you are in. So a session the Mac
+backed up comes to Windows under the Mac's path, and Claude Code on Windows
+does not list it in `D:\dev\app`.
+
+A **folder pair** fixes that. Pair a folder on one machine with the folder
+that holds the same projects on another — `/Users/marcus/dev` on the MacBook
+with `D:\dev` on the Windows desktop — and every project under it maps both
+ways:
+
+- a pull or a restore (or a copy out of a set) puts a session the other
+  machine backed up into the matching project here, `D:\dev\app`; a session
+  an earlier pull put under the other machine's path moves there on the next
+  pull (kept for undo);
+- Mother Claude lists it in that project and *Continue* runs it there; back
+  on the Mac it is in `/Users/marcus/dev/app` again, also after it was
+  continued on Windows (a backup records where each session lives on the
+  machine that backs it up);
+- a folder's trust (when you tick it) and your prompt history go with it.
+
+The transcripts are never rewritten: their older messages keep the path they
+were written in. Only the folder Claude Code keeps them in is the one of the
+project here.
+
+Set it up once, on either machine, under **Folder pairs** on the Backup &
+sync page: this machine's folder (`~` for your home folder works, as in the
+other folder fields), the other machine (it shows once it has backed up to
+or pulled from these backups) and its folder, written the way that machine
+writes paths — its examples and checks follow that machine's system. Pairs are kept inside the backups (encrypted), so
+every machine uses them and either may add or remove one; two machines
+editing at once keep both, and a removed pair stays removed. A pair matches
+whole folders only (`/Users/marcus/dev2` is not under `/Users/marcus/dev`);
+Windows folders match whatever their letter case and separators; with
+several pairs the longest match wins (`D:\dev\work` beside `D:\dev`).
+
+A project no pair maps keeps the other machine's path, as before, and the
+pull's report names it: *Pair a folder…* there fills the form.
+
+### Mac ↔ Windows, step by step
+
+1. On the Mac: set the backup folder to a folder on the NAS share
+   (`/Volumes/backups/Mother Claude`), set the passphrase, **Back up now**.
+2. On Windows: set the folder to the same one as Windows reaches it
+   (`\\nas\backups\Mother Claude`, or a drive the share is mapped to), enter
+   the same passphrase, and **Back up now** or **Pull…** once — Windows is
+   then one of the backups' machines.
+3. Under **Folder pairs**, on Windows: `D:\dev` here, the other machine
+   `marcus-mbp (macOS)`, its folder `/Users/marcus/dev`, **Add pair** — or
+   the same pair from the Mac: `/Users/marcus/dev` (or `~/dev`) there,
+   `DESKTOP-PC (Windows)`, `D:\dev`.
+4. On Windows, **Pull…**: the Mac's sessions land in their `D:\dev\…`
+   projects (one an earlier pull put under the Mac's path moves there).
+   `/resume` in `D:\dev\app` lists them, and so does Mother Claude, which
+   continues them there.
+5. Work on Windows, **Back up now**; on the Mac, **Pull…**: the sessions are
+   in `/Users/marcus/dev/…` again, continued.
+6. Changed the same session on both? The usual rules keep both copies (one
+   beside the other). To make one machine's copy win, **Force backup** on
+   that machine, or **Force pull** on the other (below).
+
 ## Force backup, force pull, force restore
 
 The rules above never overwrite: when both laptops changed a session, each
@@ -297,5 +361,6 @@ Remove-Item key.txt, session.tar.gz
 ```
 
 `set.json` is the set's only plaintext, for display:
-the account name, the set's public key, the machines that pushed (their id and
-name) and when.
+the account name, the set's public key, the machines that pushed (their id,
+name and OS) and when. Folder pairs are only in the index (`folderPairs`),
+never in `set.json`.

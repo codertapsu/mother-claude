@@ -453,7 +453,10 @@ config/<ISO timestamp>.tar.gz.age    (last five kept)
 
 Paths inside an archive are relative to the config directory, so a session
 restores into any directory account, and the transcript's `projects/<encoded
-cwd>` folder is recreated as it was.
+cwd>` folder is recreated as it was — or, when a folder pair maps the
+session's folder to this machine, under that folder's name (§5.11, *Folder
+pairs*). Since 2026-11-06 the index also holds `folderPairs`, `machines`
+(each machine's name and OS) and each entry's `folder`.
 
 ### 4.4 API additions (all under `/api`, camelCase like the rest)
 
@@ -705,6 +708,97 @@ replaced the same way (`replaced`), unless it is there as the set has it
 (`already_exists`, "as the backup has it"); one that runs is skipped. Reports
 carry `force: true`; the UI titles a finished job "Force backup / pull /
 restore of …" from `result.force`.
+
+*Folder pairs (2026-11-06, docs/BACKUP.md "Folder pairs"):* a folder on one
+machine and the folder that holds the same projects on another, so a session
+lands in — and is shown and continued in — the matching project on each.
+
+- **What the CLI does** (2.1.318, read in its binary): a cwd's sessions are
+  in `projects/<name>`, `<name>` every UTF-16 unit not an ASCII letter or
+  digit turned into `-` and, past 200 characters, cut to 200 and given `-`
+  and the base-36 absolute value of the path's Java string hash
+  (`paths::project_dir_name`, also `encode_cwd` now). Its pickers list the
+  current folder's `projects/<name>` (and its worktrees'), dropping a
+  session whose recorded cwd is a *different* directory with the *same*
+  name; one whose recorded cwd has another name entirely is listed under
+  the current project. `--resume <id>` looks in the current folder's
+  `projects/<name>`, its worktrees', then every `projects/*/<id>.jsonl`
+  (only when exactly one has it), and the resumed session goes on writing
+  that file. On Windows `.claude.json` files a folder under `D:/dev/app`
+  (`\` → `/`); `history.jsonl`'s `project` is the native project root. A
+  transcript is moved between project folders only by worktree enter/exit
+  and a directory move (a `relocated` record), never on resume.
+- **Stored only in the index** (encrypted and authenticated; `set.json`
+  stays display only and has at most each machine's `os`): `folderPairs:
+  [{id: "fp_" + 16 hex, folders: {<machine id>: <folder>}, createdAt, by,
+  removed?: {at, by}}]` and `machines: {<machine id>: {name, os, at}}`
+  (`std::env::consts::OS`; each machine writes its own line on every index
+  write it makes). Pairs with an invalid id, fewer than two machine ids or a
+  folder not absolute anywhere are dropped when read. Entries gain `folder`:
+  the project folder the session lived in on the machine that pushed it, by
+  the session list's rule below (a session started on the Mac and continued
+  on Windows is `D:\dev\app` when Windows pushes it); its archive's
+  `.mc/meta.json` too.
+- **Merge**: a pair edit, like a push, writes only its own changes into the
+  index as it is then (`Changes::pairs`); pairs join by id, and a removal is
+  a tombstone (`removed`, the earliest kept) that no later copy undoes —
+  two machines editing at once keep both, and a removed pair stays removed.
+- **API**: `GET /api/backup/pairs` (`Authed`; `?refresh=true` reads every
+  set again), `POST /api/backup/pairs {folder, machine, otherFolder}` → `201`
+  and `DELETE /api/backup/pairs/{id}` → the view (`ManageData`, as the backup
+  settings; audited `backup.pairs.add|remove`, the desktop told what a device
+  did). `GET /api/backup` has the same view as `folderPairs` once a folder is
+  set: `{machine?, host, os, machines: [{id, name, os?}], pairs: [{id,
+  folders: [{machine, name, os?, folder, here}], createdAt}], readAt?}`. A
+  pair is written into every existing set of this machine's accounts in the
+  backup folder (`409`/`422` with nothing written when one cannot be opened).
+  Refusals: `422 invalid_pair` (this machine's folder not a full path by its
+  own rules, `~` expanded as in every folder typed for it; the other machine
+  not one the sets know, or this one; its folder not
+  absolute in that machine's form — its OS from the index, else the folder's
+  own form; `.` or `..`; the same two folders paired already; more than 200;
+  no set yet), `404 pair_not_found`. Folders are kept written plainly
+  (`paths::clean_folder`: that form's separators, no trailing one but a
+  root's, a drive letter upper-cased, `\\?\` left out).
+- **Mapping** (`paths::rebase`, `pairs::map_between`): a path is under a
+  folder on whole components only; Windows paths compare whatever their case
+  and separator (`\\?\` and shares understood); the rest is joined in the
+  target's form; of the live pairs between the two machines the longest
+  matching folder wins; a path naming `.` or `..` never maps.
+- **Where it applies**: pull, restore and Move data's copy or move out of a
+  set (`RestoreInputs::machine`, this machine's id) place another machine's
+  session in `projects/<project_dir_name(mapped folder)>` — the staged
+  `projects/<name>` is renamed before anything is placed
+  (`relocate_staged`); its records are never rewritten, so the byte-prefix
+  rules hold. A pull also moves a session it finds `same` whose transcript
+  sits in the folder named after the other machine's folder (placed before a
+  pair) into the mapped one: staged, checked to be the set's very copy, the
+  local files into the undo directory, the emptied folders removed and
+  re-made by the undo (`relocated`). The trust a restore carries is filed
+  under the mapped folder's key in this machine's form (Windows `D:/dev/app`;
+  a push looks a project's entry up by that key too), and Mother Claude's
+  own trust check reads that form as well (`owned::trusted_in`). Another
+  machine's prompt-history lines get their `project` mapped. Reports add
+  `mapped: [[id, folder]]`, `relocated` (a pull) and `foreign: [{folder,
+  machine, host, sessions}]` — projects that came under another machine's
+  path which is no folder here and no pair maps; plan items add `folder` and
+  `mapped`; Move data's dry run names the mapped folder.
+- **This machine's view** (`paths::view_cwd`, `Aggregates::project_cwd_here`
+  for the session list, its project grouping, *Continue* and *Continue on*):
+  of the cwds a transcript records first and last, the one usable here whose
+  project-folder name is the transcript's folder; else one a pair maps to a
+  folder with that name; else one naming the folder in another machine's
+  form, mapped when a pair maps it; else the first, mapped when it is another
+  machine's and a pair maps it. Without pairs that is `project_cwd`. The
+  pairs come from `<app data dir>/backup-pairs.json` (0600), what each set
+  last said, refreshed after every push, pull, restore, look at an index and
+  pair edit, loaded at launch and when the backup folder changes. The
+  projects-on-disk list (§14.2) still names the recorded cwd.
+- **Not verified on a Windows machine**: everything above runs on strings in
+  tests on a Mac (Windows-form cwds, two homes, two machine ids) and clippy
+  checks the Windows build; a pull on Windows itself, Claude Code's pickers
+  there listing a mapped session, and its `.claude.json` key form in practice
+  are still to be seen.
 
 ---
 
