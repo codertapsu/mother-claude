@@ -690,7 +690,7 @@ fn summary_from_index(id: &str, fi: &super::index::FileIndex) -> TranscriptSumma
     let t = a.usage.total();
     TranscriptSummary {
         id: id.to_string(),
-        cwd: fi.project_cwd().map(str::to_string),
+        cwd: fi.project_cwd_here(),
         surface: a
             .entrypoint
             .as_deref()

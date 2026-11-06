@@ -2635,6 +2635,20 @@ impl Aggregates {
             .or(self.cwd.as_deref())
     }
 
+    /// [`Self::project_cwd`] as this machine shows and continues it: with its
+    /// folder pairs (docs/BACKUP.md "Folder pairs"), a session another
+    /// machine started — or continued — is in the folder here that a pair
+    /// maps its own to ([`crate::claude::paths::view_cwd`]). Without pairs,
+    /// what `project_cwd` says.
+    pub fn project_cwd_here(&self, project_dir_name: Option<&str>) -> Option<String> {
+        crate::claude::paths::view_cwd(
+            self.first_cwd.as_deref(),
+            self.cwd.as_deref(),
+            project_dir_name,
+            &crate::claude::paths::local_pairs(),
+        )
+    }
+
     /// A copy without the large lists (tasks, agent calls, workflow runs,
     /// files changed) and without the usage accumulator — what a summary
     /// needs, cheap enough to take on every refresh.
@@ -2833,12 +2847,19 @@ impl FileIndex {
     /// [`Aggregates::project_cwd`] for this file's `projects/<enc>` parent
     /// (main transcripts).
     pub fn project_cwd(&self) -> Option<&str> {
-        let enc = self
-            .path
+        self.agg.project_cwd(self.project_dir_name())
+    }
+
+    /// [`Aggregates::project_cwd_here`] for this file's `projects/<enc>`.
+    pub fn project_cwd_here(&self) -> Option<String> {
+        self.agg.project_cwd_here(self.project_dir_name())
+    }
+
+    fn project_dir_name(&self) -> Option<&str> {
+        self.path
             .parent()
             .and_then(|d| d.file_name())
-            .and_then(|n| n.to_str());
-        self.agg.project_cwd(enc)
+            .and_then(|n| n.to_str())
     }
 
     pub fn new(path: PathBuf, kind: FileKind, session_id: &str) -> Self {

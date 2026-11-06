@@ -835,10 +835,8 @@ pub fn build_one(state: &AppState, id: &str, ctx: &BuildCtx) -> Option<SessionSu
     let cwd = pid
         .as_ref()
         .and_then(|p| p.cwd.clone())
-        .or_else(|| {
-            agg.and_then(|a| a.project_cwd(project_enc))
-                .map(str::to_string)
-        })
+        // The folder here (folder pairs map another machine's).
+        .or_else(|| agg.and_then(|a| a.project_cwd_here(project_enc)))
         .or_else(|| ctx.owned_meta.get(id).map(|(c, _)| c.clone()))
         .or_else(|| job.as_ref().and_then(|j| j.cwd.clone()))
         .or_else(|| previous.map(|p| p.cwd.clone()).filter(|c| !c.is_empty()))

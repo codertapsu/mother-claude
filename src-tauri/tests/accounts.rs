@@ -2611,3 +2611,182 @@ async fn storages_are_added_listed_and_re_keyed() {
         assert!(audit.iter().any(|e| e.action == action), "{action}");
     }
 }
+
+/// Folder pairs over HTTP (docs/BACKUP.md "Folder pairs"): another machine
+/// of the set is listed once the sets are read; a pair for it is checked by
+/// each machine's rules and added (a phone may, a local script may not),
+/// never twice; the session that machine pushed is pulled into the folder
+/// the pair maps it to here, and the session list shows (and continues) it
+/// there; the pair is removed again.
+#[tokio::test]
+async fn folder_pairs_place_a_pulled_session_in_the_folder_here() {
+    use mother_claude_lib::claude::backup::{self as b, PushInputs, Set, ThisMachine};
+    use mother_claude_lib::claude::secrets::Secret;
+    let f = boot_inside().await;
+    let desk = f.desktop();
+    let phone = f.phone();
+    let script = f.st.auth.script_token.clone();
+    let mut bus = f.st.bus.subscribe();
+    let folder = f.scratch.path().join("NAS/MotherClaude");
+    let (s, _) = f
+        .call(
+            "PUT",
+            "/backup/settings",
+            &desk,
+            Some(json!({ "folder": folder })),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK);
+    let (_, v) = f
+        .call(
+            "POST",
+            "/backup/passphrase",
+            &desk,
+            Some(json!({"generate": true})),
+        )
+        .await;
+    let pass = v["passphrase"].as_str().unwrap().to_string();
+    // This machine backs up once: the set, and its own id.
+    let (_, v) = f.call("POST", "/backup/push", &desk, Some(json!({}))).await;
+    finished_job(&f, &desk, v["jobs"][0].as_str().unwrap()).await;
+    let (_, v) = f.call("GET", "/backup", &desk, None).await;
+    assert!(
+        v["folderPairs"]["pairs"].as_array().unwrap().is_empty(),
+        "{v}"
+    );
+    assert!(v["folderPairs"]["machine"].is_string(), "{v}");
+
+    // Another machine backs up a session of its own folder.
+    let other_id = "ab".repeat(16);
+    let other_home = ClaudeHome::for_account_dir(f.scratch.path().join("other-claude"));
+    let sid = "7d0c1f2e-3b4a-4c5d-8e6f-708192a3b4c5";
+    write_session(other_home.base(), "/zz-elsewhere/dev/app", sid, None);
+    b::push(&PushInputs {
+        home: &other_home,
+        set: &Set::new(&folder, "Default"),
+        account_name: "Default",
+        passphrases: &[Secret::new(pass)],
+        machine: &ThisMachine {
+            id: other_id.clone(),
+            name: "DESKTOP-PC".into(),
+        },
+        is_live: &|_| false,
+        title_of: &|_| None,
+        progress: &Default::default(),
+    })
+    .unwrap();
+
+    // Listed once the sets are read again.
+    let (s, v) = f
+        .call("GET", "/backup/pairs?refresh=true", &desk, None)
+        .await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    let machines = v["machines"].as_array().unwrap();
+    assert_eq!(machines.len(), 1, "{v}");
+    assert_eq!(machines[0]["id"], other_id);
+    assert_eq!(machines[0]["name"], "DESKTOP-PC");
+
+    // Each folder by its machine's rules (that one writes paths as this one).
+    let here_dev = f.scratch.path().join("dev").to_string_lossy().into_owned();
+    let here_app = format!("{here_dev}/app");
+    let pair = |mine: &str, machine: &str, theirs: &str| json!({"folder": mine, "machine": machine, "otherFolder": theirs});
+    for body in [
+        pair("relative/dev", &other_id, "/zz-elsewhere/dev"),
+        pair(&here_dev, &"cd".repeat(16), "/zz-elsewhere/dev"),
+        pair(&here_dev, &other_id, r"D:\dev"),
+        pair(&here_dev, &other_id, "/zz-elsewhere/../etc"),
+    ] {
+        let (s, v) = f.call("POST", "/backup/pairs", &desk, Some(body)).await;
+        assert_eq!(s, StatusCode::UNPROCESSABLE_ENTITY, "{v}");
+        assert_eq!(v["error"]["code"], "invalid_pair", "{v}");
+    }
+    // A local script may not; a phone may.
+    let ok = pair(&here_dev, &other_id, "/zz-elsewhere/dev/");
+    let (s, v) = f
+        .call("POST", "/backup/pairs", &script, Some(ok.clone()))
+        .await;
+    assert_eq!(s, StatusCode::FORBIDDEN, "{v}");
+    let (s, v) = f
+        .call("POST", "/backup/pairs", &phone, Some(ok.clone()))
+        .await;
+    assert_eq!(s, StatusCode::CREATED, "{v}");
+    let pairs = v["pairs"].as_array().unwrap();
+    assert_eq!(pairs.len(), 1);
+    assert_eq!(pairs[0]["folders"][0]["here"], true);
+    assert_eq!(pairs[0]["folders"][0]["folder"], here_dev.as_str());
+    assert_eq!(pairs[0]["folders"][1]["folder"], "/zz-elsewhere/dev");
+    let pair_id = pairs[0]["id"].as_str().unwrap().to_string();
+    let (s, v) = f.call("POST", "/backup/pairs", &desk, Some(ok)).await;
+    assert_eq!(s, StatusCode::UNPROCESSABLE_ENTITY, "never twice: {v}");
+    // `~` is this machine's home, as in every folder typed for it (only the
+    // set's index records it; nothing is read or written there).
+    let (s, v) = f
+        .call(
+            "POST",
+            "/backup/pairs",
+            &desk,
+            Some(pair("~/zz-mc-pair", &other_id, "/zz-elsewhere/two")),
+        )
+        .await;
+    assert_eq!(s, StatusCode::CREATED, "{v}");
+    let home = mother_claude_lib::claude::home::user_home_dir().unwrap();
+    let tilde = v["pairs"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|p| p["folders"][1]["folder"] == "/zz-elsewhere/two")
+        .unwrap();
+    assert_eq!(
+        tilde["folders"][0]["folder"],
+        home.join("zz-mc-pair").to_string_lossy().as_ref()
+    );
+    let tilde_id = tilde["id"].as_str().unwrap().to_string();
+    let (s, v) = f
+        .call("DELETE", &format!("/backup/pairs/{tilde_id}"), &desk, None)
+        .await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    assert_eq!(v["pairs"].as_array().unwrap().len(), 1, "{v}");
+
+    // The pull puts the other machine's session in the folder here.
+    let (s, v) = f.call("POST", "/backup/pull", &desk, Some(json!({}))).await;
+    assert_eq!(s, StatusCode::ACCEPTED, "{v}");
+    let done = finished_job(&f, &desk, v["jobs"][0].as_str().unwrap()).await;
+    assert_eq!(done["state"], "done", "{done}");
+    assert_eq!(
+        done["result"]["mapped"][0],
+        json!([sid, here_app]),
+        "{done}"
+    );
+    let placed =
+        f.st.home
+            .projects_dir()
+            .join(mother_claude_lib::claude::encode_cwd(&here_app))
+            .join(format!("{sid}.jsonl"));
+    assert!(placed.is_file(), "{}", placed.display());
+    // The session list shows it in the folder here (where it continues),
+    // though its transcript names the other machine's.
+    mother_claude_lib::server::monitor::refresh_once(&f.st).await;
+    let row = f.st.find_session(sid).await.unwrap();
+    assert_eq!(row.cwd, here_app);
+    let (_, v) = f.call("GET", "/backup", &desk, None).await;
+    assert_eq!(v["folderPairs"]["pairs"].as_array().unwrap().len(), 1);
+
+    // Removed (and a second time there is none).
+    let (s, v) = f
+        .call("DELETE", &format!("/backup/pairs/{pair_id}"), &desk, None)
+        .await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    assert!(v["pairs"].as_array().unwrap().is_empty());
+    let (s, v) = f
+        .call("DELETE", &format!("/backup/pairs/{pair_id}"), &desk, None)
+        .await;
+    assert_eq!(s, StatusCode::NOT_FOUND, "{v}");
+    assert_eq!(v["error"]["code"], "pair_not_found");
+
+    // The desktop was told what the phone did.
+    let notices = desktop_notices(&mut bus);
+    assert!(
+        notices.iter().any(|n| n.contains("added a folder pair")),
+        "{notices:?}"
+    );
+}
