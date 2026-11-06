@@ -197,8 +197,13 @@ fn sensitive_resolved(path: &Path, env: &DangerEnv) -> Option<String> {
             return Some("Mother Claude's own data (devices, hook credentials)".into());
         }
     }
-    if comps.iter().any(|c| c == ".claude") {
+    if worktree_tail(&comps).iter().any(|c| c == ".claude") {
         return Some("Claude Code configuration (.claude/)".into());
+    }
+    // A worktree's `.git` is a file naming its git directory: rewritten, git
+    // would run another directory's hooks.
+    if name == ".git" {
+        return Some("the repository's git link (.git)".into());
     }
     if name == ".claude.json" {
         return Some("Claude Code's global config (~/.claude.json)".into());
@@ -222,6 +227,25 @@ fn sensitive_resolved(path: &Path, env: &DangerEnv) -> Option<String> {
         return Some("the repository's git config".into());
     }
     None
+}
+
+/// The components a `.claude/` check reads: below Claude Code's own
+/// worktree (`.claude/worktrees/<name>/…`, where `-w` puts one — a role
+/// session's whole project) when the path is a file inside one, else all of
+/// them. Only a `.claude/` of the worktree itself is configuration there.
+fn worktree_tail(comps: &[String]) -> &[String] {
+    let mut start = 0;
+    let mut i = start;
+    // A file inside: something after the worktree's name.
+    while i + 3 < comps.len() {
+        if comps[i] == ".claude" && comps[i + 1] == "worktrees" {
+            start = i + 3;
+            i = start;
+        } else {
+            i += 1;
+        }
+    }
+    &comps[start..]
 }
 
 /// Why running `command` is dangerous, or `None`.
@@ -475,6 +499,39 @@ mod tests {
             ),
             // Through a symlinked directory, file not created yet.
             ("Write", json!({ "file_path": "cfg/settings.json" }), true),
+            // A file of one of Claude Code's own worktrees is a project file
+            // there; the worktree's own .claude/, its .mcp.json and its git
+            // link are not.
+            (
+                "Edit",
+                json!({ "file_path": ".claude/worktrees/frontend/src/app/x.ts" }),
+                false,
+            ),
+            (
+                "Write",
+                json!({ "file_path": ".claude/worktrees/frontend/.claude/settings.json" }),
+                true,
+            ),
+            (
+                "Write",
+                json!({ "file_path": ".claude/worktrees/frontend/.mcp.json" }),
+                true,
+            ),
+            (
+                "Write",
+                json!({ "file_path": ".claude/worktrees/frontend/.git" }),
+                true,
+            ),
+            (
+                "Write",
+                json!({ "file_path": ".claude/worktrees/frontend" }),
+                true,
+            ),
+            (
+                "Write",
+                json!({ "file_path": ".claude/worktrees/x/y/.claude/agents/a.md" }),
+                true,
+            ),
             // Mother Claude's data dir.
             (
                 "Write",
