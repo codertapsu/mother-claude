@@ -160,6 +160,9 @@ pub struct Inner {
     /// The MCP server Claude Code sessions call: its tools, token, setting
     /// and recent calls (`mcp/server.rs`, docs/MCP.md).
     pub mcp: crate::mcp::server::McpState,
+    /// The browser extension: paired browsers, its channel, leases, site
+    /// modes, approvals (`extension/`, docs/BROWSER.md).
+    pub extension: crate::extension::ExtensionState,
 }
 
 impl std::fmt::Debug for Inner {
@@ -237,6 +240,7 @@ impl Inner {
             opener: crate::claude::browser::Opener::default(),
             scheduler: crate::orchestration::scheduler::Scheduler::load(data_dir),
             mcp: crate::mcp::server::McpState::load(data_dir),
+            extension: crate::extension::ExtensionState::load(data_dir),
             auth,
         })
     }

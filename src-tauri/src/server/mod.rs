@@ -112,6 +112,11 @@ pub fn router_for(state: AppState, ingress: Ingress) -> Router {
     // Mother Claude's MCP server (docs/MCP.md): served on the loopback
     // listener only, a 404 on every other one.
     app = app.route("/mcp", crate::mcp::server::route(ingress));
+    // The browser extension's channel: the loopback listener only (the
+    // handler also refuses anything not machine-local, docs/BROWSER.md).
+    if ingress == Ingress::Loopback {
+        app = app.route("/ws/browser", get(crate::extension::channel::ws_browser));
+    }
     let app = match resolve_web_dir() {
         Some(dir) => {
             let index = dir.join("index.html");
@@ -162,6 +167,7 @@ pub async fn serve(state: AppState) -> anyhow::Result<()> {
     crate::claude::usage::start(&state);
     crate::claude::backup::ops::start(&state);
     crate::orchestration::scheduler::start(&state);
+    crate::extension::start(&state);
 
     listeners::start_lan(&state).await;
 

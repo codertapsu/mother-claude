@@ -174,6 +174,10 @@ pub enum ServerEvent {
         account_id: String,
         usage: PlanUsage,
     },
+    /// The browser extension's state changed (everyone): `{t:"browser",
+    /// what}` with `what` one of `browsers`, `sites`, `settings`, `grants`,
+    /// `leases`, `activity` — refetch `/api/browser` (docs/BROWSER.md).
+    Browser { what: String },
 }
 
 /// Who receives an event.
@@ -199,7 +203,8 @@ impl ServerEvent {
             | ServerEvent::PendingResolved(_)
             | ServerEvent::PlanUsage { .. }
             | ServerEvent::Accounts { .. }
-            | ServerEvent::AccountUsage { .. } => Audience::All,
+            | ServerEvent::AccountUsage { .. }
+            | ServerEvent::Browser { .. } => Audience::All,
             ServerEvent::Transcript { session, agent, .. }
             | ServerEvent::TranscriptReset { session, agent } => {
                 Audience::SessionKey(session, agent.as_deref())
@@ -530,6 +535,13 @@ pub fn publish_account_usage(state: &AppState, account: &str, usage: PlanUsage) 
     state.broadcast(ServerEvent::AccountUsage {
         account_id: account.to_string(),
         usage,
+    });
+}
+
+/// The browser extension's `what` changed, for everyone (they refetch).
+pub fn publish_browser(state: &AppState, what: &str) {
+    state.broadcast(ServerEvent::Browser {
+        what: what.to_string(),
     });
 }
 

@@ -626,6 +626,11 @@ fn resolution_for_decision(
     };
     let (kind, name) = match &ctx.principal {
         Principal::Device { .. } => (ResolverKind::Device, name),
+        // The browser extension's side panel, on this machine.
+        Principal::Extension { .. } => (
+            ResolverKind::Desktop,
+            Some(name.unwrap_or_else(|| "browser side panel".into())),
+        ),
         _ => (
             ResolverKind::Desktop,
             Some(name.unwrap_or_else(|| "Mac".into())),

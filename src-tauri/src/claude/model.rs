@@ -674,6 +674,8 @@ pub enum PendingSource {
     Sidecar,
     /// Seen on disk, not answerable here.
     Observed,
+    /// A browser action waiting for approval (`extension::actions`).
+    Browser,
 }
 
 /// Something a human must act on (design §4.2).

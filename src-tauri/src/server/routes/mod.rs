@@ -304,6 +304,29 @@ pub fn api_router() -> Router<AppState> {
             "/bridge/servers/{id}/active-thread",
             post(crate::bridge::control::post_server_active_thread),
         )
+        // ── the browser extension (docs/BROWSER.md; guards in extension::routes) ──
+        .route("/browser", get(crate::extension::routes::get_overview))
+        .route("/browser/activity", get(crate::extension::routes::get_activity))
+        .route("/browser/pair", post(crate::extension::routes::post_pair))
+        .route(
+            "/browser/browsers/{id}",
+            delete(crate::extension::routes::delete_browser),
+        )
+        .route("/browser/sites", put(crate::extension::routes::put_site))
+        .route("/browser/settings", put(crate::extension::routes::put_settings))
+        .route("/browser/grants", post(crate::extension::routes::post_grant))
+        .route(
+            "/browser/grants/{id}",
+            delete(crate::extension::routes::delete_grant),
+        )
+        .route(
+            "/browser/sessions/{id}/stop",
+            post(crate::extension::routes::post_stop),
+        )
+        .route(
+            "/browser/sessions/{id}/resume",
+            post(crate::extension::routes::post_resume),
+        )
         .route_layer(axum::middleware::from_fn(auth::require_api_principal))
         // Outermost, so a route's own limit (set closer to its handler)
         // overrides it.

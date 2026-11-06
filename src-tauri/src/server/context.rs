@@ -107,6 +107,12 @@ pub enum Principal {
     /// only — never a data, control or admin route, never dangerous
     /// (docs/MCP.md).
     Mcp,
+    /// A paired browser extension (`mcx_…`), authenticated by its `hello`
+    /// on `/ws/browser` only (never by an HTTP request): loopback listener,
+    /// machine-local, its pinned `chrome-extension://` origin. It reaches
+    /// nothing but its own channel; there its side panel answers the
+    /// browser approvals of its own leases (`extension::channel`).
+    Extension { id: String },
 }
 
 impl Principal {
@@ -136,6 +142,7 @@ impl Principal {
             Principal::Hook => "hook",
             Principal::Sidecar => "sidecar",
             Principal::Mcp => "mcp",
+            Principal::Extension { .. } => "extension",
         }
     }
 }
@@ -262,7 +269,9 @@ impl ClientContext {
     ///   take away what the same request has without it, as it does with
     ///   `MOTHER_CLAUDE_BRIDGE_REQUIRE_TOKEN=1`); never on the dashboard port;
     /// * `Hook`, `Sidecar`, `Mcp` → never (an MCP tool's dangerous effect is
-    ///   an approval through `crate::pending`, never the session's own right).
+    ///   an approval through `crate::pending`, never the session's own right);
+    /// * `Extension` → on the loopback listener from this machine (it exists
+    ///   only there): its side panel answers its own browser approvals.
     pub fn may_dangerous(&self) -> bool {
         match &self.principal {
             Principal::Desktop => true,
@@ -277,6 +286,10 @@ impl ClientContext {
             }
             Principal::Hook | Principal::Sidecar => false,
             Principal::Mcp => false,
+            // The user's own click in the extension's side panel on this
+            // machine; the channel lets it answer only its own browser
+            // approvals.
+            Principal::Extension { .. } => self.ingress == Ingress::Loopback && self.on_machine,
         }
     }
 
