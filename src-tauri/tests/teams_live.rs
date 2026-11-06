@@ -128,6 +128,9 @@ async fn a_real_role_session_is_guarded_and_takes_a_leads_message() {
             .into(),
         Some(0.25),
     );
+    // A fallback as the routing policy gives one (never the main model).
+    let mut opts = opts;
+    opts.fallback_model = Some("claude-haiku-4-5".into());
     assert_eq!(opts.settings_json.as_deref(), Some(ROLE_SETTINGS));
     let id = st.control.spawn(&st, opts).await.unwrap();
     assert_eq!(id, worker_id);
