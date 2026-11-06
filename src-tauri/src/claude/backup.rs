@@ -37,7 +37,7 @@
 
 use std::collections::BTreeMap;
 use std::io::{BufReader, BufWriter, Read, Write};
-use std::path::{Component, Path, PathBuf};
+use std::path::{Path, PathBuf};
 use std::sync::atomic::Ordering;
 use std::time::{Duration, SystemTime};
 
@@ -2223,7 +2223,7 @@ fn verify_copy(
         if rel == Path::new(".mc/meta.json") || kind.is_dir() {
             continue;
         }
-        if !kind.is_file() || !allowed_entry(&rel, id) {
+        if !kind.is_file() || !entry_name(&item).is_some_and(|n| allowed_entry(&n, id)) {
             return Err(bad(format!(
                 "the set's archive of {id} holds {}",
                 rel.display()
@@ -2605,20 +2605,28 @@ pub fn prune_warning(newest_mtime: i64, days: i64, now: i64) -> Option<String> {
     })
 }
 
+/// An archive entry's name as the archive holds it, when it is UTF-8:
+/// `/`-separated whatever system wrote it (tar's separator; the archiver
+/// writes Windows' `\` as `/`) and whatever system reads it.
+fn entry_name<R: Read>(entry: &tar::Entry<'_, R>) -> Option<String> {
+    String::from_utf8(entry.path_bytes().into_owned()).ok()
+}
+
 /// Whether an archive entry may land in a session's files: relative, plain
-/// components, under a session directory, naming this session.
-fn allowed_entry(rel: &Path, id: &str) -> bool {
-    let parts: Vec<&str> = match rel
-        .components()
-        .map(|c| match c {
-            Component::Normal(s) => s.to_str(),
-            _ => None,
-        })
-        .collect::<Option<Vec<_>>>()
+/// components, under a session directory, naming this session. `name` is
+/// the entry's [`entry_name`], split on `/` alone so a Mac and Windows judge
+/// one archive alike: a component that is empty, `.` or `..`, or holds a
+/// `\` (a separator on Windows), is refused everywhere.
+fn allowed_entry(name: &str, id: &str) -> bool {
+    // A directory's entry may end with its `/`.
+    let name = name.strip_suffix('/').unwrap_or(name);
+    let parts: Vec<&str> = name.split('/').collect();
+    if parts
+        .iter()
+        .any(|p| p.is_empty() || *p == "." || *p == ".." || p.contains('\\'))
     {
-        Some(p) if !p.is_empty() => p,
-        _ => return false,
-    };
+        return false;
+    }
     match parts.as_slice() {
         ["projects", _enc, name] => *name == format!("{id}.jsonl") || *name == id,
         ["projects", _enc, dir, ..] => *dir == id,
@@ -2660,7 +2668,8 @@ fn unpack(
             continue;
         }
         let kind = entry.header().entry_type();
-        if !(kind.is_file() || kind.is_dir()) || !allowed_entry(&rel, id) {
+        let allowed = entry_name(&entry).is_some_and(|n| allowed_entry(&n, id));
+        if !(kind.is_file() || kind.is_dir()) || !allowed {
             return Err(BackupError::Invalid(format!(
                 "the archive of {id} holds {} — not one of its own files",
                 rel.display()

@@ -451,9 +451,13 @@ sessions/<session id>.tar.gz.age     (with .mc/meta.json: id, cwd, the project's
 config/<ISO timestamp>.tar.gz.age    (last five kept)
 ```
 
-Paths inside an archive are relative to the config directory, so a session
-restores into any directory account, and the transcript's `projects/<encoded
-cwd>` folder is recreated as it was — or, when a folder pair maps the
+Paths inside an archive are relative to the config directory and written
+with `/` on every system (tar's separator), and a restore reads them so on
+every system too: an entry outside the session's own files, or with an
+empty, `.` or `..` component or a `\` in a name, is refused on a Mac as on
+Windows. So a session restores into any directory account, and the
+transcript's `projects/<encoded cwd>` folder is recreated as it was — or,
+when a folder pair maps the
 session's folder to this machine, under that folder's name (§5.11, *Folder
 pairs*). Since 2026-11-06 the index also holds `folderPairs`, `machines`
 (each machine's name and OS) and each entry's `folder`.

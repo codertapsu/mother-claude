@@ -318,9 +318,68 @@ fn archive_entries_outside_the_session_are_refused() {
         ),
         (format!("/etc/{SID}"), false),
         (format!("plugins/{SID}"), false),
+        // Split on `/` alone, as tar writes names on every system: a
+        // directory's trailing `/` is fine; a `\` is never a separator
+        // (on Windows it would be), nor are empty, `.` or `..` parts.
+        (format!("projects/-p-app/{SID}/"), true),
+        (format!("projects\\-p-app\\{SID}.jsonl"), false),
+        (
+            format!("projects/-p-app/{SID}/..\\..\\..\\settings.json"),
+            false,
+        ),
+        (format!("projects/-p-app/{SID}\\x"), false),
+        (format!("projects//-p-app/{SID}.jsonl"), false),
+        (format!("./projects/-p-app/{SID}.jsonl"), false),
+        (format!("projects/-p-app/./{SID}.jsonl"), false),
+        (format!("C:/projects/-p-app/{SID}.jsonl"), false),
+        (format!("C:projects/-p-app/{SID}.jsonl"), false),
+        (String::new(), false),
     ] {
-        assert_eq!(allowed_entry(Path::new(&path), SID), ok, "{path}");
+        assert_eq!(allowed_entry(&path, SID), ok, "{path}");
     }
+}
+
+/// An archive is judged by the names it holds, whatever this system makes
+/// of them as paths: one whose entry has a `\` in its name is refused on a
+/// Mac as on Windows.
+#[test]
+fn an_archive_entry_with_a_backslash_is_refused_on_every_system() {
+    let id = SID;
+    let key = age::x25519::Identity::generate();
+    let mut sealed = Vec::new();
+    {
+        let enc = age::Encryptor::with_recipients(std::iter::once(
+            &key.to_public() as &dyn age::Recipient
+        ))
+        .unwrap();
+        let w = enc.wrap_output(&mut sealed).unwrap();
+        let gz = flate2::write::GzEncoder::new(w, flate2::Compression::default());
+        let mut tar = tar::Builder::new(gz);
+        let data = b"{}\n";
+        let mut header = tar::Header::new_gnu();
+        header.set_size(data.len() as u64);
+        header.set_mode(0o600);
+        header.set_entry_type(tar::EntryType::Regular);
+        // Written raw: the archiver would make `\` a `/` on Windows.
+        let name = format!("projects/-p-app/{id}\\agent.jsonl");
+        header.as_gnu_mut().unwrap().name[..name.len()].copy_from_slice(name.as_bytes());
+        header.set_cksum();
+        tar.append(&header, &data[..]).unwrap();
+        tar.into_inner()
+            .unwrap()
+            .finish()
+            .unwrap()
+            .finish()
+            .unwrap();
+    }
+    let stage = tempfile::tempdir().unwrap();
+    let err = unpack(&sealed, &key, stage.path(), id).unwrap_err();
+    assert_eq!(err.code(), "invalid_backup", "{err}");
+    assert!(
+        err.to_string().contains("not one of its own files"),
+        "{err}"
+    );
+    assert_eq!(std::fs::read_dir(stage.path()).unwrap().count(), 0);
 }
 
 /// The archives open with the standard `age` tool and `tar` (when `age` is
