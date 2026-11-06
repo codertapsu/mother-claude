@@ -108,6 +108,10 @@ pub enum Content {
 #[serde(rename_all = "camelCase")]
 pub struct ToolOutput {
     pub content: Vec<Content>,
+    /// The whole result as JSON, or nothing. Never a part of it beside a
+    /// text that holds the rest: when it is there, a client may give the
+    /// model only this (Claude Code 2.1.319 does), so a text result — a page,
+    /// a snapshot — uses [`ToolOutput::text`] alone.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub structured_content: Option<Value>,
     #[serde(skip_serializing_if = "std::ops::Not::not")]

@@ -235,12 +235,13 @@ fn dialog_note(done: &Done) -> String {
     }
 }
 
-fn text_out(text: String, structured: Value) -> ToolOutput {
-    ToolOutput {
-        content: vec![Content::Text { text }],
-        structured_content: Some(structured),
-        is_error: false,
-    }
+/// A result whose text is the whole answer. Never with `structuredContent`
+/// beside it: a client may give the model only that when it is there (Claude
+/// Code 2.1.319 does), and part of the result there would hide the text — a
+/// page's content, a snapshot — from the model. The page and its title are
+/// the text's first line.
+fn text_out(text: String) -> ToolOutput {
+    ToolOutput::text(text)
 }
 
 /// A short confirmation plus what changed (a click's snapshot delta).
@@ -255,9 +256,7 @@ fn acted(what: String, done: &Done) -> ToolOutput {
         }
     }
     text.push_str(&dialog_note(done));
-    let mut data = done.data.clone();
-    redact::value(&mut data);
-    text_out(text, data)
+    text_out(text)
 }
 
 // ───────────────────────────────────────────────────────── the tools
@@ -752,14 +751,12 @@ async fn tabs(ctx: ToolCtx, args: Value) -> Result<ToolOutput, ToolError> {
     let action_name = c.action;
     let done = actions::perform(&ctx, c).await?;
     if action_name != "tabs.list" {
-        let mut data = done.data.clone();
-        redact::value(&mut data);
         let text = match action_name {
             "tabs.open" => format!("Opened a tab. {}{}", page_line(&done), dialog_note(&done)),
             "tabs.select" => "Selected the tab.".to_string(),
             _ => "Closed the tab.".to_string(),
         };
-        return Ok(text_out(text, data));
+        return Ok(text_out(text));
     }
     // Tabs on sites the session may not see show no title or path.
     let settings = ctx.state.extension.settings.get();
@@ -806,16 +803,11 @@ async fn navigate(ctx: ToolCtx, args: Value) -> Result<ToolOutput, ToolError> {
     c.target_url = Some(url);
     c.timeout_ms = timeout_arg(&args)?;
     let done = actions::perform(&ctx, c).await?;
-    let mut data = done.data.clone();
-    redact::value(&mut data);
-    Ok(text_out(
-        format!(
-            "{}\nTake a browser_snapshot to see it.{}",
-            page_line(&done),
-            dialog_note(&done)
-        ),
-        data,
-    ))
+    Ok(text_out(format!(
+        "{}\nTake a browser_snapshot to see it.{}",
+        page_line(&done),
+        dialog_note(&done)
+    )))
 }
 
 async fn history(
@@ -826,12 +818,11 @@ async fn history(
 ) -> Result<ToolOutput, ToolError> {
     let c = call(tool, action, json!({}), &args, action)?;
     let done = actions::perform(&ctx, c).await?;
-    let mut data = done.data.clone();
-    redact::value(&mut data);
-    Ok(text_out(
-        format!("{}{}", page_line(&done), dialog_note(&done)),
-        data,
-    ))
+    Ok(text_out(format!(
+        "{}{}",
+        page_line(&done),
+        dialog_note(&done)
+    )))
 }
 
 async fn snapshot(ctx: ToolCtx, args: Value) -> Result<ToolOutput, ToolError> {
@@ -869,15 +860,7 @@ async fn snapshot(ctx: ToolCtx, args: Value) -> Result<ToolOutput, ToolError> {
         );
     }
     text.push_str(&dialog_note(&done));
-    Ok(text_out(
-        text,
-        json!({
-            "url": done.url,
-            "title": done.title,
-            "nodes": done.data.get("nodes"),
-            "truncated": truncated,
-        }),
-    ))
+    Ok(text_out(text))
 }
 
 async fn read(ctx: ToolCtx, args: Value) -> Result<ToolOutput, ToolError> {
@@ -913,10 +896,7 @@ async fn read(ctx: ToolCtx, args: Value) -> Result<ToolOutput, ToolError> {
         text.push_str("\n… (truncated: read a selector, or raise maxChars)");
     }
     text.push_str(&dialog_note(&done));
-    Ok(text_out(
-        text,
-        json!({ "url": done.url, "title": done.title, "truncated": truncated }),
-    ))
+    Ok(text_out(text))
 }
 
 async fn find(ctx: ToolCtx, args: Value) -> Result<ToolOutput, ToolError> {
@@ -1160,10 +1140,7 @@ async fn wait(ctx: ToolCtx, args: Value) -> Result<ToolOutput, ToolError> {
         .get("waitedMs")
         .and_then(Value::as_u64)
         .unwrap_or(0);
-    Ok(text_out(
-        format!("Waited {ms} ms.{}", dialog_note(&done)),
-        json!({ "waitedMs": ms }),
-    ))
+    Ok(text_out(format!("Waited {ms} ms.{}", dialog_note(&done))))
 }
 
 async fn screenshot(ctx: ToolCtx, args: Value) -> Result<ToolOutput, ToolError> {
@@ -1232,10 +1209,7 @@ async fn eval(ctx: ToolCtx, args: Value) -> Result<ToolOutput, ToolError> {
     let mut value = done.data.get("value").cloned().unwrap_or(Value::Null);
     redact::value(&mut value);
     let (text, _) = clip_text(&value.to_string(), SNAPSHOT_MAX_CHARS);
-    Ok(text_out(
-        format!("{text}{}", dialog_note(&done)),
-        json!({ "value": value }),
-    ))
+    Ok(text_out(format!("{text}{}", dialog_note(&done))))
 }
 
 async fn console(ctx: ToolCtx, args: Value) -> Result<ToolOutput, ToolError> {

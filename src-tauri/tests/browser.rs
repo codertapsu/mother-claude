@@ -553,6 +553,9 @@ async fn a_snapshot_round_trips_and_is_redacted() {
     assert!(!text.contains("hunter2"));
     assert!(!text.contains("ghp_"));
     assert!(text.contains("«redacted»"));
+    // The text is the whole result: Claude Code gives the model only the
+    // structured part when there is one, which would hide the tree.
+    assert!(out.structured_content.is_none());
     // The activity and the audit name the action, never values or the query.
     let entries = st.extension.activity.recent(Some(SESSION), 10);
     let snap = entries
