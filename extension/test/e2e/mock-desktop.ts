@@ -29,6 +29,10 @@ export class MockDesktop {
     leases: [],
     pending: [],
   };
+  /** What `sessions` answers (the side panel's list). */
+  sessions: Record<string, unknown>[] = [];
+  /** The `session.tell` frames received. */
+  readonly told: Frame[] = [];
   port = 0;
   connections = 0;
   closes = 0;
@@ -166,6 +170,56 @@ export class MockDesktop {
         this.state.siteModes[origin] = String(frame['mode']);
         this.send({ type: 'ok', id: frame.id ?? '' }, ws);
         this.pushState();
+        return;
+      }
+      case 'sessions':
+        this.send({ type: 'ok', id: frame.id ?? '', data: { sessions: this.sessions } }, ws);
+        return;
+      case 'session.connect': {
+        const session = this.sessions.find((x) => x['id'] === frame['session']);
+        if (!session) {
+          this.send(
+            { type: 'error', id: frame.id ?? '', code: 'not_found', message: 'no such session' },
+            ws,
+          );
+          return;
+        }
+        // As the real desktop: the lease opens before the answer.
+        const lease = `l_connect_${String(session['id']).slice(0, 8)}`;
+        void this.request({
+          type: 'lease.open',
+          lease,
+          session: { id: session['id'], title: session['name'] },
+          color: 'purple',
+        }).then(() => {
+          session['lease'] = lease;
+          this.send(
+            {
+              type: 'ok',
+              id: frame.id ?? '',
+              data: { lease, title: session['name'], color: 'purple', hasTools: true },
+            },
+            ws,
+          );
+        });
+        return;
+      }
+      case 'session.tell': {
+        const session = this.sessions.find((x) => x['id'] === frame['session']);
+        if (!session || session['canTell'] !== true) {
+          this.send(
+            {
+              type: 'error',
+              id: frame.id ?? '',
+              code: 'no_channel',
+              message: 'Mother Claude cannot reach this session.',
+            },
+            ws,
+          );
+          return;
+        }
+        this.told.push(frame);
+        this.send({ type: 'ok', id: frame.id ?? '', data: { delivery: 'relayed' } }, ws);
         return;
       }
       case 'answer': {

@@ -36,6 +36,8 @@ interface Info {
   desktopToken: string;
   dataDir: string;
   home: string;
+  /** The fixture's live VS Code session. */
+  session: string;
 }
 
 type Json = Record<string, unknown>;
@@ -284,6 +286,52 @@ describe('the extension against the real desktop', { skip }, () => {
     assert.equal(clicked.isError, false, clicked.text);
     const submitted = await okTool('browser_read', { mode: 'text', selector: '#submitted' });
     assert.match(submitted, /yes: Ada/);
+  });
+
+  it('connects a running session to the tab you are on, from the side panel', async () => {
+    const panel = await chrome().openPage(`chrome-extension://${extensionId}/sidepanel.html`);
+    for (let i = 0; i < 50; i++) {
+      const ready = await chrome().evaluate<boolean>(
+        panel.sessionId,
+        `typeof chrome !== 'undefined' && !!chrome.runtime && typeof chrome.runtime.sendMessage === 'function'`,
+      );
+      if (ready) break;
+      await sleep(100);
+    }
+    const list = await ui(panel.sessionId, { op: 'sessions' });
+    assert.equal(list['ok'], true, JSON.stringify(list));
+    const ids = (list['sessions'] as { id: string }[]).map((x) => x.id);
+    assert.ok(ids.includes(info.session), `the fixture's session is listed: ${ids.join(', ')}`);
+    const tabId = await chrome().evaluate<number>(
+      worker,
+      `chrome.tabs.create({ url: ${JSON.stringify(`${fixtures.base}/typical.html`)}, active: true }).then((t) => t.id)`,
+    );
+    for (let i = 0; i < 50; i++) {
+      const done = await chrome().evaluate<string>(
+        worker,
+        `chrome.tabs.get(${tabId}).then((t) => t.status)`,
+      );
+      if (done === 'complete') break;
+      await sleep(100);
+    }
+    const res = await ui(panel.sessionId, {
+      op: 'connect',
+      session: info.session,
+      tabId,
+      message: 'List the open issues on this page.',
+    });
+    assert.equal(res['ok'], true, JSON.stringify(res));
+    // The desktop holds the session's lease in this browser.
+    const o = await api('GET', '/browser');
+    const lease = ((o.json['leases'] ?? []) as Json[]).find((l) => l['session'] === info.session);
+    assert.ok(lease, 'the session has a lease here');
+    assert.equal(lease['id'], res['lease']);
+    // Told through the hooks, or refused in words while the fixture's session
+    // has sent no hook traffic yet.
+    if (res['told'] !== true) {
+      assert.match(String(res['tellError']), /can't send it messages|cannot reach/i);
+    }
+    await chrome().send('Target.closeTarget', { targetId: panel.targetId });
   });
 
   it('fails a call that is denied, and Stop ends the session’s browsing', async () => {

@@ -117,6 +117,8 @@ export interface StateFrame {
 export interface OkFrame {
   type: 'ok';
   id: string;
+  /** What the request asked for (`sessions`, `session.connect`, …): an addition to v1. */
+  data?: Record<string, unknown>;
 }
 export interface PongFrame {
   type: 'pong';
@@ -322,9 +324,12 @@ export function decodeIncoming(text: string): Decoded {
       if (p) frame.pending = p;
       return { ok: true, frame };
     }
-    case 'ok':
+    case 'ok': {
       if (!id) return bad(id, 'ok needs id');
-      return { ok: true, frame: { type, id } };
+      const frame: OkFrame = { type, id };
+      if (isObject(raw['data'])) frame.data = raw['data'];
+      return { ok: true, frame };
+    }
     case 'pong':
       return { ok: true, frame: id ? { type, id } : { type } };
     case 'error': {

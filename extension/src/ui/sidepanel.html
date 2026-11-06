@@ -10,34 +10,44 @@
     <header class="top">
       <img src="icons/icon-32.png" alt="" />
       <h1>Mother Claude</h1>
+      <p class="status" id="connection" role="status" aria-live="polite">
+        <span class="dot" aria-hidden="true"></span><span class="text">Starting…</span>
+      </p>
     </header>
-    <p class="status" id="connection" role="status" aria-live="polite">
-      <span class="dot" aria-hidden="true"></span><span class="text">Starting…</span>
-    </p>
     <p class="error" id="connection-error"></p>
 
     <section id="pairing" hidden aria-labelledby="pairing-title">
-      <h2 id="pairing-title">Pair this browser</h2>
-      <p class="muted">
-        Pairing lets the Mother Claude app on this computer send this browser work from your Claude
-        Code sessions. Nothing leaves this computer.
-      </p>
-      <div id="pairing-form"></div>
-    </section>
-
-    <section id="sessions" hidden aria-labelledby="sessions-title">
-      <h2 id="sessions-title">Sessions in this browser</h2>
-      <div id="session-list"></div>
+      <div class="card">
+        <h2 id="pairing-title">Pair this browser</h2>
+        <p class="help">
+          Pairing lets your Claude Code sessions work in this browser, through the Mother Claude app
+          on this computer. Nothing leaves this computer.
+        </p>
+        <div id="pairing-form"></div>
+      </div>
     </section>
 
     <section id="approvals" hidden aria-labelledby="approvals-title">
-      <h2 id="approvals-title">Waiting for you</h2>
+      <div class="section-head"><h2 id="approvals-title">Waiting for you</h2></div>
       <div id="approval-list" aria-live="polite"></div>
     </section>
 
     <section id="this-tab" hidden aria-labelledby="tab-title">
-      <h2 id="tab-title">This tab</h2>
+      <div class="section-head"><h2 id="tab-title">This tab</h2></div>
       <div id="tab-card"></div>
+    </section>
+
+    <section id="connect" hidden aria-labelledby="connect-title">
+      <div class="section-head">
+        <h2 id="connect-title">Work here with a session</h2>
+        <button type="button" class="link" id="refresh-sessions">Refresh</button>
+      </div>
+      <div class="card" id="connect-card"></div>
+    </section>
+
+    <section id="sessions" hidden aria-labelledby="sessions-title">
+      <div class="section-head"><h2 id="sessions-title">Sessions in this browser</h2></div>
+      <div id="session-list"></div>
     </section>
 
     <p class="notice" id="debugger-note" hidden>

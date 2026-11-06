@@ -18,6 +18,7 @@ import {
   type TabInfo,
   type UiRequest,
   type UiResponse,
+  type UiSession,
   type UiStatus,
 } from '../shared/ui.ts';
 import { Commands } from './commands.ts';
@@ -191,6 +192,7 @@ async function status(): Promise<UiStatus> {
       const last = router.lastActivity.get(rec.lease);
       return {
         lease: rec.lease,
+        session: rec.session.id,
         title: rec.session.title || 'Claude Code',
         color: rec.color,
         tabs: await leaseTabCount(rec),
@@ -327,6 +329,76 @@ async function desktopRequest(frame: Record<string, unknown>): Promise<UiRespons
   }
 }
 
+interface Refused {
+  ok: false;
+  code: string;
+  message: string;
+}
+type DataReply = { ok: true; data: Record<string, unknown> } | Refused;
+
+function refused(code: string, message: string): Refused {
+  return { ok: false, code, message };
+}
+
+/** A request whose `ok` carries data; a refusal keeps the desktop's own words. */
+async function desktopData(frame: Record<string, unknown>): Promise<DataReply> {
+  if (!conn.isAuthenticated) return refused('disconnected', 'Not connected to Mother Claude.');
+  try {
+    const reply = await conn.request(frame);
+    return { ok: true, data: reply.type === 'ok' ? (reply.data ?? {}) : {} };
+  } catch (e) {
+    const code = e instanceof DesktopError ? e.code : 'error';
+    if (code === 'unknown_frame') {
+      return refused(code, 'This Mother Claude is too old for that: update the app.');
+    }
+    if (code === 'timeout') return refused(code, 'Mother Claude did not answer in time.');
+    return refused(code, messageOf(e));
+  }
+}
+
+/** The sessions as the desktop listed them, checked field by field. */
+function sessionsOf(raw: unknown): UiSession[] {
+  if (!Array.isArray(raw)) return [];
+  const str = (v: unknown): string => (typeof v === 'string' ? v : '');
+  return raw.flatMap((r): UiSession[] => {
+    if (typeof r !== 'object' || r === null) return [];
+    const o = r as Record<string, unknown>;
+    const id = str(o['id']);
+    if (!/^[0-9a-f-]{36}$/.test(id)) return [];
+    const how = o['tellHow'];
+    return [
+      {
+        id,
+        name: str(o['name']) || 'Claude Code',
+        project: str(o['project']),
+        cwd: str(o['cwd']),
+        surface: str(o['surface']) || 'Claude Code',
+        status: str(o['status']) || 'idle',
+        lastActivityAt: typeof o['lastActivityAt'] === 'number' ? o['lastActivityAt'] : null,
+        owned: o['owned'] === true,
+        canTell: o['canTell'] === true,
+        tellHow: how === 'direct' || how === 'relay' ? how : null,
+        whyNot: str(o['whyNot']) || null,
+        hasTools: o['hasTools'] === true,
+        lease: str(o['lease']) || null,
+      },
+    ];
+  });
+}
+
+/** Tell the session of `rec` what to do, naming its tab's page for the desktop. */
+async function tellLease(rec: LeaseRecord, message: string): Promise<DataReply> {
+  const tabId = await leases.activeTab(rec);
+  const tab = tabId === null ? null : await chrome.tabs.get(tabId).catch(() => null);
+  const url = tab?.url ?? '';
+  return desktopData({
+    type: 'session.tell',
+    session: rec.session.id,
+    message,
+    ...(url.startsWith('http') ? { tab: { tabId, url } } : {}),
+  });
+}
+
 async function handleUi(req: UiRequest): Promise<UiResponse> {
   await ready;
   switch (req.op) {
@@ -436,6 +508,47 @@ async function handleUi(req: UiRequest): Promise<UiResponse> {
     case 'permissionsChanged':
       await permissionsChanged();
       return { ok: true };
+    case 'sessions': {
+      const res = await desktopData({ type: 'sessions' });
+      if (!res.ok) return res;
+      return {
+        ok: true,
+        sessions: sessionsOf(res.data['sessions']),
+        toolsOn: res.data['toolsOn'] !== false,
+      };
+    }
+    case 'connect': {
+      const message = (req.message ?? '').trim();
+      const info = await tabInfo(req.tabId).catch(() => null);
+      if (!info?.origin) return fail('no_tab', 'Open a web page in this tab first.');
+      const res = await desktopData({
+        type: 'session.connect',
+        session: req.session,
+        tab: { tabId: req.tabId, url: info.url },
+      });
+      if (!res.ok) return res;
+      // The desktop opened the lease (`lease.open`) before it answered.
+      const rec = leases.get(String(res.data['lease'] ?? ''));
+      if (!rec) return fail('no_lease', 'Mother Claude did not open a tab group for the session.');
+      try {
+        await leases.adopt(rec, req.tabId);
+      } catch (e) {
+        return fail('error', `Could not move this tab into the session's group: ${messageOf(e)}`);
+      }
+      uiChanged();
+      if (!message) return { ok: true, lease: rec.lease, told: false };
+      const told = await tellLease(rec, message);
+      if (!told.ok) return { ok: true, lease: rec.lease, told: false, tellError: told.message };
+      return { ok: true, lease: rec.lease, told: true, delivery: told.data['delivery'] };
+    }
+    case 'tell': {
+      const rec = leases.get(req.lease);
+      if (!rec) return fail('no_lease', 'That session no longer works in this browser.');
+      if (!req.message.trim()) return fail('invalid', 'Write what the session should do.');
+      const told = await tellLease(rec, req.message.trim());
+      if (!told.ok) return told;
+      return { ok: true, delivery: told.data['delivery'] };
+    }
     case 'leaseInfo': {
       const rec = leases.get(req.lease);
       return rec
@@ -564,9 +677,17 @@ chrome.runtime.onConnect.addListener((port) => {
   uiChanged();
 });
 
+/** The side panel, the options page or the placeholder: never a content script. */
+function fromOwnPage(sender: chrome.runtime.MessageSender): boolean {
+  const base = chrome.runtime.getURL('');
+  return (
+    sender.id === chrome.runtime.id && typeof sender.url === 'string' && sender.url.startsWith(base)
+  );
+}
+
 chrome.runtime.onMessage.addListener((msg: unknown, sender, sendResponse) => {
   if (isUiMessage(msg)) {
-    if (sender.id !== chrome.runtime.id || sender.tab?.url?.startsWith('http')) return false;
+    if (!fromOwnPage(sender)) return false;
     handleUi(msg.req).then(sendResponse, (e: unknown) => sendResponse(fail('error', messageOf(e))));
     return true;
   }

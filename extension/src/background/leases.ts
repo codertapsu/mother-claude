@@ -309,6 +309,50 @@ export class Leases {
     return chrome.tabs.get(tabId);
   }
 
+  /**
+   * The user's own tab joins the lease (the side panel's Connect): into its
+   * group, or a new group made around it, and it becomes the lease's active
+   * tab. The placeholder page goes if nothing used it yet.
+   */
+  async adopt(rec: LeaseRecord, tabId: number): Promise<void> {
+    const other = this.leaseOfTab(tabId);
+    if (other && other.lease !== rec.lease) {
+      throw new Error('this tab already works for another session (Stop it there first)');
+    }
+    const tab = await chrome.tabs.get(tabId);
+    if (rec.groupId !== null && (await groupExists(rec.groupId))) {
+      if (tab.groupId !== rec.groupId) {
+        await chrome.tabs.group({ groupId: rec.groupId, tabIds: [tabId] });
+      }
+    } else {
+      const groupId = await chrome.tabs.group({
+        tabIds: [tabId],
+        createProperties: { windowId: tab.windowId },
+      });
+      await chrome.tabGroups.update(groupId, {
+        title: groupTitle(rec),
+        color: rec.color,
+        collapsed: false,
+      });
+      rec.groupId = groupId;
+      rec.windowId = tab.windowId;
+    }
+    this.tabLease.set(tabId, rec.lease);
+    rec.activeTabId = tabId;
+    const placeholder = rec.placeholderTabId;
+    rec.placeholderTabId = null;
+    if (placeholder !== null && placeholder !== tabId) {
+      try {
+        const ph = await chrome.tabs.get(placeholder);
+        if (isPlaceholderUrl(ph.url ?? ph.pendingUrl)) await chrome.tabs.remove(placeholder);
+      } catch {
+        // already gone
+      }
+    }
+    this.store.persist();
+    this.hooks.changed();
+  }
+
   /** The command closes a tab; when it was the last one the group goes too, quietly. */
   async closeTab(rec: LeaseRecord, tabId: number): Promise<void> {
     const tabs = await this.tabsOf(rec);

@@ -10,6 +10,8 @@ export type ConnectionStateName =
 
 export interface UiLease {
   lease: string;
+  /** The Claude Code session working in the lease's tab group. */
+  session: string;
   title: string;
   color: TabGroupColor;
   tabs: number;
@@ -63,6 +65,30 @@ export interface TabInfo {
   sensitive: boolean;
 }
 
+/** A Claude Code session on this computer, as the desktop lists it. */
+export interface UiSession {
+  id: string;
+  name: string;
+  /** Its project folder's name, and the folder. */
+  project: string;
+  cwd: string;
+  /** Where it runs: "VS Code", "Terminal", "Mother Claude", … */
+  surface: string;
+  /** working | waiting | idle | background | starting */
+  status: string;
+  lastActivityAt: number | null;
+  owned: boolean;
+  /** Mother Claude can send it what to do (directly, or relayed at its next step). */
+  canTell: boolean;
+  tellHow: 'direct' | 'relay' | null;
+  /** Why it can't be told, when it can't. */
+  whyNot: string | null;
+  /** It has Mother Claude's browser tools (seen listing them, or owned). */
+  hasTools: boolean;
+  /** Its lease in this browser, when connected here. */
+  lease: string | null;
+}
+
 export type UiRequest =
   | { op: 'status' }
   | { op: 'pair'; code: string; name: string }
@@ -79,7 +105,13 @@ export type UiRequest =
   | { op: 'addToLease'; tabId: number; lease: string }
   | { op: 'reconnect' }
   | { op: 'permissionsChanged' }
-  | { op: 'leaseInfo'; lease: string };
+  | { op: 'leaseInfo'; lease: string }
+  /** The live Claude Code sessions on this computer (from the desktop). */
+  | { op: 'sessions' }
+  /** Connect a session to this browser with this tab; tell it `message` if given. */
+  | { op: 'connect'; session: string; tabId: number; message?: string }
+  /** Tell a session connected here what to do. */
+  | { op: 'tell'; lease: string; message: string };
 
 export type UiResponse =
   ({ ok: true } & Record<string, unknown>) | { ok: false; code: string; message: string };

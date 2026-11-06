@@ -62,11 +62,22 @@ export function h<K extends keyof HTMLElementTagNameMap>(
  * `data-key` as the focused one gets the focus back.
  */
 export function keepFocus(render: () => void): void {
-  const key = document.activeElement?.getAttribute('data-key');
+  const active = document.activeElement;
+  const key = active?.getAttribute('data-key');
+  // Where the cursor was in a text field, to put it back.
+  const sel = textField(active) ? [active.selectionStart, active.selectionEnd] : null;
   render();
   if (!key) return;
   const again = document.querySelector<HTMLElement>(`[data-key="${CSS.escape(key)}"]`);
-  if (again && document.activeElement !== again) again.focus();
+  if (again && document.activeElement !== again) {
+    again.focus();
+    if (sel && textField(again)) again.setSelectionRange(sel[0] ?? null, sel[1] ?? null);
+  }
+}
+
+function textField(el: Element | null): el is HTMLInputElement | HTMLTextAreaElement {
+  if (el instanceof HTMLTextAreaElement) return true;
+  return el instanceof HTMLInputElement && ['text', 'search', 'url', 'email', ''].includes(el.type);
 }
 
 export function byId<T extends HTMLElement = HTMLElement>(id: string): T {

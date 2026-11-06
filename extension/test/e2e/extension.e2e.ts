@@ -989,6 +989,115 @@ describe(
       }
     });
 
+    it('connects a running session to the tab you are on, and tells it what to do', async () => {
+      const sid = '0f1e2d3c-4b5a-4968-8776-655443322110';
+      const mute = '1f1e2d3c-4b5a-4968-8776-655443322111';
+      desktop.sessions = [
+        {
+          id: sid,
+          name: 'Polish the docs site',
+          project: 'codertapsu.github.io',
+          cwd: '/Users/me/dev/codertapsu.github.io',
+          surface: 'VS Code',
+          status: 'idle',
+          lastActivityAt: Date.now() - 60_000,
+          owned: false,
+          canTell: true,
+          tellHow: 'relay',
+          whyNot: null,
+          hasTools: true,
+          lease: null,
+        },
+        {
+          id: mute,
+          name: 'A terminal session',
+          project: 'other',
+          cwd: '/Users/me/dev/other',
+          surface: 'Terminal',
+          status: 'working',
+          lastActivityAt: Date.now(),
+          owned: false,
+          canTell: false,
+          tellHow: null,
+          whyNot: 'Mother Claude can’t send it messages.',
+          hasTools: false,
+          lease: null,
+        },
+        // Not a session id: dropped by the extension.
+        { id: 'nope', name: 'x' },
+      ];
+      // A tab of the user's own, in no session's group.
+      const tabId = await sw<number>(
+        `chrome.tabs.create({ url: ${JSON.stringify(`${fixtures.base}/form.html`)}, active: true }).then((t) => t.id)`,
+      );
+      for (let i = 0; i < 50; i++) {
+        const done = await sw<string>(`chrome.tabs.get(${tabId}).then((t) => t.status)`);
+        if (done === 'complete') break;
+        await sleep(100);
+      }
+      const panel = await extensionPage('sidepanel.html');
+      const list = await ui(panel.sessionId, { op: 'sessions' });
+      assert.equal(list['ok'], true, JSON.stringify(list));
+      const listed = list['sessions'] as { id: string; canTell: boolean; hasTools: boolean }[];
+      assert.deepEqual(
+        listed.map((x) => x.id),
+        [sid, mute],
+      );
+      assert.equal(listed[1]?.hasTools, false);
+      // Connect and send, in one click.
+      const res = await ui(panel.sessionId, {
+        op: 'connect',
+        session: sid,
+        tabId,
+        message: 'Read this page and list the form fields.',
+      });
+      assert.equal(res['ok'], true, JSON.stringify(res));
+      assert.equal(res['told'], true);
+      assert.equal(res['delivery'], 'relayed');
+      const connect = await desktop.waitFor((f: Frame) => f.type === 'session.connect');
+      assert.equal(connect['session'], sid);
+      assert.equal((connect['tab'] as { tabId: number }).tabId, tabId);
+      const told = desktop.told.at(-1);
+      assert.equal(told?.['message'], 'Read this page and list the form fields.');
+      assert.match(String((told?.['tab'] as { url: string }).url), /form\.html$/);
+      // The tab is the session's: in its group, alone (no placeholder left).
+      const lease = String(res['lease']);
+      const groupId = await sw<number>(`chrome.tabs.get(${tabId}).then((t) => t.groupId)`);
+      assert.ok(groupId > 0, 'the tab joined a group');
+      const inGroup = await sw<string[]>(
+        `chrome.tabs.query({ groupId: ${groupId} }).then((ts) => ts.map((t) => t.url))`,
+      );
+      assert.deepEqual(inGroup, [`${fixtures.base}/form.html`]);
+      // Its commands act there.
+      const r = await cmd('read', { mode: 'text', selector: 'h1' }, { lease });
+      assert.match(String(ok(r, 'read the adopted tab')['content']), /Create your account/);
+      // Telling it again, from its card.
+      const again = await ui(panel.sessionId, { op: 'tell', lease, message: 'Now submit it.' });
+      assert.equal(again['ok'], true, JSON.stringify(again));
+      assert.equal(desktop.told.at(-1)?.['message'], 'Now submit it.');
+      // A session the desktop cannot reach: connected, but the message is refused.
+      const other = await sw<number>(
+        `chrome.tabs.create({ url: ${JSON.stringify(`${fixtures.base}/typical.html`)}, active: true }).then((t) => t.id)`,
+      );
+      const muted = await ui(panel.sessionId, {
+        op: 'connect',
+        session: mute,
+        tabId: other,
+        message: 'hello',
+      });
+      assert.equal(muted['ok'], true, JSON.stringify(muted));
+      assert.equal(muted['told'], false);
+      assert.match(String(muted['tellError']), /cannot reach/);
+      // A tab already working for one session is not taken by another.
+      const taken = await ui(panel.sessionId, { op: 'connect', session: mute, tabId });
+      assert.equal(taken['ok'], false);
+      assert.match(String(taken['message']), /another session/);
+      for (const l of [lease, String(muted['lease'])]) {
+        await desktop.request({ type: 'lease.close', lease: l, closeTabs: true });
+      }
+      await browser.send('Target.closeTarget', { targetId: panel.targetId });
+    });
+
     it('forgets its token when the desktop revokes the browser', async () => {
       desktop.raw({ type: 'error', code: 'revoked', message: 'removed on the desktop' });
       const page = await extensionPage('options.html');
