@@ -674,6 +674,126 @@ async fn an_action_shows_what_changed_only_from_a_site_it_may_read() {
 }
 
 #[tokio::test]
+async fn an_action_result_says_no_more_than_the_session_may_see() {
+    let (base, st) = boot().await;
+    let (mut ws, _, _) = paired(&base, &st).await;
+    set_mode(&st, "https://example.test", "act").await;
+    let task = call(&st, SESSION, "browser_click", json!({"ref": "e1"}));
+    open_lease_with_tab(&mut ws, "https://example.test/").await;
+    let cmd = next_of(&mut ws, "command").await;
+    // It navigated to a site it may not see, and opened a tab on another.
+    send(
+        &mut ws,
+        json!({"type": "result", "id": cmd["id"], "ok": true, "data": {
+            "url": "https://bank.test/accounts?id=7", "title": "Your accounts", "navigated": true,
+            "dialog": {"kind": "alert", "message": "Balance: 1000"},
+            "newTab": {"tabId": 99, "url": "https://other.test/private?x=1", "title": "Private"}
+        }}),
+    )
+    .await;
+    let out = task.await.unwrap();
+    let all = serde_json::to_string(&out).unwrap();
+    assert!(!out.is_error, "{all}");
+    for secret in [
+        "Your accounts",
+        "Balance",
+        "/accounts",
+        "id=7",
+        "Private",
+        "/private",
+    ] {
+        assert!(!all.contains(secret), "{secret} leaked: {all}");
+    }
+    // Said in the text, the origins only.
+    let text = text_of(&out);
+    assert!(
+        text.contains("The page changed: now https://bank.test."),
+        "{text}"
+    );
+    assert!(
+        text.contains(
+            "It opened https://other.test in a new tab of this session's group (tabId 99)."
+        ),
+        "{text}"
+    );
+    let tab = st.extension.leases.tab(SESSION, 99).unwrap();
+    assert_eq!(tab.url.as_deref(), Some("https://other.test"));
+
+    // On a site it may read, a dialog the action opened is said.
+    set_mode(&st, "https://bank.test", "act").await;
+    let task = call(&st, SESSION, "browser_press", json!({"key": "Enter"}));
+    let cmd = next_of(&mut ws, "command").await;
+    assert_eq!(cmd["action"], "press");
+    assert_eq!(
+        cmd["params"]["refuseSecret"], true,
+        "the focused field may be a secret one"
+    );
+    send(
+        &mut ws,
+        json!({"type": "result", "id": cmd["id"], "ok": true, "data": {
+            "url": "https://bank.test/accounts", "title": "Accounts",
+            "dialog": {"kind": "confirm", "message": "Really leave?"}
+        }}),
+    )
+    .await;
+    let text = text_of(&task.await.unwrap());
+    assert!(
+        text.contains("confirm dialog") && text.contains("Really leave?"),
+        "{text}"
+    );
+    // Console levels as the extension names them.
+    let task = call(&st, SESSION, "browser_console", json!({"level": "warn"}));
+    let cmd = next_of(&mut ws, "command").await;
+    assert_eq!(cmd["params"]["level"], "warning");
+    send(
+        &mut ws,
+        json!({"type": "result", "id": cmd["id"], "ok": true, "data": {"messages": []}}),
+    )
+    .await;
+    assert!(!task.await.unwrap().is_error);
+}
+
+#[tokio::test]
+async fn the_side_panel_resumes_a_stopped_session() {
+    let (base, st) = boot().await;
+    let (mut ws, _, _) = paired(&base, &st).await;
+    set_mode(&st, "https://example.test", "read").await;
+    let task = call(&st, SESSION, "browser_snapshot", json!({}));
+    let lease = open_lease_with_tab(&mut ws, "https://example.test/").await;
+    let cmd = next_of(&mut ws, "command").await;
+    send(
+        &mut ws,
+        json!({"type": "event", "event": "lease.revoked", "lease": lease, "by": "user"}),
+    )
+    .await;
+    assert!(text_of(&task.await.unwrap()).contains("(stopped)"));
+    let _ = cmd;
+    // Resume pressed in the side panel within the minute: it may act again.
+    send(
+        &mut ws,
+        json!({"type": "event", "event": "lease.resumed", "lease": lease, "by": "user"}),
+    )
+    .await;
+    for _ in 0..100 {
+        if st.extension.leases.stopped(SESSION).is_none() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    assert!(st.extension.leases.stopped(SESSION).is_none());
+    let audit = serde_json::to_string(&st.devices.audit.recent(100)).unwrap();
+    assert!(audit.contains("browser.resume"));
+    // Another browser's (or an unknown) lease resumes nothing.
+    send(
+        &mut ws,
+        json!({"type": "event", "event": "lease.resumed", "lease": "l_nope", "by": "user"}),
+    )
+    .await;
+    send(&mut ws, json!({"type": "ping"})).await;
+    assert_eq!(next_of(&mut ws, "pong").await["type"], "pong");
+}
+
+#[tokio::test]
 async fn a_command_without_a_result_times_out() {
     let (base, st) = boot().await;
     let (mut ws, _, _) = paired(&base, &st).await;

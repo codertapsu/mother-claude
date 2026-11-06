@@ -131,8 +131,9 @@ the desktop fails that lease's in-flight requests itself (a `result` with
 `error.code` `stopped`: the extension needn't answer them any more), refuses
 the session's commands for 60 s unless the user resumes it on the desktop,
 withdraws the session's approvals, and asks the user's approval for any other
-session's action in that browser during that minute. The user resumes only
-on the desktop (there is no frame for it).
+session's action in that browser during that minute. The user resumes it on
+the desktop, or *(added)* in the side panel: the extension then sends the
+event `lease.resumed` (below).
 
 ### Commands
 
@@ -166,10 +167,25 @@ What the desktop does around commands *(added detail)*:
 - `snapshot` and `read` must report `url`: content from a page the desktop
   cannot place is refused. Any result whose `url` is on a site the session
   may not read is dropped before it reaches the model.
-- *(added)* An action's result (`click`, `dblclick`, `hover`, …) may carry
-  `url` (and `title`): the page it ended on. A `snapshot` of what changed is
-  kept only when the result carries a `url` the session may read — without
-  one (the page may have navigated anywhere) the desktop drops it.
+- *(added)* An action's result (`click`, `dblclick`, `hover`, `press`, …)
+  may carry `url` (and `title`): the page it ended on. A `snapshot` of what
+  changed is kept only when the result carries a `url` the session may read —
+  without one (the page may have navigated anywhere) the desktop drops it.
+  It may also carry `navigated: true` (a full navigation, no delta),
+  `dialog: {kind, message}` (the action opened a JavaScript dialog; the result
+  comes at once) and `newTab: {tabId, url, title?}` (a `target=_blank` link,
+  opened in the lease's group) or `newTab: {url, refused: "site_off"}`. The
+  desktop learns the page, the dialog and the tab from them; of a site the
+  session may not read it passes on only the origin — no title, no snapshot,
+  no dialog message.
+- *(added)* `press` carries `refuseSecret: true` too (it types into the
+  focused field). The extension refuses secret fields even without the flag
+  unless a command carries `allowSecret: true`, which the desktop never sends.
+- *(added)* `console`'s `level` is the least serious level to include:
+  `debug` < `log` < `info` < `warning` < `error`.
+- *(added)* An `eval` that throws is `internal` with `data.exception`; the
+  desktop passes the exception's text on to the model (redacted, cut at 300
+  characters).
 - Before asking the user to approve an action on a `ref` it sends
   `highlight {ref, ms: 1500}` (best effort, not awaited).
 - *(added)* `type` and `fill` carry `"refuseSecret": true`: the extension
@@ -306,8 +322,13 @@ All optional; an extension built to the first text keeps working.
 7. `refuseSecret: true` on `type` and `fill`, and the result error code
    `secret_field`.
 8. `url` (and `title`) on an action's result; without it the action's
-   `snapshot` delta is dropped.
-9. The shapes of `state.leases`, and the desktop's behaviour around leases,
+   `snapshot` delta is dropped. Also `navigated`, `dialog` and `newTab` on
+   it; of a site the session may not read only the origin goes on.
+9. The event `lease.resumed` (Resume in the side panel); `refuseSecret` on
+   `press`; `allowSecret` is the extension's own flag, never sent by the
+   desktop; `hello` may also carry `granted` (as `permission.changed` does);
+   `console` levels; `eval`'s `data.exception`.
+10. The shapes of `state.leases`, and the desktop's behaviour around leases,
    commands and events written down (deadlines, `no_lease` and `no_tab`
    retries, `tabs.list` when a page is unknown, `highlight` before an
    approval, redaction).

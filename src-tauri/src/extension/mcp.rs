@@ -244,9 +244,41 @@ fn text_out(text: String) -> ToolOutput {
     ToolOutput::text(text)
 }
 
-/// A short confirmation plus what changed (a click's snapshot delta).
+/// A short confirmation plus what changed (a click's snapshot delta), the
+/// page a navigation ended on and a tab the action opened. Their addresses
+/// and titles are the result's as the desktop passed it on: of a site the
+/// session may not read, the origin only.
 fn acted(what: String, done: &Done) -> ToolOutput {
     let mut text = what;
+    let field = |v: &Value, k: &str| {
+        v.get(k)
+            .and_then(Value::as_str)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string)
+    };
+    if done.data.get("navigated").and_then(Value::as_bool) == Some(true) {
+        if let Some(url) = field(&done.data, "url") {
+            let title = field(&done.data, "title")
+                .map(|t| format!(" — “{t}”"))
+                .unwrap_or_default();
+            text.push_str(&redact::text(&format!(
+                "\nThe page changed: now {url}{title}."
+            )));
+        }
+    }
+    if let Some(tab) = done.data.get("newTab").filter(|t| t.is_object()) {
+        let url = field(tab, "url").unwrap_or_else(|| "a page".into());
+        let line = match tab.get("tabId").and_then(Value::as_i64) {
+            Some(id) => {
+                format!("\nIt opened {url} in a new tab of this session's group (tabId {id}).")
+            }
+            None => format!(
+                "\nIt would have opened {url} in a new tab: not opened, that site is off for \
+                 sessions."
+            ),
+        };
+        text.push_str(&redact::text(&line));
+    }
     if let Some(delta) = done.data.get("snapshot").and_then(Value::as_str) {
         let (delta, cut) = clip_text(&redact::snapshot(delta), SNAPSHOT_MAX_CHARS / 4);
         text.push_str("\nWhat changed:\n");
@@ -653,12 +685,13 @@ pub fn register(r: &mut Registry) {
             "browser_console",
             "Console messages",
             "Recent console messages of the page (needs the extension's debugger permission). \
-             since: epoch ms; level: log | info | warn | error."
+             since: epoch ms; level: the least serious level to include (debug < log < info < \
+             warning < error)."
                 .into(),
             object(
                 json!({
                     "since": {"type": "integer"},
-                    "level": {"type": "string", "enum": ["log", "info", "warn", "error"]},
+                    "level": {"type": "string", "enum": ["debug", "log", "info", "warning", "error"]},
                     "tabId": tab_prop()
                 }),
                 &[],
@@ -1217,8 +1250,9 @@ async fn console(ctx: ToolCtx, args: Value) -> Result<ToolOutput, ToolError> {
     if let Some(s) = int_arg(&args, "since")? {
         params["since"] = json!(s);
     }
-    if let Some(l) = one_of(&args, "level", &["log", "info", "warn", "error"])? {
-        params["level"] = json!(l);
+    let levels = ["debug", "log", "info", "warning", "warn", "error"];
+    if let Some(l) = one_of(&args, "level", &levels)? {
+        params["level"] = json!(if l == "warn" { "warning" } else { l });
     }
     let c = call(
         "browser_console",
@@ -1378,5 +1412,43 @@ mod tests {
         };
         let t = err(r.call("browser_tabs", anon, json!({})).await.unwrap());
         assert!(t.contains("no_session"), "{t}");
+    }
+
+    #[test]
+    fn an_action_says_where_it_went_and_the_tab_it_opened() {
+        let text = |data: Value| {
+            let done = Done {
+                data,
+                url: Some("https://raw.test/path?q=1".into()),
+                title: None,
+                dialog: None,
+            };
+            match acted("Clicked e1.".into(), &done)
+                .content
+                .into_iter()
+                .next()
+            {
+                Some(crate::mcp::Content::Text { text }) => text,
+                _ => panic!("text"),
+            }
+        };
+        // Nothing more than the confirmation when it stayed.
+        assert_eq!(text(json!({"url": "https://a.test/x"})), "Clicked e1.");
+        let t = text(json!({
+            "navigated": true, "url": "https://a.test/next", "title": "Next",
+            "newTab": {"tabId": 7, "url": "https://a.test/new"}
+        }));
+        assert_eq!(
+            t,
+            "Clicked e1.\nThe page changed: now https://a.test/next — “Next”.\nIt opened \
+             https://a.test/new in a new tab of this session's group (tabId 7)."
+        );
+        // The raw address of the page is never the one said.
+        assert!(!t.contains("raw.test"));
+        let t = text(json!({"newTab": {"url": "https://off.test", "refused": "site_off"}}));
+        assert!(
+            t.ends_with("It would have opened https://off.test in a new tab: not opened, that site is off for sessions."),
+            "{t}"
+        );
     }
 }

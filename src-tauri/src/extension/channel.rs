@@ -500,6 +500,16 @@ fn hello(
     if let Ok(mut caps) = conn.capabilities.lock() {
         *caps = v.get("capabilities").cloned().unwrap_or(Value::Null);
     }
+    if let Some(granted) = v.get("granted").and_then(Value::as_array) {
+        if let Ok(mut g) = conn.permissions.lock() {
+            *g = granted
+                .iter()
+                .filter_map(Value::as_str)
+                .take(200)
+                .map(|p| p.chars().take(200).collect())
+                .collect();
+        }
+    }
     if let Ok(mut ev) = conn.extension_version.lock() {
         *ev = version
             .map(|s| crate::server::devices::sanitize_label(s, 24))

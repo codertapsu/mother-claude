@@ -261,6 +261,12 @@ pub fn tool_error(e: &CmdError, page: Option<&str>) -> ToolError {
             } => (code.as_str(), message.as_str(), data),
         };
     let site = page.unwrap_or("this site");
+    // A script's exception says what went wrong in it.
+    let exception = data
+        .get("exception")
+        .and_then(Value::as_str)
+        .map(|x| format!(" Exception: {}", x.chars().take(300).collect::<String>()))
+        .unwrap_or_default();
     let text = match code {
         "stale_ref" => "That ref is gone (the page changed or navigated). Take a new \
                         browser_snapshot and use its refs."
@@ -328,7 +334,10 @@ pub fn tool_error(e: &CmdError, page: Option<&str>) -> ToolError {
             }
         }
     };
-    ToolError::new(code, super::redact::text(&text).into_owned())
+    ToolError::new(
+        code,
+        super::redact::text(&format!("{text}{exception}")).into_owned(),
+    )
 }
 
 // ───────────────────────────────────────────────────────── the session
@@ -751,16 +760,35 @@ fn learn(
                 leases.with_tab(session, key, |info| info.learn_matches(m));
             }
         }
-        "click" | "dblclick" | "hover" => leases.with_tab(session, key, |info| {
-            // It may have navigated: a result that names its page says so.
-            if data.get("url").is_some() {
-                info.navigated(s(data, "url"), s(data, "title"));
-            }
-            if let Some(tree) = data.get("snapshot").and_then(Value::as_str) {
-                info.learn_snapshot(tree, false);
-            }
-        }),
         "dialog" => leases.with_tab(session, key, |info| info.dialog = None),
+        // An action's result may name the page it ended on, what changed, a
+        // dialog it opened and a tab it opened (a `target=_blank` link).
+        _ if danger::class_of(action) == Class::Act => {
+            leases.with_tab(session, key, |info| {
+                if data.get("url").is_some() {
+                    info.navigated(s(data, "url"), s(data, "title"));
+                }
+                if let Some(tree) = data.get("snapshot").and_then(Value::as_str) {
+                    info.learn_snapshot(tree, false);
+                }
+                if let Some(d) = data.get("dialog").filter(|d| d.is_object()) {
+                    info.dialog = Some(super::page::Dialog {
+                        kind: s(d, "kind").unwrap_or_else(|| "alert".into()),
+                        message: super::redact::text(
+                            d.get("message").and_then(Value::as_str).unwrap_or_default(),
+                        )
+                        .chars()
+                        .take(300)
+                        .collect(),
+                    });
+                }
+            });
+            let new_tab = data.get("newTab");
+            if let Some(id) = new_tab.and_then(|t| t.get("tabId")).and_then(Value::as_i64) {
+                let url = new_tab.and_then(|t| s(t, "url"));
+                leases.with_tab(session, id, |info| info.navigated(url, None));
+            }
+        }
         _ => {}
     }
 }
@@ -1367,8 +1395,9 @@ async fn run(
 
     // The command.
     let mut params = call.params.clone();
-    if matches!(call.action, "type" | "fill") {
-        // Defence in depth: the extension refuses a secret field too.
+    if matches!(call.action, "type" | "fill" | "press") {
+        // Defence in depth: the extension refuses a secret field (for
+        // `press`: the focused one) too.
         params["refuseSecret"] = json!(true);
     }
     if let Some(files) = &call.upload {
@@ -1437,13 +1466,28 @@ async fn run(
     // An action's snapshot of what changed may show the page it navigated
     // to: kept only when the result says which page that is and the session
     // may read it.
-    if class == Class::Act && data.get("snapshot").is_some() {
-        let readable = url
-            .as_deref()
-            .is_some_and(|u| settings.mode_of_url(u) >= SiteMode::Read);
-        if !readable {
-            if let Some(o) = data.as_object_mut() {
+    // Of a site it may not read, it learns only the origin: no snapshot, no
+    // title, no dialog's message.
+    if class == Class::Act {
+        let readable = |u: &str| settings.mode_of_url(u) >= SiteMode::Read;
+        if let Some(o) = data.as_object_mut() {
+            if !url.as_deref().is_some_and(readable) {
                 o.remove("snapshot");
+                o.remove("title");
+                o.remove("dialog");
+                if let Some(u) = url.as_deref() {
+                    o.insert("url".into(), json!(sites::origin_of(u).unwrap_or_default()));
+                }
+            }
+            if let Some(tab) = o.get_mut("newTab").and_then(Value::as_object_mut) {
+                let shown = tab.get("url").and_then(Value::as_str).map(str::to_string);
+                if let Some(u) = shown.filter(|u| !readable(u)) {
+                    tab.insert(
+                        "url".into(),
+                        json!(sites::origin_of(&u).unwrap_or_default()),
+                    );
+                    tab.remove("title");
+                }
             }
         }
     }
