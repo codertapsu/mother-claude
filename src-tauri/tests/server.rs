@@ -91,6 +91,8 @@ async fn credentials_are_accepted_only_where_they_belong() {
     assert_eq!(me["principal"], "desktop");
     assert_eq!(me["ingress"], "loopback");
     assert_eq!(me["local"], true);
+    // The desktop's system, which folder hints on every device follow.
+    assert_eq!(me["hostOs"], std::env::consts::OS);
     // …also as ?token= (local scripts, bridge SSE)…
     let r = c
         .get(format!("{base}/api/sessions?token={master}"))

@@ -1361,6 +1361,9 @@ pub struct Me {
     /// The client address this server sees (non-local callers only) (B1).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub client_ip: Option<String>,
+    /// The system the desktop runs (`macos`, `windows`, `linux`): a folder
+    /// typed for it follows its rules, and a phone shows hints in its form.
+    pub host_os: String,
 }
 
 // ─────────────────────────── plan usage (design2 §3) ──────────────────────────

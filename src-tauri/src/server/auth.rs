@@ -702,6 +702,7 @@ pub fn me(state: &AppState, ctx: &ClientContext) -> Me {
         allow_dangerous_lan: device.as_ref().map(|d| d.allow_dangerous),
         allow_dangerous_internet: device.as_ref().map(|d| d.allow_dangerous_internet),
         client_ip: (!ctx.local).then(|| ctx.client_ip.to_string()),
+        host_os: crate::claude::paths::host_os().to_string(),
     }
 }
 
