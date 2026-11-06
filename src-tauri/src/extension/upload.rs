@@ -26,10 +26,25 @@ pub const MAX_BYTES: u64 = 5 * 1024 * 1024;
 /// A file that passed the checks.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UploadFile {
+    /// Resolved: no symlink anywhere in it when it was checked.
     pub path: PathBuf,
     pub name: String,
     pub size: u64,
     pub mime: &'static str,
+    /// The file it was (device, inode) when checked, where the system says.
+    identity: Option<(u64, u64)>,
+}
+
+/// A file's (device, inode), where the system has them.
+#[cfg(unix)]
+fn identity(meta: &std::fs::Metadata) -> Option<(u64, u64)> {
+    use std::os::unix::fs::MetadataExt;
+    Some((meta.dev(), meta.ino()))
+}
+
+#[cfg(not(unix))]
+fn identity(_meta: &std::fs::Metadata) -> Option<(u64, u64)> {
+    None
 }
 
 /// File names that usually hold secrets.
@@ -240,20 +255,43 @@ pub fn check(
             mime: mime_for(&name),
             name,
             size: meta.len(),
+            identity: identity(&meta),
             path,
         });
     }
     Ok(out)
 }
 
-/// The `files` of an `upload` command (read after the approval).
+/// The `files` of an `upload` command (read after the approval). Each must
+/// still be the file that was checked and approved: the same resolved path
+/// (no symlink swapped in since) and, where the system tells, the same file.
 pub fn read(files: &[UploadFile]) -> Result<Vec<Value>, ToolError> {
+    use std::io::Read as _;
     files
         .iter()
         .map(|f| {
-            let bytes = std::fs::read(&f.path).map_err(|e| {
+            let changed = || {
+                refuse(format!(
+                    "{} changed after it was approved: not uploaded.",
+                    f.name
+                ))
+            };
+            if canonical(&f.path).as_deref() != Some(f.path.as_path()) {
+                return Err(changed());
+            }
+            let file = std::fs::File::open(&f.path).map_err(|e| {
                 ToolError::new("not_found", format!("{} cannot be read: {e}.", f.name))
             })?;
+            let meta = file.metadata().map_err(|_| changed())?;
+            if !meta.is_file() || identity(&meta) != f.identity {
+                return Err(changed());
+            }
+            let mut bytes = Vec::new();
+            file.take(MAX_BYTES + 1)
+                .read_to_end(&mut bytes)
+                .map_err(|e| {
+                    ToolError::new("not_found", format!("{} cannot be read: {e}.", f.name))
+                })?;
             if bytes.len() as u64 > MAX_BYTES {
                 return Err(refuse(format!("{} grew too large to upload.", f.name)));
             }
@@ -299,6 +337,20 @@ mod tests {
         assert_eq!(ok[0].mime, "application/pdf");
         let files = read(&ok).unwrap();
         assert_eq!(files[0]["data"], "JVBERg==");
+        // Swapped for a link to something else after the approval: refused.
+        #[cfg(unix)]
+        {
+            // (The original stays alive under another name, so no new file
+            // can reuse its inode.)
+            std::fs::write(p.join("secret.txt"), b"x").unwrap();
+            std::fs::rename(p.join("report.pdf"), p.join("orig.pdf")).unwrap();
+            std::os::unix::fs::symlink(p.join("secret.txt"), p.join("report.pdf")).unwrap();
+            assert_eq!(read(&ok).unwrap_err().code, "upload_refused");
+            // Replaced by another file of the same name: refused too.
+            std::fs::write(p.join("new.pdf"), b"%PDF").unwrap();
+            std::fs::rename(p.join("new.pdf"), p.join("report.pdf")).unwrap();
+            assert_eq!(read(&ok).unwrap_err().code, "upload_refused");
+        }
 
         let code = |paths: &[&str]| {
             check(
