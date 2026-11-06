@@ -403,6 +403,76 @@ describe('BackupComponent', () => {
     expect(el.querySelectorAll('mc-data-job').length).toBe(1);
   });
 
+  it('force-backs up a set after a confirmation that says what is replaced and what stays', async () => {
+    asDesktop();
+    current = ready();
+    backend.routes.set('/backup/push', () => ({ status: 202, body: { jobs: ['jf1'] } }));
+    backend.routes.set('/data/jobs/jf1', () => ({
+      status: 200,
+      body: {
+        ...backupJob('jf1', 'done'),
+        result: {
+          archived: ['c4a2e3f5', 'd5b3f4a6'],
+          unchanged: 3,
+          skippedLive: [],
+          failed: [],
+          conflicts: [],
+          newerInSet: [],
+          config: null,
+          bytes: 1,
+          warnings: [],
+          removed: 0,
+          force: true,
+          replaced: ['c4a2e3f5', 'd5b3f4a6'],
+        },
+      },
+    }));
+    const el = await render();
+    // Only a set that exists has it (a token account's row has none).
+    const labels = [...el.querySelectorAll('.sacts .btn')].map((b) => b.getAttribute('aria-label'));
+    expect(labels).toContain('Force backup of Default');
+    expect(labels).not.toContain('Force backup of Work');
+    (el.querySelector('[aria-label="Force backup of Default"]') as HTMLButtonElement).click();
+    await settle();
+    const dialog = el.querySelector('mc-force-backup-sheet dialog') as HTMLDialogElement;
+    expect(dialog.open).toBeTrue();
+    expect(text(dialog.querySelector('.title'))).toBe('Force backup of Default');
+    const what = text(dialog.querySelector('.what'));
+    expect(what).toContain(
+      "This Mac's copy of every session it has replaces the backup's copy of Default wherever the two differ",
+    );
+    expect(what).toContain('also where another Mac backed up a newer copy');
+    expect(what).toContain('Sessions only in the backup stay as they are');
+    expect(what).toContain('sessions running here are skipped');
+    expect(what).toContain('stays in the backup folder for seven days');
+    // Nothing is sent before it is confirmed.
+    expect(backend.calls).not.toContain('POST /backup/push');
+    button(dialog as unknown as HTMLElement, 'Force backup')?.click();
+    await settle();
+    expect(backend.bodyOf('POST /backup/push')).toEqual({ account: 'default', force: true });
+    expect(text(el.querySelector('.notice.ok'))).toBe(
+      "Force backup of Default: this Mac's copies replace the backup's…",
+    );
+    await new Promise((r) => setTimeout(r, 30));
+    await settle();
+    const row = el.querySelector('mc-data-job');
+    expect(text(row?.querySelector('.jtitle'))).toBe('Force backup of Default');
+    expect(text(row)).toContain("2 sessions backed up · 2 replaced the backup's copy");
+    expect(text(row?.querySelector('mc-job-details p'))).toContain(
+      'the folder keeps the replaced copies seven days',
+    );
+  });
+
+  it('lets a phone see why it cannot force a backup', async () => {
+    current = ready();
+    const el = await render();
+    (el.querySelector('[aria-label="Force backup of Default"]') as HTMLButtonElement).click();
+    await settle();
+    const dialog = el.querySelector('mc-force-backup-sheet dialog') as HTMLElement;
+    expect(text(dialog.querySelector('.blocked'))).toContain('dangerous');
+    expect(button(dialog, 'Force backup')?.disabled).toBeTrue();
+  });
+
   it("says why nothing was backed up, in the app's words", async () => {
     asDesktop();
     current = ready();

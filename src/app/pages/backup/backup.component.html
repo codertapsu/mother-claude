@@ -260,6 +260,15 @@
                 </button>
                 @if (r.set.exists) {
                   <button
+                    class="btn small ghost"
+                    type="button"
+                    [disabled]="!ready() || !!pushing()"
+                    [attr.aria-label]="'Force backup of ' + r.set.name"
+                    (click)="forceFor.set(r.set.account)"
+                  >
+                    Force backup…
+                  </button>
+                  <button
                     class="btn small"
                     type="button"
                     [disabled]="!ready()"
@@ -358,4 +367,10 @@
   [sets]="sets()"
   (closed)="pullFor.set(null)"
   (started)="tracked($event)"
+/>
+<mc-force-backup-sheet
+  [set]="forceSet()"
+  [busy]="!!pushing()"
+  (closed)="forceFor.set(null)"
+  (confirmed)="push($event, true)"
 />

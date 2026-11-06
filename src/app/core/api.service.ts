@@ -614,11 +614,15 @@ export class ApiService {
     return this.post('/backup/passphrase', { passphrase });
   }
 
-  /** Desktop only: back up one set, or every set (202 with the job ids; a
-   * token account's set is the Default's, and a set being backed up
-   * already answers the running job's id). */
-  pushBackup(account?: string): Promise<{ jobs: string[] }> {
-    return this.post('/backup/push', account ? { account } : {});
+  /** Back up one set, or every set (202 with the job ids; a token account's
+   * set is the Default's, and a set being backed up already answers the
+   * running job's id). `force`: a force backup — this Mac's copy replaces
+   * the backup's wherever they differ (a device needs the dangerous right). */
+  pushBackup(account?: string, force = false): Promise<{ jobs: string[] }> {
+    return this.post('/backup/push', {
+      ...(account ? { account } : {}),
+      ...(force ? { force: true } : {}),
+    });
   }
 
   /** A set's sessions compared with an account's directory (`into`,
@@ -627,12 +631,14 @@ export class ApiService {
     return this.req<BackupIndex>(`/backup/index${query({ account, into })}`);
   }
 
-  /** Desktop only: restore sessions of a set (202 with the job, or its id). */
+  /** Restore sessions of a set (202 with the job, or its id). `force`: one
+   * the account has is replaced by the backup's copy (kept for undo). */
   restoreBackup(body: {
     account: string;
     into?: string;
     ids: string[];
     trust?: boolean;
+    force?: boolean;
   }): Promise<{ job: JobView | string }> {
     return this.post('/backup/restore', body);
   }
@@ -642,11 +648,13 @@ export class ApiService {
     return this.post('/backup/restore', { account, config: true });
   }
 
-  /** Desktop only: pull one account's set, or every account's (202). */
+  /** Pull one account's set, or every account's (202). `force`: the
+   * backup's copy replaces this Mac's wherever they differ (kept for undo). */
   pullBackup(body: {
     account?: string;
     ids?: string[];
     trust?: boolean;
+    force?: boolean;
   }): Promise<{ jobs: (JobView | string)[]; skipped?: (PullSkip | string)[] }> {
     return this.post('/backup/pull', body);
   }

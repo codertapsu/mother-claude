@@ -26,6 +26,19 @@ interface Named {
   selector: 'mc-job-details',
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
+    @if (replaced().length) {
+      <p class="h small">{{ replacedLabel() }}</p>
+      <ul class="replaced">
+        @for (s of replaced(); track s.id) {
+          <li class="small">
+            <span class="mono">{{ s.short }}</span>
+            @if (s.name) {
+              {{ s.name }}
+            }
+          </li>
+        }
+      </ul>
+    }
     @if (pushConflicts().length) {
       <p class="h small">
         Changed here and on another Mac, so not backed up — a Pull brings the other copy beside this
@@ -147,6 +160,19 @@ export class JobDetailsComponent {
 
   protected readonly pushConflicts = computed(() =>
     (this.push()?.conflicts ?? []).map((id) => this.named(id)),
+  );
+  /** What a force backup, pull or restore replaced. */
+  protected readonly replaced = computed(() => {
+    const j = this.done();
+    if (j?.kind === 'pull' || j?.kind === 'restore') {
+      return normalizePullResult(j.result).replaced.map((id) => this.named(id));
+    }
+    return (this.push()?.replaced ?? []).map((id) => this.named(id));
+  });
+  protected readonly replacedLabel = computed(() =>
+    this.done()?.kind === 'backup'
+      ? "This Mac's copy replaced the backup's, which another Mac had backed up since this Mac last had it (or which was newer); the folder keeps the replaced copies seven days:"
+      : "The backup's copy replaced the one here, which is kept for undo:",
   );
   protected readonly newerInSet = computed(() =>
     (this.push()?.newerInSet ?? []).map((id) => this.named(id)),

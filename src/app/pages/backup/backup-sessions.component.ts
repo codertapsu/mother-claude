@@ -1,7 +1,13 @@
 import { NgTemplateOutlet } from '@angular/common';
 import { ChangeDetectionStrategy, Component, computed, input, output } from '@angular/core';
 
-import { actionText, pullTakes, restoreTakes } from '../../core/backup';
+import {
+  forceReplaces,
+  forceText,
+  pullTakesSession,
+  restoreLists,
+  restoreTakes,
+} from '../../core/backup';
 import { formatBytes } from '../../core/data-jobs';
 import { BackupAction, BackupIndexSession } from '../../core/models';
 import { TimeAgoComponent } from '../../shared/time-ago.component';
@@ -27,7 +33,8 @@ const TONES: Record<BackupAction, string> = {
  * backed up, its size, whether it is in the storage only (archived) and
  * Claude Code's pruning warning. What it would bring is listed
  * open; the rest (the same, newer here, already there, running) folded
- * below it.
+ * below it. With `force` (a force pull or restore) the copies here that
+ * are not the backup's are listed too, each saying it will be replaced.
  */
 @Component({
   selector: 'mc-backup-sessions',
@@ -71,8 +78,8 @@ const TONES: Record<BackupAction, string> = {
           <input
             type="checkbox"
             [checked]="selected().has(s.id)"
-            [disabled]="!takesAction(s.action) || disabled()"
-            [attr.aria-label]="'Session ' + (s.title || s.id.slice(0, 8)) + ': ' + text(s.action)"
+            [disabled]="!takesSession(s) || disabled()"
+            [attr.aria-label]="'Session ' + (s.title || s.id.slice(0, 8)) + ': ' + text(s)"
             (change)="flip.emit(s.id)"
           />
           <span class="sbody">
@@ -92,8 +99,8 @@ const TONES: Record<BackupAction, string> = {
                 }
               </span>
             }
-            <span class="act small"
-              >{{ text(s.action) }}
+            <span class="act small" [class.replaces]="force() && replaces(s)"
+              >{{ text(s) }}
               @if (s.archived) {
                 <span class="tag">In storage only</span>
               }
@@ -173,6 +180,9 @@ const TONES: Record<BackupAction, string> = {
       [data-tone='amber'] .act {
         color: var(--amber);
       }
+      .act.replaces {
+        color: var(--amber);
+      }
       .prune {
         color: var(--amber);
       }
@@ -201,6 +211,9 @@ export class BackupSessionsComponent {
   readonly sessions = input.required<BackupIndexSession[]>();
   readonly selected = input.required<ReadonlySet<string>>();
   readonly mode = input<'pull' | 'restore'>('restore');
+  /** A force pull or restore: the copies here that are not the backup's are
+   * taken too (replaced, kept for undo). */
+  readonly force = input(false);
   /** Show every row (else the first ones and "Show N more"). */
   readonly all = input(false);
   readonly disabled = input(false);
@@ -212,10 +225,11 @@ export class BackupSessionsComponent {
   readonly expand = output<void>();
 
   /** Listed open, in the set's order (newest push first): what a pull
-   * brings, or what is new to the account a restore goes into. */
+   * brings, or what is new to the account a restore goes into (with
+   * `force`, also the copies there it replaces). */
   private readonly listed = computed(() =>
     this.sessions().filter((s) =>
-      this.mode() === 'pull' ? pullTakes(s.action) : s.action === 'new',
+      this.mode() === 'pull' ? pullTakesSession(s, this.force()) : restoreLists(s, this.force()),
     ),
   );
   /** "x of y selected", All and None speak for the listed ones. */
@@ -232,6 +246,11 @@ export class BackupSessionsComponent {
   });
   protected readonly restLabel = computed(() => {
     const n = this.rest().length;
+    if (this.force()) {
+      return this.mode() === 'pull'
+        ? `${n} ${n === 1 ? 'needs' : 'need'} nothing (the same, running here, or in storage only)`
+        : `${n} ${n === 1 ? 'is' : 'are'} there as the backup has ${n === 1 ? 'it' : 'them'}, or running there`;
+    }
     return this.mode() === 'pull'
       ? `${n} ${n === 1 ? 'needs' : 'need'} nothing (the same, newer here, or running here)`
       : `${n} ${n === 1 ? 'is' : 'are'} already there, or running there`;
@@ -240,12 +259,17 @@ export class BackupSessionsComponent {
     () => this.listed().filter((s) => this.selected().has(s.id)).length,
   );
 
-  protected takesAction(action: BackupAction): boolean {
-    return this.mode() === 'pull' ? pullTakes(action) : restoreTakes(action);
+  protected takesSession(s: BackupIndexSession): boolean {
+    if (this.mode() === 'pull') return pullTakesSession(s, this.force());
+    return this.force() ? restoreLists(s, true) : restoreTakes(s.action);
   }
 
-  protected text(action: BackupAction): string {
-    return actionText(action, this.mode());
+  protected replaces(s: BackupIndexSession): boolean {
+    return forceReplaces(s);
+  }
+
+  protected text(s: BackupIndexSession): string {
+    return forceText(s, this.mode(), this.force());
   }
 
   protected tone(action: BackupAction): string {

@@ -14,14 +14,17 @@ import {
 import { ApiService } from '../../core/api.service';
 import { AuthService } from '../../core/auth.service';
 import {
+  ForceCounts,
   PRUNE_WARNING,
   backupErrorText,
+  forceCounts,
+  forceKinds,
   normalizeBackupIndex,
   normalizePullSkips,
   ownSets,
   preselect,
   prunedOf,
-  pullTakes,
+  pullTakesSession,
 } from '../../core/backup';
 import { jobIdOf, normalizeJob, plural, sentence } from '../../core/data-jobs';
 import { DataJobsService } from '../../core/data-jobs.service';
@@ -32,8 +35,9 @@ import { SheetComponent } from '../../shared/sheet.component';
 import { BackupSessionsComponent } from './backup-sessions.component';
 import { JobDetailsComponent } from './job-details.component';
 
-/** Where the pull dialog is. */
-export type PullStep = 'loading' | 'list' | 'run';
+/** Where the pull dialog is ('confirm': a force pull says what it replaces
+ * before it starts). */
+export type PullStep = 'loading' | 'list' | 'confirm' | 'run';
 
 /** One account's set in the dialog. */
 interface PullGroup {
@@ -63,6 +67,13 @@ interface PullRun {
  * running here (skipped); newer here. Afterwards each account's result,
  * with the conflicts and the file each one was written to. A folder's trust
  * needs the dangerous right.
+ *
+ * Force (docs/BACKUP.md "Force backup, force pull"): the backup's copy
+ * replaces this Mac's wherever they differ — also one that changed here or
+ * is newer here. The list then shows what each copy here is and that it is
+ * replaced, and a confirmation says how many, that sessions only on this
+ * Mac stay, running ones are skipped and the replaced copies are kept for
+ * undo. It needs the dangerous right, as deleting does.
  */
 @Component({
   selector: 'mc-pull-sheet',
@@ -86,6 +97,7 @@ interface PullRun {
                 } @else if (g.index; as ix) {
                   <mc-backup-sessions
                     mode="pull"
+                    [force]="forcing()"
                     [sessions]="ix.sessions"
                     [selected]="selected()"
                     [all]="expanded().has(g.account)"
@@ -121,17 +133,83 @@ interface PullRun {
                 }
               </span>
             </label>
+            <label class="check force">
+              <input
+                type="checkbox"
+                [checked]="forcing()"
+                [disabled]="busy() || !canDangerous()"
+                (change)="setForce($any($event.target).checked)"
+              />
+              <span>
+                Force: the backup's copy replaces this Mac's
+                <span class="muted small hint-line"
+                  >Also where it changed here or is newer here. This Mac's copies are kept for undo,
+                  for seven days; sessions only on this Mac stay, and running ones are
+                  skipped.</span
+                >
+                @if (!canDangerous()) {
+                  <span class="small hint-line blocked">{{ dangerousReason }}</span>
+                }
+              </span>
+            </label>
             @if (error()) {
               <p class="notice error small" role="alert">{{ error() }}</p>
             }
             <div class="row actions">
               <button
-                class="btn primary"
+                class="btn"
                 type="button"
+                [class.primary]="!forcing()"
+                [class.danger]="forcing()"
                 [disabled]="!selected().size || busy()"
-                (click)="pull()"
+                (click)="forcing() ? step.set('confirm') : pull()"
               >
-                {{ busy() ? 'Starting…' : 'Pull ' + plural(selected().size, 'session') }}
+                {{
+                  busy()
+                    ? 'Starting…'
+                    : (forcing() ? 'Force pull ' : 'Pull ') + plural(selected().size, 'session')
+                }}{{ forcing() ? '…' : '' }}
+              </button>
+            </div>
+          }
+          @case ('confirm') {
+            <div class="notice warn small confirm" role="alert">
+              <p>
+                <strong>Force pull.</strong>
+                @if (counts().replaced) {
+                  The backup's copy replaces this Mac's copy of
+                  <strong>{{ plural(counts().replaced, 'session') }}</strong>
+                  @if (kinds()) {
+                    ({{ kinds() }})
+                  }
+                  — also where it changed here or is newer here.
+                } @else {
+                  None of the selected sessions has a copy here that differs from the backup's.
+                }
+                @if (counts().added) {
+                  {{ plural(counts().added, 'session') }} new to this Mac
+                  {{ counts().added === 1 ? 'comes' : 'come' }} too.
+                }
+              </p>
+              <p>
+                Sessions only on this Mac stay as they are, and sessions running here are skipped.
+                This Mac's copies are kept for seven days: Undo puts them back.
+              </p>
+            </div>
+            @if (error()) {
+              <p class="notice error small" role="alert">{{ error() }}</p>
+            }
+            <div class="row actions">
+              <button class="btn danger" type="button" [disabled]="busy()" (click)="pull()">
+                {{ busy() ? 'Starting…' : 'Force pull' }}
+              </button>
+              <button
+                class="btn ghost"
+                type="button"
+                [disabled]="busy()"
+                (click)="step.set('list')"
+              >
+                Back
               </button>
             </div>
           }
@@ -191,6 +269,13 @@ interface PullRun {
       .notice {
         margin: 0.75rem 0 0;
       }
+      .confirm p {
+        margin: 0 0 0.4rem;
+        line-height: 1.5;
+      }
+      .confirm p:last-child {
+        margin-bottom: 0;
+      }
       .actions {
         margin-top: 0.9rem;
       }
@@ -224,6 +309,9 @@ export class PullSheetComponent {
   protected readonly groups = signal<PullGroup[]>([]);
   protected readonly selected = signal<ReadonlySet<string>>(new Set());
   protected readonly trust = signal(false);
+  /** A force pull (needs the dangerous right). */
+  protected readonly force = signal(false);
+  protected readonly forcing = computed(() => this.force() && this.canDangerous());
   protected readonly expanded = signal<ReadonlySet<string>>(new Set());
   protected readonly runs = signal<PullRun[]>([]);
   /** Sets a pull passed over, in the server's words. */
@@ -246,6 +334,14 @@ export class PullSheetComponent {
     ),
   );
   protected readonly running = computed(() => this.runs().some((r) => r.job?.state === 'running'));
+  /** What the selected sessions of a force pull are, counted. */
+  protected readonly counts = computed<ForceCounts>(() =>
+    forceCounts(
+      this.groups().flatMap((g) => g.index?.sessions ?? []),
+      this.selected(),
+    ),
+  );
+  protected readonly kinds = computed(() => forceKinds(this.counts()));
 
   constructor() {
     // Every opening starts over.
@@ -254,6 +350,7 @@ export class PullSheetComponent {
       untracked(() => {
         this.following?.abort();
         this.trust.set(false);
+        this.force.set(false);
         this.runs.set([]);
         this.skipped.set([]);
         this.error.set('');
@@ -287,6 +384,20 @@ export class PullSheetComponent {
     this.expanded.update((prev) => new Set(prev).add(account));
   }
 
+  /** Force on or off: the selection starts over with what that pull takes. */
+  protected setForce(on: boolean): void {
+    this.force.set(on);
+    this.selected.set(this.preselected(on && this.canDangerous()));
+  }
+
+  private preselected(force: boolean): Set<string> {
+    const picked = new Set<string>();
+    for (const g of this.groups()) {
+      for (const sid of preselect(g.index?.sessions ?? [], 'pull', force)) picked.add(sid);
+    }
+    return picked;
+  }
+
   protected setJob(account: string, job: JobView): void {
     this.runs.update((list) => list.map((r) => (r.account === account ? { ...r, job } : r)));
   }
@@ -314,23 +425,20 @@ export class PullSheetComponent {
       }),
     );
     if (seq !== this.loadSeq) return;
-    const picked = new Set<string>();
-    for (const g of groups) {
-      for (const sid of preselect(g.index?.sessions ?? [], 'pull')) picked.add(sid);
-    }
     this.groups.set(groups);
-    this.selected.set(picked);
+    this.selected.set(this.preselected(this.forcing()));
     this.step.set('list');
   }
 
   /** One pull per account with something selected (each its own job). */
   protected async pull(): Promise<void> {
     if (!this.selected().size || this.busy()) return;
+    const force = this.forcing();
     const wanted = this.groups()
       .map((g) => ({
         g,
         ids: (g.index?.sessions ?? [])
-          .filter((s) => pullTakes(s.action) && this.selected().has(s.id))
+          .filter((s) => pullTakesSession(s, force) && this.selected().has(s.id))
           .map((s) => s.id),
       }))
       .filter((w) => w.ids.length > 0);
@@ -342,12 +450,13 @@ export class PullSheetComponent {
     const skipped: string[] = [];
     const failures: string[] = [];
     for (const { g, ids } of wanted) {
-      const label = `Pull of ${g.name}`;
+      const label = `${force ? 'Force pull' : 'Pull'} of ${g.name}`;
       try {
         const res = await this.api.pullBackup({
           account: g.account,
           ids,
           ...(this.trust() && this.canDangerous() ? { trust: true } : {}),
+          ...(force ? { force: true } : {}),
         });
         for (const m of normalizePullSkips(res?.skipped)) {
           const name = this.sets().find((s) => s.account === m.account)?.name;
@@ -366,6 +475,7 @@ export class PullSheetComponent {
     this.busy.set(false);
     if (!runs.length) {
       this.error.set(failures.join(' ') || 'Nothing was pulled.');
+      if (this.step() === 'confirm') this.step.set('list');
       return;
     }
     this.runs.set(runs);

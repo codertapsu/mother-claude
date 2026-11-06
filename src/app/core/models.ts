@@ -1017,6 +1017,9 @@ export interface BackupIndexSession {
   pruneWarning?: string;
   /** Moved into the storage and out of every account: in the storage only. */
   archived?: boolean;
+  /** The account has it, and not as the backup has it (by size and time),
+   * whatever `action` says: what a force pull or restore replaces. */
+  differs?: boolean;
 }
 
 export interface BackupConfigEntry {
@@ -1057,6 +1060,11 @@ export interface RestoreResult {
   restored: string[];
   skipped: BackupSkip[];
   warnings: BackupWarning[];
+  /** A force restore or pull: the backup's copy replaced the one here
+   * (that one kept for undo). Not in `restored` nor `updated`. */
+  replaced: string[];
+  /** It was a force restore or pull. */
+  force: boolean;
 }
 
 /** A pull's `result`. */
@@ -1085,6 +1093,13 @@ export interface PushResult {
   warnings: string[];
   /** Files no index names any more, removed. */
   removed: number;
+  /** A force backup: this Mac's copy replaced the backup's wherever they
+   * differ. */
+  force: boolean;
+  /** What a force backup replaced although another Mac had backed it up
+   * since this Mac last had it (or the backup's copy was newer); in
+   * `archived` too. The replaced copies stay in the folder seven days. */
+  replaced: string[];
 }
 
 /** `POST /backup/passphrase`. */

@@ -1,5 +1,6 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 
+import { AuthService } from '../../core/auth.service';
 import { DataJobsService } from '../../core/data-jobs.service';
 import {
   FakeBackend,
@@ -266,6 +267,79 @@ describe('PullSheetComponent', () => {
     await settle(5);
     const lines = [...el.querySelectorAll('.runs ~ p.muted')].map((p) => text(p));
     expect(lines).toEqual(['Work: There is no backup of Work.', 'An older server said this.']);
+  });
+
+  it('force-pulls after saying exactly what it replaces, what stays and the undo', async () => {
+    backend.routes.set('/backup/pull', () => ({
+      status: 202,
+      body: { jobs: ['job_f'], skipped: [] },
+    }));
+    backend.routes.set('/data/jobs/job_f', () => ({
+      status: 200,
+      body: pullJob(
+        'job_f',
+        {
+          restored: ['w0000001'],
+          updated: [],
+          conflicts: [],
+          skipped: [],
+          warnings: [],
+          historyLines: 0,
+          replaced: ['w0000002'],
+          force: true,
+        },
+        MOCK_ACCOUNT_WORK,
+      ),
+    }));
+    const el = await open(MOCK_ACCOUNT_WORK);
+    expect(text(button(el, 'Pull'))).toBe('Pull 1 session');
+    const force = el.querySelector('.check.force input') as HTMLInputElement;
+    expect(force.disabled).toBeFalse();
+    force.checked = true;
+    force.dispatchEvent(new Event('change'));
+    fixture.detectChanges();
+    // The copy newer here is offered too, saying it is replaced.
+    const acts = [...el.querySelectorAll('.rows > .srow')]
+      .filter((r) => !r.closest('details'))
+      .map((r) => text(r.querySelector('.act')));
+    expect(acts).toEqual([
+      'New here',
+      "Newer here — the backup's copy replaces this Mac's, kept for undo",
+    ]);
+    expect(text(button(el, 'Force pull'))).toBe('Force pull 2 sessions…');
+    button(el, 'Force pull')?.click();
+    fixture.detectChanges();
+    // Nothing is sent before the confirmation.
+    expect(backend.calls.some((c) => c.startsWith('POST'))).toBeFalse();
+    const confirm = text(el.querySelector('.confirm'));
+    expect(confirm).toContain("The backup's copy replaces this Mac's copy of 1 session");
+    expect(confirm).toContain('(1 newer here)');
+    expect(confirm).toContain('1 session new to this Mac comes too.');
+    expect(confirm).toContain('Sessions only on this Mac stay as they are');
+    expect(confirm).toContain('sessions running here are skipped');
+    expect(confirm).toContain("This Mac's copies are kept for seven days: Undo puts them back.");
+    button(el, 'Force pull')?.click();
+    await settle(5);
+    expect(backend.bodyOf('POST /backup/pull')).toEqual({
+      account: MOCK_ACCOUNT_WORK,
+      ids: ['w0000001', 'w0000002'],
+      force: true,
+    });
+    const row = el.querySelector('mc-data-job');
+    expect(text(row)).toContain('Force pull of Work');
+    expect(text(row)).toContain('1 new · 1 replaced');
+    expect(text(row?.querySelector('mc-job-details p'))).toBe(
+      "The backup's copy replaced the one here, which is kept for undo:",
+    );
+  });
+
+  it('turns force off for a phone without the dangerous right, and says why', async () => {
+    TestBed.inject(AuthService).me.set(null);
+    const el = await open(MOCK_ACCOUNT_WORK);
+    const force = el.querySelector('.check.force input') as HTMLInputElement;
+    expect(force.disabled).toBeTrue();
+    expect(text(el.querySelector('.check.force .blocked'))).toContain('dangerous');
+    expect(text(button(el, 'Pull'))).toBe('Pull 1 session');
   });
 
   it('sends only what stays ticked', async () => {

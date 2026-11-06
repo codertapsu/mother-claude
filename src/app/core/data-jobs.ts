@@ -138,7 +138,11 @@ export function jobTitle(
   nameOf: (id: string) => string | undefined,
   storageOf: (id: string) => string | undefined = () => undefined,
 ): string {
-  const kind = jobKindLabel(j.kind);
+  // A force backup, pull or restore says so once its result does.
+  const forced =
+    ['backup', 'pull', 'restore'].includes(j.kind) &&
+    (j.result as { force?: unknown } | undefined)?.force === true;
+  const kind = forced ? `Force ${jobKindLabel(j.kind).toLowerCase()}` : jobKindLabel(j.kind);
   const name = (id: string | undefined) => (id ? nameOf(id) : undefined);
   const set = name(j.account);
   switch (j.kind) {

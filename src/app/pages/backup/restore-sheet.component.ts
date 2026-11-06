@@ -15,12 +15,16 @@ import { AccountsService } from '../../core/accounts.service';
 import { ApiService } from '../../core/api.service';
 import { AuthService } from '../../core/auth.service';
 import {
+  ForceCounts,
   PRUNE_WARNING,
   backupErrorText,
+  forceCounts,
+  forceKinds,
   normalizeBackupIndex,
   ownSets,
   preselect,
   prunedOf,
+  restoreLists,
 } from '../../core/backup';
 import { jobIdOf, normalizeJob, plural } from '../../core/data-jobs';
 import { DataJobsService } from '../../core/data-jobs.service';
@@ -45,6 +49,11 @@ export type RestoreStep = 'loading' | 'list' | 'confirm' | 'run' | 'error';
  * selected one has it, the dialog says so before it starts. A folder's
  * trust comes back only when ticked (it needs the dangerous right).
  * Restoring writes only new files and can be undone.
+ *
+ * Force (the dangerous right, as deleting): the backup's copy also
+ * replaces a session the account has that is not as the backup has it —
+ * listed, each saying so — and a confirmation says how many and that the
+ * account's copies are kept for undo, before it starts.
  */
 @Component({
   selector: 'mc-restore-sheet',
@@ -90,6 +99,7 @@ export type RestoreStep = 'loading' | 'list' | 'confirm' | 'run' | 'error';
             @if (index(); as ix) {
               <mc-backup-sessions
                 mode="restore"
+                [force]="forcing()"
                 [sessions]="ix.sessions"
                 [selected]="selected()"
                 [all]="showAll()"
@@ -116,35 +126,96 @@ export type RestoreStep = 'loading' | 'list' | 'confirm' | 'run' | 'error';
                 }
               </span>
             </label>
+            <label class="check force">
+              <input
+                type="checkbox"
+                [checked]="forcing()"
+                [disabled]="busy() || !canDangerous()"
+                (change)="setForce($any($event.target).checked)"
+              />
+              <span>
+                Force: replace the copies {{ intoName() }} has
+                <span class="muted small hint-line"
+                  >The backup's copy also replaces a session {{ intoName() }} has that is not as the
+                  backup has it — newer there, or changed there. Its copies are kept for undo, for
+                  seven days; running sessions are skipped.</span
+                >
+                @if (!canDangerous()) {
+                  <span class="small hint-line blocked">{{ dangerousReason }}</span>
+                }
+              </span>
+            </label>
             @if (error()) {
               <p class="notice error small" role="alert">{{ error() }}</p>
             }
             <div class="row actions">
               <button
-                class="btn primary"
+                class="btn"
                 type="button"
+                [class.primary]="!forcing()"
+                [class.danger]="forcing()"
                 [disabled]="!selected().size || busy()"
                 (click)="restore()"
               >
-                {{ busy() ? 'Starting…' : 'Restore ' + plural(selected().size, 'session') }}
+                {{
+                  busy()
+                    ? 'Starting…'
+                    : (forcing() ? 'Force restore ' : 'Restore ') +
+                      plural(selected().size, 'session')
+                }}{{ forcing() ? '…' : '' }}
               </button>
             </div>
           }
           @case ('confirm') {
-            <div class="notice warn small" role="alert">
-              <p>
-                <strong>{{ pruneCount() }}</strong> of the selected sessions
-                {{ pruneCount() === 1 ? 'is' : 'are' }} older than {{ intoName() }} keeps
-                conversations. {{ pruneWarning }}
-              </p>
-              <p>
-                Raise it in {{ intoName() }}'s settings.json first to keep
-                {{ pruneCount() === 1 ? 'it' : 'them' }}.
-              </p>
-            </div>
+            @if (forcing()) {
+              <div class="notice warn small force-confirm" role="alert">
+                <p>
+                  <strong>Force restore.</strong>
+                  @if (counts().replaced) {
+                    The backup's copy replaces {{ intoName() }}'s copy of
+                    <strong>{{ plural(counts().replaced, 'session') }}</strong
+                    >{{ kinds() ? ' (' + kinds() + ')' : '' }}.
+                  } @else {
+                    None of the selected sessions has a copy in {{ intoName() }} that differs from
+                    the backup's.
+                  }
+                  @if (counts().added) {
+                    {{ plural(counts().added, 'session') }} new to {{ intoName() }}
+                    {{ counts().added === 1 ? 'comes' : 'come' }} too.
+                  }
+                </p>
+                <p>
+                  Sessions only in {{ intoName() }} stay as they are, and running ones are skipped.
+                  Its copies are kept for seven days: Undo puts them back.
+                </p>
+              </div>
+            }
+            @if (pruneCount()) {
+              <div class="notice warn small" role="alert">
+                <p>
+                  <strong>{{ pruneCount() }}</strong> of the selected sessions
+                  {{ pruneCount() === 1 ? 'is' : 'are' }} older than {{ intoName() }} keeps
+                  conversations. {{ pruneWarning }}
+                </p>
+                <p>
+                  Raise it in {{ intoName() }}'s settings.json first to keep
+                  {{ pruneCount() === 1 ? 'it' : 'them' }}.
+                </p>
+              </div>
+            }
+            @if (error()) {
+              <p class="notice error small" role="alert">{{ error() }}</p>
+            }
             <div class="row actions">
-              <button class="btn primary" type="button" [disabled]="busy()" (click)="start()">
-                {{ busy() ? 'Starting…' : 'Restore anyway' }}
+              <button
+                class="btn"
+                type="button"
+                [class.primary]="!forcing()"
+                [class.danger]="forcing()"
+                [disabled]="busy()"
+                (click)="start()"
+              >
+                {{ busy() ? 'Starting…' : forcing() ? 'Force restore' : 'Restore anyway' }}
               </button>
               <button
                 class="btn ghost"
@@ -237,6 +308,9 @@ export class RestoreSheetComponent {
   protected readonly index = signal<BackupIndex | null>(null);
   protected readonly selected = signal<ReadonlySet<string>>(new Set());
   protected readonly trust = signal(false);
+  /** A force restore (needs the dangerous right). */
+  protected readonly force = signal(false);
+  protected readonly forcing = computed(() => this.force() && this.canDangerous());
   protected readonly showAll = signal(false);
   protected readonly job = signal<JobView | null>(null);
   protected readonly setId = signal('');
@@ -263,6 +337,11 @@ export class RestoreSheetComponent {
   protected readonly pruneCount = computed(
     () => prunedOf(this.index()?.sessions ?? [], this.selected()).length,
   );
+  /** What the selected sessions of a force restore are, counted. */
+  protected readonly counts = computed<ForceCounts>(() =>
+    forceCounts(this.index()?.sessions ?? [], this.selected()),
+  );
+  protected readonly kinds = computed(() => forceKinds(this.counts()));
 
   constructor() {
     // Every opening starts over, with the set it was opened for.
@@ -274,6 +353,7 @@ export class RestoreSheetComponent {
         this.setId.set(id);
         this.intoId.set(this.accounts.byId(id)?.kind === 'directory' ? id : 'default');
         this.trust.set(false);
+        this.force.set(false);
         this.job.set(null);
         void this.load();
       });
@@ -293,6 +373,16 @@ export class RestoreSheetComponent {
     if (!id || id === this.intoId()) return;
     this.intoId.set(id);
     void this.load();
+  }
+
+  /** Force on or off: what is no longer offered is no longer selected. */
+  protected setForce(on: boolean): void {
+    this.force.set(on);
+    const force = this.forcing();
+    const offered = new Set(
+      (this.index()?.sessions ?? []).filter((s) => restoreLists(s, force)).map((s) => s.id),
+    );
+    this.selected.update((prev) => new Set([...prev].filter((id) => offered.has(id))));
   }
 
   protected toggle(id: string): void {
@@ -337,10 +427,11 @@ export class RestoreSheetComponent {
     }
   }
 
-  /** Restore, saying first when Claude Code would prune some again. */
+  /** Restore, saying first what a force restore replaces, or when Claude
+   * Code would prune some again. */
   protected restore(): void {
     if (!this.selected().size || this.busy()) return;
-    if (this.pruneCount() > 0) {
+    if (this.forcing() || this.pruneCount() > 0) {
       this.step.set('confirm');
       return;
     }
@@ -359,6 +450,7 @@ export class RestoreSheetComponent {
         ...(this.intoId() !== this.setId() ? { into: this.intoId() } : {}),
         ids,
         ...(this.trust() && this.canDangerous() ? { trust: true } : {}),
+        ...(this.forcing() ? { force: true } : {}),
       });
       first = normalizeJob(res?.job) ?? jobIdOf(res?.job);
       if (!first) throw new Error('The Mac sent no job for the restore.');

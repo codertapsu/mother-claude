@@ -3,6 +3,10 @@ import {
   actionText,
   andList,
   backupErrorText,
+  forceCounts,
+  forceKinds,
+  forceReplaces,
+  forceText,
   jobSummary,
   normalizeBackupIndex,
   normalizeBackupView,
@@ -15,8 +19,11 @@ import {
   passphraseFailure,
   preselect,
   prunedOf,
+  pullTakesSession,
+  restoreLists,
   scheduleLabel,
 } from './backup';
+import { jobTitle } from './data-jobs';
 import { BackupIndexSession, JobView } from './models';
 
 const s = (id: string, action: BackupIndexSession['action'], pruneWarning?: string) =>
@@ -190,6 +197,84 @@ describe('backup helpers', () => {
     expect([...preselect(list, 'pull')]).toEqual(['n', 'u', 'c']);
   });
 
+  it('tells what a force pull or restore takes and replaces, and says it', () => {
+    const differs = (x: BackupIndexSession) => ({ ...x, differs: true });
+    const list = [
+      s('n', 'new'),
+      { ...s('na', 'new'), archived: true },
+      differs(s('u', 'update')),
+      differs(s('c', 'conflict')),
+      differs(s('l', 'localNewer')),
+      // Changed on both with its conflict copy here: "same", not the set's.
+      differs(s('k', 'same')),
+      s('same', 'same'),
+      differs(s('live', 'live')),
+    ];
+    expect(list.filter(forceReplaces).map((x) => x.id)).toEqual(['u', 'c', 'l', 'k']);
+    // A force pull takes those and what is new (never one in storage only).
+    expect(list.filter((x) => pullTakesSession(x, true)).map((x) => x.id)).toEqual([
+      'n',
+      'u',
+      'c',
+      'l',
+      'k',
+    ]);
+    expect(list.filter((x) => pullTakesSession(x, false)).map((x) => x.id)).toEqual([
+      'n',
+      'na',
+      'u',
+      'c',
+    ]);
+    expect([...preselect(list, 'pull', true)]).toEqual(['n', 'u', 'c', 'l', 'k']);
+    expect(list.filter((x) => restoreLists(x, true)).map((x) => x.id)).toEqual([
+      'n',
+      'na',
+      'u',
+      'c',
+      'l',
+      'k',
+    ]);
+    expect(forceText(list[4], 'pull')).toBe(
+      "Newer here — the backup's copy replaces this Mac's, kept for undo",
+    );
+    expect(forceText(list[5], 'restore')).toBe(
+      "Not the backup's copy — the backup's copy replaces the account's, kept for undo",
+    );
+    expect(forceText(list[4], 'pull', false)).toBe('Newer here');
+    expect(forceText(list[6], 'pull')).toBe('Same');
+    const counts = forceCounts(list, new Set(['n', 'u', 'c', 'l', 'k', 'same', 'live']));
+    expect(counts).toEqual({
+      replaced: 4,
+      changedHere: 1,
+      newerHere: 1,
+      changedOnBoth: 1,
+      newerInBackup: 1,
+      added: 1,
+    });
+    expect(forceKinds(counts)).toBe(
+      '1 newer here, 1 changed here, 1 changed on both, 1 newer in the backup',
+    );
+  });
+
+  it('sums up a force job, and titles it once its result says so', () => {
+    expect(
+      jobSummary(
+        done('backup', { archived: ['a', 'b'], replaced: ['b'], force: true, unchanged: 1 }),
+      ),
+    ).toBe("2 sessions backed up · 1 replaced the backup's copy · 1 unchanged");
+    expect(jobSummary(done('pull', { restored: ['a'], replaced: ['b', 'c'], force: true }))).toBe(
+      '1 new · 2 replaced',
+    );
+    expect(jobSummary(done('restore', { restored: [], replaced: ['b'], force: true }))).toBe(
+      '0 sessions restored · 1 replaced',
+    );
+    const name = (id: string) => (id === 'default' ? 'Default' : undefined);
+    const forced = { ...done('backup', { force: true }), account: 'default' };
+    expect(jobTitle(forced, name)).toBe('Force backup of Default');
+    expect(jobTitle({ ...forced, result: {} }, name)).toBe('Backup of Default');
+    expect(jobTitle({ ...forced, kind: 'pull' }, name)).toBe('Force pull of Default');
+  });
+
   it('finds the selected sessions Claude Code would prune again', () => {
     const list = [s('a', 'new', 'old'), s('b', 'new', 'old'), s('c', 'new')];
     expect(prunedOf(list, new Set(['a', 'c'])).map((x) => x.id)).toEqual(['a']);
@@ -289,6 +374,8 @@ describe('backup helpers', () => {
       bytes: 0,
       warnings: ['left out: x'],
       removed: 2,
+      force: false,
+      replaced: [],
     });
     // An older server's result has none of them.
     expect(normalizePushResult({ archived: [] })).toEqual(

@@ -240,6 +240,88 @@ describe('RestoreSheetComponent', () => {
     });
   });
 
+  it('force-restores over the copies the account has, after saying so', async () => {
+    const withCopies = () => {
+      const ix = index();
+      const base = ix.sessions[0];
+      (ix.sessions as Record<string, unknown>[]).push(
+        { ...base, id: 'eeeeeeee-0005', action: 'localNewer', title: 'Newer here', differs: true },
+        // Changed on both, its conflict copy here: "same", yet not the set's.
+        { ...base, id: 'ffffffff-0006', action: 'same', title: 'Kept apart', differs: true },
+      );
+      return ix;
+    };
+    backend.routes.set('/backup/index', () => ({ status: 200, body: withCopies() }));
+    backend.routes.set('/backup/restore', () => ({
+      status: 202,
+      body: {
+        job: {
+          ...doneJob(),
+          result: {
+            restored: ['aaaaaaaa-0001'],
+            replaced: ['eeeeeeee-0005'],
+            skipped: [],
+            warnings: [],
+            force: true,
+          },
+        },
+      },
+    }));
+    const el = await open();
+    const force = el.querySelector('.check.force input') as HTMLInputElement;
+    force.checked = true;
+    force.dispatchEvent(new Event('change'));
+    fixture.detectChanges();
+    const open_ = [...el.querySelectorAll('.rows > .srow')].filter((r) => !r.closest('details'));
+    expect(open_.map((r) => text(r.querySelector('.stitle')))).toEqual([
+      'Refactor auth middleware',
+      '',
+      'Newer here',
+      'Kept apart',
+    ]);
+    expect(text(open_[2].querySelector('.act'))).toBe(
+      "Newer here — the backup's copy replaces the account's, kept for undo",
+    );
+    expect(text(open_[3].querySelector('.act'))).toBe(
+      "Not the backup's copy — the backup's copy replaces the account's, kept for undo",
+    );
+    // Only what was asked: the pruned one off, the newer copy on.
+    boxes(el)[1].click();
+    boxes(el)[2].click();
+    fixture.detectChanges();
+    expect(text(button(el, 'Force restore'))).toBe('Force restore 2 sessions…');
+    button(el, 'Force restore')?.click();
+    fixture.detectChanges();
+    expect(backend.calls).not.toContain('POST /backup/restore');
+    const confirm = text(el.querySelector('.force-confirm'));
+    expect(confirm).toContain(
+      "The backup's copy replaces Default's copy of 1 session (1 newer here).",
+    );
+    expect(confirm).toContain('1 session new to Default comes too.');
+    expect(confirm).toContain('Sessions only in Default stay as they are');
+    expect(confirm).toContain('Its copies are kept for seven days: Undo puts them back.');
+    button(el, 'Force restore')?.click();
+    await settle(5);
+    expect(backend.bodyOf('POST /backup/restore')).toEqual({
+      account: 'default',
+      ids: ['aaaaaaaa-0001', 'eeeeeeee-0005'],
+      force: true,
+    });
+    const row = el.querySelector('mc-data-job');
+    expect(text(row?.querySelector('.jtitle'))).toBe('Force restore of Default');
+    expect(text(row)).toContain('1 session restored · 1 replaced');
+  });
+
+  it('keeps a phone without the dangerous right from forcing, and says why', async () => {
+    TestBed.inject(AuthService).me.set(me({ allowDangerous: false }));
+    const el = await open();
+    const force = el.querySelector('.check.force input') as HTMLInputElement;
+    expect(force.disabled).toBeTrue();
+    expect(text(el.querySelector('.check.force'))).toContain(
+      'Needs dangerous actions for this device, granted on the Mac in Remote › Devices.',
+    );
+  });
+
   it("says in plain words that a set failed its check, or that its key isn't here", async () => {
     let code = 'backup_unauthenticated';
     backend.routes.set('/backup/index', () => ({

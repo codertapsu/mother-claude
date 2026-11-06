@@ -26,6 +26,7 @@ import { DataJobComponent } from '../../shared/data-job.component';
 import { IconComponent } from '../../shared/icon.component';
 import { TimeAgoComponent } from '../../shared/time-ago.component';
 import { shortPath } from '../../shared/util';
+import { ForceBackupSheetComponent } from './force-backup-sheet.component';
 import { JobDetailsComponent } from './job-details.component';
 import { PassphraseSheetComponent } from './passphrase-sheet.component';
 import { PullSheetComponent } from './pull-sheet.component';
@@ -63,7 +64,10 @@ interface SetRow {
  * folder and the folders added beside it, with their sets (Move data).
  * The desktop and paired phones alike (docs/ACCOUNTS.md §13.9), except the
  * passphrase, which is set on the Mac; a folder's trust needs the
- * dangerous right.
+ * dangerous right. Each set has Force backup… (this Mac's copies replace
+ * the backup's, after a confirmation that says what is replaced and what
+ * stays; the dangerous right too); force pull and force restore are in
+ * their dialogs.
  */
 @Component({
   selector: 'mc-backup',
@@ -72,6 +76,7 @@ interface SetRow {
     RouterLink,
     CopyButtonComponent,
     DataJobComponent,
+    ForceBackupSheetComponent,
     IconComponent,
     JobDetailsComponent,
     PassphraseSheetComponent,
@@ -107,6 +112,11 @@ export class BackupComponent {
   protected readonly restoreFor = signal<string | null>(null);
   /** The pull dialog: one account (its id), every account (''), or closed. */
   protected readonly pullFor = signal<string | null>(null);
+  /** The force backup confirmation: the set's account, or closed. */
+  protected readonly forceFor = signal<string | null>(null);
+  protected readonly forceSet = computed(
+    () => this.view()?.sets.find((s) => s.account === this.forceFor()) ?? null,
+  );
   /** "Restore settings": where each account's bundle was unpacked. */
   protected readonly configFolders = signal<ReadonlyMap<string, string>>(new Map());
   protected readonly configBusy = signal<string | null>(null);
@@ -252,14 +262,15 @@ export class BackupComponent {
   // ─────────────────────────────────────────────── Backing up (desktop)
 
   /** Back up one set, or every set (`account` omitted). A set that is
-   * being backed up already answers that job, which is followed once. */
-  protected async push(account?: string): Promise<void> {
+   * being backed up already answers that job, which is followed once.
+   * `force`: a force backup (confirmed in its dialog first). */
+  protected async push(account?: string, force = false): Promise<void> {
     if (this.pushing()) return;
     this.pushing.set(account ?? 'all');
     this.error.set('');
     this.notice.set('');
     try {
-      const res = await this.api.pushBackup(account);
+      const res = await this.api.pushBackup(account, force);
       const ids = [...new Set((res?.jobs ?? []).map(jobIdOf).filter(Boolean))];
       const already = ids.filter((id) => this.following.has(id)).length;
       for (const id of ids) this.follow(id);
@@ -272,9 +283,13 @@ export class BackupComponent {
         this.notice.set(
           account ? `${who} is being backed up already.` : 'Every backup is running already.',
         );
+      } else if (force) {
+        this.notice.set(`Force backup of ${who}: this Mac's copies replace the backup's…`);
       } else this.notice.set(`Backing up ${who}…`);
+      if (force) this.forceFor.set(null);
     } catch (e) {
       this.error.set(backupErrorText(e));
+      if (force) this.forceFor.set(null);
     } finally {
       this.pushing.set(null);
     }

@@ -228,7 +228,7 @@ export class MockData {
     if (path === '/backup/passphrase' && method === 'POST') {
       return this.desk(() => this.passphrase(b));
     }
-    if (path === '/backup/push' && method === 'POST') return this.push(b);
+    if (path === '/backup/push' && method === 'POST') return this.trusted(b, () => this.push(b));
     if (path === '/backup/index' && method === 'GET') return this.index(q);
     if (path === '/backup/restore' && method === 'POST') {
       return this.trusted(b, () => this.restore(b));
@@ -564,7 +564,8 @@ export class MockData {
     return null;
   }
 
-  /** `POST /backup/push`: one set, or every set (each directory once). */
+  /** `POST /backup/push`: one set, or every set (each directory once);
+   * `force` a force backup of each. */
   private push(b: Record<string, unknown>): Response {
     const pre = this.prerequisites();
     if (pre) return pre;
@@ -572,12 +573,16 @@ export class MockData {
     const a = asked ? this.account(asked) : undefined;
     if (asked && !a) return fail(422, 'invalid_backup', `no account ${JSON.stringify(asked)}`);
     const owners = a ? [this.owner(a)] : this.owners();
-    return json({ jobs: owners.map((o) => this.pushSet(o)) }, 202);
+    const force = b['force'] === true;
+    return json({ jobs: owners.map((o) => this.pushSet(o, force)) }, 202);
   }
 
-  /** Back up one set; a set that is being backed up answers that job. */
-  private pushSet(owner: AccountView): string {
-    const key = `backup:${owner.id}`;
+  /** Back up one set; a set that is being backed up answers that job (a
+   * force backup is its own job, like the server's). A force backup
+   * replaces what another Mac changed: those are `replaced` (and in
+   * `archived`), and the set has this Mac's copies from then on. */
+  private pushSet(owner: AccountView, force = false): string {
+    const key = `${force ? 'backup-force' : 'backup'}:${owner.id}`;
     const running = this.flights.get(key);
     if (running) return running;
     const mine = this.host
@@ -614,20 +619,25 @@ export class MockData {
           .filter((r) => r.action === action && !this.copies.get(r.id)?.has(owner.id))
           .map((r) => r.id);
       const bundle = owner.id === DEFAULT_ACCOUNT && CONFIGURED;
+      const replaced = force ? [...pending('conflict'), ...pending('update')] : [];
+      // The set has this Mac's copy of each now: the same here.
+      for (const sid of replaced) this.copyTo(sid, owner.id);
       return {
         result: {
-          archived,
+          archived: [...archived, ...replaced],
           unchanged,
           skippedLive: live,
           failed: [],
-          conflicts: pending('conflict'),
-          newerInSet: pending('update'),
+          conflicts: force ? [] : pending('conflict'),
+          newerInSet: force ? [] : pending('update'),
           config: `config/${new Date(now).toISOString()}-${randomHex(12)}.tar.gz.age`,
-          bytes: archived.length * 180_000,
+          bytes: (archived.length + replaced.length) * 180_000,
           warnings: bundle
             ? ['agents/review.md could not be read and is not in the configuration bundle']
             : [],
           removed: before?.exists ? 2 : 0,
+          ...(force ? { force: true } : {}),
+          ...(replaced.length ? { replaced } : {}),
         },
       };
     });
@@ -664,6 +674,8 @@ export class MockData {
           host: HOST,
           pushedAt: st?.lastPush ?? now - 2 * H,
           newestMtime: s.lastActivityAt ?? now - 3 * H,
+          // Newer here: not the set's copy (a force pull replaces it).
+          ...(action === 'localNewer' ? { differs: true } : {}),
         };
       });
     const remote = (this.remote.get(account) ?? []).map((r): BackupIndexSession => {
@@ -686,6 +698,7 @@ export class MockData {
                 'Claude Code will delete this again at its next cleanup unless cleanupPeriodDays (now 30) is raised.',
             }
           : {}),
+        ...(action === 'update' || action === 'conflict' ? { differs: true } : {}),
       };
     });
     return [...remote, ...local].sort((a, b) => b.pushedAt - a.pushedAt);
@@ -756,6 +769,7 @@ export class MockData {
     const into = typeof b['into'] === 'string' && b['into'] ? b['into'] : account;
     if (!this.account(into))
       return fail(422, 'invalid_backup', `no account ${JSON.stringify(into)}`);
+    const force = b['force'] === true;
     const plan = new Map(this.compare(owner.id, into).map((s) => [s.id, s]));
     const id = this.newJobId();
     this.start(id, 'restore', ids.length, 0, [], { account: owner.id, to: into });
@@ -763,6 +777,7 @@ export class MockData {
       const refused = this.refusal(owner);
       if (refused) return { error: refused };
       const restored: string[] = [];
+      const replaced: string[] = [];
       const skipped: { id: string; code: string; reason: string }[] = [];
       const warnings: { id: string; text: string }[] = [];
       for (const sid of ids) {
@@ -775,11 +790,14 @@ export class MockData {
             code: 'session_live',
             reason: `session ${sid} is running; stop it first`,
           });
+        else if (s.action !== 'new' && force && s.differs) replaced.push(sid);
         else if (s.action !== 'new')
           skipped.push({
             id: sid,
             code: 'already_exists',
-            reason: `the target account already has session ${sid}`,
+            reason: force
+              ? 'this account has it as the backup has it'
+              : `the target account already has session ${sid}`,
           });
         else {
           restored.push(sid);
@@ -787,11 +805,17 @@ export class MockData {
         }
       }
       const intoHome = this.homeId(into);
-      for (const sid of restored) this.copyTo(sid, intoHome);
+      for (const sid of [...restored, ...replaced]) this.copyTo(sid, intoHome);
       return {
-        result: { restored, skipped, warnings },
-        sessions: restored,
-        undo: restored.length > 0,
+        result: {
+          restored,
+          skipped,
+          warnings,
+          ...(replaced.length ? { replaced } : {}),
+          ...(force ? { force: true } : {}),
+        },
+        sessions: [...restored, ...replaced],
+        undo: restored.length + replaced.length > 0,
         onUndo: () => restored.forEach((sid) => this.copies.get(sid)?.delete(intoHome)),
       };
     });
@@ -807,13 +831,14 @@ export class MockData {
     const wantedIds = Array.isArray(b['ids'])
       ? new Set(b['ids'].filter((x): x is string => typeof x === 'string'))
       : null;
+    const force = b['force'] === true;
     if (asked) {
       const a = this.account(asked);
       if (!a) return fail(422, 'invalid_backup', `no account ${JSON.stringify(asked)}`);
       const owner = this.owner(a);
       const missing = this.noSet(owner);
       if (missing) return missing;
-      return json({ jobs: [this.pullSet(owner, wantedIds)], skipped: [] }, 202);
+      return json({ jobs: [this.pullSet(owner, wantedIds, force)], skipped: [] }, 202);
     }
     const jobs: string[] = [];
     const skipped: { account: string; code: string; message: string }[] = [];
@@ -832,16 +857,18 @@ export class MockData {
           message: `there is no backup of ${owner.name} in ${this.settings.folder}`,
         });
       } else {
-        jobs.push(this.pullSet(owner, wantedIds));
+        jobs.push(this.pullSet(owner, wantedIds, force));
       }
     }
     return json({ jobs, skipped }, 202);
   }
 
-  /** Pull one set into its directory; one being pulled answers that job.
-   * A passphrase that does not open it shows on the job. */
-  private pullSet(owner: AccountView, wantedIds: Set<string> | null): string {
-    const key = `pull:${owner.id}`;
+  /** Pull one set into its directory; one being pulled answers that job
+   * (a force pull is its own, like the server's). A passphrase that does
+   * not open it shows on the job. A force pull replaces what differs here:
+   * a conflict or a copy newer here is `replaced`, never put beside. */
+  private pullSet(owner: AccountView, wantedIds: Set<string> | null, force = false): string {
+    const key = `${force ? 'pull-force' : 'pull'}:${owner.id}`;
     const running = this.flights.get(key);
     if (running) return running;
     const id = this.newJobId();
@@ -857,34 +884,48 @@ export class MockData {
       );
       const restored = plan.filter((s) => s.action === 'new').map((s) => s.id);
       const updated = plan.filter((s) => s.action === 'update').map((s) => s.id);
-      const conflicts = plan
-        .filter((s) => s.action === 'conflict')
-        .map((s): [string, string] => [
-          s.id,
-          `${this.dirOf(owner)}/projects/${(s.cwd ?? '').replace(/[^a-zA-Z0-9]/g, '-')}/${s.id}.conflict-${OTHER_HOST}-${s.pushedAt}.jsonl`,
-        ]);
+      const replaced = force
+        ? plan.filter((s) => s.action === 'conflict' || s.action === 'localNewer').map((s) => s.id)
+        : [];
+      const conflicts = force
+        ? []
+        : plan
+            .filter((s) => s.action === 'conflict')
+            .map((s): [string, string] => [
+              s.id,
+              `${this.dirOf(owner)}/projects/${(s.cwd ?? '').replace(/[^a-zA-Z0-9]/g, '-')}/${s.id}.conflict-${OTHER_HOST}-${s.pushedAt}.jsonl`,
+            ]);
+      // Running ones are never touched (a force pull says why).
       const skipped = plan
         .filter((s) => s.action === 'live')
         .map((s) => ({
           id: s.id,
           code: 'session_live',
-          reason: `session ${s.id} is running here`,
+          reason: force
+            ? "it is running here, so the backup's copy did not replace it"
+            : `session ${s.id} is running here`,
         }));
       const warnings = plan
         .filter((s) => s.action === 'new' && s.pruneWarning)
         .map((s) => ({ id: s.id, text: s.pruneWarning as string }));
-      for (const sid of [...restored, ...updated, ...conflicts.map((c) => c[0])])
-        this.copyTo(sid, home);
+      const brought = [...restored, ...updated, ...replaced, ...conflicts.map((c) => c[0])];
+      for (const sid of brought) this.copyTo(sid, home);
       this.lastPull = Date.now();
-      const changed = restored.length + updated.length + conflicts.length;
       return {
-        result: { restored, updated, conflicts, skipped, warnings, historyLines: 12 },
-        sessions: [...restored, ...updated],
-        undo: changed > 0,
+        result: {
+          restored,
+          updated,
+          conflicts,
+          skipped,
+          warnings,
+          historyLines: 12,
+          ...(replaced.length ? { replaced } : {}),
+          ...(force ? { force: true } : {}),
+        },
+        sessions: [...restored, ...updated, ...replaced],
+        undo: brought.length > 0,
         onUndo: () => {
-          for (const sid of [...restored, ...updated, ...conflicts.map((c) => c[0])]) {
-            this.copies.get(sid)?.delete(home);
-          }
+          for (const sid of brought) this.copies.get(sid)?.delete(home);
         },
       };
     });
@@ -952,11 +993,24 @@ export class MockData {
       : fail(403, 'desktop_only', 'Only the desktop app can do this.');
   }
 
-  /** A folder's trust needs the dangerous right (devices here have none). */
+  /** A folder's trust and a force need the dangerous right (devices here
+   * have none). */
   private trusted(b: Record<string, unknown>, fn: () => Response): Response {
-    return b['trust'] === true && !this.host.desktop
-      ? fail(403, 'dangerous_blocked', "a folder's trust needs dangerous actions for this device")
-      : fn();
+    if (b['trust'] === true && !this.host.desktop) {
+      return fail(
+        403,
+        'dangerous_blocked',
+        "a folder's trust needs dangerous actions for this device",
+      );
+    }
+    if (b['force'] === true && !this.host.desktop) {
+      return fail(
+        403,
+        'dangerous_blocked',
+        'A force backup, pull or restore is restricted to the Mother Claude desktop app, or to a device you granted dangerous actions in Remote > Devices.',
+      );
+    }
+    return fn();
   }
 
   private account(id: string | undefined): AccountView | undefined {

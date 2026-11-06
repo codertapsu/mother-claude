@@ -209,6 +209,7 @@ function indexSession(raw: unknown): BackupIndexSession | null {
     newestMtime: num(r['newestMtime']) ?? 0,
     ...(pruneWarning ? { pruneWarning } : {}),
     ...(archived ? { archived } : {}),
+    ...(r['differs'] === true ? { differs: true } : {}),
   };
 }
 
@@ -269,9 +270,43 @@ export function actionText(action: BackupAction, mode: 'pull' | 'restore'): stri
   return (mode === 'pull' ? PULL_TEXT : RESTORE_TEXT)[action];
 }
 
+/** The account has it, and not as the backup has it: what a force pull or
+ * restore replaces (never one that runs here). */
+export function forceReplaces(s: BackupIndexSession): boolean {
+  if (s.action === 'live' || s.action === 'new') return false;
+  return s.differs === true || ['update', 'conflict', 'localNewer'].includes(s.action);
+}
+
+/** What a pull or restore (`force`: a force pull or restore) does with a
+ * session, in words. */
+export function forceText(s: BackupIndexSession, mode: 'pull' | 'restore', force = true): string {
+  if (!force || !forceReplaces(s)) return actionText(s.action, mode);
+  const kept =
+    mode === 'pull'
+      ? "the backup's copy replaces this Mac's, kept for undo"
+      : "the backup's copy replaces the account's, kept for undo";
+  switch (s.action) {
+    case 'update':
+      return `Newer in the backup — ${kept}`;
+    case 'conflict':
+      return `Changed on both — ${kept}`;
+    case 'localNewer':
+      return `Newer here — ${kept}`;
+    default:
+      return `Not the backup's copy — ${kept}`;
+  }
+}
+
 /** A pull does something with these (the rest stay as they are). */
 export function pullTakes(action: BackupAction): boolean {
   return action === 'new' || action === 'update' || action === 'conflict';
+}
+
+/** What a pull (`force`: a force pull) does something with. One in storage
+ * only that is not here is never pulled (Restore brings it). */
+export function pullTakesSession(s: BackupIndexSession, force: boolean): boolean {
+  if (force) return (s.action === 'new' && !s.archived) || forceReplaces(s);
+  return pullTakes(s.action);
 }
 
 /** A session that runs here is never touched. */
@@ -279,17 +314,72 @@ export function restoreTakes(action: BackupAction): boolean {
   return action !== 'live';
 }
 
+/** What a restore brings: what is new to the account (`force`: also what
+ * it has, not as the backup has it). */
+export function restoreLists(s: BackupIndexSession, force: boolean): boolean {
+  return s.action === 'new' || (force && forceReplaces(s));
+}
+
 /** Which sessions start selected: new ones for a restore, everything a pull
- * would bring for a pull. */
+ * would bring for a pull (`force`: a force pull's). */
 export function preselect(
   sessions: readonly BackupIndexSession[],
   mode: 'pull' | 'restore',
+  force = false,
 ): Set<string> {
   return new Set(
     sessions
-      .filter((s) => (mode === 'pull' ? pullTakes(s.action) : s.action === 'new'))
+      .filter((s) => (mode === 'pull' ? pullTakesSession(s, force) : s.action === 'new'))
       .map((s) => s.id),
   );
+}
+
+/** What a force pull or restore of `selected` will do, counted: the copies
+ * here it replaces (by what they are) and the new ones it brings. */
+export interface ForceCounts {
+  replaced: number;
+  changedHere: number;
+  newerHere: number;
+  changedOnBoth: number;
+  newerInBackup: number;
+  added: number;
+}
+
+export function forceCounts(
+  sessions: readonly BackupIndexSession[],
+  selected: ReadonlySet<string>,
+): ForceCounts {
+  const out: ForceCounts = {
+    replaced: 0,
+    changedHere: 0,
+    newerHere: 0,
+    changedOnBoth: 0,
+    newerInBackup: 0,
+    added: 0,
+  };
+  for (const s of sessions) {
+    if (!selected.has(s.id)) continue;
+    if (s.action === 'new') out.added += 1;
+    if (!forceReplaces(s)) continue;
+    out.replaced += 1;
+    if (s.action === 'update') out.newerInBackup += 1;
+    else if (s.action === 'conflict') out.changedOnBoth += 1;
+    else if (s.action === 'localNewer') out.newerHere += 1;
+    else out.changedHere += 1;
+  }
+  return out;
+}
+
+/** "3 newer here, 1 changed on both": what the replaced copies are. */
+export function forceKinds(c: ForceCounts): string {
+  return [
+    c.newerHere ? `${c.newerHere} newer here` : '',
+    c.changedHere ? `${c.changedHere} changed here` : '',
+    c.changedOnBoth ? `${c.changedOnBoth} changed on both` : '',
+    c.newerInBackup ? `${c.newerInBackup} newer in the backup` : '',
+  ]
+    .filter(Boolean)
+    .join(', ');
 }
 
 /** The selected sessions Claude Code would prune again. */
@@ -329,6 +419,8 @@ export function normalizeRestoreResult(raw: unknown): RestoreResult {
     restored: ids(r['restored']),
     skipped: list(r['skipped'], skip),
     warnings: list(r['warnings'], warning),
+    replaced: ids(r['replaced']),
+    force: r['force'] === true,
   };
 }
 
@@ -371,6 +463,8 @@ export function normalizePushResult(raw: unknown): PushResult | null {
     bytes: count(r['bytes']),
     warnings: texts(r['warnings']),
     removed: count(r['removed']),
+    force: r['force'] === true,
+    replaced: ids(r['replaced']),
   };
 }
 
@@ -421,6 +515,7 @@ export function jobSummary(job: JobView): string {
         r.archived.length
           ? `${plural(r.archived.length, 'session')} backed up`
           : 'Nothing new to back up',
+        r.replaced.length ? `${r.replaced.length} replaced the backup's copy` : '',
         r.unchanged ? `${r.unchanged} unchanged` : '',
         r.conflicts.length ? plural(r.conflicts.length, 'conflict') : '',
         r.newerInSet.length ? `${r.newerInSet.length} newer in the backup` : '',
@@ -435,6 +530,7 @@ export function jobSummary(job: JobView): string {
       const r = normalizeRestoreResult(job.result);
       const parts = [
         `${plural(r.restored.length, 'session')} restored`,
+        r.replaced.length ? `${r.replaced.length} replaced` : '',
         r.skipped.length ? `${r.skipped.length} skipped` : '',
       ];
       return parts.filter(Boolean).join(' · ');
@@ -444,6 +540,7 @@ export function jobSummary(job: JobView): string {
       const parts = [
         r.restored.length ? `${r.restored.length} new` : '',
         r.updated.length ? `${r.updated.length} updated` : '',
+        r.replaced.length ? `${r.replaced.length} replaced` : '',
         r.conflicts.length ? plural(r.conflicts.length, 'conflict') : '',
         r.skipped.length ? `${r.skipped.length} skipped` : '',
         r.historyLines ? `${plural(r.historyLines, 'prompt-history line')} added` : '',
