@@ -7,6 +7,7 @@ import { AccountsService } from '../../core/accounts.service';
 import { ApiError, ApiService, errorMessage } from '../../core/api.service';
 import { AuthService } from '../../core/auth.service';
 import { AccountView, ImageAttachment, ProjectInfo } from '../../core/models';
+import { folderExample } from '../../core/paths';
 import { accountErrorText, cannotRunReason } from '../../shared/accounts';
 import { IconComponent } from '../../shared/icon.component';
 import { MAX_IMAGES, prepareImage } from '../../shared/images';
@@ -81,7 +82,7 @@ interface Attachment extends ImageAttachment {
             <input
               [ngModel]="cwd()"
               (ngModelChange)="cwd.set($event)"
-              placeholder="/Users/you/project"
+              [placeholder]="cwdPlaceholder()"
               spellcheck="false"
               autocapitalize="off"
             />
@@ -317,6 +318,8 @@ export class NewSessionComponent {
   private readonly options = viewChild.required(LaunchOptionsComponent);
 
   protected readonly isDesktop = this.auth.isDesktop;
+  /** An example folder in the desktop's own form. */
+  protected readonly cwdPlaceholder = computed(() => folderExample(this.auth.hostOs(), 'project'));
   protected readonly projects = signal<ProjectInfo[]>([]);
   protected readonly loadingProjects = signal(true);
   protected readonly projectQuery = signal('');

@@ -3,6 +3,7 @@ import { provideRouter } from '@angular/router';
 
 import {
   FakeBackend,
+  asPhoneOf,
   flush,
   serveAccounts,
   useFakeServer,
@@ -163,6 +164,33 @@ describe('StorageSectionComponent', () => {
     expect(text(el.querySelector('.notice.ok'))).toContain('NAS is a storage now');
     expect([...el.querySelectorAll('.stname')].map((s) => text(s))).toContain('NAS');
     expect(text([...el.querySelectorAll('.store')][2])).toContain('No sets in it yet.');
+  });
+
+  it("adds a Windows desktop's share, typed the way Windows writes it", async () => {
+    asPhoneOf('windows');
+    const share = '\\\\nas\\backups\\Mother Claude';
+    backend.routes.set('/backup/storage', () => {
+      current = view([
+        { id: 'stor_bbbbbbbbbbbb', label: 'Mother Claude', path: share, kind: 'folder', sets: [] },
+      ]);
+      return { status: 201, body: current.storage[2] };
+    });
+    const el = await render();
+    button(el, 'Add storage')?.click();
+    await settle();
+    const sheet = el.querySelector('mc-storage-sheet') as HTMLElement;
+    const path = sheet.querySelector<HTMLInputElement>('input[name="path"]')!;
+    expect(path.placeholder).toBe('\\\\nas\\share\\Mother Claude');
+    await type(path, 'nas\\backups');
+    expect(text(sheet)).toContain('starting with a drive like C:\\ or a share like');
+    await type(path, share);
+    expect(text(sheet)).not.toContain("Enter the folder's full path");
+    // Called after its own folder, as the desktop would call it.
+    const label = sheet.querySelector<HTMLInputElement>('input[name="label"]')!;
+    expect(label.placeholder).toBe('Mother Claude');
+    button(sheet, 'Add storage')?.click();
+    await settle();
+    expect(backend.bodyOf('POST /backup/storage')).toEqual({ path: share });
   });
 
   it('renames a storage, and removes one with a second tap, leaving its files', async () => {

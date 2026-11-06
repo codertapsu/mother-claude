@@ -3,6 +3,7 @@ import { Observable, Subject } from 'rxjs';
 
 import { ConfigService } from './config.service';
 import { MeInfo } from './models';
+import { HostOs, hostOsFromUserAgent, hostOsOf } from './paths';
 
 export type PairState = 'unknown' | 'paired' | 'unpaired';
 
@@ -39,6 +40,15 @@ export class AuthService {
     if (!me) return this.config.desktop();
     return me.allowDangerous;
   });
+  /** The desktop's system, whichever device this is (a phone may drive a
+   * Windows PC): what folder hints and examples follow. Until the server
+   * says, the desktop webview's own; elsewhere a Mac's. */
+  readonly hostOs = computed<HostOs>(
+    () =>
+      hostOsOf(this.me()?.hostOs) ??
+      (this.config.desktop() ? hostOsFromUserAgent(navigator.userAgent) : undefined) ??
+      'macos',
+  );
 
   private readonly unauthorizedS = new Subject<void>();
   /** Emits every time the server rejects our credential. */

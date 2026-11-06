@@ -32,6 +32,7 @@ import {
   setNameProblem,
   skipName,
   skipReason,
+  storageKindOf,
   storagePathProblem,
   trustApplies,
   whatProblem,
@@ -479,6 +480,30 @@ describe('move data helpers', () => {
     expect(storagePathProblem('Drive/MC')).toContain('full path');
     expect(storagePathProblem('/a/../b')).toContain('without . or ..');
     expect(storagePathProblem('~/Dropbox/MC')).toBe('');
+    // A Windows desktop's: a drive, a share, its home folder.
+    expect(storagePathProblem('E:\\Mother Claude', 'windows')).toBe('');
+    expect(storagePathProblem('\\\\nas\\share\\MC', 'windows')).toBe('');
+    expect(storagePathProblem('~\\OneDrive\\MC', 'windows')).toBe('');
+    expect(storagePathProblem('OneDrive\\MC', 'windows')).toContain('a drive like C:\\');
+    expect(storagePathProblem('E:\\a\\..\\b', 'windows')).toContain('without . or ..');
+  });
+
+  it("knows a cloud folder on Windows, and joins a set's folder the storage's way", () => {
+    expect(storageKindOf('C:\\Users\\me\\iCloudDrive\\Mother Claude')).toBe('icloud');
+    expect(storageKindOf('C:\\Users\\me\\OneDrive\\Mother Claude')).toBe('onedrive');
+    expect(storageKindOf('D:\\NAS\\MotherClaude')).toBe('folder');
+    const nas: StorageView = {
+      id: 'stor_0123456789aa',
+      label: 'NAS',
+      path: 'D:\\NAS\\MotherClaude',
+      kind: 'folder',
+      primary: false,
+      available: true,
+      sets: [],
+    };
+    expect(locationHint(setLocation(nas.id, 'Work'), ACCOUNTS, [nas])).toBe(
+      'A new set: D:\\NAS\\MotherClaude\\Work.',
+    );
   });
 
   it('turns conversations and projects into checklist rows', () => {

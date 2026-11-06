@@ -1367,6 +1367,9 @@ export interface MeInfo {
   platform?: string;
   pairedAt?: number;
   clientIp?: string;
+  /** The desktop's system (`macos`, `windows`, `linux`): the paths typed
+   * for it follow its rules, and its hints show its form. */
+  hostOs?: string;
 }
 
 // ───────────────────────────────────────────────── 2.8 Remote access/tunnels

@@ -18,6 +18,7 @@ import {
 import { jobIdOf, plural, sentence } from '../../core/data-jobs';
 import { DataJobsService } from '../../core/data-jobs.service';
 import { BackupMachine, BackupSet, BackupView, JobView } from '../../core/models';
+import { folderExample, folderPathProblem } from '../../core/paths';
 import { RealtimeService } from '../../core/realtime.service';
 import { StorageService } from '../../core/storage.service';
 import { CopyButtonComponent } from '../../shared/copy-button.component';
@@ -89,6 +90,9 @@ export class BackupComponent {
   private storage = inject(StorageService);
   protected readonly accounts = inject(AccountsService);
   protected readonly isDesktop = inject(AuthService).isDesktop;
+  /** The desktop's system: the folder is typed its way. */
+  protected readonly hostOs = inject(AuthService).hostOs;
+  protected readonly folderPlaceholder = computed(() => folderExample(this.hostOs(), 'backup'));
 
   protected readonly view = signal<BackupView | null>(null);
   protected readonly loadError = signal('');
@@ -192,8 +196,10 @@ export class BackupComponent {
   protected async saveFolder(e: Event): Promise<void> {
     e.preventDefault();
     const f = this.folder().trim();
-    if (f && !f.startsWith('/') && !f.startsWith('~')) {
-      this.error.set("Enter the folder's full path, starting with / (or ~ for your home folder).");
+    // Either system's full path (or ~): the desktop has the last word.
+    const problem = f ? folderPathProblem(f, this.hostOs()) : '';
+    if (problem) {
+      this.error.set(problem);
       return;
     }
     await this.saveSettings(

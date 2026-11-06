@@ -184,6 +184,8 @@ describe('shared/util', () => {
   it('shortens home paths', () => {
     expect(shortPath('/Users/marcus/dev/app')).toBe('~/dev/app');
     expect(shortPath('/opt/x')).toBe('/opt/x');
+    expect(shortPath('C:\\Users\\marcus\\dev\\app')).toBe('~\\dev\\app');
+    expect(shortPath('D:\\NAS\\MotherClaude')).toBe('D:\\NAS\\MotherClaude');
   });
 
   it('summarizes tool inputs by their salient argument', () => {

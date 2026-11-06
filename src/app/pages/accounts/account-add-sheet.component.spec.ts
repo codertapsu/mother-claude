@@ -119,6 +119,33 @@ describe('AccountAddSheetComponent', () => {
     expect(button(el, 'Sign in now')).toBeTruthy();
   });
 
+  it("puts a Windows desktop's directory account where Windows writes it", async () => {
+    asDesktop({ hostOs: 'windows' });
+    const el = await render();
+    expect(text(el)).toContain('in a folder like ~\\.claude-work');
+    button(el, 'Separate directory').click();
+    await click(button(el, 'Next'));
+    await type(el, 'input[name="name"]', 'Client X');
+    expect((el.querySelector('input[name="dir"]') as HTMLInputElement).value).toBe(
+      '~\\.claude-client-x',
+    );
+    // Not a full path: the desktop's own form is named.
+    await type(el, 'input[name="dir"]', 'Claude\\client-x');
+    await submit(el);
+    expect(backend.calls).not.toContain('POST /accounts');
+    expect(text(el)).toContain(
+      "Enter the directory's full path, starting with a drive like C:\\ or a share like \\\\server\\share (or ~ for your home folder).",
+    );
+    await type(el, 'input[name="dir"]', 'D:\\Claude\\client-x');
+    await submit(el);
+    expect(backend.bodyOf('POST /accounts')).toEqual({
+      name: 'Client X',
+      kind: 'directory',
+      dir: 'D:\\Claude\\client-x',
+      color: '#10b981',
+    });
+  });
+
   it('refuses a name another account has, without asking the server', async () => {
     const el = await render();
     await click(button(el, 'Next'));

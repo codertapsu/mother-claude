@@ -11,6 +11,7 @@ import {
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 
+import { AuthService } from '../../core/auth.service';
 import { BackupSuggestion } from '../../core/models';
 import {
   StorageView,
@@ -18,6 +19,7 @@ import {
   storageKindOf,
   storagePathProblem,
 } from '../../core/move-data';
+import { folderExample, lastSegment } from '../../core/paths';
 import { StorageService } from '../../core/storage.service';
 import { IconComponent } from '../../shared/icon.component';
 import { SheetComponent } from '../../shared/sheet.component';
@@ -77,7 +79,7 @@ const KIND_NAMES: Record<string, string> = {
               <span class="field-label">Folder</span>
               <input
                 name="path"
-                placeholder="/Volumes/NAS/Mother Claude"
+                [placeholder]="pathPlaceholder()"
                 spellcheck="false"
                 autocapitalize="off"
                 autocomplete="off"
@@ -143,6 +145,8 @@ const KIND_NAMES: Record<string, string> = {
 })
 export class StorageSheetComponent {
   private storage = inject(StorageService);
+  /** The desktop's system: the folder is typed its way. */
+  private readonly hostOs = inject(AuthService).hostOs;
 
   readonly open = input(false);
   /** The storage to rename (null: add one). */
@@ -159,13 +163,14 @@ export class StorageSheetComponent {
   protected readonly busy = signal(false);
   protected readonly error = signal('');
 
-  protected readonly pathProblem = computed(() => storagePathProblem(this.path()));
+  protected readonly pathProblem = computed(() => storagePathProblem(this.path(), this.hostOs()));
+  protected readonly pathPlaceholder = computed(() => folderExample(this.hostOs(), 'storage'));
   /** What it is called when no label is typed. */
   protected readonly labelHint = computed(() => {
     const p = this.path().trim();
     if (!p) return 'Its name here';
     const kind = storageKindOf(p);
-    return KIND_NAMES[kind] ?? (p.replace(/\/+$/, '').split('/').pop() || 'Folder');
+    return KIND_NAMES[kind] ?? (lastSegment(p) || 'Folder');
   });
   protected readonly canSave = computed(() => {
     const label = this.label().trim();

@@ -111,11 +111,17 @@ export const me = (over: Partial<MeInfo> = {}): MeInfo => ({
   ...over,
 });
 
-/** Treat this client as the desktop app (`me.principal: desktop`). */
-export function asDesktop(): void {
+/** Treat this client as the desktop app (`me.principal: desktop`); `over`
+ * changes the rest (`hostOs: 'windows'` for a Windows desktop). */
+export function asDesktop(over: Partial<MeInfo> = {}): void {
   TestBed.inject(AuthService).me.set(
-    me({ principal: 'desktop', ingress: 'loopback', local: true, allowDangerous: true }),
+    me({ principal: 'desktop', ingress: 'loopback', local: true, allowDangerous: true, ...over }),
   );
+}
+
+/** A phone (`me.principal: device`) driving a desktop of `hostOs`. */
+export function asPhoneOf(hostOs: string): void {
+  TestBed.inject(AuthService).me.set(me({ hostOs }));
 }
 
 /** Serve `view` as `GET /accounts`, and put it in the realtime store as an

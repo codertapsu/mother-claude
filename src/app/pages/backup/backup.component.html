@@ -41,7 +41,7 @@
           <span class="field-label">Backup folder</span>
           <input
             name="folder"
-            placeholder="/Users/you/Library/Mobile Documents/com~apple~CloudDocs/Mother Claude"
+            [placeholder]="folderPlaceholder()"
             spellcheck="false"
             autocapitalize="off"
             autocomplete="off"
@@ -71,8 +71,12 @@
       }
       <p class="muted small hint">
         Each account with a directory of its own gets a folder inside it, named after the account (a
-        token account's sessions go in the Default's). Leave it empty to stop backing up. On iCloud
-        Drive, right-click the folder and choose Keep Downloaded.
+        token account's sessions go in the Default's). Leave it empty to stop backing up.
+        @if (hostOs() === 'windows') {
+          On OneDrive, right-click the folder and choose Always keep on this device.
+        } @else {
+          On iCloud Drive, right-click the folder and choose Keep Downloaded.
+        }
       </p>
     </section>
 

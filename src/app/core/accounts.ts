@@ -9,6 +9,7 @@ import {
   CopyConsent,
   SecretStoreKind,
 } from './models';
+import { HostOs, homeFolder, isAbsoluteAnywhere, pathDepth, pathWithin } from './paths';
 import { normalizeIdentityWarning, normalizeSignIn } from './sign-in';
 
 /**
@@ -135,7 +136,7 @@ function normalizeDefaults(raw: unknown): AccountDefaults {
   const map = r['byProject'];
   if (map && typeof map === 'object' && !Array.isArray(map)) {
     for (const [dir, id] of Object.entries(map as Record<string, unknown>)) {
-      if (dir.startsWith('/') && typeof id === 'string' && id) byProject[dir] = id;
+      if (isAbsoluteAnywhere(dir) && typeof id === 'string' && id) byProject[dir] = id;
     }
   }
   return {
@@ -179,17 +180,10 @@ export function normalizeAccounts(raw: unknown): AccountsView | null {
   };
 }
 
-/** `/a/b/` → `/a/b` (the root stays `/`). */
-function trimDir(dir: string): string {
-  const t = dir.trim().replace(/\/+$/, '');
-  return t || '/';
-}
-
-/** `dir` is `cwd` or one of its ancestors (whole path components). */
+/** `dir` is `cwd` or one of its ancestors (whole path components; a
+ * Windows folder in any case, with either separator). */
 export function dirContains(dir: string, cwd: string): boolean {
-  const d = trimDir(dir);
-  const c = trimDir(cwd);
-  return d === '/' || c === d || c.startsWith(`${d}/`);
+  return pathWithin(cwd.trim(), dir.trim());
 }
 
 export interface AccountChoice {
@@ -207,10 +201,10 @@ export function accountForCwd(view: AccountsView | null, cwd: string): AccountCh
   if (!view) return { id: DEFAULT_ACCOUNT, via: 'default' };
   const known = new Set(view.accounts.map((a) => a.id));
   let best: { dir: string; id: string; depth: number } | null = null;
-  if (cwd.trim().startsWith('/')) {
+  if (isAbsoluteAnywhere(cwd.trim())) {
     for (const [dir, id] of Object.entries(view.defaults.byProject)) {
       if (!known.has(id) || !dirContains(dir, cwd)) continue;
-      const depth = trimDir(dir).split('/').filter(Boolean).length;
+      const depth = pathDepth(dir.trim());
       if (!best || depth > best.depth) best = { dir, id, depth };
     }
   }
@@ -282,12 +276,13 @@ export function accountNameProblem(
   return '';
 }
 
-/** A directory to suggest for a new directory account: `~/.claude-work`. */
-export function suggestAccountDir(name: string): string {
+/** A directory to suggest for a new directory account: `~/.claude-work`
+ * (`~\.claude-work` for a Windows desktop). */
+export function suggestAccountDir(name: string, os: HostOs = 'macos'): string {
   const slug = name
     .trim()
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '');
-  return `~/.claude-${slug || 'work'}`;
+  return homeFolder(os, `.claude-${slug || 'work'}`);
 }

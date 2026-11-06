@@ -3,6 +3,7 @@ import { ApiError } from './api.service';
 import { backupErrorText } from './backup';
 import { formatBytes, plural, sentence } from './data-jobs';
 import { AccountKind, BackupIndexSession, JobView, SessionSummary, TransferMode } from './models';
+import { HostOs, folderPathProblem, joinPath, tildePath } from './paths';
 
 /**
  * Moving data anywhere (docs/ACCOUNTS.md §13): where data can be — an
@@ -66,9 +67,10 @@ const KIND_LABELS: Record<StorageKind, string> = {
   folder: 'Backup folder',
 };
 
-/** What kind of folder a path is, from where the cloud apps keep theirs. */
+/** What kind of folder a path is, from where the cloud apps keep theirs (on
+ * a Mac or on Windows). */
 export function storageKindOf(path: string): StorageKind {
-  if (/com~apple~CloudDocs|\/iCloud Drive\b/i.test(path)) return 'icloud';
+  if (/com~apple~CloudDocs|[\\/]iCloud ?Drive\b/i.test(path)) return 'icloud';
   if (/GoogleDrive|Google Drive/i.test(path)) return 'gdrive';
   if (/OneDrive/i.test(path)) return 'onedrive';
   if (/Dropbox/i.test(path)) return 'dropbox';
@@ -100,9 +102,9 @@ function texts(v: unknown): string[] {
   return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string' && !!x.trim()) : [];
 }
 
-/** `/Users/me/x` → `~/x`. */
+/** `/Users/me/x` → `~/x`, `C:\Users\me\x` → `~\x`. */
 function tilde(path: string | undefined): string {
-  return (path ?? '').replace(/^\/(Users|home)\/[^/]+/, '~');
+  return tildePath(path);
 }
 
 function storageSet(raw: unknown): StorageSet | null {
@@ -202,18 +204,12 @@ export function setNameProblem(name: string, store: StorageView | undefined): st
   return '';
 }
 
-/** Why a typed folder can't be a storage ('' when it may be one; the Mac
- * checks the rest: not inside an account's directory, not another one). */
-export function storagePathProblem(path: string): string {
-  const p = path.trim();
-  if (!p) return "Enter the folder's path.";
-  if (!p.startsWith('/') && !p.startsWith('~')) {
-    return "Enter the folder's full path, starting with / (or ~ for your home folder).";
-  }
-  if (p.split('/').some((part) => part === '.' || part === '..')) {
-    return 'Enter the path without . or .. in it.';
-  }
-  return '';
+/** Why a typed folder can't be a storage ('' when it may be one): a full
+ * path of either system, or `~`. The desktop checks the rest, by its own
+ * system's rules: a full path there, not inside an account's directory, not
+ * another storage. `os`: the desktop's, which the hint follows. */
+export function storagePathProblem(path: string, os: HostOs = 'macos'): string {
+  return folderPathProblem(path, os);
 }
 
 // ──────────────────────────────────────────────────────────── Locations
@@ -350,7 +346,7 @@ export function locationHint(
   const s = storageOf(storages, l.storage);
   if (!s) return 'This storage is no longer there.';
   const set = s.sets.find((x) => x.name === l.set);
-  const where = `${tilde(s.path)}/${l.set}`;
+  const where = joinPath(tilde(s.path), l.set);
   if (!set) return `A new set: ${where}.`;
   const facts = [
     set.sessions !== undefined ? plural(set.sessions, 'conversation') : '',

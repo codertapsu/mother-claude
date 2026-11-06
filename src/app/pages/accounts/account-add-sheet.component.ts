@@ -21,7 +21,9 @@ import {
 } from '../../core/accounts';
 import { AccountsService } from '../../core/accounts.service';
 import { describeError } from '../../core/api.service';
+import { AuthService } from '../../core/auth.service';
 import { AccountKind, NewAccount } from '../../core/models';
+import { folderPathProblem, homeFolder } from '../../core/paths';
 import { secretStoreText, signInLine } from '../../shared/accounts';
 import { IconComponent } from '../../shared/icon.component';
 import { SheetComponent } from '../../shared/sheet.component';
@@ -85,8 +87,8 @@ type Step = 'kind' | 'details' | 'connect';
                 <span class="kt"><strong>Separate directory</strong></span>
                 <span class="muted small">
                   A fully separate Claude Code setup — its own settings, plugins, MCP servers and
-                  conversations — in a folder like ~/.claude-work. It signs in with its own browser
-                  login.
+                  conversations — in a folder like {{ exampleDir() }}. It signs in with its own
+                  browser login.
                 </span>
               </button>
             </div>
@@ -266,6 +268,9 @@ type Step = 'kind' | 'details' | 'connect';
 })
 export class AccountAddSheetComponent {
   private accounts = inject(AccountsService);
+  /** The desktop's system: the directory is typed its way. */
+  private readonly hostOs = inject(AuthService).hostOs;
+  protected readonly exampleDir = computed(() => homeFolder(this.hostOs(), '.claude-work'));
 
   readonly open = input(false);
   readonly closed = output<void>();
@@ -298,7 +303,7 @@ export class AccountAddSheetComponent {
   );
   /** The directory typed, else one suggested from the name. */
   protected readonly dirValue = computed(() =>
-    this.dirTouched() ? this.dir() : suggestAccountDir(this.name()),
+    this.dirTouched() ? this.dir() : suggestAccountDir(this.name(), this.hostOs()),
   );
   protected readonly place = computed(
     () => secretStoreText(this.accounts.view()?.secretStore) || 'the Keychain',
@@ -347,8 +352,10 @@ export class AccountAddSheetComponent {
     let body: NewAccount;
     if (this.kind() === 'directory') {
       const dir = this.dirValue().trim();
-      if (!dir.startsWith('/') && !dir.startsWith('~/')) {
-        this.error.set('Enter the directory as a full path, starting with / or ~/.');
+      // Either system's full path (or ~): the desktop has the last word.
+      const problem = folderPathProblem(dir, this.hostOs(), { noun: 'directory' });
+      if (problem) {
+        this.error.set(problem);
         return;
       }
       body = { name, kind: 'directory', dir, ...(color ? { color } : {}) };

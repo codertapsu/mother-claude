@@ -4,6 +4,7 @@ import { provideRouter } from '@angular/router';
 import {
   FakeBackend,
   asDesktop,
+  asPhoneOf,
   flush,
   serveAccounts,
   useFakeServer,
@@ -140,6 +141,32 @@ describe('AccountsComponent', () => {
     fixture.detectChanges();
     expect(backend.calls).not.toContain('PUT /accounts/defaults');
     expect(text(el.querySelector('form.padd + .error-text'))).toContain('starting with /');
+  });
+
+  it("gives a Windows desktop's project its account, the folder typed the Windows way", async () => {
+    asPhoneOf('windows');
+    serveAccounts(backend, buildAccounts(Date.now(), true));
+    backend.routes.set('/accounts/defaults', (_m, body) => ({ status: 200, body }));
+    const el = await render();
+    const dir = el.querySelector('form.padd input[name="dir"]') as HTMLInputElement;
+    expect(dir.placeholder).toBe('C:\\Users\\you\\project');
+    dir.value = 'dev\\payments';
+    dir.dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+    (el.querySelector('form.padd button[type="submit"]') as HTMLButtonElement).click();
+    await flush();
+    fixture.detectChanges();
+    expect(backend.calls).not.toContain('PUT /accounts/defaults');
+    expect(text(el.querySelector('form.padd + .error-text'))).toBe(
+      "Enter the folder's full path, starting with a drive like C:\\ or a share like \\\\server\\share.",
+    );
+    dir.value = 'D:\\dev\\payments\\';
+    dir.dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+    (el.querySelector('form.padd button[type="submit"]') as HTMLButtonElement).click();
+    await flush();
+    const body = backend.bodyOf('PUT /accounts/defaults') as { byProject: Record<string, string> };
+    expect(body.byProject['D:\\dev\\payments']).toBe(MOCK_ACCOUNT_WORK);
   });
 
   it("installs and removes the hooks plugin in a directory account's own directory", async () => {

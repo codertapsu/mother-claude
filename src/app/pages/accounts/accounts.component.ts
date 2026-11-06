@@ -18,6 +18,7 @@ import { DataJobsService } from '../../core/data-jobs.service';
 import { AccountDefaults, AccountView, JobView, ProjectInfo } from '../../core/models';
 import { accountLocation, anyTarget } from '../../core/move-data';
 import { NowService } from '../../core/now.service';
+import { folderExample, folderPathProblem, trimSeparators } from '../../core/paths';
 import { PlanUsageService } from '../../core/plan-usage.service';
 import { accountSigningIn, signInWaitText } from '../../core/sign-in';
 import { StorageService } from '../../core/storage.service';
@@ -125,6 +126,9 @@ export class AccountsComponent {
   private clock = inject(NowService);
   private storage = inject(StorageService);
   protected readonly isDesktop = inject(AuthService).isDesktop;
+  /** The desktop's system: a project folder is typed its way. */
+  private readonly hostOs = inject(AuthService).hostOs;
+  protected readonly projectPlaceholder = computed(() => folderExample(this.hostOs(), 'project'));
 
   protected readonly tokenNoUsage = TOKEN_NO_USAGE;
   protected readonly adding = signal(false);
@@ -346,15 +350,14 @@ export class AccountsComponent {
     e.preventDefault();
     const d = this.defaults();
     if (!d) return;
-    const dir = this.newDir().trim().replace(/\/+$/, '') || '/';
-    if (!dir.startsWith('/')) {
-      this.projectError.set("Enter the folder's full path, starting with /.");
+    // Either system's full path (no ~: it names a project's own folder);
+    // the desktop has the last word.
+    const problem = folderPathProblem(this.newDir(), this.hostOs(), { home: false });
+    if (problem) {
+      this.projectError.set(problem);
       return;
     }
-    if (dir.split('/').some((part) => part === '.' || part === '..')) {
-      this.projectError.set('Enter the path without . or .. in it.');
-      return;
-    }
+    const dir = trimSeparators(this.newDir().trim());
     const id = this.newDirAccount();
     if (!this.accounts.byId(id)) return;
     this.projectError.set('');

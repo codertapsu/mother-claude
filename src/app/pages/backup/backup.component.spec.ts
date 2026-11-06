@@ -5,6 +5,7 @@ import { DataJobsService } from '../../core/data-jobs.service';
 import {
   FakeBackend,
   asDesktop,
+  asPhoneOf,
   flush,
   serveAccounts,
   useFakeServer,
@@ -268,6 +269,64 @@ describe('BackupComponent', () => {
     expect((el.querySelector('input[name="folder"]') as HTMLInputElement).value).toBe(ICLOUD);
     // Still no passphrase.
     expect(text(el.querySelector('.why'))).toBe('Set a passphrase first.');
+  });
+
+  it("lets a phone set a Windows desktop's folder the way Windows writes it", async () => {
+    asPhoneOf('windows');
+    backend.routes.set('/backup/settings', (_m, body) => {
+      current = view({ settings: { ...current.settings, ...(body as object) } });
+      return { status: 200, body: current };
+    });
+    const el = await render();
+    const input = el.querySelector('input[name="folder"]') as HTMLInputElement;
+    expect(input.placeholder).toBe('D:\\Backups\\Mother Claude');
+    expect(text(el.querySelector('.hint'))).toContain('On OneDrive');
+    const type = async (value: string) => {
+      input.value = value;
+      input.dispatchEvent(new Event('input'));
+      fixture.detectChanges();
+      button(el, 'Save')?.click();
+      await settle();
+    };
+    // Not a full path on either system: said in the desktop's terms.
+    await type('NAS\\MotherClaude');
+    expect(backend.calls).not.toContain('PUT /backup/settings');
+    expect(text(el.querySelector('.notice.error'))).toBe(
+      "Enter the folder's full path, starting with a drive like C:\\ or a share like \\\\server\\share (or ~ for your home folder).",
+    );
+    await type('D:\\NAS\\MotherClaude');
+    expect(backend.bodyOf('PUT /backup/settings')).toEqual({ folder: 'D:\\NAS\\MotherClaude' });
+    expect(text(el.querySelector('.notice.ok'))).toBe('Backups go to this folder now.');
+  });
+
+  it("shows the desktop's own refusal of a path its system can't take", async () => {
+    asDesktop({ hostOs: 'macos' });
+    backend.routes.set('/backup/settings', () => ({
+      status: 422,
+      body: {
+        error: {
+          code: 'invalid_folder',
+          message:
+            'D:\\NAS is not a full path on this computer: start it with / (or ~ for your home folder)',
+        },
+      },
+    }));
+    const el = await render();
+    const input = el.querySelector('input[name="folder"]') as HTMLInputElement;
+    expect(input.placeholder).toBe(
+      '/Users/you/Library/Mobile Documents/com~apple~CloudDocs/Mother Claude',
+    );
+    expect(text(el.querySelector('.hint'))).toContain('Keep Downloaded');
+    input.value = 'D:\\NAS';
+    input.dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+    button(el, 'Save')?.click();
+    await settle();
+    // A full path on Windows: sent, and the Mac says no.
+    expect(backend.bodyOf('PUT /backup/settings')).toEqual({ folder: 'D:\\NAS' });
+    expect(text(el.querySelector('.notice.error'))).toBe(
+      'Not saved: D:\\NAS is not a full path on this computer: start it with / (or ~ for your home folder).',
+    );
   });
 
   it('changes the schedule and Pull on launch from the desktop', async () => {

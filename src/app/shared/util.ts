@@ -11,6 +11,7 @@ import {
   ThinkingState,
   Usage,
 } from '../core/models';
+import { tildePath } from '../core/paths';
 
 /** Tones map to the theme's status colours (see styles.scss). */
 export type Tone = 'green' | 'amber' | 'red' | 'blue' | 'accent' | 'muted' | 'faint';
@@ -437,10 +438,9 @@ export function sessionName(
   return s.title?.trim() || s.name?.trim() || s.projectName || s.id.slice(0, 8);
 }
 
-/** `/Users/me/dev/app` → `~/dev/app`. */
+/** `/Users/me/dev/app` → `~/dev/app`, `C:\Users\me\dev\app` → `~\dev\app`. */
 export function shortPath(path: string | undefined): string {
-  if (!path) return '';
-  return path.replace(/^\/(Users|home)\/[^/]+/, '~');
+  return tildePath(path);
 }
 
 export function capitalize(s: string): string {

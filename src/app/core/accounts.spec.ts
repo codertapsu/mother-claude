@@ -102,6 +102,36 @@ describe('account helpers', () => {
     expect(dirContains('/a/b', '/a/bc')).toBeFalse();
   });
 
+  it('matches the projects of a Windows desktop the way Windows names folders', () => {
+    const view: AccountsView = {
+      accounts: buildAccounts(0, true).accounts,
+      copyConsent: [],
+      tokenCapture: false,
+      defaults: {
+        newSession: PRO,
+        bridge: 'default',
+        byProject: { 'D:\\dev': WORK, 'D:\\dev\\api\\': 'default' },
+      },
+    };
+    // Any case, either separator: one folder on Windows.
+    expect(accountForCwd(view, 'd:/Dev/api/src')).toEqual({
+      id: 'default',
+      via: 'project',
+      dir: 'D:\\dev\\api\\',
+    });
+    expect(accountForCwd(view, 'D:\\dev\\web').id).toBe(WORK);
+    expect(accountForCwd(view, 'D:\\dev2').id).toBe(PRO);
+    // A Mac's folder never falls under a Windows one.
+    expect(accountForCwd(view, '/dev/api').id).toBe(PRO);
+    expect(dirContains('C:\\', 'c:\\anything')).toBeTrue();
+    // The registry keeps them, whichever system wrote them.
+    const read = normalizeAccounts({
+      accounts: [],
+      defaults: { byProject: { 'D:\\dev': WORK, '/p': WORK, 'rel\\x': WORK } },
+    });
+    expect(Object.keys(read?.defaults.byProject ?? {})).toEqual(['D:\\dev', '/p']);
+  });
+
   it('knows which accounts share a directory', () => {
     const def = { id: 'default', kind: 'directory' };
     const work = { id: WORK, kind: 'directory' };
@@ -151,5 +181,6 @@ describe('account helpers', () => {
     expect(accountNameProblem('Marcus (Pro)', list)).toBe('');
     expect(suggestAccountDir('Work Stuff!')).toBe('~/.claude-work-stuff');
     expect(suggestAccountDir('…')).toBe('~/.claude-work');
+    expect(suggestAccountDir('Work', 'windows')).toBe('~\\.claude-work');
   });
 });

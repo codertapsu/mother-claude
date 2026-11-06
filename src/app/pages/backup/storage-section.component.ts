@@ -12,6 +12,7 @@ import { DEFAULT_ACCOUNT } from '../../core/accounts';
 import { AccountsService } from '../../core/accounts.service';
 import { plural } from '../../core/data-jobs';
 import { BackupSuggestion } from '../../core/models';
+import { samePath } from '../../core/paths';
 import {
   StorageSet,
   StorageView,
@@ -334,8 +335,8 @@ export class StorageSectionComponent {
 
   /** The suggested folders that are no storage yet. */
   protected readonly freeSuggestions = computed(() => {
-    const taken = new Set((this.storage.list() ?? []).map((s) => s.path.replace(/\/+$/, '')));
-    return this.suggestions().filter((s) => !taken.has(s.path.replace(/\/+$/, '')));
+    const taken = (this.storage.list() ?? []).map((s) => s.path);
+    return this.suggestions().filter((s) => !taken.some((t) => samePath(t, s.path)));
   });
   protected readonly rows = computed<StoreRow[]>(() =>
     (this.storage.list() ?? []).map((store) => ({
