@@ -23,8 +23,11 @@ self.addEventListener('activate', (event) => {
   event.waitUntil(self.clients.claim());
 });
 
-/** `/#/session/<id>?pending=<pendingId>` for a valid session, else home. */
+/** `/#/teams/<teamId>` for a team's event, `/#/session/<id>?pending=<pendingId>`
+ * for a valid session, else home. */
 function targetOf(data) {
+  const team = typeof data.teamId === 'string' && ID.test(data.teamId) ? data.teamId : '';
+  if (team) return `/#/teams/${team}`;
   const session =
     typeof data.sessionId === 'string' && ID.test(data.sessionId) ? data.sessionId : '';
   if (!session) return '/#/';

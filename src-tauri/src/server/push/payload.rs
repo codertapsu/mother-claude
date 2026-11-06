@@ -63,6 +63,8 @@ pub struct Notification {
     pub actionable: bool,
     pub pending_ids: Vec<String>,
     pub session_id: Option<String>,
+    /// A team's notification: opens the Teams page (no session then).
+    pub team_id: Option<String>,
     pub urgency: Urgency,
     pub ttl_secs: u64,
 }
@@ -178,6 +180,23 @@ fn short_line(e: &PushEvent) -> String {
             .map(|l| clean(l, 80))
             .filter(|l| !l.is_empty())
             .unwrap_or_else(|| "Budget alert".into()),
+        PushKind::TaskDone
+        | PushKind::TaskReview
+        | PushKind::TaskFailed
+        | PushKind::TaskBlocked
+        | PushKind::RoleWaiting => {
+            let what = match e.kind {
+                PushKind::TaskDone => "Task done",
+                PushKind::TaskReview => "Task ready for review",
+                PushKind::TaskFailed => "Task failed",
+                PushKind::TaskBlocked => "Task blocked",
+                _ => "A role waits for capacity",
+            };
+            match safe_label(e.label.as_deref()) {
+                Some(role) => format!("{what} · {role}"),
+                None => what.into(),
+            }
+        }
     }
 }
 
@@ -196,6 +215,7 @@ fn detailed_line(e: &PushEvent) -> String {
         PushKind::Finished | PushKind::Failed | PushKind::Budget => {
             format!("{} · {detail}", short_line(e))
         }
+        k if k.is_team() => format!("{} · {detail}", short_line(e)),
         _ => format!("{}: {detail}", short_line(e)),
     }
 }
@@ -222,6 +242,7 @@ pub fn render(
         }
     };
     let pending_ids: Vec<String> = events.iter().filter_map(|e| e.pending_id.clone()).collect();
+    let team_id = events.iter().find_map(|e| e.team_id.clone());
     let attention = events.iter().any(|e| e.kind.is_attention());
     let actionable = matches!(
         events,
@@ -237,10 +258,12 @@ pub fn render(
     };
     let urgency = if test
         || attention
-        || events
-            .iter()
-            .any(|e| matches!(e.kind, PushKind::Failed | PushKind::Claude))
-    {
+        || events.iter().any(|e| {
+            matches!(
+                e.kind,
+                PushKind::Failed | PushKind::Claude | PushKind::TaskFailed
+            )
+        }) {
         Urgency::High
     } else {
         Urgency::Normal
@@ -261,7 +284,8 @@ pub fn render(
         renotify: attention,
         actionable,
         pending_ids,
-        session_id: (!test).then(|| session_id.to_string()),
+        session_id: (!test && team_id.is_none()).then(|| session_id.to_string()),
+        team_id,
         urgency,
         ttl_secs,
     }
@@ -282,6 +306,9 @@ pub fn payload_json(n: &Notification, ts: i64) -> Value {
         "count": n.kinds.len(),
         "ts": ts,
     });
+    if let Some(team) = &n.team_id {
+        v["teamId"] = json!(team);
+    }
     if let Some(sid) = &n.session_id {
         v["sessionId"] = json!(sid);
     }
@@ -586,5 +613,46 @@ pub(crate) mod tests {
             )
             .is_err());
         }
+    }
+
+    /// A team's event: the role shows, the task's title only with details,
+    /// and the click opens the Teams page (no session).
+    #[test]
+    fn team_events_name_the_role_and_open_the_team() {
+        let mut e = PushEvent::new("team-tm_0123456789ab", PushKind::TaskReview, "k1");
+        e.label = Some("frontend".into());
+        e.detail = Some("Login form".into());
+        e.team_id = Some("tm_0123456789ab".into());
+        let n = render(
+            Some("Team shop"),
+            &e.session_id,
+            std::slice::from_ref(&e),
+            false,
+        );
+        assert_eq!(n.body, "Task ready for review · frontend");
+        assert!(!n.body.contains("Login"));
+        assert_eq!(n.session_id, None);
+        let v = payload_json(&n, 1);
+        assert_eq!(v["teamId"], "tm_0123456789ab");
+        assert!(v.get("sessionId").is_none());
+        let n = render(
+            Some("Team shop"),
+            &e.session_id,
+            std::slice::from_ref(&e),
+            true,
+        );
+        assert_eq!(n.body, "Task ready for review · frontend · Login form");
+        let mut blocked = e.clone();
+        blocked.kind = PushKind::TaskBlocked;
+        let n = render(None, &e.session_id, &[blocked], false);
+        assert!(n.renotify, "a blocked task needs someone");
+        let mut waiting = e.clone();
+        waiting.kind = PushKind::RoleWaiting;
+        waiting.label = Some("a role / with a path".into());
+        assert_eq!(
+            render(None, &e.session_id, &[waiting], false).body,
+            "A role waits for capacity",
+            "an unsafe label is left out"
+        );
     }
 }

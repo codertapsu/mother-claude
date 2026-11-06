@@ -853,6 +853,23 @@ pub fn on_budget_alert(state: &AppState, key: &str, short: &str, detail: &str) {
     state.push.enqueue(Msg::Event(e));
 }
 
+/// A team's event (`orchestration::delegation`): a task done, ready for
+/// review, failed or blocked, or a role that has waited long for capacity.
+/// `role` is shown; `detail` (the task's title, the reasons) only to devices
+/// with details on. One notification per team per window; it opens the
+/// Teams page.
+pub fn on_team_event(state: &AppState, team_id: &str, kind: PushKind, role: &str, detail: &str) {
+    if !state.push.has_subscriptions() || !kind.is_team() {
+        return;
+    }
+    let key = format!("team:{team_id}:{}", uuid::Uuid::new_v4().simple());
+    let mut e = PushEvent::new(&format!("team-{team_id}"), kind, key);
+    e.label = Some(role.to_string()).filter(|r| !r.trim().is_empty());
+    e.detail = Some(detail.to_string()).filter(|d| !d.trim().is_empty());
+    e.team_id = Some(team_id.to_string());
+    state.push.enqueue(Msg::Event(e));
+}
+
 /// Forget a revoked device's subscriptions (B1 calls this on revoke).
 pub fn drop_device(state: &AppState, device_id: &str) {
     state.push.forget_device(device_id);

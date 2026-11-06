@@ -63,13 +63,41 @@ pub enum PushKind {
     /// A budget reached its alert threshold or 100 % (docs/ROUTING.md); no
     /// session of its own.
     Budget,
+    // ── teams (`orchestration::delegation`): `label` is the role, `detail`
+    // the task's title (or why a role waits) ──
+    /// A role finished a task (the `finished` pref).
+    TaskDone,
+    /// A role's task waits for the lead's review (`finished`).
+    TaskReview,
+    /// A task failed (`failed`).
+    TaskFailed,
+    /// A role is blocked on a question (`failed`).
+    TaskBlocked,
+    /// A role has waited long for capacity (`failed`).
+    RoleWaiting,
 }
 
 impl PushKind {
     pub fn is_attention(self) -> bool {
         matches!(
             self,
-            PushKind::Permission | PushKind::Question | PushKind::Plan | PushKind::Waiting
+            PushKind::Permission
+                | PushKind::Question
+                | PushKind::Plan
+                | PushKind::Waiting
+                | PushKind::TaskBlocked
+        )
+    }
+
+    /// One of the teams' kinds.
+    pub fn is_team(self) -> bool {
+        matches!(
+            self,
+            PushKind::TaskDone
+                | PushKind::TaskReview
+                | PushKind::TaskFailed
+                | PushKind::TaskBlocked
+                | PushKind::RoleWaiting
         )
     }
 }
@@ -93,6 +121,8 @@ pub struct PushEvent {
     pub dangerous: bool,
     /// Observed on the bus rather than reported directly.
     pub derived: bool,
+    /// A team's event: the team (the notification opens the Teams page).
+    pub team_id: Option<String>,
 }
 
 impl PushEvent {
@@ -108,6 +138,7 @@ impl PushEvent {
             worked_ms: None,
             dangerous: false,
             derived: false,
+            team_id: None,
         }
     }
 
@@ -209,6 +240,12 @@ impl Suppressor {
             PushKind::Failed => admit_once(&mut m.failed, now, FAILED_DEDUPE_MS),
             PushKind::Idle => admit_once(&mut m.idle, now, IDLE_DEDUPE_MS),
             PushKind::Claude | PushKind::Test | PushKind::Budget => true,
+            // Each is its own fact (its key is unique).
+            PushKind::TaskDone
+            | PushKind::TaskReview
+            | PushKind::TaskFailed
+            | PushKind::TaskBlocked
+            | PushKind::RoleWaiting => true,
         }
     }
 
@@ -359,6 +396,8 @@ pub fn wants(dev: &DevicePush, ev: &PushEvent, now: i64) -> bool {
         PushKind::Test => true,
         // Rare, and switched on or off on the Capacity page.
         PushKind::Budget => true,
+        PushKind::TaskDone | PushKind::TaskReview => p.finished,
+        PushKind::TaskFailed | PushKind::TaskBlocked | PushKind::RoleWaiting => p.failed,
     }
 }
 
