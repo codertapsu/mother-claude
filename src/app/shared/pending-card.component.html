@@ -28,6 +28,11 @@
         <mc-icon name="agents" [size]="12" /> {{ full()?.agentType || 'subagent' }}
       </span>
     }
+    @if (!compact() && isBrowser()) {
+      <span class="tag" title="A Claude Code session wants to do this in your browser"
+        ><mc-icon name="globe" [size]="12" /> in the browser</span
+      >
+    }
     @if (!compact() && full()?.source === 'hook') {
       <span class="tag" title="Delivered through the hooks plugin; the first answer wins"
         >via hooks</span
@@ -226,7 +231,9 @@
         }
 
         @default {
-          @if (hasPreview()) {
+          @if (isBrowser()) {
+            <mc-browser-action [input]="full()?.input" />
+          } @else if (hasPreview()) {
             <mc-tool-preview
               [name]="toolName()"
               [input]="full()?.input"

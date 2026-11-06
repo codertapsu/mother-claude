@@ -315,8 +315,9 @@ export interface PermissionSuggestion {
 
 export type PendingKind = 'permission' | 'question' | 'plan' | 'elicitation';
 
-/** observed = seen on disk, not answerable from here. */
-export type PendingSource = 'owned' | 'hook' | 'bridge' | 'sidecar' | 'observed';
+/** observed = seen on disk, not answerable from here; browser = a browser
+ * action waiting for approval (docs/BROWSER.md). */
+export type PendingSource = 'owned' | 'hook' | 'bridge' | 'sidecar' | 'observed' | 'browser';
 
 export interface PendingItem {
   id: string;
@@ -1759,6 +1760,14 @@ export interface PairRequestFrame {
   pending: PendingPair;
 }
 
+/** The browser extension's state changed (everyone): refetch
+ * `GET /api/browser` (docs/BROWSER.md). */
+export interface BrowserFrame {
+  t: 'browser';
+  /** `browsers` | `sites` | `settings` | `grants` | `leases` | `activity`. */
+  what?: string;
+}
+
 /** The client lagged and frames were dropped — refetch and resubscribe. */
 export interface ResyncFrame {
   t: 'resync';
@@ -1788,6 +1797,7 @@ export type ServerFrame =
   | NoticeFrame
   | DevicesFrame
   | PairRequestFrame
+  | BrowserFrame
   | ResyncFrame
   | PingFrame
   | PongFrame;

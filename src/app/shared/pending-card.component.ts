@@ -29,6 +29,7 @@ import { NoticeService } from '../core/notice.service';
 import { PendingService, isFullItem, resolutionText } from '../core/pending.service';
 import { RealtimeService } from '../core/realtime.service';
 import { AccountChipComponent } from './account-chip.component';
+import { BrowserActionComponent } from './browser-action.component';
 import { CapLimitsComponent } from './cap-limits.component';
 import { IconComponent, IconName } from './icon.component';
 import { renderMarkdown } from './markdown';
@@ -53,6 +54,7 @@ const DESTINATIONS: Record<string, string> = {
   projectSettings: 'Saved in .claude/settings.json (this project, shared with the repo)',
   userSettings: 'Saved in ~/.claude/settings.json (all your projects)',
   cliArg: 'This run only',
+  browser: 'Saved in Mother Claude (Browser › Always allowed)',
 };
 
 interface SchemaField {
@@ -96,6 +98,7 @@ interface SchemaField {
     NgTemplateOutlet,
     RouterLink,
     AccountChipComponent,
+    BrowserActionComponent,
     CapLimitsComponent,
     IconComponent,
     SheetComponent,
@@ -218,6 +221,10 @@ export class PendingCardComponent {
     return preview.quick?.options ?? [];
   });
   protected readonly planHtml = computed(() => renderMarkdown(this.full()?.plan ?? ''));
+  /** A browser action waiting for approval (docs/BROWSER.md). */
+  protected readonly isBrowser = computed(
+    () => (this.full()?.source ?? this.item().source) === 'browser',
+  );
   protected readonly toolName = computed(() => this.full()?.toolName ?? this.item().toolName ?? '');
   protected readonly hasPreview = computed(() => {
     const f = this.full();
@@ -267,7 +274,7 @@ export class PendingCardComponent {
       case 'elicitation':
         return 'info';
       default:
-        return 'shield';
+        return this.isBrowser() ? 'globe' : 'shield';
     }
   });
   protected readonly heading = computed(() => {
