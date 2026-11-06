@@ -45,6 +45,16 @@ pub fn host_os() -> &'static str {
     std::env::consts::OS
 }
 
+/// This machine in a sentence, as people call one of its system: `Mac`,
+/// `PC`, else `machine` ("this PC's copies").
+pub fn machine_noun() -> &'static str {
+    match host_os() {
+        "macos" => "Mac",
+        "windows" => "PC",
+        _ => "machine",
+    }
+}
+
 /// Absolute on macOS or Linux (`/…`) or on Windows ([`is_windows_absolute`]).
 pub fn is_absolute_anywhere(p: &str) -> bool {
     p.starts_with('/') || is_windows_absolute(p)

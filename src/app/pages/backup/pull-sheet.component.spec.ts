@@ -131,7 +131,7 @@ describe('PullSheetComponent', () => {
     const open_ = [...el.querySelectorAll('.rows > .srow')].filter((r) => !r.closest('details'));
     expect(open_.map((r) => text(r.querySelector('.act')))).toEqual([
       'New here',
-      "Newer in the backup — replaces this Mac's copy, kept for undo",
+      'Newer in the backup — replaces the copy here, kept for undo',
       'Changed on both — kept side by side',
     ]);
     // What needs nothing is folded away, a running one among them.
@@ -202,7 +202,7 @@ describe('PullSheetComponent', () => {
       '1 new · 1 updated · 1 conflict · 4 prompt-history lines added',
     );
     expect(text(rows[0].querySelector('mc-job-details p'))).toBe(
-      "Changed on both — the backup's copy is kept beside this Mac's:",
+      "Changed on both — the backup's copy is kept beside the one here:",
     );
     expect(text(rows[0].querySelector('mc-job-details li'))).toBe(
       'a0000003 → ~/.claude/projects/x/a0000003.conflict-marcus-air-17.jsonl',
@@ -237,7 +237,7 @@ describe('PullSheetComponent', () => {
     const groups = [...el.querySelectorAll('.grp')];
     expect(groups.map((g) => text(g.querySelector('h3')))).toEqual(['Default', 'Work']);
     expect(text(groups[1].querySelector('.notice.error'))).toContain(
-      "The backup's key (identity.age) isn't in the folder on this Mac",
+      "The backup's key (identity.age) isn't in the folder here",
     );
     // The Default's sessions can still be pulled.
     expect(text(button(el, 'Pull'))).toBe('Pull 3 sessions');
@@ -304,7 +304,7 @@ describe('PullSheetComponent', () => {
       .map((r) => text(r.querySelector('.act')));
     expect(acts).toEqual([
       'New here',
-      "Newer here — the backup's copy replaces this Mac's, kept for undo",
+      "Newer here — the backup's copy replaces the one here, kept for undo",
     ]);
     expect(text(button(el, 'Force pull'))).toBe('Force pull 2 sessions…');
     button(el, 'Force pull')?.click();

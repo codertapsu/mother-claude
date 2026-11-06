@@ -122,7 +122,7 @@ export function switchErrorText(e: unknown, accountName?: string): string {
       case 'data_job_running':
         return 'A move, copy, backup or restore is running: try again once it has finished.';
       case 'dangerous_blocked':
-        return 'This session runs without permission prompts: switching it needs dangerous actions for this device, granted on the Mac in Remote › Devices.';
+        return 'This session runs without permission prompts: switching it needs dangerous actions for this device, granted on the computer in Remote › Devices.';
       case 'untrusted_cwd':
         return (
           e.message ||

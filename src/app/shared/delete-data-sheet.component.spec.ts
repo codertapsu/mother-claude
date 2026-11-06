@@ -231,7 +231,7 @@ describe('DeleteDataSheetComponent', () => {
     TestBed.inject(AuthService).me.set(me({ allowDangerous: false }));
     const el = await open({ what: 'this conversation', groups: [{ sessions: ['s1'] }] });
     expect(text(el.querySelector('.notice.warn'))).toBe(
-      'Deleting conversations needs dangerous actions for this device, granted on the Mac in Remote › Devices.',
+      'Deleting conversations needs dangerous actions for this device, granted on the computer in Remote › Devices.',
     );
     expect(backend.calls).not.toContain('POST /data/delete');
     expect(button(el, 'Delete')).toBeUndefined();

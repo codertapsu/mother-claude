@@ -200,7 +200,7 @@ describe('BackupComponent', () => {
       (r) => text(r.querySelector('.sname')) === 'Work',
     )!;
     expect(text(work.querySelector('.nokey'))).toContain(
-      "Its key (identity.age) isn't in the folder on this Mac",
+      "Its key (identity.age) isn't in the folder here",
     );
     expect(text(work.querySelector('.nokey'))).toContain('choose Keep Downloaded');
     // Nothing to back up to it or read from it: only a fresh look.
@@ -248,7 +248,7 @@ describe('BackupComponent', () => {
     const el = await render();
     const def = text(el.querySelector('.setrow'));
     expect(def).toContain('Also from marcus-air');
-    expect(def).toContain('Also from another Mac named marcus-mbp');
+    expect(def).toContain('Also from another machine named marcus-mbp');
   });
 
   it('lets the desktop pick a suggested folder in one click', async () => {
@@ -403,6 +403,22 @@ describe('BackupComponent', () => {
     expect(el.querySelectorAll('mc-data-job').length).toBe(1);
   });
 
+  it('calls a Windows desktop a PC, and its passphrase kept on it', async () => {
+    asDesktop({ hostOs: 'windows' });
+    current = ready();
+    const el = await render();
+    expect(text(el)).toContain('Set, on this PC');
+    expect(text(el)).toContain('It is kept on the PC.');
+    expect(text(el)).not.toContain('Keychain');
+    expect(text(el.querySelector('.sets'))).toContain('Backed up from this PC');
+    (el.querySelector('[aria-label="Force backup of Default"]') as HTMLButtonElement).click();
+    await settle();
+    const what = text(el.querySelector('mc-force-backup-sheet .what'));
+    expect(what).toContain("This PC's copy of every session it has replaces the backup's copy");
+    expect(what).toContain("its next pull puts this PC's beside it");
+    expect(what).not.toContain('Mac');
+  });
+
   it('force-backs up a set after a confirmation that says what is replaced and what stays', async () => {
     asDesktop();
     current = ready();
@@ -441,7 +457,7 @@ describe('BackupComponent', () => {
     expect(what).toContain(
       "This Mac's copy of every session it has replaces the backup's copy of Default wherever the two differ",
     );
-    expect(what).toContain('also where another Mac backed up a newer copy');
+    expect(what).toContain('also where another machine backed up a newer copy');
     expect(what).toContain('Sessions only in the backup stay as they are');
     expect(what).toContain('sessions running here are skipped');
     expect(what).toContain('stays in the backup folder for seven days');

@@ -228,7 +228,7 @@ describe('RestoreSheetComponent', () => {
     const trust = el.querySelector('.check input') as HTMLInputElement;
     expect(trust.disabled).toBeTrue();
     expect(text(el.querySelector('.check'))).toContain(
-      'Needs dangerous actions for this device, granted on the Mac in Remote › Devices.',
+      'Needs dangerous actions for this device, granted on the computer in Remote › Devices.',
     );
     boxes(el)[1].click();
     fixture.detectChanges();
@@ -318,7 +318,7 @@ describe('RestoreSheetComponent', () => {
     const force = el.querySelector('.check.force input') as HTMLInputElement;
     expect(force.disabled).toBeTrue();
     expect(text(el.querySelector('.check.force'))).toContain(
-      'Needs dangerous actions for this device, granted on the Mac in Remote › Devices.',
+      'Needs dangerous actions for this device, granted on the computer in Remote › Devices.',
     );
   });
 
@@ -338,11 +338,11 @@ describe('RestoreSheetComponent', () => {
     code = 'set_key_missing';
     el = await open();
     expect(text(el.querySelector('.notice.error'))).toContain(
-      "The backup's key (identity.age) isn't in the folder on this Mac",
+      "The backup's key (identity.age) isn't in the folder here",
     );
   });
 
-  it('says when the passphrase on this Mac does not open the set', async () => {
+  it('says when the passphrase set here does not open the set', async () => {
     backend.routes.set('/backup/index', () => ({
       status: 403,
       body: {
@@ -354,7 +354,7 @@ describe('RestoreSheetComponent', () => {
     }));
     const el = await open();
     expect(text(el.querySelector('.notice.error'))).toContain(
-      'The passphrase on this Mac does not open this backup.',
+      'The passphrase set here does not open this backup.',
     );
     expect(button(el, 'Try again')).toBeDefined();
   });

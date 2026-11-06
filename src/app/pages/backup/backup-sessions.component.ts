@@ -106,7 +106,7 @@ const TONES: Record<BackupAction, string> = {
               }
             </span>
             <span class="muted small">
-              From {{ s.host || 'another Mac' }} <mc-time [ms]="s.pushedAt" /> ·
+              From {{ s.host || 'another machine' }} <mc-time [ms]="s.pushedAt" /> ·
               {{ bytes(s.remoteBytes) }}
             </span>
             @if (s.pruneWarning) {

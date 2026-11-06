@@ -16,7 +16,7 @@ interface Named {
 
 /**
  * What a finished backup, restore or pull did beyond its one line. A
- * backup: the sessions it did not push because another Mac changed them
+ * backup: the sessions it did not push because another machine changed them
  * too (a Pull brings the other copy beside this one), those newer in the
  * backup (a Pull brings them), what failed or was left out, and the old
  * files it removed. A restore or pull: the conflicts (each session and the
@@ -76,8 +76,8 @@ interface Named {
     }
     @if (pushConflicts().length) {
       <p class="h small">
-        Changed here and on another Mac, so not backed up — a Pull brings the other copy beside this
-        one:
+        Changed here and on another machine, so not backed up — a Pull brings the other copy beside
+        this one:
       </p>
       <ul>
         @for (s of pushConflicts(); track s.id) {
@@ -91,7 +91,9 @@ interface Named {
       </ul>
     }
     @if (newerInSet().length) {
-      <p class="h small">Newer in the backup (another Mac backed them up) — a Pull brings them:</p>
+      <p class="h small">
+        Newer in the backup (another machine backed them up) — a Pull brings them:
+      </p>
       <ul>
         @for (s of newerInSet(); track s.id) {
           <li class="small">
@@ -104,7 +106,7 @@ interface Named {
       </ul>
     }
     @if (conflicts().length) {
-      <p class="h small">Changed on both — the backup's copy is kept beside this Mac's:</p>
+      <p class="h small">Changed on both — the backup's copy is kept beside the one here:</p>
       <ul>
         @for (c of conflicts(); track c.path) {
           <li class="small">
@@ -230,7 +232,7 @@ export class JobDetailsComponent {
   });
   protected readonly replacedLabel = computed(() =>
     this.done()?.kind === 'backup'
-      ? "This Mac's copy replaced the backup's, which another Mac had backed up since this Mac last had it (or which was newer); the folder keeps the replaced copies seven days:"
+      ? "The copy here replaced the backup's, which another machine had backed up since this one last had it (or which was newer); the folder keeps the replaced copies seven days:"
       : "The backup's copy replaced the one here, which is kept for undo:",
   );
   protected readonly newerInSet = computed(() =>

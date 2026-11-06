@@ -58,8 +58,8 @@ describe('JobDetailsComponent', () => {
     );
     const heads = [...el.querySelectorAll('.h')].map((h) => text(h));
     expect(heads).toEqual([
-      'Changed here and on another Mac, so not backed up — a Pull brings the other copy beside this one:',
-      'Newer in the backup (another Mac backed them up) — a Pull brings them:',
+      'Changed here and on another machine, so not backed up — a Pull brings the other copy beside this one:',
+      'Newer in the backup (another machine backed them up) — a Pull brings them:',
       'Could not be backed up:',
     ]);
     const items = [...el.querySelectorAll('li')].map((li) => text(li));

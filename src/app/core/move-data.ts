@@ -518,7 +518,7 @@ export function customizationLabel(item: string): string {
 /** What a device without the dangerous right is told about the parts that
  * need it (a folder's trust, settings and MCP servers). */
 export const DANGEROUS_REASON =
-  'Needs dangerous actions for this device, granted on the Mac in Remote › Devices.';
+  'Needs dangerous actions for this device, granted on the computer in Remote › Devices.';
 
 /** Why `what` can't go this way ('' when it can): with `from` left out
  * (`everywhere`) only conversations can. */

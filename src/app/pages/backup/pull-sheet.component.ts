@@ -30,6 +30,7 @@ import { jobIdOf, normalizeJob, plural, sentence } from '../../core/data-jobs';
 import { DataJobsService } from '../../core/data-jobs.service';
 import { BackupIndex, BackupSet, JobView } from '../../core/models';
 import { DANGEROUS_REASON } from '../../core/move-data';
+import { machineNoun } from '../../core/paths';
 import { DataJobComponent } from '../../shared/data-job.component';
 import { SheetComponent } from '../../shared/sheet.component';
 import { BackupSessionsComponent } from './backup-sessions.component';
@@ -124,7 +125,7 @@ interface PullRun {
                 (change)="trust.set($any($event.target).checked)"
               />
               <span>
-                Also trust the folders of new sessions on this Mac
+                Also trust the folders of new sessions on this {{ mac() }}
                 <span class="muted small hint-line"
                   >A trusted folder runs its project hooks and MCP servers without asking.</span
                 >
@@ -141,11 +142,11 @@ interface PullRun {
                 (change)="setForce($any($event.target).checked)"
               />
               <span>
-                Force: the backup's copy replaces this Mac's
+                Force: the backup's copy replaces this {{ mac() }}'s
                 <span class="muted small hint-line"
-                  >Also where it changed here or is newer here. This Mac's copies are kept for undo,
-                  for seven days; sessions only on this Mac stay, and running ones are
-                  skipped.</span
+                  >Also where it changed here or is newer here. This {{ mac() }}'s copies are kept
+                  for undo, for seven days; sessions only on this {{ mac() }} stay, and running ones
+                  are skipped.</span
                 >
                 @if (!canDangerous()) {
                   <span class="small hint-line blocked">{{ dangerousReason }}</span>
@@ -177,7 +178,7 @@ interface PullRun {
               <p>
                 <strong>Force pull.</strong>
                 @if (counts().replaced) {
-                  The backup's copy replaces this Mac's copy of
+                  The backup's copy replaces this {{ mac() }}'s copy of
                   <strong>{{ plural(counts().replaced, 'session') }}</strong>
                   @if (kinds()) {
                     ({{ kinds() }})
@@ -187,13 +188,13 @@ interface PullRun {
                   None of the selected sessions has a copy here that differs from the backup's.
                 }
                 @if (counts().added) {
-                  {{ plural(counts().added, 'session') }} new to this Mac
+                  {{ plural(counts().added, 'session') }} new to this {{ mac() }}
                   {{ counts().added === 1 ? 'comes' : 'come' }} too.
                 }
               </p>
               <p>
-                Sessions only on this Mac stay as they are, and sessions running here are skipped.
-                This Mac's copies are kept for seven days: Undo puts them back.
+                Sessions only on this {{ mac() }} stay as they are, and sessions running here are
+                skipped. This {{ mac() }}'s copies are kept for seven days: Undo puts them back.
               </p>
             </div>
             @if (error()) {
@@ -292,6 +293,9 @@ export class PullSheetComponent {
   private jobs = inject(DataJobsService);
   /** A folder's trust needs the dangerous right (docs/ACCOUNTS.md §13.9). */
   protected readonly canDangerous = inject(AuthService).canDangerous;
+  private readonly hostOs = inject(AuthService).hostOs;
+  /** The desktop's computer: "this Mac", "this PC". */
+  protected readonly mac = computed(() => machineNoun(this.hostOs()));
   protected readonly dangerousReason = DANGEROUS_REASON;
 
   readonly open = input(false);

@@ -239,7 +239,7 @@ describe('backup helpers', () => {
       'k',
     ]);
     expect(forceText(list[4], 'pull')).toBe(
-      "Newer here — the backup's copy replaces this Mac's, kept for undo",
+      "Newer here — the backup's copy replaces the one here, kept for undo",
     );
     expect(forceText(list[5], 'restore')).toBe(
       "Not the backup's copy — the backup's copy replaces the account's, kept for undo",
@@ -364,7 +364,7 @@ describe('backup helpers', () => {
   it('says what a pull does with each session', () => {
     expect(actionText('new', 'pull')).toBe('New here');
     expect(actionText('update', 'pull')).toBe(
-      "Newer in the backup — replaces this Mac's copy, kept for undo",
+      'Newer in the backup — replaces the copy here, kept for undo',
     );
     expect(actionText('conflict', 'pull')).toBe('Changed on both — kept side by side');
     expect(actionText('live', 'pull')).toBe('Running here — skipped');
@@ -563,6 +563,6 @@ describe('backup helpers', () => {
         error: 'the backup set in /x has no key',
         errorCode: 'set_key_missing',
       }),
-    ).toContain("The backup's key (identity.age) isn't in the folder on this Mac");
+    ).toContain("The backup's key (identity.age) isn't in the folder here");
   });
 });

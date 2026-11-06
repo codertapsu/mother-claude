@@ -486,7 +486,7 @@ describe('MoveDataSheetComponent', () => {
     const trust = el.querySelector<HTMLInputElement>('.check input')!;
     expect(trust.disabled).toBeTrue();
     expect(text(el.querySelector('.check'))).toContain(
-      'Needs dangerous actions for this device, granted on the Mac in Remote › Devices.',
+      'Needs dangerous actions for this device, granted on the computer in Remote › Devices.',
     );
     button(el, 'Customizations')?.click();
     await settle();

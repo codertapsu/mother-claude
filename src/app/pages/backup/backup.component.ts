@@ -18,7 +18,7 @@ import {
 import { jobIdOf, plural, sentence } from '../../core/data-jobs';
 import { DataJobsService } from '../../core/data-jobs.service';
 import { BackupMachine, BackupSet, BackupView, JobView } from '../../core/models';
-import { folderExample, folderPathProblem } from '../../core/paths';
+import { folderExample, folderPathProblem, machineNoun } from '../../core/paths';
 import { RealtimeService } from '../../core/realtime.service';
 import { StorageService } from '../../core/storage.service';
 import { CopyButtonComponent } from '../../shared/copy-button.component';
@@ -101,6 +101,15 @@ export class BackupComponent {
   /** The desktop's system: the folder is typed its way. */
   protected readonly hostOs = inject(AuthService).hostOs;
   protected readonly folderPlaceholder = computed(() => folderExample(this.hostOs(), 'backup'));
+  /** The desktop's computer: "this Mac", "this PC". */
+  protected readonly mac = computed(() => machineNoun(this.hostOs()));
+  /** Where the passphrase is kept: a Mac's Keychain, elsewhere on the
+   * computer itself (docs/ACCOUNTS.md D3). */
+  protected keptIn(article: 'this' | 'the'): string {
+    return this.hostOs() === 'macos'
+      ? `in ${article} Mac's Keychain`
+      : `on ${article} ${this.mac()}`;
+  }
 
   protected readonly view = signal<BackupView | null>(null);
   protected readonly loadError = signal('');
@@ -287,7 +296,9 @@ export class BackupComponent {
           account ? `${who} is being backed up already.` : 'Every backup is running already.',
         );
       } else if (force) {
-        this.notice.set(`Force backup of ${who}: this Mac's copies replace the backup's…`);
+        this.notice.set(
+          `Force backup of ${who}: this ${this.mac()}'s copies replace the backup's…`,
+        );
       } else this.notice.set(`Backing up ${who}…`);
       if (force) this.forceFor.set(null);
     } catch (e) {

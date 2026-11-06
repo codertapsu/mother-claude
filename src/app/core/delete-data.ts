@@ -394,7 +394,7 @@ export function deleteSkipReason(s: DeleteSkip, openInApi?: ReadonlySet<string>)
 /** What a device without the dangerous right is told (§14.3: deleting a
  * transcript is a dangerous action). */
 export const DELETE_DANGEROUS_REASON =
-  'Deleting conversations needs dangerous actions for this device, granted on the Mac in Remote › Devices.';
+  'Deleting conversations needs dangerous actions for this device, granted on the computer in Remote › Devices.';
 
 /** A refusal of a delete or a reveal, in words. */
 export function deleteErrorText(e: unknown): string {

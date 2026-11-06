@@ -287,10 +287,13 @@ pub async fn post_push(
     auth::note_device_action(
         &state,
         &ctx,
-        if body.force {
-            "started a force backup, which replaces the backup's copies with this Mac's"
+        &if body.force {
+            format!(
+                "started a force backup, which replaces the backup's copies with this {}'s",
+                crate::claude::paths::machine_noun()
+            )
         } else {
-            "started a backup"
+            "started a backup".to_string()
         },
     );
     Ok((StatusCode::ACCEPTED, Json(json!({ "jobs": jobs }))).into_response())
@@ -580,10 +583,13 @@ pub async fn post_pull(
     auth::note_device_action(
         &state,
         &ctx,
-        if body.force {
-            "started a force pull, which replaces this Mac's copies with the backup's"
+        &if body.force {
+            format!(
+                "started a force pull, which replaces this {}'s copies with the backup's",
+                crate::claude::paths::machine_noun()
+            )
         } else {
-            "started a pull"
+            "started a pull".to_string()
         },
     );
     Ok((

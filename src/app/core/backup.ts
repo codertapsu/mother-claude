@@ -158,7 +158,7 @@ export function andList(names: readonly string[]): string {
 
 /** What the page says about a set whose key is not in the folder here. */
 export const KEY_MISSING_TEXT =
-  "Its key (identity.age) isn't in the folder on this Mac — deleted, or not downloaded yet — so nothing can be backed up to it or read from it until it is back. On iCloud Drive, right-click the Mother Claude folder and choose Keep Downloaded; to start over instead, move the set's folder away.";
+  "Its key (identity.age) isn't in the folder here — deleted, or not downloaded yet — so nothing can be backed up to it or read from it until it is back. On iCloud Drive, right-click the Mother Claude folder and choose Keep Downloaded (on OneDrive: Always keep on this device); to start over instead, move the set's folder away.";
 
 function suggestion(raw: unknown): BackupSuggestion | null {
   const r = obj(raw);
@@ -343,7 +343,7 @@ export function normalizeBackupIndex(raw: unknown): BackupIndex | null {
 /** What a pull does with a session, in words. */
 const PULL_TEXT: Record<BackupAction, string> = {
   new: 'New here',
-  update: "Newer in the backup — replaces this Mac's copy, kept for undo",
+  update: 'Newer in the backup — replaces the copy here, kept for undo',
   conflict: 'Changed on both — kept side by side',
   live: 'Running here — skipped',
   localNewer: 'Newer here',
@@ -377,7 +377,7 @@ export function forceText(s: BackupIndexSession, mode: 'pull' | 'restore', force
   if (!force || !forceReplaces(s)) return actionText(s.action, mode);
   const kept =
     mode === 'pull'
-      ? "the backup's copy replaces this Mac's, kept for undo"
+      ? "the backup's copy replaces the one here, kept for undo"
       : "the backup's copy replaces the account's, kept for undo";
   switch (s.action) {
     case 'update':
@@ -672,11 +672,11 @@ const BACKUP_TEXT: Record<string, string> = {
   no_backup_folder: 'Choose a backup folder first.',
   no_backup_passphrase: 'Set a passphrase first.',
   wrong_passphrase:
-    'The passphrase on this Mac does not open this backup. Set the passphrase it was made with (Passphrase › Change), then try again.',
+    'The passphrase set here does not open this backup. Set the passphrase it was made with (Passphrase › Change), then try again.',
   backup_unauthenticated:
     "This backup failed its check: its index was not written with this passphrase's key — someone changed it, or an older build of Mother Claude made it. Nothing was read from it.",
   set_key_missing:
-    "The backup's key (identity.age) isn't in the folder on this Mac — deleted, or not downloaded yet. Nothing can be backed up or read until it is back: on iCloud Drive, choose Keep Downloaded for the Mother Claude folder.",
+    "The backup's key (identity.age) isn't in the folder here — deleted, or not downloaded yet. Nothing can be backed up or read until it is back: on iCloud Drive, choose Keep Downloaded for the Mother Claude folder (on OneDrive: Always keep on this device).",
   invalid_backup: 'There is no backup to read there.',
   backup_io: 'The backup folder could not be read or written.',
   invalid_schedule: 'Back up at least once a week, or by hand only.',

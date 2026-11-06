@@ -3,15 +3,16 @@ import { ChangeDetectionStrategy, Component, computed, inject, input, output } f
 import { AuthService } from '../../core/auth.service';
 import { DANGEROUS_REASON } from '../../core/move-data';
 import { BackupSet } from '../../core/models';
+import { machineNoun } from '../../core/paths';
 import { SheetComponent } from '../../shared/sheet.component';
 
 /**
  * Force backup's confirmation (docs/BACKUP.md "Force backup, force pull"):
  * what gets replaced in the backup (the backup's copy of every session this
- * Mac has, wherever the two differ — also another Mac's newer or changed
- * one), what stays (sessions only in the backup; running ones are skipped),
+ * computer has, wherever the two differ — also another machine's newer or
+ * changed one), what stays (sessions only in the backup; running ones are skipped),
  * where the replaced copies go (the folder keeps them seven days) and what
- * the other Mac sees next. It needs the dangerous right, as deleting does;
+ * the other machine sees next. It needs the dangerous right, as deleting does;
  * without it the dialog says why and the button stays off. The page starts
  * the backup.
  */
@@ -24,18 +25,18 @@ import { SheetComponent } from '../../shared/sheet.component';
       @if (set(); as s) {
         <div class="notice warn small what" role="alert">
           <p>
-            This Mac's copy of every session it has replaces the backup's copy of
-            <strong>{{ s.name }}</strong> wherever the two differ — also where another Mac backed up
-            a newer copy, or one that changed there too.
+            This {{ mac() }}'s copy of every session it has replaces the backup's copy of
+            <strong>{{ s.name }}</strong> wherever the two differ — also where another machine
+            backed up a newer copy, or one that changed there too.
           </p>
           <p>
             Sessions only in the backup stay as they are, and sessions running here are skipped.
             Each copy it replaces stays in the backup folder for seven days.
           </p>
           <p>
-            The other Mac keeps its own copy: its next pull puts this Mac's beside it, or replaces
-            it when its copy is where this one came from. A force pull there makes its copy this
-            Mac's.
+            The other machine keeps its own copy: its next pull puts this {{ mac() }}'s beside it,
+            or replaces it when its copy is where this one came from. A force pull there makes its
+            copy this {{ mac() }}'s.
           </p>
         </div>
         @if (!canDangerous()) {
@@ -79,6 +80,9 @@ import { SheetComponent } from '../../shared/sheet.component';
 export class ForceBackupSheetComponent {
   /** A force backup needs the dangerous right (docs/ACCOUNTS.md §13.9). */
   protected readonly canDangerous = inject(AuthService).canDangerous;
+  private readonly hostOs = inject(AuthService).hostOs;
+  /** The desktop's computer: "this Mac", "this PC". */
+  protected readonly mac = computed(() => machineNoun(this.hostOs()));
   protected readonly dangerousReason = DANGEROUS_REASON;
 
   /** The set to force-back up (null: closed). */

@@ -22,7 +22,7 @@
           @if (isDesktop()) {
             Setting the passphrase again — the same one or a new one — finishes it.
           } @else {
-            Set the passphrase again on the Mac to finish it.
+            Set the passphrase again on the {{ mac() }} to finish it.
           }
         </p>
         @if (isDesktop()) {
@@ -86,13 +86,13 @@
       <div class="list-row prow">
         <mc-icon name="key" />
         <div class="grow">
-          <strong>{{ v.passphraseSet ? "Set, in this Mac's Keychain" : 'Not set yet' }}</strong>
+          <strong>{{ v.passphraseSet ? 'Set, ' + keptIn('this') : 'Not set yet' }}</strong>
           <span class="muted small"
             >Without it no backup can be read — by you or anyone, and Mother Claude can't recover
-            it. It is kept in the Mac's Keychain. Changing it keeps every backup readable.</span
+            it. It is kept {{ keptIn('the') }}. Changing it keeps every backup readable.</span
           >
           @if (!isDesktop()) {
-            <span class="small onmac">It is set and changed on the Mac.</span>
+            <span class="small onmac">It is set and changed on the {{ mac() }}.</span>
           }
         </div>
         @if (isDesktop()) {
@@ -196,13 +196,13 @@
             } @else {
               @if (r.set.lastPush) {
                 <span class="small"
-                  >Backed up from this Mac <mc-time [ms]="r.set.lastPush" />
+                  >Backed up from this {{ mac() }} <mc-time [ms]="r.set.lastPush" />
                   @if (r.set.sessions !== undefined) {
                     · {{ plural(r.set.sessions, 'session') }}
                   }
                 </span>
               } @else if (r.set.exists) {
-                <span class="small">Not backed up from this Mac yet</span>
+                <span class="small">Not backed up from this {{ mac() }} yet</span>
               } @else if (!r.set.keyMissing) {
                 <span class="muted small">No backup yet</span>
               }
@@ -214,14 +214,14 @@
               }
               @for (m of r.others; track m.id ?? m.host) {
                 <span class="muted small"
-                  >Also from {{ m.host === v.host ? 'another Mac named ' + m.host : m.host }}
+                  >Also from {{ m.host === v.host ? 'another machine named ' + m.host : m.host }}
                   @if (m.lastPush) {
                     <mc-time [ms]="m.lastPush" />
                   }
                 </span>
               }
               @if (r.sameName) {
-                <span class="muted small">Also from another Mac named {{ v.host }}</span>
+                <span class="muted small">Also from another machine named {{ v.host }}</span>
               }
               @if (configFolders().get(r.set.account); as folder) {
                 <div class="notice small cfg" role="status">
@@ -311,7 +311,7 @@
       }
     </section>
     @if (v.lastPull) {
-      <p class="muted small last">Last pull on this Mac <mc-time [ms]="v.lastPull" />.</p>
+      <p class="muted small last">Last pull on this {{ mac() }} <mc-time [ms]="v.lastPull" />.</p>
     }
 
     <!-- ─────────────── Folder pairs ─────────────── -->

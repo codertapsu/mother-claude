@@ -19,7 +19,9 @@ import {
   normalizePassphraseChange,
   passphraseFailure,
 } from '../../core/backup';
+import { AuthService } from '../../core/auth.service';
 import { PassphraseChange } from '../../core/models';
+import { machineNoun } from '../../core/paths';
 import { CopyButtonComponent } from '../../shared/copy-button.component';
 import { IconComponent } from '../../shared/icon.component';
 import { SheetComponent } from '../../shared/sheet.component';
@@ -56,7 +58,7 @@ export type PassphraseStep = 'choose' | 'own' | 'show' | 'saved';
             }
             <p class="small lede">
               Without the passphrase no backup can be read — by you or anyone, and Mother Claude
-              can't recover it. It is kept in this Mac's Keychain.
+              can't recover it. It is kept {{ keptIn() }}.
               @if (changing()) {
                 Changing it keeps every backup readable: they are re-keyed to the new one.
               }
@@ -163,7 +165,7 @@ export type PassphraseStep = 'choose' | 'own' | 'show' | 'saved';
           }
           @case ('saved') {
             <p class="notice ok small" role="status">
-              Saved in this Mac's Keychain. Backups are encrypted with it from now on.
+              Saved {{ keptIn() }}. Backups are encrypted with it from now on.
             </p>
             @for (line of changeLines(); track line) {
               <p class="muted small done">{{ line }}</p>
@@ -249,6 +251,14 @@ export class PassphraseSheetComponent {
   protected readonly own = signal('');
   protected readonly again = signal('');
   protected readonly reveal = signal(false);
+  private readonly hostOs = inject(AuthService).hostOs;
+  /** Where the passphrase is kept: this Mac's Keychain, elsewhere on the
+   * computer itself (docs/ACCOUNTS.md D3). */
+  protected keptIn(): string {
+    return this.hostOs() === 'macos'
+      ? "in this Mac's Keychain"
+      : `on this ${machineNoun(this.hostOs())}`;
+  }
   /** What a change that went through did to the sets. */
   protected readonly change = signal<PassphraseChange | null>(null);
   /** Why a change that some set already has stopped ('' when none did). */
@@ -280,7 +290,7 @@ export class PassphraseSheetComponent {
     if (c.left.length) {
       const one = c.left.length === 1;
       lines.push(
-        `Left as ${one ? 'it was' : 'they were'}: ${andList(c.left)} — ${one ? 'a backup' : 'backups'} in the folder of no account on this Mac that ${one ? 'opens' : 'open'} with neither passphrase.`,
+        `Left as ${one ? 'it was' : 'they were'}: ${andList(c.left)} — ${one ? 'a backup' : 'backups'} in the folder of no account on this ${machineNoun(this.hostOs())} that ${one ? 'opens' : 'open'} with neither passphrase.`,
       );
     }
     return lines;
