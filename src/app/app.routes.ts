@@ -91,6 +91,12 @@ const pages: Routes = [
     loadComponent: () =>
       import('./pages/services/services.component').then((m) => m.ServicesComponent),
   },
+  // Capacity: role sessions, budgets, routing and costs (docs/ROUTING.md).
+  {
+    path: 'capacity',
+    loadComponent: () =>
+      import('./pages/capacity/capacity.component').then((m) => m.CapacityComponent),
+  },
   {
     path: 'good-to-know',
     loadComponent: () =>

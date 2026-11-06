@@ -29,6 +29,12 @@ const ENTRIES: Entry[] = [
     hint: 'Notifications, theme, plan usage, connection',
   },
   { path: '/api', icon: 'code', label: 'HTTP API', hint: 'Drive Claude from scripts and tools' },
+  {
+    path: '/capacity',
+    icon: 'gauge',
+    label: 'Capacity',
+    hint: 'Role sessions, why they wait, budgets, routing and costs',
+  },
   { path: '/services', icon: 'activity', label: 'Services', hint: 'Daemon and MCP servers' },
   { path: '/good-to-know', icon: 'book', label: 'Good to know', hint: 'How Mother Claude works' },
 ];

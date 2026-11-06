@@ -43,6 +43,7 @@ const MORE_SECTIONS = [
   'services',
   'good-to-know',
   'onboarding',
+  'capacity',
 ];
 
 const TITLES: Record<string, string> = {
@@ -61,6 +62,7 @@ const TITLES: Record<string, string> = {
   onboarding: 'Welcome',
   pair: 'Pair this device',
   session: 'Session',
+  capacity: 'Capacity',
 };
 
 interface NavItem {
@@ -157,6 +159,7 @@ export class AppComponent {
     { path: '/new', label: 'New session', icon: 'plus' },
     { path: '/remote', label: 'Remote', icon: 'phone', desktopOnly: true },
     { path: '/api', label: 'API', icon: 'code' },
+    { path: '/capacity', label: 'Capacity', icon: 'gauge' },
     { path: '/settings', label: 'Settings', icon: 'settings' },
   ];
   protected readonly desktopNav = computed(() =>

@@ -1,0 +1,274 @@
+<div class="page">
+  <div class="page-head">
+    <h1>Capacity</h1>
+    <span class="spacer"></span>
+    <button class="btn small" type="button" [disabled]="loading()" (click)="load()">
+      <mc-icon name="refresh" [size]="14" /> Refresh
+    </button>
+  </div>
+  <p class="lede">
+    How many role sessions may run, why the others wait, what tasks cost and which model each gets.
+    Money figures are estimates.
+  </p>
+
+  <div class="segmented tabs" aria-label="Capacity sections">
+    @for (t of tabs; track t.id) {
+      <button
+        type="button"
+        [attr.aria-pressed]="tab() === t.id"
+        [class.active]="tab() === t.id"
+        (click)="select(t.id)"
+      >
+        {{ t.label }}
+      </button>
+    }
+  </div>
+
+  @if (unsupported()) {
+    <p class="notice warn">
+      This Mother Claude has no capacity data yet. Update the desktop app to use this page.
+    </p>
+  }
+  @if (error()) {
+    <p class="notice error" role="alert">{{ error() }}</p>
+  }
+
+  @if (view(); as v) {
+    @switch (tab()) {
+      @case ('now') {
+        <section class="grid" aria-label="Signals">
+          <div class="card stat">
+            <span class="field-label">Role sessions</span>
+            <span class="big"
+              >{{ v.caps.workersRunning }}
+              <span class="muted small">of {{ v.caps.userCap }} workers</span></span
+            >
+            <span class="muted small">
+              @if (v.caps.leadsRunning) {
+                {{ v.caps.leadsRunning }} lead{{ v.caps.leadsRunning === 1 ? '' : 's' }} running too
+                (a lead does not count against your limit).
+              } @else {
+                No lead running.
+              }
+              @if (v.caps.hardwareCap !== undefined) {
+                Memory allows {{ v.caps.hardwareCap }} at once.
+              }
+            </span>
+          </div>
+
+          @if (host(); as h) {
+            <div class="card stat">
+              <span class="field-label">Memory</span>
+              @if (h.sampledAt) {
+                <span class="big"
+                  >{{ bytes(h.availableMemory) }}
+                  <span class="muted small">free of {{ bytes(h.totalMemory) }}</span></span
+                >
+                <span
+                  class="bar"
+                  role="meter"
+                  aria-label="Memory in use"
+                  aria-valuemin="0"
+                  aria-valuemax="100"
+                  [attr.aria-valuenow]="memoryPct()"
+                  ><span class="fill" [style.width.%]="memoryPct()"></span
+                ></span>
+                <span class="muted small">
+                  A role session needs about {{ bytes(h.estimateBytes) }}
+                  {{ h.measured ? '(measured)' : '' }}; {{ bytes(h.reserveBytes) }} always stay
+                  free.
+                  @if (h.headroom !== undefined) {
+                    Room for {{ h.headroom }} more.
+                  }
+                </span>
+                @if (h.load) {
+                  <span class="muted small"
+                    >Load {{ h.load[0].toFixed(2) }} · {{ h.load[1].toFixed(2) }} ·
+                    {{ h.load[2].toFixed(2) }} on {{ h.cpus }} cores (shown, not used to
+                    decide)</span
+                  >
+                }
+              } @else {
+                <span class="muted small">Not measured yet.</span>
+              }
+            </div>
+          }
+        </section>
+
+        @for (a of v.accounts; track a.id) {
+          <section class="card account" [attr.aria-label]="'Plan usage of ' + a.name">
+            <div class="row head">
+              <strong>{{ v.accounts.length > 1 ? a.name : 'Plan usage' }}</strong>
+              <span class="spacer"></span>
+              <span class="badge" [class.info]="a.billing.billing === 'perToken'">
+                {{
+                  a.billing.billing === 'perToken'
+                    ? 'pays per token'
+                    : a.billing.billing === 'plan'
+                      ? 'plan'
+                      : 'billing not known'
+                }}
+              </span>
+            </div>
+            @if (a.planUsage) {
+              <div class="meters">
+                @for (w of windows(a.windows); track w.key) {
+                  <mc-plan-meter [window]="w" />
+                }
+              </div>
+            } @else {
+              <p class="muted small">
+                No plan usage for this account ({{ a.billing.source }}): the windows do not hold
+                anything up.
+              </p>
+            }
+            <ul class="flags">
+              @if (a.stopped) {
+                <li class="error-text">Nothing starts: the 5-hour window is past its stop line.</li>
+              } @else if (a.leadOnly) {
+                <li class="warn-text">Only the lead starts: the 5-hour window is high.</li>
+              }
+              @if (a.opusGated) {
+                <li class="warn-text">Opus work runs on Sonnet at high effort (Opus weekly).</li>
+              }
+              @if (a.rateLimit; as r) {
+                <li
+                  [class.error-text]="r.status === 'rejected'"
+                  [class.warn-text]="r.status !== 'rejected'"
+                >
+                  {{ rateText(r) }} <mc-time [ms]="r.at" />.
+                </li>
+              }
+            </ul>
+          </section>
+        }
+
+        <h2>Waiting</h2>
+        @if (waiting().length) {
+          <ul class="card list queue">
+            @for (q of waiting(); track q.project + q.role) {
+              <li class="entry">
+                <div class="row">
+                  <strong>{{ q.role }}</strong>
+                  <span class="muted">in {{ project(q.project) }}</span>
+                  <span class="badge">{{ priority(q) }}</span>
+                  <span class="badge">{{ q.model }}</span>
+                  <span class="spacer"></span>
+                  <span class="muted small"
+                    ><mc-time [ms]="q.waitingSince" mode="elapsed" prefix="waiting "
+                  /></span>
+                </div>
+                <ul class="reasons">
+                  @for (r of q.reasons; track r) {
+                    <li>{{ r }}</li>
+                  }
+                </ul>
+              </li>
+            }
+          </ul>
+        } @else {
+          <p class="muted">Nothing waits. Role sessions start as soon as a team asks for them.</p>
+        }
+        @if (started().length) {
+          <p class="muted small">
+            Just started:
+            @for (q of started(); track q.project + q.role; let last = $last) {
+              {{ q.role }} in {{ project(q.project) }}{{ last ? '.' : ', ' }}
+            }
+          </p>
+        }
+
+        <h2>Running</h2>
+        @if (v.running.length) {
+          <ul class="card list">
+            @for (r of v.running; track r.sessionId) {
+              <li class="list-row running">
+                <span class="grow">
+                  <strong>{{ r.role }}</strong>
+                  <span class="muted"> in {{ project(r.project) }}</span>
+                  @if (r.lead) {
+                    <span class="badge accent">lead</span>
+                  }
+                  @if (r.live === false) {
+                    <span class="badge">ended</span>
+                  }
+                  <br />
+                  @if (known(r.sessionId)) {
+                    <a class="small" [routerLink]="['/session', r.sessionId]">{{
+                      nameOf(r.sessionId)
+                    }}</a>
+                  } @else {
+                    <span class="small mono faint">{{ r.sessionId.slice(0, 8) }}</span>
+                  }
+                </span>
+                <span class="nums small">
+                  <span>{{ r.model }}</span>
+                  @if (r.rssBytes) {
+                    <span>{{ bytes(r.rssBytes) }}</span>
+                  }
+                  @if (r.spentUsd !== undefined) {
+                    <span title="Since it started as a role session (estimated)">{{
+                      usd(r.spentUsd)
+                    }}</span>
+                  }
+                </span>
+              </li>
+            }
+          </ul>
+        } @else {
+          <p class="muted">No role sessions run now.</p>
+        }
+
+        <h2>Recent routing decisions</h2>
+        @if (v.routes.length) {
+          <ul class="card list routes">
+            @for (r of v.routes; track r.at + r.project + (r.role ?? '')) {
+              <li class="list-row">
+                <span class="grow">
+                  <strong>{{ choice(r.choice) }}</strong>
+                  <span class="muted">
+                    for {{ r.role ?? 'a task' }}{{ r.class ? ' (' + r.class + ')' : '' }} in
+                    {{ project(r.project) }}</span
+                  >
+                  <br />
+                  <span class="small">{{ r.reason }}</span>
+                </span>
+                <span class="muted small"><mc-time [ms]="r.at" /></span>
+              </li>
+            }
+          </ul>
+        } @else {
+          <p class="muted">No routing decisions yet.</p>
+        }
+
+        @if (v.rateLimits.length) {
+          <h2>Rate limits</h2>
+          <ul class="card list">
+            @for (n of v.rateLimits.slice(0, 5); track n.at + n.account + n.status) {
+              <li class="list-row small">
+                <span class="grow"
+                  >{{ rateText(n) }}{{ n.pct !== undefined ? ' (' + n.pct + ' %)' : '' }}</span
+                >
+                <span class="muted"><mc-time [ms]="n.at" /></span>
+              </li>
+            }
+          </ul>
+        }
+      }
+      @case ('budgets') {
+        <mc-capacity-budgets [view]="v" (changed)="applied($event)" />
+      }
+      @case ('routing') {
+        <mc-routing-policy [routes]="v.routes" />
+      }
+      @case ('reports') {
+        <mc-routing-report />
+      }
+      @case ('settings') {
+        <mc-capacity-settings [view]="v" (changed)="applied($event)" />
+      }
+    }
+  } @else if (loading()) {
+    <p class="muted">Loading…</p>
+  }
+</div>
