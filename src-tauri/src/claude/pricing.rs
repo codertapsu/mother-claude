@@ -84,7 +84,8 @@ fn has(m: &str, prefix: &str) -> bool {
 /// Whether a model thinks adaptively when thinking is on (the CLI then sends
 /// `{type:"adaptive"}` and ignores any budget). Mirrors CLI 2.1.284's
 /// `initialize` catalog: Opus/Sonnet 4.6 and later, and every Fable, do;
-/// Haiku and the 3.x models do not. `None` when unknown (older 4.x ids,
+/// Haiku 4.5 and the 3.x models do not. Haiku 5.5 thinks adaptively only
+/// (the API refuses a budget for it). `None` when unknown (older 4.x ids,
 /// third-party names).
 pub fn supports_adaptive_thinking(model: &str) -> Option<bool> {
     if is_synthetic(model) {
@@ -95,13 +96,14 @@ pub fn supports_adaptive_thinking(model: &str) -> Option<bool> {
     if has(m, "fable") || has(m, "mythos") {
         return Some(true);
     }
-    for family in ["opus", "sonnet"] {
+    for family in ["opus", "sonnet", "haiku"] {
         if let Some(rest) = m.strip_prefix(family).and_then(|r| r.strip_prefix('-')) {
             let mut parts = rest.split('-').map(|p| p.parse::<u32>().ok());
             let major = parts.next().flatten();
             let minor = parts.next().flatten().filter(|n| *n < 100);
             return match (major, minor) {
                 (Some(major), _) if major >= 5 => Some(true),
+                _ if family == "haiku" => Some(false),
                 (Some(4), Some(minor)) if minor >= 6 => Some(true),
                 _ => None,
             };
@@ -113,7 +115,8 @@ pub fn supports_adaptive_thinking(model: &str) -> Option<bool> {
     None
 }
 
-/// Price for a model id, if known.
+/// Price for a model id, if known (Claude Haiku 5.5's first rate card; a
+/// message's own card is [`price_for_prompt`]).
 pub fn price(model: &str) -> Option<Price> {
     if is_synthetic(model) {
         return None;
@@ -154,9 +157,29 @@ pub fn price(model: &str) -> Option<Price> {
     Some(price)
 }
 
+/// Claude Haiku 5.5 bills a prompt of more than this many tokens (input,
+/// cache reads and cache writes together) on its second rate card.
+const HAIKU_5_SHORT_PROMPT: u64 = 100_000;
+
+/// The rate card one message pays: [`price`], except that a Claude Haiku 5.5
+/// prompt over [`HAIKU_5_SHORT_PROMPT`] tokens pays $0.50 / $0.625 / $1.00 /
+/// $0.05 (input, 5-minute and 1-hour writes, reads) and $2.50 output.
+pub fn price_for_prompt(model: &str, prompt_tokens: u64) -> Option<Price> {
+    let base = price(model)?;
+    if prompt_tokens > HAIKU_5_SHORT_PROMPT && has(&normalize(model), "haiku-5") {
+        return Some(p(0.5, 2.5, 0.625, 1.0, 0.05));
+    }
+    Some(base)
+}
+
 /// Price one message. `None` when the model has no known price.
 pub fn message_cost(model: &str, u: &UsageDetail) -> Option<f64> {
-    let pr = price(model)?;
+    let prompt = u.input + u.cache_read + u.cache_creation;
+    Some(cost_at(price_for_prompt(model, prompt)?, u))
+}
+
+/// What `u` costs at `pr`.
+fn cost_at(pr: Price, u: &UsageDetail) -> f64 {
     let w1h = u.cache_1h.min(u.cache_creation);
     let w5m = u.cache_creation - w1h;
     let base = (u.input as f64 * pr.input
@@ -166,7 +189,7 @@ pub fn message_cost(model: &str, u: &UsageDetail) -> Option<f64> {
         + w5m as f64 * pr.write_5m)
         / 1_000_000.0;
     let geo = if u.us_geo { 1.1 } else { 1.0 };
-    Some(base * geo + u.web_search as f64 * 0.01)
+    base * geo + u.web_search as f64 * 0.01
 }
 
 /// Display label for a model id: `claude-opus-4-8` → `Opus 4.8`,
@@ -213,8 +236,8 @@ pub fn model_label(id: &str) -> String {
 }
 
 /// Context window in tokens for a model id (the CLI catalog's
-/// `context.window`): 1M for Opus 4.7+, Opus 5/5.5, Sonnet 5, Fable, Mythos;
-/// 200k for older models and Haiku unless the id carries `[1m]`.
+/// `context.window`): 1M for Opus 4.7+, Opus 5/5.5, Sonnet 5, Haiku 5.5,
+/// Fable, Mythos; 200k for older models unless the id carries `[1m]`.
 pub fn context_window(id: &str) -> u64 {
     if id.contains("[1m]") {
         return 1_000_000;
@@ -225,6 +248,7 @@ pub fn context_window(id: &str) -> u64 {
         || has(m, "opus-4-8")
         || has(m, "opus-5")
         || has(m, "sonnet-5")
+        || has(m, "haiku-5")
         || has(m, "fable-5")
         || has(m, "mythos-5");
     if one_m {
@@ -235,11 +259,13 @@ pub fn context_window(id: &str) -> u64 {
 }
 
 /// Estimated cost of aggregated usage (all cache writes priced as 5-minute
-/// writes). Kept for callers that only have the contract [`Usage`]; the index
-/// prices each message exactly with [`message_cost`].
+/// writes, every prompt on the model's first rate card: one message's prompt
+/// length is not known from a total). Kept for callers that only have the
+/// contract [`Usage`]; the index prices each message exactly with
+/// [`message_cost`].
 pub fn cost_usd(model_id: &str, usage: &Usage) -> Option<f64> {
-    message_cost(
-        model_id,
+    Some(cost_at(
+        price(model_id)?,
         &UsageDetail {
             input: usage.input,
             output: usage.output,
@@ -248,7 +274,7 @@ pub fn cost_usd(model_id: &str, usage: &Usage) -> Option<f64> {
             standard_speed: true,
             ..Default::default()
         },
-    )
+    ))
 }
 
 #[cfg(test)]
@@ -281,6 +307,7 @@ mod tests {
             "claude-opus-4-8",
             "claude-opus-4-6",
             "claude-sonnet-4-6",
+            "claude-haiku-5-5",
         ] {
             assert_eq!(supports_adaptive_thinking(yes), Some(true), "{yes}");
         }
@@ -368,6 +395,49 @@ mod tests {
     }
 
     #[test]
+    fn haiku_5_5_bills_a_long_prompt_on_its_second_card() {
+        // 100K prompt tokens exactly: the first card ($0.10 in, $0.50 out).
+        let short = UsageDetail {
+            input: 40_000,
+            cache_read: 50_000,
+            cache_creation: 10_000,
+            output: 1_000,
+            standard_speed: true,
+            ..Default::default()
+        };
+        let first = (40_000.0 * 0.1 + 50_000.0 * 0.01 + 10_000.0 * 0.125 + 1_000.0 * 0.5) / 1e6;
+        assert!(close(
+            message_cost("claude-haiku-5-5", &short).unwrap(),
+            first
+        ));
+        // One token more: every token on the second ($0.50 in, $2.50 out).
+        let long = UsageDetail {
+            input: 40_001,
+            ..short
+        };
+        let second = (40_001.0 * 0.5 + 50_000.0 * 0.05 + 10_000.0 * 0.625 + 1_000.0 * 2.5) / 1e6;
+        assert!(close(
+            message_cost("claude-haiku-5-5", &long).unwrap(),
+            second
+        ));
+        // Haiku 4.5 has one card.
+        assert_eq!(
+            price_for_prompt("claude-haiku-4-5", 500_000),
+            price("claude-haiku-4-5")
+        );
+        // A total over many messages says nothing of one prompt: first card.
+        let total = Usage {
+            input: 400_000,
+            output: 10_000,
+            ..Default::default()
+        };
+        assert!(close(
+            cost_usd("claude-haiku-5-5", &total).unwrap(),
+            (400_000.0 * 0.1 + 10_000.0 * 0.5) / 1e6
+        ));
+    }
+
+    #[test]
     fn context_windows() {
         assert_eq!(context_window("claude-opus-4-8[1m]"), 1_000_000);
         assert_eq!(context_window("claude-opus-5"), 1_000_000);
@@ -377,6 +447,7 @@ mod tests {
         assert_eq!(context_window("claude-sonnet-4-5"), 200_000);
         assert_eq!(context_window("claude-opus-4-6"), 200_000);
         assert_eq!(context_window("claude-haiku-4-5-20251001"), 200_000);
+        assert_eq!(context_window("claude-haiku-5-5"), 1_000_000);
         assert_eq!(context_window("claude-haiku-4-5[1m]"), 1_000_000);
     }
 }
