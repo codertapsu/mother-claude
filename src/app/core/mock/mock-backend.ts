@@ -39,6 +39,7 @@ import {
   toPreview,
 } from './fixtures';
 import { MockBackend, MockRole, WebSocketLike, mockRole } from './mock-api';
+import { MockCapacity } from './mock-capacity';
 import { MockData } from './mock-data';
 import { MockDelete } from './mock-delete';
 import { MockSwitch } from './mock-switch';
@@ -122,6 +123,8 @@ class FixtureBackend implements MockBackend {
   private readonly servers: MockServers;
   /** Switching a session's account, and sign-ins (§15). */
   private readonly switching: MockSwitch;
+  /** Capacity, routing and budgets (`/host`, `/capacity*`, `/routing/*`). */
+  private readonly capacity: MockCapacity;
 
   constructor(readonly role: MockRole) {
     const now = Date.now();
@@ -236,6 +239,7 @@ class FixtureBackend implements MockBackend {
         intervalSecs: u.intervalSecs,
       };
     }
+    this.capacity = new MockCapacity({ desktop: role === 'desktop' });
     this.servers = new MockServers({
       desktop: role === 'desktop',
       main: () => this.fx.bridge,
@@ -285,6 +289,10 @@ class FixtureBackend implements MockBackend {
     // API servers besides the main one (`?mockservers=1`)
     const servers = this.servers.route(path, method, body);
     if (servers) return servers;
+
+    // Capacity, routing and budgets
+    const capacity = this.capacity.route(path, method, body, q);
+    if (capacity) return capacity;
 
     // Sessions
     if (path === '/sessions' && method === 'GET') {
