@@ -167,38 +167,62 @@ pub async fn message(
         ));
     }
     gate_unapproved(&state, &ctx, &id).await?;
+    Ok(Json(
+        deliver_on(&state, &ctx, &id, route, &body.text, &body.images).await?,
+    ))
+}
+
+/// Deliver `text` to session `id` by whatever reaches it, under the message
+/// route's rules (a session that runs unapproved needs the dangerous right):
+/// what the dashboard's composer and the browser's side panel both use.
+pub async fn deliver_message(
+    state: &AppState,
+    ctx: &ClientContext,
+    id: &str,
+    text: &str,
+) -> ApiResult<MessageReceipt> {
+    let route = route_for(state, id).await?;
+    gate_unapproved(state, ctx, id).await?;
+    deliver_on(state, ctx, id, route, text, &[]).await
+}
+
+/// Send on the channel `route` names.
+async fn deliver_on(
+    state: &AppState,
+    ctx: &ClientContext,
+    id: &str,
+    route: Route,
+    text: &str,
+    images: &[ImageInput],
+) -> ApiResult<MessageReceipt> {
     let message_id = uuid::Uuid::new_v4().to_string();
     let delivery = match route {
         Route::Bridge => {
-            crate::bridge::send_message(&state, &id, &body.text).await?;
+            crate::bridge::send_message(state, id, text).await?;
             Delivery::Sent
         }
-        Route::Owned => {
-            return Ok(Json(
-                owned::send_as(&state, ctx.may_dangerous(), &id, &body.text, &body.images).await?,
-            ))
-        }
-        Route::Tmux(s) => match tmux::send_text_as(&state, &ctx, &s, &body.text).await {
+        Route::Owned => return owned::send_as(state, ctx.may_dangerous(), id, text, images).await,
+        Route::Tmux(s) => match tmux::send_text_as(state, ctx, &s, text).await {
             Ok(()) => Delivery::Relayed,
             // The pane cannot be reached from here (custom socket, tmux gone)
             // but the hooks can: relay through them (the caps follow).
-            Err(e) if tmux::is_unreachable_error(&e) && hooks::is_active(&state, &id) => {
-                crate::claude::caps::refresh(&state, &id).await;
-                return relay(&state, &ctx, &id, &body.text).await;
+            Err(e) if tmux::is_unreachable_error(&e) && hooks::is_active(state, id) => {
+                crate::claude::caps::refresh(state, id).await;
+                return relay(state, ctx, id, text).await;
             }
             Err(e) => return Err(e),
         },
-        Route::Hooks(_) => return relay(&state, &ctx, &id, &body.text).await,
+        Route::Hooks(_) => return relay(state, ctx, id, text).await,
         Route::Pty(s) => {
-            foreign::pty_inject_text(&state, &ctx, &s, &body.text).await?;
+            foreign::pty_inject_text(state, ctx, &s, text).await?;
             Delivery::Relayed
         }
         Route::None(s) => return Err(no_channel(&s)),
     };
-    Ok(Json(MessageReceipt {
+    Ok(MessageReceipt {
         delivery,
         message_id,
-    }))
+    })
 }
 
 /// Queue `text` for a hooked foreign session.
@@ -207,16 +231,16 @@ async fn relay(
     ctx: &ClientContext,
     id: &str,
     text: &str,
-) -> ApiResult<Json<MessageReceipt>> {
+) -> ApiResult<MessageReceipt> {
     let queued = hooks::enqueue_relay_as(state, ctx, id, text).await?;
-    Ok(Json(MessageReceipt {
+    Ok(MessageReceipt {
         delivery: if queued.status == QueueStatus::Delivered {
             Delivery::Relayed
         } else {
             Delivery::Queued
         },
         message_id: queued.id,
-    }))
+    })
 }
 
 /// `DELETE /api/sessions/{id}/queue/{messageId}`.
