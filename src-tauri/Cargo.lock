@@ -3276,6 +3276,7 @@ dependencies = [
  "tracing-subscriber",
  "uuid",
  "web-push-native",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

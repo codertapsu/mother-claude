@@ -705,8 +705,44 @@ pub fn pid_exists(pid: u32) -> bool {
     std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
 }
 
-/// Non-unix fallback: trust the pidfile.
-#[cfg(not(unix))]
+/// Windows: the process can be opened and has not exited. One that cannot be
+/// opened for being another user's or protected exists (as EPERM above);
+/// one that exited is signalled, even while someone still holds a handle to
+/// it. A pidfile a crashed CLI left behind is no live session, then, and no
+/// "directory in use" for transfers, backups and deletes.
+#[cfg(windows)]
+pub fn pid_exists(pid: u32) -> bool {
+    use windows_sys::Win32::Foundation::{
+        CloseHandle, GetLastError, ERROR_ACCESS_DENIED, WAIT_TIMEOUT,
+    };
+    use windows_sys::Win32::System::Threading::{
+        OpenProcess, WaitForSingleObject, PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_SYNCHRONIZE,
+    };
+    if pid == 0 {
+        return false;
+    }
+    // SAFETY: OpenProcess takes plain integers and returns a handle or null.
+    let handle = unsafe {
+        OpenProcess(
+            PROCESS_SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION,
+            0,
+            pid,
+        )
+    };
+    if handle.is_null() {
+        // SAFETY: reads this thread's last error, set by OpenProcess.
+        return unsafe { GetLastError() } == ERROR_ACCESS_DENIED;
+    }
+    // SAFETY: `handle` is the open process handle from above, closed once.
+    unsafe {
+        let running = WaitForSingleObject(handle, 0) == WAIT_TIMEOUT;
+        CloseHandle(handle);
+        running
+    }
+}
+
+/// Elsewhere: trust the pidfile.
+#[cfg(not(any(unix, windows)))]
 pub fn pid_exists(pid: u32) -> bool {
     pid != 0
 }
@@ -1672,12 +1708,24 @@ mod tests {
             .is_none());
     }
 
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     #[test]
     fn own_process_is_alive_and_bogus_pid_is_not() {
         assert!(pid_exists(std::process::id()));
         assert!(!pid_exists(0));
         assert!(!pid_exists(u32::MAX));
+        // One that exited is not, on Windows while its handle is still held.
+        let mut child = if cfg!(windows) {
+            std::process::Command::new("cmd")
+                .args(["/C", "exit 0"])
+                .spawn()
+        } else {
+            std::process::Command::new("true").spawn()
+        }
+        .unwrap();
+        let pid = child.id();
+        child.wait().unwrap();
+        assert!(!pid_exists(pid));
     }
 
     fn write(dir: &Path, name: &str, body: &str) {

@@ -144,8 +144,9 @@ shows one in Finder or File Explorer only for the desktop, by the index's path.
 exist but nothing reads them (`home.rs` only knows their paths).
 
 The roster no longer spawns `claude agents --json` (its shape drifts and it is
-slow): pidfiles give status and liveness is `kill(pid, 0)` plus the process
-start time (`ps -o lstart=`, darwin). Status and activity are derived by
+slow): pidfiles give status and liveness is `kill(pid, 0)` (on Windows an
+`OpenProcess` handle not yet signalled) plus the process start time (`ps -o
+lstart=`, darwin). Status and activity are derived by
 `claude/activity.rs` from the pidfile, the owned control stream, hook events
 and the transcript tail; summaries are built by `claude/summaries.rs` and
 published as WebSocket diffs by `server/monitor.rs`. Every id from a request is
