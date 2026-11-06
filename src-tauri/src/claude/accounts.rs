@@ -313,6 +313,42 @@ where
     Ok(out)
 }
 
+/// A per-project default's folder `dir` holds `cwd` — both as conversations
+/// record them, a Mac's or a Windows one whatever this machine is: a Windows
+/// folder in any case and with either separator ([`paths::is_within_recorded`]),
+/// any other by whole components, as before.
+fn project_contains(dir: &str, cwd: &str) -> bool {
+    if paths::is_windows_absolute(dir) || paths::is_windows_absolute(cwd) {
+        paths::is_within_recorded(cwd, dir)
+    } else {
+        Path::new(cwd).starts_with(dir)
+    }
+}
+
+/// How deep a per-project default's folder is (the longest one wins).
+fn project_depth(dir: &str) -> usize {
+    if paths::is_windows_absolute(dir) {
+        paths::depth(dir)
+    } else {
+        Path::new(dir).components().count()
+    }
+}
+
+/// Whether a per-project default may name `dir`: a full path of either
+/// system (its conversations may come from another machine), without `.` or
+/// `..`.
+fn project_dir_ok(dir: &str) -> bool {
+    if paths::is_windows_absolute(dir) {
+        !paths::has_dot_segments(dir)
+    } else {
+        let path = Path::new(dir);
+        dir.starts_with('/')
+            && !path
+                .components()
+                .any(|c| matches!(c, Component::ParentDir | Component::CurDir))
+    }
+}
+
 /// The whole registry, as kept in memory.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Registry {
@@ -397,12 +433,11 @@ impl Registry {
 
     /// The account of the longest `byProject` directory containing `cwd`.
     pub fn project_account(&self, cwd: &str) -> Option<String> {
-        let cwd = Path::new(cwd);
         self.defaults
             .by_project
             .iter()
-            .filter(|(dir, id)| cwd.starts_with(dir) && self.get(id).is_some())
-            .max_by_key(|(dir, _)| Path::new(dir).components().count())
+            .filter(|(dir, id)| project_contains(dir, cwd) && self.get(id).is_some())
+            .max_by_key(|(dir, _)| project_depth(dir))
             .map(|(_, id)| id.clone())
     }
 
@@ -524,7 +559,8 @@ impl Registry {
                 }
                 let mut held = BTreeMap::new();
                 d.by_project.retain(|dir, id| {
-                    let absolute = Path::new(dir).is_absolute();
+                    // A folder as conversations record it, on either system.
+                    let absolute = paths::is_absolute_anywhere(dir);
                     if absolute && reg.held.ids.contains(id) {
                         held.insert(dir.clone(), id.clone());
                     }
@@ -1298,19 +1334,17 @@ impl AccountRegistry {
             if guard.get(&id).is_none() {
                 return Err(AccountError::NotFound(id));
             }
-            let path = Path::new(dir.trim());
-            if !path.is_absolute()
-                || path
-                    .components()
-                    .any(|c| matches!(c, Component::ParentDir | Component::CurDir))
-            {
+            // A project's folder as its conversations record it: a Mac's or
+            // a Windows one, whatever this machine is.
+            let raw = dir.trim();
+            if !project_dir_ok(raw) {
                 return Err(AccountError::Invalid(format!(
                     "{dir:?} is not an absolute project directory"
                 )));
             }
-            let key = path.to_string_lossy().trim_end_matches('/').to_string();
-            let key = if key.is_empty() { "/".to_string() } else { key };
-            clean.by_project.insert(key, id);
+            clean
+                .by_project
+                .insert(paths::trim_end_separators(raw).to_string(), id);
         }
         let mut next = guard.clone();
         next.defaults = clean.clone();
@@ -1879,6 +1913,47 @@ mod tests {
             "its directory is never deleted"
         );
         assert!(matches!(reg.env(&t.id), Err(AccountError::NotFound(_))));
+    }
+
+    #[test]
+    fn a_project_default_names_a_folder_as_any_machine_records_it() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (reg, default_dir) = registry(tmp.path());
+        let work = reg
+            .add_directory("Work", &tmp.path().join("w"), None)
+            .unwrap();
+        let mut d = reg.defaults();
+        d.by_project = [
+            (r"D:\dev\api\".to_string(), work.id.clone()),
+            ("/Users/me/web/".to_string(), work.id.clone()),
+        ]
+        .into();
+        let clean = reg.set_defaults(d).unwrap();
+        assert_eq!(
+            clean.by_project.keys().collect::<Vec<_>>(),
+            ["/Users/me/web", r"D:\dev\api"]
+        );
+        // A Windows folder in any case, with either separator; a Mac's exactly.
+        assert_eq!(reg.account_for_cwd("d:/Dev/api/src"), work.id);
+        assert_eq!(reg.account_for_cwd(r"D:\dev\api2"), DEFAULT_ID);
+        assert_eq!(reg.account_for_cwd("/Users/me/web/x"), work.id);
+        assert_eq!(reg.account_for_cwd("/users/me/web/x"), DEFAULT_ID);
+        for bad in [r"D:\dev\..\api", r"dev\api", "C:dev", "relative", "/a/../b"] {
+            let mut d = reg.defaults();
+            d.by_project = [(bad.to_string(), work.id.clone())].into();
+            assert!(
+                matches!(reg.set_defaults(d), Err(AccountError::Invalid(_))),
+                "{bad}"
+            );
+        }
+        // Read back the same, whichever system reads it.
+        let again = AccountRegistry::load(
+            Some(tmp.path()),
+            ClaudeHome::with_base(&default_dir),
+            Arc::new(MemoryStore::default()),
+        );
+        assert_eq!(again.defaults().by_project.len(), 2);
+        assert_eq!(again.account_for_cwd(r"D:\dev\api"), work.id);
     }
 
     #[test]
