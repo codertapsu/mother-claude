@@ -2485,6 +2485,34 @@ fn mapped_folder(index: &SetIndex, entry: &IndexEntry, here: Option<&str>) -> Op
     pairs::map_between(&index.folder_pairs, from, here, folder)
 }
 
+/// The folder whose trust a restore of `entry` carries: the one a pair
+/// `mapped` it to here, else the one it lived in (its first cwd in an
+/// older index).
+fn trust_folder(entry: &IndexEntry, mapped: Option<&str>) -> Option<String> {
+    mapped
+        .or(entry.folder.as_deref())
+        .or(entry.cwd.as_deref())
+        .map(str::to_string)
+}
+
+/// The key Claude Code on this machine files `folder` under in its
+/// `.claude.json` ([`paths::config_key`]: `D:/dev/app` on Windows), for the
+/// trust a restore carries. A folder a pair `mapped` a session to is this
+/// machine's own, written its way (a pair's folder is checked in its
+/// machine's form); any other is keyed as this machine's CLI keys one.
+pub fn trust_key(folder: &str, mapped: bool) -> String {
+    let form = mapped
+        .then(|| paths::PathForm::of_path(folder))
+        .flatten()
+        .unwrap_or_else(paths::PathForm::here);
+    paths::config_key(folder, form)
+}
+
+/// [`trust_key`] for a set's session: `None` when it names no folder.
+pub fn trust_key_of(entry: &IndexEntry, mapped: Option<&str>) -> Option<String> {
+    trust_folder(entry, mapped).map(|f| trust_key(&f, mapped.is_some()))
+}
+
 /// Another machine's project folder that is no folder on this one (another
 /// machine's form, or not here at all): what the report names when no pair
 /// maps it.
@@ -2829,28 +2857,20 @@ fn restore_into(
                         text: w,
                     });
                 }
-                // Trust only with the opt-in, never over an entry, never
-                // while the directory is in use; for the folder it went into
-                // here, under the key Claude Code files it under.
+                // Trust only with the opt-in, never over an entry (under
+                // either spelling), never while the directory is in use; for
+                // the folder it went into here, under the key Claude Code
+                // here files it under — the undo takes out that same key.
                 if inp.trust {
-                    let folder = mapped.clone().or_else(|| {
-                        ["folder", "cwd"]
-                            .iter()
-                            .find_map(|k| meta.get(*k).and_then(Value::as_str))
-                            .map(str::to_string)
-                    });
-                    let entry = meta.get("projectEntry").filter(|e| e.is_object());
-                    if let (Some(folder), Some(project)) = (folder, entry) {
-                        let form =
-                            paths::PathForm::of_path(&folder).unwrap_or(paths::PathForm::Posix);
-                        let key = paths::config_key(&folder, form);
+                    let key = trust_key_of(entry, mapped.as_deref());
+                    let project = meta.get("projectEntry").filter(|e| e.is_object());
+                    if let (Some(key), Some(project)) = (key, project) {
                         if let Some(busy) = target_busy {
                             report.warnings.push(Warning {
                                 id: id.clone(),
                                 text: format!("The folder's trust was not restored: {busy}"),
                             });
-                        } else if transfer::project_entry(&inp.target.claude_json(), &folder)
-                            .is_none()
+                        } else if transfer::project_entry(&inp.target.claude_json(), &key).is_none()
                         {
                             transfer::edit_projects(&inp.target.claude_json(), |p| {
                                 p.entry(key.clone()).or_insert_with(|| project.clone());

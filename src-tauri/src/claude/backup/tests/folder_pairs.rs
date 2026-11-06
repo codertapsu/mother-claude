@@ -419,6 +419,68 @@ fn trust_and_prompt_history_follow_the_pair() {
     assert!(config["projects"].get("D:/dev/app").is_none(), "{config}");
 }
 
+/// The trust a restore carries is keyed the way Claude Code here keys the
+/// folder it went into: one no pair maps as this machine's CLI keys a
+/// folder, whoever recorded it. It never goes over an entry the target has
+/// under another spelling, which the undo then leaves alone.
+#[test]
+fn trust_is_keyed_as_claude_code_here_keys_it_never_over_another_spelling() {
+    use crate::claude::paths::{config_key, PathForm};
+    let w = world();
+    let (m, p) = (&w.home, &w.other);
+    let (mac, win) = (mac(), win());
+    let read = |h: &ClaudeHome| -> Value {
+        serde_json::from_str(&std::fs::read_to_string(h.claude_json()).unwrap()).unwrap()
+    };
+    // Windows' session, trusted there under Windows' own key.
+    session_in(p, SID, WIN_APP);
+    std::fs::write(
+        p.claude_json(),
+        serde_json::json!({"projects": {"D:/dev/app": {"hasTrustDialogAccepted": true}}})
+            .to_string(),
+    )
+    .unwrap();
+    push_as(&w, p, &win);
+    // No pair: the Mac keeps Windows' folder, keyed the way this machine's
+    // CLI would key it (as recorded on a Mac, with `/` on Windows).
+    let r = pull_as(&w, m, &mac, "20261106T170000-00000001", true);
+    assert_eq!(r.restored, [SID]);
+    let key = config_key(WIN_APP, PathForm::here());
+    assert_eq!(
+        read(m)["projects"][&key]["hasTrustDialogAccepted"],
+        true,
+        "{}",
+        read(m)
+    );
+    assert_eq!(read(m)["projects"].as_object().unwrap().len(), 1);
+
+    // The Mac's session, trusted there; Windows has the folder it maps to
+    // under another spelling already (another case, `/`): nothing is added
+    // and nothing it has is changed — nor taken out by the undo.
+    session_in(m, OTHER, MAC_APP);
+    std::fs::write(
+        m.claude_json(),
+        serde_json::json!({"projects": {MAC_APP: {"hasTrustDialogAccepted": true}}}).to_string(),
+    )
+    .unwrap();
+    push_as(&w, m, &mac);
+    add_pair(
+        &w,
+        &win,
+        new_pair("fp_3333333333333333", &win, WIN_DEV, &mac, MAC_DEV),
+    );
+    let theirs =
+        serde_json::json!({"projects": {"d:/DEV/App": {"hasTrustDialogAccepted": false, "x": 1}}});
+    std::fs::write(p.claude_json(), theirs.to_string()).unwrap();
+    let job = "20261106T170001-00000002";
+    let r = pull_as(&w, p, &win, job, true);
+    assert_eq!(r.restored, [OTHER]);
+    assert_eq!(r.mapped, [(OTHER.to_string(), WIN_APP.to_string())]);
+    assert_eq!(read(p), theirs);
+    transfer::undo(&w.undo, job).unwrap();
+    assert_eq!(read(p), theirs);
+}
+
 /// Two machines edit the pairs at once, each writing only its own change
 /// to the index as it is then: both pairs stay, a removal sticks, and each
 /// machine's line (its OS) is in the index; an index without pairs reads as

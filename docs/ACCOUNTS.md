@@ -775,9 +775,12 @@ lands in — and is shown and continued in — the matching project on each.
   pair) into the mapped one: staged, checked to be the set's very copy, the
   local files into the undo directory, the emptied folders removed and
   re-made by the undo (`relocated`). The trust a restore carries is filed
-  under the mapped folder's key in this machine's form (Windows `D:/dev/app`;
-  a push looks a project's entry up by that key too), and Mother Claude's
-  own trust check reads that form as well (`owned::trusted_in`). Another
+  under the key Claude Code here files the folder it went into under
+  (`backup::trust_key`: the mapped folder, else the one it lived in, keyed
+  in this machine's form — Windows `D:/dev/app`), never over an entry the
+  target has under either spelling, and the undo takes out that same key;
+  a push finds a project's entry under either spelling, as Mother Claude's
+  own trust check does (`owned::trusted_in`). Another
   machine's prompt-history lines get their `project` mapped. Reports add
   `mapped: [[id, folder]]`, `relocated` (a pull) and `foreign: [{folder,
   machine, host, sessions}]` — projects that came under another machine's

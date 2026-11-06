@@ -1085,15 +1085,10 @@ async fn plan_out_of(
         }))
         .collect();
     if req.trust {
-        // The key Claude Code files the folder here under (D:/dev/app).
-        let key = |c: String| {
-            let form = paths::PathForm::of_path(&c).unwrap_or(paths::PathForm::Posix);
-            paths::config_key(&c, form)
-        };
+        // Under the key the run files it under (D:/dev/app on Windows).
         g.adds = entries
             .iter()
-            .filter_map(folder_of)
-            .map(key)
+            .filter_map(|e| backup::trust_key_of(e, mapped.get(&e.id).map(String::as_str)))
             .filter(|c| super::project_entry(&home.claude_json(), c).is_none())
             .collect::<std::collections::BTreeSet<_>>()
             .into_iter()

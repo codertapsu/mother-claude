@@ -155,7 +155,9 @@ session the account already has is skipped — and can be undone for seven days.
 A folder's **trust** — whether Claude Code may run its project hooks and MCP
 servers without asking — is restored only when you tick *Trust this folder for
 the target account too*. Without it the conversation comes back and the folder
-asks again the first time it is opened.
+asks again the first time it is opened. It goes under the name Claude Code on
+this machine gives the folder (on Windows `D:/dev/app` for `D:\dev\app`), and
+never over a folder's trust the account has already.
 
 The configuration bundle is never restored over your live settings: *Restore
 settings* unpacks this laptop's newest bundle (or, on a laptop that has none
