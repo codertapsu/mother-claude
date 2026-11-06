@@ -55,8 +55,9 @@ only on the desktop):
 
 A paired phone, on the LAN or through a tunnel, may do all of this but set the
 passphrase: change the folder and the schedule, back up, restore, pull and
-undo. Bringing back a folder's trust (below) needs the dangerous right on the
-phone, and the desktop shows a notice naming the phone and what it did.
+undo. Bringing back a folder's trust (below) and forcing a backup, pull or
+restore need the dangerous right on the phone, and the desktop shows a notice
+naming the phone and what it did.
 
 ## Storages
 
@@ -187,6 +188,38 @@ fails half-way puts the local copy back.
 
 *Pull on launch* (off by default) pulls every set when the app starts — only
 when no session is running.
+
+## Force backup, force pull, force restore
+
+The rules above never overwrite: when both laptops changed a session, each
+keeps its own and gets the other's beside it. When you know which laptop has
+the copy you want, force it — like `git push --force`:
+
+- **Force backup** (*Force backup…* on an account's row): this laptop's copy
+  of every session it has replaces the backup's copy wherever the two differ —
+  also where another laptop backed up a newer copy, or one that changed there
+  too. A session only in the backup stays; a session running here is skipped.
+  Every copy it replaces stays in the backup folder for **seven days**, so it
+  can be fetched back. The other laptop keeps its own copy: its next pull puts
+  this laptop's copy beside it (a conflict copy), or replaces its copy when its
+  copy is where this one came from; a force pull there makes its copy this
+  one's.
+- **Force pull** (*Force* in *Pull…*): the backup's copy replaces this laptop's
+  wherever the two differ — also where it changed here, is newer here, or
+  changed on both (a session whose conflict copy you kept is one too). A
+  session only on this laptop stays; a session running here is never touched
+  (the pull lists it); a session *in storage only* keeps its rule. This
+  laptop's copies are kept for **seven days: Undo** puts them back.
+- **Force restore** (*Force* in *Restore…*): the same, into the account you
+  restore into: the backup's copy also replaces one it has that is not as the
+  backup has it.
+
+Before anything is written, each says how many copies it replaces, what they
+are (newer here, changed here, changed on both), that sessions only on the
+other side stay and that running ones are skipped. Afterwards the next
+ordinary backup or pull on either laptop has nothing to do for those sessions.
+On a phone each needs the dangerous right (as deleting does), and the desktop
+shows a notice naming the phone.
 
 The sign-in does not travel: each laptop signs in to its accounts itself (or
 holds the token you gave it). Account sets are matched by account **name**, so

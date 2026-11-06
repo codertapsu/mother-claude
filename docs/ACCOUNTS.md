@@ -670,6 +670,42 @@ job instead of queueing another. Pulling everything lists a set it cannot
 start in `skipped` (`{account, code, message}`) and pulls the rest. Index
 entries keep the session's title, only inside the encrypted index.
 
+*Force (2026-11-06, docs/BACKUP.md "Force backup, force pull, force
+restore"):* `POST /api/backup/push`, `/pull` and `/restore` take `force:
+true` (the desktop always; a paired device only with the dangerous right,
+`403 dangerous_blocked`, as deleting — audited with `force`, and the desktop
+told what the device did). A force job is a job of its own (in-flight keys
+`backup-force:` / `pull-force:`), never answered by an ordinary one that runs.
+**Force push** (`backup::push_with`): `push_step` with `force` turns what
+would be *newer in the set* or a *conflict* (and a copy older here than what
+this machine had) into `Step::Force` — archived, reported in `replaced` (and
+in `archived`) — while a copy the set has as it is here stays as it is
+(`unchanged`); the index write (`Changes::force_until`) replaces whatever
+entry the set has then, also one another machine wrote meanwhile, and lists
+each replaced archive in `superseded` with `until` seven days on
+(`FORCE_KEEP_MS`; `at` a day before it, so an older build keeps it as long).
+This machine's `seen` names what it pushed, as after any push; the other
+machine's next ordinary pull finds the entry changed: an update when its
+transcript is a byte prefix of the new one, else a conflict copy beside its
+own. **Force pull** (`PullInputs::force`): an `Update` is replaced even when
+the local transcript is not a prefix of the set's; a `Conflict`, a
+`LocalNewer` and a `Same` whose copy here still differs (`PullItem::differs`:
+by size and whole seconds; a session whose conflict copy this machine has
+is `same` by `seen` yet differs) are replaced the same way (stage → undo
+manifest → move the local files into the undo directory → place → put back on
+any error: `replace_local`), reported in `replaced`; a `Live` one is never
+touched and is listed in `skipped` (`session_live`) when its copy differs;
+`New` ones and archived ones keep the ordinary rules. What only a force
+replaced leaves this machine's `seen` as it was: the next push notes the copy
+(`Step::Note`: the set's copy, which this machine has now although it noted
+another) and the next pull finds it `same`, and after an undo the copy that
+is back compares exactly as before the pull — never pushed over the set's.
+**Force restore** (`backup::restore_with`): a session the target has is
+replaced the same way (`replaced`), unless it is there as the set has it
+(`already_exists`, "as the backup has it"); one that runs is skipped. Reports
+carry `force: true`; the UI titles a finished job "Force backup / pull /
+restore of …" from `result.force`.
+
 ---
 
 ## 6. UI (Angular)
@@ -1482,7 +1518,7 @@ through a tunnel (ngrok and the like, §2.8 of the remote design): everything in
 | Add, rename or remove a storage; backup folder, schedule, pull on launch | yes | yes | yes |
 | Account defaults (new sessions, API, per project), copy consent, rename or recolour an account | yes | yes | yes |
 | Add, start, stop, change or remove an API server | yes | yes | yes |
-| Carry a folder's trust (`trust: true`); copy the `settings` or `mcpServers` customizations | yes | no (`403 dangerous_blocked`) | yes |
+| Carry a folder's trust (`trust: true`); copy the `settings` or `mcpServers` customizations; a force backup, pull or restore (`force: true`) | yes | no (`403 dangerous_blocked`) | yes |
 | Set or generate the backup passphrase; add, remove or sign in an account; tokens; the hooks plugin installer; opening an API server to tunnels; a permission mode that skips approvals | yes | no (`403 desktop_only`) | no |
 
 - A **paired device** is the device principal (a `mcd_` token, LAN or
