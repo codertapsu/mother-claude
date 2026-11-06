@@ -13,6 +13,8 @@
 //! a JSON-RPC protocol error. Protocol errors are for malformed requests and
 //! unknown tools only.
 
+pub mod jsonrpc;
+
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
