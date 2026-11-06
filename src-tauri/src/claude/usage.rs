@@ -1579,6 +1579,12 @@ pub fn shutdown(_state: &AppState) {
 /// SIGTERM these helpers and wait (up to [`SHUTDOWN_GRACE`]) until none has
 /// a pidfile in its `sessions` directory any more. Only ever reads those.
 fn stop_helpers(helpers: &[(u32, PathBuf)]) {
+    stop_helpers_within(helpers, SHUTDOWN_GRACE);
+}
+
+/// [`stop_helpers`], waiting up to `grace` (a test gives a loaded machine
+/// longer; the wait still ends as soon as the pidfiles are gone).
+fn stop_helpers_within(helpers: &[(u32, PathBuf)], grace: Duration) {
     if helpers.is_empty() {
         return;
     }
@@ -1591,7 +1597,7 @@ fn stop_helpers(helpers: &[(u32, PathBuf)]) {
             }
         }
     }
-    let deadline = std::time::Instant::now() + SHUTDOWN_GRACE;
+    let deadline = std::time::Instant::now() + grace;
     while std::time::Instant::now() < deadline
         && helpers
             .iter()

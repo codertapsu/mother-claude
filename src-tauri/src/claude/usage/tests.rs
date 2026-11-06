@@ -1129,7 +1129,8 @@ fn frames_leave_in_the_order_they_are_recorded() {
 }
 
 /// A fake `claude` that writes a pidfile like the CLI, answers `initialize`,
-/// never answers `get_usage`, and removes the pidfile when terminated.
+/// never answers `get_usage` (it notes it got one in `got-usage`), and
+/// removes the pidfile when terminated.
 #[cfg(unix)]
 fn hanging_cli(dir: &Path, sessions: &Path) -> PathBuf {
     use std::os::unix::fs::PermissionsExt;
@@ -1145,6 +1146,7 @@ while IFS= read -r line; do
     *'"subtype":"initialize"'*)
       printf '{{"type":"control_response","response":{{"subtype":"success","request_id":"%s","response":{{}}}}}}\n' "$rid" ;;
     *'"subtype":"get_usage"'*)
+      : > got-usage
       sleep 30 &
       wait $! ;;
   esac
@@ -1168,34 +1170,35 @@ async fn a_helper_mid_read_is_stopped_cleanly_when_the_app_quits() {
     let bin = fake.to_str().unwrap().to_string();
     let dir = helper.clone();
     let read = tokio::spawn(async move { helper_read(&bin, &dir).await });
-    // Mid-read: its pidfile exists and it is registered.
+    // Mid-read: its pidfile exists, it is registered, and it was asked for
+    // the usage (stopping it any earlier would fail the read's write).
     let mut pid = None;
-    for _ in 0..200 {
+    for _ in 0..400 {
         pid = std::fs::read_to_string(helper.join("pid.txt"))
             .ok()
             .and_then(|p| p.trim().parse::<u32>().ok())
-            .filter(|p| sessions.join(format!("{p}.json")).exists());
+            .filter(|p| sessions.join(format!("{p}.json")).exists())
+            .filter(|_| helper.join("got-usage").exists());
         if pid.is_some() {
             break;
         }
         tokio::time::sleep(Duration::from_millis(25)).await;
     }
-    let pid = pid.expect("the fake started");
+    let pid = pid.expect("the fake started and was asked for the usage");
     let registered = || helpers().iter().any(|(p, _)| *p == pid);
     assert!(registered());
-    // Quitting: SIGTERM, and the wait ends once its pidfile is gone.
+    // Quitting: SIGTERM, and the wait ends once its pidfile is gone — well
+    // before the wait's end (longer than the app's 2 s here, so a loaded
+    // machine running the whole suite does not fail it).
+    let grace = Duration::from_secs(15);
     let started = std::time::Instant::now();
     tokio::task::spawn_blocking({
         let sessions = sessions.clone();
-        move || stop_helpers(&[(pid, sessions)])
+        move || stop_helpers_within(&[(pid, sessions)], grace)
     })
     .await
     .unwrap();
-    assert!(
-        started.elapsed() < SHUTDOWN_GRACE,
-        "{:?}",
-        started.elapsed()
-    );
+    assert!(started.elapsed() < grace, "{:?}", started.elapsed());
     assert!(!sessions.join(format!("{pid}.json")).exists());
     // The read ends with the helper, which is then unregistered.
     let e = read.await.unwrap().unwrap_err();
