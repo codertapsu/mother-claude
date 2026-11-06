@@ -69,6 +69,10 @@ portable-pty = { version = "0.9.0", optional = true }
 age = { version = "0.12.1", default-features = false }
 tar = { version = "0.4.46", default-features = false }
 flate2 = "1.1.10"
+# `canonicalize` without Windows' `\\?\` verbatim prefix wherever a plain
+# path names the same folder (`claude::paths`). Already in the dependency
+# graph through Tauri.
+dunce = "1.0.5"
 
 # The accounts feature keeps token accounts' tokens and the backup passphrase
 # in the login Keychain (docs/ACCOUNTS.md D3). Already in the tree through
