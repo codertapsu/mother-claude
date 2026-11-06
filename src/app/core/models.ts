@@ -1801,7 +1801,9 @@ export type ServerFrame =
   | BrowserFrame
   | ResyncFrame
   | PingFrame
-  | PongFrame;
+  | PongFrame
+  // Teams of sessions (`core/teams.ts`).
+  | import('./teams').TeamsFrame;
 
 export type ClientFrame =
   | { t: 'auth'; token: string }

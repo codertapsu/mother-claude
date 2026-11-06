@@ -23,6 +23,18 @@ import { ConfigService } from './config.service';
 import { activeMock } from './mock/mock-api';
 import type { DeleteBody } from './delete-data';
 import type { MoveBody } from './move-data';
+import type {
+  ObservedEvent,
+  RoleStartResult,
+  StartTeamBody,
+  TaskDraft,
+  TaskPatch,
+  TeamTask,
+  TeamTemplate,
+  TeamView,
+  TemplateEntry,
+  TemplateReport,
+} from './teams';
 import {
   AccountDefaults,
   AccountPatch,
@@ -1064,6 +1076,98 @@ export class ApiService {
 
   async resumeBrowserSession(id: string): Promise<void> {
     await this.req<unknown>(`/browser/sessions/${enc(id)}/resume`, { method: 'POST' });
+  }
+
+  // ─────────── Teams of sessions (docs/TEAMS.md): templates, teams, roles,
+  // the board. Live changes come as `teams` frames (RealtimeService.teams$).
+
+  getTeamTemplates(): Promise<{ templates: TemplateEntry[] }> {
+    return this.req<{ templates: TemplateEntry[] }>('/team-templates');
+  }
+
+  /** What saving a template would say, without saving it. */
+  validateTeamTemplate(template: unknown): Promise<{ ok: boolean } & TemplateReport> {
+    return this.post<{ ok: boolean } & TemplateReport>('/team-templates/validate', template);
+  }
+
+  createTeamTemplate(template: unknown): Promise<TeamTemplate> {
+    return this.post<TeamTemplate>('/team-templates', template);
+  }
+
+  saveTeamTemplate(id: string, template: unknown): Promise<TeamTemplate> {
+    return this.req<TeamTemplate>(`/team-templates/${enc(id)}`, {
+      method: 'PUT',
+      body: JSON.stringify(template),
+    });
+  }
+
+  async deleteTeamTemplate(id: string): Promise<void> {
+    await this.req<unknown>(`/team-templates/${enc(id)}`, { method: 'DELETE' });
+  }
+
+  duplicateTeamTemplate(id: string, name?: string): Promise<TeamTemplate> {
+    return this.post<TeamTemplate>(`/team-templates/${enc(id)}/duplicate`, { name });
+  }
+
+  getTeams(): Promise<{ teams: TeamView[] }> {
+    return this.req<{ teams: TeamView[] }>('/teams');
+  }
+
+  getTeam(id: string): Promise<TeamView> {
+    return this.req<TeamView>(`/teams/${enc(id)}`);
+  }
+
+  startTeam(body: StartTeamBody): Promise<TeamView> {
+    return this.post<TeamView>('/teams', body);
+  }
+
+  stopTeam(id: string): Promise<TeamView> {
+    return this.post<TeamView>(`/teams/${enc(id)}/stop`, {});
+  }
+
+  resumeTeam(id: string): Promise<TeamView> {
+    return this.post<TeamView>(`/teams/${enc(id)}/resume`, {});
+  }
+
+  async removeTeam(id: string): Promise<void> {
+    await this.req<unknown>(`/teams/${enc(id)}`, { method: 'DELETE' });
+  }
+
+  startTeamRole(id: string, role: string): Promise<RoleStartResult> {
+    return this.post<RoleStartResult>(`/teams/${enc(id)}/roles/${enc(role)}/start`, {});
+  }
+
+  stopTeamRole(id: string, role: string): Promise<TeamView> {
+    return this.post<TeamView>(`/teams/${enc(id)}/roles/${enc(role)}/stop`, {});
+  }
+
+  /** A foreign live session takes the role. */
+  takeTeamRole(id: string, role: string, sessionId: string): Promise<TeamView> {
+    return this.post<TeamView>(`/teams/${enc(id)}/roles/${enc(role)}/take`, { sessionId });
+  }
+
+  releaseTeamRole(id: string, role: string): Promise<TeamView> {
+    return this.req<TeamView>(`/teams/${enc(id)}/roles/${enc(role)}/take`, { method: 'DELETE' });
+  }
+
+  getTeamTasks(id: string): Promise<{ tasks: TeamTask[] }> {
+    return this.req<{ tasks: TeamTask[] }>(`/teams/${enc(id)}/tasks`);
+  }
+
+  createTeamTask(id: string, draft: TaskDraft): Promise<TeamTask> {
+    return this.post<TeamTask>(`/teams/${enc(id)}/tasks`, draft);
+  }
+
+  updateTeamTask(id: string, task: number, patch: TaskPatch): Promise<TeamTask> {
+    return this.req<TeamTask>(`/teams/${enc(id)}/tasks/${task}`, {
+      method: 'PATCH',
+      body: JSON.stringify(patch),
+    });
+  }
+
+  /** Agent-team events interactive sessions reported (observe only). */
+  getTeamEvents(): Promise<{ events: ObservedEvent[] }> {
+    return this.req<{ events: ObservedEvent[] }>('/teams/events');
   }
 
   // ──────────────────────────────────────────────────────────── Transport

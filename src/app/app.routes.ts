@@ -103,6 +103,15 @@ const pages: Routes = [
     loadComponent: () =>
       import('./pages/capacity/capacity.component').then((m) => m.CapacityComponent),
   },
+  // Teams of sessions (docs/TEAMS.md): the teams and templates, one team.
+  {
+    path: 'teams',
+    loadComponent: () => import('./pages/teams/teams.component').then((m) => m.TeamsComponent),
+  },
+  {
+    path: 'teams/:id',
+    loadComponent: () => import('./pages/teams/team.component').then((m) => m.TeamComponent),
+  },
   {
     path: 'good-to-know',
     loadComponent: () =>

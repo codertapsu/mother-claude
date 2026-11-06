@@ -38,6 +38,7 @@ import {
 } from './models';
 import { NowService } from './now.service';
 import { normalizeAccountUsages, normalizePlanUsage } from './plan-usage';
+import type { TeamsFrame } from './teams';
 import { TranscriptStore, TranscriptStoreOptions } from './transcript-store';
 
 /**
@@ -262,6 +263,10 @@ export class RealtimeService {
   private readonly browserS = new Subject<BrowserFrame>();
   private readonly refetchS = new Subject<RefetchReason>();
   private readonly pollTickS = new Subject<void>();
+  /** Teams of sessions: a team, a task of its board, a removed team, or
+   * "the templates changed" (docs/TEAMS.md). */
+  private readonly teamsS = new Subject<TeamsFrame>();
+  readonly teams$: Observable<TeamsFrame> = this.teamsS.asObservable();
 
   readonly hello$: Observable<HelloFrame> = this.helloS.asObservable();
   readonly sessions$: Observable<SessionsFrame> = this.sessionsS.asObservable();
@@ -860,6 +865,9 @@ export class RealtimeService {
         break;
       case 'pong':
         clearTimeout(this.probeTimer);
+        break;
+      case 'teams':
+        this.teamsS.next(frame);
         break;
       default:
         // Unknown frame kinds from a newer server are ignored.

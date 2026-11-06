@@ -15,6 +15,7 @@ interface Entry {
 
 const ENTRIES: Entry[] = [
   { path: '/new', icon: 'plus', label: 'New session', hint: 'Start an owned Claude Code session' },
+  { path: '/teams', icon: 'layers', label: 'Teams', hint: 'A lead and role sessions on a board' },
   {
     path: '/remote',
     icon: 'phone',

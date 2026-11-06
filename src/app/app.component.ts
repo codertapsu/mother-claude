@@ -45,6 +45,7 @@ const MORE_SECTIONS = [
   'good-to-know',
   'onboarding',
   'capacity',
+  'teams',
 ];
 
 const TITLES: Record<string, string> = {
@@ -61,6 +62,7 @@ const TITLES: Record<string, string> = {
   backup: 'Backup & sync',
   services: 'Services',
   'good-to-know': 'Good to know',
+  teams: 'Teams',
   onboarding: 'Welcome',
   pair: 'Pair this device',
   session: 'Session',
@@ -159,6 +161,7 @@ export class AppComponent {
     { path: '/inbox', label: 'Inbox', icon: 'inbox', badge: 'pending' },
     { path: '/agents', label: 'Agents', icon: 'agents', badge: 'agents' },
     { path: '/new', label: 'New session', icon: 'plus' },
+    { path: '/teams', label: 'Teams', icon: 'layers' },
     { path: '/remote', label: 'Remote', icon: 'phone', desktopOnly: true },
     { path: '/api', label: 'API', icon: 'code' },
     { path: '/capacity', label: 'Capacity', icon: 'gauge' },
