@@ -408,10 +408,13 @@ bridge's Messages API client (an API key).
   `--mcp-config` for them (other names, a duplicate server), never `claude
   plugin configure`, never a file under a config directory.
 - **The caller** is `X-MC-Pid` (the headers helper's `$PPID`, the CLI) mapped
-  through the pidfiles; `X-MC-Session` (from `MOTHER_CLAUDE_SESSION`, set on
-  owned children) counts only for an owned session the pid does not
-  contradict. Both are advisory. The helper's path in `.mcp.json` stays
-  quoted: Claude Code runs it through a shell, and the data dir has a space.
+  through the pidfiles, and only when that process holds the connection
+  (the hooks' binding check, `verify_process`: a session's own Bash can
+  read the token, so a pid alone proves nothing); `X-MC-Session` (from
+  `MOTHER_CLAUDE_SESSION`, set on owned children) counts only for an owned
+  session the pid does not contradict. The helper's path in `.mcp.json`
+  stays quoted: Claude Code runs it through a shell, and the data dir has a
+  space.
 
 ## Build / lint / test commands
 

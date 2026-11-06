@@ -27,6 +27,7 @@
 //! dashboard (time, session, tool, ok — never arguments).
 
 use std::collections::{HashMap, VecDeque};
+use std::net::SocketAddr;
 use std::panic::AssertUnwindSafe;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -49,6 +50,7 @@ use crate::server::auth::{random_token, MCP_PREFIX};
 use crate::server::context::{ClientContext, Ingress, Principal};
 use crate::server::devices::audit::AuditEntry;
 use crate::server::error::ApiError;
+use crate::server::hooks::Binding;
 use crate::state::AppState;
 
 /// Largest request body (a tool's arguments can carry a file or an image).
@@ -60,6 +62,10 @@ pub const CALL_TIMEOUT: Duration = Duration::from_secs(120);
 pub const RECENT_CALLS: usize = 50;
 /// MCP sessions remembered (each `initialize` opens one).
 const MAX_CLIENTS: usize = 512;
+/// How long a connection's checked binding to a process is reused.
+pub const BINDING_TTL_MS: i64 = 60_000;
+/// Bindings remembered.
+const MAX_BINDINGS: usize = 1024;
 /// The setting's file in the app data dir.
 pub const SETTINGS_FILE: &str = "mcp-settings.json";
 /// The transport's session header.
@@ -111,6 +117,9 @@ pub struct McpState {
     /// In-flight calls by `<client>|<request id>`, for
     /// `notifications/cancelled`.
     inflight: Mutex<HashMap<String, tokio::sync::oneshot::Sender<()>>>,
+    /// Whether a connection belongs to the process its requests name, by
+    /// `(pid, peer)`, with when it was checked ([`super::identity`]).
+    bindings: Mutex<HashMap<(u32, SocketAddr), (Binding, i64)>>,
 }
 
 impl std::fmt::Debug for McpState {
@@ -150,6 +159,7 @@ impl McpState {
             recent: Mutex::new(VecDeque::new()),
             calls: AtomicU64::new(0),
             inflight: Mutex::new(HashMap::new()),
+            bindings: Mutex::new(HashMap::new()),
         }
     }
 
@@ -246,6 +256,40 @@ impl McpState {
 
     fn close_client(&self, id: &str) {
         lock(&self.clients).remove(id);
+    }
+
+    /// A connection's binding to a process, checked within the last
+    /// [`BINDING_TTL_MS`] (a connection keeps its local port while it lives;
+    /// the port may serve another process later).
+    pub(crate) fn cached_binding(&self, pid: u32, peer: SocketAddr) -> Option<Binding> {
+        let since = now_ms() - BINDING_TTL_MS;
+        lock(&self.bindings)
+            .get(&(pid, peer))
+            .filter(|(_, at)| *at >= since)
+            .map(|(b, _)| *b)
+    }
+
+    /// The latest binding checked for `pid`, on any connection (diagnostics,
+    /// the live tests).
+    #[doc(hidden)]
+    pub fn last_binding(&self, pid: u32) -> Option<Binding> {
+        lock(&self.bindings)
+            .iter()
+            .filter(|((p, _), _)| *p == pid)
+            .max_by_key(|(_, (_, at))| *at)
+            .map(|(_, (b, _))| *b)
+    }
+
+    pub(crate) fn note_binding(&self, pid: u32, peer: SocketAddr, binding: Binding) {
+        let now = now_ms();
+        let mut bindings = lock(&self.bindings);
+        if bindings.len() >= MAX_BINDINGS {
+            bindings.retain(|_, (_, at)| *at >= now - BINDING_TTL_MS);
+            if bindings.len() >= MAX_BINDINGS {
+                bindings.clear();
+            }
+        }
+        bindings.insert((pid, peer), (binding, now));
     }
 }
 
@@ -578,7 +622,7 @@ impl Exchange {
         if let Some(c) = &self.caller {
             return c.clone();
         }
-        let c = super::identity::resolve(&self.state, &self.headers).await;
+        let c = super::identity::resolve(&self.state, &self.headers, Some(self.ctx.peer)).await;
         self.caller = Some(c.clone());
         c
     }

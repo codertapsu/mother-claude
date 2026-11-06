@@ -486,6 +486,43 @@ async fn the_caller_is_known_by_its_pid_or_its_owned_session() {
     assert!(calls.iter().all(|c| c.tool == "mc_ping" && c.ok));
 }
 
+/// A request naming another running process — as a `curl` in one session's
+/// Bash could, the token being readable — is nobody: the connection is not
+/// that process's. Needs `lsof` (the check cannot run without it).
+#[cfg(unix)]
+#[tokio::test]
+async fn a_request_naming_another_process_is_nobody() {
+    let lsof = ["/usr/sbin/lsof", "/usr/bin/lsof", "/sbin/lsof"]
+        .iter()
+        .any(|p| Path::new(p).is_file());
+    if !lsof {
+        return;
+    }
+    let f = boot().await;
+    let mut other = std::process::Command::new("sleep")
+        .arg("30")
+        .spawn()
+        .unwrap();
+    let pid = other.id();
+    std::fs::create_dir_all(f.home.path().join("sessions")).unwrap();
+    std::fs::write(
+        f.home.path().join(format!("sessions/{pid}.json")),
+        json!({"pid": pid, "sessionId": SID, "cwd": "/tmp/elsewhere"}).to_string(),
+    )
+    .unwrap();
+    let r = f
+        .post_current(&rpc(json!(1), "tools/call", json!({"name": "mc_ping"})))
+        .header("x-mc-pid", pid.to_string())
+        .send()
+        .await
+        .unwrap();
+    let v: Value = r.json().await.unwrap();
+    assert!(v["result"]["structuredContent"]["session"].is_null(), "{v}");
+    assert_eq!(f.st.mcp.recent_calls()[0].session, None);
+    let _ = other.kill();
+    let _ = other.wait();
+}
+
 #[tokio::test]
 async fn mc_session_describes_the_calling_session() {
     let f = boot().await;
@@ -926,6 +963,13 @@ async fn live_claude_code_calls_mc_ping_through_the_plugin() {
         "known by X-MC-Pid"
     );
     assert!(result.contains(&session), "the answer names the session");
+    // The CLI holds its MCP connection itself: the binding check passed.
+    println!("binding: {:?}", st.mcp.last_binding(pid));
+    #[cfg(target_os = "macos")]
+    assert_eq!(
+        st.mcp.last_binding(pid),
+        Some(mother_claude_lib::server::hooks::Binding::Verified)
+    );
 }
 
 /// The owned half of Spike B: a session Mother Claude launches itself (Path

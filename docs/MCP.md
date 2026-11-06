@@ -121,22 +121,37 @@ one JSON object and always exits 0:
 
 `identity::resolve` fills the `Caller` every tool gets (`ToolCtx.caller`):
 
-1. `X-MC-Pid` must name a running process (`kill(pid, 0)`). Its session and
-   cwd come from the live roster's record for that pid, else
-   `sessions/<pid>.json` read right then from each account's config
-   directory (`claude::live::read_pidfile_of`; only `.json`, never a key
-   file).
-2. `X-MC-Session` counts only for a session Mother Claude owns
+1. `X-MC-Pid` must name a running process (`kill(pid, 0)`) **that holds the
+   connection** the request came on: the process or one of its descendants
+   owns the socket whose local port is the request's peer port (`ps` +
+   `lsof`, the hooks' binding check, `verify_process`; cached per
+   connection for a minute, about 30 ms when it runs). The token file is
+   readable by any process of the user — a session's own Bash included — so
+   without this a `curl` in one session could name another session's pid;
+   with it, it can only be itself. A mismatch makes the caller nobody (no
+   pid, no session); a check that cannot run (no `lsof`, Windows) changes
+   nothing. Verified on the real CLI: its MCP client holds the connection
+   itself.
+2. The pid's session and cwd come from the live roster's record for that
+   pid, else `sessions/<pid>.json` read right then from each account's
+   config directory (`claude::live::read_pidfile_of`; only `.json`, never a
+   key file).
+3. `X-MC-Session` counts only for a session Mother Claude owns
    (`claude::owned::is_owned`), and only when nothing contradicts it: the
    pid's own pidfile wins (a `claude` started inside an owned session
    inherits its variables), and an owned session whose process the roster
-   knows must be that pid.
-3. Otherwise the caller has no session (`session_id: None`); tools that need
+   knows must be that pid. (Before the roster has seen an owned session's
+   pidfile — its first seconds — the claim rests on the pid's binding
+   alone.)
+4. Otherwise the caller has no session (`session_id: None`); tools that need
    one say so (`mc_session` answers `unknown_session`).
 
-`Caller.owned` is whether the session is Mother Claude's. The headers are
-advisory — anything holding the token could send them — so no tool may base
-a dangerous decision on them.
+`session_id` is always a canonical session id (`claude::ids::is_session_id`)
+or `None`, and `cwd` the session's working directory. `Caller.owned` is
+whether the session is Mother Claude's. A tool may key per-session state on
+the caller (a browser lease, the session an approval is raised for), but the
+decision on anything dangerous stays an approval through `crate::pending`,
+which the `Mcp` principal can never answer.
 
 ## Security
 
@@ -154,7 +169,10 @@ a dangerous decision on them.
   (no `WWW-Authenticate`), another principal's → 403 `wrong_credential`.
 * **No dangerous rights of its own**: a tool's dangerous effect is an
   approval through `crate::pending` (desktop, or a device with the grant),
-  never this principal's right.
+  never this principal's right; the principal reaches no `/api` route, so it
+  can never answer a pending item either.
+* **Identity is bound to the connection** (see Identity): a session cannot
+  pass itself off as another by naming its pid.
 * **Audit**: a call to a tool not annotated `readOnlyHint: true` is an audit
   line (`mcp.call`: tool, session, owned, ok, duration — never arguments).
   The last 50 calls of every kind are kept in memory for the panel.
@@ -230,6 +248,8 @@ MOTHER_CLAUDE_CLI=/path/to/claude cargo test … --test mcp -- --ignored   # ano
   (token rotated) the CLI re-ran it, reconnected and retried the call once,
   transparently. With the server down at start it tried three times, then
   reported `failed: ECONNREFUSED` without holding the session up.
+* **The CLI holds its MCP connection itself**: the binding check of the
+  request's peer port against the CLI's pid answered `Verified`.
 * **`$PPID` is the CLI** (the helper's parent process is `claude`). The
   helper's environment has `CLAUDE_CODE_MCP_SERVER_NAME`
   (`plugin:<plugin>:<server>`), `CLAUDE_CODE_MCP_SERVER_URL`,

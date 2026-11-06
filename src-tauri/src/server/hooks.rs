@@ -47,7 +47,9 @@ use axum::Json;
 use serde_json::Value;
 use tokio::sync::oneshot;
 
-pub use self::binding::{verify as verify_binding, Binding};
+pub use self::binding::{
+    verify as verify_binding, verify_process as verify_process_binding, Binding,
+};
 pub use self::machine::{
     Arm, CancelError, DropReason, EnqueueError, WaitSignal, QUEUE_CAP, RELAY_TTL_MS,
 };

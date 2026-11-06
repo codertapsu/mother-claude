@@ -101,7 +101,7 @@ fn lsof_bin() -> &'static str {
         .unwrap_or("lsof")
 }
 
-async fn check(claude_pid: u32, peer: SocketAddr) -> Binding {
+async fn check(claude_pid: u32, peer: SocketAddr, include_root: bool) -> Binding {
     let Some(ps) = output("ps", &["-A", "-o", "pid=,ppid="].map(String::from)).await else {
         return Binding::Unknown;
     };
@@ -110,10 +110,13 @@ async fn check(claude_pid: u32, peer: SocketAddr) -> Binding {
         return Binding::Unknown;
     }
     let me = std::process::id();
-    let pids: Vec<u32> = descendants(&tree, claude_pid, MAX_DEPTH)
+    let mut pids: Vec<u32> = descendants(&tree, claude_pid, MAX_DEPTH)
         .into_iter()
         .filter(|p| *p != me)
         .collect();
+    if include_root {
+        pids.insert(0, claude_pid);
+    }
     if pids.is_empty() {
         return Binding::Mismatch;
     }
@@ -139,7 +142,19 @@ pub async fn verify(claude_pid: u32, peer: SocketAddr) -> Binding {
     if !peer.ip().to_canonical().is_loopback() || peer.port() == 0 {
         return Binding::Unknown;
     }
-    tokio::time::timeout(BUDGET, check(claude_pid, peer))
+    tokio::time::timeout(BUDGET, check(claude_pid, peer, false))
+        .await
+        .unwrap_or(Binding::Unknown)
+}
+
+/// [`verify`] for a connection the process may hold itself, not only one of
+/// its descendants: Claude Code's MCP client runs inside the CLI
+/// (docs/MCP.md).
+pub async fn verify_process(pid: u32, peer: SocketAddr) -> Binding {
+    if !peer.ip().to_canonical().is_loopback() || peer.port() == 0 {
+        return Binding::Unknown;
+    }
+    tokio::time::timeout(BUDGET, check(pid, peer, true))
         .await
         .unwrap_or(Binding::Unknown)
 }
