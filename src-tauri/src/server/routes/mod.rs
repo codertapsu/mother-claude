@@ -194,6 +194,8 @@ pub fn api_router() -> Router<AppState> {
         .route("/usage", get(usage::get_usage))
         .route("/usage/refresh", post(usage::refresh))
         .route("/usage/settings", put(usage::put_settings))
+        // ── capacity, routing, budgets (docs/ROUTING.md) ──
+        .merge(crate::orchestration::capacity_api::router())
         .route("/inbox", get(data::inbox))
         .route("/services", get(data::services))
         .route("/daemon", get(data::daemon))
