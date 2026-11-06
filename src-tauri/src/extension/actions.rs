@@ -506,7 +506,9 @@ pub async fn stop_session(state: &AppState, session: &str, by: &str) -> Option<S
         .as_ref()
         .map(|l| l.browser.clone())
         .or_else(|| ext.hub.most_recent().map(|c| c.browser.clone()))?;
-    let stop = ext.leases.stop(session, &browser, by);
+    let stop = ext
+        .leases
+        .stop(session, &browser, lease.as_ref().map(|l| l.id.as_str()), by);
     if let Some(lease) = &lease {
         if let Some(conn) = ext.hub.get(&lease.browser) {
             conn.fail_lease(&lease.id, "stopped", "The user pressed Stop.");

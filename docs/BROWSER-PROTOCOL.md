@@ -242,6 +242,7 @@ iframes appear as one line; `[ref=…]` only on elements a user could act on.
 | `dialog.opened` | `tabId, lease?, kind: alert\|confirm\|prompt\|beforeunload, message` | A JavaScript dialog blocks the tab until `dialog` (the desktop tells the model, `message` redacted and cut at 300 characters) |
 | `download.started` | `tabId?, lease?, url, filename` | A download began in a lease tab |
 | `lease.revoked` | `lease, by: user` | Stop pressed, or the group closed |
+| `lease.resumed` | `lease, by: user` | *(added)* Resume pressed in the side panel for a stopped lease: the desktop lifts that Stop if it holds in this browser, audits it and says so on the desktop |
 | `permission.changed` | `granted: ["debugger", "https://github.com/*", …]` | The user granted or removed optional permissions |
 
 A `tab.updated` with a new `url` makes the desktop forget that tab's refs.
@@ -310,3 +311,22 @@ All optional; an extension built to the first text keeps working.
    commands and events written down (deadlines, `no_lease` and `no_tab`
    retries, `tabs.list` when a page is unknown, `highlight` before an
    approval, redaction).
+
+From the extension's side (it implements 1–9):
+
+10. The event `lease.resumed` (`lease`, `by: "user"`) after Resume in the side
+    panel; the desktop lifts the Stop of that lease in that browser only. A
+    desktop that does not know it keeps its own 60 s Stop.
+11. `hello` carries `granted` (the optional permissions held) and more
+    `capabilities` flags; `permission_needed` names the permission in both
+    `error.data` and `data` (`{"permission": "…"}`).
+12. An action's result may carry `navigated` (the whole page changed),
+    `dialog` (a JavaScript dialog opened) or `newTab` (a link meant for a new
+    tab opened inside the session's group); the desktop reads `navigated`
+    and `dialog`.
+13. A new lease's group holds a placeholder page (Chrome has no empty tab
+    groups); commands that need a page answer `no_tab` until the first tab
+    opens.
+14. `allowSecret: true` on `type` and `fill` would let the extension type into
+    a secret field the user allowed on the desktop. Reserved: the desktop
+    never sends it in v1 (secret fields are refused outright).

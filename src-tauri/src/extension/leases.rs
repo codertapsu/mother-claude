@@ -61,6 +61,10 @@ pub struct Stop {
     pub until: i64,
     /// `user` (the side panel) or `desktop` (this app).
     pub by: String,
+    /// The lease it closed, if the session had one (the side panel's
+    /// `lease.resumed` names it).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lease: Option<String>,
 }
 
 #[derive(Debug, Default)]
@@ -271,8 +275,8 @@ impl Leases {
 
     // ── Stop ──
 
-    /// The user stopped this session in `browser`.
-    pub fn stop(&self, session: &str, browser: &str, by: &str) -> Stop {
+    /// The user stopped this session in `browser` (closing `lease`, if any).
+    pub fn stop(&self, session: &str, browser: &str, lease: Option<&str>, by: &str) -> Stop {
         let now = now_ms();
         let stop = Stop {
             session: session.to_string(),
@@ -280,6 +284,7 @@ impl Leases {
             at: now,
             until: now + STOP_MS,
             by: by.to_string(),
+            lease: lease.map(str::to_string),
         };
         let mut g = self.lock();
         g.stops.insert(session.to_string(), stop.clone());
@@ -320,6 +325,19 @@ impl Leases {
             g.resumed.insert(session.to_string());
         }
         was
+    }
+
+    /// Resume the session whose live Stop in `browser` closed `lease` (the
+    /// side panel's Resume): that session, or `None` when no such Stop holds.
+    pub fn resume_lease(&self, browser: &str, lease: &str) -> Option<String> {
+        let now = now_ms();
+        let session = self
+            .lock()
+            .stops
+            .values()
+            .find(|s| s.browser == browser && s.lease.as_deref() == Some(lease) && now < s.until)
+            .map(|s| s.session.clone())?;
+        self.resume(&session).then_some(session)
     }
 
     /// Another session was stopped in `browser` less than a minute ago (and
@@ -474,7 +492,7 @@ mod tests {
     #[test]
     fn stops_refuse_for_a_minute_and_flag_other_sessions() {
         let l = Leases::default();
-        let stop = l.stop("s1", "b1", "user");
+        let stop = l.stop("s1", "b1", Some("l_1"), "user");
         assert_eq!(stop.until - stop.at, STOP_MS);
         assert!(l.stopped("s1").is_some());
         assert!(l.stopped("s2").is_none());
@@ -491,7 +509,7 @@ mod tests {
         assert!(l.stopped("s1").is_none());
         assert!(!l.after_stop("b1", "s1"));
         // A minute later nothing is left.
-        l.stop("s3", "b1", "user");
+        l.stop("s3", "b1", None, "user");
         l.age_stops_for_test(STOP_MS + 1);
         assert!(l.stopped("s3").is_none());
         assert!(!l.after_stop("b1", "s2"));

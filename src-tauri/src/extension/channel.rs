@@ -563,6 +563,26 @@ fn event(state: &AppState, conn: &Conn, v: &Value) {
                 });
             }
         }
+        // Resume in the side panel: the user's own click in this browser, for
+        // a Stop of this browser only — as the desktop's Resume, and said on
+        // the desktop as the side panel's approvals are.
+        "lease.resumed" => {
+            if let Some(session) = lease.and_then(|l| leases.resume_lease(&conn.browser, l)) {
+                super::activity::audit_change(
+                    state,
+                    None,
+                    "browser.resume",
+                    json!({ "session": session, "browser": conn.browser, "by": "user" }),
+                );
+                crate::server::ws::publish_desktop_notice(
+                    state,
+                    crate::claude::model::NoticeLevel::Info,
+                    "A session's browser use was resumed in the browser's side panel.".to_string(),
+                );
+                super::notify(state, "leases");
+                super::push_state(state, &conn.browser);
+            }
+        }
         "permission.changed" => {
             let granted: Vec<String> = v
                 .get("granted")

@@ -451,8 +451,9 @@ the `browser_*` tools are `extension::mcp`). Invariants:
   directory or a file that usually holds secrets.
 - **Stop holds for a minute.** `lease.revoked` fails the lease's in-flight
   commands `stopped`, withdraws its approvals and refuses the session for
-  60 s unless it is resumed from the desktop or a device; other sessions
-  acting in that browser need approval meanwhile.
+  60 s unless it is resumed from the desktop, a device or that browser's
+  side panel (`lease.resumed`, its own Stops only, a desktop notice); other
+  sessions acting in that browser need approval meanwhile.
 
 ## Build / lint / test commands
 

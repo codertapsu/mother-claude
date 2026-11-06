@@ -773,6 +773,51 @@ async fn stop_fails_the_command_and_refuses_new_ones_until_resumed() {
 // ───────────────────────────────────────────────────────── approvals
 
 /// Wait until a browser approval is pending; its id.
+#[tokio::test]
+async fn resume_in_the_side_panel_lifts_its_browsers_stop() {
+    let (base, st) = boot().await;
+    let (mut ws, _, _) = paired(&base, &st).await;
+    set_mode(&st, "https://example.test", "act").await;
+    let task = call(&st, SESSION, "browser_click", json!({"ref": "e1"}));
+    let lease = open_lease_with_tab(&mut ws, "https://example.test/").await;
+    let _cmd = next_of(&mut ws, "command").await;
+    send(
+        &mut ws,
+        json!({"type": "event", "event": "lease.revoked", "lease": lease, "by": "user"}),
+    )
+    .await;
+    assert!(text_of(&task.await.unwrap()).contains("(stopped)"));
+    let stopped = || st.extension.leases.stopped(SESSION).is_some();
+    for _ in 0..50 {
+        if stopped() {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+    assert!(stopped());
+    // A lease this browser never had: nothing changes.
+    send(
+        &mut ws,
+        json!({"type": "event", "event": "lease.resumed", "lease": "l_other", "by": "user"}),
+    )
+    .await;
+    send(&mut ws, json!({"type": "ping", "id": "after-other"})).await;
+    let _ = next_of(&mut ws, "pong").await;
+    assert!(stopped(), "only the stopped lease resumes");
+    // Resume in the side panel names the stopped lease: the Stop is lifted.
+    send(
+        &mut ws,
+        json!({"type": "event", "event": "lease.resumed", "lease": lease, "by": "user"}),
+    )
+    .await;
+    send(&mut ws, json!({"type": "ping", "id": "after-resume"})).await;
+    let _ = next_of(&mut ws, "pong").await;
+    assert!(
+        !stopped(),
+        "the side panel's Resume lifts the desktop's Stop"
+    );
+}
+
 async fn pending_approval(st: &AppState) -> String {
     for _ in 0..200 {
         if let Some(a) = st.extension.approvals_for(None).first() {

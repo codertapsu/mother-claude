@@ -95,8 +95,7 @@ paired but cannot reach Mother Claude.
 once: the command it is running fails right away, and its next commands are
 refused for a minute. Its tabs stay as they are; nothing is closed. **Resume**
 (the same button, a second after Stop) lets it continue before the minute is
-up; Mother Claude lifts its own stop too when it supports that, otherwise
-resume the session there.
+up; Mother Claude lifts its own stop too, and says so on the desktop.
 
 Closing a session's tab group (or its last tab) does the same as Stop.
 

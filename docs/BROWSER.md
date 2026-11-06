@@ -157,8 +157,9 @@ The Stop rule has no grant.
 ends that session's browsing at once: the action in flight fails, its
 approvals go, and its browser actions are refused for a minute — the model is
 told you stopped it and not to retry on its own. *Resume* on the Browser
-page lifts that early. During that minute any **other** session acting in
-the same browser needs your approval.
+page, or in the side panel, lifts that early (a Resume from the side panel
+shows a notice on the desktop). During that minute any **other** session
+acting in the same browser needs your approval.
 
 The Browser page has a **Stop** button for each session too.
 
