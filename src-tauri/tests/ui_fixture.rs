@@ -8,8 +8,13 @@
 //!   cargo test --manifest-path src-tauri/Cargo.toml --test ui_fixture -- --ignored --nocapture
 //! ```
 //!
-//! `MC_UI_OUT` receives `{base, desktopToken, hookToken, dataDir, session}`
-//! (throwaway values of this run). A foreign VS Code session run by this
+//! `MC_UI_OUT` receives `{base, desktopToken, hookToken, dataDir, home,
+//! session}` (throwaway values of this run). The MCP server runs as in the
+//! app: its token is `<dataDir>/mcp.token`, and `<dataDir>/mcp-plugin/
+//! mother-claude` is the plugin copy a session loads with `--plugin-dir`; a
+//! `sessions/<pid>.json` written under `home` makes that pid a session to
+//! `/mcp`. A browser extension pairs with a code from `POST /api/browser/pair`
+//! (the desktop token). A foreign VS Code session run by this
 //! process is live, with a transcript that grows every few seconds. Creating
 //! `<dataDir>/raise-permission` makes the session's hook plugin (the real
 //! `mc-hook` script, run as a child of this process) hold a Bash permission
@@ -226,6 +231,12 @@ async fn serve_a_synthetic_home_for_ui_checks() {
     tokio::spawn(monitor::run(st.clone()));
     hooks::start(&st);
     push::start(&st);
+    // Every other subsystem the app starts: the MCP server (its token and
+    // the owned sessions' plugin copy, in the synthetic data dir), the
+    // browser extension's sweeps and the scheduler.
+    mother_claude_lib::mcp::server::start(&st);
+    mother_claude_lib::extension::start(&st);
+    mother_claude_lib::orchestration::scheduler::start(&st);
     let listener = tokio::net::TcpListener::bind(("127.0.0.1", port))
         .await
         .unwrap();
@@ -243,6 +254,7 @@ async fn serve_a_synthetic_home_for_ui_checks() {
         "desktopToken": st.auth.token,
         "hookToken": st.auth.hook_token,
         "dataDir": data.path(),
+        "home": home.path(),
         "session": SID,
         "buildSession": BUILD,
         "loopSession": LOOP,
