@@ -78,6 +78,15 @@ export function lastSegment(p: string): string {
   return /^[A-Za-z]:$/.test(last) ? '' : last;
 }
 
+/** The folder a project is in, in its own form: `/Users/m/dev/app` →
+ * `/Users/m/dev`, `D:\dev\app` → `D:\dev`, `D:\app` → `D:\`; a root is its
+ * own. */
+export function folderAbove(path: string): string {
+  const p = trimSeparators(path.trim());
+  const name = lastSegment(p);
+  return name ? trimSeparators(p.slice(0, p.length - name.length)) : p;
+}
+
 /** `name` inside `folder`, with the separator the folder uses. */
 export function joinPath(folder: string, name: string): string {
   const base = trimSeparators(folder);

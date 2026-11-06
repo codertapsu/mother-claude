@@ -1,6 +1,6 @@
 import { Injectable, signal } from '@angular/core';
 
-import { lastSegment, trimSeparators } from './paths';
+import { folderAbove } from './paths';
 
 /** A folder pair to offer: another machine and the folder there. */
 export interface PairDraft {
@@ -29,13 +29,4 @@ export class FolderPairDraftService {
     this.draft.set(null);
     return d;
   }
-}
-
-/** The folder a project is in, in its own form: `/Users/m/dev/app` →
- * `/Users/m/dev`, `D:\dev\app` → `D:\dev`, `D:\app` → `D:\`; a root is its
- * own. */
-function folderAbove(path: string): string {
-  const p = trimSeparators(path.trim());
-  const name = lastSegment(p);
-  return name ? trimSeparators(p.slice(0, p.length - name.length)) : p;
 }

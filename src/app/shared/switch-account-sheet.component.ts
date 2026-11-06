@@ -413,6 +413,9 @@ export class SwitchAccountSheetComponent {
   /** Asked to allow moves or copies between two accounts. */
   protected readonly ask = signal<ConsentAsk | null>(null);
   private readonly pickedSession = signal<string | null>(null);
+  /** The folder here the user chose for the conversation (one another
+   * computer started), sent again once the copy is allowed. */
+  private readonly folder = signal<string | undefined>(undefined);
   private readonly pickedTarget = signal<string | null>(null);
   /** A switch this sheet just asked for, until the summary says so. */
   private readonly askedPending = signal<string | null>(null);
@@ -559,11 +562,13 @@ export class SwitchAccountSheetComponent {
     this.error.set('');
     try {
       if (this.mode() === 'elsewhere') {
-        const res = await this.actions.continueOn(s, t);
+        const res = await this.actions.continueOn(s, t, this.folder());
         if (res.ok) {
           this.closed.emit();
           return;
         }
+        if (res.cancelled) return;
+        this.folder.set(res.folder);
         throw res.error;
       }
       // An API conversation has no "when": between turns only.
@@ -646,5 +651,6 @@ export class SwitchAccountSheetComponent {
     this.ask.set(null);
     this.askedPending.set(null);
     this.runsElsewhere.set(false);
+    this.folder.set(undefined);
   }
 }

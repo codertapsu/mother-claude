@@ -47,9 +47,9 @@ import { MockMcp } from './mock-mcp';
 import { MockSwitch } from './mock-switch';
 import { MockTeams } from './mock-teams';
 import { MockMove } from './mock-move';
-import { mockFolder, mockHostOs } from './mock-os';
+import { mockFolder, mockFoldersLike, mockHostOs } from './mock-os';
 import { MOCK_SERVERS, MockServers } from './mock-servers';
-import { isAbsoluteAnywhere, trimSeparators } from '../paths';
+import { isAbsoluteAnywhere, machineNoun, trimSeparators } from '../paths';
 import { urlParam } from '../platform';
 import { SessionFilters, sessionPasses } from '../../shared/session-search';
 
@@ -1401,12 +1401,45 @@ class FixtureBackend implements MockBackend {
     return id;
   }
 
+  /** Where a continue runs, as the desktop decides it: the folder asked
+   * for (a full path of the desktop's system); else the session's own, or
+   * the one a folder pair maps another computer's to. Else `409
+   * folder_elsewhere`, with folders that look like it and the machines to
+   * pair with (`?os=windows` makes every demo session another computer's). */
+  private continueFolder(s: SessionSummary, folder: unknown): Response | null {
+    const os = mockHostOs();
+    if (typeof folder === 'string' && folder.trim()) {
+      const f = mockFolder(folder, os);
+      return 'error' in f
+        ? json({ error: { code: 'invalid_folder', message: f.error } }, 422)
+        : null;
+    }
+    if (!s.cwd || !('error' in mockFolder(s.cwd, os))) return null;
+    const { mapped, machines } = this.data.elsewhere(s.cwd);
+    if (mapped) return null;
+    return json(
+      {
+        error: {
+          code: 'folder_elsewhere',
+          message: `This conversation was started on another computer, in ${s.cwd}. Choose the folder it works in on this ${machineNoun(os)}.`,
+          recorded: s.cwd,
+          otherMachine: true,
+          suggestions: mockFoldersLike(s.cwd, os),
+          machines,
+        },
+      },
+      409,
+    );
+  }
+
   /** `POST /sessions/{id}/continue`, with the server's account rules:
    * another account always forks (a session Mother Claude runs keeps
    * running); one with its own directory gets the conversation copied there
    * first, once the desktop allowed copies between the two accounts. */
   private continueSession(s: SessionSummary, body: unknown): Response {
     const asked = (body as { account?: unknown }).account;
+    const where = this.continueFolder(s, (body as { folder?: unknown }).folder);
+    if (where) return where;
     const source = this.sessionAccounts.get(s.id) ?? DEFAULT_ACCOUNT;
     if (asked === undefined || asked === source) {
       return json({ id: s.live ? this.fork(s) : s.id });

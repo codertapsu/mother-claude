@@ -1,4 +1,11 @@
-import { HostOs, hostOsOf, isWindowsAbsolute, trimSeparators } from '../paths';
+import {
+  HostOs,
+  hostOsOf,
+  isWindowsAbsolute,
+  joinPath,
+  lastSegment,
+  trimSeparators,
+} from '../paths';
 import { storageGet, urlParam } from '../platform';
 
 /** `?os=windows|linux` (or localStorage `mc_mock_os`) makes the mock's
@@ -38,4 +45,13 @@ export function mockFolder(
     return { error: 'the directory cannot contain . or ..' };
   }
   return { path: trimSeparators(os === 'windows' ? p.replace(/\//g, '\\') : p) };
+}
+
+/** Folders of the mock's desktop that may be another computer's `recorded`
+ * project: the same name in its `dev` folder (and on `D:` for Windows). */
+export function mockFoldersLike(recorded: string, os: HostOs = mockHostOs()): string[] {
+  const name = lastSegment(recorded);
+  if (!name) return [];
+  const homeDev = joinPath(joinPath(HOMES[os], 'dev'), name);
+  return os === 'windows' ? [joinPath('D:\\dev', name), homeDev] : [homeDev];
 }

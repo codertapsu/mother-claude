@@ -296,6 +296,9 @@ export class ContinueOnSheetComponent {
   /** Asked to allow copies between two accounts. */
   protected readonly ask = signal<ConsentAsk | null>(null);
   private readonly pickedSession = signal<string | null>(null);
+  /** The folder here the user chose for the conversation (one another
+   * computer started), sent again once the copy is allowed. */
+  private readonly folder = signal<string | undefined>(undefined);
   private readonly pickedTarget = signal<string | null>(null);
 
   protected readonly session = computed<SessionSummary | undefined>(() => {
@@ -372,6 +375,7 @@ export class ContinueOnSheetComponent {
     this.pickedSession.set(id);
     this.error.set('');
     this.ask.set(null);
+    this.folder.set(undefined);
   }
 
   protected pickTarget(id: string): void {
@@ -386,12 +390,14 @@ export class ContinueOnSheetComponent {
     if (!s || !t || this.busy()) return;
     this.busy.set(true);
     this.error.set('');
-    const res = await this.actions.continueOn(s, t);
+    const res = await this.actions.continueOn(s, t, this.folder());
     this.busy.set(false);
     if (res.ok) {
       this.closed.emit();
       return;
     }
+    if (res.cancelled) return;
+    this.folder.set(res.folder);
     const pair = consentNeeded(res.error);
     if (pair) {
       this.ask.set({

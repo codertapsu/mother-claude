@@ -18,6 +18,7 @@ import { UpdaterService } from './core/updater.service';
 import { ViewportService } from './core/viewport.service';
 import { IconComponent, IconName } from './shared/icon.component';
 import { LimitationsComponent } from './shared/limitations.component';
+import { FolderChoiceSheetComponent } from './shared/folder-choice-sheet.component';
 import { PairApprovalDialogComponent } from './shared/pair-approval-dialog.component';
 import { SheetComponent } from './shared/sheet.component';
 import { TimeAgoComponent } from './shared/time-ago.component';
@@ -93,6 +94,7 @@ interface NavItem {
     RouterLinkActive,
     IconComponent,
     LimitationsComponent,
+    FolderChoiceSheetComponent,
     PairApprovalDialogComponent,
     SheetComponent,
     TimeAgoComponent,

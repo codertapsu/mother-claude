@@ -2,12 +2,18 @@ import { Injectable, inject, signal } from '@angular/core';
 import { Router } from '@angular/router';
 
 import { ApiService } from './api.service';
+import { FolderChoiceService, folderQuestionOf } from './folder-choice.service';
 import { ContinueBody, SessionSummary } from './models';
 import { NoticeService } from './notice.service';
 
 /** The answer to "continue on another account": the new session, or the
- * refusal for the caller to explain (the sheet shows it in place). */
-export type ContinueOnResult = { ok: true; id: string } | { ok: false; error: unknown };
+ * refusal for the caller to explain (the sheet shows it in place) — with
+ * the folder the user chose here meanwhile, to send again with a retry —
+ * or `cancelled` when the user closed the question of its folder. */
+export type ContinueOnResult =
+  { ok: true; id: string } | { ok: false; error: unknown; folder?: string; cancelled?: boolean };
+
+type Attempt = { ok: true; id: string } | { ok: false; error: unknown };
 
 /**
  * Actions offered from more than one place (a limitation's button in the
@@ -20,6 +26,7 @@ export class SessionActionsService {
   private api = inject(ApiService);
   private router = inject(Router);
   private notices = inject(NoticeService);
+  private folders = inject(FolderChoiceService);
 
   /** Ids with a continue/fork request in flight. */
   readonly busy = signal<ReadonlySet<string>>(new Set());
@@ -27,33 +34,32 @@ export class SessionActionsService {
   /**
    * Continue as an owned session. A live foreign session is always forked
    * into a new id (never two writers on one transcript); an ended one
-   * resumes in place. Navigates to the resulting session.
+   * resumes in place. One another computer started (or whose folder is
+   * gone) asks for its folder here first. Navigates to the resulting
+   * session.
    */
   async continueHere(
     s: Pick<SessionSummary, 'id' | 'live'>,
     body: ContinueBody = {},
   ): Promise<string | null> {
     if (this.busy().has(s.id)) return null;
-    this.setBusy(s.id, true);
-    try {
-      const res = await this.api.continueSession(s.id, {
-        ...(s.live ? { fork: true } : {}),
-        ...body,
-      });
-      const id = res?.id || s.id;
+    const res = await this.attempt(s, body);
+    if (res.ok) {
       this.notices.success(
-        id !== s.id
+        res.id !== s.id
           ? 'Forked: you are driving the copy from here.'
           : 'You can drive this session from here now.',
       );
-      await this.openSession(s.id, id);
-      return id;
-    } catch (e) {
-      this.notices.error(e, () => void this.continueHere(s, body), 'Could not continue');
-      return null;
-    } finally {
-      this.setBusy(s.id, false);
+      await this.openSession(s.id, res.id);
+      return res.id;
     }
+    const question = body.folder ? null : folderQuestionOf(res.error);
+    if (question) {
+      const folder = await this.folders.ask(question);
+      return folder ? this.continueHere(s, { ...body, folder }) : null;
+    }
+    this.notices.error(res.error, () => void this.continueHere(s, body), 'Could not continue');
+    return null;
   }
 
   /**
@@ -68,22 +74,40 @@ export class SessionActionsService {
   async continueOn(
     s: Pick<SessionSummary, 'id' | 'live'>,
     account: { id: string; name: string },
+    folder?: string,
   ): Promise<ContinueOnResult> {
     if (this.busy().has(s.id)) return { ok: false, error: new Error('Already on its way.') };
-    this.setBusy(s.id, true);
-    try {
-      const res = await this.api.continueSession(s.id, {
-        account: account.id,
-        ...(s.live ? { fork: true } : {}),
-      });
-      const id = res?.id || s.id;
+    const res = await this.attempt(s, { account: account.id, ...(folder ? { folder } : {}) });
+    if (res.ok) {
       this.notices.success(
-        id !== s.id
+        res.id !== s.id
           ? `Continuing on ${account.name}: you are driving the copy from here.`
           : `Continuing on ${account.name}.`,
       );
-      await this.openSession(s.id, id);
-      return { ok: true, id };
+      await this.openSession(s.id, res.id);
+      return res;
+    }
+    const question = folder ? null : folderQuestionOf(res.error);
+    if (question) {
+      const chosen = await this.folders.ask(question);
+      if (!chosen) return { ok: false, error: res.error, cancelled: true };
+      return this.continueOn(s, account, chosen);
+    }
+    return { ok: false, error: res.error, ...(folder ? { folder } : {}) };
+  }
+
+  /** `POST /sessions/{id}/continue`, the session busy meanwhile. */
+  private async attempt(
+    s: Pick<SessionSummary, 'id' | 'live'>,
+    body: ContinueBody,
+  ): Promise<Attempt> {
+    this.setBusy(s.id, true);
+    try {
+      const res = await this.api.continueSession(s.id, {
+        ...(s.live ? { fork: true } : {}),
+        ...body,
+      });
+      return { ok: true, id: res?.id || s.id };
     } catch (e) {
       return { ok: false, error: e };
     } finally {

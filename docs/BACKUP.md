@@ -233,6 +233,33 @@ several pairs the longest match wins (`D:\dev\work` beside `D:\dev`).
 A project no pair maps keeps the other machine's path, as before, and the
 pull's report names it: *Pair a folder…* there fills the form.
 
+### Continuing a conversation from another computer
+
+A conversation the other machine started can be continued here with or
+without a pair. When a pair maps its folder, *Continue* (or a message sent
+to it) runs it in the folder here at once. When none does — or its folder is
+gone from this machine — Mother Claude asks **Choose its folder on this
+PC** (or Mac) instead of refusing:
+
+- it offers the folders here that look like it: the same path below your
+  home folder (`C:\Users\you\development\projects\app` for
+  `/Users/you/development/projects/app`), the same path on a drive
+  (`D:\development\projects\app`), and folders of other sessions and
+  trusted folders with the same name; **Another folder** takes any folder
+  typed in full (`~` works);
+- **Pair …**, ticked by default, pairs the folders as you answered them:
+  the folders above both projects when the two have the same name
+  (`D:\development\projects` with `/Users/you/development/projects`), else
+  the two project folders. The other conversations from there then continue
+  without the question, and pulls put them there. It shows once the other
+  machine is one of the backups' machines (it has backed up or pulled);
+- the conversation itself is not moved: Claude Code finds it by its id
+  wherever the pull or restore put it, and goes on writing it there. From
+  then on Mother Claude lists it in the folder it continued in here.
+
+A paired phone gets the same question; the folder it picks must be one
+Claude Code already trusts on the desktop.
+
 ### Mac ↔ Windows, step by step
 
 1. On the Mac: set the backup folder to a folder on the NAS share
@@ -248,7 +275,8 @@ pull's report names it: *Pair a folder…* there fills the form.
 4. On Windows, **Pull…**: the Mac's sessions land in their `D:\dev\…`
    projects (one an earlier pull put under the Mac's path moves there).
    `/resume` in `D:\dev\app` lists them, and so does Mother Claude, which
-   continues them there.
+   continues them there. Skipped step 3? *Continue* asks for the folder
+   here, and can add the pair then (above).
 5. Work on Windows, **Back up now**; on the Mac, **Pull…**: the sessions are
    in `/Users/marcus/dev/…` again, continued.
 6. Changed the same session on both? The usual rules keep both copies (one

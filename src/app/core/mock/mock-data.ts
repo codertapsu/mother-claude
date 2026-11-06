@@ -671,6 +671,22 @@ export class MockData {
     return json(this.pairsView());
   }
 
+  /** Where a conversation recorded in `cwd` on another computer continues
+   * here, as `POST /sessions/{id}/continue` decides: the folder a pair maps
+   * it to, else the machines of the backups that write paths as `cwd` does
+   * (to pair the folders with). */
+  elsewhere(cwd: string): {
+    mapped?: string;
+    machines: { id: string; name: string; os?: string }[];
+  } {
+    const windows = isWindowsAbsolute(cwd);
+    const machines = this.pairsView().machines.filter(
+      (m) => !m.os || (m.os === 'windows') === windows,
+    );
+    const mapped = machines.map((m) => this.mapFolder(m.id, cwd)).find((f) => !!f);
+    return { ...(mapped ? { mapped } : {}), machines };
+  }
+
   /** `folder` (as `machine` writes it) in this desktop's folder, in its
    * form, by the pair whose other folder is the longest it is under (by
    * whole components; a Windows one in any case, either separator). */

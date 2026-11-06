@@ -1250,6 +1250,10 @@ export interface ContinueBody {
   permissionMode?: PermissionMode;
   /** "Continue on another account": always a fork under that account. */
   account?: string;
+  /** The folder on this machine it continues in: the answer to a `409
+   * folder_elsewhere` (a conversation another computer started, or one
+   * whose folder is gone). */
+  folder?: string;
 }
 
 export type KeyName =
