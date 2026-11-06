@@ -839,6 +839,20 @@ pub fn on_notification_hook(
     state.push.enqueue(Msg::Event(e));
 }
 
+/// A budget reached its alert threshold or 100 % (docs/ROUTING.md). `short`
+/// is lock-screen safe ("Project budget 80 % used"); `detail` (names and
+/// amounts) reaches only devices with details on. Not tied to a session:
+/// the click opens the app.
+pub fn on_budget_alert(state: &AppState, key: &str, short: &str, detail: &str) {
+    if !state.push.has_subscriptions() {
+        return;
+    }
+    let mut e = PushEvent::new("", PushKind::Budget, format!("budget:{key}"));
+    e.label = Some(short.to_string());
+    e.detail = Some(detail.to_string()).filter(|d| !d.trim().is_empty());
+    state.push.enqueue(Msg::Event(e));
+}
+
 /// Forget a revoked device's subscriptions (B1 calls this on revoke).
 pub fn drop_device(state: &AppState, device_id: &str) {
     state.push.forget_device(device_id);

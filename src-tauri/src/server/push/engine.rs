@@ -60,6 +60,9 @@ pub enum PushKind {
     /// "Claude is waiting for your input" (idle_prompt).
     Idle,
     Test,
+    /// A budget reached its alert threshold or 100 % (docs/ROUTING.md); no
+    /// session of its own.
+    Budget,
 }
 
 impl PushKind {
@@ -180,7 +183,11 @@ impl Suppressor {
     pub fn admit(&mut self, now: i64, ev: &PushEvent, has_answerable: bool) -> bool {
         if matches!(
             ev.kind,
-            PushKind::Permission | PushKind::Question | PushKind::Plan | PushKind::Claude
+            PushKind::Permission
+                | PushKind::Question
+                | PushKind::Plan
+                | PushKind::Claude
+                | PushKind::Budget
         ) {
             if self.recent_set.contains(&ev.key) {
                 return false;
@@ -201,7 +208,7 @@ impl Suppressor {
             PushKind::Finished => admit_once(&mut m.finished, now, FINISHED_DEDUPE_MS),
             PushKind::Failed => admit_once(&mut m.failed, now, FAILED_DEDUPE_MS),
             PushKind::Idle => admit_once(&mut m.idle, now, IDLE_DEDUPE_MS),
-            PushKind::Claude | PushKind::Test => true,
+            PushKind::Claude | PushKind::Test | PushKind::Budget => true,
         }
     }
 
@@ -350,6 +357,8 @@ pub fn wants(dev: &DevicePush, ev: &PushEvent, now: i64) -> bool {
         PushKind::Claude => follow || p.claude,
         PushKind::Idle => p.idle,
         PushKind::Test => true,
+        // Rare, and switched on or off on the Capacity page.
+        PushKind::Budget => true,
     }
 }
 

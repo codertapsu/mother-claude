@@ -171,6 +171,13 @@ fn short_line(e: &PushEvent) -> String {
         PushKind::Claude => "Claude sent a notification".into(),
         PushKind::Idle => "Waiting for your input".into(),
         PushKind::Test => "Test notification — notifications work.".into(),
+        // Our own lock-screen-safe line ("Project budget 80 % used").
+        PushKind::Budget => e
+            .label
+            .as_deref()
+            .map(|l| clean(l, 80))
+            .filter(|l| !l.is_empty())
+            .unwrap_or_else(|| "Budget alert".into()),
     }
 }
 
@@ -186,7 +193,9 @@ fn detailed_line(e: &PushEvent) -> String {
         PushKind::Claude => detail,
         PushKind::Question => format!("Question: {detail}"),
         PushKind::Plan => format!("Plan ready: {detail}"),
-        PushKind::Finished | PushKind::Failed => format!("{} · {detail}", short_line(e)),
+        PushKind::Finished | PushKind::Failed | PushKind::Budget => {
+            format!("{} · {detail}", short_line(e))
+        }
         _ => format!("{}: {detail}", short_line(e)),
     }
 }
@@ -220,6 +229,9 @@ pub fn render(
     );
     let tag = match (events, pending_ids.first()) {
         _ if test => "mother-claude-test".to_string(),
+        _ if events.iter().all(|e| e.kind == PushKind::Budget) => {
+            "mother-claude-budget".to_string()
+        }
         ([_], Some(pid)) => pid.clone(),
         _ => session_id.to_string(),
     };
@@ -448,6 +460,26 @@ pub(crate) mod tests {
         assert_eq!(topic_for("s1"), topic_for("s1"));
         assert_ne!(topic_for("s1"), topic_for("s2"));
         assert!(topic_for("s1").bytes().all(|b| b.is_ascii_hexdigit()));
+    }
+
+    #[test]
+    fn a_budget_alert_says_only_its_own_line_unless_details_are_on() {
+        let mut e = ev(PushKind::Budget);
+        e.session_id = String::new();
+        e.label = Some("Project budget 80 % used".into());
+        e.detail = Some("app today · $16.20 of $20.00, estimated".into());
+        let n = render(None, "", std::slice::from_ref(&e), false);
+        assert_eq!(n.title, "Mother Claude");
+        assert_eq!(n.body, "Project budget 80 % used");
+        assert_eq!(n.tag, "mother-claude-budget");
+        assert_eq!(n.urgency, Urgency::Normal);
+        let d = render(None, "", &[e], true);
+        assert_eq!(
+            d.body,
+            "Project budget 80 % used · app today · $16.20 of $20.00, estimated"
+        );
+        // No session to open: the click goes home.
+        assert_eq!(payload_json(&d, 1)["sessionId"], "");
     }
 
     /// A browser-side keypair + auth secret.
