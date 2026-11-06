@@ -112,6 +112,8 @@ impl SecretName {
 #[serde(rename_all = "camelCase")]
 pub enum SecretStoreKind {
     Keychain,
+    /// Windows Credential Manager.
+    CredentialManager,
     Files,
     Memory,
 }
@@ -123,6 +125,8 @@ pub enum SecretError {
     InvalidName,
     #[error("the Keychain refused to {op} the secret: {detail}")]
     Keychain { op: &'static str, detail: String },
+    #[error("Windows Credential Manager refused to {op} the secret: {detail}")]
+    CredentialManager { op: &'static str, detail: String },
     #[error("could not {op} the secret file: {detail}")]
     Io { op: &'static str, detail: String },
 }
@@ -136,26 +140,239 @@ pub trait SecretStore: Send + Sync + fmt::Debug {
     fn kind(&self) -> SecretStoreKind;
 }
 
-/// The store for a data dir: the Keychain for the app's own data dir on macOS
-/// (unless `MOTHER_CLAUDE_SECRET_STORE=file`), `0600` files in
-/// `<data dir>/secrets/` for any other data dir, memory without one.
+/// The store for a data dir: for the app's own data dir the Keychain on macOS
+/// and Windows Credential Manager on Windows (which takes over the `0600` files
+/// an older build kept there, one secret at a time as each is read), unless
+/// `MOTHER_CLAUDE_SECRET_STORE=file`; `0600` files in `<data dir>/secrets/` for
+/// any other data dir and elsewhere; memory without one.
 pub fn store_for(data_dir: Option<&Path>) -> Arc<dyn SecretStore> {
     let Some(dir) = data_dir else {
         return Arc::new(MemoryStore::default());
     };
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", windows))]
     {
         let files_requested = std::env::var(STORE_ENV)
             .map(|v| v.trim().eq_ignore_ascii_case("file"))
             .unwrap_or(false);
         let app_dir = crate::persist::app_data_dir();
         if !files_requested && app_dir.as_deref() == Some(dir) {
+            #[cfg(target_os = "macos")]
             return Arc::new(KeychainStore);
+            #[cfg(windows)]
+            return Arc::new(MigratingStore::new(
+                CredentialStore,
+                FileStore::new(dir.join("secrets")),
+            ));
         }
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(not(any(target_os = "macos", windows)))]
     let _ = STORE_ENV;
     Arc::new(FileStore::new(dir.join("secrets")))
+}
+
+// ─────────────────────────── Credential Manager ───────────────────────────
+
+/// Generic credentials in Windows Credential Manager, named
+/// `dev.motherclaude.desktop/<key>`: this user's, on this machine only (not
+/// roaming), protected by Windows for the user as the Keychain is on a Mac.
+#[cfg(windows)]
+#[derive(Debug)]
+pub struct CredentialStore;
+
+/// The credential's target name.
+#[cfg(windows)]
+fn credential_target(name: &SecretName) -> Vec<u16> {
+    format!("{KEYCHAIN_SERVICE}/{}", name.key())
+        .encode_utf16()
+        .chain(std::iter::once(0))
+        .collect()
+}
+
+#[cfg(windows)]
+fn credential_error(op: &'static str) -> SecretError {
+    // SAFETY: reads this thread's last error, set by the call that failed.
+    let code = unsafe { windows_sys::Win32::Foundation::GetLastError() };
+    SecretError::CredentialManager {
+        op,
+        detail: format!("error {code}"),
+    }
+}
+
+#[cfg(windows)]
+impl SecretStore for CredentialStore {
+    fn get(&self, name: &SecretName) -> Result<Option<Secret>, SecretError> {
+        use windows_sys::Win32::Foundation::{GetLastError, ERROR_NOT_FOUND};
+        use windows_sys::Win32::Security::Credentials::{
+            CredFree, CredReadW, CREDENTIALW, CRED_TYPE_GENERIC,
+        };
+        if !name.is_valid() {
+            return Err(SecretError::InvalidName);
+        }
+        let target = credential_target(name);
+        let mut cred: *mut CREDENTIALW = std::ptr::null_mut();
+        // SAFETY: `target` is NUL-terminated and outlives the call; on success
+        // `cred` points to a buffer the system allocated, freed below.
+        if unsafe { CredReadW(target.as_ptr(), CRED_TYPE_GENERIC, 0, &mut cred) } == 0 {
+            // SAFETY: reads this thread's last error, set by CredReadW.
+            if unsafe { GetLastError() } == ERROR_NOT_FOUND {
+                return Ok(None);
+            }
+            return Err(credential_error("read"));
+        }
+        // SAFETY: `cred` is the valid credential CredReadW returned; its blob
+        // is `CredentialBlobSize` bytes long (or null when empty). Copied out
+        // before the one CredFree.
+        let bytes = unsafe {
+            let c = &*cred;
+            let bytes = if c.CredentialBlob.is_null() || c.CredentialBlobSize == 0 {
+                Vec::new()
+            } else {
+                std::slice::from_raw_parts(c.CredentialBlob, c.CredentialBlobSize as usize).to_vec()
+            };
+            CredFree(cred as *const core::ffi::c_void);
+            bytes
+        };
+        match String::from_utf8(bytes) {
+            Ok(s) if s.is_empty() => Ok(None),
+            Ok(s) => Ok(Some(Secret(s))),
+            Err(_) => Err(SecretError::CredentialManager {
+                op: "read",
+                detail: "the stored value is not text".into(),
+            }),
+        }
+    }
+
+    fn set(&self, name: &SecretName, value: &Secret) -> Result<(), SecretError> {
+        use windows_sys::Win32::Foundation::FILETIME;
+        use windows_sys::Win32::Security::Credentials::{
+            CredWriteW, CREDENTIALW, CRED_MAX_CREDENTIAL_BLOB_SIZE, CRED_PERSIST_LOCAL_MACHINE,
+            CRED_TYPE_GENERIC,
+        };
+        if !name.is_valid() {
+            return Err(SecretError::InvalidName);
+        }
+        let mut blob = value.expose().as_bytes().to_vec();
+        if blob.len() > CRED_MAX_CREDENTIAL_BLOB_SIZE as usize {
+            return Err(SecretError::CredentialManager {
+                op: "store",
+                detail: "the value is longer than Credential Manager keeps".into(),
+            });
+        }
+        let mut target = credential_target(name);
+        let mut user: Vec<u16> = "Mother Claude"
+            .encode_utf16()
+            .chain(std::iter::once(0))
+            .collect();
+        let cred = CREDENTIALW {
+            Flags: 0,
+            Type: CRED_TYPE_GENERIC,
+            TargetName: target.as_mut_ptr(),
+            Comment: std::ptr::null_mut(),
+            LastWritten: FILETIME {
+                dwLowDateTime: 0,
+                dwHighDateTime: 0,
+            },
+            CredentialBlobSize: blob.len() as u32,
+            CredentialBlob: blob.as_mut_ptr(),
+            Persist: CRED_PERSIST_LOCAL_MACHINE,
+            AttributeCount: 0,
+            Attributes: std::ptr::null_mut(),
+            TargetAlias: std::ptr::null_mut(),
+            UserName: user.as_mut_ptr(),
+        };
+        // SAFETY: every pointer in `cred` points into a buffer that lives until
+        // the call returns; CredWriteW copies what it keeps.
+        let ok = unsafe { CredWriteW(&cred, 0) } != 0;
+        let failure = (!ok).then(|| credential_error("store"));
+        // Our copy of the value, cleared before it is freed.
+        blob.iter_mut().for_each(|b| *b = 0);
+        failure.map_or(Ok(()), Err)
+    }
+
+    fn delete(&self, name: &SecretName) -> Result<(), SecretError> {
+        use windows_sys::Win32::Foundation::{GetLastError, ERROR_NOT_FOUND};
+        use windows_sys::Win32::Security::Credentials::{CredDeleteW, CRED_TYPE_GENERIC};
+        if !name.is_valid() {
+            return Err(SecretError::InvalidName);
+        }
+        let target = credential_target(name);
+        // SAFETY: `target` is NUL-terminated and outlives the call.
+        if unsafe { CredDeleteW(target.as_ptr(), CRED_TYPE_GENERIC, 0) } == 0 {
+            // SAFETY: reads this thread's last error, set by CredDeleteW.
+            if unsafe { GetLastError() } == ERROR_NOT_FOUND {
+                return Ok(());
+            }
+            return Err(credential_error("delete"));
+        }
+        Ok(())
+    }
+
+    fn kind(&self) -> SecretStoreKind {
+        SecretStoreKind::CredentialManager
+    }
+}
+
+// ───────────────────────────── moving stores ─────────────────────────────
+
+/// A store that takes over the `0600` files an older build kept: `primary`
+/// first; a secret found only in its file is written to `primary` when it is
+/// read and its file removed once `primary` has it. Writing and deleting go
+/// to `primary`, and remove the file too. If `primary` cannot be read at all,
+/// the file still answers, so a broken store never loses a secret.
+#[derive(Debug)]
+pub struct MigratingStore<P> {
+    primary: P,
+    legacy: FileStore,
+}
+
+impl<P: SecretStore> MigratingStore<P> {
+    pub fn new(primary: P, legacy: FileStore) -> Self {
+        Self { primary, legacy }
+    }
+}
+
+impl<P: SecretStore> SecretStore for MigratingStore<P> {
+    fn get(&self, name: &SecretName) -> Result<Option<Secret>, SecretError> {
+        match self.primary.get(name) {
+            Ok(Some(secret)) => return Ok(Some(secret)),
+            Ok(None) => {}
+            Err(e) => {
+                tracing::warn!(error = %e, "the secret store could not be read; trying the file");
+                return self.legacy.get(name);
+            }
+        }
+        let Some(secret) = self.legacy.get(name)? else {
+            return Ok(None);
+        };
+        match self.primary.set(name, &secret) {
+            Ok(()) => {
+                if let Err(e) = self.legacy.delete(name) {
+                    tracing::warn!(error = %e, "a moved secret's old file could not be removed");
+                }
+            }
+            Err(e) => {
+                tracing::warn!(error = %e, "a secret stays in its file: the store refused it")
+            }
+        }
+        Ok(Some(secret))
+    }
+
+    fn set(&self, name: &SecretName, value: &Secret) -> Result<(), SecretError> {
+        self.primary.set(name, value)?;
+        if let Err(e) = self.legacy.delete(name) {
+            tracing::warn!(error = %e, "an old secret file could not be removed");
+        }
+        Ok(())
+    }
+
+    fn delete(&self, name: &SecretName) -> Result<(), SecretError> {
+        self.primary.delete(name)?;
+        self.legacy.delete(name)
+    }
+
+    fn kind(&self) -> SecretStoreKind {
+        self.primary.kind()
+    }
 }
 
 // ─────────────────────────────── Keychain ────────────────────────────────
@@ -421,6 +638,127 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         assert_eq!(store_for(Some(dir.path())).kind(), SecretStoreKind::Files);
         assert_eq!(store_for(None).kind(), SecretStoreKind::Memory);
+    }
+
+    /// What a Windows build does with the files an older one kept: each moves
+    /// into Credential Manager (here a memory store) on its first read, and
+    /// its file goes once the store has it.
+    #[test]
+    fn a_secret_moves_out_of_its_old_file_when_it_is_read() {
+        let dir = tempfile::tempdir().unwrap();
+        let files = FileStore::new(dir.path().join("secrets"));
+        let token = SecretName::AccountToken(ID.into());
+        files.set(&token, &Secret::new("tok-old")).unwrap();
+        files
+            .set(&SecretName::BackupPassphrase, &Secret::new("words"))
+            .unwrap();
+        let store = MigratingStore::new(
+            MemoryStore::default(),
+            FileStore::new(dir.path().join("secrets")),
+        );
+        assert_eq!(store.kind(), SecretStoreKind::Memory);
+        assert_eq!(store.get(&token).unwrap().unwrap().expose(), "tok-old");
+        let file = dir.path().join(format!("secrets/{ID}.token"));
+        assert!(!file.exists(), "moved: its file is gone");
+        assert_eq!(
+            store.primary.get(&token).unwrap().unwrap().expose(),
+            "tok-old"
+        );
+        // Read again: from the store, the same value.
+        assert_eq!(store.get(&token).unwrap().unwrap().expose(), "tok-old");
+        // A secret nobody read yet stays in its file until then.
+        assert!(dir.path().join("secrets/backup-passphrase").exists());
+        // Writing replaces both; deleting removes both.
+        store
+            .set(&SecretName::BackupPassphrase, &Secret::new("new words"))
+            .unwrap();
+        assert!(!dir.path().join("secrets/backup-passphrase").exists());
+        assert_eq!(
+            store
+                .get(&SecretName::BackupPassphrase)
+                .unwrap()
+                .unwrap()
+                .expose(),
+            "new words"
+        );
+        store.delete(&token).unwrap();
+        assert!(store.get(&token).unwrap().is_none());
+        assert!(store
+            .get(&SecretName::BackupPassphrasePending)
+            .unwrap()
+            .is_none());
+    }
+
+    /// A store that cannot be read: the file still answers.
+    #[test]
+    fn a_broken_store_never_hides_a_secret_its_file_has() {
+        #[derive(Debug)]
+        struct Broken;
+        impl SecretStore for Broken {
+            fn get(&self, _: &SecretName) -> Result<Option<Secret>, SecretError> {
+                Err(SecretError::CredentialManager {
+                    op: "read",
+                    detail: "error 1312".into(),
+                })
+            }
+            fn set(&self, _: &SecretName, _: &Secret) -> Result<(), SecretError> {
+                Err(SecretError::CredentialManager {
+                    op: "store",
+                    detail: "error 1312".into(),
+                })
+            }
+            fn delete(&self, _: &SecretName) -> Result<(), SecretError> {
+                Ok(())
+            }
+            fn kind(&self) -> SecretStoreKind {
+                SecretStoreKind::CredentialManager
+            }
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let files = FileStore::new(dir.path().join("secrets"));
+        files
+            .set(&SecretName::BackupPassphrase, &Secret::new("words"))
+            .unwrap();
+        let store = MigratingStore::new(Broken, FileStore::new(dir.path().join("secrets")));
+        assert_eq!(
+            store
+                .get(&SecretName::BackupPassphrase)
+                .unwrap()
+                .unwrap()
+                .expose(),
+            "words"
+        );
+        assert!(dir.path().join("secrets/backup-passphrase").exists());
+        // A write the store refuses is an error, and the old file stays.
+        assert!(store
+            .set(&SecretName::BackupPassphrase, &Secret::new("x"))
+            .is_err());
+        assert_eq!(
+            files
+                .get(&SecretName::BackupPassphrase)
+                .unwrap()
+                .unwrap()
+                .expose(),
+            "words"
+        );
+    }
+
+    /// Run by hand on the Windows desktop:
+    /// `cargo test --lib credential_manager_round_trip -- --ignored`. Files a
+    /// dummy credential under our own name, reads it back, deletes it.
+    #[cfg(windows)]
+    #[test]
+    #[ignore = "touches Windows Credential Manager"]
+    fn credential_manager_round_trip() {
+        let store = CredentialStore;
+        let name = SecretName::AccountToken("acc_000000007e57".into());
+        store.set(&name, &Secret::new("dummy-value")).unwrap();
+        assert_eq!(store.get(&name).unwrap().unwrap().expose(), "dummy-value");
+        store.set(&name, &Secret::new("dummy-value-2")).unwrap();
+        assert_eq!(store.get(&name).unwrap().unwrap().expose(), "dummy-value-2");
+        store.delete(&name).unwrap();
+        store.delete(&name).unwrap();
+        assert!(store.get(&name).unwrap().is_none());
     }
 
     /// P0.3's check, run by hand on the maintainer's Mac:

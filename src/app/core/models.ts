@@ -809,7 +809,7 @@ export interface CopyConsent {
   to: string;
 }
 
-export type SecretStoreKind = 'keychain' | 'files' | 'memory';
+export type SecretStoreKind = 'keychain' | 'credentialManager' | 'files' | 'memory';
 
 /** `GET /accounts` and the `accounts` frame. */
 export interface AccountsView {

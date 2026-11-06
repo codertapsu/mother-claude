@@ -81,9 +81,11 @@ dunce = "1.0.5"
 security-framework = "3.7.0"
 
 # Whether a pidfile's process still runs on Windows (`live::pid_exists`), as
-# `kill(pid, 0)` tells elsewhere. Already in the dependency graph.
+# `kill(pid, 0)` tells elsewhere, and Windows Credential Manager for the
+# accounts' secrets (`secrets::CredentialStore`). Already in the dependency
+# graph.
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_System_Threading"] }
+windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_Security_Credentials", "Win32_System_Threading"] }
 
 [dev-dependencies]
 tempfile = "3.27.0"

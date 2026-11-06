@@ -160,9 +160,13 @@ directory account.
 **D3 — Secrets live in the macOS Keychain, in Mother Claude's own items.**
 Tokens and the backup passphrase go into Keychain items named
 `dev.motherclaude.desktop/<account id>` (`security-framework` crate, already in
-the dependency tree through `native-tls`); on
-Linux and Windows into `0600` files in the app data dir, as `script-token` is
-today. Secrets are never written to `accounts.json`, backups, logs, audit
+the dependency tree through `native-tls`); on Windows into Windows Credential
+Manager as generic credentials named the same way, for this user on this
+machine (since 0.8: a secret an older build kept in a `0600` file moves there
+the first time it is read, and its file is removed once Credential Manager
+has it); on Linux into `0600` files in the app data dir, as `script-token`
+is. `MOTHER_CLAUDE_SECRET_STORE=file` keeps them in the files on macOS and
+Windows too. Secrets are never written to `accounts.json`, backups, logs, audit
 lines or WebSocket frames. `accounts.json` keeps only `tokenSha256`, for
 matching a running process to its account (D8).
 *Getting a token (P1.1, verified in the CLI 2.1.304 binary):* `claude
@@ -436,10 +440,10 @@ skipped with a log line), like every other file we read.
 
 ### 4.2 Secrets
 
-| Secret | macOS | Elsewhere |
-|---|---|---|
-| a token account's token | Keychain `dev.motherclaude.desktop` / account `acc_…` | `<app data dir>/secrets/<acc_…>.token`, 0600 |
-| the backup passphrase | Keychain `dev.motherclaude.desktop` / account `backup-passphrase` | `<app data dir>/secrets/backup-passphrase`, 0600 |
+| Secret | macOS | Windows | Linux, and `MOTHER_CLAUDE_SECRET_STORE=file` |
+|---|---|---|---|
+| a token account's token | Keychain `dev.motherclaude.desktop` / account `acc_…` | Credential Manager, generic credential `dev.motherclaude.desktop/acc_…` | `<app data dir>/secrets/<acc_…>.token`, 0600 |
+| the backup passphrase | Keychain `dev.motherclaude.desktop` / account `backup-passphrase` | Credential Manager, generic credential `dev.motherclaude.desktop/backup-passphrase` | `<app data dir>/secrets/backup-passphrase`, 0600 |
 
 ### 4.3 The backup set — `<folder>/<account name>/`
 

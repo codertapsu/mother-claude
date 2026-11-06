@@ -233,8 +233,9 @@ when the user changes it): the **Default** account (the directory resolved at
 startup, never removable), **directory** accounts (their own config directory
 and sign-in) and **token** accounts (a `claude setup-token` token used with the
 Default's directory). Tokens and the backup passphrase live in the Keychain
-(service `dev.motherclaude.desktop`; `0600` files under `<app data
-dir>/secrets/` elsewhere, `claude/secrets.rs`) and never in the registry, a
+(service `dev.motherclaude.desktop`; Windows Credential Manager on Windows,
+taking over the `0600` files older builds kept; `0600` files under `<app
+data dir>/secrets/` elsewhere, `claude/secrets.rs`) and never in the registry, a
 log, a frame, an error, an audit line or a backup; the registry keeps a token's
 SHA-256 only. Every child's environment is composed from its account
 (`accounts::AccountEnv`, D5): the Default inherits ours unchanged; a directory

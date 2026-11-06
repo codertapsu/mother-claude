@@ -52,7 +52,12 @@ const CAPTURE_STATES: readonly CaptureState[] = [
   'timedOut',
   'cancelled',
 ];
-const SECRET_STORES: readonly SecretStoreKind[] = ['keychain', 'files', 'memory'];
+const SECRET_STORES: readonly SecretStoreKind[] = [
+  'keychain',
+  'credentialManager',
+  'files',
+  'memory',
+];
 const HEX_COLOR = /^#[0-9a-f]{6}$/i;
 
 /** A `#rrggbb` colour (the only kind accounts have). */

@@ -85,6 +85,8 @@ export function secretStoreText(kind: SecretStoreKind | undefined): string {
   switch (kind) {
     case 'keychain':
       return 'the macOS Keychain';
+    case 'credentialManager':
+      return 'Windows Credential Manager';
     case 'files':
       return 'files in the app data folder that only your user can read';
     case 'memory':

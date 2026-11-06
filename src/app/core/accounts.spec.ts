@@ -11,6 +11,7 @@ import {
   suggestAccountDir,
   transferTargets,
 } from './accounts';
+import { secretStoreText } from '../shared/accounts';
 import { buildAccounts } from './mock/fixtures';
 import { AccountsView } from './models';
 
@@ -56,6 +57,16 @@ describe('account helpers', () => {
 
     expect(normalizeAccounts(null)).toBeNull();
     expect(normalizeAccounts({ defaults: {} })).toBeNull();
+  });
+
+  it('names where a Windows desktop keeps the tokens', () => {
+    const v = normalizeAccounts({
+      accounts: [{ id: 'default', name: 'Default', kind: 'directory' }],
+      defaults: {},
+      secretStore: 'credentialManager',
+    });
+    expect(v?.secretStore).toBe('credentialManager');
+    expect(secretStoreText(v?.secretStore)).toBe('Windows Credential Manager');
   });
 
   it('keeps only an http(s) sign-in link of a capture', () => {
