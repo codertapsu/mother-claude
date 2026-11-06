@@ -610,10 +610,28 @@ pub fn admit(state: &AppState, req: &StartRequest, running: &[RunningWorker]) ->
     verdict.admission
 }
 
-/// Drop stale queue entries and ended role sessions (the loop).
+/// Drop stale queue entries and ended role sessions, and give a role
+/// session (or a task) reported before its session's cost was known its
+/// baseline now (the loop).
 pub fn forget_stale(state: &AppState, now: i64) {
     let spend = state.scheduler.spend();
-    lock(&state.scheduler.queue).forget_stale(now, |id| spend.is_live(id));
+    {
+        let mut queue = lock(&state.scheduler.queue);
+        queue.forget_stale(now, |id| spend.is_live(id));
+        for r in queue
+            .roles
+            .values_mut()
+            .filter(|r| r.baseline_usd.is_none())
+        {
+            r.baseline_usd = spend.session_cost(&r.session_id);
+        }
+    }
+    for t in lock(&state.scheduler.tasks)
+        .values_mut()
+        .filter(|t| t.baseline_usd.is_none())
+    {
+        t.baseline_usd = spend.session_cost(&t.session_id);
+    }
 }
 
 #[cfg(test)]

@@ -79,9 +79,10 @@ pub struct LiveTask {
     pub role: Option<String>,
     pub session_id: String,
     pub started_at: i64,
-    /// The session's cost when the task started.
+    /// The session's cost when the task started (`None` until the session's
+    /// cost is known).
     #[serde(skip)]
-    pub baseline_usd: f64,
+    pub baseline_usd: Option<f64>,
 }
 
 fn clip(s: &str, max: usize) -> String {
@@ -255,11 +256,7 @@ pub fn task_started(
     if !crate::claude::ids::is_session_id(session_id) || task_id.trim().is_empty() {
         return;
     }
-    let baseline = state
-        .scheduler
-        .spend()
-        .session_cost(session_id)
-        .unwrap_or(0.0);
+    let baseline = state.scheduler.spend().session_cost(session_id);
     let mut tasks = lock(&state.scheduler.tasks);
     tasks.insert(
         clip(task_id, ID_MAX),

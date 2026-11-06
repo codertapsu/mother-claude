@@ -982,3 +982,48 @@ fn recorded_outcomes_escalate_through_the_contract() {
         d.reason
     );
 }
+
+#[test]
+fn a_role_session_reported_early_gets_its_cost_baseline_from_the_loop() {
+    use crate::orchestration::budget::{SessionSpend, Spend};
+    let st = state();
+    let sid = "11111111-2222-3333-4444-555555555555";
+    let now = now_ms();
+    // Reported before the snapshot knew the session: no baseline yet.
+    let _ = admit(
+        &st,
+        &req("/Users/me/app", "scout", 2, false),
+        &[run(sid, "/Users/me/app", "backend", false)],
+    );
+    assert_eq!(lock(&st.scheduler.queue).roles()[0].baseline_usd, None);
+    // A resumed session that had spent $2 before: the loop takes that as
+    // its baseline.
+    let at = |cost| SessionSpend {
+        cwd: "/Users/me/app".into(),
+        account: "default".into(),
+        cost_today: cost,
+        cost_usd: cost,
+        live: true,
+    };
+    let mut spend = Spend::default();
+    spend.insert(sid, at(2.0));
+    st.scheduler.set_spend(spend.clone());
+    forget_stale(&st, now);
+    assert_eq!(lock(&st.scheduler.queue).roles()[0].baseline_usd, Some(2.0));
+    // It spends $1.50 more: its $5 session budget counts only that.
+    spend.insert(sid, at(3.5));
+    st.scheduler.set_spend(spend);
+    let states = crate::orchestration::budget::states(&st);
+    let s = states
+        .iter()
+        .find(|s| s.scope == "session")
+        .expect("a session budget");
+    assert_eq!((s.spent_usd, s.limit_usd, s.level), (1.5, 5.0, "ok"));
+    assert!(
+        !s.applies,
+        "not known to pay per token: shown, not enforced"
+    );
+    // A task reported now starts from the session's cost.
+    crate::orchestration::metrics::task_started(&st, "t-9", "/Users/me/app", Some("backend"), sid);
+    assert_eq!(lock(&st.scheduler.tasks)["t-9"].baseline_usd, Some(3.5));
+}

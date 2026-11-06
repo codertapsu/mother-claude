@@ -454,7 +454,8 @@ pub fn states(state: &AppState) -> Vec<BudgetState> {
         let Some(cap) = task_cap_usd(state, &t.project) else {
             continue;
         };
-        let spent = spend.session_cost(&t.session_id).unwrap_or(0.0) - t.baseline_usd;
+        let spent =
+            spend.session_cost(&t.session_id).unwrap_or(0.0) - t.baseline_usd.unwrap_or(0.0);
         let mut s = state_of(
             "task",
             t.task_id.clone(),
