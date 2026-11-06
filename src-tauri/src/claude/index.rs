@@ -31,6 +31,7 @@
 
 pub mod agg;
 pub mod loose;
+pub mod window;
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
