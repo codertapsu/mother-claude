@@ -198,23 +198,30 @@ fn summary(set: &Set, name: &str, account: Option<String>) -> SetSummary {
 /// that are there. `owners`: `(id, name)` of the accounts with a set of their
 /// own.
 pub fn sets_of(storage: &Storage, owners: &[(String, String)]) -> Vec<SetSummary> {
+    // By its name, or the folder its name gives (`Acme Inc.` → `Acme Inc._`).
     let named = |name: &str| {
         owners
             .iter()
-            .find(|(_, n)| n.to_lowercase() == name.to_lowercase())
+            .find(|(_, n)| super::ops::names_set(n, name))
             .map(|(id, _)| id.clone())
     };
     let mut out: Vec<SetSummary> = Vec::new();
+    // The folders the accounts' own sets are in.
+    let mut taken: Vec<String> = Vec::new();
     if storage.primary {
         for (id, name) in owners {
-            out.push(summary(&storage.set(name), name, Some(id.clone())));
+            let set = storage.set(name);
+            taken.extend(
+                set.dir
+                    .file_name()
+                    .map(|n| n.to_string_lossy().to_lowercase()),
+            );
+            out.push(summary(&set, name, Some(id.clone())));
         }
     }
     for (name, set) in super::ops::folder_sets(&storage.path) {
-        if out
-            .iter()
-            .any(|s| s.name.to_lowercase() == name.to_lowercase())
-        {
+        let lower = name.to_lowercase();
+        if taken.contains(&lower) || out.iter().any(|s| s.name.to_lowercase() == lower) {
             continue;
         }
         let account = named(&name);
@@ -485,6 +492,85 @@ mod tests {
         ] {
             assert_eq!(kind_in(home, Path::new(path)), kind, "{path}");
         }
+    }
+
+    fn key(dir: &Path) {
+        std::fs::create_dir_all(dir).unwrap();
+        std::fs::write(dir.join("identity.age"), "key").unwrap();
+    }
+
+    #[test]
+    fn a_set_is_in_a_folder_every_system_keeps_and_an_older_one_is_still_found() {
+        let tmp = tempfile::tempdir().unwrap();
+        let folder = tmp.path().join("Mother Claude");
+        std::fs::create_dir_all(&folder).unwrap();
+        // A name Windows keeps is its own folder, as every set made so far.
+        assert_eq!(Set::new(&folder, "Work").dir, folder.join("Work"));
+        // One it cannot gets the same portable folder on every system.
+        assert_eq!(
+            Set::new(&folder, "Acme Inc.").dir,
+            folder.join("Acme Inc._")
+        );
+        assert_eq!(Set::new(&folder, "Con").dir, folder.join("Con_"));
+        if !cfg!(windows) {
+            // A folder by the name itself that holds no set changes nothing
+            // (a Mac can name folders `Con` and `Acme Inc.`, Windows cannot).
+            std::fs::create_dir_all(folder.join("Con")).unwrap();
+            assert_eq!(Set::new(&folder, "Con").dir, folder.join("Con_"));
+            // A set an older build made under the name itself is found there.
+            let legacy = folder.join("Acme Inc.");
+            key(&legacy);
+            assert_eq!(Set::new(&folder, "Acme Inc.").dir, legacy);
+        }
+    }
+
+    #[test]
+    fn a_storage_lists_each_set_once_and_knows_whose_portable_folder_it_is() {
+        let tmp = tempfile::tempdir().unwrap();
+        let folder = tmp.path().join("NAS");
+        key(&folder.join("Acme Inc._"));
+        key(&folder.join("Default"));
+        key(&folder.join("Shared"));
+        let owners = [
+            ("default".to_string(), "Default".to_string()),
+            ("acc_0123456789ab".to_string(), "Acme Inc.".to_string()),
+        ];
+        let storage = |primary| Storage {
+            id: if primary {
+                "backup"
+            } else {
+                "stor_0123456789ab"
+            }
+            .to_string(),
+            label: "NAS".to_string(),
+            path: folder.clone(),
+            primary,
+        };
+        let check = |list: Vec<SetSummary>, names: &[&str], accounts: &[Option<&str>]| {
+            assert_eq!(
+                list.iter().map(|r| r.name.as_str()).collect::<Vec<_>>(),
+                names
+            );
+            assert_eq!(
+                list.iter()
+                    .map(|r| r.account.as_deref())
+                    .collect::<Vec<_>>(),
+                accounts
+            );
+            assert!(list.iter().all(|r| r.exists));
+        };
+        // The backup folder: each account's set once, under its name.
+        check(
+            sets_of(&storage(true), &owners),
+            &["Default", "Acme Inc.", "Shared"],
+            &[Some("default"), Some("acc_0123456789ab"), None],
+        );
+        // Elsewhere each folder, the account's portable one known as its.
+        check(
+            sets_of(&storage(false), &owners),
+            &["Acme Inc._", "Default", "Shared"],
+            &[Some("acc_0123456789ab"), Some("default"), None],
+        );
     }
 
     #[test]

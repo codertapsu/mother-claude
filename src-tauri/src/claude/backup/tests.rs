@@ -501,6 +501,30 @@ fn pull_brings_new_and_newer_sessions_and_never_merges_a_conflict() {
     );
 }
 
+/// A conflict copy is named so that any system holds it: no `:` in its time,
+/// nothing Windows refuses from the other machine's host name, never too long.
+#[test]
+fn a_conflict_copy_is_named_so_that_any_system_holds_it() {
+    let at = chrono::NaiveDate::from_ymd_opt(2026, 11, 6)
+        .and_then(|d| d.and_hms_opt(13, 47, 59))
+        .unwrap()
+        .and_utc()
+        .timestamp_millis();
+    assert_eq!(
+        conflict_name(SID, "mbp-a", at),
+        format!("{SID}.conflict-mbp-a-20261106T134759.jsonl")
+    );
+    let odd = conflict_name(SID, r#"Marcus's PC: "Ünï" \/<x>|?* ."#, at);
+    assert!(odd.is_ascii(), "{odd}");
+    assert!(
+        !odd.contains([':', '\\', '/', '"', '<', '>', '|', '?', '*', ' ']),
+        "{odd}"
+    );
+    assert_eq!(crate::claude::paths::portable_name(&odd), odd);
+    // Far below the 255 a file name may have anywhere.
+    assert!(conflict_name(SID, &"h".repeat(300), at).len() <= 131);
+}
+
 /// Two machines pushing in turn keep each other's entries.
 #[test]
 fn pushes_from_two_machines_merge_their_index() {

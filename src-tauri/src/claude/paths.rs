@@ -20,7 +20,12 @@
 //!   Code expands it here ([`expand_home`]), [`canonicalize`]d without
 //!   Windows' `\\?\` prefix, compared by [`same_dir`] and [`is_within`] —
 //!   without regard to case on Windows, whose file systems compare names so.
+//!
+//! And the names Mother Claude gives folders from names people chose (a
+//! backup set's, after its account) are [`portable_name`]s: the same on
+//! every system, so a set made on one is found on the other.
 
+use std::borrow::Cow;
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 
@@ -44,6 +49,49 @@ pub fn is_windows_absolute(p: &str) -> bool {
         b.len() >= 3 && b[0].is_ascii_alphabetic() && b[1] == b':' && matches!(b[2], b'\\' | b'/');
     let share = b.len() > 2 && b.starts_with(br"\\") && b[2] != b'\\';
     drive || share
+}
+
+// ─────────────────────────────── names ───────────────────────────────
+
+/// The name a folder (or file) named after `name` gets, the same on every
+/// system: `name` itself, unless Windows could not keep it. Windows drops a
+/// trailing dot or space, and takes a device's name — `CON`, `PRN`, `AUX`,
+/// `NUL`, `COM0`–`COM9`, `LPT0`–`LPT9` (and `¹²³`), in any case, also before
+/// an extension (`nul.txt`) — for the device; such a name gets a `_`:
+/// `Acme Inc.` → `Acme Inc._`, `Con` → `Con_`, `aux.work` → `aux_.work`.
+/// `name` holds no character Windows refuses (`< > : " / \ | ? *` or a
+/// control character): account and set names cannot.
+pub fn portable_name(name: &str) -> Cow<'_, str> {
+    let base_end = name.find('.').unwrap_or(name.len());
+    let device = is_device_name(name[..base_end].trim_end_matches(' '));
+    let trailing = name.ends_with(['.', ' ']);
+    if !device && !trailing {
+        return Cow::Borrowed(name);
+    }
+    let mut out = String::with_capacity(name.len() + 2);
+    out.push_str(&name[..base_end]);
+    if device {
+        out.push('_');
+    }
+    out.push_str(&name[base_end..]);
+    if out.ends_with(['.', ' ']) {
+        out.push('_');
+    }
+    Cow::Owned(out)
+}
+
+/// One of Windows' reserved device names (without its extension).
+fn is_device_name(base: &str) -> bool {
+    let upper = base.to_uppercase();
+    matches!(upper.as_str(), "CON" | "PRN" | "AUX" | "NUL")
+        || ["COM", "LPT"].iter().any(|p| {
+            upper.strip_prefix(p).is_some_and(|n| {
+                matches!(
+                    n,
+                    "0" | "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" | "¹" | "²" | "³"
+                )
+            })
+        })
 }
 
 // ─────────────────────────────── recorded paths ───────────────────────────────
@@ -257,6 +305,47 @@ mod tests {
             assert!(!is_absolute_anywhere(p), "{p}");
         }
         assert!(is_windows_absolute(r"D:\dev") && !is_windows_absolute("/Users/m"));
+    }
+
+    #[test]
+    fn a_name_windows_cannot_keep_gets_the_same_portable_name_everywhere() {
+        // Every name Windows keeps is its own folder name, as before.
+        for name in [
+            "Work",
+            "Default",
+            "Marcus (Pro)",
+            "Archive 2026",
+            "Work ✨",
+            "Console",
+            "Nullable",
+            "COM10",
+            "LPT",
+            "auxiliary.x",
+            "a.b.c",
+        ] {
+            assert!(
+                matches!(portable_name(name), Cow::Borrowed(n) if n == name),
+                "{name}"
+            );
+        }
+        for (name, folder) in [
+            ("Acme Inc.", "Acme Inc._"),
+            ("Work...", "Work..._"),
+            ("Con", "Con_"),
+            ("con", "con_"),
+            ("NUL", "NUL_"),
+            ("prn.txt", "prn_.txt"),
+            ("aux.work.", "aux_.work._"),
+            ("COM1", "COM1_"),
+            ("lpt0", "lpt0_"),
+            ("COM¹", "COM¹_"),
+            ("CON .x", "CON _.x"),
+            ("x ", "x _"),
+        ] {
+            assert_eq!(portable_name(name), folder, "{name}");
+            // A portable name stays as it is.
+            assert_eq!(portable_name(folder), folder, "{folder}");
+        }
     }
 
     #[test]

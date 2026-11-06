@@ -303,7 +303,8 @@ pub(crate) fn folder_sets(folder: &Path) -> Vec<(String, Set)> {
         .filter(|e| e.file_type().is_ok_and(|t| t.is_dir()))
         .filter_map(|e| {
             let name = e.file_name().to_string_lossy().into_owned();
-            let set = Set::new(folder, &name);
+            // The folder itself, whatever name it would give.
+            let set = Set { dir: e.path() };
             (set.exists() || set.key_missing()).then_some((name, set))
         })
         .collect();
@@ -904,11 +905,19 @@ pub async fn index(
 }
 
 /// The account a set of `storage` is named after (one with a set of its
-/// own), if any.
+/// own), if any: by its name, or the folder its name gives
+/// ([`crate::claude::paths::portable_name`]).
 pub(crate) fn set_named_after(state: &AppState, name: &str) -> Option<Account> {
     set_owners(state)
         .into_iter()
-        .find(|a| a.name.to_lowercase() == name.to_lowercase())
+        .find(|a| names_set(&a.name, name))
+}
+
+/// A set (or its folder) called `set` is the one named after `account`.
+pub(crate) fn names_set(account: &str, set: &str) -> bool {
+    let set = set.to_lowercase();
+    account.to_lowercase() == set
+        || crate::claude::paths::portable_name(account).to_lowercase() == set
 }
 
 /// A set of any storage, opened: `no_backup_passphrase`, `storage_not_found`,
@@ -1075,7 +1084,10 @@ pub async fn extract_config(state: &AppState, account_id: &str) -> Result<PathBu
         .auth
         .config_dir
         .as_ref()
-        .map(|d| d.join("restored-config").join(&a.name))
+        .map(|d| {
+            d.join("restored-config")
+                .join(crate::claude::paths::portable_name(&a.name).as_ref())
+        })
         .ok_or_else(|| BackupError::Invalid("this build has no data directory".into()))?;
     let machine = this_machine(state)?;
     tokio::task::spawn_blocking(move || {
@@ -1254,7 +1266,9 @@ pub fn on_renamed(state: &AppState, old_name: &str, new_name: &str) {
     let Some(folder) = state.accounts.backup_settings().folder else {
         return;
     };
-    let (from, to) = (folder.join(old_name), folder.join(new_name));
+    // Wherever the old name's set is; to the folder the new name gives.
+    let from = Set::new(&folder, old_name).dir;
+    let to = folder.join(crate::claude::paths::portable_name(new_name).as_ref());
     if from.is_dir() && !to.exists() {
         if let Err(e) = std::fs::rename(&from, &to) {
             tracing::warn!(error = %e, "could not rename a backup set after its account");

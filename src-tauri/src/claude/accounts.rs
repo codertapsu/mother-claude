@@ -731,6 +731,19 @@ fn name_taken(reg: &Registry, name: &str, except: Option<&str>) -> bool {
         .any(|a| Some(a.id.as_str()) != except && a.name.to_lowercase() == lower)
 }
 
+/// Another account with a backup set of its own (the Default, a directory
+/// account) keeps it in the folder an account named `name` would: `Acme Inc.`
+/// and `Acme Inc._` give one ([`paths::portable_name`]), and two accounts'
+/// backups would mix there.
+fn set_folder_taken(reg: &Registry, name: &str, except: Option<&str>) -> bool {
+    let folder = paths::portable_name(name).to_lowercase();
+    reg.accounts.iter().any(|a| {
+        Some(a.id.as_str()) != except
+            && a.kind == AccountKind::Directory
+            && paths::portable_name(&a.name).to_lowercase() == folder
+    })
+}
+
 /// `#rrggbb`.
 pub fn is_color(c: &str) -> bool {
     c.len() == 7 && c.starts_with('#') && c[1..].bytes().all(|b| b.is_ascii_hexdigit())
@@ -1130,7 +1143,7 @@ impl AccountRegistry {
         let name = clean_name(name)?;
         let dir = normalize_dir(dir)?;
         let mut guard = self.write();
-        if name_taken(&guard, &name, None) {
+        if name_taken(&guard, &name, None) || set_folder_taken(&guard, &name, None) {
             return Err(AccountError::NameTaken(name));
         }
         check_dir_free(&guard, &dir, self.default_home.base(), None)?;
@@ -1259,7 +1272,13 @@ impl AccountRegistry {
         let mut next = guard.clone();
         let name = patch.name.as_deref().map(clean_name).transpose()?;
         if let Some(name) = &name {
-            if name_taken(&next, name, Some(id)) {
+            // An account with a set of its own: never into another's folder.
+            let owns_set = next
+                .get(id)
+                .is_some_and(|a| a.kind == AccountKind::Directory);
+            if name_taken(&next, name, Some(id))
+                || (owns_set && set_folder_taken(&next, name, Some(id)))
+            {
                 return Err(AccountError::NameTaken(name.clone()));
             }
         }
@@ -1913,6 +1932,41 @@ mod tests {
             "its directory is never deleted"
         );
         assert!(matches!(reg.env(&t.id), Err(AccountError::NotFound(_))));
+    }
+
+    #[test]
+    fn two_accounts_with_sets_never_share_a_set_folder() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (reg, _) = registry(tmp.path());
+        let acme = reg
+            .add_directory("Acme Inc.", &tmp.path().join("acme"), None)
+            .unwrap();
+        // `Acme Inc._` is the folder `Acme Inc.`'s set is in on every system.
+        assert!(matches!(
+            reg.add_directory("Acme Inc._", &tmp.path().join("other"), None),
+            Err(AccountError::NameTaken(_))
+        ));
+        let work = reg
+            .add_directory("Work", &tmp.path().join("w"), None)
+            .unwrap();
+        let rename = |id: &str, name: &str| {
+            reg.update(
+                id,
+                &AccountPatch {
+                    name: Some(name.into()),
+                    ..Default::default()
+                },
+            )
+        };
+        assert!(matches!(
+            rename(&work.id, "acme inc._"),
+            Err(AccountError::NameTaken(_))
+        ));
+        // Its own name, another way: its own folder.
+        rename(&acme.id, "Acme Inc._").unwrap();
+        // A token account has no set of its own (its sessions are the
+        // Default's): a name whose folder is taken is free for it.
+        reg.add_token("ACME INC.", Some(&token(7)), None).unwrap();
     }
 
     #[test]

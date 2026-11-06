@@ -46,6 +46,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use super::home::ClaudeHome;
+use super::paths;
 use super::secrets::Secret;
 use super::transfer::{self, Created, Manifest, Mode, Progress, What};
 
@@ -339,9 +340,22 @@ pub struct Set {
 }
 
 impl Set {
-    pub fn new(folder: &Path, account_name: &str) -> Self {
+    /// The set named `name` (after its account, or as Move data named it) in
+    /// `folder`: `folder/<name>`, the same on every machine — a name Windows
+    /// could not keep as a folder's gets its [`paths::portable_name`]
+    /// (`Acme Inc.` → `Acme Inc._`). A set an older build made under the
+    /// name itself is found there still (on a Mac `Acme Inc.`; on Windows the
+    /// system had dropped the dot, and opens that folder by the same name).
+    pub fn new(folder: &Path, name: &str) -> Self {
+        let portable = paths::portable_name(name);
+        if portable != name {
+            let legacy = folder.join(name);
+            if holds_set(&legacy) {
+                return Self { dir: legacy };
+            }
+        }
         Self {
-            dir: folder.join(account_name),
+            dir: folder.join(portable.as_ref()),
         }
     }
 
@@ -392,6 +406,12 @@ impl Set {
     pub fn key_missing(&self) -> bool {
         !self.exists() && has_files(&self.dir)
     }
+}
+
+/// Something of a set is in `dir`: its key, or any other file (a cloud
+/// placeholder too).
+fn holds_set(dir: &Path) -> bool {
+    dir.join("identity.age").is_file() || has_files(dir)
 }
 
 /// Whether `dir` holds any file (at any depth) but Finder's `.DS_Store`: an
@@ -3049,21 +3069,7 @@ fn place_conflict(
             "the set's copy of {id} has no transcript"
         )));
     };
-    let stamp = chrono::DateTime::from_timestamp_millis(e.pushed_at)
-        .unwrap_or_default()
-        .format("%Y%m%dT%H%M%S");
-    let host: String = e
-        .host
-        .chars()
-        .map(|c| {
-            if c.is_ascii_alphanumeric() || c == '-' {
-                c
-            } else {
-                '-'
-            }
-        })
-        .collect();
-    let dest = local.with_file_name(format!("{id}.conflict-{host}-{stamp}.jsonl"));
+    let dest = local.with_file_name(conflict_name(id, &e.host, e.pushed_at));
     if std::fs::symlink_metadata(&dest).is_ok() {
         return Ok(None);
     }
@@ -3075,6 +3081,31 @@ fn place_conflict(
         sha256: sha,
         link: None,
     }))
+}
+
+/// The longest host name a conflict copy's name keeps (a DNS label's).
+const CONFLICT_HOST_MAX: usize = 63;
+
+/// A conflict copy's file name, `<id>.conflict-<host>-<time it was
+/// pushed>.jsonl`, one every system can hold: the host reduced to ASCII
+/// letters, digits and `-` (at most [`CONFLICT_HOST_MAX`]), the time without
+/// a `:` (`20261106T134759`, UTC).
+fn conflict_name(id: &str, host: &str, pushed_at: i64) -> String {
+    let stamp = chrono::DateTime::from_timestamp_millis(pushed_at)
+        .unwrap_or_default()
+        .format("%Y%m%dT%H%M%S");
+    let host: String = host
+        .chars()
+        .take(CONFLICT_HOST_MAX)
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' {
+                c
+            } else {
+                '-'
+            }
+        })
+        .collect();
+    format!("{id}.conflict-{host}-{stamp}.jsonl")
 }
 
 /// The session's own transcript among staged files
