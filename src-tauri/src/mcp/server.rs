@@ -68,6 +68,14 @@ pub const BINDING_TTL_MS: i64 = 60_000;
 const MAX_BINDINGS: usize = 1024;
 /// The setting's file in the app data dir.
 pub const SETTINGS_FILE: &str = "mcp-settings.json";
+/// The sessions seen with Mother Claude's tools, by session id (0600):
+/// [`McpState::session_seen`]. A session lists its tools once, when it
+/// starts, so this outlives an app restart.
+pub const SESSIONS_FILE: &str = "mcp-sessions.json";
+/// At most this many sessions are remembered (the oldest go first).
+const SESSIONS_KEEP: usize = 500;
+/// A session seen again is written down again at most this often.
+const SESSIONS_RESAVE_MS: i64 = 60 * 60_000;
 /// The transport's session header.
 pub const SESSION_HEADER: &str = "mcp-session-id";
 /// The transport's version header (sent after `initialize`).
@@ -120,6 +128,10 @@ pub struct McpState {
     /// Whether a connection belongs to the process its requests name, by
     /// `(pid, peer)`, with when it was checked ([`super::identity`]).
     bindings: Mutex<HashMap<(u32, SocketAddr), (Binding, i64)>>,
+    /// Sessions seen listing or calling these tools: id → when
+    /// ([`SESSIONS_FILE`]).
+    sessions: Mutex<HashMap<String, i64>>,
+    sessions_path: Option<PathBuf>,
 }
 
 impl std::fmt::Debug for McpState {
@@ -150,6 +162,15 @@ impl McpState {
             .and_then(crate::persist::read_json::<Settings>)
             .and_then(|s| s.enabled)
             .unwrap_or(true);
+        let sessions_path = data_dir.map(|d| d.join(SESSIONS_FILE));
+        let sessions: HashMap<String, i64> = sessions_path
+            .as_deref()
+            .and_then(crate::persist::read_json::<HashMap<String, Value>>)
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|(id, _)| crate::claude::ids::is_session_id(id))
+            .filter_map(|(id, at)| Some((id, at.as_i64()?)))
+            .collect();
         Self {
             registry: RwLock::new(Arc::new(super::registry())),
             token: random_token(MCP_PREFIX),
@@ -160,7 +181,46 @@ impl McpState {
             calls: AtomicU64::new(0),
             inflight: Mutex::new(HashMap::new()),
             bindings: Mutex::new(HashMap::new()),
+            sessions: Mutex::new(sessions),
+            sessions_path,
         }
+    }
+
+    /// A session listed or called these tools now: it has them.
+    pub fn note_session(&self, session: &str) {
+        if !crate::claude::ids::is_session_id(session) {
+            return;
+        }
+        let now = now_ms();
+        let snapshot = {
+            let mut seen = lock(&self.sessions);
+            let before = seen.insert(session.to_string(), now);
+            if before.is_some_and(|at| now - at < SESSIONS_RESAVE_MS) {
+                return;
+            }
+            while seen.len() > SESSIONS_KEEP {
+                let Some(oldest) = seen
+                    .iter()
+                    .min_by_key(|(_, at)| **at)
+                    .map(|(k, _)| k.clone())
+                else {
+                    break;
+                };
+                seen.remove(&oldest);
+            }
+            seen.clone()
+        };
+        if let Some(path) = &self.sessions_path {
+            if let Err(e) = crate::persist::write_json_private(path, &snapshot) {
+                tracing::debug!(error = %e, "could not save the MCP sessions seen");
+            }
+        }
+    }
+
+    /// When `session` was last seen listing or calling these tools (since
+    /// [`SESSIONS_FILE`] began), if ever.
+    pub fn session_seen(&self, session: &str) -> Option<i64> {
+        lock(&self.sessions).get(session).copied()
     }
 
     /// The tools this server offers.
@@ -555,7 +615,12 @@ impl Exchange {
         match method {
             "initialize" => self.initialize(id, params),
             "ping" => jsonrpc::result(id, json!({})),
-            "tools/list" => self.tools_list(id, params),
+            "tools/list" => {
+                if let Some(session) = self.caller().await.session_id {
+                    self.state.mcp.note_session(&session);
+                }
+                self.tools_list(id, params)
+            }
             "tools/call" => self.tools_call(id, params).await,
             _ => jsonrpc::error(
                 id,
@@ -675,6 +740,10 @@ impl Exchange {
             .and_then(|a| a.read_only_hint)
             .unwrap_or(false);
         let caller = self.caller().await;
+        if let Some(session) = &caller.session_id {
+            // A session that listed its tools before an app restart.
+            self.state.mcp.note_session(session);
+        }
         let started = Instant::now();
         let (cancel_tx, cancel_rx) = tokio::sync::oneshot::channel();
         let _inflight = Inflight::register(&self.state, self.inflight_key(&id), cancel_tx);

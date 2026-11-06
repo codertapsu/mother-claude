@@ -1062,3 +1062,44 @@ async fn live_owned_session_gets_the_tools_inline() {
     assert_eq!(call.session.as_deref(), Some(id.as_str()));
     assert!(call.owned);
 }
+
+#[tokio::test]
+async fn a_session_that_lists_the_tools_is_remembered_across_restarts() {
+    let f = boot().await;
+    let me = std::process::id();
+    std::fs::create_dir_all(f.home.path().join("sessions")).unwrap();
+    std::fs::write(
+        f.home.path().join(format!("sessions/{me}.json")),
+        json!({"pid": me, "sessionId": SID, "cwd": "/tmp/mcp-demo"}).to_string(),
+    )
+    .unwrap();
+    assert_eq!(f.st.mcp.session_seen(SID), None);
+    let r = f
+        .post_current(&rpc(json!(1), "tools/list", json!({})))
+        .header("x-mc-pid", me.to_string())
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), StatusCode::OK);
+    assert!(
+        f.st.mcp.session_seen(SID).is_some(),
+        "listing the tools is having them"
+    );
+    // Kept in the data dir (0600), so a restart still knows.
+    let dir = tempfile::tempdir().unwrap();
+    let before = mother_claude_lib::mcp::server::McpState::load(Some(dir.path()));
+    before.note_session(SID);
+    before.note_session("not-a-session");
+    let after = mother_claude_lib::mcp::server::McpState::load(Some(dir.path()));
+    assert!(after.session_seen(SID).is_some());
+    assert_eq!(after.session_seen("not-a-session"), None);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let file = dir
+            .path()
+            .join(mother_claude_lib::mcp::server::SESSIONS_FILE);
+        let mode = std::fs::metadata(file).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600);
+    }
+}
