@@ -183,6 +183,13 @@ pub fn canonicalize(p: &Path) -> std::io::Result<PathBuf> {
     Ok(c)
 }
 
+/// A path of this machine without Windows' `\\?\` prefix where a plain path
+/// names the same file, as [`canonicalize`] answers it (no I/O): what an
+/// older build stored on Windows reads as typed. Elsewhere the path itself.
+pub fn plain(p: &Path) -> PathBuf {
+    dunce::simplified(p).to_path_buf()
+}
+
 fn is_verbatim(p: &Path) -> bool {
     p.as_os_str()
         .to_str()

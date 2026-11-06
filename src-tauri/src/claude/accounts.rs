@@ -33,6 +33,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use super::home::{user_home_dir, ClaudeHome};
+use super::paths;
 use super::secrets::{Secret, SecretError, SecretName, SecretStore};
 
 pub mod capture;
@@ -297,11 +298,13 @@ where
     let mut out: Vec<StorageEntry> = Vec::new();
     for raw in items {
         match serde_json::from_value::<StorageEntry>(raw) {
-            Ok(s)
+            Ok(mut s)
                 if is_storage_id(&s.id)
                     && s.path.is_absolute()
                     && !out.iter().any(|o| o.id == s.id) =>
             {
+                // Without the `\\?\` an older build kept on Windows.
+                s.path = paths::plain(&s.path);
                 out.push(s)
             }
             _ => tracing::warn!("accounts.json: skipping an unreadable storage"),
@@ -545,8 +548,10 @@ impl Registry {
                 }
             }
         }
-        if let Ok(b) = serde_json::from_value::<BackupSettings>(file.backup) {
+        if let Ok(mut b) = serde_json::from_value::<BackupSettings>(file.backup) {
             if b.folder.as_deref().is_none_or(Path::is_absolute) {
+                // Without the `\\?\` an older build kept on Windows.
+                b.folder = b.folder.as_deref().map(paths::plain);
                 reg.backup = b;
             }
         }
@@ -695,19 +700,18 @@ pub fn is_color(c: &str) -> bool {
     c.len() == 7 && c.starts_with('#') && c[1..].bytes().all(|b| b.is_ascii_hexdigit())
 }
 
-/// An absolute path without `.`/`..`, a leading `~/` expanded, symlinks in
-/// its existing part resolved (so `/tmp/x` and `/private/tmp/x` compare equal).
+/// A folder of this machine, by its rules: absolute, without `.`/`..`, a
+/// leading `~` expanded (`~/`, and on Windows `~\`), symlinks in its existing
+/// part resolved (so `/tmp/x` and `/private/tmp/x` compare equal; on Windows
+/// without the `\\?\` prefix of a verbatim path, [`paths::canonicalize`]).
 pub fn normalize_dir(dir: &Path) -> Result<PathBuf, AccountError> {
-    let dir = match dir.strip_prefix("~") {
-        Ok(rest) => user_home_dir()
-            .ok_or_else(|| AccountError::Invalid("no home directory to expand ~ in".into()))?
-            .join(rest),
-        Err(_) => dir.to_path_buf(),
-    };
+    let given = dir;
+    let dir = paths::expand_home(dir, user_home_dir().as_deref())
+        .ok_or_else(|| AccountError::Invalid("no home directory to expand ~ in".into()))?;
     if !dir.is_absolute() {
-        return Err(AccountError::Invalid(
-            "the directory must be an absolute path".into(),
-        ));
+        return Err(AccountError::Invalid(paths::not_a_full_path(
+            &given.to_string_lossy(),
+        )));
     }
     if dir
         .components()
@@ -729,9 +733,7 @@ pub fn normalize_dir(dir: &Path) -> Result<PathBuf, AccountError> {
             _ => break,
         }
     }
-    let mut out = existing
-        .canonicalize()
-        .unwrap_or_else(|_| existing.to_path_buf());
+    let mut out = paths::canonical_or_given(existing);
     for name in rest.iter().rev() {
         out.push(name);
     }
@@ -748,7 +750,7 @@ fn check_dir_free(
     except: Option<&str>,
 ) -> Result<(), AccountError> {
     let default_dir = normalize_dir(default_dir).unwrap_or_else(|_| default_dir.to_path_buf());
-    let overlaps = |other: &Path| dir.starts_with(other) || other.starts_with(dir);
+    let overlaps = |other: &Path| paths::is_within(dir, other) || paths::is_within(other, dir);
     if overlaps(&default_dir) {
         return Err(AccountError::DirUnavailable(format!(
             "{} overlaps the Default account's directory {}",
@@ -759,7 +761,7 @@ fn check_dir_free(
     if dir.parent().is_none()
         || user_home_dir()
             .and_then(|h| normalize_dir(&h).ok())
-            .is_some_and(|h| h == dir)
+            .is_some_and(|h| paths::same_here(&h, dir))
     {
         return Err(AccountError::DirUnavailable(
             "the home directory or the root cannot be an account's directory".into(),
@@ -985,7 +987,7 @@ impl AccountRegistry {
         let dir = normalize_dir(dir).unwrap_or_else(|_| dir.to_path_buf());
         self.homes().into_iter().find_map(|(id, home)| {
             let base = normalize_dir(home.base()).unwrap_or_else(|_| home.base().to_path_buf());
-            (base == dir).then_some(id)
+            paths::same_here(&base, &dir).then_some(id)
         })
     }
 
@@ -1803,6 +1805,43 @@ mod tests {
             reg.remove(DEFAULT_ID),
             Err(AccountError::DefaultFixed)
         ));
+    }
+
+    #[test]
+    fn a_folder_typed_for_this_machine_follows_its_rules() {
+        // Another system's full path is a relative name here, and said so.
+        let other = if cfg!(windows) {
+            "/Users/me/Backups"
+        } else {
+            r"D:\NAS\MotherClaude"
+        };
+        for raw in [other, "NAS", "~user/x"] {
+            let err = normalize_dir(Path::new(raw)).unwrap_err().to_string();
+            assert!(
+                err.starts_with(&format!("{raw} is not a full path on this computer")),
+                "{err}"
+            );
+        }
+        if !cfg!(windows) {
+            // `~\` names the home folder on Windows only, as Claude Code reads it.
+            assert!(normalize_dir(Path::new(r"~\Backups")).is_err());
+        }
+        if let Some(home) = user_home_dir() {
+            assert_eq!(
+                normalize_dir(Path::new("~/Mother Claude")).unwrap(),
+                normalize_dir(&home.join("Mother Claude")).unwrap()
+            );
+        }
+        // A missing folder keeps its name under the part that is there.
+        let tmp = tempfile::tempdir().unwrap();
+        let got = normalize_dir(&tmp.path().join("NAS").join("Mother Claude")).unwrap();
+        assert_eq!(
+            got,
+            paths::canonicalize(tmp.path())
+                .unwrap()
+                .join("NAS")
+                .join("Mother Claude")
+        );
     }
 
     #[test]

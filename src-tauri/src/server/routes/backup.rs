@@ -119,10 +119,11 @@ pub async fn put_settings(
             .map_err(|e| ApiError::unprocessable("invalid_folder", e.to_string()))?;
         // Never inside (or around) another storage (§13.3 rule 8).
         if let Some(f) = &s.folder {
+            let inside = crate::claude::paths::is_within;
             if let Some(other) = s
                 .storages
                 .iter()
-                .find(|o| f.starts_with(&o.path) || o.path.starts_with(f))
+                .find(|o| inside(f, &o.path) || inside(&o.path, f))
             {
                 return Err(ApiError::unprocessable(
                     "invalid_folder",

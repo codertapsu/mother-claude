@@ -17,6 +17,7 @@ use serde::Serialize;
 use super::{BackupError, Set};
 use crate::claude::accounts::{self, AccountError, StorageEntry, BACKUP_STORAGE_ID};
 use crate::claude::home::user_home_dir;
+use crate::claude::paths;
 use crate::state::AppState;
 
 /// The backup folder's label as a storage.
@@ -251,8 +252,10 @@ pub fn shown(state: &AppState, views: &[StorageView]) -> bool {
             .any(|v| !v.primary || v.sets.iter().any(|s| s.account.is_none()))
 }
 
+/// One folder is inside (or is) the other, on this machine: by whole
+/// components, on Windows without regard to case.
 fn overlaps(a: &Path, b: &Path) -> bool {
-    a.starts_with(b) || b.starts_with(a)
+    paths::is_within(a, b) || paths::is_within(b, a)
 }
 
 fn normalized(p: &Path) -> PathBuf {
@@ -288,7 +291,7 @@ pub fn check_free(
     if path.parent().is_none()
         || user_home_dir()
             .map(|h| normalized(&h))
-            .is_some_and(|h| h == path)
+            .is_some_and(|h| paths::same_here(&h, path))
     {
         return invalid("the home folder or the root cannot be a storage".into());
     }
