@@ -592,3 +592,45 @@ fn a_push_records_the_folder_as_its_machine_sees_it() {
         Some("/p/huge")
     );
 }
+
+/// Move data names a project of a set by the folder its sessions record: a
+/// Windows one is found in any case, with either separator and a trailing
+/// one, a Mac's exactly (a trailing `/` aside) — into an account and into
+/// another set alike.
+#[test]
+fn a_project_of_a_set_is_found_by_its_folder_written_either_way() {
+    let w = world();
+    let (m, p) = (&w.home, &w.other);
+    session_in(p, SID, WIN_APP);
+    push_as(&w, p, &win());
+    session_in(m, OTHER, MAC_APP);
+    push_as(&w, m, &mac());
+    let target = ClaudeHome::for_account_dir(w.undo.with_file_name("fresh"));
+    let to = Set::new(&w.undo.with_file_name("storage"), "Copy");
+    for (project, want) in [
+        (r"d:/DEV/app\", Some(SID)),
+        (WIN_APP, Some(SID)),
+        ("/Users/marcus/dev/app/", Some(OTHER)),
+        ("/Users/marcus/DEV/app", None),
+    ] {
+        let want: Vec<&str> = want.into_iter().collect();
+        let projects = [project.to_string()];
+        let (entries, _, empty) = plan_restore(
+            &w.set,
+            &[pass()],
+            &target,
+            Some(&[][..]),
+            &projects,
+            &not_live,
+        )
+        .unwrap();
+        let ids: Vec<&str> = entries.iter().map(|e| e.id.as_str()).collect();
+        assert_eq!(ids, want, "{project}");
+        assert_eq!(empty.is_empty(), !want.is_empty(), "{project}");
+        let (entries, _, empty) =
+            plan_between(&w.set, &to, &[pass()], Some(&[][..]), &projects).unwrap();
+        let ids: Vec<&str> = entries.iter().map(|e| e.id.as_str()).collect();
+        assert_eq!(ids, want, "{project}");
+        assert_eq!(empty.is_empty(), !want.is_empty(), "{project}");
+    }
+}

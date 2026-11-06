@@ -4401,6 +4401,30 @@ pub fn plan_restore_here(
     Ok((plan, mapped))
 }
 
+/// The conversations of `projects` in `index`, by the folder they record
+/// ([`paths::same_path`]: a Windows one in any case and with either
+/// separator, a trailing separator never counting), and the projects it has
+/// none of.
+fn of_projects(index: &SetIndex, projects: &[String]) -> (Vec<String>, Vec<String>) {
+    let mut ids = Vec::new();
+    let mut empty = Vec::new();
+    for raw in projects {
+        let cwd = paths::trim_end_separators(raw);
+        let before = ids.len();
+        ids.extend(
+            index
+                .sessions
+                .values()
+                .filter(|e| e.cwd.as_deref().is_some_and(|c| paths::same_path(c, cwd)))
+                .map(|e| e.id.clone()),
+        );
+        if ids.len() == before {
+            empty.push(cwd.to_string());
+        }
+    }
+    (ids, empty)
+}
+
 fn plan_restore_in(
     index: &SetIndex,
     target: &ClaudeHome,
@@ -4412,23 +4436,8 @@ fn plan_restore_in(
         Some(ids) => ids.to_vec(),
         None => index.sessions.keys().cloned().collect(),
     };
-    let mut empty_projects = Vec::new();
-    for raw in projects {
-        let cwd = match raw.trim_end_matches('/') {
-            "" => "/",
-            c => c,
-        };
-        let of: Vec<String> = index
-            .sessions
-            .values()
-            .filter(|e| e.cwd.as_deref() == Some(cwd))
-            .map(|e| e.id.clone())
-            .collect();
-        if of.is_empty() {
-            empty_projects.push(cwd.to_string());
-        }
-        wanted.extend(of);
-    }
+    let (of, empty_projects) = of_projects(index, projects);
+    wanted.extend(of);
     let mut entries = Vec::new();
     let mut skipped = Vec::new();
     let mut done: std::collections::HashSet<String> = std::collections::HashSet::new();
@@ -4733,23 +4742,8 @@ pub fn plan_between(
         Some(ids) => ids.to_vec(),
         None => index.sessions.keys().cloned().collect(),
     };
-    let mut empty_projects = Vec::new();
-    for raw in projects {
-        let cwd = match raw.trim_end_matches('/') {
-            "" => "/",
-            c => c,
-        };
-        let of: Vec<String> = index
-            .sessions
-            .values()
-            .filter(|e| e.cwd.as_deref() == Some(cwd))
-            .map(|e| e.id.clone())
-            .collect();
-        if of.is_empty() {
-            empty_projects.push(cwd.to_string());
-        }
-        wanted.extend(of);
-    }
+    let (of, empty_projects) = of_projects(&index, projects);
+    wanted.extend(of);
     let mut entries = Vec::new();
     let mut skipped = Vec::new();
     let mut done: std::collections::HashSet<String> = std::collections::HashSet::new();
