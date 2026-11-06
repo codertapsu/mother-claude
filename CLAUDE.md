@@ -416,6 +416,44 @@ bridge's Messages API client (an API key).
   stays quoted: Claude Code runs it through a shell, and the data dir has a
   space.
 
+## The browser extension (docs/BROWSER.md)
+
+Sessions act in the user's real browser through the Mother Claude extension
+(`src-tauri/src/extension/`; the wire contract is docs/BROWSER-PROTOCOL.md,
+the `browser_*` tools are `extension::mcp`). Invariants:
+
+- **The channel is this machine only.** `/ws/browser` is mounted on the
+  loopback listener alone and refuses anything not `ctx.on_machine`, any
+  `Origin` but `chrome-extension://<id>`, and every connection while a raw
+  TCP tunnel points at the port. A paired browser's `mcx_` token is kept as
+  its SHA-256, pinned to the extension id that paired, and never accepted by
+  the HTTP auth: `Principal::Extension` exists on that channel only, where
+  its side panel answers its own leases' approvals (each allow is also a
+  desktop notice).
+- **The desktop decides what is dangerous.** Site modes (`off` by default,
+  `read`, `act`; a sensitive site opens only by its own entry; `act` on a
+  sensitive site, `*` or a wildcard needs the dangerous right) are checked
+  before a command is sent and again on the URL a result reports.
+  `extension::danger` classifies every action (sensitive sites, forms with
+  secret fields, `eval`, `upload`, the per-minute limit, a recent Stop) and
+  raises a `crate::pending` item (`source: browser`, always dangerous); the
+  extension's own checks are only defence in depth. A standing grant is a
+  dangerous setting (audited, revocable); the Stop rule has none.
+- **Secrets never come from a model.** Typing into a password, card,
+  one-time-code or other secret field is refused outright (by the desktop
+  from the last snapshot, by the extension through `refuseSecret`), and
+  everything the extension returns is redacted again (`extension::redact`)
+  before a model sees it.
+- **Records hold no values.** The activity log and the audit lines name the
+  session, tool, action, origin and path (never a query string) and the
+  outcome — never typed text, page content or tokens. Uploads read only the
+  calling session's project or a folder the user approved, never a config
+  directory or a file that usually holds secrets.
+- **Stop holds for a minute.** `lease.revoked` fails the lease's in-flight
+  commands `stopped`, withdraws its approvals and refuses the session for
+  60 s unless it is resumed from the desktop or a device; other sessions
+  acting in that browser need approval meanwhile.
+
 ## Build / lint / test commands
 
 ```bash
