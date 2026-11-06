@@ -489,18 +489,23 @@ pub async fn stop_team(
     let team = team_of(&state, &id)?;
     // Stopped first: the loop starts nothing for it from here.
     state.teams.update(&id, |t| t.stopped = true);
-    for role in &team.template.roles {
-        super::launcher::stop_role(&state, &id, &role.id, "the team was stopped").await;
-    }
-    for role in &team.template.roles {
-        state.teams.with_runtime(&id, &role.id, |r| {
-            r.waiting = None;
-            r.pending_notices.clear();
-        });
-    }
     audit(&state, &ctx, "team.stop", json!({ "team": id }));
     note_device_action(&state, &ctx, &format!("stopped the team on {}", team.label));
-    super::delegation::publish_team(&state, &id).await;
+    // Every role, even when the caller goes away meanwhile.
+    let (st, team_id, roles) = (state.clone(), id.clone(), team.template.roles.clone());
+    super::launcher::to_the_end(async move {
+        for role in &roles {
+            super::launcher::stop_role(&st, &team_id, &role.id, "the team was stopped").await;
+        }
+        for role in &roles {
+            st.teams.with_runtime(&team_id, &role.id, |r| {
+                r.waiting = None;
+                r.pending_notices.clear();
+            });
+        }
+        super::delegation::publish_team(&st, &team_id).await;
+    })
+    .await;
     let team = team_of(&state, &id)?;
     Ok(Json(teams::view(&state, &team).await))
 }

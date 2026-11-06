@@ -820,3 +820,55 @@ async fn starting_a_team_checks_the_folder_the_template_and_the_rights() {
         .collect();
     assert!(ids.contains(&"software-delivery") && ids.contains(&id.as_str()));
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_start_whose_caller_gives_up_still_binds_the_role_once() {
+    let f = boot().await;
+    let (status, team) = f
+        .call(
+            "POST",
+            "/teams",
+            &f.desktop(),
+            Some(json!({ "project": f.project(), "template": "software-delivery" })),
+        )
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "{team}");
+    let team_id = team["id"].as_str().unwrap().to_string();
+    // The caller goes away while the session comes up (a phone that closes,
+    // an MCP call cancelled at its ceiling), here while its spawn waits for
+    // the owned-session table: the launch goes on and binds the role.
+    let busy = f.st.owned.read().await;
+    let cut = tokio::time::timeout(
+        Duration::from_millis(300),
+        launcher::start_role(&f.st, &team_id, "lead", None, &[]),
+    )
+    .await;
+    assert!(cut.is_err(), "given up on before it ended: {cut:?}");
+    drop(busy);
+    wait_for("the lead bound to its session", || {
+        f.role_session(&team_id, "lead").is_some() && !f.st.teams.runtime(&team_id, "lead").starting
+    })
+    .await;
+    let lead = f.role_session(&team_id, "lead").unwrap();
+    assert!(f.st.control.controls(&lead));
+    // Started once: another start finds it running.
+    let again = launcher::start_role(&f.st, &team_id, "lead", None, &[]).await;
+    assert!(
+        matches!(again, Err(launcher::StartError::Refused(_))),
+        "{again:?}"
+    );
+    // (The fake logs its argv as it comes up, after the spawn returned.)
+    wait_for("the lead's launch in the log", || {
+        !f.argv_of(&lead).is_empty()
+    })
+    .await;
+    let launches = f
+        .logged("argv")
+        .into_iter()
+        .filter(|a| {
+            a.as_array()
+                .is_some_and(|a| a.iter().any(|x| x == "shop/lead"))
+        })
+        .count();
+    assert_eq!(launches, 1, "{:?}", f.logged("argv"));
+}

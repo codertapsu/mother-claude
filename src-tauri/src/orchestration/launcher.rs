@@ -559,39 +559,67 @@ pub async fn start_role(
         });
         return Err(StartError::Waiting(reasons));
     }
-    state.teams.with_runtime(team_id, role_id, |r| {
+    // Claimed under the lock: two callers never both launch it.
+    let claimed = state.teams.with_runtime(team_id, role_id, |r| {
+        if r.starting {
+            return false;
+        }
         r.starting = true;
         r.waiting = None;
+        true
     });
-    let out = launch(state, &team, &role, &slot, task.as_ref(), &decision).await;
-    state.teams.with_runtime(team_id, role_id, |r| {
-        r.starting = false;
-        r.idle_since = None;
-        match &out {
-            Ok(_) => {
-                r.last_error = None;
-                r.retry_after = None;
-                r.pending_notices.clear();
-            }
-            Err(e) => {
-                r.last_error = Some(e.to_string());
-                r.retry_after = Some(now_ms() + RETRY_AFTER_MS);
-            }
-        }
-    });
-    if let Err(e) = &out {
-        ws::publish_notice(
-            state,
-            NoticeLevel::Error,
-            format!(
-                "The {} role of {} could not start: {e}",
-                role.title, team.label
-            ),
-            None,
-        );
+    if !claimed {
+        return Err(StartError::Refused(format!(
+            "The {} role is starting.",
+            role.title
+        )));
     }
-    super::delegation::publish_team(state, team_id).await;
-    out
+    let st = state.clone();
+    let (team_id, role_id) = (team_id.to_string(), role_id.to_string());
+    to_the_end(async move {
+        let out = launch(&st, &team, &role, &slot, task.as_ref(), &decision).await;
+        st.teams.with_runtime(&team_id, &role_id, |r| {
+            r.starting = false;
+            r.idle_since = None;
+            match &out {
+                Ok(_) => {
+                    r.last_error = None;
+                    r.retry_after = None;
+                    r.pending_notices.clear();
+                }
+                Err(e) => {
+                    r.last_error = Some(e.to_string());
+                    r.retry_after = Some(now_ms() + RETRY_AFTER_MS);
+                }
+            }
+        });
+        if let Err(e) = &out {
+            ws::publish_notice(
+                &st,
+                NoticeLevel::Error,
+                format!(
+                    "The {} role of {} could not start: {e}",
+                    role.title, team.label
+                ),
+                None,
+            );
+        }
+        super::delegation::publish_team(&st, &team_id).await;
+        out
+    })
+    .await
+    .unwrap_or_else(|| Err(StartError::Failed("Mother Claude is shutting down.".into())))
+}
+
+/// Run `work` to its end even when its caller goes away. An HTTP client
+/// that disconnects, or an MCP call cancelled at its ceiling, drops the
+/// handler's future; a launch or a stop cut short there would leave a role
+/// "starting" for good, a session nobody bound, or a stopped team's
+/// sessions running. `None` only when the runtime shuts down under it.
+pub async fn to_the_end<T: Send + 'static>(
+    work: impl std::future::Future<Output = T> + Send + 'static,
+) -> Option<T> {
+    tokio::spawn(work).await.ok()
 }
 
 /// Launch a role session: the account's environment, the trust and mode
@@ -791,7 +819,14 @@ async fn launch(
 
 /// Stop a role's owned session (between turns or not: the user asked). A
 /// foreign session is never stopped: it is released from the role instead.
+/// It runs to its end when the caller goes away ([`to_the_end`]).
 pub async fn stop_role(state: &AppState, team_id: &str, role_id: &str, why: &str) {
+    let st = state.clone();
+    let (team_id, role_id, why) = (team_id.to_string(), role_id.to_string(), why.to_string());
+    to_the_end(async move { stop_role_now(&st, &team_id, &role_id, &why).await }).await;
+}
+
+async fn stop_role_now(state: &AppState, team_id: &str, role_id: &str, why: &str) {
     let Some(team) = state.teams.get(team_id) else {
         return;
     };
