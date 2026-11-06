@@ -126,8 +126,16 @@ pub fn classify(item: &PendingItem, env: &DangerEnv) -> Option<String> {
 /// The literal directory part of a glob pattern (everything before the first
 /// component holding `*`, `?`, `[` or `{`).
 fn glob_base(pattern: &str) -> &str {
+    glob_base_on(pattern, cfg!(windows))
+}
+
+/// [`glob_base`], on Windows (`windows`) a `\` separating components too.
+fn glob_base_on(pattern: &str, windows: bool) -> &str {
+    let separators: &[char] = if windows { &['/', '\\'] } else { &['/'] };
     match pattern.find(['*', '?', '[', '{']) {
-        Some(i) => pattern[..i].rsplit_once('/').map_or("", |(dir, _)| dir),
+        Some(i) => pattern[..i]
+            .rsplit_once(separators)
+            .map_or("", |(dir, _)| dir),
         None => pattern,
     }
 }
@@ -218,7 +226,25 @@ fn sensitive_resolved(path: &Path, env: &DangerEnv) -> Option<String> {
 
 /// Why running `command` is dangerous, or `None`.
 pub fn sensitive_command(command: &str, env: &DangerEnv) -> Option<String> {
+    sensitive_command_on(command, env, cfg!(windows))
+}
+
+/// A command as the checks read it: in lower case and, on Windows
+/// (`windows`), with `\` read as `/` — a path is written either way there
+/// (PowerShell's mostly with `\`), so `C:\Users\me\.claude\settings.json`
+/// touches `.claude/` as much as `~/.claude/settings.json` does.
+fn command_text(command: &str, windows: bool) -> String {
     let lower = command.to_ascii_lowercase();
+    if windows {
+        lower.replace('\\', "/")
+    } else {
+        lower
+    }
+}
+
+/// [`sensitive_command`], on Windows (`windows`) or elsewhere.
+fn sensitive_command_on(command: &str, env: &DangerEnv, windows: bool) -> Option<String> {
+    let lower = command_text(command, windows);
     let mentions = |needle: &str| lower.contains(needle);
 
     if mentions("bypasspermissions") || mentions("dangerously-skip-permissions") {
@@ -228,7 +254,7 @@ pub fn sensitive_command(command: &str, env: &DangerEnv) -> Option<String> {
         return Some("changes Claude Code's plugins, MCP servers or config".into());
     }
     for dir in &env.app_dirs {
-        let d = dir.to_string_lossy().to_ascii_lowercase();
+        let d = command_text(&dir.to_string_lossy(), windows);
         if !d.is_empty() && lower.contains(&d) {
             return Some("touches Mother Claude's own data".into());
         }
@@ -319,10 +345,14 @@ fn contains_word(hay: &str, needle: &str) -> bool {
     false
 }
 
-/// `~` expanded, made absolute against cwd when possible, `.`/`..` folded.
+/// `~` expanded (`~/`, and on Windows `~\`, as Claude Code expands them),
+/// made absolute against cwd when possible, `.`/`..` folded.
 fn lexical_path(raw: &str, env: &DangerEnv) -> PathBuf {
     let raw = raw.trim();
-    let expanded = match (raw.strip_prefix("~/"), &env.home) {
+    let in_home = raw
+        .strip_prefix("~/")
+        .or_else(|| raw.strip_prefix(r"~\").filter(|_| cfg!(windows)));
+    let expanded = match (in_home, &env.home) {
         (Some(rest), Some(home)) => home.join(rest),
         _ if raw == "~" => env.home.clone().unwrap_or_else(|| PathBuf::from(raw)),
         _ => PathBuf::from(raw),
@@ -590,5 +620,28 @@ mod tests {
         assert!(!runs_claude_admin("claudeplugin"));
         assert!(contains_word("cat ~/.zshrc", ".zshrc"));
         assert!(!contains_word("cat .zshrc.bak", ".zshrc"));
+    }
+
+    #[test]
+    fn on_windows_a_backslash_separates_paths_in_commands_and_patterns() {
+        let tmp = tempfile::tempdir().unwrap();
+        let e = env(tmp.path());
+        for cmd in [
+            r"Set-Content C:\Users\me\.claude\settings.json '{}'",
+            r#"Copy-Item evil.json "C:\Users\me\.claude.json""#,
+            r"Add-Content C:\Users\me\.bashrc 'x'",
+            r"echo x > C:\repo\.git\hooks\post-checkout",
+        ] {
+            assert!(sensitive_command_on(cmd, &e, true).is_some(), "{cmd}");
+        }
+        assert!(sensitive_command_on(r"Get-ChildItem C:\repo\src", &e, true).is_none());
+        // Elsewhere a backslash is no separator, as before.
+        assert!(sensitive_command_on(r"echo a\.claude\b", &e, false).is_none());
+        assert_eq!(
+            glob_base_on(r"C:\Users\me\AppData\Roaming\dev.motherclaude\*.json", true),
+            r"C:\Users\me\AppData\Roaming\dev.motherclaude"
+        );
+        assert_eq!(glob_base_on(r"C:\x\*.json", false), "");
+        assert_eq!(glob_base_on("/a/b/*.rs", false), "/a/b");
     }
 }
