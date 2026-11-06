@@ -44,7 +44,7 @@ import { TaskSheetComponent } from './task-sheet.component';
     <div class="page">
       <a class="back muted small" routerLink="/teams"><mc-icon name="back" [size]="14" /> Teams</a>
       @if (team(); as t) {
-        <div class="page-head">
+        <div class="page-head named">
           <h1>{{ t.label }}</h1>
           @if (t.stopped) {
             <span class="badge">stopped</span>

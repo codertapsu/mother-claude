@@ -195,9 +195,10 @@ code {
 .page-head h1 {
   margin: 0;
 }
-/* Phones: the top bar already names the page. */
+/* Phones: the top bar already names the page. A detail page's heading names
+   its item instead (`.page-head.named`) and stays. */
 @media (max-width: 767px) {
-  .page-head > h1 {
+  .page-head:not(.named) > h1 {
     position: absolute !important;
     width: 1px;
     height: 1px;
