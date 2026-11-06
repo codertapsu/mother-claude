@@ -41,8 +41,9 @@ show up in Mother Claude.
 
 ## Pair it with Mother Claude
 
-1. In Mother Claude: **Settings › Browser › Pair a browser**. An 8-character
-   code appears (like `ABCD-EFGH`).
+1. In Mother Claude: **Browser › Pair a browser** (the Browser page in the
+   sidebar; on a phone, under More). An 8-character code appears (like
+   `ABCD-EFGH`).
 2. Click the Mother Claude button in the browser's toolbar: the side panel
    opens. Type the code, check the name the desktop will show for this
    browser (for example "Chrome on Mac"), and press **Pair**.

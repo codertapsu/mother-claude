@@ -34,7 +34,7 @@ import { TimeAgoComponent } from '../../shared/time-ago.component';
 import { sessionName } from '../../shared/util';
 
 /**
- * Settings › Browser: the Mother Claude extension (docs/BROWSER.md). Pair a
+ * The Browser page: the Mother Claude extension (docs/BROWSER.md). Pair a
  * browser, see which are connected and which sessions act in them (Stop,
  * Resume), set each site's mode, see the sensitive list, the standing
  * grants, the settings and the activity — and answer waiting browser

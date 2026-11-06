@@ -296,7 +296,7 @@ async function tabInfo(tabId: number): Promise<TabInfo> {
 
 const PAIR_MESSAGES: Record<string, string> = {
   bad_code:
-    'That code is not right. Check the 8 characters shown in Mother Claude (Settings › Browser › Pair a browser).',
+    'That code is not right. Check the 8 characters shown in Mother Claude (Browser › Pair a browser).',
   expired_code: 'That code has expired. Show a new one in Mother Claude and try again.',
   rate_limited: 'Too many tries. Wait a minute, then try again.',
   timeout: 'Mother Claude did not answer. Is it running?',
@@ -316,7 +316,7 @@ async function desktopRequest(frame: Record<string, unknown>): Promise<UiRespons
     if (code === 'needs_desktop') {
       return fail(
         code,
-        'This site is on Mother Claude’s list of sensitive sites. Raise it to act on the desktop, in Settings › Browser.',
+        'This site is on Mother Claude’s list of sensitive sites. Raise it to act on the desktop, on its Browser page.',
       );
     }
     if (code === 'already_answered') return fail(code, 'Already answered elsewhere.');

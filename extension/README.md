@@ -26,7 +26,7 @@ Everything is run from the repository root.
    **Load unpacked** and pick `dist-extension/chrome`. Edge: `edge://extensions`,
    **Developer mode**, **Load unpacked**. Brave: `brave://extensions`, the same.
 3. Pin it (the puzzle-piece menu) and click its icon: the side panel opens.
-4. In Mother Claude: **Settings › Browser › Pair a browser** shows an 8-character
+4. In Mother Claude: **Browser › Pair a browser** shows an 8-character
    code. Type it in the side panel (or on the options page) and press **Pair**.
 
 After a rebuild, press the reload arrow on the extension's card in

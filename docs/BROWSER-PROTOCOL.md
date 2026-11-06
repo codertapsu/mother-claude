@@ -50,7 +50,7 @@ sender chooses, unique per connection); the reply carries the same `id`.
 
 | Direction | Frame | Meaning |
 |---|---|---|
-| ext → app | `{"type":"pair","id":"…","code":"ABCD-EFGH","name":"Chrome on MacBook","browser":{"name":"Chrome","version":"156.0"},"extensionVersion":"0.1.0"}` | Pair with the 8-character code the desktop shows (Settings › Browser › Pair a browser). Allowed before `hello`. |
+| ext → app | `{"type":"pair","id":"…","code":"ABCD-EFGH","name":"Chrome on MacBook","browser":{"name":"Chrome","version":"156.0"},"extensionVersion":"0.1.0"}` | Pair with the 8-character code the desktop shows (Browser › Pair a browser). Allowed before `hello`. |
 | app → ext | `{"type":"paired","id":"…","token":"mcx_…","browserId":"brw_…"}` | The token to keep in `chrome.storage.local`; never shown again. |
 | ext → app | `{"type":"hello","id":"…","token":"mcx_…","extensionVersion":"0.1.0","browser":{"name":"Chrome","version":"156.0"},"capabilities":{"debugger":true,"sidePanel":true,"tabGroups":true}}` | Authenticate a connection. Must be the first frame other than `pair`; anything else first closes the connection with `error` `unauthenticated`. |
 | app → ext | `{"type":"welcome","id":"…","browserId":"brw_…","protocol":1,"appVersion":"0.8.0","siteModes":{…},"settings":{…}}` | Authenticated. `siteModes` and `settings` as in `state` below. |
