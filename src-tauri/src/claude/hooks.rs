@@ -55,6 +55,10 @@ pub const MARKETPLACE: &str = "mother-claude-local";
 pub const PLUGIN: &str = "mother-claude";
 /// `plugin@marketplace`, the install/enable key.
 pub const PLUGIN_ID: &str = "mother-claude@mother-claude-local";
+/// The plugin's version: the app's, plus the layout that carries the MCP
+/// server entry (docs/MCP.md), so the desktop can tell an install whose
+/// sessions load an older layout.
+pub const PLUGIN_VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+mcp.1");
 
 /// Timeout of one `claude plugin …` run.
 const CLI_TIMEOUT: Duration = Duration::from_secs(60);
@@ -184,7 +188,7 @@ pub fn write_plugin_files(paths: &PluginPaths) -> std::io::Result<()> {
     )?;
     write_file(
         &paths.plugin.root.join(".claude-plugin").join("plugin.json"),
-        &PLUGIN_JSON.replace("@VERSION@", env!("CARGO_PKG_VERSION")),
+        &PLUGIN_JSON.replace("@VERSION@", PLUGIN_VERSION),
         0o644,
     )?;
     write_file(
@@ -347,7 +351,9 @@ pub fn on_start(state: &AppState) {
 }
 
 /// The CLI's own answer to "is it installed", from `claude plugin list
-/// --json` (`[{id, version, scope, enabled, …}]`).
+/// --json` (`[{id, version, scope, enabled, …}]`). The version is the one
+/// sessions load: `folderVersion` (the folder read in place, CLI 2.1.319),
+/// else the install record's `version`.
 pub fn parse_list(json: &str) -> Option<(bool, bool, Option<String>)> {
     let v: Value = serde_json::from_str(json.trim()).ok()?;
     let entries = v.as_array()?;
@@ -359,7 +365,10 @@ pub fn parse_list(json: &str) -> Option<(bool, bool, Option<String>)> {
         Some(e) => (
             true,
             e.get("enabled").and_then(Value::as_bool).unwrap_or(true),
-            e.get("version").and_then(Value::as_str).map(str::to_string),
+            e.get("folderVersion")
+                .or_else(|| e.get("version"))
+                .and_then(Value::as_str)
+                .map(str::to_string),
         ),
         None => (false, false, None),
     })
@@ -612,6 +621,7 @@ pub async fn install(state: &AppState) -> ApiResult<ForeignStatus> {
         write_plugin_files(&paths)
             .and_then(|()| write_runtime_files(&paths, state.config.port, &state.auth.hook_token))
             .map_err(|e| ApiError::internal(format!("Could not write the plugin files: {e}")))?;
+        crate::mcp::plugin::refresh_installed_entry(state);
         let dir = paths.marketplace.to_string_lossy().into_owned();
         let known = match run_cli(&argv::marketplace_list()).await {
             Ok(out) if out.ok => marketplace_listed(&out.stdout),
@@ -723,6 +733,7 @@ pub async fn install_for(state: &AppState, account: &str) -> ApiResult<String> {
         write_plugin_files(&paths)
             .and_then(|()| write_runtime_files(&paths, state.config.port, &state.auth.hook_token))
             .map_err(|e| ApiError::internal(format!("Could not write the plugin files: {e}")))?;
+        crate::mcp::plugin::refresh_installed_entry(state);
         let dir = paths.marketplace.to_string_lossy().into_owned();
         let known = match run_cli_with(&argv::marketplace_list(), &env).await {
             Ok(out) if out.ok => marketplace_listed(&out.stdout),
@@ -911,6 +922,14 @@ mod tests {
           {"id":"mother-claude@mother-claude-local","version":"0.3.0","scope":"user","enabled":false}
         ]"#;
         assert_eq!(parse_list(out), Some((true, false, Some("0.3.0".into()))));
+        // The folder sessions load in place wins over the install record.
+        let in_place = r#"[{"id":"mother-claude@mother-claude-local","version":"0.3.0",
+          "scope":"user","enabled":true,"folderVersion":"0.7.0+mcp.1",
+          "readFromFolder":"/Users/me/Library/Application Support/x/claude-plugin/mother-claude"}]"#;
+        assert_eq!(
+            parse_list(in_place),
+            Some((true, true, Some("0.7.0+mcp.1".into())))
+        );
         assert_eq!(parse_list("[]"), Some((false, false, None)));
         assert_eq!(parse_list("not json"), None);
         assert!(marketplace_listed(
@@ -991,6 +1010,7 @@ mod tests {
             &std::fs::read_to_string(paths.plugin.root.join(".claude-plugin/plugin.json")).unwrap(),
         )
         .unwrap();
-        assert_eq!(plugin["version"], env!("CARGO_PKG_VERSION"));
+        assert_eq!(plugin["version"], PLUGIN_VERSION);
+        assert!(PLUGIN_VERSION.starts_with(env!("CARGO_PKG_VERSION")));
     }
 }

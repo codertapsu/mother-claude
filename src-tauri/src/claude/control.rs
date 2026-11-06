@@ -2396,6 +2396,14 @@ fn headless_command(
     // NOTE: the initial prompt is deliberately NOT passed as argv — it goes
     // over stdin as the first stream-json user message (see spawn()).
     configure_common(&mut c, &opts.cwd, &opts.account_env);
+    // Mother Claude's tools (docs/MCP.md): the plugin loaded inline, so its
+    // MCP server is the session's under the names every session sees (an
+    // installed copy is shadowed, never loaded twice), and the session's id
+    // for the plugin's headers helper.
+    if let Some(dir) = crate::mcp::plugin::owned_plugin_dir() {
+        c.arg("--plugin-dir").arg(dir);
+    }
+    c.env(crate::mcp::plugin::SESSION_ENV, id);
     c
 }
 

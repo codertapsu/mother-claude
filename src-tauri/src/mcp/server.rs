@@ -745,6 +745,12 @@ fn clip(s: &str, max: usize) -> String {
     s.chars().take(max).collect()
 }
 
+/// Server start: the token file, the plugin files and the owned sessions'
+/// plugin directory, as the setting says ([`super::plugin::apply`]).
+pub fn start(state: &AppState) {
+    super::plugin::apply(state);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

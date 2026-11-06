@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "mc": {
+      "type": "http",
+      "url": "http://127.0.0.1:@PORT@/mcp",
+      "headersHelper": "\"${CLAUDE_PLUGIN_ROOT}/scripts/mc-mcp-headers\""
+    }
+  }
+}

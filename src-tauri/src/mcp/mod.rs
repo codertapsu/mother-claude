@@ -15,6 +15,7 @@
 
 pub mod identity;
 pub mod jsonrpc;
+pub mod plugin;
 pub mod server;
 
 use std::future::Future;

@@ -1,7 +1,7 @@
 {
   "name": "mother-claude",
   "version": "@VERSION@",
-  "description": "Foreign-session control for the Mother Claude desktop app: approvals, questions, plans and phone messages for sessions started in a terminal, VS Code or the desktop app. Silent when Mother Claude is closed.",
+  "description": "Foreign-session control for the Mother Claude desktop app: approvals, questions, plans and phone messages for sessions started in a terminal, VS Code or the desktop app, and Mother Claude's own tools through its MCP server. The hooks are silent when Mother Claude is closed.",
   "author": {
     "name": "Mother Claude"
   },

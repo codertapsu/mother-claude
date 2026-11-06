@@ -157,6 +157,7 @@ pub async fn serve(state: AppState) -> anyhow::Result<()> {
     tokio::spawn(monitor::run(state.clone()));
     tokio::spawn(crate::bridge::autostart(state.clone()));
     hooks::start(&state);
+    crate::mcp::server::start(&state);
     push::start(&state);
     crate::claude::usage::start(&state);
     crate::claude::backup::ops::start(&state);
