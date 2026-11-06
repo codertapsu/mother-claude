@@ -140,6 +140,10 @@ pub fn price(model: &str) -> Option<Price> {
         p(10.0, 50.0, 12.5, 20.0, 0.25)
     } else if has(m, "fable-5") || has(m, "mythos-5") {
         p(10.0, 50.0, 12.5, 20.0, 1.0)
+    } else if has(m, "haiku-5") {
+        // Haiku 5.5: $0.10/$0.50 (prompts up to 100K tokens), writes 1.25×
+        // and 2×, reads 10 % of input.
+        p(0.1, 0.5, 0.125, 0.2, 0.01)
     } else if has(m, "haiku-4-5") {
         p(1.0, 5.0, 1.25, 2.0, 0.1)
     } else if has(m, "3-5-haiku") {
@@ -314,6 +318,10 @@ mod tests {
         assert_eq!(price("claude-fable-5-1").unwrap().cache_read, 0.25);
         assert_eq!(price("claude-mythos-5").unwrap().cache_read, 1.0);
         assert_eq!(price("claude-haiku-4-5-20251001").unwrap().input, 1.0);
+        assert_eq!(
+            price("claude-haiku-5-5"),
+            Some(p(0.1, 0.5, 0.125, 0.2, 0.01))
+        );
         assert!(price("gpt-5").is_none());
     }
 
