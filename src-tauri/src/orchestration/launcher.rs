@@ -717,7 +717,7 @@ async fn launch(
         budget,
     );
     opts.account_env = account_env;
-    opts.fallback_model = router::fallback_for(state, &decision.choice);
+    opts.fallback_model = fallback_models(state, &decision.choice);
     let started_task = assigned.as_ref().map(|c| c.task.id);
     match state.control.spawn(state, opts).await {
         Ok(new_id) => {
@@ -862,6 +862,18 @@ pub fn session_budget(state: &AppState, team: &Team, role: &RoleDef) -> Option<f
     }
     role.budget_usd
         .or_else(|| super::budget::session_cap_usd(state, &team.project, &role.id))
+}
+
+/// The routing policy's fallbacks for `choice`, without the chosen model
+/// itself: Claude Code refuses to start when a fallback is its main model.
+pub fn fallback_models(state: &AppState, choice: &ModelChoice) -> Option<String> {
+    let list = router::fallback_for(state, choice)?;
+    let kept: Vec<&str> = list
+        .split(',')
+        .map(str::trim)
+        .filter(|m| !m.is_empty() && !m.eq_ignore_ascii_case(choice.model.trim()))
+        .collect();
+    (!kept.is_empty()).then(|| kept.join(","))
 }
 
 /// A task was handed to a role session: the scheduler then watches its
@@ -1252,6 +1264,18 @@ mod tests {
         // Sonnet has no fallback in the default policy: no flag.
         let sonnet = ModelChoice::new("sonnet", None);
         assert_eq!(router::fallback_for(&st, &sonnet), None);
+        // The chosen model never falls back to itself (Claude Code refuses).
+        let mut policy = st.scheduler.policy();
+        policy
+            .fallbacks
+            .insert("opus".into(), "claude-opus-5-5,sonnet".into());
+        st.scheduler.set_policy(Some(policy));
+        let exact = ModelChoice::new("claude-opus-5-5", Some("high"));
+        assert_eq!(fallback_models(&st, &exact).as_deref(), Some("sonnet"));
+        assert_eq!(
+            fallback_models(&st, &choice).as_deref(),
+            Some("claude-opus-5-5,sonnet")
+        );
     }
 
     #[test]

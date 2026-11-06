@@ -449,6 +449,12 @@ fn fallback_ok(family_key: &str, value: &str) -> Result<(), String> {
             "{value:?}: up to three models, comma-separated (e.g. \"sonnet\")."
         ));
     }
+    if models.iter().any(|m| m.eq_ignore_ascii_case(family_key)) {
+        return Err(format!(
+            "{family_key} cannot fall back to {family_key} itself: Claude Code refuses a fallback \
+             that is its main model."
+        ));
+    }
     Ok(())
 }
 
@@ -531,6 +537,12 @@ mod tests {
         p.fallbacks
             .insert("opus".into(), "sonnet,haiku,opus,fable".into());
         assert_eq!(p.validate().unwrap_err().field, "fallbacks");
+        // A family never falls back to itself (Claude Code refuses to start).
+        let mut p = Policy::default();
+        p.fallbacks.insert("sonnet".into(), "haiku,sonnet".into());
+        let err = p.validate().unwrap_err();
+        assert_eq!(err.field, "fallbacks");
+        assert!(err.message.contains("itself"), "{}", err.message);
         let p = Policy {
             gates_per_step: 0,
             ..Policy::default()

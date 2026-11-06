@@ -91,7 +91,9 @@ Default policy (`routing-policy.json`, the plan's first template):
 
 Ladder: Haiku·low → Haiku·high → Sonnet·medium → Sonnet·high → Opus·high →
 Opus·xhigh → (Fable·high, only with `fableOnEscalation`). Fallbacks
-(`--fallback-model`): opus → sonnet, fable → opus.
+(`--fallback-model`): opus → sonnet, fable → opus. A family never falls back
+to itself, and a role session's fallbacks leave out the model it runs on:
+Claude Code refuses to start when a fallback is its main model.
 
 **Escalation state** is learned from recorded outcomes (rebuilt from the log
 at startup):
