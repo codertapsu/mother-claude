@@ -16,9 +16,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
-use mother_claude_lib::claude::control::SpawnOptions;
 use mother_claude_lib::claude::ClaudeHome;
-use mother_claude_lib::orchestration::launcher::ROLE_SETTINGS;
+use mother_claude_lib::orchestration::launcher::{self, ROLE_SETTINGS};
+use mother_claude_lib::orchestration::router::ModelChoice;
 use mother_claude_lib::orchestration::teams::{Starter, Team};
 use mother_claude_lib::orchestration::templates::{Integration, RoleDef, Template};
 use mother_claude_lib::server::auth::Auth;
@@ -75,6 +75,10 @@ async fn a_real_role_session_is_guarded_and_takes_a_leads_message() {
     let worker_role = RoleDef {
         id: "worker".into(),
         title: "Worker".into(),
+        charter: "You are a test worker. Keep every answer to one line.".into(),
+        model: Some("haiku".into()),
+        permission_mode: Some("acceptEdits".into()),
+        worktree: true,
         paths: vec!["src/**".into()],
         ..Default::default()
     };
@@ -99,33 +103,33 @@ async fn a_real_role_session_is_guarded_and_takes_a_leads_message() {
         brief: None,
         extra: BTreeMap::new(),
     };
-    st.teams.insert(team);
+    st.teams.insert(team.clone());
     st.teams
         .bind("tm_1234567890ab", "worker", &worker_id, false, 0);
 
+    // Launched with everything a role session gets (the launcher's own
+    // options): its name, the team's definitions, its charter, the
+    // settings, a worktree, the guard's callback; a budget on top.
     let worker_name = format!("{label}/worker");
-    let id = st
-        .control
-        .spawn(
-            &st,
-            SpawnOptions {
-                cwd: repo.to_string_lossy().into_owned(),
-                model: Some("haiku".into()),
-                permission_mode: Some("acceptEdits".into()),
-                session_id: Some(worker_id.clone()),
-                name: Some(worker_name.clone()),
-                settings_json: Some(ROLE_SETTINGS.into()),
-                max_budget_usd: Some(0.25),
-                guard_hooks: true,
-                prompt: "Use the Write tool to create the file forbidden.txt in the current \
-                         folder, containing the word x. If it is refused, say so in one line."
-                    .into(),
-                quiet: true,
-                ..Default::default()
-            },
-        )
-        .await
-        .unwrap();
+    let agents = data.path().join("agents.json");
+    std::fs::write(&agents, launcher::agents_json(&team).to_string()).unwrap();
+    let role = team.role("worker").unwrap().clone();
+    let opts = launcher::role_options(
+        &team,
+        &role,
+        &ModelChoice::new("haiku", None),
+        repo.to_string_lossy().into_owned(),
+        None,
+        Some(worker_id.clone()),
+        Some("worker".into()),
+        Some(agents),
+        "Use the Write tool to create the file forbidden.txt in the current folder, \
+         containing the word x. If it is refused, say so in one line."
+            .into(),
+        Some(0.25),
+    );
+    assert_eq!(opts.settings_json.as_deref(), Some(ROLE_SETTINGS));
+    let id = st.control.spawn(&st, opts).await.unwrap();
     assert_eq!(id, worker_id);
     let idle = |st: &mother_claude_lib::state::AppState| {
         st.control
@@ -139,8 +143,11 @@ async fn a_real_role_session_is_guarded_and_takes_a_leads_message() {
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
     assert!(idle(&st), "the worker's first turn ended");
+    // It ran in the worktree Claude Code made for it, and wrote nothing.
+    let worktree = repo.join(".claude/worktrees/worker");
+    assert!(worktree.is_dir(), "-w worker made the worktree");
     assert!(
-        !repo.join("forbidden.txt").exists(),
+        !worktree.join("forbidden.txt").exists() && !repo.join("forbidden.txt").exists(),
         "the guard denied the write"
     );
     assert!(
