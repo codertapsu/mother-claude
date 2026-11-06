@@ -182,13 +182,13 @@ impl ClaudeHome {
 }
 
 /// Encode an absolute project path into its `projects/` directory name:
-/// every non-alphanumeric character becomes `-`.
+/// every non-alphanumeric character becomes `-` (a name past 200 characters
+/// is cut and given a hash, as the CLI does: [`super::paths::project_dir_name`]).
 ///
 /// e.g. `/Users/me/dev/app` → `-Users-me-dev-app`.
 pub fn encode_cwd(path: &str) -> String {
-    path.chars()
-        .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
-        .collect()
+    // Exactly the CLI's (UTF-16 units, and a hash past 200 characters).
+    super::paths::project_dir_name(path)
 }
 
 /// Best-effort reverse of [`encode_cwd`]. This is **lossy** — both `/` and `-`
