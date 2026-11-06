@@ -14,7 +14,7 @@
 #   bash scripts/release/release-upload.sh preflight                # can this token write?
 #   bash scripts/release/release-upload.sh ensure                   # print the release id
 #   bash scripts/release/release-upload.sh upload <file> [file...]  # ensure + upload
-#   bash scripts/release/release-upload.sh verify                   # all 8 there, all verifying?
+#   bash scripts/release/release-upload.sh verify                   # all 9 there, all verifying?
 #
 # Auth: GH_TOKEN if exported, else `gh auth token`, else the token
 # `git credential` holds. In that order, and the order matters — see the block
@@ -193,13 +193,13 @@ fetch_manifest() { # fetch_manifest RELEASE_ID
 
 # Every asset a complete release has, and which machine makes it.
 #
-# Eight, and the count is the point: the macOS leg makes three (.dmg, update
-# archive, its .sig), the Windows leg four (both installers and their .sig), and
-# the manifest is shared — so "four" means one machine has not finished and
-# "seven" means something failed quietly. Checked by `verify` before anybody
-# publishes.
-EXPECTED_ASSETS='.dmg .app.tar.gz .app.tar.gz.sig -setup.exe -setup.exe.sig .msi .msi.sig latest.json'
-EXPECTED_COUNT=8
+# Nine, and the count is the point: the macOS leg makes four (.dmg, update
+# archive, its .sig, and the browser extension's mother-claude-chrome-<its
+# version>.zip), the Windows leg four (both installers and their .sig), and the
+# manifest is shared — so "five" means one machine has not finished and "eight"
+# means something failed quietly. Checked by `verify` before anybody publishes.
+EXPECTED_ASSETS='.dmg .app.tar.gz .app.tar.gz.sig .zip -setup.exe -setup.exe.sig .msi .msi.sig latest.json'
+EXPECTED_COUNT=9
 
 # Every platform latest.json must carry. The macOS leg writes darwin-aarch64;
 # the Windows leg writes one entry per installer, because the updater looks up
@@ -391,7 +391,7 @@ usage: release-upload.sh <command>
   manifest <archive> <sig> <platform>...
                                  merge this platform into latest.json and upload
                                  the archive, its signature, and the manifest
-  verify                         check the draft has all 8 assets, and that every
+  verify                         check the draft has all 9 assets, and that every
                                  platform's update verifies, before publishing
 
   RELEASE_TAG is required for all of them.

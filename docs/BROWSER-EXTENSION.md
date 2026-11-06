@@ -22,10 +22,12 @@ way, and it does nothing on a site until you let it.
 The extension is not in the Chrome Web Store yet. You install it by
 "side-loading" the folder (or zip) that Mother Claude's build produces.
 
-1. Get the extension: `npm run ext:build` in the Mother Claude repository
-   makes the folder `dist-extension/chrome` and the zip
-   `dist-extension/mother-claude-chrome-<version>.zip` (unzip it anywhere you
-   will keep it: the browser loads it from there every time it starts).
+1. Get the extension: download `mother-claude-chrome-<version>.zip` from the
+   [release page](https://github.com/codertapsu/mother-claude/releases)
+   (under **Assets**) and unzip it anywhere you will keep it: the browser
+   loads it from there every time it starts. Or build it: `npm run ext:build`
+   in the Mother Claude repository makes the folder `dist-extension/chrome`
+   and that zip.
 2. Open the browser's extensions page:
    - Chrome: `chrome://extensions`
    - Edge: `edge://extensions`

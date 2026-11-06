@@ -146,6 +146,9 @@ else
   npm run lint
   npm test
   npm run test:release
+  # The browser extension ships too (its zip, uploaded below).
+  npm run ext:lint
+  npm run ext:test
 
   # Delete the previous bundle first. A failed build leaves the last good dmg in
   # place, and packaging that under a new version ships a stale binary under a
@@ -209,9 +212,24 @@ spctl -a -vvv -t open --context context:primary-signature "$DMG" 2>&1 | sed 's/^
 # the one in the update archive, so it answers for all three.
 spctl -a -vvv -t exec "$APP" 2>&1 | sed 's/^/    /'
 
+# The browser extension (Chrome, Edge, Brave), from the same commit: people
+# side-load it from this zip until it is in a store (docs/BROWSER-EXTENSION.md).
+# Its own version names it. The old zip goes first, as the old bundle does, so
+# a failed build cannot ship the last one; built with SKIP_BUILD=1 too (seconds).
+EXT_VERSION="$(node -p "require('./extension/manifest.json').version")"
+EXT_ZIP="dist-extension/mother-claude-chrome-$EXT_VERSION.zip"
+echo "==> build the browser extension $EXT_VERSION"
+rm -f "$EXT_ZIP"
+npm run ext:build
+[ -f "$EXT_ZIP" ] || {
+  echo "error: the extension build made no $EXT_ZIP." >&2
+  exit 1
+}
+
 if [ "${SKIP_UPLOAD:-}" = "1" ]; then
   echo "==> SKIP_UPLOAD=1 — stopping before upload."
   echo "    Built: $DMG"
+  echo "           $EXT_ZIP"
   exit 0
 fi
 
@@ -219,7 +237,7 @@ fi
 # 3. Upload to the tag's draft release. The Windows leg uploads to the same one.
 # ---------------------------------------------------------------------------
 echo "==> upload to the draft release $TAG"
-RELEASE_TAG="$TAG" bash scripts/release/release-upload.sh upload "$DMG"
+RELEASE_TAG="$TAG" bash scripts/release/release-upload.sh upload "$DMG" "$EXT_ZIP"
 
 # The updater's own artifact. Separate from the .dmg: a person downloads the
 # dmg, the application downloads this. Both describe the same build.
@@ -238,10 +256,10 @@ RELEASE_TAG="$TAG" bash scripts/release/release-upload.sh manifest \
   "$TARBALL" "$TARBALL.sig" darwin-aarch64
 
 echo
-echo "macOS leg done for $TAG — its 3 of the 8 assets, and its entry in latest.json."
+echo "macOS leg done for $TAG — its 4 of the 9 assets, and its entry in latest.json."
 echo
 echo "The Windows leg runs independently and may already have finished. Check:"
 echo "  RELEASE_TAG=$TAG bash scripts/release/release-upload.sh verify"
 echo
-echo "When that reports all 8, write the notes and publish:"
+echo "When that reports all 9, write the notes and publish:"
 echo "  https://github.com/codertapsu/mother-claude/releases"

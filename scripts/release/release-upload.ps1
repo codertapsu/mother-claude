@@ -28,7 +28,7 @@ param(
   [switch]$Ensure,
   # Check the token can write to the release repo. Touches nothing.
   [switch]$Preflight,
-  # Check the draft has all eight assets, and that every platform's update
+  # Check the draft has all nine assets, and that every platform's update
   # verifies. Touches nothing.
   [switch]$Verify,
   # Publishing the updater manifest. Three named parameters rather than one
@@ -151,11 +151,12 @@ function Send-Asset($ReleaseId, $File) {
   Write-Host "  uploaded $name ($mb MB)"
 }
 
-# Every asset a complete release has. Eight, and the count is the point: the
-# macOS leg makes three (.dmg, update archive, its .sig), this leg four (both
-# installers and their .sig), and the manifest is shared — so "four" means one
-# machine has not finished and "seven" means something failed quietly.
-$ExpectedAssets = @('.dmg', '.app.tar.gz', '.app.tar.gz.sig', '-setup.exe', '-setup.exe.sig', '.msi', '.msi.sig', 'latest.json')
+# Every asset a complete release has. Nine, and the count is the point: the
+# macOS leg makes four (.dmg, update archive, its .sig, and the browser
+# extension's mother-claude-chrome-<its version>.zip), this leg four (both
+# installers and their .sig), and the manifest is shared — so "five" means one
+# machine has not finished and "eight" means something failed quietly.
+$ExpectedAssets = @('.dmg', '.app.tar.gz', '.app.tar.gz.sig', '.zip', '-setup.exe', '-setup.exe.sig', '.msi', '.msi.sig', 'latest.json')
 
 # Every platform latest.json must carry. The macOS leg writes darwin-aarch64;
 # this leg one entry per installer, because the updater looks up

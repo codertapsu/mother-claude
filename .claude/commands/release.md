@@ -50,8 +50,9 @@ given).
 
 6. **Remind about the last step**: the two legs run **in parallel** on their own
    machines and upload to the _same_ draft. Before publishing, check both
-   finished — the draft needs **eight** assets (three from the Mac, four from
-   Windows, plus the shared `latest.json`) and every update must verify:
+   finished — the draft needs **nine** assets (four from the Mac: the `.dmg`,
+   the update archive and its `.sig`, and the browser extension's zip; four
+   from Windows; plus the shared `latest.json`) and every update must verify:
 
    ```bash
    RELEASE_TAG=v$1 bash scripts/release/release-upload.sh verify

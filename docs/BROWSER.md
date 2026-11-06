@@ -19,14 +19,16 @@ Claude's approvals still apply), and entirely on this computer.
 
 ## 1. Install the extension
 
-The extension is not in a store yet: load it unpacked from this repository's
-`extension/` folder (build it first, see
+The extension is not in a store yet: download
+`mother-claude-chrome-<version>.zip` from the
+[release](https://github.com/codertapsu/mother-claude/releases) (under
+**Assets**) and unzip it in a folder you will keep, or build it yourself (see
 [BROWSER-EXTENSION.md](BROWSER-EXTENSION.md)).
 
 1. Open `chrome://extensions` (Edge: `edge://extensions`, Brave:
    `brave://extensions`).
 2. Turn on **Developer mode**.
-3. **Load unpacked** and choose the extension's build folder.
+3. **Load unpacked** and choose the unzipped folder.
 
 Chrome, Edge, Brave and Chromium (version 116 or later) work; each browser
 pairs on its own. Firefox and Safari are not supported yet.

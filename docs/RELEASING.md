@@ -156,13 +156,14 @@ one (20–30 minutes: the full gate, the build, and Apple notarizing twice).
 
 ### What a finished release contains
 
-Eight assets: three from the Mac, four from Windows, and the shared manifest.
+Nine assets: four from the Mac, four from Windows, and the shared manifest.
 
 | Asset | From | What it is |
 |---|---|---|
 | `Mother.Claude_<v>_aarch64.dmg` | macOS | what a person downloads |
 | `Mother.Claude.app.tar.gz` | macOS | what the updater downloads |
 | `Mother.Claude.app.tar.gz.sig` | macOS | its detached signature |
+| `mother-claude-chrome-<extension version>.zip` | macOS | the browser extension (Chrome, Edge, Brave), side-loaded from it — [BROWSER-EXTENSION.md](BROWSER-EXTENSION.md); named by the version in `extension/manifest.json`, which is its own |
 | `Mother.Claude_<v>_x64-setup.exe` | Windows | what a person downloads, and the updater for NSIS installs |
 | `Mother.Claude_<v>_x64-setup.exe.sig` | Windows | its detached signature |
 | `Mother.Claude_<v>_x64_en-US.msi` | Windows | for managed installs, and the updater for MSI installs |
@@ -191,6 +192,7 @@ cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
 bash scripts/release/check-windows.sh          # the Windows build type-checks
 cargo test --manifest-path src-tauri/Cargo.toml
 npm run lint && npm test && npm run test:release
+npm run ext:lint && npm run ext:test             # the browser extension ships too
 git commit -am "chore(release): v0.4.0"
 git tag v0.4.0
 git push origin main v0.4.0                   # harmless: no workflow runs on a tag
@@ -215,7 +217,7 @@ irreversible:
 2. `npm ci`, then the full gate: `cargo fmt --check`, `cargo clippy
    --all-targets -D warnings`, the Windows type-check
    (`scripts/release/check-windows.sh`), `cargo test`, `npm run lint`,
-   `npm test`, `npm run test:release`;
+   `npm test`, `npm run test:release`, `npm run ext:lint`, `npm run ext:test`;
 3. `tauri build --target aarch64-apple-darwin` — bundles the sidecar and the
    Angular app, signs with the hardened runtime, notarizes the `.app`, and signs
    the update archive;
@@ -224,8 +226,10 @@ irreversible:
 5. notarizes and staples the **`.dmg`** itself — `tauri build` does not, and an
    unstapled dmg is rejected by Gatekeeper on a machine that has never seen it —
    and fails unless `stapler validate` and `spctl` both accept the result;
-6. uploads the dmg, then the update archive, its `.sig` and the merged
-   `latest.json` (`darwin-aarch64`).
+6. builds the browser extension (`npm run ext:build`, also with
+   `SKIP_BUILD=1`): `mother-claude-chrome-<extension version>.zip`;
+7. uploads the dmg and that zip, then the update archive, its `.sig` and the
+   merged `latest.json` (`darwin-aarch64`).
 
 If it stops before the last step, nothing was uploaded.
 
@@ -395,12 +399,13 @@ RELEASE_TAG=v0.4.0 bash scripts/release/release-upload.sh verify
 pwsh scripts\release\release-upload.ps1 -Tag v0.4.0 -Verify
 ```
 
-It exits non-zero, saying why, until all **eight** assets are there and every
+It exits non-zero, saying why, until all **nine** assets are there and every
 platform's update verifies. Then open the draft at
 <https://github.com/codertapsu/mother-claude/releases>, write the notes (what's
 new; requires the Claude Code CLI; the `.dmg` is signed and notarized; the
 Windows installers are unsigned → More info → Run anyway; upgrading is
-Settings → Software updates), and publish.
+Settings → Software updates; the browser extension's zip is unzipped and loaded
+unpacked), and publish.
 
 ---
 

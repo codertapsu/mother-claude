@@ -261,10 +261,10 @@ Write-Host "==> upload the MSI installer and its manifest entry to the draft rel
   -ManifestPlatform 'windows-x86_64-msi'
 
 Write-Host ''
-Write-Host "Windows leg done for $Tag — its 4 of the 8 assets, and its 3 entries in latest.json."
+Write-Host "Windows leg done for $Tag — its 4 of the 9 assets, and its 3 entries in latest.json."
 Write-Host ''
 Write-Host 'The macOS leg runs independently and may already have finished. Check:'
 Write-Host "  pwsh scripts\release\release-upload.ps1 -Tag $Tag -Verify"
 Write-Host ''
-Write-Host 'When that reports all 8, write the notes and publish:'
+Write-Host 'When that reports all 9, write the notes and publish:'
 Write-Host '  https://github.com/codertapsu/mother-claude/releases'
