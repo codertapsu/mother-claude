@@ -562,6 +562,14 @@ pub fn view_cwd(
             return Some(m);
         }
     }
+    // Continued here after it came from another machine: the folder it last
+    // ran in here. Its transcript stays in the other machine's project folder
+    // (`--resume` finds it by its id), so no cwd here names that folder.
+    if flat().any(|c| !usable(c)) {
+        if let Some(c) = [last, first].into_iter().flatten().find(|c| usable(c)) {
+            return Some(c.to_string());
+        }
+    }
     if let Some(c) = flat().find(|c| names(c)) {
         return Some(map_here(c, pairs).unwrap_or_else(|| c.to_string()));
     }
@@ -571,6 +579,90 @@ pub fn view_cwd(
     } else {
         map_here(c, pairs).unwrap_or_else(|| c.to_string())
     })
+}
+
+/// The components of another machine's `path` below its owner's home folder
+/// (`/Users/<u>/…`, `/home/<u>/…`, `C:\Users\<u>\…`), else below its root
+/// or drive: `development`, `projects`, `app` of both
+/// `/Users/marcus/development/projects/app` and `D:\development\projects\app`.
+pub fn below_home_or_root(path: &str) -> Vec<&str> {
+    let parts: Vec<&str> = components(path).collect();
+    let skip = match parts.as_slice() {
+        [first, _user, ..] if first.eq_ignore_ascii_case("Users") || *first == "home" => 2,
+        _ => 0,
+    };
+    parts.into_iter().skip(skip).collect()
+}
+
+/// Folders on this machine that may be the folder `recorded` names on
+/// another machine (or one gone from here), the likeliest first, existing
+/// ones only: the same path below this machine's home folder or (on Windows)
+/// a drive's root, then `known` folders here with the same last component —
+/// the folders of sessions and the trusted ones. At most six.
+pub fn folder_candidates(recorded: &str, home: Option<&Path>, known: &[String]) -> Vec<String> {
+    let here = PathForm::here();
+    let mut out: Vec<String> = Vec::new();
+    let mut push = |p: String| {
+        if PathForm::of_path(&p) == Some(here)
+            && !same_path(&p, recorded)
+            && !out.iter().any(|o| same_path(o, &p))
+            && Path::new(&p).is_dir()
+        {
+            out.push(p);
+        }
+    };
+    let rest = below_home_or_root(recorded);
+    if !rest.is_empty() {
+        let tail = rest.join(&here.sep().to_string());
+        if let Some(h) = home {
+            push(h.join(&tail).to_string_lossy().into_owned());
+        }
+        if here == PathForm::Windows {
+            for drive in local_drives() {
+                push(format!("{drive}:\\{tail}"));
+            }
+        }
+    }
+    if let Some(name) = last_component(recorded) {
+        for k in known {
+            if last_component(k).is_some_and(|n| n.eq_ignore_ascii_case(name)) {
+                push(trim_end_separators(k).to_string());
+            }
+        }
+    }
+    out.truncate(6);
+    out
+}
+
+/// The drives of this PC a folder is looked for on (`C` to `Z`): its own
+/// disks, never a network drive, which can keep a look waiting while its
+/// server is away.
+#[cfg(windows)]
+fn local_drives() -> Vec<char> {
+    use windows_sys::Win32::Storage::FileSystem::{GetDriveTypeW, GetLogicalDrives};
+    use windows_sys::Win32::System::WindowsProgramming::{
+        DRIVE_FIXED, DRIVE_RAMDISK, DRIVE_REMOVABLE,
+    };
+    // SAFETY: no arguments; the answer is a bit per drive letter.
+    let mask = unsafe { GetLogicalDrives() };
+    (b'C'..=b'Z')
+        .filter(|d| mask & (1 << (d - b'A')) != 0)
+        .filter(|d| {
+            let root: Vec<u16> = format!("{}:\\", *d as char)
+                .encode_utf16()
+                .chain(Some(0))
+                .collect();
+            // SAFETY: `root` is a NUL-terminated wide string that outlives the call.
+            let kind = unsafe { GetDriveTypeW(root.as_ptr()) };
+            matches!(kind, DRIVE_FIXED | DRIVE_REMOVABLE | DRIVE_RAMDISK)
+        })
+        .map(char::from)
+        .collect()
+}
+
+#[cfg(not(windows))]
+fn local_drives() -> Vec<char> {
+    Vec::new()
 }
 
 /// This machine's folder pairs, as the backup sets last said
@@ -981,5 +1073,80 @@ mod tests {
             Some("/a")
         );
         assert_eq!(view_cwd(None, None, Some("-c"), &pairs), None);
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn a_session_from_another_machine_continued_here_shows_where_it_ran_here() {
+        // Started on a PC (its transcript stays in `D--dev-app`, where
+        // `--resume` finds it by its id), then continued on this Mac.
+        let win_enc = project_dir_name(r"D:\dev\app");
+        assert_eq!(
+            view_cwd(
+                Some(r"D:\dev\app"),
+                Some("/Users/marcus/dev/app"),
+                Some(&win_enc),
+                &[]
+            )
+            .as_deref(),
+            Some("/Users/marcus/dev/app")
+        );
+        // Not continued here yet: the PC's folder, as before.
+        assert_eq!(
+            view_cwd(Some(r"D:\dev\app"), None, Some(&win_enc), &[]).as_deref(),
+            Some(r"D:\dev\app")
+        );
+        // A session of this machine that moved between its folders keeps
+        // the one naming its project folder.
+        let enc = project_dir_name("/Users/marcus/dev/app");
+        assert_eq!(
+            view_cwd(
+                Some("/Users/marcus/dev/app"),
+                Some("/Users/marcus/dev/app/sub"),
+                Some(&enc),
+                &[]
+            )
+            .as_deref(),
+            Some("/Users/marcus/dev/app")
+        );
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn folders_here_are_found_for_another_machines_folder() {
+        let dir = tempfile::tempdir().unwrap();
+        let home = dir.path().canonicalize().unwrap();
+        let same = home.join("development/projects/app");
+        let other = home.join("elsewhere/app");
+        std::fs::create_dir_all(&same).unwrap();
+        std::fs::create_dir_all(&other).unwrap();
+        let known = vec![
+            other.to_string_lossy().into_owned(),
+            home.join("gone/app").to_string_lossy().into_owned(),
+            home.join("elsewhere/other").to_string_lossy().into_owned(),
+        ];
+        let same_s = same.to_string_lossy().into_owned();
+        let other_s = other.to_string_lossy().into_owned();
+        // A PC's folder below a drive, and a Mac's below another user's home:
+        // the same path below this home first, then known folders by name.
+        for recorded in [
+            r"D:\development\projects\app",
+            "/Users/alice/development/projects/app",
+        ] {
+            assert_eq!(
+                folder_candidates(recorded, Some(&home), &known),
+                vec![same_s.clone(), other_s.clone()],
+                "{recorded}"
+            );
+        }
+        assert_eq!(
+            below_home_or_root(r"C:\Users\me\dev\app"),
+            vec!["dev", "app"]
+        );
+        assert_eq!(below_home_or_root("/home/me/dev/app"), vec!["dev", "app"]);
+        assert_eq!(below_home_or_root(r"D:\dev\app"), vec!["dev", "app"]);
+        // Nothing that does not exist here, nor the recorded folder itself.
+        assert!(folder_candidates("/nowhere/at/all", Some(&home), &[]).is_empty());
+        assert!(!folder_candidates(&same_s, Some(&home), &known).contains(&same_s));
     }
 }

@@ -94,7 +94,7 @@ security-framework = "3.7.0"
 # accounts' secrets (`secrets::CredentialStore`). Already in the dependency
 # graph.
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_Security_Credentials", "Win32_System_Threading"] }
+windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_Security_Credentials", "Win32_Storage_FileSystem", "Win32_System_Threading", "Win32_System_WindowsProgramming"] }
 
 [dev-dependencies]
 tempfile = "3.27.0"

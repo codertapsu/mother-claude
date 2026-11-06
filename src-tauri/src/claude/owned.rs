@@ -104,6 +104,9 @@ pub struct ContinueRequest {
     /// Continue under this account ("continue on B"): another account than
     /// the session's always forks (docs/ACCOUNTS.md §5.4).
     pub account: Option<String>,
+    /// The folder on this machine to continue it in, when its recorded one
+    /// is another machine's or gone (the user's answer to `folder_elsewhere`).
+    pub folder: Option<String>,
 }
 
 /// Who is asking, for the launch policy.
@@ -562,6 +565,99 @@ fn launch_account(
     Ok((id, env))
 }
 
+/// The folder to continue a session in on this machine: the one the user
+/// chose; else its recorded folder when that is a folder here; else the
+/// folder a folder pair maps it to (docs/BACKUP.md "Folder pairs"). Else
+/// `409 folder_elsewhere` for the user to choose: a session another machine
+/// started whose folder no pair maps, or one whose folder is gone from here.
+/// `--resume` finds its transcript by its id wherever it was restored.
+async fn folder_here(state: &AppState, recorded: &str, chosen: Option<&str>) -> ApiResult<String> {
+    use crate::claude::paths::{self, PathForm};
+    let here = PathForm::here();
+    if let Some(c) = chosen.map(str::trim).filter(|c| !c.is_empty()) {
+        // A full path of this machine (`~` as Claude Code expands it here);
+        // `launch_cwd` checks the folder is there.
+        return paths::expand_home(Path::new(c), crate::claude::user_home_dir().as_deref())
+            .map(|p| p.to_string_lossy().into_owned())
+            .filter(|p| Path::new(p).is_absolute() && PathForm::of_path(p) == Some(here))
+            .ok_or_else(|| ApiError::unprocessable("invalid_folder", paths::not_a_full_path(c)));
+    }
+    let Some(form) = PathForm::of_path(recorded) else {
+        // Not a path anywhere: `launch_cwd` says what is wrong with it.
+        return Ok(recorded.to_string());
+    };
+    if form == here && Path::new(recorded).is_dir() {
+        return Ok(recorded.to_string());
+    }
+    if let Some(m) = paths::map_here(recorded, &paths::local_pairs()) {
+        if PathForm::of_path(&m) == Some(here) && Path::new(&m).is_dir() {
+            return Ok(m);
+        }
+    }
+    Err(folder_elsewhere(state, recorded, form != here).await)
+}
+
+/// `409 folder_elsewhere`: where the conversation was, folders here that
+/// look like it, and (for another machine's folder) the backups' machines of
+/// that system, to pair the folders with.
+async fn folder_elsewhere(state: &AppState, recorded: &str, other_machine: bool) -> ApiError {
+    use crate::claude::paths::{self, PathForm};
+    let mut known: Vec<String> = state
+        .snapshot
+        .read()
+        .await
+        .sessions
+        .iter()
+        .map(|s| s.cwd.clone())
+        .collect();
+    known.extend(crate::claude::settings::trusted_projects(&state.home));
+    let home = crate::claude::user_home_dir();
+    let recorded_owned = recorded.to_string();
+    let suggestions = tokio::task::spawn_blocking(move || {
+        paths::folder_candidates(&recorded_owned, home.as_deref(), &known)
+    })
+    .await
+    .unwrap_or_default();
+    let form = PathForm::of_path(recorded);
+    let machines: Vec<Value> = if other_machine {
+        let st = state.clone();
+        let view = tokio::task::spawn_blocking(move || crate::claude::backup::ops::pairs_view(&st))
+            .await
+            .ok();
+        view.map(|v| {
+            v.machines
+                .into_iter()
+                .filter(|m| Some(&m.id) != v.machine.as_ref())
+                .filter(|m| {
+                    m.os.as_deref()
+                        .is_none_or(|os| Some(PathForm::of_os(os)) == form)
+                })
+                .map(|m| json!({ "id": m.id, "name": m.name, "os": m.os }))
+                .collect()
+        })
+        .unwrap_or_default()
+    } else {
+        Vec::new()
+    };
+    let noun = paths::machine_noun();
+    let message = if other_machine {
+        format!(
+            "This conversation was started on another computer, in {recorded}. Choose the folder \
+             it works in on this {noun}."
+        )
+    } else {
+        format!(
+            "{recorded} is not on this {noun} any more. Choose the folder this conversation works \
+             in here."
+        )
+    };
+    ApiError::conflict("folder_elsewhere", message)
+        .with("recorded", recorded)
+        .with("otherMachine", other_machine)
+        .with("suggestions", json!(suggestions))
+        .with("machines", json!(machines))
+}
+
 /// A spawn/continue working directory: absolute and existing; for callers
 /// other than the desktop, one the user already trusted. Returned as given
 /// (not canonicalized): `--resume` finds a transcript by the cwd it was
@@ -594,8 +690,11 @@ pub(crate) fn launch_cwd(
     if !caller.desktop && !is_trusted_cwd(home, path, &canonical) {
         return Err(ApiError::forbidden(
             "untrusted_cwd",
-            "Claude Code has not been trusted in this folder yet. Open it once on the Mac \
-             (or start the session from the desktop) first.",
+            format!(
+                "Claude Code has not been trusted in this folder yet. Open it once on the {} \
+                 (or start the session from the desktop) first.",
+                crate::claude::paths::machine_noun()
+            ),
         ));
     }
     Ok(raw.to_string())
@@ -858,6 +957,9 @@ pub async fn continue_as(
         req.thinking.as_deref(),
         req.permission_mode.as_deref(),
     )?;
+    // Where it continues on this machine (the account below follows it).
+    let here = folder_here(state, cwd, req.folder.as_deref()).await?;
+    let cwd = here.as_str();
     // Never inherit a mode on resume or fork: always explicit.
     let mode = launch_mode(req.permission_mode.as_deref(), caller)?;
     // The session's own account unless another one is asked for ("continue

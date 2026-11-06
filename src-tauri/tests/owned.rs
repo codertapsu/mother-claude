@@ -1074,6 +1074,133 @@ async fn continue_forks_when_live_elsewhere_and_resumes_when_ended() {
     );
 }
 
+/// A conversation started on another computer (restored from a backup)
+/// continues in a folder of this one: the user's choice when no folder pair
+/// maps it, with folders here that look like it offered; the pair's folder
+/// when one does. Its transcript is found by its id (`--resume`).
+#[tokio::test]
+async fn a_session_from_another_machine_continues_in_a_folder_here() {
+    let f = Fixture::new();
+    let id = "2d2e9c5e-3a52-4d4c-9d59-5f0b9a1e2c3d";
+    // The other system's form, under a folder no other test pairs.
+    let tag = uuid::Uuid::new_v4().simple().to_string();
+    let (there_root, elsewhere) = if cfg!(windows) {
+        (
+            format!("/Users/someone/{tag}"),
+            format!("/Users/someone/{tag}/app"),
+        )
+    } else {
+        (format!(r"D:\{tag}"), format!(r"D:\{tag}\app"))
+    };
+    // A folder here with the same name, where another session works.
+    let app = f.cwd.path().join("app");
+    std::fs::create_dir_all(&app).unwrap();
+    let app_s = app.to_string_lossy().into_owned();
+    ws::upsert_session(
+        &f.st,
+        SessionSummary {
+            id: "3e3e9c5e-3a52-4d4c-9d59-5f0b9a1e2c3d".into(),
+            cwd: app_s.clone(),
+            ..Default::default()
+        },
+    )
+    .await;
+
+    // No pair: the user is asked, with the folder here offered.
+    let e = owned::continue_as(&f.st, PLAIN, id, &elsewhere, ContinueRequest::default())
+        .await
+        .unwrap_err();
+    assert_eq!(e.code, "folder_elsewhere", "{}", e.message);
+    assert_eq!(e.status.as_u16(), 409);
+    assert!(e.message.contains(&elsewhere), "{}", e.message);
+    assert_eq!(e.extra["recorded"], json!(elsewhere));
+    assert_eq!(e.extra["otherMachine"], json!(true));
+    assert!(
+        e.extra["suggestions"]
+            .as_array()
+            .unwrap()
+            .contains(&json!(app_s)),
+        "{:?}",
+        e.extra["suggestions"]
+    );
+    assert!(e.extra["machines"].is_array());
+    assert!(read_log(&app).is_empty(), "nothing started");
+
+    // Not a full path of this machine: refused before anything starts.
+    let e = owned::continue_as(
+        &f.st,
+        PLAIN,
+        id,
+        &elsewhere,
+        ContinueRequest {
+            folder: Some(elsewhere.clone()),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(e.code, "invalid_folder", "{}", e.message);
+
+    // The folder the user chose: resumed in place there.
+    let same = owned::continue_as(
+        &f.st,
+        PLAIN,
+        id,
+        &elsewhere,
+        ContinueRequest {
+            folder: Some(app_s.clone()),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(same, id);
+    wait_for("argv", || !read_log(&app).is_empty()).await;
+    let line = read_log(&app)[0]["argv"].to_string();
+    assert!(line.contains(&format!("\"--resume\",\"{id}\"")), "{line}");
+    assert!(!line.contains("--fork-session"), "{line}");
+    owned::kill(&f.st, id).await.unwrap();
+
+    // A folder pair maps it: no question.
+    let g = Fixture::new();
+    let mapped = g.cwd.path().join("app");
+    std::fs::create_dir_all(&mapped).unwrap();
+    let owner = g.cwd();
+    mother_claude_lib::claude::paths::set_local_pairs(
+        &owner,
+        vec![mother_claude_lib::claude::paths::LocalPair {
+            here: g.cwd(),
+            there: there_root,
+        }],
+    );
+    let other = "4f4e9c5e-3a52-4d4c-9d59-5f0b9a1e2c3d";
+    let res = owned::continue_as(&g.st, PLAIN, other, &elsewhere, ContinueRequest::default()).await;
+    mother_claude_lib::claude::paths::set_local_pairs(&owner, Vec::new());
+    assert_eq!(res.unwrap(), other);
+    wait_for("argv", || !read_log(&mapped).is_empty()).await;
+    let line = read_log(&mapped)[0]["argv"].to_string();
+    assert!(
+        line.contains(&format!("\"--resume\",\"{other}\"")),
+        "{line}"
+    );
+    owned::kill(&g.st, other).await.unwrap();
+
+    // A folder of this machine that is gone: asked too, as gone from here.
+    let h = Fixture::new();
+    let gone = h.cwd.path().join("gone").join("app");
+    let e = owned::continue_as(
+        &h.st,
+        PLAIN,
+        "5a5e9c5e-3a52-4d4c-9d59-5f0b9a1e2c3d",
+        &gone.to_string_lossy(),
+        ContinueRequest::default(),
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(e.code, "folder_elsewhere", "{}", e.message);
+    assert_eq!(e.extra["otherMachine"], json!(false));
+}
+
 #[tokio::test]
 async fn non_desktop_callers_need_a_trusted_cwd() {
     let f = Fixture::new();
