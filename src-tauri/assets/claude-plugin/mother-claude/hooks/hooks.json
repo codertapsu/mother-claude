@@ -247,6 +247,102 @@
           }
         ]
       }
+    ],
+    "TeammateIdle": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/mc-hook",
+            "args": [
+              "TeammateIdle",
+              "2",
+              "observe"
+            ],
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "TaskCreated": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/mc-hook",
+            "args": [
+              "TaskCreated",
+              "2",
+              "observe"
+            ],
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "TaskCompleted": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/mc-hook",
+            "args": [
+              "TaskCompleted",
+              "2",
+              "observe"
+            ],
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "PreModelSwitch": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/mc-hook",
+            "args": [
+              "PreModelSwitch",
+              "2",
+              "observe"
+            ],
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "PostModelSwitch": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/mc-hook",
+            "args": [
+              "PostModelSwitch",
+              "2",
+              "observe"
+            ],
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "ConfigChange": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/mc-hook",
+            "args": [
+              "ConfigChange",
+              "2",
+              "observe"
+            ],
+            "timeout": 5
+          }
+        ]
+      }
     ]
   }
 }

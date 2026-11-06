@@ -1022,7 +1022,12 @@ async fn deliver(state: AppState, batch: Batch) {
     let name = state
         .find_session(&batch.session_id)
         .await
-        .map(|s| display_name(&s));
+        .map(|s| display_name(&s))
+        // A team's batch: the team's name.
+        .or_else(|| {
+            let team = batch.session_id.strip_prefix("team-")?;
+            state.teams.get(team).map(|t| format!("Team {}", t.label))
+        });
     let topic = payload::topic_for(&batch.session_id);
     for target in state.push.targets(&events, now_ms()) {
         if !device_active(&state, &target.device) {

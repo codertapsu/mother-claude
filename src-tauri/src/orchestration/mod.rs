@@ -18,6 +18,13 @@
 // teams and their role sessions, the ownership guard, delegation, the MCP
 // tools, the routes and the WebSocket frame.
 pub mod board;
+pub mod delegation;
+pub mod events;
+pub mod guard;
+pub mod launcher;
+pub mod mcp;
+pub mod routes;
+pub mod teams;
 pub mod templates;
 
 pub mod capacity;

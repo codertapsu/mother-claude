@@ -168,6 +168,7 @@ pub async fn serve(state: AppState) -> anyhow::Result<()> {
     crate::claude::backup::ops::start(&state);
     crate::orchestration::scheduler::start(&state);
     crate::extension::start(&state);
+    crate::orchestration::launcher::start(&state);
 
     listeners::start_lan(&state).await;
 

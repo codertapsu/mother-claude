@@ -199,6 +199,28 @@ pub struct SpawnOptions {
     /// No "Spawned/Continuing owned session" notice: the caller announces
     /// what happened itself (a switch of account says where it goes on).
     pub quiet: bool,
+    // ── teams: a role session's launch (`orchestration::launcher`) ──
+    /// `-n <name>`: the session's name (`<project>/<role>`, the address
+    /// `SendMessage` and `ListAgents` use).
+    pub name: Option<String>,
+    /// `--agents <file>`: agent definitions (the team's roles).
+    pub agents_file: Option<PathBuf>,
+    /// `--append-system-prompt <text>`: the role's charter.
+    pub append_system_prompt: Option<String>,
+    /// `--settings <json>`: per-run settings
+    /// (`{"crossSessionInbound":"accept"}`).
+    pub settings_json: Option<String>,
+    /// `--add-dir <dir>`, each.
+    pub add_dirs: Vec<String>,
+    /// `-w <name>`: a git worktree Claude Code creates (and reuses).
+    pub worktree: Option<String>,
+    /// `--max-budget-usd <amount>`.
+    pub max_budget_usd: Option<f64>,
+    /// `--disallowed-tools <a,b,…>`.
+    pub disallowed_tools: Vec<String>,
+    /// `initialize` registers the team guard's `PreToolUse` callback
+    /// (`orchestration::guard`), answered by `handle_cli_request`.
+    pub guard_hooks: bool,
 }
 
 /// Lightweight metadata for a live owned session, so the registry can list it
@@ -1005,11 +1027,13 @@ impl ControlRegistry {
         self.spawn_reaper(state, handle.clone(), child, reader);
 
         // `initialize` goes first so the CLI processes it before any message.
+        // A role session's registers the team guard's `PreToolUse` callback.
+        let mut init = json!({ "subtype": "initialize" });
+        if opts.guard_hooks {
+            init["hooks"] = crate::orchestration::guard::initialize_hooks();
+        }
         if driver == Driver::Stream {
-            match handle
-                .send_request(json!({ "subtype": "initialize" }))
-                .await
-            {
+            match handle.send_request(init).await {
                 Ok((rid, rx)) => {
                     let h = handle.clone();
                     let st = state.clone();
@@ -1504,6 +1528,16 @@ async fn dispatch(
             // must keep draining stdout for the answer to arrive.
             let (st, hh) = (state.clone(), h.clone());
             tokio::spawn(async move { refresh_settings(&st, &hh).await });
+        }
+        // A turn the host did not start — a cross-session message taken
+        // with `crossSessionInbound: accept` (docs/TEAMS.md "Spike") — opens
+        // with `command_lifecycle` "started": the session works from here.
+        "command_lifecycle" => {
+            let started = v.get("state").and_then(Value::as_str) == Some("started");
+            if started && !h.live().turn_active {
+                start_turn(h);
+                note_activity(state, h, Activity::new(ActivityKind::Thinking, "Thinking")).await;
+            }
         }
         // Plan usage for free: the CLI emits one when a window's rounded
         // percentage or reset time moves (5-hour and weekly only) — from a
@@ -2144,7 +2178,25 @@ async fn handle_cli_request(
         .and_then(Value::as_str)
         .unwrap_or_default()
         .to_string();
+    // The team guard's second line for a role session (its `PreToolUse`
+    // callback is the first): a write outside the role's paths is denied
+    // without a card.
+    let guard_denial = (subtype == "can_use_tool")
+        .then(|| crate::orchestration::guard::owned_can_use_tool(state, &h.id, &req))
+        .flatten();
     let reply = match (subtype.as_str(), cancel) {
+        ("can_use_tool", Some(_)) if guard_denial.is_some() => {
+            lock(&h.incoming).remove(&rid);
+            Some(protocol::control_success(
+                &rid,
+                json!({ "behavior": "deny", "message": guard_denial }),
+            ))
+        }
+        // The team guard's `PreToolUse` callback (`initialize.hooks`).
+        ("hook_callback", _) => Some(protocol::control_success(
+            &rid,
+            crate::orchestration::guard::owned_hook_callback(state, &h.id, &req),
+        )),
         ("can_use_tool", Some(cancel)) => {
             let item = protocol::item_from_can_use_tool(&h.id, &req);
             let tool_use_id = req.get("tool_use_id").cloned();
@@ -2368,6 +2420,32 @@ pub fn headless_args(id: &str, opts: &SpawnOptions, permission_mode: &str) -> Ve
         }
         (Some(resume), false) => a.extend(["--resume".into(), resume.clone()]),
         (None, _) => a.extend(["--session-id".into(), id.to_string()]),
+    }
+    // ── teams: a role session's launch (`orchestration::launcher`); every
+    // value is built there and never starts with `-` ──
+    if let Some(name) = &opts.name {
+        a.extend(["-n".into(), name.clone()]);
+    }
+    if let Some(file) = &opts.agents_file {
+        a.extend(["--agents".into(), file.to_string_lossy().into_owned()]);
+    }
+    if let Some(prompt) = &opts.append_system_prompt {
+        a.extend(["--append-system-prompt".into(), prompt.clone()]);
+    }
+    if let Some(settings) = &opts.settings_json {
+        a.extend(["--settings".into(), settings.clone()]);
+    }
+    for dir in &opts.add_dirs {
+        a.extend(["--add-dir".into(), dir.clone()]);
+    }
+    if let Some(worktree) = &opts.worktree {
+        a.extend(["-w".into(), worktree.clone()]);
+    }
+    if let Some(budget) = opts.max_budget_usd {
+        a.extend(["--max-budget-usd".into(), format!("{budget:.2}")]);
+    }
+    if !opts.disallowed_tools.is_empty() {
+        a.extend(["--disallowed-tools".into(), opts.disallowed_tools.join(",")]);
     }
     a.extend(opts.extra_args.iter().cloned());
     a

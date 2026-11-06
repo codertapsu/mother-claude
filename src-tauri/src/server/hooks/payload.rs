@@ -56,6 +56,15 @@ pub struct HookPayload {
     pub effort: Obj<HookEffort>,
     /// StopFailure: the API error kind (`rate_limit`, …); tolerant.
     pub error: LStr,
+    // ── observed for teams (`orchestration::events`); display only ──
+    /// TeammateIdle, TaskCreated, TaskCompleted.
+    pub teammate_name: LStr,
+    pub team_name: LStr,
+    pub task_id: LStr,
+    pub task_subject: LStr,
+    /// PreModelSwitch, PostModelSwitch.
+    pub from_model: LStr,
+    pub to_model: LStr,
 }
 
 impl HookPayload {

@@ -327,6 +327,8 @@ pub fn api_router() -> Router<AppState> {
             "/browser/sessions/{id}/resume",
             post(crate::extension::routes::post_resume),
         )
+        // ── teams of sessions (orchestration::routes, docs/TEAMS.md) ──
+        .merge(crate::orchestration::routes::router())
         .route_layer(axum::middleware::from_fn(auth::require_api_principal))
         // Outermost, so a route's own limit (set closer to its handler)
         // overrides it.

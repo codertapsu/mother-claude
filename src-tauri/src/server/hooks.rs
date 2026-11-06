@@ -684,6 +684,15 @@ pub async fn dispatch_from(
         }
         _ => {}
     }
+    // Teams (docs/TEAMS.md): a role session's write outside its paths is
+    // denied before the tool is in flight; the team, task, model-switch and
+    // config events are observed only.
+    if name == "PreToolUse" {
+        if let Some(deny) = crate::orchestration::guard::foreign_pre_tool_use(state, &p) {
+            return deny;
+        }
+    }
+    crate::orchestration::events::on_hook(state, &p);
     let key = p.tool_input.as_ref().map(input_key);
     let ev = machine::Event {
         name,

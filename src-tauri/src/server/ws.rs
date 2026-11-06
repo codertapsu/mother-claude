@@ -179,6 +179,9 @@ pub enum ServerEvent {
     /// `leases`, `approvals`, `activity` — refetch `/api/browser`
     /// (docs/BROWSER.md).
     Browser { what: String },
+    /// Teams of sessions changed (everyone): a team's view, a task of its
+    /// board, a removed team or the templates (`orchestration::events`).
+    Teams(Box<crate::orchestration::events::TeamsFrame>),
 }
 
 /// Who receives an event.
@@ -206,6 +209,7 @@ impl ServerEvent {
             | ServerEvent::Accounts { .. }
             | ServerEvent::AccountUsage { .. }
             | ServerEvent::Browser { .. } => Audience::All,
+            ServerEvent::Teams(_) => Audience::All,
             ServerEvent::Transcript { session, agent, .. }
             | ServerEvent::TranscriptReset { session, agent } => {
                 Audience::SessionKey(session, agent.as_deref())
