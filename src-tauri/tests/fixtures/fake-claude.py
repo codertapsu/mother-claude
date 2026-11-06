@@ -325,7 +325,8 @@ def reader():
         except ValueError:
             log({"bad": line})
             continue
-        log({"in": obj})
+        # Several sessions can share one cwd (a team): say whose line it is.
+        log({"in": obj, "session": SESSION})
         inbox.put(obj)
     inbox.put(None)
 
@@ -355,6 +356,8 @@ def handle_host_request(obj):
     req = obj.get("request") or {}
     sub = req.get("subtype")
     if sub == "initialize":
+        # Callbacks the host registers (`hooks`, as the Agent SDK sends them).
+        STATE["hooks"] = req.get("hooks") or {}
         ok(rid, {
             "commands": [
                 {"name": "compact", "description": "Compact the conversation", "argumentHint": "[instructions]"},
@@ -631,6 +634,33 @@ def run_turn(msg):
         sys_msg("task_progress", task_id="t1", description="Explore the repo", subagent_type="Explore",
                 last_tool_name="Grep", usage={"total_tokens": 900, "tool_uses": 2, "duration_ms": 50})
         result("task started", answered)
+    elif text.startswith("write "):
+        # A Write the host's PreToolUse callback is asked about first (as CLI
+        # 2.1.319 does in every permission mode, `acceptEdits` included).
+        path = text[len("write "):].strip()
+        callbacks = [cid for m in (STATE.get("hooks") or {}).get("PreToolUse", [])
+                     if "Write" in (m.get("matcher") or "Write") for cid in m.get("hookCallbackIds", [])]
+        decision = None
+        for cid in callbacks:
+            tid = "toolu_" + uuidlib.uuid4().hex[:10]
+            _, resp = ask({"subtype": "hook_callback", "callback_id": cid, "tool_use_id": tid,
+                           "input": {"session_id": SESSION, "cwd": os.getcwd(), "hook_event_name": "PreToolUse",
+                                     "permission_mode": STATE["mode"], "tool_name": "Write",
+                                     "tool_input": {"file_path": path, "content": "x"}, "tool_use_id": tid}})
+            log({"hook": resp, "path": path})
+            out_ = (resp or {}).get("hookSpecificOutput") or {}
+            if out_.get("permissionDecision") == "deny":
+                decision = out_.get("permissionDecisionReason")
+                break
+        if decision:
+            result("denied: " + decision, answered)
+        else:
+            result("wrote " + path, answered)
+    elif text.startswith("edit-ask "):
+        path = text[len("edit-ask "):].strip()
+        _, resp = ask(can_use_tool("Edit", {"file_path": path, "old_string": "a", "new_string": "b"}))
+        log({"decision": resp, "path": path})
+        result("edit " + str(resp.get("behavior")), answered)
     elif text == "fail":
         result("API Error: overloaded", answered, "error_during_execution_api", True)
     elif text == "limits":
