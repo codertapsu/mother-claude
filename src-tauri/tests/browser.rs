@@ -623,6 +623,54 @@ async fn site_modes_are_enforced_before_anything_is_sent() {
 }
 
 #[tokio::test]
+async fn an_action_shows_what_changed_only_from_a_site_it_may_read() {
+    let (base, st) = boot().await;
+    let (mut ws, _, _) = paired(&base, &st).await;
+    set_mode(&st, "https://example.test", "act").await;
+    let cases = [
+        // No `url`: where the snapshot came from is unknown.
+        (
+            json!({"snapshot": "- dialog \"Mystery\" [ref=e9]"}),
+            "Mystery",
+            false,
+        ),
+        (
+            json!({"snapshot": "- button \"Next\" [ref=e10]", "url": "https://example.test/next"}),
+            "Next",
+            true,
+        ),
+        // It navigated to a site the session may not see.
+        (
+            json!({"snapshot": "- heading \"Balance\" [ref=e11]", "url": "https://bank.test/"}),
+            "Balance",
+            false,
+        ),
+    ];
+    for (i, (data, word, shown)) in cases.into_iter().enumerate() {
+        let task = call(&st, SESSION, "browser_click", json!({"ref": "e1"}));
+        if i == 0 {
+            open_lease_with_tab(&mut ws, "https://example.test/").await;
+        }
+        let cmd = next_of(&mut ws, "command").await;
+        assert_eq!(cmd["action"], "click");
+        send(
+            &mut ws,
+            json!({"type": "result", "id": cmd["id"], "ok": true, "data": data}),
+        )
+        .await;
+        let out = task.await.unwrap();
+        let text = text_of(&out);
+        assert!(!out.is_error, "{text}");
+        assert_eq!(text.contains(word), shown, "{text}");
+    }
+    // The tab is on that site now: the next action is refused before it is sent.
+    let out = call(&st, SESSION, "browser_click", json!({"ref": "e11"}))
+        .await
+        .unwrap();
+    assert!(text_of(&out).contains("(site_off)"), "{}", text_of(&out));
+}
+
+#[tokio::test]
 async fn a_command_without_a_result_times_out() {
     let (base, st) = boot().await;
     let (mut ws, _, _) = paired(&base, &st).await;

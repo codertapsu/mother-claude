@@ -166,6 +166,10 @@ What the desktop does around commands *(added detail)*:
 - `snapshot` and `read` must report `url`: content from a page the desktop
   cannot place is refused. Any result whose `url` is on a site the session
   may not read is dropped before it reaches the model.
+- *(added)* An action's result (`click`, `dblclick`, `hover`, …) may carry
+  `url` (and `title`): the page it ended on. A `snapshot` of what changed is
+  kept only when the result carries a `url` the session may read — without
+  one (the page may have navigated anywhere) the desktop drops it.
 - Before asking the user to approve an action on a `ref` it sends
   `highlight {ref, ms: 1500}` (best effort, not awaited).
 - *(added)* `type` and `fill` carry `"refuseSecret": true`: the extension
@@ -300,7 +304,9 @@ All optional; an extension built to the first text keeps working.
 6. `setSiteMode` with `"mode": null` removes a site's own entry.
 7. `refuseSecret: true` on `type` and `fill`, and the result error code
    `secret_field`.
-8. The shapes of `state.leases`, and the desktop's behaviour around leases,
+8. `url` (and `title`) on an action's result; without it the action's
+   `snapshot` delta is dropped.
+9. The shapes of `state.leases`, and the desktop's behaviour around leases,
    commands and events written down (deadlines, `no_lease` and `no_tab`
    retries, `tabs.list` when a page is unknown, `highlight` before an
    approval, redaction).

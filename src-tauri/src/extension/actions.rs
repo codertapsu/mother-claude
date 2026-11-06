@@ -720,11 +720,15 @@ fn learn(
                 leases.with_tab(session, key, |info| info.learn_matches(m));
             }
         }
-        "click" | "dblclick" | "hover" => {
-            if let Some(tree) = data.get("snapshot").and_then(Value::as_str) {
-                leases.with_tab(session, key, |info| info.learn_snapshot(tree, false));
+        "click" | "dblclick" | "hover" => leases.with_tab(session, key, |info| {
+            // It may have navigated: a result that names its page says so.
+            if data.get("url").is_some() {
+                info.navigated(s(data, "url"), s(data, "title"));
             }
-        }
+            if let Some(tree) = data.get("snapshot").and_then(Value::as_str) {
+                info.learn_snapshot(tree, false);
+            }
+        }),
         "dialog" => leases.with_tab(session, key, |info| info.dialog = None),
         _ => {}
     }
@@ -1385,7 +1389,7 @@ async fn run(
         }
     }
     ext.leases.touch(session);
-    let data = reply.map_err(|e| {
+    let mut data = reply.map_err(|e| {
         if matches!(&e, CmdError::Ext { code, .. } if code == "stopped") {
             if let Some(stop) = ext.leases.stopped(session) {
                 return stopped(&stop);
@@ -1393,13 +1397,26 @@ async fn run(
         }
         tool_error(&e, page_origin.as_deref().or(target_origin.as_deref()))
     })?;
-    learn(state, session, call.tab, call.action, &call.params, &data);
 
     // Content must come from a site this session may read.
     let url = data.get("url").and_then(Value::as_str).map(str::to_string);
     if url.is_none() && page_origin.is_none() && matches!(call.action, "snapshot" | "read") {
         return Err(unknown_page());
     }
+    // An action's snapshot of what changed may show the page it navigated
+    // to: kept only when the result says which page that is and the session
+    // may read it.
+    if class == Class::Act && data.get("snapshot").is_some() {
+        let readable = url
+            .as_deref()
+            .is_some_and(|u| settings.mode_of_url(u) >= SiteMode::Read);
+        if !readable {
+            if let Some(o) = data.as_object_mut() {
+                o.remove("snapshot");
+            }
+        }
+    }
+    learn(state, session, call.tab, call.action, &call.params, &data);
     if let Some(u) = &url {
         let shows_content = matches!(class, Class::Observe | Class::History | Class::Navigate);
         if shows_content && settings.mode_of_url(u) < SiteMode::Read {
@@ -1413,11 +1430,20 @@ async fn run(
     let after = ext
         .leases
         .tab(session, ext.leases.tab_key(session, call.tab));
+    let readable = |t: &TabInfo| {
+        t.url
+            .as_deref()
+            .is_some_and(|u| settings.mode_of_url(u) >= SiteMode::Read)
+    };
     Ok(Done {
         data,
         url: url.or_else(|| after.as_ref().and_then(|t| t.url.clone())),
-        title: after.as_ref().and_then(|t| t.title.clone()),
-        dialog: after.and_then(|t| t.dialog),
+        title: after
+            .as_ref()
+            .filter(|t| readable(t))
+            .and_then(|t| t.title.clone()),
+        // A dialog's message is the page's: only from a site it may read.
+        dialog: after.filter(|t| readable(t)).and_then(|t| t.dialog),
     })
 }
 
