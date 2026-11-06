@@ -23,6 +23,7 @@ pub mod index;
 pub mod live;
 pub mod model;
 pub mod owned;
+pub mod paths;
 pub mod pricing;
 pub mod registry;
 pub mod reveal;
