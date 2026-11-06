@@ -712,12 +712,16 @@ pub async fn projects(Authed(_ctx): Authed, State(state): State<AppState>) -> im
                 }
             }
         }
+        // One row per folder: a Windows one in any case, with either
+        // separator (`.claude.json` keys it `C:/Users/me/app`, transcripts
+        // record `C:\Users\me\app`).
         let mut by_path: BTreeMap<String, ProjectInfo> = BTreeMap::new();
         for s in &sessions {
             if s.cwd.is_empty() {
                 continue;
             }
-            let entry = by_path.entry(s.cwd.clone()).or_insert_with(|| ProjectInfo {
+            let key = claude::paths::path_key(&s.cwd);
+            let entry = by_path.entry(key).or_insert_with(|| ProjectInfo {
                 path: s.cwd.clone(),
                 name: s.project_name.clone(),
                 last_activity_at: None,
@@ -728,11 +732,12 @@ pub async fn projects(Authed(_ctx): Authed, State(state): State<AppState>) -> im
             entry.sessions = Some(entry.sessions.unwrap_or(0) + 1);
         }
         for t in &trusted {
-            let path = t.trim_end_matches('/').to_string();
-            let entry = by_path.entry(path.clone()).or_insert_with(|| ProjectInfo {
-                name: FsPath::new(&path)
-                    .file_name()
-                    .and_then(|n| n.to_str())
+            // A Windows folder shown (and opened) the way Windows writes it.
+            let path = claude::paths::windows_separators(claude::paths::trim_end_separators(t))
+                .into_owned();
+            let key = claude::paths::path_key(&path);
+            let entry = by_path.entry(key).or_insert_with(|| ProjectInfo {
+                name: claude::paths::last_component(&path)
                     .unwrap_or(&path)
                     .to_string(),
                 path,

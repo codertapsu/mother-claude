@@ -177,6 +177,16 @@ pub fn depth(p: &str) -> usize {
         .count()
 }
 
+/// A recorded Windows path written the way Windows writes it, with `\`
+/// (Claude Code keys `.claude.json` with `/` there); any other as it is.
+pub fn windows_separators(p: &str) -> Cow<'_, str> {
+    if is_windows_absolute(p) && p.contains('/') {
+        Cow::Owned(p.replace('/', "\\"))
+    } else {
+        Cow::Borrowed(p)
+    }
+}
+
 /// The one of `keys` that names the folder `wanted`: itself, else one that is
 /// [`same_path`] (on Windows `.claude.json` keys a folder `C:/Users/me/app`
 /// while its transcripts record `C:\Users\me\app`).
@@ -404,6 +414,8 @@ mod tests {
             Some("C:/Users/me/app")
         );
         assert_eq!(find_path(["/Users/me/app"], "/users/me/app"), None);
+        assert_eq!(windows_separators("C:/Users/me/app"), r"C:\Users\me\app");
+        assert_eq!(windows_separators("/Users/me/a/b"), "/Users/me/a/b");
     }
 
     #[test]

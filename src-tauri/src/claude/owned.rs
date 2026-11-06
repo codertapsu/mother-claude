@@ -572,11 +572,9 @@ pub(crate) fn launch_cwd(
     raw: &str,
     caller: Caller,
 ) -> ApiResult<String> {
-    let raw = raw.trim();
-    let raw = match raw.trim_end_matches('/') {
-        "" => raw,
-        trimmed => trimmed,
-    };
+    // Without a trailing separator (`\` too in a Windows path); a root keeps
+    // its own.
+    let raw = crate::claude::paths::trim_end_separators(raw.trim());
     if raw.is_empty() {
         return Err(ApiError::unprocessable("invalid_cwd", "`cwd` is required."));
     }
@@ -587,7 +585,7 @@ pub(crate) fn launch_cwd(
             "`cwd` must be an absolute path.",
         ));
     }
-    let canonical = std::fs::canonicalize(path)
+    let canonical = crate::claude::paths::canonicalize(path)
         .ok()
         .filter(|p| p.is_dir())
         .ok_or_else(|| {
@@ -633,9 +631,11 @@ pub fn trusted_in(claude_json: &Path, projects_dir: &Path, dir: &Path) -> bool {
     let mut cur: Option<&Path> = Some(dir);
     while let Some(d) = cur {
         let key = d.to_string_lossy();
-        if global
-            .projects
-            .get(key.as_ref())
+        // On Windows Claude Code keys the folder `C:/Users/me/app`.
+        let found =
+            crate::claude::paths::find_path(global.projects.keys().map(String::as_str), &key);
+        if found
+            .and_then(|k| global.projects.get(k))
             .and_then(|p| p.has_trust_dialog_accepted)
             == Some(true)
         {
@@ -659,10 +659,7 @@ const TRUST_SCAN_LINES: usize = 200;
 pub fn transcripts_recorded_in(projects_dir: &Path, dir: &Path) -> bool {
     use std::io::BufRead as _;
     let wanted = dir.to_string_lossy();
-    let wanted = match wanted.trim_end_matches('/') {
-        "" => "/",
-        w => w,
-    };
+    let wanted = crate::claude::paths::trim_end_separators(&wanted);
     let recorded = projects_dir.join(crate::claude::encode_cwd(wanted));
     let Ok(entries) = std::fs::read_dir(recorded) else {
         return false;
@@ -682,10 +679,10 @@ pub fn transcripts_recorded_in(projects_dir: &Path, dir: &Path) -> bool {
                 .map_while(Result::ok)
                 .find_map(|line| {
                     let v: serde_json::Value = serde_json::from_str(&line).ok()?;
-                    v.get("cwd")?.as_str().map(|c| {
-                        let c = c.trim_end_matches('/');
-                        (if c.is_empty() { "/" } else { c }) == wanted
-                    })
+                    // A Windows folder in any case, with either separator.
+                    v.get("cwd")?
+                        .as_str()
+                        .map(|c| crate::claude::paths::same_path(c, wanted))
                 })
                 .unwrap_or(false)
         })
@@ -1613,6 +1610,39 @@ mod tests {
                 "{twin}"
             );
         }
+        // A Windows folder, as Claude Code keys and records it there: the
+        // config with `/`, transcripts with `\` (VS Code's drive in lower case).
+        std::fs::write(
+            &claude_json,
+            serde_json::json!({"projects": {"C:/Users/me/app": {"hasTrustDialogAccepted": true}}})
+                .to_string(),
+        )
+        .unwrap();
+        assert!(trusted_in(
+            &claude_json,
+            &projects,
+            Path::new(r"C:\Users\me\app")
+        ));
+        assert!(!trusted_in(
+            &claude_json,
+            &projects,
+            Path::new(r"C:\Users\me\app2")
+        ));
+        let enc = crate::claude::encode_cwd(r"C:\Users\me\web");
+        std::fs::create_dir_all(projects.join(&enc)).unwrap();
+        std::fs::write(
+            projects.join(&enc).join("w.jsonl"),
+            "{\"type\":\"user\",\"cwd\":\"c:\\\\Users\\\\me\\\\web\"}\n",
+        )
+        .unwrap();
+        assert!(transcripts_recorded_in(
+            &projects,
+            Path::new(r"C:\Users\me\web")
+        ));
+        assert!(!transcripts_recorded_in(
+            &projects,
+            Path::new(r"C:\Users\me-web")
+        ));
         // Missing or corrupt config is just "not trusted".
         std::fs::write(&claude_json, "{not json").unwrap();
         assert!(!trusted_in(

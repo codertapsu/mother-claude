@@ -453,7 +453,7 @@ pub fn cwd_is_trusted(home: &crate::claude::ClaudeHome, cwd: &str) -> bool {
     if !raw.is_absolute() {
         return false;
     }
-    let canonical = std::fs::canonicalize(&raw).unwrap_or_else(|_| raw.clone());
+    let canonical = crate::claude::paths::canonical_or_given(&raw);
     let forms: Vec<std::path::PathBuf> = if canonical == raw {
         vec![raw]
     } else {
@@ -476,8 +476,9 @@ pub fn cwd_is_trusted(home: &crate::claude::ClaudeHome, cwd: &str) -> bool {
         return false;
     };
     let trusted = |p: &std::path::Path| {
-        projects
-            .get(p.to_string_lossy().as_ref())
+        // On Windows Claude Code keys the folder `C:/Users/me/app`.
+        crate::claude::paths::find_path(projects.keys().map(String::as_str), &p.to_string_lossy())
+            .and_then(|k| projects.get(k))
             .and_then(|e| e.get("hasTrustDialogAccepted"))
             .and_then(Value::as_bool)
             .unwrap_or(false)

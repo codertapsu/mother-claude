@@ -337,22 +337,22 @@ pub fn effective_permission_mode(state: &AppState, id: &str) -> Option<String> {
 /// CLI's trust dialog (`~/.claude.json`), or holding transcripts. B3 uses it
 /// for the `untrusted_cwd` rule.
 pub fn is_trusted_cwd(state: &AppState, cwd: &str) -> bool {
-    let cwd = cwd.trim_end_matches('/');
-    if cwd.is_empty() {
+    if cwd.trim_end_matches('/').is_empty() {
         return false;
     }
+    // On Windows in any case, with either separator: `.claude.json` keys a
+    // folder `C:/Users/me/app` where transcripts record `C:\Users\me\app`.
+    let same = |p: &str| super::paths::same_path(p, cwd);
     if super::settings::trusted_projects(&state.home)
         .iter()
-        .any(|p| p.trim_end_matches('/') == cwd)
+        .any(|p| same(p))
     {
         return true;
     }
     state.index.session_ids().iter().any(|id| {
         state
             .index
-            .with_main(id, |f| {
-                f.agg.cwd.as_deref().map(|c| c.trim_end_matches('/') == cwd)
-            })
+            .with_main(id, |f| f.agg.cwd.as_deref().map(same))
             .flatten()
             .unwrap_or(false)
     })
