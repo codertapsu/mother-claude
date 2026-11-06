@@ -135,17 +135,16 @@ impl Conn {
                 tx,
             },
         );
+        // However this ends — a reply, the deadline, or the caller giving up
+        // (its future dropped) — nobody waits for the id any more.
+        let _forget = Forget { conn: self, id };
         if self.tx.send(frame.to_string()).await.is_err() {
-            self.waiters().remove(id);
             return Err(RequestError::Disconnected);
         }
         match tokio::time::timeout(deadline, rx).await {
             Ok(Ok(reply)) => Ok(reply),
             Ok(Err(_)) => Err(RequestError::Disconnected),
-            Err(_) => {
-                self.waiters().remove(id);
-                Err(RequestError::Timeout)
-            }
+            Err(_) => Err(RequestError::Timeout),
         }
     }
 
@@ -192,6 +191,18 @@ impl Conn {
     /// Ask the connection's loop to close it.
     pub fn close(&self, reason: CloseReason) {
         let _ = self.close.send(Some(reason));
+    }
+}
+
+/// Removes a request's waiter when its `request` ends, however it ends.
+struct Forget<'a> {
+    conn: &'a Conn,
+    id: &'a str,
+}
+
+impl Drop for Forget<'_> {
+    fn drop(&mut self) {
+        self.conn.waiters().remove(self.id);
     }
 }
 
@@ -348,6 +359,19 @@ mod tests {
         assert_eq!(conn.fail_lease("l_9", "stopped", "Stopped"), 1);
         let reply = task.await.unwrap().unwrap();
         assert_eq!(reply["error"]["code"], "stopped");
+
+        // A caller that gives up (its future dropped) leaves no waiter.
+        let c = conn.clone();
+        let task = tokio::spawn(async move {
+            c.request("c_4", None, &json!({}), Duration::from_secs(30))
+                .await
+        });
+        while conn.waiting() == 0 {
+            tokio::task::yield_now().await;
+        }
+        task.abort();
+        let _ = task.await;
+        assert_eq!(conn.waiting(), 0);
     }
 
     #[tokio::test]

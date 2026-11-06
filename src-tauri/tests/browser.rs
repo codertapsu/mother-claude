@@ -800,6 +800,35 @@ async fn eval_waits_for_the_side_panel() {
 }
 
 #[tokio::test]
+async fn a_caller_that_gives_up_leaves_no_approval_behind() {
+    let (base, st) = boot().await;
+    let (mut ws, _, _) = paired(&base, &st).await;
+    set_mode(&st, "https://example.test", "act").await;
+    let task = call(&st, SESSION, "browser_eval", json!({"expression": "1"}));
+    open_lease_with_tab(&mut ws, "https://example.test/").await;
+    let id = pending_approval(&st).await;
+    // The MCP client went away: its call is dropped mid-approval.
+    task.abort();
+    let _ = task.await;
+    for _ in 0..100 {
+        if st.extension.approvals_for(None).is_empty() && st.pending.get(&id).is_none() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    assert!(st.extension.approvals_for(None).is_empty(), "untracked");
+    assert!(st.pending.get(&id).is_none(), "withdrawn");
+    // The side panel hears it is gone.
+    let s = loop {
+        let s = next_of(&mut ws, "state").await;
+        if s["pending"].as_array().unwrap().is_empty() {
+            break s;
+        }
+    };
+    assert!(s["leases"].as_array().unwrap().len() == 1);
+}
+
+#[tokio::test]
 async fn approvals_are_answered_from_the_api_too() {
     let (base, st) = boot().await;
     let (mut ws, _, _) = paired(&base, &st).await;
@@ -835,6 +864,17 @@ async fn approvals_are_answered_from_the_api_too() {
     let out = task.await.unwrap();
     assert!(text_of(&out).contains("(denied)"), "{}", text_of(&out));
     assert!(st.extension.approvals_for(None).is_empty());
+    // Settled approvals are audited, whoever answered.
+    let audit = st.devices.audit.recent(100);
+    let line = audit
+        .iter()
+        .find(|e| e.action == "browser.approval")
+        .expect("an audit line");
+    let detail = line.detail.as_ref().unwrap();
+    assert_eq!(detail["outcome"], "denied");
+    assert_eq!(detail["session"], SESSION);
+    assert_eq!(detail["by"]["kind"], "desktop");
+    assert!(!detail.to_string().contains("1+1"), "never the script");
 
     // The desktop allows the next one, with "always allow": the third runs
     // without asking.

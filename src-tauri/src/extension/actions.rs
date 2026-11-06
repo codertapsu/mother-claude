@@ -946,6 +946,70 @@ pub fn add_grant(
     Ok(id)
 }
 
+/// A browser approval the side panel and the Browser page see while it
+/// waits — forgotten however the wait ends (answered, withdrawn, timed out,
+/// or its caller gone: its future dropped).
+struct Tracked {
+    state: AppState,
+    id: String,
+    browser: String,
+}
+
+impl Tracked {
+    fn new(state: &AppState, approval: Approval) -> Self {
+        let (id, browser) = (approval.id.clone(), approval.browser.clone());
+        state.extension.track_approval(approval);
+        super::push_state(state, &browser);
+        super::notify(state, "approvals");
+        Self {
+            state: state.clone(),
+            id,
+            browser,
+        }
+    }
+}
+
+impl Drop for Tracked {
+    fn drop(&mut self) {
+        self.state.extension.untrack_approval(&self.id);
+        super::push_state(&self.state, &self.browser);
+        super::notify(&self.state, "approvals");
+    }
+}
+
+/// One audit line per settled approval, whoever answered it (the desktop, a
+/// device, the side panel) or nobody: never its values.
+fn audit_approval(
+    state: &AppState,
+    id: &str,
+    session: &str,
+    call: &Call,
+    origin: Option<&str>,
+    end: &WaitEnd,
+) {
+    let outcome = match end {
+        WaitEnd::Decided(d) if d.is_allow() => "allowed",
+        WaitEnd::Decided(_) => "denied",
+        WaitEnd::TimedOut => "timeout",
+        WaitEnd::Closed => "withdrawn",
+    };
+    let by = state.pending.resolution(id).and_then(|r| r.by);
+    activity::audit_change(
+        state,
+        None,
+        "browser.approval",
+        json!({
+            "pending": id,
+            "session": session,
+            "tool": call.tool,
+            "action": call.action,
+            "origin": origin,
+            "outcome": outcome,
+            "by": by,
+        }),
+    );
+}
+
 /// Ask a person; `Ok` when they allowed it.
 #[allow(clippy::too_many_arguments)]
 async fn approve(
@@ -1012,21 +1076,21 @@ async fn approve(
     };
     let (guard, rx) = pending::raise(state, item).await;
     let id = guard.id().to_string();
-    ext.track_approval(Approval {
-        id: id.clone(),
-        browser: lease.browser.clone(),
-        lease: lease.id.clone(),
-        session: session.to_string(),
-        summary: title.clone(),
-        detail: Some(reasons),
-        created_at: crate::claude::registry::now_ms(),
-    });
-    super::push_state(state, &lease.browser);
-    super::notify(state, "approvals");
+    let tracked = Tracked::new(
+        state,
+        Approval {
+            id: id.clone(),
+            browser: lease.browser.clone(),
+            lease: lease.id.clone(),
+            session: session.to_string(),
+            summary: title.clone(),
+            detail: Some(reasons),
+            created_at: crate::claude::registry::now_ms(),
+        },
+    );
     let end = pending::wait_end(rx, APPROVAL_TIMEOUT).await;
-    ext.untrack_approval(&id);
-    super::push_state(state, &lease.browser);
-    super::notify(state, "approvals");
+    drop(tracked);
+    audit_approval(state, &id, session, call, origin.as_deref(), &end);
     match end {
         WaitEnd::Decided(d) if d.is_allow() => {
             if let (Some(_), Some(s)) = (d.suggestion, &suggestion) {
