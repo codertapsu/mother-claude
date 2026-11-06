@@ -12,7 +12,6 @@
 //! transcript scans and `jobs/<id>/state.json`, kept only until it is removed.
 
 use std::collections::{HashMap, HashSet};
-use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
@@ -802,12 +801,10 @@ pub struct RegistryInputs<'a> {
     pub owned_live: &'a [OwnedSessionMeta],
 }
 
+/// The folder's last component, by the separators of the system that
+/// recorded it (`app` of `C:\dev\app` on a Mac too).
 fn project_name(cwd: &str) -> String {
-    Path::new(cwd)
-        .file_name()
-        .and_then(|s| s.to_str())
-        .map(String::from)
-        .unwrap_or_else(|| cwd.to_string())
+    super::paths::last_component(cwd).unwrap_or(cwd).to_string()
 }
 
 fn map_explicit_state(state: &StateJson) -> Option<SessionState> {

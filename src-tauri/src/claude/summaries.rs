@@ -478,12 +478,10 @@ pub fn local_midnight_ms(now_ms: i64) -> i64 {
         .unwrap_or(now_ms - 24 * 3600 * 1000)
 }
 
+/// The folder's last component, by the separators of the system that
+/// recorded it (`app` of `C:\dev\app` on a Mac too).
 fn project_name(cwd: &str) -> String {
-    std::path::Path::new(cwd)
-        .file_name()
-        .and_then(|s| s.to_str())
-        .unwrap_or(cwd)
-        .to_string()
+    super::paths::last_component(cwd).unwrap_or(cwd).to_string()
 }
 
 /// Observed (unanswerable) pending item of a waiting foreign session, from
@@ -1361,6 +1359,13 @@ pub async fn detail(state: &AppState, summary: SessionSummary) -> SessionDetail 
 mod tests {
     use super::*;
     use crate::claude::model::ControlChannel;
+
+    #[test]
+    fn a_project_is_named_after_its_folder_on_either_system() {
+        assert_eq!(project_name("/Users/me/dev/app"), "app");
+        assert_eq!(project_name(r"C:\Users\me\dev\app"), "app");
+        assert_eq!(project_name("/"), "/");
+    }
 
     #[test]
     fn tmux_targets() {

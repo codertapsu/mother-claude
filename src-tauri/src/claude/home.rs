@@ -196,6 +196,12 @@ pub fn encode_cwd(path: &str) -> String {
 /// Prefer reading the authoritative `cwd` from a transcript event or
 /// `claude agents --json`. This is only a display fallback.
 pub fn best_effort_decode(encoded: &str) -> String {
+    // A Windows drive's folder (`C:\` encodes as `C--`), whatever this
+    // machine is.
+    let b = encoded.as_bytes();
+    if b.len() >= 3 && b[0].is_ascii_alphabetic() && &b[1..3] == b"--" {
+        return format!("{}:\\{}", &encoded[..1], encoded[3..].replace('-', "\\"));
+    }
     // The leading `-` corresponds to the root `/`; interior `-` are assumed to
     // be path separators. Real hyphens in directory names will be wrong.
     let s = encoded.strip_prefix('-').unwrap_or(encoded);
@@ -249,6 +255,9 @@ mod tests {
     fn best_effort_decode_roundtrips_simple_paths() {
         // No hyphens in the original → exact round-trip.
         assert_eq!(best_effort_decode("-Users-me-app"), "/Users/me/app");
+        // A Windows drive's folder, on any machine.
+        assert_eq!(encode_cwd(r"C:\Users\me\app"), "C--Users-me-app");
+        assert_eq!(best_effort_decode("C--Users-me-app"), r"C:\Users\me\app");
     }
 
     #[test]
