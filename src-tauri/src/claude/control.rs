@@ -218,6 +218,9 @@ pub struct SpawnOptions {
     pub max_budget_usd: Option<f64>,
     /// `--disallowed-tools <a,b,…>`.
     pub disallowed_tools: Vec<String>,
+    /// `--allowedTools <a,b,…>`: exact tool names that need no permission
+    /// card (the team tools, which Mother Claude authorizes per call).
+    pub allowed_tools: Vec<String>,
     /// `initialize` registers the team guard's `PreToolUse` callback
     /// (`orchestration::guard`), answered by `handle_cli_request`.
     pub guard_hooks: bool,
@@ -2446,6 +2449,10 @@ pub fn headless_args(id: &str, opts: &SpawnOptions, permission_mode: &str) -> Ve
     }
     if !opts.disallowed_tools.is_empty() {
         a.extend(["--disallowed-tools".into(), opts.disallowed_tools.join(",")]);
+    }
+    if !opts.allowed_tools.is_empty() {
+        // One comma-joined value, as the Agent SDK passes it.
+        a.extend(["--allowedTools".into(), opts.allowed_tools.join(",")]);
     }
     a.extend(opts.extra_args.iter().cloned());
     a

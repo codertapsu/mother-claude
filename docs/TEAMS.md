@@ -129,6 +129,7 @@ the team's block of `SpawnOptions` and argv:
 | `-w <role>` | a worktree role, when its worktree does not exist yet (then it runs in it) |
 | `--max-budget-usd <n>` | only when the account pays per token (API key, cloud provider, Console): the role's `budgetUsd`, else $5 |
 | `--disallowed-tools Edit,Write,MultiEdit,NotebookEdit` | a read-only role |
+| `--allowedTools mcp__plugin_mother-claude_mc__task_create,…` | the ten team tools by exact name, one comma-joined value (as the Agent SDK passes it): Mother Claude decides each call itself, so none raises a permission card. Never the server's name, which would allow its other tools too (the browser's) |
 | `--model`, `--effort`, `--permission-mode` | from the router and the role, as for every owned session |
 | `initialize.hooks` | the guard's `PreToolUse` callback (below) |
 
@@ -164,10 +165,15 @@ Every change goes to the dashboard as a `teams` WebSocket frame
 ## Tools
 
 The team's sessions reach the board through Mother Claude's MCP server
-(`mcp::registry`, served by mcp-core's `/mcp`). A call is accepted only from
-the lead or a role session of a team (the caller's session id, its working
-folder inside the project); anything else gets a `denied` result that says
-why.
+(`mcp::registry`, served at `/mcp`, docs/MCP.md). Every owned session,
+role sessions included, gets it from the plugin loaded inline
+(`--plugin-dir`, added to every Path B launch), so the model sees the tools
+as `mcp__plugin_mother-claude_mc__<tool>`; a foreign session that takes a
+role gets them from the installed plugin. A call is accepted only from the
+lead or a role session of a team (the caller's session id, which the server
+takes from the calling process, and its working folder inside the project);
+anything else gets a `denied` result that says why. The read-only tools are
+marked so (`readOnlyHint`), which keeps their calls out of the audit log.
 
 | Tool | Who | What |
 |---|---|---|
@@ -280,9 +286,12 @@ worktrees itself. Notes:
 The plugin's `hooks.json` adds six observe-only events: `TeammateIdle`,
 `TaskCreated`, `TaskCompleted` (Claude Code's own agent teams in interactive
 sessions — the Teams page lists them; Mother Claude does not run them),
-`PreModelSwitch` / `PostModelSwitch` (a role session's model, shown on the
-team page) and `ConfigChange` (a role session changing settings is audited,
-`team.config_change`). **`WorktreeCreate` and `WorktreeRemove` are
+`PreModelSwitch` / `PostModelSwitch` (the model of a role a foreign session
+holds, shown on the team page) and `ConfigChange` (a foreign role session
+changing settings is audited, `team.config_change`). They come only from
+sessions Mother Claude does not own: in an owned session the plugin's
+scripts exit at once (`MOTHER_CLAUDE_OWNED=1`), and an owned role session
+reports through its own stream (the guard through `initialize.hooks`). **`WorktreeCreate` and `WorktreeRemove` are
 deliberately not registered**: a `WorktreeCreate` hook *replaces* Claude
 Code's git worktree creation ("Hook failure or missing path fails creation",
 hooks reference; confirmed in the CLI binary), so an observe-only one in the
@@ -304,9 +313,10 @@ Every change is audited (`team.*`) and a device's is told to the desktop.
 
 ## Limits
 
-* The tools reach a session through mcp-core's `/mcp` endpoint; an owned role
-  session needs that server's entry (`--mcp-config` or the plugin) to see
-  them.
+* The tools reach a session only while Mother Claude's tools are on (the
+  inline plugin is added to owned launches then); a foreign session holding
+  a role needs the plugin installed for its account (`/reload-plugins` when
+  it started before).
 * The guard reads what a command names; a write through a script, a build
   tool, `git`, or a computed path is not caught. It is an ownership fence for
   cooperating sessions, not a sandbox (the approval classifier and the

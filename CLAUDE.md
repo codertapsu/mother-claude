@@ -122,7 +122,10 @@ plugin's `PreToolUse` decide path. Never register a `WorktreeCreate` or
 `WorktreeRemove` hook in the plugin: it would replace Claude Code's worktrees
 for every session. Role sessions never get `--agent` (it replaces the system
 prompt); their `--settings` carry `crossSessionInbound: accept` and nothing
-else. Every end of a task goes to `metrics::record_outcome`.
+else, and their `--allowedTools` names the team tools exactly
+(`mcp__plugin_mother-claude_mc__task_create,…`), never the server (that
+would allow the browser tools too). Every end of a task goes to
+`metrics::record_outcome`.
 
 ## Data sources (adapter contains all version drift)
 

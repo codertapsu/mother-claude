@@ -712,6 +712,24 @@ pub fn definitions() -> Vec<ToolDef> {
     ]
 }
 
+/// How a session's model names a tool of Mother Claude's MCP server: the
+/// plugin `mother-claude`, its server `mc` (docs/MCP.md). The same value as
+/// mcp-core's `crate::mcp::plugin::TOOL_PREFIX`, which this module's base
+/// does not have yet: use that constant once both are on one branch.
+pub const TOOL_PREFIX: &str = "mcp__plugin_mother-claude_mc__";
+
+/// The team tools by their full names, for a role session's
+/// `--allowedTools`: Mother Claude decides who may do what on every call
+/// ([`member`]), so a call needs no permission card. Exact names only,
+/// never the server's name, which would allow every other tool of the
+/// server too (the browser's among them).
+pub fn allowed_tools() -> Vec<String> {
+    definitions()
+        .iter()
+        .map(|d| format!("{TOOL_PREFIX}{}", d.name))
+        .collect()
+}
+
 /// Register the team tools (`mcp::registry`, the "teams" line).
 pub fn register(r: &mut Registry) {
     for def in definitions() {
@@ -762,6 +780,23 @@ mod tests {
         let mut r = Registry::default();
         register(&mut r);
         assert_eq!(r.len(), 10);
+    }
+
+    #[test]
+    fn a_role_session_may_call_exactly_the_team_tools() {
+        let allowed = allowed_tools();
+        assert_eq!(allowed.len(), definitions().len());
+        assert!(allowed.contains(&"mcp__plugin_mother-claude_mc__task_list".to_string()));
+        assert!(allowed.contains(&"mcp__plugin_mother-claude_mc__task_done".to_string()));
+        for name in &allowed {
+            let tool = name.strip_prefix(TOOL_PREFIX).unwrap_or_default();
+            assert!(!tool.is_empty(), "{name}: never the whole server");
+            assert!(
+                tool.chars().all(|c| c.is_ascii_lowercase() || c == '_'),
+                "{name}: an exact name, no pattern"
+            );
+            assert!(!tool.starts_with("browser_") && !tool.starts_with("mc_"));
+        }
     }
 
     #[test]

@@ -11,7 +11,9 @@
 //! role's extra folders, `-w <role>` for a worktree role (Claude Code makes
 //! and reuses `<project>/.claude/worktrees/<role>`), `--max-budget-usd` when
 //! the account pays per token, the write tools disallowed for a read-only
-//! role, and the guard's `PreToolUse` callback in `initialize`. The account
+//! role, the team tools allowed by exact name (`--allowedTools`, no
+//! permission card per call) and the guard's `PreToolUse` callback in
+//! `initialize`. The account
 //! environment comes from the team's account exactly as for any owned
 //! session. Model and effort come from [`router::choose`], admission from
 //! [`capacity::admit`] (with every running role session, the lead's
@@ -431,6 +433,9 @@ pub fn role_options(
         } else {
             Vec::new()
         },
+        // The board without a permission card per call: Mother Claude
+        // decides who may do what on each one.
+        allowed_tools: super::mcp::allowed_tools(),
         guard_hooks: true,
         quiet: true,
         ..Default::default()
@@ -1198,6 +1203,13 @@ mod tests {
         );
         assert!(!s.contains("--disallowed-tools"));
         assert!(!s.contains("--allow-dangerously-skip-permissions"));
+        // The team tools by exact name, one comma-joined value.
+        let allowed = &a[pos("--allowedTools") + 1];
+        assert!(allowed.starts_with("mcp__plugin_mother-claude_mc__task_create,"));
+        assert_eq!(allowed.split(',').count(), 10);
+        assert!(!allowed
+            .split(',')
+            .any(|t| t == "mcp__plugin_mother-claude_mc"));
         assert!(opts.guard_hooks);
         // The packet goes over stdin, never argv.
         assert!(!s.contains("Login form"));

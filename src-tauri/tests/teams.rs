@@ -310,6 +310,16 @@ async fn a_lead_and_two_workers_run_a_feature_through_the_board() {
         !argv.iter().any(|a| a == "--max-budget-usd"),
         "a plan account"
     );
+    // The team tools need no permission card, by exact name only.
+    let allowed = flag(&argv, "--allowedTools").unwrap();
+    assert!(allowed
+        .split(',')
+        .any(|t| t == "mcp__plugin_mother-claude_mc__task_create"));
+    assert!(allowed
+        .split(',')
+        .all(|t| t.starts_with("mcp__plugin_mother-claude_mc__task_")
+            || t.starts_with("mcp__plugin_mother-claude_mc__team_")
+            || t == "mcp__plugin_mother-claude_mc__session_summary"));
     // Its `initialize` registered the guard's callback.
     let init = f
         .received(&lead)
