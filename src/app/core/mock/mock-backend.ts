@@ -42,6 +42,7 @@ import { MockBackend, MockRole, WebSocketLike, mockRole } from './mock-api';
 import { MockCapacity } from './mock-capacity';
 import { MockData } from './mock-data';
 import { MockDelete } from './mock-delete';
+import { MockMcp } from './mock-mcp';
 import { MockSwitch } from './mock-switch';
 import { MockMove } from './mock-move';
 import { mockFolder, mockHostOs } from './mock-os';
@@ -125,6 +126,8 @@ class FixtureBackend implements MockBackend {
   private readonly switching: MockSwitch;
   /** Capacity, routing and budgets (`/host`, `/capacity*`, `/routing/*`). */
   private readonly capacity: MockCapacity;
+  /** Mother Claude's MCP server, as the Services page shows it (`/mcp*`). */
+  private readonly mcp: MockMcp;
 
   constructor(readonly role: MockRole) {
     const now = Date.now();
@@ -168,6 +171,7 @@ class FixtureBackend implements MockBackend {
       notice: (level, text, session) =>
         this.broadcast({ t: 'notice', level, text, ...(session ? { session } : {}) }),
     });
+    this.mcp = new MockMcp(role === 'desktop', now);
     if (ACCOUNTS_MODE === '1' || ACCOUNTS_MODE === 'limit' || MOCK_SERVERS) {
       this.fx.accounts = buildAccounts(now, true);
       this.fx.accountUsage = buildAccountUsage(now);
@@ -293,6 +297,9 @@ class FixtureBackend implements MockBackend {
     // Capacity, routing and budgets
     const capacity = this.capacity.route(path, method, body, q);
     if (capacity) return capacity;
+    // Claude Code tools (the MCP server's panel)
+    const mcp = this.mcp.route(path, method, body);
+    if (mcp) return mcp;
 
     // Sessions
     if (path === '/sessions' && method === 'GET') {

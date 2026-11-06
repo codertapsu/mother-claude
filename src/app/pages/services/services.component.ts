@@ -6,12 +6,14 @@ import { AccountRef, ServicesInfo } from '../../core/models';
 import { RealtimeService } from '../../core/realtime.service';
 import { AccountChipComponent } from '../../shared/account-chip.component';
 import { IconComponent } from '../../shared/icon.component';
+import { McpPanelComponent } from './mcp-panel.component';
 
-/** Daemon health, configured MCP servers and daemon background jobs. Live
- * agent/background activity lives on the Agents page. */
+/** Daemon health, Mother Claude's tools for Claude Code, configured MCP
+ * servers and daemon background jobs. Live agent/background activity lives on
+ * the Agents page. */
 @Component({
   selector: 'mc-services',
-  imports: [RouterLink, AccountChipComponent, IconComponent],
+  imports: [RouterLink, AccountChipComponent, IconComponent, McpPanelComponent],
   template: `
     <div class="page narrow">
       <div class="page-head">
@@ -29,6 +31,8 @@ import { IconComponent } from '../../shared/icon.component';
       @if (error()) {
         <p class="notice error">{{ error() }}</p>
       }
+
+      <mc-mcp-panel />
 
       @if (data(); as d) {
         <h2>Daemon</h2>

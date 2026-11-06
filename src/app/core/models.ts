@@ -1278,6 +1278,60 @@ export interface ForeignControlStatus {
   lastError?: string;
 }
 
+// ───────────────────────────────────────── Claude Code tools (MCP, docs/MCP.md)
+
+/** One call to Mother Claude's MCP server: never its arguments. */
+export interface McpCall {
+  at: number;
+  /** The calling session, when the server could tell. */
+  session?: string;
+  /** A session Mother Claude launched. */
+  owned: boolean;
+  tool: string;
+  /** `false`: the tool refused, failed or timed out. */
+  ok: boolean;
+  durationMs: number;
+}
+
+export interface McpTool {
+  name: string;
+  title?: string;
+}
+
+/** The installed plugin as the desktop sees it (`GET /api/mcp`, desktop only). */
+export interface McpPluginInfo {
+  installed: boolean;
+  enabled: boolean;
+  /** The version sessions load. */
+  version?: string;
+  /** The version this app writes. */
+  expectedVersion: string;
+  /** Sessions load an older plugin: they get no tools until it is updated. */
+  outdated: boolean;
+  cliAvailable: boolean;
+}
+
+/** `GET /api/mcp`: the MCP server every Claude Code session on this computer calls. */
+export interface McpToolsStatus {
+  enabled: boolean;
+  /** `http://127.0.0.1:<port>/mcp` (this computer only). */
+  url: string;
+  /** What the model sees before a tool's name. */
+  toolPrefix: string;
+  tools: McpTool[];
+  toolCount: number;
+  /** The plugin folder carries the server entry. */
+  entryWritten: boolean;
+  /** Sessions Mother Claude launches get the tools. */
+  ownedSessions: boolean;
+  /** MCP sessions heard from in the last 15 minutes. */
+  clients: number;
+  callsTotal: number;
+  /** Newest first. */
+  recentCalls: McpCall[];
+  plugin?: McpPluginInfo;
+}
+
 // ─────────────────────────────────────────────────── 2.6 Pairing & devices
 
 export type Ingress = 'loopback' | 'lan' | 'tunnel' | 'bridge-loopback';

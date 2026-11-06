@@ -41,6 +41,7 @@ import {
   LaunchDefaults,
   LifecycleAction,
   McpServerStatus,
+  McpToolsStatus,
   MeInfo,
   MessageBody,
   MessageResult,
@@ -143,6 +144,7 @@ import {
  *   Remote    getRemote() · updateRemote(patch)
  *   Foreign   getForeignControl() · installForeignControl() ·
  *             uninstallForeignControl()
+ *   Tools     getMcpTools(withPlugin?) · setMcpToolsEnabled(enabled)
  *   Push      getVapidKey() · pushSubscribe(sub) · pushUnsubscribe(endpoint) ·
  *             pushTest() · getPushPrefs() · setPushPrefs(prefs) ·
  *             setSessionPush(id, pref)
@@ -873,6 +875,23 @@ export class ApiService {
 
   uninstallForeignControl(): Promise<ForeignControlStatus | null> {
     return this.post('/control/foreign/uninstall', {});
+  }
+
+  // ─────────────────────────────────────────── Claude Code tools (MCP)
+
+  /** Mother Claude's MCP server: on/off, its tools, the last calls; on the
+   * desktop also the installed plugin, unless `withPlugin` is false (a poll:
+   * the plugin's state may ask the CLI). */
+  getMcpTools(withPlugin = true): Promise<McpToolsStatus> {
+    return this.req<McpToolsStatus>(withPlugin ? '/mcp' : '/mcp?plugin=false');
+  }
+
+  /** Turn the tools on or off for every session (desktop only). */
+  setMcpToolsEnabled(enabled: boolean): Promise<McpToolsStatus> {
+    return this.req<McpToolsStatus>('/mcp/settings', {
+      method: 'PUT',
+      body: JSON.stringify({ enabled }),
+    });
   }
 
   // ───────────────────────────────────────────────────────────────── Push
