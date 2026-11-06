@@ -8,6 +8,50 @@ import { McpCall, McpPluginInfo, McpToolsStatus } from '../models';
 import { urlParam } from '../platform';
 
 const S = 1000;
+
+/** The browser tools (`extension::mcp`), by name and title. */
+const BROWSER_TOOLS = (
+  [
+    ['browser_tabs', 'Browser tabs'],
+    ['browser_navigate', 'Open a URL'],
+    ['browser_back', 'Go back'],
+    ['browser_forward', 'Go forward'],
+    ['browser_reload', 'Reload'],
+    ['browser_snapshot', 'Read the page (snapshot)'],
+    ['browser_read', "Read the page's content"],
+    ['browser_find', 'Find elements'],
+    ['browser_click', 'Click'],
+    ['browser_hover', 'Hover'],
+    ['browser_type', 'Type text'],
+    ['browser_fill_form', 'Fill a form'],
+    ['browser_select', 'Choose options'],
+    ['browser_check', 'Check or uncheck'],
+    ['browser_press', 'Press a key'],
+    ['browser_scroll', 'Scroll'],
+    ['browser_wait', 'Wait'],
+    ['browser_screenshot', 'Screenshot'],
+    ['browser_eval', 'Run JavaScript'],
+    ['browser_console', 'Console messages'],
+    ['browser_dialog', 'Answer a dialog'],
+    ['browser_upload', 'Upload files'],
+  ] as const
+).map(([name, title]) => ({ name, title }));
+
+/** The team tools (`orchestration::mcp`), by name and title. */
+const TEAM_TOOLS = (
+  [
+    ['task_create', 'Write a task packet'],
+    ['task_list', "List the board's tasks"],
+    ['task_get', 'Read a task'],
+    ['task_claim', 'Claim a task'],
+    ['task_update', 'Update a task'],
+    ['task_done', 'Finish a task'],
+    ['team_roles', 'Who is on the team'],
+    ['team_status', 'The team now'],
+    ['team_request_role', "Start a role's session"],
+    ['session_summary', "What a role's session is doing"],
+  ] as const
+).map(([name, title]) => ({ name, title }));
 const VERSION = '0.7.0+mcp.1';
 
 export class MockMcp {
@@ -65,9 +109,12 @@ export class MockMcp {
   }
 
   private status(): McpToolsStatus {
+    // What the app registers: core, browser, teams (`mcp::registry`).
     const tools = [
       { name: 'mc_ping', title: 'Ping Mother Claude' },
       { name: 'mc_session', title: 'This session in Mother Claude' },
+      ...BROWSER_TOOLS,
+      ...TEAM_TOOLS,
     ];
     return {
       enabled: this.enabled,
