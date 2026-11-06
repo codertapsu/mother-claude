@@ -13,7 +13,9 @@
 //! a JSON-RPC protocol error. Protocol errors are for malformed requests and
 //! unknown tools only.
 
+pub mod identity;
 pub mod jsonrpc;
+pub mod server;
 
 use std::future::Future;
 use std::pin::Pin;

@@ -102,6 +102,11 @@ pub enum Principal {
     Hook,
     /// The Path A sidecar (`mcs_…`), local only.
     Sidecar,
+    /// A Claude Code session calling Mother Claude's MCP server (`mcm_…`,
+    /// the plugin's headers helper): the loopback listener only, `POST /mcp`
+    /// only — never a data, control or admin route, never dangerous
+    /// (docs/MCP.md).
+    Mcp,
 }
 
 impl Principal {
@@ -130,6 +135,7 @@ impl Principal {
             Principal::LocalScript => "local-script",
             Principal::Hook => "hook",
             Principal::Sidecar => "sidecar",
+            Principal::Mcp => "mcp",
         }
     }
 }
@@ -255,7 +261,8 @@ impl ClientContext {
     ///   with a genuinely local caller (sending the `token` file must never
     ///   take away what the same request has without it, as it does with
     ///   `MOTHER_CLAUDE_BRIDGE_REQUIRE_TOKEN=1`); never on the dashboard port;
-    /// * `Hook`, `Sidecar` → never.
+    /// * `Hook`, `Sidecar`, `Mcp` → never (an MCP tool's dangerous effect is
+    ///   an approval through `crate::pending`, never the session's own right).
     pub fn may_dangerous(&self) -> bool {
         match &self.principal {
             Principal::Desktop => true,
@@ -269,6 +276,7 @@ impl ClientContext {
                 self.ingress == Ingress::BridgeLoopback && self.local
             }
             Principal::Hook | Principal::Sidecar => false,
+            Principal::Mcp => false,
         }
     }
 

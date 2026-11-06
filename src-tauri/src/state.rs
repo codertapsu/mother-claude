@@ -157,6 +157,9 @@ pub struct Inner {
     /// Model routing, admission control, budgets and task outcomes
     /// (`orchestration/scheduler.rs`, docs/ROUTING.md).
     pub scheduler: crate::orchestration::scheduler::Scheduler,
+    /// The MCP server Claude Code sessions call: its tools, token, setting
+    /// and recent calls (`mcp/server.rs`, docs/MCP.md).
+    pub mcp: crate::mcp::server::McpState,
 }
 
 impl std::fmt::Debug for Inner {
@@ -233,6 +236,7 @@ impl Inner {
             reveal: crate::claude::reveal::Revealer::default(),
             opener: crate::claude::browser::Opener::default(),
             scheduler: crate::orchestration::scheduler::Scheduler::load(data_dir),
+            mcp: crate::mcp::server::McpState::load(data_dir),
             auth,
         })
     }

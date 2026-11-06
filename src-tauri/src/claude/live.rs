@@ -1261,6 +1261,33 @@ impl LiveRoster {
     pub fn remove_for_test(&self, session_id: &str) {
         self.lock().live.remove(session_id);
     }
+
+    /// The live record of the process `pid`, as of the last refresh (the
+    /// MCP server names its caller by the CLI's pid, docs/MCP.md).
+    pub fn by_pid(&self, pid: u32) -> Option<LiveSession> {
+        self.lock()
+            .live
+            .values()
+            .find(|s| s.pid == Some(pid))
+            .cloned()
+    }
+}
+
+/// `sessions/<pid>.json` of one config directory, read now (a process that
+/// started after the last refresh): its record when it names a session and
+/// is not a spare worker. Only the `.json` file is opened. Blocking.
+pub fn read_pidfile_of(home: &ClaudeHome, pid: u32) -> Option<LiveSession> {
+    let path = home.sessions_dir().join(format!("{pid}.json"));
+    let PidfileRead::Parsed(rec) = read_pidfile(&path) else {
+        return None;
+    };
+    let ok = rec.pid.is_none_or(|p| p == pid)
+        && !rec.is_spare()
+        && rec
+            .session_id
+            .as_deref()
+            .is_some_and(super::ids::is_session_id);
+    ok.then_some(*rec)
 }
 
 #[cfg(test)]

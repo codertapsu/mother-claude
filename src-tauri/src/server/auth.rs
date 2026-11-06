@@ -7,6 +7,7 @@
 //! | device token (pairing exchange) | `mcd_` | any ingress | `Device` |
 //! | hook token (new every launch; `hook.curlrc`, 0600, for the plugin) | `mch_` | only when `ctx.local` | `Hook` |
 //! | sidecar token (per run, child env) | `mcs_` | only when `ctx.local` | `Sidecar` |
+//! | MCP token (new every launch; `mcp.token`, 0600, for the plugin's headers helper) | `mcm_` | only when `ctx.local`, on the loopback listener, `/mcp` only | `Mcp` |
 //!
 //! `LocalScript` reaches data and control routes but never admin routes
 //! (pairing, devices, remote access, plugin install). Dangerous actions: only
@@ -52,6 +53,8 @@ pub const DEVICE_PREFIX: &str = "mcd_";
 pub const HOOK_PREFIX: &str = "mch_";
 /// Prefix of the Path A sidecar's per-run token.
 pub const SIDECAR_PREFIX: &str = "mcs_";
+/// Prefix of the MCP server's per-launch token (docs/MCP.md).
+pub const MCP_PREFIX: &str = "mcm_";
 
 /// Credentials carried in [`crate::state::Inner`]. `Debug` never prints a
 /// token.
@@ -338,6 +341,13 @@ pub fn principal_for_token(
             && token_matches(&state.auth.script_token, token))
         .then_some(Principal::LocalScript);
     }
+    if token.starts_with(MCP_PREFIX) {
+        // The loopback listener only (never the bridge port); `/mcp` is the
+        // one route that accepts this principal.
+        return (ctx.ingress == super::context::Ingress::Loopback
+            && token_matches(state.mcp.token(), token))
+        .then_some(Principal::Mcp);
+    }
     if token.starts_with(HOOK_PREFIX) {
         return token_matches(&state.auth.hook_token, token).then_some(Principal::Hook);
     }
@@ -467,7 +477,7 @@ impl<S: Send + Sync> FromRequestParts<S> for Authed {
                 Ok(Authed(ctx))
             }
             Principal::Anonymous => Err(unauthorized(&ctx)),
-            Principal::Hook | Principal::Sidecar => Err(ApiError::forbidden(
+            Principal::Hook | Principal::Sidecar | Principal::Mcp => Err(ApiError::forbidden(
                 "wrong_credential",
                 "This credential is only valid for its own endpoint.",
             )),
@@ -993,5 +1003,38 @@ mod tests {
         assert_eq!(f.len(), "sha256:".len() + 8);
         assert!(!f.contains("secret"));
         assert_eq!(sha256_hex("abc").len(), 64);
+    }
+
+    #[test]
+    fn the_mcp_token_is_its_own_principal_on_the_loopback_listener_only() {
+        let st = state();
+        let mcp = st.mcp.token().to_string();
+        assert!(mcp.starts_with(MCP_PREFIX));
+        assert_eq!(
+            principal_for_token(&st, &ctx(true), &mcp),
+            Some(Principal::Mcp)
+        );
+        // Through a tunnel, on the bridge's port or on the LAN: nothing.
+        assert_eq!(principal_for_token(&st, &ctx(false), &mcp), None);
+        let mut h = HeaderMap::new();
+        h.insert("host", "127.0.0.1:5612".parse().unwrap());
+        let bridge = ClientContext::new(
+            Ingress::BridgeLoopback,
+            "127.0.0.1:1".parse().unwrap(),
+            &h,
+            false,
+        );
+        assert_eq!(principal_for_token(&st, &bridge, &mcp), None);
+        let lan = ClientContext::new(Ingress::Lan, "192.168.1.9:1".parse().unwrap(), &h, false);
+        assert_eq!(principal_for_token(&st, &lan, &mcp), None);
+        assert_eq!(principal_for_token(&st, &ctx(true), "mcm_forged"), None);
+        // It never passes a dashboard guard and never acts dangerously.
+        let mut c = ctx(true);
+        c.principal = Principal::Mcp;
+        assert!(!c.principal.is_user());
+        assert!(!c.may_dangerous());
+        assert_eq!(c.principal.label(), "mcp");
+        // Never printed by Debug.
+        assert!(!format!("{:?}", st.mcp).contains(&mcp));
     }
 }

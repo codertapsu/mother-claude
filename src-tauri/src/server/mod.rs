@@ -78,6 +78,8 @@ pub async fn no_frontend() -> impl IntoResponse {
 /// * `/v1` — the Claude HTTP bridge's main server, and `/servers/<id>/v1` —
 ///   every other API server (docs/ACCOUNTS.md §13.5), token always required
 ///   here (not on the tunnel ingress);
+/// * `/mcp` — the MCP server Claude Code sessions call (Mcp principal; the
+///   loopback ingress only, `404` elsewhere);
 /// * everything else — the SPA (no auth, so a phone can load the app and
 ///   then pair).
 pub fn router_for(state: AppState, ingress: Ingress) -> Router {
@@ -107,6 +109,9 @@ pub fn router_for(state: AppState, ingress: Ingress) -> Router {
             // under the same token-always rule.
             .merge(crate::bridge::app_prefixes(state.clone()));
     }
+    // Mother Claude's MCP server (docs/MCP.md): served on the loopback
+    // listener only, a 404 on every other one.
+    app = app.route("/mcp", crate::mcp::server::route(ingress));
     let app = match resolve_web_dir() {
         Some(dir) => {
             let index = dir.join("index.html");
