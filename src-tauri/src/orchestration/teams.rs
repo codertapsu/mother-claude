@@ -433,12 +433,14 @@ impl Teams {
     }
 
     /// What the guard holds a session to (a role session of a running
-    /// team whose role limits anything).
+    /// team whose role limits anything). A stopped team's sessions are not
+    /// held: one continued by hand is the user's again.
     pub fn guard_rule(&self, session: &str) -> Option<Rule> {
         let inner = self.lock();
         let team = inner
             .teams
             .values()
+            .filter(|t| !t.stopped)
             .find(|t| t.role_of(session).is_some())?;
         let role = team.role(team.role_of(session)?)?;
         let rule = Rule {
@@ -813,6 +815,11 @@ mod tests {
         assert_eq!(rule.lead_name.as_deref(), Some("app/lead"));
         // The lead limits itself to docs; it names no lead to ask.
         assert!(teams.guard_rule("s-lead").unwrap().lead_name.is_none());
+        // A stopped team holds nobody (a session continued by hand is the
+        // user's again).
+        teams.update(&id, |t| t.stopped = true);
+        assert!(teams.guard_rule("s-front").is_none());
+        teams.update(&id, |t| t.stopped = false);
         // A fork moves the role to its new session; the old one is
         // remembered and no longer bound.
         teams.bind(&id, "frontend", "s-front-2", false, 9);

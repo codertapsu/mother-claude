@@ -487,10 +487,11 @@ pub async fn stop_team(
     Path(id): Path<String>,
 ) -> ApiResult<Json<teams::TeamView>> {
     let team = team_of(&state, &id)?;
+    // Stopped first: the loop starts nothing for it from here.
+    state.teams.update(&id, |t| t.stopped = true);
     for role in &team.template.roles {
         super::launcher::stop_role(&state, &id, &role.id, "the team was stopped").await;
     }
-    state.teams.update(&id, |t| t.stopped = true);
     for role in &team.template.roles {
         state.teams.with_runtime(&id, &role.id, |r| {
             r.waiting = None;
