@@ -364,9 +364,10 @@ bridge's Messages API client (an API key).
   it was: `servers`, a thread's `server` and the bridge's `server` object are
   left out.
   Whether a tool call is dangerous is decided server-side for every channel
-  (`pending::classify_dangerous`: writes to `.claude/`, `.mcp.json`, shell
-  startup files, git hooks, launch agents, our data dir, …); a channel's own
-  flag can only raise it.
+  (`pending::classify_dangerous`: writes to `.claude/`, any account's config
+  directory (the app's registry publishes them, `accounts::
+  publish_config_dirs`), `.mcp.json`, shell startup files, git hooks, launch
+  agents, our data dir, …); a channel's own flag can only raise it.
 - Single broadcast bus (`tokio::sync::broadcast`) fans events to webview + all
   WS clients. Backpressure-aware.
 - TLS + token auth are **mandatory** whenever the bind address is non-loopback.

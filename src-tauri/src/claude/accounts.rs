@@ -26,7 +26,7 @@ use std::collections::BTreeMap;
 use std::ffi::OsStr;
 use std::fmt;
 use std::path::{Component, Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use serde::{Deserialize, Serialize};
@@ -867,6 +867,33 @@ pub struct AccountPatch {
     pub color: Option<String>,
 }
 
+/// Every account's config directory, published by the app's own registry
+/// ([`AccountRegistry::publish_config_dirs`], at start and after every
+/// change) for the approval classifier, which runs where no state is at hand
+/// (`pending::DangerEnv::current`). Empty until the app publishes it, so a
+/// test's registry never reaches another test's classification.
+static CONFIG_DIRS: RwLock<Vec<PathBuf>> = RwLock::new(Vec::new());
+
+/// The config directories the app published ([`CONFIG_DIRS`]).
+pub fn published_config_dirs() -> Vec<PathBuf> {
+    CONFIG_DIRS
+        .read()
+        .unwrap_or_else(|e| e.into_inner())
+        .clone()
+}
+
+/// The Default's directory, then each directory account's (token accounts
+/// share the Default's), as [`AccountRegistry::homes`] lists them.
+fn config_dirs_of(default_home: &ClaudeHome, reg: &Registry) -> Vec<PathBuf> {
+    let mut dirs = vec![default_home.base().to_path_buf()];
+    for a in &reg.accounts {
+        if let (AccountKind::Directory, Some(dir)) = (&a.kind, &a.dir) {
+            dirs.push(ClaudeHome::for_account_dir(dir).base().to_path_buf());
+        }
+    }
+    dirs
+}
+
 /// The registry and its secrets. Every change is saved before it returns.
 pub struct AccountRegistry {
     path: Option<PathBuf>,
@@ -875,6 +902,9 @@ pub struct AccountRegistry {
     data: RwLock<Registry>,
     /// Bumped on every change (for the `accounts` frame).
     generation: AtomicU64,
+    /// This is the app's registry: its config directories are published
+    /// ([`CONFIG_DIRS`]) after every change.
+    publishes: AtomicBool,
     /// What is known about each account now (sign-in, captures).
     pub runtime: status::AccountRuntime,
     /// Which token account a session ran under, across restarts.
@@ -914,6 +944,7 @@ impl AccountRegistry {
             secrets,
             data: RwLock::new(data),
             generation: AtomicU64::new(0),
+            publishes: AtomicBool::new(false),
             runtime: status::AccountRuntime::default(),
             sessions,
         }
@@ -968,7 +999,19 @@ impl AccountRegistry {
         }
         **guard = next;
         self.generation.fetch_add(1, Ordering::Relaxed);
+        if self.publishes.load(Ordering::Relaxed) {
+            *CONFIG_DIRS.write().unwrap_or_else(|e| e.into_inner()) =
+                config_dirs_of(&self.default_home, guard);
+        }
         Ok(())
+    }
+
+    /// Make this the app's registry: its config directories go to the
+    /// approval classifier now and after every change ([`CONFIG_DIRS`]).
+    pub fn publish_config_dirs(&self) {
+        self.publishes.store(true, Ordering::Relaxed);
+        let dirs = config_dirs_of(&self.default_home, &self.read());
+        *CONFIG_DIRS.write().unwrap_or_else(|e| e.into_inner()) = dirs;
     }
 
     /// A copy of the whole registry.
@@ -1663,6 +1706,26 @@ mod tests {
 
     fn token(n: u8) -> Secret {
         Secret::new(format!("sk-ant-oat01-{}", format!("{n:02}").repeat(20)))
+    }
+
+    #[test]
+    fn the_apps_registry_tells_the_classifier_every_config_directory() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (reg, default_dir) = registry(tmp.path());
+        let has = |d: &Path| published_config_dirs().iter().any(|p| p == d);
+        // A registry that is not the app's publishes nothing.
+        let work_dir = tmp.path().join("work-claude");
+        let work = reg.add_directory("Work", &work_dir, None).unwrap();
+        assert!(!has(&default_dir));
+        // The app's: now, and after every change.
+        reg.publish_config_dirs();
+        assert!(has(&default_dir));
+        let work_dir = work.dir.clone().unwrap();
+        assert!(has(&work_dir));
+        reg.remove(&work.id).unwrap();
+        assert!(!has(&work_dir), "a removed account's directory is not one");
+        assert!(has(&default_dir));
+        *CONFIG_DIRS.write().unwrap_or_else(|e| e.into_inner()) = Vec::new();
     }
 
     #[test]

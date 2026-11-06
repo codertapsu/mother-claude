@@ -163,6 +163,8 @@ pub async fn serve(state: AppState) -> anyhow::Result<()> {
     tokio::spawn(crate::bridge::autostart(state.clone()));
     hooks::start(&state);
     crate::mcp::server::start(&state);
+    // The approval classifier knows every account's config directory.
+    state.accounts.publish_config_dirs();
     push::start(&state);
     crate::claude::usage::start(&state);
     crate::claude::backup::ops::start(&state);

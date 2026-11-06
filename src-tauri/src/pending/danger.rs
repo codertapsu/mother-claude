@@ -68,6 +68,9 @@ pub struct DangerEnv {
     pub home: Option<PathBuf>,
     /// Mother Claude's own data directories.
     pub app_dirs: Vec<PathBuf>,
+    /// Every account's Claude Code config directory (writing there changes
+    /// what that account's sessions run: settings, hooks, plugins).
+    pub config_dirs: Vec<PathBuf>,
 }
 
 impl DangerEnv {
@@ -77,6 +80,7 @@ impl DangerEnv {
             cwd: cwd.filter(|c| !c.is_empty()).map(PathBuf::from),
             home: crate::claude::user_home_dir(),
             app_dirs: crate::persist::app_data_dir().into_iter().collect(),
+            config_dirs: crate::claude::accounts::published_config_dirs(),
         }
     }
 }
@@ -197,6 +201,11 @@ fn sensitive_resolved(path: &Path, env: &DangerEnv) -> Option<String> {
             return Some("Mother Claude's own data (devices, hook credentials)".into());
         }
     }
+    for dir in env.config_dirs.iter().filter(|d| config_dir_ok(d, env)) {
+        if path.starts_with(dir) || path.starts_with(resolve_existing(dir)) {
+            return Some("Claude Code configuration (an account's config directory)".into());
+        }
+    }
     if worktree_tail(&comps).iter().any(|c| c == ".claude") {
         return Some("Claude Code configuration (.claude/)".into());
     }
@@ -248,6 +257,35 @@ fn worktree_tail(comps: &[String]) -> &[String] {
     &comps[start..]
 }
 
+/// A config directory worth checking: not the home folder or a root (a
+/// strange setting must not make every path configuration).
+fn config_dir_ok(dir: &Path, env: &DangerEnv) -> bool {
+    dir.components().count() > 2 && env.home.as_deref() != Some(dir)
+}
+
+/// How a command may name a config directory: its path, `~/…` for one in
+/// the home folder, and its own name and a separator when that name says
+/// Claude (`.claude-work/`).
+fn config_needles(dir: &Path, home: Option<&Path>, windows: bool) -> Vec<String> {
+    let mut out = vec![command_text(&dir.to_string_lossy(), windows)];
+    if let Some(rest) = home.and_then(|h| dir.strip_prefix(h).ok()) {
+        out.push(command_text(
+            &format!("~/{}", rest.to_string_lossy()),
+            windows,
+        ));
+    }
+    if let Some(name) = dir
+        .file_name()
+        .map(|n| n.to_string_lossy().to_ascii_lowercase())
+    {
+        if name.contains("claude") {
+            out.push(format!("{name}/"));
+        }
+    }
+    out.retain(|n| n.len() > 3);
+    out
+}
+
 /// Why running `command` is dangerous, or `None`.
 pub fn sensitive_command(command: &str, env: &DangerEnv) -> Option<String> {
     sensitive_command_on(command, env, cfg!(windows))
@@ -285,6 +323,14 @@ fn sensitive_command_on(command: &str, env: &DangerEnv, windows: bool) -> Option
     }
     if mentions("dev.motherclaude") {
         return Some("touches Mother Claude's own data".into());
+    }
+    for dir in env.config_dirs.iter().filter(|d| config_dir_ok(d, env)) {
+        if config_needles(dir, env.home.as_deref(), windows)
+            .iter()
+            .any(|n| lower.contains(n.as_str()))
+        {
+            return Some("touches an account's Claude Code configuration".into());
+        }
     }
     const PATTERNS: [(&str, &str); 12] = [
         (".claude/", "touches Claude Code configuration (.claude/)"),
@@ -442,6 +488,7 @@ mod tests {
             app_dirs: vec![
                 tmp.join("home/Library/Application Support/dev.motherclaude.Mother-Claude")
             ],
+            config_dirs: vec![tmp.join("home/.claude"), tmp.join("home/.claude-work")],
         }
     }
 
@@ -666,6 +713,44 @@ mod tests {
             let got = classify(&item(tool, input.clone()), &e);
             assert_eq!(got.is_some(), want, "{tool} {input} → {got:?}");
         }
+    }
+
+    #[test]
+    fn every_accounts_config_directory_is_configuration() {
+        let dir = tempfile::tempdir().unwrap();
+        let tmp = dir.path().canonicalize().unwrap();
+        std::fs::create_dir_all(tmp.join("repo/src")).unwrap();
+        std::fs::create_dir_all(tmp.join("home/.claude-work/hooks")).unwrap();
+        let e = env(&tmp);
+        let work = tmp.join("home/.claude-work");
+        // A directory account's folder has no `.claude` component: only its
+        // place in `config_dirs` makes it configuration.
+        for path in [
+            work.join("settings.json"),
+            work.join("hooks/pre.sh"),
+            work.join("plugins/x/plugin.json"),
+        ] {
+            let p = path.to_string_lossy();
+            assert!(sensitive_path(&p, &e).is_some(), "{p}");
+        }
+        assert!(sensitive_path("src/main.rs", &e).is_none());
+        let abs = work.join("settings.json");
+        for cmd in [
+            format!("echo '{{}}' > {}", abs.display()),
+            "cp evil.json ~/.claude-work/settings.json".to_string(),
+            "cd ~ && echo x >> .claude-work/hooks/pre.sh".to_string(),
+        ] {
+            assert!(sensitive_command_on(&cmd, &e, false).is_some(), "{cmd}");
+        }
+        assert!(sensitive_command_on("cargo test", &e, false).is_none());
+        // The home folder itself or a root is never one (a strange setting
+        // must not make every path configuration).
+        let odd = DangerEnv {
+            config_dirs: vec![tmp.join("home"), PathBuf::from("/")],
+            ..env(&tmp)
+        };
+        assert!(sensitive_path("src/main.rs", &odd).is_none());
+        assert!(sensitive_command_on("ls ~/notes", &odd, false).is_none());
     }
 
     #[test]
