@@ -21,8 +21,10 @@ import {
   readLocation,
   storageKindOf,
 } from '../move-data';
+import { lastSegment, pathWithin } from '../paths';
 import { urlParam } from '../platform';
 import { MockRole } from './mock-api';
+import { mockFolder } from './mock-os';
 import { GDRIVE, HOST, JobEnd, JobNames, MockData, OTHER_HOST, THIS_MACHINE } from './mock-data';
 
 const BACKUP_MODE = urlParam('mockbackup');
@@ -285,15 +287,12 @@ export class MockMove {
   }
 
   private async addStorage(b: Record<string, unknown>): Promise<Response> {
-    const raw = typeof b['path'] === 'string' ? b['path'].trim().replace(/\/+$/, '') : '';
+    const raw = typeof b['path'] === 'string' ? b['path'].trim() : '';
     if (!raw) return fail(422, 'invalid_body', "Send the folder's path.");
-    if (!raw.startsWith('/') && !raw.startsWith('~')) {
-      return fail(422, 'invalid_folder', 'a storage is an absolute folder');
-    }
-    const path = raw.replace(/^~(?=\/|$)/, '/Users/marcus');
-    if (path.split('/').some((p) => p === '.' || p === '..')) {
-      return fail(422, 'invalid_folder', 'a storage path has no . or .. in it');
-    }
+    // The desktop's own system decides (`?os=windows` for a Windows one).
+    const folder = mockFolder(raw);
+    if ('error' in folder) return fail(422, 'invalid_storage', folder.error);
+    const path = folder.path;
     const inside = this.host
       .accounts()
       .find((a) => a.kind === 'directory' && within(path, a.dir ?? SHARED_DIR));
@@ -308,7 +307,7 @@ export class MockMove {
     const kind = storageKindOf(path);
     const label =
       (typeof b['label'] === 'string' && b['label'].trim()) ||
-      (kind === 'folder' ? (path.split('/').pop() ?? 'Folder') : KIND_LABELS[kind]);
+      (kind === 'folder' ? lastSegment(path) || 'Folder' : KIND_LABELS[kind]);
     if ([...label].length > 40)
       return fail(422, 'invalid_storage', 'a label has at most 40 characters');
     const st: Store = { id: `stor_${hex(12)}`, label, path, kind, available: true };
@@ -1058,8 +1057,7 @@ function accountSets(
 }
 
 function within(path: string, dir: string): boolean {
-  const d = dir.replace(/\/+$/, '');
-  return path === d || path.startsWith(`${d}/`);
+  return pathWithin(path, dir);
 }
 
 function obj(v: unknown): Record<string, unknown> | null {

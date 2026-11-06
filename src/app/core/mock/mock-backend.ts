@@ -43,7 +43,9 @@ import { MockData } from './mock-data';
 import { MockDelete } from './mock-delete';
 import { MockSwitch } from './mock-switch';
 import { MockMove } from './mock-move';
+import { mockFolder, mockHostOs } from './mock-os';
 import { MOCK_SERVERS, MockServers } from './mock-servers';
+import { isAbsoluteAnywhere, trimSeparators } from '../paths';
 import { urlParam } from '../platform';
 import { SessionFilters, sessionPasses } from '../../shared/session-search';
 
@@ -1019,6 +1021,7 @@ class FixtureBackend implements MockBackend {
           ingress: 'loopback' as const,
           local: true,
           allowDangerous: true,
+          hostOs: mockHostOs(),
         }
       : {
           principal: 'device' as const,
@@ -1027,6 +1030,7 @@ class FixtureBackend implements MockBackend {
           ingress: 'lan' as const,
           local: false,
           allowDangerous: false,
+          hostOs: mockHostOs(),
         };
   }
 
@@ -1540,15 +1544,19 @@ class FixtureBackend implements MockBackend {
     };
     let account: AccountView;
     if (b['kind'] === 'directory') {
-      let dir = typeof b['dir'] === 'string' ? b['dir'].trim() : '';
-      if (dir.startsWith('~/')) dir = `/Users/marcus/${dir.slice(2)}`;
-      dir = dir.replace(/\/+$/, '');
-      if (!dir.startsWith('/')) {
+      const raw = typeof b['dir'] === 'string' ? b['dir'].trim() : '';
+      if (!raw) {
         return json(
           { error: { code: 'invalid_account', message: 'A directory account needs `dir`.' } },
           422,
         );
       }
+      // The desktop's own system decides (`?os=windows` for a Windows one).
+      const folder = mockFolder(raw);
+      if ('error' in folder) {
+        return json({ error: { code: 'invalid_account', message: folder.error } }, 422);
+      }
+      const dir = folder.path;
       if (this.fx.accounts.accounts.some((a) => a.dir === dir)) {
         return json(
           {
@@ -1799,7 +1807,8 @@ class FixtureBackend implements MockBackend {
     }
     const byProject: Record<string, string> = {};
     for (const [dir, id] of Object.entries(b.byProject ?? {})) {
-      if (!dir.startsWith('/') || dir.split('/').some((p) => p === '.' || p === '..')) {
+      // A project's folder as either system records it.
+      if (!isAbsoluteAnywhere(dir) || dir.split(/[\\/]/).some((p) => p === '.' || p === '..')) {
         return json(
           {
             error: {
@@ -1810,7 +1819,7 @@ class FixtureBackend implements MockBackend {
           422,
         );
       }
-      byProject[dir.replace(/\/+$/, '') || '/'] = id;
+      byProject[trimSeparators(dir)] = id;
     }
     this.fx.accounts.defaults = {
       newSession: b.newSession as string,

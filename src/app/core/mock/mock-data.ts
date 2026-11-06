@@ -32,8 +32,10 @@ import {
   TransferPlan,
   TransferSessionPlan,
 } from '../models';
+import { joinPath } from '../paths';
 import { urlParam } from '../platform';
 import { MOCK_ACCOUNT_WORK } from './fixtures';
+import { mockFolder, mockHostOs } from './mock-os';
 
 const BACKUP_MODE = urlParam('mockbackup');
 const PASS_MODE = urlParam('mockpass');
@@ -454,7 +456,7 @@ export class MockData {
             return {
               account: a.id,
               name: a.name,
-              dir: `${folder}/${owner.name}`,
+              dir: joinPath(folder, owner.name),
               exists: st.exists,
               ...(owner.id !== a.id ? { sharedWith: owner.id } : {}),
               ...(st.keyMissing ? { keyMissing: true } : {}),
@@ -465,10 +467,17 @@ export class MockData {
             };
           })
         : [],
-      suggestions: [
-        { label: 'iCloud Drive', path: ICLOUD },
-        { label: 'Google Drive (marcus@example.com)', path: GDRIVE },
-      ],
+      // The cloud folders the desktop has, in its own form.
+      suggestions:
+        mockHostOs() === 'windows'
+          ? [
+              { label: 'OneDrive', path: 'C:\\Users\\marcus\\OneDrive\\Mother Claude' },
+              { label: 'iCloud Drive', path: 'C:\\Users\\marcus\\iCloudDrive\\Mother Claude' },
+            ]
+          : [
+              { label: 'iCloud Drive', path: ICLOUD },
+              { label: 'Google Drive (marcus@example.com)', path: GDRIVE },
+            ],
       ...(this.lastPull ? { lastPull: this.lastPull } : {}),
       jobs: [...this.jobs.values()].filter((j) => ['backup', 'restore', 'pull'].includes(j.kind)),
     };
@@ -481,11 +490,11 @@ export class MockData {
     if (unknown) return fail(422, 'invalid_body', `unknown field \`${unknown}\``);
     const next = { ...this.settings };
     if ('folder' in b) {
-      const f = typeof b['folder'] === 'string' ? b['folder'].trim().replace(/\/+$/, '') : '';
-      if (f && !f.startsWith('/') && !f.startsWith('~')) {
-        return fail(422, 'invalid_folder', 'the folder must be an absolute path');
-      }
-      next.folder = f ? f.replace(/^~(?=\/|$)/, '/Users/marcus') : null;
+      const raw = typeof b['folder'] === 'string' ? b['folder'].trim() : '';
+      // The desktop's own system decides (`?os=windows` for a Windows one).
+      const f = raw ? mockFolder(raw) : null;
+      if (f && 'error' in f) return fail(422, 'invalid_folder', f.error);
+      next.folder = f ? f.path : null;
     }
     if ('everyHours' in b) {
       const h = b['everyHours'];
