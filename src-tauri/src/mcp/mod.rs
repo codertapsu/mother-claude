@@ -12,7 +12,13 @@
 //! argument) are [`ToolError`]s, which become an `isError: true` result — never
 //! a JSON-RPC protocol error. Protocol errors are for malformed requests and
 //! unknown tools only.
+//!
+//! The server around the registry (docs/MCP.md): [`server`] (the `/mcp`
+//! endpoint and `state.mcp`), [`jsonrpc`] (framing, versions), [`identity`]
+//! (the calling session), [`plugin`] (the plugin's `.mcp.json`, its headers
+//! helper and the token file), [`api`] (the dashboard's panel).
 
+pub mod api;
 pub mod identity;
 pub mod jsonrpc;
 pub mod plugin;

@@ -1,6 +1,7 @@
 //! Mother Claude's MCP server over real HTTP (docs/MCP.md): who may call
-//! `/mcp` and from where, the JSON-RPC surface and the calling session's
-//! identity. Nothing here touches `~/.claude` or spawns `claude`.
+//! `/mcp` and from where, the JSON-RPC surface, the calling session's
+//! identity, and the dashboard's panel. Nothing here touches `~/.claude` or
+//! spawns `claude`.
 
 use std::net::SocketAddr;
 use std::path::Path;
@@ -525,6 +526,138 @@ async fn mc_session_describes_the_calling_session() {
     assert_eq!(s["cwd"], "/tmp/mcp-demo");
     assert_eq!(s["pid"], me);
     assert_eq!(s["owned"], false);
+}
+
+#[tokio::test]
+async fn the_panel_lists_calls_and_never_the_token() {
+    let f = boot().await;
+    let me = std::process::id();
+    std::fs::create_dir_all(f.home.path().join("sessions")).unwrap();
+    std::fs::write(
+        f.home.path().join(format!("sessions/{me}.json")),
+        json!({"pid": me, "sessionId": SID, "cwd": "/tmp/mcp-demo"}).to_string(),
+    )
+    .unwrap();
+    for id in 1..=3 {
+        let r = f
+            .post_current(&rpc(
+                json!(id),
+                "tools/call",
+                json!({"name": "mc_ping", "arguments": {"secret": "do not show"}}),
+            ))
+            .header("x-mc-pid", me.to_string())
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(r.status(), StatusCode::OK);
+    }
+    let p: Value = reqwest::Client::new()
+        .get(format!("{}/api/mcp", f.base))
+        .bearer_auth(&f.st.auth.token)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(p["enabled"], true);
+    assert_eq!(p["toolCount"], 2);
+    assert_eq!(p["toolPrefix"], "mcp__plugin_mother-claude_mc__");
+    assert_eq!(p["url"], "http://127.0.0.1:0/mcp");
+    assert_eq!(p["callsTotal"], 3);
+    let calls = p["recentCalls"].as_array().unwrap();
+    assert_eq!(calls.len(), 3);
+    assert_eq!(calls[0]["session"], SID);
+    assert_eq!(calls[0]["owned"], false);
+    assert_eq!(calls[0]["tool"], "mc_ping");
+    assert_eq!(calls[0]["ok"], true);
+    assert!(calls.iter().all(|c| c.get("arguments").is_none()));
+    assert!(
+        !p.to_string().contains("do not show"),
+        "never the arguments"
+    );
+    assert!(
+        !p.to_string().contains(&f.token()),
+        "the token is never served"
+    );
+    assert!(p["plugin"]["expectedVersion"]
+        .as_str()
+        .unwrap()
+        .ends_with("+mcp.1"));
+    // A poll leaves the plugin out (it may run the CLI), and so does every
+    // answer to someone other than the desktop.
+    for (query, token) in [
+        ("?plugin=false", f.st.auth.token.clone()),
+        ("", f.st.auth.script_token.clone()),
+    ] {
+        let p: Value = reqwest::Client::new()
+            .get(format!("{}/api/mcp{query}", f.base))
+            .bearer_auth(&token)
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        assert!(p.get("plugin").is_none(), "{query:?}: {p}");
+        assert_eq!(p["recentCalls"].as_array().unwrap().len(), 3);
+    }
+    // A session's own credential does not read the panel.
+    let r = reqwest::Client::new()
+        .get(format!("{}/api/mcp", f.base))
+        .bearer_auth(f.token())
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+async fn the_setting_turns_it_off_for_everyone_and_only_the_desktop_flips_it() {
+    let f = boot().await;
+    let c = reqwest::Client::new();
+    let put = |token: &str, on: bool| {
+        c.put(format!("{}/api/mcp/settings", f.base))
+            .bearer_auth(token)
+            .json(&json!({"enabled": on}))
+            .send()
+    };
+    let r = put(&f.st.auth.script_token, false).await.unwrap();
+    assert_eq!(r.status(), StatusCode::FORBIDDEN, "a local script cannot");
+    let r = put(&f.token(), false).await.unwrap();
+    assert_eq!(r.status(), StatusCode::FORBIDDEN, "nor can a session");
+    let r = put(&f.st.auth.token, false).await.unwrap();
+    assert_eq!(r.status(), StatusCode::OK);
+    let v: Value = r.json().await.unwrap();
+    assert_eq!(v["enabled"], false);
+    assert_eq!(v["ownedSessions"], false);
+
+    let r = f
+        .post(&rpc(json!(1), "ping", json!({})))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), StatusCode::SERVICE_UNAVAILABLE);
+    let v: Value = r.json().await.unwrap();
+    assert_eq!(v["error"]["code"], "mcp_disabled");
+
+    let r = put(&f.st.auth.token, true).await.unwrap();
+    assert_eq!(r.status(), StatusCode::OK);
+    let r = f
+        .post(&rpc(json!(1), "ping", json!({})))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), StatusCode::OK);
+    // Unknown fields are refused, not ignored.
+    let r = c
+        .put(format!("{}/api/mcp/settings", f.base))
+        .bearer_auth(&f.st.auth.token)
+        .json(&json!({"enabled": true, "open": "wide"}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), StatusCode::UNPROCESSABLE_ENTITY);
 }
 
 fn def(name: &str) -> ToolDef {

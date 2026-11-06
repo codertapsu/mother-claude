@@ -247,6 +247,9 @@ pub fn api_router() -> Router<AppState> {
         .route("/control/foreign/install", post(foreign::install))
         .route("/control/foreign/uninstall", post(foreign::uninstall))
         .route("/hooks/install", post(foreign::legacy_install_hooks))
+        // ── Claude Code tools: the MCP server's panel (docs/MCP.md) ──
+        .route("/mcp", get(crate::mcp::api::get_status))
+        .route("/mcp/settings", put(crate::mcp::api::put_settings))
         // ── pairing / devices (B1) ──
         .route("/pair/codes", post(pairing::create_code).layer(DefaultBodyLimit::max(pairing::PAIR_BODY_MAX)))
         .route("/pairing", get(pairing::legacy_pairing))
