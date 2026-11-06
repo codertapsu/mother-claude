@@ -77,6 +77,11 @@ dunce = "1.0.5"
 # and each live session's resident memory, on macOS and Windows alike. Only
 # the `system` feature; pinned (0.39+ needs Rust 1.95, above our 1.89).
 sysinfo = { version = "=0.38.4", default-features = false, features = ["system"] }
+# The browser extension (`extension`): origins of the pages it acts on (IDN,
+# IPv6, default ports) and the server-side redaction of what it reads. Both
+# are already in the dependency graph.
+url = "2.5.8"
+regex = "1.13.1"
 
 # The accounts feature keeps token accounts' tokens and the backup passphrase
 # in the login Keychain (docs/ACCOUNTS.md D3). Already in the tree through

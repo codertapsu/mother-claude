@@ -12,6 +12,7 @@ use tracing_subscriber::EnvFilter;
 
 pub mod bridge;
 pub mod claude;
+pub mod extension;
 pub mod mcp;
 pub mod orchestration;
 pub mod pending;
