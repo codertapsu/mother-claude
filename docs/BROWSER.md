@@ -66,6 +66,29 @@ browser action, or when you press Stop.
 With several browsers connected, a session uses the one you used most
 recently, unless you pin one (*Use for new sessions*).
 
+### Connect a session from the browser
+
+The other way round: from the extension's side panel you choose a session
+that is already running and give it the tab you are on (**Work here with a
+session**). The desktop opens that session's lease in this browser — moving
+it from another browser, lifting a Stop of it — and the extension moves your
+tab into its group, as its active tab. What you write then reaches the
+session through whatever reaches it (`routes::control::deliver_message`, as
+the dashboard's composer): an owned session's stream, the hooks relay for a
+foreign one (when it is idle, or at its next step), or its tmux pane. The
+session keeps its conversation; nothing new starts.
+
+- The message is your words plus your tab's **site** (its origin) and what
+  the session may do there; never the page's title, path or query, which
+  the page sets and which would reach the model as your own words.
+- A session running in `bypassPermissions` gets the tab, but is told what to
+  do from the desktop only (`needs_desktop`).
+- The list says which sessions have the browser tools (listed or called them
+  since they started, kept in `mcp-sessions.json`) and which Mother Claude
+  can send messages.
+- Each connect and message is an audit line (`browser.session.connect`,
+  `browser.session.tell`, never the text) and a notice on the desktop.
+
 ## 4. Site modes
 
 Every site has a mode, set on the Browser page or in the extension's side

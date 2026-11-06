@@ -330,3 +330,24 @@ From the extension's side (it implements 1–9):
 14. `allowSecret: true` on `type` and `fill` would let the extension type into
     a secret field the user allowed on the desktop. Reserved: the desktop
     never sends it in v1 (secret fields are refused outright).
+
+Connecting a session from the side panel (both sides):
+
+15. `ok` may carry `data`, an object: what the request asked for.
+16. ext → app `{"type":"sessions","id"}` → `ok` with `data: {sessions:
+    [{id, name, project, cwd, surface, status, lastActivityAt, owned,
+    canTell, tellHow: "direct"|"relay"|null, whyNot, hasTools, lease}],
+    toolsOn}`: the live sessions, the most recently active first (50 at
+    most).
+17. ext → app `{"type":"session.connect","id","session","tab":{"tabId","url"}}`
+    → the desktop sends `lease.open` for that session (or keeps its lease
+    here; one in another browser closes), then `ok` with `data: {lease,
+    title, color, hasTools}`. The extension then moves the tab into the
+    lease's group as its active tab and closes an untouched placeholder.
+    Errors: `invalid`, `not_found` (not running), `unavailable` (no group).
+18. ext → app `{"type":"session.tell","id","session","message","tab"?:
+    {"tabId","url"}}` → `ok` with `data: {delivery: "sent"|"relayed"|
+    "queued"}`. The message (at most 4,000 characters) reaches the session
+    with the tab's origin only. Errors: `invalid`, `not_found`,
+    `not_connected` (no lease in this browser), `needs_desktop` (it runs
+    without permission prompts), `no_channel` (nothing reaches it).

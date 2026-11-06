@@ -8,6 +8,7 @@ way, and it does nothing on a site until you let it.
 
 - [Install it](#install-it)
 - [Pair it with Mother Claude](#pair-it-with-mother-claude)
+- [Work on a page with a session you already have](#work-on-a-page-with-a-session-you-already-have)
 - [What you see while a session works](#what-you-see-while-a-session-works)
 - [Stop](#stop)
 - [Site modes: off, read, act](#site-modes-off-read-act)
@@ -58,6 +59,41 @@ The extension keeps reconnecting on its own while it is paired — after the
 app restarts, after the computer sleeps — waiting a little longer each time,
 up to 30 seconds.
 
+## Work on a page with a session you already have
+
+A Claude Code session that is already running — in VS Code, a terminal, the
+Claude app or Mother Claude — can work on the page you are looking at,
+keeping its conversation, its context and what it was doing. Nothing new is
+started.
+
+1. Open the page (a shop, an admin dashboard, a site to read).
+2. Click the Mother Claude button: the side panel opens on **This tab**.
+3. Set the site to **Read** (look only) or **Act** (click, type, fill forms;
+   risky steps still ask you).
+4. Under **Work here with a session**, choose the session. The list shows
+   each running session's project, where it runs and whether it is working.
+5. Write what it should do (for example "compare the three plans on this
+   page"), and press **Connect and send**.
+
+The tab moves into the session's tab group, and the session gets your words
+the way Mother Claude reaches it: at once for a session Mother Claude
+started; for one in VS Code or a terminal, through the Mother Claude plugin,
+when it is idle or at its next step. Later, its card under **Sessions in this
+browser** has **Tell it what to do** for the next step.
+
+A session's card says when something is missing:
+
+- **No browser tools**: it started before Mother Claude gave sessions the
+  browser tools. Type `/reload-plugins` in that session once.
+- **Can't message**: Mother Claude cannot send it messages (foreign-session
+  control is not installed). Connect anyway, then ask it yourself, in the
+  session, to use the browser: its tools act in the tab you connected.
+
+A session that runs without permission prompts gets the tab, but what it
+should do is told from Mother Claude on the desktop only. The message names
+your tab's site (`https://shop.example.com`), never the page's title or
+address, which the page itself chooses.
+
 ## What you see while a session works
 
 **A tab group per session.** When a Claude Code session starts using the
@@ -69,8 +105,8 @@ becomes the session's first tab.
 - A tab you drag **into** the group joins the session; a tab you drag **out**
   leaves it.
 - The rest of your tabs are never touched, with one exception you choose:
-  after you click the Mother Claude button on a tab, the side panel can add
-  that tab to a session's group (**Let a session use this tab**).
+  a tab you connect to a session from the side panel (above) joins its
+  group.
 - A session can open new tabs, but always inside its own group.
 
 **The side panel** (click the toolbar button):

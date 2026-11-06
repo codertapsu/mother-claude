@@ -477,6 +477,14 @@ the `browser_*` tools are `extension::mcp`). Invariants:
   outcome — never typed text, page content or tokens. Uploads read only the
   calling session's project or a folder the user approved, never a config
   directory or a file that usually holds secrets.
+- **Connecting from the side panel reuses a session, never starts one.**
+  `extension::connect`: the live sessions, a lease opened in the asking
+  browser, the user's tab adopted into it, then the user's words through
+  `routes::control::deliver_message` with the tab's origin only (never the
+  page's title or path). `bypassPermissions` sessions are told what to do
+  from the desktop only; every connect and message is audited (no text)
+  and noticed on the desktop. Which sessions have the tools:
+  `McpState::session_seen` (`mcp-sessions.json`).
 - **Stop holds for a minute.** `lease.revoked` fails the lease's in-flight
   commands `stopped`, withdraws its approvals and refuses the session for
   60 s unless it is resumed from the desktop, a device or that browser's

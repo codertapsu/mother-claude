@@ -131,6 +131,12 @@ Edge, Chrome for Testing); `MC_E2E_HEADFUL=1` shows the window. All 37 tests
 pass on macOS in Google Chrome 156.0.8078.80 and in Brave 1.99.55 (Chromium
 157); Edge has not been run.
 
+The side panel's **Work here with a session** lists the Claude Code sessions
+running on the computer (`sessions`), connects one to the tab you are on
+(`session.connect`, then the tab joins the lease's group) and tells it what
+to do (`session.tell`): docs/BROWSER-EXTENSION.md has the user's view,
+docs/BROWSER-PROTOCOL.md (15–18) the frames.
+
 `test/e2e/desktop.e2e.ts` runs the same build against the **real desktop**
 instead of the mock: the Rust server's `/ws/browser`, `/api/browser/*` and
 `/mcp`, as the UI fixture serves them on a spare port over a synthetic home
