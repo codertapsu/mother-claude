@@ -645,7 +645,9 @@ only (a set.json naming another key stops a push; the recipient comes from the
 decrypted key). Every session id and bundle name from a set is validated
 before it names a path, and stage folders are always new. A set whose key is
 missing or still an iCloud placeholder is never given a new key
-(`set_key_missing`). **Archives are immutable**
+(`set_key_missing`); a folder that holds only what Finder or Explorer leave in
+one (`.DS_Store`, `desktop.ini`, `Thumbs.db`, any case) is an empty one, where
+a new set is made. **Archives are immutable**
 (`sessions/<id>.<12 hex>.tar.gz.age`, `config/<time>-<12 hex>.tar.gz.age`):
 the index names the new file after it is written, a replaced file is removed a
 day later, orphans too, and each machine keeps its own five bundles; an

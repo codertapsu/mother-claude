@@ -422,16 +422,25 @@ fn holds_set(dir: &Path) -> bool {
     dir.join("identity.age").is_file() || has_files(dir)
 }
 
-/// Whether `dir` holds any file (at any depth) but Finder's `.DS_Store`: an
-/// iCloud placeholder (`.<name>.icloud`) counts, an empty folder does not.
+/// Whether `dir` holds any file (at any depth) but the ones a file manager
+/// leaves in a folder it shows — Finder's `.DS_Store`, Explorer's
+/// `desktop.ini` and `Thumbs.db`, in any case: an iCloud placeholder
+/// (`.<name>.icloud`) counts, an empty folder does not.
 fn has_files(dir: &Path) -> bool {
+    const LEFT_BY_FILE_MANAGERS: [&str; 3] = [".DS_Store", "desktop.ini", "Thumbs.db"];
     std::fs::read_dir(dir)
         .into_iter()
         .flatten()
         .flatten()
         .any(|e| match e.file_type() {
             Ok(t) if t.is_dir() => has_files(&e.path()),
-            Ok(_) => e.file_name() != ".DS_Store",
+            Ok(_) => {
+                let name = e.file_name();
+                let name = name.to_string_lossy();
+                !LEFT_BY_FILE_MANAGERS
+                    .iter()
+                    .any(|n| name.eq_ignore_ascii_case(n))
+            }
             Err(_) => true,
         })
 }

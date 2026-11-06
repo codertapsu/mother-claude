@@ -852,12 +852,26 @@ fn a_set_without_its_key_is_never_given_a_new_one() {
     std::fs::write(w.set.identity_path(), identity).unwrap();
     assert_eq!(push_once(&w, &not_live).unchanged, 1);
 
-    // An empty folder is not a set: a new one is made there.
+    // An empty folder is not a set — nor one holding only what Finder or
+    // Explorer leave in a folder they show, in any case: a new one is made
+    // there.
     let fresh = Set::new(&w._tmp.path().join("iCloud/Mother Claude"), "Fresh");
     std::fs::create_dir_all(fresh.dir.join("sessions")).unwrap();
-    std::fs::write(fresh.dir.join(".DS_Store"), "").unwrap();
+    for junk in [
+        ".DS_Store",
+        "desktop.ini",
+        "sessions/Thumbs.db",
+        "DESKTOP.INI",
+    ] {
+        std::fs::write(fresh.dir.join(junk), "").unwrap();
+    }
     assert!(!fresh.key_missing());
     assert!(open_or_create(&fresh, "Fresh", &[pass()]).is_ok());
+    // Anything else is something of a set.
+    let other = Set::new(&w._tmp.path().join("iCloud/Mother Claude"), "Other");
+    std::fs::create_dir_all(&other.dir).unwrap();
+    std::fs::write(other.dir.join("desktop.ini.bak"), "").unwrap();
+    assert!(other.key_missing());
 }
 
 /// A bundle that is not the one the index names is never decrypted.
