@@ -328,6 +328,14 @@ fn sanitize_index(mut index: SetIndex) -> SetIndex {
     for seen in index.seen.values_mut() {
         seen.retain(|id, _| super::ids::is_session_id(id));
     }
+    index.folder_pairs.retain(|p| {
+        let ok = p.valid();
+        if !ok {
+            tracing::warn!("a backup index names an invalid folder pair; ignored");
+        }
+        ok
+    });
+    index.machines.retain(|id, _| is_machine_id(id));
     index
 }
 
@@ -439,6 +447,9 @@ pub struct Machine {
     pub host: String,
     #[serde(default)]
     pub last_push: Option<i64>,
+    /// Its OS (display only; the index's `machines` is what counts).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub os: Option<String>,
 }
 
 /// `set.json` (the set's only plaintext: names and times).
@@ -461,8 +472,16 @@ pub struct SetInfo {
 #[serde(rename_all = "camelCase")]
 pub struct IndexEntry {
     pub id: String,
+    /// The first cwd its transcript records.
     #[serde(default)]
     pub cwd: Option<String>,
+    /// The project folder it lived in on the machine that pushed it, as that
+    /// machine saw it (the folder its `projects/<name>` stands for there):
+    /// a session started on a Mac and continued on Windows is
+    /// `D:\dev\app` when Windows pushes it, whatever its first line says.
+    /// What a folder pair maps on pull and restore (`cwd` when absent).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub folder: Option<String>,
     /// What the session list calls it when it was archived (its title or
     /// name, else its last prompt; at most 120 characters). Only ever inside
     /// the encrypted index.
@@ -540,6 +559,13 @@ pub struct SetIndex {
     /// on another machine may have read an index that still names them).
     #[serde(default)]
     pub superseded: Vec<Superseded>,
+    /// Folder pairs (removed ones too, as tombstones): only ever here, in the
+    /// encrypted, authenticated index ([`pairs`]).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub folder_pairs: Vec<pairs::FolderPair>,
+    /// Each machine's name and OS, by id, as it wrote them itself.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub machines: BTreeMap<String, pairs::MachineInfo>,
     #[serde(flatten, default)]
     pub extra: BTreeMap<String, Value>,
 }
@@ -988,6 +1014,11 @@ struct Changes {
     /// Entries to put back (that move's undo): only where the set has no
     /// entry for the id now and the archive is still there.
     put_back: Vec<IndexEntry>,
+    /// Folder pairs added, and removed ones (tombstones), merged by id
+    /// ([`pairs::merge`]).
+    pairs: Vec<pairs::FolderPair>,
+    /// This machine's line (its name and OS), when it writes as itself.
+    machine_info: Option<pairs::MachineInfo>,
 }
 
 /// The index as written, the sessions whose push lost to another machine's,
@@ -1095,6 +1126,14 @@ fn write_index_merged(
             merged.sessions.insert(e.id.clone(), e.clone());
             put_back.push(e.id.clone());
         }
+    }
+    pairs::merge(&mut merged.folder_pairs, &changes.pairs);
+    if let Some(info) = changes
+        .machine_info
+        .as_ref()
+        .filter(|_| is_machine_id(machine))
+    {
+        merged.machines.insert(machine.to_string(), info.clone());
     }
     if let Some(c) = &changes.config {
         if !merged.config.iter().any(|t| t.name == c.name) {
@@ -1280,6 +1319,10 @@ pub struct PushReport {
     /// set for seven days ([`FORCE_KEEP_MS`]).
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub replaced: Vec<String>,
+    /// The set's folder pairs and machines after this push (this machine's
+    /// cache of them, `pairs::note`).
+    #[serde(skip)]
+    pub pairs: Option<pairs::SetPairs>,
 }
 
 /// What a push needs.
@@ -1367,6 +1410,62 @@ fn session_now(home: &ClaudeHome, id: &str) -> Result<SessionNow, BackupError> {
         newest_mtime: newest,
         bytes,
     })
+}
+
+/// The project folder a session lives in as this machine sees it — the
+/// session list's rule ([`paths::view_cwd`]): of the cwds its transcript
+/// records first and last, the one its `projects/<name>` stands for, this
+/// machine's folder pairs (`local`) included. A session continued here after
+/// it came from another machine records this machine's folder last.
+fn session_folder(
+    home: &ClaudeHome,
+    id: &str,
+    first: Option<&str>,
+    local: &[paths::LocalPair],
+) -> Option<String> {
+    let main = transfer::transcripts_of(home, id).into_iter().next()?;
+    let enc = main.parent()?.file_name()?.to_str()?.to_string();
+    // The usual case, without reading the end of the transcript.
+    if let Some(c) = first.filter(|c| {
+        paths::names_project_dir(c, &enc)
+            && paths::PathForm::of_path(c) == Some(paths::PathForm::here())
+    }) {
+        return Some(c.to_string());
+    }
+    let last = last_recorded_cwd(&main);
+    paths::view_cwd(first, last.as_deref(), Some(&enc), local)
+}
+
+/// How much of a transcript's end is read for its last cwd.
+const TAIL_BYTES: u64 = 1024 * 1024;
+
+/// The cwd the last records of a transcript name (its last megabyte; a
+/// record longer than that is passed over), never reading it whole.
+fn last_recorded_cwd(transcript: &Path) -> Option<String> {
+    use std::io::{Seek, SeekFrom};
+    let mut f = std::fs::File::open(transcript).ok()?;
+    let len = f.metadata().ok()?.len();
+    let from = len.saturating_sub(TAIL_BYTES);
+    f.seek(SeekFrom::Start(from)).ok()?;
+    let mut tail = Vec::new();
+    f.take(TAIL_BYTES).read_to_end(&mut tail).ok()?;
+    // A cut first line is not a record.
+    let start = if from > 0 {
+        tail.iter().position(|b| *b == b'\n')? + 1
+    } else {
+        0
+    };
+    tail[start..]
+        .split(|b| *b == b'\n')
+        .rev()
+        .filter(|l| !l.is_empty())
+        .find_map(|l| {
+            let v: Value = serde_json::from_slice(l).ok()?;
+            v.get("cwd")?
+                .as_str()
+                .filter(|c| !c.is_empty())
+                .map(str::to_string)
+        })
 }
 
 impl SessionNow {
@@ -1791,7 +1890,7 @@ fn push_session(
         Step::Archive(base) => (base, false),
         Step::Force(base) => (Some(base), true),
     };
-    match archive_session(inp, keys, id, &now) {
+    match archive_session(inp, keys, index, id, &now) {
         Ok(entry) => {
             // Its bytes were counted as they were packed.
             inp.progress.files_done.fetch_add(1, Ordering::Relaxed);
@@ -1830,6 +1929,7 @@ pub fn push_with(inp: &PushInputs<'_>, force: bool) -> Result<PushReport, Backup
     let seen = index.seen.get(&inp.machine.id).cloned().unwrap_or_default();
     let mut changes = Changes {
         force_until: force.then(|| now_ms() + FORCE_KEEP_MS),
+        machine_info: Some(pairs::MachineInfo::here(&inp.machine.name, now_ms())),
         ..Changes::default()
     };
     let ids = session_ids(inp.home);
@@ -1883,6 +1983,7 @@ pub fn push_with(inp: &PushInputs<'_>, force: bool) -> Result<PushReport, Backup
         report.replaced.retain(|a| *a != id);
         report.conflicts.push(id);
     }
+    report.pairs = Some(pairs::SetPairs::of(&merged.index, at));
     report.removed = collect_garbage(inp.set, &merged.index, at);
     note_push(&mut info, inp.machine);
     if let Err(e) = write_info(inp.set, &info) {
@@ -1946,7 +2047,10 @@ pub fn push_some(
     let index = read_index(inp.set, &keys)?;
     let seen = index.seen.get(&inp.machine.id).cloned().unwrap_or_default();
     let mut report = SomeReport::default();
-    let mut changes = Changes::default();
+    let mut changes = Changes {
+        machine_info: Some(pairs::MachineInfo::here(&inp.machine.name, now_ms())),
+        ..Changes::default()
+    };
     note_total(inp, &keys, &index, &seen, ids, archive, false);
     // What the set will name of each one: checked before it is marked.
     let mut candidates: Vec<IndexEntry> = Vec::new();
@@ -2156,6 +2260,7 @@ fn verify_copy(
 fn archive_session(
     inp: &PushInputs<'_>,
     keys: &Keys,
+    index: &SetIndex,
     id: &str,
     now: &SessionNow,
 ) -> Result<IndexEntry, BackupError> {
@@ -2165,12 +2270,18 @@ fn archive_session(
         .iter()
         .map(|f| (f.clone(), f.strip_prefix(base).unwrap_or(f).to_path_buf()))
         .collect();
+    // Where it lives as this machine sees it (its folder pairs included).
+    let local = pairs::local_pairs(&index.folder_pairs, &inp.machine.id);
+    let folder = session_folder(inp.home, id, now.cwd.as_deref(), &local);
+    // Under either spelling (Windows keys `D:/dev/app`).
+    let entry_of = |c: &str| transfer::project_entry(&inp.home.claude_json(), c);
     let meta = serde_json::json!({
         "version": SET_VERSION,
         "id": id,
         "cwd": now.cwd,
-        "projectEntry": now.cwd.as_deref()
-            .and_then(|c| transfer::project_entry(&inp.home.claude_json(), c)),
+        "folder": folder,
+        "projectEntry": folder.as_deref().and_then(entry_of)
+            .or_else(|| now.cwd.as_deref().and_then(entry_of)),
     });
     let meta = serde_json::to_vec_pretty(&meta).unwrap_or_default();
     let (archive, sha, bytes) = write_archive(
@@ -2186,6 +2297,7 @@ fn archive_session(
     Ok(IndexEntry {
         id: id.to_string(),
         cwd: now.cwd.clone(),
+        folder,
         title: (inp.title_of)(id)
             .map(|t| clip_title(&t, TITLE_MAX))
             .filter(|t| !t.is_empty()),
@@ -2256,9 +2368,11 @@ fn push_config(
     ))
 }
 
-/// This machine's line in `set.json`: by id; its name as it is now.
+/// This machine's line in `set.json`: by id; its name and OS as they are now
+/// (display only).
 fn note_push(info: &mut SetInfo, machine: &ThisMachine) {
     let at = Some(now_ms());
+    let os = Some(std::env::consts::OS.to_string());
     match info
         .machines
         .iter_mut()
@@ -2267,11 +2381,13 @@ fn note_push(info: &mut SetInfo, machine: &ThisMachine) {
         Some(m) => {
             m.host = machine.name.clone();
             m.last_push = at;
+            m.os = os;
         }
         None => info.machines.push(Machine {
             id: Some(machine.id.clone()),
             host: machine.name.clone(),
             last_push: at,
+            os,
         }),
     }
 }
@@ -2307,6 +2423,31 @@ pub struct RestoreReport {
     pub replaced: Vec<String>,
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub force: bool,
+    /// `(session, the folder here)`: what a folder pair placed in this
+    /// machine's folder for the project, not in the other machine's.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub mapped: Vec<(String, String)>,
+    /// Projects that came here under another machine's path, which no
+    /// folder pair maps (Claude Code lists them only there): add a pair and
+    /// pull again, and they move into the paired folder.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub foreign: Vec<ForeignProject>,
+    /// The set's folder pairs and machines as read (this machine's cache).
+    #[serde(skip)]
+    pub pairs: Option<pairs::SetPairs>,
+}
+
+/// A project placed under another machine's path (no folder pair maps it).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ForeignProject {
+    /// The folder as the other machine wrote it.
+    pub folder: String,
+    /// That machine's id and name.
+    pub machine: String,
+    pub host: String,
+    /// How many of this run's sessions are of it.
+    pub sessions: usize,
 }
 
 /// What a restore needs.
@@ -2324,6 +2465,85 @@ pub struct RestoreInputs<'a> {
     pub progress: &'a Progress,
     /// `restore` or `pull` (the job's kind).
     pub kind: &'a str,
+    /// This machine's id: a session another machine pushed goes into the
+    /// folder a pair between the two maps its folder to (`None`: as the
+    /// archive has it).
+    pub machine: Option<&'a str>,
+}
+
+/// The folder a set's session goes into on machine `here`: where a live
+/// folder pair between the machine that pushed it and `here` maps the
+/// folder it lived in there (`None`: no pair maps it, or it is `here`'s
+/// own).
+fn mapped_folder(index: &SetIndex, entry: &IndexEntry, here: Option<&str>) -> Option<String> {
+    let here = here.filter(|h| is_machine_id(h))?;
+    let from = entry.machine.as_str();
+    if !is_machine_id(from) || from == here {
+        return None;
+    }
+    let folder = entry.folder.as_deref().or(entry.cwd.as_deref())?;
+    pairs::map_between(&index.folder_pairs, from, here, folder)
+}
+
+/// Another machine's project folder that is no folder on this one (another
+/// machine's form, or not here at all): what the report names when no pair
+/// maps it.
+fn foreign_folder(index: &SetIndex, entry: &IndexEntry, here: Option<&str>) -> Option<String> {
+    let from = entry.machine.as_str();
+    if !is_machine_id(from) || here.is_some_and(|h| h == from) {
+        return None;
+    }
+    let folder = entry.folder.as_deref().or(entry.cwd.as_deref())?;
+    let usable = paths::PathForm::of_path(folder) == Some(paths::PathForm::here())
+        && Path::new(folder).is_dir();
+    (!usable && mapped_folder(index, entry, here).is_none()).then(|| folder.to_string())
+}
+
+/// Count a session placed under another machine's path in `foreign`.
+fn note_foreign(foreign: &mut Vec<ForeignProject>, entry: &IndexEntry, folder: String) {
+    match foreign
+        .iter_mut()
+        .find(|f| f.folder == folder && f.machine == entry.machine)
+    {
+        Some(f) => f.sessions += 1,
+        None => foreign.push(ForeignProject {
+            folder,
+            machine: entry.machine.clone(),
+            host: entry.host.clone(),
+            sessions: 1,
+        }),
+    }
+}
+
+/// Put a staged session's own transcript folder (`projects/<name>`) under
+/// `to` instead, the name of the folder a pair maps it to here. The other
+/// files keep their places; nothing moves when the stage has a folder of
+/// that name already.
+fn relocate_staged(st: &mut Staged, id: &str, to: &str) -> Result<(), BackupError> {
+    let Some(from) = main_transcript(st, id)
+        .and_then(|t| t.components().nth(1))
+        .map(|c| c.as_os_str().to_owned())
+    else {
+        return Ok(());
+    };
+    if to.is_empty() || from == std::ffi::OsStr::new(to) {
+        return Ok(());
+    }
+    let projects = Path::new("projects");
+    let (old, new) = (projects.join(&from), projects.join(to));
+    if st.dir.join(&new).exists() {
+        return Ok(());
+    }
+    std::fs::rename(st.dir.join(&old), st.dir.join(&new))
+        .map_err(|e| io("placing", &st.dir.join(&new), e))?;
+    let moved = |p: &PathBuf| match p.strip_prefix(&old) {
+        Ok(rest) if rest.as_os_str().is_empty() => new.clone(),
+        Ok(rest) => new.join(rest),
+        Err(_) => p.clone(),
+    };
+    st.files = st.files.iter().map(moved).collect();
+    st.dirs = st.dirs.iter().map(moved).collect();
+    Ok(())
 }
 
 /// The target's `cleanupPeriodDays` (user settings; default 30).
@@ -2491,6 +2711,7 @@ fn restore_open(
     };
     let mut report = RestoreReport {
         force,
+        pairs: Some(pairs::SetPairs::of(index, now)),
         ..RestoreReport::default()
     };
     let target_busy = transfer::in_use(inp.target);
@@ -2571,7 +2792,12 @@ fn restore_into(
             ));
             continue;
         }
-        let one = stage_session(inp.set, keys, entry, stage_root).and_then(|st| {
+        // Another machine's session: into the folder a pair maps it to here.
+        let mapped = mapped_folder(index, entry, inp.machine);
+        let one = stage_session(inp.set, keys, entry, stage_root).and_then(|mut st| {
+            if let Some(folder) = &mapped {
+                relocate_staged(&mut st, id, &paths::project_dir_name(folder))?;
+            }
             if here {
                 // A force restore: the copy here goes into the undo first.
                 replace_local(inp.target, id, &st, undo_dir, m, inp.progress)?;
@@ -2589,6 +2815,14 @@ fn restore_into(
                 } else {
                     report.restored.push(id.clone());
                 }
+                match &mapped {
+                    Some(folder) => report.mapped.push((id.clone(), folder.clone())),
+                    None => {
+                        if let Some(f) = foreign_folder(index, entry, inp.machine) {
+                            note_foreign(&mut report.foreign, entry, f);
+                        }
+                    }
+                }
                 if let Some(w) = prune_warning(entry.newest_mtime, days, now) {
                     report.warnings.push(Warning {
                         id: id.clone(),
@@ -2596,22 +2830,32 @@ fn restore_into(
                     });
                 }
                 // Trust only with the opt-in, never over an entry, never
-                // while the directory is in use.
+                // while the directory is in use; for the folder it went into
+                // here, under the key Claude Code files it under.
                 if inp.trust {
-                    let cwd = meta.get("cwd").and_then(Value::as_str);
+                    let folder = mapped.clone().or_else(|| {
+                        ["folder", "cwd"]
+                            .iter()
+                            .find_map(|k| meta.get(*k).and_then(Value::as_str))
+                            .map(str::to_string)
+                    });
                     let entry = meta.get("projectEntry").filter(|e| e.is_object());
-                    if let (Some(cwd), Some(project)) = (cwd, entry) {
+                    if let (Some(folder), Some(project)) = (folder, entry) {
+                        let form =
+                            paths::PathForm::of_path(&folder).unwrap_or(paths::PathForm::Posix);
+                        let key = paths::config_key(&folder, form);
                         if let Some(busy) = target_busy {
                             report.warnings.push(Warning {
                                 id: id.clone(),
                                 text: format!("The folder's trust was not restored: {busy}"),
                             });
-                        } else if transfer::project_entry(&inp.target.claude_json(), cwd).is_none()
+                        } else if transfer::project_entry(&inp.target.claude_json(), &folder)
+                            .is_none()
                         {
                             transfer::edit_projects(&inp.target.claude_json(), |p| {
-                                p.entry(cwd.to_string()).or_insert_with(|| project.clone());
+                                p.entry(key.clone()).or_insert_with(|| project.clone());
                             })?;
-                            m.added_entries.push((cwd.to_string(), project.clone()));
+                            m.added_entries.push((key, project.clone()));
                         }
                     }
                 }
@@ -2777,6 +3021,13 @@ pub struct PullItem {
     /// is `same` (neither side pushes or pulls it again) yet differs.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub differs: bool,
+    /// The folder it lived in on the machine that pushed it (`folder`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub folder: Option<String>,
+    /// The folder here a folder pair maps that to: where a pull or restore
+    /// puts it, and the project it is listed under here.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mapped: Option<String>,
 }
 
 /// What the set holds, compared with this machine's directory (`machine`:
@@ -2786,6 +3037,20 @@ pub fn compare(
     index: &SetIndex,
     home: &ClaudeHome,
     machine: &str,
+    is_live: &dyn Fn(&str) -> bool,
+    now: i64,
+) -> Vec<PullItem> {
+    compare_here(index, home, machine, Some(machine), is_live, now)
+}
+
+/// [`compare`] by `machine`'s `seen` (`""`: none, a directory that is not
+/// the set's own), with each session's folder here by the folder pairs of
+/// this machine (`here`, its id).
+pub fn compare_here(
+    index: &SetIndex,
+    home: &ClaudeHome,
+    machine: &str,
+    here: Option<&str>,
     is_live: &dyn Fn(&str) -> bool,
     now: i64,
 ) -> Vec<PullItem> {
@@ -2818,6 +3083,8 @@ pub fn compare(
                     .flatten(),
                 archived: e.archived.clone(),
                 differs: local.as_ref().is_some_and(|l| !l.same_as(e)),
+                folder: e.folder.clone(),
+                mapped: mapped_folder(index, e, here),
             }
         })
         .collect();
@@ -2898,6 +3165,20 @@ pub struct PullReport {
     pub replaced: Vec<String>,
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub force: bool,
+    /// `(session, the folder here)`: what a folder pair placed in this
+    /// machine's folder for the project.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub mapped: Vec<(String, String)>,
+    /// Sessions an earlier pull placed under the other machine's path, moved
+    /// into the folder a pair added since maps it to (in `mapped` too).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub relocated: Vec<String>,
+    /// Projects that came here under another machine's path (no pair).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub foreign: Vec<ForeignProject>,
+    /// The set's folder pairs and machines (this machine's cache of them).
+    #[serde(skip)]
+    pub pairs: Option<pairs::SetPairs>,
 }
 
 /// Bring this machine up to date from the set (§5.11). Blocking.
@@ -2916,10 +3197,18 @@ pub struct PullReport {
 /// this machine's `seen` as it was: the next push or pull notes the copy,
 /// now the set's, as the same (§13.3), and after an undo of the pull the
 /// copy that is back compares as it did before it.
+///
+/// Folder pairs: what another machine pushed goes into the folder a pair
+/// between it and this machine maps its folder to (`mapped`); a session an
+/// earlier pull placed under the other machine's path, as the set has it,
+/// moves there once a pair maps it (`relocated`, kept for undo); and what
+/// no pair maps keeps the other machine's path (`foreign`). The transcripts
+/// are never rewritten: only their `projects/<name>` folder is the one here.
 pub fn pull(inp: &PullInputs<'_>) -> Result<(PullReport, Manifest), BackupError> {
     let keys = open_keys_any(inp.set, inp.passphrases)?;
     let index = read_index(inp.set, &keys)?;
     let now = now_ms();
+    let here = Some(inp.machine.id.as_str());
     let plan = compare(&index, inp.home, &inp.machine.id, inp.is_live, now);
     let wanted = |id: &str| inp.ids.is_none_or(|ids| ids.iter().any(|i| i == id));
     let mut report = PullReport {
@@ -2960,6 +3249,7 @@ pub fn pull(inp: &PullInputs<'_>) -> Result<(PullReport, Manifest), BackupError>
             job_id: inp.job_id,
             progress: inp.progress,
             kind: "pull",
+            machine: here,
         },
         &keys,
         &index,
@@ -2974,6 +3264,8 @@ pub fn pull(inp: &PullInputs<'_>) -> Result<(PullReport, Manifest), BackupError>
     report.skipped = restored.skipped;
     report.skipped.extend(archived_asked);
     report.warnings = restored.warnings;
+    report.mapped = restored.mapped;
+    report.foreign = restored.foreign;
     let undo_dir = inp.undo_root.join(inp.job_id);
     let stage_root = inp.home.base().join(format!(".mc-pull-{}", inp.job_id));
     // Ours alone, like a restore's stage.
@@ -2988,6 +3280,7 @@ pub fn pull(inp: &PullInputs<'_>) -> Result<(PullReport, Manifest), BackupError>
             code: err.code().to_string(),
             reason: err.to_string(),
         };
+        // A copy of the set's that lands here: its warning, and where it went.
         let prune = |report: &mut PullReport| {
             if let Some(w) = prune_warning(e.newest_mtime, cleanup_days(inp.home), now) {
                 report.warnings.push(Warning {
@@ -2995,7 +3288,17 @@ pub fn pull(inp: &PullInputs<'_>) -> Result<(PullReport, Manifest), BackupError>
                     text: w,
                 });
             }
+            match &item.mapped {
+                Some(folder) => report.mapped.push((item.id.clone(), folder.clone())),
+                None => {
+                    if let Some(f) = foreign_folder(&index, e, here) {
+                        note_foreign(&mut report.foreign, e, f);
+                    }
+                }
+            }
         };
+        // The folder name a pair puts it under here.
+        let to_enc = item.mapped.as_deref().map(paths::project_dir_name);
         // A force pull replaces whatever differs here — also a copy this
         // machine noted as "the same" after a conflict copy, which is still
         // its own — and `seen` stays as it was.
@@ -3018,7 +3321,10 @@ pub fn pull(inp: &PullInputs<'_>) -> Result<(PullReport, Manifest), BackupError>
                 }
                 continue;
             }
-            match stage_session(inp.set, &keys, e, &stage_root).and_then(|staged| {
+            match stage_session(inp.set, &keys, e, &stage_root).and_then(|mut staged| {
+                if let Some(to) = &to_enc {
+                    relocate_staged(&mut staged, &e.id, to)?;
+                }
                 replace_local(inp.home, &e.id, &staged, &undo_dir, &mut m, inp.progress)
             }) {
                 Ok(()) => {
@@ -3032,7 +3338,17 @@ pub fn pull(inp: &PullInputs<'_>) -> Result<(PullReport, Manifest), BackupError>
         }
         match item.action {
             PullAction::Update => {
-                match update(inp, &keys, e, &stage_root, &undo_dir, &mut m, inp.force) {
+                let up = update(
+                    inp,
+                    &keys,
+                    e,
+                    &stage_root,
+                    &undo_dir,
+                    &mut m,
+                    inp.force,
+                    to_enc.as_deref(),
+                );
+                match up {
                     Ok(UpdateOutcome::CameFrom) => {
                         seen.insert(item.id.clone(), e.seen());
                         m.sessions.push(item.id.clone());
@@ -3087,6 +3403,34 @@ pub fn pull(inp: &PullInputs<'_>) -> Result<(PullReport, Manifest), BackupError>
                 if let Ok(l) = session_now(inp.home, &item.id) {
                     seen.insert(item.id.clone(), l.seen(&e.archive));
                 }
+                // Pulled under the other machine's path before a pair mapped
+                // it: into the paired folder now (the set's very copy, the
+                // one here kept for undo), unless it differs after all.
+                if let Some(to) = to_enc
+                    .as_deref()
+                    .filter(|to| left_unmapped(inp.home, e, to))
+                {
+                    match update(
+                        inp,
+                        &keys,
+                        e,
+                        &stage_root,
+                        &undo_dir,
+                        &mut m,
+                        false,
+                        Some(to),
+                    ) {
+                        Ok(UpdateOutcome::CameFrom) => {
+                            m.sessions.push(item.id.clone());
+                            report.relocated.push(item.id.clone());
+                            if let Some(folder) = &item.mapped {
+                                report.mapped.push((item.id.clone(), folder.clone()));
+                            }
+                        }
+                        Ok(_) => {}
+                        Err(err) => report.skipped.push(skip(err)),
+                    }
+                }
             }
             _ => {}
         }
@@ -3108,17 +3452,46 @@ pub fn pull(inp: &PullInputs<'_>) -> Result<(PullReport, Manifest), BackupError>
     crate::persist::write_json_private(&undo_dir.join("manifest.json"), &m)
         .map_err(|e| io("writing", &undo_dir, e))?;
     // What this machine now has, for the next comparison.
+    let at = now_ms();
     let changes = Changes {
         seen,
+        machine_info: Some(pairs::MachineInfo::here(&inp.machine.name, at)),
         ..Changes::default()
     };
-    if let Err(e) = write_index_merged(inp.set, &keys, &changes, &inp.machine.id, now_ms()) {
-        report.warnings.push(Warning {
-            id: String::new(),
-            text: format!("The set does not know yet what this machine has: {e}"),
-        });
+    match write_index_merged(inp.set, &keys, &changes, &inp.machine.id, at) {
+        Ok(merged) => report.pairs = Some(pairs::SetPairs::of(&merged.index, at)),
+        Err(e) => {
+            report.pairs = Some(pairs::SetPairs::of(&index, now));
+            report.warnings.push(Warning {
+                id: String::new(),
+                text: format!("The set does not know yet what this machine has: {e}"),
+            });
+        }
     }
     Ok((report, m))
+}
+
+/// Whether this machine's copy of `e` sits where the machine that pushed it
+/// kept it (`projects/<its folder's name>`) rather than in `to`, the folder
+/// a pair maps it to here: placed by a pull before the pair.
+fn left_unmapped(home: &ClaudeHome, e: &IndexEntry, to: &str) -> bool {
+    let Some(theirs) = e.folder.as_deref().or(e.cwd.as_deref()) else {
+        return false;
+    };
+    let dir = transfer::transcripts_of(home, &e.id)
+        .into_iter()
+        .next()
+        .and_then(|t| Some(t.parent()?.file_name()?.to_string_lossy().into_owned()));
+    // Folder names compared as this machine's file system does (NTFS:
+    // whatever the case).
+    let same = |a: &str, b: &str| {
+        if cfg!(windows) {
+            a.eq_ignore_ascii_case(b)
+        } else {
+            a == b
+        }
+    };
+    dir.is_some_and(|d| !same(&d, to) && paths::names_project_dir(theirs, &d))
 }
 
 fn history_key(line: &str) -> Option<(String, String)> {
@@ -3133,7 +3506,9 @@ fn history_key(line: &str) -> Option<(String, String)> {
 }
 
 /// The prompt history of every other machine's newest bundle appended to
-/// this machine's, without the lines it has (by time and text).
+/// this machine's, without the lines it has (by time and text); a line's
+/// `project` (the folder it was typed in) mapped by a folder pair between
+/// that machine and this one, so it is offered in the project here.
 fn merge_history(
     inp: &PullInputs<'_>,
     keys: &Keys,
@@ -3151,8 +3526,11 @@ fn merge_history(
         }
     }
     let mut lines = Vec::new();
-    for bundle in newest.values() {
-        lines.extend(bundle_history(inp.set, keys, bundle)?.unwrap_or_default());
+    for (machine, bundle) in &newest {
+        let theirs = bundle_history(inp.set, keys, bundle)?.unwrap_or_default();
+        lines.extend(theirs.into_iter().map(|l| {
+            map_history_line(&l, &index.folder_pairs, machine, &inp.machine.id).unwrap_or(l)
+        }));
     }
     if lines.is_empty() {
         return Ok(());
@@ -3183,6 +3561,23 @@ fn merge_history(
     report.history_lines = fresh.len();
     m.added_history = fresh;
     Ok(())
+}
+
+/// A prompt-history line of machine `from` with its `project` mapped to
+/// machine `to`'s folder by a folder pair (`None`: no pair maps it, or the
+/// line has none; the line is then taken as it is). Its other fields, and
+/// what it is told apart by (time and text), stay as they were.
+fn map_history_line(
+    line: &str,
+    folder_pairs: &[pairs::FolderPair],
+    from: &str,
+    to: &str,
+) -> Option<String> {
+    let mut v: Value = serde_json::from_str(line).ok()?;
+    let project = v.get("project")?.as_str()?;
+    let mapped = pairs::map_between(folder_pairs, from, to, project)?;
+    v["project"] = Value::String(mapped);
+    serde_json::to_string(&v).ok()
 }
 
 /// `history.jsonl` from a configuration bundle, if it has one.
@@ -3344,7 +3739,7 @@ enum UpdateOutcome {
 
 /// Replace the local copy of a session with the set's (§5.11 "update"),
 /// only when the local transcript is where the set's came from, unless
-/// `force`.
+/// `force`; `to`: the `projects/<name>` a folder pair puts it under here.
 #[allow(clippy::too_many_arguments)]
 fn update(
     inp: &PullInputs<'_>,
@@ -3354,9 +3749,10 @@ fn update(
     undo_dir: &Path,
     m: &mut Manifest,
     force: bool,
+    to: Option<&str>,
 ) -> Result<UpdateOutcome, BackupError> {
     // The set's copy first: fetched, checked and unpacked.
-    let staged = stage_session(inp.set, keys, e, stage_root)?;
+    let mut staged = stage_session(inp.set, keys, e, stage_root)?;
     let ours = transfer::transcripts_of(inp.home, &e.id);
     let came_from = match (ours.first(), main_transcript(&staged, &e.id)) {
         (Some(mine), Some(theirs)) => file_is_prefix_of_file(mine, &staged.dir.join(theirs))?,
@@ -3364,6 +3760,9 @@ fn update(
     };
     if !came_from && !force {
         return Ok(UpdateOutcome::NotFrom(staged));
+    }
+    if let Some(to) = to {
+        relocate_staged(&mut staged, &e.id, to)?;
     }
     replace_local(inp.home, &e.id, &staged, undo_dir, m, inp.progress)?;
     Ok(if came_from {
@@ -3426,6 +3825,28 @@ fn replace_local(
         // Whatever is left out is listed: Undo finishes it.
         let _ = save(m);
         return Err(err);
+    }
+    // The old copy's folders the new one does not use (it went into another
+    // project folder: a folder pair's) are gone when empty; the undo makes
+    // them again.
+    let kept: std::collections::HashSet<PathBuf> =
+        staged.dirs.iter().map(|d| base.join(d)).collect();
+    let mut emptied: Vec<PathBuf> = local.dirs.clone();
+    emptied.extend(
+        local
+            .files
+            .iter()
+            .filter_map(|f| f.parent())
+            .filter(|p| p.parent() == Some(home.projects_dir().as_path()))
+            .map(Path::to_path_buf),
+    );
+    emptied.sort_by_key(|d| std::cmp::Reverse(d.components().count()));
+    emptied.dedup();
+    for d in emptied.iter().filter(|d| !kept.contains(*d)) {
+        transfer::remove_empty_dirs(d);
+        if !d.exists() {
+            m.moved_dirs.push(d.clone());
+        }
     }
     save(m)
 }
@@ -3933,8 +4354,40 @@ pub fn plan_restore(
     projects: &[String],
     is_live: &dyn Fn(&str) -> bool,
 ) -> Result<RestorePlan, BackupError> {
+    plan_restore_here(set, passphrases, target, ids, projects, is_live, None).map(|(p, _)| p)
+}
+
+/// [`plan_restore`], with the folder each entry goes into on this machine
+/// (`here`, its id) by the set's folder pairs: `id → folder`, for the ones a
+/// pair maps.
+#[allow(clippy::too_many_arguments)]
+pub fn plan_restore_here(
+    set: &Set,
+    passphrases: &[Secret],
+    target: &ClaudeHome,
+    ids: Option<&[String]>,
+    projects: &[String],
+    is_live: &dyn Fn(&str) -> bool,
+    here: Option<&str>,
+) -> Result<(RestorePlan, BTreeMap<String, String>), BackupError> {
     let keys = open_keys_any(set, passphrases)?;
     let index = read_index(set, &keys)?;
+    let plan = plan_restore_in(&index, target, ids, projects, is_live)?;
+    let mapped = plan
+        .0
+        .iter()
+        .filter_map(|e| mapped_folder(&index, e, here).map(|f| (e.id.clone(), f)))
+        .collect();
+    Ok((plan, mapped))
+}
+
+fn plan_restore_in(
+    index: &SetIndex,
+    target: &ClaudeHome,
+    ids: Option<&[String]>,
+    projects: &[String],
+    is_live: &dyn Fn(&str) -> bool,
+) -> Result<RestorePlan, BackupError> {
     let mut wanted: Vec<String> = match ids {
         Some(ids) => ids.to_vec(),
         None => index.sessions.keys().cloned().collect(),
@@ -4306,6 +4759,7 @@ pub fn plan_between(
 }
 
 pub mod ops;
+pub mod pairs;
 pub mod storage;
 
 #[cfg(test)]

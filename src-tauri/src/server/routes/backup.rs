@@ -39,6 +39,14 @@
 //!   pulled. `force: true` is a force pull: the set's copy replaces this
 //!   machine's wherever they differ (kept for undo).
 //!
+//! * `GET /api/backup/pairs?refresh=` (Authed) → the folder pairs as the sets
+//!   last said (`?refresh=true`: read every set again); `POST
+//!   /api/backup/pairs {folder, machine, otherFolder}` → `201` the view
+//!   (this machine's folder, another machine of the sets by id, and its
+//!   folder in that machine's form; added to every set of this machine's
+//!   accounts in the backup folder); `DELETE /api/backup/pairs/{id}` → the
+//!   view (desktop or device, as the backup settings).
+//!
 //! The passphrase stays the desktop's (`POST /api/backup/passphrase`), and
 //! never reaches a log, a frame or the audit line.
 
@@ -158,6 +166,8 @@ pub async fn put_settings(
         .accounts
         .set_backup_settings(s.clone())
         .map_err(|e| ApiError::unprocessable(e.code(), e.to_string()))?;
+    // The folder pairs are those of the sets in the folder now.
+    ops::load_pairs(&state);
     audit(
         &state,
         &ctx,
@@ -581,4 +591,88 @@ pub async fn post_pull(
         Json(json!({ "jobs": jobs, "skipped": skipped })),
     )
         .into_response())
+}
+
+#[derive(Debug, Default, Deserialize)]
+pub struct PairsQuery {
+    #[serde(default)]
+    pub refresh: bool,
+}
+
+/// A refusal of a folder pair, as the route says it: what the pair asked
+/// for cannot be (`422 invalid_pair`), or the backup's own refusal.
+fn pair_error(e: BackupError) -> ApiError {
+    match e {
+        BackupError::Invalid(why) => ApiError::unprocessable("invalid_pair", why),
+        other => backup_error(other),
+    }
+}
+
+/// `GET /api/backup/pairs`.
+pub async fn get_pairs(
+    Authed(_ctx): Authed,
+    State(state): State<AppState>,
+    Query(q): Query<PairsQuery>,
+) -> ApiResult<Json<ops::PairsView>> {
+    let st = state.clone();
+    let view = tokio::task::spawn_blocking(move || {
+        if q.refresh {
+            ops::refresh_pairs(&st)
+        } else {
+            Ok(ops::pairs_view(&st))
+        }
+    })
+    .await
+    .map_err(|e| ApiError::internal(e.to_string()))?
+    .map_err(pair_error)?;
+    Ok(Json(view))
+}
+
+/// `POST /api/backup/pairs`.
+pub async fn post_pair(
+    ManageData(ctx): ManageData,
+    State(state): State<AppState>,
+    Body(body): Body<ops::NewPair>,
+) -> ApiResult<Response> {
+    let st = state.clone();
+    let req = body.clone();
+    let view = tokio::task::spawn_blocking(move || ops::add_pair(&st, &req))
+        .await
+        .map_err(|e| ApiError::internal(e.to_string()))?
+        .map_err(pair_error)?;
+    audit(
+        &state,
+        &ctx,
+        "backup.pairs.add",
+        json!({ "machine": body.machine, "folder": body.folder, "otherFolder": body.other_folder }),
+    );
+    auth::note_device_action(&state, &ctx, "added a folder pair");
+    Ok((StatusCode::CREATED, Json(view)).into_response())
+}
+
+/// `DELETE /api/backup/pairs/{id}`.
+pub async fn delete_pair(
+    ManageData(ctx): ManageData,
+    State(state): State<AppState>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+) -> ApiResult<Json<ops::PairsView>> {
+    let st = state.clone();
+    let pair = id.clone();
+    let gone = tokio::task::spawn_blocking(move || ops::remove_pair(&st, &pair))
+        .await
+        .map_err(|e| ApiError::internal(e.to_string()))?
+        .map_err(pair_error)?;
+    if !gone {
+        return Err(ApiError::not_found(
+            "pair_not_found",
+            "No folder pair with that id is in the backups.",
+        ));
+    }
+    audit(&state, &ctx, "backup.pairs.remove", json!({ "pair": id }));
+    auth::note_device_action(&state, &ctx, "removed a folder pair");
+    let st = state.clone();
+    let view = tokio::task::spawn_blocking(move || ops::pairs_view(&st))
+        .await
+        .map_err(|e| ApiError::internal(e.to_string()))?;
+    Ok(Json(view))
 }

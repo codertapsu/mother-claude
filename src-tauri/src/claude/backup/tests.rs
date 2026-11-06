@@ -162,6 +162,7 @@ fn a_round_trip_is_byte_identical_and_the_second_run_archives_nothing() {
         job_id: "20261021T101010-0a0b0c0d",
         progress: &Progress::default(),
         kind: "restore",
+        machine: None,
     })
     .unwrap();
     assert_eq!(report.restored, vec![SID.to_string()]);
@@ -271,6 +272,7 @@ fn a_live_session_waits_and_a_truncated_archive_is_refused() {
         job_id: "20261021T101011-0a0b0c0e",
         progress: &Progress::default(),
         kind: "restore",
+        machine: None,
     })
     .unwrap();
     assert!(report.restored.is_empty());
@@ -578,6 +580,7 @@ fn a_session_id_from_the_index_never_names_a_path_outside_the_target() {
     let entry = IndexEntry {
         id: id.to_string(),
         cwd: None,
+        folder: None,
         title: None,
         transcript_bytes: 1,
         newest_mtime: 1,
@@ -609,6 +612,7 @@ fn a_session_id_from_the_index_never_names_a_path_outside_the_target() {
         job_id: "20261021T130001-00000002",
         progress: &Progress::default(),
         kind: "restore",
+        machine: None,
     })
     .unwrap();
     assert_eq!(r.skipped[0].code, "invalid_id");
@@ -1067,7 +1071,7 @@ fn a_push_made_from_an_old_entry_never_replaces_a_newer_one() {
         progress: &Progress::default(),
     };
     let now = session_now(a, SID).unwrap();
-    let mine = archive_session(&inp, &keys, SID, &now).unwrap();
+    let mine = archive_session(&inp, &keys, &before, SID, &now).unwrap();
     let mine_path = w.set.session_archive(&mine).unwrap();
     assert!(mine_path.exists());
     let mut changes = Changes::default();
@@ -1120,6 +1124,7 @@ fn an_unreadable_configuration_file_never_costs_the_index() {
         job_id: "20261021T170000-00000001",
         progress: &Progress::default(),
         kind: "restore",
+        machine: None,
     })
     .unwrap();
     assert_eq!(report.restored, vec![SID.to_string()]);
@@ -1291,6 +1296,7 @@ fn a_restored_and_continued_session_is_pushed_when_it_came_from_the_set() {
         job_id: "20261021T184000-00000001",
         progress: &Progress::default(),
         kind: "restore",
+        machine: None,
     })
     .unwrap();
     grow(b, SID, "{\"type\":\"user\",\"on\":\"b\"}");
@@ -1766,6 +1772,7 @@ fn a_move_out_of_a_set_keeps_the_archive_for_its_undo() {
             job_id: job,
             progress: &Progress::default(),
             kind: "move",
+            machine: None,
         },
         true,
         now + week,
@@ -1832,6 +1839,7 @@ fn a_move_out_of_a_set_keeps_the_archive_for_its_undo() {
             job_id: job,
             progress: &Progress::default(),
             kind: "move",
+            machine: None,
         },
         true,
         now_ms() + week,
@@ -1955,6 +1963,7 @@ fn a_move_between_sets_re_encrypts_and_its_undo_puts_it_back() {
         job_id: "20261022T100001-00000002",
         progress: &Progress::default(),
         kind: "restore",
+        machine: None,
     })
     .unwrap();
     assert_eq!(restored.restored, [SID]);
@@ -2053,10 +2062,12 @@ fn a_backup_set_on_a_share_that_cannot_flush_the_drive_round_trips() {
         job_id: "20261106T120000-0a0b0c0d",
         progress: &Progress::default(),
         kind: "restore",
+        machine: None,
     })
     .unwrap();
     assert_eq!(report.restored, vec![SID.to_string()]);
     assert!(report.skipped.is_empty(), "{:?}", report.skipped);
 }
 
+mod folder_pairs;
 mod force;

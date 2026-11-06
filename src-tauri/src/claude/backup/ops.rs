@@ -588,6 +588,10 @@ pub struct BackupView {
     /// backup folder exists and that folder holds no set but the Default's.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub storage: Option<Vec<super::storage::StorageView>>,
+    /// Folder pairs, as the sets last said (docs/BACKUP.md "Folder pairs"):
+    /// there once a backup folder is set.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub folder_pairs: Option<PairsView>,
 }
 
 pub fn view(state: &AppState) -> BackupView {
@@ -624,8 +628,10 @@ pub fn view(state: &AppState) -> BackupView {
     };
     let storage = super::storage::views(state);
     let storage = super::storage::shown(state, &storage).then_some(storage);
+    let folder_pairs = settings.folder.is_some().then(|| pairs_view(state));
     BackupView {
         storage,
+        folder_pairs,
         settings,
         passphrase_set: passphrase(state).is_some(),
         passphrase_change_unfinished: passphrase_change_unfinished(state),
@@ -788,6 +794,7 @@ pub async fn push(state: &AppState, account_id: &str, force: bool) -> Result<Str
         let titles = titles(&st).await;
         let st2 = st.clone();
         let account_id = a.id.clone();
+        let set_dir = set.dir.clone();
         let result = tokio::task::spawn_blocking(move || {
             let live = |s: &str| is_live(&st2, s);
             let title_of = |s: &str| titles.get(s).cloned();
@@ -807,6 +814,9 @@ pub async fn push(state: &AppState, account_id: &str, force: bool) -> Result<Str
         })
         .await
         .unwrap_or_else(|e| Err(BackupError::Io(e.to_string())));
+        if let Ok(report) = &result {
+            note_pairs(&st, &set_dir, report.pairs.clone());
+        }
         let mut local = load(&st);
         let s = local.accounts.entry(account_id).or_default();
         match &result {
@@ -884,17 +894,20 @@ pub async fn index(
     tokio::task::spawn_blocking(move || {
         let keys = super::open_keys_any(&set, &pass)?;
         let index = super::read_index(&set, &keys)?;
+        let now = chrono::Utc::now().timestamp_millis();
+        note_pairs(&st, &set.dir, Some(super::pairs::SetPairs::of(&index, now)));
         // Display only.
         let machines = super::read_info(&set)
             .map(|i| i.machines)
             .unwrap_or_default();
         let live = |s: &str| is_live(&st, s);
-        let sessions = super::compare(
+        let sessions = super::compare_here(
             &index,
             &home,
             if same_dir { &machine.id } else { "" },
+            Some(&machine.id),
             &live,
-            chrono::Utc::now().timestamp_millis(),
+            now,
         );
         Ok(IndexView {
             account: a.id.clone(),
@@ -984,16 +997,19 @@ pub async fn index_of_set(
     tokio::task::spawn_blocking(move || {
         let keys = super::open_keys_any(&set, &pass)?;
         let index = super::read_index(&set, &keys)?;
+        let now = chrono::Utc::now().timestamp_millis();
+        note_pairs(&st, &set.dir, Some(super::pairs::SetPairs::of(&index, now)));
         let machines = super::read_info(&set)
             .map(|i| i.machines)
             .unwrap_or_default();
         let live = |s: &str| is_live(&st, s);
-        let sessions = super::compare(
+        let sessions = super::compare_here(
             &index,
             &home,
             if same_dir { &machine.id } else { "" },
+            Some(&machine.id),
             &live,
-            chrono::Utc::now().timestamp_millis(),
+            now,
         );
         Ok(IndexView {
             account: target.id.clone(),
@@ -1042,6 +1058,8 @@ pub async fn restore(
         let set = Set::new(&folder, &a.name);
         let st2 = st.clone();
         let id2 = id.clone();
+        let set_dir = set.dir.clone();
+        let machine = this_machine(&st).ok().map(|m| m.id);
         let result = tokio::task::spawn_blocking(move || {
             let live = |s: &str| is_live(&st2, s);
             super::restore_with(
@@ -1056,12 +1074,16 @@ pub async fn restore(
                     job_id: &id2,
                     progress: &progress,
                     kind: "restore",
+                    machine: machine.as_deref(),
                 },
                 force,
             )
         })
         .await
         .unwrap_or_else(|e| Err(BackupError::Io(e.to_string())));
+        if let Ok((r, _)) = &result {
+            note_pairs(&st, &set_dir, r.pairs.clone());
+        }
         let undo = result
             .as_ref()
             .ok()
@@ -1145,6 +1167,7 @@ pub async fn pull(
         let _one = st.jobs.lock.lock().await;
         let st2 = st.clone();
         let id2 = id.clone();
+        let set_dir = set.dir.clone();
         let result = tokio::task::spawn_blocking(move || {
             let live = |s: &str| is_live(&st2, s);
             super::pull(&super::PullInputs {
@@ -1163,6 +1186,9 @@ pub async fn pull(
         })
         .await
         .unwrap_or_else(|e| Err(BackupError::Io(e.to_string())));
+        if let Ok((r, _)) = &result {
+            note_pairs(&st, &set_dir, r.pairs.clone());
+        }
         let undo = result
             .as_ref()
             .ok()
@@ -1175,6 +1201,7 @@ pub async fn pull(
                     .iter()
                     .chain(&r.updated)
                     .chain(&r.replaced)
+                    .chain(&r.relocated)
                     .cloned()
                     .collect()
             })
@@ -1197,6 +1224,348 @@ pub async fn pull(
         );
     });
     Ok(job)
+}
+
+// ─────────────────────────────── folder pairs ───────────────────────────────
+
+/// The sets of this machine's accounts in the backup folder: where folder
+/// pairs are kept (each of them holds every pair).
+fn pair_sets(state: &AppState) -> Vec<Set> {
+    let Some(folder) = state.accounts.backup_settings().folder else {
+        return Vec::new();
+    };
+    set_owners(state)
+        .into_iter()
+        .map(|a| Set::new(&folder, &a.name))
+        .collect()
+}
+
+fn pair_set_dirs(state: &AppState) -> Vec<PathBuf> {
+    pair_sets(state).into_iter().map(|s| s.dir).collect()
+}
+
+/// Keep what a set's index said of folder pairs and machines (after a push,
+/// pull, restore or a look at its index), and make this machine's pairs the
+/// session list's.
+pub(crate) fn note_pairs(state: &AppState, set_dir: &Path, seen: Option<super::pairs::SetPairs>) {
+    let (Some(dir), Some(seen)) = (state.auth.config_dir.as_deref(), seen) else {
+        return;
+    };
+    let cache = super::pairs::note(dir, set_dir, seen);
+    super::pairs::apply(
+        dir,
+        &cache,
+        known_machine_id(state).as_deref(),
+        &pair_set_dirs(state),
+    );
+}
+
+/// At launch, and when the backup folder changes: this machine's pairs, as
+/// the sets last said, for the session list.
+pub fn load_pairs(state: &AppState) {
+    let Some(dir) = state.auth.config_dir.as_deref() else {
+        return;
+    };
+    let cache = super::pairs::load(dir);
+    super::pairs::apply(
+        dir,
+        &cache,
+        known_machine_id(state).as_deref(),
+        &pair_set_dirs(state),
+    );
+}
+
+/// A machine as the pairs section shows it.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PairMachine {
+    pub id: String,
+    pub name: String,
+    /// Its OS, once it wrote it (how its folders are written).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub os: Option<String>,
+}
+
+/// One machine's folder of a pair.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PairSide {
+    pub machine: String,
+    pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub os: Option<String>,
+    pub folder: String,
+    /// This machine's side.
+    pub here: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PairView {
+    pub id: String,
+    /// This machine's folder first.
+    pub folders: Vec<PairSide>,
+    pub created_at: i64,
+}
+
+/// `folderPairs` of `GET /api/backup` and `GET /api/backup/pairs`: this
+/// machine, the other machines its sets know, and the live pairs.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PairsView {
+    /// This machine's id, once it has one (its first push or pull).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub machine: Option<String>,
+    pub host: String,
+    pub os: String,
+    pub machines: Vec<PairMachine>,
+    pub pairs: Vec<PairView>,
+    /// When a set was last read for them (`None`: never on this machine).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub read_at: Option<i64>,
+}
+
+/// What the sets last said of folder pairs, without opening one.
+pub fn pairs_view(state: &AppState) -> PairsView {
+    let dirs = pair_set_dirs(state);
+    let cache = state
+        .auth
+        .config_dir
+        .as_deref()
+        .map(super::pairs::load)
+        .unwrap_or_default();
+    let here = known_machine_id(state);
+    let machines = cache.machines_of(&dirs);
+    let name_of = |id: &str| machines.get(id).map(|m| m.name.clone()).unwrap_or_default();
+    let os_of = |id: &str| machines.get(id).and_then(|m| m.os.clone());
+    let pairs = cache
+        .pairs_of(&dirs)
+        .into_iter()
+        .map(|p| {
+            let mut folders: Vec<PairSide> = p
+                .folders
+                .iter()
+                .map(|(m, f)| PairSide {
+                    machine: m.clone(),
+                    name: name_of(m),
+                    os: os_of(m),
+                    folder: f.clone(),
+                    here: here.as_deref() == Some(m.as_str()),
+                })
+                .collect();
+            folders.sort_by_key(|s| !s.here);
+            PairView {
+                id: p.id,
+                folders,
+                created_at: p.created_at,
+            }
+        })
+        .collect();
+    PairsView {
+        machines: machines
+            .iter()
+            .filter(|(id, _)| here.as_deref() != Some(id.as_str()))
+            .map(|(id, m)| PairMachine {
+                id: id.clone(),
+                name: m.name.clone(),
+                os: m.os.clone(),
+            })
+            .collect(),
+        machine: here,
+        host: super::host_name(),
+        os: std::env::consts::OS.to_string(),
+        pairs,
+        read_at: cache.read_at(&dirs),
+    }
+}
+
+/// Each set of this machine's accounts in the backup folder that exists,
+/// opened, with its index: `(set, keys, index)`, or why one could not be.
+type OpenSet = (Set, super::Keys, super::SetIndex);
+
+fn open_pair_sets(state: &AppState) -> Result<Vec<Result<OpenSet, BackupError>>, BackupError> {
+    let (_, pass) = prerequisites(state)?;
+    let sets: Vec<Set> = pair_sets(state).into_iter().filter(Set::exists).collect();
+    if sets.is_empty() {
+        return Err(BackupError::Invalid(
+            "there is no backup here yet to keep folder pairs in: back up once first".into(),
+        ));
+    }
+    Ok(sets
+        .into_iter()
+        .map(|set| {
+            let keys = super::open_keys_any(&set, &pass)?;
+            let index = super::read_index(&set, &keys)?;
+            Ok((set, keys, index))
+        })
+        .collect())
+}
+
+/// Read every set's pairs again (the pairs section's Refresh). Blocking.
+pub fn refresh_pairs(state: &AppState) -> Result<PairsView, BackupError> {
+    let now = chrono::Utc::now().timestamp_millis();
+    let mut first_err = None;
+    let mut read = 0;
+    for opened in open_pair_sets(state)? {
+        match opened {
+            Ok((set, _, index)) => {
+                note_pairs(
+                    state,
+                    &set.dir,
+                    Some(super::pairs::SetPairs::of(&index, now)),
+                );
+                read += 1;
+            }
+            Err(e) => first_err = first_err.or(Some(e)),
+        }
+    }
+    match first_err {
+        Some(e) if read == 0 => Err(e),
+        _ => Ok(pairs_view(state)),
+    }
+}
+
+/// A folder pair as asked for: this machine's folder, another machine (by
+/// id) and its folder.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct NewPair {
+    pub folder: String,
+    pub machine: String,
+    pub other_folder: String,
+}
+
+/// Add a folder pair to every set of this machine's accounts in the backup
+/// folder (merged into each index as it is: another machine's edit made
+/// meanwhile stays). This machine's folder is checked by its own rules, the
+/// other machine's by that machine's form (its OS as the sets know it, else
+/// the folder's own); the other machine must be one the sets know. Blocking.
+pub fn add_pair(state: &AppState, req: &NewPair) -> Result<PairsView, BackupError> {
+    use crate::claude::paths::{self, PathForm};
+    let me = this_machine(state)?;
+    // This machine's folder by its own rules, as every folder typed for it
+    // (`~` expanded as Claude Code expands it here), then written plainly.
+    let typed = req.folder.trim();
+    if typed.is_empty() {
+        return Err(BackupError::Invalid("name this machine's folder".into()));
+    }
+    let expanded = paths::expand_home(
+        Path::new(typed),
+        crate::claude::home::user_home_dir().as_deref(),
+    )
+    .ok_or_else(|| BackupError::Invalid("no home folder to expand ~ in".into()))?;
+    if !expanded.is_absolute() {
+        return Err(BackupError::Invalid(paths::not_a_full_path(typed)));
+    }
+    let here = paths::clean_folder(&expanded.to_string_lossy(), PathForm::here())
+        .map_err(BackupError::Invalid)?;
+    let other = req.machine.trim();
+    if !super::is_machine_id(other) || other == me.id {
+        return Err(BackupError::Invalid(
+            "name another machine of the backup (by its id)".into(),
+        ));
+    }
+    let opened: Vec<OpenSet> = open_pair_sets(state)?
+        .into_iter()
+        .collect::<Result<_, _>>()?;
+    let mut known: BTreeMap<String, super::pairs::KnownMachine> = BTreeMap::new();
+    for (_, _, index) in &opened {
+        known.extend(super::pairs::known_machines(index));
+    }
+    if !known.contains_key(other) {
+        return Err(BackupError::Invalid(
+            "that machine has not backed up to or pulled from these backups".into(),
+        ));
+    }
+    let form = super::pairs::form_of(&known, other, &req.other_folder);
+    let there = paths::clean_folder(&req.other_folder, form).map_err(BackupError::Invalid)?;
+    let now = chrono::Utc::now().timestamp_millis();
+    for (_, _, index) in &opened {
+        let live: Vec<&super::pairs::FolderPair> =
+            index.folder_pairs.iter().filter(|p| p.live()).collect();
+        let same = |a: Option<&str>, b: &str| a.is_some_and(|a| paths::same_path(a, b));
+        if live
+            .iter()
+            .any(|p| same(p.folder_of(&me.id), &here) && same(p.folder_of(other), &there))
+        {
+            return Err(BackupError::Invalid(
+                "these two folders are paired already".into(),
+            ));
+        }
+        if live.len() >= super::pairs::MAX_PAIRS {
+            return Err(BackupError::Invalid(format!(
+                "a backup keeps at most {} folder pairs",
+                super::pairs::MAX_PAIRS
+            )));
+        }
+    }
+    let pair = super::pairs::FolderPair {
+        id: super::pairs::new_pair_id(),
+        folders: [(me.id.clone(), here), (other.to_string(), there)]
+            .into_iter()
+            .collect(),
+        created_at: now,
+        by: me.id.clone(),
+        removed: None,
+        extra: BTreeMap::new(),
+    };
+    write_pairs(state, &me, opened, std::slice::from_ref(&pair))?;
+    Ok(pairs_view(state))
+}
+
+/// Remove a folder pair from every set that has it (a tombstone, so no
+/// copy of it comes back). `Ok(false)`: no set has it. Blocking.
+pub fn remove_pair(state: &AppState, id: &str) -> Result<bool, BackupError> {
+    if !super::pairs::is_pair_id(id) {
+        return Ok(false);
+    }
+    let me = this_machine(state)?;
+    let opened: Vec<OpenSet> = open_pair_sets(state)?
+        .into_iter()
+        .collect::<Result<_, _>>()?;
+    let now = chrono::Utc::now().timestamp_millis();
+    let gone: Vec<super::pairs::FolderPair> = opened
+        .iter()
+        .find_map(|(_, _, index)| index.folder_pairs.iter().find(|p| p.id == id && p.live()))
+        .map(|p| super::pairs::FolderPair {
+            removed: Some(super::pairs::Removed {
+                at: now,
+                by: me.id.clone(),
+            }),
+            ..p.clone()
+        })
+        .into_iter()
+        .collect();
+    if gone.is_empty() {
+        return Ok(false);
+    }
+    write_pairs(state, &me, opened, &gone)?;
+    Ok(true)
+}
+
+/// Merge pair changes into each opened set's index, and keep what each says
+/// now.
+fn write_pairs(
+    state: &AppState,
+    me: &super::ThisMachine,
+    opened: Vec<OpenSet>,
+    pairs: &[super::pairs::FolderPair],
+) -> Result<(), BackupError> {
+    let now = chrono::Utc::now().timestamp_millis();
+    for (set, keys, _) in opened {
+        let changes = super::Changes {
+            pairs: pairs.to_vec(),
+            machine_info: Some(super::pairs::MachineInfo::here(&me.name, now)),
+            ..super::Changes::default()
+        };
+        let merged = super::write_index_merged(&set, &keys, &changes, &me.id, now)?;
+        note_pairs(
+            state,
+            &set.dir,
+            Some(super::pairs::SetPairs::of(&merged.index, now)),
+        );
+    }
+    Ok(())
 }
 
 async fn rediscover(state: &AppState) {
@@ -1236,8 +1605,10 @@ async fn idle(state: &AppState, owner: &str, now: i64) -> bool {
 }
 
 /// The schedule: every `everyHours`, each idle set is backed up; at launch,
-/// with "pull on launch" and nothing live, every set is pulled.
+/// with "pull on launch" and nothing live, every set is pulled. This
+/// machine's folder pairs are loaded first, for the session list.
 pub fn start(state: &AppState) {
+    load_pairs(state);
     let st = state.clone();
     tokio::spawn(async move {
         // Let the first refresh find what is live.

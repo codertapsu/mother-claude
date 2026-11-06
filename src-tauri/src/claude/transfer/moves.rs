@@ -1027,20 +1027,24 @@ async fn plan_out_of(
         backup::ops::passphrases(state).ok_or(TransferError::from(BackupError::NoPassphrase))?;
     let st = state.clone();
     let (items2, home2, set2) = (items.clone(), home.clone(), set.clone());
-    let (entries, skips, empty) = tokio::task::spawn_blocking(move || {
+    // Folder pairs: where each one goes on this machine.
+    let here = backup::ops::known_machine_id(state);
+    let ((entries, skips, empty), mapped) = tokio::task::spawn_blocking(move || {
         let live = |id: &str| super::ops::is_live(&st, id);
-        backup::plan_restore(
+        backup::plan_restore_here(
             &set2,
             &pass,
             &home2,
             (!items2.all).then_some(items2.sessions.as_slice()),
             &items2.projects,
             &live,
+            here.as_deref(),
         )
     })
     .await
     .map_err(|e| TransferError::Io(e.to_string()))?
     .map_err(TransferError::from)?;
+    let folder_of = |e: &backup::IndexEntry| mapped.get(&e.id).cloned().or_else(|| e.cwd.clone());
     let from = Location::Storage {
         storage: storage.id.clone(),
         set: Some(set_name.clone()),
@@ -1061,7 +1065,7 @@ async fn plan_out_of(
         .iter()
         .map(|e| PlanSession {
             id: e.id.clone(),
-            cwd: e.cwd.clone(),
+            cwd: folder_of(e),
             title: e.title.clone(),
             files: e.files as usize,
             bytes: e.archive_bytes,
@@ -1081,9 +1085,15 @@ async fn plan_out_of(
         }))
         .collect();
     if req.trust {
+        // The key Claude Code files the folder here under (D:/dev/app).
+        let key = |c: String| {
+            let form = paths::PathForm::of_path(&c).unwrap_or(paths::PathForm::Posix);
+            paths::config_key(&c, form)
+        };
         g.adds = entries
             .iter()
-            .filter_map(|e| e.cwd.clone())
+            .filter_map(folder_of)
+            .map(key)
             .filter(|c| super::project_entry(&home.claude_json(), c).is_none())
             .collect::<std::collections::BTreeSet<_>>()
             .into_iter()
@@ -1511,6 +1521,8 @@ async fn run_out_of(
         into: false,
     };
     let progress = state.jobs.progress(job).unwrap_or_default();
+    // Folder pairs: another machine's conversation goes into the folder here.
+    let machine = backup::ops::known_machine_id(state);
     let (report, manifest) = tokio::task::spawn_blocking(move || {
         let live = |id: &str| super::ops::is_live(&st, id);
         let kind = match mode {
@@ -1531,6 +1543,7 @@ async fn run_out_of(
                 job_id: &job2,
                 progress: &progress,
                 kind,
+                machine: machine.as_deref(),
             },
             mode == Mode::Move,
             keep_until,

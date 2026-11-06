@@ -229,6 +229,7 @@ fn a_running_session_is_never_touched_by_a_force() {
             job_id: "20261106T120002-00000003",
             progress: &Progress::default(),
             kind: "restore",
+            machine: None,
         },
         true,
     )
@@ -271,6 +272,7 @@ fn a_force_restore_replaces_the_copy_here_and_its_undo_puts_it_back() {
                 job_id: job,
                 progress: &Progress::default(),
                 kind: "restore",
+                machine: None,
             },
             force,
         )
