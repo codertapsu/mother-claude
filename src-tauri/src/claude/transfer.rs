@@ -1286,7 +1286,7 @@ fn copy_file(c: &FileCopy, snapshot: bool) -> Result<Created, TransferError> {
         if let Ok(mtime) = std::fs::metadata(&c.from).and_then(|m| m.modified()) {
             let _ = f.set_modified(mtime);
         }
-        f.sync_all().map_err(|e| io("syncing", &tmp, e))?;
+        crate::persist::sync_file(&f).map_err(|e| io("syncing", &tmp, e))?;
         std::fs::rename(&tmp, &c.to).map_err(|e| io("placing", &c.to, e))
     })();
     if let Err(e) = result {
@@ -1344,7 +1344,7 @@ pub(crate) fn rewrite(path: &Path, bytes: &[u8]) -> Result<(), TransferError> {
         }
         let mut f = opts.open(&tmp).map_err(|e| io("writing", &tmp, e))?;
         f.write_all(bytes).map_err(|e| io("writing", &tmp, e))?;
-        f.sync_all().map_err(|e| io("syncing", &tmp, e))?;
+        crate::persist::sync_file(&f).map_err(|e| io("syncing", &tmp, e))?;
         if let Ok(perm) = std::fs::metadata(path).map(|m| m.permissions()) {
             let _ = std::fs::set_permissions(&tmp, perm);
         } else {

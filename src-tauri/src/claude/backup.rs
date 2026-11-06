@@ -657,7 +657,7 @@ fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), BackupError> {
     let result = (|| -> Result<(), BackupError> {
         let mut f = std::fs::File::create(&tmp).map_err(|e| io("writing", &tmp, e))?;
         f.write_all(bytes).map_err(|e| io("writing", &tmp, e))?;
-        f.sync_all().map_err(|e| io("syncing", &tmp, e))?;
+        crate::persist::sync_file(&f).map_err(|e| io("syncing", &tmp, e))?;
         std::fs::rename(&tmp, path).map_err(|e| io("placing", path, e))
     })();
     if result.is_err() {
@@ -1577,7 +1577,7 @@ fn write_archive(
             .inner
             .into_inner()
             .map_err(|e| io("writing", &tmp, e.error()))?;
-        file.sync_all().map_err(|e| io("syncing", &tmp, e))?;
+        crate::persist::sync_file(&file).map_err(|e| io("syncing", &tmp, e))?;
         // Named after what it holds: never over another archive.
         let name = name_for(&sha);
         let place = dir.join(&name);

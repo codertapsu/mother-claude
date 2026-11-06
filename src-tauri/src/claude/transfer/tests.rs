@@ -1645,3 +1645,27 @@ fn a_delete_never_follows_a_symlink() {
         "mine"
     );
 }
+
+/// A copy onto a network share that cannot flush the drive's own cache (an
+/// SMB share: `F_FULLFSYNC` answers ENOTSUP), as when data moves to a storage
+/// on a NAS. Manual, like the backup's on a share:
+/// `MC_TEST_SHARE=/Volumes/NAS/MotherClaude cargo test --manifest-path
+/// src-tauri/Cargo.toml --lib share_that_cannot_flush -- --ignored`.
+#[test]
+#[ignore = "needs a network share: MC_TEST_SHARE=<a folder on it>"]
+fn a_file_copied_to_a_share_that_cannot_flush_the_drive_is_placed() {
+    let share = std::env::var_os("MC_TEST_SHARE").expect("MC_TEST_SHARE: a folder on the share");
+    let folder = tempfile::tempdir_in(share).unwrap();
+    let src = tempfile::tempdir().unwrap();
+    let from = src.path().join("s.jsonl");
+    std::fs::write(&from, "{\"type\":\"user\"}\n").unwrap();
+    let to = folder.path().join("projects/-p/s.jsonl");
+    let c = FileCopy {
+        from: from.clone(),
+        to: to.clone(),
+        size: 16,
+    };
+    let created = copy_file(&c, false).unwrap();
+    assert_eq!(created.size, 16);
+    assert_eq!(std::fs::read(&to).unwrap(), std::fs::read(&from).unwrap());
+}

@@ -6,6 +6,10 @@
 //! `push.json`, `index-cache.json`, the VAPID key, `hook.curlrc`, tokens) goes
 //! through these so the permissions (0600) and the atomic write (tmp + rename)
 //! are handled once.
+//!
+//! [`sync_file`] is the flush of every atomic write in the crate — these, the
+//! backup's and the copies between accounts and storages alike. It only
+//! flushes a file its caller opened, so it never picks a path of its own.
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -31,6 +35,53 @@ pub fn restrict(path: &Path) {
 #[cfg(not(unix))]
 pub fn restrict(_path: &Path) {}
 
+/// `File::sync_all`, where the file system can do it. On macOS that asks for
+/// `F_FULLFSYNC`, which flushes the drive's own cache too; an SMB share (a
+/// NAS) answers ENOTSUP, "os error 45", and gets the plain `fsync` it can do
+/// instead, as SQLite does. A real failure stays one.
+pub fn sync_file(f: &std::fs::File) -> std::io::Result<()> {
+    #[cfg(target_vendor = "apple")]
+    {
+        use std::os::fd::AsRawFd;
+        sync_or_fall_back(f.sync_all(), || loop {
+            // SAFETY: `f` keeps the descriptor open for the whole call.
+            if unsafe { libc::fsync(f.as_raw_fd()) } == 0 {
+                return Ok(());
+            }
+            let e = std::io::Error::last_os_error();
+            if e.kind() != std::io::ErrorKind::Interrupted {
+                return Err(e);
+            }
+        })
+    }
+    #[cfg(not(target_vendor = "apple"))]
+    {
+        f.sync_all()
+    }
+}
+
+/// `full`'s outcome, or `plain`'s where the file system cannot do a full
+/// sync. Never after an I/O error: a second flush could then report success
+/// for data that is gone.
+#[cfg(target_vendor = "apple")]
+fn sync_or_fall_back(
+    full: std::io::Result<()>,
+    plain: impl FnOnce() -> std::io::Result<()>,
+) -> std::io::Result<()> {
+    match full {
+        Err(e)
+            if matches!(
+                e.raw_os_error(),
+                Some(libc::ENOTSUP | libc::EOPNOTSUPP | libc::EINVAL | libc::ENOTTY)
+            ) =>
+        {
+            tracing::debug!(error = %e, "no full sync on this file system; a plain fsync");
+            plain()
+        }
+        other => other,
+    }
+}
+
 /// Write `bytes` to `path` atomically with mode 0600: write a sibling temp file,
 /// fsync, chmod, rename over the target. Creates the parent directory.
 pub fn write_private(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
@@ -53,7 +104,7 @@ pub fn write_private(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
         }
         let mut f = opts.open(&tmp)?;
         f.write_all(bytes)?;
-        f.sync_all()?;
+        sync_file(&f)?;
     }
     restrict(&tmp);
     match std::fs::rename(&tmp, path) {
@@ -119,5 +170,43 @@ mod tests {
         assert!(read_json::<serde_json::Value>(&dir.path().join("missing.json")).is_none());
         std::fs::write(dir.path().join("bad.json"), "{nope").unwrap();
         assert!(read_json::<serde_json::Value>(&dir.path().join("bad.json")).is_none());
+    }
+
+    #[test]
+    fn a_file_is_synced_where_it_is_written() {
+        let dir = tempfile::tempdir().unwrap();
+        let f = std::fs::File::create(dir.path().join("f")).unwrap();
+        sync_file(&f).unwrap();
+    }
+
+    /// An SMB share answers ENOTSUP to `F_FULLFSYNC` (what `sync_all` asks
+    /// for on macOS) and takes a plain `fsync`; an I/O error is never
+    /// flushed over.
+    #[cfg(target_vendor = "apple")]
+    #[test]
+    fn a_file_system_without_a_full_sync_gets_a_plain_one() {
+        use std::io::Error;
+        let plain_ran = std::cell::Cell::new(false);
+        let plain = || {
+            plain_ran.set(true);
+            Ok(())
+        };
+        for unsupported in [libc::ENOTSUP, libc::EOPNOTSUPP, libc::EINVAL, libc::ENOTTY] {
+            plain_ran.set(false);
+            sync_or_fall_back(Err(Error::from_raw_os_error(unsupported)), plain).unwrap();
+            assert!(plain_ran.get(), "errno {unsupported}");
+        }
+        // The plain one's own failure is the outcome.
+        let e = sync_or_fall_back(Err(Error::from_raw_os_error(libc::ENOTSUP)), || {
+            Err(Error::from_raw_os_error(libc::EIO))
+        })
+        .unwrap_err();
+        assert_eq!(e.raw_os_error(), Some(libc::EIO));
+        // A full sync that worked, or a real failure: nothing more.
+        plain_ran.set(false);
+        sync_or_fall_back(Ok(()), plain).unwrap();
+        let e = sync_or_fall_back(Err(Error::from_raw_os_error(libc::EIO)), plain).unwrap_err();
+        assert_eq!(e.raw_os_error(), Some(libc::EIO));
+        assert!(!plain_ran.get());
     }
 }

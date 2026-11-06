@@ -598,7 +598,9 @@ too" — a trusted folder runs its hooks and MCP servers unasked.
 Engine: walk the account's directory with the §1.4 grouping and the D6
 exclusions; for each session compare `transcriptBytes` + `newestMtime` with
 the set's index; archive the changed ones (`tar` → `gzip` → `age`
-passphrase) to a temp file in the set folder, fsync, rename; rewrite
+passphrase) to a temp file in the set folder, fsync (`persist::sync_file`: a
+plain `fsync` where the file system cannot flush the drive's own cache, as a
+NAS's SMB share, which answers `F_FULLFSYNC` with ENOTSUP), rename; rewrite
 `index.json.age`; bundle the config once per run when any of its files
 changed. Skip sessions that are live. Report progress through a job
 (`/data/jobs/{id}` reused). Schedule: manual, plus every `everyHours` while

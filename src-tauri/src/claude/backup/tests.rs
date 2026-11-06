@@ -1995,3 +1995,38 @@ fn a_push_counts_its_bytes_against_a_total_known_from_the_start() {
     assert_eq!(again.bytes_total.load(Ordering::Relaxed), 0);
     assert_eq!(again.bytes_done.load(Ordering::Relaxed), 0);
 }
+
+/// A set in a folder on a network share whose file system cannot flush the
+/// drive's own cache, as a NAS's SMB share: macOS's `F_FULLFSYNC` answers
+/// ENOTSUP there ("os error 45"), a plain `fsync` works. A manual check on a
+/// Mac with one mounted, in a temp folder of its own there (removed after):
+/// `MC_TEST_SHARE=/Volumes/NAS/MotherClaude cargo test --manifest-path
+/// src-tauri/Cargo.toml --lib share_that_cannot_flush -- --ignored`.
+#[test]
+#[ignore = "needs a network share: MC_TEST_SHARE=<a folder on it>"]
+fn a_backup_set_on_a_share_that_cannot_flush_the_drive_round_trips() {
+    let share = std::env::var_os("MC_TEST_SHARE").expect("MC_TEST_SHARE: a folder on the share");
+    let folder = tempfile::tempdir_in(share).unwrap();
+    let mut w = world();
+    w.set = Set::new(folder.path(), "Work");
+    session(w.home.base(), SID);
+    config(w.home.base());
+    let r = push_once(&w, &not_live);
+    assert_eq!(r.archived, vec![SID.to_string()]);
+    assert!(r.config.is_some());
+    let (report, _) = restore(&RestoreInputs {
+        set: &w.set,
+        passphrases: &[pass()],
+        target: &w.other,
+        ids: &[SID.to_string()],
+        trust: false,
+        is_live: &not_live,
+        undo_root: &w.undo,
+        job_id: "20261106T120000-0a0b0c0d",
+        progress: &Progress::default(),
+        kind: "restore",
+    })
+    .unwrap();
+    assert_eq!(report.restored, vec![SID.to_string()]);
+    assert!(report.skipped.is_empty(), "{:?}", report.skipped);
+}

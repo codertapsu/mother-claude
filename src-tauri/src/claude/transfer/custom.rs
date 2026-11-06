@@ -564,7 +564,7 @@ fn place_file(from: &Path, to: &Path) -> Result<Created, TransferError> {
         if let Ok(mtime) = std::fs::metadata(from).and_then(|m| m.modified()) {
             let _ = f.set_modified(mtime);
         }
-        f.sync_all().map_err(|e| io("syncing", &tmp, e))?;
+        crate::persist::sync_file(&f).map_err(|e| io("syncing", &tmp, e))?;
         std::fs::hard_link(&tmp, to).map_err(|e| {
             if e.kind() == std::io::ErrorKind::AlreadyExists {
                 TransferError::AlreadyExists(to.display().to_string())
