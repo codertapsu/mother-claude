@@ -12,6 +12,8 @@ use tracing_subscriber::EnvFilter;
 
 pub mod bridge;
 pub mod claude;
+pub mod mcp;
+pub mod orchestration;
 pub mod pending;
 pub mod permissions;
 pub mod persist;
