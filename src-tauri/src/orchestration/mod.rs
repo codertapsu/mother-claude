@@ -14,6 +14,12 @@
 //! calls these three and nothing else of the scheduler side; the scheduler
 //! side never launches or stops a session itself.
 
+// The teams side (docs/TEAMS.md): workflow templates, the task board,
+// teams and their role sessions, the ownership guard, delegation, the MCP
+// tools, the routes and the WebSocket frame.
+pub mod board;
+pub mod templates;
+
 pub mod capacity;
 pub mod metrics;
 pub mod router;
