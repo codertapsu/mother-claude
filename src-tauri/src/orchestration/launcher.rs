@@ -52,52 +52,8 @@ pub const WAIT_PUSH_AFTER_MS: i64 = 10 * 60_000;
 pub const ROLE_SETTINGS: &str = r#"{"crossSessionInbound":"accept"}"#;
 /// What a read-only role may not use.
 pub const READ_ONLY_DISALLOWED: [&str; 4] = ["Edit", "Write", "MultiEdit", "NotebookEdit"];
-/// The `--max-budget-usd` of a role that names none, on accounts that pay
-/// per token.
-pub const DEFAULT_BUDGET_USD: f64 = 5.0;
-
 fn now_ms() -> i64 {
     crate::claude::registry::now_ms()
-}
-
-/// Whether sessions of `account` pay per token (an API key, a cloud
-/// provider, a Console sign-in): only then does a role's budget go to its
-/// sessions as `--max-budget-usd`. A claude.ai plan or a `setup-token`
-/// token runs on the plan's windows instead. (The scheduler's
-/// `budget::pays_per_token` can take over this decision.)
-pub fn pays_per_token(state: &AppState, account: &str) -> bool {
-    use crate::claude::accounts::AccountKind;
-    let Some(acc) = state.accounts.get(account) else {
-        return false;
-    };
-    if acc.kind == AccountKind::Token && !acc.is_default() {
-        return false;
-    }
-    if let Some(auth) = state.accounts.runtime.status(account).auth {
-        if auth
-            .api_provider
-            .as_deref()
-            .is_some_and(|p| !p.is_empty() && !p.eq_ignore_ascii_case("firstParty"))
-        {
-            return true;
-        }
-        let method = auth.auth_method.unwrap_or_default().to_ascii_lowercase();
-        if method.contains("api") || method == "console" {
-            return true;
-        }
-        if !method.is_empty() && method != "none" {
-            return false;
-        }
-    }
-    acc.is_default()
-        && [
-            "ANTHROPIC_API_KEY",
-            "CLAUDE_CODE_USE_BEDROCK",
-            "CLAUDE_CODE_USE_VERTEX",
-            "CLAUDE_CODE_USE_FOUNDRY",
-        ]
-        .iter()
-        .any(|k| std::env::var_os(k).is_some_and(|v| !v.is_empty()))
 }
 
 // ─────────────────────────────── what a session is told ───────────────────────────────
@@ -747,8 +703,7 @@ async fn launch(
     } else {
         current.as_ref().map(packet).unwrap_or_default()
     };
-    let budget =
-        pays_per_token(state, &team.account).then(|| role.budget_usd.unwrap_or(DEFAULT_BUDGET_USD));
+    let budget = session_budget(state, team, role);
     let mut opts = role_options(
         team,
         role,
@@ -762,9 +717,14 @@ async fn launch(
         budget,
     );
     opts.account_env = account_env;
+    opts.fallback_model = router::fallback_for(state, &decision.choice);
+    let started_task = assigned.as_ref().map(|c| c.task.id);
     match state.control.spawn(state, opts).await {
         Ok(new_id) => {
             state.teams.bind(&team.id, &role.id, &new_id, false, now);
+            if let Some(tid) = started_task {
+                task_started(state, team, role, &new_id, tid);
+            }
             let worktree_path = role.worktree.then(|| worktree_dir.clone());
             let choice = decision.choice.clone();
             let reason = decision.reason.clone();
@@ -892,6 +852,30 @@ pub async fn release_role(state: &AppState, team_id: &str, role_id: &str) {
 
 /// Hand a role's next task to its idle session: claimed for it, the packet
 /// sent as a message.
+/// The `--max-budget-usd` of a role session, when its account pays per token
+/// (the scheduler decides, with your billing overrides): the role's own
+/// budget in its template, else the scheduler's cap for role sessions ($5
+/// unless you changed or switched it off on the Capacity page).
+pub fn session_budget(state: &AppState, team: &Team, role: &RoleDef) -> Option<f64> {
+    if !super::budget::pays_per_token(state, Some(&team.account), &team.project) {
+        return None;
+    }
+    role.budget_usd
+        .or_else(|| super::budget::session_cap_usd(state, &team.project, &role.id))
+}
+
+/// A task was handed to a role session: the scheduler then watches its
+/// budget while it runs (`metrics::task_started`, the outcome's task id).
+fn task_started(state: &AppState, team: &Team, role: &RoleDef, session: &str, task: u64) {
+    super::metrics::task_started(
+        state,
+        &super::delegation::outcome_id(&team.project, task),
+        &team.project,
+        Some(&role.id),
+        session,
+    );
+}
+
 async fn dispatch(state: &AppState, team: &Team, role: &RoleDef, session: &str, task: &Task) {
     let decision = choose(state, team, role, Some(task));
     let now = now_ms();
@@ -908,7 +892,9 @@ async fn dispatch(state: &AppState, team: &Team, role: &RoleDef, session: &str, 
     };
     let text = packet(&change.task);
     super::delegation::on_change(state, &team.id, change).await;
-    if !super::delegation::deliver(state, team, &role.id, &text).await {
+    if super::delegation::deliver(state, team, &role.id, &text).await {
+        task_started(state, team, role, session, tid);
+    } else {
         // Nobody took it: back on the board.
         let _ = state.teams.boards.mutate(&team.project, |b| {
             Ok::<_, super::board::BoardError>(b.release(
@@ -1199,6 +1185,73 @@ mod tests {
             class: Some("implement".into()),
             ..Default::default()
         }
+    }
+
+    fn test_state() -> AppState {
+        crate::state::Inner::new(
+            crate::claude::ClaudeHome::with_base(std::env::temp_dir().join("mc-launcher-no-home")),
+            crate::state::ServerConfig {
+                host: "127.0.0.1".into(),
+                port: 0,
+            },
+            crate::server::auth::Auth::ephemeral(),
+        )
+    }
+
+    #[test]
+    fn a_role_sessions_budget_and_fallback_come_from_the_scheduler() {
+        use super::super::limits::Billing;
+        let st = test_state();
+        let t = team();
+        let mut frontend = t.role("frontend").unwrap().clone();
+        frontend.budget_usd = None;
+        // A plan account: no cap.
+        let mut limits = st.scheduler.limits();
+        limits.billing.insert(t.account.clone(), Billing::Plan);
+        st.scheduler.set_limits(limits.clone());
+        assert_eq!(session_budget(&st, &t, &frontend), None);
+        // Per token: the scheduler's cap for role sessions…
+        limits.billing.insert(t.account.clone(), Billing::PerToken);
+        st.scheduler.set_limits(limits.clone());
+        assert_eq!(
+            session_budget(&st, &t, &frontend),
+            Some(super::super::limits::DEFAULT_SESSION_USD)
+        );
+        // …or the role's own, from its template, which wins.
+        let mut own = frontend.clone();
+        own.budget_usd = Some(2.5);
+        assert_eq!(session_budget(&st, &t, &own), Some(2.5));
+        // Switched off on the Capacity page: only a template's own budget.
+        limits.budgets.session_usd = None;
+        st.scheduler.set_limits(limits);
+        assert_eq!(session_budget(&st, &t, &frontend), None);
+        assert_eq!(session_budget(&st, &t, &own), Some(2.5));
+        // The routing policy's fallback for the family goes to the argv.
+        let choice = ModelChoice::new("opus", Some("high"));
+        let mut opts = role_options(
+            &t,
+            &frontend,
+            &choice,
+            "/w/app".into(),
+            None,
+            Some("11111111-2222-3333-4444-555555555555".into()),
+            None,
+            None,
+            String::new(),
+            None,
+        );
+        opts.fallback_model = router::fallback_for(&st, &choice);
+        let a = crate::claude::control::headless_args(
+            "11111111-2222-3333-4444-555555555555",
+            &opts,
+            "default",
+        );
+        let pos = a.iter().position(|x| x == "--fallback-model").unwrap();
+        assert_eq!(a[pos + 1], "sonnet");
+        assert!(!a.iter().any(|x| x == "--max-budget-usd"));
+        // Sonnet has no fallback in the default policy: no flag.
+        let sonnet = ModelChoice::new("sonnet", None);
+        assert_eq!(router::fallback_for(&st, &sonnet), None);
     }
 
     #[test]

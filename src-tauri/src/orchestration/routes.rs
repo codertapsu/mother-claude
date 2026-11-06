@@ -781,12 +781,13 @@ pub async fn create_task(
     Authed(ctx): Authed,
     State(state): State<AppState>,
     Path(id): Path<String>,
-    Body(draft): Body<TaskDraft>,
+    Body(mut draft): Body<TaskDraft>,
 ) -> ApiResult<Response> {
     let team = team_of(&state, &id)?;
     if let Some(m) = &draft.model {
         owned::validate_model(&m.model)?;
     }
+    super::board::classify_draft(&state, &mut draft).await;
     let actor = Actor::User(who(&state, &ctx));
     let roles = team.role_ids();
     let change = state

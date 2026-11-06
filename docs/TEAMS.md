@@ -127,7 +127,8 @@ the team's block of `SpawnOptions` and argv:
 | `--settings {"crossSessionInbound":"accept"}` | and nothing else: the session takes other sessions' messages unattended |
 | `--add-dir <project>/<dir>` | the role's `addDirs` |
 | `-w <role>` | a worktree role, when its worktree does not exist yet (then it runs in it) |
-| `--max-budget-usd <n>` | only when the account pays per token (API key, cloud provider, Console): the role's `budgetUsd`, else $5 |
+| `--max-budget-usd <n>` | only when the account pays per token (the scheduler decides, with your billing setting on the Capacity page): the role's `budgetUsd`, else the Capacity page's cap for role sessions ($5 unless you changed or switched it off) |
+| `--fallback-model <a,b>` | the routing policy's fallbacks for the chosen model's family (by default Opus → Sonnet, Fable → Opus), tried when the model is overloaded or unavailable |
 | `--disallowed-tools Edit,Write,MultiEdit,NotebookEdit` | a read-only role |
 | `--allowedTools mcp__plugin_mother-claude_mc__task_create,…` | the ten team tools by exact name, one comma-joined value (as the Agent SDK passes it): Mother Claude decides each call itself, so none raises a permission card. Never the server's name, which would allow its other tools too (the browser's) |
 | `--model`, `--effort`, `--permission-mode` | from the router and the role, as for every owned session |
@@ -325,11 +326,13 @@ Every change is audited (`team.*`) and a device's is told to the desktop.
   that pay per token; on a plan the budget shows as *not applied*.
 * Foreign sessions cannot be started, stopped or resumed by a team; a dead
   one's role is taken over by an owned session when work arrives.
-* The router and admission control are the scheduler's: until its policy
-  lands they are the static first rules (the role's model; at most three
-  workers besides the lead).
-* A task without a class is routed by its role's default; nothing classifies
-  it yet (the scheduler's classifier can).
+* The router and admission control are the scheduler's (docs/ROUTING.md):
+  each task's model comes from its routing policy, and each start from its
+  admission rules; a task handed to a session is reported to it
+  (`metrics::task_started`), so its budget alerts while it runs.
+* A task created without a class gets one from the scheduler's classifier
+  (keyword rules, or Claude Haiku when you switch that on); when nothing
+  matches, the role's default model applies.
 
 ## Spike (Claude Code 2.1.319, 2026-11-06)
 

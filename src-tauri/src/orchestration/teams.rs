@@ -655,7 +655,6 @@ pub async fn view(state: &AppState, team: &Team) -> TeamView {
         .teams
         .boards
         .read(&team.project, |b| (b.counts(), b.tasks.clone()));
-    let pays = super::launcher::pays_per_token(state, &team.account);
     let mut roles = Vec::new();
     for role in &team.template.roles {
         let slot = team.slot(&role.id);
@@ -716,8 +715,8 @@ pub async fn view(state: &AppState, team: &Team) -> TeamView {
             worktree_path: role.worktree.then(|| team.base_of(role)),
             paths: role.paths.clone(),
             read_only: role.read_only,
-            budget_usd: role.budget_usd,
-            budget_applied: pays && role.budget_usd.is_some(),
+            budget_usd: super::launcher::session_budget(state, team, role).or(role.budget_usd),
+            budget_applied: super::launcher::session_budget(state, team, role).is_some(),
             autostart: role.autostart,
             classes: role.classes.clone(),
             wait_reasons: rt

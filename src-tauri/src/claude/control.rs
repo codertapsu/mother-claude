@@ -216,6 +216,9 @@ pub struct SpawnOptions {
     pub worktree: Option<String>,
     /// `--max-budget-usd <amount>`.
     pub max_budget_usd: Option<f64>,
+    /// `--fallback-model <a,b,…>`: models tried in order when the chosen
+    /// one is overloaded or unavailable (the routing policy's, per family).
+    pub fallback_model: Option<String>,
     /// `--disallowed-tools <a,b,…>`.
     pub disallowed_tools: Vec<String>,
     /// `--allowedTools <a,b,…>`: exact tool names that need no permission
@@ -2446,6 +2449,9 @@ pub fn headless_args(id: &str, opts: &SpawnOptions, permission_mode: &str) -> Ve
     }
     if let Some(budget) = opts.max_budget_usd {
         a.extend(["--max-budget-usd".into(), format!("{budget:.2}")]);
+    }
+    if let Some(models) = opts.fallback_model.as_deref().filter(|m| !m.is_empty()) {
+        a.extend(["--fallback-model".into(), models.to_string()]);
     }
     if !opts.disallowed_tools.is_empty() {
         a.extend(["--disallowed-tools".into(), opts.disallowed_tools.join(",")]);

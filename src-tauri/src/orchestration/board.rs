@@ -402,6 +402,22 @@ pub struct TaskDraft {
     pub model: Option<ModelChoice>,
 }
 
+/// A draft without a class gets one from the scheduler's classifier (its
+/// keyword rules, or Claude Haiku when you switched that on), when it finds
+/// one: the router then gives the task its class's model (docs/ROUTING.md).
+pub async fn classify_draft(state: &crate::state::AppState, draft: &mut TaskDraft) {
+    if draft.class.as_deref().is_some_and(|c| !c.trim().is_empty()) {
+        return;
+    }
+    let c = super::classify::classify_task(state, &draft.title, &draft.goal).await;
+    if c.class == super::router::TaskClass::Other {
+        return;
+    }
+    draft.class = serde_json::to_value(c.class)
+        .ok()
+        .and_then(|v| v.as_str().map(str::to_string));
+}
+
 /// A change to a task. Absent fields are left alone.
 #[derive(Debug, Clone, Default, PartialEq, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
@@ -1091,6 +1107,40 @@ impl BoardStore {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn a_draft_without_a_class_is_classified_by_the_scheduler() {
+        let st = crate::state::Inner::new(
+            crate::claude::ClaudeHome::with_base(std::env::temp_dir().join("mc-board-no-home")),
+            crate::state::ServerConfig {
+                host: "127.0.0.1".into(),
+                port: 0,
+            },
+            crate::server::auth::Auth::ephemeral(),
+        );
+        let mut fix = TaskDraft {
+            title: "Fix the crash on login".into(),
+            goal: "The app crashes with an error when the password is empty.".into(),
+            ..Default::default()
+        };
+        classify_draft(&st, &mut fix).await;
+        assert_eq!(fix.class.as_deref(), Some("fix"));
+        // A class given stays.
+        let mut given = TaskDraft {
+            title: "Fix the crash on login".into(),
+            class: Some("review".into()),
+            ..Default::default()
+        };
+        classify_draft(&st, &mut given).await;
+        assert_eq!(given.class.as_deref(), Some("review"));
+        // Nothing matched: no class (the role's default model applies).
+        let mut vague = TaskDraft {
+            title: "Something about the thing".into(),
+            ..Default::default()
+        };
+        classify_draft(&st, &mut vague).await;
+        assert_eq!(vague.class, None);
+    }
 
     fn roles() -> Vec<String> {
         ["lead", "frontend", "backend"]
