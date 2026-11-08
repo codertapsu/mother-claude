@@ -613,5 +613,7 @@
   "topics": "chủ đề",
   "In “{section}”": "Trong “{section}”",
   "No topics match “{query}”": "Không có chủ đề nào phù hợp với “{query}”",
-  "Try fewer or other words.": "Hãy thử ít từ hơn hoặc từ khác."
+  "Try fewer or other words.": "Hãy thử ít từ hơn hoặc từ khác.",
+  "1 problem": "1 vấn đề",
+  "1 role session at once (the lead not counted)": "1 phiên vai trò cùng lúc (không tính trưởng nhóm)"
 }

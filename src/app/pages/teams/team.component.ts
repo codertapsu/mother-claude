@@ -10,7 +10,6 @@ import { TPipe } from '../../core/i18n/t.pipe';
 import { pathWithin } from '../../core/paths';
 import { RealtimeService } from '../../core/realtime.service';
 import {
-  PRIORITY_LABELS,
   ROLE_STATE_LABELS,
   ROLE_STATE_TONE,
   RoleView,
@@ -402,7 +401,6 @@ export class TeamComponent {
   protected readonly selected = signal<TeamTask | null>(null);
   protected readonly status = signal<TaskStatus>('todo');
   protected readonly statuses = TASK_STATUSES;
-  protected readonly priorities = PRIORITY_LABELS;
 
   protected readonly byStatus = computed(() => columns(this.tasks()));
   /** Live sessions Mother Claude does not run, in this team's project. */

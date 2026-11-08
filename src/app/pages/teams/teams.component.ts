@@ -115,7 +115,9 @@ import { TemplateSheetComponent, TemplateSheetMode } from './template-sheet.comp
                 }
                 @if (t.report.errors.length) {
                   <span class="badge danger">{{
-                    '{n} problems' | t: { n: t.report.errors.length }
+                    t.report.errors.length === 1
+                      ? ('1 problem' | t)
+                      : ('{n} problems' | t: { n: t.report.errors.length })
                   }}</span>
                 }
               </div>

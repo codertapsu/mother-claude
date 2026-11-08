@@ -54,7 +54,11 @@ export function readPct(v: string | number, field: string, message: string): num
         <dl class="kv">
           <dt>{{ 'Your limit' | t }}</dt>
           <dd>
-            {{ '{n} role sessions at once (the lead not counted)' | t: { n: s().userCap } }}
+            {{
+              s().userCap === 1
+                ? ('1 role session at once (the lead not counted)' | t)
+                : ('{n} role sessions at once (the lead not counted)' | t: { n: s().userCap })
+            }}
           </dd>
           <dt>{{ "A project's limit" | t }}</dt>
           <dd>

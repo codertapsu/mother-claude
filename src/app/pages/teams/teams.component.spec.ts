@@ -103,7 +103,7 @@ describe('TeamsComponent', () => {
     const rows = [...el.querySelectorAll('.template')].map((r) => r.textContent ?? '');
     expect(rows[0]).toContain('built in');
     expect(rows[0]).toContain('View');
-    expect(rows[1]).toContain('1 problems');
+    expect(rows[1]).toContain('1 problem');
     expect(rows[1]).toContain('Edit');
   });
 
