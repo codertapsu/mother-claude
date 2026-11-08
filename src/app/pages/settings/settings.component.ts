@@ -13,6 +13,8 @@ import { PLAN_INTERVALS, planIntervalLabel } from '../../core/plan-usage';
 import { PlanUsageService } from '../../core/plan-usage.service';
 import { PushService } from '../../core/push.service';
 import { RealtimeService, connectionLabel } from '../../core/realtime.service';
+import { I18nService } from '../../core/i18n/i18n.service';
+import { TPipe } from '../../core/i18n/t.pipe';
 import {
   ACCENTS,
   SURFACES,
@@ -63,7 +65,7 @@ const INGRESS: Record<string, string> = {
  * read-only on phones), connection details and about. */
 @Component({
   selector: 'mc-settings',
-  imports: [RouterLink, IconComponent, PermissionsListComponent, UpdaterComponent],
+  imports: [RouterLink, IconComponent, PermissionsListComponent, TPipe, UpdaterComponent],
   templateUrl: './settings.component.html',
   styleUrl: './settings.component.scss',
 })
@@ -76,6 +78,7 @@ export class SettingsComponent {
   private realtime = inject(RealtimeService);
   protected readonly push = inject(PushService);
   protected readonly theme = inject(ThemeService);
+  protected readonly i18n = inject(I18nService);
   protected readonly accents = ACCENTS;
   protected readonly surfaces = SURFACES;
   protected readonly accentLabel = computed(

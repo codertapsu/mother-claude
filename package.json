@@ -19,6 +19,7 @@
     "lint": "ng lint",
     "format": "prettier --write \"src/**/*.{ts,html,scss}\"",
     "format:check": "prettier --check \"src/**/*.{ts,html,scss}\"",
+    "i18n:check": "node scripts/i18n-check.mjs",
     "sidecar:install": "node scripts/sidecar-npm.mjs install",
     "sidecar:build": "node scripts/sidecar-npm.mjs install && node scripts/sidecar-npm.mjs run build",
     "sidecar:bundle": "node scripts/sidecar-npm.mjs install && node scripts/sidecar-npm.mjs run build && node scripts/sidecar-npm.mjs prune --omit=dev",

@@ -13,6 +13,9 @@ import { PermissionsService } from './core/permissions.service';
 import { sessionStorageGet, storageGet, storageSet } from './core/platform';
 import { PushService } from './core/push.service';
 import { RealtimeService, connectionDetail, connectionLabel } from './core/realtime.service';
+import { I18nService } from './core/i18n/i18n.service';
+import { tr } from './core/i18n/i18n';
+import { TPipe } from './core/i18n/t.pipe';
 import { ThemeService } from './core/theme.service';
 import { UpdaterService } from './core/updater.service';
 import { ViewportService } from './core/viewport.service';
@@ -101,6 +104,7 @@ interface NavItem {
     SheetComponent,
     TimeAgoComponent,
     ToastComponent,
+    TPipe,
   ],
   templateUrl: './app.component.html',
   styleUrl: './app.component.scss',
@@ -118,6 +122,8 @@ export class AppComponent {
   /** Keeps --vvh/--vv-top in sync from startup. */
   private viewport = inject(ViewportService);
   protected readonly theme = inject(ThemeService);
+  /** Started here: the language follows the desktop's system name too. */
+  private readonly i18n = inject(I18nService);
   protected readonly attention = inject(AttentionService);
 
   protected readonly ready = signal(false);
@@ -155,7 +161,7 @@ export class AppComponent {
     const path = (this.url() ?? '/').split(/[?#]/)[0].replace(/^\//, '');
     return path.split('/')[0] ?? '';
   });
-  protected readonly pageTitle = computed(() => TITLES[this.section()] ?? 'Mother Claude');
+  protected readonly pageTitle = computed(() => tr(TITLES[this.section()] ?? 'Mother Claude'));
   /** The session page owns the whole phone screen (its own header). */
   protected readonly immersive = computed(() => this.section() === 'session');
   protected readonly moreActive = computed(() => MORE_SECTIONS.includes(this.section()));
@@ -310,6 +316,24 @@ export class AppComponent {
     const order = ['dark', 'light', 'system'] as const;
     const next = order[(order.indexOf(this.theme.pref()) + 1) % order.length];
     this.theme.set(next);
+  }
+
+  /** The theme in words, for the toggle's label. */
+  protected themeName(): string {
+    const p = this.theme.pref();
+    return p === 'dark' ? tr('Dark') : p === 'light' ? tr('Light') : tr('System||theme');
+  }
+
+  /** A sidebar link's name for screen readers, with its count. */
+  protected navLabel(item: NavItem): string | null {
+    const label = tr(item.label);
+    if (item.badge === 'pending' && this.pendingCount()) {
+      return tr('{label}, {n} waiting', { label, n: this.pendingCount() });
+    }
+    if (item.badge === 'agents' && this.agentsRunning()) {
+      return tr('{label}, {n} running', { label, n: this.agentsRunning() });
+    }
+    return null;
   }
 
   protected themeIcon(): IconName {

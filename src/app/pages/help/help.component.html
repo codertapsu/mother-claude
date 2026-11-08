@@ -155,9 +155,9 @@
     </div>
     <p id="help-count" class="count muted small" aria-live="polite">
       @if (query()) {
-        {{ hits().length }} of {{ total }} topics match
+        {{ hits().length }} of {{ total() }} topics match
       } @else {
-        {{ total }} topics
+        {{ total() }} topics
       }
     </p>
 

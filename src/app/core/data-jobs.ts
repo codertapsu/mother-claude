@@ -1,4 +1,5 @@
 import { ApiError, describeError } from './api.service';
+import { tr } from './i18n/i18n';
 import { DataJobKind, DataJobState, JobView } from './models';
 
 /**
@@ -109,8 +110,10 @@ export function formatBytes(n: number | undefined): string {
 }
 
 /** "1 session" / "3 sessions". */
+/** "1 session", "3 sessions": the noun in the language shown (Vietnamese
+ * has one form for both: both are keys of the dictionary). */
 export function plural(n: number, one: string, many = `${one}s`): string {
-  return `${n} ${n === 1 ? one : many}`;
+  return `${n} ${tr(n === 1 ? one : many)}`;
 }
 
 const KIND_LABELS: Record<DataJobKind, string> = {

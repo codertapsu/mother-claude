@@ -95,6 +95,21 @@
   <!-- ─────────────── Appearance ─────────────── -->
   <h2>Appearance</h2>
   <section class="card appearance">
+    <div class="row lang-row">
+      <span class="grow">{{ 'Language' | t }}</span>
+      <div class="segmented" role="group" [attr.aria-label]="'Language' | t">
+        @for (l of i18n.langs; track l.id) {
+          <button
+            type="button"
+            [attr.lang]="l.id"
+            [attr.aria-pressed]="i18n.lang() === l.id"
+            (click)="i18n.set(l.id)"
+          >
+            {{ l.native }}
+          </button>
+        }
+      </div>
+    </div>
     <div class="row">
       <span class="grow">Theme</span>
       <div class="segmented" role="group" aria-label="Theme">

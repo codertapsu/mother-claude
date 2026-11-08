@@ -11,6 +11,7 @@ import {
   ThinkingState,
   Usage,
 } from '../core/models';
+import { locale, tr } from '../core/i18n/i18n';
 import { tildePath } from '../core/paths';
 
 /** Tones map to the theme's status colours (see styles.scss). */
@@ -21,16 +22,16 @@ export type Tone = 'green' | 'amber' | 'red' | 'blue' | 'accent' | 'muted' | 'fa
 export function relativeTime(ms?: number, now = Date.now()): string {
   if (!ms) return '—';
   const diff = now - ms;
-  if (diff < 5_000) return 'just now';
+  if (diff < 5_000) return tr('just now');
   const s = Math.floor(diff / 1000);
-  if (s < 60) return `${s}s ago`;
+  if (s < 60) return tr('{n}s ago', { n: s });
   const m = Math.floor(s / 60);
-  if (m < 60) return `${m}m ago`;
+  if (m < 60) return tr('{n}m ago', { n: m });
   const h = Math.floor(m / 60);
-  if (h < 24) return `${h}h ago`;
+  if (h < 24) return tr('{n}h ago', { n: h });
   const d = Math.floor(h / 24);
-  if (d < 30) return `${d}d ago`;
-  return new Date(ms).toLocaleDateString();
+  if (d < 30) return tr('{n}d ago', { n: d });
+  return new Date(ms).toLocaleDateString(locale());
 }
 
 /** Compact duration: 12s · 3m 04s · 1h 02m · 2d 3h. */
@@ -60,8 +61,8 @@ export function formatCountdown(ms: number): string {
 /** "resets in 2h 10m" · "reset" (the time has passed) · '' (unknown). */
 export function resetsIn(resetsAt: number | undefined, now = Date.now()): string {
   if (!resetsAt) return '';
-  if (resetsAt <= now) return 'reset';
-  return `resets in ${formatCountdown(resetsAt - now)}`;
+  if (resetsAt <= now) return tr('reset');
+  return tr('resets in {time}', { time: formatCountdown(resetsAt - now) });
 }
 
 /** When a scheduled session resumes, after its "Scheduled to resume":
@@ -69,8 +70,8 @@ export function resetsIn(resetsAt: number | undefined, now = Date.now()): string
  * '' (unknown). */
 export function resumesIn(resumesAt: number | undefined, now = Date.now()): string {
   if (!resumesAt) return '';
-  if (resumesAt <= now) return 'due now';
-  return `in ${formatCountdown(resumesAt - now)}`;
+  if (resumesAt <= now) return tr('due now');
+  return tr('in {time}', { time: formatCountdown(resumesAt - now) });
 }
 
 /** A reset time people can place: "14:30" today, "Tue 14:30" this week,
@@ -78,13 +79,13 @@ export function resumesIn(resumesAt: number | undefined, now = Date.now()): stri
 export function resetClock(resetsAt: number | undefined, now = Date.now()): string {
   if (!resetsAt) return '';
   const d = new Date(resetsAt);
-  const time = d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+  const time = d.toLocaleTimeString(locale(), { hour: '2-digit', minute: '2-digit' });
   const today = new Date(now);
   if (d.toDateString() === today.toDateString()) return time;
   if (resetsAt - now < 6 * 24 * 3_600_000) {
-    return `${d.toLocaleDateString(undefined, { weekday: 'short' })} ${time}`;
+    return `${d.toLocaleDateString(locale(), { weekday: 'short' })} ${time}`;
   }
-  return `${d.toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}, ${time}`;
+  return `${d.toLocaleDateString(locale(), { day: 'numeric', month: 'short' })}, ${time}`;
 }
 
 // ─────────────────────────────────────────────────────────────── Numbers

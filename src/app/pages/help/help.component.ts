@@ -22,7 +22,7 @@ import { LimitationsComponent } from '../../shared/limitations.component';
 import { HelpGroup, HelpSection, HelpTopic } from './help-model';
 import { plainText, searchTerms } from './help-text';
 import { HelpTextComponent } from './help-text.component';
-import { HELP_GROUPS, HELP_TOPICS, helpTopic } from './help-topics';
+import { ensureHelpLanguage, helpGroups, helpTopics, localizedTopic } from './help-localized';
 
 /** The search as typed: it is still there after reading a topic. */
 @Injectable({ providedIn: 'root' })
@@ -75,21 +75,24 @@ function sectionText(s: HelpSection): string {
   ]);
 }
 
-const INDEX: IndexedTopic[] = HELP_TOPICS.map((topic) => {
-  const head = lower([topic.title, topic.summary, topic.intro, ...(topic.keywords ?? [])]);
-  const sections = topic.sections.map((s) => ({
-    id: s.id,
-    heading: s.heading,
-    hay: sectionText(s),
-  }));
-  return { topic, head, sections, all: [head, ...sections.map((s) => s.hay)].join('\n') };
-});
+/** The search index of the topics in the language shown. */
+const INDEX = computed<IndexedTopic[]>(() =>
+  helpTopics().map((topic) => {
+    const head = lower([topic.title, topic.summary, topic.intro, ...(topic.keywords ?? [])]);
+    const sections = topic.sections.map((s) => ({
+      id: s.id,
+      heading: s.heading,
+      hay: sectionText(s),
+    }));
+    return { topic, head, sections, all: [head, ...sections.map((s) => s.hay)].join('\n') };
+  }),
+);
 
 /** Topics matching every word of `query` (all of them for an empty one). */
 export function searchHelp(query: string): HelpHit[] {
   const terms = searchTerms(query);
   const hits: HelpHit[] = [];
-  for (const it of INDEX) {
+  for (const it of INDEX()) {
     if (!terms.every((t) => it.all.includes(t))) continue;
     const inHead = !terms.length || terms.every((t) => it.head.includes(t));
     const sec = inHead ? undefined : it.sections.find((s) => terms.every((t) => s.hay.includes(t)));
@@ -130,9 +133,9 @@ export class HelpComponent {
     initialValue: this.route.snapshot.fragment,
   });
 
-  protected readonly topic = computed(() => helpTopic(this.topicId()));
+  protected readonly topic = computed(() => localizedTopic(this.topicId()));
   protected readonly groupTitle = computed(
-    () => HELP_GROUPS.find((g) => g.id === this.topic()?.group)?.title ?? '',
+    () => helpGroups().find((g) => g.id === this.topic()?.group)?.title ?? '',
   );
   protected readonly prev = computed(() => this.neighbour(-1));
   protected readonly next = computed(() => this.neighbour(1));
@@ -141,14 +144,18 @@ export class HelpComponent {
   protected readonly hits = computed(() => searchHelp(this.query()));
   protected readonly groups = computed<HitGroup[]>(() => {
     const hits = this.hits();
-    return HELP_GROUPS.map((group) => ({
-      group,
-      hits: hits.filter((h) => h.topic.group === group.id),
-    })).filter((g) => g.hits.length);
+    return helpGroups()
+      .map((group) => ({
+        group,
+        hits: hits.filter((h) => h.topic.group === group.id),
+      }))
+      .filter((g) => g.hits.length);
   });
-  protected readonly total = HELP_TOPICS.length;
+  protected readonly total = computed(() => helpTopics().length);
 
   constructor() {
+    // Vietnamese topics load the first time they are shown.
+    effect(() => ensureHelpLanguage());
     // An unknown topic: the landing, at its own address.
     effect(() => {
       const id = this.topicId();
@@ -197,6 +204,7 @@ export class HelpComponent {
   private neighbour(step: -1 | 1): HelpTopic | undefined {
     const t = this.topic();
     if (!t) return undefined;
-    return HELP_TOPICS[HELP_TOPICS.indexOf(t) + step];
+    const all = helpTopics();
+    return all[all.findIndex((x) => x.id === t.id) + step];
   }
 }

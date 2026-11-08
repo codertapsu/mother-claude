@@ -1,33 +1,27 @@
-<a class="skip-link" href="#main">Skip to content</a>
+<a class="skip-link" href="#main">{{ 'Skip to content' | t }}</a>
 
 @if (chrome()) {
   <div class="shell" [class.immersive]="immersive()">
     <!-- Desktop: left navigation -->
-    <aside class="sidebar" aria-label="Main navigation">
+    <aside class="sidebar" [attr.aria-label]="'Main navigation' | t">
       <a class="brand" routerLink="/">
         <span class="logo" aria-hidden="true"></span>
         <span>Mother Claude</span>
       </a>
-      <nav class="side-nav" aria-label="Primary">
+      <nav class="side-nav" [attr.aria-label]="'Primary' | t">
         @for (item of desktopNav(); track item.path; let i = $index) {
           @if (item.group && item.group !== desktopNav()[i - 1]?.group) {
-            <span class="nav-group" aria-hidden="true">{{ item.group }}</span>
+            <span class="nav-group" aria-hidden="true">{{ item.group | t }}</span>
           }
           <a
             [routerLink]="item.path"
             routerLinkActive="active"
             ariaCurrentWhenActive="page"
             [routerLinkActiveOptions]="{ exact: !!item.exact }"
-            [attr.aria-label]="
-              item.badge === 'pending' && pendingCount()
-                ? item.label + ', ' + pendingCount() + ' waiting'
-                : item.badge === 'agents' && agentsRunning()
-                  ? item.label + ', ' + agentsRunning() + ' running'
-                  : null
-            "
+            [attr.aria-label]="navLabel(item)"
           >
             <mc-icon [name]="item.icon" />
-            <span class="label">{{ item.label }}</span>
+            <span class="label">{{ item.label | t }}</span>
             @if (item.badge === 'pending' && pendingCount()) {
               <span class="count-badge">{{ pendingCount() }}</span>
             } @else if (item.badge === 'agents' && agentsRunning()) {
@@ -43,11 +37,11 @@
           routerLinkActive="active"
           ariaCurrentWhenActive="page"
         >
-          <mc-icon name="question" [size]="16" /> Help
+          <mc-icon name="question" [size]="16" /> {{ 'Help' | t }}
         </a>
         @if (updateAvailable()) {
           <a class="update" routerLink="/settings">
-            <mc-icon name="refresh" [size]="15" /> Update available
+            <mc-icon name="refresh" [size]="15" /> {{ 'Update available' | t }}
           </a>
         }
         <div class="conn-row" [attr.data-state]="connection()" [title]="connDetail()">
@@ -55,7 +49,7 @@
           <span class="conn-texts">
             <span>{{ connLabel() }}</span>
             @if (connection() !== 'open' && lastData()) {
-              <span class="faint small">Updated <mc-time [ms]="lastData()" /></span>
+              <span class="faint small">{{ 'Updated' | t }} <mc-time [ms]="lastData()" /></span>
             }
           </span>
           <span class="spacer"></span>
@@ -63,8 +57,8 @@
             <button
               type="button"
               class="btn ghost icon-only small"
-              aria-label="Reconnect now"
-              title="Reconnect now"
+              [attr.aria-label]="'Reconnect now' | t"
+              [title]="'Reconnect now' | t"
               (click)="reconnect()"
             >
               <mc-icon name="refresh" [size]="15" />
@@ -73,15 +67,15 @@
           <button
             type="button"
             class="btn ghost icon-only small"
-            [attr.aria-label]="'Theme: ' + theme.pref() + '. Change theme'"
-            [title]="'Theme: ' + theme.pref()"
+            [attr.aria-label]="'Theme: {theme}. Change theme' | t: { theme: themeName() }"
+            [title]="'Theme: {theme}' | t: { theme: themeName() }"
             (click)="cycleTheme()"
           >
             <mc-icon [name]="themeIcon()" [size]="16" />
           </button>
         </div>
         @if (mock()) {
-          <span class="mock-tag">mock data</span>
+          <span class="mock-tag">{{ 'mock data' | t }}</span>
         }
       </div>
     </aside>
@@ -94,10 +88,14 @@
       </a>
       <span class="spacer"></span>
       @if (mock()) {
-        <span class="mock-tag">mock</span>
+        <span class="mock-tag">{{ 'mock' | t }}</span>
       }
       @if (updateAvailable()) {
-        <a class="btn ghost icon-only" routerLink="/settings" aria-label="Update available">
+        <a
+          class="btn ghost icon-only"
+          routerLink="/settings"
+          [attr.aria-label]="'Update available' | t"
+        >
           <mc-icon name="refresh" />
         </a>
       }
@@ -106,7 +104,7 @@
         class="conn"
         [attr.data-state]="connection()"
         [title]="connDetail()"
-        [attr.aria-label]="'Connection: ' + connLabel() + '. Reconnect'"
+        [attr.aria-label]="'Connection: {state}. Reconnect' | t: { state: connLabel() }"
         (click)="reconnect()"
       >
         <span class="conn-dot" aria-hidden="true"></span>
@@ -125,26 +123,29 @@
       @if (interstitial()) {
         <div class="banner warn" role="alert">
           <mc-icon name="alert" />
-          <span
-            >The tunnel's browser warning page is in the way. Open this page once in your browser
-            and accept the warning (“Visit site”), then reload.</span
-          >
-          <button class="btn small" type="button" (click)="reload()">Reload</button>
+          <span>{{
+            "The tunnel's browser warning page is in the way. Open this page once in your browser and accept the warning (“Visit site”), then reload."
+              | t
+          }}</span>
+          <button class="btn small" type="button" (click)="reload()">{{ 'Reload' | t }}</button>
         </div>
       }
       @if (desktopRejected()) {
         <div class="banner warn" role="alert">
           <mc-icon name="alert" />
-          <span>The server rejected the desktop's own token. Restart Mother Claude.</span>
+          <span>{{
+            "The server rejected the desktop's own token. Restart Mother Claude." | t
+          }}</span>
         </div>
       }
       @if (needsPermission()) {
         <div class="banner warn">
           <mc-icon name="shield" />
           <span
-            >A required macOS permission is missing —
-            <a routerLink="/onboarding">finish setup</a> so Mother Claude can read your
-            sessions.</span
+            >{{ 'A required macOS permission is missing.' | t }}
+            <a routerLink="/onboarding">{{
+              'Finish setup so Mother Claude can read your sessions.' | t
+            }}</a></span
           >
         </div>
       }
@@ -154,7 +155,7 @@
     </div>
 
     <!-- Phone: bottom tabs -->
-    <nav class="tabbar" aria-label="Primary">
+    <nav class="tabbar" [attr.aria-label]="'Primary' | t">
       <a
         routerLink="/"
         routerLinkActive="active"
@@ -162,13 +163,15 @@
         [routerLinkActiveOptions]="{ exact: true }"
       >
         <mc-icon name="sessions" [size]="22" />
-        <span>Sessions</span>
+        <span>{{ 'Sessions' | t }}</span>
       </a>
       <a
         routerLink="/inbox"
         routerLinkActive="active"
         ariaCurrentWhenActive="page"
-        [attr.aria-label]="pendingCount() ? 'Inbox, ' + pendingCount() + ' waiting' : null"
+        [attr.aria-label]="
+          pendingCount() ? ('Inbox, {n} waiting' | t: { n: pendingCount() }) : null
+        "
       >
         <span class="icon-wrap">
           <mc-icon name="inbox" [size]="22" />
@@ -176,13 +179,15 @@
             <span class="count-badge">{{ pendingCount() }}</span>
           }
         </span>
-        <span>Inbox</span>
+        <span>{{ 'Inbox' | t }}</span>
       </a>
       <a
         routerLink="/agents"
         routerLinkActive="active"
         ariaCurrentWhenActive="page"
-        [attr.aria-label]="agentsRunning() ? 'Agents, ' + agentsRunning() + ' running' : null"
+        [attr.aria-label]="
+          agentsRunning() ? ('Agents, {n} running' | t: { n: agentsRunning() }) : null
+        "
       >
         <span class="icon-wrap">
           <mc-icon name="agents" [size]="22" />
@@ -190,7 +195,7 @@
             <span class="count-badge soft">{{ agentsRunning() }}</span>
           }
         </span>
-        <span>Agents</span>
+        <span>{{ 'Agents' | t }}</span>
       </a>
       <a
         routerLink="/more"
@@ -198,7 +203,7 @@
         [attr.aria-current]="moreActive() ? 'page' : null"
       >
         <mc-icon name="more" [size]="22" />
-        <span>More</span>
+        <span>{{ 'More' | t }}</span>
       </a>
     </nav>
   </div>
@@ -208,17 +213,23 @@
   </main>
 }
 
-<mc-sheet [open]="showWelcome()" title="Welcome to Mother Claude" (closed)="dismissWelcome()">
+<mc-sheet
+  [open]="showWelcome()"
+  [title]="'Welcome to Mother Claude' | t"
+  (closed)="dismissWelcome()"
+>
   <p class="welcome-intro">
-    Monitor and control every local Claude Code session from one place — and from your phone. A few
-    things worth knowing:
+    {{
+      'Monitor and control every local Claude Code session from one place — and from your phone. A few things worth knowing:'
+        | t
+    }}
   </p>
   <mc-limitations />
   <div class="welcome-foot">
     <a class="btn" routerLink="/help" (click)="dismissWelcome()">
-      <mc-icon name="question" [size]="15" /> Open Help
+      <mc-icon name="question" [size]="15" /> {{ 'Open Help' | t }}
     </a>
-    <button class="btn primary" type="button" (click)="dismissWelcome()">Got it</button>
+    <button class="btn primary" type="button" (click)="dismissWelcome()">{{ 'Got it' | t }}</button>
   </div>
 </mc-sheet>
 

@@ -40,6 +40,7 @@ import { NowService } from './now.service';
 import { normalizeAccountUsages, normalizePlanUsage } from './plan-usage';
 import type { TeamsFrame } from './teams';
 import { TranscriptStore, TranscriptStoreOptions } from './transcript-store';
+import { computerNoun, tr } from './i18n/i18n';
 
 /**
  * - `connecting`   first connect, or the socket is open but not authed yet
@@ -67,21 +68,21 @@ export type ConnectionState =
 export function connectionLabel(state: ConnectionState): string {
   switch (state) {
     case 'open':
-      return 'Live';
+      return tr('Live');
     case 'limited':
-      return 'Limited';
+      return tr('Limited');
     case 'connecting':
-      return 'Connecting…';
+      return tr('Connecting…');
     case 'reconnecting':
-      return 'Reconnecting…';
+      return tr('Reconnecting…');
     case 'offline':
-      return 'Offline';
+      return tr('Offline');
     case 'unreachable':
-      return "Can't reach Mac";
+      return tr("Can't reach the {computer}", { computer: computerNoun() });
     case 'unpaired':
-      return 'Unpaired';
+      return tr('Unpaired');
     default:
-      return 'Not connected';
+      return tr('Not connected');
   }
 }
 
@@ -89,18 +90,23 @@ export function connectionLabel(state: ConnectionState): string {
 export function connectionDetail(state: ConnectionState): string {
   switch (state) {
     case 'open':
-      return 'Connected: updates arrive as they happen.';
+      return tr('Connected: updates arrive as they happen.');
     case 'limited':
-      return "Live updates can't connect (often because this phone doesn't trust your Mac's certificate), so the app refreshes every few seconds instead.";
+      return tr(
+        "Live updates can't connect (often because this phone doesn't trust your {computer}'s certificate), so the app refreshes every few seconds instead.",
+        { computer: computerNoun() },
+      );
     case 'connecting':
     case 'reconnecting':
-      return 'Trying to reach your Mac…';
+      return tr('Trying to reach your {computer}…', { computer: computerNoun() });
     case 'offline':
-      return 'This device is offline.';
+      return tr('This device is offline.');
     case 'unreachable':
-      return "Can't reach your Mac: it may be asleep, offline, or the tunnel is down.";
+      return tr("Can't reach your {computer}: it may be asleep, offline, or the tunnel is down.", {
+        computer: computerNoun(),
+      });
     case 'unpaired':
-      return 'This device is not paired.';
+      return tr('This device is not paired.');
     default:
       return '';
   }
