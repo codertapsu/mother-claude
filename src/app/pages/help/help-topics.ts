@@ -1377,19 +1377,50 @@ const TOPICS: HelpTopicSource[] = [
       'mac',
       'second computer',
       'pc',
+      'drag and drop',
+      'conversations',
     ],
     sections: [
       {
-        heading: 'Choose the backup folder',
+        heading: 'Set it up',
+        intro:
+          'Until your first backup exists, the page opens with **Set up backups in three steps**.',
         steps: [
-          'Open **Settings › Backup & sync**.',
-          'Under **Folder**, press one of the **Suggested:** folders, or type a full path in **Backup folder** and press **Save**.',
+          'Open **Backup & sync** (in the sidebar; on a phone, under **More**).',
+          'Step 1: press one of the suggested folders (iCloud Drive, Google Drive…), or **Type a folder…**, type its full path in **Backup folder** and press **Save**.',
+          'Step 2: press **Set a passphrase…** and follow the dialog (below).',
+          'Step 3: press **Back up now**.',
         ],
         tips: [
           'iCloud Drive: right-click the folder and choose **Keep Downloaded**, so pulls and restores never wait. OneDrive: **Always keep on this device**. Google Drive: use a folder inside My Drive.',
-          'To stop backing up, empty the field and save.',
+          'Later, the folder, the passphrase and the schedule are under **Settings** on the same page. To stop backing up, empty the folder and save.',
         ],
         links: [{ label: 'Open Backup & sync', path: '/backup' }],
+      },
+      {
+        heading: 'Your backups at a glance',
+        intro: '**Your backups** shows one lane per account, from left to right:',
+        terms: [
+          {
+            term: 'This Mac (or This PC)',
+            text: 'The account on this computer, what kind it is and how many of its sessions run.',
+          },
+          {
+            term: 'The line between',
+            text: 'How its backup stands: **Backed up 2h ago** in green; **Not backed up yet**, or a backup older than twice the schedule, in amber; a failed backup or a missing key in red; **Working…** while a backup, pull or restore runs.',
+          },
+          {
+            term: 'Backups',
+            text: "The account's backup, with **Back up**, **Pull…**, **Restore…**, **Force backup…**, **Restore settings** and **Conversations**.",
+          },
+          {
+            term: 'Other computers',
+            text: 'The computers that back up to it too, and when they last did.',
+          },
+        ],
+        tips: [
+          'On the desktop you can drag instead of pressing buttons: an account onto the backups, a backup onto an account, conversations onto an account. Every drag has a button that does the same.',
+        ],
       },
       {
         heading: 'Set the passphrase',
@@ -1412,8 +1443,9 @@ const TOPICS: HelpTopicSource[] = [
       {
         heading: 'Back up',
         steps: [
-          'Under **Schedule**, pick how often in **Back up**: from **By hand only** to **Every 24 hours**.',
-          'To back up now, press **Back up now** under **Accounts** (or **Back up** on one account).',
+          'Under **Settings › Schedule**, pick how often in **Back up**: from **By hand only** to **Every 24 hours**.',
+          "To back up now, press **Back up now** beside **Your backups** (every account), or **Back up** on one account's backup.",
+          'Or, on the desktop, drag an account from **This Mac** (or **This PC**) onto the backups: it is backed up at once.',
           'Check the result under **Recent**.',
         ],
         points: [
@@ -1423,9 +1455,25 @@ const TOPICS: HelpTopicSource[] = [
         ],
       },
       {
+        heading: 'Bring conversations back by dragging',
+        where: 'desktop',
+        steps: [
+          "On an account's backup, press **Conversations**. The list shows what the backup holds, by project.",
+          'Read how each compares with the account here: **Not on this computer**, **Newer in the backup**, **Changed on both** or **Up to date**. **Can come here** shows the ones that would change something; **All** shows everything.',
+          'Tick the ones you want, or none to drag a single one.',
+          'Drag them onto their own account (its lane, or its chip above the list): they come here at once.',
+          'Or drag them onto another account: **Restore…** opens for that account with them ticked.',
+        ],
+        points: [
+          'Bringing them is a pull of just those: newer copies replace the ones here (kept for undo) and both sides of a conflict are kept.',
+          'One that Claude Code would delete again at its next cleanup opens **Pull…** first, which says so.',
+          'Without dragging: tick them and press the account chip above the list.',
+        ],
+      },
+      {
         heading: 'Restore a backup',
         steps: [
-          'On an account, press **Restore…**.',
+          "On an account's backup, press **Restore…** (or drag the backup onto another account to restore into that one).",
           'Choose **Backup of** and **Restore into**.',
           'Tick the sessions to restore. New ones start ticked; each says how it compares with the copy here.',
           'Press **Restore N sessions**.',
@@ -1438,7 +1486,7 @@ const TOPICS: HelpTopicSource[] = [
       {
         heading: "Pull another computer's conversations",
         steps: [
-          'Press **Pull…** (in the **Accounts** header for every account, or on one account).',
+          "Press **Pull…** (beside **Your backups** for every account, or on one account's backup), or drag a backup onto its own account.",
           'Check what each session will do, for example **Newer in the backup — replaces the copy here, kept for undo**, **Changed on both — kept side by side** or **Running here — skipped**.',
           'Press **Pull N sessions**.',
         ],
@@ -1470,6 +1518,7 @@ const TOPICS: HelpTopicSource[] = [
         ],
         points: [
           '**Bring back…** on a set restores its conversations the same way.',
+          "On the desktop, drag an account onto a storage's set to open **Move here…** from it, or drag a set onto an account to open **Bring back…** into it.",
           'Removing a storage leaves its files where they are.',
         ],
       },
@@ -1523,7 +1572,7 @@ const TOPICS: HelpTopicSource[] = [
       {
         heading: 'From a phone',
         points: [
-          'A paired phone can do everything here except set or change the passphrase.',
+          'A paired phone can do everything here except set or change the passphrase. It uses the buttons: dragging is for the desktop.',
           'Force actions and folder trust need a device allowed dangerous actions (**Remote › Paired devices** in the desktop app).',
         ],
       },
