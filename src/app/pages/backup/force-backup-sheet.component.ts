@@ -1,6 +1,8 @@
 import { ChangeDetectionStrategy, Component, computed, inject, input, output } from '@angular/core';
 
 import { AuthService } from '../../core/auth.service';
+import { tr } from '../../core/i18n/i18n';
+import { TPipe } from '../../core/i18n/t.pipe';
 import { DANGEROUS_REASON } from '../../core/move-data';
 import { BackupSet } from '../../core/models';
 import { machineNoun } from '../../core/paths';
@@ -19,28 +21,37 @@ import { SheetComponent } from '../../shared/sheet.component';
 @Component({
   selector: 'mc-force-backup-sheet',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [SheetComponent],
+  imports: [SheetComponent, TPipe],
   template: `
     <mc-sheet [open]="!!set()" [title]="title()" (closed)="closed.emit()">
       @if (set(); as s) {
         <div class="notice warn small what" role="alert">
           <p>
-            This {{ mac() }}'s copy of every session it has replaces the backup's copy of
-            <strong>{{ s.name }}</strong> wherever the two differ — also where another machine
-            backed up a newer copy, or one that changed there too.
+            {{
+              "This {computer}'s copy of every session it has replaces the backup's copy of"
+                | t: { computer: computer() }
+            }}
+            <strong>{{ s.name }}</strong>
+            {{
+              'wherever the two differ — also where another machine backed up a newer copy, or one that changed there too.'
+                | t
+            }}
           </p>
           <p>
-            Sessions only in the backup stay as they are, and sessions running here are skipped.
-            Each copy it replaces stays in the backup folder for seven days.
+            {{
+              'Sessions only in the backup stay as they are, and sessions running here are skipped. Each copy it replaces stays in the backup folder for seven days.'
+                | t
+            }}
           </p>
           <p>
-            The other machine keeps its own copy: its next pull puts this {{ mac() }}'s beside it,
-            or replaces it when its copy is where this one came from. A force pull there makes its
-            copy this {{ mac() }}'s.
+            {{
+              "The other machine keeps its own copy: its next pull puts this {computer}'s beside it, or replaces it when its copy is where this one came from. A force pull there makes its copy this {computer}'s."
+                | t: { computer: computer() }
+            }}
           </p>
         </div>
         @if (!canDangerous()) {
-          <p class="small blocked">{{ dangerousReason }}</p>
+          <p class="small blocked">{{ dangerousReason | t }}</p>
         }
         <div class="row actions">
           <button
@@ -49,10 +60,10 @@ import { SheetComponent } from '../../shared/sheet.component';
             [disabled]="busy() || !canDangerous()"
             (click)="confirmed.emit(s.account)"
           >
-            {{ busy() ? 'Starting…' : 'Force backup' }}
+            {{ busy() ? ('Starting…' | t) : ('Force backup' | t) }}
           </button>
           <button class="btn ghost" type="button" [disabled]="busy()" (click)="closed.emit()">
-            Cancel
+            {{ 'Cancel' | t }}
           </button>
         </div>
       }
@@ -81,8 +92,9 @@ export class ForceBackupSheetComponent {
   /** A force backup needs the dangerous right (docs/ACCOUNTS.md §13.9). */
   protected readonly canDangerous = inject(AuthService).canDangerous;
   private readonly hostOs = inject(AuthService).hostOs;
-  /** The desktop's computer: "this Mac", "this PC". */
-  protected readonly mac = computed(() => machineNoun(this.hostOs()));
+  /** The desktop's computer in a sentence ("this {computer}"): "Mac", "PC"
+   * (Vietnamese "máy Mac", "máy PC"). */
+  protected readonly computer = computed(() => tr(machineNoun(this.hostOs())));
   protected readonly dangerousReason = DANGEROUS_REASON;
 
   /** The set to force-back up (null: closed). */
@@ -95,6 +107,6 @@ export class ForceBackupSheetComponent {
 
   protected readonly title = computed(() => {
     const s = this.set();
-    return s ? `Force backup of ${s.name}` : 'Force backup';
+    return s ? tr('Force backup of {name}', { name: s.name }) : tr('Force backup');
   });
 }

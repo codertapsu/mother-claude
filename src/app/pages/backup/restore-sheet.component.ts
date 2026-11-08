@@ -28,8 +28,11 @@ import {
 } from '../../core/backup';
 import { jobIdOf, normalizeJob, plural } from '../../core/data-jobs';
 import { DataJobsService } from '../../core/data-jobs.service';
+import { tr } from '../../core/i18n/i18n';
+import { TPipe } from '../../core/i18n/t.pipe';
 import { BackupIndex, BackupSet, JobView } from '../../core/models';
 import { DANGEROUS_REASON } from '../../core/move-data';
+import { machineNoun } from '../../core/paths';
 import { DataJobComponent } from '../../shared/data-job.component';
 import { SheetComponent } from '../../shared/sheet.component';
 import { BackupSessionsComponent } from './backup-sessions.component';
@@ -58,14 +61,14 @@ export type RestoreStep = 'loading' | 'list' | 'confirm' | 'run' | 'error';
 @Component({
   selector: 'mc-restore-sheet',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [BackupSessionsComponent, DataJobComponent, JobDetailsComponent, SheetComponent],
+  imports: [BackupSessionsComponent, DataJobComponent, JobDetailsComponent, SheetComponent, TPipe],
   template: `
-    <mc-sheet [open]="!!account()" title="Restore from a backup" (closed)="closed.emit()">
+    <mc-sheet [open]="!!account()" [title]="'Restore from a backup' | t" (closed)="closed.emit()">
       @if (account()) {
         @if (step() !== 'run') {
           <div class="pick">
             <label class="field">
-              <span class="field-label">Backup of</span>
+              <span class="field-label">{{ 'Backup of' | t }}</span>
               <select [disabled]="busy()" (change)="pickSet($event)">
                 @for (s of choosable(); track s.account) {
                   <option [value]="s.account" [selected]="s.account === setId()">
@@ -75,7 +78,7 @@ export type RestoreStep = 'loading' | 'list' | 'confirm' | 'run' | 'error';
               </select>
             </label>
             <label class="field">
-              <span class="field-label">Restore into</span>
+              <span class="field-label">{{ 'Restore into' | t }}</span>
               <select [disabled]="busy()" (change)="pickInto($event)">
                 @for (a of intoOptions(); track a.id) {
                   <option [value]="a.id" [selected]="a.id === intoId()">{{ a.name }}</option>
@@ -87,12 +90,12 @@ export type RestoreStep = 'loading' | 'list' | 'confirm' | 'run' | 'error';
 
         @switch (step()) {
           @case ('loading') {
-            <p class="muted small">Opening the backup…</p>
+            <p class="muted small">{{ 'Opening the backup…' | t }}</p>
           }
           @case ('error') {
             <p class="notice error small" role="alert">{{ error() }}</p>
             <div class="row actions">
-              <button class="btn" type="button" (click)="load()">Try again</button>
+              <button class="btn" type="button" (click)="load()">{{ 'Try again' | t }}</button>
             </div>
           }
           @case ('list') {
@@ -117,12 +120,12 @@ export type RestoreStep = 'loading' | 'list' | 'confirm' | 'run' | 'error';
                 (change)="trust.set($any($event.target).checked)"
               />
               <span>
-                Also trust their folders for {{ intoName() }}
-                <span class="muted small hint-line"
-                  >A trusted folder runs its project hooks and MCP servers without asking.</span
-                >
+                {{ 'Also trust their folders for {name}' | t: { name: intoName() } }}
+                <span class="muted small hint-line">{{
+                  'A trusted folder runs its project hooks and MCP servers without asking.' | t
+                }}</span>
                 @if (!canDangerous()) {
-                  <span class="small hint-line blocked">{{ dangerousReason }}</span>
+                  <span class="small hint-line blocked">{{ dangerousReason | t }}</span>
                 }
               </span>
             </label>
@@ -134,14 +137,13 @@ export type RestoreStep = 'loading' | 'list' | 'confirm' | 'run' | 'error';
                 (change)="setForce($any($event.target).checked)"
               />
               <span>
-                Force: replace the copies {{ intoName() }} has
-                <span class="muted small hint-line"
-                  >The backup's copy also replaces a session {{ intoName() }} has that is not as the
-                  backup has it — newer there, or changed there. Its copies are kept for undo, for
-                  seven days; running sessions are skipped.</span
-                >
+                {{ 'Force: replace the copies {name} has' | t: { name: intoName() } }}
+                <span class="muted small hint-line">{{
+                  "The backup's copy also replaces a session {name} has that is not as the backup has it — newer there, or changed there. Its copies are kept for undo, for seven days; running sessions are skipped."
+                    | t: { name: intoName() }
+                }}</span>
                 @if (!canDangerous()) {
-                  <span class="small hint-line blocked">{{ dangerousReason }}</span>
+                  <span class="small hint-line blocked">{{ dangerousReason | t }}</span>
                 }
               </span>
             </label>
@@ -157,12 +159,7 @@ export type RestoreStep = 'loading' | 'list' | 'confirm' | 'run' | 'error';
                 [disabled]="!selected().size || busy()"
                 (click)="restore()"
               >
-                {{
-                  busy()
-                    ? 'Starting…'
-                    : (forcing() ? 'Force restore ' : 'Restore ') +
-                      plural(selected().size, 'session')
-                }}{{ forcing() ? '…' : '' }}
+                {{ restoreLabel() }}
               </button>
             </div>
           }
@@ -170,36 +167,50 @@ export type RestoreStep = 'loading' | 'list' | 'confirm' | 'run' | 'error';
             @if (forcing()) {
               <div class="notice warn small force-confirm" role="alert">
                 <p>
-                  <strong>Force restore.</strong>
+                  <strong>{{ 'Force restore.' | t }}</strong>
                   @if (counts().replaced) {
-                    The backup's copy replaces {{ intoName() }}'s copy of
+                    {{ "The backup's copy replaces {name}'s copy of" | t: { name: intoName() } }}
                     <strong>{{ plural(counts().replaced, 'session') }}</strong
                     >{{ kinds() ? ' (' + kinds() + ')' : '' }}.
                   } @else {
-                    None of the selected sessions has a copy in {{ intoName() }} that differs from
-                    the backup's.
+                    {{
+                      "None of the selected sessions has a copy in {name} that differs from the backup's."
+                        | t: { name: intoName() }
+                    }}
                   }
                   @if (counts().added) {
-                    {{ plural(counts().added, 'session') }} new to {{ intoName() }}
-                    {{ counts().added === 1 ? 'comes' : 'come' }} too.
+                    {{ addedText() }}
                   }
                 </p>
                 <p>
-                  Sessions only in {{ intoName() }} stay as they are, and running ones are skipped.
-                  Its copies are kept for seven days: Undo puts them back.
+                  {{
+                    'Sessions only in {name} stay as they are, and running ones are skipped. Its copies are kept for seven days: Undo puts them back.'
+                      | t: { name: intoName() }
+                  }}
                 </p>
               </div>
             }
             @if (pruneCount()) {
               <div class="notice warn small" role="alert">
                 <p>
-                  <strong>{{ pruneCount() }}</strong> of the selected sessions
-                  {{ pruneCount() === 1 ? 'is' : 'are' }} older than {{ intoName() }} keeps
-                  conversations. {{ pruneWarning }}
+                  <strong>{{ pruneCount() }}</strong>
+                  {{
+                    pruneCount() === 1
+                      ? ('of the selected sessions is older than {name} keeps conversations.'
+                        | t: { name: intoName() })
+                      : ('of the selected sessions are older than {name} keeps conversations.'
+                        | t: { name: intoName() })
+                  }}
+                  {{ pruneWarning | t }}
                 </p>
                 <p>
-                  Raise it in {{ intoName() }}'s settings.json first to keep
-                  {{ pruneCount() === 1 ? 'it' : 'them' }}.
+                  {{
+                    pruneCount() === 1
+                      ? ("Raise it in {name}'s settings.json first to keep it."
+                        | t: { name: intoName() })
+                      : ("Raise it in {name}'s settings.json first to keep them."
+                        | t: { name: intoName() })
+                  }}
                 </p>
               </div>
             }
@@ -215,7 +226,13 @@ export type RestoreStep = 'loading' | 'list' | 'confirm' | 'run' | 'error';
                 [disabled]="busy()"
                 (click)="start()"
               >
-                {{ busy() ? 'Starting…' : forcing() ? 'Force restore' : 'Restore anyway' }}
+                {{
+                  busy()
+                    ? ('Starting…' | t)
+                    : forcing()
+                      ? ('Force restore' | t)
+                      : ('Restore anyway' | t)
+                }}
               </button>
               <button
                 class="btn ghost"
@@ -223,7 +240,7 @@ export type RestoreStep = 'loading' | 'list' | 'confirm' | 'run' | 'error';
                 [disabled]="busy()"
                 (click)="step.set('list')"
               >
-                Back
+                {{ 'Back' | t }}
               </button>
             </div>
           }
@@ -238,7 +255,7 @@ export type RestoreStep = 'loading' | 'list' | 'confirm' | 'run' | 'error';
             }
             <div class="row actions">
               <button class="btn ghost" type="button" (click)="closed.emit()">
-                {{ job()?.state === 'running' ? 'Close (it goes on)' : 'Close' }}
+                {{ job()?.state === 'running' ? ('Close (it goes on)' | t) : ('Close' | t) }}
               </button>
             </div>
           }
@@ -293,6 +310,10 @@ export class RestoreSheetComponent {
   protected readonly canDangerous = inject(AuthService).canDangerous;
   protected readonly dangerousReason = DANGEROUS_REASON;
   private accounts = inject(AccountsService);
+  private readonly hostOs = inject(AuthService).hostOs;
+  /** The desktop's computer in a sentence: "Mac", "PC" (Vietnamese "máy
+   * Mac", "máy PC"). */
+  private readonly computer = computed(() => tr(machineNoun(this.hostOs())));
 
   /** The account whose set to restore from (null: closed). */
   readonly account = input<string | null>(null);
@@ -338,7 +359,7 @@ export class RestoreSheetComponent {
     this.accounts.list().filter((a) => a.kind === 'directory'),
   );
   protected readonly intoName = computed(
-    () => this.accounts.byId(this.intoId())?.name ?? 'the account',
+    () => this.accounts.byId(this.intoId())?.name ?? tr('the account'),
   );
   protected readonly pruneCount = computed(
     () => prunedOf(this.index()?.sessions ?? [], this.selected()).length,
@@ -348,6 +369,21 @@ export class RestoreSheetComponent {
     forceCounts(this.index()?.sessions ?? [], this.selected()),
   );
   protected readonly kinds = computed(() => forceKinds(this.counts()));
+  /** The button that starts it: "Restore 2 sessions", "Force restore 2
+   * sessions…". */
+  protected readonly restoreLabel = computed(() => {
+    if (this.busy()) return tr('Starting…');
+    const what = plural(this.selected().size, 'session');
+    return this.forcing() ? tr('Force restore {what}…', { what }) : tr('Restore {what}', { what });
+  });
+  /** "1 session new to Work comes too." */
+  protected readonly addedText = computed(() => {
+    const n = this.counts().added;
+    const name = this.intoName();
+    return n === 1
+      ? tr('{n} session new to {name} comes too.', { n, name })
+      : tr('{n} sessions new to {name} come too.', { n, name });
+  });
 
   constructor() {
     // Every opening starts over, with the set it was opened for.
@@ -424,7 +460,13 @@ export class RestoreSheetComponent {
       const raw = await this.api.getBackupIndex(this.setId(), this.intoId());
       if (seq !== this.loadSeq) return;
       const ix = normalizeBackupIndex(raw);
-      if (!ix) throw new Error('The Mac sent a backup list this app could not read.');
+      if (!ix) {
+        throw new Error(
+          tr('The {computer} sent a backup list this app could not read.', {
+            computer: this.computer(),
+          }),
+        );
+      }
       this.index.set(ix);
       // Those dropped on an account, when it can take them; else the new ones.
       const wanted = new Set(this.ids() ?? []);
@@ -466,7 +508,11 @@ export class RestoreSheetComponent {
         ...(this.forcing() ? { force: true } : {}),
       });
       first = normalizeJob(res?.job) ?? jobIdOf(res?.job);
-      if (!first) throw new Error('The Mac sent no job for the restore.');
+      if (!first) {
+        throw new Error(
+          tr('The {computer} sent no job for the restore.', { computer: this.computer() }),
+        );
+      }
     } catch (e) {
       this.busy.set(false);
       this.error.set(backupErrorText(e));
@@ -483,7 +529,9 @@ export class RestoreSheetComponent {
     try {
       await this.jobs.follow(first, (j) => this.job.set(j), ctrl.signal);
     } catch (e) {
-      if (!ctrl.signal.aborted) this.error.set(`Can't follow it any more: ${backupErrorText(e)}`);
+      if (!ctrl.signal.aborted) {
+        this.error.set(tr("Can't follow it any more: {error}", { error: backupErrorText(e) }));
+      }
     }
   }
 }

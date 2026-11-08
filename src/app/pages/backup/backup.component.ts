@@ -26,6 +26,8 @@ import {
 } from '../../core/backup';
 import { jobIdOf, normalizeJob, plural, sentence } from '../../core/data-jobs';
 import { DataJobsService } from '../../core/data-jobs.service';
+import { tr } from '../../core/i18n/i18n';
+import { TPipe } from '../../core/i18n/t.pipe';
 import { BackupMachine, BackupSet, BackupView, JobView } from '../../core/models';
 import { folderExample, folderPathProblem, lastSegment, machineNoun } from '../../core/paths';
 import { RealtimeService } from '../../core/realtime.service';
@@ -99,6 +101,7 @@ interface SetRow {
     RestoreSheetComponent,
     StorageSectionComponent,
     TimeAgoComponent,
+    TPipe,
   ],
   providers: [SyncDrag],
   templateUrl: './backup.component.html',
@@ -118,14 +121,25 @@ export class BackupComponent {
   /** The desktop's system: the folder is typed its way. */
   protected readonly hostOs = inject(AuthService).hostOs;
   protected readonly folderPlaceholder = computed(() => folderExample(this.hostOs(), 'backup'));
-  /** The desktop's computer: "this Mac", "this PC". */
-  protected readonly mac = computed(() => machineNoun(this.hostOs()));
+  /** The desktop's computer in a sentence ("this {computer}"): "Mac", "PC"
+   * (Vietnamese "máy Mac", "máy PC"). */
+  protected readonly computer = computed(() => tr(machineNoun(this.hostOs())));
+  /** The lane head over the accounts here: "This Mac", "This PC". */
+  protected readonly hereLabel = computed(() => {
+    const os = this.hostOs();
+    return os === 'macos' ? tr('This Mac') : os === 'windows' ? tr('This PC') : tr('This machine');
+  });
   /** Where the passphrase is kept: a Mac's Keychain, elsewhere on the
    * computer itself (docs/ACCOUNTS.md D3). */
-  protected keptIn(article: 'this' | 'the'): string {
+  protected passphraseSetText(): string {
     return this.hostOs() === 'macos'
-      ? `in ${article} Mac's Keychain`
-      : `on ${article} ${this.mac()}`;
+      ? tr("Set, in this Mac's Keychain")
+      : tr('Set, on this {computer}', { computer: this.computer() });
+  }
+  protected keptText(): string {
+    return this.hostOs() === 'macos'
+      ? tr("It is kept in the Mac's Keychain.")
+      : tr('It is kept on the {computer}.', { computer: this.computer() });
   }
 
   protected readonly view = signal<BackupView | null>(null);
@@ -177,8 +191,8 @@ export class BackupComponent {
   protected readonly notReady = computed(() => {
     const v = this.view();
     if (!v) return '';
-    if (!v.settings.folder) return 'Choose a folder first.';
-    if (!v.passphraseSet) return 'Set a passphrase first.';
+    if (!v.settings.folder) return tr('Choose a folder first.');
+    if (!v.passphraseSet) return tr('Set a passphrase first.');
     return '';
   });
   /** The first backup is made: the setup guide goes. */
@@ -258,7 +272,13 @@ export class BackupComponent {
     try {
       const raw = await this.api.getBackup();
       const v = normalizeBackupView(raw);
-      if (!v) throw new Error('The Mac sent backup settings this app could not read.');
+      if (!v) {
+        throw new Error(
+          tr('The {computer} sent backup settings this app could not read.', {
+            computer: this.computer(),
+          }),
+        );
+      }
       this.view.set(v);
       // The storages are in the same answer.
       this.storage.accept(raw);
@@ -283,13 +303,13 @@ export class BackupComponent {
     }
     await this.saveSettings(
       { folder: f || null },
-      f ? 'Backups go to this folder now.' : 'Backups are off: no folder is set.',
+      f ? tr('Backups go to this folder now.') : tr('Backups are off: no folder is set.'),
     );
   }
 
   protected async useSuggestion(path: string): Promise<void> {
     this.folder.set(path);
-    await this.saveSettings({ folder: path }, 'Backups go to this folder now.');
+    await this.saveSettings({ folder: path }, tr('Backups go to this folder now.'));
   }
 
   protected async setSchedule(e: Event): Promise<void> {
@@ -321,7 +341,7 @@ export class BackupComponent {
       if (ok) this.notice.set(ok);
       return true;
     } catch (e) {
-      this.error.set(`Not saved: ${backupErrorText(e)}`);
+      this.error.set(tr('Not saved: {error}', { error: backupErrorText(e) }));
       return false;
     } finally {
       this.saving.set(false);
@@ -346,17 +366,22 @@ export class BackupComponent {
       const names = account
         ? [this.nameOf(account)]
         : ownSets(this.view()?.sets ?? []).map((s) => s.name);
-      const who = andList(names.filter(Boolean)) || 'the accounts';
-      if (!ids.length) this.notice.set('Nothing to back up.');
+      const who = andList(names.filter(Boolean)) || tr('the accounts');
+      if (!ids.length) this.notice.set(tr('Nothing to back up.'));
       else if (already === ids.length) {
         this.notice.set(
-          account ? `${who} is being backed up already.` : 'Every backup is running already.',
+          account
+            ? tr('{name} is being backed up already.', { name: who })
+            : tr('Every backup is running already.'),
         );
       } else if (force) {
         this.notice.set(
-          `Force backup of ${who}: this ${this.mac()}'s copies replace the backup's…`,
+          tr("Force backup of {name}: this {computer}'s copies replace the backup's…", {
+            name: who,
+            computer: this.computer(),
+          }),
         );
-      } else this.notice.set(`Backing up ${who}…`);
+      } else this.notice.set(tr('Backing up {name}…', { name: who }));
       if (force) this.forceFor.set(null);
     } catch (e) {
       this.error.set(backupErrorText(e));
@@ -374,7 +399,11 @@ export class BackupComponent {
     try {
       const res = await this.api.restoreBackupSettings(s.account);
       const folder = typeof res?.folder === 'string' ? res.folder : '';
-      if (!folder) throw new Error('The Mac did not say where it unpacked them.');
+      if (!folder) {
+        throw new Error(
+          tr('The {computer} did not say where it unpacked them.', { computer: this.computer() }),
+        );
+      }
       this.configFolders.update((prev) => new Map(prev).set(s.account, folder));
     } catch (e) {
       this.error.set(`${s.name}: ${backupErrorText(e)}`);
@@ -405,12 +434,12 @@ export class BackupComponent {
   protected kindText(r: SetRow): string {
     const a = this.accounts.byId(r.set.account);
     const kind = r.sharedWith
-      ? 'Token account'
+      ? tr('Token account')
       : !a || a.isDefault
-        ? 'Default account'
+        ? tr('Default account')
         : a.kind === 'directory'
-          ? 'Its own directory'
-          : 'Account';
+          ? tr('Its own directory')
+          : tr('Account');
     return a?.live ? `${kind} · ${plural(a.live, 'running session')}` : kind;
   }
 
@@ -428,15 +457,15 @@ export class BackupComponent {
   protected laneText(r: SetRow): string {
     switch (this.laneState(r)) {
       case 'shared':
-        return `In ${r.sharedWith}'s backup`;
+        return tr("In {name}'s backup", { name: r.sharedWith });
       case 'busy':
-        return 'Working…';
+        return tr('Working…');
       case 'problem':
-        return r.set.keyMissing ? 'Key missing here' : 'Last backup failed';
+        return r.set.keyMissing ? tr('Key missing here') : tr('Last backup failed');
       case 'never':
-        return this.ready() ? 'Not backed up yet' : 'Not set up';
+        return this.ready() ? tr('Not backed up yet') : tr('Not set up');
       default:
-        return `Backed up ${relativeTime(r.set.lastPush)}`;
+        return tr('Backed up {time}', { time: relativeTime(r.set.lastPush) });
     }
   }
 
@@ -464,7 +493,7 @@ export class BackupComponent {
     this.drag.start(
       e,
       { kind: 'set', account: r.set.account, name: r.set.name },
-      `${r.set.name}'s backup`,
+      tr("{name}'s backup", { name: r.set.name }),
     );
   }
 
@@ -553,7 +582,7 @@ export class BackupComponent {
       this.openPull(b.set, b.ids);
       return;
     }
-    const name = this.nameOf(b.set) || 'the account';
+    const name = this.nameOf(b.set) || tr('the account');
     this.error.set('');
     this.notice.set('');
     try {
@@ -564,8 +593,11 @@ export class BackupComponent {
       if (first) this.follow(first);
       this.notice.set(
         first
-          ? `Bringing ${plural(b.ids.length, 'conversation')} to ${name}…`
-          : skipped.join(' ') || 'Nothing to bring.',
+          ? tr('Bringing {what} to {name}…', {
+              what: plural(b.ids.length, 'conversation'),
+              name,
+            })
+          : skipped.join(' ') || tr('Nothing to bring.'),
       );
     } catch (e) {
       this.error.set(`${name}: ${backupErrorText(e)}`);

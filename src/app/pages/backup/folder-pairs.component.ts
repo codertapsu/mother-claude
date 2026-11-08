@@ -21,8 +21,10 @@ import {
   pathOsOf,
 } from '../../core/backup';
 import { FolderPairDraftService } from '../../core/folder-pair-draft.service';
+import { tr } from '../../core/i18n/i18n';
+import { TPipe } from '../../core/i18n/t.pipe';
 import { FolderPairsView, PairMachine, PairSide } from '../../core/models';
-import { folderExample, folderPathProblem } from '../../core/paths';
+import { folderExample, folderPathProblem, machineNoun } from '../../core/paths';
 import { IconComponent } from '../../shared/icon.component';
 
 /**
@@ -42,25 +44,26 @@ import { IconComponent } from '../../shared/icon.component';
 @Component({
   selector: 'mc-folder-pairs',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [FormsModule, IconComponent],
+  imports: [FormsModule, IconComponent, TPipe],
   template: `
     <div class="shead" id="folder-pairs">
-      <h2>Folder pairs</h2>
+      <h2>{{ 'Folder pairs' | t }}</h2>
       <button
         class="btn small ghost"
         type="button"
         [disabled]="busy()"
-        aria-label="Read the folder pairs from the backups again"
+        [attr.aria-label]="'Read the folder pairs from the backups again' | t"
         (click)="refresh()"
       >
-        <mc-icon name="refresh" [size]="14" /> Look again
+        <mc-icon name="refresh" [size]="14" /> {{ 'Look again' | t }}
       </button>
     </div>
     <section class="card pairs">
       <p class="muted small lede">
-        Pair a folder on {{ hereName() }} with the folder that holds the same projects on another
-        machine: a session pulled from there goes into the matching project here (and back), so
-        Claude Code lists it where you work.
+        {{
+          'Pair a folder on this {computer} with the folder that holds the same projects on another machine: a session pulled from there goes into the matching project here (and back), so Claude Code lists it where you work.'
+            | t: { computer: computer() }
+        }}
       </p>
       @if (view()?.pairs?.length) {
         <ul class="list">
@@ -81,10 +84,12 @@ import { IconComponent } from '../../shared/icon.component';
                 class="btn small ghost"
                 type="button"
                 [disabled]="busy()"
-                [attr.aria-label]="'Remove the pair of ' + p.folders[0].folder"
+                [attr.aria-label]="
+                  'Remove the pair of {folder}' | t: { folder: p.folders[0].folder }
+                "
                 (click)="remove(p.id)"
               >
-                Remove
+                {{ 'Remove' | t }}
               </button>
             </li>
           }
@@ -93,7 +98,9 @@ import { IconComponent } from '../../shared/icon.component';
       @if (machines().length) {
         <form class="add" (submit)="add($event)">
           <label class="field">
-            <span class="field-label">Folder on {{ hereName() }}</span>
+            <span class="field-label">{{
+              'Folder on this {computer}' | t: { computer: computer() }
+            }}</span>
             <input
               name="here"
               spellcheck="false"
@@ -105,7 +112,7 @@ import { IconComponent } from '../../shared/icon.component';
             />
           </label>
           <label class="field">
-            <span class="field-label">Other machine</span>
+            <span class="field-label">{{ 'Other machine' | t }}</span>
             <select name="machine" [disabled]="busy()" (change)="pickMachine($event)">
               @for (m of machines(); track m.id) {
                 <option [value]="m.id" [selected]="m.id === machine()">
@@ -115,7 +122,7 @@ import { IconComponent } from '../../shared/icon.component';
             </select>
           </label>
           <label class="field">
-            <span class="field-label">Its folder</span>
+            <span class="field-label">{{ 'Its folder' | t }}</span>
             <input
               name="there"
               spellcheck="false"
@@ -132,13 +139,15 @@ import { IconComponent } from '../../shared/icon.component';
               type="submit"
               [disabled]="busy() || !folder().trim() || !otherFolder().trim()"
             >
-              {{ busy() ? 'Saving…' : 'Add pair' }}
+              {{ busy() ? ('Saving…' | t) : ('Add pair' | t) }}
             </button>
           </div>
         </form>
       } @else {
         <p class="muted small none">
-          Another machine shows here once it has backed up to or pulled from these backups.
+          {{
+            'Another machine shows here once it has backed up to or pulled from these backups.' | t
+          }}
         </p>
       }
       @if (error()) {
@@ -238,16 +247,17 @@ export class FolderPairsComponent {
   protected readonly hereLabel = computed(() => {
     switch (this.hostOs()) {
       case 'macos':
-        return 'This Mac';
+        return tr('This Mac');
       case 'windows':
-        return 'This PC';
+        return tr('This PC');
       default:
-        return 'This machine';
+        return tr('This machine');
     }
   });
 
-  /** "this Mac", inside a sentence. */
-  protected readonly hereName = computed(() => this.hereLabel().replace(/^This/, 'this'));
+  /** The desktop's computer inside a sentence ("this {computer}"): "Mac",
+   * "PC" (Vietnamese "máy Mac", "máy PC"). */
+  protected readonly computer = computed(() => tr(machineNoun(this.hostOs())));
 
   /** Each folder's example in its own machine's form. */
   protected readonly herePlaceholder = computed(() => folderExample(this.hostOs(), 'projects'));
@@ -273,14 +283,14 @@ export class FolderPairsComponent {
 
   protected machineLabel(m: PairMachine): string {
     const os = osLabel(m.os);
-    const name = m.name || 'A machine';
+    const name = m.name || tr('A machine');
     return os ? `${name} (${os})` : name;
   }
 
   protected sideLabel(s: PairSide): string {
     if (s.here) return this.hereLabel();
     const os = osLabel(s.os);
-    const name = s.name || 'Another machine';
+    const name = s.name || tr('Another machine');
     return os ? `${name} (${os})` : name;
   }
 
@@ -302,17 +312,21 @@ export class FolderPairsComponent {
     // Each the way its machine writes paths; the desktop has the last word.
     const here = folderPathProblem(folder, this.hostOs());
     if (here) {
-      this.error.set(`On ${this.hereName()}: ${here}`);
+      this.error.set(
+        tr('On this {computer}: {problem}', { computer: this.computer(), problem: here }),
+      );
       return;
     }
     const there = otherFolderProblem(other, this.chosenOs(), this.hostOs());
     if (there) {
-      this.error.set(`On ${m.name || 'the other machine'}: ${there}`);
+      this.error.set(
+        tr('On {name}: {problem}', { name: m.name || tr('the other machine'), problem: there }),
+      );
       return;
     }
     const ok = await this.run(
       () => this.api.addFolderPair({ folder, machine: m.id, otherFolder: other }),
-      'Paired. Sessions pulled from there now go into the matching project here.',
+      tr('Paired. Sessions pulled from there now go into the matching project here.'),
     );
     if (ok) {
       this.folder.set('');
@@ -321,7 +335,10 @@ export class FolderPairsComponent {
   }
 
   protected async remove(id: string): Promise<void> {
-    await this.run(() => this.api.removeFolderPair(id), 'The pair is removed from the backups.');
+    await this.run(
+      () => this.api.removeFolderPair(id),
+      tr('The pair is removed from the backups.'),
+    );
   }
 
   private async run(call: () => Promise<unknown>, ok: string): Promise<boolean> {

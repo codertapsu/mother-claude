@@ -2,11 +2,13 @@
   <header class="hero">
     <div class="hero-text">
       <div class="page-head">
-        <h1>Backup &amp; sync</h1>
+        <h1>{{ 'Backup & sync' | t }}</h1>
       </div>
       <p class="lede">
-        Encrypted backups of each Claude account's data, in a folder you choose. The same folder
-        carries your conversations to your other computers: back up on one, pull on the other.
+        {{
+          "Encrypted backups of each Claude account's data, in a folder you choose. The same folder carries your conversations to your other computers: back up on one, pull on the other."
+            | t
+        }}
       </p>
     </div>
     <div class="flow-art" aria-hidden="true">
@@ -29,16 +31,22 @@
     @if (v.passphraseChangeUnfinished) {
       <div class="notice warn small unfinished" role="status">
         <p>
-          A passphrase change did not finish, so some backups may open only with the new passphrase.
+          {{
+            'A passphrase change did not finish, so some backups may open only with the new passphrase.'
+              | t
+          }}
           @if (isDesktop()) {
-            Setting the passphrase again — the same one or a new one — finishes it.
+            {{ 'Setting the passphrase again — the same one or a new one — finishes it.' | t }}
           } @else {
-            Set the passphrase again on the {{ mac() }} to finish it.
+            {{
+              'Set the passphrase again on the {computer} to finish it.'
+                | t: { computer: computer() }
+            }}
           }
         </p>
         @if (isDesktop()) {
           <button class="btn small" type="button" (click)="openPassphrase()">
-            <mc-icon name="key" [size]="14" /> Set the passphrase again…
+            <mc-icon name="key" [size]="14" /> {{ 'Set the passphrase again…' | t }}
           </button>
         }
       </div>
@@ -47,7 +55,7 @@
     <!-- ─────────────── Getting started ─────────────── -->
     @if (!setupDone()) {
       <section class="card setup" aria-labelledby="bk-setup">
-        <h2 id="bk-setup" class="setup-title">Set up backups in three steps</h2>
+        <h2 id="bk-setup" class="setup-title">{{ 'Set up backups in three steps' | t }}</h2>
         <ol class="steps">
           <li class="step" [class.done]="!!v.settings.folder" [class.now]="setupStep() === 1">
             <span class="num" aria-hidden="true">
@@ -58,14 +66,14 @@
               }
             </span>
             <div class="sbody">
-              <strong>Choose a folder</strong>
+              <strong>{{ 'Choose a folder' | t }}</strong>
               @if (v.settings.folder) {
                 <span class="muted small mono break">{{ short(v.settings.folder) }}</span>
               } @else {
-                <span class="muted small"
-                  >One your other computers reach too: iCloud Drive, Google Drive, OneDrive or a
-                  folder on a NAS.</span
-                >
+                <span class="muted small">{{
+                  'One your other computers reach too: iCloud Drive, Google Drive, OneDrive or a folder on a NAS.'
+                    | t
+                }}</span>
                 <div class="sacts-row">
                   @for (s of v.suggestions; track s.path) {
                     <button
@@ -79,7 +87,7 @@
                     </button>
                   }
                   <button class="btn small ghost" type="button" (click)="focusFolder($event)">
-                    Type a folder…
+                    {{ 'Type a folder…' | t }}
                   </button>
                 </div>
               }
@@ -94,10 +102,10 @@
               }
             </span>
             <div class="sbody">
-              <strong>Set a passphrase</strong>
-              <span class="muted small"
-                >It encrypts the backups. Without it nobody can read them, you included.</span
-              >
+              <strong>{{ 'Set a passphrase' | t }}</strong>
+              <span class="muted small">{{
+                'It encrypts the backups. Without it nobody can read them, you included.' | t
+              }}</span>
               @if (!v.passphraseSet) {
                 @if (isDesktop()) {
                   <div class="sacts-row">
@@ -107,11 +115,11 @@
                       type="button"
                       (click)="openPassphrase()"
                     >
-                      <mc-icon name="key" [size]="14" /> Set a passphrase…
+                      <mc-icon name="key" [size]="14" /> {{ 'Set a passphrase…' | t }}
                     </button>
                   </div>
                 } @else {
-                  <span class="small">Set it in the desktop app.</span>
+                  <span class="small">{{ 'Set it in the desktop app.' | t }}</span>
                 }
               }
             </div>
@@ -119,11 +127,11 @@
           <li class="step" [class.now]="setupStep() === 3">
             <span class="num" aria-hidden="true">3</span>
             <div class="sbody">
-              <strong>Back up for the first time</strong>
-              <span class="muted small"
-                >Then pull on your other computer: its conversations and this one's meet in the same
-                folder.</span
-              >
+              <strong>{{ 'Back up for the first time' | t }}</strong>
+              <span class="muted small">{{
+                "Then pull on your other computer: its conversations and this one's meet in the same folder."
+                  | t
+              }}</span>
               <div class="sacts-row">
                 <button
                   class="btn small"
@@ -132,7 +140,7 @@
                   [disabled]="!ready() || !!pushing()"
                   (click)="push()"
                 >
-                  <mc-icon name="upload" [size]="14" /> Back up now
+                  <mc-icon name="upload" [size]="14" /> {{ 'Back up now' | t }}
                 </button>
               </div>
             </div>
@@ -143,7 +151,7 @@
 
     <!-- ─────────────── Your backups: lanes, drag and drop ─────────────── -->
     <div class="shead">
-      <h2>Your backups</h2>
+      <h2>{{ 'Your backups' | t }}</h2>
       <div class="hacts">
         <button
           class="btn small"
@@ -151,7 +159,7 @@
           [disabled]="!ready() || !anySet() || saving()"
           (click)="openPull(null)"
         >
-          <mc-icon name="download" [size]="14" /> Pull…
+          <mc-icon name="download" [size]="14" /> {{ 'Pull…' | t }}
         </button>
         <button
           class="btn small primary"
@@ -160,7 +168,7 @@
           (click)="push()"
         >
           <mc-icon name="upload" [size]="14" />
-          {{ pushing() === 'all' ? 'Starting…' : 'Back up now' }}
+          {{ pushing() === 'all' ? ('Starting…' | t) : ('Back up now' | t) }}
         </button>
       </div>
     </div>
@@ -169,13 +177,20 @@
       <p class="muted small why">{{ notReady() }}</p>
     } @else if (ready() && anySet()) {
       <p class="muted small dnd">
-        <mc-icon name="move" [size]="14" /> Drag an account onto the backups to back it up, or a
-        backup onto an account to bring it back. The buttons do the same.
+        <mc-icon name="move" [size]="14" />
+        {{
+          'Drag an account onto the backups to back it up, or a backup onto an account to bring it back. The buttons do the same.'
+            | t
+        }}
       </p>
     }
-    <section class="lanes sets" [class.dragging]="!!drag.item()" aria-label="Each account's backup">
+    <section
+      class="lanes sets"
+      [class.dragging]="!!drag.item()"
+      [attr.aria-label]="'Each account\'s backup' | t"
+    >
       <div class="lane-head" aria-hidden="true" [hidden]="!rows().length">
-        <span class="lh"><mc-icon name="monitor" [size]="15" /> This {{ mac() }}</span>
+        <span class="lh"><mc-icon name="monitor" [size]="15" /> {{ hereLabel() }}</span>
         <span></span>
         <span
           class="lh drop-col"
@@ -184,10 +199,12 @@
           (dragover)="over($event, backups)"
           (dragleave)="leave(backups)"
           (drop)="drop($event, backups)"
-          ><mc-icon name="cloud" [size]="15" /> Backups
-          <span class="muted small lhsub">{{ folderName() }} · encrypted</span></span
+          ><mc-icon name="cloud" [size]="15" /> {{ 'Backups' | t }}
+          <span class="muted small lhsub">{{
+            '{folder} · encrypted' | t: { folder: folderName() }
+          }}</span></span
         >
-        <span class="lh"><mc-icon name="layers" [size]="15" /> Other computers</span>
+        <span class="lh"><mc-icon name="layers" [size]="15" /> {{ 'Other computers' | t }}</span>
       </div>
       @for (r of rows(); track r.set.account) {
         <div class="lane setrow" [class.shared]="!!r.sharedWith">
@@ -196,7 +213,9 @@
             [class.can]="!!dropLabel(accountTarget(r))"
             [class.over]="drag.over() === 'account:' + r.set.account"
             [attr.draggable]="canDragAccount(r)"
-            [attr.aria-label]="r.set.name + ' on this ' + mac()"
+            [attr.aria-label]="
+              '{name} on this {computer}' | t: { name: r.set.name, computer: computer() }
+            "
             (dragstart)="dragAccount($event, r)"
             (dragend)="drag.end()"
             (dragover)="over($event, accountTarget(r))"
@@ -209,7 +228,7 @@
               <span class="muted small">{{ kindText(r) }}</span>
             </span>
             @if (canDragAccount(r)) {
-              <span class="grip" aria-hidden="true" title="Drag onto the backups">⠿</span>
+              <span class="grip" aria-hidden="true" [title]="'Drag onto the backups' | t">⠿</span>
             }
             @if (dropLabel(accountTarget(r)); as label) {
               <span class="droptag small">{{ label }}</span>
@@ -234,10 +253,10 @@
             (drop)="drop($event, backups)"
           >
             @if (r.sharedWith) {
-              <span class="muted small"
-                >Its sessions are in {{ r.sharedWith }}'s backup: a token account uses the
-                {{ r.sharedWith }} account's directory.</span
-              >
+              <span class="muted small">{{
+                "Its sessions are in {name}'s backup: a token account uses the {name} account's directory."
+                  | t: { name: r.sharedWith }
+              }}</span>
             } @else {
               @if (r.set.exists && !r.set.keyMissing) {
                 <button
@@ -246,26 +265,31 @@
                   [class.on]="browsing() === r.set.account"
                   [disabled]="!ready()"
                   [attr.aria-pressed]="browsing() === r.set.account"
-                  [attr.aria-label]="'Browse the conversations in the backup of ' + r.set.name"
+                  [attr.aria-label]="
+                    'Browse the conversations in the backup of {name}' | t: { name: r.set.name }
+                  "
                   (click)="toggleBrowse(r.set.account)"
                 >
-                  <mc-icon name="list" [size]="14" /> Conversations
+                  <mc-icon name="list" [size]="14" /> {{ 'Conversations' | t }}
                 </button>
               }
               @if (r.set.lastPush) {
                 <span class="small status"
-                  >Backed up from this {{ mac() }} <mc-time [ms]="r.set.lastPush" />
+                  >{{ 'Backed up from this {computer}' | t: { computer: computer() } }}
+                  <mc-time [ms]="r.set.lastPush" />
                   @if (r.set.sessions !== undefined) {
                     · {{ plural(r.set.sessions, 'session') }}
                   }
                 </span>
               } @else if (r.set.exists) {
-                <span class="small">Not backed up from this {{ mac() }} yet</span>
+                <span class="small">{{
+                  'Not backed up from this {computer} yet' | t: { computer: computer() }
+                }}</span>
               } @else if (!r.set.keyMissing) {
-                <span class="muted small">No backup yet</span>
+                <span class="muted small">{{ 'No backup yet' | t }}</span>
               }
               @if (r.set.keyMissing) {
-                <p class="notice warn small nokey" role="status">{{ keyMissingText }}</p>
+                <p class="notice warn small nokey" role="status">{{ keyMissingText | t }}</p>
               }
               @if (r.lastError) {
                 <span class="error-text small">{{ r.lastError }}</span>
@@ -273,12 +297,14 @@
               @if (configFolders().get(r.set.account); as folder) {
                 <div class="notice small cfg" role="status">
                   <p>
-                    The newest settings bundle, unpacked for you to look through; your live settings
-                    are not changed:
+                    {{
+                      'The newest settings bundle, unpacked for you to look through; your live settings are not changed:'
+                        | t
+                    }}
                   </p>
                   <div class="cfgpath">
                     <span class="mono break">{{ folder }}</span>
-                    <mc-copy-button [text]="folder" label="Copy path" />
+                    <mc-copy-button [text]="folder" [label]="'Copy path' | t" />
                   </div>
                 </div>
               }
@@ -290,58 +316,68 @@
                     <button
                       class="btn small"
                       type="button"
-                      [attr.aria-label]="'Check again for the key of ' + r.set.name"
+                      [attr.aria-label]="
+                        'Check again for the key of {name}' | t: { name: r.set.name }
+                      "
                       (click)="load()"
                     >
-                      <mc-icon name="refresh" [size]="14" /> Check again
+                      <mc-icon name="refresh" [size]="14" /> {{ 'Check again' | t }}
                     </button>
                   } @else {
                     <button
                       class="btn small"
                       type="button"
                       [disabled]="!ready() || !!pushing()"
-                      [attr.aria-label]="'Back up ' + r.set.name"
+                      [attr.aria-label]="'Back up {name}' | t: { name: r.set.name }"
                       (click)="push(r.set.account)"
                     >
                       <mc-icon name="upload" [size]="14" />
-                      {{ pushing() === r.set.account ? 'Starting…' : 'Back up' }}
+                      {{ pushing() === r.set.account ? ('Starting…' | t) : ('Back up' | t) }}
                     </button>
                     @if (r.set.exists) {
                       <button
                         class="btn small"
                         type="button"
                         [disabled]="!ready()"
-                        [attr.aria-label]="'Pull ' + r.set.name + ' from its backup'"
+                        [attr.aria-label]="'Pull {name} from its backup' | t: { name: r.set.name }"
                         (click)="openPull(r.set.account)"
                       >
-                        Pull…
+                        {{ 'Pull…' | t }}
                       </button>
                       <button
                         class="btn small"
                         type="button"
                         [disabled]="!ready()"
-                        [attr.aria-label]="'Restore from the backup of ' + r.set.name"
+                        [attr.aria-label]="
+                          'Restore from the backup of {name}' | t: { name: r.set.name }
+                        "
                         (click)="openRestore(r.set.account)"
                       >
-                        Restore…
+                        {{ 'Restore…' | t }}
                       </button>
                       <button
                         class="btn small ghost"
                         type="button"
                         [disabled]="!ready() || !!pushing()"
-                        [attr.aria-label]="'Force backup of ' + r.set.name"
+                        [attr.aria-label]="'Force backup of {name}' | t: { name: r.set.name }"
                         (click)="forceFor.set(r.set.account)"
                       >
-                        Force backup…
+                        {{ 'Force backup…' | t }}
                       </button>
                       <button
                         class="btn small ghost"
                         type="button"
                         [disabled]="!ready() || !!configBusy()"
-                        [attr.aria-label]="'Restore the settings of ' + r.set.name"
+                        [attr.aria-label]="
+                          'Restore the settings of {name}' | t: { name: r.set.name }
+                        "
                         (click)="restoreSettings(r.set)"
                       >
-                        {{ configBusy() === r.set.account ? 'Unpacking…' : 'Restore settings' }}
+                        {{
+                          configBusy() === r.set.account
+                            ? ('Unpacking…' | t)
+                            : ('Restore settings' | t)
+                        }}
                       </button>
                     }
                   }
@@ -353,14 +389,18 @@
             }
           </div>
 
-          <div class="others" [attr.aria-label]="'Other computers that back up ' + r.set.name">
+          <div
+            class="others"
+            [attr.aria-label]="'Other computers that back up {name}' | t: { name: r.set.name }"
+          >
             @for (m of r.others; track m.id ?? m.host) {
               <span class="machine small"
                 ><mc-icon name="monitor" [size]="13" />
-                <span
-                  >Also from
-                  {{ m.host === v.host ? 'another computer named ' + m.host : m.host }}</span
-                >
+                <span>{{
+                  m.host === v.host
+                    ? ('Also from another computer named {host}' | t: { host: m.host })
+                    : ('Also from {host}' | t: { host: m.host })
+                }}</span>
                 @if (m.lastPush) {
                   <span class="muted"><mc-time [ms]="m.lastPush" /></span>
                 }
@@ -368,27 +408,33 @@
             }
             @if (r.sameName) {
               <span class="machine small"
-                ><mc-icon name="monitor" [size]="13" /> Also from another computer named
-                {{ v.host }}</span
+                ><mc-icon name="monitor" [size]="13" />
+                {{ 'Also from another computer named {host}' | t: { host: v.host } }}</span
               >
             }
             @if (!r.others.length && !r.sameName && !r.sharedWith) {
-              <span class="muted small">No other computer yet</span>
+              <span class="muted small">{{ 'No other computer yet' | t }}</span>
             }
           </div>
         </div>
       } @empty {
         <p class="muted small none">
           @if (v.settings.folder) {
-            No account to back up.
+            {{ 'No account to back up.' | t }}
           } @else {
-            Choose a folder first: each account's backup goes in a folder of its own inside it.
+            {{
+              "Choose a folder first: each account's backup goes in a folder of its own inside it."
+                | t
+            }}
           }
         </p>
       }
     </section>
     @if (v.lastPull) {
-      <p class="muted small last">Last pull on this {{ mac() }} <mc-time [ms]="v.lastPull" />.</p>
+      <p class="muted small last">
+        {{ 'Last pull on this {computer}' | t: { computer: computer() } }}
+        <mc-time [ms]="v.lastPull" />.
+      </p>
     }
     @if (browsedSet(); as b) {
       <mc-backup-browser
@@ -402,13 +448,13 @@
     }
 
     <!-- ─────────────── Settings ─────────────── -->
-    <h2 id="backup-settings">Settings</h2>
+    <h2 id="backup-settings">{{ 'Settings' | t }}</h2>
     <div class="settings-grid">
       <section class="card scard wide" aria-labelledby="bk-folder">
-        <h3 id="bk-folder"><mc-icon name="folder" [size]="16" /> Folder</h3>
+        <h3 id="bk-folder"><mc-icon name="folder" [size]="16" /> {{ 'Folder' | t }}</h3>
         <form class="folder" (submit)="saveFolder($event)">
           <label class="field grow">
-            <span class="field-label">Backup folder</span>
+            <span class="field-label">{{ 'Backup folder' | t }}</span>
             <input
               name="folder"
               [placeholder]="folderPlaceholder()"
@@ -420,12 +466,12 @@
             />
           </label>
           <button class="btn" type="submit" [disabled]="!folderChanged() || saving()">
-            {{ saving() ? 'Saving…' : 'Save' }}
+            {{ saving() ? ('Saving…' | t) : ('Save' | t) }}
           </button>
         </form>
         @if (v.suggestions.length) {
-          <div class="sugg" role="group" aria-label="Suggested folders">
-            <span class="muted small">Suggested:</span>
+          <div class="sugg" role="group" [attr.aria-label]="'Suggested folders' | t">
+            <span class="muted small">{{ 'Suggested:' | t }}</span>
             @for (s of v.suggestions; track s.path) {
               <button
                 class="btn small"
@@ -440,28 +486,35 @@
           </div>
         }
         <p class="muted small hint">
-          Each account with a directory of its own gets a folder inside it, named after the account
-          (a token account's sessions go in the Default's). Leave it empty to stop backing up.
+          {{
+            "Each account with a directory of its own gets a folder inside it, named after the account (a token account's sessions go in the Default's). Leave it empty to stop backing up."
+              | t
+          }}
           @if (hostOs() === 'windows') {
-            On OneDrive, right-click the folder and choose Always keep on this device.
+            {{ 'On OneDrive, right-click the folder and choose Always keep on this device.' | t }}
           } @else {
-            On iCloud Drive, right-click the folder and choose Keep Downloaded.
+            {{ 'On iCloud Drive, right-click the folder and choose Keep Downloaded.' | t }}
           }
         </p>
       </section>
 
       <section class="card scard" aria-labelledby="bk-pass">
-        <h3 id="bk-pass"><mc-icon name="key" [size]="16" /> Passphrase</h3>
+        <h3 id="bk-pass"><mc-icon name="key" [size]="16" /> {{ 'Passphrase' | t }}</h3>
         <div class="list-row prow">
           <mc-icon name="key" />
           <div class="grow">
-            <strong>{{ v.passphraseSet ? 'Set, ' + keptIn('this') : 'Not set yet' }}</strong>
+            <strong>{{ v.passphraseSet ? passphraseSetText() : ('Not set yet' | t) }}</strong>
             <span class="muted small"
-              >Without it no backup can be read — by you or anyone, and Mother Claude can't recover
-              it. It is kept {{ keptIn('the') }}. Changing it keeps every backup readable.</span
+              >{{
+                "Without it no backup can be read — by you or anyone, and Mother Claude can't recover it."
+                  | t
+              }}
+              {{ keptText() }} {{ 'Changing it keeps every backup readable.' | t }}</span
             >
             @if (!isDesktop()) {
-              <span class="small onmac">It is set and changed on the {{ mac() }}.</span>
+              <span class="small onmac">{{
+                'It is set and changed on the {computer}.' | t: { computer: computer() }
+              }}</span>
             }
           </div>
           @if (isDesktop()) {
@@ -471,22 +524,24 @@
               type="button"
               (click)="openPassphrase()"
             >
-              {{ v.passphraseSet ? 'Change…' : 'Set a passphrase…' }}
+              {{ v.passphraseSet ? ('Change…' | t) : ('Set a passphrase…' | t) }}
             </button>
           }
         </div>
       </section>
 
       <section class="card scard" aria-labelledby="bk-when">
-        <h3 id="bk-when"><mc-icon name="clock" [size]="16" /> Schedule</h3>
+        <h3 id="bk-when"><mc-icon name="clock" [size]="16" /> {{ 'Schedule' | t }}</h3>
         <div class="list">
           <div class="list-row srow">
             <div class="grow">
-              <label for="backup-every"><strong>Back up</strong></label>
-              <span class="muted small"
-                >On a schedule a backup runs only after none of the sessions in its directory was
-                active for ten minutes.</span
+              <label for="backup-every"
+                ><strong>{{ 'Back up' | t }}</strong></label
               >
+              <span class="muted small">{{
+                'On a schedule a backup runs only after none of the sessions in its directory was active for ten minutes.'
+                  | t
+              }}</span>
             </div>
             <select
               id="backup-every"
@@ -496,12 +551,12 @@
             >
               @for (o of schedules; track o.hours) {
                 <option [value]="o.hours" [selected]="o.hours === v.settings.everyHours">
-                  {{ o.label }}
+                  {{ o.label | t }}
                 </option>
               }
               @if (!knownSchedule()) {
                 <option [value]="v.settings.everyHours" [selected]="true">
-                  {{ scheduleLabel(v.settings.everyHours) }}
+                  {{ scheduleLabel(v.settings.everyHours) | t }}
                 </option>
               }
             </select>
@@ -514,11 +569,11 @@
               (change)="setPullOnLaunch($any($event.target).checked)"
             />
             <span class="switch-text">
-              <span>Pull on launch</span>
-              <span class="muted small"
-                >When the app starts, bring every account up to date from its backup — only when no
-                session is running.</span
-              >
+              <span>{{ 'Pull on launch' | t }}</span>
+              <span class="muted small">{{
+                'When the app starts, bring every account up to date from its backup — only when no session is running.'
+                  | t
+              }}</span>
             </span>
           </label>
         </div>
@@ -535,8 +590,8 @@
 
     <!-- ─────────────── Recent ─────────────── -->
     @if (jobList().length) {
-      <h2>Recent</h2>
-      <section class="card list jobs" aria-label="Recent backups, restores and pulls">
+      <h2>{{ 'Recent' | t }}</h2>
+      <section class="card list jobs" [attr.aria-label]="'Recent backups, restores and pulls' | t">
         @for (j of jobList(); track j.id) {
           <mc-data-job class="jrow" [job]="j" (changed)="jobChanged($event)">
             <mc-job-details [job]="j" />
@@ -546,19 +601,23 @@
     }
 
     <p class="muted small more">
-      Several Claude accounts? Each with a directory of its own has its own backup; they are set up
-      on the <a routerLink="/accounts">Accounts</a> page.
+      {{
+        'Several Claude accounts? Each with a directory of its own has its own backup; they are set up on the'
+          | t
+      }}
+      <a routerLink="/accounts">{{ 'Accounts page' | t }}</a
+      >.
     </p>
   } @else if (loadError()) {
     <div class="card empty-state">
-      <strong>Can't load the backup settings</strong>
+      <strong>{{ "Can't load the backup settings" | t }}</strong>
       {{ loadError() }}
       <div class="retry">
-        <button class="btn" type="button" (click)="load()">Retry</button>
+        <button class="btn" type="button" (click)="load()">{{ 'Retry' | t }}</button>
       </div>
     </div>
   } @else {
-    <p class="muted">Loading…</p>
+    <p class="muted">{{ 'Loading…' | t }}</p>
   }
 </div>
 

@@ -28,6 +28,8 @@ import {
 } from '../../core/backup';
 import { jobIdOf, normalizeJob, plural, sentence } from '../../core/data-jobs';
 import { DataJobsService } from '../../core/data-jobs.service';
+import { tr } from '../../core/i18n/i18n';
+import { TPipe } from '../../core/i18n/t.pipe';
 import { BackupIndex, BackupSet, JobView } from '../../core/models';
 import { DANGEROUS_REASON } from '../../core/move-data';
 import { machineNoun } from '../../core/paths';
@@ -79,13 +81,13 @@ interface PullRun {
 @Component({
   selector: 'mc-pull-sheet',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [BackupSessionsComponent, DataJobComponent, JobDetailsComponent, SheetComponent],
+  imports: [BackupSessionsComponent, DataJobComponent, JobDetailsComponent, SheetComponent, TPipe],
   template: `
     <mc-sheet [open]="open()" [title]="title()" (closed)="closed.emit()">
       @if (open()) {
         @switch (step()) {
           @case ('loading') {
-            <p class="muted small">Opening the backups…</p>
+            <p class="muted small">{{ 'Opening the backups…' | t }}</p>
           }
           @case ('list') {
             @for (g of groups(); track g.account) {
@@ -110,11 +112,11 @@ interface PullRun {
                 }
               </section>
             } @empty {
-              <p class="muted small">No account has a backup in the folder yet.</p>
+              <p class="muted small">{{ 'No account has a backup in the folder yet.' | t }}</p>
             }
             @if (pruneCount()) {
               <p class="notice warn small" role="status">
-                {{ plural(pruneCount(), 'selected session') }}: {{ pruneWarning }}
+                {{ plural(pruneCount(), 'selected session') }}: {{ pruneWarning | t }}
               </p>
             }
             <label class="check">
@@ -125,12 +127,15 @@ interface PullRun {
                 (change)="trust.set($any($event.target).checked)"
               />
               <span>
-                Also trust the folders of new sessions on this {{ mac() }}
-                <span class="muted small hint-line"
-                  >A trusted folder runs its project hooks and MCP servers without asking.</span
-                >
+                {{
+                  'Also trust the folders of new sessions on this {computer}'
+                    | t: { computer: computer() }
+                }}
+                <span class="muted small hint-line">{{
+                  'A trusted folder runs its project hooks and MCP servers without asking.' | t
+                }}</span>
                 @if (!canDangerous()) {
-                  <span class="small hint-line blocked">{{ dangerousReason }}</span>
+                  <span class="small hint-line blocked">{{ dangerousReason | t }}</span>
                 }
               </span>
             </label>
@@ -142,14 +147,16 @@ interface PullRun {
                 (change)="setForce($any($event.target).checked)"
               />
               <span>
-                Force: the backup's copy replaces this {{ mac() }}'s
-                <span class="muted small hint-line"
-                  >Also where it changed here or is newer here. This {{ mac() }}'s copies are kept
-                  for undo, for seven days; sessions only on this {{ mac() }} stay, and running ones
-                  are skipped.</span
-                >
+                {{
+                  "Force: the backup's copy replaces this {computer}'s"
+                    | t: { computer: computer() }
+                }}
+                <span class="muted small hint-line">{{
+                  "Also where it changed here or is newer here. This {computer}'s copies are kept for undo, for seven days; sessions only on this {computer} stay, and running ones are skipped."
+                    | t: { computer: computer() }
+                }}</span>
                 @if (!canDangerous()) {
-                  <span class="small hint-line blocked">{{ dangerousReason }}</span>
+                  <span class="small hint-line blocked">{{ dangerousReason | t }}</span>
                 }
               </span>
             </label>
@@ -165,36 +172,39 @@ interface PullRun {
                 [disabled]="!selected().size || busy()"
                 (click)="forcing() ? step.set('confirm') : pull()"
               >
-                {{
-                  busy()
-                    ? 'Starting…'
-                    : (forcing() ? 'Force pull ' : 'Pull ') + plural(selected().size, 'session')
-                }}{{ forcing() ? '…' : '' }}
+                {{ pullLabel() }}
               </button>
             </div>
           }
           @case ('confirm') {
             <div class="notice warn small confirm" role="alert">
               <p>
-                <strong>Force pull.</strong>
+                <strong>{{ 'Force pull.' | t }}</strong>
                 @if (counts().replaced) {
-                  The backup's copy replaces this {{ mac() }}'s copy of
+                  {{
+                    "The backup's copy replaces this {computer}'s copy of"
+                      | t: { computer: computer() }
+                  }}
                   <strong>{{ plural(counts().replaced, 'session') }}</strong>
                   @if (kinds()) {
                     ({{ kinds() }})
                   }
-                  — also where it changed here or is newer here.
+                  {{ '— also where it changed here or is newer here.' | t }}
                 } @else {
-                  None of the selected sessions has a copy here that differs from the backup's.
+                  {{
+                    "None of the selected sessions has a copy here that differs from the backup's."
+                      | t
+                  }}
                 }
                 @if (counts().added) {
-                  {{ plural(counts().added, 'session') }} new to this {{ mac() }}
-                  {{ counts().added === 1 ? 'comes' : 'come' }} too.
+                  {{ addedText() }}
                 }
               </p>
               <p>
-                Sessions only on this {{ mac() }} stay as they are, and sessions running here are
-                skipped. This {{ mac() }}'s copies are kept for seven days: Undo puts them back.
+                {{
+                  "Sessions only on this {computer} stay as they are, and sessions running here are skipped. This {computer}'s copies are kept for seven days: Undo puts them back."
+                    | t: { computer: computer() }
+                }}
               </p>
             </div>
             @if (error()) {
@@ -202,7 +212,7 @@ interface PullRun {
             }
             <div class="row actions">
               <button class="btn danger" type="button" [disabled]="busy()" (click)="pull()">
-                {{ busy() ? 'Starting…' : 'Force pull' }}
+                {{ busy() ? ('Starting…' | t) : ('Force pull' | t) }}
               </button>
               <button
                 class="btn ghost"
@@ -210,7 +220,7 @@ interface PullRun {
                 [disabled]="busy()"
                 (click)="step.set('list')"
               >
-                Back
+                {{ 'Back' | t }}
               </button>
             </div>
           }
@@ -222,7 +232,7 @@ interface PullRun {
                     <mc-job-details [job]="j" />
                   </mc-data-job>
                 } @else {
-                  <p class="muted small">{{ r.label }}: starting…</p>
+                  <p class="muted small">{{ '{label}: starting…' | t: { label: r.label } }}</p>
                 }
               }
             </div>
@@ -234,7 +244,7 @@ interface PullRun {
             }
             <div class="row actions">
               <button class="btn ghost" type="button" (click)="closed.emit()">
-                {{ running() ? 'Close (it goes on)' : 'Close' }}
+                {{ running() ? ('Close (it goes on)' | t) : ('Close' | t) }}
               </button>
             </div>
           }
@@ -294,8 +304,9 @@ export class PullSheetComponent {
   /** A folder's trust needs the dangerous right (docs/ACCOUNTS.md §13.9). */
   protected readonly canDangerous = inject(AuthService).canDangerous;
   private readonly hostOs = inject(AuthService).hostOs;
-  /** The desktop's computer: "this Mac", "this PC". */
-  protected readonly mac = computed(() => machineNoun(this.hostOs()));
+  /** The desktop's computer in a sentence ("this {computer}"): "Mac", "PC"
+   * (Vietnamese "máy Mac", "máy PC"). */
+  protected readonly computer = computed(() => tr(machineNoun(this.hostOs())));
   protected readonly dangerousReason = DANGEROUS_REASON;
 
   readonly open = input(false);
@@ -332,7 +343,13 @@ export class PullSheetComponent {
   protected readonly title = computed(() => {
     const id = this.account();
     const name = id ? this.sets().find((s) => s.account === id)?.name : '';
-    return name ? `Pull ${name} from the backup` : 'Pull from the backups';
+    return name ? tr('Pull {name} from the backup', { name }) : tr('Pull from the backups');
+  });
+  /** The button that starts it: "Pull 3 sessions", "Force pull 3 sessions…". */
+  protected readonly pullLabel = computed(() => {
+    if (this.busy()) return tr('Starting…');
+    const what = plural(this.selected().size, 'session');
+    return this.forcing() ? tr('Force pull {what}…', { what }) : tr('Pull {what}', { what });
   });
   protected readonly pruneCount = computed(() =>
     this.groups().reduce(
@@ -349,6 +366,14 @@ export class PullSheetComponent {
     ),
   );
   protected readonly kinds = computed(() => forceKinds(this.counts()));
+  /** "1 session new to this Mac comes too." */
+  protected readonly addedText = computed(() => {
+    const n = this.counts().added;
+    const computer = this.computer();
+    return n === 1
+      ? tr('{n} session new to this {computer} comes too.', { n, computer })
+      : tr('{n} sessions new to this {computer} come too.', { n, computer });
+  });
 
   constructor() {
     // Every opening starts over.
@@ -424,7 +449,13 @@ export class PullSheetComponent {
       sets.map(async (s): Promise<PullGroup> => {
         try {
           const ix = normalizeBackupIndex(await this.api.getBackupIndex(s.account));
-          if (!ix) throw new Error('The Mac sent a backup list this app could not read.');
+          if (!ix) {
+            throw new Error(
+              tr('The {computer} sent a backup list this app could not read.', {
+                computer: this.computer(),
+              }),
+            );
+          }
           return { account: s.account, name: s.name, index: ix, error: '' };
         } catch (e) {
           return { account: s.account, name: s.name, index: null, error: backupErrorText(e) };
@@ -462,7 +493,9 @@ export class PullSheetComponent {
     const skipped: string[] = [];
     const failures: string[] = [];
     for (const { g, ids } of wanted) {
-      const label = `${force ? 'Force pull' : 'Pull'} of ${g.name}`;
+      const label = force
+        ? tr('Force pull of {name}', { name: g.name })
+        : tr('Pull of {name}', { name: g.name });
       try {
         const res = await this.api.pullBackup({
           account: g.account,
@@ -486,7 +519,7 @@ export class PullSheetComponent {
     }
     this.busy.set(false);
     if (!runs.length) {
-      this.error.set(failures.join(' ') || 'Nothing was pulled.');
+      this.error.set(failures.join(' ') || tr('Nothing was pulled.'));
       if (this.step() === 'confirm') this.step.set('list');
       return;
     }
@@ -503,7 +536,12 @@ export class PullSheetComponent {
           .follow(first, (j) => this.setJob(runs[i].account, j), ctrl.signal)
           .catch((e) => {
             if (!ctrl.signal.aborted) {
-              this.error.set(`Can't follow ${runs[i].label} any more: ${backupErrorText(e)}`);
+              this.error.set(
+                tr("Can't follow {label} any more: {error}", {
+                  label: runs[i].label,
+                  error: backupErrorText(e),
+                }),
+              );
             }
           }),
       ),

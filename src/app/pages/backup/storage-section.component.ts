@@ -11,6 +11,8 @@ import {
 import { DEFAULT_ACCOUNT } from '../../core/accounts';
 import { AccountsService } from '../../core/accounts.service';
 import { plural } from '../../core/data-jobs';
+import { tr } from '../../core/i18n/i18n';
+import { TPipe } from '../../core/i18n/t.pipe';
 import { BackupSuggestion } from '../../core/models';
 import { samePath } from '../../core/paths';
 import {
@@ -38,6 +40,8 @@ interface SetRow {
 
 interface StoreRow {
   store: StorageView;
+  /** Its name as shown (the backup folder's own, translated). */
+  name: string;
   sets: SetRow[];
 }
 
@@ -53,12 +57,12 @@ interface StoreRow {
 @Component({
   selector: 'mc-storage-section',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [IconComponent, MoveDataSheetComponent, StorageSheetComponent],
+  imports: [IconComponent, MoveDataSheetComponent, StorageSheetComponent, TPipe],
   template: `
     <div class="shead">
-      <h2 id="storage-head">Storage</h2>
+      <h2 id="storage-head">{{ 'Storage' | t }}</h2>
       <button class="btn small" type="button" (click)="adding.set(true)">
-        <mc-icon name="plus" [size]="14" /> Add storage…
+        <mc-icon name="plus" [size]="14" /> {{ 'Add storage…' | t }}
       </button>
     </div>
     @if (error()) {
@@ -78,12 +82,12 @@ interface StoreRow {
             />
             <div class="stmain">
               <span class="stline">
-                <strong class="stname">{{ r.store.label }}</strong>
+                <strong class="stname">{{ r.name }}</strong>
                 @if (r.store.primary && !namesBackupFolder(r.store.label)) {
-                  <span class="badge">Backup folder</span>
+                  <span class="badge">{{ 'Backup folder' | t }}</span>
                 }
                 @if (!r.store.available) {
-                  <span class="badge warn">Not available</span>
+                  <span class="badge warn">{{ 'Not available' | t }}</span>
                 }
               </span>
               <span class="mono muted small break">{{ short(r.store.path) }}</span>
@@ -93,20 +97,20 @@ interface StoreRow {
                 <button
                   class="btn small"
                   type="button"
-                  [attr.aria-label]="'Move into a new set in ' + r.store.label"
+                  [attr.aria-label]="'Move into a new set in {name}' | t: { name: r.name }"
                   (click)="moveInto(r.store)"
                 >
-                  <mc-icon name="plus" [size]="14" /> New set…
+                  <mc-icon name="plus" [size]="14" /> {{ 'New set…' | t }}
                 </button>
               }
               @if (!r.store.primary) {
                 <button
                   class="btn small ghost"
                   type="button"
-                  [attr.aria-label]="'Rename ' + r.store.label"
+                  [attr.aria-label]="'Rename {name}' | t: { name: r.name }"
                   (click)="renaming.set(r.store)"
                 >
-                  <mc-icon name="edit" [size]="14" /> Rename…
+                  <mc-icon name="edit" [size]="14" /> {{ 'Rename…' | t }}
                 </button>
                 <button
                   class="btn small ghost"
@@ -114,18 +118,19 @@ interface StoreRow {
                   [class.danger]="confirming() === r.store.id"
                   [disabled]="busy() === r.store.id"
                   [attr.aria-label]="
-                    (confirming() === r.store.id ? 'Tap again to remove ' : 'Remove ') +
-                    r.store.label
+                    confirming() === r.store.id
+                      ? ('Tap again to remove {name}' | t: { name: r.name })
+                      : ('Remove {name}' | t: { name: r.name })
                   "
                   (click)="remove(r.store)"
                 >
                   <mc-icon name="trash" [size]="14" />
                   {{
                     busy() === r.store.id
-                      ? 'Removing…'
+                      ? ('Removing…' | t)
                       : confirming() === r.store.id
-                        ? 'Tap again to remove'
-                        : 'Remove'
+                        ? ('Tap again to remove' | t)
+                        : ('Remove' | t)
                   }}
                 </button>
               }
@@ -133,17 +138,19 @@ interface StoreRow {
           </div>
           @if (confirming() === r.store.id) {
             <p class="muted small forget">
-              Mother Claude forgets it; its folder and every set in it stay where they are.
+              {{
+                'Mother Claude forgets it; its folder and every set in it stay where they are.' | t
+              }}
             </p>
           }
-          <ul class="stsets" [attr.aria-label]="'Sets in ' + r.store.label">
+          <ul class="stsets" [attr.aria-label]="'Sets in {name}' | t: { name: r.name }">
             @for (s of r.sets; track s.set.name) {
               <li
                 class="stset"
                 [class.can]="!!dropLabel(r.store, s.set)"
                 [class.over]="drag?.over() === key(r.store, s.set)"
                 [attr.draggable]="canDrag(r.store, s)"
-                [attr.aria-label]="r.store.label + ' · ' + s.set.name"
+                [attr.aria-label]="r.name + ' · ' + s.set.name"
                 (dragstart)="dragSet($event, r.store, s)"
                 (dragend)="drag?.end()"
                 (dragover)="over($event, r.store, s.set)"
@@ -151,7 +158,9 @@ interface StoreRow {
                 (drop)="drop($event, r.store, s.set)"
               >
                 @if (canDrag(r.store, s)) {
-                  <span class="grip" aria-hidden="true" title="Drag onto an account">⠿</span>
+                  <span class="grip" aria-hidden="true" [title]="'Drag onto an account' | t"
+                    >⠿</span
+                  >
                 }
                 <div class="stsmain">
                   <span class="stsname">{{ s.set.name }}</span>
@@ -165,19 +174,23 @@ interface StoreRow {
                       <button
                         class="btn small"
                         type="button"
-                        [attr.aria-label]="'Bring back from ' + r.store.label + ' · ' + s.set.name"
+                        [attr.aria-label]="
+                          'Bring back from {store} · {set}' | t: { store: r.name, set: s.set.name }
+                        "
                         (click)="bringBack(r.store, s.set)"
                       >
-                        <mc-icon name="download" [size]="14" /> Bring back…
+                        <mc-icon name="download" [size]="14" /> {{ 'Bring back…' | t }}
                       </button>
                     }
                     <button
                       class="btn small"
                       type="button"
-                      [attr.aria-label]="'Move here: ' + r.store.label + ' · ' + s.set.name"
+                      [attr.aria-label]="
+                        'Move here: {store} · {set}' | t: { store: r.name, set: s.set.name }
+                      "
                       (click)="moveHere(r.store, s.set)"
                     >
-                      <mc-icon name="upload" [size]="14" /> Move here…
+                      <mc-icon name="upload" [size]="14" /> {{ 'Move here…' | t }}
                     </button>
                   </div>
                 }
@@ -188,10 +201,12 @@ interface StoreRow {
             } @empty {
               <li class="muted small none">
                 @if (r.store.available) {
-                  No sets in it yet.
+                  {{ 'No sets in it yet.' | t }}
                 } @else {
-                  Its folder is not there now — an unplugged disk, or a cloud folder that is signed
-                  out? Its sets show again when it is back.
+                  {{
+                    'Its folder is not there now — an unplugged disk, or a cloud folder that is signed out? Its sets show again when it is back.'
+                      | t
+                  }}
                 }
               </li>
             }
@@ -199,14 +214,18 @@ interface StoreRow {
         </div>
       } @empty {
         <p class="muted small none">
-          No storage yet. The backup folder (above) is the first one; add others — another cloud's
-          folder, a NAS, an external disk — to move conversations there.
+          {{
+            "No storage yet. The backup folder (above) is the first one; add others — another cloud's folder, a NAS, an external disk — to move conversations there."
+              | t
+          }}
         </p>
       }
     </section>
     <p class="muted small foot">
-      Every set in every storage opens with the backup passphrase. A set named after an account is
-      that account's backup; any other only Move data reads and writes.
+      {{
+        "Every set in every storage opens with the backup passphrase. A set named after an account is that account's backup; any other only Move data reads and writes."
+          | t
+      }}
     </p>
 
     <mc-storage-sheet
@@ -398,6 +417,7 @@ export class StorageSectionComponent {
   protected readonly rows = computed<StoreRow[]>(() =>
     (this.storage.list() ?? []).map((store) => ({
       store,
+      name: this.nameOf(store),
       sets: store.sets.map((set) => ({
         set,
         facts: this.facts(set),
@@ -412,6 +432,12 @@ export class StorageSectionComponent {
 
   protected namesBackupFolder(label: string): boolean {
     return namesBackupFolder(label);
+  }
+
+  /** A storage's name: its label, the backup folder's in the language
+   * shown (the desktop names it "Backup folder", and it can't be renamed). */
+  private nameOf(store: StorageView): string {
+    return store.primary && namesBackupFolder(store.label) ? tr('Backup folder') : store.label;
   }
 
   protected closeSheet(): void {
@@ -477,7 +503,7 @@ export class StorageSectionComponent {
     this.drag.start(
       e,
       { kind: 'stored', store: store.id, storeLabel: store.label, set: row.set.name },
-      `${store.label} · ${row.set.name}`,
+      `${this.nameOf(store)} · ${row.set.name}`,
     );
   }
 
@@ -545,10 +571,12 @@ export class StorageSectionComponent {
     this.notice.set('');
     try {
       await this.storage.remove(store.id);
-      this.notice.set(`${store.label} is forgotten; its files are where they were.`);
+      this.notice.set(
+        tr('{name} is forgotten; its files are where they were.', { name: this.nameOf(store) }),
+      );
       this.changed.emit();
     } catch (e) {
-      this.error.set(`${store.label}: ${moveErrorText(e)}`);
+      this.error.set(`${this.nameOf(store)}: ${moveErrorText(e)}`);
     } finally {
       this.busy.set(null);
       this.confirming.set(null);
@@ -557,15 +585,15 @@ export class StorageSectionComponent {
 
   private facts(set: StorageSet): string {
     const parts: string[] = [];
-    if (set.keyMissing) parts.push('its key is not in the folder here');
-    else if (!set.exists) parts.push('empty');
+    if (set.keyMissing) parts.push(tr('its key is not in the folder here'));
+    else if (!set.exists) parts.push(tr('empty'));
     else if (set.sessions !== undefined) parts.push(plural(set.sessions, 'conversation'));
-    if (set.archived) parts.push(`${set.archived} in storage only`);
+    if (set.archived) parts.push(tr('{n} in storage only', { n: set.archived }));
     if (set.account) {
       const name = this.accounts.byId(set.account)?.name;
-      parts.push(name ? `${name}'s backup` : 'an account’s backup');
+      parts.push(name ? tr("{name}'s backup", { name }) : tr('an account’s backup'));
     } else {
-      parts.push('only Move data uses it');
+      parts.push(tr('only Move data uses it'));
     }
     return parts.join(' · ');
   }

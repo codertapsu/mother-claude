@@ -9,6 +9,8 @@ import {
   restoreTakes,
 } from '../../core/backup';
 import { formatBytes } from '../../core/data-jobs';
+import { tr } from '../../core/i18n/i18n';
+import { TPipe } from '../../core/i18n/t.pipe';
 import { BackupAction, BackupIndexSession } from '../../core/models';
 import { TimeAgoComponent } from '../../shared/time-ago.component';
 import { shortPath } from '../../shared/util';
@@ -39,13 +41,19 @@ const TONES: Record<BackupAction, string> = {
 @Component({
   selector: 'mc-backup-sessions',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [NgTemplateOutlet, TimeAgoComponent],
+  imports: [NgTemplateOutlet, TimeAgoComponent, TPipe],
   template: `
     @if (takes().length) {
       <div class="bulk">
-        <span class="muted small">{{ selectedCount() }} of {{ takes().length }} selected</span>
-        <button class="btn ghost small" type="button" (click)="setAll(true)">All</button>
-        <button class="btn ghost small" type="button" (click)="setAll(false)">None</button>
+        <span class="muted small">{{
+          '{n} of {total} selected' | t: { n: selectedCount(), total: takes().length }
+        }}</span>
+        <button class="btn ghost small" type="button" (click)="setAll(true)">
+          {{ 'All' | t }}
+        </button>
+        <button class="btn ghost small" type="button" (click)="setAll(false)">
+          {{ 'None' | t }}
+        </button>
       </div>
     }
     <ul class="rows">
@@ -55,7 +63,7 @@ const TONES: Record<BackupAction, string> = {
     </ul>
     @if (more() > 0) {
       <button class="btn ghost small" type="button" (click)="expand.emit()">
-        Show {{ more() }} more
+        {{ 'Show {n} more' | t: { n: more() } }}
       </button>
     }
     @if (rest().length) {
@@ -69,7 +77,7 @@ const TONES: Record<BackupAction, string> = {
       </details>
     }
     @if (!sessions().length) {
-      <p class="muted small">This backup holds no conversations yet.</p>
+      <p class="muted small">{{ 'This backup holds no conversations yet.' | t }}</p>
     }
 
     <ng-template #row let-s>
@@ -79,7 +87,9 @@ const TONES: Record<BackupAction, string> = {
             type="checkbox"
             [checked]="selected().has(s.id)"
             [disabled]="!takesSession(s) || disabled()"
-            [attr.aria-label]="'Session ' + (s.title || s.id.slice(0, 8)) + ': ' + text(s)"
+            [attr.aria-label]="
+              'Session {name}: {state}' | t: { name: s.title || s.id.slice(0, 8), state: text(s) }
+            "
             (change)="flip.emit(s.id)"
           />
           <span class="sbody">
@@ -102,11 +112,12 @@ const TONES: Record<BackupAction, string> = {
             <span class="act small" [class.replaces]="force() && replaces(s)"
               >{{ text(s) }}
               @if (s.archived) {
-                <span class="tag">In storage only</span>
+                <span class="tag">{{ 'In storage only' | t }}</span>
               }
             </span>
             <span class="muted small">
-              From {{ s.host || 'another machine' }} <mc-time [ms]="s.pushedAt" /> ·
+              {{ 'From {host}' | t: { host: s.host || ('another machine' | t) } }}
+              <mc-time [ms]="s.pushedAt" /> ·
               {{ bytes(s.remoteBytes) }}
             </span>
             @if (s.pruneWarning) {
@@ -246,14 +257,23 @@ export class BackupSessionsComponent {
   });
   protected readonly restLabel = computed(() => {
     const n = this.rest().length;
+    const one = n === 1;
     if (this.force()) {
       return this.mode() === 'pull'
-        ? `${n} ${n === 1 ? 'needs' : 'need'} nothing (the same, running here, or in storage only)`
-        : `${n} ${n === 1 ? 'is' : 'are'} there as the backup has ${n === 1 ? 'it' : 'them'}, or running there`;
+        ? one
+          ? tr('{n} needs nothing (the same, running here, or in storage only)', { n })
+          : tr('{n} need nothing (the same, running here, or in storage only)', { n })
+        : one
+          ? tr('{n} is there as the backup has it, or running there', { n })
+          : tr('{n} are there as the backup has them, or running there', { n });
     }
     return this.mode() === 'pull'
-      ? `${n} ${n === 1 ? 'needs' : 'need'} nothing (the same, newer here, or running here)`
-      : `${n} ${n === 1 ? 'is' : 'are'} already there, or running there`;
+      ? one
+        ? tr('{n} needs nothing (the same, newer here, or running here)', { n })
+        : tr('{n} need nothing (the same, newer here, or running here)', { n })
+      : one
+        ? tr('{n} is already there, or running there', { n })
+        : tr('{n} are already there, or running there', { n });
   });
   protected readonly selectedCount = computed(
     () => this.listed().filter((s) => this.selected().has(s.id)).length,
@@ -283,7 +303,9 @@ export class BackupSessionsComponent {
   /** A session a folder pair puts in the folder here: where it lived. */
   protected mappedTitle(s: BackupIndexSession): string {
     const there = s.folder || s.cwd;
-    return s.mapped && there ? `${there} on ${s.host || 'the other machine'}` : '';
+    return s.mapped && there
+      ? tr('{folder} on {host}', { folder: there, host: s.host || tr('the other machine') })
+      : '';
   }
 
   protected bytes(n: number): string {

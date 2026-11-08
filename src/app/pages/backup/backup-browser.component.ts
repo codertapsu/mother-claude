@@ -13,6 +13,8 @@ import {
 import { ApiService } from '../../core/api.service';
 import { backupErrorText, normalizeBackupIndex, pullTakesSession } from '../../core/backup';
 import { formatBytes, plural } from '../../core/data-jobs';
+import { tr } from '../../core/i18n/i18n';
+import { TPipe } from '../../core/i18n/t.pipe';
 import { BackupAction, BackupIndexSession, BackupSet } from '../../core/models';
 import { lastSegment } from '../../core/paths';
 import { IconComponent } from '../../shared/icon.component';
@@ -42,7 +44,8 @@ type Filter = 'bring' | 'all';
 
 const SHOWN = 120;
 
-/** How a conversation in the backup compares with its account here. */
+/** How a conversation in the backup compares with its account here (its
+ * label translated where it is shown). */
 const STATUS: Record<BackupAction, { label: string; tone: string }> = {
   new: { label: 'Not on this computer', tone: 'new' },
   update: { label: 'Newer in the backup', tone: 'update' },
@@ -65,31 +68,35 @@ const STATUS: Record<BackupAction, { label: string; tone: string }> = {
 @Component({
   selector: 'mc-backup-browser',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [IconComponent, TimeAgoComponent],
+  imports: [IconComponent, TimeAgoComponent, TPipe],
   template: `
-    <section class="browser card" [attr.aria-label]="'Conversations in ' + set().name + ' backup'">
+    <section class="browser card" [attr.aria-label]="heading()">
       <header class="bhead">
         <div class="btitle">
           <mc-icon name="cloud" [size]="18" />
           <div>
-            <strong>Conversations in {{ set().name }}'s backup</strong>
-            <span class="muted small"
-              >Drag them onto an account to bring them to this computer. Select several to move them
-              together.</span
-            >
+            <strong>{{ heading() }}</strong>
+            <span class="muted small">{{
+              'Drag them onto an account to bring them to this computer. Select several to move them together.'
+                | t
+            }}</span>
           </div>
         </div>
         <button
           class="btn ghost icon-only"
           type="button"
-          aria-label="Close"
+          [attr.aria-label]="'Close' | t"
           (click)="closed.emit()"
         >
           <mc-icon name="x" />
         </button>
       </header>
 
-      <div class="targets" role="group" aria-label="Bring the selected conversations to">
+      <div
+        class="targets"
+        role="group"
+        [attr.aria-label]="'Bring the selected conversations to' | t"
+      >
         @for (t of targets(); track t.account) {
           <button
             type="button"
@@ -115,13 +122,13 @@ const STATUS: Record<BackupAction, { label: string; tone: string }> = {
           <mc-icon name="search" [size]="15" />
           <input
             type="search"
-            placeholder="Search by title or folder"
-            aria-label="Search the conversations"
+            [placeholder]="'Search by title or folder' | t"
+            [attr.aria-label]="'Search the conversations' | t"
             [value]="query()"
             (input)="query.set($any($event.target).value)"
           />
         </label>
-        <div class="chips" role="radiogroup" aria-label="Show">
+        <div class="chips" role="radiogroup" [attr.aria-label]="'Show' | t">
           <button
             type="button"
             role="radio"
@@ -130,7 +137,7 @@ const STATUS: Record<BackupAction, { label: string; tone: string }> = {
             [attr.aria-checked]="filter() === 'bring'"
             (click)="filter.set('bring')"
           >
-            Can come here <span class="n">{{ bringable().length }}</span>
+            {{ 'Can come here' | t }} <span class="n">{{ bringable().length }}</span>
           </button>
           <button
             type="button"
@@ -140,33 +147,35 @@ const STATUS: Record<BackupAction, { label: string; tone: string }> = {
             [attr.aria-checked]="filter() === 'all'"
             (click)="filter.set('all')"
           >
-            All <span class="n">{{ sessions().length }}</span>
+            {{ 'All' | t }} <span class="n">{{ sessions().length }}</span>
           </button>
         </div>
       </div>
 
       @if (loading()) {
-        <p class="muted small pad">Opening the backup…</p>
+        <p class="muted small pad">{{ 'Opening the backup…' | t }}</p>
       } @else if (error()) {
         <p class="notice error small" role="alert">{{ error() }}</p>
-        <button class="btn small" type="button" (click)="load()">Try again</button>
+        <button class="btn small" type="button" (click)="load()">{{ 'Try again' | t }}</button>
       } @else if (!groups().length) {
         <p class="muted small pad">
           {{
             filter() === 'bring' && !query()
-              ? 'Everything in this backup is on this computer already.'
-              : 'No conversation matches.'
+              ? ('Everything in this backup is on this computer already.' | t)
+              : ('No conversation matches.' | t)
           }}
         </p>
       } @else {
         <div class="selbar small">
-          <span>{{ selected().size ? plural(selected().size, 'selected') : '' }}</span>
+          <span>{{ selected().size ? ('{n} selected' | t: { n: selected().size }) : '' }}</span>
           <span class="spacer"></span>
           <button class="btn ghost small" type="button" (click)="selectShown()">
-            Select {{ filter() === 'bring' ? 'all that can come' : 'all shown' }}
+            {{ filter() === 'bring' ? ('Select all that can come' | t) : ('Select all shown' | t) }}
           </button>
           @if (selected().size) {
-            <button class="btn ghost small" type="button" (click)="clearSelection()">Clear</button>
+            <button class="btn ghost small" type="button" (click)="clearSelection()">
+              {{ 'Clear' | t }}
+            </button>
           }
         </div>
         @for (g of groups(); track g.key) {
@@ -190,7 +199,7 @@ const STATUS: Record<BackupAction, { label: string; tone: string }> = {
                     type="checkbox"
                     [checked]="selected().has(s.id)"
                     [disabled]="!movable(s) || disabled()"
-                    [attr.aria-label]="'Select ' + title(s)"
+                    [attr.aria-label]="'Select {title}' | t: { title: title(s) }"
                     (change)="flip(s.id)"
                   />
                   @if (movable(s)) {
@@ -199,15 +208,16 @@ const STATUS: Record<BackupAction, { label: string; tone: string }> = {
                   <span class="rmain">
                     <span class="rtitle">{{ title(s) }}</span>
                     <span class="muted small rmeta"
-                      >{{ formatBytes(s.remoteBytes) }} · from {{ s.host || 'a computer' }}
+                      >{{ formatBytes(s.remoteBytes) }} ·
+                      {{ 'from {host}' | t: { host: s.host || ('a computer' | t) } }}
                       <mc-time [ms]="s.pushedAt" />
                       @if (s.archived) {
-                        · in storage only
+                        · {{ 'in storage only' | t }}
                       }
                     </span>
                   </span>
                   <span class="badge small" [attr.data-tone]="status(s).tone">{{
-                    status(s).label
+                    status(s).label | t
                   }}</span>
                 </li>
               }
@@ -216,7 +226,11 @@ const STATUS: Record<BackupAction, { label: string; tone: string }> = {
         }
         @if (hidden()) {
           <button class="btn small more" type="button" (click)="limit.set(limit() + 400)">
-            Show {{ plural(hidden(), 'more conversation') }}
+            {{
+              hidden() === 1
+                ? ('Show 1 more conversation' | t)
+                : ('Show {n} more conversations' | t: { n: hidden() })
+            }}
           </button>
         }
       }
@@ -496,6 +510,10 @@ export class BackupBrowserComponent {
   protected readonly limit = signal(SHOWN);
   private seq = 0;
 
+  /** "Conversations in Work's backup": the title, and the section's name. */
+  protected readonly heading = computed(() =>
+    tr("Conversations in {name}'s backup", { name: this.set().name }),
+  );
   protected readonly bringable = computed(() =>
     this.sessions().filter((s) => pullTakesSession(s, false)),
   );
@@ -513,8 +531,10 @@ export class BackupBrowserComponent {
   protected readonly groups = computed(() => {
     const out = new Map<string, { key: string; name: string; sessions: BackupIndexSession[] }>();
     for (const s of this.matching().slice(0, this.limit())) {
-      const key = s.mapped || s.folder || s.cwd || 'Other';
-      const g = out.get(key) ?? { key, name: lastSegment(key) || key, sessions: [] };
+      // Those with no folder are grouped under "Other" (no path to show).
+      const key = s.mapped || s.folder || s.cwd || '';
+      const name = key ? lastSegment(key) || key : tr('Other');
+      const g = out.get(key) ?? { key, name, sessions: [] };
       g.sessions.push(s);
       out.set(key, g);
     }
@@ -535,7 +555,7 @@ export class BackupBrowserComponent {
     this.selected.set(new Set());
     try {
       const ix = normalizeBackupIndex(await this.api.getBackupIndex(this.set().account));
-      if (!ix) throw new Error('The desktop sent a backup list this app could not read.');
+      if (!ix) throw new Error(tr('The desktop sent a backup list this app could not read.'));
       if (seq !== this.seq) return;
       this.sessions.set(ix.sessions);
     } catch (e) {
@@ -547,7 +567,7 @@ export class BackupBrowserComponent {
   }
 
   protected title(s: BackupIndexSession): string {
-    return s.title || `Conversation ${s.id.slice(0, 8)}`;
+    return s.title || tr('Conversation {id}', { id: s.id.slice(0, 8) });
   }
 
   protected status(s: BackupIndexSession): { label: string; tone: string } {
@@ -598,7 +618,7 @@ export class BackupBrowserComponent {
         ids,
         prune: chosen.some((x) => !!x.pruneWarning),
       },
-      ids.length === 1 ? this.title(s) : `${ids.length} conversations`,
+      ids.length === 1 ? this.title(s) : plural(ids.length, 'conversation'),
     );
   }
 
@@ -613,8 +633,10 @@ export class BackupBrowserComponent {
 
   protected buttonLabel(t: BrowserTarget): string {
     const n = this.selected().size;
-    const what = n ? plural(n, 'conversation') : 'the selected conversations';
-    return t.account === this.set().account ? `Bring ${what} here` : `Restore ${what} here…`;
+    const what = n ? plural(n, 'conversation') : tr('the selected conversations');
+    return t.account === this.set().account
+      ? tr('Bring {what} here', { what })
+      : tr('Restore {what} here…', { what });
   }
 
   protected over(e: DragEvent, t: BrowserTarget): void {

@@ -12,6 +12,8 @@ import {
 import { FormsModule } from '@angular/forms';
 
 import { AuthService } from '../../core/auth.service';
+import { tr } from '../../core/i18n/i18n';
+import { TPipe } from '../../core/i18n/t.pipe';
 import { BackupSuggestion } from '../../core/models';
 import {
   StorageView,
@@ -28,6 +30,7 @@ import { shortPath } from '../../shared/util';
 /** Longest label (the server's rule). */
 const LABEL_MAX = 40;
 
+/** The clouds a storage's folder is in, by name (names, never translated). */
 const KIND_NAMES: Record<string, string> = {
   icloud: 'iCloud Drive',
   gdrive: 'Google Drive',
@@ -44,23 +47,25 @@ const KIND_NAMES: Record<string, string> = {
 @Component({
   selector: 'mc-storage-sheet',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [FormsModule, IconComponent, SheetComponent],
+  imports: [FormsModule, IconComponent, SheetComponent, TPipe],
   template: `
     <mc-sheet
       [open]="open()"
-      [title]="renaming() ? 'Rename storage' : 'Add storage'"
+      [title]="renaming() ? ('Rename storage' | t) : ('Add storage' | t)"
       (closed)="closed.emit()"
     >
       @if (open()) {
         <form class="form" (submit)="save($event)">
           @if (!renaming()) {
             <p class="muted small lede">
-              A folder for sets beside the backup folder: another cloud's folder, a NAS, an external
-              disk. Every set in it opens with the backup passphrase.
+              {{
+                "A folder for sets beside the backup folder: another cloud's folder, a NAS, an external disk. Every set in it opens with the backup passphrase."
+                  | t
+              }}
             </p>
             @if (suggestions().length) {
-              <div class="sugg" role="group" aria-label="Suggested folders">
-                <span class="muted small">Suggested:</span>
+              <div class="sugg" role="group" [attr.aria-label]="'Suggested folders' | t">
+                <span class="muted small">{{ 'Suggested:' | t }}</span>
                 @for (s of suggestions(); track s.path) {
                   <button
                     class="btn small"
@@ -76,7 +81,7 @@ const KIND_NAMES: Record<string, string> = {
               </div>
             }
             <label class="field">
-              <span class="field-label">Folder</span>
+              <span class="field-label">{{ 'Folder' | t }}</span>
               <input
                 name="path"
                 [placeholder]="pathPlaceholder()"
@@ -93,7 +98,7 @@ const KIND_NAMES: Record<string, string> = {
             }
           }
           <label class="field">
-            <span class="field-label">Label</span>
+            <span class="field-label">{{ 'Label' | t }}</span>
             <input
               name="label"
               autocomplete="off"
@@ -109,10 +114,10 @@ const KIND_NAMES: Record<string, string> = {
           }
           <div class="row">
             <button class="btn primary" type="submit" [disabled]="!canSave() || busy()">
-              {{ busy() ? 'Saving…' : renaming() ? 'Save' : 'Add storage' }}
+              {{ busy() ? ('Saving…' | t) : renaming() ? ('Save' | t) : ('Add storage' | t) }}
             </button>
             <button class="btn ghost" type="button" [disabled]="busy()" (click)="closed.emit()">
-              Cancel
+              {{ 'Cancel' | t }}
             </button>
           </div>
         </form>
@@ -168,9 +173,9 @@ export class StorageSheetComponent {
   /** What it is called when no label is typed. */
   protected readonly labelHint = computed(() => {
     const p = this.path().trim();
-    if (!p) return 'Its name here';
+    if (!p) return tr('Its name here');
     const kind = storageKindOf(p);
-    return KIND_NAMES[kind] ?? (lastSegment(p) || 'Folder');
+    return KIND_NAMES[kind] ?? (lastSegment(p) || tr('Folder'));
   });
   protected readonly canSave = computed(() => {
     const label = this.label().trim();
@@ -210,11 +215,14 @@ export class StorageSheetComponent {
     try {
       if (r) {
         await this.storage.rename(r.id, label);
-        this.saved.emit(`It is called ${label} now.`);
+        this.saved.emit(tr('It is called {name} now.', { name: label }));
       } else {
         await this.storage.add(this.path().trim(), label || undefined);
         this.saved.emit(
-          `${label || this.labelHint()} is a storage now (${shortPath(this.path().trim())}).`,
+          tr('{name} is a storage now ({path}).', {
+            name: label || this.labelHint(),
+            path: shortPath(this.path().trim()),
+          }),
         );
       }
     } catch (err) {

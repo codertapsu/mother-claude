@@ -1,5 +1,7 @@
 import { Injectable, signal } from '@angular/core';
 
+import { tr } from '../../core/i18n/i18n';
+
 /**
  * What is being dragged on the Backup & sync page:
  * - an account on this computer (onto the backups: back it up);
@@ -37,19 +39,26 @@ export function dropText(
   nameOf: (account: string) => string,
 ): string {
   if (!item) return '';
-  if (target.kind === 'backups') return item.kind === 'account' ? `Back up ${item.name}` : '';
-  if (target.kind === 'storage') return item.kind === 'account' ? `Move from ${item.name}…` : '';
-  const to = nameOf(target.account) || 'this account';
+  if (target.kind === 'backups') {
+    return item.kind === 'account' ? tr('Back up {name}', { name: item.name }) : '';
+  }
+  if (target.kind === 'storage') {
+    return item.kind === 'account' ? tr('Move from {name}…', { name: item.name }) : '';
+  }
+  const to = nameOf(target.account) || tr('this account');
   switch (item.kind) {
     case 'account':
       return '';
     case 'stored':
-      return `Bring back into ${to}…`;
+      return tr('Bring back into {name}…', { name: to });
     case 'set':
-      return item.account === target.account ? `Pull ${item.name}` : `Restore into ${to}…`;
+      return item.account === target.account
+        ? tr('Pull {name}', { name: item.name })
+        : tr('Restore into {name}…', { name: to });
     case 'sessions': {
-      const what = item.ids.length === 1 ? 'it' : `these ${item.ids.length}`;
-      return item.set === target.account ? `Bring ${what} here` : `Restore into ${to}…`;
+      if (item.set !== target.account) return tr('Restore into {name}…', { name: to });
+      const n = item.ids.length;
+      return n === 1 ? tr('Bring it here') : tr('Bring these {n} here', { n });
     }
   }
 }

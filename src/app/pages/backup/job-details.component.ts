@@ -3,6 +3,8 @@ import { ChangeDetectionStrategy, Component, computed, inject, input } from '@an
 import { normalizePullResult, normalizePushResult } from '../../core/backup';
 import { plural, sentence } from '../../core/data-jobs';
 import { FolderPairDraftService } from '../../core/folder-pair-draft.service';
+import { tr } from '../../core/i18n/i18n';
+import { TPipe } from '../../core/i18n/t.pipe';
 import { ForeignProject, JobView } from '../../core/models';
 import { RealtimeService } from '../../core/realtime.service';
 import { sessionName, shortPath } from '../../shared/util';
@@ -29,9 +31,10 @@ interface Named {
 @Component({
   selector: 'mc-job-details',
   changeDetection: ChangeDetectionStrategy.OnPush,
+  imports: [TPipe],
   template: `
     @if (relocated().length) {
-      <p class="h small">Moved into the folder a folder pair maps them to here:</p>
+      <p class="h small">{{ 'Moved into the folder a folder pair maps them to here:' | t }}</p>
       <ul>
         @for (s of relocated(); track s.id) {
           <li class="small">
@@ -45,17 +48,20 @@ interface Named {
     }
     @if (foreign().length) {
       <p class="h small">
-        Kept another machine's path — no folder pair maps these projects, so Claude Code here lists
-        them only under that path. Pair the folder, then pull again, and they move into the matching
-        project here:
+        {{
+          "Kept another machine's path — no folder pair maps these projects, so Claude Code here lists them only under that path. Pair the folder, then pull again, and they move into the matching project here:"
+            | t
+        }}
       </p>
       <ul class="foreign">
         @for (f of foreign(); track f.folder + f.machine) {
           <li class="small">
             <span class="mono path">{{ f.folder }}</span>
-            <span class="muted"> from {{ f.host || 'another machine' }}</span>
+            <span class="muted">
+              {{ 'from {host}' | t: { host: f.host || ('another machine' | t) } }}</span
+            >
             <button class="btn small ghost pair" type="button" (click)="offerPair(f)">
-              Pair a folder…
+              {{ 'Pair a folder…' | t }}
             </button>
           </li>
         }
@@ -76,8 +82,10 @@ interface Named {
     }
     @if (pushConflicts().length) {
       <p class="h small">
-        Changed here and on another machine, so not backed up — a Pull brings the other copy beside
-        this one:
+        {{
+          'Changed here and on another machine, so not backed up — a Pull brings the other copy beside this one:'
+            | t
+        }}
       </p>
       <ul>
         @for (s of pushConflicts(); track s.id) {
@@ -92,7 +100,7 @@ interface Named {
     }
     @if (newerInSet().length) {
       <p class="h small">
-        Newer in the backup (another machine backed them up) — a Pull brings them:
+        {{ 'Newer in the backup (another machine backed them up) — a Pull brings them:' | t }}
       </p>
       <ul>
         @for (s of newerInSet(); track s.id) {
@@ -106,7 +114,9 @@ interface Named {
       </ul>
     }
     @if (conflicts().length) {
-      <p class="h small">Changed on both — the backup's copy is kept beside the one here:</p>
+      <p class="h small">
+        {{ "Changed on both — the backup's copy is kept beside the one here:" | t }}
+      </p>
       <ul>
         @for (c of conflicts(); track c.path) {
           <li class="small">
@@ -120,7 +130,7 @@ interface Named {
       </ul>
     }
     @if (skipped().length) {
-      <p class="h small">{{ push() ? 'Could not be backed up:' : 'Skipped:' }}</p>
+      <p class="h small">{{ push() ? ('Could not be backed up:' | t) : ('Skipped:' | t) }}</p>
       <ul>
         @for (s of skipped(); track s.id + s.code) {
           <li class="small">
@@ -232,8 +242,10 @@ export class JobDetailsComponent {
   });
   protected readonly replacedLabel = computed(() =>
     this.done()?.kind === 'backup'
-      ? "The copy here replaced the backup's, which another machine had backed up since this one last had it (or which was newer); the folder keeps the replaced copies seven days:"
-      : "The backup's copy replaced the one here, which is kept for undo:",
+      ? tr(
+          "The copy here replaced the backup's, which another machine had backed up since this one last had it (or which was newer); the folder keeps the replaced copies seven days:",
+        )
+      : tr("The backup's copy replaced the one here, which is kept for undo:"),
   );
   protected readonly newerInSet = computed(() =>
     (this.push()?.newerInSet ?? []).map((id) => this.named(id)),
@@ -258,7 +270,7 @@ export class JobDetailsComponent {
     return (this.push()?.failed ?? []).map(([id, why]) => ({
       id,
       code: 'failed',
-      reason: sentence(why) || 'It could not be archived.',
+      reason: sentence(why) || tr('It could not be archived.'),
     }));
   });
   protected readonly warnings = computed(() => {
@@ -269,7 +281,9 @@ export class JobDetailsComponent {
   });
   protected readonly removed = computed(() => {
     const n = this.push()?.removed ?? 0;
-    return n ? `Removed ${plural(n, 'old file')} the backup no longer names.` : '';
+    return n
+      ? tr('Removed {files} the backup no longer names.', { files: plural(n, 'old file') })
+      : '';
   });
 
   protected short(p: string): string {
