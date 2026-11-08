@@ -1,4 +1,5 @@
 import { ApiError } from '../core/api.service';
+import { computerNoun, tr } from '../core/i18n/i18n';
 import { SessionDetail, SessionSummary } from '../core/models';
 import { accountErrorText } from './accounts';
 import { surfaceLabel } from './util';
@@ -88,52 +89,71 @@ export function runningTasks(
 
 /** "It runs in VS Code: its account can't change while it runs there." */
 export function elsewhereText(s: Pick<SessionSummary, 'surface'>): string {
-  const where = s.surface && s.surface !== 'unknown' ? surfaceLabel(s.surface) : 'another app';
-  return `It runs in ${where}: its account can't change while it runs there.`;
+  return s.surface && s.surface !== 'unknown'
+    ? tr("It runs in {app}: its account can't change while it runs there.", {
+        app: surfaceLabel(s.surface),
+      })
+    : tr("It runs in another app: its account can't change while it runs there.");
 }
 
 /** What a switch that went through says. */
 export function switchedText(name: string, moved: boolean): string {
-  return moved ? `Now on ${name}: the conversation moved to its folder.` : `Now on ${name}.`;
+  return moved
+    ? tr('Now on {name}: the conversation moved to its folder.', { name })
+    : tr('Now on {name}.', { name });
 }
 
 /** What everything the session is asked answers while its account
- * changes (`409 switching_account`). */
+ * changes (`409 switching_account`). English: translated where it is shown
+ * (`tr(SWITCHING_TEXT)`). */
 export const SWITCHING_TEXT = 'Switching accounts — try again in a moment.';
 
 /** A refusal of a switch, in words. */
 export function switchErrorText(e: unknown, accountName?: string): string {
   if (e instanceof ApiError) {
+    const name = accountName || tr('That account');
     switch (e.code) {
       case 'session_not_owned':
-        return "Another app runs this session, so its account can't change while it runs there: continue it on the other account instead.";
+        return tr(
+          "Another app runs this session, so its account can't change while it runs there: continue it on the other account instead.",
+        );
       case 'turn_running':
-        return 'This API conversation is in the middle of a turn: its account changes between turns. Try again once the turn is over.';
+        return tr(
+          'This API conversation is in the middle of a turn: its account changes between turns. Try again once the turn is over.',
+        );
       case 'account_not_served':
-        return 'Its API server runs only as its own account.';
+        return tr('Its API server runs only as its own account.');
       case 'switch_not_pending':
-        return 'No switch is waiting any more.';
+        return tr('No switch is waiting any more.');
       case 'switch_underway':
-        return "The switch has started already: it can't be cancelled now.";
+        return tr("The switch has started already: it can't be cancelled now.");
       case 'switching_account':
-        return SWITCHING_TEXT;
+        return tr(SWITCHING_TEXT);
       case 'already_exists':
-        return `${accountName || 'That account'} already has a copy of this conversation: continue that copy there instead.`;
+        return tr(
+          '{name} already has a copy of this conversation: continue that copy there instead.',
+          { name },
+        );
       case 'data_job_running':
-        return 'A move, copy, backup or restore is running: try again once it has finished.';
+        return tr('A move, copy, backup or restore is running: try again once it has finished.');
       case 'dangerous_blocked':
-        return 'This session runs without permission prompts: switching it needs dangerous actions for this device, granted on the computer in Remote › Devices.';
+        return tr(
+          'This session runs without permission prompts: switching it needs dangerous actions for this device, granted on the computer in Remote › Devices.',
+        );
       case 'untrusted_cwd':
         return (
           e.message ||
-          `${accountName || 'That account'} has never opened this folder with Claude Code: open it there once, or switch from the Mac.`
+          tr(
+            '{name} has never opened this folder with Claude Code: open it there once, or switch from the {computer}.',
+            { name, computer: computerNoun() },
+          )
         );
       case 'not_supported':
-        return e.message || "A fork that hasn't run yet can't move to another folder.";
+        return e.message || tr("A fork that hasn't run yet can't move to another folder.");
       case 'switch_failed':
       case 'session_live':
       case 'invalid_when':
-        return e.message || 'The switch did not happen.';
+        return e.message || tr('The switch did not happen.');
       default:
         break;
     }

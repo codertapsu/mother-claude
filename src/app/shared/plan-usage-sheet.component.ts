@@ -1,6 +1,7 @@
 import { ChangeDetectionStrategy, Component, inject, input, output } from '@angular/core';
 
 import { AccountsService } from '../core/accounts.service';
+import { TPipe } from '../core/i18n/t.pipe';
 import { PlanUsageService } from '../core/plan-usage.service';
 import { AccountChipComponent } from './account-chip.component';
 import { TOKEN_NO_USAGE, signInLine } from './accounts';
@@ -13,21 +14,24 @@ import { SheetComponent } from './sheet.component';
 @Component({
   selector: 'mc-plan-usage-sheet',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [AccountChipComponent, PlanUsageComponent, SheetComponent],
+  imports: [AccountChipComponent, PlanUsageComponent, SheetComponent, TPipe],
   template: `
-    <mc-sheet [open]="open()" title="Plan usage" (closed)="closed.emit()">
+    <mc-sheet [open]="open()" [title]="'Plan usage' | t" (closed)="closed.emit()">
       @if (open()) {
         @if (!accounts.multi()) {
           <p class="intro muted small">
-            Your Claude plan: every session on this account shares it.
+            {{ 'Your Claude plan: every session on this account shares it.' | t }}
           </p>
           <mc-plan-usage />
         } @else {
           <p class="intro muted small">
-            Each Claude account has its own plan, shared by every session that runs under it.
+            {{
+              'Each Claude account has its own plan, shared by every session that runs under it.'
+                | t
+            }}
           </p>
           @for (a of accounts.list(); track a.id; let last = $last) {
-            <section class="acct" [attr.aria-label]="'Plan usage of ' + a.name">
+            <section class="acct" [attr.aria-label]="'Plan usage of {name}' | t: { name: a.name }">
               <div class="ahead">
                 <mc-account-chip [account]="a" />
                 <span class="muted small who">{{ signIn(a) }}</span>
@@ -35,7 +39,7 @@ import { SheetComponent } from './sheet.component';
               @if (plan.usageOf(a.id); as u) {
                 @if (!u.available && a.kind === 'token') {
                   <!-- A token can't read its plan: its running sessions report it. -->
-                  <p class="muted small none">{{ tokenNoUsage }}</p>
+                  <p class="muted small none">{{ tokenNoUsage | t }}</p>
                 } @else {
                   <mc-plan-usage [account]="a.id" [settingsLink]="last" />
                 }
@@ -43,8 +47,8 @@ import { SheetComponent } from './sheet.component';
                 <p class="muted small none">
                   {{
                     a.kind === 'token'
-                      ? tokenNoUsage
-                      : 'No plan usage reported for this account yet.'
+                      ? (tokenNoUsage | t)
+                      : ('No plan usage reported for this account yet.' | t)
                   }}
                 </p>
               }

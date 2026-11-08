@@ -1,5 +1,6 @@
 import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
 
+import { TPipe } from '../core/i18n/t.pipe';
 import { NoticeService, Toast } from '../core/notice.service';
 import { IconComponent, IconName } from './icon.component';
 
@@ -13,12 +14,13 @@ const ICONS: Record<Toast['level'], IconName> = {
 /**
  * The shell's toasts plus the polite screen-reader region. Toasts sit under
  * the top edge on phones (the composer and tab bar own the bottom) and in the
- * bottom-right corner on desktop.
+ * bottom-right corner on desktop. A toast's text comes translated; its
+ * action's label is shown in the language shown.
  */
 @Component({
   selector: 'mc-toasts',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [IconComponent],
+  imports: [IconComponent, TPipe],
   template: `
     <div class="stack" role="status" aria-live="polite">
       @for (t of notices.toasts(); track t.id) {
@@ -26,12 +28,12 @@ const ICONS: Record<Toast['level'], IconName> = {
           <mc-icon [name]="icon(t)" [size]="16" />
           <span class="text">{{ t.text }}</span>
           @if (t.action; as a) {
-            <button class="btn small" type="button" (click)="run(t)">{{ a.label }}</button>
+            <button class="btn small" type="button" (click)="run(t)">{{ a.label | t }}</button>
           }
           <button
             class="btn ghost icon-only small"
             type="button"
-            aria-label="Dismiss"
+            [attr.aria-label]="'Dismiss' | t"
             (click)="notices.dismiss(t.id)"
           >
             <mc-icon name="x" [size]="14" />

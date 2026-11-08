@@ -30,6 +30,8 @@ import {
   mergeDeletePlans,
   normalizeDeletePlan,
 } from '../core/delete-data';
+import { computerNoun, locale, tr } from '../core/i18n/i18n';
+import { TPipe } from '../core/i18n/t.pipe';
 import { JobView, SessionSummary } from '../core/models';
 import { NowService } from '../core/now.service';
 import { RealtimeService } from '../core/realtime.service';
@@ -43,7 +45,8 @@ export interface DeleteStart {
   /** One request per account (`from` left out: every directory that has
    * them). */
   groups: readonly DeleteGroup[];
-  /** What it is, for the title: "this conversation", "3 projects". */
+  /** What it is, for the title: "this conversation", "3 projects"
+   * ({@link countedWhat}; shown in the language shown). */
   what: string;
   /** Conversations the opener has at hand (titles for the lists). */
   known?: readonly Pick<SessionSummary, 'id' | 'name' | 'title' | 'projectName'>[];
@@ -66,30 +69,32 @@ const ROWS = 30;
  * the files are gone right away. The button names the count ("Delete 12
  * conversations"); then the jobs (one per directory) with their Undo.
  * Deleting is a dangerous action: a device without the right is told so
- * and nothing is asked of the Mac.
+ * and nothing is asked of the desktop.
  */
 @Component({
   selector: 'mc-delete-data-sheet',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [DataJobComponent, IconComponent, SheetComponent],
+  imports: [DataJobComponent, IconComponent, SheetComponent, TPipe],
   template: `
     <mc-sheet [open]="open()" [title]="title()" (closed)="close()">
       @if (open()) {
         @if (!canDangerous()) {
-          <p class="notice warn small" role="status">{{ dangerousReason }}</p>
+          <p class="notice warn small" role="status">{{ dangerousReason | t }}</p>
           <div class="row actions">
-            <button class="btn ghost" type="button" (click)="close()">Close</button>
+            <button class="btn ghost" type="button" (click)="close()">{{ 'Close' | t }}</button>
           </div>
         } @else {
           @switch (step()) {
             @case ('loading') {
-              <p class="muted small">Checking what it would delete…</p>
+              <p class="muted small">{{ 'Checking what it would delete…' | t }}</p>
             }
             @case ('error') {
               <p class="notice error small" role="alert">{{ error() }}</p>
               <div class="row actions">
-                <button class="btn" type="button" (click)="check()">Try again</button>
-                <button class="btn ghost" type="button" (click)="close()">Close</button>
+                <button class="btn" type="button" (click)="check()">{{ 'Try again' | t }}</button>
+                <button class="btn ghost" type="button" (click)="close()">
+                  {{ 'Close' | t }}
+                </button>
               </div>
             }
             @case ('plan') {
@@ -97,12 +102,12 @@ const ROWS = 30;
                 <p class="planline">{{ line() }}</p>
                 @if (p.jobs > 1) {
                   <p class="muted small">
-                    It runs as {{ p.jobs }} jobs, one for each account's folder.
+                    {{ "It runs as {n} jobs, one for each account's folder." | t: { n: p.jobs } }}
                   </p>
                 }
                 @if (p.sessions.length) {
-                  <h4>What goes</h4>
-                  <ul class="plist" aria-label="What goes">
+                  <h4>{{ 'What goes' | t }}</h4>
+                  <ul class="plist" [attr.aria-label]="'What goes' | t">
                     @for (s of shown(); track s.id + (s.account ?? '')) {
                       <li>
                         <span class="ptitle">{{ titleOf(s) }}</span>
@@ -111,12 +116,12 @@ const ROWS = 30;
                     }
                   </ul>
                   @if (more() > 0) {
-                    <p class="muted small">and {{ count(more()) }} more</p>
+                    <p class="muted small">{{ 'and {n} more' | t: { n: count(more()) } }}</p>
                   }
                 }
                 @if (p.skippedTotal) {
-                  <h4>Skipped ({{ count(p.skippedTotal) }})</h4>
-                  <ul class="plist skips" aria-label="Skipped">
+                  <h4>{{ 'Skipped ({n})' | t: { n: count(p.skippedTotal) } }}</h4>
+                  <ul class="plist skips" [attr.aria-label]="'Skipped' | t">
                     @for (k of skippedShown(); track $index) {
                       <li>
                         <span class="ptitle">{{ skipName(k) }}</span>
@@ -125,7 +130,9 @@ const ROWS = 30;
                     }
                   </ul>
                   @if (skippedMore() > 0) {
-                    <p class="muted small">and {{ count(skippedMore()) }} more</p>
+                    <p class="muted small">
+                      {{ 'and {n} more' | t: { n: count(skippedMore()) } }}
+                    </p>
                   }
                 }
                 @if (p.sessionsTotal) {
@@ -137,23 +144,25 @@ const ROWS = 30;
                       (change)="keep.set($any($event.target).checked)"
                     />
                     <span>
-                      Keep a copy for 7 days so this can be undone
+                      {{ 'Keep a copy for 7 days so this can be undone' | t }}
                       <span class="muted small hint-line">
                         @if (keep()) {
-                          The space comes back when the copy goes.
+                          {{ 'The space comes back when the copy goes.' | t }}
                         } @else {
-                          Off: deleted for good, right away.
+                          {{ 'Off: deleted for good, right away.' | t }}
                         }
                       </span>
                     </span>
                   </label>
                   @if (!keep()) {
                     <p class="notice warn small" role="status">
-                      Deleted for good, right away: there is no Undo.
+                      {{ 'Deleted for good, right away: there is no Undo.' | t }}
                     </p>
                   }
                   <p class="muted small keeps">
-                    Prompt history and each folder's settings and trust stay as they are.
+                    {{
+                      "Prompt history and each folder's settings and trust stay as they are." | t
+                    }}
                   </p>
                 }
               }
@@ -168,10 +177,10 @@ const ROWS = 30;
                   (click)="run()"
                 >
                   <mc-icon name="trash" [size]="14" />
-                  {{ busy() ? 'Deleting…' : buttonLabel() }}
+                  {{ busy() ? ('Deleting…' | t) : buttonLabel() }}
                 </button>
                 <button class="btn ghost" type="button" [disabled]="busy()" (click)="close()">
-                  Cancel
+                  {{ 'Cancel' | t }}
                 </button>
               </div>
             }
@@ -183,7 +192,9 @@ const ROWS = 30;
               </div>
               @if (keep() || anyUndoable()) {
                 <p class="muted small later">
-                  Undo stays in Sessions › Projects, under Recently deleted, for seven days.
+                  {{
+                    'Undo stays in Sessions › Projects, under Recently deleted, for seven days.' | t
+                  }}
                 </p>
               }
               @if (error()) {
@@ -191,7 +202,7 @@ const ROWS = 30;
               }
               <div class="row actions">
                 <button class="btn ghost" type="button" (click)="close()">
-                  {{ anyRunning() ? 'Close (it goes on)' : 'Close' }}
+                  {{ anyRunning() ? ('Close (it goes on)' | t) : ('Close' | t) }}
                 </button>
               </div>
             }
@@ -289,7 +300,9 @@ export class DeleteDataSheetComponent {
   private following?: AbortController;
   private checking = 0;
 
-  protected readonly title = computed(() => `Delete ${this.started()?.what ?? 'conversations'}`);
+  protected readonly title = computed(() =>
+    tr('Delete {what}', { what: tr(this.started()?.what ?? 'conversations') }),
+  );
   protected readonly plan = computed(() => {
     const plans = this.plans().filter((p): p is DeletePlan => !!p);
     return plans.length ? mergeDeletePlans(plans) : null;
@@ -361,7 +374,7 @@ export class DeleteDataSheetComponent {
       s.id.slice(0, 8),
       shortPath(s.cwd),
       s.files || s.bytes ? `${plural(s.files, 'file')} · ${formatBytes(s.bytes)}` : '',
-      account ? `in ${account}` : '',
+      account ? tr('in {account}', { account }) : '',
     ]
       .filter(Boolean)
       .join(' · ');
@@ -372,16 +385,16 @@ export class DeleteDataSheetComponent {
     if (k.title) return k.title;
     if (k.id) return this.titles().get(k.id) || k.id.slice(0, 8);
     if (k.cwd) return shortPath(k.cwd);
-    return 'Something';
+    return tr('Something');
   }
 
   protected reason(k: DeleteSkip): string {
     return deleteSkipReason(k, this.openInApi());
   }
 
-  /** "1,240". */
+  /** "1,240" ("1.240" in Vietnamese). */
   protected count(n: number): string {
-    return n.toLocaleString('en-US');
+    return n.toLocaleString(locale());
   }
 
   protected jobChanged(j: JobView): void {
@@ -403,7 +416,13 @@ export class DeleteDataSheetComponent {
         groups.map(async (g) => {
           const res = await this.api.planDelete(deleteBody(g, this.keep()));
           const plan = normalizeDeletePlan(res?.plan);
-          if (!plan) throw new Error('The Mac sent a plan this app could not read.');
+          if (!plan) {
+            throw new Error(
+              tr('The {computer} sent a plan this app could not read.', {
+                computer: computerNoun(),
+              }),
+            );
+          }
           return plan;
         }),
       );
@@ -434,7 +453,11 @@ export class DeleteDataSheetComponent {
           if (j && !list.some((x) => x.id === j.id)) list.push(j);
         }
       }
-      if (!list.length) throw new Error('The Mac sent no job this app could read.');
+      if (!list.length) {
+        throw new Error(
+          tr('The {computer} sent no job this app could read.', { computer: computerNoun() }),
+        );
+      }
     } catch (e) {
       this.busy.set(false);
       this.error.set(deleteErrorText(e));
@@ -456,7 +479,7 @@ export class DeleteDataSheetComponent {
         .follow(j, (next) => this.jobChanged(next), ctrl.signal)
         .catch((e) => {
           if (!ctrl.signal.aborted)
-            this.error.set(`Can't follow it any more: ${deleteErrorText(e)}`);
+            this.error.set(tr("Can't follow it any more: {error}", { error: deleteErrorText(e) }));
         });
     }
   }
@@ -475,7 +498,8 @@ export function deletedIds(jobs: readonly JobView[]): Set<string> {
   return out;
 }
 
-/** "3 conversations", "this conversation". */
+/** "3 conversations", "this conversation", in the language shown. */
 export function countedWhat(n: number, noun: 'conversation' | 'project'): string {
-  return n === 1 ? `this ${noun}` : plural(n, noun);
+  if (n !== 1) return plural(n, noun);
+  return noun === 'project' ? tr('this project') : tr('this conversation');
 }

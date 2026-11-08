@@ -1,5 +1,7 @@
 import { ChangeDetectionStrategy, Component, computed, input, signal } from '@angular/core';
 
+import { tr } from '../core/i18n/i18n';
+import { TPipe } from '../core/i18n/t.pipe';
 import { UnifiedRow, editToRows } from './diff';
 import { DiffViewComponent } from './diff-view.component';
 import { IconComponent } from './icon.component';
@@ -85,7 +87,10 @@ export function buildPreview(name: string, raw: unknown): Preview {
         path: str(input['file_path']),
         range:
           typeof offset === 'number'
-            ? `lines ${offset}–${offset + (typeof limit === 'number' ? limit : 0)}`
+            ? tr('lines {from}–{to}', {
+                from: offset,
+                to: offset + (typeof limit === 'number' ? limit : 0),
+              })
             : undefined,
       };
     }
@@ -133,7 +138,7 @@ export function buildPreview(name: string, raw: unknown): Preview {
 @Component({
   selector: 'mc-tool-preview',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [DiffViewComponent, IconComponent],
+  imports: [DiffViewComponent, IconComponent, TPipe],
   template: `
     @let p = preview();
     @switch (p.kind) {
@@ -147,10 +152,10 @@ export function buildPreview(name: string, raw: unknown): Preview {
             <span><mc-icon name="folder" [size]="12" /> {{ short(cwd()) }}</span>
           }
           @if (p.background) {
-            <span>runs in the background</span>
+            <span>{{ 'runs in the background' | t }}</span>
           }
           @if (p.timeout) {
-            <span>timeout {{ p.timeout / 1000 }}s</span>
+            <span>{{ 'timeout {n}s' | t: { n: p.timeout / 1000 } }}</span>
           }
         </p>
       }
@@ -160,17 +165,16 @@ export function buildPreview(name: string, raw: unknown): Preview {
           <mc-diff-view class="diff" [rows]="rows" />
         }
         @if (p.replaceAll) {
-          <p class="meta"><span>replaces every occurrence</span></p>
+          <p class="meta">
+            <span>{{ 'replaces every occurrence' | t }}</span>
+          </p>
         }
       }
       @case ('write') {
         <p class="path mono"><mc-icon name="file" [size]="13" /> {{ short(p.path) }}</p>
         <pre class="code">{{ p.head }}</pre>
         <p class="meta">
-          <span
-            >{{ p.lines }} {{ p.lines === 1 ? 'line' : 'lines'
-            }}{{ p.shown < p.lines ? ' · first ' + p.shown + ' shown' : '' }}</span
-          >
+          <span>{{ writeLines(p.lines, p.shown) }}</span>
         </p>
       }
       @case ('read') {
@@ -192,7 +196,7 @@ export function buildPreview(name: string, raw: unknown): Preview {
         <p class="host"><mc-icon name="search" [size]="15" /> {{ p.query }}</p>
         @if (p.domains) {
           <p class="meta">
-            <span>only {{ p.domains }}</span>
+            <span>{{ 'only {domains}' | t: { domains: p.domains } }}</span>
           </p>
         }
       }
@@ -201,7 +205,7 @@ export function buildPreview(name: string, raw: unknown): Preview {
         @if (p.json) {
           <button class="btn ghost small" type="button" (click)="open.set(!open())">
             <mc-icon [name]="open() ? 'chevronDown' : 'chevronRight'" [size]="14" />
-            Arguments
+            {{ 'Arguments' | t }}
           </button>
           @if (open()) {
             <pre class="code">{{ p.json }}</pre>
@@ -216,7 +220,7 @@ export function buildPreview(name: string, raw: unknown): Preview {
         <pre class="code">{{ p.pattern }}</pre>
         @if (p.path) {
           <p class="meta">
-            <span>in {{ short(p.path) }}</span>
+            <span>{{ 'in {path}' | t: { path: short(p.path) } }}</span>
           </p>
         }
       }
@@ -224,7 +228,7 @@ export function buildPreview(name: string, raw: unknown): Preview {
         @if (p.kind === 'json' && p.json) {
           <button class="btn ghost small" type="button" (click)="open.set(!open())">
             <mc-icon [name]="open() ? 'chevronDown' : 'chevronRight'" [size]="14" />
-            {{ open() ? 'Hide' : 'Show' }} input
+            {{ open() ? ('Hide input' | t) : ('Show input' | t) }}
           </button>
           @if (open()) {
             <pre class="code">{{ p.json }}</pre>
@@ -233,7 +237,9 @@ export function buildPreview(name: string, raw: unknown): Preview {
       }
     }
     @if (truncated()) {
-      <p class="meta"><span>Preview shortened; the full request is loading…</span></p>
+      <p class="meta">
+        <span>{{ 'Preview shortened; the full request is loading…' | t }}</span>
+      </p>
     }
   `,
   styles: [
@@ -313,4 +319,10 @@ export class ToolPreviewComponent {
   protected readonly preview = computed(() => buildPreview(this.name(), this.input()));
   protected readonly open = signal(false);
   protected readonly short = shortPath;
+
+  /** "120 lines · first 40 shown". */
+  protected writeLines(lines: number, shown: number): string {
+    const count = lines === 1 ? tr('1 line') : tr('{n} lines', { n: lines });
+    return shown < lines ? tr('{count} · first {n} shown', { count, n: shown }) : count;
+  }
 }

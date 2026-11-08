@@ -1,6 +1,7 @@
 import { ChangeDetectionStrategy, Component, computed, inject, input, signal } from '@angular/core';
 
 import { AccountLimit, AccountsService } from '../core/accounts.service';
+import { TPipe } from '../core/i18n/t.pipe';
 import { AccountView, SessionSummary } from '../core/models';
 import { NowService } from '../core/now.service';
 import { RealtimeService } from '../core/realtime.service';
@@ -41,7 +42,7 @@ function helped(s: SessionSummary): boolean {
 @Component({
   selector: 'mc-limit-offer',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [IconComponent, SwitchAccountSheetComponent],
+  imports: [IconComponent, SwitchAccountSheetComponent, TPipe],
   // Parents space it only while it shows something.
   host: { '[class.has-offers]': 'offers().length > 0' },
   template: `
@@ -49,13 +50,18 @@ function helped(s: SessionSummary): boolean {
       <div class="offer" role="status">
         <mc-icon name="alert" [size]="16" />
         <p class="text">
-          Account <strong>{{ o.limit.account.name }}</strong> has reached its {{ o.limit.name }} —
-          {{ o.verb === 'switch' ? 'switch to' : 'continue on' }}
+          {{ 'Account' | t }} <strong>{{ o.limit.account.name }}</strong>
+          {{ 'has reached its {limit} —' | t: { limit: o.limit.name } }}
           @if (o.suggestion; as sug) {
+            {{ o.verb === 'switch' ? ('switch to' | t) : ('continue on' | t) }}
             <strong>{{ sug.name }}</strong
             >?
           } @else {
-            another account?
+            {{
+              o.verb === 'switch'
+                ? ('switch to another account?' | t)
+                : ('continue on another account?' | t)
+            }}
           }
           @if (o.resets) {
             <span class="muted">({{ o.resets }})</span>
@@ -65,15 +71,17 @@ function helped(s: SessionSummary): boolean {
           <button class="btn small primary" type="button" (click)="choose(o)">
             {{
               o.suggestion
-                ? (o.verb === 'switch' ? 'Switch to ' : 'Continue on ') + o.suggestion.name
-                : 'Choose an account'
+                ? o.verb === 'switch'
+                  ? ('Switch to {name}' | t: { name: o.suggestion.name })
+                  : ('Continue on {name}' | t: { name: o.suggestion.name })
+                : ('Choose an account' | t)
             }}
           </button>
           <button
             class="btn small ghost icon-only"
             type="button"
-            aria-label="Not now"
-            title="Not now"
+            [attr.aria-label]="'Not now' | t"
+            [title]="'Not now' | t"
             (click)="dismiss(o)"
           >
             <mc-icon name="x" [size]="14" />

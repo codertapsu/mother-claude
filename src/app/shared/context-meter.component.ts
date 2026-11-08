@@ -1,5 +1,6 @@
 import { ChangeDetectionStrategy, Component, computed, input } from '@angular/core';
 
+import { tr } from '../core/i18n/i18n';
 import { ContextFill } from '../core/models';
 import { Tone, formatTokens } from './util';
 
@@ -11,7 +12,7 @@ import { Tone, formatTokens } from './util';
     '[attr.data-tone]': 'tone()',
     '[attr.title]': 'title()',
     role: 'meter',
-    'aria-label': 'Context window used',
+    '[attr.aria-label]': 'ariaLabel()',
     'aria-valuemin': '0',
     'aria-valuemax': '100',
     '[attr.aria-valuenow]': 'pct()',
@@ -70,7 +71,12 @@ export class ContextMeterComponent {
   );
   protected readonly used = computed(() => formatTokens(this.context().used));
   protected readonly window = computed(() => formatTokens(this.context().window));
-  protected readonly title = computed(
-    () => `Context: ${this.used()} of ${this.window()} tokens (${this.pct()}%)`,
+  protected readonly title = computed(() =>
+    tr('Context: {used} of {window} tokens ({pct}%)', {
+      used: this.used(),
+      window: this.window(),
+      pct: this.pct(),
+    }),
   );
+  protected readonly ariaLabel = computed(() => tr('Context window used'));
 }

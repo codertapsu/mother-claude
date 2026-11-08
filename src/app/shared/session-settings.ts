@@ -1,3 +1,4 @@
+import { tr } from '../core/i18n/i18n';
 import { SessionSummary } from '../core/models';
 import {
   effortLabel,
@@ -61,14 +62,14 @@ export function ultracodeWhen(s: S, now = Date.now()): string {
   switch (s.ultracodeSource) {
     case 'transcript':
       return s.ultracodeAt
-        ? `as of the last message, ${relativeTime(s.ultracodeAt, now)}`
-        : 'as of the last message';
+        ? tr('as of the last message, {time}', { time: relativeTime(s.ultracodeAt, now) })
+        : tr('as of the last message');
     case 'launch':
-      return 'set at launch';
+      return tr('set at launch');
     case 'applied':
-      return 'as Claude Code applies it';
+      return tr('as Claude Code applies it');
     case 'requested':
-      return 'requested, not confirmed yet';
+      return tr('requested, not confirmed yet');
     default:
       return '';
   }
@@ -78,50 +79,63 @@ export function ultracodeWhen(s: S, now = Date.now()): string {
 export function ultracodeText(s: S, now = Date.now()): string {
   if (!s.ultracode) return '';
   if (s.ultracode === 'unavailable') {
-    return "Unavailable (requested, but this model or workspace can't run it)";
+    return tr("Unavailable (requested, but this model or workspace can't run it)");
   }
   const when = ultracodeWhen(s, now);
   return when ? `${ultracodeLabel(s.ultracode)} (${when})` : ultracodeLabel(s.ultracode);
 }
 
 /** " in VS Code" (with its leading space), or '' where there is no one
- * place the session is driven from. */
+ * place the session is driven from: the `{there}` of a sentence. */
 function there(s: S): string {
   const place = switchPlace(s.surface);
   return place ? ` ${place}` : '';
+}
+
+/** What ultracode was before a restart, as a word in a sentence ("on"). */
+function before(s: S): string {
+  return s.ultracodeBefore === 'on' ? tr('on||ultracode') : tr('off||ultracode');
 }
 
 /** Why a session's ultracode isn't known, as a short phrase after
  * "Unknown ·" ('' when it is known, or nothing more can be said). */
 export function ultracodeUnknownText(s: S, now = Date.now()): string {
   if (s.ultracode) return '';
-  if (s.owned && s.live) return "Claude Code hasn't reported it yet";
+  if (s.owned && s.live) return tr("Claude Code hasn't reported it yet");
   switch (s.ultracodeUnknown) {
     case 'no-prompt':
-      return s.live ? `shows after the first message${there(s)}` : 'no message was sent';
+      return s.live
+        ? tr('shows after the first message{there}', { there: there(s) })
+        : tr('no message was sent');
     case 'restarted': {
-      if (!s.ultracodeBefore) return 'the session restarted since the last message';
+      if (!s.ultracodeBefore) return tr('the session restarted since the last message');
       const when = s.ultracodeBeforeAt ? ` (${relativeTime(s.ultracodeBeforeAt, now)})` : '';
-      return `was ${s.ultracodeBefore} at the last message${when}, before the restart`;
+      return tr('was {state} at the last message{when}, before the restart', {
+        state: before(s),
+        when,
+      });
     }
     case 'reading':
-      return "still reading this session's history";
+      return tr("still reading this session's history");
     case 'compacted':
-      return "can't tell since the conversation was compacted";
+      return tr("can't tell since the conversation was compacted");
     case 'unsupported':
-      return "this Claude Code version doesn't note it";
+      return tr("this Claude Code version doesn't note it");
     default:
-      return s.live ? `shows after the next message${there(s)}` : '';
+      return s.live ? tr('shows after the next message{there}', { there: there(s) }) : '';
   }
 }
 
 /** The title and accessible name of the header's "Ultracode ?" chip. */
 export function ultracodeUnknownTitle(s: S, now = Date.now()): string {
   if (s.ultracodeUnknown === 'restarted' && s.ultracodeBefore) {
-    return `Ultracode: not known since the session restarted (it was ${s.ultracodeBefore}); the next message${there(s)} shows it`;
+    return tr(
+      'Ultracode: not known since the session restarted (it was {state}); the next message{there} shows it',
+      { state: before(s), there: there(s) },
+    );
   }
   const why = ultracodeUnknownText(s, now);
-  return why ? `Ultracode: not known; ${why}` : 'Ultracode: not known';
+  return why ? tr('Ultracode: not known; {why}', { why }) : tr('Ultracode: not known');
 }
 
 /** "Adaptive (Claude Code's default)" · "On · 32k budget (at launch)". */
@@ -129,7 +143,8 @@ export function thinkingSettingText(s: S): string {
   const t = s.thinking;
   if (!t) return '';
   const mode = thinkingModeLabel(t.mode);
-  const budget = t.mode === 'on' && t.budget ? ` · ${formatTokens(t.budget)} budget` : '';
+  const budget =
+    t.mode === 'on' && t.budget ? ` · ${tr('{n} budget', { n: formatTokens(t.budget) })}` : '';
   const how = thinkingSourceText(t.source);
   return `${mode}${budget}${how ? ` (${how})` : ''}`;
 }
@@ -155,12 +170,12 @@ export function thinkingOffContradicted(s: S): boolean {
 /** "12k tokens · 23% of output · last used 3m ago". */
 export function thinkingEvidence(s: S, now = Date.now()): string {
   const tokens = s.usage?.thinking ?? 0;
-  if (!tokens) return s.live ? 'No thinking tokens so far' : 'No thinking tokens';
+  if (!tokens) return s.live ? tr('No thinking tokens so far') : tr('No thinking tokens');
   const share = thinkingShare(s.usage);
   return [
-    `${formatTokens(tokens)} tokens`,
-    share !== null ? `${share}% of output` : '',
-    s.lastThinkingAt ? `last used ${relativeTime(s.lastThinkingAt, now)}` : '',
+    tr('{n} tokens', { n: formatTokens(tokens) }),
+    share !== null ? tr('{pct}% of output', { pct: share }) : '',
+    s.lastThinkingAt ? tr('last used {time}', { time: relativeTime(s.lastThinkingAt, now) }) : '',
   ]
     .filter(Boolean)
     .join(' · ');
@@ -171,7 +186,10 @@ function thinkingUsed(s: S): string {
   const tokens = s.usage?.thinking ?? 0;
   if (!tokens) return '';
   const share = thinkingShare(s.usage);
-  return `${formatTokens(tokens)} tokens${share !== null ? `, ${share}% of the output` : ''}`;
+  const n = formatTokens(tokens);
+  return share !== null
+    ? tr('{n} tokens, {pct}% of the output', { n, pct: share })
+    : tr('{n} tokens', { n });
 }
 
 /** The list card's thinking chip: "Thinking off", or the share of output
@@ -182,14 +200,22 @@ export function thinkingChip(s: S): { text: string; short: string; title: string
   const setting = thinkingSettingText(s);
   const contradicted = thinkingOffContradicted(s);
   if (s.thinking?.mode === 'off' && !contradicted) {
-    return { text: 'Thinking off', short: 'Off', title: `Thinking: ${setting}` };
+    return {
+      text: tr('Thinking off'),
+      short: tr('Off'),
+      title: tr('Thinking: {value}', { value: setting }),
+    };
   }
   if (share === null) return null;
-  const note = contradicted ? ` · ${setting}, but used since` : setting ? ` · ${setting}` : '';
+  const note = contradicted
+    ? ` · ${tr('{setting}, but used since', { setting })}`
+    : setting
+      ? ` · ${setting}`
+      : '';
   return {
-    text: `Thinking ${share}%`,
+    text: tr('Thinking {pct}%', { pct: share }),
     short: `${share}%`,
-    title: `Thinking: ${thinkingUsed(s)}${note}`,
+    title: tr('Thinking: {value}', { value: `${thinkingUsed(s)}${note}` }),
   };
 }
 
@@ -200,12 +226,12 @@ export function thinkingLabel(s: S): string {
   const t = s.thinking;
   if (t && !thinkingOffContradicted(s)) {
     return t.mode === 'off'
-      ? 'Thinking off'
-      : `Thinking ${thinkingModeLabel(t.mode).toLowerCase()}`;
+      ? tr('Thinking off')
+      : tr('Thinking {mode}', { mode: thinkingModeLabel(t.mode).toLowerCase() });
   }
   const share = thinkingShare(s.usage);
-  if (share !== null) return `Thinking ${share}%`;
-  return t ? 'Thinking used' : '';
+  if (share !== null) return tr('Thinking {pct}%', { pct: share });
+  return t ? tr('Thinking used') : '';
 }
 
 /** What that chip says about itself (its title and accessible name): the
@@ -214,12 +240,14 @@ export function thinkingTitle(s: S): string {
   const setting = thinkingSettingText(s);
   const used = thinkingUsed(s);
   if (setting && thinkingOffContradicted(s)) {
-    return `Thinking: ${setting}, but used since${used ? ` (${used})` : ''}`;
+    return used
+      ? tr('Thinking: {setting}, but used since ({used})', { setting, used })
+      : tr('Thinking: {setting}, but used since', { setting });
   }
-  if (setting) return `Thinking: ${setting}`;
+  if (setting) return tr('Thinking: {value}', { value: setting });
   return used
-    ? `Thinking: ${used}; the setting isn't reported`
-    : "Thinking: the setting isn't reported";
+    ? tr("Thinking: {used}; the setting isn't reported", { used })
+    : tr("Thinking: the setting isn't reported");
 }
 
 /** How fast mode is known. Outside owned sessions only the speed of the
@@ -227,8 +255,8 @@ export function thinkingTitle(s: S): string {
  * switched on (before any request ran in it). */
 export function fastText(s: Pick<SessionSummary, 'owned' | 'live'>): string {
   return s.owned && s.live
-    ? 'switched on, or the latest request ran in it'
-    : 'the latest request ran in fast mode';
+    ? tr('switched on, or the latest request ran in it')
+    : tr('the latest request ran in fast mode');
 }
 
 /** The sentences behind the header's ultracode chip. */
@@ -237,16 +265,22 @@ export function explainUltracode(s: S, now = Date.now()): string[] {
   switch (s.ultracode) {
     case 'on':
       lines.push(
-        'Ultracode is on: Claude runs substantive tasks as multi-agent workflows, at any effort level. It lasts for this session only.',
+        tr(
+          'Ultracode is on: Claude runs substantive tasks as multi-agent workflows, at any effort level. It lasts for this session only.',
+        ),
       );
       break;
     case 'off':
-      lines.push('Ultracode is off.');
+      lines.push(tr('Ultracode is off.'));
       break;
     case 'unavailable':
       lines.push(
-        "Ultracode was requested, but it can't run here: it needs a model that supports it and workflows switched on.",
-        'The request stays in place: ultracode comes back on by itself as soon as it can run (after a switch to a model that supports it, say).',
+        tr(
+          "Ultracode was requested, but it can't run here: it needs a model that supports it and workflows switched on.",
+        ),
+        tr(
+          'The request stays in place: ultracode comes back on by itself as soon as it can run (after a switch to a model that supports it, say).',
+        ),
       );
       break;
     default:
@@ -256,14 +290,21 @@ export function explainUltracode(s: S, now = Date.now()): string[] {
     const at = s.ultracodeAt ? ` (${relativeTime(s.ultracodeAt, now)})` : '';
     lines.push(
       s.live
-        ? `As of the last message${at}. Claude Code notes ultracode only when a message is sent, so a switch made${there(s)} since then shows here after the next message.`
-        : `As of the last message${at}.`,
+        ? tr(
+            'As of the last message{at}. Claude Code notes ultracode only when a message is sent, so a switch made{there} since then shows here after the next message.',
+            { at, there: there(s) },
+          )
+        : tr('As of the last message{at}.', { at }),
     );
   } else if (s.ultracodeSource === 'launch') {
-    lines.push('Set when the session was started; a later switch shows after the next message.');
+    lines.push(
+      tr('Set when the session was started; a later switch shows after the next message.'),
+    );
   } else if (s.ultracodeSource === 'requested') {
     lines.push(
-      "Mother Claude asked for this, and Claude Code hasn't confirmed it yet (after a model change it may turn out unable to run).",
+      tr(
+        "Mother Claude asked for this, and Claude Code hasn't confirmed it yet (after a model change it may turn out unable to run).",
+      ),
     );
   }
   return lines;
@@ -271,51 +312,67 @@ export function explainUltracode(s: S, now = Date.now()): string[] {
 
 /** Why ultracode isn't known, and when it will be. */
 function explainUnknownUltracode(s: S, now: number): string[] {
-  if (s.owned && s.live) return ["Claude Code hasn't reported ultracode for this session yet."];
-  const reading =
-    "Not known yet: Mother Claude is still reading this session's history, where Claude Code notes ultracode.";
-  const compacted =
-    "The conversation was compacted since Claude Code last noted ultracode, and it notes it again only when it changes (or every ten or so messages while it is on), so the messages since then can't tell.";
-  const unsupported =
-    "This session's Claude Code version doesn't note ultracode in the conversation.";
+  if (s.owned && s.live) return [tr("Claude Code hasn't reported ultracode for this session yet.")];
+  const reading = tr(
+    "Not known yet: Mother Claude is still reading this session's history, where Claude Code notes ultracode.",
+  );
+  const compacted = tr(
+    "The conversation was compacted since Claude Code last noted ultracode, and it notes it again only when it changes (or every ten or so messages while it is on), so the messages since then can't tell.",
+  );
+  const unsupported = tr(
+    "This session's Claude Code version doesn't note ultracode in the conversation.",
+  );
   if (!s.live) {
     switch (s.ultracodeUnknown) {
       case 'reading':
         return [reading];
       case 'compacted':
-        return [`Not recorded. ${compacted}`];
+        return [`${tr('Not recorded.')} ${compacted}`];
       case 'unsupported':
-        return [`Not recorded. ${unsupported}`];
+        return [`${tr('Not recorded.')} ${unsupported}`];
       default:
-        return ['Not recorded for this session.'];
+        return [tr('Not recorded for this session.')];
     }
   }
-  const perSession =
-    'Ultracode is set per session: switching it on in one session leaves the others as they are.';
+  const perSession = tr(
+    'Ultracode is set per session: switching it on in one session leaves the others as they are.',
+  );
   switch (s.ultracodeUnknown) {
     case 'no-prompt':
       return [
-        `Not known yet. Claude Code notes ultracode in the conversation only when a message is sent, so it shows here after the first message${there(s)}.`,
+        tr(
+          'Not known yet. Claude Code notes ultracode in the conversation only when a message is sent, so it shows here after the first message{there}.',
+          { there: there(s) },
+        ),
         perSession,
       ];
     case 'restarted': {
       const when = s.ultracodeBeforeAt ? ` (${relativeTime(s.ultracodeBeforeAt, now)})` : '';
       return [
         s.ultracodeBefore
-          ? `Not known since this session restarted. It was ${s.ultracodeBefore} at the last message before the restart${when}.`
-          : 'Not known since this session restarted.',
-        `A restart turns ultracode off until it is switched on again${there(s)}, and Claude Code notes it only when a message is sent: the next message${there(s)} shows whether it is on.`,
+          ? tr(
+              'Not known since this session restarted. It was {state} at the last message before the restart{when}.',
+              { state: before(s), when },
+            )
+          : tr('Not known since this session restarted.'),
+        tr(
+          'A restart turns ultracode off until it is switched on again{there}, and Claude Code notes it only when a message is sent: the next message{there} shows whether it is on.',
+          { there: there(s) },
+        ),
       ];
     }
     case 'reading':
       return [reading];
     case 'compacted':
-      return [`Not known. ${compacted}`];
+      return [`${tr('Not known.')} ${compacted}`];
     case 'unsupported':
       return [unsupported];
     default:
       return [
-        `Not known yet. Claude Code notes ultracode in the conversation only when a message is sent, so a switch made${there(s)} shows here after the next message.`,
+        tr(
+          'Not known yet. Claude Code notes ultracode in the conversation only when a message is sent, so a switch made{there} shows here after the next message.',
+          { there: there(s) },
+        ),
         perSession,
       ];
   }
@@ -326,44 +383,64 @@ export function explainThinking(s: S, now = Date.now()): string[] {
   const lines: string[] = [];
   const t = s.thinking;
   if (!t) {
-    lines.push("Claude Code doesn't report whether thinking is on for this session.");
+    lines.push(tr("Claude Code doesn't report whether thinking is on for this session."));
   } else if (thinkingOffContradicted(s)) {
     lines.push(
       t.source === 'launch'
-        ? 'Thinking was off when the session was launched, but it has thought since: it was switched on in the session itself.'
-        : 'Your Claude settings turn thinking off by default, but this session has thought since: it was switched on in the session itself.',
-      "Mother Claude can't see such a change, so it shows the thinking used instead.",
+        ? tr(
+            'Thinking was off when the session was launched, but it has thought since: it was switched on in the session itself.',
+          )
+        : tr(
+            'Your Claude settings turn thinking off by default, but this session has thought since: it was switched on in the session itself.',
+          ),
+      tr("Mother Claude can't see such a change, so it shows the thinking used instead."),
     );
   } else {
     if (t.mode === 'adaptive') {
-      lines.push('Adaptive thinking: Claude decides when, and how much, to think.');
+      lines.push(tr('Adaptive thinking: Claude decides when, and how much, to think.'));
     } else if (t.mode === 'on') {
-      const budget = t.budget ? ` with a budget of ${formatTokens(t.budget)} tokens` : '';
-      lines.push(`Thinking is on${budget}.`);
+      lines.push(
+        t.budget
+          ? tr('Thinking is on with a budget of {n} tokens.', { n: formatTokens(t.budget) })
+          : tr('Thinking is on.'),
+      );
     } else {
-      lines.push('Thinking is off.');
+      lines.push(tr('Thinking is off.'));
     }
     if (t.source === 'control') {
-      lines.push('Set by Mother Claude.');
+      lines.push(tr('Set by Mother Claude.'));
     } else if (t.source === 'launch') {
       lines.push(
-        'As the session was launched: VS Code and the terminal can switch thinking later without Mother Claude seeing it.',
+        tr(
+          'As the session was launched: VS Code and the terminal can switch thinking later without Mother Claude seeing it.',
+        ),
       );
     } else {
       lines.push(
-        "Claude Code's default for this model and your settings; a change made in the session itself isn't reported.",
+        tr(
+          "Claude Code's default for this model and your settings; a change made in the session itself isn't reported.",
+        ),
       );
     }
   }
   const tokens = s.usage?.thinking ?? 0;
   if (tokens) {
-    const share = thinkingShare(s.usage);
-    const last = s.lastThinkingAt ? `, most recently ${relativeTime(s.lastThinkingAt, now)}` : '';
+    const pct = thinkingShare(s.usage);
+    const share = pct !== null ? ` (${tr('{pct}% of the output', { pct })})` : '';
+    const last = s.lastThinkingAt
+      ? tr(', most recently {time}', { time: relativeTime(s.lastThinkingAt, now) })
+      : '';
     lines.push(
-      `This session and its agents used ${formatTokens(tokens)} thinking tokens${share !== null ? ` (${share}% of the output)` : ''}${last}.`,
+      tr('This session and its agents used {n} thinking tokens{share}{last}.', {
+        n: formatTokens(tokens),
+        share,
+        last,
+      }),
     );
   } else if (t?.mode !== 'off') {
-    lines.push("No thinking tokens so far: with adaptive thinking that doesn't mean it is off.");
+    lines.push(
+      tr("No thinking tokens so far: with adaptive thinking that doesn't mean it is off."),
+    );
   }
   return lines;
 }
@@ -371,6 +448,8 @@ export function explainThinking(s: S, now = Date.now()): string[] {
 /** The sentence behind the header's fast chip. */
 export function explainFast(s: Pick<SessionSummary, 'owned' | 'live'>): string {
   return s.owned && s.live
-    ? 'Fast mode is on: Claude Code reports its faster output mode as switched on for this session, or the latest request ran in it.'
-    : "Fast mode is on: the latest request ran in Claude Code's faster output mode.";
+    ? tr(
+        'Fast mode is on: Claude Code reports its faster output mode as switched on for this session, or the latest request ran in it.',
+      )
+    : tr("Fast mode is on: the latest request ran in Claude Code's faster output mode.");
 }

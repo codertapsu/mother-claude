@@ -139,53 +139,57 @@ export function statusLabel(
   status: SessionStatus | string,
   activity?: Pick<Activity, 'kind'>,
 ): string {
-  if (status === 'background' && activity?.kind === 'scheduled') return 'Scheduled';
-  return STATUS[status as SessionStatus]?.label ?? capitalize(String(status || 'unknown'));
+  if (status === 'background' && activity?.kind === 'scheduled') return tr('Scheduled');
+  const label = STATUS[status as SessionStatus]?.label;
+  return label ? tr(label) : capitalize(String(status || 'unknown'));
 }
 
 export function statusTone(status: SessionStatus | string): Tone {
   return STATUS[status as SessionStatus]?.tone ?? 'muted';
 }
 
+/** Names, and the words translated where they are read (`surfaceLabel`). */
 const SURFACES: Record<Surface, string> = {
   vscode: 'VS Code',
   terminal: 'Terminal',
   tmux: 'tmux',
   desktop: 'Claude Desktop',
   jetbrains: 'JetBrains',
-  background: 'Background',
+  // A `--bg` job ("Background" alone is the theme's background).
+  background: 'Background||surface',
   'mother-claude': 'Mother Claude',
   sdk: 'SDK',
   unknown: 'Unknown',
 };
 
 export function surfaceLabel(surface: Surface | string | undefined): string {
-  return SURFACES[surface as Surface] ?? capitalize(String(surface || 'unknown'));
+  const label = SURFACES[surface as Surface];
+  return label ? tr(label) : capitalize(String(surface || 'unknown'));
 }
 
 /** What stops a session's process, as a phrase ("closing VS Code"): the
  * app that runs it. '' for a tmux pane or a `--bg` job, which outlive a
  * closed window. */
 export function stoppedBy(s: Pick<SessionSummary, 'surface' | 'owned'>): string {
-  if (s.owned) return 'quitting Mother Claude';
+  if (s.owned) return tr('quitting Mother Claude');
   switch (s.surface) {
     case 'vscode':
-      return 'closing VS Code';
+      return tr('closing VS Code');
     case 'jetbrains':
-      return 'closing JetBrains';
+      return tr('closing JetBrains');
     case 'terminal':
-      return 'closing its terminal';
+      return tr('closing its terminal');
     case 'desktop':
-      return 'quitting Claude Desktop';
+      return tr('quitting Claude Desktop');
     case 'mother-claude':
-      return 'quitting Mother Claude';
+      return tr('quitting Mother Claude');
     case 'sdk':
-      return 'stopping the program that runs it';
+      return tr('stopping the program that runs it');
     case 'tmux':
     case 'background':
       return '';
     default:
-      return 'closing the app that runs it';
+      return tr('closing the app that runs it');
   }
 }
 
@@ -197,20 +201,20 @@ export function resumeNote(
   now = Date.now(),
 ): string {
   if (!s.live || s.status !== 'background') return '';
-  let lead = 'Claude picks this up when its background work finishes';
+  let lead = tr('Claude picks this up when its background work finishes');
   if (s.activity?.kind === 'scheduled') {
     const at = s.activity.resumesAt;
-    const when = !at
-      ? ' on its schedule'
+    lead = !at
+      ? tr('Claude resumes this by itself on its schedule')
       : at <= now
-        ? ' any moment'
-        : ` in ${formatCountdown(at - now)}`;
-    lead = `Claude resumes this by itself${when}`;
+        ? tr('Claude resumes this by itself any moment')
+        : tr('Claude resumes this by itself in {time}', { time: formatCountdown(at - now) });
   }
   const stop = stoppedBy(s);
-  if (stop) return `${lead} — ${stop} now stops it.`;
-  const runs = s.surface === 'tmux' ? 'in tmux' : 'as a background job';
-  return `${lead}. It runs ${runs}, so closing a window doesn't stop it.`;
+  if (stop) return tr('{lead} — {stop} now stops it.', { lead, stop });
+  return s.surface === 'tmux'
+    ? tr("{lead}. It runs in tmux, so closing a window doesn't stop it.", { lead })
+    : tr("{lead}. It runs as a background job, so closing a window doesn't stop it.", { lead });
 }
 
 const CHANNELS: Record<ControlChannel, { label: string; tone: Tone; hint: string }> = {
@@ -242,7 +246,7 @@ const CHANNELS: Record<ControlChannel, { label: string; tone: Tone; hint: string
 };
 
 export function channelLabel(channel: ControlChannel | string | undefined): string {
-  return CHANNELS[channel as ControlChannel]?.label ?? 'Watch only';
+  return tr(CHANNELS[channel as ControlChannel]?.label ?? CHANNELS.none.label);
 }
 
 export function channelTone(channel: ControlChannel | string | undefined): Tone {
@@ -250,7 +254,7 @@ export function channelTone(channel: ControlChannel | string | undefined): Tone 
 }
 
 export function channelHint(channel: ControlChannel | string | undefined): string {
-  return CHANNELS[channel as ControlChannel]?.hint ?? CHANNELS.none.hint;
+  return tr(CHANNELS[channel as ControlChannel]?.hint ?? CHANNELS.none.hint);
 }
 
 export interface ModeOption {
@@ -260,6 +264,7 @@ export interface ModeOption {
   dangerous?: boolean;
 }
 
+/** English: translated where they are read (`tr(m.label)`, `modeLabel`). */
 export const PERMISSION_MODES: ModeOption[] = [
   { value: 'default', label: 'Ask', hint: 'Ask before edits and commands' },
   { value: 'acceptEdits', label: 'Accept edits', hint: 'File edits go through; commands ask' },
@@ -274,11 +279,13 @@ export const PERMISSION_MODES: ModeOption[] = [
 ];
 
 export function modeLabel(mode: string | undefined): string {
-  if (!mode) return 'Ask';
-  if (mode === 'dontAsk') return "Don't ask";
-  return PERMISSION_MODES.find((m) => m.value === mode)?.label ?? mode;
+  if (!mode) return tr('Ask');
+  if (mode === 'dontAsk') return tr("Don't ask");
+  const label = PERMISSION_MODES.find((m) => m.value === mode)?.label;
+  return label ? tr(label) : mode;
 }
 
+/** English (the API page lists the keys): `effortLabel` translates. */
 export const EFFORT_LABELS: Record<string, string> = {
   low: 'Low',
   medium: 'Medium',
@@ -287,9 +294,12 @@ export const EFFORT_LABELS: Record<string, string> = {
   max: 'Max',
 };
 
+/** An effort level in words, in the language shown (`||effort`: "Max" is
+ * also a plan's name). */
 export function effortLabel(effort: string | undefined): string {
   if (!effort) return '';
-  return EFFORT_LABELS[effort] ?? effort;
+  const label = EFFORT_LABELS[effort];
+  return label ? tr(`${label}||effort`) : effort;
 }
 
 /** Chip-sized effort labels (the list cards). */
@@ -303,20 +313,21 @@ export const EFFORT_SHORT: Record<string, string> = {
 
 export function effortShortLabel(effort: string | undefined): string {
   if (!effort) return '';
-  return EFFORT_SHORT[effort] ?? effortLabel(effort);
+  const label = EFFORT_SHORT[effort];
+  return label ? tr(`${label}||effort`) : effortLabel(effort);
 }
 
 /** How an effort value is known, as a phrase after the value. */
 export function effortSourceText(source: string | undefined): string {
   switch (source) {
     case 'applied':
-      return 'as Claude Code applies it';
+      return tr('as Claude Code applies it');
     case 'observed':
-      return 'as sent with the latest request';
+      return tr('as sent with the latest request');
     case 'requested':
-      return 'requested, not confirmed yet';
+      return tr('requested, not confirmed yet');
     case 'launch':
-      return 'set at launch';
+      return tr('set at launch');
     default:
       return '';
   }
@@ -327,14 +338,14 @@ export function effortSourceText(source: string | undefined): string {
 export function switchPlace(surface: Surface | string | undefined): string {
   switch (surface) {
     case 'vscode':
-      return 'in VS Code';
+      return tr('in VS Code');
     case 'terminal':
     case 'tmux':
-      return 'in the terminal';
+      return tr('in the terminal');
     case 'jetbrains':
-      return 'in JetBrains';
+      return tr('in JetBrains');
     case 'desktop':
-      return 'in Claude Desktop';
+      return tr('in Claude Desktop');
     default:
       return '';
   }
@@ -343,11 +354,11 @@ export function switchPlace(surface: Surface | string | undefined): string {
 export function ultracodeLabel(state: string | undefined): string {
   switch (state) {
     case 'on':
-      return 'On';
+      return tr('On');
     case 'off':
-      return 'Off';
+      return tr('Off');
     case 'unavailable':
-      return 'Unavailable';
+      return tr('Unavailable');
     default:
       return '';
   }
@@ -356,11 +367,11 @@ export function ultracodeLabel(state: string | undefined): string {
 export function thinkingModeLabel(mode: string | undefined): string {
   switch (mode) {
     case 'adaptive':
-      return 'Adaptive';
+      return tr('Adaptive');
     case 'on':
-      return 'On';
+      return tr('On');
     case 'off':
-      return 'Off';
+      return tr('Off');
     default:
       return '';
   }
@@ -370,18 +381,20 @@ export function thinkingModeLabel(mode: string | undefined): string {
 export function thinkingText(t: ThinkingState | undefined): string {
   if (!t) return '';
   const mode = thinkingModeLabel(t.mode);
-  return t.mode === 'on' && t.budget ? `${mode} · ${formatTokens(t.budget)} budget` : mode;
+  return t.mode === 'on' && t.budget
+    ? `${mode} · ${tr('{n} budget', { n: formatTokens(t.budget) })}`
+    : mode;
 }
 
 /** How a thinking setting is known, as a phrase after the value. */
 export function thinkingSourceText(source: string | undefined): string {
   switch (source) {
     case 'control':
-      return 'set by Mother Claude';
+      return tr('set by Mother Claude');
     case 'launch':
-      return 'at launch';
+      return tr('at launch');
     case 'default':
-      return "Claude Code's default";
+      return tr("Claude Code's default");
     default:
       return '';
   }
@@ -418,9 +431,24 @@ const ACTIVITY_VERBS: Record<ActivityKind, string> = {
 /** "Running Bash" — the server's label, else one derived from the kind. */
 export function activityLabel(a: Activity | undefined): string {
   if (!a) return '';
-  if (a.label?.trim()) return a.label.trim();
-  const verb = ACTIVITY_VERBS[a.kind] ?? capitalize(a.kind ?? '');
-  return a.kind === 'tool' && a.tool ? `${verb} ${a.tool}` : verb;
+  if (a.label?.trim()) return activityText(a.label.trim());
+  if (a.kind === 'tool' && a.tool) return tr('Running {tool}', { tool: a.tool });
+  const verb = ACTIVITY_VERBS[a.kind];
+  return verb ? activityText(verb) : capitalize(a.kind ?? '');
+}
+
+/** An activity label in the language shown. The server's come from a
+ * fixed list (`claude/activity.rs`: "Thinking", "Running Bash", "Waiting
+ * for approval"…), keyed with `||activity` ("Thinking" is also the
+ * setting's name); any other label shows as it came. */
+function activityText(label: string): string {
+  const known = tr(`${label}||activity`);
+  if (known !== label) return known;
+  const running = /^Running (.+)$/.exec(label);
+  if (running) return tr('Running {tool}', { tool: running[1] });
+  const waiting = /^Waiting: (.+)$/.exec(label);
+  if (waiting) return tr('Waiting: {what}', { what: waiting[1] });
+  return label;
 }
 
 /** Kinds that mean "busy right now" (animated dot). */

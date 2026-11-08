@@ -1,6 +1,8 @@
 import { ChangeDetectionStrategy, Component, computed, inject, input, output } from '@angular/core';
 import { RouterLink } from '@angular/router';
 
+import { tr } from '../core/i18n/i18n';
+import { TPipe } from '../core/i18n/t.pipe';
 import { PendingRef, SessionSummary } from '../core/models';
 import { NowService } from '../core/now.service';
 import { ViewportService } from '../core/viewport.service';
@@ -55,6 +57,7 @@ interface PackedPart {
     PendingCardComponent,
     StatusPillComponent,
     TimeAgoComponent,
+    TPipe,
   ],
   host: {
     '[attr.data-status]': 'session().status',
@@ -68,7 +71,7 @@ interface PackedPart {
           <input
             type="checkbox"
             [checked]="selected()"
-            [attr.aria-label]="'Select ' + name()"
+            [attr.aria-label]="'Select {name}' | t: { name: name() }"
             (change)="toggled.emit()"
           />
         </label>
@@ -110,17 +113,20 @@ interface PackedPart {
         }
         @if (thinking(); as t) {
           <mc-chip icon="lightbulb" [attr.title]="t.title"
-            ><span class="visually-hidden">Thinking </span>{{ t.short }}</mc-chip
+            ><span class="visually-hidden">{{ 'Thinking' | t }} </span>{{ t.short }}</mc-chip
           >
         }
       } @else {
         @if (s.effort) {
-          <mc-chip icon="gauge" [attr.title]="'Effort: ' + effort()"
-            ><span class="visually-hidden">Effort </span>{{ effortShort() }}</mc-chip
+          <mc-chip icon="gauge" [attr.title]="'Effort: {value}' | t: { value: effort() }"
+            ><span class="visually-hidden">{{ 'Effort' | t }} </span>{{ effortShort() }}</mc-chip
           >
         }
         @if (s.ultracode === 'on') {
-          <mc-chip icon="workflow" tone="accent" [attr.title]="'Ultracode: ' + ultracode()"
+          <mc-chip
+            icon="workflow"
+            tone="accent"
+            [attr.title]="'Ultracode: {value}' | t: { value: ultracode() }"
             >Ultracode</mc-chip
           >
         }
@@ -128,7 +134,7 @@ interface PackedPart {
           <mc-chip icon="lightbulb" [attr.title]="t.title">{{ t.text }}</mc-chip>
         }
         @if (s.fast) {
-          <mc-chip icon="zap" tone="blue" [attr.title]="fast()">Fast</mc-chip>
+          <mc-chip icon="zap" tone="blue" [attr.title]="fast()">{{ 'Fast' | t }}</mc-chip>
         }
       }
       @if (s.permissionMode && s.permissionMode !== 'default') {
@@ -137,7 +143,9 @@ interface PackedPart {
         }}</mc-chip>
       }
       @if (s.agents.running) {
-        <mc-chip icon="agents" tone="green">{{ s.agents.running }} running</mc-chip>
+        <mc-chip icon="agents" tone="green">{{
+          '{n} running' | t: { n: s.agents.running }
+        }}</mc-chip>
       }
       @if (s.todos; as t) {
         @if (t.total) {
@@ -159,7 +167,7 @@ interface PackedPart {
         <mc-chip tone="blue">PR #{{ s.prLink.number }}</mc-chip>
       }
       @if (s.queued) {
-        <mc-chip tone="blue">{{ s.queued }} queued</mc-chip>
+        <mc-chip tone="blue">{{ '{n} queued' | t: { n: s.queued } }}</mc-chip>
       }
       @if (s.lastError) {
         <mc-chip tone="red" icon="alert">{{ s.lastError.kind }}</mc-chip>
@@ -175,7 +183,8 @@ interface PackedPart {
       <mc-pending-card [item]="p" [session]="s" [compact]="true" />
     } @else if (s.pending.length > 1) {
       <a class="more-pending" [routerLink]="['/session', s.id]">
-        <mc-icon name="inbox" [size]="15" /> {{ s.pending.length }} requests waiting · Review
+        <mc-icon name="inbox" [size]="15" />
+        {{ '{n} requests waiting · Review' | t: { n: s.pending.length } }}
         <mc-icon name="chevronRight" [size]="15" />
       </a>
     }
@@ -308,7 +317,9 @@ export class SessionCardComponent {
     return ultracodeText(s, s.ultracodeAt ? this.clock.now() : Date.now());
   });
   protected readonly thinking = computed(() => thinkingChip(this.session()));
-  protected readonly fast = computed(() => `Fast mode: ${fastText(this.session())}`);
+  protected readonly fast = computed(() =>
+    tr('Fast mode: {how}', { how: fastText(this.session()) }),
+  );
   /** Effort, ultracode and fast mode as one chip ("Max · Ultracode · Fast"),
    * its title saying how each is known; null when none applies. */
   protected readonly packed = computed(() => {
@@ -316,15 +327,15 @@ export class SessionCardComponent {
     const parts: PackedPart[] = [];
     const titles: string[] = [];
     if (s.effort) {
-      parts.push({ kind: 'effort', text: this.effortShort(), sr: 'Effort ' });
-      titles.push(`Effort: ${this.effort()}`);
+      parts.push({ kind: 'effort', text: this.effortShort(), sr: `${tr('Effort')} ` });
+      titles.push(tr('Effort: {value}', { value: this.effort() }));
     }
     if (s.ultracode === 'on') {
       parts.push({ kind: 'ultracode', text: 'Ultracode', sr: '' });
-      titles.push(`Ultracode: ${this.ultracode()}`);
+      titles.push(tr('Ultracode: {value}', { value: this.ultracode() }));
     }
     if (s.fast) {
-      parts.push({ kind: 'fast', text: 'Fast', sr: '' });
+      parts.push({ kind: 'fast', text: tr('Fast'), sr: '' });
       titles.push(this.fast());
     }
     if (!parts.length) return null;

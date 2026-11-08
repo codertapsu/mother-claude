@@ -1,5 +1,7 @@
 import { ChangeDetectionStrategy, Component, computed, inject, input } from '@angular/core';
 
+import { tr } from '../core/i18n/i18n';
+import { TPipe } from '../core/i18n/t.pipe';
 import { Activity, SessionStatus } from '../core/models';
 import { RealtimeService } from '../core/realtime.service';
 import { IconComponent, IconName } from './icon.component';
@@ -25,14 +27,14 @@ const STATUS_ICONS: Record<string, IconName> = {
 @Component({
   selector: 'mc-status-pill',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [IconComponent],
+  imports: [IconComponent, TPipe],
   host: { '[attr.data-tone]': 'tone()', '[attr.title]': 'hint()' },
   template: `<span class="ico" [class.pulse]="pulse()"
       ><mc-icon [name]="icon()" [size]="12" [stroke]="2.4"
     /></span>
     <span class="txt">{{ text() }}</span>
     @if (pulse()) {
-      <span class="visually-hidden">, live</span>
+      <span class="visually-hidden">{{ ', live' | t }}</span>
     }`,
   styles: [
     `
@@ -83,8 +85,10 @@ export class StatusPillComponent {
   protected readonly hint = computed(() => {
     if (this.status() !== 'background') return null;
     return this.scheduled()
-      ? 'No turn is running: a scheduled wakeup or job resumes this session by itself.'
-      : 'No turn is running: Claude resumes this session by itself when its background work finishes.';
+      ? tr('No turn is running: a scheduled wakeup or job resumes this session by itself.')
+      : tr(
+          'No turn is running: Claude resumes this session by itself when its background work finishes.',
+        );
   });
   /** Only while the data is live: a stale page shouldn't look busy. */
   protected readonly pulse = computed(

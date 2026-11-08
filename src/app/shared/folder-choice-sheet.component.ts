@@ -4,6 +4,8 @@ import { ApiService } from '../core/api.service';
 import { AuthService } from '../core/auth.service';
 import { osLabel } from '../core/backup';
 import { FolderChoiceService } from '../core/folder-choice.service';
+import { tr } from '../core/i18n/i18n';
+import { TPipe } from '../core/i18n/t.pipe';
 import { PairMachine } from '../core/models';
 import { NoticeService } from '../core/notice.service';
 import {
@@ -38,14 +40,14 @@ interface PairOffer {
 @Component({
   selector: 'mc-folder-choice',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [IconComponent, SheetComponent],
+  imports: [IconComponent, SheetComponent, TPipe],
   template: `
     <mc-sheet [open]="!!question()" [title]="title()" (closed)="close()">
       @if (question(); as q) {
         <p class="lede small">{{ q.message }}</p>
 
         @if (q.suggestions.length) {
-          <div class="opts" role="radiogroup" aria-label="Folder">
+          <div class="opts" role="radiogroup" [attr.aria-label]="'Folder' | t">
             @for (f of q.suggestions; track f) {
               <button
                 type="button"
@@ -69,7 +71,7 @@ interface PairOffer {
               [attr.aria-checked]="picked() === ''"
               (click)="pick('')"
             >
-              <span class="ot">Another folder</span>
+              <span class="ot">{{ 'Another folder' | t }}</span>
               @if (picked() === '') {
                 <mc-icon name="check" [size]="16" />
               }
@@ -78,7 +80,9 @@ interface PairOffer {
         }
         @if (picked() === '') {
           <label class="field typed">
-            <span class="field-label">Folder on this {{ noun() }}</span>
+            <span class="field-label">{{
+              'Folder on this {computer}' | t: { computer: noun() }
+            }}</span>
             <input
               name="folder"
               spellcheck="false"
@@ -96,17 +100,18 @@ interface PairOffer {
           <label class="remember">
             <input type="checkbox" [checked]="remember()" (change)="toggle($event)" />
             <span>
-              Pair <span class="mono">{{ p.here }}</span> on this {{ noun() }} with
+              {{ 'Pair||folders' | t }} <span class="mono">{{ p.here }}</span>
+              {{ 'on this {computer} with' | t: { computer: noun() } }}
               <span class="mono">{{ p.there }}</span>
               @if (q.machines.length === 1) {
-                on {{ machineLabel(q.machines[0]) }}
+                {{ 'on {machine}' | t: { machine: machineLabel(q.machines[0]) } }}
               }
-              — its other conversations there continue here without asking.
+              {{ '— its other conversations there continue here without asking.' | t }}
             </span>
           </label>
           @if (q.machines.length > 1 && remember()) {
             <label class="field machine">
-              <span class="field-label">The other computer</span>
+              <span class="field-label">{{ 'The other computer' | t }}</span>
               <select name="machine" (change)="pickMachine($event)">
                 @for (m of q.machines; track m.id) {
                   <option [value]="m.id" [selected]="m.id === machine()">
@@ -123,9 +128,9 @@ interface PairOffer {
         }
         <div class="row actions">
           <button class="btn primary" type="button" [disabled]="!folder()" (click)="go()">
-            <mc-icon name="play" [size]="14" /> Continue here
+            <mc-icon name="play" [size]="14" /> {{ 'Continue here' | t }}
           </button>
-          <button class="btn ghost" type="button" (click)="close()">Cancel</button>
+          <button class="btn ghost" type="button" (click)="close()">{{ 'Cancel' | t }}</button>
         </div>
       }
     </mc-sheet>
@@ -218,8 +223,12 @@ export class FolderChoiceSheetComponent {
   protected readonly machine = linkedSignal(() => this.question()?.machines[0]?.id ?? '');
   protected readonly error = linkedSignal({ source: this.question, computation: () => '' });
 
-  protected readonly noun = computed(() => machineNoun(this.hostOs()));
-  protected readonly title = computed(() => `Choose its folder on this ${this.noun()}`);
+  /** The desktop's computer in a sentence ("Mac", "PC", "machine"), in the
+   * language shown. */
+  protected readonly noun = computed(() => tr(machineNoun(this.hostOs())));
+  protected readonly title = computed(() =>
+    tr('Choose its folder on this {computer}', { computer: this.noun() }),
+  );
   protected readonly placeholder = computed(() => folderExample(this.hostOs(), 'project'));
 
   /** The folder the answer names ('' while none is). */
@@ -248,7 +257,7 @@ export class FolderChoiceSheetComponent {
 
   protected machineLabel(m: PairMachine): string {
     const os = osLabel(m.os);
-    const name = m.name || 'the other computer';
+    const name = m.name || tr('the other computer');
     return os ? `${name} (${os})` : name;
   }
 
@@ -293,10 +302,14 @@ export class FolderChoiceSheetComponent {
     try {
       await this.api.addFolderPair({ folder: offer.here, machine: m.id, otherFolder: offer.there });
       this.notices.info(
-        `Paired ${offer.here} with ${offer.there} on ${m.name || 'the other computer'}.`,
+        tr('Paired {here} with {there} on {machine}.', {
+          here: offer.here,
+          there: offer.there,
+          machine: m.name || tr('the other computer'),
+        }),
       );
     } catch (e) {
-      this.notices.error(e, () => void this.pair(offer, m), 'The folders are not paired');
+      this.notices.error(e, () => void this.pair(offer, m), tr('The folders are not paired'));
     }
   }
 }

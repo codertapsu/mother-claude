@@ -11,6 +11,8 @@ import { RouterLink } from '@angular/router';
 
 import { isAccountColor } from '../core/accounts';
 import { AccountsService } from '../core/accounts.service';
+import { tr } from '../core/i18n/i18n';
+import { TPipe } from '../core/i18n/t.pipe';
 import { AccountFleet, FleetSummary, PlanUsage, SessionSummary } from '../core/models';
 import { NowService } from '../core/now.service';
 import { compactWindows, windowPct, windowSeverity, worstSeverity } from '../core/plan-usage';
@@ -118,18 +120,19 @@ export interface CompactMeter {
 
 /** The compact view of the plan usage: the session and weekly windows (and
  * any other window near its limit), the worst tone across every window,
- * and a sentence for assistive tech. */
+ * and a sentence for assistive tech (`label`; `windows` is what it says of
+ * them, for a sentence that names the account). */
 export function compactPlan(
   u: PlanUsage | null,
   now: number,
-): { meters: CompactMeter[]; tone: Tone; label: string } | null {
+): { meters: CompactMeter[]; tone: Tone; label: string; windows: string } | null {
   if (!u?.available) return null;
   const meters = compactWindows(u.windows, now).map(({ window: w, short }) => {
     const pct = windowPct(w, now);
     const reset = !!w.resetsAt && w.resetsAt > now;
     return {
       key: w.key,
-      short,
+      short: tr(short),
       pct,
       bar: Math.min(100, pct),
       tone: severityTone(windowSeverity(w, now)),
@@ -140,10 +143,12 @@ export function compactPlan(
     const left = resetsIn(w.resetsAt, now);
     return `${w.label} ${windowPct(w, now)}%${left ? `, ${left}` : ''}`;
   });
+  const windows = parts.length ? parts.join('; ') : tr('not read yet');
   return {
     meters,
     tone: severityTone(worstSeverity(u.windows, now)),
-    label: `Plan usage: ${parts.length ? parts.join('; ') : 'not read yet'}. Show details`,
+    label: tr('Plan usage: {windows}. Show details', { windows }),
+    windows,
   };
 }
 
@@ -165,29 +170,33 @@ export function compactPlan(
 @Component({
   selector: 'mc-fleet-summary',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [RouterLink, IconComponent, PlanUsageSheetComponent],
+  imports: [RouterLink, IconComponent, PlanUsageSheetComponent, TPipe],
   template: `
     @if (hasSessions() || plan() || multi()) {
-      <div class="fleet" role="group" aria-label="Right now">
+      <div class="fleet" role="group" [attr.aria-label]="'Right now' | t">
         @if (hasSessions()) {
           <button type="button" class="seg" (click)="filter.emit('live')">
             <mc-icon name="activity" [size]="14" />
-            <strong>{{ working() }}</strong> working
+            <strong>{{ working() }}</strong> {{ 'working||fleet' | t }}
           </button>
           @if (resuming()) {
             <button
               type="button"
               class="seg"
-              title="Between turns, but not done: background work or a scheduled wakeup resumes them by themselves"
+              [title]="
+                'Between turns, but not done: background work or a scheduled wakeup resumes them by themselves'
+                  | t
+              "
               (click)="filter.emit('live')"
             >
               <mc-icon name="layers" [size]="14" />
-              <strong>{{ resuming() }}</strong> will resume
+              <strong>{{ resuming() }}</strong> {{ 'will resume' | t }}
             </button>
           }
           <a class="seg" routerLink="/agents">
             <mc-icon name="agents" [size]="14" />
-            <strong>{{ agents() }}</strong> {{ agents() === 1 ? 'agent' : 'agents' }} running
+            <strong>{{ agents() }}</strong>
+            {{ agents() === 1 ? ('agent running' | t) : ('agents running' | t) }}
           </a>
           <button
             type="button"
@@ -196,11 +205,12 @@ export function compactPlan(
             (click)="filter.emit('needs')"
           >
             <mc-icon name="hand" [size]="14" />
-            <strong>{{ needs() }}</strong> {{ needs() === 1 ? 'needs' : 'need' }} you
+            <strong>{{ needs() }}</strong>
+            {{ needs() === 1 ? ('needs you' | t) : ('need you' | t) }}
           </button>
           <span class="seg static" [title]="costTitle()">
             <mc-icon name="clock" [size]="14" />
-            <strong>{{ today() }}</strong> today
+            <strong>{{ today() }}</strong> {{ 'today' | t }}
           </span>
         }
         <!-- With one account the group is no box at all (display: contents):
@@ -208,11 +218,11 @@ export function compactPlan(
              the switcher and its meter wrap as one. -->
         <span class="pgroup" [class.solo]="!multi()">
           @if (multi()) {
-            <label class="seg acct" [title]="'Plan usage of ' + meterName()">
+            <label class="seg acct" [title]="'Plan usage of {name}' | t: { name: meterName() }">
               <span class="adot" aria-hidden="true" [style.background]="meterColor()"></span>
               <span class="aname">{{ meterName() }}</span>
               <mc-icon name="chevronDown" [size]="12" />
-              <select aria-label="Show the plan usage of" (change)="pickMeter($event)">
+              <select [attr.aria-label]="'Show the plan usage of' | t" (change)="pickMeter($event)">
                 @for (a of accountList(); track a.id) {
                   <option [value]="a.id" [selected]="a.id === meterAccount()">{{ a.name }}</option>
                 }
@@ -220,7 +230,7 @@ export function compactPlan(
             </label>
             @if (!plan()) {
               <button type="button" class="seg" (click)="sheetOpen.set(true)">
-                <mc-icon name="gauge" [size]="14" /> No plan usage to show
+                <mc-icon name="gauge" [size]="14" /> {{ 'No plan usage to show' | t }}
               </button>
             }
           }
@@ -243,14 +253,14 @@ export function compactPlan(
                   }
                 </span>
               } @empty {
-                <mc-icon name="gauge" [size]="14" /> Plan usage
+                <mc-icon name="gauge" [size]="14" /> {{ 'Plan usage' | t }}
               }
             </button>
           }
         </span>
       </div>
       @if (accountLines().length) {
-        <div class="fleet accts" role="group" aria-label="Per account">
+        <div class="fleet accts" role="group" [attr.aria-label]="'Per account' | t">
           @for (l of accountLines(); track l.id) {
             <button
               type="button"
@@ -473,17 +483,19 @@ export class FleetSummaryComponent {
   protected readonly needs = computed(() => this.counts().needYou);
   protected readonly today = computed(() => {
     const c = this.counts();
-    return c.priced ? formatUsd(c.costToday) : `${formatTokens(c.tokensToday)} tokens`;
+    return c.priced ? formatUsd(c.costToday) : tr('{n} tokens', { n: formatTokens(c.tokensToday) });
   });
-  protected readonly costTitle = computed(
-    () =>
-      `Spent since midnight across ${this.counts().todaySessions} sessions active today (estimated)`,
+  protected readonly costTitle = computed(() =>
+    tr('Spent since midnight across {n} sessions active today (estimated)', {
+      n: this.counts().todaySessions,
+    }),
   );
   /** More than the Default account: the meter gets its switcher. */
   protected readonly multi = this.accounts.multi;
   protected readonly accountList = this.accounts.list;
   protected readonly meterAccount = this.planUsage.meterAccount;
   private readonly meter = computed(() => this.accounts.byId(this.meterAccount()));
+  /** The account's name (the Default's is its name too). */
   protected readonly meterName = computed(() => this.meter()?.name ?? 'Default');
   protected readonly meterColor = computed(() => {
     const c = this.meter()?.color;
@@ -494,10 +506,14 @@ export class FleetSummaryComponent {
   );
   /** The meter's spoken label names the account once there are several. */
   protected readonly planLabel = computed(() => {
-    const label = this.plan()?.label ?? '';
+    const p = this.plan();
+    if (!p) return '';
     return this.multi()
-      ? label.replace(/^Plan usage:/, `Plan usage of ${this.meterName()}:`)
-      : label;
+      ? tr('Plan usage of {name}: {windows}. Show details', {
+          name: this.meterName(),
+          windows: p.windows,
+        })
+      : p.label;
   });
 
   /** Each account with something going on (live, waiting or spent today),
@@ -509,19 +525,29 @@ export class FleetSummaryComponent {
     for (const a of this.accountList()) {
       const f = by.get(a.id);
       if (!f || (!f.live && !f.needYou && !f.costToday)) continue;
-      const parts: AccountLine['parts'] = [{ text: `${f.live} live` }];
-      if (f.working) parts.push({ text: `${f.working} working` });
-      if (f.background) parts.push({ text: `${f.background} will resume` });
+      const parts: AccountLine['parts'] = [{ text: tr('{n} live', { n: f.live }) }];
+      if (f.working) parts.push({ text: tr('{n} working', { n: f.working }) });
+      if (f.background) parts.push({ text: tr('{n} will resume', { n: f.background }) });
       if (f.needYou) {
-        parts.push({ text: `${f.needYou} ${f.needYou === 1 ? 'needs' : 'need'} you`, warn: true });
+        parts.push({
+          text:
+            f.needYou === 1
+              ? tr('{n} needs you', { n: f.needYou })
+              : tr('{n} need you', { n: f.needYou }),
+          warn: true,
+        });
       }
-      if (f.costToday) parts.push({ text: `${formatUsd(f.costToday)} today` });
+      if (f.costToday)
+        parts.push({ text: tr('{amount} today', { amount: formatUsd(f.costToday) }) });
       out.push({
         id: a.id,
         name: a.name,
         color: isAccountColor(a.color) ? a.color : 'var(--accent)',
         parts,
-        label: `${a.name}: ${parts.map((p) => p.text).join(', ')}. Show its sessions`,
+        label: tr('{name}: {counts}. Show its sessions', {
+          name: a.name,
+          counts: parts.map((p) => p.text).join(', '),
+        }),
       });
     }
     return out;

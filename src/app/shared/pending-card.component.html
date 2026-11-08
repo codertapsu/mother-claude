@@ -24,22 +24,22 @@
       <span class="tag mono">{{ toolName() }}</span>
     }
     @if (item().agentId) {
-      <span class="tag" title="Asked by a subagent">
-        <mc-icon name="agents" [size]="12" /> {{ full()?.agentType || 'subagent' }}
+      <span class="tag" [title]="'Asked by a subagent' | t">
+        <mc-icon name="agents" [size]="12" /> {{ full()?.agentType || ('subagent' | t) }}
       </span>
     }
     @if (!compact() && isBrowser()) {
-      <span class="tag" title="A Claude Code session wants to do this in your browser"
-        ><mc-icon name="globe" [size]="12" /> in the browser</span
+      <span class="tag" [title]="'A Claude Code session wants to do this in your browser' | t"
+        ><mc-icon name="globe" [size]="12" /> {{ 'in the browser' | t }}</span
       >
     }
     @if (!compact() && full()?.source === 'hook') {
-      <span class="tag" title="Delivered through the hooks plugin; the first answer wins"
-        >via hooks</span
-      >
+      <span class="tag" [title]="'Delivered through the hooks plugin; the first answer wins' | t">{{
+        'via hooks' | t
+      }}</span>
     }
     @if (item().dangerous) {
-      <span class="tag danger"><mc-icon name="alert" [size]="12" /> dangerous</span>
+      <span class="tag danger"><mc-icon name="alert" [size]="12" /> {{ 'dangerous' | t }}</span>
     }
   </div>
 }
@@ -50,7 +50,7 @@
   </p>
   @if (!done() && !resolution()?.mine && feedback().trim()) {
     <button class="btn small" type="button" (click)="sendAsMessage.emit(feedback().trim())">
-      <mc-icon name="send" [size]="14" /> Send your note as a message instead
+      <mc-icon name="send" [size]="14" /> {{ 'Send your note as a message instead' | t }}
     </button>
   }
 } @else if (compact()) {
@@ -64,7 +64,9 @@
   }
   <div class="actions">
     @if (!canAct()) {
-      <span class="muted small">Waiting at the Mac ({{ surface() }})</span>
+      <span class="muted small">{{
+        'Waiting at the {computer} ({app})' | t: { computer: computer(), app: surface() }
+      }}</span>
     } @else if (quick() === 'permission') {
       <button
         class="btn primary small"
@@ -75,7 +77,7 @@
         @if (busy()) {
           <span class="spin" aria-hidden="true"></span>
         }
-        Allow
+        {{ 'Allow' | t }}
       </button>
       <button
         class="btn danger small"
@@ -83,7 +85,7 @@
         [disabled]="busy() || offline()"
         (click)="deny()"
       >
-        Deny
+        {{ 'Deny' | t }}
       </button>
     } @else if (quick() === 'question') {
       @for (o of quickOptions(); track o) {
@@ -99,12 +101,12 @@
     }
     <span class="spacer"></span>
     <a class="btn ghost small" [routerLink]="['/session', item().sessionId]">
-      {{ canAct() && !quick() ? 'Review' : 'Open' }}
+      {{ canAct() && !quick() ? ('Review' | t) : ('Open' | t) }}
       <mc-icon name="chevronRight" [size]="14" />
     </a>
   </div>
   @if (offline() && canAct()) {
-    <p class="muted small">Reconnecting… answers are paused.</p>
+    <p class="muted small">{{ 'Reconnecting… answers are paused.' | t }}</p>
   }
 } @else {
   <!-- ─────────────── Full card ─────────────── -->
@@ -113,13 +115,17 @@
       @if (loadError()) {
         <p class="error-text small">
           {{ loadError() }}
-          <button class="btn ghost small" type="button" (click)="retryLoad()">Retry</button>
+          <button class="btn ghost small" type="button" (click)="retryLoad()">
+            {{ 'Retry' | t }}
+          </button>
         </p>
       } @else {
         @if (item().detail) {
           <pre class="detail">{{ item().detail }}</pre>
         }
-        <p class="skeleton" aria-label="Loading the request"><span></span><span></span></p>
+        <p class="skeleton" [attr.aria-label]="'Loading the request' | t">
+          <span></span><span></span>
+        </p>
       }
     } @else {
       @switch (item().kind) {
@@ -132,7 +138,7 @@
                 }
                 <span class="qtext">{{ q.question }}</span>
                 @if (q.multiSelect) {
-                  <span class="muted small">Pick any</span>
+                  <span class="muted small">{{ 'Pick any' | t }}</span>
                 }
               </legend>
               <div class="options">
@@ -167,8 +173,8 @@
                   [ngModel]="other()[qi]"
                   (ngModelChange)="setOther(qi, $event)"
                   [disabled]="busy()"
-                  placeholder="Other… type your own answer"
-                  [attr.aria-label]="'Other answer to: ' + q.question"
+                  [placeholder]="'Other… type your own answer' | t"
+                  [attr.aria-label]="'Other answer to: {question}' | t: { question: q.question }"
                 />
               }
             </fieldset>
@@ -199,7 +205,7 @@
                 <label class="field">
                   <span class="field-label">{{ f.label }}{{ f.required ? ' *' : '' }}</span>
                   <select [ngModel]="form()[f.key] ?? ''" (ngModelChange)="setField(f.key, $event)">
-                    <option value="" disabled>Choose…</option>
+                    <option value="" disabled>{{ 'Choose…' | t }}</option>
                     @for (o of f.options ?? []; track o) {
                       <option [value]="o">{{ o }}</option>
                     }
@@ -252,12 +258,12 @@
     <p class="reason">
       <mc-icon name="alert" [size]="14" />
       @if (full()?.dangerousReason; as why) {
-        <span>Marked dangerous: {{ why }}</span>
+        <span>{{ 'Marked dangerous: {why}' | t: { why } }}</span>
       } @else {
-        <span
-          >Marked dangerous: approving it can run without further checks or change settings beyond
-          this request.</span
-        >
+        <span>{{
+          'Marked dangerous: approving it can run without further checks or change settings beyond this request.'
+            | t
+        }}</span>
       }
     </p>
   }
@@ -277,10 +283,10 @@
             } @else {
               <mc-icon name="send" [size]="15" />
             }
-            Send {{ questions().length > 1 ? 'answers' : 'answer' }}
+            {{ questions().length > 1 ? ('Send answers' | t) : ('Send answer' | t) }}
           </button>
           <button class="btn ghost" type="button" [disabled]="busy() || offline()" (click)="deny()">
-            Skip
+            {{ 'Skip' | t }}
           </button>
         </div>
       }
@@ -288,7 +294,7 @@
       @case ('plan') {
         <div class="actions">
           <button class="btn ghost small" type="button" (click)="planSheet.set(true)">
-            <mc-icon name="book" [size]="14" /> Read the full plan
+            <mc-icon name="book" [size]="14" /> {{ 'Read the full plan' | t }}
           </button>
         </div>
         @if (panel() === 'planFeedback') {
@@ -297,8 +303,8 @@
               rows="3"
               [ngModel]="feedback()"
               (ngModelChange)="feedback.set($event)"
-              placeholder="What should change in the plan?"
-              aria-label="Feedback for the plan"
+              [placeholder]="'What should change in the plan?' | t"
+              [attr.aria-label]="'Feedback for the plan' | t"
             ></textarea>
             <div class="actions">
               <button
@@ -307,9 +313,11 @@
                 [disabled]="busy() || offline()"
                 (click)="keepPlanning()"
               >
-                Send feedback
+                {{ 'Send feedback' | t }}
               </button>
-              <button class="btn ghost" type="button" (click)="panel.set('main')">Cancel</button>
+              <button class="btn ghost" type="button" (click)="panel.set('main')">
+                {{ 'Cancel' | t }}
+              </button>
             </div>
           </div>
         } @else {
@@ -325,10 +333,10 @@
             [disabled]="busy() || offline() || !formValid()"
             (click)="accept()"
           >
-            Accept
+            {{ 'Accept' | t }}
           </button>
           <button class="btn" type="button" [disabled]="busy() || offline()" (click)="deny()">
-            Decline
+            {{ 'Decline' | t }}
           </button>
         </div>
       }
@@ -336,7 +344,7 @@
       @default {
         @if (panel() === 'always') {
           <div class="panel">
-            <p class="muted small">Allow now, and remember it:</p>
+            <p class="muted small">{{ 'Allow now, and remember it:' | t }}</p>
             @for (s of suggestions(); track s.index) {
               <button
                 class="btn block suggestion"
@@ -350,11 +358,15 @@
             }
             @if (!canDangerous()) {
               <p class="muted small">
-                Rules saved to settings files need the Mac, or a device allowed to take dangerous
-                actions (Remote › Devices).
+                {{
+                  'Rules saved to settings files need the {computer}, or a device allowed to take dangerous actions (Remote › Devices).'
+                    | t: { computer: computer() }
+                }}
               </p>
             }
-            <button class="btn ghost" type="button" (click)="panel.set('main')">Cancel</button>
+            <button class="btn ghost" type="button" (click)="panel.set('main')">
+              {{ 'Cancel' | t }}
+            </button>
           </div>
         } @else if (panel() === 'feedback') {
           <div class="panel">
@@ -362,8 +374,8 @@
               rows="3"
               [ngModel]="feedback()"
               (ngModelChange)="feedback.set($event)"
-              placeholder="Tell Claude what to do instead (optional)"
-              aria-label="Feedback for Claude"
+              [placeholder]="'Tell Claude what to do instead (optional)' | t"
+              [attr.aria-label]="'Feedback for Claude' | t"
             ></textarea>
             <label class="check">
               <input
@@ -371,7 +383,7 @@
                 [ngModel]="stopTurn()"
                 (ngModelChange)="stopTurn.set($event)"
               />
-              Also stop the current turn
+              {{ 'Also stop the current turn' | t }}
             </label>
             <div class="actions">
               <button
@@ -380,9 +392,11 @@
                 [disabled]="busy() || offline()"
                 (click)="denyWithFeedback()"
               >
-                Deny
+                {{ 'Deny' | t }}
               </button>
-              <button class="btn ghost" type="button" (click)="panel.set('main')">Cancel</button>
+              <button class="btn ghost" type="button" (click)="panel.set('main')">
+                {{ 'Cancel' | t }}
+              </button>
             </div>
           </div>
         } @else {
@@ -398,7 +412,7 @@
               } @else {
                 <mc-icon name="check" [size]="15" />
               }
-              Allow once
+              {{ 'Allow once' | t }}
             </button>
             @if (suggestions().length) {
               <button
@@ -407,7 +421,7 @@
                 [disabled]="busy() || offline() || allowBlocked()"
                 (click)="panel.set('always')"
               >
-                Always…
+                {{ 'Always…' | t }}
               </button>
             }
             <button
@@ -416,7 +430,7 @@
               [disabled]="busy() || offline()"
               (click)="deny()"
             >
-              <mc-icon name="x" [size]="15" /> Deny
+              <mc-icon name="x" [size]="15" /> {{ 'Deny' | t }}
             </button>
             <button
               class="btn ghost"
@@ -424,20 +438,24 @@
               [disabled]="busy() || offline()"
               (click)="panel.set('feedback')"
             >
-              Deny with feedback…
+              {{ 'Deny with feedback…' | t }}
             </button>
           </div>
           @if (allowBlocked()) {
             <p class="muted small">
-              Approve dangerous actions on the Mac, or allow this device to take them (Remote ›
-              Devices). You can still deny it here.
+              {{
+                'Approve dangerous actions on the {computer}, or allow this device to take them (Remote › Devices). You can still deny it here.'
+                  | t: { computer: computer() }
+              }}
             </p>
           }
         }
       }
     }
     @if (offline()) {
-      <p class="muted small">Reconnecting… answers are paused until the connection is back.</p>
+      <p class="muted small">
+        {{ 'Reconnecting… answers are paused until the connection is back.' | t }}
+      </p>
     }
   }
 
@@ -468,7 +486,7 @@
       [disabled]="busy() || offline()"
       (click)="approvePlan('acceptEdits')"
     >
-      Approve &amp; auto-accept edits
+      {{ 'Approve & auto-accept edits' | t }}
     </button>
     <button
       class="btn"
@@ -476,7 +494,7 @@
       [disabled]="busy() || offline()"
       (click)="approvePlan('default')"
     >
-      Approve &amp; review each edit
+      {{ 'Approve & review each edit' | t }}
     </button>
     <button
       class="btn ghost"
@@ -484,13 +502,18 @@
       [disabled]="busy() || offline()"
       (click)="panel.set('planFeedback'); planSheet.set(false)"
     >
-      Keep planning…
+      {{ 'Keep planning…' | t }}
     </button>
   </div>
 </ng-template>
 
 @if (item().kind === 'plan' && !compact()) {
-  <mc-sheet size="full" title="Plan" [open]="planSheet()" (closed)="planSheet.set(false)">
+  <mc-sheet
+    size="full"
+    [title]="'Plan||document' | t"
+    [open]="planSheet()"
+    (closed)="planSheet.set(false)"
+  >
     <div class="md plan-full" [innerHTML]="planHtml()"></div>
     @if (canAct() && !settled()) {
       <ng-container *ngTemplateOutlet="planActions" />

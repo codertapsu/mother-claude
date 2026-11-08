@@ -9,6 +9,8 @@ import {
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 
+import { tr } from '../core/i18n/i18n';
+import { TPipe } from '../core/i18n/t.pipe';
 import { ChecklistRow, filterRows } from '../core/move-data';
 import { IconComponent } from './icon.component';
 
@@ -24,12 +26,14 @@ const FIRST_ROWS = 50;
  * `more` offers loading earlier ones. The search filters the rows here,
  * unless the host searched for them (`searched`: the rows are what its
  * server found); *Select all* hands the matches to the host, which may
- * take more than are listed (every match on the server).
+ * take more than are listed (every match on the server). The texts a host
+ * gives (`label`, `noun`, `emptyText`, `moreText`) show in the language
+ * shown.
  */
 @Component({
   selector: 'mc-move-checklist',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [FormsModule, IconComponent],
+  imports: [FormsModule, IconComponent, TPipe],
   template: `
     <div class="clhead">
       <label class="search">
@@ -39,8 +43,8 @@ const FIRST_ROWS = 50;
           autocapitalize="off"
           autocomplete="off"
           spellcheck="false"
-          [placeholder]="'Search ' + noun()"
-          [attr.aria-label]="'Search ' + noun()"
+          [placeholder]="searchText()"
+          [attr.aria-label]="searchText()"
           [ngModel]="query()"
           (ngModelChange)="query.set($event)"
         />
@@ -54,7 +58,11 @@ const FIRST_ROWS = 50;
           (click)="selectAll.emit(visibleIds())"
         >
           {{
-            selectingAll() ? 'Selecting…' : query().trim() ? 'Select all matching' : 'Select all'
+            selectingAll()
+              ? ('Selecting…' | t)
+              : query().trim()
+                ? ('Select all matching' | t)
+                : ('Select all' | t)
           }}
         </button>
         <button
@@ -63,14 +71,14 @@ const FIRST_ROWS = 50;
           [disabled]="disabled() || !selected().size"
           (click)="bulk.emit({ ids: [...selected()], on: false })"
         >
-          None
+          {{ 'None||select' | t }}
         </button>
       </div>
       @if (selectAllError()) {
         <p class="error-text small" role="alert">{{ selectAllError() }}</p>
       }
     </div>
-    <ul class="rows" [attr.aria-label]="label()">
+    <ul class="rows" [attr.aria-label]="label() | t">
       @for (r of shown(); track r.id) {
         <li>
           <label class="pick">
@@ -97,18 +105,18 @@ const FIRST_ROWS = 50;
       } @empty {
         <li class="none muted small">
           @if (loading()) {
-            Loading…
+            {{ 'Loading…' | t }}
           } @else if (query().trim()) {
-            Nothing matches.
+            {{ 'Nothing matches.' | t }}
           } @else {
-            {{ emptyText() }}
+            {{ emptyText() | t }}
           }
         </li>
       }
     </ul>
     @if (hidden() > 0) {
       <button class="btn ghost small" type="button" (click)="limit.set(null)">
-        Show {{ hidden() }} more
+        {{ 'Show {n} more' | t: { n: hidden() } }}
       </button>
     }
     @if (error()) {
@@ -121,7 +129,7 @@ const FIRST_ROWS = 50;
         [disabled]="loading()"
         (click)="loadMore.emit()"
       >
-        {{ loading() ? 'Loading…' : moreText() }}
+        {{ loading() ? ('Loading…' | t) : (moreText() | t) }}
       </button>
     }
   `,
@@ -268,11 +276,14 @@ export class MoveChecklistComponent {
     return n === null ? this.visible() : this.visible().slice(0, n);
   });
   protected readonly hidden = computed(() => this.visible().length - this.shown().length);
+  /** "Search conversations": what the search looks for, in the language
+   * shown. */
+  protected readonly searchText = computed(() => tr('Search {what}', { what: tr(this.noun()) }));
   /** "3 of 12 selected" while every item is listed, else "40 selected"
-   * (more are on the Mac than are listed). */
+   * (more are on the desktop's computer than are listed). */
   protected readonly countText = computed(() => {
-    if (this.more()) return `${this.selected().size} selected`;
+    if (this.more()) return tr('{n} selected', { n: this.selected().size });
     const n = this.rows().filter((r) => this.selected().has(r.id)).length;
-    return `${n} of ${this.rows().length} selected`;
+    return tr('{n} of {total} selected', { n, total: this.rows().length });
   });
 }

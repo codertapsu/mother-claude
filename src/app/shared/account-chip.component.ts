@@ -1,6 +1,8 @@
 import { ChangeDetectionStrategy, Component, computed, input } from '@angular/core';
 
 import { isAccountColor } from '../core/accounts';
+import { tr } from '../core/i18n/i18n';
+import { TPipe } from '../core/i18n/t.pipe';
 import { AccountRef } from '../core/models';
 
 /**
@@ -11,10 +13,13 @@ import { AccountRef } from '../core/models';
 @Component({
   selector: 'mc-account-chip',
   changeDetection: ChangeDetectionStrategy.OnPush,
+  imports: [TPipe],
   host: { '[attr.title]': 'title()' },
   template: `
     <span class="dot" aria-hidden="true" [style.background]="color()"></span>
-    <span class="txt"><span class="visually-hidden">Account </span>{{ account().name }}</span>
+    <span class="txt"
+      ><span class="visually-hidden">{{ 'Account' | t }} </span>{{ account().name }}</span
+    >
   `,
   styles: [
     `
@@ -58,6 +63,8 @@ export class AccountChipComponent {
   });
   protected readonly title = computed(() => {
     const a = this.account();
-    return `Claude account: ${a.name}${a.kind === 'token' ? ' (token)' : ''}`;
+    return a.kind === 'token'
+      ? tr('Claude account: {name} (token)', { name: a.name })
+      : tr('Claude account: {name}', { name: a.name });
   });
 }

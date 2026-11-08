@@ -2,6 +2,8 @@ import { ChangeDetectionStrategy, Component, computed, inject, input } from '@an
 
 import { AccountsService } from '../core/accounts.service';
 import { formatBytes, plural } from '../core/data-jobs';
+import { tr } from '../core/i18n/i18n';
+import { TPipe } from '../core/i18n/t.pipe';
 import {
   CustomizationPlan,
   MoveDirection,
@@ -33,17 +35,20 @@ const ROWS = 30;
 @Component({
   selector: 'mc-move-plan',
   changeDetection: ChangeDetectionStrategy.OnPush,
+  imports: [TPipe],
   template: `
     @let p = plan();
     <p class="planline">{{ line() }}</p>
     @if (p.jobs > 1) {
       <p class="muted small jobs">
-        It runs as {{ p.jobs }} jobs, one for each place the conversations come from.
+        {{
+          'It runs as {n} jobs, one for each place the conversations come from.' | t: { n: p.jobs }
+        }}
       </p>
     }
     @if (p.sessions.length) {
-      <h4>What goes</h4>
-      <ul class="plist" aria-label="What goes">
+      <h4>{{ 'What goes' | t }}</h4>
+      <ul class="plist" [attr.aria-label]="'What goes' | t">
         @for (s of shown(); track s.id) {
           <li>
             <span class="ptitle">{{ s.title || s.id.slice(0, 8) }}</span>
@@ -52,12 +57,12 @@ const ROWS = 30;
         }
       </ul>
       @if (more() > 0) {
-        <p class="muted small">and {{ more() }} more</p>
+        <p class="muted small">{{ 'and {n} more' | t: { n: more() } }}</p>
       }
     }
     @if (p.skipped.length) {
-      <h4>Skipped ({{ p.skipped.length }})</h4>
-      <ul class="plist skips" aria-label="Skipped">
+      <h4>{{ 'Skipped ({n})' | t: { n: p.skipped.length } }}</h4>
+      <ul class="plist skips" [attr.aria-label]="'Skipped' | t">
         @for (k of p.skipped; track $index) {
           <li>
             <span class="ptitle">{{ skipNameOf(k) }}</span>
@@ -67,8 +72,8 @@ const ROWS = 30;
       </ul>
     }
     @if (p.customizations.length) {
-      <h4>Customizations</h4>
-      <ul class="plist" aria-label="Customizations">
+      <h4>{{ 'Customizations' | t }}</h4>
+      <ul class="plist" [attr.aria-label]="'Customizations' | t">
         @for (c of p.customizations; track $index) {
           <li>
             <span class="ptitle">{{ itemLabel(c) }}</span>
@@ -175,26 +180,42 @@ export class MovePlanComponent {
     const entries = (n: number) => plural(n, 'folder entry', 'folder entries');
     if (p.addsProjectEntries.length) {
       out.push(
-        `Adds ${entries(p.addsProjectEntries.length)}, with their trust, to ${to}'s settings.`,
+        tr("Adds {entries}, with their trust, to {to}'s settings.", {
+          entries: entries(p.addsProjectEntries.length),
+          to,
+        }),
       );
     }
     if (p.removesProjectEntries.length) {
+      const from = this.fromName();
+      const entriesText = entries(p.removesProjectEntries.length);
       out.push(
-        `Takes ${entries(p.removesProjectEntries.length)} out of ${this.fromName() || 'the source'}'s settings.`,
+        from
+          ? tr("Takes {entries} out of {from}'s settings.", { entries: entriesText, from })
+          : tr("Takes {entries} out of the source's settings.", { entries: entriesText }),
       );
     }
-    if (p.historyLines)
-      out.push(`Adds ${plural(p.historyLines, 'line')} of prompt history to ${to}.`);
+    if (p.historyLines) {
+      out.push(
+        tr('Adds {lines} of prompt history to {to}.', {
+          lines: plural(p.historyLines, 'line'),
+          to,
+        }),
+      );
+    }
     if (p.writesShared) {
       out.push(
-        `Writes ${to}'s shared files, so it waits until no Claude Code session uses that folder.`,
+        tr(
+          "Writes {to}'s shared files, so it waits until no Claude Code session uses that folder.",
+          { to },
+        ),
       );
     }
-    if (p.truncated) out.push('The lists show the first 1000 of each; it takes them all.');
+    if (p.truncated) out.push(tr('The lists show the first 1000 of each; it takes them all.'));
     out.push(
       this.direction() === 'toStorage' && p.mode === 'copy'
-        ? 'A copy into a storage is a backup: there is nothing to undo.'
-        : 'Everything it changes can be undone for seven days.',
+        ? tr('A copy into a storage is a backup: there is nothing to undo.')
+        : tr('Everything it changes can be undone for seven days.'),
     );
     return out;
   });
@@ -204,7 +225,11 @@ export class MovePlanComponent {
     const parts = [s.id.slice(0, 8), shortPath(s.cwd)];
     if (s.files || s.bytes) parts.push(`${plural(s.files, 'file')} · ${formatBytes(s.bytes)}`);
     if (s.from && (!p.from || locationKey(s.from) !== locationKey(p.from))) {
-      parts.push(`from ${locationName(s.from, this.accounts.list(), this.storage.list() ?? [])}`);
+      parts.push(
+        tr('from {place}', {
+          place: locationName(s.from, this.accounts.list(), this.storage.list() ?? []),
+        }),
+      );
     }
     if (this.mixed()) parts.push(actionLabel(s.action));
     return parts.filter(Boolean).join(' · ');

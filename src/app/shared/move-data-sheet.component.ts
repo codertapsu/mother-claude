@@ -21,6 +21,8 @@ import { normalizeBackupIndex } from '../core/backup';
 import { normalizeJob, plural } from '../core/data-jobs';
 import { DataJobsService } from '../core/data-jobs.service';
 import { DataProject, normalizeDataProjects } from '../core/delete-data';
+import { computerNoun, tr } from '../core/i18n/i18n';
+import { TPipe } from '../core/i18n/t.pipe';
 import { BackupIndex, JobView, SessionSummary, SessionsQuery, TransferMode } from '../core/models';
 import {
   CUSTOMIZATIONS,
@@ -88,9 +90,10 @@ const PAGE = 200;
 /** Pages read on so that conversations ticked but not listed get their
  * titles (Select all, or the opener's picks). */
 const TITLE_PAGES = 5;
-/** How long typing waits before the Mac is searched. */
+/** How long typing waits before the desktop is searched. */
 const SEARCH_DEBOUNCE_MS = 300;
 
+/** English: translated where they are read (the template). */
 const WHATS: readonly { value: MoveWhat; label: string }[] = [
   { value: 'all', label: 'Everything' },
   { value: 'projects', label: 'Projects' },
@@ -105,7 +108,7 @@ interface IndexState {
   error: string;
 }
 
-/** Conversations read from the Mac for a checklist, page by page: an
+/** Conversations read from the desktop for a checklist, page by page: an
  * account's (every one's, for titles), or what a search found. */
 interface SessionList {
   key: string;
@@ -132,7 +135,7 @@ interface DiskProjects {
  * restore), or between two sets. *From* and *To* list the accounts and the
  * storages with their sets (*New set…* as a target); conversations and
  * projects are searchable checklists — an account's conversations are
- * searched on the Mac and *Select all* takes every match, not only the
+ * searched on the desktop and *Select all* takes every match, not only the
  * pages read; its projects are every folder on disk (`GET /data/projects`);
  * a set's come from its index. Move
  * or Copy, as far as the way allows; a folder's trust and the replace
@@ -151,30 +154,33 @@ interface DiskProjects {
     MoveChecklistComponent,
     MovePlanComponent,
     SheetComponent,
+    TPipe,
   ],
   template: `
-    <mc-sheet [open]="open()" title="Move or copy data" (closed)="closed.emit()">
+    <mc-sheet [open]="open()" [title]="'Move or copy data' | t" (closed)="closed.emit()">
       @if (open()) {
         @if (!ready()) {
           @if (loadError()) {
             <p class="notice error small" role="alert">{{ loadError() }}</p>
             <div class="row actions">
-              <button class="btn" type="button" (click)="reload()">Try again</button>
+              <button class="btn" type="button" (click)="reload()">{{ 'Try again' | t }}</button>
             </div>
           } @else {
-            <p class="muted small">Loading…</p>
+            <p class="muted small">{{ 'Loading…' | t }}</p>
           }
         } @else if (!somewhere()) {
           <p class="muted small nowhere">
-            There is nowhere to move it yet: add an account with a folder of its own on the Accounts
-            page, or a storage on Backup &amp; sync.
+            {{
+              'There is nowhere to move it yet: add an account with a folder of its own on the Accounts page, or a storage on Backup & sync.'
+                | t
+            }}
           </p>
         } @else {
           @switch (step()) {
             @case ('pick') {
               <div class="places">
                 <label class="field">
-                  <span class="field-label">From</span>
+                  <span class="field-label">{{ 'From' | t }}</span>
                   <select
                     name="from"
                     [disabled]="busy()"
@@ -182,7 +188,9 @@ interface DiskProjects {
                     (change)="pickFrom($any($event.target).value)"
                   >
                     @if (offerEverywhere()) {
-                      <option value="" [selected]="fromKey() === ''">Where each one is</option>
+                      <option value="" [selected]="fromKey() === ''">
+                        {{ 'Where each one is' | t }}
+                      </option>
                     }
                     @for (g of fromGroups(); track g.label) {
                       <optgroup [label]="g.label">
@@ -201,7 +209,7 @@ interface DiskProjects {
                   <span class="field-hint" id="md-from-hint">{{ fromHint() }}</span>
                 </label>
                 <label class="field">
-                  <span class="field-label">To</span>
+                  <span class="field-label">{{ 'To' | t }}</span>
                   <select
                     name="to"
                     [disabled]="busy()"
@@ -209,7 +217,9 @@ interface DiskProjects {
                     (change)="pickTo($any($event.target).value)"
                   >
                     @if (!toKeyInEffect()) {
-                      <option value="" [selected]="true" disabled>Choose where it goes</option>
+                      <option value="" [selected]="true" disabled>
+                        {{ 'Choose where it goes' | t }}
+                      </option>
                     }
                     @for (g of toGroups(); track g.label) {
                       <optgroup [label]="g.label">
@@ -229,14 +239,14 @@ interface DiskProjects {
                 </label>
                 @if (newSetFor()) {
                   <label class="field">
-                    <span class="field-label">Name of the new set</span>
+                    <span class="field-label">{{ 'Name of the new set' | t }}</span>
                     <input
                       name="newSet"
                       maxlength="40"
                       autocomplete="off"
                       autocapitalize="off"
                       spellcheck="false"
-                      placeholder="Archive 2026"
+                      [placeholder]="'Archive 2026' | t"
                       [disabled]="busy()"
                       [ngModel]="newSetName()"
                       (ngModelChange)="newSetName.set($event); error.set('')"
@@ -248,10 +258,12 @@ interface DiskProjects {
                 }
               </div>
               @if (storageError()) {
-                <p class="muted small">Storages could not be read: {{ storageError() }}</p>
+                <p class="muted small">
+                  {{ 'Storages could not be read: {error}' | t: { error: storageError() } }}
+                </p>
               }
 
-              <h3 id="md-what">What</h3>
+              <h3 id="md-what">{{ 'What' | t }}</h3>
               <div class="segmented whatseg" role="group" aria-labelledby="md-what">
                 @for (w of whatOptions(); track w.value) {
                   <button
@@ -261,7 +273,7 @@ interface DiskProjects {
                     [attr.title]="w.problem || null"
                     (click)="setWhat(w.value)"
                   >
-                    {{ w.label }}
+                    {{ w.label | t }}
                   </button>
                 }
               </div>
@@ -276,13 +288,13 @@ interface DiskProjects {
                 @case ('sessions') {
                   <mc-move-checklist
                     noun="conversations"
-                    [label]="'Conversations of ' + fromName()"
+                    [label]="'Conversations of {name}' | t: { name: fromName() }"
                     [rows]="sessionRows()"
                     [selected]="pickedSessions()"
                     [loading]="sourceLoading()"
                     [error]="sourceError()"
                     [more]="sourceMore()"
-                    moreText="Load earlier conversations"
+                    [moreText]="'Load earlier conversations' | t"
                     [emptyText]="emptyText()"
                     [disabled]="busy()"
                     [searched]="!!searchQuery()"
@@ -298,14 +310,14 @@ interface DiskProjects {
                 @case ('projects') {
                   <mc-move-checklist
                     noun="projects"
-                    [label]="'Projects of ' + fromName()"
+                    [label]="'Projects of {name}' | t: { name: fromName() }"
                     [rows]="projectRowsShown()"
                     [selected]="pickedProjects()"
                     [loading]="projectsLoading()"
                     [error]="projectsError()"
                     [more]="projectsMore()"
-                    moreText="Look through earlier conversations"
-                    emptyText="No projects here."
+                    [moreText]="'Look through earlier conversations' | t"
+                    [emptyText]="'No projects here.' | t"
                     [disabled]="busy()"
                     (flip)="flip(pickedProjects, $event)"
                     (bulk)="bulkSet(pickedProjects, $event)"
@@ -313,11 +325,13 @@ interface DiskProjects {
                     (loadMore)="loadMore()"
                   />
                   <p class="muted small">
-                    A project takes every conversation in its folder and its prompt history.
+                    {{
+                      'A project takes every conversation in its folder and its prompt history.' | t
+                    }}
                   </p>
                 }
                 @case ('customizations') {
-                  <ul class="custom" aria-label="Customizations">
+                  <ul class="custom" [attr.aria-label]="'Customizations' | t">
                     @for (c of customRows(); track c.item) {
                       <li>
                         <label class="pick">
@@ -328,21 +342,23 @@ interface DiskProjects {
                             (change)="flipCustom(c.item)"
                           />
                           <span class="body">
-                            <span class="title">{{ c.label }}</span>
-                            <span class="muted small">{{ c.hint }}</span>
+                            <span class="title">{{ c.label | t }}</span>
+                            <span class="muted small">{{ c.hint | t }}</span>
                             @if (c.blocked) {
-                              <span class="small blocked">{{ dangerousReason }}</span>
+                              <span class="small blocked">{{ dangerousReason | t }}</span>
                             }
                           </span>
                         </label>
                       </li>
                     }
                   </ul>
-                  <p class="muted small">Plugins are never copied: install them in the account.</p>
+                  <p class="muted small">
+                    {{ 'Plugins are never copied: install them in the account.' | t }}
+                  </p>
                 }
               }
 
-              <h3 id="md-how">How</h3>
+              <h3 id="md-how">{{ 'How' | t }}</h3>
               <div class="segmented" role="group" aria-labelledby="md-how">
                 <button
                   type="button"
@@ -350,7 +366,7 @@ interface DiskProjects {
                   [disabled]="busy() || !!copyProblem()"
                   (click)="setMode('copy')"
                 >
-                  <mc-icon name="copy" [size]="14" /> Copy
+                  <mc-icon name="copy" [size]="14" /> {{ 'Copy' | t }}
                 </button>
                 <button
                   type="button"
@@ -358,7 +374,7 @@ interface DiskProjects {
                   [disabled]="busy() || !!moveProblem()"
                   (click)="setMode('move')"
                 >
-                  <mc-icon name="move" [size]="14" /> Move
+                  <mc-icon name="move" [size]="14" /> {{ 'Move' | t }}
                 </button>
               </div>
               @if (modeLine()) {
@@ -377,12 +393,12 @@ interface DiskProjects {
                     (change)="trust.set($any($event.target).checked)"
                   />
                   <span>
-                    Also trust their folders for {{ toName() }}
-                    <span class="muted small hint-line"
-                      >A trusted folder runs its project hooks and MCP servers without asking.</span
-                    >
+                    {{ 'Also trust their folders for {name}' | t: { name: toName() } }}
+                    <span class="muted small hint-line">{{
+                      'A trusted folder runs its project hooks and MCP servers without asking.' | t
+                    }}</span>
                     @if (!canDangerous()) {
-                      <span class="small hint-line blocked">{{ dangerousReason }}</span>
+                      <span class="small hint-line blocked">{{ dangerousReason | t }}</span>
                     }
                   </span>
                 </label>
@@ -396,11 +412,11 @@ interface DiskProjects {
                     (change)="replace.set($any($event.target).checked)"
                   />
                   <span>
-                    Replace what {{ toName() }} has
-                    <span class="muted small hint-line"
-                      >Its own copy goes into the undo folder first. Without this, only what it
-                      lacks is added.</span
-                    >
+                    {{ 'Replace what {name} has' | t: { name: toName() } }}
+                    <span class="muted small hint-line">{{
+                      'Its own copy goes into the undo folder first. Without this, only what it lacks is added.'
+                        | t
+                    }}</span>
                   </span>
                 </label>
               }
@@ -415,7 +431,7 @@ interface DiskProjects {
                   [disabled]="!!blocker() || busy()"
                   (click)="dryRun()"
                 >
-                  {{ busy() ? 'Checking…' : 'Check what it does' }}
+                  {{ busy() ? ('Checking…' | t) : ('Check what it does' | t) }}
                 </button>
                 @if (blocker() && !busy()) {
                   <span class="muted small">{{ blocker() }}</span>
@@ -426,7 +442,10 @@ interface DiskProjects {
             @case ('plan') {
               @if (plan(); as p) {
                 <p class="route small muted">
-                  {{ modeWord() }} · from {{ fromName() }} to {{ toName() }}
+                  {{
+                    '{mode} · from {from} to {to}'
+                      | t: { mode: modeWord(), from: fromName(), to: toName() }
+                  }}
                 </p>
                 <mc-move-plan
                   [plan]="p"
@@ -447,10 +466,10 @@ interface DiskProjects {
                   (click)="run()"
                 >
                   <mc-icon [name]="mode() === 'move' ? 'move' : 'copy'" [size]="14" />
-                  {{ busy() ? 'Starting…' : runLabel() }}
+                  {{ busy() ? ('Starting…' | t) : runLabel() }}
                 </button>
                 <button class="btn ghost" type="button" [disabled]="busy()" (click)="back()">
-                  Back
+                  {{ 'Back' | t }}
                 </button>
               </div>
             }
@@ -466,10 +485,10 @@ interface DiskProjects {
               }
               <div class="row actions">
                 @if (anyFailed()) {
-                  <button class="btn" type="button" (click)="back()">Back</button>
+                  <button class="btn" type="button" (click)="back()">{{ 'Back' | t }}</button>
                 }
                 <button class="btn ghost" type="button" (click)="closed.emit()">
-                  {{ anyRunning() ? 'Close (it goes on)' : 'Close' }}
+                  {{ anyRunning() ? ('Close (it goes on)' | t) : ('Close' | t) }}
                 </button>
               </div>
             }
@@ -618,20 +637,20 @@ export class MoveDataSheetComponent {
   /** Bumped at every opening. */
   private opened = 0;
 
-  /** From's conversations as the Mac lists them (an account's; every
+  /** From's conversations as the desktop lists them (an account's; every
    * one's when each goes from where it is, for titles). */
   private readonly base = signal<SessionList | null>(null);
-  /** What the search found among From's conversations, on the Mac. */
+  /** What the search found among From's conversations, on the desktop. */
   private readonly found = signal<SessionList | null>(null);
   /** Pages being read, by list. */
   private readonly inflight = new Map<'base' | 'found', Promise<void>>();
   /** The conversations' search box, as typed. */
   protected readonly sessionQuery = signal('');
-  /** The search sent to the Mac (the box, once typing stops). */
+  /** The search sent to the desktop (the box, once typing stops). */
   private readonly searchText = signal('');
-  /** How long typing waits before the Mac is searched (specs shorten it). */
+  /** How long typing waits before the desktop is searched (specs shorten it). */
   searchDebounceMs = SEARCH_DEBOUNCE_MS;
-  /** *Select all* is asking the Mac for every match. */
+  /** *Select all* is asking the desktop for every match. */
   protected readonly selectingAll = signal(false);
   protected readonly selectAllError = signal('');
   /** Every project folder on disk, when From is an account. */
@@ -701,16 +720,16 @@ export class MoveDataSheetComponent {
 
   protected readonly fromName = computed(() =>
     this.everywhere()
-      ? 'their accounts'
+      ? tr('their accounts')
       : locationName(this.fromLoc(), this.list(), this.storages()),
   );
   protected readonly toName = computed(() => {
     const store = this.newSetFor();
     if (store) {
-      const label = this.storage.byId(store)?.label ?? 'the storage';
-      return `${label} · ${this.newSetName().trim() || 'the new set'}`;
+      const label = this.storage.byId(store)?.label ?? tr('the storage');
+      return `${label} · ${this.newSetName().trim() || tr('the new set')}`;
     }
-    return locationName(this.toLoc(), this.list(), this.storages(), 'where it goes');
+    return locationName(this.toLoc(), this.list(), this.storages(), tr('where it goes'));
   });
   protected readonly fromHint = computed(() =>
     locationHint(this.everywhere() ? null : this.fromLoc(), this.list(), this.storages()),
@@ -718,7 +737,10 @@ export class MoveDataSheetComponent {
   protected readonly toHint = computed(() => {
     const store = this.newSetFor();
     if (store && !this.newSetName().trim()) {
-      return `A new set in ${this.storage.byId(store)?.label ?? 'the storage'}: name it below.`;
+      const label = this.storage.byId(store)?.label;
+      return label
+        ? tr('A new set in {storage}: name it below.', { storage: label })
+        : tr('A new set in the storage: name it below.');
     }
     return this.toLoc() ? locationHint(this.toLoc(), this.list(), this.storages()) : '';
   });
@@ -746,7 +768,7 @@ export class MoveDataSheetComponent {
     const otherProblem = pick === 'copy' ? this.moveProblem() : this.copyProblem();
     return problem && !otherProblem ? other : pick;
   });
-  protected readonly modeWord = computed(() => (this.mode() === 'move' ? 'Move' : 'Copy'));
+  protected readonly modeWord = computed(() => (this.mode() === 'move' ? tr('Move') : tr('Copy')));
   protected readonly modeLine = computed(() =>
     this.direction() === 'same'
       ? ''
@@ -793,7 +815,7 @@ export class MoveDataSheetComponent {
     if (f?.kind !== 'account') return null;
     return this.accounts.multi() ? { scope: 'all', account: f.account } : { scope: 'all' };
   });
-  /** The search on the Mac, while one is typed (an account's only). */
+  /** The search on the desktop, while one is typed (an account's only). */
   protected readonly searchQuery = computed<SessionsQuery | null>(() => {
     const q = this.searchText().trim();
     const base = this.baseQuery();
@@ -847,7 +869,7 @@ export class MoveDataSheetComponent {
       const st = this.index();
       return st?.key === this.indexKey() && st.ix ? st.ix.sessions.map(indexRow) : [];
     }
-    // What the search found on the Mac, as it found them.
+    // What the search found on the desktop, as it found them.
     if (this.searchQuery()) {
       return (this.found()?.rows ?? []).filter((s) => this.ofSource(s)).map(sessionRow);
     }
@@ -872,7 +894,7 @@ export class MoveDataSheetComponent {
       const ix = st?.key === this.indexKey() ? st.ix : null;
       return projectRows(ix?.sessions ?? [], keep);
     }
-    // Every folder of the account on disk; if the Mac can't list them,
+    // Every folder of the account on disk; if the desktop can't list them,
     // the folders of the conversations read so far.
     const disk = this.disk()?.rows;
     if (f?.kind === 'account' && disk) {
@@ -907,27 +929,37 @@ export class MoveDataSheetComponent {
     if (this.fromLoc()?.kind !== 'account') return this.sourceError();
     const err = this.disk()?.error;
     return err
-      ? `The Mac could not list every project (${err}); these are the folders of the conversations read so far.`
+      ? tr(
+          'The {computer} could not list every project ({error}); these are the folders of the conversations read so far.',
+          { computer: computerNoun(), error: err },
+        )
       : '';
   });
   protected readonly projectsMore = computed(() => this.diskFailed() && !!this.base()?.cursor);
   protected readonly emptyText = computed(() =>
     this.fromLoc()?.kind === 'storage'
-      ? 'This set holds no conversations.'
-      : `No conversations of ${this.fromName()} here yet.`,
+      ? tr('This set holds no conversations.')
+      : tr('No conversations of {name} here yet.', { name: this.fromName() }),
   );
   protected readonly allLine = computed(() => {
     const f = this.fromLoc();
     if (f?.kind === 'storage') {
       const n = this.storage.byId(f.storage)?.sets.find((s) => s.name === f.set)?.sessions;
-      return `Everything in ${this.fromName()}${n !== undefined ? ` (${plural(n, 'conversation')})` : ''}.`;
+      return n !== undefined
+        ? tr('Everything in {name} ({count}).', {
+            name: this.fromName(),
+            count: plural(n, 'conversation'),
+          })
+        : tr('Everything in {name}.', { name: this.fromName() });
     }
     const a = this.accounts.byId(f?.account);
     if (!a) return '';
     if (a.kind === 'token' || sharersOf(this.list(), a.id).length) {
-      return `Every conversation recorded as ${a.name}'s (the shared folder holds others' too).`;
+      return tr("Every conversation recorded as {name}'s (the shared folder holds others' too).", {
+        name: a.name,
+      });
     }
-    return `Every conversation of ${a.name}, and its prompt history.`;
+    return tr('Every conversation of {name}, and its prompt history.', { name: a.name });
   });
   /** The conversations' titles, for the dry run's skipped ones. */
   protected readonly titles = computed(() => {
@@ -939,19 +971,19 @@ export class MoveDataSheetComponent {
   /** Why it can't be checked yet ('' when it can). */
   protected readonly blocker = computed(() => {
     const to = this.toLoc();
-    if (!to) return 'Choose where it goes.';
+    if (!to) return tr('Choose where it goes.');
     if (this.newSetFor() && this.newSetProblem()) return this.newSetProblem();
-    if (this.direction() === 'same') return 'Pick another place for it to go.';
+    if (this.direction() === 'same') return tr('Pick another place for it to go.');
     if (this.whatError()) return this.whatError();
     const modeProblemNow = this.mode() === 'copy' ? this.copyProblem() : this.moveProblem();
     if (modeProblemNow) return modeProblemNow;
     switch (this.what()) {
       case 'sessions':
-        return this.pickedSessions().size ? '' : 'Tick at least one conversation.';
+        return this.pickedSessions().size ? '' : tr('Tick at least one conversation.');
       case 'projects':
-        return this.pickedProjects().size ? '' : 'Tick at least one project.';
+        return this.pickedProjects().size ? '' : tr('Tick at least one project.');
       case 'customizations':
-        return this.allowedCustom().length ? '' : 'Tick at least one customization.';
+        return this.allowedCustom().length ? '' : tr('Tick at least one customization.');
       default:
         return '';
     }
@@ -971,19 +1003,24 @@ export class MoveDataSheetComponent {
     if (!p) return this.modeWord();
     if (!p.sessions.length) {
       const n = p.customizations.filter((c) => c.action !== 'skip').length;
-      return n ? `Copy ${plural(n, 'customization')}` : `Nothing to ${this.mode()}`;
+      if (n) return tr('Copy {count}', { count: plural(n, 'customization') });
+      return this.mode() === 'move' ? tr('Nothing to move') : tr('Nothing to copy');
     }
     const actions = new Set(p.sessions.map((s) => s.action));
     const one = actions.size === 1 ? [...actions][0] : null;
-    const verb =
-      one === 'archive'
-        ? 'Archive'
-        : one === 'assign'
-          ? 'Assign'
-          : one === 'restore'
-            ? 'Restore'
-            : this.modeWord();
-    return `${verb} ${plural(p.sessions.length, 'conversation')}`;
+    const count = plural(p.sessions.length, 'conversation');
+    switch (one) {
+      case 'archive':
+        return tr('Archive {count}', { count });
+      case 'assign':
+        return tr('Assign {count}', { count });
+      case 'restore':
+        return tr('Restore {count}', { count });
+      default:
+        return this.mode() === 'move'
+          ? tr('Move {count}', { count })
+          : tr('Copy {count}', { count });
+    }
   });
   protected readonly anyRunning = computed(() => this.jobs().some((j) => j.state === 'running'));
   protected readonly anyFailed = computed(() => this.jobs().some((j) => j.state === 'failed'));
@@ -1007,7 +1044,7 @@ export class MoveDataSheetComponent {
         if (this.index()?.key !== key) void this.loadIndex(key);
       });
     });
-    // From's conversations as the Mac lists them: an account's when they
+    // From's conversations as the desktop lists them: an account's when they
     // are listed (or stand in for its projects); every one's when each goes
     // from where it is and some ticked one has no title yet.
     effect(() => {
@@ -1036,7 +1073,7 @@ export class MoveDataSheetComponent {
       const timer = setTimeout(() => this.searchText.set(text), this.searchDebounceMs);
       onCleanup(() => clearTimeout(timer));
     });
-    // What the search finds on the Mac.
+    // What the search finds on the desktop.
     effect(() => {
       const query = this.searchQuery();
       if (!this.open() || !query || this.what() !== 'sessions') return;
@@ -1147,10 +1184,10 @@ export class MoveDataSheetComponent {
   }
 
   /** *Select all*: an account's every conversation the search matches —
-   * the Mac's list of them, not only the pages read — and what the list
+   * the desktop's list of them, not only the pages read — and what the list
    * shows; elsewhere (a set's index, where each one is) what the list
-   * shows, which is all of them. If the Mac can't be asked, what is listed
-   * is selected and the checklist says so. */
+   * shows, which is all of them. If the desktop can't be asked, what is
+   * listed is selected and the checklist says so. */
   protected async selectAllSessions(listed: string[]): Promise<void> {
     if (this.selectingAll()) return;
     this.selectAllError.set('');
@@ -1174,7 +1211,10 @@ export class MoveDataSheetComponent {
       ids = await this.api.listSessionIds(query);
     } catch (e) {
       this.selectAllError.set(
-        `Only the conversations listed were selected; the Mac could not be asked for the rest: ${moveErrorText(e)}`,
+        tr(
+          'Only the conversations listed were selected; the {computer} could not be asked for the rest: {error}',
+          { computer: computerNoun(), error: moveErrorText(e) },
+        ),
       );
     } finally {
       this.selectingAll.set(false);
@@ -1206,7 +1246,11 @@ export class MoveDataSheetComponent {
     try {
       const res = await this.api.planMove(body);
       const plan = normalizeMovePlan(res?.plan);
-      if (!plan) throw new Error('The Mac sent a plan this app could not read.');
+      if (!plan) {
+        throw new Error(
+          tr('The {computer} sent a plan this app could not read.', { computer: computerNoun() }),
+        );
+      }
       this.plan.set(plan);
       this.step.set('plan');
     } catch (e) {
@@ -1229,7 +1273,11 @@ export class MoveDataSheetComponent {
       list = raw
         .map(normalizeJob)
         .filter((j): j is JobView => !!j && !seen.has(j.id) && !!seen.add(j.id));
-      if (!list.length) throw new Error('The Mac sent no job this app could read.');
+      if (!list.length) {
+        throw new Error(
+          tr('The {computer} sent no job this app could read.', { computer: computerNoun() }),
+        );
+      }
     } catch (e) {
       this.busy.set(false);
       this.error.set(moveErrorText(e));
@@ -1248,7 +1296,7 @@ export class MoveDataSheetComponent {
           .follow(j, (next) => this.jobChanged(next), ctrl.signal)
           .catch((e) => {
             if (!ctrl.signal.aborted)
-              this.error.set(`Can't follow it any more: ${moveErrorText(e)}`);
+              this.error.set(tr("Can't follow it any more: {error}", { error: moveErrorText(e) }));
           }),
       ),
     );
@@ -1322,7 +1370,7 @@ export class MoveDataSheetComponent {
     return this.accounts.multi() ? '' : DEFAULT_ACCOUNT;
   }
 
-  /** From's conversation, as far as this Mac knows whose it is. */
+  /** From's conversation, as far as the desktop knows whose it is. */
   private ofSource(s: SessionSummary): boolean {
     const f = this.fromLoc();
     return f?.kind === 'account' && this.accountIdOf(s) === f.account;
@@ -1401,7 +1449,13 @@ export class MoveDataSheetComponent {
     this.index.set({ key, ix: null, loading: true, error: '' });
     try {
       const ix = normalizeBackupIndex(await this.api.getStorageIndex(loc.storage, loc.set));
-      if (!ix) throw new Error('The Mac sent an index this app could not read.');
+      if (!ix) {
+        throw new Error(
+          tr('The {computer} sent an index this app could not read.', {
+            computer: computerNoun(),
+          }),
+        );
+      }
       if (this.index()?.key === key) this.index.set({ key, ix, loading: false, error: '' });
     } catch (e) {
       if (this.index()?.key === key) {

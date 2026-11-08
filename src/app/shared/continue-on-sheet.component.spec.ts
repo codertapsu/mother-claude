@@ -215,8 +215,9 @@ describe('ContinueOnSheetComponent', () => {
     const el = await open(session());
     goButton(el).click();
     await settle();
+    // The desktop's system unknown here: "this computer".
     expect(text(el.querySelector('.notice.error'))).toContain(
-      'Marcus (Pro) has no token on this Mac yet',
+      'Marcus (Pro) has no token on this computer yet',
     );
   });
 
@@ -267,7 +268,7 @@ describe('ContinueOnSheetComponent', () => {
     const el = await open(session(), MOCK_ACCOUNT_PRO);
     const opts = options(el);
     expect(opts[1].disabled).toBeTrue();
-    expect(text(opts[1])).toContain('No token on this Mac yet.');
+    expect(text(opts[1])).toContain('No token on this computer yet.');
     // The suggestion can't run: the first account that can is picked.
     expect(opts[0].disabled).toBeFalse();
     expect(text(goButton(el))).toBe('Continue on Work');

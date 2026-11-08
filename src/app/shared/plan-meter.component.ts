@@ -1,5 +1,6 @@
 import { ChangeDetectionStrategy, Component, computed, inject, input } from '@angular/core';
 
+import { tr } from '../core/i18n/i18n';
 import { PlanWindow } from '../core/models';
 import { NowService } from '../core/now.service';
 import { hasReset, windowPct, windowSeverity } from '../core/plan-usage';
@@ -98,18 +99,24 @@ export class PlanMeterComponent {
   protected readonly tone = computed(() => severityTone(this.severity()));
   protected readonly severityText = computed(() => {
     const s = this.severity();
-    if (s === 'critical') return this.pct() >= 100 ? 'Limit reached' : 'Almost at the limit';
-    return s === 'warning' ? 'Near the limit' : '';
+    if (s === 'critical') {
+      return this.pct() >= 100 ? tr('Limit reached') : tr('Almost at the limit');
+    }
+    return s === 'warning' ? tr('Near the limit') : '';
   });
   protected readonly resetText = computed(() => {
     const w = this.window();
     const now = this.clock.now();
-    if (hasReset(w, now)) return 'Reset: a new window starts with your next message';
+    if (hasReset(w, now)) return tr('Reset: a new window starts with your next message');
     const left = resetsIn(w.resetsAt, now);
     return left ? `${capitalize(left)} · ${resetClock(w.resetsAt, now)}` : '';
   });
   protected readonly valueText = computed(() =>
-    [`${this.pct()}% used`, this.severityText(), resetsIn(this.window().resetsAt, this.clock.now())]
+    [
+      tr('{pct}% used', { pct: this.pct() }),
+      this.severityText(),
+      resetsIn(this.window().resetsAt, this.clock.now()),
+    ]
       .filter(Boolean)
       .join(', '),
   );

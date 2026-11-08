@@ -9,20 +9,22 @@ import {
 } from '@angular/core';
 
 import { ApiService } from '../core/api.service';
+import { TPipe } from '../core/i18n/t.pipe';
 
 /**
  * An image from a transcript (`UiEvent.image.ref`). Media needs the bearer
  * token, so it's fetched with auth when scrolled into view and shown from a
- * blob: URL (revoked on destroy).
+ * blob: URL (revoked on destroy). `alt` is shown in the language shown.
  */
 @Component({
   selector: 'mc-media-image',
   changeDetection: ChangeDetectionStrategy.OnPush,
+  imports: [TPipe],
   template: `
     @if (src(); as s) {
-      <img [src]="s" [alt]="alt()" loading="lazy" />
+      <img [src]="s" [alt]="alt() | t" loading="lazy" />
     } @else if (failed()) {
-      <span class="muted small">Image unavailable</span>
+      <span class="muted small">{{ 'Image unavailable' | t }}</span>
     } @else {
       <span class="ph" aria-hidden="true"></span>
     }

@@ -25,6 +25,8 @@ import {
 } from '../core/data-jobs';
 import { JobView } from '../core/models';
 import { deleteResultSummary } from '../core/delete-data';
+import { locale, tr } from '../core/i18n/i18n';
+import { TPipe } from '../core/i18n/t.pipe';
 import { moveResultSummary } from '../core/move-data';
 import { NowService } from '../core/now.service';
 import { StorageService } from '../core/storage.service';
@@ -40,10 +42,10 @@ const ICONS: Record<JobView['kind'], IconName> = {
   delete: 'trash',
 };
 
-/** "28 Oct, 14:30". */
+/** "28 Oct, 14:30", in the language shown. */
 function dateTime(ms: number): string {
   const d = new Date(ms);
-  return `${d.toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}, ${d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}`;
+  return `${d.toLocaleDateString(locale(), { day: 'numeric', month: 'short' })}, ${d.toLocaleTimeString(locale(), { hour: '2-digit', minute: '2-digit' })}`;
 }
 
 /**
@@ -57,7 +59,7 @@ function dateTime(ms: number): string {
 @Component({
   selector: 'mc-data-job',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [IconComponent, TimeAgoComponent],
+  imports: [IconComponent, TimeAgoComponent, TPipe],
   host: { '[attr.data-state]': 'job().state' },
   template: `
     @let j = job();
@@ -74,7 +76,7 @@ function dateTime(ms: number): string {
         aria-valuemin="0"
         aria-valuemax="100"
         [attr.aria-valuenow]="pct()"
-        [attr.aria-label]="(label() || kindLabel()) + ': progress'"
+        [attr.aria-label]="'{name}: progress' | t: { name: label() || kindLabel() }"
       >
         <span class="fill" [class.unknown]="pct() === null" [style.width.%]="pct() ?? 35"></span>
       </div>
@@ -95,9 +97,11 @@ function dateTime(ms: number): string {
           (click)="undo()"
         >
           <mc-icon name="undo" [size]="14" />
-          {{ undoing() ? 'Undoing…' : confirming() ? 'Tap again to undo' : 'Undo' }}
+          {{
+            undoing() ? ('Undoing…' | t) : confirming() ? ('Tap again to undo' | t) : ('Undo' | t)
+          }}
         </button>
-        <span class="muted small">Possible until {{ until() }}.</span>
+        <span class="muted small">{{ 'Possible until {time}.' | t: { time: until() } }}</span>
       </div>
     }
     @if (undoError()) {
@@ -225,9 +229,16 @@ export class DataJobComponent {
   });
   protected readonly progress = computed(() => {
     const j = this.job();
-    if (j.bytesTotal > 0) return `${formatBytes(j.bytesDone)} of ${formatBytes(j.bytesTotal)}`;
-    if (j.filesTotal > 0) return `${j.filesDone} of ${j.filesTotal} files`;
-    return 'Working…';
+    if (j.bytesTotal > 0) {
+      return tr('{used} of {limit}', {
+        used: formatBytes(j.bytesDone),
+        limit: formatBytes(j.bytesTotal),
+      });
+    }
+    if (j.filesTotal > 0) {
+      return tr('{done} of {total} files', { done: j.filesDone, total: j.filesTotal });
+    }
+    return tr('Working…');
   });
   protected readonly summary = computed(() => {
     const j = this.job();
@@ -255,7 +266,7 @@ export class DataJobComponent {
       const next = normalizeJob(await this.api.undoDataJob(this.job().id));
       this.changed.emit(next ?? { ...this.job(), state: 'undone', undoUntil: undefined });
     } catch (e) {
-      this.undoError.set(`Not undone: ${transferErrorText(e)}`);
+      this.undoError.set(tr('Not undone: {error}', { error: transferErrorText(e) }));
     } finally {
       this.undoing.set(false);
     }

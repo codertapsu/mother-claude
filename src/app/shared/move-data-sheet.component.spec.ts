@@ -749,8 +749,9 @@ describe('MoveDataSheetComponent', () => {
         body: { error: { code: 'internal', message: 'index busy' } },
       }));
       const el = await open({ from: accountLocation('default'), what: 'projects' });
+      // The desktop's system unknown here: "the computer".
       expect(text(checklist(el).querySelector('[role="alert"]'))).toContain(
-        'The Mac could not list every project',
+        'The computer could not list every project',
       );
       // The folders of the conversations read, and more to look through.
       expect(titles(el)).toEqual(['~/dev/api']);

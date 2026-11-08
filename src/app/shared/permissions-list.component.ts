@@ -1,31 +1,34 @@
 import { Component, inject } from '@angular/core';
 
+import { TPipe } from '../core/i18n/t.pipe';
 import { PermissionsService } from '../core/permissions.service';
 
-/** Reusable, self-contained list of OS permissions with guidance + actions. */
+/** Reusable, self-contained list of OS permissions with guidance + actions.
+ * The permissions are macOS's (System Settings, Finder): the desktop
+ * reports none on other systems. Their names and steps are the server's. */
 @Component({
   selector: 'mc-permissions-list',
-  imports: [],
+  imports: [TPipe],
   template: `
     @if (!perms.desktop()) {
-      <p class="muted">Permissions are managed by the desktop app.</p>
+      <p class="muted">{{ 'Permissions are managed by the desktop app.' | t }}</p>
     } @else {
       @for (p of perms.permissions(); track p.id) {
         <div class="card perm">
           <div class="row head">
             <strong>{{ p.label }}</strong>
             @if (p.required) {
-              <span class="badge req">required</span>
+              <span class="badge req">{{ 'required' | t }}</span>
             } @else {
-              <span class="badge">optional</span>
+              <span class="badge">{{ 'optional' | t }}</span>
             }
             <span class="spacer"></span>
             @if (p.granted === true) {
-              <span class="badge working">granted</span>
+              <span class="badge working">{{ 'granted' | t }}</span>
             } @else if (p.granted === false) {
-              <span class="badge failed">not granted</span>
+              <span class="badge failed">{{ 'not granted' | t }}</span>
             } @else {
-              <span class="badge">ask when prompted</span>
+              <span class="badge">{{ 'ask when prompted' | t }}</span>
             }
           </div>
           <p class="desc">{{ p.description }}</p>
@@ -37,27 +40,31 @@ import { PermissionsService } from '../core/permissions.service';
               }
             </ol>
             @if (p.id === 'full-disk-access' && perms.appLocation()) {
-              <p class="muted small mono">Add this app: {{ perms.appLocation() }}</p>
+              <p class="muted small mono">
+                {{ 'Add this app: {path}' | t: { path: perms.appLocation() } }}
+              </p>
             }
             <div class="row">
               @if (p.settingsUrl) {
                 <button class="btn primary" (click)="perms.openSettings(p.id)">
-                  Open System Settings
+                  {{ 'Open System Settings' | t }}
                 </button>
               }
               @if (p.id === 'full-disk-access') {
-                <button class="btn" (click)="perms.revealApp()">Reveal app in Finder</button>
+                <button class="btn" (click)="perms.revealApp()">
+                  {{ 'Reveal app in Finder' | t }}
+                </button>
               }
             </div>
           }
         </div>
       }
       <div class="row recheck">
-        <button class="btn" (click)="perms.refresh()">Re-check</button>
+        <button class="btn" (click)="perms.refresh()">{{ 'Re-check' | t }}</button>
         @if (perms.missingRequired()) {
-          <span class="muted small">Grant the required permission, then re-check.</span>
+          <span class="muted small">{{ 'Grant the required permission, then re-check.' | t }}</span>
         } @else {
-          <span class="muted small">All required permissions granted.</span>
+          <span class="muted small">{{ 'All required permissions granted.' | t }}</span>
         }
       </div>
     }

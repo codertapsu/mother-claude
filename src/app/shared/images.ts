@@ -1,5 +1,7 @@
 /** Image handling for attachments (no dependencies, canvas only). */
 
+import { tr } from '../core/i18n/i18n';
+
 export const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 export const MAX_IMAGES = 10;
 export const MAX_EDGE = 2048;
@@ -21,7 +23,7 @@ export function blobToBase64(blob: Blob): Promise<string> {
       const s = String(r.result ?? '');
       resolve(s.slice(s.indexOf(',') + 1));
     };
-    r.onerror = () => reject(r.error ?? new Error('Could not read the file.'));
+    r.onerror = () => reject(r.error ?? new Error(tr('Could not read the file.')));
     r.readAsDataURL(blob);
   });
 }
@@ -73,16 +75,16 @@ export async function prepareImage(file: File): Promise<PreparedImage> {
   canvas.width = cw;
   canvas.height = ch;
   const ctx = canvas.getContext('2d');
-  if (!ctx) throw new Error('This browser cannot resize images.');
+  if (!ctx) throw new Error(tr('This browser cannot resize images.'));
   ctx.drawImage(draw, 0, 0, cw, ch);
   const blob = await new Promise<Blob>((resolve, reject) =>
     canvas.toBlob(
-      (b) => (b ? resolve(b) : reject(new Error('Could not encode the image.'))),
+      (b) => (b ? resolve(b) : reject(new Error(tr('Could not encode the image.')))),
       'image/jpeg',
       JPEG_QUALITY,
     ),
   );
   if (blob.size > MAX_IMAGE_BYTES)
-    throw new Error(`${file.name} is too large even after resizing.`);
+    throw new Error(tr('{name} is too large even after resizing.', { name: file.name }));
   return { mediaType: 'image/jpeg', data: await blobToBase64(blob), blob, bytes: blob.size };
 }

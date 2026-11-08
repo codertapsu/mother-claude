@@ -1,5 +1,7 @@
 import { ChangeDetectionStrategy, Component, computed, input, signal } from '@angular/core';
 
+import { tr } from '../core/i18n/i18n';
+import { TPipe } from '../core/i18n/t.pipe';
 import { ControlCaps, SessionSummary, Surface } from '../core/models';
 import { CapLimitsComponent } from './cap-limits.component';
 import {
@@ -31,13 +33,16 @@ interface CapRow {
 @Component({
   selector: 'mc-channel-badge',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CapLimitsComponent, IconComponent, SheetComponent],
+  imports: [CapLimitsComponent, IconComponent, SheetComponent, TPipe],
   template: `
     <button
       type="button"
       class="badge-btn"
       [attr.data-tone]="tone()"
-      [attr.aria-label]="surfaceText() + ', ' + channelText() + '. Show what works from here'"
+      [attr.aria-label]="
+        '{surface}, {channel}. Show what works from here'
+          | t: { surface: surfaceText(), channel: channelText() }
+      "
       (click)="open.set(true); $event.stopPropagation()"
     >
       @if (!compact() && surfaceText() !== channelText()) {
@@ -59,7 +64,7 @@ interface CapRow {
           </li>
         }
       </ul>
-      <h2>Limits</h2>
+      <h2>{{ 'Limits' | t }}</h2>
       <mc-cap-limits [session]="session()" [limits]="limits()" (done)="open.set(false)" />
     </mc-sheet>
   `,
@@ -148,80 +153,95 @@ export class ChannelBadgeComponent {
       : `${this.surfaceText()} · ${this.channelText()}`,
   );
 
+  /** What can be done from here, each in words (translated as it is built:
+   * the rows follow a language switch). */
   protected readonly rows = computed<CapRow[]>(() => {
     const c = this.control();
     const s = this.session();
-    const yes = (b: boolean) => (b ? 'yes' : 'no');
+    const no = tr('no||capability');
+    const yes = (b: boolean) => (b ? tr('yes||capability') : no);
     const attach = capAttach(c);
     const rename = capRename(c, s?.owned);
     return [
       {
-        label: 'Send messages',
+        label: tr('Send messages'),
         ok: c.message !== 'none',
         value:
           c.message === 'direct'
-            ? 'straight in'
+            ? tr('straight in')
             : c.message === 'relay'
               ? capWake(c)
-                ? 'relayed'
-                : 'at the next stopping point'
-              : 'not available',
+                ? tr('relayed')
+                : tr('at the next stopping point')
+              : tr('not available'),
       },
       {
-        label: 'Approve permissions',
+        label: tr('Approve permissions'),
         ok: c.approve,
-        value: c.approve ? (c.approveVia === 'keys' ? 'by keys' : 'yes') : 'no',
+        value: c.approve ? (c.approveVia === 'keys' ? tr('by keys') : yes(true)) : no,
       },
-      { label: 'Answer questions', ok: c.answer, value: yes(c.answer) },
+      { label: tr('Answer questions'), ok: c.answer, value: yes(c.answer) },
       {
-        label: 'Interrupt',
+        label: tr('Interrupt'),
         ok: c.interrupt !== 'none',
         value:
           c.interrupt === 'immediate'
-            ? 'immediately'
+            ? tr('immediately')
             : c.interrupt === 'next-tool'
-              ? 'at the next tool call'
-              : 'no',
+              ? tr('at the next tool call')
+              : no,
       },
-      { label: 'Switch model', ok: c.setModel, value: yes(c.setModel) },
+      { label: tr('Switch model'), ok: c.setModel, value: yes(c.setModel) },
       {
-        label: 'Switch permission mode',
+        label: tr('Switch permission mode'),
         ok: c.setMode !== 'none',
         value:
-          c.setMode === 'any' ? 'any time' : c.setMode === 'on-prompt' ? 'with a prompt' : 'no',
+          c.setMode === 'any'
+            ? tr('any time')
+            : c.setMode === 'on-prompt'
+              ? tr('with a prompt')
+              : no,
       },
-      { label: 'Change effort', ok: c.setEffort, value: yes(c.setEffort) },
-      { label: 'Switch ultracode', ok: capUltracode(c), value: yes(capUltracode(c)) },
-      { label: 'Switch thinking', ok: capThinking(c), value: yes(capThinking(c)) },
-      { label: 'Slash commands', ok: c.slashCommands, value: yes(c.slashCommands) },
+      { label: tr('Change effort'), ok: c.setEffort, value: yes(c.setEffort) },
+      { label: tr('Switch ultracode'), ok: capUltracode(c), value: yes(capUltracode(c)) },
+      { label: tr('Switch thinking'), ok: capThinking(c), value: yes(capThinking(c)) },
+      { label: tr('Slash commands'), ok: c.slashCommands, value: yes(c.slashCommands) },
       {
-        label: 'Attachments',
+        label: tr('Attachments'),
         ok: attach !== 'none',
-        value: attach === 'inline' ? 'images' : attach === 'path' ? 'as file paths' : 'no',
+        value: attach === 'inline' ? tr('images') : attach === 'path' ? tr('as file paths') : no,
       },
       {
-        label: 'Rename',
+        label: tr('Rename'),
         ok: rename !== 'none',
         value:
-          rename === 'sync' ? 'everywhere' : rename === 'alias' ? 'only in Mother Claude' : 'no',
+          rename === 'sync'
+            ? tr('everywhere')
+            : rename === 'alias'
+              ? tr('only in Mother Claude')
+              : no,
       },
-      { label: 'Terminal view', ok: capTerminal(c, s), value: yes(capTerminal(c, s)) },
-      { label: 'Send keys', ok: capKeys(c, s), value: yes(capKeys(c, s)) },
-      { label: 'Stop background tasks', ok: c.stopTask, value: yes(c.stopTask) },
+      { label: tr('Terminal view'), ok: capTerminal(c, s), value: yes(capTerminal(c, s)) },
+      { label: tr('Send keys'), ok: capKeys(c, s), value: yes(capKeys(c, s)) },
+      { label: tr('Stop background tasks'), ok: c.stopTask, value: yes(c.stopTask) },
       {
-        label: 'Continue here',
+        label: tr('Continue here'),
         ok: c.fork || c.continueOwned,
-        value: c.fork || c.continueOwned ? (s?.live ? 'as a fork' : 'yes') : 'no',
+        value: c.fork || c.continueOwned ? (s?.live ? tr('as a fork') : yes(true)) : no,
       },
       {
-        label: 'Stop / respawn / remove',
+        label: tr('Stop / respawn / remove'),
         ok: c.lifecycle.stop || c.lifecycle.respawn || c.lifecycle.rm,
         value:
-          [c.lifecycle.stop && 'stop', c.lifecycle.respawn && 'respawn', c.lifecycle.rm && 'remove']
+          [
+            c.lifecycle.stop && tr('stop||lifecycle'),
+            c.lifecycle.respawn && tr('respawn||lifecycle'),
+            c.lifecycle.rm && tr('remove||lifecycle'),
+          ]
             .filter(Boolean)
-            .join(' · ') || 'no',
+            .join(' · ') || no,
       },
-      { label: 'Hooks connected', ok: c.hooksActive, value: yes(c.hooksActive) },
+      { label: tr('Hooks connected'), ok: c.hooksActive, value: yes(c.hooksActive) },
     ];
   });
 }

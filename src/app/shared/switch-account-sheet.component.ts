@@ -14,6 +14,8 @@ import { RouterLink } from '@angular/router';
 import { DEFAULT_ACCOUNT, isAccountColor, needsCopy } from '../core/accounts';
 import { AccountsService } from '../core/accounts.service';
 import { ApiError, ApiService, describeError } from '../core/api.service';
+import { tr } from '../core/i18n/i18n';
+import { TPipe } from '../core/i18n/t.pipe';
 import { AccountRef, AccountView, CopyConsent, SessionSummary } from '../core/models';
 import { NoticeService } from '../core/notice.service';
 import { NowService } from '../core/now.service';
@@ -55,6 +57,30 @@ interface ConsentAsk extends CopyConsent {
   toName: string;
 }
 
+/** What picking an account in another directory means: the conversation
+ * goes there first (`copied` when it is continued, else moved), asked once
+ * until the pair's copies are allowed. One sentence each. */
+function copyNote(token: boolean, copied: boolean, asked: boolean): string {
+  if (token) {
+    if (copied) {
+      return asked
+        ? tr("Uses the Default's directory: the conversation is copied there first (asked once).")
+        : tr("Uses the Default's directory: the conversation is copied there first.");
+    }
+    return asked
+      ? tr("Uses the Default's directory: the conversation is moved there first (asked once).")
+      : tr("Uses the Default's directory: the conversation is moved there first.");
+  }
+  if (copied) {
+    return asked
+      ? tr('Keeps its own directory: the conversation is copied there first (asked once).')
+      : tr('Keeps its own directory: the conversation is copied there first.');
+  }
+  return asked
+    ? tr('Keeps its own directory: the conversation is moved there first (asked once).')
+    : tr('Keeps its own directory: the conversation is moved there first.');
+}
+
 /**
  * "Switch account" (docs/ACCOUNTS.md §15.1). A session Mother Claude runs
  * goes on under the account picked — the same session, the same page;
@@ -72,13 +98,13 @@ interface ConsentAsk extends CopyConsent {
 @Component({
   selector: 'mc-switch-account-sheet',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [RouterLink, AccountChipComponent, IconComponent, SheetComponent],
+  imports: [RouterLink, AccountChipComponent, IconComponent, SheetComponent, TPipe],
   template: `
-    <mc-sheet [open]="open()" title="Switch account" (closed)="closed.emit()">
+    <mc-sheet [open]="open()" [title]="'Switch account' | t" (closed)="closed.emit()">
       @if (open()) {
         @if (sessions().length > 1) {
-          <h3>Conversation</h3>
-          <div class="opts" role="radiogroup" aria-label="Conversation">
+          <h3>{{ 'Conversation' | t }}</h3>
+          <div class="opts" role="radiogroup" [attr.aria-label]="'Conversation' | t">
             @for (s of sessions(); track s.id) {
               <button
                 type="button"
@@ -101,19 +127,24 @@ interface ConsentAsk extends CopyConsent {
         @if (session(); as s) {
           <p class="lede small">
             @if (source(); as src) {
-              Now on <mc-account-chip [account]="src" />.
+              {{ 'Now on' | t }} <mc-account-chip [account]="src" />.
             }
             @switch (mode()) {
               @case ('here') {
-                The same session goes on under the account you pick: the same conversation, on this
-                same page.
+                {{
+                  'The same session goes on under the account you pick: the same conversation, on this same page.'
+                    | t
+                }}
               }
               @case ('later') {
-                It isn't running: its next continue runs under the account you pick.
+                {{ "It isn't running: its next continue runs under the account you pick." | t }}
               }
               @default {
-                {{ elsewhere() }} Continue on another account instead: a new session from where it
-                stands, while this one keeps running there.
+                {{ elsewhere() }}
+                {{
+                  'Continue on another account instead: a new session from where it stands, while this one keeps running there.'
+                    | t
+                }}
               }
             }
           </p>
@@ -122,7 +153,8 @@ interface ConsentAsk extends CopyConsent {
             <div class="notice small pending" role="status">
               <p>
                 <span class="spin" aria-hidden="true"></span>
-                Switching to <strong>{{ to }}</strong> once this turn ends.
+                {{ 'Switching to' | t }} <strong>{{ to }}</strong>
+                {{ 'once this turn ends.' | t }}
               </p>
               <button
                 class="btn ghost small"
@@ -130,12 +162,12 @@ interface ConsentAsk extends CopyConsent {
                 [disabled]="busy()"
                 (click)="cancelPending()"
               >
-                Cancel the switch
+                {{ 'Cancel the switch' | t }}
               </button>
             </div>
           } @else {
-            <h3>Account</h3>
-            <div class="opts" role="radiogroup" aria-label="Account">
+            <h3>{{ 'Account' | t }}</h3>
+            <div class="opts" role="radiogroup" [attr.aria-label]="'Account' | t">
               @for (t of targets(); track t.account.id) {
                 <button
                   type="button"
@@ -165,7 +197,11 @@ interface ConsentAsk extends CopyConsent {
                 </button>
               } @empty {
                 <p class="muted small">
-                  {{ accounts.loading() ? 'Loading the accounts…' : 'There is no other account.' }}
+                  {{
+                    accounts.loading()
+                      ? ('Loading the accounts…' | t)
+                      : ('There is no other account.' | t)
+                  }}
                 </p>
               }
             </div>
@@ -174,13 +210,14 @@ interface ConsentAsk extends CopyConsent {
               <p class="muted small between">
                 {{
                   busyTurn()
-                    ? 'This conversation of the API is in the middle of a turn: its account changes between turns. Try again once the turn is over.'
-                    : 'A conversation of the API changes account between turns.'
+                    ? ('This conversation of the API is in the middle of a turn: its account changes between turns. Try again once the turn is over.'
+                      | t)
+                    : ('A conversation of the API changes account between turns.' | t)
                 }}
               </p>
             } @else if (mode() === 'here' && busyTurn()) {
-              <h3>When</h3>
-              <div class="whens" role="radiogroup" aria-label="When">
+              <h3>{{ 'When' | t }}</h3>
+              <div class="whens" role="radiogroup" [attr.aria-label]="'When' | t">
                 <label class="when">
                   <input
                     type="radio"
@@ -189,7 +226,10 @@ interface ConsentAsk extends CopyConsent {
                     [disabled]="busy()"
                     (change)="when.set('idle')"
                   />
-                  <span>After this turn <span class="muted small">— it finishes first</span></span>
+                  <span
+                    >{{ 'After this turn' | t }}
+                    <span class="muted small">{{ '— it finishes first' | t }}</span></span
+                  >
                 </label>
                 <label class="when">
                   <input
@@ -199,7 +239,10 @@ interface ConsentAsk extends CopyConsent {
                     [disabled]="busy()"
                     (change)="when.set('now')"
                   />
-                  <span>Now <span class="muted small">— interrupts the turn</span></span>
+                  <span
+                    >{{ 'Now||switch' | t }}
+                    <span class="muted small">{{ '— interrupts the turn' | t }}</span></span
+                  >
                 </label>
               </div>
             }
@@ -214,15 +257,26 @@ interface ConsentAsk extends CopyConsent {
             }
 
             @if (ask(); as a) {
-              <div class="notice warn small ask" role="group" aria-label="Allow copies">
+              <div
+                class="notice warn small ask"
+                role="group"
+                [attr.aria-label]="'Allow copies' | t"
+              >
                 <p>
-                  {{ mode() === 'elsewhere' ? 'Copy' : 'Move' }} conversations from
-                  <strong>{{ a.fromName }}</strong> to <strong>{{ a.toName }}</strong>
                   {{
                     mode() === 'elsewhere'
-                      ? 'when you continue them there'
-                      : 'when you switch them there'
-                  }}? Asked once; you can revoke it on the Accounts page.
+                      ? ('Copy conversations from' | t)
+                      : ('Move conversations from' | t)
+                  }}
+                  <strong>{{ a.fromName }}</strong> {{ 'to||between two accounts' | t }}
+                  <strong>{{ a.toName }}</strong>
+                  {{
+                    mode() === 'elsewhere'
+                      ? ('when you continue them there? Asked once; you can revoke it on the Accounts page.'
+                        | t)
+                      : ('when you switch them there? Asked once; you can revoke it on the Accounts page.'
+                        | t)
+                  }}
                 </p>
                 <div class="row">
                   <button
@@ -231,7 +285,7 @@ interface ConsentAsk extends CopyConsent {
                     [disabled]="busy()"
                     (click)="allow()"
                   >
-                    {{ busy() ? 'Working…' : 'Allow and go on' }}
+                    {{ busy() ? ('Working…' | t) : ('Allow and go on' | t) }}
                   </button>
                   <button
                     class="btn ghost small"
@@ -239,7 +293,7 @@ interface ConsentAsk extends CopyConsent {
                     [disabled]="busy()"
                     (click)="ask.set(null)"
                   >
-                    Not now
+                    {{ 'Not now' | t }}
                   </button>
                 </div>
               </div>
@@ -258,7 +312,7 @@ interface ConsentAsk extends CopyConsent {
             }
           }
           <p class="muted small manage">
-            <a routerLink="/accounts" (click)="closed.emit()">Manage accounts</a>
+            <a routerLink="/accounts" (click)="closed.emit()">{{ 'Manage accounts' | t }}</a>
           </p>
         }
       }
@@ -451,8 +505,8 @@ export class SwitchAccountSheetComponent {
   protected readonly tasksText = computed(() => {
     const n = this.taskCount();
     return n === 1
-      ? 'The background task it started stops when it switches.'
-      : `The ${n} background tasks it started stop when it switches.`;
+      ? tr('The background task it started stops when it switches.')
+      : tr('The {n} background tasks it started stop when it switches.', { n });
   });
   /** Where the conversation is now (the Default when it names none). */
   protected readonly source = computed<AccountRef | undefined>(() => this.session()?.account);
@@ -460,7 +514,7 @@ export class SwitchAccountSheetComponent {
   protected readonly pendingName = computed(() => {
     const id = this.askedPending() ?? switchingToOf(this.session());
     if (!id) return '';
-    return this.accounts.byId(id)?.name ?? 'another account';
+    return this.accounts.byId(id)?.name ?? tr('another account');
   });
   protected readonly targets = computed<Target[]>(() => {
     const from: Pick<AccountRef, 'id' | 'kind'> = this.source() ?? {
@@ -476,12 +530,11 @@ export class SwitchAccountSheetComponent {
         const reason = cannotRunReason(a);
         let note = '';
         if (needsCopy(from, a)) {
-          const where =
-            a.kind === 'token' ? "Uses the Default's directory" : 'Keeps its own directory';
-          const how = continuing ? 'copied there first' : 'moved there first';
-          note = this.accounts.hasCopyConsent(from.id, a.id)
-            ? `${where}: the conversation is ${how}.`
-            : `${where}: the conversation is ${how} (asked once).`;
+          note = copyNote(
+            a.kind === 'token',
+            continuing,
+            !this.accounts.hasCopyConsent(from.id, a.id),
+          );
         }
         return {
           account: a,
@@ -507,9 +560,11 @@ export class SwitchAccountSheetComponent {
   protected readonly target = computed(() => this.accounts.byId(this.targetId()));
   protected readonly actionLabel = computed(() => {
     const t = this.target();
-    if (this.busy()) return this.mode() === 'elsewhere' ? 'Starting…' : 'Switching…';
-    if (!t) return 'Pick an account';
-    return this.mode() === 'elsewhere' ? `Continue on ${t.name}` : `Switch to ${t.name}`;
+    if (this.busy()) return this.mode() === 'elsewhere' ? tr('Starting…') : tr('Switching…');
+    if (!t) return tr('Pick an account');
+    return this.mode() === 'elsewhere'
+      ? tr('Continue on {name}', { name: t.name })
+      : tr('Switch to {name}', { name: t.name });
   });
 
   constructor() {
@@ -540,7 +595,7 @@ export class SwitchAccountSheetComponent {
   }
 
   protected status(s: SessionSummary): string {
-    return s.live ? statusLabel(s.status, s.activity) : 'Ended';
+    return s.live ? statusLabel(s.status, s.activity) : tr('Ended');
   }
 
   protected pickSession(id: string): void {
@@ -580,10 +635,15 @@ export class SwitchAccountSheetComponent {
       );
       if (reply.pending) {
         this.askedPending.set(t.id);
-        this.notices.info(`${sessionName(s)} switches to ${t.name} once its turn ends.`);
+        this.notices.info(
+          tr('{session} switches to {name} once its turn ends.', {
+            session: sessionName(s),
+            name: t.name,
+          }),
+        );
         return;
       }
-      // The Mac tells every client how the switch of a running session
+      // The desktop tells every client how the switch of a running session
       // ended ("… goes on under Work"); one that doesn't run, only here.
       if (this.mode() === 'later') this.notices.success(switchedText(t.name, reply.moved));
       this.closed.emit();
@@ -604,7 +664,7 @@ export class SwitchAccountSheetComponent {
       await this.accounts.setCopyConsent(a.from, a.to, true);
     } catch (e) {
       this.busy.set(false);
-      this.error.set(`Could not allow it: ${describeError(e).text}`);
+      this.error.set(tr('Could not allow it: {error}', { error: describeError(e).text }));
       return;
     }
     this.busy.set(false);
@@ -620,7 +680,7 @@ export class SwitchAccountSheetComponent {
     try {
       await this.api.cancelSessionSwitch(s.id);
       this.askedPending.set(null);
-      this.notices.info('The switch is cancelled: it stays on its account.');
+      this.notices.info(tr('The switch is cancelled: it stays on its account.'));
     } catch (e) {
       this.error.set(switchErrorText(e));
     } finally {
@@ -633,7 +693,7 @@ export class SwitchAccountSheetComponent {
     if (pair) {
       this.ask.set({
         ...pair,
-        fromName: this.accounts.byId(pair.from)?.name ?? this.source()?.name ?? 'this account',
+        fromName: this.accounts.byId(pair.from)?.name ?? this.source()?.name ?? tr('this account'),
         toName: this.accounts.byId(pair.to)?.name ?? t.name,
       });
       return;

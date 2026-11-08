@@ -1,48 +1,57 @@
 import { Component, inject } from '@angular/core';
 
+import { TPipe } from '../core/i18n/t.pipe';
 import { UpdaterService } from '../core/updater.service';
 
 /** Desktop-only "in-app updates" card: shows the running version, checks the
  * release endpoint, and downloads/installs/relaunches into a new version. */
 @Component({
   selector: 'mc-updater',
-  imports: [],
+  imports: [TPipe],
   template: `
     <div class="card updater">
       @if (!u.desktop()) {
         <p class="muted">
-          In-app updates run in the desktop app. In a browser, download the latest installer from
-          the releases page.
+          {{
+            'In-app updates run in the desktop app. In a browser, download the latest installer from the releases page.'
+              | t
+          }}
         </p>
       } @else {
         <div class="row top">
           <div class="info">
             <div>
-              Current version: <strong>{{ u.currentVersion() || '…' }}</strong>
+              {{ 'Current version:' | t }} <strong>{{ u.currentVersion() || '…' }}</strong>
             </div>
             @switch (u.status()) {
               @case ('checking') {
-                <div class="muted">Checking for updates…</div>
+                <div class="muted">{{ 'Checking for updates…' | t }}</div>
               }
               @case ('uptodate') {
-                <div class="muted">You’re on the latest version.</div>
+                <div class="muted">{{ 'You’re on the latest version.' | t }}</div>
               }
               @case ('available') {
                 <div class="ok">
-                  Update available: <strong>{{ u.newVersion() }}</strong>
+                  {{ 'Update available:' | t }} <strong>{{ u.newVersion() }}</strong>
                 </div>
               }
               @case ('downloading') {
-                <div class="muted">Downloading…{{ u.determinate() ? ' ' + pct() + '%' : '' }}</div>
+                <div class="muted">
+                  {{
+                    u.determinate()
+                      ? ('Downloading… {pct}%' | t: { pct: pct() })
+                      : ('Downloading…' | t)
+                  }}
+                </div>
               }
               @case ('installing') {
-                <div class="muted">Installing…</div>
+                <div class="muted">{{ 'Installing…' | t }}</div>
               }
               @case ('ready') {
-                <div class="muted">Update installed — restarting…</div>
+                <div class="muted">{{ 'Update installed — restarting…' | t }}</div>
               }
               @case ('error') {
-                <div class="err">Update failed: {{ u.error() }}</div>
+                <div class="err">{{ 'Update failed: {error}' | t: { error: u.error() } }}</div>
               }
             }
           </div>
@@ -53,11 +62,11 @@ import { UpdaterService } from '../core/updater.service';
               [disabled]="u.status() !== 'available'"
               (click)="u.install()"
             >
-              {{ u.status() === 'available' ? 'Download & install' : 'Working…' }}
+              {{ u.status() === 'available' ? ('Download & install' | t) : ('Working…' | t) }}
             </button>
           } @else {
             <button class="btn" [disabled]="u.busy()" (click)="u.check()">
-              {{ u.status() === 'checking' ? 'Checking…' : 'Check for updates' }}
+              {{ u.status() === 'checking' ? ('Checking…' | t) : ('Check for updates' | t) }}
             </button>
           }
         </div>

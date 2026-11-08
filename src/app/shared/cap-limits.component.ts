@@ -2,6 +2,8 @@ import { ChangeDetectionStrategy, Component, computed, inject, input, output } f
 import { RouterLink } from '@angular/router';
 
 import { AuthService } from '../core/auth.service';
+import { computerNoun } from '../core/i18n/i18n';
+import { TPipe } from '../core/i18n/t.pipe';
 import { CapLimit, LimitAction, SessionSummary } from '../core/models';
 import { SessionActionsService } from '../core/session-actions.service';
 import { capLimits } from './caps';
@@ -11,7 +13,8 @@ import { IconComponent } from './icon.component';
 /**
  * A session's limitations as a list, each with the button that fixes it
  * (design amendment: `ControlCaps.limits[].action`). Used in the channel
- * sheet, the header and composer "why not?" dialogs and the Info tab.
+ * sheet, the header and composer "why not?" dialogs and the Info tab. The
+ * limits' own texts are the server's.
  *
  * Handles every action itself except `open-terminal`, which it emits when
  * a parent shows the terminal in place (else it navigates there).
@@ -19,7 +22,7 @@ import { IconComponent } from './icon.component';
 @Component({
   selector: 'mc-cap-limits',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [RouterLink, CopyButtonComponent, IconComponent],
+  imports: [RouterLink, CopyButtonComponent, IconComponent, TPipe],
   template: `
     <ul class="limits">
       @for (l of list(); track l.code) {
@@ -31,16 +34,23 @@ import { IconComponent } from './icon.component';
               @case ('install-foreign-control') {
                 @if (isDesktop()) {
                   <a class="btn small" routerLink="/remote" fragment="foreign" (click)="done.emit()"
-                    ><mc-icon name="plug" [size]="14" /> Install foreign-session control</a
+                    ><mc-icon name="plug" [size]="14" />
+                    {{ 'Install foreign-session control' | t }}</a
                   >
                 } @else {
-                  <span class="muted small">On the Mac: Remote › Foreign sessions › Install.</span>
+                  <span class="muted small">{{
+                    'On the {computer}: Remote › Foreign sessions › Install.'
+                      | t: { computer: computer() }
+                  }}</span>
                 }
               }
               @case ('reload-plugins') {
                 <span class="row">
-                  <span class="muted small">Run this in that session once:</span>
-                  <mc-copy-button text="/reload-plugins" label="Copy /reload-plugins" />
+                  <span class="muted small">{{ 'Run this in that session once:' | t }}</span>
+                  <mc-copy-button
+                    text="/reload-plugins"
+                    [label]="'Copy {command}' | t: { command: '/reload-plugins' }"
+                  />
                 </span>
               }
               @case ('continue-owned') {
@@ -51,7 +61,7 @@ import { IconComponent } from './icon.component';
                     [disabled]="busy()"
                     (click)="continueHere(s, false)"
                   >
-                    Continue here
+                    {{ 'Continue here' | t }}
                   </button>
                 }
               }
@@ -63,29 +73,33 @@ import { IconComponent } from './icon.component';
                     [disabled]="busy()"
                     (click)="continueHere(s, true)"
                   >
-                    Continue here (fork)
+                    {{ 'Continue here (fork)' | t }}
                   </button>
                 }
               }
               @case ('open-terminal') {
                 <button class="btn small" type="button" (click)="terminal()">
-                  <mc-icon name="terminal" [size]="14" /> Open terminal view
+                  <mc-icon name="terminal" [size]="14" /> {{ 'Open terminal view' | t }}
                 </button>
               }
               @case ('open-on-desktop') {
                 @if (vscodeUrl(); as url) {
                   <a class="btn small" [href]="url"
-                    ><mc-icon name="external" [size]="14" /> Open in VS Code</a
+                    ><mc-icon name="external" [size]="14" /> {{ 'Open in VS Code' | t }}</a
                   >
                 } @else {
-                  <span class="muted small">Answer it on the Mac.</span>
+                  <span class="muted small">{{
+                    'Answer it on the {computer}.' | t: { computer: computer() }
+                  }}</span>
                 }
               }
             }
           </div>
         </li>
       } @empty {
-        <li class="none"><mc-icon name="check" [size]="15" /> No limits: everything works.</li>
+        <li class="none">
+          <mc-icon name="check" [size]="15" /> {{ 'No limits: everything works.' | t }}
+        </li>
       }
     </ul>
   `,
@@ -139,6 +153,8 @@ export class CapLimitsComponent {
   readonly done = output<void>();
 
   protected readonly isDesktop = this.auth.isDesktop;
+  /** The desktop's computer, in words ("Mac", "PC"). */
+  protected readonly computer = computerNoun;
   protected readonly list = computed(() => {
     const all = this.limits() ?? capLimits(this.session()?.control);
     const only = this.only();

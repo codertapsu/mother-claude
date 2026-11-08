@@ -17,6 +17,8 @@ import { Router, RouterLink } from '@angular/router';
 
 import { describeError } from '../core/api.service';
 import { AuthService } from '../core/auth.service';
+import { computerNoun, tr } from '../core/i18n/i18n';
+import { TPipe } from '../core/i18n/t.pipe';
 import {
   PendingItem,
   PendingRef,
@@ -47,7 +49,8 @@ export interface PendingResolution {
 
 type Panel = 'main' | 'always' | 'feedback' | 'planFeedback';
 
-/** Where an "always" rule is saved, and what that means. */
+/** Where an "always" rule is saved, and what that means. English:
+ * translated where they are read (`destination`). */
 const DESTINATIONS: Record<string, string> = {
   session: 'This session only',
   localSettings: 'Saved in .claude/settings.local.json (this project, only you)',
@@ -104,6 +107,7 @@ interface SchemaField {
     SheetComponent,
     TimeAgoComponent,
     ToolPreviewComponent,
+    TPipe,
   ],
   templateUrl: './pending-card.component.html',
   styleUrl: './pending-card.component.scss',
@@ -185,7 +189,7 @@ export class PendingCardComponent {
     if (this.done()) return this.done();
     const r = this.resolution();
     if (r) return resolutionText(r);
-    return 'Answered elsewhere';
+    return tr('Answered elsewhere');
   });
 
   protected readonly canAct = computed(
@@ -281,23 +285,30 @@ export class PendingCardComponent {
     const it = this.item();
     switch (it.kind) {
       case 'question':
-        return it.title || 'Claude has a question';
+        return it.title || tr('Claude has a question');
       case 'plan':
-        return 'Plan ready for review';
+        return tr('Plan ready for review');
       case 'elicitation':
-        return it.title || 'Input requested';
+        return it.title || tr('Input requested');
       default:
-        return it.title || `Allow ${it.toolName ?? 'this tool'}?`;
+        return (
+          it.title ||
+          (it.toolName ? tr('Allow {tool}?', { tool: it.toolName }) : tr('Allow this tool?'))
+        );
     }
   });
   protected readonly ariaLabel = computed(() =>
-    this.compact() ? null : `${this.heading()}. Shortcuts: A allow, D deny, J and K move.`,
+    this.compact()
+      ? null
+      : tr('{heading}. Shortcuts: A allow, D deny, J and K move.', { heading: this.heading() }),
   );
   protected readonly sessionLabel = computed(() => {
     const s = this.session();
     return s ? sessionName(s) : this.item().sessionId.slice(0, 8);
   });
   protected readonly surface = computed(() => surfaceLabel(this.session()?.surface ?? 'unknown'));
+  /** The desktop's computer, in words ("Mac", "PC"). */
+  protected readonly computer = computerNoun;
   protected readonly allAnswered = computed(() =>
     this.questions().every(
       (_, i) => (this.picks()[i]?.length ?? 0) > 0 || !!this.other()[i]?.trim(),
@@ -309,10 +320,11 @@ export class PendingCardComponent {
   /** Where an unanswerable prompt can be answered. */
   protected readonly guidance = computed(() => {
     const s = this.session();
-    const waiting = s?.waitingFor ? ` (${s.waitingFor})` : '';
-    return s
-      ? `Waiting for an answer at the Mac in ${this.surface()}${waiting}.`
-      : 'Answer it where the session runs.';
+    if (!s) return tr('Answer it where the session runs.');
+    const params = { computer: computerNoun(), app: this.surface(), what: s.waitingFor };
+    return s.waitingFor
+      ? tr('Waiting for an answer at the {computer} in {app} ({what}).', params)
+      : tr('Waiting for an answer at the {computer} in {app}.', params);
   });
 
   constructor() {
@@ -333,8 +345,12 @@ export class PendingCardComponent {
       if (!r || r.mine || this.compact() || this.busy() || told === r.id) return;
       told = r.id;
       untracked(() => {
-        const note = this.feedback().trim() ? " Your note wasn't sent." : '';
-        this.notices.info(`${resolutionText(r)}.${note}`);
+        const result = resolutionText(r);
+        this.notices.info(
+          this.feedback().trim()
+            ? tr("{result}. Your note wasn't sent.", { result })
+            : `${result}.`,
+        );
       });
     });
   }
@@ -342,15 +358,18 @@ export class PendingCardComponent {
   // ────────────────────────────────────────────────────────── Permission
 
   allowOnce(): Promise<void> {
-    return this.respond({ decision: 'allow' }, 'Allowed');
+    return this.respond({ decision: 'allow' }, tr('Allowed'));
   }
 
   allowAlways(s: PermissionSuggestion): Promise<void> {
-    return this.respond({ decision: 'allow', suggestion: s.index }, `Allowed · ${s.label}`);
+    return this.respond(
+      { decision: 'allow', suggestion: s.index },
+      tr('Allowed · {rule}', { rule: s.label }),
+    );
   }
 
   deny(): Promise<void> {
-    return this.respond({ decision: 'deny' }, 'Denied');
+    return this.respond({ decision: 'deny' }, tr('Denied'));
   }
 
   denyWithFeedback(): Promise<void> {
@@ -361,12 +380,14 @@ export class PendingCardComponent {
         ...(message ? { message } : {}),
         ...(this.stopTurn() ? { interrupt: true } : {}),
       },
-      this.stopTurn() ? 'Denied and stopped' : 'Denied with feedback',
+      this.stopTurn() ? tr('Denied and stopped') : tr('Denied with feedback'),
     );
   }
 
   destination(d: string | undefined): string {
-    return DESTINATIONS[d ?? ''] ?? (d ? `Saved to ${d}` : 'Saved to your settings');
+    const known = DESTINATIONS[d ?? ''];
+    if (known) return tr(known);
+    return d ? tr('Saved to {place}', { place: d }) : tr('Saved to your settings');
   }
 
   suggestionBlocked(s: PermissionSuggestion): boolean {
@@ -417,7 +438,7 @@ export class PendingCardComponent {
     }
     await this.respond(
       { decision: 'allow', answers: { [q.question]: label } },
-      `Answered: ${label}`,
+      tr('Answered: {answer}', { answer: label }),
     );
   }
 
@@ -441,7 +462,7 @@ export class PendingCardComponent {
       if (value) answers[q.question] = value;
     });
     if (!Object.keys(answers).length) return Promise.resolve();
-    return this.respond({ decision: 'allow', answers }, 'Answer sent');
+    return this.respond({ decision: 'allow', answers }, tr('Answer sent'));
   }
 
   // ──────────────────────────────────────────────────────────────── Plan
@@ -450,7 +471,9 @@ export class PendingCardComponent {
     this.planSheet.set(false);
     return this.respond(
       { decision: 'allow', mode },
-      mode === 'acceptEdits' ? 'Approved · auto-accepting edits' : 'Approved · reviewing edits',
+      mode === 'acceptEdits'
+        ? tr('Approved · auto-accepting edits')
+        : tr('Approved · reviewing edits'),
     );
   }
 
@@ -459,7 +482,7 @@ export class PendingCardComponent {
     this.planSheet.set(false);
     return this.respond(
       { decision: 'deny', ...(message ? { message } : {}) },
-      'Sent back to keep planning',
+      tr('Sent back to keep planning'),
     );
   }
 
@@ -473,7 +496,7 @@ export class PendingCardComponent {
     const content = this.form();
     return this.respond(
       { decision: 'allow', ...(Object.keys(content).length ? { content } : {}) },
-      'Accepted',
+      tr('Accepted'),
     );
   }
 
@@ -524,7 +547,7 @@ export class PendingCardComponent {
     try {
       const full = await this.pendings.ensure(sessionId, id);
       if (!full && id === this.itemId() && !this.gone()) {
-        this.loadError.set('This request is no longer available.');
+        this.loadError.set(tr('This request is no longer available.'));
       }
     } catch (e) {
       if (id === this.itemId()) this.loadError.set(describeError(e).text);

@@ -10,6 +10,7 @@ import {
   viewChild,
 } from '@angular/core';
 
+import { TPipe } from '../core/i18n/t.pipe';
 import { IconComponent } from './icon.component';
 
 /**
@@ -18,12 +19,13 @@ import { IconComponent } from './icon.component';
  * layer (no stacking-context surprises) and focus return. A bottom sheet on
  * phones and a centred dialog on wider screens; `size="full"` fills the
  * screen (long plans, the terminal). Escape, a click on the backdrop and the
- * close button all emit `closed`; the parent owns `open`.
+ * close button all emit `closed`; the parent owns `open`. The parent gives
+ * `title` in the language shown.
  */
 @Component({
   selector: 'mc-sheet',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [IconComponent],
+  imports: [IconComponent, TPipe],
   template: `
     <dialog
       #dlg
@@ -39,7 +41,7 @@ import { IconComponent } from './icon.component';
           <button
             class="btn ghost icon-only"
             type="button"
-            aria-label="Close"
+            [attr.aria-label]="'Close' | t"
             (click)="closed.emit()"
           >
             <mc-icon name="x" />

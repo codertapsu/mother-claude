@@ -1,5 +1,6 @@
 import { ChangeDetectionStrategy, Component, computed, input } from '@angular/core';
 
+import { tr } from '../core/i18n/i18n';
 import { formatUsd } from './util';
 
 /** "$1.84" — estimated from token usage, or final when Claude reported it. */
@@ -24,9 +25,9 @@ export class CostComponent {
   protected readonly text = computed(() => formatUsd(this.usd()));
   protected readonly title = computed(() =>
     this.usd() === undefined
-      ? 'Cost unknown for this model'
+      ? tr('Cost unknown for this model')
       : this.final()
-        ? 'Cost reported by Claude Code'
-        : 'Estimated from token usage (API list prices)',
+        ? tr('Cost reported by Claude Code')
+        : tr('Estimated from token usage (API list prices)'),
   );
 }

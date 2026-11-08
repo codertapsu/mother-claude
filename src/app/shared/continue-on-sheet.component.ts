@@ -14,6 +14,8 @@ import { RouterLink } from '@angular/router';
 import { DEFAULT_ACCOUNT, isAccountColor, needsCopy } from '../core/accounts';
 import { AccountsService } from '../core/accounts.service';
 import { ApiError, describeError } from '../core/api.service';
+import { tr } from '../core/i18n/i18n';
+import { TPipe } from '../core/i18n/t.pipe';
 import { AccountRef, AccountView, CopyConsent, SessionSummary } from '../core/models';
 import { NowService } from '../core/now.service';
 import { SessionActionsService } from '../core/session-actions.service';
@@ -64,13 +66,13 @@ export function canContinue(s: SessionSummary): boolean {
 @Component({
   selector: 'mc-continue-on-sheet',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [RouterLink, AccountChipComponent, IconComponent, SheetComponent],
+  imports: [RouterLink, AccountChipComponent, IconComponent, SheetComponent, TPipe],
   template: `
-    <mc-sheet [open]="open()" title="Continue on another account" (closed)="closed.emit()">
+    <mc-sheet [open]="open()" [title]="'Continue on another account' | t" (closed)="closed.emit()">
       @if (open()) {
         @if (sessions().length > 1) {
-          <h3>Conversation</h3>
-          <div class="opts" role="radiogroup" aria-label="Conversation">
+          <h3>{{ 'Conversation' | t }}</h3>
+          <div class="opts" role="radiogroup" [attr.aria-label]="'Conversation' | t">
             @for (s of sessions(); track s.id) {
               <button
                 type="button"
@@ -92,13 +94,16 @@ export function canContinue(s: SessionSummary): boolean {
         @if (session(); as s) {
           <p class="lede small">
             @if (source(); as src) {
-              Now on <mc-account-chip [account]="src" />.
+              {{ 'Now on' | t }} <mc-account-chip [account]="src" />.
             }
-            The conversation continues on the account you pick, as a copy; this one stays as it was.
+            {{
+              'The conversation continues on the account you pick, as a copy; this one stays as it was.'
+                | t
+            }}
           </p>
 
-          <h3>Account</h3>
-          <div class="opts" role="radiogroup" aria-label="Account">
+          <h3>{{ 'Account' | t }}</h3>
+          <div class="opts" role="radiogroup" [attr.aria-label]="'Account' | t">
             @for (t of targets(); track t.account.id) {
               <button
                 type="button"
@@ -128,7 +133,11 @@ export function canContinue(s: SessionSummary): boolean {
               </button>
             } @empty {
               <p class="muted small">
-                {{ accounts.loading() ? 'Loading the accounts…' : 'There is no other account.' }}
+                {{
+                  accounts.loading()
+                    ? ('Loading the accounts…' | t)
+                    : ('There is no other account.' | t)
+                }}
               </p>
             }
           </div>
@@ -138,11 +147,14 @@ export function canContinue(s: SessionSummary): boolean {
           }
 
           @if (ask(); as a) {
-            <div class="notice warn small ask" role="group" aria-label="Allow copies">
+            <div class="notice warn small ask" role="group" [attr.aria-label]="'Allow copies' | t">
               <p>
-                Copy conversations from <strong>{{ a.fromName }}</strong> to
-                <strong>{{ a.toName }}</strong> when you continue them there? Asked once; you can
-                revoke it on the Accounts page.
+                {{ 'Copy conversations from' | t }} <strong>{{ a.fromName }}</strong>
+                {{ 'to||between two accounts' | t }} <strong>{{ a.toName }}</strong>
+                {{
+                  'when you continue them there? Asked once; you can revoke it on the Accounts page.'
+                    | t
+                }}
               </p>
               <div class="row">
                 <button
@@ -151,7 +163,7 @@ export function canContinue(s: SessionSummary): boolean {
                   [disabled]="busy()"
                   (click)="allow()"
                 >
-                  {{ busy() ? 'Copying…' : 'Copy and continue' }}
+                  {{ busy() ? ('Copying…' | t) : ('Copy and continue' | t) }}
                 </button>
                 <button
                   class="btn ghost small"
@@ -159,7 +171,7 @@ export function canContinue(s: SessionSummary): boolean {
                   [disabled]="busy()"
                   (click)="ask.set(null)"
                 >
-                  Not now
+                  {{ 'Not now' | t }}
                 </button>
               </div>
             </div>
@@ -174,16 +186,16 @@ export function canContinue(s: SessionSummary): boolean {
                 <mc-icon name="play" [size]="14" />
                 {{
                   busy()
-                    ? 'Starting…'
+                    ? ('Starting…' | t)
                     : target()
-                      ? 'Continue on ' + target()!.name
-                      : 'Pick an account'
+                      ? ('Continue on {name}' | t: { name: target()!.name })
+                      : ('Pick an account' | t)
                 }}
               </button>
             </div>
           }
           <p class="muted small manage">
-            <a routerLink="/accounts" (click)="closed.emit()">Manage accounts</a>
+            <a routerLink="/accounts" (click)="closed.emit()">{{ 'Manage accounts' | t }}</a>
           </p>
         }
       }
@@ -320,11 +332,19 @@ export class ContinueOnSheetComponent {
         const reason = cannotRunReason(a);
         let note = '';
         if (needsCopy(from, a)) {
-          const where =
-            a.kind === 'token' ? "Uses the Default's directory" : 'Keeps its own directory';
-          note = this.accounts.hasCopyConsent(from.id, a.id)
-            ? `${where}: the conversation is copied there first.`
-            : `${where}: the conversation is copied there first (asked once).`;
+          const asked = !this.accounts.hasCopyConsent(from.id, a.id);
+          note =
+            a.kind === 'token'
+              ? asked
+                ? tr(
+                    "Uses the Default's directory: the conversation is copied there first (asked once).",
+                  )
+                : tr("Uses the Default's directory: the conversation is copied there first.")
+              : asked
+                ? tr(
+                    'Keeps its own directory: the conversation is copied there first (asked once).',
+                  )
+                : tr('Keeps its own directory: the conversation is copied there first.');
         }
         return {
           account: a,
@@ -368,7 +388,7 @@ export class ContinueOnSheetComponent {
   }
 
   protected status(s: SessionSummary): string {
-    return s.live ? statusLabel(s.status, s.activity) : 'Ended';
+    return s.live ? statusLabel(s.status, s.activity) : tr('Ended');
   }
 
   protected pickSession(id: string): void {
@@ -402,7 +422,7 @@ export class ContinueOnSheetComponent {
     if (pair) {
       this.ask.set({
         ...pair,
-        fromName: this.accounts.byId(pair.from)?.name ?? this.source()?.name ?? 'this account',
+        fromName: this.accounts.byId(pair.from)?.name ?? this.source()?.name ?? tr('this account'),
         toName: this.accounts.byId(pair.to)?.name ?? t.name,
       });
       return;
@@ -420,7 +440,7 @@ export class ContinueOnSheetComponent {
       await this.accounts.setCopyConsent(a.from, a.to, true);
     } catch (e) {
       this.busy.set(false);
-      this.error.set(`Could not allow the copies: ${describeError(e).text}`);
+      this.error.set(tr('Could not allow the copies: {error}', { error: describeError(e).text }));
       return;
     }
     this.busy.set(false);

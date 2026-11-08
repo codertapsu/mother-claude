@@ -120,7 +120,7 @@ describe('NewSessionComponent account picker', () => {
     await start(el);
     fixture.detectChanges();
     expect(text(el.querySelector('.notice.error'))).toContain(
-      'Could not start the session: Marcus (Pro) has no token on this Mac yet',
+      'Could not start the session: Marcus (Pro) has no token on this computer yet',
     );
   });
 });

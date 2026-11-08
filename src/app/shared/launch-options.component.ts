@@ -3,6 +3,7 @@ import { FormsModule } from '@angular/forms';
 
 import { AuthService } from '../core/auth.service';
 import { DefaultsService, FALLBACK_EFFORTS } from '../core/defaults.service';
+import { TPipe } from '../core/i18n/t.pipe';
 import { LaunchOverrides, PermissionMode } from '../core/models';
 import { PERMISSION_MODES, effortLabel } from './util';
 
@@ -14,40 +15,50 @@ const CUSTOM = '__custom__';
  * what they last picked in VS Code or the CLI — shown inline so the
  * inheritance is visible. Parents read the chosen overrides via `value()`
  * (or the `changed` output). "Bypass permissions" is only offered to clients
- * allowed to take dangerous actions.
+ * allowed to take dangerous actions. The models' names are the server's.
  */
 @Component({
   selector: 'mc-launch-options',
-  imports: [FormsModule],
+  imports: [FormsModule, TPipe],
   template: `
     <div class="launch-opts">
       <label class="field">
-        <span class="field-label">Model</span>
+        <span class="field-label">{{ 'Model' | t }}</span>
         <select [ngModel]="model()" (ngModelChange)="model.set($event)">
-          <option value="">Default{{ defaults()?.model ? ' — ' + defaults()?.model : '' }}</option>
+          <option value="">
+            {{
+              defaults()?.model
+                ? ('Default — {value}' | t: { value: defaults()?.model })
+                : ('Default||setting' | t)
+            }}
+          </option>
           @for (m of defaults()?.models ?? []; track m.value) {
             <option [value]="m.value" [title]="m.description || ''">{{ m.label }}</option>
           }
-          <option [value]="CUSTOM">Custom…</option>
+          <option [value]="CUSTOM">{{ 'Custom…' | t }}</option>
         </select>
       </label>
       @if (model() === CUSTOM) {
         <label class="field">
-          <span class="field-label">Custom model id</span>
+          <span class="field-label">{{ 'Custom model id' | t }}</span>
           <input
             [ngModel]="customModel()"
             (ngModelChange)="customModel.set($event)"
-            placeholder="e.g. claude-fable-5[1m]"
+            [placeholder]="'e.g. {example}' | t: { example: 'claude-fable-5[1m]' }"
             spellcheck="false"
             autocapitalize="off"
           />
         </label>
       }
       <label class="field">
-        <span class="field-label">Effort</span>
+        <span class="field-label">{{ 'Effort' | t }}</span>
         <select [ngModel]="effort()" (ngModelChange)="effort.set($event)">
           <option value="">
-            Default{{ defaults()?.effort ? ' — ' + label(defaults()!.effort!) : '' }}
+            {{
+              defaults()?.effort
+                ? ('Default — {value}' | t: { value: label(defaults()!.effort!) })
+                : ('Default||setting' | t)
+            }}
           </option>
           @for (e of efforts(); track e) {
             <option [value]="e">{{ label(e) }}</option>
@@ -56,12 +67,12 @@ const CUSTOM = '__custom__';
       </label>
       @if (showMode()) {
         <label class="field">
-          <span class="field-label">Permissions</span>
+          <span class="field-label">{{ 'Permissions' | t }}</span>
           <select [ngModel]="mode()" (ngModelChange)="mode.set($event)">
-            <option value="">Default — your settings</option>
+            <option value="">{{ 'Default — your settings' | t }}</option>
             @for (m of modes; track m.value) {
               <option [value]="m.value" [disabled]="m.dangerous && !canDangerous()">
-                {{ m.label }} — {{ m.hint }}
+                {{ m.label | t }} — {{ m.hint | t }}
               </option>
             }
           </select>
@@ -70,8 +81,10 @@ const CUSTOM = '__custom__';
     </div>
     @if (showMode() && !canDangerous()) {
       <p class="field-hint">
-        “Bypass permissions” can only be chosen on the desktop (or on a device allowed to take
-        dangerous actions).
+        {{
+          '“Bypass permissions” can only be chosen on the desktop (or on a device allowed to take dangerous actions).'
+            | t
+        }}
       </p>
     }
   `,

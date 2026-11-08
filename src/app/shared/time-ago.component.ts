@@ -1,5 +1,6 @@
 import { ChangeDetectionStrategy, Component, computed, inject, input } from '@angular/core';
 
+import { locale } from '../core/i18n/i18n';
 import { NowService } from '../core/now.service';
 import { formatDuration, relativeTime } from './util';
 
@@ -37,7 +38,7 @@ export class TimeAgoComponent {
   });
   protected readonly absolute = computed(() => {
     const ms = this.ms();
-    return ms ? new Date(ms).toLocaleString() : '';
+    return ms ? new Date(ms).toLocaleString(locale()) : '';
   });
   protected readonly text = computed(() => {
     const ms = this.ms();

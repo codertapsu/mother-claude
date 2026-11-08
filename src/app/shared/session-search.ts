@@ -1,7 +1,8 @@
+import { tr } from '../core/i18n/i18n';
 import { SessionsQuery, SessionSummary } from '../core/models';
 import { inAccount } from './accounts';
-import { thinkingChip } from './session-settings';
-import { effortLabel, effortShortLabel } from './util';
+import { thinkingChip, thinkingOffContradicted } from './session-settings';
+import { EFFORT_LABELS, EFFORT_SHORT, effortLabel, effortShortLabel } from './util';
 
 /**
  * The session list's filters — the search box, the surface, project and
@@ -27,8 +28,10 @@ export function needsYou(s: SessionSummary): boolean {
 }
 
 /** The search box: `q` (lower case) appears in anything the card shows
- * about the session, or in its id, folder or last prompt. */
+ * about the session, or in its id, folder or last prompt. The chips match
+ * in the language shown and in English, as the server matches them. */
 export function sessionMatches(s: SessionSummary, q: string): boolean {
+  const chip = thinkingChip(s);
   return [
     s.title,
     s.name,
@@ -39,12 +42,17 @@ export function sessionMatches(s: SessionSummary, q: string): boolean {
     s.model?.label,
     s.model?.id,
     s.effort,
-    effortLabel(s.effort),
+    EFFORT_LABELS[s.effort ?? ''],
+    EFFORT_SHORT[s.effort ?? ''],
     // What the card's chips say ("X-high", "Thinking off").
+    effortLabel(s.effort),
     effortShortLabel(s.effort),
-    thinkingChip(s)?.text,
+    chip?.text,
+    // The "Thinking off" chip, in English too.
+    chip && s.thinking?.mode === 'off' && !thinkingOffContradicted(s) ? 'thinking off' : '',
     s.ultracode === 'on' ? 'ultracode' : '',
     s.fast ? 'fast' : '',
+    s.fast ? tr('Fast') : '',
     s.id,
   ]
     .filter(Boolean)

@@ -1,8 +1,11 @@
 import { ChangeDetectionStrategy, Component, computed, input } from '@angular/core';
 
 import { browserActionView, fileSize } from '../core/browser';
+import { tr } from '../core/i18n/i18n';
+import { TPipe } from '../core/i18n/t.pipe';
 import { IconComponent } from './icon.component';
 
+/** English: translated where they are read (`verb`). */
 const VERBS: Record<string, string> = {
   navigate: 'Open a page',
   'tabs.open': 'Open a page in a new tab',
@@ -29,18 +32,18 @@ const VERBS: Record<string, string> = {
 @Component({
   selector: 'mc-browser-action',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [IconComponent],
+  imports: [IconComponent, TPipe],
   template: `
     @if (view(); as v) {
       <dl class="kv">
-        <dt>Action</dt>
+        <dt>{{ 'Action' | t }}</dt>
         <dd>{{ verb() }}</dd>
         @if (v.url || v.origin) {
-          <dt>Page</dt>
+          <dt>{{ 'Page' | t }}</dt>
           <dd class="mono">{{ v.url || v.origin }}</dd>
         }
         @if (v.element) {
-          <dt>Element</dt>
+          <dt>{{ 'Element' | t }}</dt>
           <dd>
             @if (v.element.name) {
               “{{ v.element.name }}”
@@ -48,15 +51,15 @@ const VERBS: Record<string, string> = {
             <span class="muted small">{{ v.element.role }} · {{ v.element.ref }}</span>
           </dd>
         } @else if (v.selector) {
-          <dt>Element</dt>
+          <dt>{{ 'Element' | t }}</dt>
           <dd class="mono">{{ v.selector }}</dd>
         }
         @if (v.text !== undefined) {
-          <dt>Text</dt>
+          <dt>{{ 'Text' | t }}</dt>
           <dd class="mono">{{ v.text }}</dd>
         }
         @if (v.fields.length) {
-          <dt>Fields</dt>
+          <dt>{{ 'Fields' | t }}</dt>
           <dd>
             <ul class="fields">
               @for (f of v.fields; track $index) {
@@ -68,15 +71,15 @@ const VERBS: Record<string, string> = {
           </dd>
         }
         @if (v.submit) {
-          <dt>Then</dt>
-          <dd>submits the form</dd>
+          <dt>{{ 'Then' | t }}</dt>
+          <dd>{{ 'submits the form' | t }}</dd>
         }
         @if (v.key) {
-          <dt>Key</dt>
+          <dt>{{ 'Key' | t }}</dt>
           <dd class="mono">{{ v.key }}</dd>
         }
         @if (v.files.length) {
-          <dt>Files</dt>
+          <dt>{{ 'Files' | t }}</dt>
           <dd>
             <ul class="fields">
               @for (f of v.files; track $index) {
@@ -89,7 +92,7 @@ const VERBS: Record<string, string> = {
           </dd>
         }
         @if (v.browser) {
-          <dt>Browser</dt>
+          <dt>{{ 'Browser' | t }}</dt>
           <dd>{{ v.browser }}</dd>
         }
       </dl>
@@ -97,7 +100,8 @@ const VERBS: Record<string, string> = {
         <pre class="mono script">{{ v.expression }}</pre>
         @if (v.touchesStorage) {
           <p class="warn small">
-            <mc-icon name="alert" [size]="13" /> It mentions cookies, storage or credentials.
+            <mc-icon name="alert" [size]="13" />
+            {{ 'It mentions cookies, storage or credentials.' | t }}
           </p>
         }
       }
@@ -142,7 +146,7 @@ export class BrowserActionComponent {
   protected readonly view = computed(() => browserActionView(this.input()));
   protected readonly verb = computed(() => {
     const a = this.view()?.action ?? '';
-    return VERBS[a] ?? a;
+    return VERBS[a] ? tr(VERBS[a]) : a;
   });
 
   protected size(bytes: number | undefined): string {

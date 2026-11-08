@@ -3,6 +3,8 @@ import { RouterLink } from '@angular/router';
 
 import { DEFAULT_ACCOUNT } from '../core/accounts';
 import { AuthService } from '../core/auth.service';
+import { tr } from '../core/i18n/i18n';
+import { TPipe } from '../core/i18n/t.pipe';
 import { NowService } from '../core/now.service';
 import { planIntervalLabel } from '../core/plan-usage';
 import { PlanUsageService } from '../core/plan-usage.service';
@@ -23,32 +25,36 @@ import { formatCountdown, formatMinor, relativeTime } from './util';
 @Component({
   selector: 'mc-plan-usage',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [RouterLink, IconComponent, PlanMeterComponent],
+  imports: [RouterLink, IconComponent, PlanMeterComponent, TPipe],
   template: `
     @if (usage(); as u) {
       @if (!u.available) {
         <p class="muted small">
-          This Claude account has no plan usage to show (an API key or a cloud provider has no plan
-          limits).
+          {{
+            'This Claude account has no plan usage to show (an API key or a cloud provider has no plan limits).'
+              | t
+          }}
         </p>
       } @else {
         <div class="meters">
           @for (w of u.windows; track w.key) {
             <mc-plan-meter [window]="w" />
           } @empty {
-            <p class="muted small">No usage has been read yet.</p>
+            <p class="muted small">{{ 'No usage has been read yet.' | t }}</p>
           }
         </div>
 
         @if (extra(); as x) {
           <div class="extra">
-            <span class="xl">Extra usage</span>
+            <span class="xl">{{ 'Extra usage' | t }}</span>
             <span class="xv">{{ x }}</span>
           </div>
         }
 
         @if (u.error) {
-          <p class="notice warn small" role="status">Last check failed: {{ u.error }}</p>
+          <p class="notice warn small" role="status">
+            {{ 'Last check failed: {error}' | t: { error: u.error } }}
+          </p>
         }
 
         <div class="status">
@@ -62,10 +68,10 @@ import { formatCountdown, formatMinor, relativeTime } from './util';
             <mc-icon name="refresh" [size]="14" />
             {{
               refreshing()
-                ? 'Checking…'
+                ? ('Checking…' | t)
                 : waitSecs() > 0
-                  ? 'Refresh in ' + waitSecs() + 's'
-                  : 'Refresh'
+                  ? ('Refresh in {n}s' | t: { n: waitSecs() })
+                  : ('Refresh' | t)
             }}
           </button>
         </div>
@@ -74,7 +80,7 @@ import { formatCountdown, formatMinor, relativeTime } from './util';
           <p class="muted small interval">
             {{ interval() }}
             @if (isDesktop()) {
-              <a routerLink="/settings">Change in Settings</a>
+              <a routerLink="/settings">{{ 'Change in Settings' | t }}</a>
             }
           </p>
         }
@@ -140,12 +146,12 @@ export class PlanUsageComponent {
   protected readonly extra = computed(() => {
     const x = this.usage()?.extraUsage;
     if (!x) return '';
-    if (!x.enabled) return 'Off';
+    if (!x.enabled) return tr('Off');
     const used = formatMinor(x.usedMinor, x.currency, x.decimals);
-    if (x.limitMinor === undefined) return `${used} used`;
+    if (x.limitMinor === undefined) return tr('{amount} used', { amount: used });
     const limit = formatMinor(x.limitMinor, x.currency, x.decimals);
     const pct = x.utilization !== undefined ? ` (${Math.round(x.utilization)}%)` : '';
-    return `${used} of ${limit}${pct}`;
+    return `${tr('{used} of {limit}', { used, limit })}${pct}`;
   });
 
   protected readonly status = computed(() => {
@@ -155,37 +161,53 @@ export class PlanUsageComponent {
     const ago = (ms: number) => relativeTime(ms, now);
     let updated: string;
     if (!u.fetchedAt) {
-      updated = 'Not read yet';
+      updated = tr('Not read yet');
     } else if (u.streamAt && u.streamAt > u.fetchedAt) {
       // A running session moved the 5-hour and weekly windows since.
-      const rest = u.source === 'cache' ? "Claude Code's last reading" : 'the rest';
-      updated = `Updated ${ago(u.streamAt)} by a running session (${rest} ${ago(u.fetchedAt)})`;
+      updated =
+        u.source === 'cache'
+          ? tr("Updated {time} by a running session (Claude Code's last reading {then})", {
+              time: ago(u.streamAt),
+              then: ago(u.fetchedAt),
+            })
+          : tr('Updated {time} by a running session (the rest {then})', {
+              time: ago(u.streamAt),
+              then: ago(u.fetchedAt),
+            });
     } else {
-      const from = u.source === 'stream' ? ' by a running session' : '';
-      const cached = u.source === 'cache' ? " (Claude Code's last reading)" : '';
-      updated = `Updated ${ago(u.fetchedAt)}${from}${cached}`;
+      const time = ago(u.fetchedAt);
+      updated =
+        u.source === 'stream'
+          ? tr('Updated {time} by a running session', { time })
+          : u.source === 'cache'
+            ? tr("Updated {time} (Claude Code's last reading)", { time })
+            : tr('Updated {time}', { time });
     }
     let next: string;
-    if (this.refreshing()) next = 'checking now…';
-    else if (u.intervalSecs <= 0) next = 'automatic checks are off';
+    if (this.refreshing()) next = tr('checking now…');
+    else if (u.intervalSecs <= 0) next = tr('automatic checks are off');
     else if (!u.nextRefreshAt) {
-      // No read scheduled: the Mac reads only while a dashboard is connected
-      // live. Connected, this is a moment before it schedules one (an older
-      // server also leaves it out while nothing is active, and reads every
-      // 30 min, or up to an hour after a failure).
+      // No read scheduled: the desktop reads only while a dashboard is
+      // connected live. Connected, this is a moment before it schedules one
+      // (an older server also leaves it out while nothing is active, and
+      // reads every 30 min, or up to an hour after a failure).
       if (this.realtime.connection() !== 'open')
-        next = 'automatic checks wait for a live connection';
-      else if (u.error) next = 'next try within an hour';
-      else next = 'next check within 30 min, sooner when a session is active';
-    } else if (u.nextRefreshAt <= now) next = 'next check soon';
-    else next = `next check in ${formatCountdown(u.nextRefreshAt - now)}`;
+        next = tr('automatic checks wait for a live connection');
+      else if (u.error) next = tr('next try within an hour');
+      else next = tr('next check within 30 min, sooner when a session is active');
+    } else if (u.nextRefreshAt <= now) next = tr('next check soon');
+    else next = tr('next check in {time}', { time: formatCountdown(u.nextRefreshAt - now) });
     return `${updated} · ${next}`;
   });
 
   protected readonly interval = computed(() => {
     const secs = this.usage()?.intervalSecs ?? 0;
     return secs > 0
-      ? `Checks ${planIntervalLabel(secs).toLowerCase()} while a session is active, and every 30 min otherwise.`
-      : 'Automatic checks are off: it is read when you tap Refresh, and by a session started here when a dashboard connects or a limit is hit.';
+      ? tr('Checks {interval} while a session is active, and every 30 min otherwise.', {
+          interval: planIntervalLabel(secs).toLowerCase(),
+        })
+      : tr(
+          'Automatic checks are off: it is read when you tap Refresh, and by a session started here when a dashboard connects or a limit is hit.',
+        );
   });
 }

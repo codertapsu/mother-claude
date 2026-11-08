@@ -1,3 +1,4 @@
+import { tr } from '../core/i18n/i18n';
 import { AgentInfo, BackgroundTask } from '../core/models';
 import { IconName } from './icon.component';
 
@@ -9,6 +10,7 @@ const KIND_ICONS: Record<string, IconName> = {
   teammate: 'user',
 };
 
+/** English: translated where they are read (`agentKindLabel`). */
 const KIND_LABELS: Record<string, string> = {
   subagent: 'Subagent',
   'workflow-agent': 'Workflow agent',
@@ -22,7 +24,8 @@ export function agentKindIcon(a: Pick<AgentInfo, 'kind'>): IconName {
 }
 
 export function agentKindLabel(a: Pick<AgentInfo, 'kind'>): string {
-  return KIND_LABELS[a.kind] ?? a.kind;
+  const label = KIND_LABELS[a.kind];
+  return label ? tr(label) : a.kind;
 }
 
 /** A background shell or monitor. The server lists these among a session's

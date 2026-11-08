@@ -11,12 +11,15 @@ import {
 import { FormsModule } from '@angular/forms';
 
 import { ApiError, ApiService, describeError } from '../core/api.service';
+import { tr } from '../core/i18n/i18n';
+import { TPipe } from '../core/i18n/t.pipe';
 import { PendingPair } from '../core/models';
 import { NoticeService } from '../core/notice.service';
 import { IconComponent } from './icon.component';
 import { SheetComponent } from './sheet.component';
 import { TimeAgoComponent } from './time-ago.component';
 
+/** English: translated where they are read (`where`). */
 const INGRESS: Record<string, string> = {
   loopback: 'this computer',
   lan: 'your local network',
@@ -31,16 +34,19 @@ const INGRESS: Record<string, string> = {
 @Component({
   selector: 'mc-pair-approval-dialog',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [FormsModule, IconComponent, SheetComponent, TimeAgoComponent],
+  imports: [FormsModule, IconComponent, SheetComponent, TimeAgoComponent, TPipe],
   template: `
-    <mc-sheet [open]="!!pending()" title="Approve a new device?" (closed)="closed.emit()">
+    <mc-sheet [open]="!!pending()" [title]="'Approve a new device?' | t" (closed)="closed.emit()">
       @if (pending(); as p) {
         <div class="who">
           <mc-icon name="phone" [size]="22" />
           <div>
-            <strong>{{ p.deviceName || p.name || 'A device' }}</strong>
+            <strong>{{ p.deviceName || p.name || ('A device' | t) }}</strong>
             <p class="muted small">
-              {{ p.platform || 'unknown platform' }} · from {{ where(p) }}
+              {{
+                '{platform} · from {where}'
+                  | t: { platform: p.platform || ('unknown platform' | t), where: where(p) }
+              }}
               @if (ipOf(p); as ip) {
                 ({{ ip }})
               }
@@ -55,13 +61,15 @@ const INGRESS: Record<string, string> = {
         </div>
         @if (p.contested) {
           <p class="notice warn small" role="alert">
-            This code was used by two devices, so this request can't be approved. Deny it and create
-            a new code.
+            {{
+              "This code was used by two devices, so this request can't be approved. Deny it and create a new code."
+                | t
+            }}
           </p>
         }
         <form class="form" (submit)="approve($event, p)">
           <label class="field">
-            <span class="field-label">Number shown on the device</span>
+            <span class="field-label">{{ 'Number shown on the device' | t }}</span>
             <input
               name="digits"
               class="digits"
@@ -76,8 +84,10 @@ const INGRESS: Record<string, string> = {
             />
           </label>
           <p id="pair-help" class="muted small">
-            Only approve a device you are holding. It gets access to all your Claude sessions until
-            you revoke it in Remote › Devices.
+            {{
+              'Only approve a device you are holding. It gets access to all your Claude sessions until you revoke it in Remote › Devices.'
+                | t
+            }}
           </p>
           @if (error()) {
             <p class="error-text small" role="alert">{{ error() }}</p>
@@ -88,10 +98,10 @@ const INGRESS: Record<string, string> = {
               type="submit"
               [disabled]="!valid() || busy() || finished() || !!p.contested"
             >
-              <mc-icon name="check" [size]="15" /> Approve
+              <mc-icon name="check" [size]="15" /> {{ 'Approve' | t }}
             </button>
             <button class="btn danger" type="button" [disabled]="busy()" (click)="deny(p)">
-              Deny
+              {{ 'Deny' | t }}
             </button>
           </div>
         </form>
@@ -154,7 +164,8 @@ export class PairApprovalDialogComponent {
   }
 
   protected where(p: PendingPair): string {
-    const net = INGRESS[p.ingress ?? ''] ?? p.ingress ?? 'an unknown network';
+    const known = INGRESS[p.ingress ?? ''];
+    const net = known ? tr(known) : (p.ingress ?? tr('an unknown network'));
     return p.provider && p.ingress === 'tunnel' ? `${net}, ${p.provider}` : net;
   }
 
@@ -168,7 +179,8 @@ export class PairApprovalDialogComponent {
     this.busy.set(true);
     try {
       await this.api.approvePair(p.id, this.digits());
-      this.notices.success(`Approved ${p.deviceName || p.name || 'the device'}.`);
+      const name = p.deviceName || p.name;
+      this.notices.success(name ? tr('Approved {name}.', { name }) : tr('Approved the device.'));
       this.settled.emit({ pending: p, approved: true });
       this.closed.emit();
     } catch (err) {
@@ -179,7 +191,7 @@ export class PairApprovalDialogComponent {
         this.error.set(
           err.message ||
             (err.code === 'fingerprint_mismatch'
-              ? "Those digits don't match. Check the number on the device and try again."
+              ? tr("Those digits don't match. Check the number on the device and try again.")
               : describeError(err).text),
         );
         if (terminal) this.digits.set('');
