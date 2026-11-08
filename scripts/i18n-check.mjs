@@ -9,6 +9,11 @@
 //   node scripts/i18n-check.mjs --unused   also lists translations no code uses
 //   node scripts/i18n-check.mjs --files a,b only those source files (paths
 //                                          relative to the repository)
+//   node scripts/i18n-check.mjs --help-labels
+//                                          also lists **bold** labels of the
+//                                          Vietnamese Help that no translated
+//                                          interface text matches (a hint: bold
+//                                          is not always a label)
 //
 // Keys are the English text: `'…' | t` in templates, `tr('…')` in code.
 // Exit status 1 when something is missing or wrong.
@@ -19,6 +24,7 @@ const root = new URL('..', import.meta.url).pathname;
 const args = process.argv.slice(2);
 const wantText = args.includes('--text');
 const wantUnused = args.includes('--unused');
+const wantHelpLabels = args.includes('--help-labels');
 const onlyAt = args.indexOf('--files');
 const only = onlyAt >= 0 ? new Set(args[onlyAt + 1].split(',').map((f) => f.trim())) : null;
 
@@ -177,6 +183,23 @@ report('Used but not translated', missing);
 report('Placeholders differ', mismatched);
 report('Translated two ways', conflicts);
 if (wantText) report('Template text not translated yet', textLeft);
+if (wantHelpLabels) {
+  const shown = new Set([...dict.values()].map((d) => d.text.replace(/[….:]+$/, '').trim()));
+  const helpDir = join(SRC, 'pages/help/vi');
+  const labels = new Map();
+  for (const name of readdirSync(helpDir).filter(
+    (n) => /^topics-.*\.ts$/.test(n) && !n.endsWith('.spec.ts'),
+  )) {
+    for (const m of readFileSync(join(helpDir, name), 'utf8').matchAll(/\*\*([^*]+)\*\*/g)) {
+      const label = m[1].replace(/[….:]+$/, '').trim();
+      if (/[a-zA-ZÀ-ỹ]/.test(label) && !shown.has(label)) labels.set(label, name);
+    }
+  }
+  report(
+    'Bold in the Vietnamese Help that no interface text matches',
+    [...labels].map(([l, f]) => `${l} (${f})`),
+  );
+}
 if (wantUnused) {
   report(
     'Translations no code uses',
