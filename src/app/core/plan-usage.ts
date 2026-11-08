@@ -1,3 +1,4 @@
+import { tr } from './i18n/i18n';
 import { PlanExtraUsage, PlanSeverity, PlanUsage, PlanWindow } from './models';
 
 /**
@@ -6,7 +7,8 @@ import { PlanExtraUsage, PlanSeverity, PlanUsage, PlanWindow } from './models';
  * everything read from the wire is checked here before the UI sees it.
  */
 
-/** Refresh intervals the server accepts (seconds), as Settings offers them. */
+/** Refresh intervals the server accepts (seconds), as Settings offers them
+ * (labels in English, translated where shown). */
 export const PLAN_INTERVALS: readonly { secs: number; label: string }[] = [
   { secs: 180, label: 'Every 3 min' },
   { secs: 300, label: 'Every 5 min (recommended)' },
@@ -17,12 +19,10 @@ export const PLAN_INTERVALS: readonly { secs: number; label: string }[] = [
 export const DEFAULT_PLAN_INTERVAL = 300;
 
 /** "Every 5 min", "Manually only", or "Every 7 min" for a value this app
- * doesn't offer. */
+ * doesn't offer (an offered one without its "(recommended)"). */
 export function planIntervalLabel(secs: number | undefined): string {
   const s = typeof secs === 'number' && Number.isFinite(secs) ? secs : DEFAULT_PLAN_INTERVAL;
-  const known = PLAN_INTERVALS.find((o) => o.secs === s);
-  if (known) return known.label.replace(' (recommended)', '');
-  return s <= 0 ? 'Manually only' : `Every ${Math.max(1, Math.round(s / 60))} min`;
+  return s <= 0 ? tr('Manually only') : tr('Every {n} min', { n: Math.max(1, Math.round(s / 60)) });
 }
 
 const SEVERITIES: readonly PlanSeverity[] = ['normal', 'warning', 'critical'];
@@ -179,8 +179,8 @@ export function primaryWindows(windows: readonly PlanWindow[]): PrimaryWindow[] 
     windows.find((w) => w !== session && isWeeklyAll(w)) ??
     windows.find((w) => w !== session && isWeekly(w));
   const out: PrimaryWindow[] = [];
-  if (session) out.push({ window: session, short: 'Session' });
-  if (week) out.push({ window: week, short: 'Week' });
+  if (session) out.push({ window: session, short: tr('Session') });
+  if (week) out.push({ window: week, short: tr('Week') });
   if (out.length) return out;
   return windows.slice(0, 2).map((w) => ({ window: w, short: shortWindowLabel(w.label) }));
 }
@@ -209,17 +209,17 @@ export function limitWindow(windows: readonly PlanWindow[], now: number): PlanWi
 /** What a limit is called in a sentence: "5-hour limit", "weekly limit",
  * "weekly Fable limit", else "<label> limit". */
 export function limitName(w: PlanWindow): string {
-  if (isSession(w)) return '5-hour limit';
-  if (isWeeklyAll(w)) return 'weekly limit';
+  if (isSession(w)) return tr('5-hour limit');
+  if (isWeeklyAll(w)) return tr('weekly limit');
   if (isWeekly(w)) {
     const parts = w.label
       .split('·')
       .map((p) => p.trim())
       .filter(Boolean);
     const scope = parts.length > 1 ? parts[parts.length - 1] : '';
-    return scope ? `weekly ${scope} limit` : 'weekly limit';
+    return scope ? tr('weekly {scope} limit', { scope }) : tr('weekly limit');
   }
-  return `${w.label} limit`;
+  return tr('{label} limit', { label: w.label });
 }
 
 function shortWindowLabel(label: string): string {

@@ -5,6 +5,10 @@
  * storage helpers degrade to "nothing stored" instead of crashing.
  */
 
+// i18n reads storage through this file too: both use the other only inside
+// functions, so the import cycle is harmless.
+import { tr } from './i18n/i18n';
+
 /** True inside the Tauri desktop webview. */
 export function isTauri(): boolean {
   return (
@@ -71,11 +75,12 @@ export function isStandalone(): boolean {
   );
 }
 
-/** A human name + platform id for a new device, e.g. "iPhone · Safari". */
+/** A human name + platform id for a new device, e.g. "iPhone · Safari" (in
+ * the language shown: it is the name the pairing page suggests). */
 export function describeDevice(): { name: string; platform: string } {
   const ua = navigator.userAgent;
   let platform = 'web';
-  let device = 'Browser';
+  let device = tr('Browser');
   if (/iPhone/.test(ua)) {
     platform = 'ios';
     device = 'iPhone';
@@ -84,23 +89,25 @@ export function describeDevice(): { name: string; platform: string } {
     device = 'iPad';
   } else if (/Android/.test(ua)) {
     platform = 'android';
-    device = /Mobile/.test(ua) ? 'Android phone' : 'Android tablet';
+    device = /Mobile/.test(ua) ? tr('Android phone') : tr('Android tablet');
   } else if (/Macintosh/.test(ua)) {
     platform = 'macos';
     device = 'Mac';
   } else if (/Windows/.test(ua)) {
     platform = 'windows';
-    device = 'Windows PC';
+    device = tr('Windows PC');
   } else if (/Linux/.test(ua)) {
     platform = 'linux';
-    device = 'Linux PC';
+    device = tr('Linux PC');
   }
-  let browser = 'Browser';
+  let browser = tr('Browser');
   if (/EdgA?\//.test(ua)) browser = 'Edge';
   else if (/Firefox|FxiOS/.test(ua)) browser = 'Firefox';
   else if (/CriOS|Chrome/.test(ua)) browser = 'Chrome';
   else if (/Safari/.test(ua)) browser = 'Safari';
-  const name = isStandalone() ? `${device} · Home Screen app` : `${device} · ${browser}`;
+  const name = isStandalone()
+    ? tr('{device} · Home Screen app', { device })
+    : `${device} · ${browser}`;
   return { name, platform };
 }
 

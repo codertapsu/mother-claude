@@ -1,4 +1,5 @@
 import { ApiError, describeError, errorMessage } from './api.service';
+import { computerNoun, tr } from './i18n/i18n';
 import { BridgeDefaults, BridgeStatus, BridgeThread, DetectedTunnel, RemoteInfo } from './models';
 
 /**
@@ -293,9 +294,9 @@ export function serverAccount(
   nameOf: (id: string) => string | undefined,
 ): ServerAccount {
   const id = s.defaults.account;
-  if (!id) return { name: 'Automatic', only: false, missing: false };
+  if (!id) return { name: tr('Automatic'), only: false, missing: false };
   const only = s.defaults.accountOnly === true;
-  if (s.accountMissing) return { id, name: 'A removed account', only, missing: true };
+  if (s.accountMissing) return { id, name: tr('A removed account'), only, missing: true };
   return { id, name: nameOf(id) ?? id, only, missing: false };
 }
 
@@ -317,15 +318,15 @@ export function serverNameProblem(
   exceptId?: string,
 ): string {
   const n = name.trim();
-  if (!n) return 'Give it a name.';
-  if ([...n].length > SERVER_NAME_MAX) return `At most ${SERVER_NAME_MAX} characters.`;
-  if (hasControl(n)) return 'Leave out control characters.';
+  if (!n) return tr('Give it a name.');
+  if ([...n].length > SERVER_NAME_MAX) return tr('At most {n} characters.', { n: SERVER_NAME_MAX });
+  if (hasControl(n)) return tr('Leave out control characters.');
   const lower = n.toLowerCase();
   const taken = [
     ...servers.filter((s) => s.id !== MAIN_SERVER),
     { id: MAIN_SERVER, name: MAIN_SERVER_NAME },
   ].some((s) => s.id !== exceptId && s.name.trim().toLowerCase() === lower);
-  return taken ? 'Another API server is called that.' : '';
+  return taken ? tr('Another API server is called that.') : '';
 }
 
 /** The port typed: undefined when empty (the server picks), NaN when it
@@ -347,13 +348,16 @@ export function portProblem(
   const p = parsePort(text);
   if (p === undefined) return '';
   if (!Number.isInteger(p) || p < PORT_MIN || p > PORT_MAX) {
-    return `Enter a port from ${PORT_MIN} to ${PORT_MAX}, or leave it empty.`;
+    return tr('Enter a port from {min} to {max}, or leave it empty.', {
+      min: PORT_MIN,
+      max: PORT_MAX,
+    });
   }
   const holder = servers.find((s) => s.id !== exceptId && s.port === p);
   if (holder?.id === MAIN_SERVER || (!holder && mainPort === p && exceptId !== MAIN_SERVER)) {
-    return 'The main server uses that port.';
+    return tr('The main server uses that port.');
   }
-  return holder ? `${holder.name} uses that port.` : '';
+  return holder ? tr('{name} uses that port.', { name: holder.name }) : '';
 }
 
 // ─────────────────────────────────────────────────────────── Addresses
@@ -389,18 +393,24 @@ export interface AddressContext {
  * prefix there: a token always. */
 export function serverAddresses(s: ServerStatus, ctx: AddressContext): ServerAddress[] {
   const main = s.id === MAIN_SERVER;
-  const where = ctx.desktop ? 'On this Mac' : 'On the Mac';
-  // A phone can't reach the Mac's loopback: say so rather than the token.
-  const macOnly = 'For programs on the Mac itself: this device cannot reach it.';
+  // The desktop's computer, as its system names it (Mac, PC, computer).
+  const computer = computerNoun();
+  const here = ctx.desktop;
+  // A phone can't reach the computer's loopback: say so rather than the token.
+  const macOnly = tr('For programs on the {computer} itself: this device cannot reach it.', {
+    computer,
+  });
   // Mother Claude's own port, when the main server has none of its own.
   const appPort = !ctx.main.port && ctx.dashboardPort ? ctx.dashboardPort : 0;
   const ownPort: ServerAddress[] = s.port
     ? [
         {
           key: 'own',
-          label: where,
+          label: here
+            ? tr('On this {computer}', { computer })
+            : tr('On the {computer}', { computer }),
           url: `http://127.0.0.1:${s.port}/v1`,
-          hint: ctx.desktop ? tokenText(s) : macOnly,
+          hint: here ? tokenText(s) : macOnly,
         },
       ]
     : [];
@@ -409,70 +419,82 @@ export function serverAddresses(s: ServerStatus, ctx: AddressContext): ServerAdd
       ? [
           {
             key: 'own',
-            label: `${where}, on Mother Claude's port`,
+            label: here
+              ? tr("On this {computer}, on Mother Claude's port", { computer })
+              : tr("On the {computer}, on Mother Claude's port", { computer }),
             url: `http://127.0.0.1:${appPort}/v1`,
-            hint: ctx.desktop
-              ? 'Always with a token: the main server has no port of its own.'
+            hint: here
+              ? tr('Always with a token: the main server has no port of its own.')
               : macOnly,
           },
         ]
       : ownPort;
   const viaMain: ServerAddress[] = [];
   if (!main && ctx.main.port) {
+    const reach = here
+      ? tr('One port reaches every server; {name} keeps its own account and token rules.', {
+          name: s.name,
+        })
+      : macOnly;
     viaMain.push({
       key: 'viaMain',
-      label: `${where}, through the main port`,
+      label: here
+        ? tr('On this {computer}, through the main port', { computer })
+        : tr('On the {computer}, through the main port', { computer }),
       url: `http://127.0.0.1:${ctx.main.port}${s.prefix}/v1`,
-      hint:
-        (ctx.desktop
-          ? `One port reaches every server; ${s.name} keeps its own account and token rules.`
-          : macOnly) + (ctx.main.running ? '' : ' Only while the main server runs.'),
+      hint: ctx.main.running ? reach : `${reach} ${tr('Only while the main server runs.')}`,
     });
   } else if (!main && appPort) {
     viaMain.push({
       key: 'viaMain',
-      label: `${where}, through Mother Claude's port`,
+      label: here
+        ? tr("On this {computer}, through Mother Claude's port", { computer })
+        : tr("On the {computer}, through Mother Claude's port", { computer }),
       url: `http://127.0.0.1:${appPort}${s.prefix}/v1`,
-      hint: ctx.desktop
-        ? `Mother Claude's own port reaches every server, always with a token; ${s.name} keeps its own account.`
+      hint: here
+        ? tr(
+            "Mother Claude's own port reaches every server, always with a token; {name} keeps its own account.",
+            { name: s.name },
+          )
         : macOnly,
     });
   }
+  const overTls = tr("Over TLS on Mother Claude's own port, always with a paired device's token.");
   const lan: ServerAddress = ctx.lanBase
     ? {
         key: 'lan',
-        label: 'On your network',
+        label: tr('On your network'),
         url: `${ctx.lanBase}${s.prefix}/v1`,
-        hint: "Over TLS on Mother Claude's own port, always with a paired device's token.",
+        hint: overTls,
       }
     : {
         key: 'lan',
-        label: 'On your network',
+        label: tr('On your network'),
         url: null,
-        pattern: `https://<the Mac's address>:${ctx.dashboardPort || 6725}${s.prefix}/v1`,
-        hint: "Over TLS on Mother Claude's own port, always with a paired device's token. The Mac's Remote page shows its address.",
+        pattern: `https://${tr("<the {computer}'s address>", { computer })}:${ctx.dashboardPort || 6725}${s.prefix}/v1`,
+        hint: `${overTls} ${tr("The {computer}'s Remote page shows its address.", { computer })}`,
       };
   const tunnels: ServerAddress[] = [];
   if (s.tunnelUrl) {
     tunnels.push({
       key: 'tunnel',
-      label: 'Through its tunnel',
+      label: tr('Through its tunnel'),
       url: `${s.tunnelUrl}/v1`,
       hint:
         s.tokenPolicy === 'never'
-          ? 'Open to tunnels: no token needed.'
-          : "With a paired device's token, while the tunnel points at its port.",
+          ? tr('Open to tunnels: no token needed.')
+          : tr("With a paired device's token, while the tunnel points at its port."),
     });
   }
   if (!main && ctx.main.tunnelUrl) {
     tunnels.push({
       key: 'mainTunnel',
-      label: "Through the main port's tunnel",
+      label: tr("Through the main port's tunnel"),
       url: `${ctx.main.tunnelUrl}${s.prefix}/v1`,
       hint:
         s.tokenPolicy === 'never'
-          ? `${s.name} is open to tunnels: no token needed.`
-          : "With a paired device's token.",
+          ? tr('{name} is open to tunnels: no token needed.', { name: s.name })
+          : tr("With a paired device's token."),
     });
   }
   if (ctx.desktop) return [...own, ...viaMain, lan, ...tunnels];
@@ -487,13 +509,15 @@ export function serverAddresses(s: ServerStatus, ctx: AddressContext): ServerAdd
 function tokenText(s: Pick<ServerStatus, 'tokenPolicy' | 'exposedByTunnel'>): string {
   switch (s.tokenPolicy) {
     case 'required':
-      return 'A token is required.';
+      return tr('A token is required.');
     case 'never':
-      return 'No token, from anywhere that reaches the port.';
+      return tr('No token, from anywhere that reaches the port.');
     default:
       return s.exposedByTunnel
-        ? 'A token is required while a tunnel points at the port.'
-        : 'Programs on this Mac call it without a token.';
+        ? tr('A token is required while a tunnel points at the port.')
+        : tr('Programs on this {computer} call it without a token.', {
+            computer: computerNoun(),
+          });
   }
 }
 
@@ -627,45 +651,65 @@ export function serverErrorText(e: unknown, ctx: RefusalContext = {}): string {
 }
 
 function refusalText(e: ApiError, ctx: RefusalContext): string {
-  const name = ctx.server || 'this server';
+  const name = ctx.server || tr('this server');
   switch (e.code) {
     case 'port_unavailable': {
       const port = portIn(e);
-      const which = port ? `Port ${port}` : 'That port';
+      const which = port ? tr('Port {port}', { port }) : tr('That port');
       const holderId = e.detail('server');
       const holder = holderId
         ? (ctx.servers?.find((s) => s.id === holderId)?.name ?? holderId)
         : '';
       if (holder) {
-        return `${which} is ${holder}'s. Pick another, or leave the port empty for the first free one.`;
+        return tr(
+          "{which} is {holder}'s. Pick another, or leave the port empty for the first free one.",
+          { which, holder },
+        );
       }
       if (ctx.saving) {
         // The server knows whose it is ("… the Mother Claude app's own port.").
-        const said = serverSaid(e);
-        return `${said || `${which} is taken: the main server, Mother Claude's own ports or another program has it.`} Pick another, or leave it empty for the first free one.`;
+        const said =
+          serverSaid(e) ||
+          tr(
+            "{which} is taken: the main server, Mother Claude's own ports or another program has it.",
+            { which },
+          );
+        return `${said} ${tr('Pick another, or leave it empty for the first free one.')}`;
       }
       return ctx.main
-        ? `${which} is in use by another program, so ${name} cannot listen on it. Stop that program, or set MOTHER_CLAUDE_BRIDGE_PORT to another port.`
-        : `${which} is in use by another program, so ${name} cannot listen on it. Stop that program, or give ${name} another port.`;
+        ? tr(
+            '{which} is in use by another program, so {name} cannot listen on it. Stop that program, or set MOTHER_CLAUDE_BRIDGE_PORT to another port.',
+            { which, name },
+          )
+        : tr(
+            '{which} is in use by another program, so {name} cannot listen on it. Stop that program, or give {name} another port.',
+            { which, name },
+          );
     }
     case 'account_not_found':
-      return `${name}'s account was removed. Choose another account (or Automatic) for it, then start it.`;
+      return tr(
+        "{name}'s account was removed. Choose another account (or Automatic) for it, then start it.",
+        { name },
+      );
     case 'account_not_served':
-      return `${name} runs only as ${ctx.account || 'its own account'}: another account's conversations can't be used through it.`;
+      return tr(
+        "{name} runs only as {account}: another account's conversations can't be used through it.",
+        { name, account: ctx.account || tr('its own account') },
+      );
     case 'account_used_by_bridge':
       return accountInUseText(e);
     case 'server_not_found':
-      return 'That API server no longer exists. Reload the page to see the ones there are.';
+      return tr('That API server no longer exists. Reload the page to see the ones there are.');
     case 'main_server_fixed':
-      return 'The main server keeps its name and port, and cannot be removed.';
+      return tr('The main server keeps its name and port, and cannot be removed.');
     case 'server_name_taken':
-      return 'Another API server is called that. Pick another name.';
+      return tr('Another API server is called that. Pick another name.');
     case 'thread_not_found':
-      return 'That conversation no longer exists. Pick another one.';
+      return tr('That conversation no longer exists. Pick another one.');
     case 'dangerous_blocked':
       return describeError(e).text;
     case 'desktop_only':
-      return e.message || 'Only the desktop app can do this.';
+      return e.message || tr('Only the desktop app can do this.');
     default:
       return errorMessage(e);
   }
@@ -673,12 +717,23 @@ function refusalText(e: ApiError, ctx: RefusalContext): string {
 
 /**
  * `409 account_used_by_bridge` (removing an account a running server uses),
- * in words: it names the server when it is not the main one. `then`: what
- * to do after stopping it.
+ * in words: it names the server when it is not the main one. `account` and
+ * `then` (what to do after stopping it, "first" by default) go into the
+ * sentence as they are: a caller passes them in the language shown.
  */
-export function accountInUseText(e: ApiError, account = 'this account', then = 'first'): string {
+export function accountInUseText(
+  e: ApiError,
+  account = tr('this account'),
+  then = tr('first'),
+): string {
   const server = e.detail('serverName') || e.detail('server');
   return server
-    ? `The API server ${server} is running under ${account}. Stop it, or start it with another account, ${then}.`
-    : `The API is running with ${account} as the account its new conversations start under. Stop the API, or start it again with another account, ${then}.`;
+    ? tr(
+        'The API server {server} is running under {account}. Stop it, or start it with another account, {then}.',
+        { server, account, then },
+      )
+    : tr(
+        'The API is running with {account} as the account its new conversations start under. Stop the API, or start it again with another account, {then}.',
+        { account, then },
+      );
 }

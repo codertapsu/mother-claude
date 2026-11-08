@@ -1,6 +1,7 @@
 import { Injectable, Signal, computed, inject, signal } from '@angular/core';
 
 import { ApiError, ApiService } from './api.service';
+import { computerNoun, tr } from './i18n/i18n';
 import {
   PendingItem,
   PendingOutcome,
@@ -37,33 +38,64 @@ export function isFullItem(p: PendingPreview | PendingItem): p is PendingItem {
   return Array.isArray((p as PendingItem).suggestions) && typeof p.sessionId === 'string';
 }
 
+/** How each outcome reads (English; translated where read). */
+const OUTCOME_TEXT: Record<PendingOutcome, string> = {
+  allowed: 'Allowed',
+  denied: 'Denied',
+  answered: 'Answered',
+  withdrawn: 'No longer needed',
+  expired: 'Expired',
+  cancelled: 'Cancelled',
+};
+
+/** The desktop as the server names it when it answered ("Mac", "PC",
+ * "machine", "browser side panel"), in words; another name as it is. */
+function desktopName(name: string | undefined): string {
+  switch (name) {
+    case undefined:
+    case '':
+      return computerNoun();
+    case 'Mac':
+      return tr('Mac');
+    case 'PC':
+      return tr('PC');
+    case 'machine':
+    case 'computer':
+      return tr('computer');
+    case 'browser side panel':
+      return tr('browser side panel');
+    default:
+      return name;
+  }
+}
+
 /** "Allowed on Marcus's iPhone", "Answered at the Mac", "Expired". */
 export function resolutionText(r: PendingResolution): string {
-  const verb: Record<PendingOutcome, string> = {
-    allowed: 'Allowed',
-    denied: 'Denied',
-    answered: 'Answered',
-    withdrawn: 'No longer needed',
-    expired: 'Expired',
-    cancelled: 'Cancelled',
-  };
-  const base = verb[r.outcome] ?? 'Settled';
-  if (r.mine) return `${base} from here`;
+  const outcome = tr(OUTCOME_TEXT[r.outcome] ?? 'Settled');
+  if (r.mine) return tr('{outcome} from here', { outcome });
   const by = r.by;
-  if (!by) return r.outcome === 'withdrawn' ? `${base} (answered elsewhere)` : base;
+  if (!by) {
+    return r.outcome === 'withdrawn' ? tr('{outcome} (answered elsewhere)', { outcome }) : outcome;
+  }
+  const computer = computerNoun();
   switch (by.kind) {
     case 'device':
-      return `${base} on ${by.name || 'another device'}`;
+      return tr('{outcome} on {device}', { outcome, device: by.name || tr('another device') });
     case 'desktop':
-      return `${base} on the ${by.name || 'Mac'}`;
+      return tr('{outcome} on the {computer}', { outcome, computer: desktopName(by.name) });
     case 'host':
-      return r.outcome === 'withdrawn'
-        ? `Answered at the Mac${by.name ? ` (${by.name})` : ''}`
-        : `${base} at the Mac${by.name ? ` (${by.name})` : ''}`;
+      if (r.outcome === 'withdrawn') {
+        return by.name
+          ? tr('Answered at the {computer} ({name})', { computer, name: by.name })
+          : tr('Answered at the {computer}', { computer });
+      }
+      return by.name
+        ? tr('{outcome} at the {computer} ({name})', { outcome, computer, name: by.name })
+        : tr('{outcome} at the {computer}', { outcome, computer });
     case 'timeout':
-      return 'Timed out';
+      return tr('Timed out');
     default:
-      return base;
+      return outcome;
   }
 }
 
@@ -219,7 +251,7 @@ export class PendingService {
         const known = this.resolvedS().get(ref.id);
         return {
           alreadyDecided: true,
-          text: known ? resolutionText(known) : e.message || 'Already answered elsewhere',
+          text: known ? resolutionText(known) : e.message || tr('Already answered elsewhere'),
         };
       }
       throw e;

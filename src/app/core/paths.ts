@@ -7,13 +7,15 @@
  * in, `~`, `~/…` or `~\…`. The desktop, which knows its own system, checks
  * the rest and has the last word (its refusal is shown as it is).
  * Placeholders, examples and hints follow the desktop's system
- * (`me.hostOs`).
+ * (`me.hostOs`), in the language shown.
  *
  * Folders the desktop recorded (a conversation's folder, a project of a
  * backup made on another machine) may be either system's too: they compare
  * by their own form — a Windows path without regard to case or to which
  * separator, as Windows does.
  */
+
+import { tr } from './i18n/i18n';
 
 /** The desktop's system, as `GET /me` names it (`hostOs`). */
 export type HostOs = 'macos' | 'windows' | 'linux';
@@ -139,10 +141,20 @@ export interface FolderField {
 /** "Enter the folder's full path, starting with / (or ~ for your home
  * folder)." — in the desktop's form. */
 export function fullPathText(os: HostOs, field: FolderField = {}): string {
-  const noun = field.noun ?? 'folder';
-  const start = os === 'windows' ? 'a drive like C:\\ or a share like \\\\server\\share' : '/';
-  const home = (field.home ?? true) ? ' (or ~ for your home folder)' : '';
-  return `Enter the ${noun}'s full path, starting with ${start}${home}.`;
+  const directory = field.noun === 'directory';
+  const start = os === 'windows' ? tr('a drive like C:\\ or a share like \\\\server\\share') : '/';
+  if (field.home ?? true) {
+    return directory
+      ? tr("Enter the directory's full path, starting with {start} (or ~ for your home folder).", {
+          start,
+        })
+      : tr("Enter the folder's full path, starting with {start} (or ~ for your home folder).", {
+          start,
+        });
+  }
+  return directory
+    ? tr("Enter the directory's full path, starting with {start}.", { start })
+    : tr("Enter the folder's full path, starting with {start}.", { start });
 }
 
 /** Why a typed folder can't be sent ('' when it may be): a full path of
@@ -151,12 +163,15 @@ export function fullPathText(os: HostOs, field: FolderField = {}): string {
  * own system, and what the field needs besides. */
 export function folderPathProblem(path: string, os: HostOs, field: FolderField = {}): string {
   const p = path.trim();
-  if (!p) return `Enter the ${field.noun ?? 'folder'}'s path.`;
+  if (!p)
+    return field.noun === 'directory'
+      ? tr("Enter the directory's path.")
+      : tr("Enter the folder's path.");
   if (!isAbsoluteAnywhere(p) && !((field.home ?? true) && isHomePath(p))) {
     return fullPathText(os, field);
   }
   if (p.split(/[\\/]/).some((s) => s === '.' || s === '..')) {
-    return 'Enter the path without . or .. in it.';
+    return tr('Enter the path without . or .. in it.');
   }
   return '';
 }

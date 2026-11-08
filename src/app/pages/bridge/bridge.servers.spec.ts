@@ -183,7 +183,7 @@ describe('BridgeComponent servers', () => {
     // The main server's panel, named, with its own addresses.
     expect(head()).toBe('Main running http://127.0.0.1:5612 Stop');
     expect(addresses().map((a) => a.url)).toEqual([
-      "https://<the Mac's address>:6725/v1",
+      "https://<the computer's address>:6725/v1",
       'http://127.0.0.1:5612/v1',
     ]);
     // Adding is in the list now, not under the buttons.
@@ -203,9 +203,12 @@ describe('BridgeComponent servers', () => {
     // tunnel); the Mac's loopback says so.
     expect(addresses()).toEqual([
       { label: 'Through its tunnel', url: 'https://acme.ngrok.app/v1' },
-      { label: 'On your network', url: "https://<the Mac's address>:6725/servers/work/v1" },
-      { label: 'On the Mac', url: 'http://127.0.0.1:5613/v1' },
-      { label: 'On the Mac, through the main port', url: 'http://127.0.0.1:5612/servers/work/v1' },
+      { label: 'On your network', url: "https://<the computer's address>:6725/servers/work/v1" },
+      { label: 'On the computer', url: 'http://127.0.0.1:5613/v1' },
+      {
+        label: 'On the computer, through the main port',
+        url: 'http://127.0.0.1:5612/servers/work/v1',
+      },
     ]);
     // Its own conversation, under its account.
     const running = [...el.querySelectorAll('optgroup[label="Running now"] option')].map(text);
@@ -255,8 +258,8 @@ describe('BridgeComponent servers', () => {
     await settle();
     expect(head()).toContain('Work running');
     expect(addresses().map((a) => a.label)).toEqual([
-      'On this Mac',
-      'On this Mac, through the main port',
+      'On this computer',
+      'On this computer, through the main port',
       'On your network',
       'Through its tunnel',
     ]);
@@ -274,18 +277,18 @@ describe('BridgeComponent servers', () => {
     await render(withServers([work()], { port: undefined, url: undefined }));
     await settle();
     expect(addresses()).toEqual([
-      { label: 'On this Mac', url: 'http://127.0.0.1:5613/v1' },
+      { label: 'On this computer', url: 'http://127.0.0.1:5613/v1' },
       {
-        label: "On this Mac, through Mother Claude's port",
+        label: "On this computer, through Mother Claude's port",
         url: 'http://127.0.0.1:6802/servers/work/v1',
       },
-      { label: 'On your network', url: "https://<the Mac's address>:6802/servers/work/v1" },
+      { label: 'On your network', url: "https://<the computer's address>:6802/servers/work/v1" },
       { label: 'Through its tunnel', url: 'https://acme.ngrok.app/v1' },
     ]);
     // The main server's own address there.
     await click('Main');
     expect(addresses()[0]).toEqual({
-      label: "On this Mac, on Mother Claude's port",
+      label: "On this computer, on Mother Claude's port",
       url: 'http://127.0.0.1:6802/v1',
     });
   });

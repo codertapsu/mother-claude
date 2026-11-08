@@ -1,6 +1,7 @@
 import { Injectable, inject, signal } from '@angular/core';
 
 import { ApiService } from './api.service';
+import { tr } from './i18n/i18n';
 import { BACKUP_STORAGE, StorageView, moveErrorText, normalizeStorages } from './move-data';
 import { RealtimeService } from './realtime.service';
 
@@ -69,7 +70,7 @@ export class StorageService {
 
   /** A storage's label, for a job's title (undefined when unknown). */
   labelOf(id: string): string | undefined {
-    return this.byId(id)?.label ?? (id === BACKUP_STORAGE ? 'the backup folder' : undefined);
+    return this.byId(id)?.label ?? (id === BACKUP_STORAGE ? tr('the backup folder') : undefined);
   }
 
   // Each change throws the server's refusal for the caller to show, and

@@ -1,3 +1,4 @@
+import { tr } from './i18n/i18n';
 import {
   AccountAttention,
   AccountDefaults,
@@ -267,16 +268,17 @@ export function accountNameProblem(
   exceptId?: string,
 ): string {
   const n = name.trim();
-  if (!n) return 'Enter a name.';
-  if ([...n].length > ACCOUNT_NAME_MAX) return `At most ${ACCOUNT_NAME_MAX} characters.`;
-  if (n.startsWith('.')) return "A name can't start with a dot.";
+  if (!n) return tr('Enter a name.');
+  if ([...n].length > ACCOUNT_NAME_MAX)
+    return tr('At most {n} characters.', { n: ACCOUNT_NAME_MAX });
+  if (n.startsWith('.')) return tr("A name can't start with a dot.");
   // eslint-disable-next-line no-control-regex
   if (/[/\\:*?"<>|\u0000-\u001f\u007f]/.test(n)) {
-    return 'A name can\'t contain / \\ : * ? " < > |';
+    return tr('A name can\'t contain / \\ : * ? " < > |');
   }
   const lower = n.toLowerCase();
   if (accounts.some((a) => a.id !== exceptId && a.name.trim().toLowerCase() === lower)) {
-    return 'Another account already has this name.';
+    return tr('Another account already has this name.');
   }
   return '';
 }

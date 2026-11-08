@@ -1,6 +1,9 @@
 // Teams of Claude Code sessions (docs/TEAMS.md): the wire types of
 // `/api/team-templates*`, `/api/teams*` and the `teams` WebSocket frame, and
-// the pure helpers the Teams pages share.
+// the pure helpers the Teams pages share. The label tables stay English and
+// are translated where they are read (docs/I18N.md).
+
+import { tr } from './i18n/i18n';
 
 /** Where a task is on the board. */
 export type TaskStatus =
@@ -357,14 +360,16 @@ export function parseTemplate(text: string): { template?: TeamTemplate; error?: 
   try {
     v = JSON.parse(text);
   } catch (e) {
-    return { error: `Not JSON: ${e instanceof Error ? e.message : String(e)}` };
+    return {
+      error: tr('Not JSON: {error}', { error: e instanceof Error ? e.message : String(e) }),
+    };
   }
   if (!v || typeof v !== 'object' || Array.isArray(v)) {
-    return { error: 'A template is a JSON object.' };
+    return { error: tr('A template is a JSON object.') };
   }
   const t = v as Partial<TeamTemplate>;
   if (typeof t.id !== 'string' || !Array.isArray(t.roles)) {
-    return { error: 'A template has an "id" and a list of "roles".' };
+    return { error: tr('A template has an "id" and a list of "roles".') };
   }
   return { template: v as TeamTemplate };
 }
@@ -379,7 +384,8 @@ export function templateJson(t: TeamTemplate | TemplateEntry): string {
 
 /** One line about a role: its state and, while it waits, why. */
 export function roleStatusLine(r: RoleView): string {
-  const label = ROLE_STATE_LABELS[r.state] ?? r.state;
+  const known = ROLE_STATE_LABELS[r.state];
+  const label = known ? tr(known) : r.state;
   if (r.state === 'waiting' && r.waitReasons?.length) {
     return `${label}: ${r.waitReasons.join('; ')}`;
   }

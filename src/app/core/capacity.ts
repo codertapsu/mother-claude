@@ -1,3 +1,4 @@
+import { tr } from './i18n/i18n';
 import { PlanWindow } from './models';
 
 /**
@@ -377,9 +378,13 @@ export function validModel(m: string): boolean {
 export function policyProblems(p: RoutingPolicy): Record<string, string> {
   const out: Record<string, string> = {};
   const choiceProblem = (c: ModelChoice): string | null => {
-    if (!validModel(c.model)) return `${c.model || 'Nothing'} is not a model.`;
+    if (!validModel(c.model)) {
+      return c.model
+        ? tr('{model} is not a model.', { model: c.model })
+        : tr('Nothing is not a model.');
+    }
     if (c.effort && !(EFFORTS as readonly string[]).includes(c.effort)) {
-      return `${c.effort} is not an effort.`;
+      return tr('{effort} is not an effort.', { effort: c.effort });
     }
     return null;
   };
@@ -388,23 +393,24 @@ export function policyProblems(p: RoutingPolicy): Record<string, string> {
     if (problem) out[`classes.${k}`] = problem;
   }
   if (p.ladder.length < 2 || p.ladder.length > 12) {
-    out['ladder'] = 'The ladder has 2 to 12 rungs.';
+    out['ladder'] = tr('The ladder has 2 to 12 rungs.');
   } else if (p.ladder.some((r) => choiceProblem(r))) {
-    out['ladder'] = 'Every rung needs a model and an effort Claude Code takes.';
+    out['ladder'] = tr('Every rung needs a model and an effort Claude Code takes.');
   } else if (p.ladder.some((r, i) => i > 0 && rank(r) <= rank(p.ladder[i - 1]))) {
-    out['ladder'] =
-      'Each rung must be above the one before it (a stronger model, or the same model at a higher effort).';
+    out['ladder'] = tr(
+      'Each rung must be above the one before it (a stronger model, or the same model at a higher effort).',
+    );
   }
   if (!Number.isInteger(p.gatesPerStep) || p.gatesPerStep < 1 || p.gatesPerStep > 5) {
-    out['gatesPerStep'] = 'Between 1 and 5 failed gates per step.';
+    out['gatesPerStep'] = tr('Between 1 and 5 failed gates per step.');
   }
   if (!Number.isInteger(p.cleanToStepDown) || p.cleanToStepDown < 1 || p.cleanToStepDown > 10) {
-    out['cleanToStepDown'] = 'Between 1 and 10 clean completions.';
+    out['cleanToStepDown'] = tr('Between 1 and 10 clean completions.');
   }
   const gate = choiceProblem(p.gateChoice);
   if (gate) out['gateChoice'] = gate;
   else if (tier(p.gateChoice.model) >= 2) {
-    out['gateChoice'] = 'The budget gate must send Opus work to a cheaper model.';
+    out['gateChoice'] = tr('The budget gate must send Opus work to a cheaper model.');
   }
   return out;
 }
@@ -429,17 +435,17 @@ export function projectName(path: string): string {
 export function rateLimitText(n: RateLimitNote): string {
   const limit =
     n.limit === 'five_hour'
-      ? 'the 5-hour limit'
+      ? tr('the 5-hour limit')
       : n.limit === 'seven_day'
-        ? 'the weekly limit'
+        ? tr('the weekly limit')
         : n.limit === 'seven_day_opus'
-          ? 'the Opus weekly limit'
+          ? tr('the Opus weekly limit')
           : n.limit === 'seven_day_sonnet'
-            ? 'the Sonnet weekly limit'
-            : 'a usage limit';
-  if (n.status === 'rejected') return `Claude refused a request on ${limit}`;
-  if (n.status === 'allowed_warning') return `Claude warned that ${limit} is near`;
-  return `Claude reported ${limit}`;
+            ? tr('the Sonnet weekly limit')
+            : tr('a usage limit');
+  if (n.status === 'rejected') return tr('Claude refused a request on {limit}', { limit });
+  if (n.status === 'allowed_warning') return tr('Claude warned that {limit} is near', { limit });
+  return tr('Claude reported {limit}', { limit });
 }
 
 /** The plan windows that matter for scheduling, 5-hour first. */

@@ -222,7 +222,7 @@ describe('InfoPanelComponent', () => {
     await flush();
     fixture.detectChanges();
     expect(el.querySelector('[role="alert"]')?.textContent?.trim()).toBe(
-      "Its transcript isn't on this Mac any more.",
+      "Its transcript isn't on this computer any more.",
     );
   });
 

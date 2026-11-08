@@ -1,5 +1,6 @@
 import { Injectable, computed, effect, inject, signal } from '@angular/core';
 
+import { tr } from './i18n/i18n';
 import { NoticeService } from './notice.service';
 import { RealtimeService } from './realtime.service';
 import { storageGet, storageSet } from './platform';
@@ -65,15 +66,18 @@ export class AttentionService {
       const session = this.realtime.sessions().find((s) => s.id === first.sessionId);
       const what =
         first.kind === 'question'
-          ? 'Question'
+          ? tr('Question')
           : first.kind === 'plan'
-            ? 'Plan to review'
+            ? tr('Plan to review')
             : first.kind === 'elicitation'
-              ? 'Input needed'
-              : 'Permission needed';
-      const name = session?.title || session?.name || 'a session';
+              ? tr('Input needed')
+              : tr('Permission needed');
+      const name = session?.title || session?.name || tr('a session');
+      const params = { what, name, title: first.title, n: fresh.length - 1 };
       this.notices.announce(
-        `${what} in ${name}: ${first.title}${fresh.length > 1 ? ` (and ${fresh.length - 1} more)` : ''}`,
+        fresh.length > 1
+          ? tr('{what} in {name}: {title} (and {n} more)', params)
+          : tr('{what} in {name}: {title}', params),
       );
       if (this.alertsEnabled()) this.alert();
     });

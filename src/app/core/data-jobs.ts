@@ -109,7 +109,6 @@ export function formatBytes(n: number | undefined): string {
   return i === 0 ? `${v} B` : `${v < 10 ? v.toFixed(1) : Math.round(v)} ${units[i]}`;
 }
 
-/** "1 session" / "3 sessions". */
 /** "1 session", "3 sessions": the noun in the language shown (Vietnamese
  * has one form for both: both are keys of the dictionary). */
 export function plural(n: number, one: string, many = `${one}s`): string {
@@ -126,7 +125,7 @@ const KIND_LABELS: Record<DataJobKind, string> = {
 };
 
 export function jobKindLabel(kind: DataJobKind): string {
-  return KIND_LABELS[kind];
+  return tr(KIND_LABELS[kind]);
 }
 
 /** What a job did, with the places it names: "Move from Default to Work",
@@ -145,7 +144,6 @@ export function jobTitle(
   const forced =
     ['backup', 'pull', 'restore'].includes(j.kind) &&
     (j.result as { force?: unknown } | undefined)?.force === true;
-  const kind = forced ? `Force ${jobKindLabel(j.kind).toLowerCase()}` : jobKindLabel(j.kind);
   const name = (id: string | undefined) => (id ? nameOf(id) : undefined);
   const set = name(j.account);
   switch (j.kind) {
@@ -169,20 +167,46 @@ export function jobTitle(
             : toLabel
           : side(j.toStorage, fromAccount)
         : toAccount;
-      if (from && to) return `${kind} from ${from} to ${to}`;
-      if (to) return `${kind} to ${to}`;
-      if (from) return `${kind} from ${from}`;
-      return kind;
+      const move = j.kind === 'move';
+      if (from && to) {
+        return move
+          ? tr('Move from {from} to {to}', { from, to })
+          : tr('Copy from {from} to {to}', { from, to });
+      }
+      if (to) return move ? tr('Move to {to}', { to }) : tr('Copy to {to}', { to });
+      if (from) return move ? tr('Move from {from}', { from }) : tr('Copy from {from}', { from });
+      return jobKindLabel(j.kind);
     }
     case 'delete':
-      return set ? `${kind} from ${set}` : kind;
+      return set ? tr('Delete from {account}', { account: set }) : jobKindLabel(j.kind);
     case 'restore': {
       const into = name(j.to);
-      if (set && into && j.to !== j.account) return `${kind} of ${set} into ${into}`;
-      return set ? `${kind} of ${set}` : kind;
+      if (set && into && j.to !== j.account) {
+        return forced
+          ? tr('Force restore of {account} into {into}', { account: set, into })
+          : tr('Restore of {account} into {into}', { account: set, into });
+      }
+      if (set) {
+        return forced
+          ? tr('Force restore of {account}', { account: set })
+          : tr('Restore of {account}', { account: set });
+      }
+      return forced ? tr('Force restore') : jobKindLabel(j.kind);
     }
+    case 'backup':
+      if (set) {
+        return forced
+          ? tr('Force backup of {account}', { account: set })
+          : tr('Backup of {account}', { account: set });
+      }
+      return forced ? tr('Force backup') : jobKindLabel(j.kind);
     default:
-      return set ? `${kind} of ${set}` : kind;
+      if (set) {
+        return forced
+          ? tr('Force pull of {account}', { account: set })
+          : tr('Pull of {account}', { account: set });
+      }
+      return forced ? tr('Force pull') : jobKindLabel(j.kind);
   }
 }
 
@@ -190,13 +214,13 @@ export function jobTitle(
 export function jobStateLabel(state: DataJobState): string {
   switch (state) {
     case 'running':
-      return 'Running';
+      return tr('Running');
     case 'done':
-      return 'Done';
+      return tr('Done');
     case 'failed':
-      return 'Failed';
+      return tr('Failed');
     default:
-      return 'Undone';
+      return tr('Undone');
   }
 }
 
@@ -208,7 +232,8 @@ export function sentence(text: string | undefined): string {
   return /[.!?…]$/.test(s) ? s : `${s}.`;
 }
 
-/** What each refusal of a move or copy means, when the server says nothing. */
+/** What each refusal of a move or copy means, when the server says nothing
+ * (English here, translated where read). */
 const TRANSFER_TEXT: Record<string, string> = {
   same_directory:
     "Both accounts use the same folder: a copy there would be the same conversation. Move it instead: that records it as the other account's.",
@@ -240,7 +265,7 @@ export function isTransferRefusal(e: unknown): e is ApiError {
  * the server's own sentence, else what its code means. */
 export function transferErrorText(e: unknown): string {
   if (isTransferRefusal(e)) {
-    return sentence(e.message) || TRANSFER_TEXT[e.code as string];
+    return sentence(e.message) || tr(TRANSFER_TEXT[e.code as string]);
   }
   return describeError(e).text;
 }

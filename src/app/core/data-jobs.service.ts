@@ -2,6 +2,7 @@ import { Injectable, inject } from '@angular/core';
 
 import { ApiService } from './api.service';
 import { JOB_POLL_MS, normalizeJob } from './data-jobs';
+import { tr } from './i18n/i18n';
 import { JobView } from './models';
 
 /** Answers in a row that may fail before following a job gives up. */
@@ -41,7 +42,7 @@ export class DataJobsService {
       if (signal?.aborted) break;
       try {
         const next = normalizeJob(await this.api.getDataJob(id));
-        if (!next) throw new Error('The server sent a job this app could not read.');
+        if (!next) throw new Error(tr('The server sent a job this app could not read.'));
         failures = 0;
         view = next;
         onUpdate(next);

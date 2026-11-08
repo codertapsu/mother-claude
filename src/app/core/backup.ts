@@ -1,5 +1,6 @@
 import { ApiError, describeError } from './api.service';
 import { isTransferRefusal, normalizeJob, plural, sentence, transferErrorText } from './data-jobs';
+import { tr } from './i18n/i18n';
 import {
   BackupAction,
   BackupConfigEntry,
@@ -37,7 +38,8 @@ export const BACKUP_MAX_HOURS = 168;
 /** Shortest passphrase of the user's own (the server's rule). */
 export const PASSPHRASE_MIN = 12;
 
-/** The schedules offered (0: by hand only). */
+/** The schedules offered (0: by hand only). The labels stay English here
+ * and are translated where they are shown (`tr(s.label)`). */
 export const BACKUP_SCHEDULES: readonly { hours: number; label: string }[] = [
   { hours: 0, label: 'By hand only' },
   { hours: 1, label: 'Every hour' },
@@ -49,8 +51,8 @@ export const BACKUP_SCHEDULES: readonly { hours: number; label: string }[] = [
 
 export function scheduleLabel(hours: number): string {
   const known = BACKUP_SCHEDULES.find((s) => s.hours === hours);
-  if (known) return known.label;
-  return hours === 1 ? 'Every hour' : `Every ${hours} hours`;
+  if (known) return tr(known.label);
+  return hours === 1 ? tr('Every hour') : tr('Every {n} hours', { n: hours });
 }
 
 const ACTIONS: readonly BackupAction[] = [
@@ -150,13 +152,18 @@ export function otherMachines(
   };
 }
 
-/** `Default`, `Default and Work`, `Default, Work and Personal`. */
+/** `Default`, `Default and Work`, `Default, Work and Personal` (the "and" in
+ * the language shown). */
 export function andList(names: readonly string[]): string {
   if (names.length <= 1) return names[0] ?? '';
-  return `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
+  return tr('{list} and {last}', {
+    list: names.slice(0, -1).join(', '),
+    last: names[names.length - 1],
+  });
 }
 
-/** What the page says about a set whose key is not in the folder here. */
+/** What the page says about a set whose key is not in the folder here
+ * (English: shown with `tr()` or `| t` where it is read). */
 export const KEY_MISSING_TEXT =
   "Its key (identity.age) isn't in the folder here — deleted, or not downloaded yet — so nothing can be backed up to it or read from it until it is back. On iCloud Drive, right-click the Mother Claude folder and choose Keep Downloaded (on OneDrive: Always keep on this device); to start over instead, move the set's folder away.";
 
@@ -340,7 +347,8 @@ export function normalizeBackupIndex(raw: unknown): BackupIndex | null {
   };
 }
 
-/** What a pull does with a session, in words. */
+/** What a pull does with a session, in words (English, like the tables
+ * below: translated where read). */
 const PULL_TEXT: Record<BackupAction, string> = {
   new: 'New here',
   update: 'Newer in the backup — replaces the copy here, kept for undo',
@@ -361,8 +369,28 @@ const RESTORE_TEXT: Record<BackupAction, string> = {
 };
 
 export function actionText(action: BackupAction, mode: 'pull' | 'restore'): string {
-  return (mode === 'pull' ? PULL_TEXT : RESTORE_TEXT)[action];
+  return tr((mode === 'pull' ? PULL_TEXT : RESTORE_TEXT)[action]);
 }
+
+/** What a force pull or restore says of a copy here it replaces, by how
+ * that copy differs from the backup's. */
+const FORCE_TEXT: Record<
+  'pull' | 'restore',
+  Record<'update' | 'conflict' | 'localNewer' | 'other', string>
+> = {
+  pull: {
+    update: "Newer in the backup — the backup's copy replaces the one here, kept for undo",
+    conflict: "Changed on both — the backup's copy replaces the one here, kept for undo",
+    localNewer: "Newer here — the backup's copy replaces the one here, kept for undo",
+    other: "Not the backup's copy — the backup's copy replaces the one here, kept for undo",
+  },
+  restore: {
+    update: "Newer in the backup — the backup's copy replaces the account's, kept for undo",
+    conflict: "Changed on both — the backup's copy replaces the account's, kept for undo",
+    localNewer: "Newer here — the backup's copy replaces the account's, kept for undo",
+    other: "Not the backup's copy — the backup's copy replaces the account's, kept for undo",
+  },
+};
 
 /** The account has it, and not as the backup has it: what a force pull or
  * restore replaces (never one that runs here). */
@@ -375,20 +403,11 @@ export function forceReplaces(s: BackupIndexSession): boolean {
  * session, in words. */
 export function forceText(s: BackupIndexSession, mode: 'pull' | 'restore', force = true): string {
   if (!force || !forceReplaces(s)) return actionText(s.action, mode);
-  const kept =
-    mode === 'pull'
-      ? "the backup's copy replaces the one here, kept for undo"
-      : "the backup's copy replaces the account's, kept for undo";
-  switch (s.action) {
-    case 'update':
-      return `Newer in the backup — ${kept}`;
-    case 'conflict':
-      return `Changed on both — ${kept}`;
-    case 'localNewer':
-      return `Newer here — ${kept}`;
-    default:
-      return `Not the backup's copy — ${kept}`;
-  }
+  const how =
+    s.action === 'update' || s.action === 'conflict' || s.action === 'localNewer'
+      ? s.action
+      : 'other';
+  return tr(FORCE_TEXT[mode][how]);
 }
 
 /** A pull does something with these (the rest stay as they are). */
@@ -467,10 +486,10 @@ export function forceCounts(
 /** "3 newer here, 1 changed on both": what the replaced copies are. */
 export function forceKinds(c: ForceCounts): string {
   return [
-    c.newerHere ? `${c.newerHere} newer here` : '',
-    c.changedHere ? `${c.changedHere} changed here` : '',
-    c.changedOnBoth ? `${c.changedOnBoth} changed on both` : '',
-    c.newerInBackup ? `${c.newerInBackup} newer in the backup` : '',
+    c.newerHere ? tr('{n} newer here', { n: c.newerHere }) : '',
+    c.changedHere ? tr('{n} changed here', { n: c.changedHere }) : '',
+    c.changedOnBoth ? tr('{n} changed on both', { n: c.changedOnBoth }) : '',
+    c.newerInBackup ? tr('{n} newer in the backup', { n: c.newerInBackup }) : '',
   ]
     .filter(Boolean)
     .join(', ');
@@ -484,7 +503,8 @@ export function prunedOf(
   return sessions.filter((s) => selected.has(s.id) && !!s.pruneWarning);
 }
 
-/** The warning restore and pull give about pruning (docs/ACCOUNTS.md §11.7). */
+/** The warning restore and pull give about pruning (docs/ACCOUNTS.md §11.7;
+ * English: shown with `tr()` or `| t` where it is read). */
 export const PRUNE_WARNING =
   'Claude Code will delete this again at its next cleanup unless cleanupPeriodDays is raised.';
 
@@ -616,58 +636,65 @@ export function normalizePullSkips(raw: unknown): PullSkip[] {
 
 /** One line about a finished job ('' when there is nothing to say). */
 export function jobSummary(job: JobView): string {
-  if (job.state === 'failed') return backupJobErrorText(job.errorCode, job.error) || 'It failed.';
-  if (job.state === 'undone') return 'Undone: everything is back as it was.';
+  if (job.state === 'failed') {
+    return backupJobErrorText(job.errorCode, job.error) || tr('It failed.');
+  }
+  if (job.state === 'undone') return tr('Undone: everything is back as it was.');
   if (job.state !== 'done') return '';
   switch (job.kind) {
     case 'backup': {
       const r = normalizePushResult(job.result);
-      if (!r) return 'Backed up.';
+      if (!r) return tr('Backed up.');
       const parts = [
         r.archived.length
-          ? `${plural(r.archived.length, 'session')} backed up`
-          : 'Nothing new to back up',
-        r.replaced.length ? `${r.replaced.length} replaced the backup's copy` : '',
-        r.unchanged ? `${r.unchanged} unchanged` : '',
+          ? tr('{sessions} backed up', { sessions: plural(r.archived.length, 'session') })
+          : tr('Nothing new to back up'),
+        r.replaced.length ? tr("{n} replaced the backup's copy", { n: r.replaced.length }) : '',
+        r.unchanged ? tr('{n} unchanged', { n: r.unchanged }) : '',
         r.conflicts.length ? plural(r.conflicts.length, 'conflict') : '',
-        r.newerInSet.length ? `${r.newerInSet.length} newer in the backup` : '',
-        r.skippedLive.length ? `${r.skippedLive.length} running, skipped` : '',
-        r.failed.length ? `${r.failed.length} failed` : '',
+        r.newerInSet.length ? tr('{n} newer in the backup', { n: r.newerInSet.length }) : '',
+        r.skippedLive.length ? tr('{n} running, skipped', { n: r.skippedLive.length }) : '',
+        r.failed.length ? tr('{n} failed', { n: r.failed.length }) : '',
         r.warnings.length ? plural(r.warnings.length, 'warning') : '',
-        r.config ? 'settings saved' : '',
+        r.config ? tr('settings saved') : '',
       ];
       return parts.filter(Boolean).join(' · ');
     }
     case 'restore': {
       const r = normalizeRestoreResult(job.result);
       const parts = [
-        `${plural(r.restored.length, 'session')} restored`,
-        r.replaced.length ? `${r.replaced.length} replaced` : '',
-        r.skipped.length ? `${r.skipped.length} skipped` : '',
+        tr('{sessions} restored', { sessions: plural(r.restored.length, 'session') }),
+        r.replaced.length ? tr('{n} replaced', { n: r.replaced.length }) : '',
+        r.skipped.length ? tr('{n} skipped', { n: r.skipped.length }) : '',
       ];
       return parts.filter(Boolean).join(' · ');
     }
     case 'pull': {
       const r = normalizePullResult(job.result);
       const parts = [
-        r.restored.length ? `${r.restored.length} new` : '',
-        r.updated.length ? `${r.updated.length} updated` : '',
-        r.replaced.length ? `${r.replaced.length} replaced` : '',
-        r.relocated.length ? `${r.relocated.length} moved into a paired folder` : '',
+        r.restored.length ? tr('{n} new', { n: r.restored.length }) : '',
+        r.updated.length ? tr('{n} updated', { n: r.updated.length }) : '',
+        r.replaced.length ? tr('{n} replaced', { n: r.replaced.length }) : '',
+        r.relocated.length ? tr('{n} moved into a paired folder', { n: r.relocated.length }) : '',
         r.conflicts.length ? plural(r.conflicts.length, 'conflict') : '',
-        r.skipped.length ? `${r.skipped.length} skipped` : '',
-        r.historyLines ? `${plural(r.historyLines, 'prompt-history line')} added` : '',
+        r.skipped.length ? tr('{n} skipped', { n: r.skipped.length }) : '',
+        r.historyLines
+          ? tr('{lines} added', { lines: plural(r.historyLines, 'prompt-history line') })
+          : '',
       ];
-      return parts.filter(Boolean).join(' · ') || 'Already up to date.';
+      return parts.filter(Boolean).join(' · ') || tr('Already up to date.');
     }
     default: {
-      const n = job.sessions.length;
-      return `${job.kind === 'move' ? 'Moved' : 'Copied'} ${plural(n, 'session')}.`;
+      const sessions = plural(job.sessions.length, 'session');
+      return job.kind === 'move'
+        ? tr('Moved {sessions}.', { sessions })
+        : tr('Copied {sessions}.', { sessions });
     }
   }
 }
 
-/** What each backup refusal means, when the server says nothing. */
+/** What each backup refusal means, when the server says nothing (English,
+ * translated where read). */
 const BACKUP_TEXT: Record<string, string> = {
   no_backup_folder: 'Choose a backup folder first.',
   no_backup_passphrase: 'Set a passphrase first.',
@@ -698,9 +725,9 @@ const OUR_WORDS = new Set([
 /** A refusal of a backup, restore, pull or settings change, in words. */
 export function backupErrorText(e: unknown): string {
   const code = e instanceof ApiError ? (e.code ?? '') : '';
-  if (OUR_WORDS.has(code)) return BACKUP_TEXT[code];
+  if (OUR_WORDS.has(code)) return tr(BACKUP_TEXT[code]);
   if (e instanceof ApiError && code in BACKUP_TEXT) {
-    return sentence(e.message) || BACKUP_TEXT[code];
+    return sentence(e.message) || tr(BACKUP_TEXT[code]);
   }
   if (isTransferRefusal(e)) return transferErrorText(e);
   return describeError(e).text;
@@ -708,5 +735,5 @@ export function backupErrorText(e: unknown): string {
 
 /** The same refusal said about a job that ended with it (`errorCode`). */
 export function backupJobErrorText(code: string | undefined, message: string | undefined): string {
-  return code && OUR_WORDS.has(code) ? BACKUP_TEXT[code] : sentence(message);
+  return code && OUR_WORDS.has(code) ? tr(BACKUP_TEXT[code]) : sentence(message);
 }

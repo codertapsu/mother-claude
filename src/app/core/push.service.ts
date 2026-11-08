@@ -2,6 +2,7 @@ import { Injectable, computed, inject, signal } from '@angular/core';
 
 import { ApiError, ApiService, errorMessage } from './api.service';
 import { ConfigService } from './config.service';
+import { computerNoun, tr } from './i18n/i18n';
 import { PushPrefs, SessionPushPref, VapidInfo } from './models';
 import { isIos, isStandalone, isTauri } from './platform';
 
@@ -31,15 +32,20 @@ export class PushService {
   /** Why push can't work here (empty when it can). */
   readonly unsupportedReason = computed(() => {
     if (this.config.desktop() || isTauri()) {
-      return 'The desktop app shows everything live; push notifications are for your phone.';
+      return tr('The desktop app shows everything live; push notifications are for your phone.');
     }
     if (!window.isSecureContext) {
-      return "Push needs a trusted HTTPS address. On the local network, trust the Mac's certificate first (Pair page › Trust this Mac), or open Mother Claude through your internet address (ngrok, Cloudflare, Tailscale). Until then you get in-app alerts while the app is open.";
+      return tr(
+        "Push needs a trusted HTTPS address. On the local network, trust the {computer}'s certificate first (Pair page › Trust this {computer}), or open Mother Claude through your internet address (ngrok, Cloudflare, Tailscale). Until then you get in-app alerts while the app is open.",
+        { computer: computerNoun() },
+      );
     }
     if (isIos() && !isStandalone()) {
       return (
         this.hint()?.iosHomeScreen ||
-        'On iPhone and iPad, add Mother Claude to your Home Screen first (Share → Add to Home Screen), open it from there, pair it, then enable push.'
+        tr(
+          'On iPhone and iPad, add Mother Claude to your Home Screen first (Share → Add to Home Screen), open it from there, pair it, then enable push.',
+        )
       );
     }
     if (
@@ -47,7 +53,7 @@ export class PushService {
       !('PushManager' in window) ||
       !('Notification' in window)
     ) {
-      return 'This browser does not support push notifications.';
+      return tr('This browser does not support push notifications.');
     }
     return '';
   });
@@ -112,7 +118,7 @@ export class PushService {
     } catch (e) {
       this.registration = null;
       this.state.set('error');
-      this.error.set(`Service worker unavailable: ${errorMessage(e)}`);
+      this.error.set(tr('Service worker unavailable: {error}', { error: errorMessage(e) }));
     }
   }
 
@@ -189,7 +195,7 @@ export class PushService {
   }
 
   private subscribe(publicKey: string): Promise<PushSubscription> {
-    if (!this.registration) throw new Error('The service worker is not registered.');
+    if (!this.registration) throw new Error(tr('The service worker is not registered.'));
     return this.registration.pushManager.subscribe({
       userVisibleOnly: true,
       applicationServerKey: base64UrlToBytes(publicKey),
@@ -199,7 +205,7 @@ export class PushService {
   private async send(sub: PushSubscription, publicKey: string): Promise<void> {
     const json = sub.toJSON();
     if (!json.endpoint || !json.keys?.['p256dh'] || !json.keys['auth']) {
-      throw new Error('The browser returned an incomplete push subscription.');
+      throw new Error(tr('The browser returned an incomplete push subscription.'));
     }
     await this.api.pushSubscribe({
       endpoint: json.endpoint,

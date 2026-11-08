@@ -3,6 +3,7 @@ import { Injectable, computed, inject, signal } from '@angular/core';
 import { DEFAULT_ACCOUNT } from './accounts';
 import { AccountsService } from './accounts.service';
 import { ApiError, ApiService } from './api.service';
+import { tr } from './i18n/i18n';
 import { PlanUsage } from './models';
 import { NoticeService } from './notice.service';
 import { NowService } from './now.service';
@@ -123,7 +124,7 @@ export class PlanUsageService {
         const at = this.clock.now() + (e.retryAfter ?? 60) * 1000;
         this.retryAtS.update((prev) => new Map(prev).set(account, at));
       } else {
-        this.notices.error(e, undefined, 'Plan usage');
+        this.notices.error(e, undefined, tr('Plan usage'));
       }
     } finally {
       this.setRequesting(account, false);
@@ -144,7 +145,7 @@ export class PlanUsageService {
       }
       return true;
     } catch (e) {
-      this.notices.error(e, undefined, 'Plan usage refresh');
+      this.notices.error(e, undefined, tr('Plan usage refresh'));
       return false;
     }
   }

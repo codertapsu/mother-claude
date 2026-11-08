@@ -2,6 +2,7 @@ import { Injectable, NgZone, inject, signal } from '@angular/core';
 import { Router } from '@angular/router';
 
 import { describeError } from './api.service';
+import { tr } from './i18n/i18n';
 
 export type ToastLevel = 'info' | 'success' | 'warning' | 'error';
 
@@ -85,9 +86,9 @@ export class NoticeService {
     const d = describeError(e);
     const text = prefix ? `${prefix}: ${d.text}` : d.text;
     const action = d.bridge
-      ? { label: 'Open API page', run: () => void this.router.navigate(['/api']) }
+      ? { label: tr('Open API page'), run: () => void this.router.navigate(['/api']) }
       : retry && d.retry
-        ? { label: 'Retry', run: retry }
+        ? { label: tr('Retry'), run: retry }
         : undefined;
     return this.show('error', text, { action });
   }

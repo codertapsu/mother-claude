@@ -3,6 +3,7 @@ import { Router } from '@angular/router';
 
 import { ApiService } from './api.service';
 import { FolderChoiceService, folderQuestionOf } from './folder-choice.service';
+import { tr } from './i18n/i18n';
 import { ContinueBody, SessionSummary } from './models';
 import { NoticeService } from './notice.service';
 
@@ -47,8 +48,8 @@ export class SessionActionsService {
     if (res.ok) {
       this.notices.success(
         res.id !== s.id
-          ? 'Forked: you are driving the copy from here.'
-          : 'You can drive this session from here now.',
+          ? tr('Forked: you are driving the copy from here.')
+          : tr('You can drive this session from here now.'),
       );
       await this.openSession(s.id, res.id);
       return res.id;
@@ -58,7 +59,7 @@ export class SessionActionsService {
       const folder = await this.folders.ask(question);
       return folder ? this.continueHere(s, { ...body, folder }) : null;
     }
-    this.notices.error(res.error, () => void this.continueHere(s, body), 'Could not continue');
+    this.notices.error(res.error, () => void this.continueHere(s, body), tr('Could not continue'));
     return null;
   }
 
@@ -76,13 +77,15 @@ export class SessionActionsService {
     account: { id: string; name: string },
     folder?: string,
   ): Promise<ContinueOnResult> {
-    if (this.busy().has(s.id)) return { ok: false, error: new Error('Already on its way.') };
+    if (this.busy().has(s.id)) return { ok: false, error: new Error(tr('Already on its way.')) };
     const res = await this.attempt(s, { account: account.id, ...(folder ? { folder } : {}) });
     if (res.ok) {
       this.notices.success(
         res.id !== s.id
-          ? `Continuing on ${account.name}: you are driving the copy from here.`
-          : `Continuing on ${account.name}.`,
+          ? tr('Continuing on {account}: you are driving the copy from here.', {
+              account: account.name,
+            })
+          : tr('Continuing on {account}.', { account: account.name }),
       );
       await this.openSession(s.id, res.id);
       return res;

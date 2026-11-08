@@ -1,5 +1,6 @@
 import { ApiError } from './api.service';
 import { formatBytes, sentence } from './data-jobs';
+import { computerNoun, fileManagerName, locale, tr } from './i18n/i18n';
 import { JobView } from './models';
 import { moveErrorText } from './move-data';
 
@@ -35,9 +36,10 @@ function texts(v: unknown): string[] {
   return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string' && !!x.trim()) : [];
 }
 
-/** "1,240 conversations": a count with its noun, grouped in thousands. */
+/** "1,240 conversations": a count with its noun, grouped in thousands, in
+ * the language shown (both nouns are keys of the dictionary). */
 export function counted(n: number, one: string, many = `${one}s`): string {
-  return `${n.toLocaleString('en-US')} ${n === 1 ? one : many}`;
+  return `${n.toLocaleString(locale())} ${tr(n === 1 ? one : many)}`;
 }
 
 /** An account named on the wire: a bare id or `{account: id}`. */
@@ -47,8 +49,8 @@ function accountOf(v: unknown): string | undefined {
 
 // ─────────────────────────────────────────────── Where a conversation is
 
-/** Where a conversation's files are on the Mac (the session detail's
- * `files`, §14.1): absolute paths. */
+/** Where a conversation's files are on the desktop's computer (the session
+ * detail's `files`, §14.1): absolute paths. */
 export interface SessionFiles {
   /** The main transcript, the one the index uses. */
   transcript: string;
@@ -93,10 +95,10 @@ export function desktopOs(userAgent: string): DesktopOs {
 /** "Show in Finder", "Show in File Explorer", "Show in folder". */
 export function revealLabel(os: DesktopOs): string {
   return os === 'macos'
-    ? 'Show in Finder'
+    ? tr('Show in Finder')
     : os === 'windows'
-      ? 'Show in File Explorer'
-      : 'Show in folder';
+      ? tr('Show in File Explorer')
+      : tr('Show in folder');
 }
 
 // ─────────────────────────────────────────────────── Projects on disk
@@ -349,27 +351,41 @@ export function mergeDeletePlans(plans: readonly DeletePlan[]): DeletePlan {
  * conversations of 2 projects (24 files, 759 KB). The project folder left
  * empty goes too." */
 export function deletePlanLine(p: DeletePlan): string {
-  if (!p.sessionsTotal) return 'There is nothing to delete here.';
-  const of = p.projectsTotal ? ` of ${counted(p.projectsTotal, 'project')}` : '';
-  const size = ` (${counted(p.files, 'file')}, ${formatBytes(p.bytes)})`;
-  const folders =
-    p.foldersTotal === 1
-      ? ' The project folder left empty goes too.'
-      : p.foldersTotal > 1
-        ? ` The ${counted(p.foldersTotal, 'project folder')} left empty go too.`
-        : '';
-  const more = p.truncated ? ' The lists show the first 1,000.' : '';
-  return `Deletes ${counted(p.sessionsTotal, 'conversation')}${of}${size}.${folders}${more}`;
+  if (!p.sessionsTotal) return tr('There is nothing to delete here.');
+  const counts = {
+    conversations: counted(p.sessionsTotal, 'conversation'),
+    projects: counted(p.projectsTotal, 'project'),
+    files: counted(p.files, 'file'),
+    size: formatBytes(p.bytes),
+  };
+  const lines = [
+    p.projectsTotal
+      ? tr('Deletes {conversations} of {projects} ({files}, {size}).', counts)
+      : tr('Deletes {conversations} ({files}, {size}).', counts),
+  ];
+  if (p.foldersTotal === 1) lines.push(tr('The project folder left empty goes too.'));
+  else if (p.foldersTotal > 1) {
+    lines.push(
+      tr('The {folders} left empty go too.', {
+        folders: counted(p.foldersTotal, 'project folder'),
+      }),
+    );
+  }
+  if (p.truncated) {
+    lines.push(tr('The lists show the first {n}.', { n: (1000).toLocaleString(locale()) }));
+  }
+  return lines.join(' ');
 }
 
 /** What the confirm button says: "Delete 1,240 conversations". */
 export function deleteButtonLabel(p: DeletePlan | null): string {
   return p?.sessionsTotal
-    ? `Delete ${counted(p.sessionsTotal, 'conversation')}`
-    : 'Nothing to delete';
+    ? tr('Delete {conversations}', { conversations: counted(p.sessionsTotal, 'conversation') })
+    : tr('Nothing to delete');
 }
 
-/** What each skip code means, when the server says nothing. */
+/** What each skip code means, when the server says nothing (English,
+ * translated where read). */
 const SKIP_TEXT: Record<string, string> = {
   not_found: 'It is not there any more.',
   invalid_transfer: 'That is not a conversation or a project folder.',
@@ -377,7 +393,8 @@ const SKIP_TEXT: Record<string, string> = {
   transfer_io: 'A file of it could not be moved, so it was put back whole.',
 };
 
-/** A running conversation: the server's message names it by its id. */
+/** A running conversation: the server's message names it by its id.
+ * English, like the next one: `deleteSkipReason` says them translated. */
 export const SKIP_RUNNING = 'It is running: stop it first.';
 /** A conversation open in the API's host runs too. */
 export const SKIP_OPEN_IN_API = 'It is open in the API: close it there first.';
@@ -386,33 +403,35 @@ export const SKIP_OPEN_IN_API = 'It is open in the API: close it there first.';
  * conversations the opener knows are open in the API). */
 export function deleteSkipReason(s: DeleteSkip, openInApi?: ReadonlySet<string>): string {
   if (s.code === 'session_live') {
-    return s.id && openInApi?.has(s.id) ? SKIP_OPEN_IN_API : SKIP_RUNNING;
+    return s.id && openInApi?.has(s.id) ? tr(SKIP_OPEN_IN_API) : tr(SKIP_RUNNING);
   }
-  return sentence(s.message) || SKIP_TEXT[s.code] || 'Skipped.';
+  const ours = SKIP_TEXT[s.code];
+  return sentence(s.message) || (ours ? tr(ours) : '') || tr('Skipped.');
 }
 
 /** What a device without the dangerous right is told (§14.3: deleting a
- * transcript is a dangerous action). */
+ * transcript is a dangerous action). English: shown with `tr()` (or `| t`)
+ * where it is read. */
 export const DELETE_DANGEROUS_REASON =
   'Deleting conversations needs dangerous actions for this device, granted on the computer in Remote › Devices.';
 
 /** A refusal of a delete or a reveal, in words. */
 export function deleteErrorText(e: unknown): string {
-  if (e instanceof ApiError && e.code === 'dangerous_blocked') return DELETE_DANGEROUS_REASON;
+  if (e instanceof ApiError && e.code === 'dangerous_blocked') return tr(DELETE_DANGEROUS_REASON);
   if (e instanceof ApiError && e.code === 'transcript_not_found') {
-    return "Its transcript isn't on this Mac any more.";
+    return tr("Its transcript isn't on this {computer} any more.", { computer: computerNoun() });
   }
   if (e instanceof ApiError && e.code === 'session_not_found') {
-    return 'This conversation is not known here any more.';
+    return tr('This conversation is not known here any more.');
   }
   if (e instanceof ApiError && e.code === 'project_not_found') {
-    return 'That account has no conversations of this folder any more.';
+    return tr('That account has no conversations of this folder any more.');
   }
   if (e instanceof ApiError && e.code === 'reveal_failed') {
-    return "The Mac's file manager did not open.";
+    return tr('Could not open {fileManager}.', { fileManager: fileManagerName() });
   }
   if (e instanceof ApiError && e.code === 'invalid_transfer') {
-    return 'There was nothing to delete in the request.';
+    return tr('There was nothing to delete in the request.');
   }
   return moveErrorText(e);
 }
@@ -444,8 +463,10 @@ export function deleteResultSummary(job: JobView): string | null {
   const r = normalizeDeleteResult(job.result);
   const n = r?.deleted.length ?? job.sessions.length;
   const line = [
-    n ? `Deleted ${counted(n, 'conversation')}` : 'Nothing was deleted',
-    r?.skipped.length ? `${r.skipped.length.toLocaleString('en-US')} skipped` : '',
+    n
+      ? tr('Deleted {conversations}', { conversations: counted(n, 'conversation') })
+      : tr('Nothing was deleted'),
+    r?.skipped.length ? tr('{n} skipped', { n: r.skipped.length.toLocaleString(locale()) }) : '',
   ]
     .filter(Boolean)
     .join(' · ');

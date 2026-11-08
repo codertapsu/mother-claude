@@ -20,6 +20,7 @@ import type {
 } from './browser';
 import { AuthService } from './auth.service';
 import { ConfigService } from './config.service';
+import { computerNoun, tr } from './i18n/i18n';
 import { activeMock } from './mock/mock-api';
 import type { DeleteBody } from './delete-data';
 import type { MoveBody } from './move-data';
@@ -1216,8 +1217,10 @@ export class ApiService {
     } catch (e) {
       throw new ApiError(
         navigator.onLine === false
-          ? 'You are offline.'
-          : `Can't reach Mother Claude (${e instanceof Error ? e.message : 'network error'}).`,
+          ? tr('You are offline.')
+          : tr("Can't reach Mother Claude ({error}).", {
+              error: e instanceof Error ? e.message : tr('network error'),
+            }),
         0,
         'network',
       );
@@ -1229,7 +1232,9 @@ export class ApiService {
       // plan) put its browser warning in front of us.
       this.interstitial.set(true);
       throw new ApiError(
-        'The tunnel is showing its browser warning page. Open this page once in the browser to accept it, then reload.',
+        tr(
+          'The tunnel is showing its browser warning page. Open this page once in the browser to accept it, then reload.',
+        ),
         res.status,
         'interstitial',
       );
@@ -1244,7 +1249,7 @@ export class ApiService {
         this.auth.handleUnauthorized();
       }
       const env = parseEnvelope(await res.text().catch(() => ''));
-      throw new ApiError(env.message || 'Not paired', 401, 'unauthorized', env.code);
+      throw new ApiError(env.message || tr('Not paired'), 401, 'unauthorized', env.code);
     }
     if (!res.ok) {
       const env = parseEnvelope(await res.text().catch(() => ''));
@@ -1329,16 +1334,20 @@ export function describeError(e: unknown): DescribedError {
       return {
         text:
           navigator.onLine === false
-            ? "You're offline."
-            : "Can't reach your Mac (asleep, offline or the tunnel is down).",
+            ? tr("You're offline.")
+            : tr("Can't reach your {computer} (asleep, offline or the tunnel is down).", {
+                computer: computerNoun(),
+              }),
         retry: true,
       };
     case 'interstitial':
       return {
-        text: "The tunnel's warning page is in the way: open this page once in the browser, accept it, then reload.",
+        text: tr(
+          "The tunnel's warning page is in the way: open this page once in the browser, accept it, then reload.",
+        ),
       };
     case 'unauthorized':
-      return { text: 'This device is no longer paired.' };
+      return { text: tr('This device is no longer paired.') };
     case 'parse':
       return { text: e.message, retry: true };
     default:
@@ -1347,43 +1356,57 @@ export function describeError(e: unknown): DescribedError {
   const code = e.code ?? '';
   if (e.status === 403 && (code === 'dangerous_blocked' || /dangerous/i.test(e.message))) {
     return {
-      text: 'Only allowed from the Mac, or allow dangerous actions for this device in Remote › Devices.',
+      text: tr(
+        'Only allowed from the {computer}, or allow dangerous actions for this device in Remote › Devices.',
+        { computer: computerNoun() },
+      ),
       dangerous: true,
     };
   }
   if (e.status === 403 && code === 'desktop_only') {
-    return { text: 'Only the desktop app can do this.' };
+    return { text: tr('Only the desktop app can do this.') };
   }
   if (e.status === 403 && code === 'untrusted_cwd') {
     return {
       text:
         e.message ||
-        'That folder has never been opened with Claude Code on the Mac. Open it there once, or start the session from the desktop.',
+        tr(
+          'That folder has never been opened with Claude Code on the {computer}. Open it there once, or start the session from the desktop.',
+          { computer: computerNoun() },
+        ),
     };
   }
   if (e.status === 400 && code === 'https_required') {
-    return { text: e.message || 'Open Mother Claude through the https:// address of your tunnel.' };
+    return {
+      text: e.message || tr('Open Mother Claude through the https:// address of your tunnel.'),
+    };
   }
   if (e.status === 409 && code === 'switching_account') {
     // Its account changes right now (docs/ACCOUNTS.md §15.1).
-    return { text: 'Switching accounts — try again in a moment.', retry: true };
+    return { text: tr('Switching accounts — try again in a moment.'), retry: true };
   }
   if ((e.status === 409 || e.status === 410) && code === 'already_decided') {
-    return { text: e.message || 'Already answered elsewhere.', alreadyDecided: true };
+    return { text: e.message || tr('Already answered elsewhere.'), alreadyDecided: true };
   }
   if (e.status === 409 && code === 'no_channel') {
-    return { text: e.message || "This session can't take that from here.", noChannel: true };
+    return { text: e.message || tr("This session can't take that from here."), noChannel: true };
   }
   if (e.status === 422) return { text: e.message };
   if (e.status === 429) {
     const secs = e.retryAfter ?? 30;
-    return { text: `Too many requests. Try again in ${secs}s.`, retry: true, retryAfter: secs };
+    return {
+      text: tr('Too many requests. Try again in {n}s.', { n: secs }),
+      retry: true,
+      retryAfter: secs,
+    };
   }
   if (e.status === 503 && code === 'bridge_not_started') {
-    return { text: 'The API is not started. Start it on the API page.', bridge: true };
+    return { text: tr('The API is not started. Start it on the API page.'), bridge: true };
   }
-  if (e.status === 501) return { text: 'This server does not support that yet.' };
-  if (e.status >= 500) return { text: `The server failed: ${e.message}`, retry: true };
+  if (e.status === 501) return { text: tr('This server does not support that yet.') };
+  if (e.status >= 500) {
+    return { text: tr('The server failed: {error}', { error: e.message }), retry: true };
+  }
   return { text: errorMessage(e) };
 }
 
@@ -1408,7 +1431,11 @@ async function readJson(res: Response): Promise<unknown> {
   try {
     return JSON.parse(text);
   } catch {
-    throw new ApiError('The server sent a response this app could not read.', res.status, 'parse');
+    throw new ApiError(
+      tr('The server sent a response this app could not read.'),
+      res.status,
+      'parse',
+    );
   }
 }
 

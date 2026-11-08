@@ -1,3 +1,4 @@
+import { tr } from './i18n/i18n';
 import {
   AccountView,
   IdentityWarning,
@@ -130,7 +131,7 @@ export function signInWaitText(
   accounts: readonly AccountView[],
 ): string {
   const other = activeSignIn(accounts);
-  return other && other.id !== a.id ? `Waiting for ${other.name}'s sign-in` : '';
+  return other && other.id !== a.id ? tr("Waiting for {name}'s sign-in", { name: other.name }) : '';
 }
 
 /** The same sign-in as two reads say it: ours (with its link, from the
@@ -174,7 +175,7 @@ export function advanceSignIn(own: SignInView | null | undefined, next: SignInVi
   return { ...next, ...(url ? { url } : {}) };
 }
 
-/** The browsers a sign-in link may open in, as the Mac lists them (the
+/** The browsers a sign-in link may open in, as the desktop lists them (the
  * default one always). */
 export function normalizeBrowsers(raw: unknown): SignInBrowser[] {
   const list = Array.isArray(raw) ? raw : obj(raw)?.['browsers'];
@@ -192,11 +193,11 @@ export function normalizeBrowsers(raw: unknown): SignInBrowser[] {
 export function browserLabel(b: SignInBrowser): string {
   switch (b) {
     case 'chrome':
-      return 'Open in Chrome';
+      return tr('Open in Chrome');
     case 'chrome-private':
-      return 'Open in a private Chrome window';
+      return tr('Open in a private Chrome window');
     default:
-      return 'Open in browser';
+      return tr('Open in browser');
   }
 }
 
@@ -206,8 +207,11 @@ export function identityWarningText(
   nameOf: (id: string) => string | undefined,
 ): string {
   if (w.kind === 'same-as') {
-    const other = (w.account && nameOf(w.account)) || 'another account';
-    return `It signed in as the same Claude account as ${other}: each account here should be a different Claude account.`;
+    const other = (w.account && nameOf(w.account)) || tr('another account');
+    return tr(
+      'It signed in as the same Claude account as {other}: each account here should be a different Claude account.',
+      { other },
+    );
   }
-  return 'It signed in as a different Claude account than before.';
+  return tr('It signed in as a different Claude account than before.');
 }

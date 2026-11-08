@@ -23,6 +23,7 @@ import {
   revealLabel,
   sessionGroups,
 } from './delete-data';
+import { hostOsSignal } from './i18n/i18n';
 import { JobView } from './models';
 
 const job = (over: Partial<JobView>): JobView => ({
@@ -310,15 +311,25 @@ describe('delete data helpers', () => {
     expect(deleteErrorText(new ApiError('no', 403, 'http', 'dangerous_blocked'))).toBe(
       DELETE_DANGEROUS_REASON,
     );
-    expect(deleteErrorText(new ApiError('', 404, 'http', 'transcript_not_found'))).toContain(
-      "isn't on this Mac",
-    );
     expect(deleteErrorText(new ApiError('busy', 409, 'http', 'data_job_running'))).toBe('Busy.');
     expect(deleteErrorText(new ApiError('', 404, 'http', 'project_not_found'))).toContain(
       'no conversations of this folder',
     );
-    expect(deleteErrorText(new ApiError('', 500, 'http', 'reveal_failed'))).toBe(
-      "The Mac's file manager did not open.",
-    );
+    // The desktop's computer and its file manager, by its system.
+    const transcript = new ApiError('', 404, 'http', 'transcript_not_found');
+    const reveal = new ApiError('', 500, 'http', 'reveal_failed');
+    try {
+      hostOsSignal.set('macos');
+      expect(deleteErrorText(transcript)).toContain("isn't on this Mac");
+      expect(deleteErrorText(reveal)).toBe('Could not open Finder.');
+      hostOsSignal.set('windows');
+      expect(deleteErrorText(transcript)).toContain("isn't on this PC");
+      expect(deleteErrorText(reveal)).toBe('Could not open File Explorer.');
+      hostOsSignal.set(undefined);
+      expect(deleteErrorText(transcript)).toContain("isn't on this computer");
+      expect(deleteErrorText(reveal)).toBe('Could not open the file manager.');
+    } finally {
+      hostOsSignal.set(undefined);
+    }
   });
 });

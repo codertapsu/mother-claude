@@ -2,6 +2,8 @@
 // `/api/browser/*` answer, and the small pure helpers the Browser page and
 // the approval card share. One code path for the desktop and the phone.
 
+import { tr } from './i18n/i18n';
+
 /** What a session may do on a site. */
 export type SiteMode = 'off' | 'read' | 'act';
 
@@ -158,6 +160,9 @@ export interface BrowserSettingsPatch {
   uploadFolders?: string[];
 }
 
+// The labels below are English and translated where they are read
+// (`tr(MODE_LABELS[m])`, `grantLabel`, `activityText`, `outcomeBadge`).
+
 export const MODE_LABELS: Record<SiteMode, string> = {
   off: 'Off',
   read: 'Read',
@@ -180,7 +185,8 @@ export const GRANT_LABELS: Record<GrantAction, string> = {
 };
 
 export function grantLabel(action: string): string {
-  return GRANT_LABELS[action as GrantAction] ?? action;
+  const label = GRANT_LABELS[action as GrantAction];
+  return label ? tr(label) : action;
 }
 
 /** A host name or address a site can have (after the URL parser's own
@@ -273,8 +279,8 @@ const LIFECYCLE: Record<string, string> = {
 
 /** One activity line: "Clicked · github.com/issues". */
 export function activityText(e: BrowserActivity): string {
-  const verb =
-    (e.action ? ACTION_VERBS[e.action] : undefined) ?? LIFECYCLE[e.tool] ?? e.action ?? e.tool;
+  const known = (e.action ? ACTION_VERBS[e.action] : undefined) ?? LIFECYCLE[e.tool];
+  const verb = known ? tr(known) : (e.action ?? e.tool);
   const where = e.page ?? e.origin;
   return where ? `${verb} · ${where.replace(/^https?:\/\//, '')}` : verb;
 }
@@ -284,17 +290,17 @@ export function outcomeBadge(outcome: string): { label: string; cls: string } {
   switch (outcome) {
     case 'ok':
     case 'started':
-      return { label: outcome === 'ok' ? 'done' : 'started', cls: 'ok' };
+      return { label: outcome === 'ok' ? tr('done') : tr('started'), cls: 'ok' };
     case 'denied':
-      return { label: 'denied', cls: 'danger' };
+      return { label: tr('denied'), cls: 'danger' };
     case 'refused':
-      return { label: 'refused', cls: 'warn' };
+      return { label: tr('refused'), cls: 'warn' };
     case 'stopped':
-      return { label: 'stopped', cls: 'warn' };
+      return { label: tr('stopped'), cls: 'warn' };
     case 'approval_timeout':
-      return { label: 'not approved', cls: 'warn' };
+      return { label: tr('not approved'), cls: 'warn' };
     case 'error':
-      return { label: 'failed', cls: 'danger' };
+      return { label: tr('failed'), cls: 'danger' };
     default:
       return { label: outcome, cls: 'info' };
   }

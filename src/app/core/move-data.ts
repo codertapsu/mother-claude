@@ -1,7 +1,8 @@
 import { DEFAULT_ACCOUNT, homeOf, sharersOf } from './accounts';
 import { ApiError } from './api.service';
-import { backupErrorText } from './backup';
+import { andList, backupErrorText } from './backup';
 import { formatBytes, plural, sentence } from './data-jobs';
+import { computerNoun, tr } from './i18n/i18n';
 import { AccountKind, BackupIndexSession, JobView, SessionSummary, TransferMode } from './models';
 import { HostOs, folderPathProblem, joinPath, tildePath } from './paths';
 
@@ -21,7 +22,8 @@ export type StorageKind = 'icloud' | 'gdrive' | 'onedrive' | 'dropbox' | 'folder
 /** The backup folder's storage id (the first storage). */
 export const BACKUP_STORAGE = 'backup';
 
-/** What the server calls the backup folder's storage. */
+/** What the server calls the backup folder's storage (a name, like every
+ * storage's label: shown as the server sends it). */
 export const BACKUP_LABEL = 'Backup folder';
 
 /** A storage's label already says it is the backup folder. */
@@ -192,14 +194,16 @@ export function normalizeStorages(raw: unknown): StorageView[] {
 /** Why a name can't be a new set's ('' when it can): a folder's name. */
 export function setNameProblem(name: string, store: StorageView | undefined): string {
   const n = name.trim();
-  if (!n) return 'Name the new set.';
-  if ([...n].length > 40) return 'At most 40 characters.';
-  if (n.startsWith('.')) return "A name can't start with a dot.";
+  if (!n) return tr('Name the new set.');
+  if ([...n].length > 40) return tr('At most {n} characters.', { n: 40 });
+  if (n.startsWith('.')) return tr("A name can't start with a dot.");
   // eslint-disable-next-line no-control-regex
-  if (/[/\\:*?"<>|\u0000-\u001f\u007f]/.test(n)) return 'A name can\'t contain / \\ : * ? " < > |';
+  if (/[/\\:*?"<>|\u0000-\u001f\u007f]/.test(n)) {
+    return tr('A name can\'t contain / \\ : * ? " < > |');
+  }
   const lower = n.toLowerCase();
   if (store?.sets.some((s) => s.name.toLowerCase() === lower)) {
-    return 'There is a set with this name already: pick it in the list.';
+    return tr('There is a set with this name already: pick it in the list.');
   }
   return '';
 }
@@ -304,19 +308,23 @@ function storageOf(storages: readonly StorageView[], id: string): StorageView | 
  * for the backup folder before the list is read; 'a storage' else). */
 export function storageLabel(storages: readonly StorageView[], id: string): string {
   return (
-    storageOf(storages, id)?.label ?? (id === BACKUP_STORAGE ? 'the backup folder' : 'a storage')
+    storageOf(storages, id)?.label ??
+    (id === BACKUP_STORAGE ? tr('the backup folder') : tr('a storage'))
   );
 }
 
-/** "Work", "Google Drive · Shared"; `everywhere` for none. */
+/** "Work", "Google Drive · Shared"; `everywhere` for none (default: "where
+ * each one is"). */
 export function locationName(
   l: DataLocation | null,
   accounts: readonly AccountLike[],
   storages: readonly StorageView[],
-  everywhere = 'where each one is',
+  everywhere?: string,
 ): string {
-  if (!l) return everywhere;
-  if (l.kind === 'account') return accountOf(accounts, l.account)?.name ?? 'a removed account';
+  if (!l) return everywhere ?? tr('where each one is');
+  if (l.kind === 'account') {
+    return accountOf(accounts, l.account)?.name ?? tr('a removed account');
+  }
   return l.set
     ? `${storageLabel(storages, l.storage)} · ${l.set}`
     : storageLabel(storages, l.storage);
@@ -328,39 +336,41 @@ export function locationHint(
   accounts: readonly AccountLike[],
   storages: readonly StorageView[],
 ): string {
-  if (!l) return 'Each conversation goes from the account it is in: one job for each.';
+  if (!l) return tr('Each conversation goes from the account it is in: one job for each.');
   if (l.kind === 'account') {
     const a = accountOf(accounts, l.account);
-    if (!a) return 'This account was removed.';
+    if (!a) return tr('This account was removed.');
     const shared = accountOf(accounts, DEFAULT_ACCOUNT);
-    const sharedDir = tilde(shared?.dir) || 'the Default account’s folder';
+    const sharedDir = tilde(shared?.dir) || tr('the Default account’s folder');
     if (a.kind === 'token') {
-      return `A token account: its conversations are in the shared folder (${sharedDir}) with ${shared?.name ?? 'Default'}'s.`;
+      return tr(
+        "A token account: its conversations are in the shared folder ({folder}) with {name}'s.",
+        { folder: sharedDir, name: shared?.name ?? 'Default' },
+      );
     }
     const sharers = sharersOf(accounts, a.id);
     if (sharers.length) {
-      return `The shared folder, ${tilde(a.dir) || sharedDir}: ${andNames([a, ...sharers])} use it.`;
+      return tr('The shared folder, {folder}: {names} use it.', {
+        folder: tilde(a.dir) || sharedDir,
+        names: andList([a, ...sharers].map((x) => x.name)),
+      });
     }
-    return a.isDefault ? tilde(a.dir) : `Its own folder, ${tilde(a.dir)}.`;
+    return a.isDefault ? tilde(a.dir) : tr('Its own folder, {folder}.', { folder: tilde(a.dir) });
   }
   const s = storageOf(storages, l.storage);
-  if (!s) return 'This storage is no longer there.';
+  if (!s) return tr('This storage is no longer there.');
   const set = s.sets.find((x) => x.name === l.set);
   const where = joinPath(tilde(s.path), l.set);
-  if (!set) return `A new set: ${where}.`;
+  if (!set) return tr('A new set: {path}.', { path: where });
   const facts = [
     set.sessions !== undefined ? plural(set.sessions, 'conversation') : '',
-    set.archived ? `${set.archived} in storage only` : '',
-    set.keyMissing ? 'its key is not in the folder on the Mac' : '',
-    s.available ? '' : 'not available now',
+    set.archived ? tr('{n} in storage only', { n: set.archived }) : '',
+    set.keyMissing
+      ? tr('its key is not in the folder on the {computer}', { computer: computerNoun() })
+      : '',
+    s.available ? '' : tr('not available now'),
   ].filter(Boolean);
   return facts.length ? `${where} · ${facts.join(' · ')}` : where;
-}
-
-function andNames(items: readonly { name: string }[]): string {
-  const names = items.map((a) => a.name);
-  if (names.length <= 1) return names[0] ?? '';
-  return `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
 }
 
 export interface LocationOption {
@@ -388,7 +398,7 @@ export function locationGroups(
   const groups: LocationGroup[] = [];
   if (accounts.length) {
     groups.push({
-      label: 'Accounts',
+      label: tr('Accounts'),
       options: accounts.map((a) => ({
         key: locationKey(accountLocation(a.id)),
         label: accountOptionLabel(a, accounts),
@@ -402,20 +412,22 @@ export function locationGroups(
       key: locationKey(setLocation(s.id, x.name)),
       // A closed picker shows only the option: it names its storage too
       // (the Default's set is not the Default account).
-      label: x.keyMissing ? `${s.label} · ${x.name} — no key here` : `${s.label} · ${x.name}`,
+      label: x.keyMissing
+        ? tr('{storage} · {set} — no key here', { storage: s.label, set: x.name })
+        : `${s.label} · ${x.name}`,
       disabled: x.keyMissing || !s.available,
     }));
     if (side === 'to') {
       options.push({
         key: newSetKey(s.id),
-        label: `${s.label} · New set…`,
+        label: tr('{storage} · New set…', { storage: s.label }),
         disabled: !s.available,
       });
     }
     if (!options.length) continue;
     const tags = [
-      s.primary && !namesBackupFolder(s.label) ? 'backup folder' : '',
-      s.available ? '' : 'not available',
+      s.primary && !namesBackupFolder(s.label) ? tr('backup folder') : '',
+      s.available ? '' : tr('not available'),
     ].filter(Boolean);
     groups.push({ label: tags.length ? `${s.label} (${tags.join(', ')})` : s.label, options });
   }
@@ -423,9 +435,12 @@ export function locationGroups(
 }
 
 function accountOptionLabel(a: AccountLike, accounts: readonly AccountLike[]): string {
-  if (a.kind === 'token') return `${a.name} — shared folder`;
-  if (sharersOf(accounts, a.id).length) return `${a.name} — shared folder`;
-  return a.isDefault || a.id === DEFAULT_ACCOUNT ? a.name : `${a.name} — own folder`;
+  if (a.kind === 'token' || sharersOf(accounts, a.id).length) {
+    return tr('{name} — shared folder', { name: a.name });
+  }
+  return a.isDefault || a.id === DEFAULT_ACCOUNT
+    ? a.name
+    : tr('{name} — own folder', { name: a.name });
 }
 
 // ─────────────────────────────────────────────────────────── Directions
@@ -488,7 +503,9 @@ export interface CustomizationInfo {
 }
 
 /** The customizations an account's directory has (§13.1), in the order the
- * checklist shows them. Plugins are never copied. */
+ * checklist shows them. Plugins are never copied. Labels and hints stay
+ * English here and are translated where they are shown (`tr(c.label)`,
+ * `tr(c.hint)`; a hint that is a file name is the same in every language). */
 export const CUSTOMIZATIONS: readonly CustomizationInfo[] = [
   { item: 'memory', label: 'Memory', hint: 'CLAUDE.md', dangerous: false },
   {
@@ -512,30 +529,34 @@ export const CUSTOMIZATIONS: readonly CustomizationInfo[] = [
 ];
 
 export function customizationLabel(item: string): string {
-  return CUSTOMIZATIONS.find((c) => c.item === item)?.label ?? item;
+  const label = CUSTOMIZATIONS.find((c) => c.item === item)?.label;
+  return label ? tr(label) : item;
 }
 
 /** What a device without the dangerous right is told about the parts that
- * need it (a folder's trust, settings and MCP servers). */
+ * need it (a folder's trust, settings and MCP servers). English: shown with
+ * `tr()` (or `| t`) where it is read. */
 export const DANGEROUS_REASON =
   'Needs dangerous actions for this device, granted on the computer in Remote › Devices.';
 
 /** Why `what` can't go this way ('' when it can): with `from` left out
  * (`everywhere`) only conversations can. */
 export function whatProblem(what: MoveWhat, direction: MoveDirection, everywhere = false): string {
-  if (everywhere && what !== 'sessions') return 'Choose where they come from first.';
+  if (everywhere && what !== 'sessions') return tr('Choose where they come from first.');
   if (what === 'customizations' && direction !== 'between') {
-    return 'Customizations are copied only between accounts in different folders.';
+    return tr('Customizations are copied only between accounts in different folders.');
   }
   return '';
 }
 
 /** Why a mode can't be used for these places and items ('' when it can). */
 export function modeProblem(mode: TransferMode, direction: MoveDirection, what: MoveWhat): string {
-  if (direction === 'same') return 'Pick another place for it to go.';
-  if (mode === 'move' && what === 'customizations') return 'Customizations are only ever copied.';
+  if (direction === 'same') return tr('Pick another place for it to go.');
+  if (mode === 'move' && what === 'customizations') {
+    return tr('Customizations are only ever copied.');
+  }
   if (mode === 'copy' && direction === 'assign') {
-    return 'Both are in the shared folder: a copy there would be the same conversation.';
+    return tr('Both are in the shared folder: a copy there would be the same conversation.');
   }
   return '';
 }
@@ -549,35 +570,48 @@ export function modeHint(
   to: string,
   replaceExisting = false,
 ): string {
+  const names = { from, to };
   if (what === 'customizations') {
     return replaceExisting
-      ? `Adds what ${to} lacks and replaces what it has; its own copy goes into the undo folder first.`
-      : `Adds what ${to} lacks; what it has stays as it is.`;
+      ? tr(
+          'Adds what {to} lacks and replaces what it has; its own copy goes into the undo folder first.',
+          names,
+        )
+      : tr('Adds what {to} lacks; what it has stays as it is.', names);
   }
   const move = mode === 'move';
   switch (direction) {
     case 'between':
       return move
-        ? `Only ${to} has it afterwards: it leaves ${from} once every copy is verified.`
-        : 'Both accounts have it afterwards; each copy goes on by itself.';
+        ? tr('Only {to} has it afterwards: it leaves {from} once every copy is verified.', names)
+        : tr('Both accounts have it afterwards; each copy goes on by itself.');
     case 'assign':
-      return `Nothing moves: it is recorded as ${to}'s, so it shows, counts and continues under ${to}.`;
+      return tr(
+        "Nothing moves: it is recorded as {to}'s, so it shows, counts and continues under {to}.",
+        names,
+      );
     case 'toStorage':
       return move
-        ? `Archived: it goes into ${to} and leaves ${from} once its copy there is verified. ${to} lists it as in storage only.`
-        : `A backup of it goes into ${to}; ${from} keeps it as it is.`;
+        ? tr(
+            'Archived: it goes into {to} and leaves {from} once its copy there is verified. {to} lists it as in storage only.',
+            names,
+          )
+        : tr('A backup of it goes into {to}; {from} keeps it as it is.', names);
     case 'fromStorage':
       return move
-        ? `Restored into ${to}, then taken out of ${from} (kept seven days for Undo).`
-        : `Restored into ${to}; ${from} keeps it.`;
+        ? tr('Restored into {to}, then taken out of {from} (kept seven days for Undo).', names)
+        : tr('Restored into {to}; {from} keeps it.', names);
     case 'storages':
       return move
-        ? `Copied into ${to}, then taken out of ${from}.`
-        : `Copied into ${to}; ${from} keeps it.`;
+        ? tr('Copied into {to}, then taken out of {from}.', names)
+        : tr('Copied into {to}; {from} keeps it.', names);
     case 'mixed':
       return move
-        ? `Each goes from the account it is in to ${to}; from an account in the same folder that only records it as ${to}'s.`
-        : `Each is copied from the account it is in to ${to}.`;
+        ? tr(
+            "Each goes from the account it is in to {to}; from an account in the same folder that only records it as {to}'s.",
+            names,
+          )
+        : tr('Each is copied from the account it is in to {to}.', names);
     default:
       return '';
   }
@@ -841,12 +875,15 @@ export function normalizeMovePlan(raw: unknown): MovePlan | null {
   };
 }
 
+/** What a dry run does with some conversations, as the start of its line
+ * ("moves 3 conversations"; the line's first one is capitalised). English,
+ * translated where read. */
 const VERBS: Record<MoveAction, string> = {
-  move: 'Moves',
-  copy: 'Copies',
-  assign: 'Assigns',
-  archive: 'Archives',
-  restore: 'Restores',
+  move: 'moves {conversations}',
+  copy: 'copies {conversations}',
+  assign: 'assigns {conversations}',
+  archive: 'archives {conversations}',
+  restore: 'restores {conversations}',
 };
 
 const ACTION_LABELS: Record<MoveAction, string> = {
@@ -859,7 +896,7 @@ const ACTION_LABELS: Record<MoveAction, string> = {
 
 /** "Archive": what happens to one conversation, as a tag. */
 export function actionLabel(action: MoveAction): string {
-  return ACTION_LABELS[action];
+  return tr(ACTION_LABELS[action]);
 }
 
 /** One sentence about what a dry run would do with the conversations
@@ -867,35 +904,41 @@ export function actionLabel(action: MoveAction): string {
 export function planLine(p: MovePlan, toName: string): string {
   if (!p.sessions.length) {
     return p.customizations.length
-      ? `Copies customizations into ${toName}.`
-      : 'There is nothing to move or copy here.';
+      ? tr('Copies customizations into {to}.', { to: toName })
+      : tr('There is nothing to move or copy here.');
   }
   const byAction = new Map<MoveAction, number>();
   for (const s of p.sessions) byAction.set(s.action, (byAction.get(s.action) ?? 0) + 1);
   const size = p.files || p.bytes ? ` (${plural(p.files, 'file')}, ${formatBytes(p.bytes)})` : '';
-  const parts = [...byAction.entries()].map(([a, n], i) => {
-    const what = plural(n, 'conversation');
-    return `${i === 0 ? VERBS[a] : VERBS[a].toLowerCase()} ${what}`;
-  });
-  const more = p.truncated ? ' (the first 1000 are listed)' : '';
-  const into = byAction.size === 1 && !byAction.has('assign') ? 'into' : 'to';
-  return `${parts.join(', ')}${size} ${into} ${toName}${more}.`;
+  const said = [...byAction.entries()]
+    .map(([a, n]) => tr(VERBS[a], { conversations: plural(n, 'conversation') }))
+    .join(', ');
+  const actions = said.charAt(0).toUpperCase() + said.slice(1);
+  const names = { actions, size, to: toName };
+  const into = byAction.size === 1 && !byAction.has('assign');
+  if (p.truncated) {
+    return into
+      ? tr('{actions}{size} into {to} (the first 1000 are listed).', names)
+      : tr('{actions}{size} to {to} (the first 1000 are listed).', names);
+  }
+  return into ? tr('{actions}{size} into {to}.', names) : tr('{actions}{size} to {to}.', names);
 }
 
 /** What a customization line says: "review: added". */
 export function customizationText(c: CustomizationPlan): string {
   const verb =
     c.action === 'add'
-      ? 'added'
+      ? tr('added')
       : c.action === 'replace'
-        ? 'replaced (its copy kept for Undo)'
+        ? tr('replaced (its copy kept for Undo)')
         : c.action === 'merge'
-          ? 'merged'
-          : 'left as it is';
+          ? tr('merged')
+          : tr('left as it is');
   return c.reason ? `${verb}: ${c.reason.trim().replace(/\.$/, '')}` : verb;
 }
 
-/** What each bulk skip code means, when the server says nothing. */
+/** What each bulk skip code means, when the server says nothing (English,
+ * translated where read). */
 const SKIP_TEXT: Record<string, string> = {
   same_directory:
     "It is in that account's folder already: a copy there would be the same conversation. Move it instead, which records it as that account's.",
@@ -911,8 +954,9 @@ const OUR_SKIP_WORDS = new Set(['same_directory']);
 
 /** Why something does not go, as a sentence. */
 export function skipReason(s: MoveSkip): string {
-  if (OUR_SKIP_WORDS.has(s.code)) return SKIP_TEXT[s.code];
-  return sentence(s.message) || SKIP_TEXT[s.code] || 'Skipped.';
+  if (OUR_SKIP_WORDS.has(s.code)) return tr(SKIP_TEXT[s.code]);
+  const ours = SKIP_TEXT[s.code];
+  return sentence(s.message) || (ours ? tr(ours) : '') || tr('Skipped.');
 }
 
 /** The line a skip is listed under: its title, else its folder or id or
@@ -921,7 +965,7 @@ export function skipName(s: MoveSkip, titleOf: (id: string) => string | undefine
   if (s.id) return titleOf(s.id) || s.id.slice(0, 8);
   if (s.item) return customizationLabel(s.item);
   if (s.cwd) return tilde(s.cwd);
-  return 'Something';
+  return tr('Something');
 }
 
 // ───────────────────────────────────────────────────────────── Results
@@ -969,21 +1013,23 @@ export function moveResultSummary(job: JobView): string | null {
   const r = normalizeMoveResult(job.result);
   if (!r) return null;
   const done = r.customizations.filter((c) => c.action !== 'skip').length;
+  const of = (n: number) => ({ conversations: plural(n, 'conversation') });
   const parts = [
-    r.moved.length ? `Moved ${plural(r.moved.length, 'conversation')}` : '',
-    r.copied.length ? `Copied ${plural(r.copied.length, 'conversation')}` : '',
-    r.assigned.length ? `Assigned ${plural(r.assigned.length, 'conversation')}` : '',
-    r.archived.length ? `Archived ${plural(r.archived.length, 'conversation')}` : '',
-    r.restored.length ? `Restored ${plural(r.restored.length, 'conversation')}` : '',
-    done ? `${plural(done, 'customization')} copied` : '',
-    r.skipped.length ? `${r.skipped.length} skipped` : '',
+    r.moved.length ? tr('Moved {conversations}', of(r.moved.length)) : '',
+    r.copied.length ? tr('Copied {conversations}', of(r.copied.length)) : '',
+    r.assigned.length ? tr('Assigned {conversations}', of(r.assigned.length)) : '',
+    r.archived.length ? tr('Archived {conversations}', of(r.archived.length)) : '',
+    r.restored.length ? tr('Restored {conversations}', of(r.restored.length)) : '',
+    done ? tr('{customizations} copied', { customizations: plural(done, 'customization') }) : '',
+    r.skipped.length ? tr('{n} skipped', { n: r.skipped.length }) : '',
   ].filter(Boolean);
-  return parts.join(' · ') || 'Nothing to do: everything was there already.';
+  return parts.join(' · ') || tr('Nothing to do: everything was there already.');
 }
 
 // ────────────────────────────────────────────────────────────── Errors
 
-/** What a storage's refusals mean, when the server says nothing. */
+/** What a storage's refusals mean, when the server says nothing (English,
+ * translated where read). */
 const STORAGE_TEXT: Record<string, string> = {
   invalid_storage: "That folder can't be a storage.",
   storage_unavailable:
@@ -995,13 +1041,15 @@ const STORAGE_TEXT: Record<string, string> = {
  * backup codes, the transfer codes, and the rest. */
 export function moveErrorText(e: unknown): string {
   if (e instanceof ApiError && e.code === 'no_passphrase') {
-    return 'Set a backup passphrase first: every storage opens with it.';
+    return tr('Set a backup passphrase first: every storage opens with it.');
   }
   if (e instanceof ApiError && e.code && e.code in STORAGE_TEXT) {
     const why = e.message.trim().replace(/\.$/, '');
     // The server's reason names the folder: said after ours, as it is.
-    if (e.code === 'invalid_storage' && why) return `${STORAGE_TEXT[e.code].slice(0, -1)}: ${why}.`;
-    return sentence(why) || STORAGE_TEXT[e.code];
+    if (e.code === 'invalid_storage' && why) {
+      return tr("That folder can't be a storage: {why}.", { why });
+    }
+    return sentence(why) || tr(STORAGE_TEXT[e.code]);
   }
   return backupErrorText(e);
 }
@@ -1030,7 +1078,7 @@ export function sessionRow(
     id: s.id,
     title,
     sub,
-    tag: s.live ? 'Running' : '',
+    tag: s.live ? tr('Running') : '',
     haystack: [title, s.cwd, s.id].join(' ').toLowerCase(),
   };
 }
@@ -1045,7 +1093,7 @@ export function indexRow(s: BackupIndexSession): ChecklistRow {
     id: s.id,
     title,
     sub,
-    tag: s.archived ? 'In storage only' : '',
+    tag: s.archived ? tr('In storage only') : '',
     haystack: [title, s.cwd ?? '', s.id].join(' ').toLowerCase(),
   };
 }
@@ -1098,7 +1146,7 @@ export function diskProjectRows(
     sub: [p.sessions ? plural(p.sessions, 'conversation') : '', p.bytes ? formatBytes(p.bytes) : '']
       .filter(Boolean)
       .join(' · '),
-    tag: p.live ? `${p.live} running` : '',
+    tag: p.live ? tr('{n} running', { n: p.live }) : '',
     haystack: p.cwd.toLowerCase(),
   }));
 }

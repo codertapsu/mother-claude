@@ -299,7 +299,7 @@ describe('API servers: addresses', () => {
     ...over,
   });
 
-  it('leads with this Mac on the desktop', () => {
+  it('leads with this computer on the desktop', () => {
     const a = serverAddresses(w, ctx());
     expect(a.map((x) => [x.key, x.url])).toEqual([
       ['own', 'http://127.0.0.1:5613/v1'],
@@ -307,12 +307,12 @@ describe('API servers: addresses', () => {
       ['lan', 'https://192.168.1.23:6725/servers/work/v1'],
       ['tunnel', 'https://work.ngrok.app/v1'],
     ]);
-    expect(a[0].label).toBe('On this Mac');
+    expect(a[0].label).toBe('On this computer');
     expect(a[0].hint).toBe('A token is required while a tunnel points at the port.');
     expect(a[2].hint).toContain("paired device's token");
   });
 
-  it("leads with what a phone can reach, and labels the Mac's loopback", () => {
+  it("leads with what a phone can reach, and labels the computer's loopback", () => {
     const a = serverAddresses(
       w,
       ctx({
@@ -325,9 +325,11 @@ describe('API servers: addresses', () => {
       'https://main.ngrok.app/servers/work/v1',
     );
     const own = a.find((x) => x.key === 'own')!;
-    expect(own.label).toBe('On the Mac');
+    expect(own.label).toBe('On the computer');
     expect(own.hint).toContain('this device cannot reach it');
-    expect(a.find((x) => x.key === 'viaMain')?.label).toBe('On the Mac, through the main port');
+    expect(a.find((x) => x.key === 'viaMain')?.label).toBe(
+      'On the computer, through the main port',
+    );
     // Not on the network (through a tunnel itself): a tunnel leads.
     const away = serverAddresses(w, ctx({ desktop: false, lanBase: null }));
     expect(away.map((x) => x.key)).toEqual(['tunnel', 'lan', 'own', 'viaMain']);
@@ -338,7 +340,7 @@ describe('API servers: addresses', () => {
       (x) => x.key === 'lan',
     )!;
     expect(lan.url).toBeNull();
-    expect(lan.pattern).toBe("https://<the Mac's address>:6725/servers/personal/v1");
+    expect(lan.pattern).toBe("https://<the computer's address>:6725/servers/personal/v1");
   });
 
   it('says the main port works only while the main server runs', () => {
@@ -361,7 +363,7 @@ describe('API servers: addresses', () => {
       ['viaMain', 'http://127.0.0.1:6802/servers/personal/v1'],
       ['lan', 'https://192.168.1.23:6725/servers/personal/v1'],
     ]);
-    expect(via[1].label).toBe("On this Mac, through Mother Claude's port");
+    expect(via[1].label).toBe("On this computer, through Mother Claude's port");
     expect(via[1].hint).toContain('always with a token');
     // The main server itself: its /v1 there.
     const mainNoPort = { ...m, port: undefined, url: undefined };
@@ -370,9 +372,9 @@ describe('API servers: addresses', () => {
       ['own', 'http://127.0.0.1:6802/v1'],
       ['lan', 'https://192.168.1.23:6725/v1'],
     ]);
-    expect(own[0].label).toBe("On this Mac, on Mother Claude's port");
+    expect(own[0].label).toBe("On this computer, on Mother Claude's port");
     expect(own[0].hint).toBe('Always with a token: the main server has no port of its own.');
-    // A phone: the Mac's loopback, last, and said so.
+    // A phone: the computer's loopback, last, and said so.
     const phone = serverAddresses(p, { ...noPort, desktop: false, lanBase: null });
     expect(phone.map((x) => x.key)).toEqual(['lan', 'own', 'viaMain']);
     expect(phone[2].hint).toContain('this device cannot reach it');
