@@ -112,11 +112,17 @@ const pages: Routes = [
     path: 'teams/:id',
     loadComponent: () => import('./pages/teams/team.component').then((m) => m.TeamComponent),
   },
+  // Help: every topic, and one topic (an unknown one falls back to /help).
   {
-    path: 'good-to-know',
-    loadComponent: () =>
-      import('./pages/good-to-know/good-to-know.component').then((m) => m.GoodToKnowComponent),
+    path: 'help',
+    loadComponent: () => import('./pages/help/help.component').then((m) => m.HelpComponent),
   },
+  {
+    path: 'help/:topic',
+    loadComponent: () => import('./pages/help/help.component').then((m) => m.HelpComponent),
+  },
+  // The old "Good to know" page is a Help topic now.
+  { path: 'good-to-know', redirectTo: 'help/good-to-know' },
   {
     path: 'onboarding',
     loadComponent: () =>
@@ -125,6 +131,7 @@ const pages: Routes = [
   { path: '**', redirectTo: '' },
 ];
 
+// A redirect is guarded where it leads (Angular refuses a guard on one).
 export const routes: Routes = pages.map((r) =>
-  OPEN.has(r.path ?? '') ? r : { ...r, canActivate: [pairedGuard] },
+  OPEN.has(r.path ?? '') || r.redirectTo !== undefined ? r : { ...r, canActivate: [pairedGuard] },
 );

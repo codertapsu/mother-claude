@@ -1,0 +1,492 @@
+:host {
+  display: block;
+}
+
+/* ───────────────────────────────────────────────────── Shared bits */
+
+.ico {
+  flex: 0 0 auto;
+  width: 2.25rem;
+  height: 2.25rem;
+  border-radius: 0.65rem;
+  background: var(--accent-soft);
+  color: var(--accent-text);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.ico.big {
+  width: 2.9rem;
+  height: 2.9rem;
+  border-radius: 0.85rem;
+}
+
+/* Headings that take focus when a topic or a section opens. */
+[tabindex='-1']:focus {
+  outline: none;
+}
+
+/* ─────────────────────────────────────────────────────── Landing */
+
+.search {
+  position: relative;
+  max-width: 40rem;
+}
+.search > mc-icon {
+  position: absolute;
+  left: 0.75rem;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--faint);
+  pointer-events: none;
+}
+.search input {
+  min-height: var(--tap);
+  padding-left: 2.4rem;
+  padding-right: 2.9rem;
+}
+.search input::-webkit-search-cancel-button {
+  appearance: none;
+}
+.search .clear {
+  position: absolute;
+  right: 0.2rem;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--muted);
+}
+
+.count {
+  margin: 0.5rem 0 0;
+}
+
+.group h2 {
+  margin: 1.5rem 0 0.6rem;
+}
+
+.grid {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.6rem;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 17rem), 1fr));
+}
+.grid > li {
+  display: flex;
+  min-width: 0;
+}
+.topic-card {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  min-height: var(--tap);
+  padding: 0.85rem 0.9rem;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  text-decoration: none;
+  transition:
+    border-color 0.12s ease,
+    background 0.12s ease;
+}
+.topic-card:hover {
+  border-color: var(--accent);
+  background: var(--panel-2);
+}
+.card-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+.card-title {
+  font-weight: 600;
+  line-height: 1.3;
+}
+.card-summary {
+  color: var(--muted);
+  font-size: 0.85rem;
+  line-height: 1.4;
+}
+.card-hit {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  margin-top: 0.2rem;
+  color: var(--accent-text);
+  font-size: 0.78rem;
+  overflow-wrap: anywhere;
+}
+.chev {
+  align-self: center;
+  color: var(--faint);
+}
+
+.empty-actions {
+  margin-top: 0.75rem;
+}
+
+/* ───────────────────────────────────────────────────────── Topic */
+
+.back {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  min-height: var(--tap);
+  color: var(--muted);
+  font-size: 0.875rem;
+  font-weight: 500;
+  text-decoration: none;
+}
+.back:hover {
+  color: var(--text);
+}
+
+.topic-head {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  margin: 0 0 0.6rem;
+}
+.titles {
+  min-width: 0;
+}
+.eyebrow {
+  margin: 0 0 0.1rem;
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  line-height: 1.3;
+  text-transform: uppercase;
+}
+.titles h1 {
+  margin: 0;
+  font-size: 1.5rem;
+  overflow-wrap: anywhere;
+}
+.intro {
+  max-width: 46rem;
+  margin: 0 0 1rem;
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+.layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 1rem;
+}
+
+/* Phones and narrow windows: the contents as chips above the text. */
+.toc-title {
+  margin: 0 0 0.5rem;
+}
+.toc ol {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+.toc a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 2.25rem;
+  padding: 0.3rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 1.2rem;
+  background: var(--panel);
+  color: var(--text);
+  font-size: 0.85rem;
+  line-height: 1.25;
+  text-decoration: none;
+}
+.toc a:hover {
+  border-color: var(--accent);
+}
+@media (pointer: coarse) {
+  .toc a {
+    min-height: var(--tap);
+  }
+}
+
+.body {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.sec {
+  position: relative;
+  padding: 1rem 1.1rem 1.1rem;
+  overflow-wrap: break-word;
+}
+.sec + .sec {
+  margin-top: 0;
+}
+.sec.bare {
+  padding: 0.25rem 0 0;
+}
+.sec.bare .sec-head {
+  padding: 0 0.1rem;
+}
+/* Where a link to a section lands: the card's top a little below the
+   phone's sticky top bar (the anchor sits inside the card's padding). */
+.anchor {
+  display: block;
+  position: relative;
+  top: calc(-1 * (var(--topbar-h) + env(safe-area-inset-top, 0px) + 1.75rem));
+  height: 0;
+}
+.sec-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.6rem;
+  margin-bottom: 0.45rem;
+}
+.sec-head h2 {
+  margin: 0;
+  color: var(--text);
+  font-size: 1.05rem;
+  letter-spacing: 0;
+  line-height: 1.3;
+  text-transform: none;
+}
+.sec p,
+.sec li,
+.sec dd {
+  line-height: 1.55;
+}
+.sec-intro {
+  margin: 0 0 0.6rem;
+}
+
+.points {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin: 0.4rem 0 0.6rem;
+  padding-left: 1.2rem;
+}
+
+.terms {
+  display: grid;
+  gap: 0.55rem;
+  margin: 0.5rem 0 0.6rem;
+}
+.term {
+  display: grid;
+  gap: 0.1rem 1rem;
+}
+.term dt {
+  font-weight: 600;
+}
+.term dd {
+  margin: 0;
+  color: var(--muted);
+}
+
+/* Numbered steps: a badge per step, joined by a line. */
+.steps {
+  list-style: none;
+  counter-reset: step;
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+  margin: 0.6rem 0 0.4rem;
+  padding: 0;
+}
+.steps > li {
+  counter-increment: step;
+  position: relative;
+  min-height: 1.75rem;
+  padding: 0.12rem 0 0 2.5rem;
+}
+.steps > li::before {
+  content: counter(step);
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 1.75rem;
+  height: 1.75rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--accent);
+  border-radius: 50%;
+  background: var(--accent-soft);
+  color: var(--accent-text);
+  font-size: 0.82rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.steps > li:not(:last-child)::after {
+  content: '';
+  position: absolute;
+  left: calc(0.875rem - 1px);
+  top: 1.9rem;
+  bottom: -0.6rem;
+  width: 2px;
+  border-radius: 1px;
+  background: var(--border);
+}
+
+.callout {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.55rem;
+  margin-top: 0.65rem;
+  padding: 0.6rem 0.75rem;
+  border: 1px solid var(--tone-border);
+  border-radius: var(--radius-sm);
+  background: var(--tone-soft);
+  font-size: 0.9rem;
+}
+.callout > mc-icon {
+  margin-top: 0.15rem;
+  color: var(--tone);
+}
+.callout p {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  line-height: 1.5;
+}
+
+.links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.9rem;
+}
+.links .btn {
+  max-width: 100%;
+  white-space: normal;
+  text-align: left;
+}
+
+.where {
+  gap: 0.25rem;
+}
+
+/* Previous and next topic. */
+.pager {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.6rem;
+  margin-top: 0.5rem;
+}
+.pg {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  min-height: var(--tap);
+  padding: 0.75rem 0.9rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--panel);
+  color: var(--text);
+  text-decoration: none;
+}
+.pg:hover {
+  border-color: var(--accent);
+  background: var(--panel-2);
+}
+.pg > mc-icon {
+  color: var(--faint);
+}
+.pg.next {
+  justify-content: flex-end;
+  text-align: right;
+}
+.pg-text {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.pg-label {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.pg-title {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+@media (min-width: 600px) {
+  .pager {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .pg.next {
+    grid-column: 2;
+  }
+  .term {
+    grid-template-columns: minmax(7rem, 11rem) minmax(0, 1fr);
+  }
+}
+
+@media (min-width: 768px) {
+  .anchor {
+    top: -2rem;
+  }
+}
+
+/* Wide screens: the contents stay beside the text. */
+@media (min-width: 1024px) {
+  .layout.with-toc {
+    grid-template-columns: minmax(0, 1fr) 14.5rem;
+    align-items: start;
+    gap: 1.75rem;
+  }
+  .with-toc .toc {
+    grid-column: 2;
+    grid-row: 1;
+    position: sticky;
+    top: 1.5rem;
+    max-height: calc(100dvh - 3rem);
+    overflow-y: auto;
+  }
+  .with-toc .body {
+    grid-column: 1;
+    grid-row: 1;
+  }
+  .with-toc .toc ol {
+    flex-direction: column;
+    flex-wrap: nowrap;
+    gap: 0.1rem;
+    border-left: 1px solid var(--border);
+  }
+  .with-toc .toc a {
+    min-height: 2rem;
+    margin-left: -1px;
+    padding: 0.35rem 0.75rem;
+    border: 0;
+    border-left: 2px solid transparent;
+    border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+    background: transparent;
+    color: var(--muted);
+  }
+  .with-toc .toc a:hover {
+    border-left-color: var(--border-strong);
+    background: var(--panel-2);
+    color: var(--text);
+  }
+}
+
+@media (forced-colors: active) {
+  .steps > li::before {
+    border-color: CanvasText;
+  }
+}
