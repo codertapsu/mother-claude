@@ -15,7 +15,13 @@ import { tr } from '../core/i18n/i18n';
 import { TPipe } from '../core/i18n/t.pipe';
 import { AccountFleet, FleetSummary, PlanUsage, SessionSummary } from '../core/models';
 import { NowService } from '../core/now.service';
-import { compactWindows, windowPct, windowSeverity, worstSeverity } from '../core/plan-usage';
+import {
+  compactWindows,
+  windowLabel,
+  windowPct,
+  windowSeverity,
+  worstSeverity,
+} from '../core/plan-usage';
 import { PlanUsageService } from '../core/plan-usage.service';
 import { RealtimeService } from '../core/realtime.service';
 import { IconComponent } from './icon.component';
@@ -141,7 +147,7 @@ export function compactPlan(
   });
   const parts = u.windows.map((w) => {
     const left = resetsIn(w.resetsAt, now);
-    return `${w.label} ${windowPct(w, now)}%${left ? `, ${left}` : ''}`;
+    return `${windowLabel(w)} ${windowPct(w, now)}%${left ? `, ${left}` : ''}`;
   });
   const windows = parts.length ? parts.join('; ') : tr('not read yet');
   return {

@@ -591,7 +591,7 @@ export function buildFixtures(now: number): Fixtures {
           kind: 'question',
           source: 'hook',
           toolName: 'AskUserQuestion',
-          title: 'Claude has 2 questions',
+          title: 'Which database should the analytics service use?',
           questions: [
             {
               question: 'Which database should the analytics service use?',
@@ -639,7 +639,7 @@ export function buildFixtures(now: number): Fixtures {
       tmuxPane: 'work:@2.%3',
       status: 'waiting',
       waitingFor: 'plan approval',
-      activity: { kind: 'waiting', label: 'Plan ready for review', since: now - 6 * M },
+      activity: { kind: 'waiting', label: 'Waiting for plan approval', since: now - 6 * M },
       model: OPUS,
       effort: 'xhigh',
       effortSource: 'observed',
@@ -763,7 +763,7 @@ export function buildFixtures(now: number): Fixtures {
       surface: 'jetbrains',
       status: 'waiting',
       waitingFor: 'permission prompt',
-      activity: { kind: 'waiting', label: 'Waiting for approval in JetBrains', since: now - 4 * M },
+      activity: { kind: 'waiting', label: 'Waiting for approval', since: now - 4 * M },
       model: OPUS,
       effort: 'xhigh',
       effortSource: 'observed',
@@ -1246,7 +1246,7 @@ export function buildFixtures(now: number): Fixtures {
         startedAt: now - 95 * S,
         activity: {
           kind: 'tool',
-          label: 'Editing',
+          label: 'Running Edit',
           tool: 'Edit',
           detail: 'docs/quick-start.md',
           since: now - 3 * S,

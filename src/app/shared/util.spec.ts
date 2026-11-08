@@ -1,3 +1,4 @@
+import { useLanguage } from '../core/i18n/i18n';
 import {
   activityLabel,
   baseName,
@@ -67,6 +68,23 @@ describe('shared/util', () => {
     expect(modeLabel(undefined)).toBe('Ask');
     expect(activityLabel({ kind: 'tool', label: '', tool: 'Bash' })).toBe('Running Bash');
     expect(activityLabel({ kind: 'thinking', label: 'Pondering' })).toBe('Pondering');
+    expect(activityLabel({ kind: 'delegating', label: 'Running 3 agents' })).toBe(
+      'Running 3 agents',
+    );
+  });
+
+  it("shows the server's activity labels in Vietnamese", async () => {
+    try {
+      await useLanguage('vi');
+      expect(activityLabel({ kind: 'delegating', label: 'Running 3 agents' })).toBe(
+        'Đang chạy 3 tác tử',
+      );
+      expect(activityLabel({ kind: 'tool', label: 'Running Bash' })).toBe('Đang chạy Bash');
+      expect(activityLabel({ kind: 'thinking', label: 'Thinking' })).toBe('Đang suy nghĩ');
+      expect(activityLabel({ kind: 'thinking', label: 'Pondering' })).toBe('Pondering');
+    } finally {
+      await useLanguage('en');
+    }
   });
 
   it('labels effort, ultracode and thinking, with how each is known', () => {

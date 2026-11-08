@@ -1,3 +1,4 @@
+import { useLanguage } from './i18n/i18n';
 import { PlanWindow } from './models';
 import {
   compactWindows,
@@ -7,6 +8,7 @@ import {
   normalizePlanUsage,
   planIntervalLabel,
   primaryWindows,
+  windowLabel,
   windowPct,
   windowSeverity,
   worstSeverity,
@@ -165,5 +167,39 @@ describe('plan usage helpers', () => {
     expect(limitName(week)).toBe('weekly limit');
     expect(limitName(fable)).toBe('weekly Fable limit');
     expect(limitName(w({ key: 'daily', label: 'Daily · Opus' }))).toBe('Daily · Opus limit');
+  });
+
+  it("names the server's windows in the language shown, and others as they came", async () => {
+    const session = w({ key: 'five_hour', label: 'Current session' });
+    const week = w({ key: 'seven_day', label: 'Weekly · all models', pct: 80 });
+    const opus = w({ key: 'seven_day_opus', label: 'Weekly · Opus', pct: 95 });
+    const extra = w({ key: 'seven_day_overage_included', label: 'Weekly · with extra usage' });
+    const odd = w({ key: 'daily', label: 'Daily · Opus' });
+    expect([session, week, opus, extra, odd].map(windowLabel)).toEqual([
+      'Current session',
+      'Weekly · all models',
+      'Weekly · Opus',
+      'Weekly · with extra usage',
+      'Daily · Opus',
+    ]);
+    try {
+      await useLanguage('vi');
+      expect([session, week, opus, extra, odd].map(windowLabel)).toEqual([
+        'Phiên hiện tại',
+        'Hằng tuần · mọi mô hình',
+        'Hằng tuần · Opus',
+        'Hằng tuần · kèm mức dùng thêm',
+        'Daily · Opus',
+      ]);
+      expect(compactWindows([session, week, opus], NOW).map((p) => p.short)).toEqual([
+        'Phiên',
+        'Tuần',
+        'Opus',
+      ]);
+      expect(limitName(extra)).toBe('giới hạn kèm mức dùng thêm hằng tuần');
+      expect(limitName(odd)).toBe('giới hạn Daily · Opus');
+    } finally {
+      await useLanguage('en');
+    }
   });
 });

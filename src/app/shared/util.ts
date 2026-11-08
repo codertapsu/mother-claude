@@ -444,6 +444,8 @@ export function activityLabel(a: Activity | undefined): string {
 function activityText(label: string): string {
   const known = tr(`${label}||activity`);
   if (known !== label) return known;
+  const agents = /^Running (\d+) agents$/.exec(label);
+  if (agents) return tr('Running {n} agents', { n: agents[1] });
   const running = /^Running (.+)$/.exec(label);
   if (running) return tr('Running {tool}', { tool: running[1] });
   const waiting = /^Waiting: (.+)$/.exec(label);

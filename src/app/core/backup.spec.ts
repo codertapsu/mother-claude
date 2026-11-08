@@ -22,12 +22,14 @@ import {
   passphraseFailure,
   pathOsOf,
   preselect,
+  pruneWarningText,
   prunedOf,
   pullTakesSession,
   restoreLists,
   scheduleLabel,
 } from './backup';
 import { jobTitle } from './data-jobs';
+import { useLanguage } from './i18n/i18n';
 import { BackupIndexSession, JobView } from './models';
 
 const s = (id: string, action: BackupIndexSession['action'], pruneWarning?: string) =>
@@ -564,5 +566,20 @@ describe('backup helpers', () => {
         errorCode: 'set_key_missing',
       }),
     ).toContain("The backup's key (identity.age) isn't in the folder here");
+  });
+
+  it("shows the server's pruning warning in the language shown, with its days", async () => {
+    const raw =
+      'Claude Code will delete this again at its next cleanup unless cleanupPeriodDays (now 30) is raised.';
+    expect(pruneWarningText(raw)).toBe(raw);
+    try {
+      await useLanguage('vi');
+      expect(pruneWarningText(raw)).toBe(
+        'Claude Code sẽ lại xóa phiên này ở lần dọn dẹp tiếp theo, trừ khi tăng cleanupPeriodDays (hiện là 30).',
+      );
+      expect(pruneWarningText('Something else.')).toBe('Something else.');
+    } finally {
+      await useLanguage('en');
+    }
   });
 });

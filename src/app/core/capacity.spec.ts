@@ -1,9 +1,14 @@
 import {
+  BudgetState,
   RateLimitNote,
+  budgetLabel,
+  budgetNote,
   bytesLabel,
   choiceLabel,
   csvName,
   effortRank,
+  effortIdLabel,
+  estimateNoteText,
   normalizeCapacity,
   parseUsd,
   pctLabel,
@@ -13,9 +18,11 @@ import {
   rateLimitText,
   ratioLabel,
   schedulingWindows,
+  taskClassLabel,
   tier,
   validModel,
 } from './capacity';
+import { useLanguage } from './i18n/i18n';
 import { MockCapacity, defaultPolicy } from './mock/mock-capacity';
 
 describe('capacity helpers', () => {
@@ -126,5 +133,84 @@ describe('capacity helpers', () => {
     expect(v?.routes).toEqual([]);
     expect(v?.running.length).toBe(full.running.length);
     expect(v?.canEditPolicy).toBeTrue();
+  });
+
+  it('names budgets and their notes in the language shown', async () => {
+    const base = { spentUsd: 1, limitUsd: 2, pct: 50, level: 'ok' } as const;
+    const project = {
+      ...base,
+      scope: 'project',
+      key: '/dev/site',
+      label: 'site today',
+      project: '/dev/site',
+    };
+    const session = {
+      ...base,
+      scope: 'session',
+      key: 's1',
+      label: 'writer in site',
+      project: '/dev/site',
+      role: 'writer',
+      note: 'a plan account: not passed to Claude Code, shown only',
+    };
+    const task = {
+      ...base,
+      scope: 'task',
+      key: '12',
+      label: 'task 12 in site',
+      project: '/dev/site',
+    };
+    const old = { ...base, scope: 'task', key: '7', label: 'from an older server' };
+    const states = [project, session, task, old] as unknown as BudgetState[];
+    const note =
+      'Estimates: token usage from the sessions\u2019 transcripts priced at first-party API rates. On plan accounts (Pro, Max, Team) the work is paid in usage windows, so dollars are what it would have cost through the API.';
+    expect(states.map(budgetLabel)).toEqual([
+      'site today',
+      'writer in site',
+      'task 12 in site',
+      'from an older server',
+    ]);
+    expect(budgetNote(session.note)).toBe(session.note);
+    try {
+      await useLanguage('vi');
+      expect(states.map(budgetLabel)).toEqual([
+        'site hôm nay',
+        'writer trong site',
+        'tác vụ 12 trong site',
+        'from an older server',
+      ]);
+      expect(budgetNote(session.note)).toBe(
+        'tài khoản theo gói: không chuyển cho Claude Code, chỉ để xem',
+      );
+      expect(budgetNote('something new')).toBe('something new');
+      expect(estimateNoteText(note)).toMatch(/^Số liệu ước tính/);
+      expect(estimateNoteText('Another note.')).toBe('Another note.');
+    } finally {
+      await useLanguage('en');
+    }
+  });
+
+  it('names task classes and efforts in the language shown', async () => {
+    expect(['plan', 'planning', 'ops', 'review', 'mystery'].map(taskClassLabel)).toEqual([
+      'planning',
+      'planning',
+      'operations',
+      'review',
+      'mystery',
+    ]);
+    expect(effortIdLabel('xhigh')).toBe('xhigh');
+    try {
+      await useLanguage('vi');
+      expect(['plan', 'implementation', 'summarize', 'mystery'].map(taskClassLabel)).toEqual([
+        'lập kế hoạch',
+        'triển khai',
+        'tóm tắt',
+        'mystery',
+      ]);
+      expect(choiceLabel({ model: 'opus', effort: 'high' })).toBe('Opus · cao');
+      expect(effortIdLabel('turbo')).toBe('turbo');
+    } finally {
+      await useLanguage('en');
+    }
   });
 });

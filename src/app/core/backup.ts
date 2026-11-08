@@ -508,6 +508,22 @@ export function prunedOf(
 export const PRUNE_WARNING =
   'Claude Code will delete this again at its next cleanup unless cleanupPeriodDays is raised.';
 
+/** A session's own pruning warning in the language shown: the server's
+ * (`claude/backup.rs` `prune_warning`, with the setting's days); any other
+ * as it came. */
+export function pruneWarningText(raw: string): string {
+  const days =
+    /^Claude Code will delete this again at its next cleanup unless cleanupPeriodDays \(now (\d+)\) is raised\.$/.exec(
+      raw.trim(),
+    );
+  return days
+    ? tr(
+        'Claude Code will delete this again at its next cleanup unless cleanupPeriodDays (now {days}) is raised.',
+        { days: days[1] },
+      )
+    : raw;
+}
+
 function skip(raw: unknown): BackupSkip | null {
   const r = obj(raw);
   const id = typeof r?.['id'] === 'string' ? (r['id'] as string) : undefined;

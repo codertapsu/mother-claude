@@ -3,7 +3,7 @@ import { ChangeDetectionStrategy, Component, computed, inject, input } from '@an
 import { tr } from '../core/i18n/i18n';
 import { PlanWindow } from '../core/models';
 import { NowService } from '../core/now.service';
-import { hasReset, windowPct, windowSeverity } from '../core/plan-usage';
+import { hasReset, windowLabel, windowPct, windowSeverity } from '../core/plan-usage';
 import { capitalize, resetClock, resetsIn, severityTone } from './util';
 
 /**
@@ -19,14 +19,14 @@ import { capitalize, resetClock, resetsIn, severityTone } from './util';
     role: 'meter',
     'aria-valuemin': '0',
     'aria-valuemax': '100',
-    '[attr.aria-label]': 'window().label',
+    '[attr.aria-label]': 'label()',
     '[attr.aria-valuenow]': 'bar()',
     '[attr.aria-valuetext]': 'valueText()',
     '[attr.data-tone]': 'tone()',
   },
   template: `
     <div class="head">
-      <span class="label">{{ window().label }}</span>
+      <span class="label">{{ label() }}</span>
       <span class="pct">{{ pct() }}%</span>
     </div>
     <span class="bar"><span class="fill" [style.width.%]="bar()"></span></span>
@@ -93,6 +93,7 @@ export class PlanMeterComponent {
   private clock = inject(NowService);
   readonly window = input.required<PlanWindow>();
 
+  protected readonly label = computed(() => windowLabel(this.window()));
   protected readonly pct = computed(() => windowPct(this.window(), this.clock.now()));
   protected readonly bar = computed(() => Math.min(100, this.pct()));
   private readonly severity = computed(() => windowSeverity(this.window(), this.clock.now()));

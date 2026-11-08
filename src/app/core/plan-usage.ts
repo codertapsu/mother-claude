@@ -182,7 +182,7 @@ export function primaryWindows(windows: readonly PlanWindow[]): PrimaryWindow[] 
   if (session) out.push({ window: session, short: tr('Session') });
   if (week) out.push({ window: week, short: tr('Week') });
   if (out.length) return out;
-  return windows.slice(0, 2).map((w) => ({ window: w, short: shortWindowLabel(w.label) }));
+  return windows.slice(0, 2).map((w) => ({ window: w, short: shortWindowLabel(windowLabel(w)) }));
 }
 
 /** What a compact view shows: the primary windows, plus any other window
@@ -193,7 +193,7 @@ export function compactWindows(windows: readonly PlanWindow[], now: number): Pri
   const shown = new Set(primary.map((p) => p.window));
   const urgent = windows
     .filter((w) => !shown.has(w) && windowSeverity(w, now) !== 'normal')
-    .map((w) => ({ window: w, short: scopeLabel(w.label) }));
+    .map((w) => ({ window: w, short: scopeLabel(windowLabel(w)) }));
   return [...primary, ...urgent];
 }
 
@@ -217,9 +217,34 @@ export function limitName(w: PlanWindow): string {
       .map((p) => p.trim())
       .filter(Boolean);
     const scope = parts.length > 1 ? parts[parts.length - 1] : '';
-    return scope ? tr('weekly {scope} limit', { scope }) : tr('weekly limit');
+    return scope ? tr('weekly {scope} limit', { scope: scopeName(scope) }) : tr('weekly limit');
   }
-  return tr('{label} limit', { label: w.label });
+  return tr('{label} limit', { label: windowLabel(w) });
+}
+
+/** A window's name in the language shown. The server names the windows it
+ * knows from a fixed list (`claude/usage.rs`: "Current session", "Weekly ·
+ * all models", "Weekly · Opus"…); any other name shows as it came. */
+export function windowLabel(w: PlanWindow): string {
+  const label = w.label.trim();
+  if (label === 'Current session') return tr('Current session');
+  const weekly = /^Weekly · (.+)$/.exec(label);
+  return weekly ? tr('Weekly · {scope}', { scope: scopeName(weekly[1]) }) : w.label;
+}
+
+/** What a weekly window covers, in the language shown; a model's name stays
+ * as it is. */
+function scopeName(scope: string): string {
+  switch (scope) {
+    case 'all models':
+      return tr('all models');
+    case 'with extra usage':
+      return tr('with extra usage');
+    case 'scoped':
+      return tr('scoped||plan window');
+    default:
+      return scope;
+  }
 }
 
 function shortWindowLabel(label: string): string {

@@ -4,6 +4,7 @@ import { ChangeDetectionStrategy, Component, computed, input, output } from '@an
 import {
   forceReplaces,
   forceText,
+  pruneWarningText,
   pullTakesSession,
   restoreLists,
   restoreTakes,
@@ -121,7 +122,7 @@ const TONES: Record<BackupAction, string> = {
               {{ bytes(s.remoteBytes) }}
             </span>
             @if (s.pruneWarning) {
-              <span class="prune small">{{ s.pruneWarning }}</span>
+              <span class="prune small">{{ prune(s.pruneWarning) }}</span>
             }
           </span>
         </label>
@@ -307,6 +308,8 @@ export class BackupSessionsComponent {
       ? tr('{folder} on {host}', { folder: there, host: s.host || tr('the other machine') })
       : '';
   }
+
+  protected readonly prune = pruneWarningText;
 
   protected bytes(n: number): string {
     return formatBytes(n);

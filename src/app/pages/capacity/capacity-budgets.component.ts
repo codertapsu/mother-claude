@@ -7,6 +7,8 @@ import {
   BudgetState,
   CapacityView,
   SettingsPatch,
+  budgetLabel,
+  budgetNote,
   budgetTone,
   parseUsd,
   pctLabel,
@@ -78,7 +80,7 @@ export function readMap(
           @for (s of group.states; track s.scope + s.key) {
             <div class="budget" [attr.data-tone]="tone(s.level)">
               <div class="row">
-                <span class="grow">{{ s.label }}</span>
+                <span class="grow">{{ label(s) }}</span>
                 <span class="amount">{{
                   '{spent} of {limit}' | t: { spent: usd(s.spentUsd), limit: usd(s.limitUsd) }
                 }}</span>
@@ -88,14 +90,14 @@ export function readMap(
                 role="meter"
                 aria-valuemin="0"
                 aria-valuemax="100"
-                [attr.aria-label]="s.label"
+                [attr.aria-label]="label(s)"
                 [attr.aria-valuenow]="clamp(s.pct)"
                 ><span class="fill" [style.width.%]="clamp(s.pct)"></span
               ></span>
               <span class="muted small">
                 {{ pct(s.pct) }}{{ levelText(s.scope, s.level) }}
                 @if (s.note) {
-                  · {{ s.note }}
+                  · {{ note(s.note) }}
                 }
               </span>
             </div>
@@ -420,6 +422,8 @@ export class CapacityBudgetsComponent {
   });
 
   protected readonly usd = formatUsd;
+  protected readonly label = budgetLabel;
+  protected readonly note = budgetNote;
   protected readonly pct = pctLabel;
 
   protected tone(level: BudgetLevel): string {

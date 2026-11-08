@@ -363,7 +363,29 @@ export function choiceLabel(c: ModelChoice | undefined): string {
   if (!c) return '—';
   const alias = (MODELS as readonly string[]).includes(c.model);
   const model = alias ? c.model[0].toUpperCase() + c.model.slice(1) : c.model;
-  return c.effort ? `${model} · ${c.effort}` : model;
+  return c.effort ? `${model} · ${effortIdLabel(c.effort)}` : model;
+}
+
+/** An effort by its id, in the language shown: the id itself in English, as
+ * the server's own notes write it ("Opus · high"). */
+export function effortIdLabel(effort: string): string {
+  return tr(`${effort}||effort id`);
+}
+
+/** A class's name (`policy::class_name`) where its label differs. */
+const CLASS_LABELS: Record<string, string> = {
+  plan: 'planning',
+  implement: 'implementation',
+  summarize: 'summary',
+  summarise: 'summary',
+  classify: 'classification',
+  ops: 'operations',
+};
+
+/** A task class in words, in the language shown, by its name ("plan") or
+ * its label ("planning", `policy::class_label`); any other as it came. */
+export function taskClassLabel(cls: string): string {
+  return tr(`${CLASS_LABELS[cls] ?? cls}||task class`);
 }
 
 /** A model Claude Code takes: an alias or a full `claude-…` id. */
@@ -423,6 +445,49 @@ export function parseUsd(text: string): number | null | undefined {
   if (!/^\d+(\.\d{1,2})?$/.test(t)) return undefined;
   const n = Number(t);
   return n > 0 && n <= 1_000_000 ? n : undefined;
+}
+
+/** The server's note on a role session's budget that a plan account pays in
+ * usage windows (`orchestration/budget.rs`). */
+const PLAN_ACCOUNT_NOTE = 'a plan account: not passed to Claude Code, shown only';
+
+/** What every money figure is (`orchestration/reports.rs` `ESTIMATE_NOTE`). */
+const ESTIMATE_NOTE =
+  "Estimates: token usage from the sessions' transcripts priced at first-party API rates. On plan accounts (Pro, Max, Team) the work is paid in usage windows, so dollars are what it would have cost through the API.";
+
+/** A budget's name in the language shown, built from its fields as the
+ * server builds its label ("website today", "writer in website", "task 12
+ * in website"); the server's label when a field is missing. */
+export function budgetLabel(b: BudgetState): string {
+  const project = b.project ? projectName(b.project) : '';
+  if (!project) return b.label;
+  switch (b.scope) {
+    case 'project':
+      return tr('{project} today', { project });
+    case 'session':
+      return b.role ? tr('{role} in {project}', { role: b.role, project }) : b.label;
+    case 'task':
+      return tr('task {id} in {project}', { id: b.key, project });
+    default:
+      return b.label;
+  }
+}
+
+/** A budget's note in the language shown; any other note as it came. */
+export function budgetNote(note: string): string {
+  return note === PLAN_ACCOUNT_NOTE
+    ? tr('a plan account: not passed to Claude Code, shown only')
+    : note;
+}
+
+/** The report's note on its dollars in the language shown; any other note
+ * as it came. */
+export function estimateNoteText(note: string): string {
+  return note.replace(/’/g, "'") === ESTIMATE_NOTE
+    ? tr(
+        "Estimates: token usage from the sessions' transcripts priced at first-party API rates. On plan accounts (Pro, Max, Team) the work is paid in usage windows, so dollars are what it would have cost through the API.",
+      )
+    : note;
 }
 
 /** The last folder of a project path. */

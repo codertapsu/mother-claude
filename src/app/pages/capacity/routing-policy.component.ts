@@ -11,8 +11,10 @@ import {
   RouteNote,
   RoutingPolicy,
   choiceLabel,
+  effortIdLabel,
   policyProblems,
   projectName,
+  taskClassLabel,
   tier,
 } from '../../core/capacity';
 import { tr } from '../../core/i18n/i18n';
@@ -41,10 +43,10 @@ import { TimeAgoComponent } from '../../shared/time-ago.component';
           <div class="classes">
             @for (c of d.classes; track c.class) {
               <div class="class-row">
-                <span class="name">{{ c.label }}</span>
+                <span class="name">{{ classLabel(c.label) }}</span>
                 <select
                   [name]="'model-' + c.class"
-                  [attr.aria-label]="'Model for {class} tasks' | t: { class: c.label }"
+                  [attr.aria-label]="'Model for {class} tasks' | t: { class: classLabel(c.label) }"
                   [ngModel]="classChoice(p, c.class)?.model ?? ''"
                   (ngModelChange)="setClass(c.class, 'model', $event)"
                 >
@@ -55,14 +57,14 @@ import { TimeAgoComponent } from '../../shared/time-ago.component';
                 </select>
                 <select
                   [name]="'effort-' + c.class"
-                  [attr.aria-label]="'Effort for {class} tasks' | t: { class: c.label }"
+                  [attr.aria-label]="'Effort for {class} tasks' | t: { class: classLabel(c.label) }"
                   [disabled]="!classChoice(p, c.class)"
                   [ngModel]="classChoice(p, c.class)?.effort ?? ''"
                   (ngModelChange)="setClass(c.class, 'effort', $event)"
                 >
                   <option value="">{{ "Model's default" | t }}</option>
                   @for (e of efforts; track e) {
-                    <option [value]="e">{{ e }}</option>
+                    <option [value]="e">{{ effortId(e) }}</option>
                   }
                 </select>
                 @if (problems()['classes.' + c.class]; as why) {
@@ -97,7 +99,7 @@ import { TimeAgoComponent } from '../../shared/time-ago.component';
               >
                 <option value="">{{ "Model's default" | t }}</option>
                 @for (e of efforts; track e) {
-                  <option [value]="e">{{ e }}</option>
+                  <option [value]="e">{{ effortId(e) }}</option>
                 }
               </select>
               <button
@@ -186,7 +188,7 @@ import { TimeAgoComponent } from '../../shared/time-ago.component';
             >
               <option value="">{{ "Model's default" | t }}</option>
               @for (e of efforts; track e) {
-                <option [value]="e">{{ e }}</option>
+                <option [value]="e">{{ effortId(e) }}</option>
               }
             </select>
           </div>
@@ -230,7 +232,7 @@ import { TimeAgoComponent } from '../../shared/time-ago.component';
         <div class="card list">
           @for (c of d.classes; track c.class) {
             <div class="list-row">
-              <span class="grow">{{ c.label }}</span>
+              <span class="grow">{{ classLabel(c.label) }}</span>
               <span [class.muted]="!classChoice(d.policy, c.class)">{{
                 classText(d.policy, c.class)
               }}</span>
@@ -447,6 +449,8 @@ export class RoutingPolicyComponent {
   protected readonly efforts = EFFORTS;
   protected readonly families = MODELS;
   protected readonly choice = choiceLabel;
+  protected readonly classLabel = taskClassLabel;
+  protected readonly effortId = effortIdLabel;
   protected readonly project = projectName;
 
   constructor() {

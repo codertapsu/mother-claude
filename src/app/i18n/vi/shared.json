@@ -737,6 +737,12 @@
   "Move {count}": "Chuyển {count}",
   "Only the conversations listed were selected; the {computer} could not be asked for the rest: {error}": "Chỉ chọn được các cuộc trò chuyện đang hiển thị; không hỏi được {computer} về phần còn lại: {error}",
   "Claude Code's default||source": "mặc định của Claude Code",
+  "Current session": "Phiên hiện tại",
+  "Weekly · {scope}": "Hằng tuần · {scope}",
+  "all models": "mọi mô hình",
+  "with extra usage": "kèm mức dùng thêm",
+  "scoped||plan window": "theo phạm vi",
   "Claude wants to use {tool}": "Claude muốn dùng {tool}",
+  "Running {n} agents": "Đang chạy {n} tác tử",
   "Claude has {n} questions": "Claude có {n} câu hỏi"
 }

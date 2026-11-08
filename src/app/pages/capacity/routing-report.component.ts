@@ -7,9 +7,11 @@ import {
   RoutingReport,
   choiceLabel,
   csvName,
+  estimateNoteText,
   pctLabel,
   projectName,
   ratioLabel,
+  taskClassLabel,
 } from '../../core/capacity';
 import { tr } from '../../core/i18n/i18n';
 import { TPipe } from '../../core/i18n/t.pipe';
@@ -58,7 +60,7 @@ import { formatTokens, formatUsd } from '../../shared/util';
     }
 
     @if (report(); as r) {
-      <p class="muted small">{{ r.estimateNote }}</p>
+      <p class="muted small">{{ estimateNote(r.estimateNote) }}</p>
       @if (r.pending) {
         <p class="muted small">
           {{
@@ -126,7 +128,7 @@ import { formatTokens, formatUsd } from '../../shared/util';
             <tbody>
               @for (c of r.classes; track c.class) {
                 <tr>
-                  <th scope="row">{{ c.class }}</th>
+                  <th scope="row">{{ classLabel(c.class) }}</th>
                   <td class="n">{{ c.completed }} / {{ c.tasks }}</td>
                   <td class="n">{{ usd(c.costUsd) }}</td>
                   <td class="n">{{ usd(c.costPerCompletedUsd) }}</td>
@@ -155,7 +157,7 @@ import { formatTokens, formatUsd } from '../../shared/util';
             <tbody>
               @for (x of r.rows; track x.class + x.model + x.effort) {
                 <tr>
-                  <th scope="row">{{ x.class }}</th>
+                  <th scope="row">{{ classLabel(x.class) }}</th>
                   <td>{{ rowChoice(x) }}</td>
                   <td class="n">{{ x.completed }} / {{ x.tasks }}</td>
                   <td class="bar-col">
@@ -301,6 +303,8 @@ export class RoutingReportComponent {
   private api = inject(ApiService);
 
   protected readonly periods = REPORT_DAYS;
+  protected readonly estimateNote = estimateNoteText;
+  protected readonly classLabel = taskClassLabel;
   protected readonly days = signal<number>(30);
   protected readonly report = signal<RoutingReport | null>(null);
   protected readonly error = signal('');
