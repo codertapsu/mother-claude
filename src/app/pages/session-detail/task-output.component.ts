@@ -16,6 +16,7 @@ import {
 } from '@angular/core';
 
 import { ApiService, describeError } from '../../core/api.service';
+import { TPipe } from '../../core/i18n/t.pipe';
 import { BackgroundTask } from '../../core/models';
 import { SheetComponent } from '../../shared/sheet.component';
 import { SessionContext } from './session-context';
@@ -28,12 +29,13 @@ const REFRESH_MS = 3000;
 @Component({
   selector: 'mc-task-output-body',
   changeDetection: ChangeDetectionStrategy.OnPush,
+  imports: [TPipe],
   template: `
     @if (error()) {
       <p class="error-text small">{{ error() }}</p>
     }
-    <pre #out class="out" tabindex="0" aria-label="Task output">{{
-      text() || (loading() ? 'Loading…' : 'No output yet.')
+    <pre #out class="out" tabindex="0" [attr.aria-label]="'Task output' | t">{{
+      text() || (loading() ? ('Loading…' | t) : ('No output yet.' | t))
     }}</pre>
   `,
   styles: [
@@ -110,12 +112,12 @@ export class TaskOutputBodyComponent {
 @Component({
   selector: 'mc-task-output',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [SheetComponent, TaskOutputBodyComponent],
+  imports: [SheetComponent, TaskOutputBodyComponent, TPipe],
   template: `
     <mc-sheet
       size="full"
       [open]="!!task()"
-      [title]="task()?.label ?? 'Output'"
+      [title]="task()?.label ?? ('Output' | t)"
       (closed)="closed.emit()"
     >
       <mc-task-output-body [sessionId]="sid()" [task]="task()" />

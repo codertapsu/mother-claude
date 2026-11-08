@@ -3,28 +3,29 @@
     <div class="blocked">
       <p class="why">
         <mc-icon name="info" [size]="16" />
-        <span
-          >You can watch this session from here, but not message it{{
-            s.live ? ' while it runs in ' + surfaceName() : ''
-          }}.</span
-        >
+        <span>{{
+          s.live
+            ? ('You can watch this session from here, but not message it while it runs in {app}.'
+              | t: { app: surfaceName() })
+            : ('You can watch this session from here, but not message it.' | t)
+        }}</span>
       </p>
       <mc-cap-limits [session]="s" />
       @if (installMissing()) {
         <a class="btn" routerLink="/remote" fragment="foreign"
-          ><mc-icon name="plug" [size]="15" /> Install foreign-session control</a
+          ><mc-icon name="plug" [size]="15" /> {{ 'Install foreign-session control' | t }}</a
         >
       }
       @if ((s.control.fork || s.control.continueOwned) && !continueOffered()) {
         <button class="btn primary" type="button" (click)="ctx.continueHere()">
-          {{ s.live ? 'Continue here (fork)' : 'Continue here' }}
+          {{ s.live ? ('Continue here (fork)' | t) : ('Continue here' | t) }}
         </button>
       }
     </div>
   }
 } @else {
   @if (ctx.queued().length) {
-    <ul class="queued" aria-label="Messages waiting for Claude">
+    <ul class="queued" [attr.aria-label]="'Messages waiting for Claude' | t">
       @for (q of ctx.queued(); track q.id) {
         <li>
           <mc-icon name="clock" [size]="14" />
@@ -32,29 +33,29 @@
           <span class="qstate">{{
             q.via === 'hook-busy' || q.via === 'hook-idle'
               ? waitHint()
-                ? 'waiting for next step'
-                : 'relaying'
+                ? ('waiting for next step' | t)
+                : ('relaying' | t)
               : q.via === 'owned'
-                ? 'after its current step'
-                : 'queued'
+                ? ('after its current step' | t)
+                : ('queued' | t)
           }}</span>
           @if (q.via === 'owned' && steers()) {
             <button
               class="btn small"
               type="button"
               [disabled]="!ctx.canAct()"
-              [attr.aria-label]="'Send now: ' + q.text"
-              title="Claude stops its current step and reads this at once"
+              [attr.aria-label]="'Send now: {text}' | t: { text: q.text }"
+              [title]="'Claude stops its current step and reads this at once' | t"
               (click)="ctx.sendNow(q.id)"
             >
-              <mc-icon name="send" [size]="13" /> Send now
+              <mc-icon name="send" [size]="13" /> {{ 'Send now' | t }}
             </button>
           }
           @if (q.cancellable) {
             <button
               class="btn ghost icon-only small"
               type="button"
-              [attr.aria-label]="'Take back: ' + q.text"
+              [attr.aria-label]="'Take back: {text}' | t: { text: q.text }"
               (click)="ctx.cancelQueued(q.id)"
             >
               <mc-icon name="x" [size]="14" />
@@ -68,11 +69,15 @@
   @if (explainer()) {
     <div class="explainer" role="note">
       <p>
-        <strong>How relayed messages arrive:</strong> Claude gets it at its next stopping point (a
-        tool call or the end of its turn). It won't appear in the VS Code panel; only Claude's reply
-        will.
+        <strong>{{ 'How relayed messages arrive:' | t }}</strong>
+        {{
+          "Claude gets it at its next stopping point (a tool call or the end of its turn). It won't appear in the VS Code panel; only Claude's reply will."
+            | t
+        }}
       </p>
-      <button class="btn small" type="button" (click)="dismissExplainer()">Got it</button>
+      <button class="btn small" type="button" (click)="dismissExplainer()">
+        {{ 'Got it' | t }}
+      </button>
     </div>
   }
 
@@ -81,7 +86,7 @@
       class="palette"
       role="listbox"
       id="mc-palette"
-      [attr.aria-label]="palette() === 'slash' ? 'Commands' : 'Files'"
+      [attr.aria-label]="palette() === 'slash' ? ('Commands' | t) : ('Files' | t)"
     >
       @for (it of paletteItems(); track it.key; let i = $index) {
         <li
@@ -111,7 +116,7 @@
           <button
             class="rm"
             type="button"
-            [attr.aria-label]="'Remove ' + a.name"
+            [attr.aria-label]="'Remove {name}' | t: { name: a.name }"
             (click)="remove(a)"
           >
             <mc-icon name="x" [size]="12" />
@@ -119,7 +124,7 @@
         </figure>
       }
       @if (uploading()) {
-        <span class="thumb busy" role="status" aria-label="Preparing attachment"
+        <span class="thumb busy" role="status" [attr.aria-label]="'Preparing attachment' | t"
           ><span class="spin" aria-hidden="true"></span
         ></span>
       }
@@ -132,8 +137,8 @@
         <button
           class="btn ghost icon-only"
           type="button"
-          aria-label="Attach a photo"
-          title="Photo or camera"
+          [attr.aria-label]="'Attach a photo' | t"
+          [title]="'Photo or camera' | t"
           (click)="choose('photo')"
         >
           <mc-icon name="camera" />
@@ -142,8 +147,10 @@
       <button
         class="btn ghost icon-only"
         type="button"
-        [attr.aria-label]="attach() === 'path' ? 'Attach a file (sent as a path)' : 'Attach a file'"
-        title="Attach a file"
+        [attr.aria-label]="
+          attach() === 'path' ? ('Attach a file (sent as a path)' | t) : ('Attach a file' | t)
+        "
+        [title]="'Attach a file' | t"
         (click)="choose('file')"
       >
         <mc-icon name="paperclip" />
@@ -173,7 +180,7 @@
       rows="1"
       [value]="text()"
       [placeholder]="placeholder()"
-      aria-label="Message"
+      [attr.aria-label]="'Message' | t"
       [attr.aria-controls]="palette() ? 'mc-palette' : null"
       [attr.aria-activedescendant]="activeId()"
       [attr.aria-expanded]="!!palette()"
@@ -203,24 +210,21 @@
   <div class="under">
     @if (failed()) {
       <span class="failed" role="alert"
-        >Not sent.
-        <button class="btn ghost small" type="button" (click)="submit('send')">Retry</button></span
+        >{{ 'Not sent.' | t }}
+        <button class="btn ghost small" type="button" (click)="submit('send')">
+          {{ 'Retry' | t }}
+        </button></span
       >
     } @else if (mode() === 'resume') {
-      <span class="hint">Sending resumes this conversation here.</span>
+      <span class="hint">{{ 'Sending resumes this conversation here.' | t }}</span>
     } @else if (waitHint() && hasContent()) {
       <span class="hint">{{ waitHint() }}</span>
     } @else if (steers() && ctx.busy() && hasContent()) {
-      <span class="hint">Claude reads it after its current step · Send now for at once</span>
-    } @else if (!coarse()) {
-      <span class="hint"
-        >Enter to send · Shift+Enter for a new line{{
-          caps()?.slashCommands ? ' · / for commands' : ''
-        }}
-        · &#64; for files</span
-      >
-    } @else if (caps()?.slashCommands) {
-      <span class="hint">/ for commands · &#64; for files</span>
+      <span class="hint">{{
+        'Claude reads it after its current step · Send now for at once' | t
+      }}</span>
+    } @else if (keysHint()) {
+      <span class="hint">{{ keysHint() }}</span>
     }
     <span class="spacer"></span>
     @if (onePermission() && hasContent()) {
@@ -230,21 +234,21 @@
         [disabled]="!canSend()"
         (click)="submit('deny')"
       >
-        Deny &amp; send as feedback
+        {{ 'Deny & send as feedback' | t }}
       </button>
     } @else if (ctx.busy() && hasContent() && steers()) {
       <button
         class="btn small"
         type="button"
         [disabled]="!canSend()"
-        title="Claude stops its current step and reads this at once"
+        [title]="'Claude stops its current step and reads this at once' | t"
         (click)="submit('now')"
       >
-        Send now
+        {{ 'Send now' | t }}
       </button>
     } @else if (ctx.busy() && hasContent() && caps()?.interrupt !== 'none') {
       <button class="btn small" type="button" [disabled]="!canSend()" (click)="submit('interrupt')">
-        Interrupt &amp; send
+        {{ 'Interrupt & send' | t }}
       </button>
     }
     @if (ctx.busy() && caps()?.interrupt !== 'none') {
@@ -254,8 +258,8 @@
         [disabled]="!ctx.canAct()"
         [title]="
           caps()?.interrupt === 'immediate'
-            ? 'Stop the current turn'
-            : 'Stops at the next tool call'
+            ? ('Stop the current turn' | t)
+            : ('Stops at the next tool call' | t)
         "
         (click)="ctx.interrupt()"
       >
@@ -267,14 +271,16 @@
 
 <mc-sheet
   [open]="!!confirm()"
-  [title]="'Run /' + (confirm()?.name ?? '') + '?'"
+  [title]="'Run /{name}?' | t: { name: confirm()?.name ?? '' }"
   (closed)="confirm.set(null)"
 >
   <p>{{ confirm()?.text }}</p>
   <div class="row">
     <button class="btn primary" type="button" (click)="runConfirmed()">
-      Run /{{ confirm()?.name }}
+      {{ 'Run /{name}' | t: { name: confirm()?.name ?? '' } }}
     </button>
-    <button class="btn ghost" type="button" (click)="confirm.set(null)">Cancel</button>
+    <button class="btn ghost" type="button" (click)="confirm.set(null)">
+      {{ 'Cancel' | t }}
+    </button>
   </div>
 </mc-sheet>

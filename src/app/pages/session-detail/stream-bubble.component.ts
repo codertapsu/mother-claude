@@ -1,5 +1,7 @@
 import { ChangeDetectionStrategy, Component, computed, input } from '@angular/core';
 
+import { tr } from '../../core/i18n/i18n';
+import { TPipe } from '../../core/i18n/t.pipe';
 import { StreamBubble } from '../../core/live-stream';
 import { IconComponent } from '../../shared/icon.component';
 import { renderMarkdown } from '../../shared/markdown';
@@ -14,8 +16,8 @@ import { toolIcon } from './tool-icons';
 @Component({
   selector: 'mc-stream-bubble',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [IconComponent],
-  host: { '[attr.aria-busy]': '!bubble().done', 'aria-label': 'Claude is writing' },
+  imports: [IconComponent, TPipe],
+  host: { '[attr.aria-busy]': '!bubble().done', '[attr.aria-label]': 'label()' },
   template: `
     @for (b of blocks(); track b.index) {
       @switch (b.kind) {
@@ -28,7 +30,7 @@ import { toolIcon } from './tool-icons';
         @case ('tool') {
           <p class="tool">
             <mc-icon [name]="icon(b.tool?.name)" [size]="14" />
-            <strong>{{ b.tool?.name || 'Tool' }}</strong>
+            <strong>{{ b.tool?.name || ('Tool' | t) }}</strong>
             <span class="tsum">{{ b.tool?.summary || b.text }}</span>
             <span class="spin" aria-hidden="true"></span>
           </p>
@@ -118,16 +120,30 @@ import { toolIcon } from './tool-icons';
 export class StreamBubbleComponent {
   readonly bubble = input.required<StreamBubble>();
 
+  protected readonly label = computed(() => tr('Claude is writing'));
   protected readonly blocks = computed(() =>
     this.bubble().blocks.map((b) => ({
       ...b,
       html: b.kind === 'text' ? renderMarkdown(b.text) : '',
-      tail: b.kind === 'thinking' ? lastLine(b.text) || 'Thinking…' : '',
+      tail: b.kind === 'thinking' ? lastLine(b.text) || tr('Thinking…') : '',
     })),
   );
+  /** The stream's status in words: the ones Claude Code sends translated,
+   * any other as it came ("Requesting…"). */
   protected readonly statusText = computed(() => {
     const s = this.bubble().status;
-    return s ? `${s[0].toUpperCase()}${s.slice(1)}…` : 'Thinking…';
+    switch (s) {
+      case undefined:
+      case '':
+      case 'thinking':
+        return tr('Thinking…');
+      case 'compacting':
+        return tr('Compacting…');
+      case 'requesting':
+        return tr('Requesting…');
+      default:
+        return `${s[0].toUpperCase()}${s.slice(1)}…`;
+    }
   });
 
   protected icon(name: string | undefined) {

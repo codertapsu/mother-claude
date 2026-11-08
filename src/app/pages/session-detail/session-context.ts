@@ -4,6 +4,7 @@ import { Subscription } from 'rxjs';
 
 import { ApiError, ApiService, describeError } from '../../core/api.service';
 import { AuthService } from '../../core/auth.service';
+import { tr } from '../../core/i18n/i18n';
 import { LiveStream } from '../../core/live-stream';
 import {
   AgentInfo,
@@ -24,7 +25,7 @@ import { PendingService } from '../../core/pending.service';
 import { RealtimeService } from '../../core/realtime.service';
 import { SessionActionsService } from '../../core/session-actions.service';
 import { TranscriptStore } from '../../core/transcript-store';
-import { activityIsBusy } from '../../shared/util';
+import { activityIsBusy, effortLabel } from '../../shared/util';
 
 export type SessionTab = 'chat' | 'agents' | 'changes' | 'info';
 export type PickerKind = 'model' | 'effort' | 'mode' | 'rename';
@@ -218,7 +219,7 @@ export class SessionContext {
         // notification while the Mac sleeps); a reconnect retries (refetch$).
         const missing = e instanceof ApiError && e.status === 404;
         this.notFound.set(missing);
-        this.loadError.set(missing ? 'This session no longer exists.' : describeError(e).text);
+        this.loadError.set(missing ? tr('This session no longer exists.') : describeError(e).text);
       }
     } finally {
       if (id === this.id()) this.loading.set(false);
@@ -262,7 +263,7 @@ export class SessionContext {
       if (res?.delivery === 'queued' || res?.delivery === 'relayed') this.scheduleDetail();
       return res ?? { delivery: 'sent', messageId: '' };
     } catch (e) {
-      this.notices.error(e, undefined, 'Not sent');
+      this.notices.error(e, undefined, tr('Not sent'));
       return null;
     }
   }
@@ -284,23 +285,31 @@ export class SessionContext {
     const next = this.caps()?.interrupt === 'next-tool';
     return this.run(
       () => this.api.interrupt(this.id()),
-      next ? 'Interrupt requested: it stops at the next tool call.' : 'Interrupted.',
-      'Could not interrupt',
+      next ? tr('Interrupt requested: it stops at the next tool call.') : tr('Interrupted.'),
+      tr('Could not interrupt'),
     );
   }
 
   setModel(model: string): Promise<boolean> {
-    return this.run(() => this.api.setModel(this.id(), model), `Model: ${model}`, 'Model');
+    return this.run(
+      () => this.api.setModel(this.id(), model),
+      tr('Model: {model}', { model }),
+      tr('Model'),
+    );
   }
 
   setEffort(effort: string): Promise<boolean> {
-    return this.run(() => this.api.setEffort(this.id(), effort), `Effort: ${effort}`, 'Effort');
+    return this.run(
+      () => this.api.setEffort(this.id(), effort),
+      tr('Effort: {effort}', { effort: tr(effortLabel(effort)) }),
+      tr('Effort'),
+    );
   }
 
   setUltracode(enabled: boolean): Promise<boolean> {
     return this.run(
       () => this.api.setUltracode(this.id(), enabled),
-      enabled ? 'Ultracode on.' : 'Ultracode off.',
+      enabled ? tr('Ultracode on.') : tr('Ultracode off.'),
       'Ultracode',
     );
   }
@@ -308,29 +317,33 @@ export class SessionContext {
   setThinking(enabled: boolean): Promise<boolean> {
     return this.run(
       () => this.api.setThinking(this.id(), enabled),
-      enabled ? 'Thinking on.' : 'Thinking off.',
-      'Thinking',
+      enabled ? tr('Thinking on.') : tr('Thinking off.'),
+      tr('Thinking'),
     );
   }
 
+  /** `label`: the mode's name in English (`modeLabel`); shown translated. */
   setMode(mode: PermissionMode, label: string): Promise<boolean> {
     const onPrompt = this.caps()?.setMode === 'on-prompt';
+    const name = tr(label);
     return this.run(
       () => this.api.setMode(this.id(), mode),
-      onPrompt ? `Mode “${label}” applies with your next message.` : `Mode: ${label}`,
-      'Mode',
+      onPrompt
+        ? tr('Mode “{mode}” applies with your next message.', { mode: name })
+        : tr('Mode: {mode}', { mode: name }),
+      tr('Mode'),
     );
   }
 
   rename(name: string): Promise<boolean> {
-    return this.run(() => this.api.rename(this.id(), name), 'Renamed.', 'Rename');
+    return this.run(() => this.api.rename(this.id(), name), tr('Renamed.'), tr('Rename'));
   }
 
   stopTask(taskId: string, label: string): Promise<boolean> {
     return this.run(
       () => this.api.stopTask(this.id(), taskId),
-      `Asked “${label}” to stop.`,
-      'Could not stop',
+      tr('Asked “{label}” to stop.', { label }),
+      tr('Could not stop'),
     );
   }
 
@@ -340,8 +353,8 @@ export class SessionContext {
   async sendNow(messageId: string): Promise<boolean> {
     const ok = await this.run(
       () => this.api.sendNow(this.id(), messageId),
-      'Sent now: Claude reads it right away.',
-      'Could not send it now',
+      tr('Sent now: Claude reads it right away.'),
+      tr('Could not send it now'),
     );
     if (ok) void this.refreshDetail();
     return ok;
@@ -350,24 +363,34 @@ export class SessionContext {
   async cancelQueued(messageId: string): Promise<boolean> {
     const ok = await this.run(
       () => this.api.cancelQueued(this.id(), messageId),
-      'Taken back.',
-      'Could not take it back',
+      tr('Taken back.'),
+      tr('Could not take it back'),
     );
     if (ok) void this.refreshDetail();
     return ok;
   }
 
   sendKey(key: KeyName): Promise<boolean> {
-    return this.run(() => this.api.sendKey(this.id(), key), '', `Key ${key}`);
+    return this.run(() => this.api.sendKey(this.id(), key), '', tr('Key {key}', { key }));
   }
 
   async lifecycle(action: LifecycleAction): Promise<boolean> {
     const words: Record<LifecycleAction, string> = {
-      stop: 'Stop requested.',
-      respawn: 'Respawn requested.',
-      rm: 'Removed.',
+      stop: tr('Stop requested.'),
+      respawn: tr('Respawn requested.'),
+      rm: tr('Removed.'),
     };
-    const ok = await this.run(() => this.api.lifecycle(this.id(), action), words[action], action);
+    // What failed, as the error's prefix: the button's name.
+    const what: Record<LifecycleAction, string> = {
+      stop: tr('Stop'),
+      respawn: tr('Respawn'),
+      rm: tr('Remove'),
+    };
+    const ok = await this.run(
+      () => this.api.lifecycle(this.id(), action),
+      words[action],
+      what[action],
+    );
     if (ok && action === 'rm') void this.router.navigate(['/']);
     return ok;
   }

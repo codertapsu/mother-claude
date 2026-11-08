@@ -68,6 +68,17 @@
   color: var(--text);
   border-bottom-color: var(--accent);
 }
+/* Narrow phones: the four tabs fit across, counts and longer names (the
+   Vietnamese ones) included. */
+@media (max-width: 480px) {
+  .sd-tabs {
+    gap: 0;
+    padding: 0 0.35rem;
+  }
+  .tab {
+    padding: 0.35rem 0.55rem;
+  }
+}
 .tcount {
   font-size: 0.7rem;
   font-weight: 700;

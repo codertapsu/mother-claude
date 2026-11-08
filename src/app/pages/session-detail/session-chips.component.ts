@@ -10,7 +10,10 @@ import {
   viewChild,
 } from '@angular/core';
 
+import { plural } from '../../core/data-jobs';
 import { DefaultsService, FALLBACK_EFFORTS } from '../../core/defaults.service';
+import { tr } from '../../core/i18n/i18n';
+import { TPipe } from '../../core/i18n/t.pipe';
 import { NoticeService } from '../../core/notice.service';
 import { NowService } from '../../core/now.service';
 import { PermissionMode, SessionSummary } from '../../core/models';
@@ -71,20 +74,23 @@ interface Why {
     CostComponent,
     IconComponent,
     SheetComponent,
+    TPipe,
   ],
   template: `
     @if (ctx.session(); as s) {
-      <div class="chips" role="group" aria-label="Session settings and stats">
+      <div class="chips" role="group" [attr.aria-label]="'Session settings and stats' | t">
         <mc-channel-badge [surface]="s.surface" [control]="s.control" [session]="s" />
 
         <!-- Model -->
         @if (s.control.setModel && s.live) {
-          <label class="pick" title="Model">
+          <label class="pick" [title]="'Model' | t">
             <mc-icon name="sparkle" [size]="13" />
-            <span class="pv">{{ s.model?.label || 'Model' }}</span>
+            <span class="pv">{{ s.model?.label || ('Model' | t) }}</span>
             <mc-icon name="chevronDown" [size]="12" />
-            <select #modelSel aria-label="Model" (change)="onModel($event)">
-              <option value="" disabled [selected]="true">{{ s.model?.label || 'Choose…' }}</option>
+            <select #modelSel [attr.aria-label]="'Model' | t" (change)="onModel($event)">
+              <option value="" disabled [selected]="true">
+                {{ s.model?.label || ('Choose…' | t) }}
+              </option>
               @for (m of models(); track m.value) {
                 <option [value]="m.value">{{ m.label }}</option>
               }
@@ -104,18 +110,20 @@ interface Why {
             [class.danger]="s.permissionMode === 'bypassPermissions'"
             [title]="
               s.control.setMode === 'on-prompt'
-                ? 'Permission mode (applies with your next message)'
-                : 'Permission mode'
+                ? ('Permission mode (applies with your next message)' | t)
+                : ('Permission mode' | t)
             "
           >
             <mc-icon name="shield" [size]="13" />
-            <span class="pv">{{ mode(s.permissionMode) }}</span>
+            <span class="pv">{{ mode(s.permissionMode) | t }}</span>
             <mc-icon name="chevronDown" [size]="12" />
-            <select #modeSel aria-label="Permission mode" (change)="onMode($event)">
-              <option value="" disabled [selected]="true">{{ mode(s.permissionMode) }}</option>
+            <select #modeSel [attr.aria-label]="'Permission mode' | t" (change)="onMode($event)">
+              <option value="" disabled [selected]="true">
+                {{ mode(s.permissionMode) | t }}
+              </option>
               @for (m of modes; track m.value) {
                 <option [value]="m.value" [disabled]="m.dangerous && !ctx.canDangerous()">
-                  {{ m.label }} — {{ m.hint }}
+                  {{ m.label | t }} — {{ m.hint | t }}
                 </option>
               }
             </select>
@@ -128,24 +136,27 @@ interface Why {
             (click)="explain('mode')"
           >
             <mc-icon name="shield" [size]="13" />
-            <span class="pv">{{ mode(s.permissionMode) }}</span>
+            <span class="pv">{{ mode(s.permissionMode) | t }}</span>
           </button>
         }
 
         <!-- Effort -->
         @if (s.control.setEffort && s.live) {
-          <label class="pick" [title]="'Effort: ' + (effortWhy() || 'not reported')">
+          <label
+            class="pick"
+            [title]="'Effort: {how}' | t: { how: effortWhy() || ('not reported' | t) }"
+          >
             <mc-icon name="gauge" [size]="13" />
             <span class="pv">{{
-              s.effort ? effort(s.effort) : noEffort() ? 'No effort' : 'Effort'
+              s.effort ? (effort(s.effort) | t) : noEffort() ? ('No effort' | t) : ('Effort' | t)
             }}</span>
             <mc-icon name="chevronDown" [size]="12" />
-            <select #effortSel aria-label="Effort" (change)="onEffort($event)">
+            <select #effortSel [attr.aria-label]="'Effort' | t" (change)="onEffort($event)">
               <option value="" disabled [selected]="true">
-                {{ effort(s.effort) || 'Choose…' }}
+                {{ (effort(s.effort) | t) || ('Choose…' | t) }}
               </option>
               @for (e of efforts(); track e) {
-                <option [value]="e">{{ effort(e) }}</option>
+                <option [value]="e">{{ effort(e) | t }}</option>
               }
             </select>
           </label>
@@ -153,11 +164,11 @@ interface Why {
           <button
             class="pick off"
             type="button"
-            [attr.aria-label]="'Effort: ' + effortWhy()"
+            [attr.aria-label]="'Effort: {how}' | t: { how: effortWhy() }"
             (click)="explain('effort')"
           >
             <mc-icon name="gauge" [size]="13" />
-            <span class="pv">{{ effort(s.effort) }}</span>
+            <span class="pv">{{ effort(s.effort) | t }}</span>
           </button>
         }
 
@@ -176,7 +187,9 @@ interface Why {
             (click)="toggleUltracode()"
           >
             <mc-icon name="workflow" [size]="13" />
-            <span class="pv">Ultracode {{ s.ultracode === 'on' ? 'on' : 'off' }}</span>
+            <span class="pv">{{
+              s.ultracode === 'on' ? ('Ultracode on' | t) : ('Ultracode off' | t)
+            }}</span>
           </button>
         } @else if (s.ultracode) {
           <button
@@ -190,7 +203,7 @@ interface Why {
             (click)="explain('ultracode')"
           >
             <mc-icon name="workflow" [size]="13" />
-            <span class="pv">Ultracode {{ s.ultracode }}</span>
+            <span class="pv">{{ ultracodeChip(s.ultracode) }}</span>
           </button>
         } @else if (ultracodeUnknown()) {
           <!-- Not known yet in a session running elsewhere (VS Code notes a
@@ -215,7 +228,7 @@ interface Why {
               class="pick"
               type="button"
               role="switch"
-              aria-label="Thinking"
+              [attr.aria-label]="'Thinking' | t"
               [class.on]="thinkingOn()"
               [attr.aria-checked]="thinkingOn()"
               [title]="thinkingChipTitle()"
@@ -223,21 +236,25 @@ interface Why {
               (click)="toggleThinking()"
             >
               <mc-icon name="lightbulb" [size]="13" />
-              <span class="pv">Thinking {{ thinkingOn() ? 'on' : 'off' }}</span>
+              <span class="pv">{{
+                thinkingOn() ? ('Thinking on' | t) : ('Thinking off' | t)
+              }}</span>
             </button>
           } @else {
-            <label class="pick" [class.locked]="thinkingLocked()" [title]="thinkingDefaultTitle">
+            <label class="pick" [class.locked]="thinkingLocked()" [title]="thinkingDefaultTitle()">
               <mc-icon name="lightbulb" [size]="13" />
-              <span class="pv">Thinking default</span>
+              <span class="pv">{{ 'Thinking default' | t }}</span>
               <mc-icon name="chevronDown" [size]="12" />
               <select
-                aria-label="Thinking"
+                [attr.aria-label]="'Thinking' | t"
                 [disabled]="thinkingLocked()"
                 (change)="onThinking($event)"
               >
-                <option value="" disabled [selected]="true">Claude Code's default</option>
-                <option value="on">On</option>
-                <option value="off">Off</option>
+                <option value="" disabled [selected]="true">
+                  {{ "Claude Code's default" | t }}
+                </option>
+                <option value="on">{{ 'On' | t }}</option>
+                <option value="off">{{ 'Off' | t }}</option>
               </select>
             </label>
           }
@@ -263,7 +280,7 @@ interface Why {
             (click)="explain('fast')"
           >
             <mc-icon name="zap" [size]="13" />
-            <span class="pv">Fast</span>
+            <span class="pv">{{ 'Fast' | t }}</span>
           </button>
         }
 
@@ -281,9 +298,9 @@ interface Why {
         }
         @if (s.todos; as t) {
           @if (t.total) {
-            <mc-chip icon="check" [tone]="t.done === t.total ? 'green' : 'muted'"
-              >{{ t.done }}/{{ t.total }} todos</mc-chip
-            >
+            <mc-chip icon="check" [tone]="t.done === t.total ? 'green' : 'muted'">{{
+              '{done}/{total} todos' | t: { done: t.done, total: t.total }
+            }}</mc-chip>
           }
         }
         @if (s.gitBranch) {
@@ -296,10 +313,10 @@ interface Why {
           </a>
         }
         @if (s.queued) {
-          <mc-chip tone="blue" icon="clock">{{ s.queued }} queued</mc-chip>
+          <mc-chip tone="blue" icon="clock">{{ '{n} queued' | t: { n: s.queued } }}</mc-chip>
         }
         @if (s.remoteControl) {
-          <mc-chip tone="accent" icon="globe">Remote Control on</mc-chip>
+          <mc-chip tone="accent" icon="globe">{{ 'Remote Control on' | t }}</mc-chip>
         }
         @if (s.lastError) {
           <mc-chip tone="red" icon="alert">{{ s.lastError.kind }}</mc-chip>
@@ -318,7 +335,7 @@ interface Why {
               [disabled]="busy() === 'ultracode' || !ctx.canAct()"
               (click)="cancelUltracode()"
             >
-              <mc-icon name="x" [size]="14" /> Cancel the ultracode request
+              <mc-icon name="x" [size]="14" /> {{ 'Cancel the ultracode request' | t }}
             </button>
           </p>
         }
@@ -451,7 +468,7 @@ export class SessionChipsComponent {
   protected readonly effortWhy = computed(() => {
     const s = this.ctx.session();
     if (!s) return '';
-    return effortText(s) || (noEffortLevels(s) ? 'none, this model has no effort levels' : '');
+    return effortText(s) || (noEffortLevels(s) ? tr('none, this model has no effort levels') : '');
   });
   /** Ultracode can be switched here (and its state is known). */
   protected readonly ultracodeSwitch = computed(() => {
@@ -495,8 +512,11 @@ export class SessionChipsComponent {
   protected readonly thinkingLocked = computed(
     () => this.busy() === 'thinking' || !this.ctx.canAct(),
   );
-  protected readonly thinkingDefaultTitle =
-    "Thinking: Claude Code's default for this model, which it doesn't report. Choose on or off.";
+  protected readonly thinkingDefaultTitle = computed(() =>
+    tr(
+      "Thinking: Claude Code's default for this model, which it doesn't report. Choose on or off.",
+    ),
+  );
   /** The read-only thinking chip: the setting when known, else how much
    * thinking was used (nothing when neither). */
   protected readonly thinkingChipText = computed(() => {
@@ -509,7 +529,7 @@ export class SessionChipsComponent {
   });
   protected readonly fastTitle = computed(() => {
     const s = this.ctx.session();
-    return s ? `Fast mode: ${fastText(s)}` : '';
+    return s ? tr('Fast mode: {how}', { how: fastText(s) }) : '';
   });
   protected readonly models = computed(() => this.defaults.defaults()?.models ?? []);
   protected readonly efforts = computed(() => {
@@ -520,9 +540,9 @@ export class SessionChipsComponent {
     const a = this.ctx.session()?.agents;
     if (!a) return '';
     const parts = [];
-    if (a.running) parts.push(`${a.running} agent${a.running === 1 ? '' : 's'}`);
-    if (a.workflowsRunning) parts.push(`${a.workflowsRunning} workflow`);
-    if (a.backgroundRunning) parts.push(`${a.backgroundRunning} bg`);
+    if (a.running) parts.push(plural(a.running, 'agent'));
+    if (a.workflowsRunning) parts.push(tr('{n} workflow', { n: a.workflowsRunning }));
+    if (a.backgroundRunning) parts.push(tr('{n} bg', { n: a.backgroundRunning }));
     return parts.join(' · ');
   });
 
@@ -539,6 +559,20 @@ export class SessionChipsComponent {
     });
   }
 
+  /** The read-only ultracode chip: "Ultracode on", "off" or "unavailable". */
+  protected ultracodeChip(state: string | undefined): string {
+    switch (state) {
+      case 'on':
+        return tr('Ultracode on');
+      case 'off':
+        return tr('Ultracode off');
+      case 'unavailable':
+        return tr('Ultracode unavailable');
+      default:
+        return `Ultracode ${state ?? ''}`.trim();
+    }
+  }
+
   private openPicker(kind: PickerKind): void {
     const el = (
       kind === 'model' ? this.modelSel() : kind === 'effort' ? this.effortSel() : this.modeSel()
@@ -551,7 +585,13 @@ export class SessionChipsComponent {
     try {
       (el as HTMLSelectElement & { showPicker?: () => void }).showPicker?.();
     } catch {
-      this.notices.info(`Pick a ${kind === 'mode' ? 'permission mode' : kind} in the header.`);
+      this.notices.info(
+        kind === 'mode'
+          ? tr('Pick a permission mode in the header.')
+          : kind === 'effort'
+            ? tr('Pick an effort level in the header.')
+            : tr('Pick a model in the header.'),
+      );
     }
   }
 
@@ -561,27 +601,31 @@ export class SessionChipsComponent {
     const now = this.clock.now();
     if (kind === 'fast') {
       this.why.set({
-        title: 'Fast mode',
+        title: tr('Fast mode'),
         lines: [
           explainFast(s),
-          ...(s.costEstimated ? ['The cost shown for this session is an estimate.'] : []),
+          ...(s.costEstimated ? [tr('The cost shown for this session is an estimate.')] : []),
         ],
         limits: false,
       });
       return;
     }
-    const what = EXPLAIN_WHAT[kind];
+    const what = tr(EXPLAIN_WHAT[kind]);
     const lines =
       kind === 'ultracode'
         ? explainUltracode(s, now)
         : kind === 'thinking'
           ? explainThinking(s, now)
           : kind === 'effort' && s.effort
-            ? [`Effort: ${effortText(s)}.`]
+            ? [tr('Effort: {how}.', { how: effortText(s) })]
             : [];
     this.why.set({
       title:
-        kind === 'ultracode' ? 'Ultracode' : kind === 'thinking' ? 'Thinking' : `Change ${what}`,
+        kind === 'ultracode'
+          ? 'Ultracode'
+          : kind === 'thinking'
+            ? tr('Thinking')
+            : tr('Change {what}', { what }),
       lines: [...lines, whyNot(s, kind, what)].filter(Boolean),
       // The fixes, when there are any: an empty list would say "No limits:
       // everything works" under a setting that just said it can't change.
@@ -656,19 +700,26 @@ export class SessionChipsComponent {
 }
 
 /** Why a session setting can't be changed from here ('' when it can, or
- * when the explanation above already says why). */
+ * when the explanation above already says why). `what` is the setting's
+ * name, translated. */
 function whyNot(s: SessionSummary, kind: Exclude<ExplainKind, 'fast'>, what: string): string {
-  if (!s.live) return 'The session is not running.';
+  if (!s.live) return tr('The session is not running.');
   if (kind === 'ultracode' && !s.owned) {
     // Where it is switched instead (it applies to that session only).
-    const place = switchPlace(s.surface);
-    if (place === 'in the terminal') {
-      return 'Switch it in the terminal: /effort ultracode on (or off). It applies to that session only.';
+    if (s.surface === 'terminal' || s.surface === 'tmux') {
+      return tr(
+        'Switch it in the terminal: /effort ultracode on (or off). It applies to that session only.',
+      );
     }
-    if (place) return `Switch it ${place} itself; it applies to that session only.`;
+    const place = switchPlace(s.surface);
+    if (place) {
+      return tr('Switch it {place} itself; it applies to that session only.', {
+        place: tr(place),
+      });
+    }
   }
   if (s.control.channel === 'hooks') {
-    return `The ${what} of a VS Code or terminal session can only be changed there.`;
+    return tr('The {what} of a VS Code or terminal session can only be changed there.', { what });
   }
   if (kind === 'ultracode') {
     // "Unavailable" says why itself (and the sheet offers to withdraw it).
@@ -676,13 +727,16 @@ function whyNot(s: SessionSummary, kind: Exclude<ExplainKind, 'fast'>, what: str
     // A session that takes thinking switches takes ultracode ones too, as
     // far as the session goes: it is the model or workspace that can't.
     if (s.control.channel === 'owned' && capThinking(s.control)) {
-      return "This session's model or workspace can't run ultracode: it needs a model that supports it and workflows switched on. Once it can run, it can be switched here.";
+      return tr(
+        "This session's model or workspace can't run ultracode: it needs a model that supports it and workflows switched on. Once it can run, it can be switched here.",
+      );
     }
   }
   if (kind === 'thinking' && capThinking(s.control)) return '';
-  return `This session doesn't let Mother Claude change its ${what}.`;
+  return tr("This session doesn't let Mother Claude change its {what}.", { what });
 }
 
+/** The setting each sheet is about, in English (translated where used). */
 const EXPLAIN_WHAT: Record<Exclude<ExplainKind, 'fast'>, string> = {
   model: 'model',
   effort: 'effort',

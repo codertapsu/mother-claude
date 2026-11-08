@@ -1,6 +1,8 @@
 import { ChangeDetectionStrategy, Component, computed, input, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
 
+import { tr } from '../../core/i18n/i18n';
+import { TPipe } from '../../core/i18n/t.pipe';
 import { hunksToRows } from '../../shared/diff';
 import { DiffViewComponent } from '../../shared/diff-view.component';
 import { IconComponent } from '../../shared/icon.component';
@@ -17,7 +19,7 @@ import { ToolStep } from './transcript-rows';
 @Component({
   selector: 'mc-tool-step',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [RouterLink, DiffViewComponent, IconComponent, ToolPreviewComponent],
+  imports: [RouterLink, DiffViewComponent, IconComponent, ToolPreviewComponent, TPipe],
   template: `
     @let t = step().tool.tool;
     @let res = step().result?.result;
@@ -29,7 +31,7 @@ import { ToolStep } from './transcript-rows';
       (click)="open.set(!open())"
     >
       <mc-icon class="ticon" [name]="icon()" [size]="14" />
-      <span class="tname">{{ t?.name || 'Tool' }}</span>
+      <span class="tname">{{ t?.name || ('Tool' | t) }}</span>
       <span class="tsum">{{ t?.summary }}</span>
       <span class="state" [attr.aria-label]="stateLabel()">
         @switch (state()) {
@@ -58,14 +60,16 @@ import { ToolStep } from './transcript-rows';
         @if (res?.text) {
           <pre class="out" [class.err]="res?.isError">{{ res?.text }}</pre>
           @if (res?.truncated) {
-            <p class="muted small">Output shortened.</p>
+            <p class="muted small">{{ 'Output shortened.' | t }}</p>
           }
         } @else if (!step().result) {
-          <p class="muted small">{{ running() ? 'Still running…' : 'No result recorded.' }}</p>
+          <p class="muted small">
+            {{ running() ? ('Still running…' | t) : ('No result recorded.' | t) }}
+          </p>
         }
         @if (agentId(); as a) {
           <a class="btn small" [routerLink]="['/session', sessionId(), 'agent', a]">
-            <mc-icon name="agents" [size]="14" /> Open this agent's transcript
+            <mc-icon name="agents" [size]="14" /> {{ "Open this agent's transcript" | t }}
           </a>
         }
       </div>
@@ -184,13 +188,13 @@ export class ToolStepComponent {
   protected readonly stateLabel = computed(() => {
     switch (this.state()) {
       case 'running':
-        return 'running';
+        return tr('running');
       case 'error':
-        return 'failed';
+        return tr('failed');
       case 'done':
-        return 'done';
+        return tr('done');
       default:
-        return 'no result';
+        return tr('no result');
     }
   });
   protected readonly patchRows = computed(() =>

@@ -1,6 +1,8 @@
 import { Component, DestroyRef, computed, inject } from '@angular/core';
 import { ActivatedRoute, ParamMap, Router, RouterLink } from '@angular/router';
 
+import { tr } from '../../core/i18n/i18n';
+import { TPipe } from '../../core/i18n/t.pipe';
 import { ViewportService } from '../../core/viewport.service';
 import { IconComponent } from '../../shared/icon.component';
 import { LimitOfferComponent } from '../../shared/limit-offer.component';
@@ -58,6 +60,7 @@ const TABS: TabDef[] = [
     SessionChipsComponent,
     SessionHeaderComponent,
     TerminalSheetComponent,
+    TPipe,
     TranscriptComponent,
   ],
   templateUrl: './session-detail.component.html',
@@ -77,7 +80,7 @@ export class SessionDetailComponent {
   );
   protected readonly relayVia = computed(() => {
     const ch = this.ctx.caps()?.channel;
-    return ch === 'tmux' ? 'via tmux' : ch === 'hooks' ? 'via hook' : '';
+    return ch === 'tmux' ? tr('via tmux') : ch === 'hooks' ? tr('via hook') : '';
   });
   protected readonly agentLinks = computed(() => {
     const map = new Map<string, string>();

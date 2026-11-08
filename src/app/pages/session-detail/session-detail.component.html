@@ -4,7 +4,7 @@
   @if (ctx.session(); as s) {
     <mc-limit-offer class="sd-offer" [session]="s" />
     <mc-resume-note class="sd-note" [session]="s" />
-    <div class="sd-tabs" role="tablist" aria-label="Session views">
+    <div class="sd-tabs" role="tablist" [attr.aria-label]="'Session views' | t">
       @for (t of tabs; track t.id; let i = $index) {
         <button
           type="button"
@@ -17,12 +17,17 @@
           (click)="select(t.id)"
           (keydown)="onTabKey($event, i)"
         >
-          {{ t.label }}
+          {{ t.label | t }}
           @if (counts()[t.id]; as n) {
             <span class="tcount" [class.warn]="t.id === 'chat'"
               >{{ n
               }}<span class="visually-hidden">{{
-                t.id === 'chat' ? ' waiting' : t.id === 'agents' ? ' running' : ' files'
+                ' ' +
+                  (t.id === 'chat'
+                    ? ('waiting' | t)
+                    : t.id === 'agents'
+                      ? ('running' | t)
+                      : ('files' | t))
               }}</span></span
             >
           }
@@ -79,7 +84,7 @@
     }
   } @else if (ctx.loading()) {
     <div class="sd-scroll">
-      <div class="inner skeleton" aria-label="Loading the session">
+      <div class="inner skeleton" [attr.aria-label]="'Loading the session' | t">
         <span></span><span class="w"></span><span></span><span class="w"></span>
       </div>
     </div>
@@ -88,12 +93,18 @@
       <div class="inner">
         <div class="card empty-state">
           <strong>{{
-            ctx.loadError() && !ctx.notFound() ? "Can't load this session" : 'Session not found'
+            ctx.loadError() && !ctx.notFound()
+              ? ("Can't load this session" | t)
+              : ('Session not found' | t)
           }}</strong>
-          {{ ctx.loadError() || 'It may have ended and been cleaned up.' }}
+          {{ ctx.loadError() || ('It may have ended and been cleaned up.' | t) }}
           <div class="row center">
-            <a class="btn primary" routerLink="/"><mc-icon name="back" [size]="15" /> Sessions</a>
-            <button class="btn" type="button" (click)="ctx.refreshDetail()">Retry</button>
+            <a class="btn primary" routerLink="/"
+              ><mc-icon name="back" [size]="15" /> {{ 'Sessions' | t }}</a
+            >
+            <button class="btn" type="button" (click)="ctx.refreshDetail()">
+              {{ 'Retry' | t }}
+            </button>
           </div>
         </div>
       </div>

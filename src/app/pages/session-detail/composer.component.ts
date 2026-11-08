@@ -14,6 +14,8 @@ import {
 import { RouterLink } from '@angular/router';
 
 import { ApiService } from '../../core/api.service';
+import { tr } from '../../core/i18n/i18n';
+import { TPipe } from '../../core/i18n/t.pipe';
 import { CommandInfo, PendingRef } from '../../core/models';
 import { NoticeService } from '../../core/notice.service';
 import { PendingService } from '../../core/pending.service';
@@ -71,18 +73,29 @@ const PICKER_COMMANDS: Record<string, PickerKind> = {
   permissions: 'mode',
   rename: 'rename',
 };
-const CONFIRM_COMMANDS: Record<string, string> = {
-  clear:
-    'This starts a fresh conversation in this session; the current one is kept in its history.',
-  compact: 'Claude summarises the conversation so far to free up context.',
-};
-/** Always offered (they map onto the header pickers). */
-const BUILTIN: CommandInfo[] = [
-  { name: 'model', description: 'Switch the model' },
-  { name: 'effort', description: 'Change the effort level' },
-  { name: 'mode', description: 'Change the permission mode' },
-  { name: 'rename', description: 'Rename this session' },
-];
+/** Commands that ask first, and what they do (in the language shown). */
+function confirmText(name: string): string {
+  switch (name) {
+    case 'clear':
+      return tr(
+        'This starts a fresh conversation in this session; the current one is kept in its history.',
+      );
+    case 'compact':
+      return tr('Claude summarises the conversation so far to free up context.');
+    default:
+      return '';
+  }
+}
+/** Always offered (they map onto the header pickers), described in the
+ * language shown. */
+function builtinCommands(): CommandInfo[] {
+  return [
+    { name: 'model', description: tr('Switch the model') },
+    { name: 'effort', description: tr('Change the effort level') },
+    { name: 'mode', description: tr('Change the permission mode') },
+    { name: 'rename', description: tr('Rename this session') },
+  ];
+}
 
 /**
  * The message box, pinned to the bottom of the session page.
@@ -111,7 +124,7 @@ const BUILTIN: CommandInfo[] = [
 @Component({
   selector: 'mc-composer',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [RouterLink, CapLimitsComponent, IconComponent, SheetComponent],
+  imports: [RouterLink, CapLimitsComponent, IconComponent, SheetComponent, TPipe],
   templateUrl: './composer.component.html',
   styleUrl: './composer.component.scss',
 })
@@ -159,7 +172,7 @@ export class ComposerComponent {
     this.mode() === 'message' ? capAttach(this.caps()) : 'none',
   );
   protected readonly relay = computed(() => this.caps()?.message === 'relay');
-  protected readonly surfaceName = computed(() => surfaceLabel(this.session()?.surface));
+  protected readonly surfaceName = computed(() => tr(surfaceLabel(this.session()?.surface)));
   /** Desktop, a live foreign session nobody can reach, and the server's
    * limits don't already offer the plugin. */
   protected readonly installMissing = computed(() => {
@@ -195,27 +208,41 @@ export class ComposerComponent {
       this.mode() !== 'blocked',
   );
   protected readonly sendLabel = computed(() => {
-    if (!this.ctx.canAct()) return 'Reconnecting…';
-    if (this.mode() === 'resume') return 'Resume';
-    if (this.onePermission() && this.hasContent()) return 'Queue after this';
-    return 'Send';
+    if (!this.ctx.canAct()) return tr('Reconnecting…');
+    if (this.mode() === 'resume') return tr('Resume');
+    if (this.onePermission() && this.hasContent()) return tr('Queue after this');
+    return tr('Send');
   });
   /** A session Mother Claude runs: a message sent while it works is taken
    * into the running turn at its next step, and Send now hurries it. */
   protected readonly steers = computed(() => this.caps()?.channel === 'owned');
   protected readonly interruptLabel = computed(() =>
-    this.caps()?.interrupt === 'next-tool' ? 'Interrupt at next tool' : 'Interrupt',
+    this.caps()?.interrupt === 'next-tool' ? tr('Interrupt at next tool') : tr('Interrupt'),
   );
   protected readonly placeholder = computed(() =>
-    this.mode() === 'resume' ? 'Message to resume it here…' : 'Message Claude…',
+    this.mode() === 'resume' ? tr('Message to resume it here…') : tr('Message Claude…'),
   );
   protected readonly waitHint = computed(() => {
     const c = this.caps();
     if (!c || this.mode() !== 'message' || c.message !== 'relay') return '';
-    if (c.channel === 'tmux') return 'Typed into its tmux pane.';
+    if (c.channel === 'tmux') return tr('Typed into its tmux pane.');
     return capWake(c)
-      ? "Delivered at Claude's next stopping point."
-      : 'Waiting for the next step: delivered when Claude next stops or runs a tool.';
+      ? tr("Delivered at Claude's next stopping point.")
+      : tr('Waiting for the next step: delivered when Claude next stops or runs a tool.');
+  });
+  /** How to type here, under the box: with a keyboard the keys too; on a
+   * touch screen the shortcuts only, where there are commands. */
+  protected readonly keysHint = computed(() => {
+    const slash = !!this.caps()?.slashCommands;
+    if (this.coarse()) {
+      return slash ? [tr('/ for commands'), tr('@ for files')].join(' · ') : '';
+    }
+    return [
+      tr('Enter to send'),
+      tr('Shift+Enter for a new line'),
+      ...(slash ? [tr('/ for commands')] : []),
+      tr('@ for files'),
+    ].join(' · ');
   });
   protected readonly activeId = computed(() => (this.palette() ? `mc-pal-${this.active()}` : null));
 
@@ -341,7 +368,7 @@ export class ComposerComponent {
     const el = this.ta()?.nativeElement;
     if (seq !== this.slashSeq || !el || !SLASH_QUERY.test(this.beforeCaret(el))) return;
     const seen = new Set<string>();
-    const all = [...BUILTIN, ...server].filter((c) => {
+    const all = [...builtinCommands(), ...server].filter((c) => {
       const name = c.name.replace(/^\//, '');
       if (seen.has(name)) return false;
       seen.add(name);
@@ -436,9 +463,10 @@ export class ComposerComponent {
       this.ctx.openPicker.set(picker);
       return;
     }
-    if (CONFIRM_COMMANDS[name]) {
+    const ask = confirmText(name);
+    if (ask) {
       this.setText('');
-      this.confirm.set({ name, text: CONFIRM_COMMANDS[name] });
+      this.confirm.set({ name, text: ask });
       return;
     }
     this.setText(`/${name} `);
@@ -450,7 +478,7 @@ export class ComposerComponent {
     this.confirm.set(null);
     if (!c) return;
     const res = await this.ctx.send(`/${c.name}`);
-    if (res) this.notices.success(`/${c.name} sent.`);
+    if (res) this.notices.success(tr('/{name} sent.', { name: c.name }));
   }
 
   // ─────────────────────────────────────────────────────── Attachments
@@ -474,7 +502,7 @@ export class ComposerComponent {
 
   private async addImage(file: File): Promise<void> {
     if (this.attachments().length >= MAX_IMAGES) {
-      this.notices.warn(`At most ${MAX_IMAGES} images per message.`);
+      this.notices.warn(tr('At most {n} images per message.', { n: MAX_IMAGES }));
       return;
     }
     this.uploading.update((n) => n + 1);
@@ -494,7 +522,7 @@ export class ComposerComponent {
 
   private async upload(file: File): Promise<void> {
     if (file.size > 50 * 1024 * 1024) {
-      this.notices.warn(`${file.name} is over 50 MB.`);
+      this.notices.warn(tr('{name} is over 50 MB.', { name: file.name }));
       return;
     }
     this.uploading.update((n) => n + 1);
@@ -505,12 +533,12 @@ export class ComposerComponent {
         mediaType: file.type || 'application/octet-stream',
         data,
       });
-      if (!res?.path) throw new Error('The server did not say where it stored the file.');
+      if (!res?.path) throw new Error(tr('The server did not say where it stored the file.'));
       const cur = this.text();
       const sep = cur && !/\s$/.test(cur) ? ' ' : '';
       this.setText(`${cur}${sep}@${res.path} `);
     } catch (err) {
-      this.notices.error(err, undefined, `Could not attach ${file.name}`);
+      this.notices.error(err, undefined, tr('Could not attach {name}', { name: file.name }));
     } finally {
       this.uploading.update((n) => n - 1);
     }
@@ -551,13 +579,15 @@ export class ComposerComponent {
         const p = this.onePermission();
         if (!p) return;
         const res = await this.pendings
-          .respond(p, { decision: 'deny', message: text }, 'Denied with your note')
+          .respond(p, { decision: 'deny', message: text }, tr('Denied with your note'))
           .catch((err: unknown) => {
-            this.notices.error(err, undefined, 'Not sent');
+            this.notices.error(err, undefined, tr('Not sent'));
             return undefined;
           });
         if (res) {
-          this.notices.success(res.alreadyDecided ? res.text : 'Denied, with your note to Claude.');
+          this.notices.success(
+            res.alreadyDecided ? res.text : tr('Denied, with your note to Claude.'),
+          );
           if (!res.alreadyDecided) this.cleared(sent);
         } else if (res === undefined) this.failed.set(true);
         return;
@@ -574,8 +604,8 @@ export class ComposerComponent {
       } else if (res.delivery === 'queued') {
         this.notices.info(
           this.steers()
-            ? 'Sent: Claude reads it after its current step.'
-            : 'Queued: Claude reads it when the current step ends.',
+            ? tr('Sent: Claude reads it after its current step.')
+            : tr('Queued: Claude reads it when the current step ends.'),
         );
       } else if (res.delivery === 'relayed') {
         if (this.waitHint()) this.notices.info(this.waitHint());
@@ -583,7 +613,7 @@ export class ComposerComponent {
           this.explainer.set(true);
         }
       } else {
-        this.notices.announce('Message sent.');
+        this.notices.announce(tr('Message sent.'));
       }
     } finally {
       this.sending.set(false);

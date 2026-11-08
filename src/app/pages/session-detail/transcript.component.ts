@@ -12,6 +12,7 @@ import {
   untracked,
 } from '@angular/core';
 
+import { TPipe } from '../../core/i18n/t.pipe';
 import { StreamBubble } from '../../core/live-stream';
 import { TranscriptStore } from '../../core/transcript-store';
 import { IconComponent } from '../../shared/icon.component';
@@ -36,7 +37,7 @@ const STICK_PX = 80;
 @Component({
   selector: 'mc-transcript',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [IconComponent, StreamBubbleComponent, TimeAgoComponent, TranscriptRowComponent],
+  imports: [IconComponent, StreamBubbleComponent, TimeAgoComponent, TranscriptRowComponent, TPipe],
   template: `
     @if (store(); as t) {
       @if (t.hasEarlier()) {
@@ -46,11 +47,11 @@ const STICK_PX = 80;
           [disabled]="t.loadingEarlier()"
           (click)="loadEarlier()"
         >
-          {{ t.loadingEarlier() ? 'Loading…' : 'Load earlier' }}
+          {{ t.loadingEarlier() ? ('Loading…' | t) : ('Load earlier' | t) }}
         </button>
       }
       @if (t.loading()) {
-        <div class="skeleton" aria-label="Loading the conversation">
+        <div class="skeleton" [attr.aria-label]="'Loading the conversation' | t">
           <span class="r"></span><span></span><span class="s"></span><span></span>
         </div>
       } @else if (!rows().length && !bubbles().length) {
@@ -58,17 +59,19 @@ const STICK_PX = 80;
           <div class="card starting" role="status">
             <span class="spin" aria-hidden="true"></span>
             <div>
-              <strong>Starting Claude…</strong>
+              <strong>{{ 'Starting Claude…' | t }}</strong>
               <span class="muted small">
                 <mc-time [ms]="startingSince()" mode="elapsed" />
               </span>
             </div>
             @if (canCancel()) {
-              <button class="btn small" type="button" (click)="cancelStart.emit()">Cancel</button>
+              <button class="btn small" type="button" (click)="cancelStart.emit()">
+                {{ 'Cancel' | t }}
+              </button>
             }
           </div>
         } @else {
-          <p class="empty muted">No messages yet.</p>
+          <p class="empty muted">{{ 'No messages yet.' | t }}</p>
         }
       }
       <div class="rows">
@@ -89,13 +92,15 @@ const STICK_PX = 80;
       @if (t.error()) {
         <p class="error-text small" role="alert">
           {{ t.error() }}
-          <button class="btn ghost small" type="button" (click)="t.refresh()">Retry</button>
+          <button class="btn ghost small" type="button" (click)="t.refresh()">
+            {{ 'Retry' | t }}
+          </button>
         </p>
       }
     }
     @if (newCount()) {
       <button class="newpill" type="button" (click)="jump()">
-        {{ newCount() }} new <mc-icon name="arrowDown" [size]="14" />
+        {{ '{n} new' | t: { n: newCount() } }} <mc-icon name="arrowDown" [size]="14" />
       </button>
     }
   `,

@@ -8,6 +8,7 @@ import {
   untracked,
 } from '@angular/core';
 
+import { TPipe } from '../../core/i18n/t.pipe';
 import { PendingRef } from '../../core/models';
 import { ViewportService } from '../../core/viewport.service';
 import { IconComponent } from '../../shared/icon.component';
@@ -27,35 +28,35 @@ import { SessionContext } from './session-context';
 @Component({
   selector: 'mc-pending-dock',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [IconComponent, PendingCardComponent],
+  imports: [IconComponent, PendingCardComponent, TPipe],
   template: `
     @if (list().length) {
       @if (collapsed()) {
         <button class="needs" type="button" (click)="expand()">
           <mc-icon name="hand" [size]="16" />
-          <span>Claude needs you</span>
+          <span>{{ 'Claude needs you' | t }}</span>
           <span class="spacer"></span>
-          <span class="review"
-            >Review{{ list().length > 1 ? ' (' + list().length + ')' : '' }}</span
-          >
+          <span class="review">{{
+            list().length > 1 ? ('Review ({n})' | t: { n: list().length }) : ('Review' | t)
+          }}</span>
         </button>
       } @else {
         @if (list().length > 1) {
-          <div class="pager" role="group" aria-label="Pending requests">
+          <div class="pager" role="group" [attr.aria-label]="'Pending requests' | t">
             <button
               class="btn ghost small icon-only"
               type="button"
-              aria-label="Previous request"
+              [attr.aria-label]="'Previous request' | t"
               [disabled]="index() === 0"
               (click)="step(-1)"
             >
               <mc-icon name="back" [size]="16" />
             </button>
-            <span class="count">{{ index() + 1 }} of {{ list().length }}</span>
+            <span class="count">{{ '{i} of {n}' | t: { i: index() + 1, n: list().length } }}</span>
             <button
               class="btn ghost small icon-only"
               type="button"
-              aria-label="Next request"
+              [attr.aria-label]="'Next request' | t"
               [disabled]="index() >= list().length - 1"
               (click)="step(1)"
             >

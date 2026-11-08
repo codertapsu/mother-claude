@@ -17,6 +17,8 @@ import {
   normalizeSessionFiles,
   revealLabel,
 } from '../../core/delete-data';
+import { computerNoun, tr } from '../../core/i18n/i18n';
+import { TPipe } from '../../core/i18n/t.pipe';
 import { KeyName, LaunchOverrides, McpServerStatus } from '../../core/models';
 import { anyTarget } from '../../core/move-data';
 import { NowService } from '../../core/now.service';
@@ -90,53 +92,54 @@ const KEYS: { key: KeyName; label: string; aria: string }[] = [
     PlanUsageComponent,
     StatusPillComponent,
     TimeAgoComponent,
+    TPipe,
   ],
   template: `
     @if (ctx.session(); as s) {
       <section class="card">
-        <h2 class="first">Session</h2>
+        <h2 class="first">{{ 'Session' | t }}</h2>
         <dl class="kv">
-          <dt>Name</dt>
+          <dt>{{ 'Name' | t }}</dt>
           <dd>
             {{ s.title || s.name || '—' }}
             <button class="btn ghost small" type="button" (click)="ctx.openPicker.set('rename')">
-              <mc-icon name="edit" [size]="13" /> Rename
+              <mc-icon name="edit" [size]="13" /> {{ 'Rename' | t }}
             </button>
             @if (renameMode() === 'alias') {
-              <span class="muted small">(only in Mother Claude)</span>
+              <span class="muted small">{{ '(only in Mother Claude)' | t }}</span>
             }
           </dd>
-          <dt>Status</dt>
+          <dt>{{ 'Status' | t }}</dt>
           <dd>
             <mc-status-pill [status]="s.status" [live]="s.live" [activity]="s.activity" />
             @if (s.waitingFor) {
               <span class="muted small"> · {{ s.waitingFor }}</span>
             }
           </dd>
-          <dt>Session id</dt>
-          <dd class="mono">{{ s.id }} <mc-copy-button [text]="s.id" label="Copy" /></dd>
-          <dt>Project</dt>
+          <dt>{{ 'Session id' | t }}</dt>
+          <dd class="mono">{{ s.id }} <mc-copy-button [text]="s.id" [label]="'Copy' | t" /></dd>
+          <dt>{{ 'Project' | t }}</dt>
           <dd>{{ s.projectName }}</dd>
-          <dt>Folder</dt>
+          <dt>{{ 'Folder' | t }}</dt>
           @if (moveOffered()) {
             <dd>
               <span class="mono">{{ short(s.cwd) }}</span>
               <button class="btn ghost small" type="button" (click)="ctx.moveCopy.set('project')">
-                <mc-icon name="move" [size]="13" /> Move or copy…
+                <mc-icon name="move" [size]="13" /> {{ 'Move or copy…' | t }}
               </button>
             </dd>
           } @else {
             <dd class="mono">{{ short(s.cwd) }}</dd>
           }
           @if (files(); as f) {
-            <dt>Transcript</dt>
+            <dt>{{ 'Transcript' | t }}</dt>
             <dd class="path-dd">
               <span class="mono break" [title]="f.transcript">{{ short(f.transcript) }}</span>
               <span class="path-acts">
                 <mc-copy-button
                   [text]="f.transcript"
-                  label="Copy path"
-                  ariaLabel="Copy the transcript's path"
+                  [label]="'Copy path' | t"
+                  [ariaLabel]="copyTranscriptLabel()"
                 />
                 @if (ctx.isDesktop()) {
                   <button
@@ -145,7 +148,7 @@ const KEYS: { key: KeyName; label: string; aria: string }[] = [
                     [disabled]="revealing()"
                     (click)="reveal()"
                   >
-                    <mc-icon name="folder" [size]="14" /> {{ revealText }}
+                    <mc-icon name="folder" [size]="14" /> {{ revealText() }}
                   </button>
                 }
               </span>
@@ -154,22 +157,22 @@ const KEYS: { key: KeyName; label: string; aria: string }[] = [
               }
             </dd>
             @if (f.folder) {
-              <dt>Session folder</dt>
+              <dt>{{ 'Session folder' | t }}</dt>
               <dd class="path-dd">
                 <span class="mono break" [title]="f.folder">{{ short(f.folder) }}</span>
                 <span class="path-acts">
                   <mc-copy-button
                     [text]="f.folder"
-                    label="Copy path"
-                    ariaLabel="Copy the session folder's path"
+                    [label]="'Copy path' | t"
+                    [ariaLabel]="copyFolderLabel()"
                   />
                 </span>
               </dd>
             }
           }
-          <dt>Runs in</dt>
+          <dt>{{ 'Runs in' | t }}</dt>
           <dd>
-            {{ surface(s.surface) }}
+            {{ surface(s.surface) | t }}
             <mc-channel-badge
               [surface]="s.surface"
               [control]="s.control"
@@ -178,32 +181,34 @@ const KEYS: { key: KeyName; label: string; aria: string }[] = [
             />
           </dd>
           @if (s.kind) {
-            <dt>Kind</dt>
+            <dt>{{ 'Kind' | t }}</dt>
             <dd>{{ s.kind }}</dd>
           }
           @if (s.entrypoint) {
-            <dt>Entry point</dt>
+            <dt>{{ 'Entry point' | t }}</dt>
             <dd class="mono">{{ s.entrypoint }}</dd>
           }
           @if (s.account; as a) {
-            <dt>Claude account</dt>
+            <dt>{{ 'Claude account' | t }}</dt>
             <dd>
               <mc-account-chip [account]="a" />
-              <span class="muted small">{{ kindLabel(a) }}</span>
+              <span class="muted small">{{ kindLabel(a) | t }}</span>
             </dd>
           }
-          <dt>Owned</dt>
-          <dd>{{ s.owned ? 'Yes: started or taken over by Mother Claude' : 'No' }}</dd>
+          <dt>{{ 'Owned' | t }}</dt>
+          <dd>
+            {{ s.owned ? ('Yes: started or taken over by Mother Claude' | t) : ('No' | t) }}
+          </dd>
           @if (s.pid) {
-            <dt>Process</dt>
-            <dd class="mono">pid {{ s.pid }}{{ s.live ? '' : ' (exited)' }}</dd>
+            <dt>{{ 'Process' | t }}</dt>
+            <dd class="mono">pid {{ s.pid }}{{ s.live ? '' : ' ' + ('(exited)' | t) }}</dd>
           }
           @if (s.jobId) {
-            <dt>Background job</dt>
+            <dt>{{ 'Background job' | t }}</dt>
             <dd class="mono">{{ s.jobId }}</dd>
           }
           @if (s.tmuxPane) {
-            <dt>tmux pane</dt>
+            <dt>{{ 'tmux pane' | t }}</dt>
             <dd class="mono">{{ s.tmuxPane }}</dd>
           }
           @if (s.version) {
@@ -211,15 +216,15 @@ const KEYS: { key: KeyName; label: string; aria: string }[] = [
             <dd>{{ s.version }}</dd>
           }
           @if (s.cliName && s.cliName !== s.name) {
-            <dt>CLI name</dt>
+            <dt>{{ 'CLI name' | t }}</dt>
             <dd class="mono">{{ s.cliName }}</dd>
           }
           @if (s.gitBranch) {
-            <dt>Branch</dt>
+            <dt>{{ 'Branch' | t }}</dt>
             <dd class="mono">{{ s.gitBranch }}</dd>
           }
           @if (s.prLink) {
-            <dt>Pull request</dt>
+            <dt>{{ 'Pull request' | t }}</dt>
             <dd>
               <a [href]="s.prLink.url" target="_blank" rel="noopener noreferrer"
                 >{{ s.prLink.repo ? s.prLink.repo + ' ' : '' }}#{{ s.prLink.number }}</a
@@ -228,55 +233,55 @@ const KEYS: { key: KeyName; label: string; aria: string }[] = [
           }
           @if (s.remoteControl) {
             <dt>Remote Control</dt>
-            <dd>On (also reachable from the Claude app)</dd>
+            <dd>{{ 'On (also reachable from the Claude app)' | t }}</dd>
           }
-          <dt>Started</dt>
+          <dt>{{ 'Started' | t }}</dt>
           <dd><mc-time [ms]="s.startedAt" />{{ s.startedAt ? '' : '—' }}</dd>
-          <dt>Last activity</dt>
+          <dt>{{ 'Last activity' | t }}</dt>
           <dd><mc-time [ms]="s.lastActivityAt" />{{ s.lastActivityAt ? '' : '—' }}</dd>
-          <dt>Messages</dt>
+          <dt>{{ 'Messages' | t }}</dt>
           <dd>{{ s.messageCount }}</dd>
           @if (s.lastError; as err) {
-            <dt>Last error</dt>
+            <dt>{{ 'Last error' | t }}</dt>
             <dd class="error-text">{{ err.kind }}: {{ err.text }} · <mc-time [ms]="err.at" /></dd>
           }
         </dl>
       </section>
 
       <section class="card">
-        <h2 class="first">Model and usage</h2>
+        <h2 class="first">{{ 'Model and usage' | t }}</h2>
         <dl class="kv">
-          <dt>Model</dt>
+          <dt>{{ 'Model' | t }}</dt>
           <dd>
             {{ s.model?.label || '—' }} <span class="mono muted small">{{ s.model?.id }}</span>
           </dd>
-          <dt>Permission mode</dt>
-          <dd>{{ mode(s.permissionMode) }}</dd>
-          <dt>Effort</dt>
+          <dt>{{ 'Permission mode' | t }}</dt>
+          <dd>{{ mode(s.permissionMode) | t }}</dd>
+          <dt>{{ 'Effort' | t }}</dt>
           <dd class="how-dd">
             @if (s.effort) {
-              {{ effort(s.effort) }}
+              {{ effort(s.effort) | t }}
               @if (effortHow()) {
                 <span class="muted small"><span class="dot">· </span>{{ effortHow() }}</span>
               }
             } @else if (s.effortSource === 'applied') {
-              None
+              {{ 'None' | t }}
               <span class="muted small"
-                ><span class="dot">· </span>this model has no effort levels</span
+                ><span class="dot">· </span>{{ 'this model has no effort levels' | t }}</span
               >
             } @else {
-              <span class="muted">Not reported</span>
+              <span class="muted">{{ 'Not reported' | t }}</span>
             }
           </dd>
           <dt>Ultracode</dt>
           <dd class="how-dd">
             @if (s.ultracode) {
-              {{ ultracodeLabel(s.ultracode) }}
+              {{ ultracodeLabel(s.ultracode) | t }}
               @if (ultracodeHow()) {
                 <span class="muted small"><span class="dot">· </span>{{ ultracodeHow() }}</span>
               }
             } @else {
-              <span class="muted">{{ s.live ? 'Unknown' : 'Not recorded' }}</span>
+              <span class="muted">{{ s.live ? ('Unknown' | t) : ('Not recorded' | t) }}</span>
               @if (ultracodeUnknownHow()) {
                 <span class="muted small"
                   ><span class="dot">· </span>{{ ultracodeUnknownHow() }}</span
@@ -284,55 +289,58 @@ const KEYS: { key: KeyName; label: string; aria: string }[] = [
               }
             }
           </dd>
-          <dt>Thinking</dt>
+          <dt>{{ 'Thinking' | t }}</dt>
           <dd class="stack-dd">
             <span>
               @if (s.thinking) {
                 {{ thinkingSetting() }}
               } @else if (thinkingSwitchable()) {
-                Claude Code's default <span class="muted">(not reported)</span>
+                {{ "Claude Code's default" | t }}
+                <span class="muted">{{ '(not reported)' | t }}</span>
               } @else {
-                <span class="muted">Not reported</span>
+                <span class="muted">{{ 'Not reported' | t }}</span>
               }
             </span>
             <span class="muted small">{{ thinkingUsed() }}</span>
           </dd>
-          <dt>Fast mode</dt>
+          <dt>{{ 'Fast mode' | t }}</dt>
           <dd class="how-dd">
             @if (s.fast) {
-              On
+              {{ 'On' | t }}
               <span class="muted small"><span class="dot">· </span>{{ fastHow() }}</span>
             } @else {
-              <span class="muted">Not seen</span>
+              <span class="muted">{{ 'Not seen' | t }}</span>
             }
           </dd>
-          <dt>Cost</dt>
+          <dt>{{ 'Cost' | t }}</dt>
           <dd>
             <mc-cost [usd]="s.costUsd" [final]="!!s.costFinal" />
             <span class="muted small">{{
-              s.costFinal
-                ? ' (reported by Claude)'
-                : s.costEstimated
-                  ? ' (estimated: some requests ran in another speed tier or had no known price)'
-                  : ' (estimated)'
+              ' ' +
+                (s.costFinal
+                  ? ('(reported by Claude)' | t)
+                  : s.costEstimated
+                    ? ('(estimated: some requests ran in another speed tier or had no known price)'
+                      | t)
+                    : ('(estimated)' | t))
             }}</span>
           </dd>
-          <dt>Input</dt>
-          <dd>{{ tokens(s.usage.input) }} tokens</dd>
-          <dt>Output</dt>
-          <dd>{{ tokens(s.usage.output) }} tokens</dd>
-          <dt>Cache reads</dt>
-          <dd>{{ tokens(s.usage.cacheRead) }} tokens</dd>
-          <dt>Cache writes</dt>
-          <dd>{{ tokens(s.usage.cacheWrite) }} tokens</dd>
+          <dt>{{ 'Input' | t }}</dt>
+          <dd>{{ '{n} tokens' | t: { n: tokens(s.usage.input) } }}</dd>
+          <dt>{{ 'Output' | t }}</dt>
+          <dd>{{ '{n} tokens' | t: { n: tokens(s.usage.output) } }}</dd>
+          <dt>{{ 'Cache reads' | t }}</dt>
+          <dd>{{ '{n} tokens' | t: { n: tokens(s.usage.cacheRead) } }}</dd>
+          <dt>{{ 'Cache writes' | t }}</dt>
+          <dd>{{ '{n} tokens' | t: { n: tokens(s.usage.cacheWrite) } }}</dd>
           @if (s.usagePartial) {
-            <dt>Totals</dt>
+            <dt>{{ 'Totals' | t }}</dt>
             <dd class="muted small">
-              Still counting: older parts of the transcript are being read.
+              {{ 'Still counting: older parts of the transcript are being read.' | t }}
             </dd>
           }
           @if (s.context; as c) {
-            <dt>Context</dt>
+            <dt>{{ 'Context' | t }}</dt>
             <dd><mc-context-meter class="wide" [context]="c" [compact]="false" /></dd>
           }
         </dl>
@@ -340,12 +348,14 @@ const KEYS: { key: KeyName; label: string; aria: string }[] = [
 
       @if (plan.availableOf(planAccount())) {
         <section class="card">
-          <h2 class="first">Plan usage</h2>
+          <h2 class="first">{{ 'Plan usage' | t }}</h2>
           <p class="muted small plan-lede">
             @if (s.account; as a) {
-              The plan of {{ a.name }}: every session on this account shares it.
+              {{
+                'The plan of {name}: every session on this account shares it.' | t: { name: a.name }
+              }}
             } @else {
-              Your Claude plan: every session on this account shares it.
+              {{ 'Your Claude plan: every session on this account shares it.' | t }}
             }
           </p>
           <mc-plan-usage [account]="planAccount()" />
@@ -353,30 +363,32 @@ const KEYS: { key: KeyName; label: string; aria: string }[] = [
       }
 
       <section class="card">
-        <h2 class="first">From here you can</h2>
+        <h2 class="first">{{ 'From here you can' | t }}</h2>
         <p class="muted small">{{ channel(s.control.channel) }}.</p>
         <mc-cap-limits [session]="s" />
       </section>
 
       <section class="card">
-        <h2 class="first">Actions</h2>
+        <h2 class="first">{{ 'Actions' | t }}</h2>
         <div class="actions">
           @if (terminal()) {
             <button class="btn" type="button" (click)="ctx.terminalOpen.set(true)">
-              <mc-icon name="terminal" [size]="15" /> Terminal view
+              <mc-icon name="terminal" [size]="15" /> {{ 'Terminal view' | t }}
             </button>
           }
           @if (vscodeUrl(); as url) {
-            <a class="btn" [href]="url"><mc-icon name="external" [size]="15" /> Open in VS Code</a>
+            <a class="btn" [href]="url"
+              ><mc-icon name="external" [size]="15" /> {{ 'Open in VS Code' | t }}</a
+            >
           }
           @if (s.control.lifecycle.stop) {
             <button class="btn" type="button" (click)="ctx.lifecycle('stop')">
-              <mc-icon name="stop" [size]="14" /> Stop
+              <mc-icon name="stop" [size]="14" /> {{ 'Stop' | t }}
             </button>
           }
           @if (s.control.lifecycle.respawn) {
             <button class="btn" type="button" (click)="ctx.lifecycle('respawn')">
-              <mc-icon name="refresh" [size]="14" /> Respawn
+              <mc-icon name="refresh" [size]="14" /> {{ 'Respawn' | t }}
             </button>
           }
           @if (s.control.lifecycle.rm) {
@@ -387,23 +399,26 @@ const KEYS: { key: KeyName; label: string; aria: string }[] = [
               (click)="remove()"
             >
               <mc-icon name="trash" [size]="14" />
-              {{ confirmRm() ? 'Tap again to remove' : 'Remove' }}
+              {{ confirmRm() ? ('Tap again to remove' | t) : ('Remove' | t) }}
             </button>
           }
         </div>
         @if (s.control.lifecycle.rm && !ctx.canDangerous()) {
           <p class="muted small">
-            Removing needs the Mac, or a device allowed to take dangerous actions.
+            {{
+              'Removing needs the {computer}, or a device allowed to take dangerous actions.'
+                | t: { computer: computer() }
+            }}
           </p>
         }
         @if (keys() && s.live) {
-          <h3>Send a key</h3>
-          <div class="keys" role="group" aria-label="Send a key to the terminal">
+          <h3>{{ 'Send a key' | t }}</h3>
+          <div class="keys" role="group" [attr.aria-label]="'Send a key to the terminal' | t">
             @for (k of keyList; track k.key) {
               <button
                 class="btn small"
                 type="button"
-                [attr.aria-label]="'Send ' + k.aria"
+                [attr.aria-label]="'Send {key}' | t: { key: (k.aria | t) }"
                 [disabled]="!ctx.canAct()"
                 (click)="ctx.sendKey(k.key)"
               >
@@ -412,42 +427,43 @@ const KEYS: { key: KeyName; label: string; aria: string }[] = [
             }
           </div>
           <p class="muted small">
-            For a dialog open in the terminal; the terminal view shows the result.
+            {{ 'For a dialog open in the terminal; the terminal view shows the result.' | t }}
           </p>
         }
 
-        <h3>Resume elsewhere</h3>
+        <h3>{{ 'Resume elsewhere' | t }}</h3>
         <div class="copyrow">
           <code class="grow">claude --resume {{ s.id }}</code>
-          <mc-copy-button [text]="'claude --resume ' + s.id" label="Copy" />
+          <mc-copy-button [text]="'claude --resume ' + s.id" [label]="'Copy' | t" />
         </div>
         <div class="copyrow">
           <code class="grow">cd {{ s.cwd }}</code>
-          <mc-copy-button [text]="'cd ' + quote(s.cwd)" label="Copy" />
+          <mc-copy-button [text]="'cd ' + quote(s.cwd)" [label]="'Copy' | t" />
         </div>
 
         @if (!s.owned && (s.control.fork || s.control.continueOwned)) {
-          <h3>{{ s.live ? 'Continue here (fork)' : 'Continue here' }}</h3>
+          <h3>{{ s.live ? ('Continue here (fork)' | t) : ('Continue here' | t) }}</h3>
           <p class="muted small">
             {{
               s.live
-                ? 'It keeps running where it is; you drive a copy from here, with full control.'
-                : 'Resume this conversation as a session Mother Claude controls fully.'
+                ? ('It keeps running where it is; you drive a copy from here, with full control.'
+                  | t)
+                : ('Resume this conversation as a session Mother Claude controls fully.' | t)
             }}
           </p>
           <details class="copts">
-            <summary>Launch options (model · effort · mode)</summary>
+            <summary>{{ 'Launch options (model · effort · mode)' | t }}</summary>
             <mc-launch-options (changed)="overrides = $event" />
           </details>
           <button class="btn primary" type="button" (click)="ctx.continueHere(overrides)">
-            {{ s.live ? 'Continue here (fork)' : 'Continue here' }}
+            {{ s.live ? ('Continue here (fork)' | t) : ('Continue here' | t) }}
           </button>
         }
       </section>
 
       @if (s.owned) {
         <section class="card">
-          <h2 class="first">MCP servers</h2>
+          <h2 class="first">{{ 'MCP servers' | t }}</h2>
           @if (mcpError()) {
             <p class="muted small">{{ mcpError() }}</p>
           } @else if (mcp(); as list) {
@@ -456,14 +472,14 @@ const KEYS: { key: KeyName; label: string; aria: string }[] = [
                 <li>
                   <mc-icon name="plug" [size]="14" />
                   <span class="grow">{{ m.name }}</span>
-                  <span class="mstatus" [attr.data-status]="m.status">{{ m.status }}</span>
+                  <span class="mstatus" [attr.data-status]="m.status">{{ m.status | t }}</span>
                 </li>
               } @empty {
-                <li class="muted">No MCP servers.</li>
+                <li class="muted">{{ 'No MCP servers.' | t }}</li>
               }
             </ul>
           } @else {
-            <p class="muted small">Loading…</p>
+            <p class="muted small">{{ 'Loading…' | t }}</p>
           }
         </section>
       }
@@ -609,8 +625,14 @@ export class InfoPanelComponent {
   );
   /** Where its files are on the Mac (docs/ACCOUNTS.md §14.1). */
   protected readonly files = computed(() => normalizeSessionFiles(this.ctx.detail()?.files));
-  /** "Show in Finder", "Show in File Explorer", "Show in folder". */
-  protected readonly revealText = revealLabel(desktopOs(navigator.userAgent));
+  /** "Show in Finder", "Show in File Explorer", "Show in folder" (the
+   * desktop's own window: its user agent names its system). */
+  protected readonly revealText = computed(() => tr(revealLabel(desktopOs(navigator.userAgent))));
+  /** The desktop's computer, in sentences. */
+  protected readonly computer = computerNoun;
+  /** What the path copy buttons say to a screen reader. */
+  protected readonly copyTranscriptLabel = computed(() => tr("Copy the transcript's path"));
+  protected readonly copyFolderLabel = computed(() => tr("Copy the session folder's path"));
   protected readonly revealing = signal(false);
   protected readonly revealError = signal('');
   /** The folder can be moved or copied (the header hosts the sheet). */
@@ -633,7 +655,9 @@ export class InfoPanelComponent {
       : '';
   });
 
-  protected readonly effortHow = computed(() => effortSourceText(this.ctx.session()?.effortSource));
+  protected readonly effortHow = computed(() =>
+    tr(effortSourceText(this.ctx.session()?.effortSource)),
+  );
 
   /** Desktop: the transcript, selected in the file manager. */
   protected async reveal(): Promise<void> {
@@ -653,7 +677,9 @@ export class InfoPanelComponent {
     const s = this.ctx.session();
     if (!s) return '';
     if (s.ultracode === 'unavailable') {
-      return "requested, but this model or workspace can't run it; it comes back on once it can";
+      return tr(
+        "requested, but this model or workspace can't run it; it comes back on once it can",
+      );
     }
     return ultracodeWhen(s, this.clock.now());
   });
@@ -666,8 +692,8 @@ export class InfoPanelComponent {
     const s = this.ctx.session();
     if (!s) return '';
     // "Off (at launch)" when the session has thought since is stale.
-    const since = thinkingOffContradicted(s) ? ', but used since' : '';
-    return `${thinkingSettingText(s)}${since}`;
+    const setting = thinkingSettingText(s);
+    return thinkingOffContradicted(s) ? tr('{setting}, but used since', { setting }) : setting;
   });
   /** An owned session whose thinking nobody set yet: its header offers on
    * or off. */
@@ -690,10 +716,8 @@ export class InfoPanelComponent {
   protected readonly effort = effortLabel;
   protected readonly ultracodeLabel = ultracodeLabel;
   protected readonly tokens = formatTokens;
-  protected readonly channel = (c: string) => {
-    const label = channelLabel(c);
-    return label === 'Full control' ? 'Full control: everything works from here' : label;
-  };
+  protected readonly channel = (c: string) =>
+    c === 'owned' ? tr('Full control: everything works from here') : tr(channelLabel(c));
 
   constructor() {
     effect(() => {
@@ -726,7 +750,7 @@ export class InfoPanelComponent {
       const res = await this.api.getMcp(id);
       this.mcp.set(res.servers ?? []);
     } catch {
-      this.mcpError.set('MCP status is not available for this session.');
+      this.mcpError.set(tr('MCP status is not available for this session.'));
     }
   }
 }

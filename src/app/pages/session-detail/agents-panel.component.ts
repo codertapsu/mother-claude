@@ -2,6 +2,7 @@ import { NgTemplateOutlet } from '@angular/common';
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
 
+import { TPipe } from '../../core/i18n/t.pipe';
 import { AgentInfo, BackgroundTask, WorkflowRun } from '../../core/models';
 import { ActivityLineComponent } from '../../shared/activity-line.component';
 import {
@@ -36,17 +37,21 @@ import { TaskOutputComponent } from './task-output.component';
     IconComponent,
     TaskOutputComponent,
     TimeAgoComponent,
+    TPipe,
   ],
   template: `
     @if (!tree().length && !runs().length && !tasks().length) {
       <div class="card empty-state">
-        <strong>No agents</strong>
-        Subagents, workflows and background shells this session starts show up here while they work.
+        <strong>{{ 'No agents' | t }}</strong>
+        {{
+          'Subagents, workflows and background shells this session starts show up here while they work.'
+            | t
+        }}
       </div>
     }
 
     @for (w of runs(); track w.run.runId) {
-      <section class="card run" [attr.aria-label]="'Workflow ' + w.run.name">
+      <section class="card run" [attr.aria-label]="'Workflow {name}' | t: { name: w.run.name }">
         <header class="rhead">
           <mc-icon name="workflow" [size]="18" />
           <strong class="rname">{{ w.run.name }}</strong>
@@ -54,23 +59,23 @@ import { TaskOutputComponent } from './task-output.component';
             [tone]="
               w.run.status === 'running' ? 'green' : w.run.status === 'completed' ? 'muted' : 'red'
             "
-            >{{ w.run.status }}</mc-chip
+            >{{ w.run.status | t }}</mc-chip
           >
         </header>
         <p class="rstats">
-          <span>{{ w.run.agents.running }} running</span>
-          <span>{{ w.run.agents.done }} done</span>
+          <span>{{ '{n} running' | t: { n: w.run.agents.running } }}</span>
+          <span>{{ '{n} done' | t: { n: w.run.agents.done } }}</span>
           @if (w.run.agents.failed) {
-            <span class="bad">{{ w.run.agents.failed }} failed</span>
+            <span class="bad">{{ '{n} failed' | t: { n: w.run.agents.failed } }}</span>
           }
-          <span>of {{ w.run.agents.total }}</span>
+          <span>{{ 'of {n}' | t: { n: w.run.agents.total } }}</span>
           @if (w.run.startedAt && w.run.status === 'running') {
             <span><mc-time [ms]="w.run.startedAt" mode="elapsed" /></span>
           } @else if (w.run.durationMs) {
             <span>{{ duration(w.run.durationMs) }}</span>
           }
           @if (w.run.totalTokens) {
-            <span>{{ tokens(w.run.totalTokens) }} tokens</span>
+            <span>{{ '{n} tokens' | t: { n: tokens(w.run.totalTokens) } }}</span>
           }
         </p>
         @if (w.run.phases.length) {
@@ -83,7 +88,7 @@ import { TaskOutputComponent } from './task-output.component';
                   <span class="muted small">{{ p.detail }}</span>
                 }
                 @if (w.current.has(p.title)) {
-                  <span class="visually-hidden">(current phase)</span>
+                  <span class="visually-hidden">{{ '(current phase)' | t }}</span>
                 }
               </li>
             }
@@ -98,8 +103,8 @@ import { TaskOutputComponent } from './task-output.component';
     }
 
     @if (tree().length) {
-      <section class="card" aria-label="Subagents">
-        <h2 class="first">Agents</h2>
+      <section class="card" [attr.aria-label]="'Subagents' | t">
+        <h2 class="first">{{ 'Agents' | t }}</h2>
         <div class="list">
           @for (a of tree(); track a.id) {
             <ng-container *ngTemplateOutlet="agentRow; context: { $implicit: a }" />
@@ -109,8 +114,8 @@ import { TaskOutputComponent } from './task-output.component';
     }
 
     @if (tasks().length) {
-      <section class="card" aria-label="Background tasks">
-        <h2 class="first">Background tasks</h2>
+      <section class="card" [attr.aria-label]="'Background tasks' | t">
+        <h2 class="first">{{ 'Background tasks' | t }}</h2>
         <div class="list">
           @for (t of tasks(); track t.id) {
             <div class="task">
@@ -118,23 +123,25 @@ import { TaskOutputComponent } from './task-output.component';
               <div class="tbody">
                 <span class="tlabel mono">{{ t.label }}</span>
                 <span class="tmeta">
-                  <mc-chip [tone]="tone(t.status)">{{ t.status }}</mc-chip>
+                  <mc-chip [tone]="tone(t.status)">{{ t.status | t }}</mc-chip>
                   @if (t.startedAt) {
                     <mc-time [ms]="t.startedAt" [until]="t.endedAt" mode="elapsed" />
                   }
                 </span>
               </div>
               @if (t.outputAvailable) {
-                <button class="btn small" type="button" (click)="output.set(t)">Output</button>
+                <button class="btn small" type="button" (click)="output.set(t)">
+                  {{ 'Output' | t }}
+                </button>
               }
               @if (t.status === 'running' && ctx.caps()?.stopTask) {
                 <button
                   class="btn small danger"
                   type="button"
-                  [attr.aria-label]="'Stop ' + t.label"
+                  [attr.aria-label]="'Stop {name}' | t: { name: t.label }"
                   (click)="ctx.stopTask(t.id, t.label)"
                 >
-                  <mc-icon name="stop" [size]="13" /> Stop
+                  <mc-icon name="stop" [size]="13" /> {{ 'Stop' | t }}
                 </button>
               }
             </div>
@@ -148,7 +155,7 @@ import { TaskOutputComponent } from './task-output.component';
     <ng-template #agentRow let-a>
       <div class="agent" [style.--level]="a.level ?? 0">
         <a class="main" [routerLink]="['/session', ctx.id(), 'agent', a.id]">
-          <span class="kind" [title]="kindLabel(a)" [attr.data-tone]="tone(a.status)"
+          <span class="kind" [title]="kindLabel(a) | t" [attr.data-tone]="tone(a.status)"
             ><mc-icon [name]="kindIcon(a)" [size]="16"
           /></span>
           <span class="abody">
@@ -158,10 +165,10 @@ import { TaskOutputComponent } from './task-output.component';
                 <mc-chip>{{ a.type }}</mc-chip>
               }
               @if (a.status !== 'running') {
-                <mc-chip [tone]="tone(a.status)">{{ a.status }}</mc-chip>
+                <mc-chip [tone]="tone(a.status)">{{ a.status | t }}</mc-chip>
               }
               @if (a.background) {
-                <mc-chip tone="blue">background</mc-chip>
+                <mc-chip tone="blue">{{ 'background' | t }}</mc-chip>
               }
             </span>
             @if (a.activity && a.status === 'running') {
@@ -175,10 +182,14 @@ import { TaskOutputComponent } from './task-output.component';
                 /></span>
               }
               @if (a.tokens) {
-                <span>{{ tokens(a.tokens) }} tokens</span>
+                <span>{{ '{n} tokens' | t: { n: tokens(a.tokens) } }}</span>
               }
               @if (a.toolUses) {
-                <span>{{ a.toolUses }} tool {{ a.toolUses === 1 ? 'use' : 'uses' }}</span>
+                <span>{{
+                  a.toolUses === 1
+                    ? ('{n} tool use' | t: { n: a.toolUses })
+                    : ('{n} tool uses' | t: { n: a.toolUses })
+                }}</span>
               }
               @if (a.model) {
                 <span>{{ a.model }}</span>
@@ -190,10 +201,10 @@ import { TaskOutputComponent } from './task-output.component';
           <button
             class="btn danger small"
             type="button"
-            [attr.aria-label]="'Stop ' + a.label"
+            [attr.aria-label]="'Stop {name}' | t: { name: a.label }"
             (click)="ctx.stopTask(a.taskId ?? a.id, a.label)"
           >
-            <mc-icon name="stop" [size]="13" /> Stop
+            <mc-icon name="stop" [size]="13" /> {{ 'Stop' | t }}
           </button>
         }
       </div>

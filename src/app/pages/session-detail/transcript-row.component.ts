@@ -1,5 +1,6 @@
 import { ChangeDetectionStrategy, Component, computed, input, signal } from '@angular/core';
 
+import { TPipe } from '../../core/i18n/t.pipe';
 import { UiEvent } from '../../core/models';
 import { IconComponent, IconName } from '../../shared/icon.component';
 import { renderMarkdown } from '../../shared/markdown';
@@ -31,7 +32,7 @@ const PLAN_FOLD_LINES = 16;
 @Component({
   selector: 'mc-transcript-row',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [IconComponent, MediaImageComponent, TimeAgoComponent, ToolStepComponent],
+  imports: [IconComponent, MediaImageComponent, TimeAgoComponent, ToolStepComponent, TPipe],
   host: { '[attr.data-row]': 'row().id' },
   templateUrl: './transcript-row.component.html',
   styleUrl: './transcript-row.component.scss',

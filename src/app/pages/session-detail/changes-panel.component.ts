@@ -9,6 +9,8 @@ import {
 } from '@angular/core';
 
 import { ApiService, describeError } from '../../core/api.service';
+import { tr } from '../../core/i18n/i18n';
+import { TPipe } from '../../core/i18n/t.pipe';
 import { DiffBase, GitOverview } from '../../core/models';
 import { storageGet, storageSet } from '../../core/platform';
 import { parseUnifiedDiff } from '../../shared/diff';
@@ -30,44 +32,44 @@ const DIFF_BASE_KEY = 'mc_diff_base';
 @Component({
   selector: 'mc-changes-panel',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [DiffViewComponent, IconComponent, TimeAgoComponent],
+  imports: [DiffViewComponent, IconComponent, TimeAgoComponent, TPipe],
   template: `
     <div class="bar">
-      <div class="segmented" role="group" aria-label="Compare against">
+      <div class="segmented" role="group" [attr.aria-label]="'Compare against' | t">
         <button
           type="button"
           [attr.aria-pressed]="base() === 'working'"
           (click)="setBase('working')"
         >
-          Uncommitted
+          {{ 'Uncommitted' | t }}
         </button>
         <button type="button" [attr.aria-pressed]="base() === 'branch'" (click)="setBase('branch')">
-          Whole branch
+          {{ 'Whole branch' | t }}
         </button>
       </div>
       <span class="spacer"></span>
       <button class="btn ghost small" type="button" [disabled]="loading()" (click)="load()">
-        <mc-icon name="refresh" [size]="14" /> Refresh
+        <mc-icon name="refresh" [size]="14" /> {{ 'Refresh' | t }}
       </button>
     </div>
 
     @if (error()) {
       <p class="notice error">
         {{ error() }}
-        <button class="btn ghost small" type="button" (click)="load()">Retry</button>
+        <button class="btn ghost small" type="button" (click)="load()">{{ 'Retry' | t }}</button>
       </p>
     }
 
     @if (diff(); as d) {
       @if (!d.isRepo) {
         <div class="card empty-state">
-          <strong>Not a Git repository</strong>
-          There are no changes to show for this folder.
+          <strong>{{ 'Not a Git repository' | t }}</strong>
+          {{ 'There are no changes to show for this folder.' | t }}
         </div>
       } @else {
         <div class="card summary">
           <span class="badge"
-            ><mc-icon name="branch" [size]="12" /> {{ d.branch || 'detached' }}</span
+            ><mc-icon name="branch" [size]="12" /> {{ d.branch || ('detached' | t) }}</span
           >
           @if (d.head) {
             <span class="mono muted">{{ d.head }}</span>
@@ -78,22 +80,28 @@ const DIFF_BASE_KEY = 'mc_diff_base';
         </div>
 
         <div class="row files-head">
-          <h2>{{ d.files.length }} changed {{ d.files.length === 1 ? 'file' : 'files' }}</h2>
+          <h2>
+            {{
+              d.files.length === 1
+                ? ('{n} changed file' | t: { n: 1 })
+                : ('{n} changed files' | t: { n: d.files.length })
+            }}
+          </h2>
           <span class="spacer"></span>
-          <div class="segmented" role="group" aria-label="File list layout">
+          <div class="segmented" role="group" [attr.aria-label]="'File list layout' | t">
             <button
               type="button"
               [attr.aria-pressed]="view() === 'list'"
               (click)="view.set('list')"
             >
-              List
+              {{ 'List' | t }}
             </button>
             <button
               type="button"
               [attr.aria-pressed]="view() === 'tree'"
               (click)="view.set('tree')"
             >
-              Tree
+              {{ 'Tree' | t }}
             </button>
           </div>
         </div>
@@ -107,7 +115,7 @@ const DIFF_BASE_KEY = 'mc_diff_base';
               [attr.aria-pressed]="patch()?.path === f.path"
               (click)="showPatch(f.path)"
             >
-              <span class="badge {{ f.status }}">{{ f.status }}</span>
+              <span class="badge {{ f.status }}">{{ f.status | t }}</span>
               <span class="fpath mono">{{ f.path }}</span>
               <span class="spacer"></span>
               <span class="add">+{{ f.additions }}</span>
@@ -115,13 +123,18 @@ const DIFF_BASE_KEY = 'mc_diff_base';
             </button>
           } @empty {
             <p class="muted">
-              {{ base() === 'branch' ? 'No changes on this branch.' : 'No uncommitted changes.' }}
+              {{
+                base() === 'branch'
+                  ? ('No changes on this branch.' | t)
+                  : ('No uncommitted changes.' | t)
+              }}
             </p>
           }
         } @else {
           @for (g of grouped(); track g.dir) {
             <div class="dirhead mono muted">
-              <mc-icon name="folder" [size]="12" /> {{ g.dir === '.' ? '(root)' : g.dir + '/' }}
+              <mc-icon name="folder" [size]="12" />
+              {{ g.dir === '.' ? ('(root)' | t) : g.dir + '/' }}
             </div>
             @for (f of g.files; track f.path) {
               <button
@@ -131,7 +144,7 @@ const DIFF_BASE_KEY = 'mc_diff_base';
                 [attr.aria-pressed]="patch()?.path === f.path"
                 (click)="showPatch(f.path)"
               >
-                <span class="badge {{ f.status }}">{{ f.status }}</span>
+                <span class="badge {{ f.status }}">{{ f.status | t }}</span>
                 <span class="fpath mono">{{ base_(f.path) }}</span>
                 <span class="spacer"></span>
                 <span class="add">+{{ f.additions }}</span>
@@ -139,7 +152,7 @@ const DIFF_BASE_KEY = 'mc_diff_base';
               </button>
             }
           } @empty {
-            <p class="muted">No changes.</p>
+            <p class="muted">{{ 'No changes.' | t }}</p>
           }
         }
 
@@ -147,32 +160,32 @@ const DIFF_BASE_KEY = 'mc_diff_base';
           <div class="row patch-head">
             <h2 class="mono patch-title">{{ p.path }}</h2>
             <span class="spacer"></span>
-            <div class="segmented" role="group" aria-label="Diff layout">
+            <div class="segmented" role="group" [attr.aria-label]="'Diff layout' | t">
               <button
                 type="button"
                 [attr.aria-pressed]="diffView() === 'unified'"
                 (click)="setDiffView('unified')"
               >
-                Unified
+                {{ 'Unified' | t }}
               </button>
               <button
                 type="button"
                 [attr.aria-pressed]="diffView() === 'split'"
                 (click)="setDiffView('split')"
               >
-                Split
+                {{ 'Split' | t }}
               </button>
             </div>
           </div>
           @if (!p.raw) {
-            <div class="card muted">No diff for this file.</div>
+            <div class="card muted">{{ 'No diff for this file.' | t }}</div>
           } @else {
             <mc-diff-view [rows]="rows()" [mode]="diffView()" />
           }
         }
 
         @if (d.commits.length) {
-          <h2>Recent commits</h2>
+          <h2>{{ 'Recent commits' | t }}</h2>
           @for (c of d.commits; track c.id) {
             <div class="card commit">
               <span class="mono muted">{{ c.id }}</span> {{ c.summary }}
@@ -182,10 +195,10 @@ const DIFF_BASE_KEY = 'mc_diff_base';
         }
 
         @if (d.worktrees.length) {
-          <h2>Worktrees</h2>
+          <h2>{{ 'Worktrees' | t }}</h2>
           @for (w of d.worktrees; track w.name) {
             <div class="card mono small">
-              {{ w.name }} → {{ w.path }} {{ w.locked ? '(locked)' : '' }}
+              {{ w.name }} → {{ w.path }} {{ w.locked ? ('(locked)' | t) : '' }}
             </div>
           }
         }
@@ -343,7 +356,9 @@ export class ChangesPanelComponent {
       const d = await this.api.getDiff(id, this.base());
       if (req === this.req) this.diff.set(d);
     } catch (e) {
-      if (req === this.req) this.error.set(`Could not load changes: ${describeError(e).text}`);
+      if (req === this.req) {
+        this.error.set(tr('Could not load changes: {error}', { error: describeError(e).text }));
+      }
     } finally {
       if (req === this.req) this.loading.set(false);
     }
@@ -356,8 +371,9 @@ export class ChangesPanelComponent {
       const res = await this.api.getFilePatch(id, path, this.base());
       if (req === this.patchReq) this.patch.set({ path, raw: res?.patch ?? '' });
     } catch (e) {
-      if (req === this.patchReq)
-        this.error.set(`Could not load the patch: ${describeError(e).text}`);
+      if (req === this.patchReq) {
+        this.error.set(tr('Could not load the patch: {error}', { error: describeError(e).text }));
+      }
     }
   }
 }

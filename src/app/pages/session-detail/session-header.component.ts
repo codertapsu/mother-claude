@@ -18,6 +18,8 @@ import { StorageService } from '../../core/storage.service';
 import { NoticeService } from '../../core/notice.service';
 import { PushService } from '../../core/push.service';
 import { RealtimeService, connectionDetail, connectionLabel } from '../../core/realtime.service';
+import { tr } from '../../core/i18n/i18n';
+import { TPipe } from '../../core/i18n/t.pipe';
 import { JobView, SessionPushPref } from '../../core/models';
 import { AccountChipComponent } from '../../shared/account-chip.component';
 import { ActivityLineComponent } from '../../shared/activity-line.component';
@@ -67,11 +69,16 @@ import { SessionContext } from './session-context';
     SwitchAccountSheetComponent,
     SwitchPendingComponent,
     TimeAgoComponent,
+    TPipe,
   ],
   template: `
     @if (ctx.session(); as s) {
       <div class="bar">
-        <a class="btn ghost icon-only back" routerLink="/" aria-label="Back to sessions">
+        <a
+          class="btn ghost icon-only back"
+          routerLink="/"
+          [attr.aria-label]="'Back to sessions' | t"
+        >
           <mc-icon name="back" />
         </a>
         <div class="titles">
@@ -94,22 +101,24 @@ import { SessionContext } from './session-context';
             type="button"
             class="conn"
             [attr.data-state]="connection()"
-            [attr.aria-label]="'Connection: ' + connText()"
+            [attr.aria-label]="'Connection: {state}' | t: { state: connText() }"
             (click)="connSheet.set(true)"
           >
             <span class="conn-dot" aria-hidden="true"></span>
             <span class="conn-text">{{ connText() }}</span>
           </button>
         } @else {
-          <span class="conn live" data-state="open" title="Live">
+          <span class="conn live" data-state="open" [title]="'Live' | t">
             <span class="conn-dot" aria-hidden="true"></span>
-            <span class="visually-hidden">Connection: Live</span>
+            <span class="visually-hidden">{{
+              'Connection: {state}' | t: { state: ('Live' | t) }
+            }}</span>
           </span>
         }
         <button
           class="btn ghost icon-only"
           type="button"
-          aria-label="Session menu"
+          [attr.aria-label]="'Session menu' | t"
           aria-haspopup="dialog"
           (click)="openMenu()"
         >
@@ -122,74 +131,78 @@ import { SessionContext } from './session-context';
         <div class="menu">
           <button class="item" type="button" (click)="startRename()">
             <mc-icon name="edit" [size]="18" />
-            <span>Rename…</span>
+            <span>{{ 'Rename…' | t }}</span>
             @if (renameMode() === 'alias') {
-              <span class="note">only in Mother Claude</span>
+              <span class="note">{{ 'only in Mother Claude' | t }}</span>
             }
           </button>
           @if (!s.owned && (s.control.fork || s.control.continueOwned)) {
             <button class="item" type="button" (click)="continueHere()">
               <mc-icon name="play" [size]="18" />
-              <span>{{ s.live ? 'Continue here (fork)' : 'Continue here' }}</span>
+              <span>{{ s.live ? ('Continue here (fork)' | t) : ('Continue here' | t) }}</span>
             </button>
           }
           @if (switchOffered()) {
             <button class="item" type="button" (click)="openSwitch()">
               <mc-icon name="refresh" [size]="18" />
-              <span>Switch account…</span>
+              <span>{{ 'Switch account…' | t }}</span>
             </button>
           }
           @if (continueOnOffered()) {
             <button class="item" type="button" (click)="openContinueOn()">
               <mc-icon name="user" [size]="18" />
-              <span>Continue on another account…</span>
+              <span>{{ 'Continue on another account…' | t }}</span>
             </button>
           }
           @if (moveOffered()) {
             <button class="item" type="button" (click)="openMoveCopy('session')">
               <mc-icon name="move" [size]="18" />
-              <span>Move or copy…</span>
+              <span>{{ 'Move or copy…' | t }}</span>
             </button>
             <button class="item" type="button" (click)="openMoveCopy('project')">
               <mc-icon name="folder" [size]="18" />
-              <span>Move or copy this project…</span>
+              <span>{{ 'Move or copy this project…' | t }}</span>
             </button>
           }
           <button class="item" type="button" (click)="openDelete()">
             <mc-icon name="trash" [size]="18" />
-            <span>Delete…</span>
+            <span>{{ 'Delete…' | t }}</span>
           </button>
           @if (terminal()) {
             <button class="item" type="button" (click)="openTerminal()">
               <mc-icon name="terminal" [size]="18" />
-              <span>Terminal view</span>
+              <span>{{ 'Terminal view' | t }}</span>
             </button>
           }
           @if (pushAvailable()) {
             <div class="item static">
               <mc-icon [name]="pushPref() === 'mute' ? 'bellOff' : 'bell'" [size]="18" />
-              <span>Notifications</span>
-              <div class="segmented" role="group" aria-label="Notifications for this session">
+              <span class="push-label">{{ 'Notifications' | t }}</span>
+              <div
+                class="segmented"
+                role="group"
+                [attr.aria-label]="'Notifications for this session' | t"
+              >
                 <button
                   type="button"
                   [attr.aria-pressed]="pushPref() === 'follow'"
                   (click)="setPush('follow')"
                 >
-                  Follow
+                  {{ 'Follow' | t }}
                 </button>
                 <button
                   type="button"
                   [attr.aria-pressed]="pushPref() === ''"
                   (click)="setPush(null)"
                 >
-                  Default
+                  {{ 'Default||setting' | t }}
                 </button>
                 <button
                   type="button"
                   [attr.aria-pressed]="pushPref() === 'mute'"
                   (click)="setPush('mute')"
                 >
-                  Mute
+                  {{ 'Mute' | t }}
                 </button>
               </div>
             </div>
@@ -198,8 +211,8 @@ import { SessionContext } from './session-context';
                 <mc-icon name="bell" [size]="18" />
                 <span>{{
                   turnArmed()
-                    ? "Don't notify when this turn finishes"
-                    : 'Notify me when this turn finishes'
+                    ? ("Don't notify when this turn finishes" | t)
+                    : ('Notify me when this turn finishes' | t)
                 }}</span>
               </button>
             }
@@ -207,28 +220,28 @@ import { SessionContext } from './session-context';
           <div class="item static">
             <mc-icon name="terminal" [size]="18" />
             <span class="mono ellipsis">claude --resume {{ s.id.slice(0, 8) }}…</span>
-            <mc-copy-button [text]="'claude --resume ' + s.id" label="Copy" />
+            <mc-copy-button [text]="'claude --resume ' + s.id" [label]="'Copy' | t" />
           </div>
           @if (vscodeUrl(); as url) {
             <a class="item" [href]="url">
               <mc-icon name="external" [size]="18" />
-              <span>Open in VS Code</span>
+              <span>{{ 'Open in VS Code' | t }}</span>
             </a>
           }
           <button class="item" type="button" (click)="showInfo()">
             <mc-icon name="info" [size]="18" />
-            <span>Session info</span>
+            <span>{{ 'Session info' | t }}</span>
           </button>
           @if (s.control.lifecycle.stop || s.control.lifecycle.respawn || s.control.lifecycle.rm) {
             <div class="lifecycle">
               @if (s.control.lifecycle.stop) {
                 <button class="btn" type="button" (click)="lifecycle('stop')">
-                  <mc-icon name="stop" [size]="14" /> Stop
+                  <mc-icon name="stop" [size]="14" /> {{ 'Stop' | t }}
                 </button>
               }
               @if (s.control.lifecycle.respawn) {
                 <button class="btn" type="button" (click)="lifecycle('respawn')">
-                  <mc-icon name="refresh" [size]="14" /> Respawn
+                  <mc-icon name="refresh" [size]="14" /> {{ 'Respawn' | t }}
                 </button>
               }
               @if (s.control.lifecycle.rm) {
@@ -239,7 +252,7 @@ import { SessionContext } from './session-context';
                   (click)="remove()"
                 >
                   <mc-icon name="trash" [size]="14" />
-                  {{ confirmRm() ? 'Tap again to remove' : 'Remove' }}
+                  {{ confirmRm() ? ('Tap again to remove' | t) : ('Remove' | t) }}
                 </button>
               }
             </div>
@@ -247,13 +260,13 @@ import { SessionContext } from './session-context';
         </div>
       </mc-sheet>
 
-      <mc-sheet [open]="renaming()" title="Rename session" (closed)="renaming.set(false)">
+      <mc-sheet [open]="renaming()" [title]="'Rename session' | t" (closed)="renaming.set(false)">
         @if (renameMode() === 'none') {
-          <p class="muted">This session can't be renamed from here.</p>
+          <p class="muted">{{ "This session can't be renamed from here." | t }}</p>
         } @else {
           <form class="rename" (submit)="saveRename($event)">
             <label class="field">
-              <span class="field-label">Name</span>
+              <span class="field-label">{{ 'Name' | t }}</span>
               <input
                 name="name"
                 [ngModel]="renameText()"
@@ -264,30 +277,33 @@ import { SessionContext } from './session-context';
             </label>
             @if (renameMode() === 'alias') {
               <p class="muted small">
-                Only in Mother Claude: this session belongs to
-                {{ s.surface === 'vscode' ? 'VS Code' : 'another program' }}, which keeps its own
-                name.
+                {{
+                  'Only in Mother Claude: this session belongs to {app}, which keeps its own name.'
+                    | t: { app: s.surface === 'vscode' ? 'VS Code' : ('another program' | t) }
+                }}
               </p>
             }
             <div class="row">
               <button class="btn primary" type="submit" [disabled]="!renameText().trim()">
-                Save
+                {{ 'Save' | t }}
               </button>
-              <button class="btn ghost" type="button" (click)="renaming.set(false)">Cancel</button>
+              <button class="btn ghost" type="button" (click)="renaming.set(false)">
+                {{ 'Cancel' | t }}
+              </button>
             </div>
           </form>
         }
       </mc-sheet>
 
-      <mc-sheet [open]="connSheet()" title="Connection" (closed)="connSheet.set(false)">
+      <mc-sheet [open]="connSheet()" [title]="'Connection' | t" (closed)="connSheet.set(false)">
         <p>
           <strong>{{ connText() }}</strong> — {{ connDetail() }}
         </p>
         @if (lastData()) {
-          <p class="muted small">Updated <mc-time [ms]="lastData()" /></p>
+          <p class="muted small">{{ 'Updated' | t }} <mc-time [ms]="lastData()" /></p>
         }
         <button class="btn" type="button" (click)="reconnect()">
-          <mc-icon name="refresh" [size]="15" /> Reconnect now
+          <mc-icon name="refresh" [size]="15" /> {{ 'Reconnect now' | t }}
         </button>
       </mc-sheet>
 
@@ -434,6 +450,11 @@ import { SessionContext } from './session-context';
       .item > span {
         flex: 1;
         min-width: 0;
+      }
+      /* Its name stays on one line: the choices go under it when both
+         don't fit (longer names, as in Vietnamese). */
+      .item > .push-label {
+        flex: 1 0 auto;
       }
       .item mc-icon {
         color: var(--muted);
@@ -622,7 +643,7 @@ export class SessionHeaderComponent {
     if (!s) return;
     const from = s.account?.id ?? (this.accounts.multi() ? undefined : DEFAULT_ACCOUNT);
     this.deleteStart.set({
-      what: 'this conversation',
+      what: tr('this conversation'),
       groups: [{ ...(from ? { from } : {}), sessions: [s.id] }],
       known: [s],
     });
@@ -654,13 +675,13 @@ export class SessionHeaderComponent {
       await this.push.setSessionPref(this.ctx.id(), pref);
       this.notices.success(
         pref === 'follow'
-          ? 'You will be notified about everything in this session.'
+          ? tr('You will be notified about everything in this session.')
           : pref === 'mute'
-            ? 'Notifications from this session are muted.'
-            : 'This session uses your notification settings.',
+            ? tr('Notifications from this session are muted.')
+            : tr('This session uses your notification settings.'),
       );
     } catch (e) {
-      this.notices.error(e, undefined, 'Notifications');
+      this.notices.error(e, undefined, tr('Notifications'));
     }
   }
 
@@ -671,11 +692,11 @@ export class SessionHeaderComponent {
       await this.push.setTurnFinished(this.ctx.id(), on);
       this.notices.success(
         on
-          ? "You'll get a notification when this turn finishes (even if the session is muted)."
-          : 'No notification for this turn.',
+          ? tr("You'll get a notification when this turn finishes (even if the session is muted).")
+          : tr('No notification for this turn.'),
       );
     } catch (e) {
-      this.notices.error(e, undefined, 'Notifications');
+      this.notices.error(e, undefined, tr('Notifications'));
     }
   }
 

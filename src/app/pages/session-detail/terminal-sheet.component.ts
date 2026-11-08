@@ -14,6 +14,8 @@ import {
 } from '@angular/core';
 
 import { ApiService, describeError } from '../../core/api.service';
+import { computerNoun } from '../../core/i18n/i18n';
+import { TPipe } from '../../core/i18n/t.pipe';
 import { KeyName } from '../../core/models';
 import { capKeys } from '../../shared/caps';
 import { IconComponent } from '../../shared/icon.component';
@@ -40,9 +42,9 @@ const DIGITS: KeyName[] = ['1', '2', '3', '4', '5', '6', '7', '8', '9'];
 @Component({
   selector: 'mc-terminal-sheet',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [IconComponent, SheetComponent],
+  imports: [IconComponent, SheetComponent, TPipe],
   template: `
-    <mc-sheet size="full" title="Terminal" [open]="ctx.terminalOpen()" (closed)="close()">
+    <mc-sheet size="full" [title]="'Terminal' | t" [open]="ctx.terminalOpen()" (closed)="close()">
       <button
         sheetActions
         class="btn ghost small"
@@ -50,22 +52,22 @@ const DIGITS: KeyName[] = ['1', '2', '3', '4', '5', '6', '7', '8', '9'];
         [disabled]="loading()"
         (click)="load()"
       >
-        <mc-icon name="refresh" [size]="14" /> Refresh
+        <mc-icon name="refresh" [size]="14" /> {{ 'Refresh' | t }}
       </button>
       <div class="wrap">
         @if (error()) {
           <p class="error-text small">{{ error() }}</p>
         }
-        <pre #screen class="screen" tabindex="0" aria-label="Terminal contents">{{
-          text() || (loading() ? 'Loading…' : 'Nothing to show.')
+        <pre #screen class="screen" tabindex="0" [attr.aria-label]="'Terminal contents' | t">{{
+          text() || (loading() ? ('Loading…' | t) : ('Nothing to show.' | t))
         }}</pre>
         @if (keys()) {
-          <div class="keys" role="group" aria-label="Send a key">
+          <div class="keys" role="group" [attr.aria-label]="'Send a key' | t">
             @for (k of keyList; track k.key) {
               <button
                 class="btn small"
                 type="button"
-                [attr.aria-label]="'Send ' + k.aria"
+                [attr.aria-label]="'Send {key}' | t: { key: (k.aria | t) }"
                 [disabled]="!ctx.canAct()"
                 (click)="send(k.key)"
               >
@@ -76,7 +78,7 @@ const DIGITS: KeyName[] = ['1', '2', '3', '4', '5', '6', '7', '8', '9'];
               <button
                 class="btn small digit"
                 type="button"
-                [attr.aria-label]="'Send ' + d"
+                [attr.aria-label]="'Send {key}' | t: { key: d }"
                 [disabled]="!ctx.canAct()"
                 (click)="send(d)"
               >
@@ -86,8 +88,10 @@ const DIGITS: KeyName[] = ['1', '2', '3', '4', '5', '6', '7', '8', '9'];
           </div>
           @if (!ctx.canDangerous()) {
             <p class="muted small">
-              Keys are a dangerous action: they work from the Mac, or on a device allowed to take
-              dangerous actions.
+              {{
+                'Keys are a dangerous action: they work from the {computer}, or on a device allowed to take dangerous actions.'
+                  | t: { computer: computer() }
+              }}
             </p>
           }
         }
@@ -138,6 +142,8 @@ export class TerminalSheetComponent {
   protected readonly error = signal('');
   protected readonly keyList = KEYS;
   protected readonly digits = DIGITS;
+  /** The desktop's computer, in sentences. */
+  protected readonly computer = computerNoun;
   protected readonly keys = computed(() => {
     const s = this.ctx.session();
     return capKeys(s?.control, s) && !!s?.live;

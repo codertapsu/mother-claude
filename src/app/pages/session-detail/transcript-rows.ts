@@ -1,3 +1,4 @@
+import { tr } from '../../core/i18n/i18n';
 import { UiEvent } from '../../core/models';
 
 /** A tool call with its result (when one arrived). */
@@ -79,9 +80,11 @@ export function sameRow(a: Row, b: Row): boolean {
   return false;
 }
 
-/** "Ran 12 steps · last: Bash npm test". */
+/** "Ran 12 steps · last: Bash npm test" (in the language shown). */
 export function stepsSummary(steps: readonly ToolStep[]): string {
   const last = steps[steps.length - 1]?.tool.tool;
-  const tail = last ? ` · last: ${last.name}${last.summary ? ` ${last.summary}` : ''}` : '';
-  return `Ran ${steps.length} steps${tail}`;
+  const n = steps.length;
+  if (!last) return tr('Ran {n} steps', { n });
+  const step = `${last.name}${last.summary ? ` ${last.summary}` : ''}`;
+  return tr('Ran {n} steps · last: {step}', { n, step });
 }
