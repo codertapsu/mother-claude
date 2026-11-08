@@ -232,7 +232,7 @@ export class AppComponent {
     effect(() => {
       const c = this.connection();
       if (lastConn && c !== lastConn && c !== 'connecting') {
-        this.notices.announce(`Connection: ${connectionLabel(c)}`);
+        this.notices.announce(tr('Connection: {state}', { state: connectionLabel(c) }));
       }
       lastConn = c;
     });

@@ -38,5 +38,6 @@
   "Trying to reach your {computer}…": "Đang kết nối tới {computer} của bạn…",
   "This device is offline.": "Thiết bị này đang ngoại tuyến.",
   "Can't reach your {computer}: it may be asleep, offline, or the tunnel is down.": "Không kết nối được {computer} của bạn: máy có thể đang ngủ, ngoại tuyến, hoặc đường hầm bị ngắt.",
-  "This device is not paired.": "Thiết bị này chưa được ghép nối."
+  "This device is not paired.": "Thiết bị này chưa được ghép nối.",
+  "Connection: {state}": "Kết nối: {state}"
 }
