@@ -56,7 +56,9 @@
 } @else if (compact()) {
   <!-- ─────────────── Compact (session list) ─────────────── -->
   @if (item().kind === 'question') {
-    <p class="qtext clamp">{{ item().detail || item().title }}</p>
+    @if (questionText()) {
+      <p class="qtext clamp">{{ questionText() }}</p>
+    }
   } @else if (item().kind === 'permission' && item().detail) {
     <pre class="detail clamp">{{ item().detail }}</pre>
   } @else if (item().detail) {

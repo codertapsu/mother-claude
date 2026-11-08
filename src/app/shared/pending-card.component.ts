@@ -284,18 +284,35 @@ export class PendingCardComponent {
   protected readonly heading = computed(() => {
     const it = this.item();
     switch (it.kind) {
-      case 'question':
-        return it.title || tr('Claude has a question');
+      case 'question': {
+        // The server titles a question with its own text, which the card
+        // shows below: the heading says how many there are instead.
+        const n = this.questionCount();
+        return n > 1 ? tr('Claude has {n} questions', { n }) : tr('Claude has a question');
+      }
       case 'plan':
         return tr('Plan ready for review');
       case 'elicitation':
         return it.title || tr('Input requested');
       default:
         return (
-          it.title ||
+          pendingTitle(it.title) ||
           (it.toolName ? tr('Allow {tool}?', { tool: it.toolName }) : tr('Allow this tool?'))
         );
     }
+  });
+  /** How many questions Claude asks: the full item's, else the preview's count. */
+  private readonly questionCount = computed(() => {
+    const it = this.item();
+    const preview = 'questionCount' in it ? (it.questionCount ?? 0) : 0;
+    return this.full()?.questions?.length || preview;
+  });
+  /** The question a compact card shows: the server's detail or title, unless
+   * that is only its generic "Claude has a question". */
+  protected readonly questionText = computed(() => {
+    const it = this.item();
+    const text = (it.detail || it.title || '').trim();
+    return GENERIC_QUESTION.test(text) ? '' : text;
   });
   protected readonly ariaLabel = computed(() =>
     this.compact()
@@ -573,4 +590,21 @@ export class PendingCardComponent {
       this.error.set(describeError(e).text);
     }
   }
+}
+
+/** The server's title for a question it has no text for. */
+const GENERIC_QUESTION = /^Claude has a question( for you)?\.?$/;
+
+/** A title in the language shown. The server's own come from a fixed list
+ * (`claude/control/protocol.rs`, `server/hooks.rs`, `claude/summaries.rs`:
+ * "Claude has a question", "Claude wants to use Bash", "Allow Bash?"); any
+ * other title (a question's own text, the CLI's) shows as it came. */
+export function pendingTitle(title: string | undefined): string {
+  const t = title?.trim() ?? '';
+  if (GENERIC_QUESTION.test(t)) return tr('Claude has a question');
+  const use = /^Claude wants to use (.+?)\.?$/.exec(t);
+  if (use) return tr('Claude wants to use {tool}', { tool: use[1] });
+  const allow = /^Allow (.+)\?$/.exec(t);
+  if (allow) return tr('Allow {tool}?', { tool: allow[1] });
+  return title ?? '';
 }

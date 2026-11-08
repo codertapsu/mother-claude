@@ -7,7 +7,8 @@ import { setActiveMock } from '../core/mock/mock-api';
 import { PendingItem } from '../core/models';
 import { NoticeService } from '../core/notice.service';
 import { PendingResolution, PendingService } from '../core/pending.service';
-import { PendingCardComponent } from './pending-card.component';
+import { useLanguage } from '../core/i18n/i18n';
+import { PendingCardComponent, pendingTitle } from './pending-card.component';
 
 interface Reply {
   status: number;
@@ -94,5 +95,78 @@ describe('PendingCardComponent', () => {
     await flush();
     fixture.detectChanges();
     expect(info).toHaveBeenCalledWith("Denied on Phone. Your note wasn't sent.");
+  });
+
+  it('heads a question with how many there are, and shows its text once', () => {
+    const question = 'Which database should the analytics service use?';
+    const fixture = TestBed.createComponent(PendingCardComponent);
+    // A preview as the server sends it: titled with the first question.
+    fixture.componentRef.setInput('item', {
+      id: 'q1',
+      sessionId: 's1',
+      kind: 'question',
+      title: question,
+      detail: question,
+      dangerous: false,
+      answerable: true,
+      createdAt: Date.now(),
+      questionCount: 2,
+    });
+    fixture.componentRef.setInput('compact', true);
+    fixture.detectChanges();
+    const el = fixture.nativeElement as HTMLElement;
+    expect(el.querySelector('.title')?.textContent?.trim()).toBe('Claude has 2 questions');
+    expect(el.textContent?.split(question).length).toBe(2);
+
+    // Only the generic title: nothing repeats it below the heading.
+    fixture.componentRef.setInput('item', {
+      id: 'q2',
+      sessionId: 's1',
+      kind: 'question',
+      title: 'Claude has a question for you.',
+      dangerous: false,
+      answerable: true,
+      createdAt: Date.now(),
+    });
+    fixture.detectChanges();
+    expect(el.querySelector('.title')?.textContent?.trim()).toBe('Claude has a question');
+    expect(el.querySelector('.qtext')).toBeNull();
+  });
+});
+
+describe('pendingTitle', () => {
+  it("shows the server's own titles in the language shown, others as they came", async () => {
+    const titles = [
+      'Claude has a question',
+      'Claude has a question for you.',
+      'Claude wants to use Bash.',
+      'Claude wants to use mcp__github__create_pr',
+      'Allow WebFetch?',
+      'Which database should the analytics service use?',
+      '',
+    ];
+    expect(titles.map(pendingTitle)).toEqual([
+      'Claude has a question',
+      'Claude has a question',
+      'Claude wants to use Bash',
+      'Claude wants to use mcp__github__create_pr',
+      'Allow WebFetch?',
+      'Which database should the analytics service use?',
+      '',
+    ]);
+    try {
+      await useLanguage('vi');
+      expect(titles.map(pendingTitle)).toEqual([
+        'Claude có một câu hỏi',
+        'Claude có một câu hỏi',
+        'Claude muốn dùng Bash',
+        'Claude muốn dùng mcp__github__create_pr',
+        'Cho phép WebFetch?',
+        'Which database should the analytics service use?',
+        '',
+      ]);
+    } finally {
+      await useLanguage('en');
+    }
   });
 });

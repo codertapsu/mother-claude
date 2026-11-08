@@ -736,5 +736,7 @@
   "Restore {count}": "Khôi phục {count}",
   "Move {count}": "Chuyển {count}",
   "Only the conversations listed were selected; the {computer} could not be asked for the rest: {error}": "Chỉ chọn được các cuộc trò chuyện đang hiển thị; không hỏi được {computer} về phần còn lại: {error}",
-  "Claude Code's default||source": "mặc định của Claude Code"
+  "Claude Code's default||source": "mặc định của Claude Code",
+  "Claude wants to use {tool}": "Claude muốn dùng {tool}",
+  "Claude has {n} questions": "Claude có {n} câu hỏi"
 }
