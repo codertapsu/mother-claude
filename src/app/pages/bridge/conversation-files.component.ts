@@ -1,6 +1,7 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  computed,
   effect,
   inject,
   input,
@@ -20,6 +21,8 @@ import {
   normalizeSessionFiles,
   revealLabel,
 } from '../../core/delete-data';
+import { tr } from '../../core/i18n/i18n';
+import { TPipe } from '../../core/i18n/t.pipe';
 import { JobView } from '../../core/models';
 import { CopyButtonComponent } from '../../shared/copy-button.component';
 import {
@@ -38,29 +41,29 @@ import { shortPath } from '../../shared/util';
  */
 @Component({
   selector: 'mc-conversation-files',
-  imports: [CopyButtonComponent, DeleteDataSheetComponent, IconComponent],
+  imports: [CopyButtonComponent, DeleteDataSheetComponent, IconComponent, TPipe],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="files">
       @if (files(); as f) {
-        <span class="lbl">Transcript</span>
+        <span class="lbl">{{ 'Transcript' | t }}</span>
         <span class="mono path" [title]="f.transcript">{{ short(f.transcript) }}</span>
       }
       <span class="acts">
         @if (files(); as f) {
           <mc-copy-button
             [text]="f.transcript"
-            label="Copy path"
-            ariaLabel="Copy the transcript's path"
+            [label]="'Copy path' | t"
+            [ariaLabel]="copyLabel()"
           />
           @if (isDesktop()) {
             <button class="btn small" type="button" [disabled]="revealing()" (click)="reveal()">
-              <mc-icon name="folder" [size]="14" /> {{ revealText }}
+              <mc-icon name="folder" [size]="14" /> {{ revealText() }}
             </button>
           }
         }
         <button class="btn small danger" type="button" (click)="openDelete()">
-          <mc-icon name="trash" [size]="14" /> Delete…
+          <mc-icon name="trash" [size]="14" /> {{ 'Delete…' | t }}
         </button>
       </span>
       @if (error()) {
@@ -118,7 +121,9 @@ export class ConversationFilesComponent {
 
   /** Where its files are (null: not on this Mac yet, or not known). */
   protected readonly files = signal<SessionFiles | null>(null);
-  protected readonly revealText = revealLabel(desktopOs(navigator.userAgent));
+  /** Read where shown, so that it follows a language switch. */
+  protected readonly revealText = computed(() => revealLabel(desktopOs(navigator.userAgent)));
+  protected readonly copyLabel = computed(() => tr("Copy the transcript's path"));
   protected readonly revealing = signal(false);
   protected readonly error = signal('');
   protected readonly deleteStart = signal<DeleteStart | null>(null);
@@ -161,7 +166,7 @@ export class ConversationFilesComponent {
     const id = this.id();
     const from = this.account() ?? (this.accounts.multi() ? undefined : DEFAULT_ACCOUNT);
     this.deleteStart.set({
-      what: 'this conversation',
+      what: tr('this conversation'),
       groups: [{ ...(from ? { from } : {}), sessions: [id] }],
       known: [{ id, title: this.title(), name: '', projectName: '' }],
       openInApi: this.running() ? [id] : [],

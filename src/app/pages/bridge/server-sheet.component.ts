@@ -24,6 +24,8 @@ import {
   serverNameProblem,
 } from '../../core/api-servers';
 import { ApiError, ApiService } from '../../core/api.service';
+import { computerNoun, tr } from '../../core/i18n/i18n';
+import { TPipe } from '../../core/i18n/t.pipe';
 import { LaunchDefaults } from '../../core/models';
 import { IconComponent } from '../../shared/icon.component';
 import { SheetComponent } from '../../shared/sheet.component';
@@ -41,18 +43,18 @@ import { API_PERMISSION_MODES } from './permission-modes';
 @Component({
   selector: 'mc-api-server-sheet',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [FormsModule, IconComponent, SheetComponent],
+  imports: [FormsModule, IconComponent, SheetComponent, TPipe],
   template: `
     <mc-sheet [open]="open()" [title]="title()" (closed)="closed.emit()">
       @if (open()) {
         <form class="form" (submit)="save($event)">
           <label class="field">
-            <span class="field-label">Name</span>
+            <span class="field-label">{{ 'Name' | t }}</span>
             <input
               name="name"
               autocomplete="off"
               [attr.maxlength]="nameMax"
-              placeholder="e.g. Work"
+              [placeholder]="'e.g. Work' | t"
               [ngModel]="name()"
               (ngModelChange)="name.set($event); nameTouched.set(true); error.set('')"
             />
@@ -63,10 +65,13 @@ import { API_PERMISSION_MODES } from './permission-modes';
 
           @if (!server() && accounts.multi()) {
             <label class="field">
-              <span class="field-label">Account</span>
+              <span class="field-label">{{ 'Account' | t }}</span>
               <select name="account" [ngModel]="account()" (ngModelChange)="pickAccount($event)">
                 <option value="">
-                  Automatic — the project's account, else {{ bridgeDefaultName() }}
+                  {{
+                    "Automatic — the project's account, else {name}"
+                      | t: { name: bridgeDefaultName() }
+                  }}
                 </option>
                 @for (a of accounts.list(); track a.id) {
                   <option [value]="a.id">{{ a.name }}{{ a.email ? ' — ' + a.email : '' }}</option>
@@ -82,17 +87,18 @@ import { API_PERMISSION_MODES } from './permission-modes';
                   (ngModelChange)="only.set($event)"
                 />
                 <span
-                  ><strong>Only this account</strong> — every conversation runs as
-                  {{ accountName() }}, a request naming another account is refused, and other
-                  accounts' conversations stay out of reach: its API can go behind a tunnel without
-                  opening the others.</span
+                  ><strong>{{ 'Only this account' | t }}</strong>
+                  {{
+                    "— every conversation runs as {name}, a request naming another account is refused, and other accounts' conversations stay out of reach: its API can go behind a tunnel without opening the others."
+                      | t: { name: accountName() }
+                  }}</span
                 >
               </label>
             }
           }
 
           <label class="field">
-            <span class="field-label">Port</span>
+            <span class="field-label">{{ 'Port' | t }}</span>
             <input
               name="port"
               inputmode="numeric"
@@ -108,22 +114,28 @@ import { API_PERMISSION_MODES } from './permission-modes';
           } @else {
             <p class="field-hint">
               @if (server()) {
-                On this Mac only. A running server restarts on the new port.
+                {{
+                  'On this {computer} only. A running server restarts on the new port.'
+                    | t: { computer: computer() }
+                }}
               } @else {
-                On this Mac only. Empty: the first free port from {{ firstPort }}.
+                {{
+                  'On this {computer} only. Empty: the first free port from {port}.'
+                    | t: { computer: computer(), port: firstPort }
+                }}
               }
             </p>
           }
 
           @if (!server()) {
             <details class="defaults">
-              <summary>Defaults — the main server's, to start with</summary>
+              <summary>{{ "Defaults — the main server's, to start with" | t }}</summary>
               <div class="dfields">
                 <label class="field">
-                  <span class="field-label">Working directory</span>
+                  <span class="field-label">{{ 'Working directory' | t }}</span>
                   <input
                     name="cwd"
-                    placeholder="your home directory"
+                    [placeholder]="'your home directory' | t"
                     spellcheck="false"
                     autocapitalize="off"
                     [ngModel]="cwd()"
@@ -132,10 +144,14 @@ import { API_PERMISSION_MODES } from './permission-modes';
                 </label>
                 <div class="trio">
                   <label class="field">
-                    <span class="field-label">Model</span>
+                    <span class="field-label">{{ 'Model' | t }}</span>
                     <select name="model" [ngModel]="model()" (ngModelChange)="model.set($event)">
                       <option value="">
-                        Default{{ launch()?.model ? ' — ' + launch()!.model : '' }}
+                        {{
+                          launch()?.model
+                            ? ('Default — {value}' | t: { value: launch()!.model })
+                            : ('Default' | t)
+                        }}
                       </option>
                       @for (m of launch()?.models ?? []; track m.value) {
                         <option [value]="m.value">{{ m.label }}</option>
@@ -143,10 +159,14 @@ import { API_PERMISSION_MODES } from './permission-modes';
                     </select>
                   </label>
                   <label class="field">
-                    <span class="field-label">Effort</span>
+                    <span class="field-label">{{ 'Effort' | t }}</span>
                     <select name="effort" [ngModel]="effort()" (ngModelChange)="effort.set($event)">
                       <option value="">
-                        Default{{ launch()?.effort ? ' — ' + effortName(launch()!.effort!) : '' }}
+                        {{
+                          launch()?.effort
+                            ? ('Default — {value}' | t: { value: effortName(launch()!.effort!) })
+                            : ('Default' | t)
+                        }}
                       </option>
                       @for (e of efforts(); track e) {
                         <option [value]="e">{{ effortName(e) }}</option>
@@ -154,27 +174,27 @@ import { API_PERMISSION_MODES } from './permission-modes';
                     </select>
                   </label>
                   <label class="field">
-                    <span class="field-label">Thinking</span>
+                    <span class="field-label">{{ 'Thinking' | t }}</span>
                     <select
                       name="thinking"
                       [ngModel]="thinking()"
                       (ngModelChange)="thinking.set($event)"
                     >
-                      <option value="">Default</option>
-                      <option value="on">On</option>
-                      <option value="off">Off</option>
+                      <option value="">{{ 'Default' | t }}</option>
+                      <option value="on">{{ 'On' | t }}</option>
+                      <option value="off">{{ 'Off' | t }}</option>
                     </select>
                   </label>
                 </div>
                 <label class="field">
-                  <span class="field-label">Permissions</span>
+                  <span class="field-label">{{ 'Permissions' | t }}</span>
                   <select
                     name="permissionMode"
                     [ngModel]="permissionMode()"
                     (ngModelChange)="permissionMode.set($event)"
                   >
                     @for (p of permissionModes; track p.value) {
-                      <option [value]="p.value">{{ p.label }} — {{ p.hint }}</option>
+                      <option [value]="p.value">{{ p.label | t }} — {{ p.hint | t }}</option>
                     }
                   </select>
                 </label>
@@ -185,10 +205,16 @@ import { API_PERMISSION_MODES } from './permission-modes';
                     [ngModel]="isolate()"
                     (ngModelChange)="isolate.set($event)"
                   />
-                  <span>Ignore project settings (<code>CLAUDE.md</code>, hooks, MCP servers)</span>
+                  <span
+                    >{{ 'Ignore project settings' | t }} (<code>CLAUDE.md</code>,
+                    {{ 'hooks, MCP servers' | t }})</span
+                  >
                 </label>
                 <p class="field-hint">
-                  Change them here or later on its panel; a request can still override any of them.
+                  {{
+                    'Change them here or later on its panel; a request can still override any of them.'
+                      | t
+                  }}
                 </p>
               </div>
             </details>
@@ -200,19 +226,20 @@ import { API_PERMISSION_MODES } from './permission-modes';
           <div class="row actions">
             <button class="btn primary" type="submit" [disabled]="!canSave()">
               @if (server()) {
-                {{ busy() ? 'Saving…' : 'Save' }}
+                {{ busy() ? ('Saving…' | t) : ('Save' | t) }}
               } @else {
-                <mc-icon name="plus" [size]="15" /> {{ busy() ? 'Adding…' : 'Add API server' }}
+                <mc-icon name="plus" [size]="15" />
+                {{ busy() ? ('Adding…' | t) : ('Add API server' | t) }}
               }
             </button>
             <button class="btn ghost" type="button" [disabled]="busy()" (click)="closed.emit()">
-              Cancel
+              {{ 'Cancel' | t }}
             </button>
           </div>
         </form>
 
         @if (server(); as s) {
-          <h3>Remove</h3>
+          <h3>{{ 'Remove' | t }}</h3>
           @if (!confirmRemove()) {
             <p class="muted small">{{ removeText(s) }}</p>
             <div class="row">
@@ -222,20 +249,20 @@ import { API_PERMISSION_MODES } from './permission-modes';
                 [disabled]="busy()"
                 (click)="confirmRemove.set(true)"
               >
-                <mc-icon name="trash" [size]="14" /> Remove {{ s.name }}…
+                <mc-icon name="trash" [size]="14" /> {{ 'Remove {name}…' | t: { name: s.name } }}
               </button>
             </div>
           } @else {
             <p class="notice warn small" role="alert">
-              Remove <strong>{{ s.name }}</strong
+              {{ 'Remove' | t }} <strong>{{ s.name }}</strong
               >? {{ removeText(s) }}
             </p>
             <div class="row">
               <button class="btn danger" type="button" [disabled]="busy()" (click)="remove(s)">
-                {{ busy() ? 'Removing…' : 'Remove' }}
+                {{ busy() ? ('Removing…' | t) : ('Remove' | t) }}
               </button>
               <button class="btn ghost" type="button" (click)="confirmRemove.set(false)">
-                Keep it
+                {{ 'Keep it' | t }}
               </button>
             </div>
           }
@@ -351,7 +378,9 @@ export class ApiServerSheetComponent {
   protected readonly removeError = signal('');
   protected readonly confirmRemove = signal(false);
 
-  protected readonly title = computed(() => this.server()?.name ?? 'Add an API server');
+  protected readonly title = computed(() => this.server()?.name ?? tr('Add an API server'));
+  /** The desktop's computer in words ("Mac", "PC", "computer"). */
+  protected readonly computer = computed(() => computerNoun());
   protected readonly nameProblem = computed(() =>
     this.nameTouched() ? serverNameProblem(this.name(), this.servers(), this.server()?.id) : '',
   );
@@ -360,7 +389,7 @@ export class ApiServerSheetComponent {
   );
   protected readonly portPlaceholder = computed(() => {
     const p = this.server()?.port;
-    return p ? String(p) : 'automatic';
+    return p ? String(p) : tr('automatic');
   });
   /** Changing a server: its name or port differs. */
   private readonly changed = computed(() => {
@@ -379,10 +408,10 @@ export class ApiServerSheetComponent {
   protected readonly efforts = computed(() => this.launch()?.efforts ?? Object.keys(EFFORT_LABELS));
   protected readonly bridgeDefaultName = computed(() => {
     const id = this.accounts.view()?.defaults.bridge;
-    return this.accounts.byId(id)?.name ?? 'Default';
+    return this.accounts.byId(id)?.name ?? tr('Default');
   });
   protected readonly accountName = computed(
-    () => this.accounts.byId(this.account())?.name ?? 'that account',
+    () => this.accounts.byId(this.account())?.name ?? tr('that account'),
   );
 
   constructor() {
@@ -429,10 +458,11 @@ export class ApiServerSheetComponent {
   }
 
   protected removeText(s: ServerStatus): string {
-    return (
-      (s.running ? 'It is stopped first. ' : '') +
-      'Its conversations stay on disk, and the main server and the others carry on.'
-    );
+    return s.running
+      ? tr(
+          'It is stopped first. Its conversations stay on disk, and the main server and the others carry on.',
+        )
+      : tr('Its conversations stay on disk, and the main server and the others carry on.');
   }
 
   protected async save(e: Event): Promise<void> {

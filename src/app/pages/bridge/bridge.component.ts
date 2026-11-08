@@ -30,6 +30,9 @@ import {
 } from '../../core/api-servers';
 import { ApiService } from '../../core/api.service';
 import { AuthService } from '../../core/auth.service';
+import { plural } from '../../core/data-jobs';
+import { computerNoun, tr } from '../../core/i18n/i18n';
+import { TPipe } from '../../core/i18n/t.pipe';
 import {
   BridgeStatus,
   BridgeThread,
@@ -85,12 +88,15 @@ interface ClaudeLine {
     ApiServerSheetComponent,
     ConversationFilesComponent,
     IconComponent,
+    TPipe,
   ],
   template: `
     <div class="page-head"><h1>API</h1></div>
     <p class="lede">
-      A local HTTP API for Claude on this machine — conversations, turns, live streams, tool
-      approvals, images. It is off until you start it.
+      {{
+        'A local HTTP API for Claude on this machine — conversations, turns, live streams, tool approvals, images. It is off until you start it.'
+          | t
+      }}
     </p>
 
     @if (error(); as e) {
@@ -119,85 +125,96 @@ interface ClaudeLine {
             <strong class="sname">{{ panelName() }}</strong>
           }
           <span class="badge" [class.working]="s.running" [class.stopped]="!s.running">
-            {{ s.running ? 'running' : 'stopped' }}
+            {{ s.running ? ('running' | t) : ('stopped' | t) }}
           </span>
           @if (s.running && s.url) {
             <a class="mono url" [href]="s.url + '/docs/'" target="_blank" rel="noreferrer">{{
               s.url
             }}</a>
           } @else if (s.port) {
-            <span class="mono muted">port {{ s.port }}</span>
+            <span class="mono muted">{{ 'port {port}' | t: { port: s.port } }}</span>
           }
           <span class="spacer"></span>
           @if (!isMain()) {
             <button class="btn" type="button" [disabled]="busy()" (click)="managing.set(true)">
-              <mc-icon name="settings" [size]="15" /> Manage
+              <mc-icon name="settings" [size]="15" /> {{ 'Manage' | t }}
             </button>
           }
           @if (s.running) {
-            <button class="btn" type="button" [disabled]="busy()" (click)="stop()">Stop</button>
+            <button class="btn" type="button" [disabled]="busy()" (click)="stop()">
+              {{ 'Stop' | t }}
+            </button>
           }
         </div>
 
         <dl class="facts">
-          <dt>Claude account</dt>
+          <dt>{{ 'Claude account' | t }}</dt>
           <dd [class.warn]="!claudeLine().ok">{{ claudeLine().text }}</dd>
-          <dt>Runtime</dt>
+          <dt>{{ 'Runtime' | t }}</dt>
           <dd>
-            {{ s.hostBuilt ? (s.hostRunning ? 'running' : 'ready') : 'not built' }}
+            {{
+              s.hostBuilt ? (s.hostRunning ? ('running' | t) : ('ready' | t)) : ('not built' | t)
+            }}
             @if (!s.hostBuilt) {
-              <span class="muted small">— run <code>npm run sidecar:build</code></span>
+              <span class="muted small">{{ '— run' | t }} <code>npm run sidecar:build</code></span>
             }
           </dd>
-          <dt>Authentication</dt>
+          <dt>{{ 'Authentication' | t }}</dt>
           <dd [class.warn]="s.tokenPolicy === 'never'">{{ authLabel(s) }}</dd>
           @if (s.running) {
-            <dt>Started</dt>
+            <dt>{{ 'Started' | t }}</dt>
             <dd>{{ rel(s.startedAt) }}</dd>
             @if (isMain()) {
-              <dt>In flight</dt>
-              <dd>{{ s.activeOperations }} operation{{ s.activeOperations === 1 ? '' : 's' }}</dd>
+              <dt>{{ 'In flight' | t }}</dt>
+              <dd>{{ inFlight(s.activeOperations) }}</dd>
             }
           }
         </dl>
 
         @if (s.tokenPolicy === 'never') {
           <p class="warn">
-            <strong>No token is required from anywhere.</strong>
-            @if (s.exposedByTunnel) {
-              A tunnel points at this port{{ s.tunnelUrl ? ' (' + s.tunnelUrl + ')' : '' }}: anyone
-              who finds that URL can start conversations here and approve Claude's ordinary tool
-              calls on this Mac.
-            } @else {
-              Anyone who can reach this port — through a tunnel you start later, too — can drive
-              Claude on this Mac.
-            }
-            Dangerous actions stay limited to callers on this Mac. Turn off
-            <em>Open to tunnels</em> below and restart to close it.
+            <strong>{{ 'No token is required from anywhere.' | t }}</strong>
+            {{ openWarning(s) }}
+            {{
+              'Dangerous actions stay limited to callers on this {computer}.'
+                | t: { computer: computer() }
+            }}
+            {{ 'Turn off' | t }}
+            <em>{{ 'Open to tunnels' | t }}</em>
+            {{ 'below and restart to close it.' | t }}
           </p>
         }
 
         @if (claudeLine().gone) {
           <p class="warn">
-            Its account was removed, so it cannot start. Choose another account under Defaults (or
-            Automatic), then start it.
+            {{
+              'Its account was removed, so it cannot start. Choose another account under Defaults (or Automatic), then start it.'
+                | t
+            }}
           </p>
         } @else if (claudeLine().signedOut; as name) {
           <p class="warn">
-            {{ name }} is not signed in, so every message would fail. Sign it in on the Accounts
-            page of the desktop app.
+            {{
+              '{name} is not signed in, so every message would fail. Sign it in on the Accounts page of the desktop app.'
+                | t: { name }
+            }}
           </p>
         } @else if (!s.claudeAuthenticated && !claudeLine().account) {
           <p class="warn">
-            Claude itself is not signed in, so every message would fail. Run
-            <code>claude auth login</code> in a terminal, then reload this page.
+            {{ 'Claude itself is not signed in, so every message would fail. Run' | t }}
+            <code>claude auth login</code>
+            {{ 'in a terminal, then reload this page.' | t }}
           </p>
         }
 
         @if (s.running && s.url) {
           <div class="links">
-            <a class="btn" [href]="s.docsUrl" target="_blank" rel="noreferrer">API reference</a>
-            <a class="btn" [href]="s.consoleUrl" target="_blank" rel="noreferrer">Console</a>
+            <a class="btn" [href]="s.docsUrl" target="_blank" rel="noreferrer">{{
+              'API reference' | t
+            }}</a>
+            <a class="btn" [href]="s.consoleUrl" target="_blank" rel="noreferrer">{{
+              'Console' | t
+            }}</a>
           </div>
           <pre class="mono snippet">{{ snippet(s) }}</pre>
         }
@@ -205,34 +222,46 @@ interface ClaudeLine {
 
       @if (multi() && addresses().length) {
         <!-- ── Addresses ──────────────────────────────────────────── -->
-        <h2>Addresses</h2>
+        <h2>{{ 'Addresses' | t }}</h2>
         <mc-api-server-addresses [addresses]="addresses()" />
       }
 
       <!-- ── Defaults ───────────────────────────────────────────── -->
-      <h2>{{ s.running ? 'Defaults in use' : 'Defaults' }}</h2>
+      <h2>{{ s.running ? ('Defaults in use' | t) : ('Defaults' | t) }}</h2>
       <p class="muted">
-        Applied to conversations the API creates. Every one can be overridden in a request payload.
-        Leave a field on <em>Default</em> to inherit your own Claude settings.
+        {{
+          'Applied to conversations the API creates. Every one can be overridden in a request payload. Leave a field on'
+            | t
+        }}
+        <em>{{ 'Default' | t }}</em>
+        {{ 'to inherit your own Claude settings.' | t }}
       </p>
 
       <div class="card form">
         <label class="wide">
-          <span class="lbl">Working directory</span>
+          <span class="lbl">{{ 'Working directory' | t }}</span>
           <input
             [ngModel]="cwd()"
             (ngModelChange)="cwd.set($event)"
-            placeholder="your home directory"
+            [placeholder]="'your home directory' | t"
             spellcheck="false"
           />
-          <span class="hint">Where conversations run, and which files Claude can reach.</span>
+          <span class="hint">{{
+            'Where conversations run, and which files Claude can reach.' | t
+          }}</span>
         </label>
 
         <div class="row">
           <label>
-            <span class="lbl">Model</span>
+            <span class="lbl">{{ 'Model' | t }}</span>
             <select [ngModel]="model()" (ngModelChange)="model.set($event)">
-              <option value="">Default{{ launch()?.model ? ' — ' + launch()!.model : '' }}</option>
+              <option value="">
+                {{
+                  launch()?.model
+                    ? ('Default — {value}' | t: { value: launch()!.model })
+                    : ('Default' | t)
+                }}
+              </option>
               @for (m of launch()?.models ?? []; track m.value) {
                 <option [value]="m.value" [title]="m.description || ''">{{ m.label }}</option>
               }
@@ -240,10 +269,14 @@ interface ClaudeLine {
           </label>
 
           <label>
-            <span class="lbl">Effort</span>
+            <span class="lbl">{{ 'Effort' | t }}</span>
             <select [ngModel]="effort()" (ngModelChange)="effort.set($event)">
               <option value="">
-                Default{{ launch()?.effort ? ' — ' + effortLabel(launch()!.effort!) : '' }}
+                {{
+                  launch()?.effort
+                    ? ('Default — {value}' | t: { value: effortLabel(launch()!.effort!) })
+                    : ('Default' | t)
+                }}
               </option>
               @for (e of efforts(); track e) {
                 <option [value]="e">{{ effortLabel(e) }}</option>
@@ -252,32 +285,37 @@ interface ClaudeLine {
           </label>
 
           <label>
-            <span class="lbl">Thinking</span>
+            <span class="lbl">{{ 'Thinking' | t }}</span>
             <select [ngModel]="thinking()" (ngModelChange)="thinking.set($event)">
-              <option value="">Default</option>
-              <option value="on">On</option>
-              <option value="off">Off</option>
+              <option value="">{{ 'Default' | t }}</option>
+              <option value="on">{{ 'On' | t }}</option>
+              <option value="off">{{ 'Off' | t }}</option>
             </select>
           </label>
         </div>
 
         @if (accounts.multi() || (!isMain() && account())) {
           <label class="wide">
-            <span class="lbl">Account</span>
+            <span class="lbl">{{ 'Account' | t }}</span>
             <select [ngModel]="account()" (ngModelChange)="pickAccount($event)">
               <option value="">
-                Automatic — the project's account, else {{ bridgeDefaultName() }}
+                {{
+                  "Automatic — the project's account, else {name}"
+                    | t: { name: bridgeDefaultName() }
+                }}
               </option>
               @for (a of accounts.list(); track a.id) {
                 <option [value]="a.id">{{ a.name }}{{ a.email ? ' — ' + a.email : '' }}</option>
               }
               @if (accountGone()) {
-                <option [value]="account()">A removed account</option>
+                <option [value]="account()">{{ 'A removed account' | t }}</option>
               }
             </select>
             <span class="hint">
-              The Claude account conversations run under. Automatic takes the project's account,
-              else the one Settings › Accounts sets for the API. A request can still name another.
+              {{
+                "The Claude account conversations run under. Automatic takes the project's account, else the one Settings › Accounts sets for the API. A request can still name another."
+                  | t
+              }}
             </span>
           </label>
           @if (account() && (multi() || accountOnly())) {
@@ -287,24 +325,23 @@ interface ClaudeLine {
                 [ngModel]="accountOnly()"
                 (ngModelChange)="accountOnly.set($event)"
               />
-              <span
-                >Only this account — every conversation runs as {{ accountName() }}; a request
-                naming another account is refused, and other accounts' conversations stay out of
-                reach</span
-              >
+              <span>{{
+                "Only this account — every conversation runs as {name}; a request naming another account is refused, and other accounts' conversations stay out of reach"
+                  | t: { name: accountName() }
+              }}</span>
             </label>
           }
         }
 
         <label class="wide">
-          <span class="lbl">Permissions</span>
+          <span class="lbl">{{ 'Permissions' | t }}</span>
           <select [ngModel]="permissionMode()" (ngModelChange)="permissionMode.set($event)">
             @for (p of permissionModes; track p.value) {
-              <option [value]="p.value">{{ p.label }} — {{ p.hint }}</option>
+              <option [value]="p.value">{{ p.label | t }} — {{ p.hint | t }}</option>
             }
           </select>
           <span class="hint">
-            Approvals reach you as prompt cards here and on your phone, and over
+            {{ 'Approvals reach you as prompt cards here and on your phone, and over' | t }}
             <code>GET /requests</code>.
           </span>
         </label>
@@ -312,28 +349,35 @@ interface ClaudeLine {
         <label class="check">
           <input type="checkbox" [ngModel]="isolate()" (ngModelChange)="isolate.set($event)" />
           <span
-            >Ignore project settings — don't load <code>CLAUDE.md</code>, hooks or MCP servers from
-            the working directory</span
+            >{{ "Ignore project settings — don't load" | t }} <code>CLAUDE.md</code
+            >{{ ', hooks or MCP servers from the working directory' | t }}</span
           >
         </label>
       </div>
 
       <!-- ── Conversation ───────────────────────────────────────── -->
-      <h2>Conversation</h2>
+      <h2>{{ 'Conversation' | t }}</h2>
       <p class="muted">
-        Where a message with no <code>thread_id</code> goes. Pass
-        <code>createNewChat: true</code> in any request to branch off a new one — it is false by
-        default so a client that only sends <code>{{ '{' }} "message": "…" {{ '}' }}</code> keeps
-        one continuous conversation.
+        {{ 'Where a message with no' | t }} <code>thread_id</code>
+        {{ 'goes.||where a message with no thread_id goes' | t }}
+        {{ 'Pass||a field, in any request' | t }} <code>createNewChat: true</code>
+        {{
+          'in any request to branch off a new one — it is false by default so a client that only sends'
+            | t
+        }}
+        <code>{{ '{' }} "message": "…" {{ '}' }}</code>
+        {{ 'keeps one continuous conversation.' | t }}
       </p>
 
       <div class="card form">
         <label class="wide">
-          <span class="lbl">Messages join</span>
+          <span class="lbl">{{ 'Messages join' | t }}</span>
           <select [ngModel]="thread()" (ngModelChange)="thread.set($event)">
-            <option [value]="FRESH">A new conversation, created by the first message</option>
+            <option [value]="FRESH">
+              {{ 'A new conversation, created by the first message' | t }}
+            </option>
             @if (liveThreads(s).length) {
-              <optgroup label="Running now">
+              <optgroup [attr.label]="'Running now' | t">
                 @for (t of liveThreads(s); track t.threadId) {
                   <option [value]="t.threadId">
                     {{ t.title || shortId(t.threadId) }} — {{ t.cwd
@@ -343,7 +387,7 @@ interface ClaudeLine {
               </optgroup>
             }
             @if (pastSessions(s).length) {
-              <optgroup label="Earlier conversations">
+              <optgroup [attr.label]="'Earlier conversations' | t">
                 @for (p of pastSessions(s); track p.id) {
                   <option [value]="p.id">{{ label(p) }} — {{ rel(p.lastActivityAt) }}</option>
                 }
@@ -351,7 +395,10 @@ interface ClaudeLine {
             }
           </select>
           <span class="hint">
-            Picking an earlier conversation resumes it — same history, same working directory.
+            {{
+              'Picking an earlier conversation resumes it — same history, same working directory.'
+                | t
+            }}
           </span>
         </label>
         @if (picked(); as p) {
@@ -366,14 +413,14 @@ interface ClaudeLine {
 
         @if (s.running && thread() !== (s.activeThread ?? FRESH)) {
           <button class="btn" type="button" [disabled]="busy()" (click)="applyThread()">
-            Switch conversation
+            {{ 'Switch conversation' | t }}
           </button>
         }
       </div>
 
       <!-- ── Access ─────────────────────────────────────────────── -->
       @if (s.port) {
-        <h2>Access</h2>
+        <h2>{{ 'Access' | t }}</h2>
         <div class="card form">
           <label class="check">
             <input
@@ -382,31 +429,37 @@ interface ClaudeLine {
               (ngModelChange)="openToTunnels.set($event)"
               [disabled]="!isDesktop()"
             />
-            <span
-              >Open to tunnels — accept calls without a token from anyone who can reach port
-              {{ s.port }}</span
-            >
+            <span>{{
+              'Open to tunnels — accept calls without a token from anyone who can reach port {port}'
+                | t: { port: s.port }
+            }}</span>
           </label>
           <span class="hint">
             @if (openToTunnels()) {
-              On: through ngrok, cloudflared or any tunnel to this port, whoever has its URL can
-              start conversations here and approve Claude's ordinary tool calls on this Mac.
-              Dangerous actions stay limited to this Mac.
+              {{
+                "On: through ngrok, cloudflared or any tunnel to this port, whoever has its URL can start conversations here and approve Claude's ordinary tool calls on this {computer}. Dangerous actions stay limited to this {computer}."
+                  | t: { computer: computer() }
+              }}
             } @else {
-              Off: {{ closedLabel(s) }}
+              {{ closedLabel(s) }}
             }
             @if (!isDesktop()) {
-              Only the desktop app can change this.
+              {{ 'Only the desktop app can change this.' | t }}
               <!-- A start of a server besides the main one closes it unless the
                    desktop opens it (a change under Manage keeps its opening). -->
               @if (!isMain() && openToTunnels()) {
-                <em>Restart with these settings</em> from here closes it to tunnels.
+                <em>{{ 'Restart with these settings' | t }}</em>
+                {{ 'from here closes it to tunnels.' | t }}
               }
             }
           </span>
           @if (openToTunnels() && s.exposedByTunnel) {
             <p class="warn">
-              A tunnel points at this port now{{ s.tunnelUrl ? ': ' + s.tunnelUrl : '' }}.
+              {{
+                s.tunnelUrl
+                  ? ('A tunnel points at this port now: {url}.' | t: { url: s.tunnelUrl })
+                  : ('A tunnel points at this port now.' | t)
+              }}
             </p>
           }
         </div>
@@ -420,7 +473,13 @@ interface ClaudeLine {
           [disabled]="busy() || accountGone()"
           (click)="start()"
         >
-          {{ busy() ? 'Working…' : s.running ? 'Restart with these settings' : startLabel() }}
+          {{
+            busy()
+              ? ('Working…' | t)
+              : s.running
+                ? ('Restart with these settings' | t)
+                : startLabel()
+          }}
         </button>
         @if (!isMain() && !s.running) {
           <button
@@ -429,14 +488,14 @@ interface ClaudeLine {
             [disabled]="busy() || accountGone()"
             (click)="saveDefaults()"
           >
-            Save without starting
+            {{ 'Save without starting' | t }}
           </button>
         }
         @if (!s.running) {
           <span class="muted small">
-            Starting publishes
-            <span class="mono">{{ s.url || 'the /v1 routes' }}</span>
-            to local tools.
+            {{ 'Starting publishes' | t }}
+            <span class="mono">{{ s.url || ('the /v1 routes' | t) }}</span>
+            {{ 'to local tools.' | t }}
           </span>
         }
       </div>
@@ -450,19 +509,19 @@ interface ClaudeLine {
       @if (!multi() && s.enabled) {
         <p class="more muted small">
           <button class="btn ghost small" type="button" (click)="adding.set(true)">
-            <mc-icon name="plus" [size]="14" /> Add API server
+            <mc-icon name="plus" [size]="14" /> {{ 'Add API server' | t }}
           </button>
-          <span>Another API on a port of its own — for one Claude account, say.</span>
+          <span>{{ 'Another API on a port of its own — for one Claude account, say.' | t }}</span>
         </p>
       }
 
       @if (!s.enabled) {
         <div class="card muted">
-          The API is disabled for this process (<code>MOTHER_CLAUDE_BRIDGE=0</code>).
+          {{ 'The API is disabled for this process' | t }} (<code>MOTHER_CLAUDE_BRIDGE=0</code>).
         </div>
       }
     } @else if (!error()) {
-      <p class="muted">Loading…</p>
+      <p class="muted">{{ 'Loading…' | t }}</p>
     }
 
     <mc-api-server-sheet
@@ -699,9 +758,11 @@ export class BridgeComponent {
   private readonly panelTop = viewChild<ElementRef<HTMLElement>>('panelTop');
 
   readonly efforts = computed(() => this.launch()?.efforts ?? Object.keys(EFFORT_LABELS));
+  /** The desktop's computer in words ("Mac", "PC", "computer"). */
+  readonly computer = computed(() => computerNoun());
   readonly bridgeDefaultName = computed(() => {
     const id = this.accounts.view()?.defaults.bridge;
-    return this.accounts.byId(id)?.name ?? 'Default';
+    return this.accounts.byId(id)?.name ?? tr('Default');
   });
   /** The account picked for a server besides the main one is gone (it keeps
    * a removed one until another is chosen; the main one forgets it). */
@@ -711,9 +772,11 @@ export class BridgeComponent {
     if (!id || !server || this.isMain()) return false;
     return (server.accountMissing && server.defaults.account === id) || this.accountUnknown(id);
   });
-  readonly accountName = computed(() => this.accounts.byId(this.account())?.name ?? 'it');
+  readonly accountName = computed(
+    () => this.accounts.byId(this.account())?.name ?? tr('it||an account'),
+  );
   readonly startLabel = computed(() =>
-    this.isMain() ? 'Start the API' : `Start ${this.panelName()}`,
+    this.isMain() ? tr('Start the API') : tr('Start {name}', { name: this.panelName() }),
   );
 
   readonly claudeLine = computed<ClaudeLine>(() => {
@@ -723,8 +786,8 @@ export class BridgeComponent {
     const id = server?.defaults.account;
     if (!server || !id) return { text: s.claudeAccount, ok: s.claudeAuthenticated };
     const acc = serverAccount(server, (x) => this.accounts.byId(x)?.name);
-    const only = acc.only ? ' · only this account' : '';
-    if (acc.missing) return { text: 'A removed account', ok: false, account: id, gone: true };
+    const only = acc.only ? ' · ' + tr('only this account') : '';
+    if (acc.missing) return { text: tr('A removed account'), ok: false, account: id, gone: true };
     const view = this.accounts.byId(id);
     if (!view) return { text: acc.name + only, ok: true, account: id };
     return {
@@ -855,7 +918,7 @@ export class BridgeComponent {
   private explain(e: unknown): string {
     const main = this.isMain();
     return serverErrorText(e, {
-      server: main && !this.multi() ? 'the API' : this.panelName(),
+      server: main && !this.multi() ? tr('the API') : this.panelName(),
       main,
       account: this.accounts.byId(this.account())?.name,
       servers: this.servers(),
@@ -897,7 +960,7 @@ export class BridgeComponent {
     await this.run(() => this.api.updateBridgeServer(id, { defaults: this.defaults() }));
     if (!this.error()) {
       this.notice.set({
-        text: `Saved: ${this.panelName()} starts with these settings.`,
+        text: tr('Saved: {name} starts with these settings.', { name: this.panelName() }),
         at: 'actions',
       });
     }
@@ -940,7 +1003,9 @@ export class BridgeComponent {
       this.selectedId.set(server.id);
       this.apply(next, true);
       this.notice.set({
-        text: `Added ${server.name}. It is stopped: check its defaults below, then start it.`,
+        text: tr('Added {name}. It is stopped: check its defaults below, then start it.', {
+          name: server.name,
+        }),
         at: 'top',
       });
     } else {
@@ -960,11 +1025,14 @@ export class BridgeComponent {
   }
 
   onRemoved(id: string): void {
-    const name = this.servers().find((s) => s.id === id)?.name ?? 'The server';
+    const name = this.servers().find((s) => s.id === id)?.name;
     this.closeSheet();
     this.selectedId.set(MAIN_SERVER);
     this.apply(withoutServer(this.status(), id), true);
-    this.notice.set({ text: `Removed ${name}.`, at: 'top' });
+    this.notice.set({
+      text: name ? tr('Removed {name}.', { name }) : tr('Removed the server.'),
+      at: 'top',
+    });
   }
 
   liveThreads(s: BridgeStatus) {
@@ -1001,7 +1069,7 @@ export class BridgeComponent {
 
   /** The account a running conversation is under (absent: the Default's). */
   threadAccount(t: BridgeThread): string {
-    return t.account?.name ?? this.accounts.byId(DEFAULT_ACCOUNT)?.name ?? 'Default';
+    return t.account?.name ?? this.accounts.byId(DEFAULT_ACCOUNT)?.name ?? tr('Default');
   }
 
   /** Recent sessions that are not already listed as running conversations —
@@ -1023,23 +1091,51 @@ export class BridgeComponent {
   /** What the port does with the switch off, given the configured policy. */
   closedLabel(s: BridgeStatus): string {
     return s.configuredTokenPolicy === 'required'
-      ? 'every call needs a token.'
-      : 'no token for programs on this Mac; through a tunnel a token is needed, and while a ' +
-          'tunnel points at this port, every call needs one.';
+      ? tr('Off: every call needs a token.')
+      : tr(
+          'Off: no token for programs on this {computer}; through a tunnel a token is needed, and while a tunnel points at this port, every call needs one.',
+          { computer: computerNoun() },
+        );
+  }
+
+  /** Why no token from anywhere matters now: a tunnel points at the port,
+   * or one started later would. */
+  openWarning(s: BridgeStatus): string {
+    const computer = computerNoun();
+    if (!s.exposedByTunnel) {
+      return tr(
+        'Anyone who can reach this port — through a tunnel you start later, too — can drive Claude on this {computer}.',
+        { computer },
+      );
+    }
+    return s.tunnelUrl
+      ? tr(
+          "A tunnel points at this port ({url}): anyone who finds that URL can start conversations here and approve Claude's ordinary tool calls on this {computer}.",
+          { url: s.tunnelUrl, computer },
+        )
+      : tr(
+          "A tunnel points at this port: anyone who finds that URL can start conversations here and approve Claude's ordinary tool calls on this {computer}.",
+          { computer },
+        );
   }
 
   /** The Authentication line: who may call this port without a token. */
   authLabel(s: BridgeStatus): string {
     switch (s.tokenPolicy) {
       case 'required':
-        return 'bearer token required';
+        return tr('bearer token required');
       case 'never':
-        return 'none — anyone who can reach the port, through a tunnel too';
+        return tr('none — anyone who can reach the port, through a tunnel too');
       default:
         return s.exposedByTunnel
-          ? 'token required while a tunnel points at this port'
-          : 'none — any local tool can call it';
+          ? tr('token required while a tunnel points at this port')
+          : tr('none — any local tool can call it');
     }
+  }
+
+  /** "3 operations" in flight. */
+  inFlight(n: number): string {
+    return plural(n, 'operation');
   }
 
   /** The call to paste into a terminal, matching this listener's auth policy. */

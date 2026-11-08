@@ -2,6 +2,7 @@ import { ChangeDetectionStrategy, Component, computed, inject, input, output } f
 
 import { MAIN_SERVER, ServerAccount, ServerStatus, serverAccount } from '../../core/api-servers';
 import { AccountsService } from '../../core/accounts.service';
+import { TPipe } from '../../core/i18n/t.pipe';
 import { AccountRef } from '../../core/models';
 import { AccountChipComponent } from '../../shared/account-chip.component';
 import { IconComponent } from '../../shared/icon.component';
@@ -24,9 +25,9 @@ interface Row {
 @Component({
   selector: 'mc-api-server-list',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [AccountChipComponent, IconComponent],
+  imports: [AccountChipComponent, IconComponent, TPipe],
   template: `
-    <section class="card servers" aria-label="API servers">
+    <section class="card servers" [attr.aria-label]="'API servers' | t">
       @for (r of rows(); track r.s.id) {
         <button
           type="button"
@@ -40,38 +41,42 @@ interface Row {
             <span class="sline">
               <strong class="sname">{{ r.s.name }}</strong>
               <span class="badge" [class.working]="r.s.running">{{
-                r.s.running ? 'running' : 'stopped'
+                r.s.running ? ('running' | t) : ('stopped' | t)
               }}</span>
               @if (r.open) {
-                <span class="badge warn">open to tunnels</span>
+                <span class="badge warn">{{ 'open to tunnels' | t }}</span>
               }
             </span>
             <span class="meta muted small">
               @if (r.s.port) {
-                <span>port {{ r.s.port }}</span>
+                <span>{{ 'port {port}' | t: { port: r.s.port } }}</span>
                 <span class="sep" aria-hidden="true">·</span>
               }
               @if (r.chip) {
                 <mc-account-chip [account]="r.chip" />
               } @else if (r.account.missing) {
-                <span class="warn-text">its account was removed</span>
+                <span class="warn-text">{{ 'its account was removed' | t }}</span>
               } @else if (r.account.id) {
                 <span>{{ r.account.name }}</span>
               } @else {
-                <span>automatic account</span>
+                <span>{{ 'automatic account' | t }}</span>
               }
               @if (r.account.only) {
                 <span class="sep" aria-hidden="true">·</span>
-                <span>only this account</span>
+                <span>{{ 'only this account' | t }}</span>
               }
             </span>
             @if (r.s.exposedByTunnel) {
               <span class="tunnel small">
                 <mc-icon name="globe" [size]="13" />
-                <span
-                  >A tunnel points at it{{ r.s.tunnelUrl ? ': ' : ''
-                  }}<span class="mono">{{ r.s.tunnelUrl }}</span></span
-                >
+                @if (r.s.tunnelUrl) {
+                  <span
+                    >{{ 'A tunnel points at it:' | t }}
+                    <span class="mono">{{ r.s.tunnelUrl }}</span></span
+                  >
+                } @else {
+                  <span>{{ 'A tunnel points at it' | t }}</span>
+                }
               </span>
             }
           </span>
@@ -79,7 +84,7 @@ interface Row {
       }
       <div class="addrow">
         <button class="btn ghost small" type="button" (click)="add.emit()">
-          <mc-icon name="plus" [size]="15" /> Add API server
+          <mc-icon name="plus" [size]="15" /> {{ 'Add API server' | t }}
         </button>
       </div>
     </section>
