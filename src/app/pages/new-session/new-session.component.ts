@@ -6,6 +6,8 @@ import { accountCanRun } from '../../core/accounts';
 import { AccountsService } from '../../core/accounts.service';
 import { ApiError, ApiService, errorMessage } from '../../core/api.service';
 import { AuthService } from '../../core/auth.service';
+import { computerNoun, tr } from '../../core/i18n/i18n';
+import { TPipe } from '../../core/i18n/t.pipe';
 import { AccountView, ImageAttachment, ProjectInfo } from '../../core/models';
 import { folderExample } from '../../core/paths';
 import { accountErrorText, cannotRunReason } from '../../shared/accounts';
@@ -30,28 +32,33 @@ interface Attachment extends ImageAttachment {
  */
 @Component({
   selector: 'mc-new-session',
-  imports: [FormsModule, IconComponent, LaunchOptionsComponent, RelativeTimePipe],
+  imports: [FormsModule, IconComponent, LaunchOptionsComponent, RelativeTimePipe, TPipe],
   template: `
     <div class="page narrow">
-      <div class="page-head"><h1>New session</h1></div>
+      <div class="page-head">
+        <h1>{{ 'New session' | t }}</h1>
+      </div>
       <p class="lede">
-        Sessions started here are <strong>owned</strong> by Mother Claude: full control from this
-        device and your phone — approvals, questions, interrupts and model switches.
+        {{ 'Sessions started here are' | t }} <strong>{{ 'owned||by Mother Claude' | t }}</strong>
+        {{
+          'by Mother Claude: full control from this device and your phone — approvals, questions, interrupts and model switches.'
+            | t
+        }}
       </p>
 
       <section class="card">
-        <h2 class="first">Project</h2>
+        <h2 class="first">{{ 'Project' | t }}</h2>
         @if (projects().length > 6) {
           <input
             type="search"
             class="filter"
-            placeholder="Filter projects"
-            aria-label="Filter projects"
+            [placeholder]="'Filter projects' | t"
+            [attr.aria-label]="'Filter projects' | t"
             [ngModel]="projectQuery()"
             (ngModelChange)="projectQuery.set($event)"
           />
         }
-        <div class="projects" role="radiogroup" aria-label="Project">
+        <div class="projects" role="radiogroup" [attr.aria-label]="'Project' | t">
           @for (p of shownProjects(); track p.path) {
             <button
               type="button"
@@ -72,13 +79,15 @@ interface Attachment extends ImageAttachment {
             </button>
           } @empty {
             <p class="muted small">
-              {{ loadingProjects() ? 'Loading projects…' : 'No recent projects found.' }}
+              {{
+                loadingProjects() ? ('Loading projects…' | t) : ('No recent projects found.' | t)
+              }}
             </p>
           }
         </div>
         @if (isDesktop()) {
           <label class="field path">
-            <span class="field-label">Or any folder on this computer</span>
+            <span class="field-label">{{ 'Or any folder on this computer' | t }}</span>
             <input
               [ngModel]="cwd()"
               (ngModelChange)="cwd.set($event)"
@@ -92,9 +101,9 @@ interface Attachment extends ImageAttachment {
 
       @if (accounts.multi()) {
         <section class="card">
-          <h2 class="first">Account</h2>
+          <h2 class="first">{{ 'Account' | t }}</h2>
           <label class="field">
-            <span class="field-label">Runs under</span>
+            <span class="field-label">{{ 'Runs under' | t }}</span>
             <select [ngModel]="account()" (ngModelChange)="account.set($event)">
               @for (a of accounts.list(); track a.id) {
                 <option [value]="a.id" [disabled]="!canRun(a)">{{ accountOption(a) }}</option>
@@ -109,24 +118,24 @@ interface Attachment extends ImageAttachment {
       }
 
       <section class="card">
-        <h2 class="first">Options</h2>
+        <h2 class="first">{{ 'Options' | t }}</h2>
         <mc-launch-options />
       </section>
 
       <section class="card">
         <label class="field">
-          <span class="field-label">First prompt</span>
+          <span class="field-label">{{ 'First prompt' | t }}</span>
           <textarea
             rows="5"
             [ngModel]="prompt()"
             (ngModelChange)="prompt.set($event)"
-            placeholder="Describe what Claude should do… (optional)"
+            [placeholder]="'Describe what Claude should do… (optional)' | t"
           ></textarea>
         </label>
 
         <div class="attach">
           <label class="btn">
-            <mc-icon name="image" [size]="16" /> Add images
+            <mc-icon name="image" [size]="16" /> {{ 'Add images' | t }}
             <input
               type="file"
               accept="image/*"
@@ -135,7 +144,7 @@ interface Attachment extends ImageAttachment {
               (change)="onFiles($event)"
             />
           </label>
-          <span class="muted small">PNG, JPEG, GIF or WebP · up to 10 · 5 MB each</span>
+          <span class="muted small">{{ 'PNG, JPEG, GIF or WebP · up to 10 · 5 MB each' | t }}</span>
         </div>
         @if (images().length) {
           <div class="thumbs">
@@ -145,7 +154,7 @@ interface Attachment extends ImageAttachment {
                 <button
                   type="button"
                   class="remove"
-                  [attr.aria-label]="'Remove ' + img.name"
+                  [attr.aria-label]="'Remove {name}' | t: { name: img.name }"
                   (click)="removeImage($index)"
                 >
                   <mc-icon name="x" [size]="14" />
@@ -167,10 +176,11 @@ interface Attachment extends ImageAttachment {
           [disabled]="starting() || !cwd().trim()"
           (click)="start()"
         >
-          <mc-icon name="send" [size]="16" /> {{ starting() ? 'Starting…' : 'Start session' }}
+          <mc-icon name="send" [size]="16" />
+          {{ starting() ? ('Starting…' | t) : ('Start session' | t) }}
         </button>
         @if (!cwd().trim()) {
-          <span class="muted small">Pick a project first.</span>
+          <span class="muted small">{{ 'Pick a project first.' | t }}</span>
         }
       </div>
     </div>
@@ -351,17 +361,22 @@ export class NewSessionComponent {
     const a = this.accounts.byId(this.account());
     const why =
       this.account() !== auto.id
-        ? 'Chosen here, for this session.'
+        ? tr('Chosen here, for this session.')
         : auto.via === 'project'
-          ? `The account of ${shortPath(auto.dir)}, set on the Accounts page.`
-          : 'The default for new sessions.';
+          ? tr('The account of {folder}, set on the Accounts page.', {
+              folder: shortPath(auto.dir),
+            })
+          : tr('The default for new sessions.');
     if (!a) return why;
+    const computer = computerNoun();
     const what =
       a.kind === 'token'
-        ? "It shares this Mac's projects and conversations."
+        ? tr("It shares this {computer}'s projects and conversations.", { computer })
         : a.isDefault
-          ? "It uses this Mac's own Claude Code setup."
-          : `It uses its own Claude Code setup${a.dir ? ` in ${shortPath(a.dir)}` : ''}.`;
+          ? tr("It uses this {computer}'s own Claude Code setup.", { computer })
+          : a.dir
+            ? tr('It uses its own Claude Code setup in {dir}.', { dir: shortPath(a.dir) })
+            : tr('It uses its own Claude Code setup.');
     return `${why} ${what}`;
   });
   protected readonly accountWarning = computed(() => {
@@ -370,7 +385,9 @@ export class NewSessionComponent {
     const reason = cannotRunReason(a);
     if (reason) return `${a.name}: ${reason}. ${this.fixWhere()}`;
     if (a.attention === 'authFailed') {
-      return `A session of ${a.name} could not sign in lately: it may need signing in again.`;
+      return tr('A session of {name} could not sign in lately: it may need signing in again.', {
+        name: a.name,
+      });
     }
     return '';
   });
@@ -393,8 +410,8 @@ export class NewSessionComponent {
 
   private fixWhere(): string {
     return this.isDesktop()
-      ? 'Fix it on the Accounts page (Settings › Accounts).'
-      : 'Fix it on the Accounts page of the desktop app.';
+      ? tr('Fix it on the Accounts page (Settings › Accounts).')
+      : tr('Fix it on the Accounts page of the desktop app.');
   }
 
   protected async onFiles(event: Event): Promise<void> {
@@ -404,7 +421,7 @@ export class NewSessionComponent {
     this.error.set('');
     for (const file of files) {
       if (this.images().length >= MAX_IMAGES) {
-        this.error.set(`At most ${MAX_IMAGES} images.`);
+        this.error.set(tr('At most {n} images.', { n: MAX_IMAGES }));
         break;
       }
       try {
@@ -435,7 +452,7 @@ export class NewSessionComponent {
     if (!cwd || this.starting()) return;
     const opts = this.options();
     if (opts.invalid()) {
-      this.error.set('Enter a custom model id, or pick a model from the list.');
+      this.error.set(tr('Enter a custom model id, or pick a model from the list.'));
       return;
     }
     this.starting.set(true);
@@ -463,9 +480,11 @@ export class NewSessionComponent {
       ].includes(code);
       if (code === 'unknown_account') void this.accounts.refresh();
       this.error.set(
-        `Could not start the session: ${
-          accountRefused ? accountErrorText(e, this.accounts.byId(account)?.name) : errorMessage(e)
-        }`,
+        tr('Could not start the session: {error}', {
+          error: accountRefused
+            ? accountErrorText(e, this.accounts.byId(account)?.name)
+            : errorMessage(e),
+        }),
       );
     } finally {
       this.starting.set(false);
@@ -481,7 +500,7 @@ export class NewSessionComponent {
       this.projects.set(sorted);
       if (!this.cwd() && sorted.length === 1) this.cwd.set(sorted[0].path);
     } catch (e) {
-      this.error.set(`Could not load projects: ${errorMessage(e)}`);
+      this.error.set(tr('Could not load projects: {error}', { error: errorMessage(e) }));
     } finally {
       this.loadingProjects.set(false);
     }

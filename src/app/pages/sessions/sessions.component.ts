@@ -6,6 +6,8 @@ import { DEFAULT_ACCOUNT } from '../../core/accounts';
 import { AccountsService } from '../../core/accounts.service';
 import { ApiService, errorMessage } from '../../core/api.service';
 import { sessionGroups } from '../../core/delete-data';
+import { computerNoun, tr } from '../../core/i18n/i18n';
+import { TPipe } from '../../core/i18n/t.pipe';
 import { JobView, SessionSummary } from '../../core/models';
 import { anyTarget } from '../../core/move-data';
 import { storageGet, storageSet } from '../../core/platform';
@@ -79,6 +81,7 @@ function byRecent(a: SessionSummary, b: SessionSummary): number {
     MoveDataSheetComponent,
     ProjectsViewComponent,
     SessionCardComponent,
+    TPipe,
   ],
   templateUrl: './sessions.component.html',
   styleUrl: './sessions.component.scss',
@@ -165,36 +168,38 @@ export class SessionsComponent {
     const groups: Group[] = [
       {
         key: 'needs',
-        title: 'Needs you',
+        title: tr('Needs you'),
         items: needs.sort((a, b) => oldestPending(a) - oldestPending(b)),
       },
       {
         key: 'working',
-        title: 'Working',
+        title: tr('Working'),
         items: rest.filter((s) => s.status === 'working' || s.status === 'starting').sort(byRecent),
       },
       {
         // Between turns, but not done: background work or a wakeup resumes
         // them by themselves.
         key: 'background',
-        title: 'Will resume',
+        title: tr('Will resume'),
         items: rest.filter((s) => s.status === 'background').sort(byRecent),
       },
       {
         key: 'idle',
-        title: 'Idle',
+        title: tr('Idle'),
         items: rest.filter((s) => s.status === 'idle').sort(byRecent),
       },
       {
         key: 'ended',
-        title: 'Ended recently',
+        title: tr('Ended recently'),
         items: rest.filter((s) => ['ended', 'failed', 'stopped'].includes(s.status)).sort(byRecent),
       },
     ];
     // Unknown statuses from a newer server still show up.
     const known = new Set(groups.flatMap((g) => g.items.map((s) => s.id)));
     const other = list.filter((s) => !known.has(s.id));
-    if (other.length) groups.push({ key: 'other', title: 'Other', items: other.sort(byRecent) });
+    if (other.length) {
+      groups.push({ key: 'other', title: tr('Other'), items: other.sort(byRecent) });
+    }
     return groups.filter((g) => g.items.length);
   });
 
@@ -205,6 +210,8 @@ export class SessionsComponent {
   });
 
   protected readonly surfaceLabel = surfaceLabel;
+  /** The desktop's computer in words ("Mac", "PC", "computer"). */
+  protected readonly computer = computerNoun;
 
   /** Somewhere to move conversations to (another account, or a
    * storage): the Select bar offers Move or copy. */
@@ -218,7 +225,7 @@ export class SessionsComponent {
   protected readonly selectingAll = signal(false);
   protected readonly selectAllError = signal('');
   protected readonly selectAllLabel = computed(() =>
-    filtersActive(this.filters()) ? 'Select all matching' : 'Select all',
+    filtersActive(this.filters()) ? tr('Select all matching') : tr('Select all'),
   );
   /** Move data with the picked conversations (null: closed). */
   protected readonly moveStart = signal<MoveStart | null>(null);
@@ -287,7 +294,9 @@ export class SessionsComponent {
       found = await this.api.listSessionIds({ scope: 'all', ...filterQuery(this.filters()) });
     } catch (e) {
       this.selectAllError.set(
-        `Only the sessions shown were selected; earlier ones could not be found: ${errorMessage(e)}`,
+        tr('Only the sessions shown were selected; earlier ones could not be found: {error}', {
+          error: errorMessage(e),
+        }),
       );
     } finally {
       this.selectingAll.set(false);

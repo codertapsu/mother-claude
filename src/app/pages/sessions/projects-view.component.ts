@@ -23,6 +23,8 @@ import {
   projectMatches,
   revealLabel,
 } from '../../core/delete-data';
+import { tr } from '../../core/i18n/i18n';
+import { TPipe } from '../../core/i18n/t.pipe';
 import { JobView } from '../../core/models';
 import { accountLocation, anyTarget } from '../../core/move-data';
 import { NoticeService } from '../../core/notice.service';
@@ -43,7 +45,8 @@ import { relativeTime, shortPath } from '../../shared/util';
 /** Recent deletes listed (their Undo lasts seven days). */
 const DELETES_SHOWN = 6;
 
-/** Why Move or copy waits: one request moves one account's projects. */
+/** Why Move or copy waits: one request moves one account's projects
+ * (English; translated where shown). */
 export const MIXED_ACCOUNTS = 'Pick projects of one account to move or copy them together.';
 
 /**
@@ -66,6 +69,7 @@ export const MIXED_ACCOUNTS = 'Pick projects of one account to move or copy them
     IconComponent,
     MoveDataSheetComponent,
     SheetComponent,
+    TPipe,
   ],
   template: `
     <div class="toolbar">
@@ -73,8 +77,8 @@ export const MIXED_ACCOUNTS = 'Pick projects of one account to move or copy them
         <mc-icon name="search" [size]="16" />
         <input
           type="search"
-          placeholder="Search projects"
-          aria-label="Search projects"
+          [placeholder]="'Search projects' | t"
+          [attr.aria-label]="'Search projects' | t"
           [ngModel]="query()"
           (ngModelChange)="query.set($event)"
           autocapitalize="off"
@@ -83,8 +87,12 @@ export const MIXED_ACCOUNTS = 'Pick projects of one account to move or copy them
       </label>
       <div class="filters">
         @if (multi()) {
-          <select aria-label="Account" [ngModel]="account()" (ngModelChange)="account.set($event)">
-            <option value="">All accounts</option>
+          <select
+            [attr.aria-label]="'Account' | t"
+            [ngModel]="account()"
+            (ngModelChange)="account.set($event)"
+          >
+            <option value="">{{ 'All accounts' | t }}</option>
             @for (a of accountList(); track a.id) {
               <option [value]="a.id">{{ a.name }}</option>
             }
@@ -99,9 +107,9 @@ export const MIXED_ACCOUNTS = 'Pick projects of one account to move or copy them
             (click)="toggleSelecting()"
           >
             @if (selecting()) {
-              Done
+              {{ 'Done' | t }}
             } @else {
-              <mc-icon name="check" [size]="15" /> Select
+              <mc-icon name="check" [size]="15" /> {{ 'Select' | t }}
             }
           </button>
         }
@@ -111,16 +119,18 @@ export const MIXED_ACCOUNTS = 'Pick projects of one account to move or copy them
     @if (list(); as all) {
       @if (!all.length) {
         <div class="card empty-state">
-          <strong>No conversations on disk</strong>
-          A project shows up here once Claude Code has written a conversation in it.
+          <strong>{{ 'No conversations on disk' | t }}</strong>
+          {{ 'A project shows up here once Claude Code has written a conversation in it.' | t }}
         </div>
       } @else if (!rows().length) {
         <div class="card empty-state">
-          <strong>No projects match</strong>
-          <button class="btn" type="button" (click)="clearFilters()">Clear filters</button>
+          <strong>{{ 'No projects match' | t }}</strong>
+          <button class="btn" type="button" (click)="clearFilters()">
+            {{ 'Clear filters' | t }}
+          </button>
         </div>
       } @else {
-        <section class="card list rows" aria-label="Projects on disk">
+        <section class="card list rows" [attr.aria-label]="'Projects on disk' | t">
           @for (p of rows(); track key(p)) {
             <div
               class="prow"
@@ -131,7 +141,7 @@ export const MIXED_ACCOUNTS = 'Pick projects of one account to move or copy them
                   <input
                     type="checkbox"
                     [checked]="picked().has(key(p))"
-                    [attr.aria-label]="'Select ' + p.name"
+                    [attr.aria-label]="'Select {name}' | t: { name: p.name }"
                     (change)="flip(p)"
                   />
                 </label>
@@ -155,7 +165,7 @@ export const MIXED_ACCOUNTS = 'Pick projects of one account to move or copy them
                 class="btn ghost icon-only"
                 type="button"
                 aria-haspopup="dialog"
-                [attr.aria-label]="'Project menu: ' + p.name"
+                [attr.aria-label]="'Project menu: {name}' | t: { name: p.name }"
                 (click)="menuFor.set(p)"
               >
                 <mc-icon name="moreV" />
@@ -166,24 +176,26 @@ export const MIXED_ACCOUNTS = 'Pick projects of one account to move or copy them
       }
     } @else if (loadError()) {
       <div class="card empty-state">
-        <strong>Can't list the projects</strong>
+        <strong>{{ "Can't list the projects" | t }}</strong>
         {{ loadError() }}
         <div class="empty-actions">
-          <button class="btn" type="button" (click)="load()">Retry</button>
+          <button class="btn" type="button" (click)="load()">{{ 'Retry' | t }}</button>
         </div>
       </div>
     } @else {
-      <div class="skeleton" aria-label="Loading the projects">
+      <div class="skeleton" [attr.aria-label]="'Loading the projects' | t">
         <span></span><span></span><span></span>
       </div>
     }
 
     @if (deletes().length) {
-      <h2>Recently deleted</h2>
+      <h2>{{ 'Recently deleted' | t }}</h2>
       <p class="muted small">
-        Undo puts the conversations back where they were, for seven days after the delete.
+        {{
+          'Undo puts the conversations back where they were, for seven days after the delete.' | t
+        }}
       </p>
-      <section class="card list jobs" aria-label="Recently deleted">
+      <section class="card list jobs" [attr.aria-label]="'Recently deleted' | t">
         @for (j of deletes(); track j.id) {
           <mc-data-job class="jrow" [job]="j" (changed)="jobChanged($event)" />
         }
@@ -191,18 +203,22 @@ export const MIXED_ACCOUNTS = 'Pick projects of one account to move or copy them
     }
 
     @if (selecting()) {
-      <div class="selbar" role="region" aria-label="Selected projects">
-        <span class="selcount" aria-live="polite">{{ picked().size }} selected</span>
+      <div class="selbar" role="region" [attr.aria-label]="'Selected projects' | t">
+        <span class="selcount" aria-live="polite">{{
+          '{n} selected' | t: { n: picked().size }
+        }}</span>
         <button
           class="btn small ghost"
           type="button"
-          title="Every project the search and the account filter match"
+          [title]="'Every project the search and the account filter match' | t"
           (click)="selectAll()"
         >
-          {{ query().trim() || account() ? 'Select all matching' : 'Select all' }}
+          {{ query().trim() || account() ? ('Select all matching' | t) : ('Select all' | t) }}
         </button>
         @if (picked().size) {
-          <button class="btn small ghost" type="button" (click)="picked.set(none)">Clear</button>
+          <button class="btn small ghost" type="button" (click)="picked.set(none)">
+            {{ 'Clear||selection' | t }}
+          </button>
         }
         <span class="spacer"></span>
         <button
@@ -211,20 +227,21 @@ export const MIXED_ACCOUNTS = 'Pick projects of one account to move or copy them
           [disabled]="!picked().size"
           (click)="deletePicked()"
         >
-          <mc-icon name="trash" [size]="14" /> Delete {{ picked().size || '' }}…
+          <mc-icon name="trash" [size]="14" /> {{ 'Delete {n}…' | t: { n: picked().size || '' } }}
         </button>
         @if (moveOffered()) {
           <button
             class="btn small primary"
             type="button"
             [disabled]="!picked().size || mixed()"
-            [attr.title]="mixed() ? MIXED : null"
+            [attr.title]="mixed() ? (MIXED | t) : null"
             (click)="movePicked()"
           >
-            <mc-icon name="move" [size]="14" /> Move or copy {{ picked().size || '' }}…
+            <mc-icon name="move" [size]="14" />
+            {{ 'Move or copy {n}…' | t: { n: picked().size || '' } }}
           </button>
           @if (mixed()) {
-            <span class="muted small why">{{ MIXED }}</span>
+            <span class="muted small why">{{ MIXED | t }}</span>
           }
         }
       </div>
@@ -239,22 +256,22 @@ export const MIXED_ACCOUNTS = 'Pick projects of one account to move or copy them
           @if (isDesktop()) {
             <button class="item" type="button" (click)="reveal(p)">
               <mc-icon name="folder" [size]="18" />
-              <span>{{ revealText }}</span>
+              <span>{{ revealText() }}</span>
             </button>
           }
           <button class="item" type="button" (click)="copyPath(p)">
             <mc-icon name="copy" [size]="18" />
-            <span>Copy path</span>
+            <span>{{ 'Copy path' | t }}</span>
           </button>
           @if (moveOffered()) {
             <button class="item" type="button" (click)="moveOne(p)">
               <mc-icon name="move" [size]="18" />
-              <span>Move or copy…</span>
+              <span>{{ 'Move or copy…' | t }}</span>
             </button>
           }
           <button class="item" type="button" (click)="deleteOne(p)">
             <mc-icon name="trash" [size]="18" />
-            <span>Delete…</span>
+            <span>{{ 'Delete…' | t }}</span>
           </button>
         </div>
       </mc-sheet>
@@ -461,7 +478,8 @@ export class ProjectsViewComponent {
 
   protected readonly MIXED = MIXED_ACCOUNTS;
   protected readonly none: ReadonlySet<string> = new Set();
-  protected readonly revealText = revealLabel(desktopOs(navigator.userAgent));
+  /** "Show in Finder" and the like, in the language shown. */
+  protected readonly revealText = computed(() => revealLabel(desktopOs(navigator.userAgent)));
   protected readonly short = shortPath;
   protected readonly key = projectKey;
 
@@ -538,7 +556,7 @@ export class ProjectsViewComponent {
   protected meta(p: DataProject): string {
     return [
       plural(p.sessions, 'conversation'),
-      p.live ? `${p.live} running` : '',
+      p.live ? tr('{n} running', { n: p.live }) : '',
       p.bytes ? formatBytes(p.bytes) : '',
       p.lastActivityAt ? relativeTime(p.lastActivityAt) : '',
     ]
@@ -606,9 +624,9 @@ export class ProjectsViewComponent {
     const path = p.folder || p.cwd;
     try {
       await navigator.clipboard.writeText(path);
-      this.notices.success('Copied the path.');
+      this.notices.success(tr('Copied the path.'));
     } catch {
-      this.notices.show('error', "Couldn't copy the path.");
+      this.notices.show('error', tr("Couldn't copy the path."));
     }
   }
 
@@ -624,7 +642,7 @@ export class ProjectsViewComponent {
   protected deleteOne(p: DataProject): void {
     this.menuFor.set(null);
     this.deleteStart.set({
-      what: 'this project',
+      what: tr('this project'),
       groups: projectGroups([p]),
     });
   }
@@ -650,7 +668,7 @@ export class ProjectsViewComponent {
     if (before && before.state !== j.state) void this.load();
   }
 
-  /** The deletes the Mac still knows of; a running one is followed. */
+  /** The deletes the desktop still knows of; a running one is followed. */
   private async loadDeletes(): Promise<void> {
     let list: JobView[];
     try {

@@ -11,6 +11,8 @@ import { RouterLink } from '@angular/router';
 
 import { AccountsService } from '../../core/accounts.service';
 import { AuthService } from '../../core/auth.service';
+import { computerNoun, tr } from '../../core/i18n/i18n';
+import { TPipe } from '../../core/i18n/t.pipe';
 import { PendingRef, SessionSummary } from '../../core/models';
 import { NoticeService } from '../../core/notice.service';
 import { PendingService } from '../../core/pending.service';
@@ -41,15 +43,19 @@ interface Entry {
  */
 @Component({
   selector: 'mc-inbox',
-  imports: [RouterLink, IconComponent, PendingCardComponent, TimeAgoComponent],
+  imports: [RouterLink, IconComponent, PendingCardComponent, TimeAgoComponent, TPipe],
   template: `
     <div class="page narrow">
       <div class="page-head">
-        <h1>Inbox</h1>
+        <h1>{{ 'Inbox' | t }}</h1>
         @if (accountFilterShown()) {
           <span class="spacer"></span>
-          <select class="acct-filter" aria-label="Account" (change)="pickAccount($event)">
-            <option value="" [selected]="!account()">All accounts</option>
+          <select
+            class="acct-filter"
+            [attr.aria-label]="'Account' | t"
+            (change)="pickAccount($event)"
+          >
+            <option value="" [selected]="!account()">{{ 'All accounts' | t }}</option>
             @for (a of accounts.list(); track a.id) {
               <option [value]="a.id" [selected]="a.id === account()">{{ a.name }}</option>
             }
@@ -58,30 +64,35 @@ interface Entry {
       </div>
 
       @if (!ready()) {
-        <div class="skeleton" aria-label="Loading"><span></span><span></span></div>
+        <div class="skeleton" [attr.aria-label]="'Loading' | t"><span></span><span></span></div>
       } @else if (hidden() && !needs().length && !desk().length) {
         <div class="card empty-state">
-          <strong>Nothing from {{ accountName() }} needs you</strong>
+          <strong>{{ 'Nothing from {name} needs you' | t: { name: accountName() } }}</strong>
           {{ hiddenText() }}
           <div class="all">
             <button class="btn small" type="button" (click)="account.set('')">
-              Show every account
+              {{ 'Show every account' | t }}
             </button>
           </div>
         </div>
       } @else if (!needs().length && !desk().length) {
         <div class="card empty-state">
           <mc-icon name="check" [size]="28" />
-          <strong>Nothing needs you</strong>
-          Permission prompts, questions and plans from every session show up here.
+          <strong>{{ 'Nothing needs you' | t }}</strong>
+          {{ 'Permission prompts, questions and plans from every session show up here.' | t }}
           @if (foreignHint()) {
             <p class="muted small hint">
-              Approvals for VS Code and terminal sessions appear here once foreign-session control
-              is installed
+              {{
+                'Approvals for VS Code and terminal sessions appear here once foreign-session control is installed'
+                  | t
+              }}
               @if (isDesktop()) {
-                (<a routerLink="/remote" fragment="foreign">Remote › Foreign sessions</a>).
+                (<a routerLink="/remote" fragment="foreign">{{ 'Remote › Foreign sessions' | t }}</a
+                >).
               } @else {
-                (on the Mac: Remote › Foreign sessions).
+                {{
+                  '(on the {computer}: Remote › Foreign sessions).' | t: { computer: computer() }
+                }}
               }
             </p>
           }
@@ -91,17 +102,20 @@ interface Entry {
       @if (needs().length) {
         <section aria-labelledby="inbox-needs">
           <h2 id="inbox-needs">
-            Needs you <span class="count-badge">{{ needs().length }}</span>
+            {{ 'Needs you' | t }} <span class="count-badge">{{ needs().length }}</span>
           </h2>
           <p class="muted small keys">
-            Tip: on a keyboard, J/K move between requests; A allows, D denies, F adds feedback.
+            {{
+              'Tip: on a keyboard, J/K move between requests; A allows, D denies, F adds feedback.'
+                | t
+            }}
           </p>
           <div class="stack">
             @for (e of needs(); track e.ref.id; let i = $index) {
               <div class="entry">
                 <p class="waited">
                   <mc-icon name="clock" [size]="12" />
-                  <mc-time [ms]="e.ref.createdAt" mode="elapsed" prefix="waiting " />
+                  <mc-time [ms]="e.ref.createdAt" mode="elapsed" [prefix]="('waiting' | t) + ' '" />
                 </p>
                 <mc-pending-card
                   [item]="e.ref"
@@ -121,11 +135,14 @@ interface Entry {
       @if (desk().length) {
         <section aria-labelledby="inbox-desk">
           <h2 id="inbox-desk">
-            Waiting at the desk <span class="count-badge muted-badge">{{ desk().length }}</span>
+            {{ 'Waiting at the desk' | t }}
+            <span class="count-badge muted-badge">{{ desk().length }}</span>
           </h2>
           <p class="muted small">
-            These can only be answered where the session runs. What would let you answer them here
-            is under each one.
+            {{
+              'These can only be answered where the session runs. What would let you answer them here is under each one.'
+                | t
+            }}
           </p>
           <div class="stack">
             @for (e of desk(); track e.ref.id) {
@@ -260,8 +277,12 @@ export class InboxComponent {
   protected readonly hidden = computed(() => this.all().length - this.entries().length);
   protected readonly hiddenText = computed(() => {
     const n = this.hidden();
-    return `${n === 1 ? '1 request' : `${n} requests`} from other accounts ${n === 1 ? 'waits' : 'wait'}.`;
+    return n === 1
+      ? tr('1 request from other accounts waits.')
+      : tr('{n} requests from other accounts wait.', { n });
   });
+  /** The desktop's computer in words ("Mac", "PC", "computer"). */
+  protected readonly computer = computerNoun;
   /** A live foreign session nobody can answer from here: suggest the plugin. */
   protected readonly foreignHint = computed(() =>
     this.realtime
@@ -293,7 +314,9 @@ export class InboxComponent {
     try {
       this.fetchedItems.set(await this.pendings.loadInbox());
     } catch (e) {
-      if (!this.realtime.sessionsLoaded()) this.notices.error(e, () => void this.load(), 'Inbox');
+      if (!this.realtime.sessionsLoaded()) {
+        this.notices.error(e, () => void this.load(), tr('Inbox'));
+      }
     } finally {
       this.fetched.set(true);
     }

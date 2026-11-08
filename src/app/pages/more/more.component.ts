@@ -2,6 +2,7 @@ import { Component, computed, inject } from '@angular/core';
 import { RouterLink } from '@angular/router';
 
 import { AuthService } from '../../core/auth.service';
+import { TPipe } from '../../core/i18n/t.pipe';
 import { RealtimeService, connectionLabel } from '../../core/realtime.service';
 import { IconComponent, IconName } from '../../shared/icon.component';
 
@@ -13,6 +14,7 @@ interface Entry {
   desktopOnly?: boolean;
 }
 
+/** Labels and hints in English, translated where shown. */
 const ENTRIES: Entry[] = [
   { path: '/new', icon: 'plus', label: 'New session', hint: 'Start an owned Claude Code session' },
   { path: '/teams', icon: 'layers', label: 'Teams', hint: 'A lead and role sessions on a board' },
@@ -66,7 +68,7 @@ const ENTRIES: Entry[] = [
 /** The phone's "More" tab: everything that isn't a primary tab. */
 @Component({
   selector: 'mc-more',
-  imports: [RouterLink, IconComponent],
+  imports: [RouterLink, IconComponent, TPipe],
   template: `
     <div class="page narrow">
       <div class="card list">
@@ -74,14 +76,14 @@ const ENTRIES: Entry[] = [
           <a class="list-row entry" [routerLink]="e.path">
             <span class="ico"><mc-icon [name]="e.icon" /></span>
             <span class="text">
-              <span class="label">{{ e.label }}</span>
-              <span class="muted small">{{ e.hint }}</span>
+              <span class="label">{{ e.label | t }}</span>
+              <span class="muted small">{{ e.hint | t }}</span>
             </span>
             <mc-icon name="chevronRight" [size]="16" />
           </a>
         }
       </div>
-      <p class="muted small conn">Live updates: {{ connLabel() }}</p>
+      <p class="muted small conn">{{ 'Live updates: {state}' | t: { state: connLabel() } }}</p>
     </div>
   `,
   styles: [

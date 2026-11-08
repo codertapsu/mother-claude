@@ -4,6 +4,8 @@ import { ActivatedRoute, RouterLink } from '@angular/router';
 import { map } from 'rxjs';
 
 import { ApiService, describeError } from '../../core/api.service';
+import { tr } from '../../core/i18n/i18n';
+import { TPipe } from '../../core/i18n/t.pipe';
 import { AgentInfo, UiEvent } from '../../core/models';
 import { NoticeService } from '../../core/notice.service';
 import { RealtimeService } from '../../core/realtime.service';
@@ -50,6 +52,7 @@ const AGENTS_POLL_TICKS = 4;
     TaskOutputBodyComponent,
     TimeAgoComponent,
     TranscriptComponent,
+    TPipe,
   ],
   template: `
     <div class="av">
@@ -57,18 +60,18 @@ const AGENTS_POLL_TICKS = 4;
         <a
           class="btn ghost icon-only"
           [routerLink]="parentLink()"
-          [attr.aria-label]="'Back to ' + parentLabel()"
+          [attr.aria-label]="'Back to {name}' | t: { name: parentLabel() }"
         >
           <mc-icon name="back" />
         </a>
-        <nav class="crumbs" aria-label="Breadcrumb">
+        <nav class="crumbs" [attr.aria-label]="'Breadcrumb' | t">
           <a [routerLink]="['/session', sessionId()]">{{ sessionLabel() }}</a>
           @if (parent(); as p) {
             <span aria-hidden="true">›</span>
             <a [routerLink]="['/session', sessionId(), 'agent', p.id]">{{ p.label }}</a>
           }
           <span aria-hidden="true">›</span>
-          <span class="here" aria-current="page">{{ agent()?.label || 'Agent' }}</span>
+          <span class="here" aria-current="page">{{ agent()?.label || ('Agent' | t) }}</span>
         </nav>
       </header>
 
@@ -83,13 +86,13 @@ const AGENTS_POLL_TICKS = 4;
                 <h1>{{ a.label }}</h1>
               </div>
               <div class="chips">
-                <mc-chip [tone]="tone(a.status)">{{ a.status }}</mc-chip>
+                <mc-chip [tone]="tone(a.status)">{{ statusText(a.status) }}</mc-chip>
                 <mc-chip>{{ a.type || kindLabel(a) }}</mc-chip>
                 @if (a.phase) {
                   <mc-chip tone="accent">{{ a.phase }}</mc-chip>
                 }
                 @if (a.background) {
-                  <mc-chip tone="blue">background</mc-chip>
+                  <mc-chip tone="blue">{{ 'background' | t }}</mc-chip>
                 }
                 @if (a.model) {
                   <mc-chip>{{ a.model }}</mc-chip>
@@ -100,17 +103,21 @@ const AGENTS_POLL_TICKS = 4;
                   /></mc-chip>
                 }
                 @if (a.tokens) {
-                  <mc-chip>{{ tokens(a.tokens) }} tokens</mc-chip>
+                  <mc-chip>{{ '{n} tokens' | t: { n: tokens(a.tokens) } }}</mc-chip>
                 }
                 @if (a.toolUses) {
-                  <mc-chip>{{ a.toolUses }} tool {{ a.toolUses === 1 ? 'use' : 'uses' }}</mc-chip>
+                  <mc-chip>{{
+                    a.toolUses === 1
+                      ? ('{n} tool use' | t: { n: a.toolUses })
+                      : ('{n} tool uses' | t: { n: a.toolUses })
+                  }}</mc-chip>
                 }
               </div>
               @if (a.activity && a.status === 'running') {
                 <mc-activity-line [activity]="a.activity" />
               }
               @if (a.worktree) {
-                <p class="muted small mono">worktree: {{ a.worktree }}</p>
+                <p class="muted small mono">{{ 'worktree: {path}' | t: { path: a.worktree } }}</p>
               }
               @if (a.canStop && a.status === 'running') {
                 <div>
@@ -121,7 +128,7 @@ const AGENTS_POLL_TICKS = 4;
                     (click)="stop(a)"
                   >
                     <mc-icon name="stop" [size]="14" />
-                    {{ stopping() ? 'Stopping…' : 'Stop this agent' }}
+                    {{ stopping() ? ('Stopping…' | t) : ('Stop this agent' | t) }}
                   </button>
                 </div>
               }
@@ -142,10 +149,10 @@ const AGENTS_POLL_TICKS = 4;
           }
 
           @if (agent() && agent()?.status !== 'running') {
-            <section class="card result" aria-label="Result">
+            <section class="card result" [attr.aria-label]="'Result' | t">
               <p class="rtitle">
                 <mc-icon [name]="agent()?.status === 'failed' ? 'xCircle' : 'check'" [size]="16" />
-                Agent {{ agent()?.status === 'failed' ? 'failed' : 'finished' }}
+                {{ agent()?.status === 'failed' ? ('Agent failed' | t) : ('Agent finished' | t) }}
                 @if (agent()?.endedAt) {
                   · <mc-time [ms]="agent()?.endedAt" />
                 }
@@ -153,9 +160,11 @@ const AGENTS_POLL_TICKS = 4;
               @if (resultHtml()) {
                 <div class="md" [innerHTML]="resultHtml()"></div>
               } @else if (resultLoading()) {
-                <p class="muted small">Looking for the result…</p>
+                <p class="muted small">{{ 'Looking for the result…' | t }}</p>
               } @else {
-                <p class="muted small">The result isn't in the session's transcript yet.</p>
+                <p class="muted small">
+                  {{ "The result isn't in the session's transcript yet." | t }}
+                </p>
               }
             </section>
           }
@@ -317,7 +326,7 @@ export class AgentViewComponent {
   );
   protected readonly sessionLabel = computed(() => {
     const s = this.realtime.sessions().find((x) => x.id === this.sessionId());
-    return s ? sessionName(s) : 'Session';
+    return s ? sessionName(s) : tr('Session');
   });
   protected readonly parentLink = computed(() => {
     const p = this.parent();
@@ -328,6 +337,26 @@ export class AgentViewComponent {
   protected readonly kindIcon = agentKindIcon;
   protected readonly kindLabel = agentKindLabel;
   protected readonly tone = agentStatusTone;
+
+  /** An agent's status in words ("running", "done", …); a newer one as it
+   * comes. */
+  protected statusText(status: string): string {
+    switch (status) {
+      case 'running':
+        return tr('running');
+      case 'done':
+        return tr('done');
+      case 'failed':
+        return tr('failed');
+      case 'stopped':
+        return tr('stopped');
+      case 'unknown':
+        return tr('unknown');
+      default:
+        return status;
+    }
+  }
+
   private resultFor = '';
   /** `session/agent` the open transcript store belongs to. */
   private storeKey = '';
@@ -406,9 +435,9 @@ export class AgentViewComponent {
     this.stopping.set(true);
     try {
       await this.api.stopTask(a.sessionId || this.sessionId(), a.taskId ?? a.id);
-      this.notices.success(`Asked “${a.label}” to stop.`);
+      this.notices.success(tr('Asked “{name}” to stop.', { name: a.label }));
     } catch (e) {
-      this.notices.error(e, undefined, 'Could not stop');
+      this.notices.error(e, undefined, tr('Could not stop'));
     } finally {
       this.stopping.set(false);
     }
@@ -428,7 +457,7 @@ export class AgentViewComponent {
       const res = await this.api.getSessionAgents(id);
       if (id !== this.sessionId()) return;
       this.agents.set(res.agents ?? []);
-      this.loadError.set(this.agent() ? '' : 'This agent is no longer listed for the session.');
+      this.loadError.set(this.agent() ? '' : tr('This agent is no longer listed for the session.'));
     } catch (e) {
       if (id === this.sessionId()) this.loadError.set(describeError(e).text);
     } finally {

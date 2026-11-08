@@ -99,7 +99,8 @@ describe('NewSessionComponent account picker', () => {
     sel.value = MOCK_ACCOUNT_PRO;
     sel.dispatchEvent(new Event('change'));
     fixture.detectChanges();
-    expect(text(el)).toContain("Chosen here, for this session. It shares this Mac's projects");
+    // The desktop's system is not known here: "this computer" (a Mac says Mac).
+    expect(text(el)).toContain("Chosen here, for this session. It shares this computer's projects");
     const body = await start(el);
     expect(body['account']).toBe(MOCK_ACCOUNT_PRO);
   });

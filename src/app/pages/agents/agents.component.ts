@@ -2,6 +2,8 @@ import { Component, DestroyRef, computed, inject, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
 
 import { ApiService, describeError } from '../../core/api.service';
+import { tr } from '../../core/i18n/i18n';
+import { TPipe } from '../../core/i18n/t.pipe';
 import { NoticeService } from '../../core/notice.service';
 import {
   AccountRef,
@@ -60,20 +62,21 @@ interface FleetGroup {
     IconComponent,
     ElapsedPipe,
     TaskOutputComponent,
+    TPipe,
   ],
   template: `
     <div class="page">
       <div class="page-head">
-        <h1>Agents</h1>
+        <h1>{{ 'Agents' | t }}</h1>
         @if (total()) {
-          <span class="muted">{{ total() }} running</span>
+          <span class="muted">{{ '{n} running' | t: { n: total() } }}</span>
         }
       </div>
 
       @if (error()) {
         <p class="notice error">
           {{ error() }}
-          <button class="btn ghost small" type="button" (click)="load()">Retry</button>
+          <button class="btn ghost small" type="button" (click)="load()">{{ 'Retry' | t }}</button>
         </p>
       }
 
@@ -91,11 +94,7 @@ interface FleetGroup {
             <div class="card wf">
               <mc-icon name="workflow" [size]="16" />
               <span class="wname">{{ w.name }}</span>
-              <span class="muted small"
-                >{{ w.agents.running }} running · {{ w.agents.done }} done{{
-                  w.agents.failed ? ' · ' + w.agents.failed + ' failed' : ''
-                }}</span
-              >
+              <span class="muted small">{{ workflowCounts(w) }}</span>
             </div>
           }
           @for (t of g.shells; track t.id) {
@@ -103,7 +102,7 @@ interface FleetGroup {
               <button
                 class="open"
                 type="button"
-                [attr.aria-label]="'Output of ' + t.label"
+                [attr.aria-label]="'Output of {name}' | t: { name: t.label }"
                 (click)="openOutput(t)"
               >
                 <mc-icon [name]="t.kind === 'monitor' ? 'activity' : 'terminal'" [size]="16" />
@@ -117,11 +116,11 @@ interface FleetGroup {
                   class="btn danger small"
                   type="button"
                   [disabled]="stopping().has(t.id)"
-                  [attr.aria-label]="'Stop ' + t.label"
+                  [attr.aria-label]="'Stop {name}' | t: { name: t.label }"
                   (click)="stop(t)"
                 >
                   <mc-icon name="stop" [size]="14" />
-                  {{ stopping().has(t.id) ? 'Stopping…' : 'Stop' }}
+                  {{ stopping().has(t.id) ? ('Stopping…' | t) : ('Stop' | t) }}
                 </button>
               }
             </div>
@@ -143,7 +142,7 @@ interface FleetGroup {
                         <mc-chip tone="accent">{{ a.phase }}</mc-chip>
                       }
                       @if (a.background) {
-                        <mc-chip tone="blue">background</mc-chip>
+                        <mc-chip tone="blue">{{ 'background' | t }}</mc-chip>
                       }
                     </span>
                     @if (a.activity) {
@@ -156,10 +155,14 @@ interface FleetGroup {
                         >
                       }
                       @if (a.tokens) {
-                        <span>{{ tokens(a.tokens) }} tokens</span>
+                        <span>{{ '{n} tokens' | t: { n: tokens(a.tokens) } }}</span>
                       }
                       @if (a.toolUses) {
-                        <span>{{ a.toolUses }} tool {{ a.toolUses === 1 ? 'use' : 'uses' }}</span>
+                        <span>{{
+                          a.toolUses === 1
+                            ? ('{n} tool use' | t: { n: a.toolUses })
+                            : ('{n} tool uses' | t: { n: a.toolUses })
+                        }}</span>
                       }
                       @if (a.model) {
                         <span>{{ a.model }}</span>
@@ -172,11 +175,11 @@ interface FleetGroup {
                     class="btn danger small"
                     type="button"
                     [disabled]="stopping().has(a.id)"
-                    [attr.aria-label]="'Stop ' + a.label"
+                    [attr.aria-label]="'Stop {name}' | t: { name: a.label }"
                     (click)="stop(a)"
                   >
                     <mc-icon name="stop" [size]="14" />
-                    {{ stopping().has(a.id) ? 'Stopping…' : 'Stop' }}
+                    {{ stopping().has(a.id) ? ('Stopping…' | t) : ('Stop' | t) }}
                   </button>
                 }
               </div>
@@ -186,11 +189,13 @@ interface FleetGroup {
       } @empty {
         @if (loaded()) {
           <div class="card empty-state">
-            <strong>No agents running</strong>
-            Subagents, workflow agents and background shells show up here while they work.
+            <strong>{{ 'No agents running' | t }}</strong>
+            {{
+              'Subagents, workflow agents and background shells show up here while they work.' | t
+            }}
           </div>
         } @else {
-          <div class="skeleton" aria-label="Loading"><span></span><span></span></div>
+          <div class="skeleton" [attr.aria-label]="'Loading' | t"><span></span><span></span></div>
         }
       }
     </div>
@@ -407,13 +412,24 @@ export class AgentsComponent {
   protected readonly kindIcon = agentKindIcon;
   protected readonly kindLabel = agentKindLabel;
 
+  /** "2 running · 5 done · 1 failed". */
+  protected workflowCounts(w: WorkflowRun): string {
+    return [
+      tr('{n} running', { n: w.agents.running }),
+      tr('{n} done', { n: w.agents.done }),
+      w.agents.failed ? tr('{n} failed', { n: w.agents.failed }) : '',
+    ]
+      .filter(Boolean)
+      .join(' · ');
+  }
+
   protected async stop(a: AgentInfo): Promise<void> {
     this.stopping.update((prev) => new Set(prev).add(a.id));
     try {
       await this.api.stopTask(a.sessionId, a.taskId ?? a.id);
-      this.notices.success(`Asked “${a.label}” to stop.`);
+      this.notices.success(tr('Asked “{name}” to stop.', { name: a.label }));
     } catch (e) {
-      this.notices.error(e, undefined, 'Could not stop');
+      this.notices.error(e, undefined, tr('Could not stop'));
     } finally {
       this.stopping.update((prev) => {
         const next = new Set(prev);
