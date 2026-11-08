@@ -3,6 +3,8 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { Router, RouterLink } from '@angular/router';
 
 import { ApiService, describeError } from '../../core/api.service';
+import { tr } from '../../core/i18n/i18n';
+import { TPipe } from '../../core/i18n/t.pipe';
 import { RealtimeService } from '../../core/realtime.service';
 import {
   ObservedEvent,
@@ -27,28 +29,31 @@ import { TemplateSheetComponent, TemplateSheetMode } from './template-sheet.comp
     RouterLink,
     IconComponent,
     TimeAgoComponent,
+    TPipe,
     StartTeamSheetComponent,
     TemplateSheetComponent,
   ],
   template: `
     <div class="page narrow">
       <div class="page-head">
-        <h1>Teams</h1>
+        <h1>{{ 'Teams' | t }}</h1>
         <span class="spacer"></span>
         <button class="btn primary" type="button" (click)="startOpen.set(true)">
-          <mc-icon name="plus" [size]="16" /> Start a team
+          <mc-icon name="plus" [size]="16" /> {{ 'Start a team' | t }}
         </button>
       </div>
       <p class="lede">
-        A lead session plans the work and writes task packets; role sessions do them, each in its
-        own files. Mother Claude starts and stops the sessions it runs as capacity allows.
+        {{
+          'A lead session plans the work and writes task packets; role sessions do them, each in its own files. Mother Claude starts and stops the sessions it runs as capacity allows.'
+            | t
+        }}
       </p>
 
       @if (error()) {
         <p class="notice error" role="alert">{{ error() }}</p>
       }
 
-      <h2>Your teams</h2>
+      <h2>{{ 'Your teams' | t }}</h2>
       @if (teams().length) {
         <div class="stack">
           @for (t of teams(); track t.id) {
@@ -56,7 +61,7 @@ import { TemplateSheetComponent, TemplateSheetMode } from './template-sheet.comp
               <div class="row">
                 <strong class="name">{{ t.label }}</strong>
                 @if (t.stopped) {
-                  <span class="badge">stopped</span>
+                  <span class="badge">{{ 'stopped' | t }}</span>
                 }
                 <span class="spacer"></span>
                 <span class="muted small">{{ t.templateName }}</span>
@@ -70,12 +75,13 @@ import { TemplateSheetComponent, TemplateSheetMode } from './template-sheet.comp
                 }
               </div>
               <div class="muted small">
-                {{ openCount(t) }} open · {{ t.counts.done ?? 0 }} done
+                {{ '{n} open' | t: { n: openCount(t) } }} ·
+                {{ '{n} done' | t: { n: t.counts.done ?? 0 } }}
                 @if (t.counts.review) {
-                  · {{ t.counts.review }} to review
+                  · {{ '{n} to review' | t: { n: t.counts.review } }}
                 }
                 @if (t.counts.failed) {
-                  · {{ t.counts.failed }} failed
+                  · {{ '{n} failed' | t: { n: t.counts.failed } }}
                 }
               </div>
             </a>
@@ -83,19 +89,19 @@ import { TemplateSheetComponent, TemplateSheetMode } from './template-sheet.comp
         </div>
       } @else if (!loading()) {
         <div class="empty-state card">
-          <strong>No team yet.</strong>
-          <span class="muted"
-            >Start one on a project: a lead and role sessions work through a task board, each role
-            in its own files.</span
-          >
+          <strong>{{ 'No team yet.' | t }}</strong>
+          <span class="muted">{{
+            'Start one on a project: a lead and role sessions work through a task board, each role in its own files.'
+              | t
+          }}</span>
         </div>
       }
 
       <div class="row section-head">
-        <h2>Templates</h2>
+        <h2>{{ 'Templates' | t }}</h2>
         <span class="spacer"></span>
         <button class="btn small" type="button" (click)="openTemplate(null, 'new')">
-          <mc-icon name="plus" [size]="14" /> New template
+          <mc-icon name="plus" [size]="14" /> {{ 'New template' | t }}
         </button>
       </div>
       <div class="card list">
@@ -105,10 +111,12 @@ import { TemplateSheetComponent, TemplateSheetMode } from './template-sheet.comp
               <div class="row">
                 <strong>{{ t.name }}</strong>
                 @if (t.builtin) {
-                  <span class="badge info">built in</span>
+                  <span class="badge info">{{ 'built in' | t }}</span>
                 }
                 @if (t.report.errors.length) {
-                  <span class="badge danger">{{ t.report.errors.length }} problems</span>
+                  <span class="badge danger">{{
+                    '{n} problems' | t: { n: t.report.errors.length }
+                  }}</span>
                 }
               </div>
               @if (t.description) {
@@ -122,14 +130,16 @@ import { TemplateSheetComponent, TemplateSheetMode } from './template-sheet.comp
                 type="button"
                 (click)="openTemplate(t, t.builtin ? 'view' : 'edit')"
               >
-                {{ t.builtin ? 'View' : 'Edit' }}
+                {{ t.builtin ? ('View' | t) : ('Edit' | t) }}
               </button>
-              <button class="btn small" type="button" (click)="duplicate(t)">Duplicate</button>
+              <button class="btn small" type="button" (click)="duplicate(t)">
+                {{ 'Duplicate' | t }}
+              </button>
               @if (!t.builtin) {
                 <button
                   class="btn small ghost"
                   type="button"
-                  [attr.aria-label]="'Delete ' + t.name"
+                  [attr.aria-label]="'Delete {name}' | t: { name: t.name }"
                   (click)="remove(t)"
                 >
                   <mc-icon name="trash" [size]="14" />
@@ -141,10 +151,12 @@ import { TemplateSheetComponent, TemplateSheetMode } from './template-sheet.comp
       </div>
 
       @if (events().length) {
-        <h2>Agent teams in your sessions</h2>
+        <h2>{{ 'Agent teams in your sessions' | t }}</h2>
         <p class="muted small">
-          What Claude Code's own agent teams reported through the hooks (interactive sessions;
-          Mother Claude observes them, it does not run them).
+          {{
+            "What Claude Code's own agent teams reported through the hooks (interactive sessions; Mother Claude observes them, it does not run them)."
+              | t
+          }}
         </p>
         <div class="card list">
           @for (e of events(); track $index) {
@@ -266,7 +278,7 @@ export class TeamsComponent {
   }
 
   protected label(state: TeamView['roles'][number]['state']): string {
-    return ROLE_STATE_LABELS[state] ?? state;
+    return tr(ROLE_STATE_LABELS[state] ?? state);
   }
 
   protected tone(state: TeamView['roles'][number]['state']): string {
@@ -275,7 +287,10 @@ export class TeamsComponent {
 
   protected rolesLine(t: TemplateEntry): string {
     return t.roles
-      .map((r) => `${r.title}${r.lead ? ' (lead)' : ''}${r.model ? ` · ${r.model}` : ''}`)
+      .map((r) => {
+        const name = r.lead ? tr('{role} (lead)', { role: r.title }) : r.title;
+        return r.model ? `${name} · ${r.model}` : name;
+      })
       .join('  ·  ');
   }
 
@@ -292,7 +307,7 @@ export class TeamsComponent {
       this.events.set(events.events.slice(0, 20));
       this.error.set('');
     } catch (e) {
-      this.error.set(`Could not load the teams: ${describeError(e).text}`);
+      this.error.set(tr('Could not load the teams: {error}', { error: describeError(e).text }));
     } finally {
       this.loading.set(false);
     }
@@ -302,7 +317,7 @@ export class TeamsComponent {
     try {
       this.templates.set((await this.api.getTeamTemplates()).templates);
     } catch (e) {
-      this.error.set(`Could not load the templates: ${describeError(e).text}`);
+      this.error.set(tr('Could not load the templates: {error}', { error: describeError(e).text }));
     }
   }
 
@@ -317,17 +332,20 @@ export class TeamsComponent {
       const entry = this.templates().find((x) => x.id === copy.id) ?? null;
       this.editing.set({ entry, mode: 'edit' });
     } catch (e) {
-      this.error.set(`Could not duplicate it: ${describeError(e).text}`);
+      this.error.set(tr('Could not duplicate it: {error}', { error: describeError(e).text }));
     }
   }
 
   protected async remove(t: TemplateEntry): Promise<void> {
-    if (!confirm(`Delete the template "${t.name}"? Teams started from it keep running.`)) return;
+    const ask = tr('Delete the template "{name}"? Teams started from it keep running.', {
+      name: t.name,
+    });
+    if (!confirm(ask)) return;
     try {
       await this.api.deleteTeamTemplate(t.id);
       this.templates.update((list) => list.filter((x) => x.id !== t.id));
     } catch (e) {
-      this.error.set(`Could not delete it: ${describeError(e).text}`);
+      this.error.set(tr('Could not delete it: {error}', { error: describeError(e).text }));
     }
   }
 

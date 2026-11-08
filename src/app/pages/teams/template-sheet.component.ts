@@ -2,6 +2,8 @@ import { Component, computed, effect, inject, input, output, signal } from '@ang
 import { FormsModule } from '@angular/forms';
 
 import { ApiService, describeError } from '../../core/api.service';
+import { tr } from '../../core/i18n/i18n';
+import { TPipe } from '../../core/i18n/t.pipe';
 import { TemplateEntry, TemplateIssue, parseTemplate, templateJson } from '../../core/teams';
 import { SheetComponent } from '../../shared/sheet.component';
 
@@ -42,23 +44,24 @@ const NEW_TEMPLATE = {
 /** View a template, or edit one of the user's as JSON with validation. */
 @Component({
   selector: 'mc-template-sheet',
-  imports: [FormsModule, SheetComponent],
+  imports: [FormsModule, SheetComponent, TPipe],
   template: `
     <mc-sheet [open]="open()" [title]="title()" size="full" (closed)="closed.emit()">
       <div class="stack">
         @if (readOnly()) {
           <p class="muted small">
-            A built-in template cannot be changed: duplicate it to make your own.
+            {{ 'A built-in template cannot be changed: duplicate it to make your own.' | t }}
           </p>
         } @else {
           <p class="muted small">
-            Roles: id, title, lead, charter, model, effort, permissionMode, worktree, paths (globs
-            relative to the project, gitignore style), readOnly, budgetUsd, autostart, addDirs,
-            tools, classes. Exactly one role is the lead.
+            {{
+              'Roles: id, title, lead, charter, model, effort, permissionMode, worktree, paths (globs relative to the project, gitignore style), readOnly, budgetUsd, autostart, addDirs, tools, classes. Exactly one role is the lead.'
+                | t
+            }}
           </p>
         }
         <label class="field">
-          <span class="field-label">Template (JSON)</span>
+          <span class="field-label">{{ 'Template (JSON)' | t }}</span>
           <textarea
             class="mono json"
             name="json"
@@ -78,7 +81,7 @@ const NEW_TEMPLATE = {
           <p class="notice warn">{{ i.path ? i.path + ': ' : '' }}{{ i.message }}</p>
         }
         @if (checked() && !errors().length && !parseError()) {
-          <p class="notice ok">The template is valid.</p>
+          <p class="notice ok">{{ 'The template is valid.' | t }}</p>
         }
         @if (error()) {
           <p class="notice error" role="alert">{{ error() }}</p>
@@ -87,12 +90,14 @@ const NEW_TEMPLATE = {
           <span class="spacer"></span>
           @if (readOnly()) {
             <button class="btn" type="button" [disabled]="busy()" (click)="duplicate()">
-              Duplicate to edit
+              {{ 'Duplicate to edit' | t }}
             </button>
           } @else {
-            <button class="btn" type="button" [disabled]="busy()" (click)="check()">Check</button>
+            <button class="btn" type="button" [disabled]="busy()" (click)="check()">
+              {{ 'Check' | t }}
+            </button>
             <button class="btn primary" type="button" [disabled]="busy()" (click)="save()">
-              {{ busy() ? 'Saving…' : 'Save' }}
+              {{ busy() ? ('Saving…' | t) : ('Save' | t) }}
             </button>
           }
         </div>
@@ -132,8 +137,8 @@ export class TemplateSheetComponent {
   protected readonly readOnly = computed(() => this.mode() === 'view' || !!this.entry()?.builtin);
   protected readonly title = computed(() => {
     const e = this.entry();
-    if (this.mode() === 'new' || !e) return 'New template';
-    return this.readOnly() ? e.name : `Edit ${e.name}`;
+    if (this.mode() === 'new' || !e) return tr('New template');
+    return this.readOnly() ? e.name : tr('Edit {name}', { name: e.name });
   });
 
   constructor() {

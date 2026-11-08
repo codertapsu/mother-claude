@@ -5,6 +5,8 @@ import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 
 import { ApiService, describeError } from '../../core/api.service';
+import { tr } from '../../core/i18n/i18n';
+import { TPipe } from '../../core/i18n/t.pipe';
 import { pathWithin } from '../../core/paths';
 import { RealtimeService } from '../../core/realtime.service';
 import {
@@ -37,37 +39,40 @@ import { TaskSheetComponent } from './task-sheet.component';
     RouterLink,
     IconComponent,
     TimeAgoComponent,
+    TPipe,
     NewTaskSheetComponent,
     TaskSheetComponent,
   ],
   template: `
     <div class="page">
-      <a class="back muted small" routerLink="/teams"><mc-icon name="back" [size]="14" /> Teams</a>
+      <a class="back muted small" routerLink="/teams"
+        ><mc-icon name="back" [size]="14" /> {{ 'Teams' | t }}</a
+      >
       @if (team(); as t) {
         <div class="page-head named">
           <h1>{{ t.label }}</h1>
           @if (t.stopped) {
-            <span class="badge">stopped</span>
+            <span class="badge">{{ 'stopped' | t }}</span>
           }
           <span class="muted small">{{ t.templateName }}</span>
           <span class="spacer"></span>
           @if (t.stopped) {
             <button class="btn" type="button" [disabled]="busy()" (click)="resume()">
-              <mc-icon name="play" [size]="14" /> Resume
+              <mc-icon name="play" [size]="14" /> {{ 'Resume' | t }}
             </button>
             <button class="btn ghost" type="button" [disabled]="busy()" (click)="remove()">
-              Remove
+              {{ 'Remove' | t }}
             </button>
           } @else {
             <button class="btn" type="button" [disabled]="busy()" (click)="stop()">
-              <mc-icon name="stop" [size]="14" /> Stop the team
+              <mc-icon name="stop" [size]="14" /> {{ 'Stop the team' | t }}
             </button>
           }
         </div>
         <div class="mono small path">{{ t.project }}</div>
         @if (t.brief) {
           <details class="brief">
-            <summary class="muted small">The lead's brief</summary>
+            <summary class="muted small">{{ "The lead's brief" | t }}</summary>
             <p class="small">{{ t.brief }}</p>
           </details>
         }
@@ -75,14 +80,14 @@ import { TaskSheetComponent } from './task-sheet.component';
           <p class="notice error" role="alert">{{ error() }}</p>
         }
 
-        <h2>Roles</h2>
+        <h2>{{ 'Roles' | t }}</h2>
         <div class="roles">
           @for (r of t.roles; track r.id) {
             <div class="card role">
               <div class="row">
                 <strong>{{ r.title }}</strong>
                 @if (r.lead) {
-                  <span class="badge accent">lead</span>
+                  <span class="badge accent">{{ 'lead' | t }}</span>
                 }
                 <span [class]="'badge ' + tone(r)" [title]="statusLine(r)">{{
                   stateLabel(r)
@@ -101,7 +106,9 @@ import { TaskSheetComponent } from './task-sheet.component';
                     <div>{{ why }}</div>
                   }
                   @if (r.waitingSince) {
-                    <span class="muted">Waiting <mc-time [ms]="r.waitingSince" /></span>
+                    <span class="muted"
+                      >{{ 'Waiting||since a time' | t }} <mc-time [ms]="r.waitingSince"
+                    /></span>
                   }
                 </div>
               }
@@ -109,38 +116,49 @@ import { TaskSheetComponent } from './task-sheet.component';
                 <div class="small error-line wrap">{{ r.lastError }}</div>
               }
               <div class="small facts">
-                <span>{{ r.model || 'default model' }}{{ r.effort ? ' @ ' + r.effort : '' }}</span>
+                <span
+                  >{{ r.model || ('default model' | t)
+                  }}{{ r.effort ? ' @ ' + r.effort : '' }}</span
+                >
                 <span>{{ r.permissionMode }}</span>
                 @if (r.budgetUsd) {
                   <span
                     [title]="
                       r.budgetApplied
-                        ? 'Applied (--max-budget-usd)'
-                        : 'Not applied: the account runs on its plan'
+                        ? ('Applied (--max-budget-usd)' | t)
+                        : ('Not applied: the account runs on its plan' | t)
                     "
-                    >\${{ r.budgetUsd }}{{ r.budgetApplied ? '' : ' (plan)' }}</span
+                    >{{
+                      r.budgetApplied
+                        ? '$' + r.budgetUsd
+                        : ('{amount} (plan)' | t: { amount: '$' + r.budgetUsd })
+                    }}</span
                   >
                 }
                 @if (r.readOnly) {
-                  <span>read-only</span>
+                  <span>{{ 'read-only' | t }}</span>
                 }
                 @if (r.foreign) {
-                  <span>foreign session</span>
+                  <span>{{ 'foreign session' | t }}</span>
                 }
               </div>
               @if (r.worktree) {
-                <div class="mono small faint wrap">worktree {{ r.worktreePath }}</div>
+                <div class="mono small faint wrap">
+                  {{ 'worktree {path}' | t: { path: r.worktreePath } }}
+                </div>
               }
               @if (r.paths.length && !r.readOnly) {
-                <div class="small faint wrap">owns {{ r.paths.join(', ') }}</div>
+                <div class="small faint wrap">
+                  {{ 'owns {paths}' | t: { paths: r.paths.join(', ') } }}
+                </div>
               }
               <div class="small muted">
                 @if (r.currentTask) {
-                  On task #{{ r.currentTask }} ·
+                  {{ 'On task #{id}' | t: { id: r.currentTask } }} ·
                 }
-                {{ r.queuedTasks }} waiting
+                {{ '{n} waiting' | t: { n: r.queuedTasks } }}
                 @if (r.guardDenials) {
-                  · {{ r.guardDenials }} guard denials
+                  · {{ '{n} guard denials' | t: { n: r.guardDenials } }}
                 }
               </div>
               @if (!t.stopped) {
@@ -148,25 +166,28 @@ import { TaskSheetComponent } from './task-sheet.component';
                   @if (r.state === 'running' || r.state === 'idle') {
                     @if (r.foreign) {
                       <button class="btn small" type="button" (click)="release(r)">
-                        Release role
+                        {{ 'Release role' | t }}
                       </button>
                     } @else {
                       <button class="btn small" type="button" (click)="stopRole(r)">
-                        <mc-icon name="stop" [size]="13" /> Stop
+                        <mc-icon name="stop" [size]="13" /> {{ 'Stop' | t }}
                       </button>
                     }
                   } @else if (r.state !== 'starting') {
                     <button class="btn small" type="button" (click)="startRole(r)">
-                      <mc-icon name="play" [size]="13" /> {{ r.sessionId ? 'Resume' : 'Start' }}
+                      <mc-icon name="play" [size]="13" />
+                      {{ r.sessionId ? ('Resume' | t) : ('Start' | t) }}
                     </button>
                     @if (foreignCandidates().length) {
                       <select
                         class="take"
-                        [attr.aria-label]="'Give the ' + r.title + ' role to a running session'"
+                        [attr.aria-label]="
+                          'Give the {role} role to a running session' | t: { role: r.title }
+                        "
                         [ngModel]="''"
                         (ngModelChange)="take(r, $event)"
                       >
-                        <option value="" disabled>Take role…</option>
+                        <option value="" disabled>{{ 'Take role…' | t }}</option>
                         @for (s of foreignCandidates(); track s.id) {
                           <option [value]="s.id">{{ s.name || s.id.slice(0, 8) }}</option>
                         }
@@ -180,15 +201,15 @@ import { TaskSheetComponent } from './task-sheet.component';
         </div>
 
         <div class="row board-head">
-          <h2>Board</h2>
+          <h2>{{ 'Board' | t }}</h2>
           <span class="spacer"></span>
           <button class="btn small primary" type="button" (click)="newOpen.set(true)">
-            <mc-icon name="plus" [size]="14" /> New task
+            <mc-icon name="plus" [size]="14" /> {{ 'New task' | t }}
           </button>
         </div>
         @if (viewport.phone()) {
           <label class="field status-pick">
-            <span class="field-label">Status</span>
+            <span class="field-label">{{ 'Status' | t }}</span>
             <select [ngModel]="status()" (ngModelChange)="status.set($event)">
               @for (s of statuses; track s) {
                 <option [value]="s">{{ statusLabel(s) }} ({{ byStatus()[s].length }})</option>
@@ -199,7 +220,7 @@ import { TaskSheetComponent } from './task-sheet.component';
             @for (task of byStatus()[status()]; track task.id) {
               <ng-container *ngTemplateOutlet="card; context: { $implicit: task }"></ng-container>
             } @empty {
-              <p class="muted small">Nothing here.</p>
+              <p class="muted small">{{ 'Nothing here.' | t }}</p>
             }
           </div>
         } @else {
@@ -229,18 +250,18 @@ import { TaskSheetComponent } from './task-sheet.component';
               }
               <span class="badge" [class.warn]="task.priority <= 1">P{{ task.priority }}</span>
               @if (task.blocked) {
-                <span class="badge warn">blocked</span>
+                <span class="badge warn">{{ 'blocked' | t }}</span>
               }
               @if (task.escalations) {
-                <span class="badge info">escalated {{ task.escalations }}</span>
+                <span class="badge info">{{ 'escalated {n}' | t: { n: task.escalations } }}</span>
               }
             </span>
           </button>
         </ng-template>
       } @else if (loading()) {
-        <p class="muted">Loading…</p>
+        <p class="muted">{{ 'Loading…' | t }}</p>
       } @else {
-        <p class="notice error">{{ error() || 'No such team.' }}</p>
+        <p class="notice error">{{ error() || ('No such team.' | t) }}</p>
       }
     </div>
 
@@ -414,7 +435,7 @@ export class TeamComponent {
   }
 
   protected stateLabel(r: RoleView): string {
-    return ROLE_STATE_LABELS[r.state] ?? r.state;
+    return tr(ROLE_STATE_LABELS[r.state] ?? r.state);
   }
 
   protected statusLine(r: RoleView): string {
@@ -422,7 +443,7 @@ export class TeamComponent {
   }
 
   protected statusLabel(s: TaskStatus): string {
-    return STATUS_LABELS[s];
+    return tr(STATUS_LABELS[s]);
   }
 
   protected async load(): Promise<void> {
@@ -456,7 +477,9 @@ export class TeamComponent {
   }
 
   protected stop(): void {
-    if (!confirm('Stop every role session of this team? Their conversations are kept.')) return;
+    if (!confirm(tr('Stop every role session of this team? Their conversations are kept.'))) {
+      return;
+    }
     void this.act(() => this.api.stopTeam(this.id));
   }
 
@@ -465,7 +488,7 @@ export class TeamComponent {
   }
 
   protected remove(): void {
-    if (!confirm('Remove this team? Its board stays with the project.')) return;
+    if (!confirm(tr('Remove this team? Its board stays with the project.'))) return;
     void this.act(async () => {
       await this.api.removeTeam(this.id);
       await this.router.navigate(['/teams']);
@@ -476,7 +499,12 @@ export class TeamComponent {
     void this.act(async () => {
       const out = await this.api.startTeamRole(this.id, r.id);
       if (out.state === 'waiting') {
-        this.error.set(`The ${r.title} role waits: ${(out.reasons ?? []).join('; ')}`);
+        this.error.set(
+          tr('The {role} role waits: {reasons}', {
+            role: r.title,
+            reasons: (out.reasons ?? []).join('; '),
+          }),
+        );
       }
       return this.api.getTeam(this.id);
     });

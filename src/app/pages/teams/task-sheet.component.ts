@@ -3,6 +3,8 @@ import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 
 import { ApiService, describeError } from '../../core/api.service';
+import { tr } from '../../core/i18n/i18n';
+import { TPipe } from '../../core/i18n/t.pipe';
 import { PRIORITY_LABELS, STATUS_LABELS, TaskPatch, TeamTask, TeamView } from '../../core/teams';
 import { SheetComponent } from '../../shared/sheet.component';
 import { TimeAgoComponent } from '../../shared/time-ago.component';
@@ -12,7 +14,7 @@ import { TimeAgoComponent } from '../../shared/time-ago.component';
  * reopen). */
 @Component({
   selector: 'mc-task-sheet',
-  imports: [FormsModule, RouterLink, SheetComponent, TimeAgoComponent],
+  imports: [FormsModule, RouterLink, SheetComponent, TimeAgoComponent, TPipe],
   template: `
     <mc-sheet [open]="open()" [title]="heading()" (closed)="closed.emit()">
       @if (task(); as t) {
@@ -26,7 +28,7 @@ import { TimeAgoComponent } from '../../shared/time-ago.component';
               <span class="badge">{{ t.class }}</span>
             }
             @if (t.escalations) {
-              <span class="badge info">escalated {{ t.escalations }}</span>
+              <span class="badge info">{{ 'escalated {n}' | t: { n: t.escalations } }}</span>
             }
             @if (t.claimedBy) {
               <a class="small mono" [routerLink]="['/session', t.claimedBy]">{{
@@ -35,14 +37,14 @@ import { TimeAgoComponent } from '../../shared/time-ago.component';
             }
           </div>
           @if (t.blocked) {
-            <p class="notice warn">Blocked: {{ t.blocked }}</p>
+            <p class="notice warn">{{ 'Blocked: {reason}' | t: { reason: t.blocked } }}</p>
           }
           @if (t.goal) {
             <p class="goal">{{ t.goal }}</p>
           }
           @if (t.acceptance?.length) {
             <div>
-              <div class="field-label">Acceptance</div>
+              <div class="field-label">{{ 'Acceptance' | t }}</div>
               <ul>
                 @for (a of t.acceptance; track $index) {
                   <li>{{ a }}</li>
@@ -52,13 +54,13 @@ import { TimeAgoComponent } from '../../shared/time-ago.component';
           }
           @if (t.files?.length) {
             <div>
-              <div class="field-label">Files</div>
+              <div class="field-label">{{ 'Files' | t }}</div>
               <div class="mono small wrap">{{ t.files.join(', ') }}</div>
             </div>
           }
           @if (t.constraints?.length) {
             <div>
-              <div class="field-label">Constraints</div>
+              <div class="field-label">{{ 'Constraints' | t }}</div>
               <ul>
                 @for (c of t.constraints; track $index) {
                   <li>{{ c }}</li>
@@ -76,10 +78,10 @@ import { TimeAgoComponent } from '../../shared/time-ago.component';
           }
           @if (t.result) {
             <div class="card result">
-              <div class="field-label">Result</div>
+              <div class="field-label">{{ 'Result' | t }}</div>
               <p class="goal">{{ t.result.summary }}</p>
               @if (t.result.branch) {
-                <div class="mono small">branch {{ t.result.branch }}</div>
+                <div class="mono small">{{ 'branch {name}' | t: { name: t.result.branch } }}</div>
               }
               @if (t.result.changedFiles?.length) {
                 <div class="mono small wrap">{{ t.result.changedFiles.join(', ') }}</div>
@@ -88,7 +90,7 @@ import { TimeAgoComponent } from '../../shared/time-ago.component';
           }
           @if (t.progress?.length) {
             <div>
-              <div class="field-label">Progress</div>
+              <div class="field-label">{{ 'Progress' | t }}</div>
               @for (n of t.progress; track $index) {
                 <div class="small note">
                   <mc-time class="faint" [ms]="n.at" /> <strong>{{ n.by }}</strong> {{ n.text }}
@@ -99,19 +101,19 @@ import { TimeAgoComponent } from '../../shared/time-ago.component';
 
           <div class="grid">
             <label class="field">
-              <span class="field-label">Priority</span>
+              <span class="field-label">{{ 'Priority' | t }}</span>
               <select
                 [disabled]="busy() || ended()"
                 [ngModel]="t.priority"
                 (ngModelChange)="patch({ priority: +$event })"
               >
                 @for (p of priorities; track $index) {
-                  <option [value]="$index">{{ p }}</option>
+                  <option [value]="$index">{{ p | t }}</option>
                 }
               </select>
             </label>
             <label class="field">
-              <span class="field-label">Role</span>
+              <span class="field-label">{{ 'Role' | t }}</span>
               <select
                 [disabled]="busy() || ended()"
                 [ngModel]="t.role ?? ''"
@@ -124,7 +126,7 @@ import { TimeAgoComponent } from '../../shared/time-ago.component';
             </label>
           </div>
           <label class="field">
-            <span class="field-label">Note to the session</span>
+            <span class="field-label">{{ 'Note to the session' | t }}</span>
             <textarea rows="2" [ngModel]="note()" (ngModelChange)="note.set($event)"></textarea>
           </label>
           @if (t.status === 'review') {
@@ -134,7 +136,7 @@ import { TimeAgoComponent } from '../../shared/time-ago.component';
                 [ngModel]="escalate()"
                 (ngModelChange)="escalate.set($event)"
               />
-              <span>Sending it back: give it a stronger model or more effort</span>
+              <span>{{ 'Sending it back: give it a stronger model or more effort' | t }}</span>
             </label>
           }
           @if (error()) {
@@ -147,7 +149,7 @@ import { TimeAgoComponent } from '../../shared/time-ago.component';
               [disabled]="busy() || !note().trim()"
               (click)="addNote()"
             >
-              Add note
+              {{ 'Add note' | t }}
             </button>
             @if (t.blocked) {
               <button
@@ -156,13 +158,13 @@ import { TimeAgoComponent } from '../../shared/time-ago.component';
                 [disabled]="busy()"
                 (click)="patch({ blocked: '' })"
               >
-                Unblock
+                {{ 'Unblock' | t }}
               </button>
             }
             <span class="spacer"></span>
             @if (t.status === 'review') {
               <button class="btn small" type="button" [disabled]="busy()" (click)="sendBack()">
-                Send back
+                {{ 'Send back' | t }}
               </button>
               <button
                 class="btn small ok"
@@ -170,7 +172,7 @@ import { TimeAgoComponent } from '../../shared/time-ago.component';
                 [disabled]="busy()"
                 (click)="patch({ status: 'done' })"
               >
-                Accept
+                {{ 'Accept' | t }}
               </button>
             }
             @if (ended()) {
@@ -180,17 +182,17 @@ import { TimeAgoComponent } from '../../shared/time-ago.component';
                 [disabled]="busy()"
                 (click)="patch({ status: 'todo' })"
               >
-                Reopen
+                {{ 'Reopen' | t }}
               </button>
             } @else {
               <button class="btn small danger" type="button" [disabled]="busy()" (click)="cancel()">
-                Cancel task
+                {{ 'Cancel task' | t }}
               </button>
             }
           </div>
           @if (t.history?.length) {
             <details>
-              <summary class="muted small">History</summary>
+              <summary class="muted small">{{ 'History' | t }}</summary>
               @for (h of t.history; track $index) {
                 <div class="small note">
                   <mc-time class="faint" [ms]="h.at" /> {{ h.by }} · {{ h.action }}
@@ -258,7 +260,7 @@ export class TaskSheetComponent {
 
   protected readonly heading = computed(() => {
     const t = this.task();
-    return t ? `#${t.id} ${t.title}` : 'Task';
+    return t ? `#${t.id} ${t.title}` : tr('Task');
   });
   protected readonly ended = computed(() =>
     ['done', 'failed', 'cancelled'].includes(this.task()?.status ?? ''),
@@ -274,7 +276,7 @@ export class TaskSheetComponent {
   }
 
   protected statusLabel(t: TeamTask): string {
-    return STATUS_LABELS[t.status] ?? t.status;
+    return tr(STATUS_LABELS[t.status] ?? t.status);
   }
 
   protected tone(t: TeamTask): string {
@@ -328,7 +330,7 @@ export class TaskSheetComponent {
   }
 
   protected async cancel(): Promise<void> {
-    if (!confirm('Cancel this task? Its session is told to stop working on it.')) return;
+    if (!confirm(tr('Cancel this task? Its session is told to stop working on it.'))) return;
     await this.patch({ status: 'cancelled' });
   }
 }

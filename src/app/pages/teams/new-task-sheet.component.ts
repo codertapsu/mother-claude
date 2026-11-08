@@ -2,18 +2,19 @@ import { Component, effect, inject, input, output, signal } from '@angular/core'
 import { FormsModule } from '@angular/forms';
 
 import { ApiService, describeError } from '../../core/api.service';
+import { TPipe } from '../../core/i18n/t.pipe';
 import { PRIORITY_LABELS, TASK_CLASSES, TeamTask, TeamView, lines } from '../../core/teams';
 import { SheetComponent } from '../../shared/sheet.component';
 
 /** Write a task packet from the dashboard (the lead hears about it). */
 @Component({
   selector: 'mc-new-task-sheet',
-  imports: [FormsModule, SheetComponent],
+  imports: [FormsModule, SheetComponent, TPipe],
   template: `
-    <mc-sheet [open]="open()" title="New task" (closed)="closed.emit()">
+    <mc-sheet [open]="open()" [title]="'New task' | t" (closed)="closed.emit()">
       <form class="stack form" (ngSubmit)="create()">
         <label class="field">
-          <span class="field-label">Title</span>
+          <span class="field-label">{{ 'Title' | t }}</span>
           <input
             name="title"
             required
@@ -23,17 +24,17 @@ import { SheetComponent } from '../../shared/sheet.component';
           />
         </label>
         <label class="field">
-          <span class="field-label">Goal</span>
+          <span class="field-label">{{ 'Goal' | t }}</span>
           <textarea
             name="goal"
             rows="3"
-            placeholder="What and why, and what done looks like"
+            [placeholder]="'What and why, and what done looks like' | t"
             [ngModel]="goal()"
             (ngModelChange)="goal.set($event)"
           ></textarea>
         </label>
         <label class="field">
-          <span class="field-label">Acceptance criteria (one per line)</span>
+          <span class="field-label">{{ 'Acceptance criteria (one per line)' | t }}</span>
           <textarea
             name="acceptance"
             rows="3"
@@ -43,7 +44,7 @@ import { SheetComponent } from '../../shared/sheet.component';
         </label>
         <div class="grid">
           <label class="field">
-            <span class="field-label">Role</span>
+            <span class="field-label">{{ 'Role' | t }}</span>
             <select name="role" [ngModel]="role()" (ngModelChange)="role.set($event)">
               @for (r of team().roles; track r.id) {
                 <option [value]="r.id">{{ r.title }}</option>
@@ -51,15 +52,15 @@ import { SheetComponent } from '../../shared/sheet.component';
             </select>
           </label>
           <label class="field">
-            <span class="field-label">Priority</span>
+            <span class="field-label">{{ 'Priority' | t }}</span>
             <select name="priority" [ngModel]="priority()" (ngModelChange)="priority.set(+$event)">
               @for (p of priorities; track $index) {
-                <option [value]="$index">{{ p }}</option>
+                <option [value]="$index">{{ p | t }}</option>
               }
             </select>
           </label>
           <label class="field">
-            <span class="field-label">Class</span>
+            <span class="field-label">{{ 'Class' | t }}</span>
             <select name="class" [ngModel]="klass()" (ngModelChange)="klass.set($event)">
               <option value="">—</option>
               @for (c of classes; track c) {
@@ -69,7 +70,7 @@ import { SheetComponent } from '../../shared/sheet.component';
           </label>
         </div>
         <label class="field">
-          <span class="field-label">Files (one per line)</span>
+          <span class="field-label">{{ 'Files (one per line)' | t }}</span>
           <textarea
             name="files"
             rows="2"
@@ -79,7 +80,7 @@ import { SheetComponent } from '../../shared/sheet.component';
           ></textarea>
         </label>
         <label class="field">
-          <span class="field-label">Constraints (one per line)</span>
+          <span class="field-label">{{ 'Constraints (one per line)' | t }}</span>
           <textarea
             name="constraints"
             rows="2"
@@ -92,9 +93,9 @@ import { SheetComponent } from '../../shared/sheet.component';
         }
         <div class="row">
           <span class="spacer"></span>
-          <button class="btn" type="button" (click)="closed.emit()">Cancel</button>
+          <button class="btn" type="button" (click)="closed.emit()">{{ 'Cancel' | t }}</button>
           <button class="btn primary" type="submit" [disabled]="busy() || !title().trim()">
-            {{ busy() ? 'Adding…' : 'Add the task' }}
+            {{ busy() ? ('Adding…' | t) : ('Add the task' | t) }}
           </button>
         </div>
       </form>

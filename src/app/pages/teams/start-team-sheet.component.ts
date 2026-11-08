@@ -4,6 +4,8 @@ import { FormsModule } from '@angular/forms';
 import { AccountsService } from '../../core/accounts.service';
 import { ApiService, describeError } from '../../core/api.service';
 import { AuthService } from '../../core/auth.service';
+import { computerNoun, tr } from '../../core/i18n/i18n';
+import { TPipe } from '../../core/i18n/t.pipe';
 import { ProjectInfo } from '../../core/models';
 import {
   RoleOverride,
@@ -21,23 +23,25 @@ const MODES = ['default', 'acceptEdits', 'plan', 'auto', 'bypassPermissions', 'd
  * lead's brief and per-role changes. */
 @Component({
   selector: 'mc-start-team-sheet',
-  imports: [FormsModule, SheetComponent],
+  imports: [FormsModule, SheetComponent, TPipe],
   template: `
-    <mc-sheet [open]="open()" title="Start a team" (closed)="closed.emit()">
+    <mc-sheet [open]="open()" [title]="'Start a team' | t" (closed)="closed.emit()">
       <form class="stack form" (ngSubmit)="start()">
         <label class="field">
-          <span class="field-label">Project</span>
+          <span class="field-label">{{ 'Project' | t }}</span>
           <select name="project" [ngModel]="project()" (ngModelChange)="project.set($event)">
-            <option value="" disabled>Choose a project…</option>
+            <option value="" disabled>{{ 'Choose a project…' | t }}</option>
             @for (p of projects(); track p.path) {
               <option [value]="p.path">{{ p.name }} — {{ p.path }}</option>
             }
           </select>
-          <span class="field-hint">A folder Claude Code has worked in (or trusted).</span>
+          <span class="field-hint">{{
+            'A folder Claude Code has worked in (or trusted).' | t
+          }}</span>
         </label>
 
         <label class="field">
-          <span class="field-label">Template</span>
+          <span class="field-label">{{ 'Template' | t }}</span>
           <select
             name="template"
             [ngModel]="templateId()"
@@ -51,9 +55,9 @@ const MODES = ['default', 'acceptEdits', 'plan', 'auto', 'bypassPermissions', 'd
 
         @if (accounts.multi()) {
           <label class="field">
-            <span class="field-label">Account</span>
+            <span class="field-label">{{ 'Account' | t }}</span>
             <select name="account" [ngModel]="account()" (ngModelChange)="account.set($event)">
-              <option value="">The project's account</option>
+              <option value="">{{ "The project's account" | t }}</option>
               @for (a of accounts.list(); track a.id) {
                 <option [value]="a.id">{{ a.name }}</option>
               }
@@ -62,68 +66,70 @@ const MODES = ['default', 'acceptEdits', 'plan', 'auto', 'bypassPermissions', 'd
         }
 
         <label class="field">
-          <span class="field-label">Brief for the lead (optional)</span>
+          <span class="field-label">{{ 'Brief for the lead (optional)' | t }}</span>
           <textarea
             name="brief"
             rows="4"
-            placeholder="What should the team build?"
+            [placeholder]="'What should the team build?' | t"
             [ngModel]="brief()"
             (ngModelChange)="brief.set($event)"
           ></textarea>
-          <span class="field-hint">The lead's first message. Without one it waits quietly.</span>
+          <span class="field-hint">{{
+            "The lead's first message. Without one it waits quietly." | t
+          }}</span>
         </label>
 
         @if (template(); as t) {
           <fieldset class="roles">
-            <legend class="field-label">Roles</legend>
+            <legend class="field-label">{{ 'Roles' | t }}</legend>
             @for (r of t.roles; track r.id) {
               <div class="role">
                 <div class="row">
                   <strong>{{ r.title }}</strong>
                   @if (r.lead) {
-                    <span class="badge accent">lead</span>
+                    <span class="badge accent">{{ 'lead' | t }}</span>
                   }
                   @if (r.worktree) {
-                    <span class="badge">worktree</span>
+                    <span class="badge">{{ 'worktree' | t }}</span>
                   }
                   @if (r.readOnly) {
-                    <span class="badge">read-only</span>
+                    <span class="badge">{{ 'read-only' | t }}</span>
                   }
                 </div>
                 <div class="grid">
                   <label class="field">
-                    <span class="field-hint">Model</span>
+                    <span class="field-hint">{{ 'Model' | t }}</span>
                     <input
                       [name]="'model-' + r.id"
                       [attr.name]="'model-' + r.id"
-                      [placeholder]="r.model || 'default'"
+                      [placeholder]="r.model || ('default' | t)"
                       [ngModel]="overrides()[r.id]?.model ?? ''"
                       (ngModelChange)="set(r.id, 'model', $event)"
                     />
                   </label>
                   <label class="field">
-                    <span class="field-hint">Effort</span>
+                    <span class="field-hint">{{ 'Effort' | t }}</span>
                     <select
                       [name]="'effort-' + r.id"
                       [attr.name]="'effort-' + r.id"
                       [ngModel]="overrides()[r.id]?.effort ?? ''"
                       (ngModelChange)="set(r.id, 'effort', $event)"
                     >
-                      <option value="">{{ r.effort || 'default' }}</option>
+                      <option value="">{{ r.effort || ('default' | t) }}</option>
                       @for (e of efforts; track e) {
                         <option [value]="e">{{ e }}</option>
                       }
                     </select>
                   </label>
                   <label class="field">
-                    <span class="field-hint">Permission mode</span>
+                    <span class="field-hint">{{ 'Permission mode' | t }}</span>
                     <select
                       [name]="'mode-' + r.id"
                       [attr.name]="'mode-' + r.id"
                       [ngModel]="overrides()[r.id]?.permissionMode ?? ''"
                       (ngModelChange)="set(r.id, 'permissionMode', $event)"
                     >
-                      <option value="">{{ r.permissionMode || 'default' }}</option>
+                      <option value="">{{ r.permissionMode || ('default' | t) }}</option>
                       @for (m of modes; track m) {
                         <option [value]="m">{{ m }}</option>
                       }
@@ -138,7 +144,7 @@ const MODES = ['default', 'acceptEdits', 'plan', 'auto', 'bypassPermissions', 'd
                     [ngModel]="overrides()[r.id]?.autostart ?? !!r.autostart"
                     (ngModelChange)="setAutostart(r.id, $event, !!r.autostart)"
                   />
-                  <span>Start with the team</span>
+                  <span>{{ 'Start with the team' | t }}</span>
                 </label>
               </div>
             }
@@ -147,9 +153,12 @@ const MODES = ['default', 'acceptEdits', 'plan', 'auto', 'bypassPermissions', 'd
 
         @if (dangerous()) {
           <p class="notice warn">
-            A role runs without permission prompts.
+            {{ 'A role runs without permission prompts.' | t }}
             @if (!auth.canDangerous()) {
-              Only this computer, or a device allowed dangerous actions, can start this team.
+              {{
+                'Only your {computer}, or a device allowed dangerous actions, can start this team.'
+                  | t: { computer: computer() }
+              }}
             }
           </p>
         }
@@ -158,9 +167,9 @@ const MODES = ['default', 'acceptEdits', 'plan', 'auto', 'bypassPermissions', 'd
         }
         <div class="row">
           <span class="spacer"></span>
-          <button class="btn" type="button" (click)="closed.emit()">Cancel</button>
+          <button class="btn" type="button" (click)="closed.emit()">{{ 'Cancel' | t }}</button>
           <button class="btn primary" type="submit" [disabled]="!canStart()">
-            {{ busy() ? 'Starting…' : 'Start the team' }}
+            {{ busy() ? ('Starting…' | t) : ('Start the team' | t) }}
           </button>
         </div>
       </form>
@@ -212,6 +221,8 @@ export class StartTeamSheetComponent {
 
   protected readonly efforts = EFFORTS;
   protected readonly modes = MODES;
+  /** The desktop's computer in words ("Mac", "PC", "computer"). */
+  protected readonly computer = computerNoun;
   protected readonly projects = signal<ProjectInfo[]>([]);
   protected readonly project = signal('');
   protected readonly templateId = signal('software-delivery');
@@ -251,7 +262,7 @@ export class StartTeamSheetComponent {
         [...projects].sort((a, b) => (b.lastActivityAt ?? 0) - (a.lastActivityAt ?? 0)),
       );
     } catch (e) {
-      this.error.set(`Could not load the projects: ${describeError(e).text}`);
+      this.error.set(tr('Could not load the projects: {error}', { error: describeError(e).text }));
     }
   }
 
