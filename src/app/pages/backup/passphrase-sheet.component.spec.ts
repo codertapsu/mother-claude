@@ -51,6 +51,31 @@ describe('PassphraseSheetComponent', () => {
   const closeButton = (el: HTMLElement) =>
     el.querySelector('button[aria-label="Close"]') as HTMLButtonElement;
 
+  it('keeps its title while the page under it learns a passphrase is set', async () => {
+    fixture = TestBed.createComponent(PassphraseSheetComponent);
+    fixture.componentRef.setInput('changing', false);
+    fixture.componentRef.setInput('open', true);
+    fixture.detectChanges();
+    await settle();
+    const el = fixture.nativeElement as HTMLElement;
+    const title = () => text(el.querySelector('.title'));
+    expect(title()).toBe('Backup passphrase');
+    button(el, 'Generate a passphrase')?.click();
+    await settle();
+    // The page reads its view again after the save: one is set now.
+    fixture.componentRef.setInput('changing', true);
+    fixture.detectChanges();
+    expect(title()).toBe('Backup passphrase');
+    expect(text(el.querySelector('.secret'))).toBe(SECRET);
+    // Opened again later, it changes the one that is set.
+    fixture.componentRef.setInput('open', false);
+    fixture.detectChanges();
+    fixture.componentRef.setInput('open', true);
+    fixture.detectChanges();
+    await settle();
+    expect(title()).toBe('Change the passphrase');
+  });
+
   it('shows a generated passphrase once and closes only once it is written down', async () => {
     const el = await open();
     expect(text(el)).toContain('Without the passphrase no backup can be read');

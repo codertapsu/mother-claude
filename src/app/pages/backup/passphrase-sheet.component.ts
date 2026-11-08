@@ -5,6 +5,7 @@ import {
   effect,
   inject,
   input,
+  linkedSignal,
   output,
   signal,
   untracked,
@@ -51,7 +52,7 @@ export type PassphraseStep = 'choose' | 'own' | 'show' | 'saved';
       @if (open()) {
         @switch (step()) {
           @case ('choose') {
-            @if (unfinished()) {
+            @if (mode().unfinished) {
               <p class="notice warn small" role="status">
                 {{
                   'The last passphrase change did not finish, so some backups may open only with the new passphrase. Set it again — the same one or a new one — to finish: every backup then opens with it.'
@@ -65,7 +66,7 @@ export type PassphraseStep = 'choose' | 'own' | 'show' | 'saved';
                   | t
               }}
               {{ keptText() }}
-              @if (changing()) {
+              @if (wasSet()) {
                 {{
                   'Changing it keeps every backup readable: they are re-keyed to the new one.' | t
                 }}
@@ -293,10 +294,20 @@ export class PassphraseSheetComponent {
   /** Why a change that some set already has stopped ('' when none did). */
   protected readonly stopped = signal('');
 
+  /** What the dialog does, as it was when it opened: saving a first
+   * passphrase sets one (`changing` turns true under it) and finishing a
+   * change ends `unfinished`, and neither may retitle the open dialog. */
+  protected readonly mode = linkedSignal({
+    source: this.open,
+    computation: () =>
+      untracked(() => ({ changing: this.changing(), unfinished: this.unfinished() })),
+  });
+  protected readonly wasSet = computed(() => this.mode().changing);
+
   protected readonly title = computed(() =>
-    this.unfinished()
+    this.mode().unfinished
       ? tr('Finish the passphrase change')
-      : this.changing()
+      : this.mode().changing
         ? tr('Change the passphrase')
         : tr('Backup passphrase'),
   );
