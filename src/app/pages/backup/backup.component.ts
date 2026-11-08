@@ -11,21 +11,23 @@ import {
   andList,
   backupErrorText,
   normalizeBackupView,
+  normalizePullSkips,
   otherMachines,
   ownSets,
   scheduleLabel,
 } from '../../core/backup';
-import { jobIdOf, plural, sentence } from '../../core/data-jobs';
+import { jobIdOf, normalizeJob, plural, sentence } from '../../core/data-jobs';
 import { DataJobsService } from '../../core/data-jobs.service';
 import { BackupMachine, BackupSet, BackupView, JobView } from '../../core/models';
-import { folderExample, folderPathProblem, machineNoun } from '../../core/paths';
+import { folderExample, folderPathProblem, lastSegment, machineNoun } from '../../core/paths';
 import { RealtimeService } from '../../core/realtime.service';
 import { StorageService } from '../../core/storage.service';
 import { CopyButtonComponent } from '../../shared/copy-button.component';
 import { DataJobComponent } from '../../shared/data-job.component';
 import { IconComponent } from '../../shared/icon.component';
 import { TimeAgoComponent } from '../../shared/time-ago.component';
-import { shortPath } from '../../shared/util';
+import { relativeTime, shortPath } from '../../shared/util';
+import { BackupBrowserComponent, BrowserBring, BrowserTarget } from './backup-browser.component';
 import { FolderPairsComponent } from './folder-pairs.component';
 import { ForceBackupSheetComponent } from './force-backup-sheet.component';
 import { JobDetailsComponent } from './job-details.component';
@@ -33,6 +35,7 @@ import { PassphraseSheetComponent } from './passphrase-sheet.component';
 import { PullSheetComponent } from './pull-sheet.component';
 import { RestoreSheetComponent } from './restore-sheet.component';
 import { StorageSectionComponent } from './storage-section.component';
+import { SyncDrag, SyncDragItem, SyncDropTarget, dropText, targetKey } from './sync-drag';
 
 /** The newest jobs listed. */
 const JOBS_SHOWN = 8;
@@ -76,6 +79,7 @@ interface SetRow {
   imports: [
     FormsModule,
     RouterLink,
+    BackupBrowserComponent,
     CopyButtonComponent,
     DataJobComponent,
     FolderPairsComponent,
@@ -88,10 +92,14 @@ interface SetRow {
     StorageSectionComponent,
     TimeAgoComponent,
   ],
+  providers: [SyncDrag],
   templateUrl: './backup.component.html',
   styleUrl: './backup.component.scss',
 })
 export class BackupComponent {
+  protected readonly drag = inject(SyncDrag);
+  /** The backups column as a drop target. */
+  protected readonly backups: SyncDropTarget = { kind: 'backups' };
   private api = inject(ApiService);
   private jobs = inject(DataJobsService);
   private realtime = inject(RealtimeService);
@@ -122,6 +130,14 @@ export class BackupComponent {
   protected readonly folder = linkedSignal(() => this.view()?.settings.folder ?? '');
   protected readonly passOpen = signal(false);
   protected readonly restoreFor = signal<string | null>(null);
+  /** The Restore dialog's account to restore into and sessions to start
+   * selected, when a drop chose them. */
+  protected readonly restoreInto = signal<string | null>(null);
+  protected readonly restoreIds = signal<string[] | null>(null);
+  /** The Pull dialog's sessions to start selected (dropped ones). */
+  protected readonly pullIds = signal<string[] | null>(null);
+  /** The account whose backup's conversations are browsed. */
+  protected readonly browsing = signal<string | null>(null);
   /** The pull dialog: one account (its id), every account (''), or closed. */
   protected readonly pullFor = signal<string | null>(null);
   /** The force backup confirmation: the set's account, or closed. */
@@ -156,6 +172,17 @@ export class BackupComponent {
     if (!v.passphraseSet) return 'Set a passphrase first.';
     return '';
   });
+  /** The first backup is made: the setup guide goes. */
+  protected readonly setupDone = computed(() =>
+    (this.view()?.sets ?? []).some((s) => !!s.lastPush || s.exists),
+  );
+  /** The setup step to do now (1 folder, 2 passphrase, 3 first backup). */
+  protected readonly setupStep = computed(() => {
+    const v = this.view();
+    if (!v?.settings.folder) return 1;
+    if (!v.passphraseSet) return 2;
+    return 3;
+  });
   protected readonly knownSchedule = computed(() =>
     BACKUP_SCHEDULES.some((s) => s.hours === this.settings()?.everyHours),
   );
@@ -182,6 +209,27 @@ export class BackupComponent {
     return [...merged.values()].sort((a, b) => b.startedAt - a.startedAt).slice(0, JOBS_SHOWN);
   });
   protected readonly sets = computed(() => this.view()?.sets ?? []);
+  protected readonly browsedSet = computed(
+    () => this.sets().find((s) => s.account === this.browsing() && s.exists) ?? null,
+  );
+  /** The accounts a backup's conversations can be brought into: those with
+   * a backup of their own (a token account's is the Default's). */
+  protected readonly browseTargets = computed<BrowserTarget[]>(() =>
+    this.rows()
+      .filter((r) => !r.sharedWith)
+      .map((r) => ({
+        account: r.set.account,
+        name: r.set.name,
+        color: this.colorOf(r.set.account),
+      })),
+  );
+  /** The backup folder, as people know it (its suggestion's name, else its
+   * last folder). */
+  protected readonly folderName = computed(() => {
+    const v = this.view();
+    const folder = v?.settings.folder ?? '';
+    return v?.suggestions.find((s) => s.path === folder)?.label || lastSegment(folder) || folder;
+  });
 
   constructor() {
     void this.accounts.ensureLoaded();
@@ -326,6 +374,200 @@ export class BackupComponent {
     }
   }
 
+  /** "Type a folder…": the folder field in Settings, focused. */
+  protected focusFolder(e: Event): void {
+    e.preventDefault();
+    const input = document.querySelector<HTMLInputElement>('mc-backup input[name="folder"]');
+    input?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    input?.focus({ preventScroll: true });
+  }
+
+  // ─────────────────────────────────────────────── Lanes: drag and drop
+
+  protected accountTarget(r: SetRow): SyncDropTarget {
+    return { kind: 'account', account: r.set.account };
+  }
+
+  protected colorOf(account: string): string {
+    return this.accounts.byId(account)?.color ?? 'var(--accent)';
+  }
+
+  /** What an account here is, under its name. */
+  protected kindText(r: SetRow): string {
+    const a = this.accounts.byId(r.set.account);
+    const kind = r.sharedWith
+      ? 'Token account'
+      : !a || a.isDefault
+        ? 'Default account'
+        : a.kind === 'directory'
+          ? 'Its own directory'
+          : 'Account';
+    return a?.live ? `${kind} · ${plural(a.live, 'running session')}` : kind;
+  }
+
+  /** How the lane between an account and its backup stands. */
+  protected laneState(r: SetRow): string {
+    if (r.sharedWith) return 'shared';
+    if (this.jobRunsFor(r.set.account)) return 'busy';
+    if (r.set.keyMissing || r.lastError) return 'problem';
+    if (!r.set.lastPush) return 'never';
+    const every = this.settings()?.everyHours ?? 0;
+    const stale = every > 0 && Date.now() - r.set.lastPush > every * 2 * 3_600_000;
+    return stale ? 'stale' : 'ok';
+  }
+
+  protected laneText(r: SetRow): string {
+    switch (this.laneState(r)) {
+      case 'shared':
+        return `In ${r.sharedWith}'s backup`;
+      case 'busy':
+        return 'Working…';
+      case 'problem':
+        return r.set.keyMissing ? 'Key missing here' : 'Last backup failed';
+      case 'never':
+        return this.ready() ? 'Not backed up yet' : 'Not set up';
+      default:
+        return `Backed up ${relativeTime(r.set.lastPush)}`;
+    }
+  }
+
+  protected canDragAccount(r: SetRow): boolean {
+    return this.ready() && !r.sharedWith && !this.pushing();
+  }
+
+  protected canDragSet(r: SetRow): boolean {
+    return this.ready() && !r.sharedWith && r.set.exists && !r.set.keyMissing;
+  }
+
+  protected dragAccount(e: DragEvent, r: SetRow): void {
+    if (!this.canDragAccount(r)) {
+      e.preventDefault();
+      return;
+    }
+    this.drag.start(e, { kind: 'account', account: r.set.account, name: r.set.name }, r.set.name);
+  }
+
+  protected dragSet(e: DragEvent, r: SetRow): void {
+    if (!this.canDragSet(r)) {
+      e.preventDefault();
+      return;
+    }
+    this.drag.start(
+      e,
+      { kind: 'set', account: r.set.account, name: r.set.name },
+      `${r.set.name}'s backup`,
+    );
+  }
+
+  /** What dropping the dragged item on `t` does ('' when it can't). */
+  protected dropLabel(t: SyncDropTarget): string {
+    const item = this.drag.item();
+    if (!item || !this.ready()) return '';
+    if (t.kind === 'account') {
+      const row = this.rows().find((r) => r.set.account === t.account);
+      if (!row || row.sharedWith) return '';
+    }
+    return dropText(item, t, (a) => this.nameOf(a));
+  }
+
+  protected over(e: DragEvent, t: SyncDropTarget): void {
+    if (!this.dropLabel(t)) return;
+    e.preventDefault();
+    if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
+    this.drag.over.set(targetKey(t));
+  }
+
+  protected leave(t: SyncDropTarget): void {
+    if (this.drag.over() === targetKey(t)) this.drag.over.set('');
+  }
+
+  protected drop(e: DragEvent, t: SyncDropTarget): void {
+    const label = this.dropLabel(t);
+    const item = this.drag.item();
+    this.drag.end();
+    if (!label || !item) return;
+    e.preventDefault();
+    this.perform(item, t);
+  }
+
+  /** A drop, done: backing up starts at once; bringing a backup back opens
+   * its dialog (Pull for its own account, Restore for another), which says
+   * what comes; dropped conversations come at once onto their own account
+   * (a pull of them, undoable) unless Claude Code would delete some again. */
+  private perform(item: SyncDragItem, t: SyncDropTarget): void {
+    if (t.kind === 'backups') {
+      if (item.kind === 'account') void this.push(item.account);
+      return;
+    }
+    if (item.kind === 'set') {
+      if (item.account === t.account) this.openPull(item.account);
+      else this.openRestore(item.account, t.account);
+    } else if (item.kind === 'sessions') {
+      if (item.set === t.account)
+        void this.bring({ set: item.set, ids: item.ids, prune: item.prune });
+      else this.openRestore(item.set, t.account, item.ids);
+    }
+  }
+
+  protected toggleBrowse(account: string): void {
+    this.browsing.update((cur) => (cur === account ? null : account));
+  }
+
+  /** Open the Restore dialog for `set`'s backup, into `into` with `ids`
+   * selected when given. */
+  protected openRestore(
+    set: string,
+    into: string | null = null,
+    ids: string[] | null = null,
+  ): void {
+    this.restoreInto.set(into);
+    this.restoreIds.set(ids);
+    this.restoreFor.set(set);
+  }
+
+  protected closeRestore(): void {
+    this.restoreFor.set(null);
+    this.restoreInto.set(null);
+    this.restoreIds.set(null);
+  }
+
+  /** Bring conversations of an account's backup to that account (a pull of
+   * them: new ones come, newer ones replace the copy here — kept for undo —
+   * and both sides of a conflict are kept). Some Claude Code would delete
+   * again: the Pull dialog first, which says so. */
+  protected async bring(b: BrowserBring): Promise<void> {
+    if (!b.ids.length) return;
+    if (b.prune) {
+      this.openPull(b.set, b.ids);
+      return;
+    }
+    const name = this.nameOf(b.set) || 'the account';
+    this.error.set('');
+    this.notice.set('');
+    try {
+      const res = await this.api.pullBackup({ account: b.set, ids: b.ids });
+      const skipped = normalizePullSkips(res?.skipped).map((m) => sentence(m.message));
+      const raw = (res?.jobs ?? [])[0];
+      const first = normalizeJob(raw) ?? jobIdOf(raw);
+      if (first) this.follow(first);
+      this.notice.set(
+        first
+          ? `Bringing ${plural(b.ids.length, 'conversation')} to ${name}…`
+          : skipped.join(' ') || 'Nothing to bring.',
+      );
+    } catch (e) {
+      this.error.set(`${name}: ${backupErrorText(e)}`);
+    }
+  }
+
+  /** A data job runs for this account (backup, pull, restore). */
+  private jobRunsFor(account: string): boolean {
+    return this.jobList().some(
+      (j) =>
+        j.state === 'running' && (j.account === account || j.from === account || j.to === account),
+    );
+  }
+
   /** A restore or pull started in its dialog. */
   protected tracked(id: string): void {
     this.follow(id);
@@ -340,8 +582,14 @@ export class BackupComponent {
     this.live.update((prev) => new Map(prev).set(j.id, j));
   }
 
-  protected openPull(account: string | null): void {
+  protected openPull(account: string | null, ids: string[] | null = null): void {
+    this.pullIds.set(ids);
     this.pullFor.set(account ?? '');
+  }
+
+  protected closePull(): void {
+    this.pullFor.set(null);
+    this.pullIds.set(null);
   }
 
   private nameOf(account: string): string {

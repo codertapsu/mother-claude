@@ -59,6 +59,40 @@ undo. Bringing back a folder's trust (below) and forcing a backup, pull or
 restore need the dangerous right on the phone, and the desktop shows a notice
 naming the phone and what it did.
 
+## The page at a glance
+
+**Backup & sync** opens with a short guide while no backup exists yet —
+choose a folder, set a passphrase, back up for the first time — and then
+shows **Your backups**, one lane per account:
+
+- **This Mac** (or PC): the account, what kind it is and how many of its
+  sessions run;
+- the line between them says how it stands — *Backed up 2h ago* (green),
+  *Not backed up yet* or a backup older than twice the schedule (amber), a
+  failed backup or a missing key (red), *Working…* while a backup, pull or
+  restore runs;
+- **Backups**: the account's backup, with *Back up*, *Pull…*, *Restore…*,
+  *Force backup…*, *Restore settings* and **Conversations**;
+- **Other computers** that back up to it, and when they last did.
+
+On the desktop you can do the same by dragging (the buttons stay, and are
+what a phone uses):
+
+- an **account onto the backups** backs it up at once;
+- a **backup onto its own account** opens *Pull…* for it; onto **another
+  account**, *Restore…* into that account;
+- **Conversations** lists what the backup holds, grouped by project, each
+  saying how it compares with the account here (*Not on this computer*,
+  *Newer in the backup*, *Changed on both*, *Up to date*). Drag one — or every
+  one you ticked — onto its own account to bring it here at once (a pull of
+  just those: newer copies replace the ones here, kept for undo, and both
+  sides of a conflict are kept), or onto another account to open *Restore…*
+  into it with them selected. One Claude Code would delete again at its next
+  cleanup opens *Pull…* first, which says so.
+
+The folder, the passphrase and the schedule are under **Settings** on the
+same page.
+
 ## Storages
 
 The backup folder is the first **storage**. Under **Storage** you can add more:

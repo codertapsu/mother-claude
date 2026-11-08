@@ -133,6 +133,147 @@ describe('BackupComponent', () => {
   const button = (el: HTMLElement, label: string) =>
     [...el.querySelectorAll<HTMLButtonElement>('button')].find((b) => text(b).startsWith(label));
 
+  // ───────────────────────────── Lanes: drag and drop
+
+  const lane = (el: HTMLElement, name: string) =>
+    [...el.querySelectorAll<HTMLElement>('.lane')].find(
+      (l) => text(l.querySelector('.sname')) === name,
+    )!;
+  /** Drag `from` onto `to`, as the browser dispatches it. */
+  const dnd = async (from: Element, to: Element) => {
+    const dataTransfer = new DataTransfer();
+    const fire = (target: Element, type: string) =>
+      target.dispatchEvent(new DragEvent(type, { bubbles: true, cancelable: true, dataTransfer }));
+    fire(from, 'dragstart');
+    fixture.detectChanges();
+    fire(to, 'dragover');
+    fixture.detectChanges();
+    fire(to, 'drop');
+    fire(from, 'dragend');
+    await settle();
+  };
+  const indexOf = (sessions: unknown[]) => ({
+    status: 200,
+    body: {
+      account: 'default',
+      name: 'Default',
+      set: 'Default',
+      machines: [],
+      sessions,
+      config: [],
+    },
+  });
+  const session = (id: string, action: string, extra: Record<string, unknown> = {}) => ({
+    id,
+    action,
+    title: `Conversation ${id}`,
+    cwd: '/Users/marcus/dev/app',
+    remoteBytes: 1000,
+    host: 'marcus-air',
+    pushedAt: Date.now() - H,
+    newestMtime: Date.now() - H,
+    ...extra,
+  });
+
+  it('backs an account up when it is dropped on the backups, and brings a backup back where it is dropped', async () => {
+    asDesktop();
+    current = ready();
+    backend.routes.set('/backup/push', () => ({ status: 202, body: { jobs: ['jp'] } }));
+    backend.routes.set('/data/jobs/jp', () => ({ status: 200, body: backupJob('jp', 'done') }));
+    backend.routes.set('/backup/index', () => indexOf([session('s1', 'new')]));
+    const el = await render();
+    expect(text(el.querySelector('.dnd'))).toContain('Drag an account onto the backups');
+    const def = lane(el, 'Default');
+    expect(text(def.querySelector('.link'))).toBe('Backed up 2h ago');
+    expect(def.querySelector('.link')?.getAttribute('data-state')).toBe('ok');
+
+    // The account onto its backup: backed up at once.
+    await dnd(def.querySelector('.tile.here')!, def.querySelector('.tile.vault')!);
+    expect(backend.bodyOf('POST /backup/push')).toEqual({ account: 'default' });
+    expect(text(el.querySelector('.notice.ok'))).toBe('Backing up Default…');
+
+    // The backup onto its own account: the Pull dialog for it.
+    await dnd(def.querySelector('.tile.vault')!, def.querySelector('.tile.here')!);
+    expect((el.querySelector('mc-pull-sheet dialog') as HTMLDialogElement).open).toBeTrue();
+    expect(backend.calls).not.toContain('POST /backup/pull');
+    (el.querySelector('mc-pull-sheet button[aria-label="Close"]') as HTMLButtonElement).click();
+    await settle();
+
+    // Onto another account: Restore into that one.
+    await dnd(def.querySelector('.tile.vault')!, lane(el, 'Work').querySelector('.tile.here')!);
+    expect((el.querySelector('mc-restore-sheet dialog') as HTMLDialogElement).open).toBeTrue();
+    expect(backend.urls).toContain(`/backup/index?account=default&into=${MOCK_ACCOUNT_WORK}`);
+
+    // A token account's lane takes nothing: its backup is the Default's.
+    const before = backend.calls.length;
+    await dnd(
+      def.querySelector('.tile.vault')!,
+      lane(el, 'Marcus (Pro)').querySelector('.tile.here')!,
+    );
+    expect(backend.calls.length).toBe(before);
+    expect(lane(el, 'Marcus (Pro)').querySelector('.tile.here')?.getAttribute('draggable')).toBe(
+      'false',
+    );
+  });
+
+  it('brings conversations dragged from a backup to their account, and restores them into another', async () => {
+    asDesktop();
+    current = ready();
+    const sessions = [
+      session('s1', 'new'),
+      session('s2', 'update'),
+      session('s3', 'same'),
+      session('s4', 'new', { pruneWarning: 'Claude Code will delete this again.' }),
+    ];
+    backend.routes.set('/backup/index', () => indexOf(sessions));
+    backend.routes.set('/backup/pull', () => ({ status: 202, body: { jobs: ['jq'] } }));
+    backend.routes.set('/data/jobs/jq', () => ({
+      status: 200,
+      body: { ...backupJob('jq', 'running'), kind: 'pull' },
+    }));
+    const el = await render();
+    button(el, 'Conversations')!.click();
+    await settle();
+    const browser = el.querySelector('mc-backup-browser')!;
+    const rows = () => [...browser.querySelectorAll<HTMLElement>('.row')];
+    // What can come here, by default: not the one that is the same.
+    expect(rows().map((r) => text(r.querySelector('.rtitle')))).toEqual([
+      'Conversation s1',
+      'Conversation s2',
+      'Conversation s4',
+    ]);
+    expect(text(rows()[1].querySelector('.badge'))).toBe('Newer in the backup');
+
+    // One onto its own account: brought at once (a pull of it).
+    await dnd(rows()[0], lane(el, 'Default').querySelector('.tile.here')!);
+    expect(backend.bodyOf('POST /backup/pull')).toEqual({ account: 'default', ids: ['s1'] });
+    expect(text(el.querySelector('.notice.ok'))).toBe('Bringing 1 conversation to Default…');
+
+    // Selected ones onto another account's chip: Restore into it, preset.
+    (rows()[0].querySelector('input') as HTMLInputElement).click();
+    (rows()[1].querySelector('input') as HTMLInputElement).click();
+    fixture.detectChanges();
+    const work = [...browser.querySelectorAll<HTMLElement>('.target')].find(
+      (t) => text(t.querySelector('.tname')) === 'Work',
+    )!;
+    await dnd(rows()[1], work);
+    const restore = el.querySelector('mc-restore-sheet dialog') as HTMLDialogElement;
+    expect(restore.open).toBeTrue();
+    expect(backend.urls).toContain(`/backup/index?account=default&into=${MOCK_ACCOUNT_WORK}`);
+    // Of those dropped, the one a restore takes starts selected.
+    expect(text(restore.querySelector('.actions .btn'))).toBe('Restore 1 session');
+    (restore.querySelector('button[aria-label="Close"]') as HTMLButtonElement).click();
+    await settle();
+
+    // One Claude Code would delete again: the Pull dialog says so first.
+    const pulls = backend.calls.filter((c) => c === 'POST /backup/pull').length;
+    await dnd(rows()[2], lane(el, 'Default').querySelector('.tile.here')!);
+    const pull = el.querySelector('mc-pull-sheet dialog') as HTMLDialogElement;
+    expect(pull.open).toBeTrue();
+    expect(backend.calls.filter((c) => c === 'POST /backup/pull').length).toBe(pulls);
+    expect(text(pull)).toContain('Pull 1 session');
+  });
+
   it('lets a phone run and set up the backups, all but the passphrase', async () => {
     current = ready();
     const el = await render();
@@ -248,7 +389,7 @@ describe('BackupComponent', () => {
     const el = await render();
     const def = text(el.querySelector('.setrow'));
     expect(def).toContain('Also from marcus-air');
-    expect(def).toContain('Also from another machine named marcus-mbp');
+    expect(def).toContain('Also from another computer named marcus-mbp');
   });
 
   it('lets the desktop pick a suggested folder in one click', async () => {

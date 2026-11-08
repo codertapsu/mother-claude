@@ -303,6 +303,9 @@ export class PullSheetComponent {
   readonly account = input<string | null>(null);
   /** Every account's set (those of their own are pulled from). */
   readonly sets = input<BackupSet[]>([]);
+  /** The sessions to start selected (those dropped on their account), when
+   * a pull takes them; else everything a pull would bring. */
+  readonly ids = input<readonly string[] | null>(null);
   readonly closed = output<void>();
   /** A pull started: its job id, for the page's list. */
   readonly started = output<string>();
@@ -430,7 +433,12 @@ export class PullSheetComponent {
     );
     if (seq !== this.loadSeq) return;
     this.groups.set(groups);
-    this.selected.set(this.preselected(this.forcing()));
+    const wanted = new Set(this.ids() ?? []);
+    const dropped = groups
+      .flatMap((g) => g.index?.sessions ?? [])
+      .filter((s) => wanted.has(s.id) && pullTakesSession(s, false))
+      .map((s) => s.id);
+    this.selected.set(dropped.length ? new Set(dropped) : this.preselected(this.forcing()));
     this.step.set('list');
   }
 

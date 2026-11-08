@@ -298,6 +298,12 @@ export class RestoreSheetComponent {
   readonly account = input<string | null>(null);
   /** Every account's set (those of their own that exist can be chosen). */
   readonly sets = input<BackupSet[]>([]);
+  /** The account to restore into, when the opener chose it (a drop on an
+   * account); else the set's own. */
+  readonly into = input<string | null>(null);
+  /** The sessions to start selected (those dropped), when they can be
+   * restored; else the new ones. */
+  readonly ids = input<readonly string[] | null>(null);
   readonly closed = output<void>();
   /** A restore started: its job id, for the page's list. */
   readonly started = output<string>();
@@ -351,7 +357,9 @@ export class RestoreSheetComponent {
         this.following?.abort();
         if (!id) return;
         this.setId.set(id);
-        this.intoId.set(this.accounts.byId(id)?.kind === 'directory' ? id : 'default');
+        this.intoId.set(
+          this.into() || (this.accounts.byId(id)?.kind === 'directory' ? id : 'default'),
+        );
         this.trust.set(false);
         this.force.set(false);
         this.job.set(null);
@@ -418,7 +426,12 @@ export class RestoreSheetComponent {
       const ix = normalizeBackupIndex(raw);
       if (!ix) throw new Error('The Mac sent a backup list this app could not read.');
       this.index.set(ix);
-      this.selected.set(preselect(ix.sessions, 'restore'));
+      // Those dropped on an account, when it can take them; else the new ones.
+      const wanted = new Set(this.ids() ?? []);
+      const dropped = ix.sessions.filter((s) => wanted.has(s.id) && restoreLists(s, false));
+      this.selected.set(
+        dropped.length ? new Set(dropped.map((s) => s.id)) : preselect(ix.sessions, 'restore'),
+      );
       this.step.set('list');
     } catch (e) {
       if (seq !== this.loadSeq) return;
