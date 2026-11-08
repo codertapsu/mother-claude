@@ -202,9 +202,9 @@ working.
   field whose name or label says it holds a secret (card number, security
   code, one-time code, SSN, API key, token, secret…), or of anything a site
   marks with `data-mc-redact`. They show `«redacted»` instead.
-- The extension does not type into such a field, unless you allowed it in
-  Mother Claude for that site; even then the value comes from you, not from
-  the session.
+- Nothing types into such a field: Mother Claude refuses it before the
+  command is sent, and the extension refuses it again. Fill those in
+  yourself.
 - It never reads cookies or site storage.
 
 ## Privacy
