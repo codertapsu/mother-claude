@@ -79,10 +79,10 @@ const TOPICS: HelpTopicSource[] = [
       {
         heading: 'Làm quen với ứng dụng',
         points: [
-          'Trên ứng dụng máy tính, thanh bên có **Phiên**, **Hộp thư**, **Tác tử**, **Phiên mới**, **Nhóm**, **Từ xa**, **API**, **Công suất**, **Trình duyệt** và **Cài đặt**, cùng **Trợ giúp** ở dưới cùng.',
+          'Trên ứng dụng máy tính, thanh bên có **Phiên**, **Hộp thư**, **Tác tử**, **Phiên mới** và **Nhóm**; trong **Dữ liệu của bạn** là **Tài khoản** và **Sao lưu & đồng bộ**; trong **Kết nối** là **Từ xa**, **Trình duyệt** và **API**; trong **Hệ thống** là **Công suất** và **Cài đặt**; cùng **Trợ giúp** ở dưới cùng.',
           'Trên điện thoại, các thẻ ở dưới cùng là **Phiên**, **Hộp thư**, **Tác tử** và **Thêm**. Mọi mục khác nằm trong **Thêm**.',
           'Chấm ở cuối thanh bên (ở trên cùng trên điện thoại) cho biết trạng thái kết nối. **Trực tiếp** nghĩa là cập nhật đến ngay khi có.',
-          'Nút bên cạnh đổi giao diện giữa theo hệ thống, tối và sáng.',
+          'Nút bên cạnh đổi giao diện giữa tối, sáng và theo hệ thống. **Cài đặt › Hiển thị** còn có ngôn ngữ, màu nhấn và nền.',
           'Lần đầu, một ghi chú ngắn **Chào mừng đến với Mother Claude** giải thích cách ứng dụng hoạt động. Nhấn **Đã hiểu** để đóng nó.',
         ],
       },

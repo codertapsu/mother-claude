@@ -79,10 +79,10 @@ const TOPICS: HelpTopicSource[] = [
       {
         heading: 'Find your way around',
         points: [
-          'On the desktop app, the sidebar has **Sessions**, **Inbox**, **Agents**, **New session**, **Teams**, **Remote**, **API**, **Capacity**, **Browser** and **Settings**, and **Help** at the bottom.',
+          'On the desktop app, the sidebar has **Sessions**, **Inbox**, **Agents**, **New session** and **Teams**; under **Your data**, **Accounts** and **Backup & sync**; under **Connect**, **Remote**, **Browser** and **API**; under **System**, **Capacity** and **Settings**; and **Help** at the bottom.',
           'On a phone, the tabs at the bottom are **Sessions**, **Inbox**, **Agents** and **More**. Everything else is under **More**.',
           'The dot at the bottom of the sidebar (at the top on a phone) shows the connection. **Live** means updates arrive as they happen.',
-          'The button beside it switches the theme between system, dark and light.',
+          'The button beside it switches the theme between dark, light and system. **Settings › Appearance** also has the language, the accent colour and the background.',
           'The first time, a short **Welcome to Mother Claude** note explains how the app works. Press **Got it** to close it.',
         ],
       },
