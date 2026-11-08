@@ -26,6 +26,7 @@ import { IconComponent } from '../../shared/icon.component';
 import { MoveDataSheetComponent, MoveStart } from '../../shared/move-data-sheet.component';
 import { shortPath } from '../../shared/util';
 import { StorageSheetComponent } from './storage-sheet.component';
+import { SyncDrag, SyncDropTarget, dropText, targetKey } from './sync-drag';
 
 interface SetRow {
   set: StorageSet;
@@ -137,7 +138,21 @@ interface StoreRow {
           }
           <ul class="stsets" [attr.aria-label]="'Sets in ' + r.store.label">
             @for (s of r.sets; track s.set.name) {
-              <li class="stset">
+              <li
+                class="stset"
+                [class.can]="!!dropLabel(r.store, s.set)"
+                [class.over]="drag?.over() === key(r.store, s.set)"
+                [attr.draggable]="canDrag(r.store, s)"
+                [attr.aria-label]="r.store.label + ' · ' + s.set.name"
+                (dragstart)="dragSet($event, r.store, s)"
+                (dragend)="drag?.end()"
+                (dragover)="over($event, r.store, s.set)"
+                (dragleave)="leave(r.store, s.set)"
+                (drop)="drop($event, r.store, s.set)"
+              >
+                @if (canDrag(r.store, s)) {
+                  <span class="grip" aria-hidden="true" title="Drag onto an account">⠿</span>
+                }
                 <div class="stsmain">
                   <span class="stsname">{{ s.set.name }}</span>
                   @if (s.facts) {
@@ -165,6 +180,9 @@ interface StoreRow {
                       <mc-icon name="upload" [size]="14" /> Move here…
                     </button>
                   </div>
+                }
+                @if (dropLabel(r.store, s.set); as label) {
+                  <span class="droptag small">{{ label }}</span>
                 }
               </li>
             } @empty {
@@ -299,6 +317,43 @@ interface StoreRow {
         margin: 0.5rem 0 0;
         line-height: 1.5;
       }
+      .stset {
+        position: relative;
+        border-radius: var(--radius-sm);
+        transition:
+          background 0.15s,
+          box-shadow 0.15s;
+      }
+      .stset[draggable='true'] {
+        cursor: grab;
+      }
+      .stset.can {
+        box-shadow: 0 0 0 2px var(--accent);
+      }
+      .stset.over {
+        background: var(--accent-soft);
+      }
+      .grip {
+        color: var(--faint);
+        align-self: center;
+        user-select: none;
+      }
+      .droptag {
+        position: absolute;
+        right: 0.5rem;
+        top: -0.6rem;
+        padding: 0.1rem 0.5rem;
+        border-radius: 999px;
+        background: var(--accent);
+        color: var(--on-accent);
+        font-weight: 600;
+        pointer-events: none;
+      }
+      @media (pointer: coarse) {
+        .grip {
+          display: none;
+        }
+      }
       @media (max-width: 767px) {
         .stacts {
           flex: 1 1 100%;
@@ -318,6 +373,8 @@ interface StoreRow {
 export class StorageSectionComponent {
   private storage = inject(StorageService);
   private accounts = inject(AccountsService);
+  /** The Backup & sync page's drag and drop, when it is on that page. */
+  protected readonly drag = inject(SyncDrag, { optional: true });
 
   /** The backup folder's suggestions, offered when adding a storage too. */
   readonly suggestions = input<BackupSuggestion[]>([]);
@@ -387,6 +444,76 @@ export class StorageSectionComponent {
       to: setLocation(store.id, set.name),
       what: 'sessions',
     });
+  }
+
+  /** Out of a set into `account` (a set dropped on an account's lane). */
+  bringBackInto(storeId: string, setName: string, account: string): void {
+    const store = (this.storage.list() ?? []).find((s) => s.id === storeId);
+    const set = store?.sets.find((x) => x.name === setName);
+    if (!store || !set) return;
+    this.moveStart.set({
+      from: setLocation(store.id, set.name),
+      to: accountLocation(account),
+      what: 'all',
+    });
+  }
+
+  // ─────────────────────────────── Drag and drop (on the Backup & sync page)
+
+  protected key(store: StorageView, set: StorageSet): string {
+    return targetKey(this.target(store, set));
+  }
+
+  /** A set that can be read is dragged onto an account to bring it back. */
+  protected canDrag(store: StorageView, row: SetRow): boolean {
+    return !!this.drag && store.available && row.readable;
+  }
+
+  protected dragSet(e: DragEvent, store: StorageView, row: SetRow): void {
+    if (!this.drag || !this.canDrag(store, row)) {
+      e.preventDefault();
+      return;
+    }
+    this.drag.start(
+      e,
+      { kind: 'stored', store: store.id, storeLabel: store.label, set: row.set.name },
+      `${store.label} · ${row.set.name}`,
+    );
+  }
+
+  /** What dropping the dragged item on this set does ('' when it can't). */
+  protected dropLabel(store: StorageView, set: StorageSet): string {
+    if (!this.drag || !store.available || set.keyMissing) return '';
+    return dropText(this.drag.item(), this.target(store, set), () => '');
+  }
+
+  protected over(e: DragEvent, store: StorageView, set: StorageSet): void {
+    if (!this.dropLabel(store, set)) return;
+    e.preventDefault();
+    if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+    this.drag?.over.set(this.key(store, set));
+  }
+
+  protected leave(store: StorageView, set: StorageSet): void {
+    if (this.drag?.over() === this.key(store, set)) this.drag.over.set('');
+  }
+
+  /** An account dropped here: Move data from it into this set, preset. */
+  protected drop(e: DragEvent, store: StorageView, set: StorageSet): void {
+    const item = this.drag?.item() ?? null;
+    const label = this.dropLabel(store, set);
+    this.drag?.end();
+    if (!label || item?.kind !== 'account') return;
+    e.preventDefault();
+    this.moveStart.set({
+      from: accountLocation(item.account),
+      to: setLocation(store.id, set.name),
+      what: 'sessions',
+    });
+  }
+
+  private target(store: StorageView, set: StorageSet): SyncDropTarget {
+    return { kind: 'storage', store: store.id, set: set.name };
   }
 
   /** Into a new set of a storage. */

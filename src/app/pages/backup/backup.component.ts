@@ -1,4 +1,12 @@
-import { Component, DestroyRef, computed, inject, linkedSignal, signal } from '@angular/core';
+import {
+  Component,
+  DestroyRef,
+  computed,
+  inject,
+  linkedSignal,
+  signal,
+  viewChild,
+} from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 
@@ -100,6 +108,7 @@ export class BackupComponent {
   protected readonly drag = inject(SyncDrag);
   /** The backups column as a drop target. */
   protected readonly backups: SyncDropTarget = { kind: 'backups' };
+  private readonly storageSection = viewChild(StorageSectionComponent);
   private api = inject(ApiService);
   private jobs = inject(DataJobsService);
   private realtime = inject(RealtimeService);
@@ -499,7 +508,10 @@ export class BackupComponent {
       if (item.kind === 'account') void this.push(item.account);
       return;
     }
-    if (item.kind === 'set') {
+    if (t.kind === 'storage') return;
+    if (item.kind === 'stored') {
+      this.storageSection()?.bringBackInto(item.store, item.set, t.account);
+    } else if (item.kind === 'set') {
       if (item.account === t.account) this.openPull(item.account);
       else this.openRestore(item.account, t.account);
     } else if (item.kind === 'sessions') {

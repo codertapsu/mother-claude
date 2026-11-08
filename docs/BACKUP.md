@@ -88,7 +88,10 @@ what a phone uses):
   just those: newer copies replace the ones here, kept for undo, and both
   sides of a conflict are kept), or onto another account to open *Restore…*
   into it with them selected. One Claude Code would delete again at its next
-  cleanup opens *Pull…* first, which says so.
+  cleanup opens *Pull…* first, which says so;
+- an **account onto a storage's set** (under Storage, below) opens *Move
+  here…* from that account, and a **set onto an account** opens *Bring
+  back…* into it.
 
 The folder, the passphrase and the schedule are under **Settings** on the
 same page.

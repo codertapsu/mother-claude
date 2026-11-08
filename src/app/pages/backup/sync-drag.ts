@@ -5,7 +5,9 @@ import { Injectable, signal } from '@angular/core';
  * - an account on this computer (onto the backups: back it up);
  * - an account's backup (onto its account: pull; onto another: restore into it);
  * - conversations of a backup, from its browser (onto their own account:
- *   bring them here; onto another account: restore them into it).
+ *   bring them here; onto another account: restore them into it);
+ * - a set of a storage (onto an account: bring its conversations back there).
+ * An account dropped on a storage's set moves conversations into it.
  */
 export type SyncDragItem =
   | { kind: 'account'; account: string; name: string }
@@ -18,10 +20,14 @@ export type SyncDragItem =
       ids: string[];
       /** Some of them Claude Code would delete again (a sheet warns first). */
       prune: boolean;
-    };
+    }
+  | { kind: 'stored'; store: string; storeLabel: string; set: string };
 
 /** Where an item can be dropped. */
-export type SyncDropTarget = { kind: 'backups' } | { kind: 'account'; account: string };
+export type SyncDropTarget =
+  | { kind: 'backups' }
+  | { kind: 'account'; account: string }
+  | { kind: 'storage'; store: string; set: string };
 
 /** What a drop does, said on the target while the item is over it ('' when
  * it can't be dropped there). */
@@ -32,10 +38,13 @@ export function dropText(
 ): string {
   if (!item) return '';
   if (target.kind === 'backups') return item.kind === 'account' ? `Back up ${item.name}` : '';
+  if (target.kind === 'storage') return item.kind === 'account' ? `Move from ${item.name}…` : '';
   const to = nameOf(target.account) || 'this account';
   switch (item.kind) {
     case 'account':
       return '';
+    case 'stored':
+      return `Bring back into ${to}…`;
     case 'set':
       return item.account === target.account ? `Pull ${item.name}` : `Restore into ${to}…`;
     case 'sessions': {
@@ -69,5 +78,12 @@ export class SyncDrag {
 
 /** A drop target's key, for `SyncDrag.over`. */
 export function targetKey(t: SyncDropTarget): string {
-  return t.kind === 'backups' ? 'backups' : `account:${t.account}`;
+  switch (t.kind) {
+    case 'backups':
+      return 'backups';
+    case 'account':
+      return `account:${t.account}`;
+    case 'storage':
+      return `storage:${t.store}:${t.set}`;
+  }
 }

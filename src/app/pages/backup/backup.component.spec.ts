@@ -274,6 +274,44 @@ describe('BackupComponent', () => {
     expect(text(pull)).toContain('Pull 1 session');
   });
 
+  it('moves conversations into a storage set an account is dropped on, and back out onto an account', async () => {
+    asDesktop();
+    current = {
+      ...ready(),
+      storage: [
+        {
+          id: 'stor_5d2c8e1f0a7b',
+          label: 'Google Drive',
+          path: '/Users/me/Drive/Mother Claude',
+          kind: 'gdrive',
+          primary: false,
+          available: true,
+          sets: [{ name: 'Shared', exists: true, sessions: 3, archived: 1 }],
+        },
+      ],
+    } as unknown as BackupView;
+    const el = await render();
+    const shared = [...el.querySelectorAll<HTMLElement>('.stset')].find(
+      (r) => text(r.querySelector('.stsname')) === 'Shared',
+    )!;
+    const selects = () =>
+      [...el.querySelectorAll<HTMLSelectElement>('mc-move-data-sheet select')].map((x) => x.value);
+
+    // An account onto the set: Move data from it into the set.
+    await dnd(lane(el, 'Default').querySelector('.tile.here')!, shared);
+    expect((el.querySelector('mc-move-data-sheet dialog') as HTMLDialogElement).open).toBeTrue();
+    expect(selects().slice(0, 2)).toEqual(['a:default', 's:stor_5d2c8e1f0a7b:Shared']);
+    (
+      el.querySelector('mc-move-data-sheet button[aria-label="Close"]') as HTMLButtonElement
+    ).click();
+    await settle();
+
+    // The set onto an account: Move data out of it into that account.
+    await dnd(shared, lane(el, 'Work').querySelector('.tile.here')!);
+    expect((el.querySelector('mc-move-data-sheet dialog') as HTMLDialogElement).open).toBeTrue();
+    expect(selects().slice(0, 2)).toEqual(['s:stor_5d2c8e1f0a7b:Shared', `a:${MOCK_ACCOUNT_WORK}`]);
+  });
+
   it('lets a phone run and set up the backups, all but the passphrase', async () => {
     current = ready();
     const el = await render();
