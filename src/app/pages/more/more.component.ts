@@ -43,7 +43,12 @@ const ENTRIES: Entry[] = [
     hint: 'Sessions in your browser: site modes, approvals',
   },
   { path: '/services', icon: 'activity', label: 'Services', hint: 'Daemon and MCP servers' },
-  { path: '/good-to-know', icon: 'book', label: 'Good to know', hint: 'How Mother Claude works' },
+  {
+    path: '/help',
+    icon: 'question',
+    label: 'Help',
+    hint: 'How to use every feature, step by step',
+  },
 ];
 
 /** The phone's "More" tab: everything that isn't a primary tab. */

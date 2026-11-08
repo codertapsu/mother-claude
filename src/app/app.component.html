@@ -34,6 +34,14 @@
         }
       </nav>
       <div class="side-foot">
+        <a
+          class="help-link"
+          routerLink="/help"
+          routerLinkActive="active"
+          ariaCurrentWhenActive="page"
+        >
+          <mc-icon name="question" [size]="16" /> Help
+        </a>
         @if (updateAvailable()) {
           <a class="update" routerLink="/settings">
             <mc-icon name="refresh" [size]="15" /> Update available
