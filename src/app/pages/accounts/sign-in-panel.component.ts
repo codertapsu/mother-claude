@@ -15,7 +15,11 @@ import { FormsModule } from '@angular/forms';
 
 import { AccountsService } from '../../core/accounts.service';
 import { ApiService, describeError } from '../../core/api.service';
+import { AuthService } from '../../core/auth.service';
+import { tr } from '../../core/i18n/i18n';
+import { TPipe } from '../../core/i18n/t.pipe';
 import { AccountView, SignInBrowser, SignInState, SignInView } from '../../core/models';
+import { machineNoun } from '../../core/paths';
 import {
   advanceSignIn,
   browserLabel,
@@ -54,14 +58,18 @@ const POLL_MS = 1_500;
 @Component({
   selector: 'mc-sign-in-panel',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [FormsModule, CopyButtonComponent, IconComponent],
+  imports: [FormsModule, CopyButtonComponent, IconComponent, TPipe],
   template: `
     @if (run(); as r) {
       <div class="flow" role="status" [attr.data-state]="r.state">
         @if (r.state === 'starting' || !r.url) {
           <p class="wait">
             <span class="spin" aria-hidden="true"></span>
-            {{ r.state === 'starting' ? 'Starting the sign-in…' : 'Waiting for the sign-in link…' }}
+            {{
+              r.state === 'starting'
+                ? ('Starting the sign-in…' | t)
+                : ('Waiting for the sign-in link…' | t)
+            }}
           </p>
         } @else if (r.kind === 'login') {
           <!-- The Mac opened it in the default browser itself: never again
@@ -70,11 +78,11 @@ const POLL_MS = 1_500;
             <span class="spin" aria-hidden="true"></span>
             {{
               r.opened
-                ? 'The sign-in opened in ' + where(r.opened) + '.'
-                : 'The sign-in opens in your default browser…'
+                ? ('The sign-in opened in {where}.' | t: { where: where(r.opened) })
+                : ('The sign-in opens in your default browser…' | t)
             }}
           </p>
-          <p class="muted small">Sign in there with the Claude account {{ who() }}.</p>
+          <p class="muted small">{{ signInThere() }}</p>
           <div class="row opens">
             @if (privateOffered() && r.opened !== 'chrome-private') {
               <button
@@ -86,32 +94,29 @@ const POLL_MS = 1_500;
                 <mc-icon name="shield" [size]="14" /> {{ label('chrome-private') }}
               </button>
             }
-            <mc-copy-button [text]="r.url" label="Copy link" ariaLabel="Copy the sign-in link" />
+            <mc-copy-button
+              [text]="r.url"
+              [label]="'Copy link' | t"
+              [ariaLabel]="'Copy the sign-in link' | t"
+            />
           </div>
           @if (r.opened !== 'chrome-private') {
             <p class="muted small">
               {{
                 privateOffered()
-                  ? 'The wrong Claude account opened? A private window starts signed out.'
-                  : 'The wrong Claude account opened? Copy the link into a private window of your browser.'
+                  ? ('The wrong Claude account opened? A private window starts signed out.' | t)
+                  : ('The wrong Claude account opened? Copy the link into a private window of your browser.'
+                    | t)
               }}
             </p>
           }
         } @else {
-          <p class="ask">
-            {{
-              r.opened
-                ? 'The sign-in opened in ' +
-                  where(r.opened) +
-                  ': get the token ' +
-                  who() +
-                  ' there.'
-                : 'Open the sign-in page to get the token ' + who() + '.'
-            }}
-          </p>
+          <p class="ask">{{ askText(r) }}</p>
           <p class="muted small why">
-            Use a private window if you can: a browser already signed in to another Claude account
-            would give its consent to the wrong one.
+            {{
+              'Use a private window if you can: a browser already signed in to another Claude account would give its consent to the wrong one.'
+                | t
+            }}
           </p>
           <div class="row opens">
             @for (b of tokenBrowsers(); track b; let first = $first) {
@@ -123,10 +128,14 @@ const POLL_MS = 1_500;
                 (click)="openIn(b)"
               >
                 <mc-icon [name]="b === 'chrome-private' ? 'shield' : 'external'" [size]="14" />
-                {{ label(b) }}{{ first && b === 'chrome-private' ? ' (recommended)' : '' }}
+                {{ browserText(b, first) }}
               </button>
             }
-            <mc-copy-button [text]="r.url" label="Copy link" ariaLabel="Copy the sign-in link" />
+            <mc-copy-button
+              [text]="r.url"
+              [label]="'Copy link' | t"
+              [ariaLabel]="'Copy the sign-in link' | t"
+            />
           </div>
         }
 
@@ -134,17 +143,17 @@ const POLL_MS = 1_500;
           @if (r.codeSent) {
             <p class="wait">
               <span class="spin" aria-hidden="true"></span>
-              Code sent: Claude Code is finishing the sign-in…
+              {{ 'Code sent: Claude Code is finishing the sign-in…' | t }}
             </p>
           } @else {
             @if (r.codeError) {
               <p class="notice warn small" role="alert">
-                Claude Code didn't take that code: {{ r.codeError }}
+                {{ "Claude Code didn't take that code: {error}" | t: { error: r.codeError } }}
               </p>
             }
             <form class="code" [class.asked]="r.state === 'code'" (submit)="sendCode($event)">
               <label class="field">
-                <span class="field-label">Code from the browser</span>
+                <span class="field-label">{{ 'Code from the browser' | t }}</span>
                 <input
                   #codeInput
                   name="code"
@@ -158,12 +167,14 @@ const POLL_MS = 1_500;
               <p class="field-hint">
                 {{
                   r.codeError
-                    ? 'Paste the whole code the page shows. A code works once: for a new one, open the sign-in page again and approve.'
-                    : 'After you approve in the browser, Claude shows a code: copy it and paste it here.'
+                    ? ('Paste the whole code the page shows. A code works once: for a new one, open the sign-in page again and approve.'
+                      | t)
+                    : ('After you approve in the browser, Claude shows a code: copy it and paste it here.'
+                      | t)
                 }}
               </p>
               <button class="btn primary small" type="submit" [disabled]="!code().trim() || busy()">
-                Send the code
+                {{ 'Send the code' | t }}
               </button>
             </form>
           }
@@ -171,7 +182,7 @@ const POLL_MS = 1_500;
 
         <div class="row">
           <button class="btn ghost small" type="button" [disabled]="busy()" (click)="cancel()">
-            Cancel
+            {{ 'Cancel' | t }}
           </button>
         </div>
       </div>
@@ -234,6 +245,10 @@ const POLL_MS = 1_500;
 export class SignInPanelComponent {
   private api = inject(ApiService);
   private accounts = inject(AccountsService);
+  private readonly hostOs = inject(AuthService).hostOs;
+  /** The desktop's computer in a sentence ("this {computer}"): "Mac", "PC"
+   * (Vietnamese "máy Mac", "máy PC"). */
+  private readonly computer = computed(() => tr(machineNoun(this.hostOs())));
 
   readonly account = input.required<AccountView>();
   /** The sign-in stopped running: how it ended. */
@@ -254,9 +269,14 @@ export class SignInPanelComponent {
     const r = mergeSignIn(this.own(), this.account().signIn);
     return r && signInRunning(r) ? r : null;
   });
-  protected readonly who = computed(() => {
+  /** A login: "Sign in there with the Claude account for Work." */
+  protected readonly signInThere = computed(() => {
     const a = this.account();
-    return a.isDefault ? 'this Mac uses' : `for ${a.name}`;
+    return a.isDefault
+      ? tr('Sign in there with the Claude account this {computer} uses.', {
+          computer: this.computer(),
+        })
+      : tr('Sign in there with the Claude account for {name}.', { name: a.name });
   });
   protected readonly privateOffered = computed(() => this.browsers().includes('chrome-private'));
   /** A token sign-in: the private window first, when the Mac has it. */
@@ -327,10 +347,38 @@ export class SignInPanelComponent {
     return browserLabel(b);
   }
 
+  /** A token sign-in's button: the first, a private window, recommended. */
+  protected browserText(b: SignInBrowser, first: boolean): string {
+    return first && b === 'chrome-private'
+      ? tr('{browser} (recommended)', { browser: browserLabel(b) })
+      : browserLabel(b);
+  }
+
   /** "your default browser", "Chrome", "a private Chrome window". */
   protected where(b: SignInBrowser): string {
     if (b === 'chrome') return 'Chrome';
-    return b === 'chrome-private' ? 'a private Chrome window' : 'your default browser';
+    return b === 'chrome-private' ? tr('a private Chrome window') : tr('your default browser');
+  }
+
+  /** A token sign-in: where it opened, and whose token to get there. */
+  protected askText(r: SignInView): string {
+    const a = this.account();
+    const computer = this.computer();
+    if (r.opened) {
+      const where = this.where(r.opened);
+      return a.isDefault
+        ? tr('The sign-in opened in {where}: get the token this {computer} uses there.', {
+            where,
+            computer,
+          })
+        : tr('The sign-in opened in {where}: get the token for {name} there.', {
+            where,
+            name: a.name,
+          });
+    }
+    return a.isDefault
+      ? tr('Open the sign-in page to get the token this {computer} uses.', { computer })
+      : tr('Open the sign-in page to get the token for {name}.', { name: a.name });
   }
 
   protected async openIn(browser: SignInBrowser): Promise<void> {
@@ -360,8 +408,10 @@ export class SignInPanelComponent {
       } else {
         this.error.set(
           kind === 'token'
-            ? "That's a key, not the code or a token from claude setup-token: nothing was sent."
-            : "That's a token, not the code: nothing was sent. Paste the code Claude shows after you approve in the browser.",
+            ? tr("That's a key, not the code or a token from claude setup-token: nothing was sent.")
+            : tr(
+                "That's a token, not the code: nothing was sent. Paste the code Claude shows after you approve in the browser.",
+              ),
         );
       }
       return;

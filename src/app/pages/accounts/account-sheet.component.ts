@@ -18,8 +18,11 @@ import { AccountsService } from '../../core/accounts.service';
 import { accountInUseText } from '../../core/api-servers';
 import { ApiError, describeError } from '../../core/api.service';
 import { AuthService } from '../../core/auth.service';
+import { tr } from '../../core/i18n/i18n';
+import { TPipe } from '../../core/i18n/t.pipe';
 import { AccountView } from '../../core/models';
-import { SignInLine, accountKindLabel, secretStoreText, signInLine } from '../../shared/accounts';
+import { machineNoun } from '../../core/paths';
+import { SignInLine, accountKindLabel, signInLine } from '../../shared/accounts';
 import { IconComponent } from '../../shared/icon.component';
 import { SheetComponent } from '../../shared/sheet.component';
 import { shortPath } from '../../shared/util';
@@ -27,6 +30,7 @@ import { AccountColorsComponent } from './account-colors.component';
 import { AccountSignInComponent } from './account-signin.component';
 import { AccountTokenComponent } from './account-token.component';
 import { IdentityWarningComponent } from './identity-warning.component';
+import { tokenStoreText } from './token-store';
 
 /**
  * One account's administration — its name and colour (the desktop or a
@@ -49,16 +53,21 @@ import { IdentityWarningComponent } from './identity-warning.component';
     IconComponent,
     IdentityWarningComponent,
     SheetComponent,
+    TPipe,
   ],
   template: `
-    <mc-sheet [open]="!!account()" [title]="account()?.name ?? 'Account'" (closed)="closed.emit()">
+    <mc-sheet
+      [open]="!!account()"
+      [title]="account()?.name ?? ('Account' | t)"
+      (closed)="closed.emit()"
+    >
       @if (account(); as a) {
         <div class="ahead">
           <span class="adot" aria-hidden="true" [style.background]="color(a)"></span>
           <div class="ameta">
-            <span class="small"
-              >{{ kind(a) }}{{ a.isDefault ? ' · the Default account' : '' }}</span
-            >
+            <span class="small">{{
+              a.isDefault ? ('{kind} · the Default account' | t: { kind: kind(a) }) : kind(a)
+            }}</span>
             @if (a.dir) {
               <span class="mono muted small break">{{ short(a.dir) }}</span>
             }
@@ -66,10 +75,10 @@ import { IdentityWarningComponent } from './identity-warning.component';
           </div>
         </div>
 
-        <h3>Name and colour</h3>
+        <h3>{{ 'Name and colour' | t }}</h3>
         <form class="look" (submit)="saveLook($event)">
           <label class="field">
-            <span class="field-label">Name</span>
+            <span class="field-label">{{ 'Name' | t }}</span>
             <input
               name="name"
               autocomplete="off"
@@ -82,7 +91,7 @@ import { IdentityWarningComponent } from './identity-warning.component';
             <p class="error-text small">{{ nameProblem() }}</p>
           }
           <mc-account-colors
-            label="Colour"
+            [label]="'Colour' | t"
             [value]="pickedColor()"
             [disabled]="busy()"
             (picked)="pickedColor.set($event)"
@@ -93,17 +102,20 @@ import { IdentityWarningComponent } from './identity-warning.component';
               type="submit"
               [disabled]="!lookChanged() || !!nameProblem() || busy()"
             >
-              Save
+              {{ 'Save' | t }}
             </button>
           </div>
         </form>
 
-        <h3>Sign-in</h3>
+        <h3>{{ 'Sign-in' | t }}</h3>
         <mc-identity-warning [account]="a" />
         @if (!isDesktop()) {
           <p class="small state" [attr.data-tone]="signIn(a).tone">{{ signIn(a).text }}</p>
           <p class="muted small onmac">
-            Sign-ins and tokens are changed on the Mac, and accounts are removed there.
+            {{
+              'Sign-ins and tokens are changed on the {computer}, and accounts are removed there.'
+                | t: { computer: computer() }
+            }}
           </p>
         } @else {
           @if (a.kind === 'token') {
@@ -119,13 +131,13 @@ import { IdentityWarningComponent } from './identity-warning.component';
               (click)="recheck()"
             >
               <mc-icon name="refresh" [size]="14" />
-              {{ a.checking ? 'Checking…' : 'Check the sign-in again' }}
+              {{ a.checking ? ('Checking…' | t) : ('Check the sign-in again' | t) }}
             </button>
           </div>
         }
 
         @if (isDesktop() && !a.isDefault) {
-          <h3>Remove</h3>
+          <h3>{{ 'Remove' | t }}</h3>
           @if (!confirmRemove()) {
             <p class="muted small">{{ removeText(a) }}</p>
             <div class="row">
@@ -135,20 +147,20 @@ import { IdentityWarningComponent } from './identity-warning.component';
                 [disabled]="busy()"
                 (click)="confirmRemove.set(true)"
               >
-                <mc-icon name="trash" [size]="14" /> Remove {{ a.name }}…
+                <mc-icon name="trash" [size]="14" /> {{ 'Remove {name}…' | t: { name: a.name } }}
               </button>
             </div>
           } @else {
             <p class="notice warn small" role="alert">
-              Remove <strong>{{ a.name }}</strong
+              {{ 'Remove' | t }} <strong>{{ a.name }}</strong
               >? {{ removeText(a) }}
             </p>
             <div class="row">
               <button class="btn danger" type="button" [disabled]="busy()" (click)="remove(a)">
-                {{ busy() ? 'Removing…' : 'Remove' }}
+                {{ busy() ? ('Removing…' | t) : ('Remove' | t) }}
               </button>
               <button class="btn ghost" type="button" (click)="confirmRemove.set(false)">
-                Keep it
+                {{ 'Keep it' | t }}
               </button>
             </div>
           }
@@ -162,7 +174,7 @@ import { IdentityWarningComponent } from './identity-warning.component';
                 routerLink="/api"
                 [queryParams]="apiServer() ? { server: apiServer() } : null"
                 (click)="closed.emit()"
-                >Open the API page</a
+                >{{ 'Open the API page' | t }}</a
               >
             </p>
           }
@@ -220,6 +232,10 @@ import { IdentityWarningComponent } from './identity-warning.component';
 export class AccountSheetComponent {
   private accounts = inject(AccountsService);
   protected readonly isDesktop = inject(AuthService).isDesktop;
+  private readonly hostOs = inject(AuthService).hostOs;
+  /** The desktop's computer in a sentence ("on the {computer}"): "Mac",
+   * "PC" (Vietnamese "máy Mac", "máy PC"). */
+  protected readonly computer = computed(() => tr(machineNoun(this.hostOs())));
 
   /** The account to manage (null: closed). */
   readonly accountId = input<string | null>(null);
@@ -280,13 +296,24 @@ export class AccountSheetComponent {
   }
 
   protected removeText(a: AccountView): string {
-    const fallback = 'New sessions, the API and projects that used it go back to the Default.';
+    const after = tr('New sessions, the API and projects that used it go back to the Default.');
     if (a.kind === 'token') {
-      const place = secretStoreText(this.accounts.view()?.secretStore) || 'this Mac';
-      return `Mother Claude forgets it and deletes its token from ${place}; the Anthropic account itself and its other sign-ins stay as they are. ${fallback}`;
+      const place = tokenStoreText(this.accounts.view()?.secretStore, this.hostOs());
+      const gone = tr(
+        'Mother Claude forgets it and deletes its token from {place}; the Anthropic account itself and its other sign-ins stay as they are.',
+        { place },
+      );
+      return `${gone} ${after}`;
     }
-    const dir = a.dir ? ` (${shortPath(a.dir)})` : '';
-    return `Mother Claude forgets it. Its directory${dir} and its Anthropic sign-in stay as they are: add it again any time to use them. ${fallback}`;
+    const kept = a.dir
+      ? tr(
+          'Mother Claude forgets it. Its directory ({dir}) and its Anthropic sign-in stay as they are: add it again any time to use them.',
+          { dir: shortPath(a.dir) },
+        )
+      : tr(
+          'Mother Claude forgets it. Its directory and its Anthropic sign-in stay as they are: add it again any time to use them.',
+        );
+    return `${kept} ${after}`;
   }
 
   protected async saveLook(e: Event): Promise<void> {
@@ -301,7 +328,7 @@ export class AccountSheetComponent {
           ...(name !== a.name ? { name } : {}),
           ...(color && color !== a.color ? { color } : {}),
         }),
-      'Saved.',
+      tr('Saved.'),
     );
   }
 
@@ -337,12 +364,12 @@ export class AccountSheetComponent {
   }
 
   private refusal(e: unknown): string {
-    const name = this.account()?.name ?? 'This account';
+    const name = this.account()?.name ?? tr('This account');
     if (e instanceof ApiError && e.code === 'account_in_use')
-      return `${e.message} Stop them first.`;
+      return tr('{message} Stop them first.', { message: e.message });
     if (e instanceof ApiError && e.code === 'account_used_by_bridge') {
       // Names the server when it is not the main one.
-      return accountInUseText(e, name, `then remove ${name}`);
+      return accountInUseText(e, name, tr('then remove {name}', { name }));
     }
     return describeError(e).text;
   }

@@ -16,8 +16,12 @@ import { FormsModule } from '@angular/forms';
 import { normalizeCapture } from '../../core/accounts';
 import { AccountsService } from '../../core/accounts.service';
 import { ApiError, ApiService, describeError } from '../../core/api.service';
+import { AuthService } from '../../core/auth.service';
+import { tr } from '../../core/i18n/i18n';
+import { TPipe } from '../../core/i18n/t.pipe';
 import { AccountView, CaptureView, SignInState } from '../../core/models';
 import { NowService } from '../../core/now.service';
+import { machineNoun } from '../../core/paths';
 import {
   isLongLivedToken,
   looksLikeToken,
@@ -25,10 +29,11 @@ import {
   signInRunning,
   signInWaitText,
 } from '../../core/sign-in';
-import { captureProblem, secretStoreText, signInErrorText } from '../../shared/accounts';
+import { captureProblem, signInErrorText } from '../../shared/accounts';
 import { CopyButtonComponent } from '../../shared/copy-button.component';
 import { IconComponent } from '../../shared/icon.component';
 import { SignInPanelComponent } from './sign-in-panel.component';
+import { tokenStoreText } from './token-store';
 
 /** A running capture is asked about this often (frames carry its state but
  * not its sign-in link). */
@@ -50,7 +55,7 @@ const POLL_MS = 1_500;
 @Component({
   selector: 'mc-account-token',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [FormsModule, CopyButtonComponent, IconComponent, SignInPanelComponent],
+  imports: [FormsModule, CopyButtonComponent, IconComponent, SignInPanelComponent, TPipe],
   template: `
     @let a = account();
     @if (signInRuns()) {
@@ -60,28 +65,32 @@ const POLL_MS = 1_500;
         <div class="flow" role="status">
           <p class="wait">
             <span class="spin" aria-hidden="true"></span>
-            Waiting for the browser…
+            {{ 'Waiting for the browser…' | t }}
           </p>
           <p class="muted small">
-            Sign in there with the Claude account this token is for. The token goes straight to
-            {{ place() }}.
+            {{
+              'Sign in there with the Claude account this token is for. The token goes straight to {place}.'
+                | t: { place: place() }
+            }}
           </p>
           @if (cap.url; as url) {
             <p class="small link">
-              Browser didn't open?
-              <a [href]="url" target="_blank" rel="noopener noreferrer">Open this link</a>
-              <mc-copy-button [text]="url" label="Copy link" />
+              {{ "Browser didn't open?" | t }}
+              <a [href]="url" target="_blank" rel="noopener noreferrer">{{
+                'Open this link' | t
+              }}</a>
+              <mc-copy-button [text]="url" [label]="'Copy link' | t" />
             </p>
           }
           @if (codeSent()) {
             <p class="wait">
               <span class="spin" aria-hidden="true"></span>
-              Code sent: Claude Code is finishing the sign-in…
+              {{ 'Code sent: Claude Code is finishing the sign-in…' | t }}
             </p>
           } @else if (cap.url || cap.asksForCode) {
             <form class="code" (submit)="sendCode($event)">
               <label class="field">
-                <span class="field-label">Code from the browser</span>
+                <span class="field-label">{{ 'Code from the browser' | t }}</span>
                 <input
                   name="code"
                   autocomplete="off"
@@ -92,16 +101,19 @@ const POLL_MS = 1_500;
                 />
               </label>
               <p class="field-hint">
-                After you approve in the browser, Claude shows a code: copy it and paste it here.
+                {{
+                  'After you approve in the browser, Claude shows a code: copy it and paste it here.'
+                    | t
+                }}
               </p>
               <button class="btn primary small" type="submit" [disabled]="!code().trim() || busy()">
-                Send the code
+                {{ 'Send the code' | t }}
               </button>
             </form>
           }
           <div class="row">
             <button class="btn ghost small" type="button" [disabled]="busy()" (click)="cancel()">
-              Cancel
+              {{ 'Cancel' | t }}
             </button>
           </div>
         </div>
@@ -111,12 +123,16 @@ const POLL_MS = 1_500;
     @if (!running()) {
       @if (justSaved()) {
         <p class="notice ok small" role="status">
-          <mc-icon name="check" [size]="14" /> Token saved for {{ a.name }}.
+          <mc-icon name="check" [size]="14" /> {{ 'Token saved for {name}.' | t: { name: a.name } }}
         </p>
       } @else if (problem()) {
         <p class="notice warn small" role="status">{{ problem() }}</p>
       } @else if (a.tokenStored) {
-        <p class="small muted">A token for this account is stored on this Mac.</p>
+        <p class="small muted">
+          {{
+            'A token for this account is stored on this {computer}.' | t: { computer: computer() }
+          }}
+        </p>
       }
 
       @if (available()) {
@@ -132,30 +148,36 @@ const POLL_MS = 1_500;
             {{
               wait() ||
                 (busy()
-                  ? 'Starting…'
+                  ? ('Starting…' | t)
                   : a.tokenStored
-                    ? 'Get a new token'
+                    ? ('Get a new token' | t)
                     : capture() || a.signIn
-                      ? 'Try again'
-                      : 'Sign in to get a token')
+                      ? ('Try again' | t)
+                      : ('Sign in to get a token' | t))
             }}
           </button>
         </div>
         <p class="muted small">
-          Starts the Claude sign-in on this Mac (claude setup-token) and offers its page to open;
-          the token it gives is kept in {{ place() }}.
+          {{
+            'Starts the Claude sign-in on this {computer} (claude setup-token) and offers its page to open; the token it gives is kept in {place}.'
+              | t: { computer: computer(), place: place() }
+          }}
         </p>
       } @else {
         <p class="muted small">
-          This Mac can't run the token sign-in from here: run <code>claude setup-token</code> in a
-          terminal and paste the token it shows.
+          {{
+            "This {computer} can't run the token sign-in from here: run"
+              | t: { computer: computer() }
+          }}
+          <code>claude setup-token</code>
+          {{ 'in a terminal and paste the token it shows.' | t }}
         </p>
       }
 
       @if (pasteShown()) {
         <form class="paste" (submit)="paste($event)">
           <label class="field">
-            <span class="field-label">Token</span>
+            <span class="field-label">{{ 'Token' | t }}</span>
             <input
               #tok
               type="password"
@@ -169,19 +191,24 @@ const POLL_MS = 1_500;
           </label>
           <div class="row">
             <button class="btn primary small" type="submit" [disabled]="!tokenTyped() || busy()">
-              {{ busy() ? 'Checking…' : 'Save the token' }}
+              {{ busy() ? ('Checking…' | t) : ('Save the token' | t) }}
             </button>
             @if (pasteOpen()) {
-              <button class="btn ghost small" type="button" (click)="closePaste()">Cancel</button>
+              <button class="btn ghost small" type="button" (click)="closePaste()">
+                {{ 'Cancel' | t }}
+              </button>
             }
           </div>
           <p class="field-hint">
-            Claude Code checks it first; then it is kept in {{ place() }} and never shown again.
+            {{
+              'Claude Code checks it first; then it is kept in {place} and never shown again.'
+                | t: { place: place() }
+            }}
           </p>
         </form>
       } @else {
         <button class="btn ghost small paste-open" type="button" (click)="pasteOpen.set(true)">
-          I already have a token — paste it
+          {{ 'I already have a token — paste it' | t }}
         </button>
       }
     }
@@ -238,6 +265,10 @@ export class AccountTokenComponent {
   private api = inject(ApiService);
   private accounts = inject(AccountsService);
   private clock = inject(NowService);
+  private readonly hostOs = inject(AuthService).hostOs;
+  /** The desktop's computer in a sentence ("this {computer}"): "Mac", "PC"
+   * (Vietnamese "máy Mac", "máy PC"). */
+  protected readonly computer = computed(() => tr(machineNoun(this.hostOs())));
 
   readonly account = input.required<AccountView>();
   /** A token was stored (captured or pasted). */
@@ -276,10 +307,10 @@ export class AccountTokenComponent {
     if (r?.kind === 'token' && !signInEndedLately(r, this.clock.now())) return '';
     if (r?.kind === 'token' && r.state === 'failed') {
       return r.error
-        ? `The sign-in ended without a token: ${r.error}`
-        : 'The sign-in ended without a token.';
+        ? tr('The sign-in ended without a token: {error}', { error: r.error })
+        : tr('The sign-in ended without a token.');
     }
-    if (r?.kind === 'token' && r.state === 'cancelled') return 'The sign-in was cancelled.';
+    if (r?.kind === 'token' && r.state === 'cancelled') return tr('The sign-in was cancelled.');
     return r?.kind === 'token' ? '' : captureProblem(this.capture());
   });
   protected readonly available = computed(
@@ -290,8 +321,10 @@ export class AccountTokenComponent {
     const state = this.capture()?.state;
     return this.pasteOpen() || !this.available() || state === 'failed' || state === 'timedOut';
   });
-  protected readonly place = computed(
-    () => secretStoreText(this.accounts.view()?.secretStore) || "the Mac's secret store",
+  /** Where the token is kept: what the desktop says, else its system's own
+   * store (an older server does not say). */
+  protected readonly place = computed(() =>
+    tokenStoreText(this.accounts.view()?.secretStore, this.hostOs()),
   );
 
   constructor() {
@@ -354,7 +387,7 @@ export class AccountTokenComponent {
         await this.keepToken(code);
       } else {
         this.error.set(
-          "That's a key, not the code or a token from claude setup-token: nothing was sent.",
+          tr("That's a key, not the code or a token from claude setup-token: nothing was sent."),
         );
       }
       return;

@@ -11,6 +11,8 @@ import {
 import { AccountsService } from '../../core/accounts.service';
 import { ApiService } from '../../core/api.service';
 import { AuthService } from '../../core/auth.service';
+import { tr } from '../../core/i18n/i18n';
+import { TPipe } from '../../core/i18n/t.pipe';
 import { AccountView } from '../../core/models';
 import { identityWarningText, signInWaitText } from '../../core/sign-in';
 import { signInErrorText } from '../../shared/accounts';
@@ -24,6 +26,7 @@ import { signInErrorText } from '../../shared/accounts';
 @Component({
   selector: 'mc-identity-warning',
   changeDetection: ChangeDetectionStrategy.OnPush,
+  imports: [TPipe],
   template: `
     @if (account().identityWarning) {
       <div class="notice warn small" role="status">
@@ -31,7 +34,7 @@ import { signInErrorText } from '../../shared/accounts';
         @if (isDesktop()) {
           <div class="row">
             <button class="btn small" type="button" [disabled]="busy()" (click)="keep()">
-              Keep
+              {{ 'Keep' | t }}
             </button>
             <button
               class="btn small"
@@ -39,7 +42,7 @@ import { signInErrorText } from '../../shared/accounts';
               [disabled]="busy() || !!wait()"
               (click)="again()"
             >
-              {{ wait() || 'Sign in again' }}
+              {{ wait() || ('Sign in again' | t) }}
             </button>
           </div>
         }
@@ -82,7 +85,9 @@ export class IdentityWarningComponent {
     const w = a.identityWarning;
     if (!w) return '';
     const said = identityWarningText(w, (id) => this.accounts.byId(id)?.name);
-    return a.email && w.kind === 'changed' ? `${said} Now: ${a.email}.` : said;
+    return a.email && w.kind === 'changed'
+      ? tr('{warning} Now: {email}.', { warning: said, email: a.email })
+      : said;
   });
   /** Another account's sign-in runs: "Waiting for Work's sign-in". */
   protected readonly wait = computed(() => signInWaitText(this.account(), this.accounts.list()));

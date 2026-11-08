@@ -1,8 +1,11 @@
 import { ChangeDetectionStrategy, Component, input, output } from '@angular/core';
 
 import { ACCOUNT_COLORS } from '../../core/accounts';
+import { tr } from '../../core/i18n/i18n';
+import { TPipe } from '../../core/i18n/t.pipe';
 import { IconComponent } from '../../shared/icon.component';
 
+/** Each colour's name (translated where it is shown). */
 const NAMES: Record<string, string> = {
   '#8b5cf6': 'Violet',
   '#0ea5e9': 'Sky blue',
@@ -19,9 +22,9 @@ const NAMES: Record<string, string> = {
 @Component({
   selector: 'mc-account-colors',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [IconComponent],
+  imports: [IconComponent, TPipe],
   template: `
-    <div class="swatches" role="radiogroup" [attr.aria-label]="label()">
+    <div class="swatches" role="radiogroup" [attr.aria-label]="label() | t">
       @for (c of colors; track c) {
         <button
           type="button"
@@ -87,6 +90,6 @@ export class AccountColorsComponent {
   protected readonly colors = ACCOUNT_COLORS;
 
   protected name(c: string): string {
-    return NAMES[c] ?? c;
+    return NAMES[c] ? tr(NAMES[c]) : c;
   }
 }

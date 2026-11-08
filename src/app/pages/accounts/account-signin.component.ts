@@ -1,8 +1,12 @@
 import { ChangeDetectionStrategy, Component, computed, inject, input, signal } from '@angular/core';
 
 import { AccountsService } from '../../core/accounts.service';
+import { AuthService } from '../../core/auth.service';
+import { tr } from '../../core/i18n/i18n';
+import { TPipe } from '../../core/i18n/t.pipe';
 import { AccountView, SignInState } from '../../core/models';
 import { NowService } from '../../core/now.service';
+import { machineNoun } from '../../core/paths';
 import { signInEndedLately, signInRunning, signInWaitText } from '../../core/sign-in';
 import { signInErrorText, signInLine } from '../../shared/accounts';
 import { SignInPanelComponent } from './sign-in-panel.component';
@@ -18,7 +22,7 @@ import { SignInPanelComponent } from './sign-in-panel.component';
 @Component({
   selector: 'mc-account-signin',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [SignInPanelComponent],
+  imports: [SignInPanelComponent, TPipe],
   template: `
     @let a = account();
     @if (runs()) {
@@ -26,14 +30,19 @@ import { SignInPanelComponent } from './sign-in-panel.component';
     } @else if (a.signingIn) {
       <p class="wait">
         <span class="spin" aria-hidden="true"></span>
-        Finish signing in in the browser on this Mac…
+        {{ 'Finish signing in in the browser on this {computer}…' | t: { computer: computer() } }}
       </p>
       <p class="muted small">
-        Sign in there with the Claude account {{ a.isDefault ? 'this Mac uses' : 'for ' + a.name }}.
-        This page updates by itself once it is done.
+        {{
+          a.isDefault
+            ? ('Sign in there with the Claude account this {computer} uses.'
+              | t: { computer: computer() })
+            : ('Sign in there with the Claude account for {name}.' | t: { name: a.name })
+        }}
+        {{ 'This page updates by itself once it is done.' | t }}
       </p>
       <button class="btn ghost small left" type="button" [disabled]="busy()" (click)="check()">
-        Check now
+        {{ 'Check now' | t }}
       </button>
     } @else {
       @if (outcome()) {
@@ -42,8 +51,10 @@ import { SignInPanelComponent } from './sign-in-panel.component';
       <p class="state small" [attr.data-tone]="line().tone">{{ line().text }}</p>
       @if (a.isDefault && a.signedIn) {
         <p class="muted small">
-          Signing the Default in again changes the account of every session that runs without a
-          token of its own.
+          {{
+            'Signing the Default in again changes the account of every session that runs without a token of its own.'
+              | t
+          }}
         </p>
       }
       <div class="row">
@@ -54,7 +65,14 @@ import { SignInPanelComponent } from './sign-in-panel.component';
           [disabled]="busy() || !!wait()"
           (click)="login()"
         >
-          {{ wait() || (busy() ? 'Starting…' : a.signedIn ? 'Sign in again' : 'Sign in now') }}
+          {{
+            wait() ||
+              (busy()
+                ? ('Starting…' | t)
+                : a.signedIn
+                  ? ('Sign in again' | t)
+                  : ('Sign in now' | t))
+          }}
         </button>
         <label class="check small">
           <input
@@ -62,13 +80,17 @@ import { SignInPanelComponent } from './sign-in-panel.component';
             [checked]="consoleAccount()"
             (change)="consoleAccount.set($any($event.target).checked)"
           />
-          Anthropic Console account (API billing)
+          {{ 'Anthropic Console account (API billing)' | t }}
         </label>
       </div>
       <p class="muted small">
-        The sign-in opens in this Mac's default browser (claude auth login){{
-          a.email ? '; it asks for ' + a.email + ' again' : ''
-        }}.
+        {{
+          a.email
+            ? ("The sign-in opens in this {computer}'s default browser (claude auth login); it asks for {email} again."
+              | t: { computer: computer(), email: a.email })
+            : ("The sign-in opens in this {computer}'s default browser (claude auth login)."
+              | t: { computer: computer() })
+        }}
       </p>
     }
     @if (error()) {
@@ -119,6 +141,10 @@ import { SignInPanelComponent } from './sign-in-panel.component';
 export class AccountSignInComponent {
   private accounts = inject(AccountsService);
   private clock = inject(NowService);
+  private readonly hostOs = inject(AuthService).hostOs;
+  /** The desktop's computer in a sentence ("this {computer}"): "Mac", "PC"
+   * (Vietnamese "máy Mac", "máy PC"). */
+  protected readonly computer = computed(() => tr(machineNoun(this.hostOs())));
 
   readonly account = input.required<AccountView>();
 
@@ -137,10 +163,10 @@ export class AccountSignInComponent {
     if (r?.kind !== 'login' || !signInEndedLately(r, this.clock.now())) return '';
     if (r.state === 'failed') {
       return r.error
-        ? `The sign-in ended without signing in: ${r.error}`
-        : 'The sign-in ended without signing in.';
+        ? tr('The sign-in ended without signing in: {error}', { error: r.error })
+        : tr('The sign-in ended without signing in.');
     }
-    return r.state === 'cancelled' ? 'The sign-in was cancelled.' : '';
+    return r.state === 'cancelled' ? tr('The sign-in was cancelled.') : '';
   });
 
   protected async login(): Promise<void> {

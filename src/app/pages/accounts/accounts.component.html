@@ -1,22 +1,26 @@
 <div class="page narrow">
   <div class="page-head">
-    <h1>Accounts</h1>
+    <h1>{{ 'Accounts' | t }}</h1>
     <span class="spacer"></span>
     @if (isDesktop()) {
       <button class="btn primary" type="button" (click)="adding.set(true)">
-        <mc-icon name="plus" [size]="16" /> Add account
+        <mc-icon name="plus" [size]="16" /> {{ 'Add account' | t }}
       </button>
     }
   </div>
   <p class="lede">
-    Run sessions under several Claude accounts at once — and when one reaches its limit, carry on
-    under another.
+    {{
+      'Run sessions under several Claude accounts at once — and when one reaches its limit, carry on under another.'
+        | t
+    }}
   </p>
 
   @if (!isDesktop()) {
     <p class="notice small phone-note">
-      Accounts are added, signed in and removed on the Mac. From here you can rename them, choose
-      the defaults, allow copies and move their data.
+      {{
+        'Accounts are added, signed in and removed on the {computer}. From here you can rename them, choose the defaults, allow copies and move their data.'
+          | t: { computer: computer() }
+      }}
     </p>
   }
 
@@ -28,7 +32,7 @@
   }
 
   @if (accounts.view()) {
-    <section class="card list accts" aria-label="Claude accounts">
+    <section class="card list accts" [attr.aria-label]="'Claude accounts' | t">
       @for (r of rows(); track r.a.id) {
         <div class="acct">
           <span class="adot" aria-hidden="true" [style.background]="r.color"></span>
@@ -36,7 +40,7 @@
             <div class="aline">
               <strong class="aname">{{ r.a.name }}</strong>
               @for (role of r.roles; track role) {
-                <span class="badge">{{ role }}</span>
+                <span class="badge">{{ role | t }}</span>
               }
             </div>
             <span class="muted small"
@@ -65,12 +69,16 @@
                     class="btn small ghost"
                     type="button"
                     [disabled]="!!hooksBusy()"
-                    [attr.aria-label]="'Install the hooks plugin for ' + r.a.name"
+                    [attr.aria-label]="
+                      'Install the hooks plugin for {name}' | t: { name: r.a.name }
+                    "
                     (click)="setHooks(r.a, true)"
                   >
                     <mc-icon name="plug" [size]="14" />
                     {{
-                      hooksBusy() === r.a.id + ':install' ? 'Installing…' : 'Install hooks plugin'
+                      hooksBusy() === r.a.id + ':install'
+                        ? ('Installing…' | t)
+                        : ('Install hooks plugin' | t)
                     }}
                   </button>
                 }
@@ -79,10 +87,16 @@
                     class="btn small ghost"
                     type="button"
                     [disabled]="!!hooksBusy()"
-                    [attr.aria-label]="'Uninstall the hooks plugin of ' + r.a.name"
+                    [attr.aria-label]="
+                      'Uninstall the hooks plugin of {name}' | t: { name: r.a.name }
+                    "
                     (click)="setHooks(r.a, false)"
                   >
-                    {{ hooksBusy() === r.a.id + ':uninstall' ? 'Uninstalling…' : 'Uninstall' }}
+                    {{
+                      hooksBusy() === r.a.id + ':uninstall'
+                        ? ('Uninstalling…' | t)
+                        : ('Uninstall' | t)
+                    }}
                   </button>
                 }
               </span>
@@ -93,14 +107,7 @@
                 class="usage"
                 [attr.data-tone]="r.tone"
                 [attr.aria-expanded]="isOpen(r.a.id)"
-                [attr.aria-label]="
-                  'Plan usage of ' +
-                  r.a.name +
-                  ': ' +
-                  r.usageText +
-                  '. ' +
-                  (isOpen(r.a.id) ? 'Hide details' : 'Show details')
-                "
+                [attr.aria-label]="usageLabel(r)"
                 (click)="toggleUsage(r.a.id)"
               >
                 @for (m of r.meters; track m.key) {
@@ -111,7 +118,7 @@
                     {{ m.short }} <strong [attr.data-tone]="m.tone">{{ m.pct }}%</strong>
                   </span>
                 } @empty {
-                  <span>Plan usage</span>
+                  <span>{{ 'Plan usage' | t }}</span>
                 }
                 <mc-icon [name]="isOpen(r.a.id) ? 'chevronDown' : 'chevronRight'" [size]="13" />
               </button>
@@ -121,7 +128,7 @@
                 </div>
               }
             } @else if (r.a.kind === 'token') {
-              <span class="muted small">{{ tokenNoUsage }}</span>
+              <span class="muted small">{{ tokenNoUsage | t }}</span>
             }
           </div>
           <div class="aacts">
@@ -129,10 +136,10 @@
               <button
                 class="btn small"
                 type="button"
-                [attr.aria-label]="'Show the sign-in of ' + r.a.name"
+                [attr.aria-label]="'Show the sign-in of {name}' | t: { name: r.a.name }"
                 (click)="managing.set(r.a.id)"
               >
-                <span class="spin" aria-hidden="true"></span> Signing in…
+                <span class="spin" aria-hidden="true"></span> {{ 'Signing in…' | t }}
               </button>
             } @else if (isDesktop() && r.action === 'signin') {
               <button
@@ -141,7 +148,7 @@
                 [disabled]="busyId() === r.a.id || !!r.wait"
                 (click)="signIn(r.a)"
               >
-                {{ r.wait || (busyId() === r.a.id ? 'Starting…' : 'Sign in') }}
+                {{ r.wait || (busyId() === r.a.id ? ('Starting…' | t) : ('Sign in' | t)) }}
               </button>
             } @else if (isDesktop() && r.action === 'token') {
               <button
@@ -151,26 +158,26 @@
                 (click)="managing.set(r.a.id)"
               >
                 <mc-icon name="key" [size]="14" />
-                {{ r.wait || (r.a.tokenStored ? 'New token' : 'Get token') }}
+                {{ r.wait || (r.a.tokenStored ? ('New token' | t) : ('Get token' | t)) }}
               </button>
             }
             @if (moveOffered()) {
               <button
                 class="btn small"
                 type="button"
-                [attr.aria-label]="'Move or copy the data of ' + r.a.name"
+                [attr.aria-label]="'Move or copy the data of {name}' | t: { name: r.a.name }"
                 (click)="moveFrom(r.a)"
               >
-                <mc-icon name="move" [size]="14" /> Move or copy data…
+                <mc-icon name="move" [size]="14" /> {{ 'Move or copy data…' | t }}
               </button>
             }
             <button
               class="btn small"
               type="button"
-              [attr.aria-label]="'Manage ' + r.a.name"
+              [attr.aria-label]="'Manage {name}' | t: { name: r.a.name }"
               (click)="managing.set(r.a.id)"
             >
-              <mc-icon name="settings" [size]="14" /> Manage
+              <mc-icon name="settings" [size]="14" /> {{ 'Manage' | t }}
             </button>
           </div>
         </div>
@@ -179,16 +186,18 @@
 
     @if (accounts.multi()) {
       @if (defaults(); as d) {
-        <h2>Defaults</h2>
-        <section class="card defaults" aria-label="Which account work runs under">
+        <h2>{{ 'Defaults' | t }}</h2>
+        <section class="card defaults" [attr.aria-label]="'Which account work runs under' | t">
           <div class="list">
             <div class="list-row drow">
               <div class="grow">
-                <label for="acc-new-session"><strong>New sessions run under</strong></label>
-                <span class="muted small"
-                  >Unless their project has an account of its own (below), or you pick one when you
-                  start.</span
+                <label for="acc-new-session"
+                  ><strong>{{ 'New sessions run under' | t }}</strong></label
                 >
+                <span class="muted small">{{
+                  'Unless their project has an account of its own (below), or you pick one when you start.'
+                    | t
+                }}</span>
               </div>
               <select
                 id="acc-new-session"
@@ -203,11 +212,13 @@
             </div>
             <div class="list-row drow">
               <div class="grow">
-                <label for="acc-bridge"><strong>The API runs under</strong></label>
-                <span class="muted small"
-                  >Conversations the HTTP API starts, unless their project has an account of its own
-                  or the request or the API screen names one.</span
+                <label for="acc-bridge"
+                  ><strong>{{ 'The API runs under' | t }}</strong></label
                 >
+                <span class="muted small">{{
+                  'Conversations the HTTP API starts, unless their project has an account of its own or the request or the API screen names one.'
+                    | t
+                }}</span>
               </div>
               <select
                 id="acc-bridge"
@@ -222,10 +233,12 @@
             </div>
           </div>
 
-          <h3>Per project</h3>
+          <h3>{{ 'Per project' | t }}</h3>
           <p class="muted small">
-            Sessions started in these folders, and in the folders inside them, run under the account
-            set here. The longest matching folder wins.
+            {{
+              'Sessions started in these folders, and in the folders inside them, run under the account set here. The longest matching folder wins.'
+                | t
+            }}
           </p>
           <div class="list projects">
             @for (p of projectRows(); track p.dir) {
@@ -234,7 +247,7 @@
                 <span class="mono pdir" [title]="p.dir">{{ short(p.dir) }}</span>
                 <select
                   class="psel"
-                  [attr.aria-label]="'Account for ' + p.dir"
+                  [attr.aria-label]="'Account for {dir}' | t: { dir: p.dir }"
                   [disabled]="saving()"
                   (change)="setProject(p.dir, $event)"
                 >
@@ -248,7 +261,7 @@
                 <button
                   class="btn small ghost icon-only"
                   type="button"
-                  [attr.aria-label]="'Remove the rule for ' + p.dir"
+                  [attr.aria-label]="'Remove the rule for {dir}' | t: { dir: p.dir }"
                   [disabled]="saving()"
                   (click)="removeProject(p.dir)"
                 >
@@ -256,13 +269,13 @@
                 </button>
               </div>
             } @empty {
-              <p class="muted small none">No project has an account of its own yet.</p>
+              <p class="muted small none">{{ 'No project has an account of its own yet.' | t }}</p>
             }
           </div>
 
           <form class="padd" (submit)="addProject($event)">
             <label class="field pfield">
-              <span class="field-label">Project folder</span>
+              <span class="field-label">{{ 'Project folder' | t }}</span>
               <input
                 name="dir"
                 list="mc-account-projects"
@@ -280,7 +293,7 @@
               }
             </datalist>
             <label class="field">
-              <span class="field-label">Account</span>
+              <span class="field-label">{{ 'Account' | t }}</span>
               <select
                 name="account"
                 [ngModel]="newDirAccount()"
@@ -292,7 +305,7 @@
               </select>
             </label>
             <button class="btn" type="submit" [disabled]="!newDir().trim() || saving()">
-              <mc-icon name="plus" [size]="15" /> Add
+              <mc-icon name="plus" [size]="15" /> {{ 'Add' | t }}
             </button>
           </form>
           @if (projectError()) {
@@ -303,14 +316,17 @@
     }
 
     @if (consent().length || consentPairs().length) {
-      <h2>Copy for Continue on</h2>
-      <section class="card" aria-label="Copy consents">
+      <h2>{{ 'Copy for Continue on' | t }}</h2>
+      <section class="card" [attr.aria-label]="'Copy consents' | t">
         <p class="muted small first">
-          Continuing a conversation on an account with its own directory copies it there first.
+          {{
+            'Continuing a conversation on an account with its own directory copies it there first.'
+              | t
+          }}
           @if (consent().length) {
-            Between these accounts that happens without asking.
+            {{ 'Between these accounts that happens without asking.' | t }}
           } @else {
-            Mother Claude asks once for each pair of accounts.
+            {{ 'Mother Claude asks once for each pair of accounts.' | t }}
           }
         </p>
         @if (consent().length) {
@@ -324,7 +340,7 @@
                   [disabled]="saving()"
                   (click)="revoke(c.from, c.to)"
                 >
-                  Revoke
+                  {{ 'Revoke' | t }}
                 </button>
               </div>
             }
@@ -333,7 +349,7 @@
         @if (consentPairs().length) {
           <form class="padd" (submit)="allowPair($event)">
             <label class="field pfield">
-              <span class="field-label">Allow copies</span>
+              <span class="field-label">{{ 'Allow copies' | t }}</span>
               <select name="pair" [ngModel]="newPair()" (ngModelChange)="newPair.set($event)">
                 @for (p of consentPairs(); track p.key) {
                   <option [value]="p.key">{{ p.label }}</option>
@@ -341,7 +357,7 @@
               </select>
             </label>
             <button class="btn" type="submit" [disabled]="saving()">
-              <mc-icon name="check" [size]="15" /> Allow
+              <mc-icon name="check" [size]="15" /> {{ 'Allow' | t }}
             </button>
           </form>
         }
@@ -349,8 +365,8 @@
     }
 
     @if (moves().length) {
-      <h2>Moves and copies</h2>
-      <section class="card list moves" aria-label="Recent moves and copies">
+      <h2>{{ 'Moves and copies' | t }}</h2>
+      <section class="card list moves" [attr.aria-label]="'Recent moves and copies' | t">
         @for (j of moves(); track j.id) {
           <mc-data-job class="mrow" [job]="j" (changed)="moveChanged($event)" />
         }
@@ -360,22 +376,22 @@
     @if (secretText()) {
       <p class="muted small secrets">
         <mc-icon name="key" [size]="13" />
-        <span
-          >Account tokens are kept in {{ secretText() }}. They never come back to this page, to your
-          phone or into Mother Claude's own files.</span
-        >
+        <span>{{
+          "Account tokens are kept in {place}. They never come back to this page, to your phone or into Mother Claude's own files."
+            | t: { place: secretText() }
+        }}</span>
       </p>
     }
   } @else if (accounts.loadError()) {
     <div class="card empty-state">
-      <strong>Can't load the accounts</strong>
+      <strong>{{ "Can't load the accounts" | t }}</strong>
       {{ accounts.loadError() }}
       <div class="retry">
-        <button class="btn" type="button" (click)="reload()">Retry</button>
+        <button class="btn" type="button" (click)="reload()">{{ 'Retry' | t }}</button>
       </div>
     </div>
   } @else {
-    <p class="muted">Loading…</p>
+    <p class="muted">{{ 'Loading…' | t }}</p>
   }
 </div>
 

@@ -13,12 +13,14 @@ import { DEFAULT_ACCOUNT, isAccountColor, needsCopy } from '../../core/accounts'
 import { AccountsService } from '../../core/accounts.service';
 import { ApiService, describeError } from '../../core/api.service';
 import { AuthService } from '../../core/auth.service';
-import { normalizeJob } from '../../core/data-jobs';
+import { normalizeJob, plural } from '../../core/data-jobs';
 import { DataJobsService } from '../../core/data-jobs.service';
+import { tr } from '../../core/i18n/i18n';
+import { TPipe } from '../../core/i18n/t.pipe';
 import { AccountDefaults, AccountView, JobView, ProjectInfo } from '../../core/models';
 import { accountLocation, anyTarget } from '../../core/move-data';
 import { NowService } from '../../core/now.service';
-import { folderExample, folderPathProblem, trimSeparators } from '../../core/paths';
+import { folderExample, folderPathProblem, machineNoun, trimSeparators } from '../../core/paths';
 import { PlanUsageService } from '../../core/plan-usage.service';
 import { accountSigningIn, signInWaitText } from '../../core/sign-in';
 import { StorageService } from '../../core/storage.service';
@@ -55,7 +57,8 @@ interface Row {
   kind: string;
   signIn: SignInLine;
   live: number;
-  /** "Default", "New sessions", "API": what it is the default for. */
+  /** "Default", "New sessions", "API": what it is the default for (in
+   * English: translated where shown). */
   roles: string[];
   meters: CompactMeter[];
   tone: Tone;
@@ -115,6 +118,7 @@ interface ProjectRow {
     IdentityWarningComponent,
     MoveDataSheetComponent,
     PlanUsageComponent,
+    TPipe,
   ],
   templateUrl: './accounts.component.html',
   styleUrl: './accounts.component.scss',
@@ -129,6 +133,9 @@ export class AccountsComponent {
   /** The desktop's system: a project folder is typed its way. */
   private readonly hostOs = inject(AuthService).hostOs;
   protected readonly projectPlaceholder = computed(() => folderExample(this.hostOs(), 'project'));
+  /** The desktop's computer in a sentence ("on the {computer}"): "Mac",
+   * "PC" (Vietnamese "máy Mac", "máy PC"). */
+  protected readonly computer = computed(() => tr(machineNoun(this.hostOs())));
 
   protected readonly tokenNoUsage = TOKEN_NO_USAGE;
   protected readonly adding = signal(false);
@@ -174,7 +181,7 @@ export class AccountsComponent {
         roles,
         meters: compact?.meters ?? [],
         tone: compact?.tone ?? 'muted',
-        usageText: usageLine(usage, now) || 'not read yet',
+        usageText: usageLine(usage, now) || tr('not read yet'),
         hasUsage: !!compact,
         action: needs(a),
         hooks: hooksPluginText(a),
@@ -189,7 +196,7 @@ export class AccountsComponent {
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([dir, id]) => {
         const a = this.accounts.byId(id);
-        return { dir, id, name: a?.name ?? 'A removed account', known: !!a };
+        return { dir, id, name: a?.name ?? tr('A removed account'), known: !!a };
       });
   });
   protected readonly consent = computed(() =>
@@ -199,9 +206,12 @@ export class AccountsComponent {
       toName: this.nameOf(c.to),
     })),
   );
-  protected readonly secretText = computed(() =>
-    secretStoreText(this.accounts.view()?.secretStore),
-  );
+  /** Where the desktop keeps account tokens, in words ('' when it doesn't
+   * say). */
+  protected readonly secretText = computed(() => {
+    const place = secretStoreText(this.accounts.view()?.secretStore);
+    return place ? tr(place) : '';
+  });
   /** Pairs of accounts in different directories not allowed yet: what the
    * desktop may allow before anyone continues a conversation across them. */
   protected readonly consentPairs = computed<ConsentPair[]>(() => {
@@ -273,11 +283,19 @@ export class AccountsComponent {
   }
 
   protected nameOf(id: string): string {
-    return this.accounts.byId(id)?.name ?? 'A removed account';
+    return this.accounts.byId(id)?.name ?? tr('A removed account');
   }
 
   protected liveText(n: number): string {
-    return n === 0 ? 'No live sessions' : n === 1 ? '1 live session' : `${n} live sessions`;
+    return n === 0 ? tr('No live sessions') : plural(n, 'live session');
+  }
+
+  /** Its plan usage button, spoken: what it says and what a tap does. */
+  protected usageLabel(r: Row): string {
+    const params = { name: r.a.name, usage: r.usageText };
+    return this.isOpen(r.a.id)
+      ? tr('Plan usage of {name}: {usage}. Hide details', params)
+      : tr('Plan usage of {name}: {usage}. Show details', params);
   }
 
   protected isOpen(id: string): boolean {
@@ -396,8 +414,11 @@ export class AccountsComponent {
       await this.accounts.setHooksPlugin(a.id, install);
       this.notice.set(
         install
-          ? `The hooks plugin is in ${a.name}'s directory now. Its sessions started before need /reload-plugins.`
-          : `The hooks plugin is no longer in ${a.name}'s directory.`,
+          ? tr(
+              "The hooks plugin is in {name}'s directory now. Its sessions started before need /reload-plugins.",
+              { name: a.name },
+            )
+          : tr("The hooks plugin is no longer in {name}'s directory.", { name: a.name }),
       );
     } catch (e) {
       this.error.set(`${a.name}: ${describeError(e).text}`);
@@ -413,7 +434,7 @@ export class AccountsComponent {
       await this.accounts.setDefaults(next);
       return true;
     } catch (e) {
-      this.error.set(`Could not save the defaults: ${describeError(e).text}`);
+      this.error.set(tr('Could not save the defaults: {error}', { error: describeError(e).text }));
       return false;
     } finally {
       this.saving.set(false);
