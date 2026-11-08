@@ -24,6 +24,9 @@ without turning on Claude's own Remote Control.
 - **Phone-first**: an Inbox of everything waiting for you, pairing by QR code,
   an installable Home Screen app, and Web Push when a session needs you or
   finishes.
+- **Your language and colours**: English or Vietnamese, a dark (default),
+  light or system theme, seven accents and four backgrounds — per device, in
+  **Settings → Appearance**. See [docs/I18N.md](docs/I18N.md).
 
 ## Download
 
@@ -119,10 +122,11 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) and [KNOWN_ISSUES.md](KNOWN_ISSUES.md).
   removes conversations or whole projects (**Sessions › Projects** lists every
   project on disk) with the same preview and seven days to undo, and a
   conversation's transcript is a click away in Finder or File Explorer.
-- **Backups and a second laptop.** **Settings → Backup & sync** keeps encrypted
+- **Backups and a second laptop.** **Backup & sync** keeps encrypted
   backups of each account in a folder you choose (iCloud Drive, Google Drive…),
   and any number of further storages for archives and shared sets; the same
-  folder carries conversations to another laptop. See
+  folder carries conversations to another laptop. Back up, pull and restore
+  by dragging accounts, backups and conversations, or with the buttons. See
   [docs/BACKUP.md](docs/BACKUP.md).
 
 ## Prerequisites (macOS, Apple Silicon)
