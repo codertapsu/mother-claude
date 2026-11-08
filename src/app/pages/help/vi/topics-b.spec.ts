@@ -160,3 +160,21 @@ describe('Vietnamese Help, topics B', () => {
     }
   });
 });
+
+describe('Help search in Vietnamese', () => {
+  it('finds a word typed without its accents', async () => {
+    const { searchHelp } = await import('../help.component');
+    const { useLanguage } = await import('../../../core/i18n/i18n');
+    const { ensureHelpLanguage, helpTopics } = await import('../help-localized');
+    await useLanguage('vi');
+    ensureHelpLanguage();
+    for (let i = 0; i < 50 && helpTopics()[0]?.title === 'Getting started'; i++) {
+      await new Promise((r) => setTimeout(r, 20));
+    }
+    const ids = (q: string) => searchHelp(q).map((h) => h.topic.id);
+    expect(ids('sao luu')).toContain('backup');
+    expect(ids('sao lưu')).toContain('backup');
+    expect(ids('dong bo')).toContain('backup');
+    await useLanguage('en');
+  });
+});

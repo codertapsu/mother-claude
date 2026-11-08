@@ -44,5 +44,11 @@ export function slugify(text: string): string {
 
 /** The words of a search, lower-cased; every one has to match. */
 export function searchTerms(query: string): string[] {
-  return query.toLowerCase().split(/\s+/).filter(Boolean);
+  return fold(query).split(/\s+/).filter(Boolean);
+}
+
+/** Text as search compares it: lower case, without accents (Vietnamese
+ * "sao lưu" is found by "sao luu", "đồng bộ" by "dong bo"). */
+export function fold(text: string): string {
+  return text.normalize('NFD').replace(/\p{M}/gu, '').replace(/[đĐ]/g, 'd').toLowerCase();
 }

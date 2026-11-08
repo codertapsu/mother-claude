@@ -22,7 +22,7 @@ import { TPipe } from '../../core/i18n/t.pipe';
 import { IconComponent } from '../../shared/icon.component';
 import { LimitationsComponent } from '../../shared/limitations.component';
 import { HelpGroup, HelpSection, HelpTopic } from './help-model';
-import { plainText, searchTerms } from './help-text';
+import { fold, plainText, searchTerms } from './help-text';
 import { HelpTextComponent } from './help-text.component';
 import { ensureHelpLanguage, helpGroups, helpTopics, localizedTopic } from './help-localized';
 
@@ -60,7 +60,7 @@ interface HitGroup {
 function lower(parts: (string | undefined)[]): string {
   return parts
     .filter((p): p is string => !!p)
-    .map((p) => plainText(p).toLowerCase())
+    .map((p) => fold(plainText(p)))
     .join('\n');
 }
 
