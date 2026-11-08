@@ -17,6 +17,8 @@ import { toSignal } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { map } from 'rxjs';
 
+import { plural } from '../../core/data-jobs';
+import { TPipe } from '../../core/i18n/t.pipe';
 import { IconComponent } from '../../shared/icon.component';
 import { LimitationsComponent } from '../../shared/limitations.component';
 import { HelpGroup, HelpSection, HelpTopic } from './help-model';
@@ -113,7 +115,7 @@ export function searchHelp(query: string): HelpHit[] {
 @Component({
   selector: 'mc-help',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [RouterLink, IconComponent, LimitationsComponent, HelpTextComponent],
+  imports: [RouterLink, IconComponent, LimitationsComponent, HelpTextComponent, TPipe],
   templateUrl: './help.component.html',
   styleUrl: './help.component.scss',
 })
@@ -152,6 +154,8 @@ export class HelpComponent {
       .filter((g) => g.hits.length);
   });
   protected readonly total = computed(() => helpTopics().length);
+  /** "28 topics", in the language shown. */
+  protected readonly totalLabel = computed(() => plural(this.total(), 'topic'));
 
   constructor() {
     // Vietnamese topics load the first time they are shown.

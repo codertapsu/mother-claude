@@ -1,6 +1,6 @@
 @if (topic(); as t) {
   <article class="page topic" aria-labelledby="help-topic-title">
-    <a class="back" routerLink="/help"><mc-icon name="back" [size]="16" /> Help</a>
+    <a class="back" routerLink="/help"><mc-icon name="back" [size]="16" /> {{ 'Help' | t }}</a>
 
     <header class="topic-head">
       <span class="ico big"><mc-icon [name]="t.icon" [size]="22" /></span>
@@ -14,7 +14,7 @@
     <div class="layout" [class.with-toc]="t.sections.length > 1">
       @if (t.sections.length > 1) {
         <nav class="toc" aria-labelledby="help-toc-title">
-          <h2 id="help-toc-title" class="toc-title">On this page</h2>
+          <h2 id="help-toc-title" class="toc-title">{{ 'On this page' | t }}</h2>
           <ol role="list">
             @for (s of t.sections; track s.id) {
               <li>
@@ -40,7 +40,9 @@
             <div class="sec-head">
               <h2 [id]="s.id + '-h'" tabindex="-1">{{ s.heading }}</h2>
               @if (s.where === 'desktop') {
-                <span class="badge where"><mc-icon name="monitor" [size]="12" /> Desktop app</span>
+                <span class="badge where"
+                  ><mc-icon name="monitor" [size]="12" /> {{ 'Desktop app' | t }}</span
+                >
               }
             </div>
             @if (s.intro) {
@@ -76,20 +78,26 @@
             @for (tip of s.tips; track $index) {
               <div class="callout" data-tone="accent" role="note">
                 <mc-icon name="lightbulb" [size]="16" />
-                <p><span class="visually-hidden">Tip: </span><mc-help-text [text]="tip" /></p>
+                <p>
+                  <span class="visually-hidden">{{ 'Tip:' | t }} </span
+                  ><mc-help-text [text]="tip" />
+                </p>
               </div>
             }
             @for (note of s.notes; track $index) {
               <div class="callout" data-tone="amber" role="note">
                 <mc-icon name="alert" [size]="16" />
-                <p><span class="visually-hidden">Note: </span><mc-help-text [text]="note" /></p>
+                <p>
+                  <span class="visually-hidden">{{ 'Note:' | t }} </span
+                  ><mc-help-text [text]="note" />
+                </p>
               </div>
             }
             @if (s.links?.length) {
               <div class="links">
                 @for (l of s.links; track l.label) {
                   <a class="btn" [routerLink]="l.path" [fragment]="l.fragment"
-                    >{{ l.label }} <mc-icon name="chevronRight" [size]="15"
+                    >{{ l.label | t }} <mc-icon name="chevronRight" [size]="15"
                   /></a>
                 }
               </div>
@@ -97,12 +105,12 @@
           </section>
         }
 
-        <nav class="pager" aria-label="Other topics">
+        <nav class="pager" [attr.aria-label]="'Other topics' | t">
           @if (prev(); as p) {
             <a class="pg prev" [routerLink]="['/help', p.id]">
               <mc-icon name="back" [size]="16" />
               <span class="pg-text">
-                <span class="pg-label">Previous</span>
+                <span class="pg-label">{{ 'Previous' | t }}</span>
                 <span class="pg-title">{{ p.title }}</span>
               </span>
             </a>
@@ -110,7 +118,7 @@
           @if (next(); as n) {
             <a class="pg next" [routerLink]="['/help', n.id]">
               <span class="pg-text">
-                <span class="pg-label">Next</span>
+                <span class="pg-label">{{ 'Next' | t }}</span>
                 <span class="pg-title">{{ n.title }}</span>
               </span>
               <mc-icon name="chevronRight" [size]="16" />
@@ -122,10 +130,14 @@
   </article>
 } @else {
   <div class="page landing">
-    <div class="page-head"><h1>Help</h1></div>
+    <div class="page-head">
+      <h1>{{ 'Help' | t }}</h1>
+    </div>
     <p class="lede">
-      How to use every part of Mother Claude, step by step. Pick a topic, or search for what you
-      want to do.
+      {{
+        'How to use every part of Mother Claude, step by step. Pick a topic, or search for what you want to do.'
+          | t
+      }}
     </p>
 
     <div class="search" role="search">
@@ -133,8 +145,8 @@
       <input
         #q
         type="search"
-        placeholder="Search help"
-        aria-label="Search help"
+        [placeholder]="'Search help' | t"
+        [attr.aria-label]="'Search help' | t"
         aria-describedby="help-count"
         autocomplete="off"
         autocapitalize="off"
@@ -146,7 +158,7 @@
         <button
           class="btn ghost icon-only clear"
           type="button"
-          aria-label="Clear the search"
+          [attr.aria-label]="'Clear the search' | t"
           (click)="clearQuery(q)"
         >
           <mc-icon name="x" [size]="16" />
@@ -155,9 +167,9 @@
     </div>
     <p id="help-count" class="count muted small" aria-live="polite">
       @if (query()) {
-        {{ hits().length }} of {{ total() }} topics match
+        {{ '{n} of {total} topics match' | t: { n: hits().length, total: total() } }}
       } @else {
-        {{ total() }} topics
+        {{ totalLabel() }}
       }
     </p>
 
@@ -174,7 +186,8 @@
                   <span class="card-summary">{{ h.topic.summary }}</span>
                   @if (h.section; as sec) {
                     <span class="card-hit"
-                      ><mc-icon name="search" [size]="12" /> In “{{ sec.heading }}”</span
+                      ><mc-icon name="search" [size]="12" />
+                      {{ 'In “{section}”' | t: { section: sec.heading } }}</span
                     >
                   }
                 </span>
@@ -186,10 +199,12 @@
       </section>
     } @empty {
       <div class="card empty-state">
-        <strong>No topics match “{{ query() }}”</strong>
-        Try fewer or other words.
+        <strong>{{ 'No topics match “{query}”' | t: { query: query() } }}</strong>
+        {{ 'Try fewer or other words.' | t }}
         <div class="empty-actions">
-          <button class="btn" type="button" (click)="clearQuery(q)">Clear the search</button>
+          <button class="btn" type="button" (click)="clearQuery(q)">
+            {{ 'Clear the search' | t }}
+          </button>
         </div>
       </div>
     }
