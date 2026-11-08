@@ -67,13 +67,16 @@ const pages: Routes = [
     loadComponent: () =>
       import('./pages/settings/settings.component').then((m) => m.SettingsComponent),
   },
-  // Settings › Accounts: the Claude accounts (read-only on phones).
+  // Accounts: the Claude accounts. A paired phone renames them, sets the
+  // defaults and copy permissions and moves data; adding, signing in and
+  // removing stay on the desktop (docs/ACCOUNTS.md §13.9).
   {
     path: 'accounts',
     loadComponent: () =>
       import('./pages/accounts/accounts.component').then((m) => m.AccountsComponent),
   },
-  // Settings › Backup & sync (read-only on phones).
+  // Backup & sync: a paired phone does everything but the passphrase
+  // (docs/BACKUP.md).
   {
     path: 'backup',
     loadComponent: () => import('./pages/backup/backup.component').then((m) => m.BackupComponent),
