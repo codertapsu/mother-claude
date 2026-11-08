@@ -1,16 +1,16 @@
 <div class="page narrow">
   <div class="page-head">
-    <h1>Browser</h1>
+    <h1>{{ 'Browser' | t }}</h1>
     <span class="spacer"></span>
     <button class="btn small" type="button" [disabled]="loading()" (click)="load()">
-      <mc-icon name="refresh" [size]="14" /> Refresh
+      <mc-icon name="refresh" [size]="14" /> {{ 'Refresh' | t }}
     </button>
   </div>
   <p class="lede">
-    Let Claude Code sessions use your own browser, signed in as you, through the Mother Claude
-    extension. Each session gets its own tab group; every site is off until you open it here or in
-    the extension; risky steps wait for your approval; Stop in the extension ends a session's
-    browsing at once.
+    {{
+      "Let Claude Code sessions use your own browser, signed in as you, through the Mother Claude extension. Each session gets its own tab group; every site is off until you open it here or in the extension; risky steps wait for your approval; Stop in the extension ends a session's browsing at once."
+        | t
+    }}
   </p>
 
   @if (error()) {
@@ -20,8 +20,8 @@
   @if (data(); as d) {
     <!-- ─────────────── Waiting approvals ─────────────── -->
     @if (approvals().length) {
-      <section class="approvals" aria-label="Browser actions waiting for you">
-        <h2>Waiting for you</h2>
+      <section class="approvals" [attr.aria-label]="'Browser actions waiting for you' | t">
+        <h2>{{ 'Waiting for you' | t }}</h2>
         @for (a of approvals(); track a.id) {
           <mc-pending-card [item]="a" [showSession]="true" />
         }
@@ -29,7 +29,7 @@
     }
 
     <!-- ─────────────── Browsers ─────────────── -->
-    <h2>Browsers</h2>
+    <h2>{{ 'Browsers' | t }}</h2>
     @if (browsers().length) {
       <div class="card list browsers">
         @for (b of browsers(); track b.id) {
@@ -37,22 +37,22 @@
             <span
               class="dot"
               [class.on]="b.connected"
-              [attr.aria-label]="b.connected ? 'Connected' : 'Not connected'"
+              [attr.aria-label]="b.connected ? ('Connected' | t) : ('Not connected' | t)"
             ></span>
             <span class="grow">
               <span class="name">{{ b.name }}</span>
               @if (b.pinned) {
-                <span class="badge accent">used for new sessions</span>
+                <span class="badge accent">{{ 'used for new sessions' | t }}</span>
               }
               <span class="muted small block">
-                {{ b.browser.name || 'Browser' }} {{ b.browser.version }} · extension
-                {{ b.extensionVersion || '?' }} ·
+                {{ b.browser.name || ('Browser' | t) }} {{ b.browser.version }} ·
+                {{ 'extension {version}' | t: { version: b.extensionVersion || '?' } }} ·
                 @if (b.connected) {
-                  connected
+                  {{ 'connected' | t }}
                 } @else if (b.lastSeenAt) {
-                  last seen <mc-time [ms]="b.lastSeenAt" />
+                  {{ 'last seen' | t }} <mc-time [ms]="b.lastSeenAt" />
                 } @else {
-                  not connected yet
+                  {{ 'not connected yet' | t }}
                 }
               </span>
             </span>
@@ -64,7 +64,7 @@
                   [disabled]="isBusy('pin:' + b.id)"
                   (click)="pin(b.id, !b.pinned)"
                 >
-                  {{ b.pinned ? 'Unpin' : 'Use for new sessions' }}
+                  {{ b.pinned ? ('Unpin' | t) : ('Use for new sessions' | t) }}
                 </button>
               }
               @if (canDangerous()) {
@@ -75,17 +75,17 @@
                     [disabled]="isBusy('revoke:' + b.id)"
                     (click)="revoke(b.id)"
                   >
-                    Remove
+                    {{ 'Remove' | t }}
                   </button>
                   <button class="btn ghost small" type="button" (click)="confirmRevoke.set(null)">
-                    Cancel
+                    {{ 'Cancel' | t }}
                   </button>
                 } @else {
                   <button
                     class="btn ghost small icon-only"
                     type="button"
-                    [attr.aria-label]="'Remove ' + b.name"
-                    title="Remove this browser"
+                    [attr.aria-label]="'Remove {name}' | t: { name: b.name }"
+                    [title]="'Remove this browser' | t"
                     (click)="confirmRevoke.set(b.id)"
                   >
                     <mc-icon name="trash" [size]="15" />
@@ -98,8 +98,10 @@
       </div>
     } @else {
       <div class="card empty-state">
-        <strong>No browser is paired yet.</strong>
-        <span class="muted">Install the Mother Claude extension, then pair it below.</span>
+        <strong>{{ 'No browser is paired yet.' | t }}</strong>
+        <span class="muted">{{
+          'Install the Mother Claude extension, then pair it below.' | t
+        }}</span>
       </div>
     }
 
@@ -107,48 +109,54 @@
     <div class="card pair">
       @if (code(); as c) {
         <p class="muted small">
-          Type this code into the Mother Claude extension (its options page):
+          {{ 'Type this code into the Mother Claude extension (its options page):' | t }}
         </p>
         <p class="code mono" aria-live="polite">
           {{ c.display }}
           <button
             class="btn ghost small icon-only"
             type="button"
-            aria-label="Copy the code"
+            [attr.aria-label]="'Copy the code' | t"
             (click)="copy(c.display)"
           >
             <mc-icon name="copy" [size]="14" />
           </button>
         </p>
         <p class="muted small">
-          Works once, for {{ codeLeft() }} more seconds. Then the extension connects to
-          <span class="mono">{{ d.endpoint }}</span> by itself.
+          {{ 'Works once, for {n} more seconds.' | t: { n: codeLeft() } }}
+          {{ 'Then the extension connects to' | t }}
+          <span class="mono">{{ d.endpoint }}</span> {{ 'by itself.' | t }}
         </p>
-        <button class="btn ghost small" type="button" (click)="code.set(null)">Done</button>
+        <button class="btn ghost small" type="button" (click)="code.set(null)">
+          {{ 'Done' | t }}
+        </button>
       } @else if (canDangerous()) {
         <ol class="steps">
           <li>
-            Load the extension in Chrome, Edge or Brave: open
-            <span class="mono">chrome://extensions</span>, turn on Developer mode, choose “Load
-            unpacked” and pick its folder.
+            {{ 'Load the extension in Chrome, Edge or Brave: open' | t }}
+            <span class="mono">chrome://extensions</span
+            >{{ ', turn on Developer mode, choose “Load unpacked” and pick its folder.' | t }}
           </li>
-          <li>Create a code here and type it into the extension's options page.</li>
+          <li>{{ "Create a code here and type it into the extension's options page." | t }}</li>
           <li>
-            Open a site's mode below (or in the extension's side panel) for sessions to use it.
+            {{
+              "Open a site's mode below (or in the extension's side panel) for sessions to use it."
+                | t
+            }}
           </li>
         </ol>
         <button class="btn primary" type="button" [disabled]="isBusy('pair')" (click)="pair()">
-          <mc-icon name="plus" [size]="15" /> Pair a browser
+          <mc-icon name="plus" [size]="15" /> {{ 'Pair a browser' | t }}
         </button>
       } @else {
         <p class="muted small">
-          Pair a browser on the Mother Claude desktop app (Browser › Pair a browser).
+          {{ 'Pair a browser on the Mother Claude desktop app (Browser › Pair a browser).' | t }}
         </p>
       }
     </div>
 
     <!-- ─────────────── Sessions in the browser ─────────────── -->
-    <h2>Sessions using the browser</h2>
+    <h2>{{ 'Sessions using the browser' | t }}</h2>
     @if (d.leases.length || stops().length) {
       <div class="card list">
         @for (l of d.leases; track l.id) {
@@ -157,8 +165,12 @@
             <span class="grow">
               <a [routerLink]="['/session', l.session]">{{ sessionLabel(l.session) }}</a>
               <span class="muted small block">
-                in {{ browserName(l.browser) }}{{ l.connected ? '' : ' (not connected)' }} · last
-                action <mc-time [ms]="l.lastUsed" />
+                @if (l.connected) {
+                  {{ 'in {browser}' | t: { browser: browserName(l.browser) } }}
+                } @else {
+                  {{ 'in {browser} (not connected)' | t: { browser: browserName(l.browser) } }}
+                }
+                · {{ 'last action' | t }} <mc-time [ms]="l.lastUsed" />
               </span>
             </span>
             <button
@@ -167,7 +179,7 @@
               [disabled]="isBusy('stop:' + l.session)"
               (click)="stop(l.session)"
             >
-              <mc-icon name="stop" [size]="13" /> Stop
+              <mc-icon name="stop" [size]="13" /> {{ 'Stop' | t }}
             </button>
           </div>
         }
@@ -177,8 +189,10 @@
             <span class="grow">
               <a [routerLink]="['/session', s.session]">{{ sessionLabel(s.session) }}</a>
               <span class="muted small block">
-                stopped <mc-time [ms]="s.at" /> · its browser actions are refused for
-                {{ secondsLeft(s.until) }} s more
+                {{ 'stopped' | t }} <mc-time [ms]="s.at" /> ·
+                {{
+                  'its browser actions are refused for {n} s more' | t: { n: secondsLeft(s.until) }
+                }}
               </span>
             </span>
             <button
@@ -187,37 +201,41 @@
               [disabled]="isBusy('resume:' + s.session)"
               (click)="resume(s.session)"
             >
-              Resume
+              {{ 'Resume' | t }}
             </button>
           </div>
         }
       </div>
     } @else {
-      <p class="muted">No session is using the browser.</p>
+      <p class="muted">{{ 'No session is using the browser.' | t }}</p>
     }
 
     <!-- ─────────────── Site modes ─────────────── -->
-    <h2>Site modes</h2>
+    <h2>{{ 'Site modes' | t }}</h2>
     <p class="muted small">
-      Off: sessions cannot open or see the site. Read: they may read it. Act: they may click, type
-      and fill forms there — forms with passwords or cards, scripts and uploads still ask you first.
+      {{
+        'Off: sessions cannot open or see the site. Read: they may read it. Act: they may click, type and fill forms there — forms with passwords or cards, scripts and uploads still ask you first.'
+          | t
+      }}
     </p>
     <div class="card list sites">
       <div class="list-row site">
         <span class="grow">
-          <strong>Every other site</strong>
-          <span class="muted small block">{{ modeHints[defaultMode()] }}</span>
+          <strong>{{ 'Every other site' | t }}</strong>
+          <span class="muted small block">{{ modeHints[defaultMode()] | t }}</span>
         </span>
-        <div class="segmented" role="group" aria-label="Mode of every other site">
+        <div class="segmented" role="group" [attr.aria-label]="'Mode of every other site' | t">
           @for (m of modes; track m) {
             <button
               type="button"
               [attr.aria-pressed]="defaultMode() === m"
               [disabled]="isBusy('site:*') || (m === 'act' && actLocked('*'))"
-              [title]="m === 'act' && actLocked('*') ? 'Set on the desktop app' : modeHints[m]"
+              [title]="
+                m === 'act' && actLocked('*') ? ('Set on the desktop app' | t) : (modeHints[m] | t)
+              "
               (click)="setMode('*', m)"
             >
-              {{ modeLabels[m] }}
+              {{ modeLabels[m] | t }}
             </button>
           }
         </div>
@@ -227,29 +245,39 @@
           <span class="grow">
             <span class="mono origin">{{ s.origin }}</span>
             @if (s.sensitive) {
-              <span class="badge warn" title="On the sensitive list">{{ s.sensitive }}</span>
+              <span class="badge warn" [title]="'On the sensitive list' | t">{{
+                s.sensitive | t
+              }}</span>
             }
           </span>
-          <div class="segmented" role="group" [attr.aria-label]="'Mode of ' + s.origin">
+          <div
+            class="segmented"
+            role="group"
+            [attr.aria-label]="'Mode of {site}' | t: { site: s.origin }"
+          >
             @for (m of modes; track m) {
               <button
                 type="button"
                 [attr.aria-pressed]="s.mode === m"
                 [disabled]="isBusy('site:' + s.origin) || (m === 'act' && actLocked(s.origin))"
                 [title]="
-                  m === 'act' && actLocked(s.origin) ? 'Set on the desktop app' : modeHints[m]
+                  m === 'act' && actLocked(s.origin)
+                    ? ('Set on the desktop app' | t)
+                    : (modeHints[m] | t)
                 "
                 (click)="setMode(s.origin, m)"
               >
-                {{ modeLabels[m] }}
+                {{ modeLabels[m] | t }}
               </button>
             }
           </div>
           <button
             class="btn ghost small icon-only"
             type="button"
-            [attr.aria-label]="'Forget ' + s.origin + ' (it follows every other site)'"
-            title="Forget (follow every other site)"
+            [attr.aria-label]="
+              'Forget {site} (it follows every other site)' | t: { site: s.origin }
+            "
+            [title]="'Forget (follow every other site)' | t"
             [disabled]="isBusy('site:' + s.origin)"
             (click)="setMode(s.origin, null)"
           >
@@ -264,20 +292,20 @@
           inputmode="url"
           autocomplete="off"
           spellcheck="false"
-          placeholder="https://github.com or https://*.example.com"
-          aria-label="Site"
+          [placeholder]="'https://github.com or https://*.example.com' | t"
+          [attr.aria-label]="'Site' | t"
           [ngModel]="newSite()"
           (ngModelChange)="newSite.set($event)"
           name="site"
         />
         <select
-          aria-label="Mode"
+          [attr.aria-label]="'Mode' | t"
           [ngModel]="newSiteMode()"
           (ngModelChange)="newSiteMode.set($event)"
           name="mode"
         >
           @for (m of modes; track m) {
-            <option [value]="m">{{ modeLabels[m] }}</option>
+            <option [value]="m">{{ modeLabels[m] | t }}</option>
           }
         </select>
         <button
@@ -285,14 +313,14 @@
           type="submit"
           [disabled]="!newSiteKey() || newSiteBlocked() || isBusy('site:' + newSiteKey())"
         >
-          Add
+          {{ 'Add' | t }}
         </button>
       </form>
       @if (newSite() && !newSiteKey()) {
-        <p class="error-text small hint">Use an address like https://github.com.</p>
+        <p class="error-text small hint">{{ 'Use an address like https://github.com.' | t }}</p>
       } @else if (newSiteBlocked()) {
         <p class="muted small hint">
-          Letting sessions act there is set on the Mother Claude desktop app.
+          {{ 'Letting sessions act there is set on the Mother Claude desktop app.' | t }}
         </p>
       }
     </div>
@@ -305,18 +333,19 @@
       (click)="showSensitive.set(!showSensitive())"
     >
       <mc-icon [name]="showSensitive() ? 'chevronDown' : 'chevronRight'" [size]="14" />
-      Sensitive sites ({{ d.sensitive.length }})
+      {{ 'Sensitive sites ({n})' | t: { n: d.sensitive.length } }}
     </button>
     @if (showSensitive()) {
       <div class="card sensitive">
         <p class="muted small">
-          Banking, payment and sign-in sites stay off whatever “every other site” says, until you
-          give one its own mode; letting sessions act on one is set on the desktop app, and opening
-          or acting on one always asks you first.
+          {{
+            'Banking, payment and sign-in sites stay off whatever “every other site” says, until you give one its own mode; letting sessions act on one is set on the desktop app, and opening or acting on one always asks you first.'
+              | t
+          }}
         </p>
         @for (g of sensitiveGroups(); track g.category) {
           <p class="small">
-            <strong class="cat">{{ g.category }}</strong>
+            <strong class="cat">{{ g.category | t }}</strong>
             <span class="mono">{{ g.domains.join(', ') }}</span>
           </p>
         }
@@ -324,16 +353,20 @@
     }
 
     <!-- ─────────────── Standing grants ─────────────── -->
-    <h2>Always allowed</h2>
+    <h2>{{ 'Always allowed' | t }}</h2>
     @if (d.grants.length) {
       <div class="card list">
         @for (g of d.grants; track g.id) {
           <div class="list-row grant">
             <span class="grow">
-              Sessions may <strong>{{ grantLabel(g.action) }}</strong> on
+              {{ 'Sessions may' | t }} <strong>{{ grantLabel(g.action) | t }}</strong>
+              {{ 'on||a site' | t }}
               <span class="mono">{{ g.origin }}</span>
               <span class="muted small block">
-                added <mc-time [ms]="g.createdAt" />{{ g.createdBy ? ' by ' + g.createdBy : '' }}
+                {{ 'added' | t }} <mc-time [ms]="g.createdAt" />
+                @if (g.createdBy) {
+                  {{ 'by {who}' | t: { who: g.createdBy } }}
+                }
               </span>
             </span>
             <button
@@ -342,27 +375,29 @@
               [disabled]="isBusy('grant:' + g.id)"
               (click)="removeGrant(g.id)"
             >
-              Remove
+              {{ 'Remove' | t }}
             </button>
           </div>
         }
       </div>
     } @else {
       <p class="muted small">
-        Nothing. “Always allow” on an approval adds one here; each skips one kind of approval on one
-        site.
+        {{
+          'Nothing. “Always allow” on an approval adds one here; each skips one kind of approval on one site.'
+            | t
+        }}
       </p>
     }
     @if (canDangerous()) {
       <form class="add-grant" (submit)="$event.preventDefault(); addGrant()">
         <select
-          aria-label="What to allow"
+          [attr.aria-label]="'What to allow' | t"
           [ngModel]="newGrantAction()"
           (ngModelChange)="newGrantAction.set($event)"
           name="action"
         >
           @for (a of grantActions; track a) {
-            <option [value]="a">{{ grantLabel(a) }}</option>
+            <option [value]="a">{{ grantLabel(a) | t }}</option>
           }
         </select>
         <input
@@ -371,7 +406,7 @@
           autocomplete="off"
           spellcheck="false"
           placeholder="https://localhost:3000"
-          aria-label="On which site"
+          [attr.aria-label]="'On which site' | t"
           [ngModel]="newGrantOrigin()"
           (ngModelChange)="newGrantOrigin.set($event)"
           name="origin"
@@ -381,13 +416,13 @@
           type="submit"
           [disabled]="!newGrantOrigin().trim() || isBusy('grant:new')"
         >
-          Always allow
+          {{ 'Always allow' | t }}
         </button>
       </form>
     }
 
     <!-- ─────────────── Settings ─────────────── -->
-    <h2>Settings</h2>
+    <h2>{{ 'Settings' | t }}</h2>
     <div class="card settings">
       <label class="switch">
         <input
@@ -397,14 +432,16 @@
           (change)="setScreenshots($any($event.target).checked)"
         />
         <span class="switch-text">
-          Screenshots
-          <span class="muted small block"
-            >Sessions may take screenshots of sites they may read.</span
-          >
+          {{ 'Screenshots' | t }}
+          <span class="muted small block">{{
+            'Sessions may take screenshots of sites they may read.' | t
+          }}</span>
         </span>
       </label>
       <label class="field">
-        <span class="field-label">Actions a minute on one site before each needs approval</span>
+        <span class="field-label">{{
+          'Actions a minute on one site before each needs approval' | t
+        }}</span>
         <input
           type="number"
           min="1"
@@ -416,15 +453,15 @@
         />
       </label>
       <div class="field">
-        <span class="field-label">Folders sessions may upload files from</span>
-        <span class="field-hint">Besides the session's own project folder.</span>
+        <span class="field-label">{{ 'Folders sessions may upload files from' | t }}</span>
+        <span class="field-hint">{{ "Besides the session's own project folder." | t }}</span>
         @for (f of d.settings.uploadFolders; track f) {
           <div class="folder">
             <span class="mono small grow">{{ f }}</span>
             <button
               class="btn ghost small icon-only"
               type="button"
-              [attr.aria-label]="'Remove ' + f"
+              [attr.aria-label]="'Remove {name}' | t: { name: f }"
               [disabled]="isBusy('settings')"
               (click)="removeFolder(f)"
             >
@@ -440,12 +477,14 @@
               autocomplete="off"
               spellcheck="false"
               placeholder="/Users/you/Documents/to-upload"
-              aria-label="Folder"
+              [attr.aria-label]="'Folder' | t"
               [ngModel]="newFolder()"
               (ngModelChange)="newFolder.set($event)"
               name="folder"
             />
-            <button class="btn small" type="submit" [disabled]="!newFolder().trim()">Add</button>
+            <button class="btn small" type="submit" [disabled]="!newFolder().trim()">
+              {{ 'Add' | t }}
+            </button>
           </form>
         }
       </div>
@@ -453,23 +492,25 @@
 
     <!-- ─────────────── Activity ─────────────── -->
     <div class="activity-head">
-      <h2>Activity</h2>
+      <h2>{{ 'Activity' | t }}</h2>
       <span class="spacer"></span>
       @if (activitySessions().length) {
         <select
-          aria-label="Show the activity of"
+          [attr.aria-label]="'Show the activity of' | t"
           [ngModel]="activitySession()"
           (ngModelChange)="filterActivity($event)"
           name="activitySession"
         >
-          <option value="">All sessions</option>
+          <option value="">{{ 'All sessions' | t }}</option>
           @for (s of activitySessions(); track s.id) {
             <option [value]="s.id">{{ s.label }}</option>
           }
         </select>
       }
     </div>
-    <p class="muted small">What sessions did in the browser — never what they typed or read.</p>
+    <p class="muted small">
+      {{ 'What sessions did in the browser — never what they typed or read.' | t }}
+    </p>
     @if (activity().length) {
       <div class="card list activity">
         @for (e of activity(); track $index) {
@@ -485,20 +526,20 @@
                   · {{ e.ms }} ms
                 }
                 @if (e.approved) {
-                  · approved by you
+                  · {{ 'approved by you' | t }}
                 }
               </span>
             </span>
             <span [class]="'badge ' + outcomeBadge(e.outcome).cls">{{
-              outcomeBadge(e.outcome).label
+              outcomeBadge(e.outcome).label | t
             }}</span>
           </div>
         }
       </div>
     } @else {
-      <p class="muted">Nothing yet.</p>
+      <p class="muted">{{ 'Nothing yet.' | t }}</p>
     }
   } @else if (loading()) {
-    <p class="muted">Loading…</p>
+    <p class="muted">{{ 'Loading…' | t }}</p>
   }
 </div>

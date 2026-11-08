@@ -5,6 +5,8 @@ import { Subscription, debounceTime } from 'rxjs';
 
 import { ApiService, errorMessage } from '../../core/api.service';
 import { AuthService } from '../../core/auth.service';
+import { tr } from '../../core/i18n/i18n';
+import { TPipe } from '../../core/i18n/t.pipe';
 import {
   BrowserActivity,
   BrowserOverview,
@@ -44,7 +46,7 @@ import { sessionName } from '../../shared/util';
  */
 @Component({
   selector: 'mc-browser',
-  imports: [FormsModule, RouterLink, IconComponent, PendingCardComponent, TimeAgoComponent],
+  imports: [FormsModule, RouterLink, IconComponent, PendingCardComponent, TimeAgoComponent, TPipe],
   templateUrl: './browser.component.html',
   styleUrl: './browser.component.scss',
 })
@@ -179,7 +181,7 @@ export class BrowserComponent {
   }
 
   protected browserName(id: string): string {
-    return this.data()?.browsers.find((b) => b.id === id)?.name ?? 'a browser';
+    return this.data()?.browsers.find((b) => b.id === id)?.name ?? tr('a browser');
   }
 
   protected isBusy(key: string): boolean {
@@ -208,7 +210,9 @@ export class BrowserComponent {
       this.activity.set(activity.entries);
       this.error.set('');
     } catch (e) {
-      this.error.set(`Could not load the browser settings: ${errorMessage(e)}`);
+      this.error.set(
+        tr('Could not load the browser settings: {error}', { error: errorMessage(e) }),
+      );
     } finally {
       this.loading.set(false);
     }
@@ -272,7 +276,7 @@ export class BrowserComponent {
 
   protected async revoke(id: string): Promise<void> {
     this.confirmRevoke.set(null);
-    await this.run(`revoke:${id}`, () => this.api.revokeBrowser(id), 'Browser removed');
+    await this.run(`revoke:${id}`, () => this.api.revokeBrowser(id), tr('Browser removed'));
   }
 
   protected pin(id: string, pinned: boolean): Promise<boolean> {
@@ -287,12 +291,16 @@ export class BrowserComponent {
     return this.run(
       `stop:${session}`,
       () => this.api.stopBrowserSession(session),
-      'Stopped: its browser actions are refused for a minute.',
+      tr('Stopped: its browser actions are refused for a minute.'),
     );
   }
 
   protected resume(session: string): Promise<boolean> {
-    return this.run(`resume:${session}`, () => this.api.resumeBrowserSession(session), 'Resumed');
+    return this.run(
+      `resume:${session}`,
+      () => this.api.resumeBrowserSession(session),
+      tr('Resumed'),
+    );
   }
 
   // ── site modes
@@ -310,13 +318,13 @@ export class BrowserComponent {
   // ── grants
 
   protected removeGrant(id: string): Promise<boolean> {
-    return this.run(`grant:${id}`, () => this.api.removeBrowserGrant(id), 'Grant removed');
+    return this.run(`grant:${id}`, () => this.api.removeBrowserGrant(id), tr('Grant removed'));
   }
 
   protected async addGrant(): Promise<void> {
     const origin = normalizeSite(this.newGrantOrigin());
     if (!origin || origin === '*' || origin.includes('://*.')) {
-      this.notices.error('Give one site, like https://localhost:3000.');
+      this.notices.error(tr('Give one site, like https://localhost:3000.'));
       return;
     }
     const ok = await this.run('grant:new', () =>
@@ -334,7 +342,7 @@ export class BrowserComponent {
   protected setLimit(value: number | string): Promise<boolean> | undefined {
     const n = Math.round(Number(value));
     if (!Number.isFinite(n) || n < 1 || n > 600) {
-      this.notices.error('The limit is between 1 and 600 actions a minute.');
+      this.notices.error(tr('The limit is between 1 and 600 actions a minute.'));
       return undefined;
     }
     return this.run('settings', () => this.api.setBrowserSettings({ actionsPerMinute: n }));
@@ -359,7 +367,7 @@ export class BrowserComponent {
 
   protected copy(text: string): void {
     void navigator.clipboard?.writeText(text).then(
-      () => this.notices.success('Copied'),
+      () => this.notices.success(tr('Copied')),
       () => undefined,
     );
   }

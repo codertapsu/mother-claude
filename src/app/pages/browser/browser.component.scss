@@ -143,9 +143,15 @@ h2 {
   margin-top: 0.6rem;
 }
 
+// Only the first letter: a Vietnamese category has several words
+// ("thanh toán"), and sentence case capitalises just the first.
 .sensitive .cat {
-  text-transform: capitalize;
+  display: inline-block;
   margin-right: 0.4rem;
+
+  &::first-letter {
+    text-transform: uppercase;
+  }
 }
 
 .add-grant {
