@@ -68,10 +68,10 @@ const TOPICS: HelpTopicSource[] = [
           'Trong Quyền riêng tư & Bảo mật › Truy cập toàn bộ ổ đĩa (Privacy & Security › Full Disk Access), tìm **Mother Claude**. Nếu không thấy trong danh sách, nhấp **+** và thêm nó; **Hiện ứng dụng trong Finder** cho biết ứng dụng nằm ở đâu.',
           'Bật công tắc của nó. macOS có thể yêu cầu bạn thoát rồi mở lại ứng dụng.',
           'Quay lại và nhấp **Kiểm tra lại**.',
-          'Nhấp **Tiếp tục vào bảng điều khiển →**.',
+          'Nhấp **Tiếp tục tới bảng điều khiển →**.',
         ],
         tips: [
-          '**Bỏ qua lúc này** vẫn cho bạn vào, nhưng ứng dụng không đọc được các phiên của bạn và một biểu ngữ sẽ hiện cho đến khi bạn làm xong. Bạn có thể quay lại bất cứ lúc nào trong **Cài đặt › Quyền**.',
+          '**Để sau** vẫn cho bạn vào, nhưng ứng dụng không đọc được các phiên của bạn và một biểu ngữ sẽ hiện cho đến khi bạn làm xong. Bạn có thể quay lại bất cứ lúc nào trong **Cài đặt › Quyền**.',
           'Quyền Mạng cục bộ (Local Network) là tùy chọn: khi macOS hỏi Mother Claude có được tìm thiết bị trên mạng cục bộ không, hãy nhấp **Cho phép** (Allow) để điện thoại của bạn kết nối được tới nó.',
         ],
         links: [{ label: 'Mở trang Cài đặt', path: '/settings' }],
@@ -128,8 +128,8 @@ const TOPICS: HelpTopicSource[] = [
           'Mother Claude chỉ điều khiển hoàn toàn được một phiên khi chính nó đã bắt đầu phiên đó: phiên như vậy **thuộc Mother Claude**. Phiên bạn bắt đầu trong terminal, VS Code, JetBrains hay Claude Desktop là phiên bắt đầu ở nơi khác. Bạn luôn xem được chúng, và có thể trả lời, nhắn tin cho chúng qua plugin Mother Claude hoặc tmux.',
         points: [
           'Phiên thuộc Mother Claude nhận tin nhắn, hình ảnh, quyết định duyệt, lệnh đổi mô hình, mức nỗ lực và chế độ, lệnh ngắt và lệnh gạch chéo; câu trả lời của Claude hiện ra từng chữ.',
-          '**Tiếp tục tại đây** biến bất kỳ phiên nào thành phiên thuộc Mother Claude. Phiên vẫn đang chạy ở nơi khác được rẽ nhánh thành một bản sao; phiên đã kết thúc thì tiếp tục ngay tại chỗ.',
-          'Huy hiệu của mỗi phiên cho biết bạn điều khiển được nó đến đâu: **Điều khiển đầy đủ**, **Qua hook**, **Qua tmux**, **Thử nghiệm** hoặc **Chỉ xem**. Chạm vào huy hiệu để xem những gì dùng được và vì sao.',
+          '**Tiếp tục ở đây** biến bất kỳ phiên nào thành phiên thuộc Mother Claude. Phiên vẫn đang chạy ở nơi khác được rẽ nhánh thành một bản sao; phiên đã kết thúc thì tiếp tục ngay tại chỗ.',
+          'Huy hiệu của mỗi phiên cho biết bạn điều khiển được nó đến đâu: **Toàn quyền**, **Qua hooks**, **Qua tmux**, **Thử nghiệm** hoặc **Chỉ xem**. Chạm vào huy hiệu để xem những gì dùng được và vì sao.',
         ],
         links: [
           { label: 'Xem “Tin nhắn và điều khiển”', path: '/help/messaging' },
@@ -242,10 +242,10 @@ const TOPICS: HelpTopicSource[] = [
           'Ứng dụng máy tính tìm phiên bản mới mỗi khi khởi động. Khi có bản sẵn sàng, **Có bản cập nhật** hiện ở cuối thanh bên.',
         steps: [
           'Nhấp **Có bản cập nhật**, hoặc mở **Cài đặt › Cập nhật phần mềm**.',
-          'Để kiểm tra lại ngay, nhấp **Kiểm tra bản cập nhật**.',
+          'Để kiểm tra lại ngay, nhấp **Kiểm tra cập nhật**.',
           'Đọc ghi chú phát hành.',
           'Nhấp **Tải về & cài đặt**.',
-          'Chờ trong lúc ứng dụng hiện **Đang tải về…**, **Đang cài đặt…** và **Đã cài bản cập nhật — đang khởi động lại…**. Ứng dụng tự khởi động lại.',
+          'Chờ trong lúc ứng dụng hiện **Đang tải về…**, **Đang cài…** và **Đã cài bản cập nhật — đang khởi động lại…**. Ứng dụng tự khởi động lại.',
         ],
         notes: [
           'Trên Windows, ứng dụng đóng lại trong lúc cài bản cập nhật.',
@@ -315,8 +315,8 @@ const TOPICS: HelpTopicSource[] = [
         steps: [
           'Gõ vào ô **Tìm phiên**.',
           'Chọn **Đang chạy**, **Cần bạn** hoặc **Tất cả**.',
-          'Thu hẹp kết quả bằng **Tất cả môi trường** và **Tất cả dự án** (và **Tất cả tài khoản**, khi có nhiều tài khoản).',
-          'Trong **Tất cả**, nhấn **Hiện phiên đã kết thúc** để thêm các phiên trước đó; **Tải thêm** đi xa hơn về trước.',
+          'Thu hẹp kết quả bằng **Mọi môi trường** và **Mọi dự án** (và **Mọi tài khoản**, khi có nhiều tài khoản).',
+          'Trong **Tất cả**, nhấn **Hiện các phiên đã kết thúc** để thêm các phiên trước đó; **Tải thêm** đi xa hơn về trước.',
         ],
         tips: ['Khi không có kết quả nào, **Xóa bộ lọc** hiện lại mọi thứ.'],
       },
@@ -402,7 +402,7 @@ const TOPICS: HelpTopicSource[] = [
         points: [
           'Cuộc trò chuyện: tin nhắn của bạn, câu trả lời của Claude, các công cụ nó đã chạy và kết quả.',
           'Phiên do Mother Claude chạy hiện câu trả lời từng chữ. Phiên bắt đầu ở nơi khác hiện mỗi tin nhắn khi tin nhắn đó hoàn tất.',
-          '**Tải tin nhắn cũ hơn** hiện các tin nhắn trước đó.',
+          '**Tải tin cũ hơn** hiện các tin nhắn trước đó.',
           'Yêu cầu duyệt, câu hỏi và kế hoạch đang chờ hiện phía trên ô soạn tin, lần lượt từng mục.',
         ],
         links: [{ label: 'Xem “Tin nhắn và điều khiển”', path: '/help/messaging' }],
@@ -418,7 +418,7 @@ const TOPICS: HelpTopicSource[] = [
         heading: 'Thay đổi',
         points: [
           'Các thay đổi git của phiên. **Chưa commit** hiện phần việc chưa được commit; **Cả nhánh** hiện mọi thứ kể từ khi nhánh tách khỏi nhánh mặc định.',
-          'Hiện các tệp dạng **Danh sách** hoặc **Cây**, và thay đổi của một tệp ở dạng **Gộp** hoặc **Chia đôi**.',
+          'Hiện các tệp dạng **Danh sách** hoặc **Cây**, và thay đổi của một tệp ở dạng **Gộp** hoặc **Tách đôi**.',
           '**Làm mới** đọc lại các thay đổi.',
         ],
       },
@@ -440,7 +440,7 @@ const TOPICS: HelpTopicSource[] = [
           },
           {
             term: 'Thao tác',
-            text: '**Xem terminal**, **Mở trong VS Code**, **Dừng**, **Khởi chạy lại**, **Gỡ bỏ**, **Gửi phím**, lệnh `claude --resume` để sao chép, và **Tiếp tục tại đây** với các tùy chọn khởi chạy.',
+            text: '**Xem terminal**, **Mở trong VS Code**, **Dừng**, **Khởi chạy lại**, **Gỡ bỏ**, **Gửi phím**, lệnh `claude --resume` để sao chép, và **Tiếp tục ở đây** với các tùy chọn khởi chạy.',
           },
           { term: 'Máy chủ MCP', text: 'Các máy chủ MCP của một phiên do Mother Claude chạy.' },
         ],
@@ -458,7 +458,7 @@ const TOPICS: HelpTopicSource[] = [
           },
           {
             term: 'Tiếp tục tại đây',
-            text: 'Tiếp quản phiên để Mother Claude chạy nó (**Tiếp tục tại đây (rẽ nhánh)** khi phiên vẫn đang chạy ở nơi khác).',
+            text: 'Tiếp quản phiên để Mother Claude chạy nó (**Tiếp tục ở đây (rẽ nhánh)** khi phiên vẫn đang chạy ở nơi khác).',
           },
           {
             term: 'Đổi tài khoản…',
@@ -498,7 +498,7 @@ const TOPICS: HelpTopicSource[] = [
     group: 'sessions',
     summary: 'Gửi tin nhắn và tệp, Gửi ngay, ngắt, và đổi mô hình, mức nỗ lực, chế độ.',
     intro:
-      'Những gì bạn làm được với một phiên tùy vào việc ai đã bắt đầu nó. Phiên do Mother Claude bắt đầu (gọi là phiên **thuộc Mother Claude**) được điều khiển hoàn toàn. Phiên bắt đầu ở nơi khác được kết nối qua plugin Mother Claude hoặc tmux, hoặc được tiếp quản bằng **Tiếp tục tại đây**.',
+      'Những gì bạn làm được với một phiên tùy vào việc ai đã bắt đầu nó. Phiên do Mother Claude bắt đầu (gọi là phiên **thuộc Mother Claude**) được điều khiển hoàn toàn. Phiên bắt đầu ở nơi khác được kết nối qua plugin Mother Claude hoặc tmux, hoặc được tiếp quản bằng **Tiếp tục ở đây**.',
     keywords: [
       'thuộc mother claude',
       'phiên bên ngoài',
@@ -520,7 +520,7 @@ const TOPICS: HelpTopicSource[] = [
         terms: [
           {
             term: 'Điều khiển đầy đủ',
-            text: 'Do Mother Claude bắt đầu (từ **Phiên mới** hoặc **Tiếp tục tại đây**). Mọi thứ hoạt động ngay, và câu trả lời hiện ra từng chữ.',
+            text: 'Do Mother Claude bắt đầu (từ **Phiên mới** hoặc **Tiếp tục ở đây**). Mọi thứ hoạt động ngay, và câu trả lời hiện ra từng chữ.',
           },
           {
             term: 'Qua hook',
@@ -533,7 +533,7 @@ const TOPICS: HelpTopicSource[] = [
           },
           {
             term: 'Chỉ xem',
-            text: 'Bạn xem được nhưng không điều khiển được. **Tiếp tục tại đây** sẽ tiếp quản nó.',
+            text: 'Bạn xem được nhưng không điều khiển được. **Tiếp tục ở đây** sẽ tiếp quản nó.',
           },
         ],
         links: [{ label: 'Xem “Phiên bắt đầu ở nơi khác”', path: '/help/foreign-sessions' }],
@@ -562,7 +562,7 @@ const TOPICS: HelpTopicSource[] = [
         points: [
           '**Gửi ngay** khiến Claude đọc tin nhắn tức thì: Claude Code dừng bước đang làm, hoặc chuyển bước đó sang chạy nền, để nhận tin nhắn của bạn.',
           'Nhấn **✕** trên một tin nhắn đang chờ để rút lại trước khi Claude đọc.',
-          'Trong phiên bắt đầu ở nơi khác, tin nhắn chờ đến lần gọi công cụ kế tiếp của Claude hoặc đến cuối lượt (**đang chờ bước tiếp theo**). **Ngắt & gửi** sẽ ngắt lượt và gửi tin nhắn.',
+          'Trong phiên bắt đầu ở nơi khác, tin nhắn chờ đến lần gọi công cụ kế tiếp của Claude hoặc đến cuối lượt (**chờ bước kế tiếp**). **Ngắt & gửi** sẽ ngắt lượt và gửi tin nhắn.',
         ],
       },
       {
@@ -597,8 +597,8 @@ const TOPICS: HelpTopicSource[] = [
         heading: 'Ngắt Claude',
         steps: ['Trong lúc Claude làm việc, nhấn **Ngắt** bên dưới ô soạn tin.'],
         points: [
-          'Trong phiên bắt đầu ở nơi khác, nút ghi **Ngắt ở công cụ tiếp theo**: lệnh ngắt có hiệu lực ở lần gọi công cụ kế tiếp của Claude, chứ không phải giữa chừng một câu.',
-          'Khi có đúng một yêu cầu cấp quyền đang chờ, **Từ chối & gửi làm phản hồi** từ chối nó và gửi nội dung bạn viết làm lý do; **Xếp hàng sau yêu cầu này** gửi tin nhắn của bạn sau yêu cầu đó.',
+          'Trong phiên bắt đầu ở nơi khác, nút ghi **Ngắt ở công cụ kế tiếp**: lệnh ngắt có hiệu lực ở lần gọi công cụ kế tiếp của Claude, chứ không phải giữa chừng một câu.',
+          'Khi có đúng một yêu cầu cấp quyền đang chờ, **Từ chối & gửi làm góp ý** từ chối nó và gửi nội dung bạn viết làm lý do; **Xếp sau yêu cầu này** gửi tin nhắn của bạn sau yêu cầu đó.',
         ],
       },
       {
@@ -626,16 +626,16 @@ const TOPICS: HelpTopicSource[] = [
       {
         heading: 'Tiếp tục tại đây',
         intro:
-          '**Tiếp tục tại đây** biến một phiên thành phiên do Mother Claude chạy, với toàn quyền điều khiển.',
+          '**Tiếp tục ở đây** biến một phiên thành phiên do Mother Claude chạy, với toàn quyền điều khiển.',
         steps: [
           'Mở phiên.',
           'Nhấn **⋯**.',
-          'Chọn **Tiếp tục tại đây**, hoặc **Tiếp tục tại đây (rẽ nhánh)** với phiên vẫn đang chạy ở nơi khác.',
+          'Chọn **Tiếp tục ở đây**, hoặc **Tiếp tục ở đây (rẽ nhánh)** với phiên vẫn đang chạy ở nơi khác.',
         ],
         points: [
           'Phiên vẫn đang chạy ở nơi khác sẽ được rẽ nhánh: bạn điều khiển một bản sao với id mới, còn bản gốc vẫn tiếp tục chạy ở chỗ cũ.',
           'Phiên đã kết thúc sẽ tiếp tục ngay tại chỗ. Gõ tin nhắn vào phiên đó cũng có tác dụng như vậy: nút gửi của nó ghi **Tiếp tục**.',
-          'Để chọn mô hình, mức nỗ lực hoặc chế độ trước, dùng **Tiếp tục tại đây** trong thẻ **Thông tin** và mở **Tùy chọn khởi chạy (mô hình · mức nỗ lực · chế độ)**.',
+          'Để chọn mô hình, mức nỗ lực hoặc chế độ trước, dùng **Tiếp tục ở đây** trong thẻ **Thông tin** và mở **Tùy chọn khởi chạy (mô hình · mức nỗ lực · chế độ)**.',
           'Nếu cuộc trò chuyện bắt đầu trên một máy tính khác, có thể bạn sẽ được yêu cầu chọn thư mục của nó trên máy này trước.',
         ],
         notes: [
@@ -715,10 +715,10 @@ const TOPICS: HelpTopicSource[] = [
         heading: 'Xem xét kế hoạch',
         steps: [
           'Nhấn **Đọc toàn bộ kế hoạch**.',
-          'Nhấn **Cho phép & tự chấp nhận chỉnh sửa** hoặc **Cho phép & xem xét từng chỉnh sửa**.',
+          'Nhấn **Duyệt & tự chấp nhận sửa đổi** hoặc **Duyệt & xem từng sửa đổi**.',
         ],
         points: [
-          '**Tiếp tục lập kế hoạch…** yêu cầu sửa kế hoạch thay vì cho phép: viết những gì cần đổi rồi nhấn **Gửi phản hồi**.',
+          '**Tiếp tục lập kế hoạch…** yêu cầu sửa kế hoạch thay vì cho phép: viết những gì cần đổi rồi nhấn **Gửi góp ý**.',
         ],
       },
       {
@@ -770,8 +770,8 @@ const TOPICS: HelpTopicSource[] = [
         heading: 'Bắt đầu một phiên',
         steps: [
           'Mở trang **Phiên mới**.',
-          'Chọn một dự án trong **Dự án**, hoặc gõ một đường dẫn vào **Hoặc thư mục bất kỳ trên máy tính này** (ứng dụng máy tính).',
-          'Nếu có nhiều tài khoản Claude, kiểm tra **Chạy bằng tài khoản**.',
+          'Chọn một dự án trong **Dự án**, hoặc gõ một đường dẫn vào **Hoặc bất kỳ thư mục nào trên máy tính này** (ứng dụng máy tính).',
+          'Nếu có nhiều tài khoản Claude, kiểm tra **Chạy dưới tài khoản**.',
           'Trong **Tùy chọn**, chọn **Mô hình**, **Mức nỗ lực** và **Quyền**, hoặc để **Mặc định** để dùng cài đặt Claude của riêng bạn.',
           'Tùy chọn: viết **Lời nhắc đầu tiên**, và nhấn **Thêm ảnh** để đính kèm ảnh.',
           'Nhấn **Bắt đầu phiên**.',
@@ -785,7 +785,7 @@ const TOPICS: HelpTopicSource[] = [
       {
         heading: 'Phiên chạy bằng tài khoản nào',
         points: [
-          'Khi có nhiều tài khoản, **Chạy bằng tài khoản** chọn sẵn tài khoản của dự án, hoặc tài khoản mặc định cho phiên mới.',
+          'Khi có nhiều tài khoản, **Chạy dưới tài khoản** chọn sẵn tài khoản của dự án, hoặc tài khoản mặc định cho phiên mới.',
           'Tài khoản không chạy được ở đây (đã đăng xuất, hoặc chưa có token trên máy tính này) sẽ bị làm mờ.',
         ],
         links: [{ label: 'Xem “Tài khoản Claude”', path: '/help/accounts' }],
@@ -863,7 +863,7 @@ const TOPICS: HelpTopicSource[] = [
           'Ứng dụng thêm vào Màn hình chính giữ dữ liệu riêng, tách biệt với Safari, nên nó được ghép nối riêng.',
         steps: [
           'Trong Safari, chạm Chia sẻ › Thêm vào MH chính (Share › Add to Home Screen).',
-          'Trong một thẻ Safari đã ghép nối, mở **Cài đặt** và nhấn **Thiết lập ứng dụng Màn hình chính**.',
+          'Trong một thẻ Safari đã ghép nối, mở **Cài đặt** và nhấn **Thiết lập ứng dụng trên Màn hình chính**.',
           'Mở ứng dụng từ Màn hình chính.',
           'Gõ mã vào trang Ghép nối của ứng dụng và nhấn **Ghép nối**.',
         ],
@@ -879,7 +879,7 @@ const TOPICS: HelpTopicSource[] = [
           'Trên điện thoại, mở **Cài đặt**.',
           'Trong **Thông báo**, nhấn **Bật** cạnh **Thông báo đẩy**.',
           'Cho phép thông báo khi trình duyệt hỏi.',
-          'Chọn các sự kiện bạn muốn: **Yêu cầu cấp quyền**, **Câu hỏi**, **Kế hoạch**, **Đã xong**, **Lỗi**, **Khi Claude hỏi** và **Đang chờ bạn**.',
+          'Chọn các sự kiện bạn muốn: **Yêu cầu cấp quyền**, **Câu hỏi**, **Kế hoạch**, **Hoàn tất**, **Lỗi**, **Khi Claude yêu cầu** và **Đang chờ bạn**.',
           'Nhấn **Gửi thử**.',
         ],
         points: [
@@ -926,8 +926,8 @@ const TOPICS: HelpTopicSource[] = [
         where: 'desktop',
         steps: [
           'Mở trang **Từ xa**.',
-          'Trong **Truy cập qua internet**, bật **Cho phép truy cập qua đường hầm**.',
-          'Trong **Khởi động đường hầm**, sao chép lệnh cho loại đường hầm bạn dùng.',
+          'Trong **Truy cập Internet**, bật **Cho phép truy cập qua đường hầm**.',
+          'Trong **Khởi chạy đường hầm**, sao chép lệnh cho loại đường hầm bạn dùng.',
           'Chạy lệnh đó trong terminal trên máy tính của bạn.',
           'Chờ địa chỉ hiện trong **Địa chỉ công khai**.',
         ],
@@ -960,7 +960,7 @@ const TOPICS: HelpTopicSource[] = [
         ],
         points: [
           'Không ai vào được qua internet nếu bạn không gõ các chữ số đó trên máy tính của mình. Nhập sai ba lần thì yêu cầu bị từ chối.',
-          'Điện thoại đã ghép nối ở nhà sẽ chưa được ghép nối ở địa chỉ đường hầm, vì trình duyệt lưu dữ liệu riêng cho từng địa chỉ. Ở nơi điện thoại đã ghép nối, nhấn **Cài đặt › Thiết lập ứng dụng Màn hình chính** để lấy mã, rồi gõ mã đó vào trang Ghép nối ở địa chỉ mới.',
+          'Điện thoại đã ghép nối ở nhà sẽ chưa được ghép nối ở địa chỉ đường hầm, vì trình duyệt lưu dữ liệu riêng cho từng địa chỉ. Ở nơi điện thoại đã ghép nối, nhấn **Cài đặt › Thiết lập ứng dụng trên Màn hình chính** để lấy mã, rồi gõ mã đó vào trang Ghép nối ở địa chỉ mới.',
         ],
       },
       {
@@ -972,7 +972,7 @@ const TOPICS: HelpTopicSource[] = [
       },
       {
         heading: 'Tắt truy cập qua internet',
-        steps: ['Trong **Truy cập qua internet**, tắt **Cho phép truy cập qua đường hầm**.'],
+        steps: ['Trong **Truy cập Internet**, tắt **Cho phép truy cập qua đường hầm**.'],
         points: [
           'Thao tác này đóng cổng đường hầm và cắt mọi kết nối đã đi qua nó.',
           'Hãy trỏ đường hầm vào cổng 6726, như các lệnh trên trang Từ xa. Một đường hầm trỏ vào cổng 6725 sẽ vẫn hoạt động sau khi bạn tắt mục này.',
@@ -1051,13 +1051,13 @@ const TOPICS: HelpTopicSource[] = [
         where: 'desktop',
         steps: [
           'Mở trang **Từ xa**.',
-          'Trong **Điều khiển phiên bên ngoài**, nhấn **Cài đặt điều khiển phiên bên ngoài**.',
-          'Chờ đến khi **Trạng thái** ghi **đã cài đặt**.',
+          'Trong **Điều khiển phiên bên ngoài**, nhấn **Cài điều khiển phiên bên ngoài**.',
+          'Chờ đến khi **Trạng thái** ghi **đã cài**.',
           'Trong mỗi phiên đã chạy từ trước, gõ `/reload-plugins` (hoặc khởi động lại phiên).',
         ],
         points: [
           'Thao tác này cài plugin Mother Claude bằng chính lệnh `claude plugin install` của Claude Code. `settings.json` và các hook riêng của bạn không bao giờ bị động đến.',
-          'Phiên mới tự báo cáo về. Trang Từ xa đếm **Phiên đang báo cáo**, và liệt kê trong **Cần tải lại** các phiên đã bắt đầu trước khi cài.',
+          'Phiên mới tự báo cáo về. Trang Từ xa đếm **Phiên đang gửi báo cáo**, và liệt kê trong **Cần tải lại** các phiên đã bắt đầu trước khi cài.',
           'Khi Mother Claude đóng, các phiên của bạn hoạt động y như trước.',
         ],
         notes: [
@@ -1073,7 +1073,7 @@ const TOPICS: HelpTopicSource[] = [
           'Cho phép yêu cầu cấp quyền, trả lời câu hỏi và kế hoạch. Hộp thoại riêng của phiên vẫn còn: ai trả lời trước thì câu trả lời đó có hiệu lực.',
           'Gửi tin nhắn. Tin nhắn đến khi Claude gọi công cụ kế tiếp hoặc khi hết lượt, và phiên đang rảnh sẽ được đánh thức để đọc. Tin nhắn đến được Claude nhưng không hiện trong cửa sổ riêng của phiên; chỉ câu trả lời của Claude hiện ở đó.',
           'Ngắt. Lệnh ngắt có hiệu lực ở lần gọi công cụ kế tiếp.',
-          'Không đổi được mô hình, mức nỗ lực hay dùng lệnh gạch chéo theo cách này, còn chế độ quyền chỉ đổi được cùng với một lần cho phép (ví dụ một kế hoạch). **Tiếp tục tại đây** cho bạn tất cả những thứ đó.',
+          'Không đổi được mô hình, mức nỗ lực hay dùng lệnh gạch chéo theo cách này, còn chế độ quyền chỉ đổi được cùng với một lần cho phép (ví dụ một kế hoạch). **Tiếp tục ở đây** cho bạn tất cả những thứ đó.',
         ],
       },
       {
@@ -1095,7 +1095,7 @@ const TOPICS: HelpTopicSource[] = [
       },
       {
         heading: 'Tiếp quản một phiên',
-        intro: 'Để điều khiển hoàn toàn bất kỳ phiên nào, hãy dùng **Tiếp tục tại đây**.',
+        intro: 'Để điều khiển hoàn toàn bất kỳ phiên nào, hãy dùng **Tiếp tục ở đây**.',
         points: [
           'Phiên vẫn đang chạy ở nơi khác sẽ được rẽ nhánh thành một bản sao để bạn điều khiển tại đây; bản gốc vẫn tiếp tục chạy.',
           'Phiên đã kết thúc sẽ tiếp tục ngay tại chỗ.',

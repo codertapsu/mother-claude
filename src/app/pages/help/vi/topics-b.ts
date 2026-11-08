@@ -100,7 +100,7 @@ export const VI_TOPICS_B: Partial<Record<string, HelpTopicSource>> = {
         ],
         points: [
           'Thư mục con trong dự án cũng được tính; thư mục khớp dài nhất sẽ được ưu tiên.',
-          '**Phiên mới** sẽ bắt đầu bằng tài khoản đó, và bạn có thể đổi ngay tại đó ở **Chạy bằng**.',
+          '**Phiên mới** sẽ bắt đầu bằng tài khoản đó, và bạn có thể đổi ngay tại đó ở **Chạy dưới tài khoản**.',
         ],
       },
       {
@@ -136,19 +136,19 @@ export const VI_TOPICS_B: Partial<Record<string, HelpTopicSource>> = {
       {
         heading: 'Cho phép sao chép giữa hai tài khoản',
         steps: [
-          'Mở **Tài khoản** và tìm **Sao chép khi tiếp tục trên tài khoản khác**.',
+          'Mở **Tài khoản** và tìm **Sao chép để Tiếp tục trên**.',
           'Ở **Cho phép sao chép**, chọn một cặp (từ → đến).',
           'Nhấn **Cho phép**.',
         ],
         points: [
           'Mỗi cặp chỉ có tác dụng theo một chiều. **Thu hồi** sẽ rút lại.',
-          'Quyền này áp dụng cho các bản sao mà **Tiếp tục trên** tạo ra và các lần di chuyển mà **Đổi tài khoản** thực hiện.',
+          'Quyền này áp dụng cho các bản sao mà **Tiếp tục trên** tạo ra và các lần di chuyển mà **Chuyển tài khoản** thực hiện.',
         ],
       },
       {
         heading: 'Khi một tài khoản chạm giới hạn',
         points: [
-          'Danh sách Phiên và trang của phiên sẽ báo điều này, và gợi ý một tài khoản khác còn dư hạn mức: **Chuyển sang** tài khoản đó, **Tiếp tục trên** tài khoản đó, hoặc **Chọn tài khoản**.',
+          'Danh sách Phiên và trang của phiên sẽ báo điều này, và gợi ý một tài khoản khác còn dư hạn mức: **Chuyển sang** tài khoản đó, **Tiếp tục trên** tài khoản đó, hoặc **Chọn một tài khoản**.',
           '**Để sau** sẽ ẩn gợi ý cho đến khi giới hạn được đặt lại.',
           'Mức dùng gói của từng tài khoản hiện ở dòng của nó trên trang **Tài khoản**. Mức dùng của tài khoản token chỉ hiện sau khi đã có phiên chạy bằng tài khoản đó.',
         ],
@@ -199,13 +199,13 @@ export const VI_TOPICS_B: Partial<Record<string, HelpTopicSource>> = {
       {
         heading: 'Di chuyển hoặc sao chép',
         intro:
-          'Bắt đầu từ **Di chuyển hoặc sao chép dữ liệu…** ở dòng của một tài khoản trên trang **Tài khoản**, từ **Di chuyển hoặc sao chép…** trong menu **⋯** của một phiên, hoặc từ **Chọn** trên danh sách Phiên.',
+          'Bắt đầu từ **Chuyển hoặc sao chép dữ liệu…** ở dòng của một tài khoản trên trang **Tài khoản**, từ **Di chuyển hoặc sao chép…** trong menu **⋯** của một phiên, hoặc từ **Chọn** trên danh sách Phiên.',
         steps: [
           'Chọn **Từ** và **Đến**.',
-          'Ở **Nội dung**, chọn **Mọi thứ**, **Dự án**, **Cuộc trò chuyện** hoặc **Tùy chỉnh**, rồi đánh dấu những gì cần lấy.',
+          'Ở **Nội dung**, chọn **Tất cả**, **Dự án**, **Cuộc trò chuyện** hoặc **Tùy chỉnh**, rồi đánh dấu những gì cần lấy.',
           'Ở **Cách thức**, chọn **Sao chép** hoặc **Di chuyển**.',
-          'Nhấn **Kiểm tra trước**.',
-          'Đọc **Bao gồm** và **Bỏ qua**.',
+          'Nhấn **Kiểm tra việc nó sẽ làm**.',
+          'Đọc **Những gì được chuyển** và **Đã bỏ qua**.',
           'Nhấn nút ghi rõ thao tác, ví dụ **Di chuyển 3 cuộc trò chuyện**.',
         ],
         tips: [
@@ -224,8 +224,8 @@ export const VI_TOPICS_B: Partial<Record<string, HelpTopicSource>> = {
         heading: 'Xóa cuộc trò chuyện hoặc dự án',
         steps: [
           'Chọn **Xóa…** trong menu **⋯** của một phiên, trong menu của một dự án, hoặc nhấn **Chọn** rồi **Xóa N…**.',
-          'Kiểm tra **Bao gồm** và **Bỏ qua**.',
-          'Giữ dấu chọn ở **Giữ một bản sao trong 7 ngày để có thể hoàn tác**.',
+          'Kiểm tra **Những gì được chuyển** và **Đã bỏ qua**.',
+          'Giữ dấu chọn ở **Giữ bản sao trong 7 ngày để có thể hoàn tác**.',
           'Nhấn nút ghi rõ thao tác xóa, ví dụ **Xóa 2 cuộc trò chuyện**.',
         ],
         notes: [
@@ -235,7 +235,7 @@ export const VI_TOPICS_B: Partial<Record<string, HelpTopicSource>> = {
       {
         heading: 'Hoàn tác',
         steps: [
-          'Tìm công việc đó: di chuyển và sao chép ở **Tài khoản › Di chuyển và sao chép**, xóa ở **Phiên › Dự án › Đã xóa gần đây**.',
+          'Tìm công việc đó: di chuyển và sao chép ở **Tài khoản › Chuyển và sao chép**, xóa ở **Phiên › Dự án › Đã xóa gần đây**.',
           'Nhấn **Hoàn tác**.',
           'Nhấn **Chạm lần nữa để hoàn tác**.',
         ],
@@ -339,7 +339,7 @@ export const VI_TOPICS_B: Partial<Record<string, HelpTopicSource>> = {
           'Nhấn **Xong**.',
         ],
         tips: [
-          '**Dùng cụm mật khẩu của tôi…** để dùng cụm của riêng bạn, dài ít nhất 12 ký tự: nhập vào **Cụm mật khẩu** và **Nhập lại**, rồi nhấn **Lưu vào Keychain**.',
+          '**Dùng cụm của tôi…** để dùng cụm của riêng bạn, dài ít nhất 12 ký tự: nhập vào **Cụm mật khẩu** và **Nhập lại**, rồi nhấn **Lưu vào Chuỗi khóa**.',
           '**Đổi…** để đặt cụm mới sau này.',
         ],
         notes: [
@@ -365,7 +365,7 @@ export const VI_TOPICS_B: Partial<Record<string, HelpTopicSource>> = {
         where: 'desktop',
         steps: [
           'Trên bản sao lưu của một tài khoản, nhấn **Cuộc trò chuyện**. Danh sách cho thấy bản sao lưu có những gì, theo từng dự án.',
-          'Xem từng cuộc trò chuyện so với tài khoản ở đây ra sao: **Không có trên máy tính này**, **Mới hơn trong bản sao lưu**, **Đã đổi ở cả hai nơi** hoặc **Đã cập nhật**. **Có thể mang về đây** hiện những cuộc sẽ thay đổi điều gì đó; **Tất cả** hiện mọi thứ.',
+          'Xem từng cuộc trò chuyện so với tài khoản ở đây ra sao: **Chưa có trên máy tính này**, **Mới hơn trong bản sao lưu**, **Thay đổi ở cả hai** hoặc **Đã cập nhật**. **Có thể đưa về** hiện những cuộc sẽ thay đổi điều gì đó; **Tất cả** hiện mọi thứ.',
           'Đánh dấu những cuộc bạn muốn, hoặc không đánh dấu gì nếu chỉ kéo thả một cuộc.',
           'Kéo thả chúng vào đúng tài khoản của chúng (hàng của tài khoản, hoặc nhãn của nó phía trên danh sách): chúng về đây ngay.',
           'Hoặc kéo thả chúng vào một tài khoản khác: **Khôi phục…** sẽ mở cho tài khoản đó, với các cuộc trò chuyện ấy đã được đánh dấu.',
@@ -393,7 +393,7 @@ export const VI_TOPICS_B: Partial<Record<string, HelpTopicSource>> = {
         heading: 'Kéo về cuộc trò chuyện của máy tính khác',
         steps: [
           'Nhấn **Kéo về…** (cạnh **Bản sao lưu của bạn** cho mọi tài khoản, hoặc trên bản sao lưu của một tài khoản), hoặc kéo thả một bản sao lưu vào đúng tài khoản của nó.',
-          'Kiểm tra việc sẽ làm với từng phiên, ví dụ **Mới hơn trong bản sao lưu — thay bản ở đây, giữ lại để hoàn tác**, **Đã đổi ở cả hai nơi — giữ cả hai** hoặc **Đang chạy ở đây — bỏ qua**.',
+          'Kiểm tra việc sẽ làm với từng phiên, ví dụ **Mới hơn trong bản sao lưu — thay bản ở đây, bản cũ được giữ để hoàn tác**, **Đã đổi ở cả hai nơi — giữ cả hai bản song song** hoặc **Đang chạy ở đây — bỏ qua**.',
           'Nhấn **Kéo về N phiên**.',
         ],
         points: [
@@ -422,11 +422,11 @@ export const VI_TOPICS_B: Partial<Record<string, HelpTopicSource>> = {
           'Trên một bộ, nhấn **Chuyển vào đây…** (hoặc **Bộ mới…** trên kho lưu trữ).',
           'Ở **Nội dung**, chọn **Cuộc trò chuyện** và đánh dấu những cuộc cần lấy.',
           'Ở **Cách thức**, chọn **Sao chép** để vẫn giữ chúng ở đây, hoặc **Di chuyển** để lưu trữ chúng.',
-          'Nhấn **Kiểm tra trước**, rồi nhấn nút ghi rõ thao tác, ví dụ **Lưu trữ 3 cuộc trò chuyện**.',
+          'Nhấn **Kiểm tra việc nó sẽ làm**, rồi nhấn nút ghi rõ thao tác, ví dụ **Lưu trữ 3 cuộc trò chuyện**.',
         ],
         points: [
-          '**Mang về…** trên một bộ sẽ khôi phục các cuộc trò chuyện của bộ đó theo cùng cách.',
-          'Trên ứng dụng máy tính, kéo thả một tài khoản vào một bộ của kho lưu trữ để mở **Chuyển vào đây…** từ tài khoản đó, hoặc kéo thả một bộ vào một tài khoản để mở **Mang về…** vào tài khoản đó.',
+          '**Đưa về…** trên một bộ sẽ khôi phục các cuộc trò chuyện của bộ đó theo cùng cách.',
+          'Trên ứng dụng máy tính, kéo thả một tài khoản vào một bộ của kho lưu trữ để mở **Chuyển vào đây…** từ tài khoản đó, hoặc kéo thả một bộ vào một tài khoản để mở **Đưa về…** vào tài khoản đó.',
           'Gỡ bỏ một kho lưu trữ vẫn để nguyên các tệp của nó.',
         ],
       },
@@ -437,11 +437,11 @@ export const VI_TOPICS_B: Partial<Record<string, HelpTopicSource>> = {
         steps: [
           'Ở **Cặp thư mục**, nhập thư mục trên máy tính này vào **Thư mục trên …**.',
           'Chọn **Máy khác**.',
-          'Điền **Thư mục của máy đó**.',
+          'Điền **Thư mục trên máy đó**.',
           'Nhấn **Thêm cặp**.',
         ],
         tips: [
-          'Một máy chỉ hiện ở đây sau khi nó đã sao lưu vào hoặc kéo về từ các bản sao lưu này; **Tìm lại** sẽ kiểm tra lại. Báo cáo của một lần kéo về có **Ghép cặp thư mục…** với các ô đã điền sẵn.',
+          'Một máy chỉ hiện ở đây sau khi nó đã sao lưu vào hoặc kéo về từ các bản sao lưu này; **Xem lại** sẽ kiểm tra lại. Báo cáo của một lần kéo về có **Ghép cặp thư mục…** với các ô đã điền sẵn.',
         ],
       },
       {
@@ -451,12 +451,12 @@ export const VI_TOPICS_B: Partial<Record<string, HelpTopicSource>> = {
         steps: [
           'Xem cuộc trò chuyện đã làm việc ở thư mục nào trên máy tính kia.',
           'Chọn một trong các thư mục ở đây trông giống nó (thư mục khả dĩ nhất đã được chọn sẵn), hoặc chọn **Thư mục khác** và nhập đường dẫn đầy đủ.',
-          'Giữ dấu chọn ở ô **Ghép cặp** để ghi nhớ sự tương ứng, hoặc bỏ dấu chọn nếu chỉ dùng cho cuộc trò chuyện này.',
+          'Giữ dấu chọn ở ô **Ghép nối** để ghi nhớ sự tương ứng, hoặc bỏ dấu chọn nếu chỉ dùng cho cuộc trò chuyện này.',
           'Nhấn **Tiếp tục ở đây**.',
         ],
         points: [
           'Cuộc trò chuyện chạy trong thư mục bạn chọn; nó không bị di chuyển.',
-          'Khi đánh dấu **Ghép cặp**, hai thư mục được ghép cặp (nếu hai dự án cùng tên thì ghép thư mục cha của chúng), để các cuộc trò chuyện khác của máy tính kia ở đó tiếp tục ở đây mà không cần hỏi.',
+          'Khi đánh dấu **Ghép nối**, hai thư mục được ghép cặp (nếu hai dự án cùng tên thì ghép thư mục cha của chúng), để các cuộc trò chuyện khác của máy tính kia ở đó tiếp tục ở đây mà không cần hỏi.',
           '**Hủy** không làm gì cả. Tin nhắn bạn đang gửi sẽ chưa được gửi, kèm nút **Thử lại**.',
           'Hộp thoại này hiện khi bạn nhấn **Tiếp tục ở đây**, gửi tin nhắn vào một cuộc trò chuyện đã kết thúc hoặc chọn **Tiếp tục trên tài khoản khác…**, và cả khi thư mục không còn trên máy tính này.',
           'Từ điện thoại, bạn chỉ chọn được thư mục mà Claude Code trên máy tính của bạn đã tin cậy.',
@@ -467,7 +467,7 @@ export const VI_TOPICS_B: Partial<Record<string, HelpTopicSource>> = {
         steps: [
           'Trên máy tính thứ nhất: chọn thư mục sao lưu, tạo cụm mật khẩu và nhấn **Sao lưu ngay**.',
           'Trên máy tính thứ hai: chọn cùng thư mục đó, theo đường dẫn mà máy này truy cập được.',
-          'Trên máy tính thứ hai: nhấn **Đặt cụm mật khẩu…**, rồi **Dùng cụm mật khẩu của tôi…**, nhập đúng cụm mật khẩu đó và nhấn **Lưu vào Keychain**.',
+          'Trên máy tính thứ hai: nhấn **Đặt cụm mật khẩu…**, rồi **Dùng cụm của tôi…**, nhập đúng cụm mật khẩu đó và nhấn **Lưu vào Chuỗi khóa**.',
           'Tùy chọn: ở **Cặp thư mục**, ghép cặp thư mục dự án của bạn với thư mục tương ứng trên máy tính kia.',
           'Nhấn **Kéo về…**, rồi **Kéo về N phiên**.',
           'Mở một cuộc trò chuyện và nhấn **Tiếp tục ở đây**. Chọn thư mục của nó nếu được hỏi.',
@@ -557,7 +557,7 @@ export const VI_TOPICS_B: Partial<Record<string, HelpTopicSource>> = {
       {
         heading: 'Cấp công cụ trình duyệt cho phiên',
         points: [
-          'Phiên dùng trình duyệt qua các công cụ của Mother Claude, vốn được bật sẵn (**Dịch vụ › Công cụ Claude Code (MCP)**).',
+          'Phiên dùng trình duyệt qua các công cụ của Mother Claude, vốn được bật sẵn (**Dịch vụ › Công cụ cho Claude Code (MCP)**).',
           'Phiên bắt đầu bên ngoài Mother Claude cần có thêm điều khiển phiên bên ngoài.',
           'Phiên đã chạy từ trước cần `/reload-plugins` hoặc khởi động lại. Cho đến lúc đó, bảng bên hiện **No browser tools** cho phiên ấy.',
         ],
@@ -577,7 +577,7 @@ export const VI_TOPICS_B: Partial<Record<string, HelpTopicSource>> = {
         points: [
           'Yêu cầu hiện trong Hộp thư, trên trang của phiên, ở **Trình duyệt › Đang chờ bạn** và trong bảng bên. Câu trả lời đầu tiên được tính; không trả lời trong 5 phút được coi là từ chối.',
           'Luôn hỏi khi: vào trang nhạy cảm, điền biểu mẫu có ô mật khẩu, thẻ thanh toán hoặc mã dùng một lần, chạy script, tải tệp lên, vượt giới hạn mỗi phút, và mọi thao tác trong một phút sau khi bị dừng (Stop).',
-          '**Luôn…** trên một yêu cầu duyệt sẽ lưu một quyền cho phép lâu dài. Các quyền này được liệt kê ở **Luôn cho phép**, nơi **Gỡ bỏ** sẽ rút lại một quyền.',
+          '**Luôn cho phép…** trên một yêu cầu duyệt sẽ lưu một quyền cho phép lâu dài. Các quyền này được liệt kê ở **Luôn cho phép**, nơi **Gỡ bỏ** sẽ rút lại một quyền.',
         ],
       },
       {
@@ -648,7 +648,7 @@ export const VI_TOPICS_B: Partial<Record<string, HelpTopicSource>> = {
           'Chọn **Dự án**.',
           'Chọn một **Mẫu**.',
           'Nếu có nhiều tài khoản, chọn **Tài khoản**.',
-          'Tùy chọn: viết **Chỉ dẫn cho trưởng nhóm (tùy chọn)**.',
+          'Tùy chọn: viết **Yêu cầu cho trưởng nhóm (không bắt buộc)**.',
           'Ở **Vai trò**, đổi **Mô hình**, **Mức nỗ lực**, **Chế độ quyền** hoặc **Bắt đầu cùng nhóm** của một vai trò nếu muốn.',
           'Nhấn **Bắt đầu nhóm**.',
         ],
@@ -669,8 +669,8 @@ export const VI_TOPICS_B: Partial<Record<string, HelpTopicSource>> = {
         heading: 'Thêm tác vụ',
         steps: [
           'Trong nhóm, nhấn **Tác vụ mới**.',
-          'Điền **Tiêu đề**, **Mục tiêu** và **Tiêu chí chấp nhận (mỗi dòng một tiêu chí)**.',
-          'Chọn **Vai trò** và **Mức ưu tiên**.',
+          'Điền **Tiêu đề**, **Mục tiêu** và **Tiêu chí nghiệm thu (mỗi dòng một tiêu chí)**.',
+          'Chọn **Vai trò** và **Ưu tiên**.',
           'Tùy chọn: chọn **Loại** và điền **Tệp (mỗi dòng một tệp)** và **Ràng buộc (mỗi dòng một ràng buộc)**.',
           'Nhấn **Thêm tác vụ**.',
         ],
@@ -679,10 +679,10 @@ export const VI_TOPICS_B: Partial<Record<string, HelpTopicSource>> = {
         heading: 'Xử lý một tác vụ',
         intro: 'Chạm vào một tác vụ để mở nó.',
         points: [
-          'Đổi **Mức ưu tiên** hoặc **Vai trò** của tác vụ khi nó chưa kết thúc.',
+          'Đổi **Ưu tiên** hoặc **Vai trò** của tác vụ khi nó chưa kết thúc.',
           'Nhập **Ghi chú cho phiên** và nhấn **Thêm ghi chú**.',
-          'Nhấn **Gỡ chặn** trên tác vụ bị chặn.',
-          'Ở cột Xem xét, nhấn **Chấp nhận** hoặc **Trả lại**. Muốn nâng cấp tác vụ, hãy đánh dấu **Khi trả lại: dùng mô hình mạnh hơn hoặc mức nỗ lực cao hơn** trước.',
+          'Nhấn **Bỏ chặn** trên tác vụ bị chặn.',
+          'Ở cột Xem xét, nhấn **Chấp nhận** hoặc **Trả lại**. Muốn nâng cấp tác vụ, hãy đánh dấu **Khi trả lại: dùng mô hình mạnh hơn hoặc nỗ lực cao hơn** trước.',
           '**Hủy tác vụ** để dừng nó; **Mở lại** đưa tác vụ đã kết thúc trở lại.',
         ],
       },
@@ -707,10 +707,10 @@ export const VI_TOPICS_B: Partial<Record<string, HelpTopicSource>> = {
       },
       {
         heading: 'Dùng phiên bắt đầu ở nơi khác làm một vai trò',
-        steps: ['Trên một vai trò đang không chạy, mở **Nhận vai trò…**.', 'Chọn phiên.'],
+        steps: ['Trên một vai trò đang không chạy, mở **Giao cho phiên…**.', 'Chọn phiên.'],
         points: [
           'Việc này cần điều khiển phiên bên ngoài, và phiên phải chạy trong dự án. Mother Claude báo cho phiên về các tác vụ của nó nhưng không bao giờ khởi chạy hay dừng nó.',
-          '**Trả vai trò** để trả lại vai trò; các tác vụ của nó quay về bảng.',
+          '**Nhả vai trò** để trả lại vai trò; các tác vụ của nó quay về bảng.',
         ],
       },
       {
@@ -771,7 +771,7 @@ export const VI_TOPICS_B: Partial<Record<string, HelpTopicSource>> = {
         steps: [
           'Mở thẻ **Cài đặt** và nhấn **Sửa**.',
           'Đặt **Giới hạn của bạn** và **Giới hạn mỗi dự án** (từ 1 đến 16).',
-          'Cho riêng một thư mục, nhấn **Thêm dự án** ở **Giới hạn riêng của dự án**.',
+          'Cho riêng một thư mục, nhấn **Thêm dự án** ở **Giới hạn riêng cho dự án**.',
           'Nhấn **Lưu**.',
         ],
         points: [
@@ -782,7 +782,7 @@ export const VI_TOPICS_B: Partial<Record<string, HelpTopicSource>> = {
         heading: 'Ngân sách',
         steps: [
           'Mở thẻ **Ngân sách** và nhấn **Sửa ngân sách**.',
-          'Đặt **Mỗi dự án, mỗi ngày (USD)**, **Một phiên vai trò (USD)** và **Một tác vụ (USD)**. Để trống nghĩa là không có ngân sách.',
+          'Đặt **Mỗi dự án, theo ngày (USD)**, **Một phiên vai trò (USD)** và **Một tác vụ (USD)**. Để trống nghĩa là không có ngân sách.',
           'Đặt **Cảnh báo ở mức (%)** và cách nhận cảnh báo.',
           'Nhấn **Lưu ngân sách**.',
         ],
@@ -798,7 +798,7 @@ export const VI_TOPICS_B: Partial<Record<string, HelpTopicSource>> = {
           'Mỗi loại tác vụ có mô hình và mức nỗ lực riêng: lập kế hoạch, kiến trúc và rà soát dùng Opus; viết mã, kiểm thử và sửa lỗi dùng Sonnet; tìm kiếm và tóm tắt dùng Haiku. Tác vụ liên tục không qua được kiểm tra sẽ được nâng lên một bậc.',
         steps: [
           'Mở thẻ **Định tuyến** và nhấn **Sửa chính sách**.',
-          'Đổi **Loại tác vụ**, **Thang nâng cấp**, **Cổng ngân sách** hoặc **Mô hình dự phòng**.',
+          'Đổi **Loại tác vụ**, **Thang nâng bậc**, **Chốt ngân sách** hoặc **Mô hình dự phòng**.',
           'Nhấn **Lưu chính sách**.',
         ],
         points: [
@@ -811,7 +811,7 @@ export const VI_TOPICS_B: Partial<Record<string, HelpTopicSource>> = {
         where: 'desktop',
         points: [
           'Ở **Bộ phân loại tác vụ**, **Phân loại bằng Claude Haiku (tốn token)** dùng một mô hình để phân loại tác vụ thay vì dựa vào từ khóa. Tùy chọn này mặc định tắt và cần một khóa API Anthropic.',
-          '**Cách tài khoản thanh toán** cho biết mỗi tài khoản dùng gói hay trả tiền theo token.',
+          '**Cách tài khoản trả phí** cho biết mỗi tài khoản dùng gói hay trả tiền theo token.',
         ],
       },
       {
@@ -848,7 +848,7 @@ export const VI_TOPICS_B: Partial<Record<string, HelpTopicSource>> = {
         where: 'desktop',
         steps: [
           'Mở **Cài đặt** và, ở **Giới thiệu**, chọn **Dịch vụ (daemon, máy chủ MCP)**.',
-          'Ở **Công cụ Claude Code (MCP)**, bật hoặc tắt **Cấp công cụ của Mother Claude cho phiên**.',
+          'Ở **Công cụ cho Claude Code (MCP)**, bật hoặc tắt **Cấp công cụ của Mother Claude cho các phiên**.',
         ],
         points: [
           'Mặc định chúng được bật. Phiên bắt đầu từ lúc đó trở đi sẽ có chúng; phiên đang chạy thì có sau `/reload-plugins` hoặc khi khởi động lại.',
@@ -862,7 +862,7 @@ export const VI_TOPICS_B: Partial<Record<string, HelpTopicSource>> = {
           'Phiên do Mother Claude khởi chạy tự có công cụ.',
           'Phiên trong terminal, VS Code và JetBrains có công cụ qua plugin Mother Claude: hãy cài điều khiển phiên bên ngoài.',
           'Cuộc trò chuyện bắt đầu qua HTTP API hiện chưa có công cụ.',
-          'Bảng này hiện **Phiên đã kết nối (15 phút qua)**, việc **Phiên do Mother Claude khởi chạy** có công cụ hay không, plugin, và **Lần gọi gần nhất**.',
+          'Bảng này hiện **Phiên đã kết nối (15 phút qua)**, việc **Phiên do Mother Claude khởi chạy** có công cụ hay không, plugin, và **Lệnh gọi gần đây**.',
         ],
         links: [{ label: 'Mở Điều khiển phiên bên ngoài', path: '/remote', fragment: 'foreign' }],
       },
@@ -903,13 +903,13 @@ export const VI_TOPICS_B: Partial<Record<string, HelpTopicSource>> = {
           'Mở **API** (trên điện thoại: **Thêm › HTTP API**).',
           'Ở **Mặc định**, điền **Thư mục làm việc** (để trống là thư mục chính của bạn).',
           'Chọn **Mô hình**, **Mức nỗ lực**, **Suy nghĩ** và **Quyền**, hoặc để **Mặc định** để dùng cài đặt Claude của riêng bạn.',
-          'Ở **Cuộc trò chuyện**, dùng **Gửi tin nhắn vào** để chọn cuộc trò chuyện nhận tin nhắn.',
+          'Ở **Cuộc trò chuyện**, dùng **Tin nhắn gửi vào** để chọn cuộc trò chuyện nhận tin nhắn.',
           'Nhấn **Khởi động API**.',
         ],
         points: [
           'Mỗi lần mở ứng dụng, API đều tắt, và không có gì lắng nghe cho đến khi bạn khởi động nó.',
           'Những gì bạn chọn ở đây chỉ là mặc định: mỗi yêu cầu đều có thể ghi đè.',
-          'Để áp dụng thay đổi về sau, nhấn **Khởi động lại với các cài đặt này**. **Đổi cuộc trò chuyện** chỉ đổi cuộc trò chuyện.',
+          'Để áp dụng thay đổi về sau, nhấn **Khởi động lại với cài đặt này**. **Đổi cuộc trò chuyện** chỉ đổi cuộc trò chuyện.',
           '**Dừng** sẽ đóng cổng; các cuộc trò chuyện đang chạy vẫn tiếp tục.',
         ],
         links: [{ label: 'Mở API', path: '/api' }],
@@ -917,7 +917,7 @@ export const VI_TOPICS_B: Partial<Record<string, HelpTopicSource>> = {
       {
         heading: 'Dùng thử',
         points: [
-          'Khi API đang chạy, **Tài liệu tham chiếu API** mở trang tham chiếu tương tác, còn **Console** mở một trang để bạn trò chuyện, xem luồng sự kiện và cho phép các lệnh gọi công cụ.',
+          'Khi API đang chạy, **Tài liệu API** mở trang tham chiếu tương tác, còn **Console** mở một trang để bạn trò chuyện, xem luồng sự kiện và cho phép các lệnh gọi công cụ.',
           'Màn hình hiện sẵn một lệnh `curl` theo cài đặt của bạn.',
           'Các liên kết này chỉ dùng được trên chính máy tính đó.',
         ],
@@ -1097,7 +1097,7 @@ export const VI_TOPICS_B: Partial<Record<string, HelpTopicSource>> = {
           },
           {
             term: 'Phiên trong terminal của tài khoản token lại hiện là Mặc định',
-            text: 'Hãy cài plugin hooks (trang Tài khoản có nút **Cài đặt plugin hooks**). Tài khoản của phiên sẽ hiện sau lệnh gọi công cụ đầu tiên của nó.',
+            text: 'Hãy cài plugin hooks (trang Tài khoản có nút **Cài plugin hooks**). Tài khoản của phiên sẽ hiện sau lệnh gọi công cụ đầu tiên của nó.',
           },
           {
             term: 'Không gỡ bỏ được tài khoản',
@@ -1173,7 +1173,7 @@ export const VI_TOPICS_B: Partial<Record<string, HelpTopicSource>> = {
           },
           {
             term: '`mcp_disabled`',
-            text: 'Bật lại **Cấp công cụ của Mother Claude cho phiên** ở **Dịch vụ**.',
+            text: 'Bật lại **Cấp công cụ của Mother Claude cho các phiên** ở **Dịch vụ**.',
           },
         ],
       },
