@@ -17,7 +17,6 @@
   "Back up now": "Sao lưu ngay",
   "Your backups": "Bản sao lưu của bạn",
   "Pull…": "Kéo về…",
-  "Starting…": "Đang bắt đầu…",
   "Drag an account onto the backups to back it up, or a backup onto an account to bring it back. The buttons do the same.": "Kéo thả một tài khoản vào các bản sao lưu để sao lưu nó, hoặc kéo thả một bản sao lưu vào tài khoản để đưa nó về. Các nút cũng làm được như vậy.",
   "Each account's backup": "Bản sao lưu của từng tài khoản",
   "This Mac": "Máy Mac này",
@@ -161,7 +160,6 @@
   "Running here": "Đang chạy ở đây",
   "In storage only": "Chỉ có trong kho lưu trữ",
   "{n} of {total} selected": "Đã chọn {n}/{total}",
-  "None": "Bỏ chọn",
   "Show {n} more": "Hiện thêm {n}",
   "This backup holds no conversations yet.": "Bản sao lưu này chưa có cuộc trò chuyện nào.",
   "Session {name}: {state}": "Phiên {name}: {state}",
@@ -360,7 +358,6 @@
   "live session": "phiên đang chạy",
   "live sessions": "phiên đang chạy",
   "not read yet": "chưa đọc được",
-  "A removed account": "Một tài khoản đã gỡ bỏ",
   "Defaults": "Mặc định",
   "Which account work runs under": "Công việc chạy bằng tài khoản nào",
   "New sessions run under": "Phiên mới chạy bằng",
@@ -494,5 +491,6 @@
   "Red": "Đỏ",
   "Pink": "Hồng phấn",
   "Indigo": "Chàm",
-  "Lime": "Xanh chanh"
+  "Lime": "Xanh chanh",
+  "None||select": "Bỏ chọn"
 }

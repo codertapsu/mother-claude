@@ -52,7 +52,7 @@ const TONES: Record<BackupAction, string> = {
           {{ 'All' | t }}
         </button>
         <button class="btn ghost small" type="button" (click)="setAll(false)">
-          {{ 'None' | t }}
+          {{ 'None||select' | t }}
         </button>
       </div>
     }
