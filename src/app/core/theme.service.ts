@@ -79,7 +79,8 @@ const SURFACE_KEY = 'mc_surface';
  * on top of it: the accent and the background. Each device keeps its own
  * (local storage). They are attributes on <html> that styles.scss keys off:
  * `data-theme` (dark, light, system), `data-accent` and `data-surface`
- * (absent for Violet and Standard).
+ * (absent for Violet and Standard). `public/theme-boot.js` sets the same
+ * attributes from the same keys before the first paint: keep it in step.
  */
 @Injectable({ providedIn: 'root' })
 export class ThemeService {

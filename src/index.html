@@ -26,6 +26,9 @@
     <!-- use-credentials: the manifest fetch must carry the tunnel's cookie
          (e.g. ngrok's "Visit" cookie) or it hits the interstitial. -->
     <link rel="manifest" href="manifest.webmanifest" crossorigin="use-credentials" />
+    <!-- The saved theme and language before the first paint (a file: the
+         CSP allows no inline script). -->
+    <script src="theme-boot.js"></script>
   </head>
   <body>
     <mc-root></mc-root>
