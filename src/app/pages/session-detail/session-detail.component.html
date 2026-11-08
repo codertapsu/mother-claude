@@ -24,7 +24,7 @@
               }}<span class="visually-hidden">{{
                 ' ' +
                   (t.id === 'chat'
-                    ? ('waiting' | t)
+                    ? ('waiting||state' | t)
                     : t.id === 'agents'
                       ? ('running' | t)
                       : ('files' | t))
