@@ -182,7 +182,10 @@ const TOPICS: HelpTopicSource[] = [
             term: 'Thông báo',
             text: 'Thông báo đẩy cho thiết bị này, các sự kiện sẽ báo cho bạn, và cảnh báo trong ứng dụng.',
           },
-          { term: 'Hiển thị', text: 'Giao diện: **Theo hệ thống**, **Tối** hoặc **Sáng**.' },
+          {
+            term: 'Hiển thị',
+            text: 'Ngôn ngữ, giao diện (**Tối**, **Sáng** hoặc **Theo hệ thống**), màu nhấn và nền.',
+          },
           { term: 'Tài khoản Claude', text: 'Các trang **Tài khoản** và **Sao lưu & đồng bộ**.' },
           { term: 'Mức dùng gói', text: 'Tần suất đọc giới hạn của gói Claude của bạn.' },
           {
@@ -206,12 +209,17 @@ const TOPICS: HelpTopicSource[] = [
         links: [{ label: 'Mở trang Cài đặt', path: '/settings' }],
       },
       {
-        heading: 'Đổi giao diện',
+        heading: 'Ngôn ngữ, giao diện và màu sắc',
         steps: [
           'Mở **Cài đặt**.',
-          'Trong **Hiển thị**, chọn **Theo hệ thống**, **Tối** hoặc **Sáng**.',
+          'Trong **Hiển thị**, chọn **Ngôn ngữ**: **English** hoặc **Tiếng Việt**. Toàn bộ ứng dụng đổi ngay.',
+          'Chọn **Giao diện**: **Tối** (mặc định), **Sáng**, hoặc **Theo hệ thống** để theo máy tính hay điện thoại của bạn.',
+          'Chọn một **Màu nhấn**, và một **Nền**: **Chuẩn**, **Nửa đêm**, **Đen** (đen tuyền, dịu mắt trên màn hình OLED) hoặc **Ấm**.',
         ],
-        tips: ['Trên ứng dụng máy tính, nút ở cuối thanh bên cũng đổi được giao diện.'],
+        tips: [
+          'Trên ứng dụng máy tính, nút ở cuối thanh bên cũng đổi được giao diện.',
+          'Mỗi thiết bị giữ lựa chọn riêng: ứng dụng máy tính và điện thoại của bạn có thể khác nhau.',
+        ],
       },
       {
         heading: 'Làm mới mức dùng gói',

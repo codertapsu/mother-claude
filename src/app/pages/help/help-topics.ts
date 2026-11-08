@@ -174,7 +174,10 @@ const TOPICS: HelpTopicSource[] = [
             term: 'Notifications',
             text: 'Push notifications for this device, the events that notify you, and in-app alerts.',
           },
-          { term: 'Appearance', text: 'The theme: **System**, **Dark** or **Light**.' },
+          {
+            term: 'Appearance',
+            text: 'The language, the theme (**Dark**, **Light** or **System**), the accent colour and the background.',
+          },
           { term: 'Claude accounts', text: 'The **Accounts** and **Backup & sync** pages.' },
           { term: 'Plan usage', text: "How often your Claude plan's limits are read." },
           {
@@ -195,13 +198,16 @@ const TOPICS: HelpTopicSource[] = [
         links: [{ label: 'Open Settings', path: '/settings' }],
       },
       {
-        heading: 'Change the theme',
+        heading: 'Language, theme and colours',
         steps: [
           'Open **Settings**.',
-          'Under **Appearance**, pick **System**, **Dark** or **Light**.',
+          'Under **Appearance**, pick the **Language**: **English** or **Tiếng Việt**. The whole app switches at once.',
+          'Pick the **Theme**: **Dark** (the default), **Light**, or **System** to follow your computer or phone.',
+          'Pick an **Accent** colour, and a **Background**: **Standard**, **Midnight**, **Black** (true black, easy on OLED screens) or **Warm**.',
         ],
         tips: [
           'On the desktop app, the button at the bottom of the sidebar switches the theme too.',
+          'Each device keeps its own choices: the desktop app and your phone can differ.',
         ],
       },
       {
