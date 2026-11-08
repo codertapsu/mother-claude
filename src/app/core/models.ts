@@ -1238,8 +1238,18 @@ export interface MessageBody {
 }
 
 export interface MessageResult {
+  /** `queued`: it waits for Claude to take it in, at its next step (into
+   * the running turn) or when the turn ends. */
   delivery: 'sent' | 'queued' | 'relayed';
   messageId: string;
+}
+
+/** `POST /sessions/{id}/queue/{messageId}/send-now`: what Claude Code did —
+ * stopped the running turn for it, is taking it in without a stop, or
+ * already had it. */
+export interface SendNowResult {
+  ok: boolean;
+  sendNow?: 'stopped' | 'delivering' | 'nothing_waiting';
 }
 
 export interface ContinueBody {

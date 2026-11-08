@@ -334,6 +334,19 @@ export class SessionContext {
     );
   }
 
+  /** Send now: the waiting message reaches Claude at once — the running
+   * turn makes way for it (Claude Code stops or backgrounds its current
+   * step) instead of Claude reading it after that step. */
+  async sendNow(messageId: string): Promise<boolean> {
+    const ok = await this.run(
+      () => this.api.sendNow(this.id(), messageId),
+      'Sent now: Claude reads it right away.',
+      'Could not send it now',
+    );
+    if (ok) void this.refreshDetail();
+    return ok;
+  }
+
   async cancelQueued(messageId: string): Promise<boolean> {
     const ok = await this.run(
       () => this.api.cancelQueued(this.id(), messageId),

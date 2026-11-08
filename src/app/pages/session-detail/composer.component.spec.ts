@@ -112,6 +112,71 @@ describe('ComposerComponent', () => {
     expect(ctx.busy()).toBeFalse();
   });
 
+  it('sends while Claude works, with Send now for at once', async () => {
+    const ctx = TestBed.inject(SessionContext);
+    const detail = (queuedMessages: unknown[] = []) =>
+      ctx.detail.set({
+        id: 's1',
+        live: true,
+        status: 'working',
+        activity: { kind: 'tool', label: 'Running a command' },
+        pending: [],
+        queuedMessages,
+        control: {
+          channel: 'owned',
+          message: 'direct',
+          interrupt: 'immediate',
+          slashCommands: true,
+          limits: [],
+        } as unknown as ControlCaps,
+      } as unknown as SessionDetail);
+    detail();
+    backend.routes.set('/sessions/s1/message', () => ({
+      status: 200,
+      body: { delivery: 'queued', messageId: 'q1' },
+    }));
+    backend.routes.set('/sessions/s1/queue/q1/send-now', () => ({
+      status: 200,
+      body: { ok: true, sendNow: 'stopped' },
+    }));
+    backend.routes.set('/sessions/s1', () => ({ status: 200, body: { id: 's1' } }));
+    type('also check the tests');
+    fixture.detectChanges();
+    const el = fixture.nativeElement as HTMLElement;
+    const text = (e: Element | null) => (e?.textContent ?? '').replace(/\s+/g, ' ').trim();
+    // Not a queue: Claude reads it after its current step.
+    expect(text(el.querySelector('.send'))).toBe('Send');
+    expect(text(el.querySelector('.under .hint'))).toBe(
+      'Claude reads it after its current step · Send now for at once',
+    );
+    const now = [...el.querySelectorAll<HTMLButtonElement>('.under .btn')].find(
+      (b) => text(b) === 'Send now',
+    );
+    expect(now).toBeDefined();
+    now!.click();
+    await flush();
+    expect(backend.calls).toContain('POST /sessions/s1/message');
+    expect(backend.calls).toContain('POST /sessions/s1/queue/q1/send-now');
+
+    // A message that waits says when Claude reads it, and offers Send now.
+    detail([
+      {
+        id: 'q2',
+        text: 'and the docs',
+        createdAt: 1,
+        via: 'owned',
+        status: 'queued',
+        cancellable: true,
+      },
+    ]);
+    fixture.detectChanges();
+    const row = el.querySelector('.queued li');
+    expect(text(row?.querySelector('.qstate') ?? null)).toBe('after its current step');
+    (row?.querySelector('[aria-label="Send now: and the docs"]') as HTMLButtonElement).click();
+    await flush();
+    expect(backend.calls).toContain('POST /sessions/s1/queue/q2/send-now');
+  });
+
   it('opens the palette when the answer is still current', async () => {
     backend.routes.set('/sessions/s1/commands', () => ({
       status: 200,

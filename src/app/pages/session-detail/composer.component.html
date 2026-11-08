@@ -24,7 +24,7 @@
   }
 } @else {
   @if (ctx.queued().length) {
-    <ul class="queued" aria-label="Queued messages">
+    <ul class="queued" aria-label="Messages waiting for Claude">
       @for (q of ctx.queued(); track q.id) {
         <li>
           <mc-icon name="clock" [size]="14" />
@@ -34,8 +34,22 @@
               ? waitHint()
                 ? 'waiting for next step'
                 : 'relaying'
-              : 'queued'
+              : q.via === 'owned'
+                ? 'after its current step'
+                : 'queued'
           }}</span>
+          @if (q.via === 'owned' && steers()) {
+            <button
+              class="btn small"
+              type="button"
+              [disabled]="!ctx.canAct()"
+              [attr.aria-label]="'Send now: ' + q.text"
+              title="Claude stops its current step and reads this at once"
+              (click)="ctx.sendNow(q.id)"
+            >
+              <mc-icon name="send" [size]="13" /> Send now
+            </button>
+          }
           @if (q.cancellable) {
             <button
               class="btn ghost icon-only small"
@@ -196,6 +210,8 @@
       <span class="hint">Sending resumes this conversation here.</span>
     } @else if (waitHint() && hasContent()) {
       <span class="hint">{{ waitHint() }}</span>
+    } @else if (steers() && ctx.busy() && hasContent()) {
+      <span class="hint">Claude reads it after its current step · Send now for at once</span>
     } @else if (!coarse()) {
       <span class="hint"
         >Enter to send · Shift+Enter for a new line{{
@@ -215,6 +231,16 @@
         (click)="submit('deny')"
       >
         Deny &amp; send as feedback
+      </button>
+    } @else if (ctx.busy() && hasContent() && steers()) {
+      <button
+        class="btn small"
+        type="button"
+        [disabled]="!canSend()"
+        title="Claude stops its current step and reads this at once"
+        (click)="submit('now')"
+      >
+        Send now
       </button>
     } @else if (ctx.busy() && hasContent() && caps()?.interrupt !== 'none') {
       <button class="btn small" type="button" [disabled]="!canSend()" (click)="submit('interrupt')">

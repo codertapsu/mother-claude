@@ -523,9 +523,15 @@ for too long, or its storage was cleared. Pair it again.
 **A foreign session says "Started before foreign control was installed".** Type
 `/reload-plugins` in it, or restart it.
 
-**A message stays "queued".** The session is busy and has not reached a tool call
-or the end of its turn yet, or it is idle but no wake listener is connected (the
-Mac tells you after 10 seconds). Cancel it from the queue if you change your
+**A message waits "after its current step".** In a session Mother Claude runs,
+Claude reads a message you send while it works as soon as its current step ends
+(a command, a file edit), inside the same turn. **Send now** on the message (or
+beside Send) makes it read it at once: Claude Code stops or backgrounds that
+step for it.
+
+**A message stays "queued".** The session (one started elsewhere) is busy and has
+not reached a tool call or the end of its turn yet, or it is idle but no wake
+listener is connected (the Mac tells you after 10 seconds). Cancel it from the queue if you change your
 mind. A message nothing picks up within 30 minutes is dropped with a notice, and
 anything still queued fails when the session ends (`session_ended`: continue it
 here instead).

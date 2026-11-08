@@ -505,6 +505,22 @@ class FixtureBackend implements MockBackend {
         this.stopAgent(id, taskId);
         return empty();
       }
+      if (method === 'POST' && sub.startsWith('queue/') && sub.endsWith('/send-now')) {
+        const mid = decodeURIComponent(seg[3] ?? '');
+        if (!(this.fx.queued[id] ?? []).some((m) => m.id === mid)) {
+          return json(
+            {
+              error: {
+                code: 'already_delivered',
+                message: 'That message is no longer waiting: Claude already has it.',
+              },
+            },
+            409,
+          );
+        }
+        this.takeIn(id, mid);
+        return json({ ok: true, sendNow: 'stopped' });
+      }
       if (method === 'DELETE' && sub.startsWith('queue/')) {
         const mid = decodeURIComponent(seg[3] ?? '');
         this.fx.queued[id] = (this.fx.queued[id] ?? []).filter((m) => m.id !== mid);
@@ -1313,6 +1329,18 @@ class FixtureBackend implements MockBackend {
     return empty();
   }
 
+  /** A waiting message Claude takes in (its next step, or Send now): off
+   * the queue, into the conversation. */
+  private takeIn(id: string, mid: string): void {
+    const q = this.fx.queued[id] ?? [];
+    const m = q.find((x) => x.id === mid);
+    if (!m) return;
+    this.fx.queued[id] = q.filter((x) => x.id !== mid);
+    const now = Date.now();
+    this.append(id, [ev(`msg-${now}`, now, 'user', 'prompt', { text: m.text })]);
+    this.patch(id, { queued: this.fx.queued[id].length });
+  }
+
   private message(s: SessionSummary, body: unknown) {
     const text = String((body as { text?: string })?.text ?? '');
     const now = Date.now();
@@ -1327,6 +1355,8 @@ class FixtureBackend implements MockBackend {
         cancellable: true,
       });
       this.patch(s.id, { queued: q.length });
+      // As Claude Code does: taken into the running turn at its next step.
+      setTimeout(() => this.takeIn(s.id, `q-${now}`), 6000);
       return { delivery: 'queued', messageId: `q-${now}` };
     }
     this.append(s.id, [

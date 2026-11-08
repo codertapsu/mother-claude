@@ -93,15 +93,19 @@ const BUILTIN: CommandInfo[] = [
  * - The draft is kept per session (localStorage `mc_draft_<id>`) and cleared
  *   only after a send succeeded; a failed send keeps the text ("Not sent ·
  *   Retry").
- * - Busy session: Send becomes "Queue", with "Interrupt & send" next to it.
- *   With exactly one pending permission: "Deny & send as feedback".
+ * - Busy session: a session Mother Claude runs takes the message into the
+ *   running turn at its next step (Claude Code folds it in, CLI 2.1.319),
+ *   with "Send now" beside Send to make the turn take it at once; another
+ *   offers "Interrupt & send". With exactly one pending permission: "Deny &
+ *   send as feedback".
  * - Ended session: sending resumes the conversation here (POST /continue).
  * - `/` opens the command palette (model / effort / mode / rename go to the
  *   header's pickers; /clear and /compact ask first); `@` completes paths.
  * - Attachments: photos are downscaled to ≤ 2048 px and sent inline where
  *   the session takes images; other files (or every file, for text-only
  *   channels) are uploaded and referenced as `@<path>`.
- * - Queued messages are listed with ✕ while they can still be taken back.
+ * - Waiting messages are listed with ✕ while they can still be taken back,
+ *   and Send now where the session takes it.
  * - A session that can't take messages explains why, with its fixes.
  */
 @Component({
@@ -194,8 +198,11 @@ export class ComposerComponent {
     if (!this.ctx.canAct()) return 'Reconnecting…';
     if (this.mode() === 'resume') return 'Resume';
     if (this.onePermission() && this.hasContent()) return 'Queue after this';
-    return this.ctx.busy() ? 'Queue' : 'Send';
+    return 'Send';
   });
+  /** A session Mother Claude runs: a message sent while it works is taken
+   * into the running turn at its next step, and Send now hurries it. */
+  protected readonly steers = computed(() => this.caps()?.channel === 'owned');
   protected readonly interruptLabel = computed(() =>
     this.caps()?.interrupt === 'next-tool' ? 'Interrupt at next tool' : 'Interrupt',
   );
@@ -521,7 +528,7 @@ export class ComposerComponent {
 
   // ─────────────────────────────────────────────────────────── Sending
 
-  protected async submit(how: 'send' | 'interrupt' | 'deny'): Promise<void> {
+  protected async submit(how: 'send' | 'interrupt' | 'now' | 'deny'): Promise<void> {
     if (!this.canSend()) return;
     // What goes out; anything typed or attached while it is in flight stays.
     const sent: Sent = {
@@ -562,8 +569,14 @@ export class ComposerComponent {
         return;
       }
       this.cleared(sent);
-      if (res.delivery === 'queued') {
-        this.notices.info('Queued: Claude reads it when the current step ends.');
+      if (res.delivery === 'queued' && how === 'now') {
+        await this.ctx.sendNow(res.messageId);
+      } else if (res.delivery === 'queued') {
+        this.notices.info(
+          this.steers()
+            ? 'Sent: Claude reads it after its current step.'
+            : 'Queued: Claude reads it when the current step ends.',
+        );
       } else if (res.delivery === 'relayed') {
         if (this.waitHint()) this.notices.info(this.waitHint());
         if (this.caps()?.channel === 'hooks' && storageGet(RELAY_EXPLAINED_KEY) !== '1') {

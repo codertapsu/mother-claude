@@ -83,6 +83,7 @@ import {
   RemoteInfo,
   RemoteUpdate,
   RespondBody,
+  SendNowResult,
   ServicesInfo,
   SessionAgents,
   SessionDetail,
@@ -126,7 +127,8 @@ import {
  *             getCommands(id) · getTerminal(id) · getMcp(id) · getProjects() ·
  *             getDefaults() · getInbox() · getServices()
  *   Control   spawnSession(body) · sendMessage(id, body) · uploadFile(id, f) ·
- *             cancelQueued(id, messageId) · interrupt(id) · setModel(id, m) ·
+ *             cancelQueued(id, messageId) · sendNow(id, messageId) ·
+ *             interrupt(id) · setModel(id, m) ·
  *             setMode(id, mode) · setEffort(id, e) · setUltracode(id, on) ·
  *             setThinking(id, on) · rename(id, name) ·
  *             stopTask(id, taskId) · respond(id, body) ·
@@ -341,6 +343,12 @@ export class ApiService {
 
   cancelQueued(id: string, messageId: string): Promise<void> {
     return this.req(`/sessions/${enc(id)}/queue/${enc(messageId)}`, { method: 'DELETE' });
+  }
+
+  /** Send now on a message waiting behind the running turn: the turn makes
+   * way for it at once (sessions Mother Claude runs). */
+  sendNow(id: string, messageId: string): Promise<SendNowResult> {
+    return this.post(`/sessions/${enc(id)}/queue/${enc(messageId)}/send-now`, {});
   }
 
   interrupt(id: string): Promise<void> {
