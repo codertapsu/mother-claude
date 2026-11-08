@@ -9,7 +9,10 @@
         <span>Mother Claude</span>
       </a>
       <nav class="side-nav" aria-label="Primary">
-        @for (item of desktopNav(); track item.path) {
+        @for (item of desktopNav(); track item.path; let i = $index) {
+          @if (item.group && item.group !== desktopNav()[i - 1]?.group) {
+            <span class="nav-group" aria-hidden="true">{{ item.group }}</span>
+          }
           <a
             [routerLink]="item.path"
             routerLinkActive="active"
@@ -212,6 +215,9 @@
   </p>
   <mc-limitations />
   <div class="welcome-foot">
+    <a class="btn" routerLink="/help" (click)="dismissWelcome()">
+      <mc-icon name="question" [size]="15" /> Open Help
+    </a>
     <button class="btn primary" type="button" (click)="dismissWelcome()">Got it</button>
   </div>
 </mc-sheet>

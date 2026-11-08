@@ -17,6 +17,18 @@ const ENTRIES: Entry[] = [
   { path: '/new', icon: 'plus', label: 'New session', hint: 'Start an owned Claude Code session' },
   { path: '/teams', icon: 'layers', label: 'Teams', hint: 'A lead and role sessions on a board' },
   {
+    path: '/accounts',
+    icon: 'user',
+    label: 'Accounts',
+    hint: 'Several Claude accounts, sign-in, moving conversations',
+  },
+  {
+    path: '/backup',
+    icon: 'cloud',
+    label: 'Backup & sync',
+    hint: 'Back up, restore and carry conversations to another computer',
+  },
+  {
     path: '/remote',
     icon: 'phone',
     label: 'Remote',

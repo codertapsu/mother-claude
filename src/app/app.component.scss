@@ -158,6 +158,7 @@
 .welcome-foot {
   display: flex;
   justify-content: flex-end;
+  gap: 0.5rem;
   margin-top: 0.75rem;
 }
 .count-badge.soft {
@@ -290,6 +291,14 @@
   }
   .side-nav .label {
     flex: 1;
+  }
+  .nav-group {
+    margin: 0.7rem 0.65rem 0.15rem;
+    font-size: 0.68rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--faint);
   }
   .side-foot {
     display: flex;

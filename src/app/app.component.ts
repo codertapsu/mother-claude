@@ -77,6 +77,8 @@ interface NavItem {
   exact?: boolean;
   badge?: 'pending' | 'agents';
   desktopOnly?: boolean;
+  /** The sidebar heading it starts or continues (none: the work itself). */
+  group?: string;
 }
 
 /**
@@ -164,11 +166,13 @@ export class AppComponent {
     { path: '/agents', label: 'Agents', icon: 'agents', badge: 'agents' },
     { path: '/new', label: 'New session', icon: 'plus' },
     { path: '/teams', label: 'Teams', icon: 'layers' },
-    { path: '/remote', label: 'Remote', icon: 'phone', desktopOnly: true },
-    { path: '/api', label: 'API', icon: 'code' },
-    { path: '/capacity', label: 'Capacity', icon: 'gauge' },
-    { path: '/browser', label: 'Browser', icon: 'globe' },
-    { path: '/settings', label: 'Settings', icon: 'settings' },
+    { path: '/accounts', label: 'Accounts', icon: 'user', group: 'Your data' },
+    { path: '/backup', label: 'Backup & sync', icon: 'cloud', group: 'Your data' },
+    { path: '/remote', label: 'Remote', icon: 'phone', desktopOnly: true, group: 'Connect' },
+    { path: '/browser', label: 'Browser', icon: 'globe', group: 'Connect' },
+    { path: '/api', label: 'API', icon: 'code', group: 'Connect' },
+    { path: '/capacity', label: 'Capacity', icon: 'gauge', group: 'System' },
+    { path: '/settings', label: 'Settings', icon: 'settings', group: 'System' },
   ];
   protected readonly desktopNav = computed(() =>
     this.nav.filter((n) => !n.desktopOnly || this.isDesktop()),
