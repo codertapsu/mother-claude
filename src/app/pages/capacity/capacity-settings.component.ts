@@ -10,6 +10,8 @@ import {
   SettingsPatch,
   pctLabel,
 } from '../../core/capacity';
+import { fill, tr } from '../../core/i18n/i18n';
+import { TPipe } from '../../core/i18n/t.pipe';
 import { IconComponent } from '../../shared/icon.component';
 import { formatTokens, formatUsd, shortPath } from '../../shared/util';
 import { Problem, isProblem } from './capacity-budgets.component';
@@ -19,26 +21,25 @@ interface CapRow {
   cap: string;
 }
 
-/** A whole number in `lo..=hi`, or why not. */
+/** A whole number in `lo..=hi`, or why not: `message`, its `{lo}` and
+ * `{hi}` filled in. */
 export function readInt(
   v: string | number,
   lo: number,
   hi: number,
   field: string,
-  what: string,
+  message: string,
 ): number | Problem {
   const n = typeof v === 'number' ? v : Number(String(v).trim());
   return Number.isInteger(n) && n >= lo && n <= hi
     ? n
-    : { field, message: `${what} must be a whole number from ${lo} to ${hi}.` };
+    : { field, message: fill(message, { lo, hi }) };
 }
 
-/** A percentage in 1..=100, or why not. */
-export function readPct(v: string | number, field: string, what: string): number | Problem {
+/** A percentage in 1..=100, or why not (`message`). */
+export function readPct(v: string | number, field: string, message: string): number | Problem {
   const n = typeof v === 'number' ? v : Number(String(v).trim());
-  return Number.isFinite(n) && n >= 1 && n <= 100
-    ? n
-    : { field, message: `${what} must be between 1 and 100 %.` };
+  return Number.isFinite(n) && n >= 1 && n <= 100 ? n : { field, message };
 }
 
 /** The scheduler's settings: caps, memory, plan-window thresholds, how
@@ -46,35 +47,49 @@ export function readPct(v: string | number, field: string, what: string): number
  * desktop only). */
 @Component({
   selector: 'mc-capacity-settings',
-  imports: [FormsModule, IconComponent],
+  imports: [FormsModule, IconComponent, TPipe],
   template: `
     @if (!editing()) {
       <div class="card">
         <dl class="kv">
-          <dt>Your limit</dt>
-          <dd>{{ s().userCap }} role sessions at once (the lead not counted)</dd>
-          <dt>A project's limit</dt>
+          <dt>{{ 'Your limit' | t }}</dt>
+          <dd>
+            {{ '{n} role sessions at once (the lead not counted)' | t: { n: s().userCap } }}
+          </dd>
+          <dt>{{ "A project's limit" | t }}</dt>
           <dd>
             {{ s().projectCap }}
             @for (c of capEntries(); track c[0]) {
               <br /><span class="small">{{ short(c[0]) }}: {{ c[1] }}</span>
             }
           </dd>
-          <dt>Memory</dt>
+          <dt>{{ 'Memory' | t }}</dt>
           <dd>
-            {{ (s().reserveMb / 1024).toFixed(1) }} GB always free · a role session
-            {{ s().sessionMb ? s().sessionMb + ' MB' : 'as measured (600 MB until then)' }}
+            {{ '{gb} GB always free' | t: { gb: (s().reserveMb / 1024).toFixed(1) } }} ·
+            {{
+              s().sessionMb
+                ? ('a role session {mb} MB' | t: { mb: s().sessionMb })
+                : ('a role session as measured (600 MB until then)' | t)
+            }}
           </dd>
-          <dt>5-hour window</dt>
+          <dt>{{ '5-hour window' | t }}</dt>
           <dd>
-            only the lead starts at {{ pct(s().leadOnlyPct) }}, nothing at {{ pct(s().stopPct) }}
+            {{
+              'only the lead starts at {lead}, nothing at {stop}'
+                | t: { lead: pct(s().leadOnlyPct), stop: pct(s().stopPct) }
+            }}
           </dd>
-          <dt>Opus weekly window</dt>
-          <dd>Opus work runs on Sonnet at high effort from {{ pct(s().opusGatePct) }}</dd>
+          <dt>{{ 'Opus weekly window' | t }}</dt>
+          <dd>
+            {{
+              'Opus work runs on Sonnet at high effort from {pct}'
+                | t: { pct: pct(s().opusGatePct) }
+            }}
+          </dd>
         </dl>
         @if (view().canManage) {
           <button class="btn small edit" type="button" (click)="edit()">
-            <mc-icon name="edit" [size]="14" /> Edit
+            <mc-icon name="edit" [size]="14" /> {{ 'Edit' | t }}
           </button>
         }
       </div>
@@ -82,7 +97,7 @@ export function readPct(v: string | number, field: string, what: string): number
       <form class="card stack editor" (ngSubmit)="save()">
         <div class="pair">
           <label class="field">
-            <span class="field-label">Your limit</span>
+            <span class="field-label">{{ 'Your limit' | t }}</span>
             <input
               name="userCap"
               type="number"
@@ -91,10 +106,12 @@ export function readPct(v: string | number, field: string, what: string): number
               [ngModel]="userCap()"
               (ngModelChange)="userCap.set($event)"
             />
-            <span class="field-hint">Role sessions at once; the lead is not counted.</span>
+            <span class="field-hint">{{
+              'Role sessions at once; the lead is not counted.' | t
+            }}</span>
           </label>
           <label class="field">
-            <span class="field-label">A project's limit</span>
+            <span class="field-label">{{ "A project's limit" | t }}</span>
             <input
               name="projectCap"
               type="number"
@@ -103,17 +120,17 @@ export function readPct(v: string | number, field: string, what: string): number
               [ngModel]="projectCap()"
               (ngModelChange)="projectCap.set($event)"
             />
-            <span class="field-hint">Role sessions in one repository at once.</span>
+            <span class="field-hint">{{ 'Role sessions in one repository at once.' | t }}</span>
           </label>
         </div>
         <fieldset class="rows">
-          <legend class="field-label">A project's own limit</legend>
+          <legend class="field-label">{{ "A project's own limit" | t }}</legend>
           @for (r of caps(); track $index; let i = $index) {
             <div class="row">
               <input
                 class="grow"
                 [name]="'capProject' + i"
-                aria-label="Project folder"
+                [attr.aria-label]="'Project folder' | t"
                 placeholder="/Users/me/dev/app"
                 [ngModel]="r.key"
                 (ngModelChange)="setCap(i, 'key', $event)"
@@ -124,14 +141,14 @@ export function readPct(v: string | number, field: string, what: string): number
                 min="1"
                 max="16"
                 [name]="'cap' + i"
-                aria-label="Limit"
+                [attr.aria-label]="'Limit' | t"
                 [ngModel]="r.cap"
                 (ngModelChange)="setCap(i, 'cap', $event)"
               />
               <button
                 class="btn ghost icon-only small"
                 type="button"
-                aria-label="Remove this limit"
+                [attr.aria-label]="'Remove this limit' | t"
                 (click)="removeCap(i)"
               >
                 <mc-icon name="x" [size]="14" />
@@ -139,13 +156,13 @@ export function readPct(v: string | number, field: string, what: string): number
             </div>
           }
           <button class="btn small" type="button" (click)="addCap()">
-            <mc-icon name="plus" [size]="14" /> Add a project
+            <mc-icon name="plus" [size]="14" /> {{ 'Add a project' | t }}
           </button>
         </fieldset>
 
         <div class="pair">
           <label class="field">
-            <span class="field-label">Memory always free (GB)</span>
+            <span class="field-label">{{ 'Memory always free (GB)' | t }}</span>
             <input
               name="reserve"
               inputmode="decimal"
@@ -154,21 +171,21 @@ export function readPct(v: string | number, field: string, what: string): number
             />
           </label>
           <label class="field">
-            <span class="field-label">A role session needs (MB)</span>
+            <span class="field-label">{{ 'A role session needs (MB)' | t }}</span>
             <input
               name="sessionMb"
               inputmode="numeric"
-              placeholder="Measured"
+              [placeholder]="'Measured' | t"
               [ngModel]="sessionMb()"
               (ngModelChange)="sessionMb.set($event)"
             />
-            <span class="field-hint">Empty: what live sessions measure.</span>
+            <span class="field-hint">{{ 'Empty: what live sessions measure.' | t }}</span>
           </label>
         </div>
 
         <div class="pair">
           <label class="field">
-            <span class="field-label">Only the lead starts at (%)</span>
+            <span class="field-label">{{ 'Only the lead starts at (%)' | t }}</span>
             <input
               name="leadOnly"
               type="number"
@@ -179,7 +196,7 @@ export function readPct(v: string | number, field: string, what: string): number
             />
           </label>
           <label class="field">
-            <span class="field-label">Nothing starts at (%)</span>
+            <span class="field-label">{{ 'Nothing starts at (%)' | t }}</span>
             <input
               name="stop"
               type="number"
@@ -190,7 +207,7 @@ export function readPct(v: string | number, field: string, what: string): number
             />
           </label>
           <label class="field">
-            <span class="field-label">Opus gate at (%)</span>
+            <span class="field-label">{{ 'Opus gate at (%)' | t }}</span>
             <input
               name="opusGate"
               type="number"
@@ -206,9 +223,11 @@ export function readPct(v: string | number, field: string, what: string): number
           <p class="notice error" role="alert">{{ error() }}</p>
         }
         <div class="row">
-          <button class="btn primary" type="submit" [disabled]="saving()">Save</button>
+          <button class="btn primary" type="submit" [disabled]="saving()">
+            {{ 'Save' | t }}
+          </button>
           <button class="btn" type="button" [disabled]="saving()" (click)="editing.set(false)">
-            Cancel
+            {{ 'Cancel' | t }}
           </button>
         </div>
       </form>
@@ -218,10 +237,12 @@ export function readPct(v: string | number, field: string, what: string): number
       <p class="notice error" role="alert">{{ error() }}</p>
     }
 
-    <h2>How accounts pay</h2>
+    <h2>{{ 'How accounts pay' | t }}</h2>
     <p class="muted small">
-      Accounts that pay per token get --max-budget-usd on their role sessions; plan accounts are
-      held by their usage windows instead.
+      {{
+        'Accounts that pay per token get --max-budget-usd on their role sessions; plan accounts are held by their usage windows instead.'
+          | t
+      }}
     </p>
     <div class="card list">
       @for (a of view().accounts; track a.id) {
@@ -235,27 +256,27 @@ export function readPct(v: string | number, field: string, what: string): number
           </span>
           @if (isDesktop()) {
             <select
-              [attr.aria-label]="'How ' + a.name + ' pays'"
+              [attr.aria-label]="'How {name} pays' | t: { name: a.name }"
               [ngModel]="override(a.id)"
               (ngModelChange)="setBilling(a.id, $event)"
               [disabled]="saving()"
             >
-              <option value="">As its sign-in says</option>
-              <option value="plan">A plan</option>
-              <option value="perToken">Per token</option>
+              <option value="">{{ 'As its sign-in says' | t }}</option>
+              <option value="plan">{{ 'A plan' | t }}</option>
+              <option value="perToken">{{ 'Per token' | t }}</option>
             </select>
           }
         </div>
       }
     </div>
 
-    <h2>Task classifier</h2>
+    <h2>{{ 'Task classifier' | t }}</h2>
     <div class="card stack">
       <p class="small">
-        Tasks that arrive without a class get one from keywords in their title and goal. Claude
-        Haiku can classify them instead: off by default because every task then costs a call ({{
-          view().classifier.model
-        }}, through the direct Messages API path, which needs an API key).
+        {{
+          'Tasks that arrive without a class get one from keywords in their title and goal. Claude Haiku can classify them instead: off by default because every task then costs a call ({model}, through the direct Messages API path, which needs an API key).'
+            | t: { model: view().classifier.model }
+        }}
       </p>
       @if (isDesktop()) {
         <label class="switch">
@@ -267,38 +288,52 @@ export function readPct(v: string | number, field: string, what: string): number
             (change)="setHaiku(haikuToggle.checked)"
           />
           <span class="switch-text">
-            Classify with Claude Haiku (spends tokens)
+            {{ 'Classify with Claude Haiku (spends tokens)' | t }}
             @if (view().classifier.whyNot; as why) {
-              <span class="muted small">It cannot run now: {{ why }}.</span>
+              <span class="muted small">{{ 'It cannot run now: {why}.' | t: { why } }}</span>
             }
           </span>
         </label>
       } @else {
         <p class="muted small">
-          Haiku classifier: {{ view().classifier.enabled ? 'on' : 'off' }} (changed on the desktop).
+          {{
+            view().classifier.enabled
+              ? ('Haiku classifier: on (changed on the desktop).' | t)
+              : ('Haiku classifier: off (changed on the desktop).' | t)
+          }}
         </p>
       }
       @if (view().classifier.stats.calls) {
         <p class="muted small">
-          {{ view().classifier.stats.calls }} calls since the app started ·
-          {{ tokens(view().classifier.stats.inputTokens + view().classifier.stats.outputTokens) }}
-          tokens · {{ usd(view().classifier.stats.costUsd) }} (estimated)
+          {{
+            '{calls} calls since the app started · {tokens} tokens · {usd} (estimated)'
+              | t
+                : {
+                    calls: view().classifier.stats.calls,
+                    tokens: tokens(
+                      view().classifier.stats.inputTokens + view().classifier.stats.outputTokens
+                    ),
+                    usd: usd(view().classifier.stats.costUsd),
+                  }
+          }}
         </p>
       }
       <form class="stack try" (ngSubmit)="tryIt(false)">
         <label class="field">
-          <span class="field-label">Try it: a task title</span>
+          <span class="field-label">{{ 'Try it: a task title' | t }}</span>
           <input name="tryTitle" [ngModel]="tryTitle()" (ngModelChange)="tryTitle.set($event)" />
         </label>
         <label class="field">
-          <span class="field-label">Its goal</span>
+          <span class="field-label">{{ 'Its goal' | t }}</span>
           <input name="tryGoal" [ngModel]="tryGoal()" (ngModelChange)="tryGoal.set($event)" />
         </label>
         <div class="row">
-          <button class="btn small" type="submit" [disabled]="trying()">Classify</button>
+          <button class="btn small" type="submit" [disabled]="trying()">
+            {{ 'Classify' | t }}
+          </button>
           @if (view().classifier.enabled && view().classifier.ready) {
             <button class="btn small" type="button" [disabled]="trying()" (click)="tryIt(true)">
-              Ask Haiku
+              {{ 'Ask Haiku' | t }}
             </button>
           }
         </div>
@@ -397,10 +432,10 @@ export class CapacitySettingsComponent {
 
   protected billingText(b: Billing | undefined): string {
     return b === 'perToken'
-      ? 'Pays per token'
+      ? tr('Pays per token')
       : b === 'plan'
-        ? "Pays through its plan's usage windows"
-        : 'Not known yet';
+        ? tr("Pays through its plan's usage windows")
+        : tr('Not known yet');
   }
 
   protected override(account: string): string {
@@ -435,36 +470,70 @@ export class CapacitySettingsComponent {
 
   /** The update the form describes, or why not. */
   protected patch(): SettingsPatch | Problem {
-    const userCap = readInt(this.userCap(), 1, 16, 'userCap', 'Your limit');
+    const userCap = readInt(
+      this.userCap(),
+      1,
+      16,
+      'userCap',
+      tr('Your limit must be a whole number from {lo} to {hi}.'),
+    );
     if (isProblem(userCap)) return userCap;
-    const projectCap = readInt(this.projectCap(), 1, 16, 'projectCap', "A project's limit");
+    const projectCap = readInt(
+      this.projectCap(),
+      1,
+      16,
+      'projectCap',
+      tr("A project's limit must be a whole number from {lo} to {hi}."),
+    );
     if (isProblem(projectCap)) return projectCap;
     const projectCaps: Record<string, number> = {};
     for (const r of this.caps().filter((row) => row.key.trim() || row.cap.trim())) {
       if (!r.key.trim())
-        return { field: 'projectCaps', message: 'Name the project of each limit.' };
-      const cap = readInt(r.cap, 1, 16, 'projectCaps', `The limit of ${r.key.trim()}`);
+        return { field: 'projectCaps', message: tr('Name the project of each limit.') };
+      const cap = readInt(
+        r.cap,
+        1,
+        16,
+        'projectCaps',
+        tr('The limit of {project} must be a whole number from {lo} to {hi}.', {
+          project: r.key.trim(),
+        }),
+      );
       if (isProblem(cap)) return cap;
       projectCaps[r.key.trim()] = cap;
     }
     const gb = Number(this.reserveGb().trim());
     if (!Number.isFinite(gb) || gb < 0 || gb > 1024) {
-      return { field: 'reserveMb', message: 'The memory kept free is 0 to 1024 GB.' };
+      return { field: 'reserveMb', message: tr('The memory kept free is 0 to 1024 GB.') };
     }
     let sessionMb: number | null = null;
     if (this.sessionMb().trim()) {
-      const mb = readInt(this.sessionMb(), 50, 65_536, 'sessionMb', 'A session’s memory');
+      const mb = readInt(
+        this.sessionMb(),
+        50,
+        65_536,
+        'sessionMb',
+        tr('A session’s memory must be a whole number from {lo} to {hi}.'),
+      );
       if (isProblem(mb)) return mb;
       sessionMb = mb;
     }
-    const leadOnly = readPct(this.leadOnly(), 'leadOnlyPct', 'Lead-only');
+    const leadOnly = readPct(
+      this.leadOnly(),
+      'leadOnlyPct',
+      tr('Lead-only must be between 1 and 100 %.'),
+    );
     if (isProblem(leadOnly)) return leadOnly;
-    const stop = readPct(this.stop(), 'stopPct', 'Nothing-starts');
+    const stop = readPct(this.stop(), 'stopPct', tr('Nothing-starts must be between 1 and 100 %.'));
     if (isProblem(stop)) return stop;
     if (stop < leadOnly) {
-      return { field: 'stopPct', message: 'Nothing-starts must be at or above lead-only.' };
+      return { field: 'stopPct', message: tr('Nothing-starts must be at or above lead-only.') };
     }
-    const opusGate = readPct(this.opusGate(), 'opusGatePct', 'The Opus gate');
+    const opusGate = readPct(
+      this.opusGate(),
+      'opusGatePct',
+      tr('The Opus gate must be between 1 and 100 %.'),
+    );
     if (isProblem(opusGate)) return opusGate;
     return {
       userCap,

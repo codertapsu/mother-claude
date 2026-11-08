@@ -12,6 +12,8 @@ import {
   pctLabel,
 } from '../../core/capacity';
 import { RealtimeService } from '../../core/realtime.service';
+import { tr } from '../../core/i18n/i18n';
+import { TPipe } from '../../core/i18n/t.pipe';
 import { IconComponent } from '../../shared/icon.component';
 import { formatUsd } from '../../shared/util';
 
@@ -33,21 +35,24 @@ export function isProblem(v: unknown): v is Problem {
 /** A dollar field: `null` when empty (no budget). */
 export function readAmount(text: string, field: string): number | null | Problem {
   const v = parseUsd(text);
-  return v === undefined ? { field, message: `${text.trim()} is not an amount in dollars.` } : v;
+  return v === undefined
+    ? { field, message: tr('{amount} is not an amount in dollars.', { amount: text.trim() }) }
+    : v;
 }
 
-/** Name → dollars rows; empty rows are skipped. */
+/** Name → dollars rows; empty rows are skipped. `unnamed` says that a row
+ * has an amount and no name. */
 export function readMap(
   rows: Row[],
   field: string,
-  what: string,
+  unnamed: string,
 ): Record<string, number> | Problem {
   const out: Record<string, number> = {};
   for (const r of rows.filter((row) => row.key.trim() || row.usd.trim())) {
-    if (!r.key.trim()) return { field, message: `Name the ${what} of each budget.` };
+    if (!r.key.trim()) return { field, message: unnamed };
     const v = parseUsd(r.usd);
     if (v === undefined || v === null) {
-      return { field, message: `Give ${r.key.trim()} an amount in dollars.` };
+      return { field, message: tr('Give {name} an amount in dollars.', { name: r.key.trim() }) };
     }
     out[r.key.trim()] = v;
   }
@@ -57,13 +62,13 @@ export function readMap(
 /** Budgets with what is spent, and their editor (the desktop or a phone). */
 @Component({
   selector: 'mc-capacity-budgets',
-  imports: [FormsModule, IconComponent],
+  imports: [FormsModule, IconComponent, TPipe],
   template: `
     <p class="lede">
-      Estimated dollars: on plan accounts (Pro, Max, Team) the work is paid in usage windows, so
-      these are what it would cost through the API. Alerts at
-      {{ pct(view().settings.budgets.nearPct) }}
-      and at 100 %, as a notice on the desktop and by push.
+      {{
+        'Estimated dollars: on plan accounts (Pro, Max, Team) the work is paid in usage windows, so these are what it would cost through the API. Alerts at {pct} and at 100 %, as a notice on the desktop and by push.'
+          | t: { pct: pct(view().settings.budgets.nearPct) }
+      }}
     </p>
 
     @for (group of groups(); track group.title) {
@@ -74,7 +79,9 @@ export function readMap(
             <div class="budget" [attr.data-tone]="tone(s.level)">
               <div class="row">
                 <span class="grow">{{ s.label }}</span>
-                <span class="amount">{{ usd(s.spentUsd) }} of {{ usd(s.limitUsd) }}</span>
+                <span class="amount">{{
+                  '{spent} of {limit}' | t: { spent: usd(s.spentUsd), limit: usd(s.limitUsd) }
+                }}</span>
               </div>
               <span
                 class="bar"
@@ -99,56 +106,58 @@ export function readMap(
       }
     }
 
-    <h2>Change budgets</h2>
+    <h2>{{ 'Change budgets' | t }}</h2>
     @if (!view().canManage) {
-      <p class="muted">Budgets are changed on the desktop app or a paired phone.</p>
+      <p class="muted">{{ 'Budgets are changed on the desktop app or a paired phone.' | t }}</p>
     } @else if (!editing()) {
       <div class="card kv-card">
         <dl class="kv">
-          <dt>Every project, per day</dt>
+          <dt>{{ 'Every project, per day' | t }}</dt>
           <dd>{{ money(view().settings.budgets.projectDailyUsd) }}</dd>
-          <dt>A role session</dt>
+          <dt>{{ 'A role session' | t }}</dt>
           <dd>
             {{ money(view().settings.budgets.sessionUsd) }}
-            <span class="muted small">(--max-budget-usd on accounts that pay per token)</span>
+            <span class="muted small">{{
+              '(--max-budget-usd on accounts that pay per token)' | t
+            }}</span>
           </dd>
-          <dt>A task</dt>
+          <dt>{{ 'A task' | t }}</dt>
           <dd>{{ money(view().settings.budgets.taskUsd) }}</dd>
-          <dt>Alerts</dt>
+          <dt>{{ 'Alerts' | t }}</dt>
           <dd>
-            at {{ pct(view().settings.budgets.nearPct) }} and 100 % ·
+            {{ 'at {pct} and 100 %' | t: { pct: pct(view().settings.budgets.nearPct) } }} ·
             {{ alertsText() }}
           </dd>
         </dl>
         <button class="btn small" type="button" (click)="edit()">
-          <mc-icon name="edit" [size]="14" /> Edit budgets
+          <mc-icon name="edit" [size]="14" /> {{ 'Edit budgets' | t }}
         </button>
       </div>
     } @else {
       <form class="card stack editor" (ngSubmit)="save()">
         <label class="field">
-          <span class="field-label">Every project, per day (USD)</span>
+          <span class="field-label">{{ 'Every project, per day (USD)' | t }}</span>
           <input
             name="projectDaily"
             inputmode="decimal"
-            placeholder="No budget"
+            [placeholder]="'No budget' | t"
             [class.invalid]="errorField() === 'budgets.projectDailyUsd'"
             [ngModel]="projectDaily()"
             (ngModelChange)="projectDaily.set($event)"
           />
-          <span class="field-hint"
-            >What every session in a project's folder spent since midnight.</span
-          >
+          <span class="field-hint">{{
+            "What every session in a project's folder spent since midnight." | t
+          }}</span>
         </label>
 
         <fieldset class="rows">
-          <legend class="field-label">A project's own daily budget</legend>
+          <legend class="field-label">{{ "A project's own daily budget" | t }}</legend>
           @for (r of projects(); track $index; let i = $index) {
             <div class="row">
               <input
                 class="grow"
                 [name]="'project' + i"
-                aria-label="Project folder"
+                [attr.aria-label]="'Project folder' | t"
                 list="mc-known-projects"
                 placeholder="/Users/me/dev/app"
                 [ngModel]="r.key"
@@ -157,7 +166,7 @@ export function readMap(
               <input
                 class="usd"
                 [name]="'projectUsd' + i"
-                aria-label="Daily budget in USD"
+                [attr.aria-label]="'Daily budget in USD' | t"
                 inputmode="decimal"
                 placeholder="20"
                 [ngModel]="r.usd"
@@ -166,7 +175,7 @@ export function readMap(
               <button
                 class="btn ghost icon-only small"
                 type="button"
-                aria-label="Remove this budget"
+                [attr.aria-label]="'Remove this budget' | t"
                 (click)="removeProject(i)"
               >
                 <mc-icon name="x" [size]="14" />
@@ -179,33 +188,33 @@ export function readMap(
             }
           </datalist>
           <button class="btn small" type="button" (click)="addProject()">
-            <mc-icon name="plus" [size]="14" /> Add a project
+            <mc-icon name="plus" [size]="14" /> {{ 'Add a project' | t }}
           </button>
         </fieldset>
 
         <label class="field">
-          <span class="field-label">A role session (USD)</span>
+          <span class="field-label">{{ 'A role session (USD)' | t }}</span>
           <input
             name="session"
             inputmode="decimal"
-            placeholder="No budget"
+            [placeholder]="'No budget' | t"
             [ngModel]="session()"
             (ngModelChange)="session.set($event)"
           />
-          <span class="field-hint"
-            >Passed as --max-budget-usd to role sessions on accounts that pay per token (an API key,
-            a cloud provider); Claude Code stops the session there.</span
-          >
+          <span class="field-hint">{{
+            'Passed as --max-budget-usd to role sessions on accounts that pay per token (an API key, a cloud provider); Claude Code stops the session there.'
+              | t
+          }}</span>
         </label>
 
         <fieldset class="rows">
-          <legend class="field-label">A role's own session budget</legend>
+          <legend class="field-label">{{ "A role's own session budget" | t }}</legend>
           @for (r of roles(); track $index; let i = $index) {
             <div class="row">
               <input
                 class="grow"
                 [name]="'role' + i"
-                aria-label="Role id"
+                [attr.aria-label]="'Role id' | t"
                 placeholder="frontend"
                 [ngModel]="r.key"
                 (ngModelChange)="setRole(i, 'key', $event)"
@@ -213,7 +222,7 @@ export function readMap(
               <input
                 class="usd"
                 [name]="'roleUsd' + i"
-                aria-label="Session budget in USD"
+                [attr.aria-label]="'Session budget in USD' | t"
                 inputmode="decimal"
                 placeholder="5"
                 [ngModel]="r.usd"
@@ -222,7 +231,7 @@ export function readMap(
               <button
                 class="btn ghost icon-only small"
                 type="button"
-                aria-label="Remove this budget"
+                [attr.aria-label]="'Remove this budget' | t"
                 (click)="removeRole(i)"
               >
                 <mc-icon name="x" [size]="14" />
@@ -230,23 +239,23 @@ export function readMap(
             </div>
           }
           <button class="btn small" type="button" (click)="addRole()">
-            <mc-icon name="plus" [size]="14" /> Add a role
+            <mc-icon name="plus" [size]="14" /> {{ 'Add a role' | t }}
           </button>
         </fieldset>
 
         <label class="field">
-          <span class="field-label">A task (USD)</span>
+          <span class="field-label">{{ 'A task (USD)' | t }}</span>
           <input
             name="task"
             inputmode="decimal"
-            placeholder="No budget"
+            [placeholder]="'No budget' | t"
             [ngModel]="task()"
             (ngModelChange)="task.set($event)"
           />
         </label>
 
         <label class="field">
-          <span class="field-label">Alert at (%)</span>
+          <span class="field-label">{{ 'Alert at (%)' | t }}</span>
           <input
             name="near"
             type="number"
@@ -255,9 +264,9 @@ export function readMap(
             [ngModel]="near()"
             (ngModelChange)="near.set($event)"
           />
-          <span class="field-hint"
-            >Also where Opus work starts running on Sonnet for a project near its budget.</span
-          >
+          <span class="field-hint">{{
+            'Also where Opus work starts running on Sonnet for a project near its budget.' | t
+          }}</span>
         </label>
 
         <label class="switch">
@@ -267,7 +276,7 @@ export function readMap(
             [ngModel]="desktopAlerts()"
             (ngModelChange)="desktopAlerts.set($event)"
           />
-          <span class="switch-text">Alert on the desktop</span>
+          <span class="switch-text">{{ 'Alert on the desktop' | t }}</span>
         </label>
         <label class="switch">
           <input
@@ -276,16 +285,18 @@ export function readMap(
             [ngModel]="pushAlerts()"
             (ngModelChange)="pushAlerts.set($event)"
           />
-          <span class="switch-text">Alert by push notification</span>
+          <span class="switch-text">{{ 'Alert by push notification' | t }}</span>
         </label>
 
         @if (error()) {
           <p class="notice error" role="alert">{{ error() }}</p>
         }
         <div class="row">
-          <button class="btn primary" type="submit" [disabled]="saving()">Save budgets</button>
+          <button class="btn primary" type="submit" [disabled]="saving()">
+            {{ 'Save budgets' | t }}
+          </button>
           <button class="btn" type="button" [disabled]="saving()" (click)="editing.set(false)">
-            Cancel
+            {{ 'Cancel' | t }}
           </button>
         </div>
       </form>
@@ -384,16 +395,16 @@ export class CapacityBudgetsComponent {
     const of = (scope: BudgetState['scope']) => all.filter((s) => s.scope === scope);
     return [
       {
-        title: 'Projects today',
+        title: tr('Projects today'),
         states: of('project'),
-        empty: 'No project has a daily budget.',
+        empty: tr('No project has a daily budget.'),
       },
       {
-        title: 'Role sessions',
+        title: tr('Role sessions'),
         states: of('session'),
-        empty: 'No role session runs with a budget.',
+        empty: tr('No role session runs with a budget.'),
       },
-      { title: 'Tasks', states: of('task'), empty: 'No running task has a budget.' },
+      { title: tr('Tasks'), states: of('task'), empty: tr('No running task has a budget.') },
     ];
   });
   /** Folders the dashboard knows, for the project field's suggestions. */
@@ -402,10 +413,10 @@ export class CapacityBudgetsComponent {
   );
   protected readonly alertsText = computed(() => {
     const a = this.view().settings.alerts;
-    if (a.desktop && a.push) return 'desktop and push';
-    if (a.desktop) return 'desktop only';
-    if (a.push) return 'push only';
-    return 'off';
+    if (a.desktop && a.push) return tr('desktop and push');
+    if (a.desktop) return tr('desktop only');
+    if (a.push) return tr('push only');
+    return tr('off');
   });
 
   protected readonly usd = formatUsd;
@@ -420,14 +431,19 @@ export class CapacityBudgetsComponent {
   }
 
   protected money(v: number | null): string {
-    return v === null ? 'no budget' : formatUsd(v);
+    return v === null ? tr('no budget') : formatUsd(v);
   }
 
   protected levelText(scope: BudgetState['scope'], level: BudgetLevel): string {
+    const project = scope === 'project';
     if (level === 'over') {
-      return scope === 'project' ? ' · new workers wait until tomorrow' : ' · reached';
+      const what = project ? tr('new workers wait until tomorrow') : tr('reached||budget');
+      return ` · ${what}`;
     }
-    if (level === 'near') return scope === 'project' ? ' · Opus work runs on Sonnet' : ' · near';
+    if (level === 'near') {
+      const what = project ? tr('Opus work runs on Sonnet') : tr('near||budget');
+      return ` · ${what}`;
+    }
     return '';
   }
 
@@ -480,13 +496,17 @@ export class CapacityBudgetsComponent {
     if (isProblem(session)) return session;
     const task = readAmount(this.task(), 'budgets.taskUsd');
     if (isProblem(task)) return task;
-    const projects = readMap(this.projects(), 'budgets.projects', 'project');
+    const projects = readMap(
+      this.projects(),
+      'budgets.projects',
+      tr('Name the project of each budget.'),
+    );
     if (isProblem(projects)) return projects;
-    const roles = readMap(this.roles(), 'budgets.roles', 'role');
+    const roles = readMap(this.roles(), 'budgets.roles', tr('Name the role of each budget.'));
     if (isProblem(roles)) return roles;
     const near = Number(this.near());
     if (!Number.isFinite(near) || near < 1 || near > 99) {
-      return { field: 'budgets.nearPct', message: 'Alert between 1 and 99 %.' };
+      return { field: 'budgets.nearPct', message: tr('Alert between 1 and 99 %.') };
     }
     return {
       budgets: {

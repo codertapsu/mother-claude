@@ -5,6 +5,7 @@ import { ApiError, ApiService, errorMessage } from '../../core/api.service';
 import {
   CapacityView,
   QueueEntry,
+  RouteNote,
   bytesLabel,
   choiceLabel,
   normalizeCapacity,
@@ -14,6 +15,8 @@ import {
 } from '../../core/capacity';
 import { storageGet, storageSet, urlParam } from '../../core/platform';
 import { RealtimeService } from '../../core/realtime.service';
+import { tr } from '../../core/i18n/i18n';
+import { TPipe } from '../../core/i18n/t.pipe';
 import { IconComponent } from '../../shared/icon.component';
 import { PlanMeterComponent } from '../../shared/plan-meter.component';
 import { TimeAgoComponent } from '../../shared/time-ago.component';
@@ -62,6 +65,7 @@ function savedTab(): Tab {
     CapacitySettingsComponent,
     RoutingPolicyComponent,
     RoutingReportComponent,
+    TPipe,
   ],
   templateUrl: './capacity.component.html',
   styleUrl: './capacity.component.scss',
@@ -123,7 +127,20 @@ export class CapacityComponent {
 
   /** "P0", "P2 · lead". */
   protected priority(q: QueueEntry): string {
-    return q.lead ? 'lead' : `P${q.priority}`;
+    return q.lead ? tr('lead') : `P${q.priority}`;
+  }
+
+  /** "for reviewer (implement) in app", "for a task in app". */
+  protected routeFor(r: RouteNote): string {
+    const project = projectName(r.project);
+    if (r.role) {
+      return r.class
+        ? tr('for {role} ({class}) in {project}', { role: r.role, class: r.class, project })
+        : tr('for {role} in {project}', { role: r.role, project });
+    }
+    return r.class
+      ? tr('for a task ({class}) in {project}', { class: r.class, project })
+      : tr('for a task in {project}', { project });
   }
 
   protected applied(v: CapacityView): void {
@@ -138,14 +155,14 @@ export class CapacityComponent {
         this.view.set(v);
         this.error.set('');
       } else {
-        this.error.set('The server sent something this page could not read.');
+        this.error.set(tr('The server sent something this page could not read.'));
       }
       this.unsupported.set(false);
     } catch (e) {
       if (e instanceof ApiError && e.status === 404) {
         this.unsupported.set(true);
       } else if (!quiet || !this.view()) {
-        this.error.set(`Could not load capacity: ${errorMessage(e)}`);
+        this.error.set(tr('Could not load capacity: {error}', { error: errorMessage(e) }));
       }
     } finally {
       this.loading.set(false);

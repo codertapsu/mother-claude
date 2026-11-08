@@ -11,6 +11,8 @@ import {
   projectName,
   ratioLabel,
 } from '../../core/capacity';
+import { tr } from '../../core/i18n/i18n';
+import { TPipe } from '../../core/i18n/t.pipe';
 import { CopyButtonComponent } from '../../shared/copy-button.component';
 import { IconComponent } from '../../shared/icon.component';
 import { TimeAgoComponent } from '../../shared/time-ago.component';
@@ -19,10 +21,10 @@ import { formatTokens, formatUsd } from '../../shared/util';
 /** What tasks cost and how they ended, by class × model × effort; CSV. */
 @Component({
   selector: 'mc-routing-report',
-  imports: [CopyButtonComponent, IconComponent, TimeAgoComponent],
+  imports: [CopyButtonComponent, IconComponent, TimeAgoComponent, TPipe],
   template: `
     <div class="row head">
-      <div class="segmented" aria-label="Period">
+      <div class="segmented" [attr.aria-label]="'Period' | t">
         @for (d of periods; track d) {
           <button
             type="button"
@@ -30,7 +32,7 @@ import { formatTokens, formatUsd } from '../../shared/util';
             [class.active]="days() === d"
             (click)="setDays(d)"
           >
-            {{ d }} days
+            {{ '{n} days' | t: { n: d } }}
           </button>
         }
       </div>
@@ -44,10 +46,10 @@ import { formatTokens, formatUsd } from '../../shared/util';
         [disabled]="exporting()"
         (click)="download('outcomes')"
       >
-        <mc-icon name="download" [size]="14" /> Every task
+        <mc-icon name="download" [size]="14" /> {{ 'Every task' | t }}
       </button>
       @if (csv()) {
-        <mc-copy-button [text]="csv()" label="Copy CSV" ariaLabel="Copy the CSV" />
+        <mc-copy-button [text]="csv()" [label]="'Copy CSV' | t" [ariaLabel]="'Copy the CSV' | t" />
       }
     </div>
 
@@ -59,58 +61,66 @@ import { formatTokens, formatUsd } from '../../shared/util';
       <p class="muted small">{{ r.estimateNote }}</p>
       @if (r.pending) {
         <p class="muted small">
-          {{ r.pending }} task end{{ r.pending === 1 ? ' is' : 's are' }} still being read.
+          {{
+            r.pending === 1
+              ? ('{n} task end is still being read.' | t: { n: r.pending })
+              : ('{n} task ends are still being read.' | t: { n: r.pending })
+          }}
         </p>
       }
       @if (!r.totals.tasks) {
         <p class="empty-state">
-          <strong>No task ended in the last {{ r.days }} days</strong>
-          Reports fill in as teams finish tasks.
+          <strong>{{ 'No task ended in the last {n} days' | t: { n: r.days } }}</strong>
+          {{ 'Reports fill in as teams finish tasks.' | t }}
         </p>
       } @else {
         <div class="tiles">
           <div class="card tile">
-            <span class="field-label">Tasks ended</span>
+            <span class="field-label">{{ 'Tasks ended' | t }}</span>
             <span class="big">{{ r.totals.tasks }}</span>
-            <span class="muted small">{{ r.totals.completed }} completed</span>
+            <span class="muted small">{{ '{n} completed' | t: { n: r.totals.completed } }}</span>
           </div>
           <div class="card tile">
-            <span class="field-label">Cost (estimated)</span>
+            <span class="field-label">{{ 'Cost (estimated)' | t }}</span>
             <span class="big">{{ usd(r.totals.costUsd) }}</span>
-            <span class="muted small"
-              >{{ usd(r.totals.costPerCompletedUsd) }} per completed task</span
-            >
+            <span class="muted small">{{
+              '{usd} per completed task' | t: { usd: usd(r.totals.costPerCompletedUsd) }
+            }}</span>
           </div>
           <div class="card tile">
-            <span class="field-label">Escalations</span>
+            <span class="field-label">{{ 'Escalations||rate' | t }}</span>
             <span class="big">{{ ratio(r.totals.escalationRate) }}</span>
-            <span class="muted small">gates passed {{ ratio(r.totals.gatePassRate) }}</span>
+            <span class="muted small">{{
+              'gates passed {pct}' | t: { pct: ratio(r.totals.gatePassRate) }
+            }}</span>
           </div>
           <div class="card tile">
-            <span class="field-label">Cache hits</span>
+            <span class="field-label">{{ 'Cache hits' | t }}</span>
             <span class="big">{{ ratio(r.totals.cacheHitRatio) }}</span>
-            <span class="muted small">of input tokens</span>
+            <span class="muted small">{{ 'of input tokens' | t }}</span>
           </div>
           @if (r.totals.windowPctPerCompleted !== undefined) {
             <div class="card tile">
-              <span class="field-label">5-hour window</span>
+              <span class="field-label">{{ '5-hour window' | t }}</span>
               <span class="big">{{ pct(r.totals.windowPctPerCompleted) }}</span>
-              <span class="muted small">per completed task (plan accounts, estimated)</span>
+              <span class="muted small">{{
+                'per completed task (plan accounts, estimated)' | t
+              }}</span>
             </div>
           }
         </div>
 
-        <h2>By class</h2>
+        <h2>{{ 'By class' | t }}</h2>
         <div class="table-wrap">
           <table>
             <thead>
               <tr>
-                <th scope="col">Class</th>
-                <th scope="col" class="n">Completed</th>
-                <th scope="col" class="n">Est. cost</th>
-                <th scope="col" class="n">Per completed</th>
-                <th scope="col" class="n">Escalated</th>
-                <th scope="col" class="n">Gates passed</th>
+                <th scope="col">{{ 'Class' | t }}</th>
+                <th scope="col" class="n">{{ 'Completed' | t }}</th>
+                <th scope="col" class="n">{{ 'Est. cost' | t }}</th>
+                <th scope="col" class="n">{{ 'Per completed' | t }}</th>
+                <th scope="col" class="n">{{ 'Escalated' | t }}</th>
+                <th scope="col" class="n">{{ 'Gates passed' | t }}</th>
               </tr>
             </thead>
             <tbody>
@@ -128,18 +138,18 @@ import { formatTokens, formatUsd } from '../../shared/util';
           </table>
         </div>
 
-        <h2>By class, model and effort</h2>
+        <h2>{{ 'By class, model and effort' | t }}</h2>
         <div class="table-wrap">
           <table>
             <thead>
               <tr>
-                <th scope="col">Class</th>
-                <th scope="col">Model</th>
-                <th scope="col" class="n">Completed</th>
-                <th scope="col" class="bar-col">Cost per completed task</th>
-                <th scope="col" class="n">Tokens each</th>
-                <th scope="col" class="n">Cache hits</th>
-                <th scope="col" class="n">Escalated</th>
+                <th scope="col">{{ 'Class' | t }}</th>
+                <th scope="col">{{ 'Model' | t }}</th>
+                <th scope="col" class="n">{{ 'Completed' | t }}</th>
+                <th scope="col" class="bar-col">{{ 'Cost per completed task' | t }}</th>
+                <th scope="col" class="n">{{ 'Tokens each' | t }}</th>
+                <th scope="col" class="n">{{ 'Cache hits' | t }}</th>
+                <th scope="col" class="n">{{ 'Escalated' | t }}</th>
               </tr>
             </thead>
             <tbody>
@@ -164,13 +174,16 @@ import { formatTokens, formatUsd } from '../../shared/util';
         </div>
 
         @if (r.escalations.length) {
-          <h2>Escalations in the period</h2>
+          <h2>{{ 'Escalations in the period' | t }}</h2>
           <ul class="card list plain">
             @for (n of r.escalations; track n.at + n.taskId) {
               <li class="list-row small">
                 <span class="grow"
-                  >{{ n.direction === 'up' ? '↑' : '↓' }} {{ n.taskId }} in
-                  {{ project(n.project) }}: {{ n.reason }}</span
+                  >{{ n.direction === 'up' ? '↑' : '↓' }}
+                  {{
+                    '{task} in {project}: {reason}'
+                      | t: { task: n.taskId, project: project(n.project), reason: n.reason }
+                  }}</span
                 >
                 <span class="muted"><mc-time [ms]="n.at" /></span>
               </li>
@@ -179,13 +192,15 @@ import { formatTokens, formatUsd } from '../../shared/util';
         }
         @if (r.classifier.calls) {
           <p class="muted small">
-            The Haiku classifier: {{ r.classifier.calls }} calls, {{ usd(r.classifier.costUsd) }}
-            (estimated).
+            {{
+              'The Haiku classifier: {calls} calls, {usd} (estimated).'
+                | t: { calls: r.classifier.calls, usd: usd(r.classifier.costUsd) }
+            }}
           </p>
         }
       }
     } @else if (loading()) {
-      <p class="muted">Loading…</p>
+      <p class="muted">{{ 'Loading…' | t }}</p>
     }
   `,
   styles: [
@@ -332,7 +347,7 @@ export class RoutingReportComponent {
       this.report.set(await this.api.getRoutingReport(this.days()));
       this.error.set('');
     } catch (e) {
-      this.error.set(`Could not load the report: ${errorMessage(e)}`);
+      this.error.set(tr('Could not load the report: {error}', { error: errorMessage(e) }));
     } finally {
       this.loading.set(false);
     }
@@ -356,7 +371,7 @@ export class RoutingReportComponent {
       setTimeout(() => URL.revokeObjectURL(url), 10_000);
       this.error.set('');
     } catch (e) {
-      this.error.set(`Could not export the report: ${errorMessage(e)}`);
+      this.error.set(tr('Could not export the report: {error}', { error: errorMessage(e) }));
     } finally {
       this.exporting.set(false);
     }

@@ -1,32 +1,36 @@
 <div class="page">
   <div class="page-head">
-    <h1>Capacity</h1>
+    <h1>{{ 'Capacity' | t }}</h1>
     <span class="spacer"></span>
     <button class="btn small" type="button" [disabled]="loading()" (click)="load()">
-      <mc-icon name="refresh" [size]="14" /> Refresh
+      <mc-icon name="refresh" [size]="14" /> {{ 'Refresh' | t }}
     </button>
   </div>
   <p class="lede">
-    How many role sessions may run, why the others wait, what tasks cost and which model each gets.
-    Money figures are estimates.
+    {{
+      'How many role sessions may run, why the others wait, what tasks cost and which model each gets. Money figures are estimates.'
+        | t
+    }}
   </p>
 
-  <div class="segmented tabs" aria-label="Capacity sections">
-    @for (t of tabs; track t.id) {
+  <div class="segmented tabs" [attr.aria-label]="'Capacity sections' | t">
+    @for (section of tabs; track section.id) {
       <button
         type="button"
-        [attr.aria-pressed]="tab() === t.id"
-        [class.active]="tab() === t.id"
-        (click)="select(t.id)"
+        [attr.aria-pressed]="tab() === section.id"
+        [class.active]="tab() === section.id"
+        (click)="select(section.id)"
       >
-        {{ t.label }}
+        {{ section.label | t }}
       </button>
     }
   </div>
 
   @if (unsupported()) {
     <p class="notice warn">
-      This Mother Claude has no capacity data yet. Update the desktop app to use this page.
+      {{
+        'This Mother Claude has no capacity data yet. Update the desktop app to use this page.' | t
+      }}
     </p>
   }
   @if (error()) {
@@ -36,77 +40,98 @@
   @if (view(); as v) {
     @switch (tab()) {
       @case ('now') {
-        <section class="grid" aria-label="Signals">
+        <section class="grid" [attr.aria-label]="'Signals' | t">
           <div class="card stat">
-            <span class="field-label">Role sessions</span>
+            <span class="field-label">{{ 'Role sessions' | t }}</span>
             <span class="big"
               >{{ v.caps.workersRunning }}
-              <span class="muted small">of {{ v.caps.userCap }} workers</span></span
+              <span class="muted small">{{
+                'of {cap} workers' | t: { cap: v.caps.userCap }
+              }}</span></span
             >
             <span class="muted small">
               @if (v.caps.leadsRunning) {
-                {{ v.caps.leadsRunning }} lead{{ v.caps.leadsRunning === 1 ? '' : 's' }} running too
-                (a lead does not count against your limit).
+                {{
+                  v.caps.leadsRunning === 1
+                    ? ('{n} lead running too (a lead does not count against your limit).'
+                      | t: { n: v.caps.leadsRunning })
+                    : ('{n} leads running too (a lead does not count against your limit).'
+                      | t: { n: v.caps.leadsRunning })
+                }}
               } @else {
-                No lead running.
+                {{ 'No lead running.' | t }}
               }
               @if (v.caps.hardwareCap !== undefined) {
-                Memory allows {{ v.caps.hardwareCap }} at once.
+                {{ 'Memory allows {n} at once.' | t: { n: v.caps.hardwareCap } }}
               }
             </span>
           </div>
 
           @if (host(); as h) {
             <div class="card stat">
-              <span class="field-label">Memory</span>
+              <span class="field-label">{{ 'Memory' | t }}</span>
               @if (h.sampledAt) {
                 <span class="big"
                   >{{ bytes(h.availableMemory) }}
-                  <span class="muted small">free of {{ bytes(h.totalMemory) }}</span></span
+                  <span class="muted small">{{
+                    'free of {total}' | t: { total: bytes(h.totalMemory) }
+                  }}</span></span
                 >
                 <span
                   class="bar"
                   role="meter"
-                  aria-label="Memory in use"
+                  [attr.aria-label]="'Memory in use' | t"
                   aria-valuemin="0"
                   aria-valuemax="100"
                   [attr.aria-valuenow]="memoryPct()"
                   ><span class="fill" [style.width.%]="memoryPct()"></span
                 ></span>
                 <span class="muted small">
-                  A role session needs about {{ bytes(h.estimateBytes) }}
-                  {{ h.measured ? '(measured)' : '' }}; {{ bytes(h.reserveBytes) }} always stay
-                  free.
+                  {{
+                    h.measured
+                      ? ('A role session needs about {size} (measured); {reserve} always stay free.'
+                        | t: { size: bytes(h.estimateBytes), reserve: bytes(h.reserveBytes) })
+                      : ('A role session needs about {size}; {reserve} always stay free.'
+                        | t: { size: bytes(h.estimateBytes), reserve: bytes(h.reserveBytes) })
+                  }}
                   @if (h.headroom !== undefined) {
-                    Room for {{ h.headroom }} more.
+                    {{ 'Room for {n} more.' | t: { n: h.headroom } }}
                   }
                 </span>
                 @if (h.load) {
-                  <span class="muted small"
-                    >Load {{ h.load[0].toFixed(2) }} · {{ h.load[1].toFixed(2) }} ·
-                    {{ h.load[2].toFixed(2) }} on {{ h.cpus }} cores (shown, not used to
-                    decide)</span
-                  >
+                  <span class="muted small">{{
+                    'Load {one} · {five} · {fifteen} on {cpus} cores (shown, not used to decide)'
+                      | t
+                        : {
+                            one: h.load[0].toFixed(2),
+                            five: h.load[1].toFixed(2),
+                            fifteen: h.load[2].toFixed(2),
+                            cpus: h.cpus,
+                          }
+                  }}</span>
                 }
               } @else {
-                <span class="muted small">Not measured yet.</span>
+                <span class="muted small">{{ 'Not measured yet.' | t }}</span>
               }
             </div>
           }
         </section>
 
         @for (a of v.accounts; track a.id) {
-          <section class="card account" [attr.aria-label]="'Plan usage of ' + a.name">
+          <section
+            class="card account"
+            [attr.aria-label]="'Plan usage of {name}' | t: { name: a.name }"
+          >
             <div class="row head">
-              <strong>{{ v.accounts.length > 1 ? a.name : 'Plan usage' }}</strong>
+              <strong>{{ v.accounts.length > 1 ? a.name : ('Plan usage' | t) }}</strong>
               <span class="spacer"></span>
               <span class="badge" [class.info]="a.billing.billing === 'perToken'">
                 {{
                   a.billing.billing === 'perToken'
-                    ? 'pays per token'
+                    ? ('pays per token' | t)
                     : a.billing.billing === 'plan'
-                      ? 'plan'
-                      : 'billing not known'
+                      ? ('plan||billing' | t)
+                      : ('billing not known' | t)
                 }}
               </span>
             </div>
@@ -118,18 +143,26 @@
               </div>
             } @else {
               <p class="muted small">
-                No plan usage for this account ({{ a.billing.source }}): the windows do not hold
-                anything up.
+                {{
+                  'No plan usage for this account ({source}): the windows do not hold anything up.'
+                    | t: { source: a.billing.source }
+                }}
               </p>
             }
             <ul class="flags">
               @if (a.stopped) {
-                <li class="error-text">Nothing starts: the 5-hour window is past its stop line.</li>
+                <li class="error-text">
+                  {{ 'Nothing starts: the 5-hour window is past its stop line.' | t }}
+                </li>
               } @else if (a.leadOnly) {
-                <li class="warn-text">Only the lead starts: the 5-hour window is high.</li>
+                <li class="warn-text">
+                  {{ 'Only the lead starts: the 5-hour window is high.' | t }}
+                </li>
               }
               @if (a.opusGated) {
-                <li class="warn-text">Opus work runs on Sonnet at high effort (Opus weekly).</li>
+                <li class="warn-text">
+                  {{ 'Opus work runs on Sonnet at high effort (Opus weekly).' | t }}
+                </li>
               }
               @if (a.rateLimit; as r) {
                 <li
@@ -143,19 +176,21 @@
           </section>
         }
 
-        <h2>Waiting</h2>
+        <h2>{{ 'Waiting' | t }}</h2>
         @if (waiting().length) {
           <ul class="card list queue">
             @for (q of waiting(); track q.project + q.role) {
               <li class="entry">
                 <div class="row">
                   <strong>{{ q.role }}</strong>
-                  <span class="muted">in {{ project(q.project) }}</span>
+                  <span class="muted">{{
+                    'in {project}' | t: { project: project(q.project) }
+                  }}</span>
                   <span class="badge">{{ priority(q) }}</span>
                   <span class="badge">{{ q.model }}</span>
                   <span class="spacer"></span>
                   <span class="muted small"
-                    ><mc-time [ms]="q.waitingSince" mode="elapsed" prefix="waiting "
+                    ><mc-time [ms]="q.waitingSince" mode="elapsed" [prefix]="('waiting' | t) + ' '"
                   /></span>
                 </div>
                 <ul class="reasons">
@@ -167,30 +202,35 @@
             }
           </ul>
         } @else {
-          <p class="muted">Nothing waits. Role sessions start as soon as a team asks for them.</p>
+          <p class="muted">
+            {{ 'Nothing waits. Role sessions start as soon as a team asks for them.' | t }}
+          </p>
         }
         @if (started().length) {
           <p class="muted small">
-            Just started:
+            {{ 'Just started:' | t }}
             @for (q of started(); track q.project + q.role; let last = $last) {
-              {{ q.role }} in {{ project(q.project) }}{{ last ? '.' : ', ' }}
+              {{ '{role} in {project}' | t: { role: q.role, project: project(q.project) }
+              }}{{ last ? '.' : ', ' }}
             }
           </p>
         }
 
-        <h2>Running</h2>
+        <h2>{{ 'Running' | t }}</h2>
         @if (v.running.length) {
           <ul class="card list">
             @for (r of v.running; track r.sessionId) {
               <li class="list-row running">
                 <span class="grow">
                   <strong>{{ r.role }}</strong>
-                  <span class="muted"> in {{ project(r.project) }}</span>
+                  <span class="muted">
+                    {{ 'in {project}' | t: { project: project(r.project) } }}</span
+                  >
                   @if (r.lead) {
-                    <span class="badge accent">lead</span>
+                    <span class="badge accent">{{ 'lead' | t }}</span>
                   }
                   @if (r.live === false) {
-                    <span class="badge">ended</span>
+                    <span class="badge">{{ 'ended' | t }}</span>
                   }
                   <br />
                   @if (known(r.sessionId)) {
@@ -207,7 +247,7 @@
                     <span>{{ bytes(r.rssBytes) }}</span>
                   }
                   @if (r.spentUsd !== undefined) {
-                    <span title="Since it started as a role session (estimated)">{{
+                    <span [title]="'Since it started as a role session (estimated)' | t">{{
                       usd(r.spentUsd)
                     }}</span>
                   }
@@ -216,20 +256,17 @@
             }
           </ul>
         } @else {
-          <p class="muted">No role sessions run now.</p>
+          <p class="muted">{{ 'No role sessions run now.' | t }}</p>
         }
 
-        <h2>Recent routing decisions</h2>
+        <h2>{{ 'Recent routing decisions' | t }}</h2>
         @if (v.routes.length) {
           <ul class="card list routes">
             @for (r of v.routes; track r.at + r.project + (r.role ?? '')) {
               <li class="list-row">
                 <span class="grow">
                   <strong>{{ choice(r.choice) }}</strong>
-                  <span class="muted">
-                    for {{ r.role ?? 'a task' }}{{ r.class ? ' (' + r.class + ')' : '' }} in
-                    {{ project(r.project) }}</span
-                  >
+                  <span class="muted"> {{ routeFor(r) }}</span>
                   <br />
                   <span class="small">{{ r.reason }}</span>
                 </span>
@@ -238,11 +275,11 @@
             }
           </ul>
         } @else {
-          <p class="muted">No routing decisions yet.</p>
+          <p class="muted">{{ 'No routing decisions yet.' | t }}</p>
         }
 
         @if (v.rateLimits.length) {
-          <h2>Rate limits</h2>
+          <h2>{{ 'Rate limits' | t }}</h2>
           <ul class="card list">
             @for (n of v.rateLimits.slice(0, 5); track n.at + n.account + n.status) {
               <li class="list-row small">
@@ -269,6 +306,6 @@
       }
     }
   } @else if (loading()) {
-    <p class="muted">Loading…</p>
+    <p class="muted">{{ 'Loading…' | t }}</p>
   }
 </div>

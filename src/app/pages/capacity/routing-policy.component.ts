@@ -3,6 +3,7 @@ import { FormsModule } from '@angular/forms';
 
 import { ApiError, ApiService, errorMessage } from '../../core/api.service';
 import {
+  ClassView,
   EFFORTS,
   MODELS,
   ModelChoice,
@@ -14,18 +15,21 @@ import {
   projectName,
   tier,
 } from '../../core/capacity';
+import { tr } from '../../core/i18n/i18n';
+import { TPipe } from '../../core/i18n/t.pipe';
 import { IconComponent } from '../../shared/icon.component';
 import { TimeAgoComponent } from '../../shared/time-ago.component';
 
 /** The routing policy: read by everyone, edited and reset on the desktop. */
 @Component({
   selector: 'mc-routing-policy',
-  imports: [FormsModule, IconComponent, TimeAgoComponent],
+  imports: [FormsModule, IconComponent, TimeAgoComponent, TPipe],
   template: `
     <p class="lede">
-      In order: your override on a task or a role; escalation after failed gates; the budget gate
-      (Opus work on Sonnet at high effort while the Opus weekly window or the project's budget is
-      high); the task's class below; the role's default.
+      {{
+        "In order: your override on a task or a role; escalation after failed gates; the budget gate (Opus work on Sonnet at high effort while the Opus weekly window or the project's budget is high); the task's class below; the role's default."
+          | t
+      }}
     </p>
     @if (loadError()) {
       <p class="notice error" role="alert">{{ loadError() }}</p>
@@ -33,30 +37,30 @@ import { TimeAgoComponent } from '../../shared/time-ago.component';
     @if (data(); as d) {
       @if (draft(); as p) {
         <form class="card stack editor" (ngSubmit)="save()">
-          <h2>Task classes</h2>
+          <h2>{{ 'Task classes' | t }}</h2>
           <div class="classes">
             @for (c of d.classes; track c.class) {
               <div class="class-row">
                 <span class="name">{{ c.label }}</span>
                 <select
                   [name]="'model-' + c.class"
-                  [attr.aria-label]="'Model for ' + c.label + ' tasks'"
+                  [attr.aria-label]="'Model for {class} tasks' | t: { class: c.label }"
                   [ngModel]="classChoice(p, c.class)?.model ?? ''"
                   (ngModelChange)="setClass(c.class, 'model', $event)"
                 >
-                  <option value="">The role's default</option>
+                  <option value="">{{ "The role's default" | t }}</option>
                   @for (m of modelOptions(classChoice(p, c.class)?.model); track m) {
                     <option [value]="m">{{ m }}</option>
                   }
                 </select>
                 <select
                   [name]="'effort-' + c.class"
-                  [attr.aria-label]="'Effort for ' + c.label + ' tasks'"
+                  [attr.aria-label]="'Effort for {class} tasks' | t: { class: c.label }"
                   [disabled]="!classChoice(p, c.class)"
                   [ngModel]="classChoice(p, c.class)?.effort ?? ''"
                   (ngModelChange)="setClass(c.class, 'effort', $event)"
                 >
-                  <option value="">Model's default</option>
+                  <option value="">{{ "Model's default" | t }}</option>
                   @for (e of efforts; track e) {
                     <option [value]="e">{{ e }}</option>
                   }
@@ -68,14 +72,16 @@ import { TimeAgoComponent } from '../../shared/time-ago.component';
             }
           </div>
 
-          <h2>Escalation ladder</h2>
-          <p class="muted small">Lowest rung first; each rung above the one before it.</p>
+          <h2>{{ 'Escalation ladder' | t }}</h2>
+          <p class="muted small">
+            {{ 'Lowest rung first; each rung above the one before it.' | t }}
+          </p>
           @for (r of p.ladder; track $index; let i = $index) {
             <div class="row rung">
               <span class="faint small">{{ i + 1 }}</span>
               <select
                 [name]="'rung-model-' + i"
-                [attr.aria-label]="'Rung ' + (i + 1) + ' model'"
+                [attr.aria-label]="'Rung {n} model' | t: { n: i + 1 }"
                 [ngModel]="r.model"
                 (ngModelChange)="setRung(i, 'model', $event)"
               >
@@ -85,11 +91,11 @@ import { TimeAgoComponent } from '../../shared/time-ago.component';
               </select>
               <select
                 [name]="'rung-effort-' + i"
-                [attr.aria-label]="'Rung ' + (i + 1) + ' effort'"
+                [attr.aria-label]="'Rung {n} effort' | t: { n: i + 1 }"
                 [ngModel]="r.effort ?? ''"
                 (ngModelChange)="setRung(i, 'effort', $event)"
               >
-                <option value="">Model's default</option>
+                <option value="">{{ "Model's default" | t }}</option>
                 @for (e of efforts; track e) {
                   <option [value]="e">{{ e }}</option>
                 }
@@ -97,7 +103,7 @@ import { TimeAgoComponent } from '../../shared/time-ago.component';
               <button
                 class="btn ghost icon-only small"
                 type="button"
-                [attr.aria-label]="'Remove rung ' + (i + 1)"
+                [attr.aria-label]="'Remove rung {n}' | t: { n: i + 1 }"
                 (click)="removeRung(i)"
               >
                 <mc-icon name="x" [size]="14" />
@@ -106,7 +112,7 @@ import { TimeAgoComponent } from '../../shared/time-ago.component';
           }
           <div class="row">
             <button class="btn small" type="button" (click)="addRung()">
-              <mc-icon name="plus" [size]="14" /> Add a rung
+              <mc-icon name="plus" [size]="14" /> {{ 'Add a rung' | t }}
             </button>
           </div>
           @if (problems()['ladder']; as why) {
@@ -120,13 +126,15 @@ import { TimeAgoComponent } from '../../shared/time-ago.component';
               (ngModelChange)="patch({ fableOnEscalation: $event })"
             />
             <span class="switch-text"
-              >Escalation may climb onto Fable rungs
-              <span class="muted small">Off: Fable runs only when you choose it.</span></span
+              >{{ 'Escalation may climb onto Fable rungs' | t }}
+              <span class="muted small">{{
+                'Off: Fable runs only when you choose it.' | t
+              }}</span></span
             >
           </label>
           <div class="pair">
             <label class="field">
-              <span class="field-label">Failed gates per step</span>
+              <span class="field-label">{{ 'Failed gates per step' | t }}</span>
               <input
                 name="gates"
                 type="number"
@@ -140,7 +148,7 @@ import { TimeAgoComponent } from '../../shared/time-ago.component';
               }
             </label>
             <label class="field">
-              <span class="field-label">Clean completions to step down</span>
+              <span class="field-label">{{ 'Clean completions to step down' | t }}</span>
               <input
                 name="clean"
                 type="number"
@@ -155,12 +163,12 @@ import { TimeAgoComponent } from '../../shared/time-ago.component';
             </label>
           </div>
 
-          <h2>Budget gate</h2>
+          <h2>{{ 'Budget gate' | t }}</h2>
           <div class="row">
-            <span class="small">Opus work runs on</span>
+            <span class="small">{{ 'Opus work runs on' | t }}</span>
             <select
               name="gateModel"
-              aria-label="Budget gate model"
+              [attr.aria-label]="'Budget gate model' | t"
               [ngModel]="p.gateChoice.model"
               (ngModelChange)="
                 patch({ gateChoice: { model: $event, effort: p.gateChoice.effort } })
@@ -172,11 +180,11 @@ import { TimeAgoComponent } from '../../shared/time-ago.component';
             </select>
             <select
               name="gateEffort"
-              aria-label="Budget gate effort"
+              [attr.aria-label]="'Budget gate effort' | t"
               [ngModel]="p.gateChoice.effort ?? ''"
               (ngModelChange)="patch({ gateChoice: choiceOf(p.gateChoice.model, $event) })"
             >
-              <option value="">Model's default</option>
+              <option value="">{{ "Model's default" | t }}</option>
               @for (e of efforts; track e) {
                 <option [value]="e">{{ e }}</option>
               }
@@ -186,17 +194,19 @@ import { TimeAgoComponent } from '../../shared/time-ago.component';
             <p class="error-text small">{{ why }}</p>
           }
 
-          <h2>Fallback models</h2>
+          <h2>{{ 'Fallback models' | t }}</h2>
           <p class="muted small">
-            --fallback-model for each family when its model is overloaded (up to three,
-            comma-separated).
+            {{
+              '--fallback-model for each family when its model is overloaded (up to three, comma-separated).'
+                | t
+            }}
           </p>
           @for (f of families; track f) {
             <label class="field">
               <span class="field-label">{{ f }}</span>
               <input
                 [name]="'fallback-' + f"
-                placeholder="None"
+                [placeholder]="'None' | t"
                 [ngModel]="p.fallbacks[f] ?? ''"
                 (ngModelChange)="setFallback(f, $event)"
               />
@@ -208,15 +218,15 @@ import { TimeAgoComponent } from '../../shared/time-ago.component';
           }
           <div class="row">
             <button class="btn primary" type="submit" [disabled]="saving() || invalid()">
-              Save the policy
+              {{ 'Save the policy' | t }}
             </button>
             <button class="btn" type="button" [disabled]="saving()" (click)="draft.set(null)">
-              Cancel
+              {{ 'Cancel' | t }}
             </button>
           </div>
         </form>
       } @else {
-        <h2>Task classes</h2>
+        <h2>{{ 'Task classes' | t }}</h2>
         <div class="card list">
           @for (c of d.classes; track c.class) {
             <div class="list-row">
@@ -228,7 +238,7 @@ import { TimeAgoComponent } from '../../shared/time-ago.component';
           }
         </div>
 
-        <h2>Escalation</h2>
+        <h2>{{ 'Escalation' | t }}</h2>
         <div class="card stack explain">
           <p class="ladder">
             @for (r of d.policy.ladder; track $index; let last = $last) {
@@ -241,82 +251,85 @@ import { TimeAgoComponent } from '../../shared/time-ago.component';
             }
           </p>
           <p class="small">
-            Every {{ d.policy.gatesPerStep }} failed gates of a task climb one rung (effort before
-            model); a task class that escalated steps back down after
-            {{ d.policy.cleanToStepDown }} clean completions.
+            {{
+              'Every {gates} failed gates of a task climb one rung (effort before model); a task class that escalated steps back down after {clean} clean completions.'
+                | t: { gates: d.policy.gatesPerStep, clean: d.policy.cleanToStepDown }
+            }}
             {{
               d.policy.fableOnEscalation
-                ? 'Escalation may reach Fable.'
-                : 'Fable runs only when you choose it.'
+                ? ('Escalation may reach Fable.' | t)
+                : ('Fable runs only when you choose it.' | t)
             }}
           </p>
           <p class="small">
-            Budget gate: {{ choice(d.policy.gateChoice) }}. Fallbacks: {{ fallbackText(d.policy) }}.
+            {{
+              'Budget gate: {choice}. Fallbacks: {fallbacks}.'
+                | t: { choice: choice(d.policy.gateChoice), fallbacks: fallbackText(d.policy) }
+            }}
           </p>
         </div>
 
         @if (d.canEdit) {
           <div class="row actions">
             <button class="btn" type="button" (click)="edit()">
-              <mc-icon name="edit" [size]="14" /> Edit the policy
+              <mc-icon name="edit" [size]="14" /> {{ 'Edit the policy' | t }}
             </button>
             @if (!d.isDefault) {
               @if (confirmReset()) {
-                <span class="small">Back to the built-in policy?</span>
+                <span class="small">{{ 'Back to the built-in policy?' | t }}</span>
                 <button
                   class="btn small danger"
                   type="button"
                   [disabled]="saving()"
                   (click)="reset()"
                 >
-                  Reset
+                  {{ 'Reset' | t }}
                 </button>
                 <button class="btn small" type="button" (click)="confirmReset.set(false)">
-                  Keep
+                  {{ 'Keep' | t }}
                 </button>
               } @else {
                 <button class="btn ghost" type="button" (click)="confirmReset.set(true)">
-                  Reset to defaults
+                  {{ 'Reset to defaults' | t }}
                 </button>
               }
             }
           </div>
         } @else {
-          <p class="muted small">The policy is edited on the desktop app.</p>
+          <p class="muted small">{{ 'The policy is edited on the desktop app.' | t }}</p>
         }
         @if (saveError()) {
           <p class="notice error" role="alert">{{ saveError() }}</p>
         }
 
-        <h2>Escalated now</h2>
+        <h2>{{ 'Escalated now' | t }}</h2>
         @if (d.learned.length) {
           <ul class="card list plain">
             @for (l of d.learned; track l.project + l.class) {
               <li class="list-row small">
-                <span class="grow"
-                  >{{ l.class }} tasks in {{ project(l.project) }}: {{ l.level }} step{{
-                    l.level === 1 ? '' : 's'
-                  }}
-                  up</span
-                >
-                <span class="muted"
-                  >{{ l.clean }} of {{ d.policy.cleanToStepDown }} clean completions</span
-                >
+                <span class="grow">{{ learnedText(l) }}</span>
+                <span class="muted">{{
+                  '{n} of {total} clean completions'
+                    | t: { n: l.clean, total: d.policy.cleanToStepDown }
+                }}</span>
               </li>
             }
           </ul>
         } @else {
-          <p class="muted">No task class is escalated.</p>
+          <p class="muted">{{ 'No task class is escalated.' | t }}</p>
         }
 
         @if (d.escalations.length) {
-          <h2>Escalations</h2>
+          <h2>{{ 'Escalations' | t }}</h2>
           <ul class="card list plain">
             @for (n of d.escalations.slice(0, 10); track n.at + n.taskId) {
               <li class="list-row small">
                 <span class="grow"
-                  >{{ n.direction === 'up' ? '↑' : '↓' }} {{ n.taskId }} in
-                  {{ project(n.project) }}: {{ n.reason }}</span
+                  >{{ n.direction === 'up' ? '↑' : '↓' }}
+                  {{
+                    '{task} in {project}: {reason}'
+                      | t: { task: n.taskId, project: project(n.project), reason: n.reason }
+                  }}</span
                 >
                 <span class="muted"><mc-time [ms]="n.at" /></span>
               </li>
@@ -324,13 +337,12 @@ import { TimeAgoComponent } from '../../shared/time-ago.component';
           </ul>
         }
         @if (routes().length) {
-          <h2>Recent decisions</h2>
+          <h2>{{ 'Recent decisions' | t }}</h2>
           <ul class="card list plain">
             @for (r of routes().slice(0, 10); track r.at + r.project + (r.role ?? '')) {
               <li class="list-row small">
                 <span class="grow"
-                  ><strong>{{ choice(r.choice) }}</strong> for {{ r.role ?? 'a task' }} in
-                  {{ project(r.project) }} · {{ r.reason }}</span
+                  ><strong>{{ choice(r.choice) }}</strong> {{ routeFor(r) }} · {{ r.reason }}</span
                 >
                 <span class="muted"><mc-time [ms]="r.at" /></span>
               </li>
@@ -339,7 +351,7 @@ import { TimeAgoComponent } from '../../shared/time-ago.component';
         }
       }
     } @else if (!loadError()) {
-      <p class="muted">Loading…</p>
+      <p class="muted">{{ 'Loading…' | t }}</p>
     }
   `,
   styles: [
@@ -446,7 +458,9 @@ export class RoutingPolicyComponent {
       this.data.set(await this.api.getRoutingPolicy());
       this.loadError.set('');
     } catch (e) {
-      this.loadError.set(`Could not load the routing policy: ${errorMessage(e)}`);
+      this.loadError.set(
+        tr('Could not load the routing policy: {error}', { error: errorMessage(e) }),
+      );
     }
   }
 
@@ -464,7 +478,7 @@ export class RoutingPolicyComponent {
 
   protected classText(p: RoutingPolicy, cls: string): string {
     const c = this.classChoice(p, cls);
-    return c ? choiceLabel(c) : "the role's default";
+    return c ? choiceLabel(c) : tr("the role's default");
   }
 
   protected num(v: unknown): number {
@@ -481,7 +495,23 @@ export class RoutingPolicyComponent {
 
   protected fallbackText(p: RoutingPolicy): string {
     const entries = Object.entries(p.fallbacks);
-    return entries.length ? entries.map(([k, v]) => `${k} → ${v}`).join(', ') : 'none';
+    return entries.length ? entries.map(([k, v]) => `${k} → ${v}`).join(', ') : tr('none');
+  }
+
+  /** "implement tasks in app: 1 step up". */
+  protected learnedText(l: ClassView): string {
+    const params = { class: l.class, project: projectName(l.project), n: l.level };
+    return l.level === 1
+      ? tr('{class} tasks in {project}: {n} step up', params)
+      : tr('{class} tasks in {project}: {n} steps up', params);
+  }
+
+  /** "for reviewer in app", "for a task in app". */
+  protected routeFor(r: RouteNote): string {
+    const project = projectName(r.project);
+    return r.role
+      ? tr('for {role} in {project}', { role: r.role, project })
+      : tr('for a task in {project}', { project });
   }
 
   protected edit(): void {
