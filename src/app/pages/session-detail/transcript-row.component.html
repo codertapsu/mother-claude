@@ -126,7 +126,7 @@
     }
     @case ('plan') {
       <div class="plan">
-        <p class="ptitle"><mc-icon name="map" [size]="14" /> {{ 'Plan' | t }}</p>
+        <p class="ptitle"><mc-icon name="map" [size]="14" /> {{ 'Plan||document' | t }}</p>
         <div class="md" [class.folded]="planLong() && !planOpen()" [innerHTML]="html()"></div>
         @if (planLong()) {
           <button class="btn ghost small" type="button" (click)="planOpen.set(!planOpen())">

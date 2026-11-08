@@ -394,7 +394,7 @@ export function thinkingSourceText(source: string | undefined): string {
     case 'launch':
       return tr('at launch');
     case 'default':
-      return tr("Claude Code's default");
+      return tr("Claude Code's default||source");
     default:
       return '';
   }
