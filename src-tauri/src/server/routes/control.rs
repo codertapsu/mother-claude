@@ -261,6 +261,26 @@ pub async fn cancel_queued(
     }
 }
 
+/// `POST /api/sessions/{id}/queue/{messageId}/send-now`: the waiting
+/// message reaches Claude at once instead of after its current step
+/// (sessions Mother Claude runs; [`owned::send_now`]).
+pub async fn send_now(
+    Authed(_ctx): Authed,
+    State(state): State<AppState>,
+    Path((id, message_id)): Path<(String, String)>,
+) -> ApiResult<Json<Value>> {
+    match route_for(&state, &id).await? {
+        Route::Owned => {
+            let done = owned::send_now(&state, &id, &message_id).await?;
+            Ok(Json(json!({ "ok": true, "sendNow": done })))
+        }
+        _ => Err(ApiError::unprocessable(
+            "not_supported",
+            "Send now works for sessions Mother Claude runs. Use Interrupt for this one.",
+        )),
+    }
+}
+
 /// `POST /api/sessions/{id}/interrupt`.
 pub async fn interrupt(
     Authed(_ctx): Authed,

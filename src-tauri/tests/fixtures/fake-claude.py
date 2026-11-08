@@ -417,6 +417,19 @@ def handle_host_request(obj):
         if "ultracode" in settings:
             STATE["ultracode"] = bool(settings["ultracode"])
         ok(rid, None)
+    elif sub == "interrupt" and req.get("send_now") is True:
+        # Send now (interrupt_send_now_v1): the named waiting message reaches
+        # the model at once; this fake stops the running turn for it.
+        target = req.get("message_uuid")
+        waiting = any(m.get("uuid") == target for m in HELD) if target else bool(HELD)
+        log({"send_now": target})
+        if not waiting:
+            ok(rid, {"still_queued": [m.get("uuid") for m in HELD], "send_now": "nothing_waiting"})
+        elif STATE["busy"]:
+            ok(rid, {"still_queued": [m.get("uuid") for m in HELD], "send_now": "stopped"})
+            STATE["interrupted"] = True
+        else:
+            ok(rid, {"still_queued": [m.get("uuid") for m in HELD], "send_now": "delivering"})
     elif sub == "interrupt":
         ok(rid, {"still_queued": [m.get("uuid") for m in HELD]})
         if STATE["busy"]:
@@ -462,7 +475,15 @@ def process(obj, want=None):
         return want is not None and rid in want
     elif t == "user":
         HELD.append(obj)
+        lifecycle(obj, "queued")
     return False
+
+
+def lifecycle(msg, state):
+    """`command_lifecycle` for one of the host's messages (msg_lifecycle_v1)."""
+    if msg.get("uuid"):
+        out({"type": "command_lifecycle", "command_uuid": msg["uuid"], "state": state,
+             "uuid": str(uuidlib.uuid4()), "session_id": SESSION})
 
 
 def pump(deadline, want=None):
@@ -550,7 +571,7 @@ def run_turn(msg):
         STATE["started"] = True
         sys_msg("init", cwd=os.getcwd(), model=MODEL,
                 permissionMode="bypassPermissions" if MODEL == "fake-bypass" else STATE["mode"],
-                claude_code_version="9.9.9-fake", capabilities=["interrupt_receipt_v1"], tools=[])
+                claude_code_version="9.9.9-fake", capabilities=["interrupt_receipt_v1", "interrupt_send_now_v1"], tools=[])
     STATE["interrupted"] = False
 
     if text == "hello" or (not text and images):
@@ -565,6 +586,21 @@ def run_turn(msg):
             result("[Request interrupted by user]", answered, "error_during_execution", True)
         else:
             result("slow done", answered)
+    elif text == "slow-fold":
+        # A message sent meanwhile is taken into this turn at its next step,
+        # as the CLI does at a tool boundary: started now, answered by this
+        # turn's result.
+        STATE["busy"] = True
+        stream_text("Working through steps", answered)
+        pump(time.time() + 0.8)
+        for m in list(HELD):
+            HELD.remove(m)
+            lifecycle(m, "started")
+            if m.get("uuid"):
+                answered.append(m["uuid"])
+        pump(time.time() + 1.2)
+        STATE["busy"] = None
+        result("folded", answered)
     elif text == "bash":
         _, resp = ask(can_use_tool("Bash", {"command": "touch x1", "description": "Create file x1"},
                                    BASH_SUGGESTIONS))
@@ -680,7 +716,9 @@ def run_turn(msg):
 
 while True:
     if HELD:
-        run_turn(HELD.pop(0))
+        msg = HELD.pop(0)
+        lifecycle(msg, "started")
+        run_turn(msg)
         continue
     obj = inbox.get()
     if obj is None:

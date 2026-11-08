@@ -1538,8 +1538,20 @@ async fn dispatch(
         // A turn the host did not start — a cross-session message taken
         // with `crossSessionInbound: accept` (docs/TEAMS.md "Spike") — opens
         // with `command_lifecycle` "started": the session works from here.
+        //
+        // For one of ours that waited, "started" is the moment Claude takes
+        // it in — into the running turn at its next step (verified on CLI
+        // 2.1.319: a message sent while a tool runs is answered by that
+        // turn), or as a turn of its own — and no longer waits; "completed",
+        // "cancelled" and "discarded" end its wait too.
         "command_lifecycle" => {
-            let started = v.get("state").and_then(Value::as_str) == Some("started");
+            let lifecycle = v.get("state").and_then(Value::as_str);
+            if let (Some(uuid), Some("started" | "completed" | "cancelled" | "discarded")) =
+                (v.get("command_uuid").and_then(Value::as_str), lifecycle)
+            {
+                retire_queued(state, h, &[uuid.to_string()]).await;
+            }
+            let started = lifecycle == Some("started");
             if started && !h.live().turn_active {
                 start_turn(h);
                 note_activity(state, h, Activity::new(ActivityKind::Thinking, "Thinking")).await;
@@ -1596,7 +1608,12 @@ async fn refresh_settings(state: &AppState, h: &Arc<OwnedHandle>) {
 
 /// Our messages a frame says it answers are no longer queued.
 async fn mark_answered(state: &AppState, h: &OwnedHandle, v: &Value) {
-    let answered = protocol::answered_uuids(v);
+    retire_queued(state, h, &protocol::answered_uuids(v)).await;
+}
+
+/// These of our waiting messages are with Claude now (or gone): off the
+/// queue, and the session's count follows.
+async fn retire_queued(state: &AppState, h: &OwnedHandle, answered: &[String]) {
     if answered.is_empty() {
         return;
     }

@@ -47,8 +47,11 @@ a rotating key and an undocumented protocol).
   explicit `--permission-mode`), `initialize` first, every CLI → host control
   request answered (`can_use_tool` becomes a pending item; unknown subtypes get
   `error: unsupported`), and interrupt / model / mode / effort / rename /
-  stop-task / cancel-queued-message sent as control requests (CLI errors are a
-  422). Children get a scrubbed environment (`control::SCRUBBED_ENV`: the
+  stop-task / cancel-queued-message / send-now (`interrupt` with `send_now`)
+  sent as control requests (CLI errors are a 422). A message sent while a
+  turn runs is written at once; the CLI takes it into that turn at its next
+  step (`command_lifecycle` "started" ends its wait, verified on CLI
+  2.1.319), and Send now makes the turn take it immediately. Children get a scrubbed environment (`control::SCRUBBED_ENV`: the
   parent session's `CLAUDECODE`/`CLAUDE_CODE_*` identity and our token — not
   provider or auth variables), their account's part (`accounts::AccountEnv`,
   below) and `MOTHER_CLAUDE_OWNED=1`. Continuing a

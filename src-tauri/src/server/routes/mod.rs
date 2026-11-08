@@ -209,6 +209,10 @@ pub fn api_router() -> Router<AppState> {
             post(uploads::upload).layer(DefaultBodyLimit::max(uploads::UPLOAD_BODY_MAX)),
         )
         .route("/sessions/{id}/queue/{message_id}", delete(control::cancel_queued))
+        .route(
+            "/sessions/{id}/queue/{message_id}/send-now",
+            post(control::send_now),
+        )
         .route("/sessions/{id}/interrupt", post(control::interrupt))
         .route("/sessions/{id}/model", post(control::set_model))
         .route("/sessions/{id}/mode", post(control::set_mode))

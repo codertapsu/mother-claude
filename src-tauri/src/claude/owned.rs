@@ -1093,6 +1093,57 @@ pub async fn interrupt(state: &AppState, id: &str) -> ApiResult<()> {
     Ok(())
 }
 
+/// What Send now did, as the CLI says (`send_now` of its answer).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SendNow {
+    /// It stopped the running turn: the message runs now.
+    Stopped,
+    /// The message is on its way in without a stop (the turn takes it at
+    /// once, or no turn runs), or the CLI is making way for it.
+    Delivering,
+    /// Claude already had it: nothing was done.
+    NothingWaiting,
+}
+
+/// Send now on a message waiting behind the running turn (`interrupt` with
+/// `send_now`, the terminal's send-now key; CLI capability
+/// `interrupt_send_now_v1`): the turn makes way for it at once — the CLI
+/// moves what the turn waits on to the background, or stops the turn —
+/// instead of Claude taking it after its current step. Not a Stop: nothing
+/// queued is cancelled. A CLI without the capability treats it as a plain
+/// interrupt, which also runs the message next.
+pub async fn send_now(state: &AppState, id: &str, message_id: &str) -> ApiResult<SendNow> {
+    if !is_uuid(message_id) {
+        return Err(ApiError::not_found(
+            "not_queued",
+            "No such waiting message.",
+        ));
+    }
+    if !queued(state, id).iter().any(|q| q.id == message_id) {
+        return Err(ApiError::conflict(
+            "already_delivered",
+            "That message is no longer waiting: Claude already has it.",
+        ));
+    }
+    let knows = live_state(state, id)
+        .is_some_and(|l| l.capabilities.iter().any(|c| c == "interrupt_send_now_v1"));
+    let resp = request(
+        state,
+        id,
+        json!({ "subtype": "interrupt", "send_now": true, "message_uuid": message_id }),
+    )
+    .await?;
+    Ok(match resp.get("send_now").and_then(Value::as_str) {
+        Some("nothing_waiting") => SendNow::NothingWaiting,
+        Some("delivering") => SendNow::Delivering,
+        Some(_) => SendNow::Stopped,
+        // An older CLI interrupted the turn.
+        None if !knows => SendNow::Stopped,
+        None => SendNow::Delivering,
+    })
+}
+
 /// Switch model live (`set_model`).
 pub async fn set_model(state: &AppState, id: &str, model: &str) -> ApiResult<()> {
     let model = validate_model(model)?;

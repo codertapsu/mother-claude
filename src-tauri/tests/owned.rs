@@ -20,7 +20,7 @@ use mother_claude_lib::claude::model::{
     PlanUsageSource, ResolverKind, SessionStatus, SessionSummary, StreamKind, ThinkingInfo,
     ThinkingMode, ThinkingSource, UltracodeSource, UltracodeState,
 };
-use mother_claude_lib::claude::owned::{self, Caller, ContinueRequest, SpawnRequest};
+use mother_claude_lib::claude::owned::{self, Caller, ContinueRequest, SendNow, SpawnRequest};
 use mother_claude_lib::claude::usage;
 use mother_claude_lib::claude::ClaudeHome;
 use mother_claude_lib::pending::{self, Decision, RespondError};
@@ -1072,6 +1072,65 @@ async fn continue_forks_when_live_elsewhere_and_resumes_when_ended() {
             .code,
         "invalid_session_id"
     );
+}
+
+/// A message sent while Claude works waits at the CLI only until Claude
+/// takes it in — into the running turn at its next step (`command_lifecycle`
+/// "started"), not when that turn ends. Send now makes the turn take it at
+/// once.
+#[tokio::test]
+async fn a_message_sent_mid_turn_waits_only_until_claude_takes_it() {
+    let f = Fixture::new();
+    let id = f.spawn_text("slow-fold").await;
+    wait_for("the turn to start", || {
+        owned::live_state(&f.st, &id).is_some_and(|l| l.turn_active)
+    })
+    .await;
+    let r = owned::send(&f.st, &id, "also this", &[]).await.unwrap();
+    assert_eq!(r.delivery, Delivery::Queued);
+    assert_eq!(owned::queued(&f.st, &id).len(), 1);
+    wait_for("Claude to take it in", || {
+        owned::queued(&f.st, &id).is_empty()
+    })
+    .await;
+    assert!(
+        owned::live_state(&f.st, &id).unwrap().turn_active,
+        "taken into the turn that still runs"
+    );
+    wait_turn_done(&f.st, &id).await;
+    owned::kill(&f.st, &id).await.unwrap();
+
+    // Send now: the running turn stops for it, and it runs at once.
+    let g = Fixture::new();
+    let id = g.spawn_text("slow").await;
+    wait_for("the turn to start", || {
+        owned::live_state(&g.st, &id).is_some_and(|l| l.turn_active)
+    })
+    .await;
+    let r = owned::send(&g.st, &id, "now please", &[]).await.unwrap();
+    assert_eq!(r.delivery, Delivery::Queued);
+    assert_eq!(
+        owned::send_now(&g.st, &id, &r.message_id).await.unwrap(),
+        SendNow::Stopped
+    );
+    assert!(g.logged("send_now").contains(&json!(r.message_id)));
+    wait_for("it to run", || owned::queued(&g.st, &id).is_empty()).await;
+    // Claude has it: nothing left to send now.
+    assert_eq!(
+        owned::send_now(&g.st, &id, &r.message_id)
+            .await
+            .unwrap_err()
+            .code,
+        "already_delivered"
+    );
+    assert_eq!(
+        owned::send_now(&g.st, &id, "not-a-uuid")
+            .await
+            .unwrap_err()
+            .code,
+        "not_queued"
+    );
+    owned::kill(&g.st, &id).await.unwrap();
 }
 
 /// A conversation started on another computer (restored from a backup)
