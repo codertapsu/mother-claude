@@ -13,7 +13,13 @@ import { PLAN_INTERVALS, planIntervalLabel } from '../../core/plan-usage';
 import { PlanUsageService } from '../../core/plan-usage.service';
 import { PushService } from '../../core/push.service';
 import { RealtimeService, connectionLabel } from '../../core/realtime.service';
-import { ThemePref, ThemeService } from '../../core/theme.service';
+import {
+  ACCENTS,
+  SURFACES,
+  SurfaceOption,
+  ThemePref,
+  ThemeService,
+} from '../../core/theme.service';
 import { UpdaterService } from '../../core/updater.service';
 import { IconComponent } from '../../shared/icon.component';
 import { PermissionsListComponent } from '../../shared/permissions-list.component';
@@ -70,6 +76,11 @@ export class SettingsComponent {
   private realtime = inject(RealtimeService);
   protected readonly push = inject(PushService);
   protected readonly theme = inject(ThemeService);
+  protected readonly accents = ACCENTS;
+  protected readonly surfaces = SURFACES;
+  protected readonly accentLabel = computed(
+    () => ACCENTS.find((a) => a.id === this.theme.accent())?.label ?? '',
+  );
   protected readonly attention = inject(AttentionService);
   protected readonly updater = inject(UpdaterService);
   protected readonly plan = inject(PlanUsageService);
@@ -137,6 +148,11 @@ export class SettingsComponent {
     effect(() => {
       if (this.push.state() === 'on' && !this.prefs()) void this.loadPrefs();
     });
+  }
+
+  /** A background's tile, in the mode the app shows now. */
+  protected tileColors(s: SurfaceOption): SurfaceOption['dark'] {
+    return s[this.theme.effective()];
   }
 
   protected setTheme(p: ThemePref): void {

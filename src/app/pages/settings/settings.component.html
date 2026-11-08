@@ -94,17 +94,10 @@
 
   <!-- ─────────────── Appearance ─────────────── -->
   <h2>Appearance</h2>
-  <section class="card">
+  <section class="card appearance">
     <div class="row">
       <span class="grow">Theme</span>
       <div class="segmented" role="group" aria-label="Theme">
-        <button
-          type="button"
-          [attr.aria-pressed]="theme.pref() === 'system'"
-          (click)="setTheme('system')"
-        >
-          <mc-icon name="monitor" [size]="15" /> System
-        </button>
         <button
           type="button"
           [attr.aria-pressed]="theme.pref() === 'dark'"
@@ -119,6 +112,65 @@
         >
           <mc-icon name="sun" [size]="15" /> Light
         </button>
+        <button
+          type="button"
+          [attr.aria-pressed]="theme.pref() === 'system'"
+          (click)="setTheme('system')"
+        >
+          <mc-icon name="monitor" [size]="15" /> System
+        </button>
+      </div>
+    </div>
+
+    <div class="pick">
+      <span class="pick-label" id="appearance-accent">Accent</span>
+      <div class="swatches" role="radiogroup" aria-labelledby="appearance-accent">
+        @for (a of accents; track a.id) {
+          <button
+            type="button"
+            role="radio"
+            class="swatch"
+            [class.on]="theme.accent() === a.id"
+            [attr.aria-checked]="theme.accent() === a.id"
+            [attr.aria-label]="a.label"
+            [title]="a.label"
+            [style.--sw]="theme.effective() === 'light' ? a.light : a.dark"
+            (click)="theme.setAccent(a.id)"
+          >
+            @if (theme.accent() === a.id) {
+              <mc-icon name="check" [size]="15" />
+            }
+          </button>
+        }
+        <span class="muted small pick-name">{{ accentLabel() }}</span>
+      </div>
+    </div>
+
+    <div class="pick">
+      <span class="pick-label" id="appearance-surface">Background</span>
+      <div class="tiles" role="radiogroup" aria-labelledby="appearance-surface">
+        @for (s of surfaces; track s.id) {
+          <button
+            type="button"
+            role="radio"
+            class="tile"
+            [class.on]="theme.surface() === s.id"
+            [attr.aria-checked]="theme.surface() === s.id"
+            (click)="theme.setSurface(s.id)"
+          >
+            <span
+              class="preview"
+              aria-hidden="true"
+              [style.--pv-bg]="tileColors(s).bg"
+              [style.--pv-panel]="tileColors(s).panel"
+              [style.--pv-border]="tileColors(s).border"
+            >
+              <span class="pv-card"><span class="pv-line"></span><span class="pv-dot"></span></span>
+            </span>
+            <span class="tname">{{ s.label }}</span>
+            <span class="muted small">{{ s.hint }}</span>
+          </button>
+        }
       </div>
     </div>
   </section>

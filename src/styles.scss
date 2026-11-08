@@ -1,11 +1,16 @@
 /*
  * Global design tokens + base styles.
  *
- * Theme: dark is the default palette. Light applies when the OS prefers it
- * (ThemeService "system", no data-theme attribute) or when the user picks it
- * (data-theme="light" on <html>); data-theme="dark" forces dark.
+ * Theme (ThemeService, attributes on <html>): dark is the default, also with
+ * no attribute; data-theme="light" is light; data-theme="system" follows the
+ * OS. On top of it two palettes, each with a dark and a light variant:
+ * data-accent (buttons, links, focus) and data-surface (backgrounds, borders,
+ * text). Every pair was checked for contrast: white on an accent ≥ 4.5:1,
+ * accent text on panels ≥ 4.5:1, body text ≥ 7:1, muted text ≥ 4.5:1.
  * Components use only these custom properties — never raw colours.
  */
+@use 'sass:map';
+@use 'sass:list';
 
 @mixin dark-tokens {
   color-scheme: dark;
@@ -92,8 +97,218 @@
 }
 
 @media (prefers-color-scheme: light) {
-  :root:not([data-theme]) {
+  :root[data-theme='system'] {
     @include light-tokens;
+  }
+}
+
+/* ─────────────────────────── Palettes (Settings › Appearance) */
+
+/* Accents: (accent, accent text, focus) for dark, then for light. Violet is
+   the tokens above. */
+$accents: (
+  'blue': (
+    dark: (
+      #2f6fdf,
+      #8ab8fb,
+      #93c5fd,
+    ),
+    light: (
+      #2563eb,
+      #1d4ed8,
+      #2563eb,
+    ),
+  ),
+  'teal': (
+    dark: (
+      #0f7f74,
+      #5fdccb,
+      #5eead4,
+    ),
+    light: (
+      #0f766e,
+      #0f6b63,
+      #0f766e,
+    ),
+  ),
+  'green': (
+    dark: (
+      #1d7f45,
+      #7fdea2,
+      #86efac,
+    ),
+    light: (
+      #15803d,
+      #166534,
+      #15803d,
+    ),
+  ),
+  'orange': (
+    dark: (
+      #c2410c,
+      #fbb37a,
+      #fdba74,
+    ),
+    light: (
+      #c2410c,
+      #9a3412,
+      #c2410c,
+    ),
+  ),
+  'rose': (
+    dark: (
+      #d02a5c,
+      #fb9fb1,
+      #fda4af,
+    ),
+    light: (
+      #be123c,
+      #9f1239,
+      #be123c,
+    ),
+  ),
+  'graphite': (
+    dark: (
+      #55555f,
+      #d4d4d8,
+      #d4d4d8,
+    ),
+    light: (
+      #3f3f46,
+      #27272a,
+      #3f3f46,
+    ),
+  ),
+);
+
+/* Backgrounds: (bg, panel, panel-2, panel-3, border, border-strong, text,
+   muted, faint, code) for dark, then for light. Standard is the tokens above. */
+$surfaces: (
+  'midnight': (
+    dark: (
+      #0a1020,
+      #10182c,
+      #16203a,
+      #1f2b4a,
+      #22304f,
+      #33446b,
+      #e4e9f2,
+      #9ba7bd,
+      #7f8ca6,
+      #070b16,
+    ),
+    light: (
+      #f2f5fa,
+      #ffffff,
+      #e9eef6,
+      #dde4f0,
+      #d6deea,
+      #bcc8da,
+      #18202e,
+      #56627a,
+      #626e85,
+      #eef2f8,
+    ),
+  ),
+  'black': (
+    dark: (
+      #000000,
+      #0b0b0d,
+      #141417,
+      #1d1d22,
+      #222228,
+      #34343c,
+      #ececef,
+      #a0a0aa,
+      #85858f,
+      #050506,
+    ),
+    light: (
+      #ffffff,
+      #ffffff,
+      #f4f4f6,
+      #e9e9ee,
+      #e1e1e7,
+      #c9c9d3,
+      #111114,
+      #55555f,
+      #63636d,
+      #f5f5f8,
+    ),
+  ),
+  'warm': (
+    dark: (
+      #12100e,
+      #1a1714,
+      #221e1a,
+      #2d2823,
+      #2e2924,
+      #423b34,
+      #ece6df,
+      #a89f94,
+      #8c8378,
+      #0d0b09,
+    ),
+    light: (
+      #f8f5f0,
+      #fffdf9,
+      #f1ece4,
+      #e7e0d5,
+      #e4ddd2,
+      #cfc5b6,
+      #221d17,
+      #61584d,
+      #6f665a,
+      #f3eee6,
+    ),
+  ),
+);
+
+@mixin accent-vars($set, $soft) {
+  --accent: #{list.nth($set, 1)};
+  --accent-text: #{list.nth($set, 2)};
+  --accent-soft: #{rgba(list.nth($set, 1), $soft)};
+  --focus: #{list.nth($set, 3)};
+}
+
+@mixin surface-vars($set) {
+  --bg: #{list.nth($set, 1)};
+  --panel: #{list.nth($set, 2)};
+  --panel-2: #{list.nth($set, 3)};
+  --panel-3: #{list.nth($set, 4)};
+  --border: #{list.nth($set, 5)};
+  --border-strong: #{list.nth($set, 6)};
+  --text: #{list.nth($set, 7)};
+  --muted: #{list.nth($set, 8)};
+  --faint: #{list.nth($set, 9)};
+  --code-bg: #{list.nth($set, 10)};
+}
+
+@each $name, $p in $surfaces {
+  :root[data-surface='#{$name}'] {
+    @include surface-vars(map.get($p, dark));
+  }
+  :root[data-surface='#{$name}'][data-theme='light'] {
+    @include surface-vars(map.get($p, light));
+  }
+  @media (prefers-color-scheme: light) {
+    :root[data-surface='#{$name}'][data-theme='system'] {
+      @include surface-vars(map.get($p, light));
+    }
+  }
+}
+
+@each $name, $p in $accents {
+  :root[data-accent='#{$name}'] {
+    @include accent-vars(map.get($p, dark), 0.16);
+  }
+  :root[data-accent='#{$name}'][data-theme='light'] {
+    @include accent-vars(map.get($p, light), 0.1);
+  }
+  @media (prefers-color-scheme: light) {
+    :root[data-accent='#{$name}'][data-theme='system'] {
+      @include accent-vars(map.get($p, light), 0.1);
+    }
   }
 }
 

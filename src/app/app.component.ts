@@ -307,7 +307,7 @@ export class AppComponent {
   }
 
   protected cycleTheme(): void {
-    const order = ['system', 'dark', 'light'] as const;
+    const order = ['dark', 'light', 'system'] as const;
     const next = order[(order.indexOf(this.theme.pref()) + 1) % order.length];
     this.theme.set(next);
   }
