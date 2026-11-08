@@ -59,7 +59,10 @@ fn device_of(ctx: &ClientContext) -> ApiResult<&str> {
     ctx.device_id().ok_or_else(|| {
         ApiError::forbidden(
             "push_device_only",
-            "Push notifications are for paired devices; this Mac shows alerts in the app.",
+            format!(
+                "Push notifications are for paired devices; this {} shows alerts in the app.",
+                crate::claude::paths::machine_noun()
+            ),
         )
     })
 }

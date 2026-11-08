@@ -159,8 +159,11 @@ fn short_line(e: &PushEvent) -> String {
         PushKind::Question => "Has a question".into(),
         PushKind::Plan => "Plan ready for review".into(),
         PushKind::Waiting => match safe_label(e.label.as_deref()) {
-            Some(l) => format!("Waiting at the Mac · {l}"),
-            None => "Waiting at the Mac".into(),
+            Some(l) => format!(
+                "Waiting at the {} · {l}",
+                crate::claude::paths::machine_noun()
+            ),
+            None => format!("Waiting at the {}", crate::claude::paths::machine_noun()),
         },
         PushKind::Finished => match e.worked_ms.and_then(duration_label) {
             Some(d) => format!("Finished after {d}"),

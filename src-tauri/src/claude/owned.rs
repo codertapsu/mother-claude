@@ -1177,8 +1177,8 @@ pub async fn set_mode(state: &AppState, id: &str, mode: &str) -> ApiResult<()> {
         if !available {
             return Err(ApiError::unprocessable(
                 "bypass_unavailable",
-                "This session was started without bypass available; restart it from the Mac \
-                 to use bypassPermissions.",
+                "This session was started without bypass available; restart it from the \
+                 desktop app to use bypassPermissions.",
             ));
         }
     }

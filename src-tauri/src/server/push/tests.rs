@@ -476,7 +476,13 @@ async fn bus_derived_waits_and_claude_notifications() {
     wait_until("waiting push", || mock.total() == 1).await;
     let v = decrypt(&mock.hits("p")[0], &sk);
     assert_eq!(v["title"], "web");
-    assert_eq!(v["body"], "Waiting at the Mac · permission prompt");
+    assert_eq!(
+        v["body"],
+        format!(
+            "Waiting at the {} · permission prompt",
+            crate::claude::paths::machine_noun()
+        )
+    );
     assert_eq!(v["kind"], "waiting");
 
     // Claude called PushNotification (seen in a live transcript append).

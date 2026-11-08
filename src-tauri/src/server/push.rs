@@ -709,8 +709,8 @@ pub fn secure_context_hint(state: &AppState, ctx: &ClientContext) -> Value {
     let (code, text) = match ctx.ingress {
         _ if ctx.is_desktop() => (
             "desktop",
-            "This Mac shows alerts in the app. Push notifications are for paired phones and \
-             browsers.",
+            "The desktop app shows alerts itself. Push notifications are for paired phones \
+             and browsers.",
         ),
         Ingress::Tunnel => (
             "ok",

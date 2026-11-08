@@ -901,6 +901,7 @@ async fn detect_and_store(state: &AppState, with_tailscale: bool) {
 /// Tell the desktop that a tunnel now points at an API server's port, or no
 /// longer does.
 fn notice_exposure(state: &AppState, server: &crate::bridge::ApiServer, exposed: bool) {
+    let noun = crate::claude::paths::machine_noun();
     let open = server.token_policy() == crate::bridge::TokenPolicy::Never;
     if !server.is_main() {
         let name = server.name();
@@ -910,7 +911,7 @@ fn notice_exposure(state: &AppState, server: &crate::bridge::ApiServer, exposed:
                 NoticeLevel::Error,
                 format!(
                     "A tunnel points at the API server \"{name}\" (port {port}), which is open \
-                     to tunnels: anyone who finds that URL can drive Claude on this Mac without \
+                     to tunnels: anyone who finds that URL can drive Claude on this {noun} without \
                      a token. Dangerous actions stay off for them. Stop the tunnel unless you \
                      meant to publish it."
                 ),
@@ -944,7 +945,7 @@ fn notice_exposure(state: &AppState, server: &crate::bridge::ApiServer, exposed:
             NoticeLevel::Error,
             format!(
                 "A tunnel points at the Claude API port {bridge}, and the API is open to \
-                     tunnels: anyone who finds that URL can drive Claude on this Mac without a \
+                     tunnels: anyone who finds that URL can drive Claude on this {noun} without a \
                      token. Dangerous actions stay off for them. Stop the tunnel unless you \
                      meant to publish the API."
             ),
@@ -1061,6 +1062,7 @@ pub fn warnings(
     api: &[ApiPort],
     tunnel_error: Option<&str>,
 ) -> Vec<String> {
+    let noun = crate::claude::paths::machine_noun();
     let mut out = Vec::new();
     if let Some(e) = tunnel_error {
         out.push(e.to_string());
@@ -1073,7 +1075,7 @@ pub fn warnings(
             Some(a) if a.server.is_none() && a.open => out.push(format!(
                 "A tunnel ({}) points at the Claude API port {}, and the API is open to \
                  tunnels: anyone who finds the URL can start conversations and approve Claude's \
-                 ordinary tool calls on this Mac without a token. Dangerous actions stay off for \
+                 ordinary tool calls on this {noun} without a token. Dangerous actions stay off for \
                  them. Stop the tunnel, or turn off Open to tunnels on the API screen and \
                  restart the API.",
                 t.url,
@@ -1090,7 +1092,7 @@ pub fn warnings(
             Some(a) if a.open => out.push(format!(
                 "A tunnel ({}) points at the API server \"{}\" (port {}), which is open to \
                  tunnels: anyone who finds the URL can start conversations and approve Claude's \
-                 ordinary tool calls on this Mac without a token. Dangerous actions stay off for \
+                 ordinary tool calls on this {noun} without a token. Dangerous actions stay off for \
                  them. Stop the tunnel, or turn off Open to tunnels and restart that server.",
                 t.url,
                 a.name,
@@ -1110,7 +1112,7 @@ pub fn warnings(
         if t.inspect && t.provider == "ngrok" {
             out.push(format!(
                 "ngrok's local inspector (http://127.0.0.1:4040) is recording every request to \
-                 {}, headers included, for anything on this Mac to read. Restart ngrok with \
+                 {}, headers included, for anything on this {noun} to read. Restart ngrok with \
                  --inspect=false.",
                 t.url
             ));

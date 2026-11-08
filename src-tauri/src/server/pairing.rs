@@ -471,7 +471,10 @@ fn pair_failure(state: &AppState, ctx: &ClientContext, err: ApiError) -> ApiErro
 fn invalid_code() -> ApiError {
     ApiError::not_found(
         "invalid_code",
-        "This pairing code is invalid or has expired. Ask for a new one on your Mac.",
+        format!(
+            "This pairing code is invalid or has expired. Ask for a new one on your {}.",
+            crate::claude::paths::machine_noun()
+        ),
     )
 }
 
@@ -561,8 +564,11 @@ pub fn exchange(
                 ctx,
                 ApiError::conflict(
                     "code_already_used",
-                    "This code was already used by another device. Ask for a new code on \
-                     your Mac.",
+                    format!(
+                        "This code was already used by another device. Ask for a new code on \
+                         your {}.",
+                        crate::claude::paths::machine_noun()
+                    ),
                 ),
             ));
         }
@@ -575,8 +581,11 @@ pub fn exchange(
                     ctx,
                     ApiError::forbidden(
                         "wrong_network",
-                        "This code is for your home network and cannot be used through a \
-                         tunnel or proxy. On your Mac, create an Internet code instead.",
+                        format!(
+                            "This code is for your home network and cannot be used through a \
+                             tunnel or proxy. On your {}, create an Internet code instead.",
+                            crate::claude::paths::machine_noun()
+                        ),
                     ),
                 ));
             }
@@ -763,7 +772,10 @@ pub fn poll(
     if p.contested {
         return Ok(json!({
             "status": "contested",
-            "message": "This code was already used by another device. Ask for a new code on your Mac.",
+            "message": format!(
+                "This code was already used by another device. Ask for a new code on your {}.",
+                crate::claude::paths::machine_noun()
+            ),
         }));
     }
     Ok(match p.status {

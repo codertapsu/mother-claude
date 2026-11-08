@@ -359,8 +359,11 @@ pub fn compute(input: &CapsInput) -> ControlCaps {
     let install = || {
         limit(
             codes::INSTALL,
-            "Install foreign-session control on the Mac to approve and message this session \
-             from here.",
+            &format!(
+                "Install foreign-session control on the {} to approve and message this \
+                 session from here.",
+                crate::claude::paths::machine_noun()
+            ),
             Some(LimitAction::InstallForeignControl),
         )
     };

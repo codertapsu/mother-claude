@@ -948,8 +948,11 @@ async fn check_defaults(
             } else {
                 return Err(BridgeError::forbidden(
                     "untrusted_cwd",
-                    "That folder has never been opened in Claude Code on this Mac, so it can \
-                     only be the bridge's default from the desktop app.",
+                    format!(
+                        "That folder has never been opened in Claude Code on this {}, so it can \
+                         only be the bridge's default from the desktop app.",
+                        crate::claude::paths::machine_noun()
+                    ),
                 )
                 .with("field", "cwd"));
             }

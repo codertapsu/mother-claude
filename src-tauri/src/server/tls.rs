@@ -464,6 +464,7 @@ pub fn ensure_cert(dir: &Path, ips: &[IpAddr]) -> Result<CertBundle> {
 /// Settings).
 pub fn mobileconfig(ca_der: &[u8]) -> String {
     use base64::Engine as _;
+    let noun = crate::claude::paths::machine_noun();
     let b64 = base64::engine::general_purpose::STANDARD.encode(ca_der);
     let digest = Sha256::digest(ca_der);
     let uuid = |salt: u8| {
@@ -504,7 +505,7 @@ pub fn mobileconfig(ca_der: &[u8]) -> String {
     </dict>
   </array>
   <key>PayloadDisplayName</key>
-  <string>Mother Claude (this Mac)</string>
+  <string>Mother Claude (this {noun})</string>
   <key>PayloadIdentifier</key>
   <string>dev.motherclaude.profile.{outer}</string>
   <key>PayloadRemovalDisallowed</key>

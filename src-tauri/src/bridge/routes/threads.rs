@@ -237,9 +237,12 @@ impl CreateThread {
         if untrusted {
             return Err(BridgeError::forbidden(
                 "untrusted_cwd",
-                "That folder has never been opened in Claude Code on this Mac, so its project \
-                 hooks and MCP servers are untrusted. Open it in Claude Code once, or start \
-                 the conversation from the desktop app.",
+                format!(
+                    "That folder has never been opened in Claude Code on this {}, so its \
+                     project hooks and MCP servers are untrusted. Open it in Claude Code once, \
+                     or start the conversation from the desktop app.",
+                    crate::claude::paths::machine_noun()
+                ),
             )
             .with("field", "cwd"));
         }
