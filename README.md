@@ -78,7 +78,7 @@ undocumented protocol). So:
 Design intent: make the dashboard the *launcher* so "full control" is the norm.
 See [ARCHITECTURE.md](ARCHITECTURE.md) and [KNOWN_ISSUES.md](KNOWN_ISSUES.md).
 
-## Good to know (a short version is in the app → Settings → Good to know)
+## Good to know (a short version is in the app → Help → Good to know)
 
 - **Your laptop is the brain.** Mother Claude runs on your laptop and bridges it
   to your phone — it isn't a cloud. Keep the laptop **awake** (plugged in, sleep
