@@ -219,6 +219,7 @@ const TOPICS: HelpTopicSource[] = [
         tips: [
           'Trên ứng dụng máy tính, nút ở cuối thanh bên cũng đổi được giao diện.',
           'Mỗi thiết bị giữ lựa chọn riêng: ứng dụng máy tính và điện thoại của bạn có thể khác nhau.',
+          'Một số nội dung vẫn bằng tiếng Anh dù bạn chọn ngôn ngữ nào: những gì dịch vụ của ứng dụng máy tính tự viết (thông báo lỗi, lý do trên trang **Công suất**, các quyết định trong cuộc trò chuyện, thông báo trên điện thoại) và tiện ích trình duyệt.',
         ],
       },
       {

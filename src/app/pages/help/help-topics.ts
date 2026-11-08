@@ -208,6 +208,7 @@ const TOPICS: HelpTopicSource[] = [
         tips: [
           'On the desktop app, the button at the bottom of the sidebar switches the theme too.',
           'Each device keeps its own choices: the desktop app and your phone can differ.',
+          "Some text still comes in English whatever the language: what the desktop app's own service writes (error messages, the reasons on **Capacity**, decisions in a conversation, notifications on your phone) and the browser extension.",
         ],
       },
       {
