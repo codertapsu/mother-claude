@@ -106,8 +106,8 @@ const ROWS = 30;
                   </p>
                 }
                 @if (p.sessions.length) {
-                  <h4>{{ 'What goes' | t }}</h4>
-                  <ul class="plist" [attr.aria-label]="'What goes' | t">
+                  <h4>{{ 'What goes||delete' | t }}</h4>
+                  <ul class="plist" [attr.aria-label]="'What goes||delete' | t">
                     @for (s of shown(); track s.id + (s.account ?? '')) {
                       <li>
                         <span class="ptitle">{{ titleOf(s) }}</span>

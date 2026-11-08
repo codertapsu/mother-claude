@@ -117,7 +117,7 @@ export function usageLine(u: PlanUsage | null | undefined, now: number): string 
     return left ? `${reached} · ${left}` : reached;
   }
   return compactWindows(u.windows, now)
-    .map(({ window: w, short }) => `${short} ${windowPct(w, now)}%`)
+    .map(({ window: w, short }) => `${tr(short)} ${windowPct(w, now)}%`)
     .join(' · ');
 }
 
