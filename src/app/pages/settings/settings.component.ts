@@ -13,6 +13,7 @@ import { PLAN_INTERVALS, planIntervalLabel } from '../../core/plan-usage';
 import { PlanUsageService } from '../../core/plan-usage.service';
 import { PushService } from '../../core/push.service';
 import { RealtimeService, connectionLabel } from '../../core/realtime.service';
+import { computerNoun, tr } from '../../core/i18n/i18n';
 import { I18nService } from '../../core/i18n/i18n.service';
 import { TPipe } from '../../core/i18n/t.pipe';
 import {
@@ -30,6 +31,7 @@ import { UpdaterComponent } from '../../shared/updater.component';
 type PrefKey =
   'permission' | 'question' | 'plan' | 'finished' | 'failed' | 'claude' | 'idle' | 'showDetails';
 
+/** Each push event's switch (English: translated where shown). */
 const PREF_ROWS: { key: PrefKey; label: string; hint: string }[] = [
   { key: 'permission', label: 'Permission requests', hint: 'A tool call waits for approval' },
   { key: 'question', label: 'Questions', hint: 'Claude asks you something' },
@@ -53,6 +55,7 @@ const PREF_ROWS: { key: PrefKey; label: string; hint: string }[] = [
   },
 ];
 
+/** The network a request came from (English: translated where shown). */
 const INGRESS: Record<string, string> = {
   loopback: 'This computer',
   lan: 'Local network',
@@ -95,10 +98,12 @@ export class SettingsComponent {
     if (list.length > 1) {
       const d = this.accounts.view()?.defaults;
       const next = this.accounts.byId(d?.newSession)?.name ?? 'Default';
-      return `${list.length} accounts · new sessions run under ${next}`;
+      return tr('{n} accounts · new sessions run under {name}', { n: list.length, name: next });
     }
-    return 'Several Claude accounts side by side, e.g. to carry on when one reaches its limit';
+    return tr('Several Claude accounts side by side, e.g. to carry on when one reaches its limit');
   });
+  /** The desktop's computer, in sentences. */
+  protected readonly computer = computerNoun;
   protected readonly planIntervals = PLAN_INTERVALS;
   protected readonly planIntervalLabel = planIntervalLabel;
   protected readonly planSaving = signal(false);
@@ -127,10 +132,10 @@ export class SettingsComponent {
   protected readonly isDevice = computed(() => this.me()?.principal === 'device');
   protected readonly dangerousLabel = computed(() => {
     const m = this.me();
-    if (!m) return this.cfg()?.desktop ? 'Allowed (this computer)' : '—';
-    if (m.principal === 'desktop') return 'Allowed (this computer)';
-    if (m.allowDangerous) return 'Allowed for this device on this network';
-    return 'Only from the Mac';
+    if (!m) return this.cfg()?.desktop ? tr('Allowed (this computer)') : '—';
+    if (m.principal === 'desktop') return tr('Allowed (this computer)');
+    if (m.allowDangerous) return tr('Allowed for this device on this network');
+    return tr('Only from the {computer}', { computer: computerNoun() });
   });
 
   protected readonly ingress = computed(() => {
@@ -138,7 +143,7 @@ export class SettingsComponent {
     // `effectiveIngress` is the network the request really came from.
     const m = this.me();
     const i = m?.effectiveIngress ?? m?.ingress;
-    return i ? (INGRESS[i] ?? i) : '—';
+    return i ? (INGRESS[i] ? tr(INGRESS[i]) : i) : '—';
   });
   protected readonly secure = window.isSecureContext;
 
@@ -207,9 +212,9 @@ export class SettingsComponent {
     this.testSent.set('');
     try {
       await this.api.pushTest();
-      this.testSent.set('Test notification sent.');
+      this.testSent.set(tr('Test notification sent.'));
     } catch (e) {
-      this.testSent.set(`Could not send: ${errorMessage(e)}`);
+      this.testSent.set(tr('Could not send: {error}', { error: errorMessage(e) }));
     }
   }
 

@@ -69,6 +69,12 @@ section.card {
 
 /* ─────────────── Appearance: accent swatches and background tiles */
 
+/* A row's name keeps its width: when the choices beside it don't fit (the
+   Vietnamese theme names on a phone), they go under it instead. */
+.appearance .row > .grow {
+  flex: 1 0 auto;
+}
+
 .appearance .pick {
   display: flex;
   flex-direction: column;

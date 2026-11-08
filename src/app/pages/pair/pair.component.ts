@@ -5,6 +5,8 @@ import { Router, RouterLink } from '@angular/router';
 import { ApiError, ApiService, errorMessage } from '../../core/api.service';
 import { AuthService } from '../../core/auth.service';
 import { DeviceService } from '../../core/device.service';
+import { computerNoun, tr } from '../../core/i18n/i18n';
+import { TPipe } from '../../core/i18n/t.pipe';
 import { describeDevice, isIos, isStandalone, urlParam } from '../../core/platform';
 import { RealtimeService } from '../../core/realtime.service';
 import { IconComponent } from '../../shared/icon.component';
@@ -48,49 +50,57 @@ function groupCode(code: string): string {
  */
 @Component({
   selector: 'mc-pair',
-  imports: [FormsModule, RouterLink, IconComponent],
+  imports: [FormsModule, RouterLink, IconComponent, TPipe],
   template: `
     <div class="pair">
       <div class="hero">
         <span class="logo" aria-hidden="true"></span>
-        <h1>{{ isDesktop() ? 'Pair a phone' : 'Pair this device' }}</h1>
+        <h1>{{ isDesktop() ? ('Pair a phone' | t) : ('Pair this device' | t) }}</h1>
       </div>
 
       @if (revoked() && phase() === 'enter') {
         <p class="notice warn" role="alert">
-          <strong>This device is no longer paired.</strong> It was removed on the desktop (or its
-          pairing expired). Pair it again with a new code.
+          <strong>{{ 'This device is no longer paired.' | t }}</strong>
+          {{
+            'It was removed on the desktop (or its pairing expired). Pair it again with a new code.'
+              | t
+          }}
         </p>
       }
 
       @if (isDesktop()) {
         <div class="card">
           <p>
-            This is the desktop app. To connect a phone, open <strong>Remote</strong>, choose LAN or
-            Internet, and scan the QR code with the phone's camera.
+            {{ 'This is the desktop app. To connect a phone, open' | t }}
+            <strong>{{ 'Remote' | t }}</strong
+            >{{ ", choose LAN or Internet, and scan the QR code with the phone's camera." | t }}
           </p>
-          <a class="btn primary" routerLink="/remote"><mc-icon name="qr" /> Open Remote</a>
+          <a class="btn primary" routerLink="/remote"
+            ><mc-icon name="qr" /> {{ 'Open Remote' | t }}</a
+          >
         </div>
       } @else if (alreadyPaired() && (phase() === 'enter' || phase() === 'error')) {
         <div class="card">
-          <p><mc-icon name="check" /> This device is paired with Mother Claude.</p>
+          <p><mc-icon name="check" /> {{ 'This device is paired with Mother Claude.' | t }}</p>
           @if (phase() === 'error') {
             <p class="notice error" role="alert">{{ error() }}</p>
           } @else if (codeValid()) {
             <p class="muted small">
-              You scanned a new pairing code, but this device already works. Pairing again replaces
-              its current pairing (the old one is removed from your Mac).
+              {{
+                'You scanned a new pairing code, but this device already works. Pairing again replaces its current pairing (the old one is removed from your {computer}).'
+                  | t: { computer: computer() }
+              }}
             </p>
           }
           <div class="row">
-            <a class="btn primary" routerLink="/">Open sessions</a>
+            <a class="btn primary" routerLink="/">{{ 'Open sessions' | t }}</a>
             @if (codeValid() && phase() === 'enter') {
               <button class="btn" type="button" [disabled]="busy()" (click)="pairAgain()">
-                Pair again
+                {{ 'Pair again' | t }}
               </button>
             }
             <button class="btn" type="button" [disabled]="busy()" (click)="forget()">
-              {{ busy() ? 'Unpairing…' : 'Forget this device' }}
+              {{ busy() ? ('Unpairing…' | t) : ('Forget this device' | t) }}
             </button>
           </div>
         </div>
@@ -99,27 +109,37 @@ function groupCode(code: string): string {
           @case ('exchanging') {
             <div class="card center" role="status">
               <span class="spinner" aria-hidden="true"></span>
-              <p>Pairing…</p>
+              <p>{{ 'Pairing…' | t }}</p>
             </div>
           }
           @case ('waiting') {
             <div class="card center" role="status">
-              <p class="big-label">Approve this device on your Mac</p>
-              <p class="muted">On the Mac, type this number to approve it:</p>
+              <p class="big-label">
+                {{ 'Approve this device on your {computer}' | t: { computer: computer() } }}
+              </p>
+              <p class="muted">
+                {{
+                  'On the {computer}, type this number to approve it:' | t: { computer: computer() }
+                }}
+              </p>
               <p
                 class="fingerprint"
-                [attr.aria-label]="'Number: ' + fingerprint().split('').join(' ')"
+                [attr.aria-label]="
+                  'Number: {digits}' | t: { digits: fingerprint().split('').join(' ') }
+                "
               >
                 {{ fingerprint() }}
               </p>
-              <p class="muted small">Waiting for approval… (this page updates by itself)</p>
-              <button class="btn" type="button" (click)="cancel()">Cancel</button>
+              <p class="muted small">
+                {{ 'Waiting for approval… (this page updates by itself)' | t }}
+              </p>
+              <button class="btn" type="button" (click)="cancel()">{{ 'Cancel' | t }}</button>
             </div>
           }
           @case ('done') {
             <div class="card center" role="status">
-              <p class="big-label"><mc-icon name="check" /> Paired</p>
-              <p class="muted">Opening your sessions…</p>
+              <p class="big-label"><mc-icon name="check" /> {{ 'Paired' | t }}</p>
+              <p class="muted">{{ 'Opening your sessions…' | t }}</p>
             </div>
           }
           @default {
@@ -128,21 +148,29 @@ function groupCode(code: string): string {
             }
             <div class="card">
               <ol class="steps">
-                <li>On your computer, open <strong>Mother Claude → Remote</strong>.</li>
                 <li>
-                  Scan the QR code with this device's camera — or type the code shown under it here.
+                  {{ 'On your computer, open' | t }}
+                  <strong>{{ 'Mother Claude → Remote' | t }}</strong
+                  >.
+                </li>
+                <li>
+                  {{
+                    "Scan the QR code with this device's camera — or type the code shown under it here."
+                      | t
+                  }}
                 </li>
               </ol>
               @if (homeScreenApp()) {
                 <p class="notice small">
-                  This Home Screen app keeps its own storage, separate from Safari, so it needs its
-                  own pairing. In a paired Safari tab open Settings › Set up the Home Screen app (or
-                  create a code on the Mac), then type the code below.
+                  {{
+                    'This Home Screen app keeps its own storage, separate from Safari, so it needs its own pairing. In a paired Safari tab open Settings › Set up the Home Screen app (or create a code on the {computer}), then type the code below.'
+                      | t: { computer: computer() }
+                  }}
                 </p>
               }
               <form class="form" (submit)="submit($event)">
                 <label class="field">
-                  <span class="field-label">Pairing code</span>
+                  <span class="field-label">{{ 'Pairing code' | t }}</span>
                   <input
                     class="code"
                     name="code"
@@ -157,7 +185,7 @@ function groupCode(code: string): string {
                   />
                 </label>
                 <label class="field">
-                  <span class="field-label">Name for this device</span>
+                  <span class="field-label">{{ 'Name for this device' | t }}</span>
                   <input
                     name="deviceName"
                     [ngModel]="deviceName()"
@@ -166,48 +194,63 @@ function groupCode(code: string): string {
                   />
                 </label>
                 <button class="btn primary block" type="submit" [disabled]="!codeValid()">
-                  <mc-icon name="key" /> Pair
+                  <mc-icon name="key" /> {{ 'Pair' | t }}
                 </button>
               </form>
             </div>
             <p class="muted small foot">
-              Codes work once and expire after 5 minutes. Pairing stores a device key in this
-              browser only; the desktop can revoke it at any time.
+              {{
+                'Codes work once and expire after 5 minutes. Pairing stores a device key in this browser only; the desktop can revoke it at any time.'
+                  | t
+              }}
             </p>
             @if (lan()) {
               <details class="card trust">
                 <summary>
-                  <mc-icon name="shield" [size]="16" /> Trust this Mac (recommended)
+                  <mc-icon name="shield" [size]="16" />
+                  {{ 'Trust this {computer} (recommended)' | t: { computer: computer() } }}
                 </summary>
                 <p class="small">
-                  On your home network the Mac uses its own certificate, so the browser warns once
-                  ("Not private"). Until the phone trusts it, live updates may fall back to
-                  refreshing every few seconds and notifications stay off.
+                  {{
+                    'On your home network the {computer} uses its own certificate, so the browser warns once ("Not private"). Until the phone trusts it, live updates may fall back to refreshing every few seconds and notifications stay off.'
+                      | t: { computer: computer() }
+                  }}
                 </p>
                 @if (caAvailable()) {
                   <ol class="steps small">
                     @if (ios()) {
                       <li>
-                        <a href="/api/pair/ca.mobileconfig">Download the profile</a>, then open
-                        Settings › General › VPN &amp; Device Management and install it.
+                        <a href="/api/pair/ca.mobileconfig">{{ 'Download the profile' | t }}</a
+                        >{{
+                          ', then open Settings › General › VPN & Device Management and install it.'
+                            | t
+                        }}
                       </li>
                       <li>
-                        Settings › General › About › Certificate Trust Settings: turn on full trust
-                        for “Mother Claude”.
+                        {{
+                          'Settings › General › About › Certificate Trust Settings: turn on full trust for “Mother Claude”.'
+                            | t
+                        }}
                       </li>
                     } @else {
                       <li>
-                        <a href="/api/pair/ca.crt" download>Download the Mac's certificate</a> and
-                        open it to install it (Android: Settings › Security › Install a certificate
-                        › CA certificate).
+                        <a href="/api/pair/ca.crt" download>{{
+                          "Download the {computer}'s certificate" | t: { computer: computer() }
+                        }}</a>
+                        {{
+                          'and open it to install it (Android: Settings › Security › Install a certificate › CA certificate).'
+                            | t
+                        }}
                       </li>
                     }
-                    <li>Reload this page.</li>
+                    <li>{{ 'Reload this page.' | t }}</li>
                   </ol>
                 } @else {
                   <p class="small">
-                    Tap “Show Details” › “visit this website” on the warning once. If live updates
-                    still don't connect, the app keeps working by refreshing every few seconds.
+                    {{
+                      "Tap “Show Details” › “visit this website” on the warning once. If live updates still don't connect, the app keeps working by refreshing every few seconds."
+                        | t
+                    }}
                   </p>
                 }
               </details>
@@ -316,6 +359,9 @@ export class PairComponent {
   private router = inject(Router);
 
   protected readonly isDesktop = this.auth.isDesktop;
+  /** The desktop's computer, in sentences ("computer" until this device
+   * knows which system the desktop runs). */
+  protected readonly computer = computerNoun;
   protected readonly phase = signal<Phase>('enter');
   protected readonly code = signal('');
   protected readonly deviceName = signal(describeDevice().name);
@@ -432,19 +478,26 @@ export class PairComponent {
         switch (st.status) {
           case 'approved':
             if (st.token) void this.finish(st.token);
-            else this.fail(new Error('Approved, but the server sent no device key. Try again.'));
+            else {
+              this.fail(new Error(tr('Approved, but the server sent no device key. Try again.')));
+            }
             return;
           case 'denied':
-            this.fail(new Error('The desktop declined this device.'));
+            this.fail(new Error(tr('The desktop declined this device.')));
             return;
           case 'expired':
-            this.fail(new Error('The request expired before it was approved. Scan a new code.'));
+            this.fail(
+              new Error(tr('The request expired before it was approved. Scan a new code.')),
+            );
             return;
           case 'contested':
             this.fail(
               new Error(
                 st.message ||
-                  'This code was used by another device too, so it cannot be approved. Ask for a new code on your Mac.',
+                  tr(
+                    'This code was used by another device too, so it cannot be approved. Ask for a new code on your {computer}.',
+                    { computer: computerNoun() },
+                  ),
               ),
             );
             return;
@@ -479,13 +532,17 @@ export class PairComponent {
     if (e instanceof ApiError) {
       if (e.status === 429) {
         this.error.set(
-          `Too many attempts. Wait ${e.retryAfter ? `${e.retryAfter} s` : 'a minute'}, then try again.`,
+          e.retryAfter
+            ? tr('Too many attempts. Wait {n} s, then try again.', { n: e.retryAfter })
+            : tr('Too many attempts. Wait a minute, then try again.'),
         );
       } else if (e.code === 'wrong_network' || e.code === 'code_already_used') {
         this.error.set(e.message);
       } else if ([400, 403, 404, 409, 410, 422].includes(e.status)) {
         this.error.set(
-          'That code is not valid. Codes work once and expire after 5 minutes — create a new one on the desktop.',
+          tr(
+            'That code is not valid. Codes work once and expire after 5 minutes — create a new one on the desktop.',
+          ),
         );
       } else {
         this.error.set(errorMessage(e));

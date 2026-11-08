@@ -2,6 +2,8 @@ import { Component, computed, inject, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
 
 import { ApiService, errorMessage } from '../../core/api.service';
+import { tr } from '../../core/i18n/i18n';
+import { TPipe } from '../../core/i18n/t.pipe';
 import { AccountRef, ServicesInfo } from '../../core/models';
 import { RealtimeService } from '../../core/realtime.service';
 import { AccountChipComponent } from '../../shared/account-chip.component';
@@ -13,19 +15,20 @@ import { McpPanelComponent } from './mcp-panel.component';
  * the Agents page. */
 @Component({
   selector: 'mc-services',
-  imports: [RouterLink, AccountChipComponent, IconComponent, McpPanelComponent],
+  imports: [RouterLink, AccountChipComponent, IconComponent, McpPanelComponent, TPipe],
   template: `
     <div class="page narrow">
       <div class="page-head">
-        <h1>Services</h1>
+        <h1>{{ 'Services' | t }}</h1>
         <span class="spacer"></span>
         <button class="btn small" type="button" [disabled]="loading()" (click)="load()">
-          <mc-icon name="refresh" [size]="14" /> Refresh
+          <mc-icon name="refresh" [size]="14" /> {{ 'Refresh' | t }}
         </button>
       </div>
       <p class="lede">
-        Running subagents, workflows and background shells are on the
-        <a routerLink="/agents">Agents</a> page.
+        {{ 'Running subagents, workflows and background shells are on the' | t }}
+        <a routerLink="/agents">{{ 'Agents page' | t }}</a
+        >.
       </p>
 
       @if (error()) {
@@ -35,19 +38,19 @@ import { McpPanelComponent } from './mcp-panel.component';
       <mc-mcp-panel />
 
       @if (data(); as d) {
-        <h2>Daemon</h2>
+        <h2>{{ 'Daemon' | t }}</h2>
         <div class="card">
           <span
             class="badge"
             [class.ok]="d.daemon?.reachable"
             [class.danger]="!d.daemon?.reachable"
           >
-            {{ d.daemon?.reachable ? 'reachable' : 'unreachable' }}
+            {{ d.daemon?.reachable ? ('reachable' | t) : ('unreachable' | t) }}
           </span>
-          <pre class="mono out">{{ d.daemon?.raw || d.daemon?.error || 'no output' }}</pre>
+          <pre class="mono out">{{ d.daemon?.raw || d.daemon?.error || ('no output' | t) }}</pre>
         </div>
 
-        <h2>MCP servers</h2>
+        <h2>{{ 'MCP servers' | t }}</h2>
         @if (mcpNames(d).length) {
           <div class="card list">
             @for (name of mcpNames(d); track name) {
@@ -55,10 +58,10 @@ import { McpPanelComponent } from './mcp-panel.component';
             }
           </div>
         } @else {
-          <p class="muted">None configured in ~/.claude.json.</p>
+          <p class="muted">{{ 'None configured in ~/.claude.json.' | t }}</p>
         }
 
-        <h2>Background jobs (daemon)</h2>
+        <h2>{{ 'Background jobs (daemon)' | t }}</h2>
         @if (d.backgroundJobs?.length) {
           <div class="card list">
             @for (j of d.backgroundJobs; track j.id) {
@@ -71,10 +74,10 @@ import { McpPanelComponent } from './mcp-panel.component';
             }
           </div>
         } @else {
-          <p class="muted">No background jobs.</p>
+          <p class="muted">{{ 'No background jobs.' | t }}</p>
         }
       } @else if (loading()) {
-        <p class="muted">Loading…</p>
+        <p class="muted">{{ 'Loading…' | t }}</p>
       }
     </div>
   `,
@@ -133,7 +136,7 @@ export class ServicesComponent {
       this.data.set(await this.api.getServices());
       this.error.set('');
     } catch (e) {
-      this.error.set(`Could not load services: ${errorMessage(e)}`);
+      this.error.set(tr('Could not load services: {error}', { error: errorMessage(e) }));
     } finally {
       this.loading.set(false);
     }

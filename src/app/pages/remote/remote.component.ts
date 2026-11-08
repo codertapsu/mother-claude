@@ -15,6 +15,8 @@ import { RouterLink } from '@angular/router';
 import { MAIN_SERVER, RemoteServer, remoteServers, tunnelServer } from '../../core/api-servers';
 import { ApiError, ApiService, errorMessage } from '../../core/api.service';
 import { AuthService } from '../../core/auth.service';
+import { computerNoun, tr } from '../../core/i18n/i18n';
+import { TPipe } from '../../core/i18n/t.pipe';
 import {
   DetectedTunnel,
   DeviceInfo,
@@ -33,6 +35,7 @@ import { RelativeTimePipe } from '../../shared/time.pipes';
 
 const POLL_MS = 10_000;
 
+/** The network a device came from (English: translated where shown). */
 const INGRESS_LABELS: Record<string, string> = {
   loopback: 'this computer',
   lan: 'local network',
@@ -65,6 +68,7 @@ const PROVIDER_LABELS: Record<string, string> = {
     IconComponent,
     PairApprovalDialogComponent,
     RelativeTimePipe,
+    TPipe,
   ],
   templateUrl: './remote.component.html',
   styleUrl: './remote.component.scss',
@@ -78,6 +82,8 @@ export class RemoteComponent {
   private zone = inject(NgZone);
 
   protected readonly isDesktop = this.auth.isDesktop;
+  /** The desktop's computer, in sentences. */
+  protected readonly computer = computerNoun;
   protected readonly remote = signal<RemoteInfo | null>(null);
   protected readonly devices = signal<DeviceInfo[]>([]);
   protected readonly pendingPairs = signal<PendingPair[]>([]);
@@ -153,9 +159,12 @@ export class RemoteComponent {
   /** "Main: running, port 5612 · Work: stopped, port 5613". */
   protected readonly serversLine = computed(() =>
     this.apiServers()
-      .map(
-        (s) => `${s.name}: ${s.running ? 'running' : 'stopped'}${s.port ? `, port ${s.port}` : ''}`,
-      )
+      .map((s) => {
+        const state = s.running ? tr('running') : tr('stopped');
+        return s.port
+          ? tr('{name}: {state}, port {port}', { name: s.name, state, port: s.port })
+          : tr('{name}: {state}', { name: s.name, state });
+      })
       .join(' · '),
   );
 
@@ -222,7 +231,7 @@ export class RemoteComponent {
       this.qr.set(null);
       this.codeError.set(
         e instanceof ApiError && e.code === 'no_public_url'
-          ? 'No public URL yet: start a tunnel (see Internet access) or enter its URL.'
+          ? tr('No public URL yet: start a tunnel (see Internet access) or enter its URL.')
           : errorMessage(e),
       );
     } finally {
@@ -243,7 +252,7 @@ export class RemoteComponent {
   }
 
   protected pairName(p: PendingPair): string {
-    return p.deviceName || p.name || 'A device';
+    return p.deviceName || p.name || tr('A device');
   }
 
   // ──────────────────────────────────────────────────────────── Internet
@@ -259,7 +268,7 @@ export class RemoteComponent {
   protected async saveManualUrl(): Promise<void> {
     const url = this.manualUrl().trim().replace(/\/+$/, '');
     if (url && !/^https:\/\//i.test(url)) {
-      this.error.set('The public URL must start with https://');
+      this.error.set(tr('The public URL must start with https://'));
       return;
     }
     await this.saveRemote({ manualUrl: url || null });
@@ -277,7 +286,8 @@ export class RemoteComponent {
   // ───────────────────────────────────────────────────────────── Devices
 
   protected ingressLabel(i: string | undefined): string {
-    return i ? (INGRESS_LABELS[i] ?? i) : '';
+    if (!i) return '';
+    return INGRESS_LABELS[i] ? tr(INGRESS_LABELS[i]) : i;
   }
 
   protected startRename(d: DeviceInfo): void {
@@ -333,7 +343,7 @@ export class RemoteComponent {
     await this.withBusy(d.id, async () => {
       await this.api.revokeDevice(d.id);
       this.devices.update((prev) => prev.filter((x) => x.id !== d.id));
-      this.notice.set(`Revoked ${d.name}. It was disconnected immediately.`);
+      this.notice.set(tr('Revoked {name}. It was disconnected immediately.', { name: d.name }));
     });
   }
 
@@ -342,7 +352,7 @@ export class RemoteComponent {
   protected async installForeign(): Promise<void> {
     await this.foreignAction(
       () => this.api.installForeignControl(),
-      'Foreign-session control installed. It takes effect for sessions started from now on.',
+      tr('Foreign-session control installed. It takes effect for sessions started from now on.'),
     );
   }
 
@@ -354,7 +364,7 @@ export class RemoteComponent {
     this.confirming.set(null);
     await this.foreignAction(
       () => this.api.uninstallForeignControl(),
-      'Foreign-session control removed.',
+      tr('Foreign-session control removed.'),
     );
   }
 
@@ -417,7 +427,7 @@ export class RemoteComponent {
     try {
       this.applyRemote(await this.api.getRemote());
     } catch (e) {
-      this.error.set(`Remote settings: ${errorMessage(e)}`);
+      this.error.set(tr('Remote settings: {error}', { error: errorMessage(e) }));
     }
   }
 
@@ -437,7 +447,7 @@ export class RemoteComponent {
       this.pendingPairs.set(list.pending ?? []);
       this.idleDays.set(list.idleDays ?? null);
     } catch (e) {
-      this.error.set(`Devices: ${errorMessage(e)}`);
+      this.error.set(tr('Devices: {error}', { error: errorMessage(e) }));
     }
   }
 

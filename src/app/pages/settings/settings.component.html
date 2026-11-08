@@ -1,23 +1,25 @@
 <div class="page narrow">
-  <div class="page-head"><h1>Settings</h1></div>
+  <div class="page-head">
+    <h1>{{ 'Settings' | t }}</h1>
+  </div>
 
   <!-- ─────────────── Notifications ─────────────── -->
-  <h2>Notifications</h2>
+  <h2>{{ 'Notifications' | t }}</h2>
   <section class="card">
     <div class="list">
       <div class="list-row push">
         <mc-icon name="bell" />
         <div class="grow">
-          <strong>Push notifications</strong>
+          <strong>{{ 'Push notifications' | t }}</strong>
           @switch (push.state()) {
             @case ('on') {
-              <span class="muted small">On for this device.</span>
+              <span class="muted small">{{ 'On for this device.' | t }}</span>
             }
             @case ('denied') {
-              <span class="muted small"
-                >Blocked in the browser's site settings. Allow notifications there, then come
-                back.</span
-              >
+              <span class="muted small">{{
+                "Blocked in the browser's site settings. Allow notifications there, then come back."
+                  | t
+              }}</span>
             }
             @case ('unsupported') {
               <span class="muted small">{{ push.unsupportedReason() }}</span>
@@ -26,15 +28,17 @@
               <span class="error-text small">{{ push.error() }}</span>
             }
             @default {
-              <span class="muted small"
-                >Get a notification when a session needs you, even with the app closed.</span
-              >
+              <span class="muted small">{{
+                'Get a notification when a session needs you, even with the app closed.' | t
+              }}</span>
             }
           }
         </div>
         @if (push.supported()) {
           @if (push.state() === 'on') {
-            <button class="btn small" type="button" (click)="push.disable()">Turn off</button>
+            <button class="btn small" type="button" (click)="push.disable()">
+              {{ 'Turn off' | t }}
+            </button>
           } @else if (push.state() !== 'denied') {
             <button
               class="btn primary small"
@@ -42,7 +46,7 @@
               [disabled]="push.state() === 'working'"
               (click)="push.enable()"
             >
-              {{ push.state() === 'working' ? 'Enabling…' : 'Enable' }}
+              {{ push.state() === 'working' ? ('Enabling…' | t) : ('Enable' | t) }}
             </button>
           }
         }
@@ -58,8 +62,8 @@
                 (change)="togglePref(row.key, $any($event.target).checked)"
               />
               <span class="switch-text">
-                <span>{{ row.label }}</span>
-                <span class="muted small">{{ row.hint }}</span>
+                <span>{{ row.label | t }}</span>
+                <span class="muted small">{{ row.hint | t }}</span>
               </span>
             </label>
           }
@@ -68,7 +72,9 @@
           <p class="error-text small">{{ prefsError() }}</p>
         }
         <div class="list-row">
-          <button class="btn small" type="button" (click)="test()">Send a test</button>
+          <button class="btn small" type="button" (click)="test()">
+            {{ 'Send a test' | t }}
+          </button>
           @if (testSent()) {
             <span class="muted small" role="status">{{ testSent() }}</span>
           }
@@ -82,18 +88,18 @@
           (change)="attention.setAlerts($any($event.target).checked)"
         />
         <span class="switch-text">
-          <span>In-app alerts</span>
-          <span class="muted small"
-            >Vibrate and play a short tone when a new request arrives while the app is open. The
-            waiting count also shows in the tab title.</span
-          >
+          <span>{{ 'In-app alerts' | t }}</span>
+          <span class="muted small">{{
+            'Vibrate and play a short tone when a new request arrives while the app is open. The waiting count also shows in the tab title.'
+              | t
+          }}</span>
         </span>
       </label>
     </div>
   </section>
 
   <!-- ─────────────── Appearance ─────────────── -->
-  <h2>Appearance</h2>
+  <h2>{{ 'Appearance' | t }}</h2>
   <section class="card appearance">
     <div class="row lang-row">
       <span class="grow">{{ 'Language' | t }}</span>
@@ -111,34 +117,34 @@
       </div>
     </div>
     <div class="row">
-      <span class="grow">Theme</span>
-      <div class="segmented" role="group" aria-label="Theme">
+      <span class="grow">{{ 'Theme' | t }}</span>
+      <div class="segmented" role="group" [attr.aria-label]="'Theme' | t">
         <button
           type="button"
           [attr.aria-pressed]="theme.pref() === 'dark'"
           (click)="setTheme('dark')"
         >
-          <mc-icon name="moon" [size]="15" /> Dark
+          <mc-icon name="moon" [size]="15" /> {{ 'Dark' | t }}
         </button>
         <button
           type="button"
           [attr.aria-pressed]="theme.pref() === 'light'"
           (click)="setTheme('light')"
         >
-          <mc-icon name="sun" [size]="15" /> Light
+          <mc-icon name="sun" [size]="15" /> {{ 'Light' | t }}
         </button>
         <button
           type="button"
           [attr.aria-pressed]="theme.pref() === 'system'"
           (click)="setTheme('system')"
         >
-          <mc-icon name="monitor" [size]="15" /> System
+          <mc-icon name="monitor" [size]="15" /> {{ 'System||theme' | t }}
         </button>
       </div>
     </div>
 
     <div class="pick">
-      <span class="pick-label" id="appearance-accent">Accent</span>
+      <span class="pick-label" id="appearance-accent">{{ 'Accent' | t }}</span>
       <div class="swatches" role="radiogroup" aria-labelledby="appearance-accent">
         @for (a of accents; track a.id) {
           <button
@@ -147,8 +153,8 @@
             class="swatch"
             [class.on]="theme.accent() === a.id"
             [attr.aria-checked]="theme.accent() === a.id"
-            [attr.aria-label]="a.label"
-            [title]="a.label"
+            [attr.aria-label]="a.label | t"
+            [title]="a.label | t"
             [style.--sw]="theme.effective() === 'light' ? a.light : a.dark"
             (click)="theme.setAccent(a.id)"
           >
@@ -157,12 +163,12 @@
             }
           </button>
         }
-        <span class="muted small pick-name">{{ accentLabel() }}</span>
+        <span class="muted small pick-name">{{ accentLabel() | t }}</span>
       </div>
     </div>
 
     <div class="pick">
-      <span class="pick-label" id="appearance-surface">Background</span>
+      <span class="pick-label" id="appearance-surface">{{ 'Background' | t }}</span>
       <div class="tiles" role="radiogroup" aria-labelledby="appearance-surface">
         @for (s of surfaces; track s.id) {
           <button
@@ -182,8 +188,8 @@
             >
               <span class="pv-card"><span class="pv-line"></span><span class="pv-dot"></span></span>
             </span>
-            <span class="tname">{{ s.label }}</span>
-            <span class="muted small">{{ s.hint }}</span>
+            <span class="tname">{{ s.label | t }}</span>
+            <span class="muted small">{{ s.hint | t }}</span>
           </button>
         }
       </div>
@@ -191,13 +197,13 @@
   </section>
 
   <!-- ─────────────── Accounts ─────────────── -->
-  <h2>Claude accounts</h2>
+  <h2>{{ 'Claude accounts' | t }}</h2>
   <section class="card">
     <div class="list">
       <a class="list-row link" routerLink="/accounts">
         <mc-icon name="user" />
         <span class="grow">
-          <span>Accounts</span>
+          <span>{{ 'Accounts' | t }}</span>
           <span class="muted small">{{ accountsHint() }}</span>
         </span>
         <mc-icon name="chevronRight" [size]="16" />
@@ -205,11 +211,11 @@
       <a class="list-row link" routerLink="/backup">
         <mc-icon name="cloud" />
         <span class="grow">
-          <span>Backup &amp; sync</span>
-          <span class="muted small"
-            >Encrypted backups of your conversations in a folder you choose, and carrying them to
-            another laptop</span
-          >
+          <span>{{ 'Backup & sync' | t }}</span>
+          <span class="muted small">{{
+            'Encrypted backups of your conversations in a folder you choose, and carrying them to another laptop'
+              | t
+          }}</span>
         </span>
         <mc-icon name="chevronRight" [size]="16" />
       </a>
@@ -218,21 +224,23 @@
 
   <!-- ─────────────── Plan usage ─────────────── -->
   @if (plan.usage(); as u) {
-    <h2>Plan usage</h2>
+    <h2>{{ 'Plan usage' | t }}</h2>
     <section class="card">
       <div class="list">
         <div class="list-row plan-row">
           <mc-icon name="gauge" />
           <div class="grow">
             @if (isDesktop()) {
-              <label for="plan-interval"><strong>Plan usage refresh</strong></label>
+              <label for="plan-interval"
+                ><strong>{{ 'Plan usage refresh' | t }}</strong></label
+              >
             } @else {
-              <strong>Plan usage refresh</strong>
+              <strong>{{ 'Plan usage refresh' | t }}</strong>
             }
-            <span class="muted small"
-              >How often the Mac reads your Claude plan's usage while a dashboard is open and a
-              session is active.</span
-            >
+            <span class="muted small">{{
+              "How often the {computer} reads your Claude plan's usage while a dashboard is open and a session is active."
+                | t: { computer: computer() }
+            }}</span>
           </div>
           @if (isDesktop()) {
             <select
@@ -243,74 +251,84 @@
             >
               @for (o of planIntervals; track o.secs) {
                 <option [value]="o.secs" [selected]="o.secs === u.intervalSecs">
-                  {{ o.label }}
+                  {{ o.label | t }}
                 </option>
               }
               @if (!knownInterval()) {
                 <option [value]="u.intervalSecs" [selected]="true">
-                  {{ planIntervalLabel(u.intervalSecs) }}
+                  {{ planIntervalLabel(u.intervalSecs) | t }}
                 </option>
               }
             </select>
           } @else {
-            <span class="plan-value">{{ planIntervalLabel(u.intervalSecs) }}</span>
+            <span class="plan-value">{{ planIntervalLabel(u.intervalSecs) | t }}</span>
           }
         </div>
       </div>
       <p class="muted small plan-why">
-        Why 5 min: usage moves only a few points in that time and sessions started here report it
-        for free.
+        {{
+          'Why 5 min: usage moves only a few points in that time and sessions started here report it for free.'
+            | t
+        }}
         @if (u.intervalSecs > 0) {
-          While nothing is active it checks only every 30 min.
+          {{ 'While nothing is active it checks only every 30 min.' | t }}
         } @else {
-          Automatic checks are off: it is read when you tap Refresh, and by a session started here
-          when a dashboard connects or a limit is hit.
+          {{
+            'Automatic checks are off: it is read when you tap Refresh, and by a session started here when a dashboard connects or a limit is hit.'
+              | t
+          }}
         }
       </p>
       @if (!isDesktop()) {
-        <p class="muted small plan-why">Change it in the desktop app.</p>
+        <p class="muted small plan-why">{{ 'Change it in the desktop app.' | t }}</p>
       }
       @if (!u.available) {
         <p class="muted small plan-why">
-          This Claude account has no plan usage to show (an API key or a cloud provider has no plan
-          limits).
+          {{
+            'This Claude account has no plan usage to show (an API key or a cloud provider has no plan limits).'
+              | t
+          }}
         </p>
       }
     </section>
   }
 
   <!-- ─────────────── Connection ─────────────── -->
-  <h2>Connection</h2>
+  <h2>{{ 'Connection' | t }}</h2>
   <section class="card">
     @if (cfg(); as c) {
       <dl class="kv">
-        <dt>Server</dt>
+        <dt>{{ 'Server' | t }}</dt>
         <dd class="mono">{{ c.baseUrl }}</dd>
-        <dt>This app</dt>
+        <dt>{{ 'This app' | t }}</dt>
         <dd>
-          {{ c.mock ? 'Mock data (dev)' : c.desktop ? 'Desktop app' : 'Browser' }}
+          {{ c.mock ? ('Mock data (dev)' | t) : c.desktop ? ('Desktop app' | t) : ('Browser' | t) }}
           @if (!secure) {
-            <span class="muted small">· not a secure context</span>
+            <span class="muted small">· {{ 'not a secure context' | t }}</span>
           }
         </dd>
-        <dt>Signed in as</dt>
+        <dt>{{ 'Signed in as' | t }}</dt>
         <dd>
           @if (me(); as m) {
-            {{ m.principal === 'desktop' ? 'This computer (desktop)' : m.name || 'Paired device' }}
+            {{
+              m.principal === 'desktop'
+                ? ('This computer (desktop)' | t)
+                : m.name || ('Paired device' | t)
+            }}
           } @else {
-            {{ c.desktop ? 'This computer (desktop)' : '—' }}
+            {{ c.desktop ? ('This computer (desktop)' | t) : '—' }}
           }
         </dd>
-        <dt>Network</dt>
+        <dt>{{ 'Network' | t }}</dt>
         <dd>{{ ingress() }}</dd>
-        <dt>Dangerous actions</dt>
+        <dt>{{ 'Dangerous actions' | t }}</dt>
         <dd>{{ dangerousLabel() }}</dd>
-        <dt>Live updates</dt>
+        <dt>{{ 'Live updates' | t }}</dt>
         <dd>{{ connection() }}</dd>
       </dl>
       <div class="row actions">
         <button class="btn small" type="button" (click)="reconnect()">
-          <mc-icon name="refresh" [size]="14" /> Reconnect
+          <mc-icon name="refresh" [size]="14" /> {{ 'Reconnect' | t }}
         </button>
         @if (!c.desktop) {
           <button
@@ -320,12 +338,12 @@
             (click)="forget()"
           >
             <mc-icon name="logout" [size]="14" />
-            {{ confirmForget() ? 'Tap again to unpair' : 'Unpair this device' }}
+            {{ confirmForget() ? ('Tap again to unpair' | t) : ('Unpair this device' | t) }}
           </button>
         }
         @if (isDesktop()) {
           <a class="btn small" routerLink="/remote"
-            ><mc-icon name="qr" [size]="14" /> Pair a phone</a
+            ><mc-icon name="qr" [size]="14" /> {{ 'Pair a phone' | t }}</a
           >
         }
       </div>
@@ -333,12 +351,13 @@
   </section>
 
   @if (isDevice()) {
-    <h2>Home Screen app</h2>
+    <h2>{{ 'Home Screen app' | t }}</h2>
     <section class="card">
       <p class="small">
-        On iPhone and iPad the Home Screen app keeps its own storage, so it pairs separately. Add
-        Mother Claude to your Home Screen (Share › Add to Home Screen), then get a one-time code
-        here and type it on the app's Pair page.
+        {{
+          "On iPhone and iPad the Home Screen app keeps its own storage, so it pairs separately. Add Mother Claude to your Home Screen (Share › Add to Home Screen), then get a one-time code here and type it on the app's Pair page."
+            | t
+        }}
       </p>
       <div class="row actions">
         <button
@@ -348,12 +367,14 @@
           (click)="homeScreenCode()"
         >
           <mc-icon name="key" [size]="14" />
-          {{ selfCodeBusy() ? 'Creating…' : 'Set up the Home Screen app' }}
+          {{ selfCodeBusy() ? ('Creating…' | t) : ('Set up the Home Screen app' | t) }}
         </button>
       </div>
       @if (selfCode(); as sc) {
-        <p class="self-code mono" aria-label="Pairing code">{{ sc.display || sc.code }}</p>
-        <p class="muted small">Works once, for 5 minutes, and only for this device.</p>
+        <p class="self-code mono" [attr.aria-label]="'Pairing code' | t">
+          {{ sc.display || sc.code }}
+        </p>
+        <p class="muted small">{{ 'Works once, for 5 minutes, and only for this device.' | t }}</p>
       }
       @if (selfCodeError()) {
         <p class="error-text small">{{ selfCodeError() }}</p>
@@ -362,31 +383,36 @@
   }
 
   @if (desktopApp()) {
-    <h2>Software updates</h2>
+    <h2>{{ 'Software updates' | t }}</h2>
     <mc-updater />
 
-    <h2>Permissions</h2>
+    <h2>{{ 'Permissions' | t }}</h2>
     <mc-permissions-list />
   }
 
   <!-- ─────────────── About ─────────────── -->
-  <h2>About</h2>
+  <h2>{{ 'About' | t }}</h2>
   <section class="card">
     <p class="about">
       <strong>Mother Claude</strong>
       @if (updater.currentVersion()) {
         <span class="muted">v{{ updater.currentVersion() }}</span>
       }
-      — monitor and control every Claude Code session on your computer, from the desktop or your
-      phone.
+      —
+      {{
+        'monitor and control every Claude Code session on your computer, from the desktop or your phone.'
+          | t
+      }}
     </p>
     <div class="list">
       <a class="list-row link" routerLink="/help">
-        <mc-icon name="question" /> <span class="grow">Help — how to use every feature</span>
+        <mc-icon name="question" />
+        <span class="grow">{{ 'Help — how to use every feature' | t }}</span>
         <mc-icon name="chevronRight" [size]="16" />
       </a>
       <a class="list-row link" routerLink="/services">
-        <mc-icon name="activity" /> <span class="grow">Services (daemon, MCP servers)</span>
+        <mc-icon name="activity" />
+        <span class="grow">{{ 'Services (daemon, MCP servers)' | t }}</span>
         <mc-icon name="chevronRight" [size]="16" />
       </a>
       <a class="list-row link" routerLink="/api">
