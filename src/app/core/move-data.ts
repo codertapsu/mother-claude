@@ -684,6 +684,9 @@ export interface MoveBody {
   mode: TransferMode;
   trust: boolean;
   replaceExisting: boolean;
+  /** Out of a storage: replace the copies the account has with the set's
+   * (the ones here kept for Undo). */
+  force?: boolean;
   dryRun?: boolean;
 }
 
@@ -698,6 +701,8 @@ export interface MoveChoice {
   mode: TransferMode;
   trust: boolean;
   replaceExisting: boolean;
+  /** Replace the copies the account has with the set's ([`MoveBody.force`]). */
+  force?: boolean;
 }
 
 /** The request for a choice (without `dryRun`). */
@@ -717,15 +722,17 @@ export function moveBody(c: MoveChoice): MoveBody {
     mode: c.what === 'customizations' ? 'copy' : c.mode,
     trust: c.what !== 'customizations' && c.trust,
     replaceExisting: c.what === 'customizations' && c.replaceExisting,
+    ...(c.force && c.what !== 'customizations' ? { force: true } : {}),
   };
 }
 
 // ─────────────────────────────────────────────────────────── The plan
 
-export type MoveAction = 'move' | 'copy' | 'assign' | 'archive' | 'restore';
+/** `replace`: restored over the copy the account has (a force restore). */
+export type MoveAction = 'move' | 'copy' | 'assign' | 'archive' | 'restore' | 'replace';
 export type CustomizationAction = 'add' | 'replace' | 'skip' | 'merge';
 
-const ACTIONS: readonly MoveAction[] = ['move', 'copy', 'assign', 'archive', 'restore'];
+const ACTIONS: readonly MoveAction[] = ['move', 'copy', 'assign', 'archive', 'restore', 'replace'];
 const CUSTOM_ACTIONS: readonly CustomizationAction[] = ['add', 'replace', 'skip', 'merge'];
 
 export interface MovePlanSession {
@@ -884,6 +891,7 @@ const VERBS: Record<MoveAction, string> = {
   assign: 'assigns {conversations}',
   archive: 'archives {conversations}',
   restore: 'restores {conversations}',
+  replace: "replaces {conversations} with the set's copies",
 };
 
 const ACTION_LABELS: Record<MoveAction, string> = {
@@ -892,11 +900,26 @@ const ACTION_LABELS: Record<MoveAction, string> = {
   assign: 'Assign',
   archive: 'Archive',
   restore: 'Restore',
+  replace: 'Replace',
 };
 
 /** "Archive": what happens to one conversation, as a tag. */
 export function actionLabel(action: MoveAction): string {
   return tr(ACTION_LABELS[action]);
+}
+
+/** Skip codes a force restore (Replace) takes instead: the account has
+ * another copy than the set's. */
+const REPLACEABLE = new Set(['newer_in_set', 'newer_here']);
+
+/** What Replace would take that the plan leaves out: how many, and how many
+ * of those the set has a newer copy of. */
+export function replaceable(p: MovePlan): { count: number; newerInSet: number } {
+  const skips = p.skipped.filter((s) => REPLACEABLE.has(s.code));
+  return {
+    count: skips.length,
+    newerInSet: skips.filter((s) => s.code === 'newer_in_set').length,
+  };
 }
 
 /** One sentence about what a dry run would do with the conversations
@@ -915,7 +938,10 @@ export function planLine(p: MovePlan, toName: string): string {
     .join(', ');
   const actions = said.charAt(0).toUpperCase() + said.slice(1);
   const names = { actions, size, to: toName };
-  const into = byAction.size === 1 && !byAction.has('assign');
+  if (byAction.size === 1 && byAction.has('replace') && !p.truncated) {
+    return tr('{actions}{size} in {to}.', names);
+  }
+  const into = byAction.size === 1 && !byAction.has('assign') && !byAction.has('replace');
   if (p.truncated) {
     return into
       ? tr('{actions}{size} into {to} (the first 1000 are listed).', names)
@@ -944,6 +970,8 @@ const SKIP_TEXT: Record<string, string> = {
     "It is in that account's folder already: a copy there would be the same conversation. Move it instead, which records it as that account's.",
   session_live: 'It is running; stop it first.',
   already_exists: 'The target has it already.',
+  newer_in_set: "The set has a newer copy than this account's: Replace takes it.",
+  newer_here: "This account's copy is newer than the set's.",
   not_found: 'It could not be read.',
   session_changed: 'It changed while being checked; try again.',
   archived: 'It is in the storage only.',
@@ -977,6 +1005,8 @@ export interface MoveResult {
   assigned: string[];
   archived: string[];
   restored: string[];
+  /** Restored over the copy the account had (a force restore). */
+  replaced: string[];
   skipped: MoveSkip[];
   customizations: CustomizationPlan[];
 }
@@ -987,6 +1017,7 @@ const RESULT_KEYS = [
   'assigned',
   'archived',
   'restored',
+  'replaced',
   'skipped',
   'customizations',
 ] as const;
@@ -1002,6 +1033,7 @@ export function normalizeMoveResult(raw: unknown): MoveResult | null {
     assigned: texts(r['assigned']),
     archived: texts(r['archived']),
     restored: texts(r['restored']),
+    replaced: texts(r['replaced']),
     skipped: list(r['skipped'], skip),
     customizations: list(r['customizations'], customization),
   };
@@ -1020,6 +1052,9 @@ export function moveResultSummary(job: JobView): string | null {
     r.assigned.length ? tr('Assigned {conversations}', of(r.assigned.length)) : '',
     r.archived.length ? tr('Archived {conversations}', of(r.archived.length)) : '',
     r.restored.length ? tr('Restored {conversations}', of(r.restored.length)) : '',
+    r.replaced.length
+      ? tr("Replaced {conversations} with the set's copies", of(r.replaced.length))
+      : '',
     done ? tr('{customizations} copied', { customizations: plural(done, 'customization') }) : '',
     r.skipped.length ? tr('{n} skipped', { n: r.skipped.length }) : '',
   ].filter(Boolean);

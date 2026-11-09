@@ -334,6 +334,7 @@ fn a_windows_session_lands_in_the_paired_folder_or_keeps_its_path() {
             into: false,
         },
         None,
+        false,
     )
     .unwrap();
     assert_eq!(r.restored, [OTHER]);
@@ -349,6 +350,7 @@ fn a_windows_session_lands_in_the_paired_folder_or_keeps_its_path() {
         &[],
         &not_live,
         Some(&mac.id),
+        false,
     )
     .unwrap();
     assert_eq!(entries.len(), 1);
@@ -622,6 +624,7 @@ fn a_project_of_a_set_is_found_by_its_folder_written_either_way() {
             Some(&[][..]),
             &projects,
             &not_live,
+            false,
         )
         .unwrap();
         let ids: Vec<&str> = entries.iter().map(|e| e.id.as_str()).collect();

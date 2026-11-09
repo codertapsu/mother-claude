@@ -383,6 +383,68 @@ describe('MoveDataSheetComponent', () => {
     );
   });
 
+  it("offers to replace the copies the account has with the set's, kept for Undo", async () => {
+    backend.routes.set('/backup/index', () => ({
+      status: 200,
+      body: {
+        name: 'Shared',
+        sessions: [{ id: 'aaaa1111', action: 'update', title: 'Session A', remoteBytes: 2048 }],
+      },
+    }));
+    const plain = {
+      mode: 'copy',
+      sessions: [],
+      skipped: [
+        {
+          id: 'aaaa1111',
+          code: 'newer_in_set',
+          message:
+            "the set has a newer copy than this account's: choose Replace to take it (the copy here is kept for Undo)",
+        },
+      ],
+    };
+    const forced = {
+      mode: 'copy',
+      sessions: [
+        {
+          id: 'aaaa1111',
+          title: 'Session A',
+          files: 3,
+          bytes: 2048,
+          action: 'replace',
+          from: { storage: DRIVE, set: 'Shared' },
+        },
+      ],
+      skipped: [],
+    };
+    backend.routes.set('/data/move', (_m, body) => ({
+      status: 200,
+      body: { plan: (body as { force?: boolean }).force ? forced : plain },
+    }));
+    const el = await open({ from: setLocation(DRIVE, 'Shared'), what: 'all' });
+    button(el, 'Check what it does')?.click();
+    await settle();
+    // Nothing to do as it is, and why: the set's copy is newer.
+    expect(text(el.querySelector('.callout.warn'))).toContain(
+      'The set has newer copies of 1 conversation this account has',
+    );
+    expect(lastMove()['force']).toBeUndefined();
+    button(el, "Replace with the set's copies")?.click();
+    await settle();
+    expect(lastMove()).toEqual(expect.objectContaining({ force: true, dryRun: true }));
+    expect(el.querySelector('.callout.warn')).toBeNull();
+    expect(text(el.querySelector('.callout.info'))).toContain(
+      "1 conversation will be replaced with the set's copies",
+    );
+    expect(text(el)).toContain('The copies here go into Undo first');
+    expect(button(el, 'Replace 1 conversation')).toBeTruthy();
+    // Changed my mind: planned again without it.
+    button(el, "Don't replace")?.click();
+    await settle();
+    expect(lastMove()['force']).toBeUndefined();
+    expect(el.querySelector('.callout.warn')).not.toBeNull();
+  });
+
   it('takes conversations from where each one is when From is left out', async () => {
     backend.routes.set('/data/move', () => ({
       status: 200,

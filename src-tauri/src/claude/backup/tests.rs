@@ -1932,6 +1932,7 @@ fn a_move_out_of_a_set_keeps_the_archive_for_its_undo() {
             into: false,
         },
         Some("acc_000000000001".into()),
+        false,
     )
     .unwrap();
     assert_eq!(r.restored, [SID]);
@@ -1999,6 +2000,7 @@ fn a_move_out_of_a_set_keeps_the_archive_for_its_undo() {
             into: false,
         },
         None,
+        false,
     )
     .unwrap();
     grow(&w.home, SID, "{\"type\":\"user\",\"n\":9}");
@@ -2220,3 +2222,100 @@ fn a_backup_set_on_a_share_that_cannot_flush_the_drive_round_trips() {
 
 mod folder_pairs;
 mod force;
+
+/// Storage → account, a conversation the account has an older copy of
+/// (continued on another machine, backed up there): a plain restore leaves it
+/// and says the set's copy is newer; Replace (a force restore) brings the
+/// set's copy over it, the one here kept for Undo, which puts it back. One
+/// the account has as the set has it is never replaced.
+#[test]
+fn a_restore_from_a_set_replaces_an_older_copy_when_asked() {
+    let w = world();
+    // Mac: the conversation, backed up.
+    session(w.home.base(), SID);
+    push_from(&w, &w.home, "mbp");
+    // Windows: restored from the set, continued, backed up again.
+    pull_once(&w, &w.other, "pc", &not_live, "20261021T194000-00000001");
+    grow(&w.other, SID, "{\"type\":\"user\",\"on\":\"pc\"}");
+    assert_eq!(push_from(&w, &w.other, "pc").archived, [SID]);
+    let old = std::fs::read(&transfer::transcripts_of(&w.home, SID)[0]).unwrap();
+    let new = std::fs::read(&transfer::transcripts_of(&w.other, SID)[0]).unwrap();
+    assert_ne!(old, new);
+
+    // Back on the Mac: the plan says the set's copy is newer.
+    let ids = [SID.to_string()];
+    let (entries, skipped, _) = plan_restore(
+        &w.set,
+        &[pass()],
+        &w.home,
+        Some(&ids),
+        &[],
+        &not_live,
+        false,
+    )
+    .unwrap();
+    assert!(entries.is_empty());
+    assert_eq!(skipped[0].code, "newer_in_set", "{skipped:?}");
+    // Replace: it is in the plan.
+    let (entries, skipped, _) =
+        plan_restore(&w.set, &[pass()], &w.home, Some(&ids), &[], &not_live, true).unwrap();
+    assert_eq!(entries.len(), 1, "{skipped:?}");
+    // Open here: never replaced, force or not.
+    let open = |_: &str| true;
+    let (entries, skipped, _) =
+        plan_restore(&w.set, &[pass()], &w.home, Some(&ids), &[], &open, true).unwrap();
+    assert!(entries.is_empty());
+    assert_eq!(skipped[0].code, "session_live");
+
+    let job = "20261021T194500-00000002";
+    let restore = |force: bool, job: &str| {
+        move_out_of_set(
+            &RestoreInputs {
+                set: &w.set,
+                passphrases: &[pass()],
+                target: &w.home,
+                ids: &ids,
+                trust: false,
+                is_live: &not_live,
+                undo_root: &w.undo,
+                job_id: job,
+                progress: &Progress::default(),
+                kind: "copy",
+                machine: None,
+            },
+            false,
+            now_ms(),
+            transfer::StorageRef {
+                storage: "nas".into(),
+                set: "Work".into(),
+                dir: w.set.dir.clone(),
+                into: false,
+            },
+            Some("default".into()),
+            force,
+        )
+        .unwrap()
+    };
+    let (r, m) = restore(true, job);
+    assert_eq!(r.replaced, [SID], "{r:?}");
+    assert!(r.restored.is_empty());
+    assert!(!m.moved.is_empty(), "the copy here went into the undo");
+    let here = transfer::transcripts_of(&w.home, SID);
+    assert_eq!(here.len(), 1);
+    assert_eq!(std::fs::read(&here[0]).unwrap(), new, "the set's copy");
+    // It is the set's now: replacing again does nothing.
+    let (entries, skipped, _) =
+        plan_restore(&w.set, &[pass()], &w.home, Some(&ids), &[], &not_live, true).unwrap();
+    assert!(entries.is_empty());
+    assert_eq!(skipped[0].code, "already_exists");
+    assert_eq!(skipped[0].reason, "this account has it as the set has it");
+
+    // Undo: the Mac's own copy is back.
+    transfer::undo(&w.undo, job).unwrap();
+    let here = transfer::transcripts_of(&w.home, SID);
+    assert_eq!(
+        std::fs::read(&here[0]).unwrap(),
+        old,
+        "the copy here is back"
+    );
+}

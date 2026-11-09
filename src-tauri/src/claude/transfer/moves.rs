@@ -118,6 +118,11 @@ pub struct MoveRequest {
     /// Customizations: replace what the target has.
     #[serde(default)]
     pub replace_existing: bool,
+    /// Out of a storage into an account: a conversation the account has, not
+    /// as the set has it, is replaced by the set's copy (the one here moves
+    /// into the undo first, so Undo puts it back). One that runs is not.
+    #[serde(default)]
+    pub force: bool,
     #[serde(default)]
     pub dry_run: bool,
 }
@@ -131,6 +136,8 @@ pub enum Action {
     Assign,
     Archive,
     Restore,
+    /// Restored over the copy the account has (a force restore).
+    Replace,
 }
 
 /// One conversation of a plan.
@@ -211,6 +218,8 @@ enum Work {
         set: String,
         to: String,
         ids: Vec<String>,
+        /// Replace the copies the account has ([`MoveRequest::force`]).
+        force: bool,
     },
     /// From one set to another: re-encrypted to the target's key and
     /// checked; for a move the entries then leave the source set.
@@ -1038,6 +1047,7 @@ async fn plan_out_of(
     let (items2, home2, set2) = (items.clone(), home.clone(), set.clone());
     // Folder pairs: where each one goes on this machine.
     let here = backup::ops::known_machine_id(state);
+    let force = req.force;
     let ((entries, skips, empty), mapped) = tokio::task::spawn_blocking(move || {
         let live = |id: &str| super::ops::is_live(&st, id);
         backup::plan_restore_here(
@@ -1048,12 +1058,15 @@ async fn plan_out_of(
             &items2.projects,
             &live,
             here.as_deref(),
+            force,
         )
     })
     .await
     .map_err(|e| TransferError::Io(e.to_string()))?
     .map_err(TransferError::from)?;
     let folder_of = |e: &backup::IndexEntry| mapped.get(&e.id).cloned().or_else(|| e.cwd.clone());
+    // What a force restore replaces: the ones the account has.
+    let has = |id: &str| !super::transcripts_of(home, id).is_empty();
     let from = Location::Storage {
         storage: storage.id.clone(),
         set: Some(set_name.clone()),
@@ -1064,6 +1077,7 @@ async fn plan_out_of(
             set: set_name,
             to: b.to_string(),
             ids: entries.iter().map(|e| e.id.clone()).collect(),
+            force: req.force,
         },
         req.mode,
         req.trust,
@@ -1079,7 +1093,11 @@ async fn plan_out_of(
             files: e.files as usize,
             bytes: e.archive_bytes,
             from: from.clone(),
-            action: Action::Restore,
+            action: if has(&e.id) {
+                Action::Replace
+            } else {
+                Action::Restore
+            },
         })
         .collect();
     g.skipped = skips
@@ -1268,7 +1286,8 @@ async fn run_work(
             set,
             to,
             ids,
-        } => run_out_of(state, job, &root, &g, storage, set, &to, ids).await,
+            force,
+        } => run_out_of(state, job, &root, &g, storage, set, &to, ids, force).await,
         Work::Between {
             from,
             from_set,
@@ -1509,6 +1528,7 @@ async fn run_out_of(
     set_name: String,
     to: &str,
     ids: Vec<String>,
+    force: bool,
 ) -> Result<(Value, Vec<String>, bool), TransferError> {
     if ids.is_empty() {
         return nothing_taken(g, "restored");
@@ -1556,6 +1576,7 @@ async fn run_out_of(
             keep_until,
             storage_ref,
             Some(to2),
+            force,
         )
     })
     .await
@@ -1579,10 +1600,19 @@ async fn run_out_of(
         })
         .collect();
     let mut result = json!({ "restored": report.restored, "skipped": skipped_json(&skipped) });
+    if !report.replaced.is_empty() {
+        result["replaced"] = json!(report.replaced);
+    }
     if !warnings.is_empty() {
         result["warnings"] = json!(warnings);
     }
-    Ok((result, report.restored.clone(), !manifest.is_empty()))
+    let came: Vec<String> = report
+        .restored
+        .iter()
+        .chain(&report.replaced)
+        .cloned()
+        .collect();
+    Ok((result, came, !manifest.is_empty()))
 }
 
 /// A storage job with nothing to take: its result, without opening (or

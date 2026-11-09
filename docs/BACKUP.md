@@ -139,6 +139,12 @@ or everything of an account to a set of any storage, and back:
 - **Copy out of a set** restores into any account, from any set of any
   storage. **Move out of a set** then takes the conversations out of the set;
   their archives stay there for seven days, so that the move can be undone.
+- **A conversation the account has already** is left alone when it is as the
+  set has it. When the two differ — you continued it on another computer and
+  backed it up there, say — the plan says which one is newer and offers
+  **Replace with the set's copies**: the set's copy then replaces the
+  account's, and the account's copy goes into the undo folder (seven days), so
+  **Undo** puts it back. A conversation that is open here is never replaced.
 - A conversation is moved into a set only once it is closed: an idle session
   whose process is still open is backed up, but it stays in the account until
   it is stopped.

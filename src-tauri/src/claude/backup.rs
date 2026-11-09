@@ -2857,9 +2857,7 @@ fn restore_into(
             continue;
         };
         if (inp.is_live)(id) {
-            report
-                .skipped
-                .push(skip("session_live", "it is running here".into()));
+            report.skipped.push(skip("session_live", OPEN_HERE.into()));
             continue;
         }
         let here = !transfer::transcripts_of(inp.target, id).is_empty();
@@ -4225,17 +4223,20 @@ pub fn clear_marks(
 /// (`inp.kind` names the job), then — with `remove` — the restored ones'
 /// entries taken out of the set, each only while it still names the archive
 /// it was restored from, its archive kept until `keep_until` for this move's
-/// undo. The manifest lists the entries before they leave. Blocking.
+/// undo. The manifest lists the entries before they leave. With `force` a
+/// conversation the account has is replaced by the set's copy (the one here
+/// moved into the undo first, [`restore_with`]). Blocking.
 pub fn move_out_of_set(
     inp: &RestoreInputs<'_>,
     remove: bool,
     keep_until: i64,
     storage: transfer::StorageRef,
     to_account: Option<String>,
+    force: bool,
 ) -> Result<(RestoreReport, Manifest), BackupError> {
     let keys = open_keys_any(inp.set, inp.passphrases)?;
     let index = read_index(inp.set, &keys)?;
-    let (mut report, mut m) = restore_open(inp, &keys, &index, false)?;
+    let (mut report, mut m) = restore_open(inp, &keys, &index, force)?;
     m.storage = Some(storage);
     m.to_account = to_account;
     let undo_dir = inp.undo_root.join(inp.job_id);
@@ -4243,10 +4244,11 @@ pub fn move_out_of_set(
         crate::persist::write_json_private(&undo_dir.join("manifest.json"), m)
             .map_err(|e| io("writing", &undo_dir, e))
     };
-    if remove && !report.restored.is_empty() {
+    if remove && !(report.restored.is_empty() && report.replaced.is_empty()) {
         m.set_entries = report
             .restored
             .iter()
+            .chain(&report.replaced)
             .filter_map(|id| index.sessions.get(id).cloned())
             .collect();
         save(&m)?;
@@ -4427,6 +4429,48 @@ pub fn plan_push_some(
     Ok((planned, skipped))
 }
 
+/// Why a restore leaves out a conversation the account has: the same as the
+/// set's copy (nothing to do), or — without `force` — another copy, which a
+/// force restore replaces (`newer_in_set`: the set's is newer, `newer_here`:
+/// the one here is). `None`: a force restore replaces it.
+fn already_here(target: &ClaudeHome, e: &IndexEntry, force: bool) -> Option<Skip> {
+    let here = session_now(target, &e.id).ok();
+    if here.as_ref().is_some_and(|h| h.same_as(e)) {
+        return Some(skip_of(
+            &e.id,
+            "already_exists",
+            "this account has it as the set has it",
+        ));
+    }
+    if force {
+        return None;
+    }
+    let set_newer = here.as_ref().is_none_or(|h| {
+        secs(e.newest_mtime) > secs(h.newest_mtime)
+            || (secs(e.newest_mtime) == secs(h.newest_mtime)
+                && e.transcript_bytes > h.transcript_bytes)
+    });
+    Some(if set_newer {
+        skip_of(
+            &e.id,
+            "newer_in_set",
+            "the set has a newer copy than this account's: choose Replace to take it (the copy \
+             here is kept for Undo)",
+        )
+    } else {
+        skip_of(
+            &e.id,
+            "newer_here",
+            "this account's copy is newer than the set's: Replace would take the set's older \
+             copy (the one here is kept for Undo)",
+        )
+    })
+}
+
+/// Why a restore leaves a conversation that is open here alone.
+pub const OPEN_HERE: &str =
+    "it is open here: stop it (or close it where it runs) to bring the set's copy over it";
+
 /// What [`plan_restore`] found: the entries a restore would bring, why the
 /// others would be skipped, and the projects with nothing in the set.
 pub type RestorePlan = (Vec<IndexEntry>, Vec<Skip>, Vec<String>);
@@ -4441,8 +4485,19 @@ pub fn plan_restore(
     ids: Option<&[String]>,
     projects: &[String],
     is_live: &dyn Fn(&str) -> bool,
+    force: bool,
 ) -> Result<RestorePlan, BackupError> {
-    plan_restore_here(set, passphrases, target, ids, projects, is_live, None).map(|(p, _)| p)
+    plan_restore_here(
+        set,
+        passphrases,
+        target,
+        ids,
+        projects,
+        is_live,
+        None,
+        force,
+    )
+    .map(|(p, _)| p)
 }
 
 /// [`plan_restore`], with the folder each entry goes into on this machine
@@ -4457,10 +4512,11 @@ pub fn plan_restore_here(
     projects: &[String],
     is_live: &dyn Fn(&str) -> bool,
     here: Option<&str>,
+    force: bool,
 ) -> Result<(RestorePlan, BTreeMap<String, String>), BackupError> {
     let keys = open_keys_any(set, passphrases)?;
     let index = read_index(set, &keys)?;
-    let plan = plan_restore_in(&index, target, ids, projects, is_live)?;
+    let plan = plan_restore_in(&index, target, ids, projects, is_live, force)?;
     let mapped = plan
         .0
         .iter()
@@ -4499,6 +4555,7 @@ fn plan_restore_in(
     ids: Option<&[String]>,
     projects: &[String],
     is_live: &dyn Fn(&str) -> bool,
+    force: bool,
 ) -> Result<RestorePlan, BackupError> {
     let mut wanted: Vec<String> = match ids {
         Some(ids) => ids.to_vec(),
@@ -4522,16 +4579,14 @@ fn plan_restore_in(
             continue;
         };
         if is_live(&id) {
-            skipped.push(skip_of(&id, "session_live", "it is running here"));
+            skipped.push(skip_of(&id, "session_live", OPEN_HERE));
             continue;
         }
         if !transfer::transcripts_of(target, &id).is_empty() {
-            skipped.push(skip_of(
-                &id,
-                "already_exists",
-                "this account has it already",
-            ));
-            continue;
+            if let Some(why) = already_here(target, e, force) {
+                skipped.push(why);
+                continue;
+            }
         }
         entries.push(e.clone());
     }

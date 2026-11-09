@@ -113,7 +113,7 @@ interface Skip {
 interface Planned {
   c: Candidate;
   direction: Direction;
-  action: 'move' | 'copy' | 'assign' | 'archive' | 'restore';
+  action: 'move' | 'copy' | 'assign' | 'archive' | 'restore' | 'replace';
 }
 
 interface Custom {
@@ -541,6 +541,8 @@ export class MockMove {
     }
     const trust = b['trust'] === true;
     const replace = b['replaceExisting'] === true;
+    // Out of a set: replace the copies the account has (a force restore).
+    const force = b['force'] === true;
     if (this.host.role !== 'desktop' && (trust || custom.some((c) => DANGEROUS_ITEMS.has(c)))) {
       return fail(
         403,
@@ -603,6 +605,20 @@ export class MockMove {
           code: 'same_directory',
           message: `it is in the folder ${this.name(target)} uses already`,
         });
+      } else if (
+        direction === 'fromStorage' &&
+        this.targetHas(c, target, direction, targetEntries)
+      ) {
+        // The demo's copies here are older than the set's.
+        if (force) planned.push({ c, direction, action: 'replace' });
+        else {
+          skipped.push({
+            id: c.id,
+            code: 'newer_in_set',
+            message:
+              "the set has a newer copy than this account's: choose Replace to take it (the copy here is kept for Undo)",
+          });
+        }
       } else if (this.targetHas(c, target, direction, targetEntries)) {
         skipped.push({
           id: c.id,
@@ -880,6 +896,7 @@ export class MockMove {
       assigned: [] as string[],
       archived: [] as string[],
       restored: [] as string[],
+      replaced: [] as string[],
     };
     const now = Date.now();
     for (const { c, direction, action: what } of group) {
@@ -921,7 +938,10 @@ export class MockMove {
       } else {
         // Out of a set: into an account (a restore), or into another set.
         const s = c.source as { storage: string; set: string };
-        if (direction === 'fromStorage') {
+        if (direction === 'fromStorage' && what === 'replace') {
+          // Replaced in place: the account has it already (the demo keeps
+          // no older copy to put back).
+        } else if (direction === 'fromStorage') {
           const account = (to as { account: string }).account;
           const left = this.gone.get(c.id);
           if (left) this.gone.delete(c.id);
@@ -960,7 +980,9 @@ export class MockMove {
               ? done.assigned
               : what === 'archive'
                 ? done.archived
-                : done.restored;
+                : what === 'replace'
+                  ? done.replaced
+                  : done.restored;
       bucket.push(c.id);
     }
     const ids = group.map((p) => p.c.id);

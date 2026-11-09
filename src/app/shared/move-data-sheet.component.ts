@@ -52,6 +52,7 @@ import {
   newSetStorage,
   normalizeMovePlan,
   projectRows,
+  replaceable,
   sessionRow,
   setLocation,
   setNameProblem,
@@ -447,6 +448,52 @@ interface DiskProjects {
                       | t: { mode: modeWord(), from: fromName(), to: toName() }
                   }}
                 </p>
+                @if (replaceOffer(); as r) {
+                  <div class="callout warn" role="status">
+                    <mc-icon class="callout-icon" name="alert" [size]="20" />
+                    <div class="callout-body">
+                      <strong class="callout-title">{{ replaceTitle(r) }}</strong>
+                      <p>
+                        {{
+                          "Replace them with the set's copies: the copies here are kept, and Undo puts them back."
+                            | t
+                        }}
+                      </p>
+                      <button
+                        class="btn primary small"
+                        type="button"
+                        [disabled]="busy()"
+                        (click)="replaceExisting(true)"
+                      >
+                        <mc-icon name="refresh" [size]="14" />
+                        {{ "Replace with the set's copies" | t }}
+                      </button>
+                    </div>
+                  </div>
+                } @else if (force() && replacing()) {
+                  <div class="callout info" role="status">
+                    <mc-icon class="callout-icon" name="info" [size]="20" />
+                    <div class="callout-body">
+                      <strong class="callout-title">{{
+                        "{conversations} will be replaced with the set's copies"
+                          | t: { conversations: replacingText() }
+                      }}</strong>
+                      <p>
+                        {{
+                          'The copies here go into Undo first: undoing this job puts them back.' | t
+                        }}
+                      </p>
+                      <button
+                        class="btn small"
+                        type="button"
+                        [disabled]="busy()"
+                        (click)="replaceExisting(false)"
+                      >
+                        {{ "Don't replace" | t }}
+                      </button>
+                    </div>
+                  </div>
+                }
                 <mc-move-plan
                   [plan]="p"
                   [direction]="direction()"
@@ -631,6 +678,8 @@ export class MoveDataSheetComponent {
   private readonly modePick = signal<TransferMode>('copy');
   protected readonly trust = signal(false);
   protected readonly replace = signal(false);
+  /** Out of a storage: replace the copies the account has with the set's. */
+  protected readonly force = signal(false);
   protected readonly plan = signal<MovePlan | null>(null);
   protected readonly jobs = signal<JobView[]>([]);
   private readonly started = signal<MoveStart | null>(null);
@@ -994,6 +1043,34 @@ export class MoveDataSheetComponent {
     ).map((c) => c.item),
   );
 
+  /** Out of a storage into an account: what Replace would take that the plan
+   * leaves out (copies the account has, not as the set has them). */
+  protected readonly replaceOffer = computed(() => {
+    const p = this.plan();
+    if (!p || this.force() || this.fromLoc()?.kind !== 'storage') return null;
+    const r = replaceable(p);
+    return r.count ? r : null;
+  });
+  /** How many conversations a force restore replaces. */
+  protected readonly replacing = computed(
+    () => this.plan()?.sessions.filter((s) => s.action === 'replace').length ?? 0,
+  );
+  protected readonly replacingText = computed(() => plural(this.replacing(), 'conversation'));
+
+  /** The callout's headline: newer in the set, or only different. */
+  protected replaceTitle(r: { count: number; newerInSet: number }): string {
+    const conversations = plural(r.count, 'conversation');
+    return r.newerInSet === r.count
+      ? tr('The set has newer copies of {conversations} this account has', { conversations })
+      : tr('This account has other copies of {conversations}', { conversations });
+  }
+
+  /** Replace (or not) the copies the account has, and plan again. */
+  protected replaceExisting(on: boolean): void {
+    this.force.set(on);
+    void this.dryRun();
+  }
+
   protected readonly runnable = computed(() => {
     const p = this.plan();
     return !!p && (p.sessions.length > 0 || p.customizations.some((c) => c.action !== 'skip'));
@@ -1007,6 +1084,10 @@ export class MoveDataSheetComponent {
       return this.mode() === 'move' ? tr('Nothing to move') : tr('Nothing to copy');
     }
     const actions = new Set(p.sessions.map((s) => s.action));
+    // Restored and replaced alike come out of the set.
+    if (actions.size === 2 && actions.has('restore') && actions.has('replace')) {
+      return tr('Restore {count}', { count: plural(p.sessions.length, 'conversation') });
+    }
     const one = actions.size === 1 ? [...actions][0] : null;
     const count = plural(p.sessions.length, 'conversation');
     switch (one) {
@@ -1016,6 +1097,8 @@ export class MoveDataSheetComponent {
         return tr('Assign {count}', { count });
       case 'restore':
         return tr('Restore {count}', { count });
+      case 'replace':
+        return tr('Replace {count}', { count });
       default:
         return this.mode() === 'move'
           ? tr('Move {count}', { count })
@@ -1317,6 +1400,7 @@ export class MoveDataSheetComponent {
       mode: this.mode(),
       trust: this.trustShown() && this.trust() && this.canDangerous(),
       replaceExisting: this.replace(),
+      force: this.force() && this.fromLoc()?.kind === 'storage',
     });
   }
 
@@ -1347,6 +1431,7 @@ export class MoveDataSheetComponent {
     this.modePick.set('copy');
     this.trust.set(false);
     this.replace.set(false);
+    this.force.set(false);
     // Read afresh: a move since may have changed whose they are.
     this.index.set(null);
     this.base.set(null);

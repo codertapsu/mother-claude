@@ -1526,6 +1526,7 @@ const TOPICS: HelpTopicSource[] = [
         ],
         points: [
           '**Bring back…** on a set restores its conversations the same way.',
+          "When the account already has a conversation and the set's copy is different (you continued it on another computer, say), press **Replace with the set's copies**: the account's copy is kept for undo. One that is open here is never replaced.",
           "On the desktop, drag an account onto a storage's set to open **Move here…** from it, or drag a set onto an account to open **Bring back…** into it.",
           'Removing a storage leaves its files where they are.',
         ],

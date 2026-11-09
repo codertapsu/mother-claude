@@ -427,6 +427,7 @@ export const VI_TOPICS_B: Partial<Record<string, HelpTopicSource>> = {
         ],
         points: [
           '**Đưa về…** trên một bộ sẽ khôi phục các cuộc trò chuyện của bộ đó theo cùng cách.',
+          'Khi tài khoản đã có một cuộc trò chuyện nhưng bản trong bộ lại khác (ví dụ bạn đã tiếp tục nó trên máy tính khác), nhấn **Thay bằng bản trong bộ**: bản của tài khoản được giữ để hoàn tác. Cuộc trò chuyện đang mở ở đây không bao giờ bị thay.',
           'Trên ứng dụng máy tính, kéo thả một tài khoản vào một bộ của kho lưu trữ để mở **Chuyển vào đây…** từ tài khoản đó, hoặc kéo thả một bộ vào một tài khoản để mở **Đưa về…** vào tài khoản đó.',
           'Gỡ bỏ một kho lưu trữ vẫn để nguyên các tệp của nó.',
         ],
