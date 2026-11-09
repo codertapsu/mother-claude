@@ -22,6 +22,16 @@
 //! <app data>/hook.disabled  present after uninstall: the scripts exit 0
 //! ```
 //!
+//! **On Windows** the scripts are their PowerShell twins, `mc-hook.ps1` and
+//! `mc-wake.ps1` (UTF-8 with a BOM, which Windows PowerShell 5.1 needs to
+//! read a non-ASCII data dir), and every hook in `hooks.json` starts Windows
+//! PowerShell on one by full paths ([`script_invocation`]): a hook runs
+//! without a shell, and Windows cannot start an sh script (every hook failed
+//! with `ENOENT … uv_spawn` before, verified on Claude Code 2.1.317). A hook
+//! costs a PowerShell start there (~0.15 s, ~0.3 s with the HTTP call), so
+//! owned sessions' copy carries no hooks on Windows (`mcp::plugin`): theirs
+//! would only exit at once.
+//!
 //! The scripts live in `scripts/`, not `bin/` (a plugin's `bin/` lands on the
 //! model's Bash PATH), carry the absolute data dir (it contains a space on
 //! macOS; exec-form hooks need no quoting), read `hook.curlrc` / `hook.base`
@@ -87,8 +97,68 @@ const MARKETPLACE_JSON: &str =
 const PLUGIN_JSON: &str =
     include_str!("../../assets/claude-plugin/mother-claude/.claude-plugin/plugin.json");
 const HOOKS_JSON: &str = include_str!("../../assets/claude-plugin/mother-claude/hooks/hooks.json");
+#[cfg(any(not(windows), test))]
 const MC_HOOK: &str = include_str!("../../assets/claude-plugin/mother-claude/scripts/mc-hook");
+#[cfg(any(not(windows), test))]
 const MC_WAKE: &str = include_str!("../../assets/claude-plugin/mother-claude/scripts/mc-wake");
+#[cfg(any(windows, test))]
+const MC_HOOK_PS1: &str =
+    include_str!("../../assets/claude-plugin/mother-claude/scripts/mc-hook.ps1");
+#[cfg(any(windows, test))]
+const MC_WAKE_PS1: &str =
+    include_str!("../../assets/claude-plugin/mother-claude/scripts/mc-wake.ps1");
+
+/// The hook scripts' file names on this platform (`scripts/<name>`).
+#[cfg(windows)]
+const HOOK_SCRIPTS: [&str; 2] = ["mc-hook.ps1", "mc-wake.ps1"];
+#[cfg(not(windows))]
+const HOOK_SCRIPTS: [&str; 2] = ["mc-hook", "mc-wake"];
+/// Both platforms' names: what removing the hooks removes.
+const ALL_HOOK_SCRIPTS: [&str; 4] = ["mc-hook", "mc-wake", "mc-hook.ps1", "mc-wake.ps1"];
+
+/// What starts Windows PowerShell on one of our scripts, after the program:
+/// no logo, no profile, never a prompt, no execution policy in the way.
+pub const POWERSHELL_ARGS: [&str; 6] = [
+    "-NoLogo",
+    "-NoProfile",
+    "-NonInteractive",
+    "-ExecutionPolicy",
+    "Bypass",
+    "-File",
+];
+
+/// Windows PowerShell 5.1, which every Windows 10 and 11 has, by its full
+/// path: a hook runs without a shell, and a helper's PATH is not ours.
+pub fn windows_powershell() -> PathBuf {
+    std::env::var_os("SystemRoot")
+        .or_else(|| std::env::var_os("windir"))
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from(r"C:\Windows"))
+        .join("System32")
+        .join("WindowsPowerShell")
+        .join("v1.0")
+        .join("powershell.exe")
+}
+
+/// The program and arguments that run a generated script the way Claude Code
+/// runs an exec-form hook: the script itself, or on Windows PowerShell on it.
+pub fn script_invocation(script: &Path) -> (PathBuf, Vec<std::ffi::OsString>) {
+    if cfg!(windows) {
+        let mut args: Vec<std::ffi::OsString> = POWERSHELL_ARGS.iter().map(Into::into).collect();
+        args.push(script.into());
+        (windows_powershell(), args)
+    } else {
+        (script.to_path_buf(), Vec::new())
+    }
+}
+
+/// [`script_invocation`] as a command (its own arguments still to add).
+pub fn script_command(script: &Path) -> std::process::Command {
+    let (program, args) = script_invocation(script);
+    let mut cmd = std::process::Command::new(program);
+    cmd.args(args);
+    cmd
+}
 
 /// Where everything lives, relative to the app data dir.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -111,17 +181,23 @@ pub struct PluginDir {
     pub mc_wake: PathBuf,
 }
 
+impl PluginDir {
+    /// The plugin directory at `root`, with this platform's script names.
+    pub fn at(root: PathBuf) -> Self {
+        Self {
+            mc_hook: root.join("scripts").join(HOOK_SCRIPTS[0]),
+            mc_wake: root.join("scripts").join(HOOK_SCRIPTS[1]),
+            root,
+        }
+    }
+}
+
 impl PluginPaths {
     pub fn new(data_dir: &Path) -> Self {
         let marketplace = data_dir.join("claude-plugin");
-        let root = marketplace.join(PLUGIN);
         Self {
             data_dir: data_dir.to_path_buf(),
-            plugin: PluginDir {
-                mc_hook: root.join("scripts").join("mc-hook"),
-                mc_wake: root.join("scripts").join("mc-wake"),
-                root,
-            },
+            plugin: PluginDir::at(marketplace.join(PLUGIN)),
             marketplace,
             curlrc: data_dir.join("hook.curlrc"),
             base: data_dir.join("hook.base"),
@@ -135,10 +211,112 @@ pub fn sh_single_quote(s: &str) -> String {
     format!("'{}'", s.replace('\'', r"'\''"))
 }
 
+/// Quote `s` for a PowerShell single-quoted string: every quote PowerShell
+/// takes for a single one (the ASCII one and the typographic ones) doubled.
+pub fn ps_single_quote(s: &str) -> String {
+    let mut out = String::with_capacity(s.len() + 2);
+    out.push('\'');
+    for c in s.chars() {
+        if matches!(c, '\'' | '\u{2018}' | '\u{2019}' | '\u{201A}' | '\u{201B}') {
+            out.push(c);
+        }
+        out.push(c);
+    }
+    out.push('\'');
+    out
+}
+
 /// A script with the data dir baked in.
+#[cfg(any(not(windows), test))]
 fn render_script(template: &str, data_dir: &Path) -> String {
     let quoted = sh_single_quote(&data_dir.to_string_lossy());
     template.replace("'@MC_DATA@'", &quoted)
+}
+
+/// A PowerShell script with the data dir baked in, behind a UTF-8 BOM:
+/// without one Windows PowerShell 5.1 reads a script in the ANSI code page,
+/// and a data dir with a non-ASCII character in it would not be found.
+#[cfg(any(windows, test))]
+pub fn render_ps_script(template: &str, data_dir: &Path) -> String {
+    let quoted = ps_single_quote(&data_dir.to_string_lossy());
+    format!("\u{FEFF}{}", template.replace("'@MC_DATA@'", &quoted))
+}
+
+/// The asset's `hooks.json` with every hook starting `powershell` on the
+/// `.ps1` twin of its script in `scripts`, all by full paths (Windows).
+#[cfg(any(windows, test))]
+fn windows_hooks_json(template: &str, powershell: &Path, scripts: &Path) -> String {
+    let Ok(mut v) = serde_json::from_str::<Value>(template) else {
+        return template.to_string();
+    };
+    if let Some(events) = v["hooks"].as_object_mut() {
+        for entries in events.values_mut() {
+            for entry in entries.as_array_mut().into_iter().flatten() {
+                for h in entry["hooks"].as_array_mut().into_iter().flatten() {
+                    let Some(name) = h["command"]
+                        .as_str()
+                        .and_then(|c| c.strip_prefix("${CLAUDE_PLUGIN_ROOT}/scripts/"))
+                        .map(str::to_string)
+                    else {
+                        continue;
+                    };
+                    let script = scripts.join(format!("{name}.ps1"));
+                    let mut args: Vec<Value> =
+                        POWERSHELL_ARGS.iter().map(|a| (*a).into()).collect();
+                    args.push(script.to_string_lossy().into_owned().into());
+                    args.extend(h["args"].as_array().cloned().unwrap_or_default());
+                    h["command"] = powershell.to_string_lossy().into_owned().into();
+                    h["args"] = Value::Array(args);
+                }
+            }
+        }
+    }
+    serde_json::to_string_pretty(&v).map_or_else(|_| template.to_string(), |s| s + "\n")
+}
+
+/// `hooks.json` for this platform: the asset as it is, or on Windows its
+/// PowerShell form ([`windows_hooks_json`]).
+pub fn hooks_json(paths: &PluginPaths) -> String {
+    #[cfg(windows)]
+    {
+        windows_hooks_json(
+            HOOKS_JSON,
+            &windows_powershell(),
+            &paths.plugin.root.join("scripts"),
+        )
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = paths;
+        HOOKS_JSON.to_string()
+    }
+}
+
+/// The hook scripts for this platform, data dir baked in: `(mc-hook, mc-wake)`.
+fn hook_scripts(data_dir: &Path) -> (String, String) {
+    #[cfg(windows)]
+    {
+        (
+            render_ps_script(MC_HOOK_PS1, data_dir),
+            render_ps_script(MC_WAKE_PS1, data_dir),
+        )
+    }
+    #[cfg(not(windows))]
+    {
+        (
+            render_script(MC_HOOK, data_dir),
+            render_script(MC_WAKE, data_dir),
+        )
+    }
+}
+
+/// Remove `path`; a file that is not there is fine.
+pub(crate) fn remove_if_present(path: &Path) -> std::io::Result<()> {
+    match std::fs::remove_file(path) {
+        Ok(()) => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(e),
+    }
 }
 
 /// The secret curl config: the hook token header only (a `url` line would
@@ -176,8 +354,14 @@ fn write_file(path: &Path, contents: &str, mode: u32) -> std::io::Result<()> {
     })
 }
 
-/// Write the marketplace, the plugin and its scripts (LF, 0755).
+/// Write the marketplace, the plugin and its hooks (scripts LF, 0755).
 pub fn write_plugin_files(paths: &PluginPaths) -> std::io::Result<()> {
+    write_manifests(paths)?;
+    write_hooks(paths)
+}
+
+/// Write the marketplace and the plugin's manifest.
+pub fn write_manifests(paths: &PluginPaths) -> std::io::Result<()> {
     write_file(
         &paths
             .marketplace
@@ -190,22 +374,34 @@ pub fn write_plugin_files(paths: &PluginPaths) -> std::io::Result<()> {
         &paths.plugin.root.join(".claude-plugin").join("plugin.json"),
         &PLUGIN_JSON.replace("@VERSION@", PLUGIN_VERSION),
         0o644,
-    )?;
+    )
+}
+
+/// Write `hooks.json` and the hook scripts, for this platform.
+pub fn write_hooks(paths: &PluginPaths) -> std::io::Result<()> {
     write_file(
         &paths.plugin.root.join("hooks").join("hooks.json"),
-        HOOKS_JSON,
+        &hooks_json(paths),
         0o644,
     )?;
-    write_file(
-        &paths.plugin.mc_hook,
-        &render_script(MC_HOOK, &paths.data_dir),
-        0o755,
-    )?;
-    write_file(
-        &paths.plugin.mc_wake,
-        &render_script(MC_WAKE, &paths.data_dir),
-        0o755,
-    )?;
+    let (hook, wake) = hook_scripts(&paths.data_dir);
+    write_file(&paths.plugin.mc_hook, &hook, 0o755)?;
+    write_file(&paths.plugin.mc_wake, &wake, 0o755)?;
+    // An earlier version's sh scripts, which nothing starts any more here.
+    #[cfg(windows)]
+    for name in ["mc-hook", "mc-wake"] {
+        remove_if_present(&paths.plugin.root.join("scripts").join(name))?;
+    }
+    Ok(())
+}
+
+/// Remove `hooks.json` and every hook script: a copy of the plugin without
+/// hooks. Missing files are fine.
+pub fn remove_hooks(paths: &PluginPaths) -> std::io::Result<()> {
+    remove_if_present(&paths.plugin.root.join("hooks").join("hooks.json"))?;
+    for name in ALL_HOOK_SCRIPTS {
+        remove_if_present(&paths.plugin.root.join("scripts").join(name))?;
+    }
     Ok(())
 }
 
@@ -826,6 +1022,149 @@ mod tests {
         assert!(!s.contains('\r'), "LF line endings only");
         assert!(render_script(MC_WAKE, dir).contains("MC_DATA='/Users/me/Library/"));
         assert_eq!(sh_single_quote("a'b"), r"'a'\''b'");
+    }
+
+    #[test]
+    fn powershell_scripts_get_the_quoted_data_dir_behind_a_bom() {
+        assert_eq!(ps_single_quote(r"C:\a b"), r"'C:\a b'");
+        // Every quote PowerShell takes for a single one is doubled.
+        assert_eq!(
+            ps_single_quote("O'B\u{2018}\u{2019}\u{201A}\u{201B}"),
+            "'O''B\u{2018}\u{2018}\u{2019}\u{2019}\u{201A}\u{201A}\u{201B}\u{201B}'"
+        );
+        let dir = Path::new(
+            "C:\\Users\\Nguy\u{1ec5}n's\\AppData\\Roaming\\motherclaude\\Mother Claude\\data",
+        );
+        for template in [MC_HOOK_PS1, MC_WAKE_PS1] {
+            assert!(template.is_ascii(), "the templates stay ASCII");
+            assert!(!template.contains('\r'), "LF line endings");
+            let s = render_ps_script(template, dir);
+            assert!(
+                s.starts_with('\u{FEFF}'),
+                "a BOM, for Windows PowerShell 5.1"
+            );
+            assert!(s.contains(
+                "$McData = 'C:\\Users\\Nguy\u{1ec5}n''s\\AppData\\Roaming\\motherclaude\\Mother Claude\\data'\n"
+            ));
+            assert!(!s.contains("@MC_DATA@"));
+        }
+    }
+
+    #[test]
+    fn windows_hooks_start_powershell_on_the_ps1_twins() {
+        let ps = Path::new(r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe");
+        let scripts = Path::new(
+            r"C:\Users\me\AppData\Roaming\motherclaude\Mother Claude\data\claude-plugin\mother-claude\scripts",
+        );
+        let before: Value = serde_json::from_str(HOOKS_JSON).unwrap();
+        let after: Value =
+            serde_json::from_str(&windows_hooks_json(HOOKS_JSON, ps, scripts)).unwrap();
+        assert_eq!(after["description"], before["description"]);
+        let (b, a) = (
+            before["hooks"].as_object().unwrap(),
+            after["hooks"].as_object().unwrap(),
+        );
+        assert_eq!(
+            a.keys().collect::<Vec<_>>(),
+            b.keys().collect::<Vec<_>>(),
+            "the same events"
+        );
+        let mut seen = 0;
+        for (event, entries) in b {
+            for (i, entry) in entries.as_array().unwrap().iter().enumerate() {
+                for (j, h) in entry["hooks"].as_array().unwrap().iter().enumerate() {
+                    let w = &a[event][i]["hooks"][j];
+                    let name = h["command"]
+                        .as_str()
+                        .unwrap()
+                        .strip_prefix("${CLAUDE_PLUGIN_ROOT}/scripts/")
+                        .unwrap();
+                    assert_eq!(w["command"], ps.to_str().unwrap(), "{event}");
+                    let args: Vec<&str> = w["args"]
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .map(|v| v.as_str().unwrap())
+                        .collect();
+                    let script = scripts.join(format!("{name}.ps1"));
+                    let mut want: Vec<&str> = POWERSHELL_ARGS.to_vec();
+                    want.push(script.to_str().unwrap());
+                    want.extend(
+                        h["args"]
+                            .as_array()
+                            .map(|v| v.iter().map(|x| x.as_str().unwrap()).collect::<Vec<_>>())
+                            .unwrap_or_default(),
+                    );
+                    assert_eq!(args, want, "{event}");
+                    // Everything else as it was: type, timeout, asyncRewake.
+                    for key in ["type", "timeout", "asyncRewake", "async"] {
+                        assert_eq!(w.get(key), h.get(key), "{event}: {key}");
+                    }
+                    seen += 1;
+                }
+            }
+        }
+        assert!(seen >= 16, "every hook rewritten ({seen})");
+        // Elsewhere the asset stays as it was, byte for byte.
+        if !cfg!(windows) {
+            assert_eq!(hooks_json(&PluginPaths::new(Path::new("/d"))), HOOKS_JSON);
+        }
+    }
+
+    #[test]
+    fn scripts_are_started_the_way_claude_code_starts_hooks() {
+        let script = Path::new("/plug in/scripts/mc-hook");
+        let (program, args) = script_invocation(script);
+        if cfg!(windows) {
+            assert!(program.ends_with(r"WindowsPowerShell\v1.0\powershell.exe"));
+            let args: Vec<_> = args.iter().map(|a| a.to_str().unwrap()).collect();
+            assert_eq!(&args[..POWERSHELL_ARGS.len()], POWERSHELL_ARGS);
+            assert_eq!(args.last(), Some(&"/plug in/scripts/mc-hook"));
+        } else {
+            assert_eq!(program, script);
+            assert!(args.is_empty());
+        }
+    }
+
+    #[test]
+    fn written_hooks_are_this_platforms_and_can_be_removed() {
+        let tmp = tempfile::tempdir().unwrap();
+        let paths = PluginPaths::new(&tmp.path().join("data dir"));
+        // An earlier version's sh scripts.
+        let scripts = paths.plugin.root.join("scripts");
+        std::fs::create_dir_all(&scripts).unwrap();
+        for name in ["mc-hook", "mc-wake"] {
+            std::fs::write(scripts.join(name), "#!/bin/sh\n").unwrap();
+        }
+        write_plugin_files(&paths).unwrap();
+        let hooks: Value = serde_json::from_str(
+            &std::fs::read_to_string(paths.plugin.root.join("hooks/hooks.json")).unwrap(),
+        )
+        .unwrap();
+        let first = &hooks["hooks"]["SessionStart"][0]["hooks"][0];
+        let hook = std::fs::read_to_string(&paths.plugin.mc_hook).unwrap();
+        assert!(paths.plugin.mc_wake.is_file());
+        if cfg!(windows) {
+            assert!(paths.plugin.mc_hook.ends_with("scripts/mc-hook.ps1"));
+            assert!(hook.starts_with('\u{FEFF}'));
+            assert_eq!(first["command"], windows_powershell().to_str().unwrap());
+            assert!(!scripts.join("mc-hook").exists(), "the sh leftovers go");
+            assert!(!scripts.join("mc-wake").exists());
+        } else {
+            assert!(hook.starts_with("#!/bin/sh\n"));
+            assert_eq!(first["command"], "${CLAUDE_PLUGIN_ROOT}/scripts/mc-hook");
+        }
+        remove_hooks(&paths).unwrap();
+        assert!(!paths.plugin.root.join("hooks/hooks.json").exists());
+        for name in ALL_HOOK_SCRIPTS {
+            assert!(!scripts.join(name).exists(), "{name}");
+        }
+        assert!(paths
+            .plugin
+            .root
+            .join(".claude-plugin/plugin.json")
+            .is_file());
+        remove_hooks(&paths).unwrap();
     }
 
     #[test]

@@ -325,10 +325,20 @@ async fn a_phone_pairs_watches_answers_and_is_locked_out_after_revocation() {
         .to_string();
         tokio::spawn(async move {
             use tokio::io::AsyncWriteExt;
-            let mut child = tokio::process::Command::new(script)
+            // As Claude Code starts an exec-form hook (PowerShell on Windows).
+            let mut cmd = tokio::process::Command::from(
+                mother_claude_lib::claude::hooks::script_command(&script),
+            );
+            cmd.env_clear();
+            if cfg!(windows) {
+                let root = std::env::var("SystemRoot").unwrap_or_else(|_| r"C:\Windows".into());
+                cmd.env("PATH", format!(r"{root}\System32"))
+                    .env("SystemRoot", root);
+            } else {
+                cmd.env("PATH", "/usr/bin:/bin:/usr/sbin:/sbin");
+            }
+            let mut child = cmd
                 .args(["PermissionRequest", "60", "decide"])
-                .env_clear()
-                .env("PATH", "/usr/bin:/bin:/usr/sbin:/sbin")
                 .stdin(std::process::Stdio::piped())
                 .stdout(std::process::Stdio::piped())
                 .stderr(std::process::Stdio::null())

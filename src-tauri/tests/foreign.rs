@@ -11,7 +11,10 @@ use std::path::Path;
 use std::process::Stdio;
 use std::time::Duration;
 
-use mother_claude_lib::claude::hooks::{write_plugin_files, write_runtime_files, PluginPaths};
+use mother_claude_lib::claude::hooks::{
+    script_command, script_invocation, windows_powershell, write_plugin_files, write_runtime_files,
+    PluginPaths,
+};
 use mother_claude_lib::claude::model::{
     ControlChannel, PendingKind, PendingSource, SessionStatus, SessionSummary, Surface,
 };
@@ -887,12 +890,30 @@ struct Run {
     stderr: String,
 }
 
+/// A clean environment for a script: just what starts it on this platform.
+fn clean_env(cmd: &mut tokio::process::Command) {
+    cmd.env_clear();
+    if cfg!(windows) {
+        let root = std::env::var("SystemRoot").unwrap_or_else(|_| r"C:\Windows".into());
+        cmd.env("PATH", format!(r"{root}\System32"))
+            .env("SystemRoot", root);
+        for key in ["TEMP", "TMP"] {
+            if let Some(v) = std::env::var_os(key) {
+                cmd.env(key, v);
+            }
+        }
+    } else {
+        cmd.env("PATH", "/usr/bin:/bin:/usr/sbin:/sbin");
+    }
+}
+
+/// Run a generated script the way Claude Code runs an exec-form hook (on
+/// Windows: PowerShell on its `.ps1` twin).
 async fn run_script(script: &Path, args: &[&str], stdin: &str, env: &[(&str, &str)]) -> Run {
     use tokio::io::AsyncWriteExt;
-    let mut cmd = tokio::process::Command::new(script);
+    let mut cmd = tokio::process::Command::from(script_command(script));
+    clean_env(&mut cmd);
     cmd.args(args)
-        .env_clear()
-        .env("PATH", "/usr/bin:/bin:/usr/sbin:/sbin")
         .envs(env.iter().copied())
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -1068,16 +1089,7 @@ async fn mc_wake_wakes_with_the_relay_and_stops_quietly() {
         l.local_addr().unwrap().port()
     };
     write_runtime_files(&p.paths, closed, &st.auth.hook_token).unwrap();
-    let out = tokio::process::Command::new("/bin/sh")
-        .arg("-c")
-        .arg("MC_WAKE_RETRY_SECS=1 \"$0\" </dev/null >/dev/null 2>&1 & echo $!; sleep 1")
-        .arg(&wake_sh)
-        .env_clear()
-        .env("PATH", "/usr/bin:/bin")
-        .output()
-        .await
-        .unwrap();
-    let pid: u32 = String::from_utf8_lossy(&out.stdout).trim().parse().unwrap();
+    let pid = start_orphaned_wake(&wake_sh).await;
     for _ in 0..80 {
         if !hooks::pid_alive(pid) {
             return;
@@ -1085,6 +1097,65 @@ async fn mc_wake_wakes_with_the_relay_and_stops_quietly() {
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
     panic!("mc-wake outlived its parent");
+}
+
+/// Start `mc-wake` (retrying every second) from a parent that exits about a
+/// second later; its pid.
+async fn start_orphaned_wake(wake: &Path) -> u32 {
+    let out = if cfg!(windows) {
+        // PowerShell starts it and leaves; the listener's parent is gone.
+        // Start-Process joins its arguments unquoted: one command line, the
+        // script's path (it has a space) in double quotes.
+        let (program, args) = script_invocation(wake);
+        let ps = |s: &str| format!("'{}'", s.replace('\'', "''"));
+        let line = args
+            .iter()
+            .map(|a| {
+                let a = a.to_string_lossy();
+                if a.contains(' ') {
+                    format!("\"{a}\"")
+                } else {
+                    a.into_owned()
+                }
+            })
+            .collect::<Vec<_>>()
+            .join(" ");
+        let script = format!(
+            "$env:MC_WAKE_RETRY_SECS = '1'; \
+             $i = [IO.Path]::GetTempFileName(); $o = [IO.Path]::GetTempFileName(); \
+             $e = [IO.Path]::GetTempFileName(); \
+             $p = Start-Process -FilePath {} -ArgumentList {} -NoNewWindow -PassThru \
+             -RedirectStandardInput $i -RedirectStandardOutput $o -RedirectStandardError $e; \
+             [Console]::Out.Write($p.Id); Start-Sleep -Seconds 1",
+            ps(&program.to_string_lossy()),
+            ps(&line)
+        );
+        let mut cmd = tokio::process::Command::new(windows_powershell());
+        clean_env(&mut cmd);
+        cmd.args([
+            "-NoLogo",
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            &script,
+        ])
+        .output()
+        .await
+        .unwrap()
+    } else {
+        let mut cmd = tokio::process::Command::new("/bin/sh");
+        clean_env(&mut cmd);
+        cmd.arg("-c")
+            .arg("MC_WAKE_RETRY_SECS=1 \"$0\" </dev/null >/dev/null 2>&1 & echo $!; sleep 1")
+            .arg(wake)
+            .output()
+            .await
+            .unwrap()
+    };
+    String::from_utf8_lossy(&out.stdout)
+        .trim()
+        .parse()
+        .unwrap_or_else(|e| panic!("{e}: {}", String::from_utf8_lossy(&out.stderr)))
 }
 
 /// End to end with the real CLI: one `claude -p --model haiku` run with the

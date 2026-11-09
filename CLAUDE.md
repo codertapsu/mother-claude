@@ -72,7 +72,9 @@ a rotating key and an undocumented protocol).
   - the **Mother Claude plugin** (user scope, installed from the desktop via
     `claude plugin marketplace add` + `claude plugin install`; never by
     editing `~/.claude/settings.json` hooks). Its `mc-hook`/`mc-wake` scripts
-    (`src-tauri/assets/claude-plugin/`, exec-form hooks, always exit 0) feed
+    (`src-tauri/assets/claude-plugin/`, exec-form hooks, always exit 0; on
+    Windows their `.ps1` twins, started by Windows PowerShell by full path,
+    as Windows cannot start an sh script) feed
     `server/hooks.rs`: a held `PermissionRequest` races the session's own
     dialog (first answer wins), relays go out as PostToolUse/Stop
     `additionalContext` or wake an idle session (`asyncRewake`), interrupts
@@ -445,7 +447,10 @@ bridge's Messages API client (an API key).
   `MOTHER_CLAUDE_SESSION`, set on owned children) counts only for an owned
   session the pid does not contradict. The helper's path in `.mcp.json`
   stays quoted: Claude Code runs it through a shell, and the data dir has a
-  space.
+  space. On Windows that shell is `cmd.exe`: the helper is
+  `mc-mcp-headers.ps1`, started by Windows PowerShell by full path, and it
+  names the first ancestor that is not a shell (docs/MCP.md "On Windows").
+  Owned sessions' copy carries no hooks on Windows.
 
 ## The browser extension (docs/BROWSER.md)
 

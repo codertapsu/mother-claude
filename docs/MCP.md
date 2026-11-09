@@ -78,8 +78,8 @@ only by installing foreign control.
 
 ```text
 <app data>/claude-plugin/mother-claude/.mcp.json          the installed plugin's entry
-<app data>/claude-plugin/mother-claude/scripts/mc-mcp-headers
-<app data>/mcp-plugin/mother-claude/…                     owned sessions' copy (whole plugin)
+<app data>/claude-plugin/mother-claude/scripts/mc-mcp-headers   (Windows: mc-mcp-headers.ps1)
+<app data>/mcp-plugin/mother-claude/…                     owned sessions' copy (whole plugin; no hooks on Windows)
 <app data>/mcp.token                                      0600, `mcm_…`, new every launch
 <app data>/mcp-settings.json                              0600, {"enabled": bool}
 ```
@@ -116,6 +116,29 @@ one JSON object and always exits 0:
   and the value is a canonical session id. Mother Claude sets both on the
   Path B children it launches. Unlike the hook scripts, the helper does not
   exit early for owned sessions.
+
+### On Windows
+
+Claude Code runs `headersHelper` through `cmd.exe` there (verified on
+2.1.317), which cannot run an sh script: the CLI then connected with no
+token, got a 401, fell back to OAuth discovery and reported "HTTP 503 trying
+to load OAuth metadata from …/.well-known/oauth-authorization-server". So on
+Windows the helper is its PowerShell twin, `scripts\mc-mcp-headers.ps1`
+(UTF-8 with a BOM, which Windows PowerShell 5.1 needs to read a data dir
+with a non-ASCII letter), and the entry starts Windows PowerShell on it, both
+by full paths:
+
+```json
+"headersHelper": "\"C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe\" -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File \"C:\\…\\scripts\\mc-mcp-headers.ps1\""
+```
+
+It prints the same headers. As `cmd.exe` stays between the CLI and the
+helper, `X-MC-Pid` is the first ancestor that is not a shell (`cmd.exe`,
+`powershell.exe`, `pwsh.exe`), looked up through WMI; a Git Bash `$PPID`
+would be 1 there. The hooks get PowerShell twins too
+(`mc-hook.ps1`, `mc-wake.ps1`, docs in `claude::hooks`), and owned sessions'
+copy carries no hooks on Windows: each would cost a PowerShell start (about
+0.15 s) only to exit at once.
 
 ## Identity
 
