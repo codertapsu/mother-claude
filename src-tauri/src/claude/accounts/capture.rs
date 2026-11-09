@@ -71,7 +71,15 @@ pub struct Stripper {
     /// The program turned bracketed paste on (`CSI ? 2004 h`): a paste
     /// into it goes between `CSI 200 ~` and `CSI 201 ~`.
     pub bracketed_paste: bool,
+    /// Cursor position queries (`CSI 6 n`) not answered yet. Windows' ConPTY
+    /// sends one as it starts and passes none of the program's output on
+    /// until the terminal answers it: unanswered, a sign-in never shows its
+    /// link.
+    pub cursor_queries: usize,
 }
+
+/// The answer to a cursor position query: the top left corner.
+pub const CURSOR_REPORT: &[u8] = b"\x1b[1;1R";
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 enum StripState {
@@ -146,6 +154,10 @@ impl Stripper {
                                 if modes.split(|c| *c == b';').any(|m| m == b"2004") {
                                     self.bracketed_paste = b == b'h';
                                 }
+                            }
+                            // Device status report: where is the cursor?
+                            b'n' if self.csi == b"6" => {
+                                self.cursor_queries = self.cursor_queries.saturating_add(1);
                             }
                             _ => {}
                         }
@@ -396,6 +408,12 @@ impl Screen {
     /// bracketed paste.
     pub fn bracketed_paste(&self) -> bool {
         self.stripper.bracketed_paste
+    }
+
+    /// The cursor position queries the terminal still owes an answer
+    /// ([`CURSOR_REPORT`] each), counted off as they are taken.
+    pub fn take_cursor_queries(&mut self) -> usize {
+        std::mem::take(&mut self.stripper.cursor_queries)
     }
 
     /// The last visible line, for "it ended without a token" (masked).
@@ -1207,6 +1225,18 @@ pub fn start(
                     Ok(n) => n,
                 };
                 let found = screen.feed(&buf[..n]);
+                // Answer the terminal's questions at once: on Windows the
+                // program's output waits for this one.
+                let queries = screen.take_cursor_queries();
+                if queries > 0 {
+                    use std::io::Write;
+                    if let Some(w) = lock(&reading.writer).as_mut() {
+                        for _ in 0..queries {
+                            let _ = w.write_all(CURSOR_REPORT);
+                        }
+                        let _ = w.flush();
+                    }
+                }
                 if found && reading.kind == SignInKind::Token {
                     if let Some(token) = screen.token.take() {
                         let account = reading.account.clone();
@@ -1453,6 +1483,45 @@ mod tests {
             stripper.feed(b"one\x1b[10`two\x1b[3athree\x1b[5dfour"),
             "one two three\nfour"
         );
+    }
+
+    /// Windows' ConPTY asks where the cursor is (`CSI 6 n`) before it passes
+    /// any output on (verified with `claude auth login` 2.1.317 on Windows
+    /// 11): each query is counted, once, even split across reads, and other
+    /// status requests and `n`-final sequences are not.
+    #[test]
+    fn cursor_position_queries_are_counted_for_an_answer() {
+        let mut screen = Screen::default();
+        screen.feed(b"\x1b[6n");
+        assert_eq!(screen.take_cursor_queries(), 1);
+        assert_eq!(screen.take_cursor_queries(), 0, "taken once");
+        screen.feed(b"\x1b[");
+        screen.feed(b"6");
+        screen.feed(b"nOpening browser to sign in\r\n\x1b[5n\x1b[?6n\x1b[16n");
+        assert_eq!(screen.take_cursor_queries(), 1, "split across reads");
+        // The answer: the top left corner.
+        assert_eq!(CURSOR_REPORT, b"\x1b[1;1R");
+    }
+
+    /// The whole screen of `claude auth login` in Windows' ConPTY once the
+    /// query is answered (CLI 2.1.317): the link is read from it.
+    #[test]
+    fn a_windows_login_screen_shows_its_link() {
+        let mut screen = Screen::default();
+        screen.feed(
+            b"\x1b[6n\x1b[?9001h\x1b[?1004h\x1b[m\x1b]0;C:\\Users\\x\\claude.EXE\x07\x1b[?25h",
+        );
+        assert_eq!(screen.take_cursor_queries(), 1);
+        screen.feed(b"\x1b]0;claude\x07Opening browser to sign in\xe2\x80\xa6\r\n");
+        screen.feed(
+            format!(
+                "If the browser didn't open, visit: \x1b]8;id=1-1;{URL}\x1b\\{URL}\x1b]8;;\x1b\\\r\n\
+                 Paste code here if prompted > "
+            )
+            .as_bytes(),
+        );
+        assert_eq!(screen.url.as_ref().map(|l| l.as_str()), Some(URL));
+        assert!(screen.asks_for_code());
     }
 
     #[test]
@@ -2040,5 +2109,59 @@ mod tests {
         );
         assert_eq!(spec.env_change("GONE"), Some(None));
         assert_eq!(spec.env_change("OTHER"), None);
+    }
+
+    /// The real `claude auth login`, in a pseudo-terminal as a sign-in runs
+    /// it, with a throwaway config directory: its link must arrive (on
+    /// Windows it never did while ConPTY's cursor query went unanswered).
+    /// Needs `claude` installed; signs nothing in and opens no browser.
+    ///
+    /// `cargo test --manifest-path src-tauri/Cargo.toml --lib real_login -- --ignored`
+    #[cfg(feature = "token-capture")]
+    #[test]
+    #[ignore]
+    fn a_real_login_shows_its_link() {
+        struct Quiet;
+        impl SignInSink for Quiet {
+            fn changed(&self, _: &Arc<SignInJob>) {}
+            fn token(&self, _: &str, _: Secret) -> Result<(), String> {
+                Ok(())
+            }
+            fn exited(&self, _: &Arc<SignInJob>) {}
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let spec = crate::claude::accounts::signin::login_spec(
+            &crate::claude::claude_bin(),
+            Some(dir.path()),
+            false,
+            None,
+            None,
+        );
+        let job = start(
+            "acc_test",
+            SignInKind::Login,
+            &spec,
+            false,
+            Arc::new(Quiet),
+            SIGN_IN_TIMEOUT,
+            LINK_TIMEOUT,
+        )
+        .unwrap();
+        let started = std::time::Instant::now();
+        let link = loop {
+            if let Ok(link) = job.open_link() {
+                break link;
+            }
+            assert!(
+                job.is_running() && started.elapsed() < Duration::from_secs(20),
+                "no link after {:?}: {:?}",
+                started.elapsed(),
+                job.view()
+            );
+            std::thread::sleep(Duration::from_millis(100));
+        };
+        job.cancel();
+        assert!(link.as_str().starts_with("https://"), "{}", link.as_str());
+        assert!(link.as_str().contains("oauth"), "{}", link.as_str());
     }
 }

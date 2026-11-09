@@ -26,7 +26,7 @@ use portable_pty::{native_pty_system, CommandBuilder, PtySize};
 use crate::state::AppState;
 
 struct PtyHandle {
-    writer: Mutex<Box<dyn Write + Send>>,
+    writer: Arc<Mutex<Box<dyn Write + Send>>>,
     _child: Box<dyn portable_pty::Child + Send + Sync>,
     /// Which attach created it (the EOF reaper only removes its own handle).
     generation: u64,
@@ -87,7 +87,9 @@ impl PtyRegistry {
         drop(pair.slave);
 
         let mut reader = pair.master.try_clone_reader().context("clone pty reader")?;
-        let writer = pair.master.take_writer().context("take pty writer")?;
+        let writer: Arc<Mutex<Box<dyn Write + Send>>> = Arc::new(Mutex::new(
+            pair.master.take_writer().context("take pty writer")?,
+        ));
 
         // Drain the PTY so the child never blocks on a full buffer. The raw
         // terminal output is not broadcast (it can contain anything the
@@ -98,12 +100,29 @@ impl PtyRegistry {
         let sid = id.to_string();
         let generation = self.generations.fetch_add(1, Ordering::Relaxed);
         let sessions = self.sessions.clone();
+        let answering = writer.clone();
         std::thread::spawn(move || {
             let mut buf = [0u8; 4096];
+            // Only for its cursor queries: Windows' ConPTY passes no output on
+            // until the terminal says where the cursor is.
+            let mut stripper = crate::claude::accounts::capture::Stripper::default();
             loop {
                 match reader.read(&mut buf) {
                     Ok(0) | Err(_) => break,
-                    Ok(n) => tracing::trace!(session = %sid, bytes = n, "pty output"),
+                    Ok(n) => {
+                        tracing::trace!(session = %sid, bytes = n, "pty output");
+                        stripper.feed(&buf[..n]);
+                        let queries = std::mem::take(&mut stripper.cursor_queries);
+                        if queries > 0 {
+                            if let Ok(mut w) = answering.lock() {
+                                for _ in 0..queries {
+                                    let _ = w
+                                        .write_all(crate::claude::accounts::capture::CURSOR_REPORT);
+                                }
+                                let _ = w.flush();
+                            }
+                        }
+                    }
                 }
             }
             if let Ok(mut map) = sessions.lock() {
@@ -118,7 +137,7 @@ impl PtyRegistry {
             map.insert(
                 id.to_string(),
                 PtyHandle {
-                    writer: Mutex::new(writer),
+                    writer,
                     _child: child,
                     generation,
                 },
