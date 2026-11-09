@@ -6,8 +6,33 @@ import { hostPattern } from '../shared/site.ts';
 declare const __MC_VERSION__: string;
 export const EXTENSION_VERSION: string = __MC_VERSION__;
 
+/**
+ * The permissions the user grants on the options page. Chrome keeps
+ * webNavigation and downloads as optional permissions, asked for with its own
+ * prompt; the debugger it refuses as one ("Only permissions specified in the
+ * manifest may be requested"), so the manifest requires it and the user's
+ * grant is a stored switch instead (DEBUGGER_GRANT_KEY), off until pressed.
+ */
 export const OPTIONAL_PERMISSIONS = ['debugger', 'webNavigation', 'downloads'] as const;
 export type OptionalPermission = (typeof OPTIONAL_PERMISSIONS)[number];
+
+/** chrome.storage.local: `true` once the user pressed Grant for the debugger. */
+export const DEBUGGER_GRANT_KEY = 'debuggerGranted';
+
+/** Did the user grant the debugger on the options page (and not remove it since)? */
+export async function debuggerGranted(): Promise<boolean> {
+  try {
+    const v = await chrome.storage.local.get(DEBUGGER_GRANT_KEY);
+    return v[DEBUGGER_GRANT_KEY] === true;
+  } catch {
+    return false;
+  }
+}
+
+export async function setDebuggerGranted(granted: boolean): Promise<void> {
+  if (granted) await chrome.storage.local.set({ [DEBUGGER_GRANT_KEY]: true });
+  else await chrome.storage.local.remove(DEBUGGER_GRANT_KEY);
+}
 
 interface Brand {
   brand: string;
@@ -95,19 +120,23 @@ export async function defaultBrowserName(): Promise<string> {
   return os ? `${info.name} on ${os}` : info.name;
 }
 
+/** Granted by the user: held from Chrome and, for the debugger, switched on here too. */
 export async function hasPermission(p: OptionalPermission): Promise<boolean> {
   try {
-    return await chrome.permissions.contains({ permissions: [p] });
+    if (!(await chrome.permissions.contains({ permissions: [p] }))) return false;
   } catch {
     return false;
   }
+  return p === 'debugger' ? debuggerGranted() : true;
 }
 
 /** Optional permissions and origins granted now, as one list (`permission.changed`). */
 export async function grantedList(): Promise<string[]> {
   const all = await chrome.permissions.getAll();
-  const perms = (all.permissions ?? []).filter((p): p is OptionalPermission =>
-    (OPTIONAL_PERMISSIONS as readonly string[]).includes(p),
+  const debuggerOn = await debuggerGranted();
+  const perms = (all.permissions ?? []).filter(
+    (p): p is OptionalPermission =>
+      (OPTIONAL_PERMISSIONS as readonly string[]).includes(p) && (p !== 'debugger' || debuggerOn),
   );
   return [...perms, ...(all.origins ?? [])];
 }

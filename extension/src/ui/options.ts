@@ -19,7 +19,7 @@ const PERMISSIONS: { name: string; label: string; why: string }[] = [
   {
     name: 'debugger',
     label: 'Debugger',
-    why: 'Trusted clicks and keys for sites that ignore scripted ones, screenshots of tabs in the background, the console, JavaScript dialogs, and eval. Chrome shows a bar while it is in use.',
+    why: 'Trusted clicks and keys for sites that ignore scripted ones, screenshots of tabs in the background, the console, network requests, cookies, JavaScript dialogs, and eval. Chrome shows a bar while it is in use.',
   },
   {
     name: 'webNavigation',
@@ -34,6 +34,24 @@ const PERMISSIONS: { name: string; label: string; why: string }[] = [
 ];
 
 let formFilled = false;
+
+/**
+ * Grant or remove one permission. The debugger is not optional to Chrome (it
+ * gave it at install), so its Grant is the extension's own switch; the
+ * others are Chrome's prompt, which must come straight from the click.
+ */
+async function setPermission(name: string, grant: boolean): Promise<void> {
+  const out = byId('permission-error');
+  if (name === 'debugger') {
+    out.textContent = '';
+    const res = await request({ op: 'setDebugger', granted: grant });
+    if (!res.ok) out.textContent = res.message;
+    return;
+  }
+  const p = { permissions: [name] as chrome.runtime.ManifestPermission[] };
+  const done = grant ? await askPermissions(p) : await dropPermissions(p);
+  out.textContent = done.error ? `Chrome did not change ${name}: ${done.error}` : '';
+}
 
 function renderConnection(s: UiStatus): void {
   const box = byId('connection');
@@ -123,14 +141,7 @@ function renderPermissions(s: UiStatus): void {
             {
               type: 'button',
               'data-key': `perm-${p.name}`,
-              onclick: () =>
-                void (has
-                  ? dropPermissions({
-                      permissions: [p.name] as chrome.runtime.ManifestPermission[],
-                    })
-                  : askPermissions({
-                      permissions: [p.name] as chrome.runtime.ManifestPermission[],
-                    })),
+              onclick: () => void setPermission(p.name, !has),
             },
             has ? 'Remove' : 'Grant',
           ),
@@ -152,7 +163,7 @@ function renderPermissions(s: UiStatus): void {
               {
                 type: 'button',
                 'data-key': `site-${o}`,
-                onclick: () => void dropPermissions({ origins: [o] }),
+                onclick: () => void allowSites([o], false),
               },
               'Remove',
             ),
@@ -161,6 +172,12 @@ function renderPermissions(s: UiStatus): void {
       : [h('li', { class: 'muted' }, 'No site yet.')]),
   );
   byId('about').textContent = `Extension ${s.extensionVersion} · id ${s.extensionId}`;
+}
+
+/** Let the extension into sites, or out of them; Chrome's reason when it refuses. */
+async function allowSites(origins: string[], allow: boolean): Promise<void> {
+  const done = allow ? await askPermissions({ origins }) : await dropPermissions({ origins });
+  byId('site-error').textContent = done.error;
 }
 
 function render(s: UiStatus): void {
@@ -191,12 +208,9 @@ function start(): void {
       return;
     }
     byId('site-error').textContent = '';
-    void askPermissions({ origins: [pattern] });
+    void allowSites([pattern], true);
   });
-  byId('all-sites').addEventListener(
-    'click',
-    () => void askPermissions({ origins: ['<all_urls>'] }),
-  );
+  byId('all-sites').addEventListener('click', () => void allowSites(['<all_urls>'], true));
 }
 
 start();

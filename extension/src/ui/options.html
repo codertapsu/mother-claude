@@ -45,8 +45,11 @@
       <section aria-labelledby="permissions-title">
         <h2 id="permissions-title">Permissions</h2>
         <p class="help">
-          A fresh install can do nothing in your pages. Each permission below is asked for only when
-          you press its button, and you can take it back here at any time.
+          A fresh install does nothing in your pages. Each permission below is used only after you
+          press its button, and you can take it back here at any time. Chrome asks you before it
+          grants Navigation events or Downloads. The debugger comes with the install, because Chrome
+          does not let an extension ask for it later (Chrome lists it among the extension's
+          permissions); Grant and Remove here decide whether the extension uses it.
         </p>
         <table>
           <thead>
@@ -58,6 +61,7 @@
           </thead>
           <tbody id="permission-rows"></tbody>
         </table>
+        <p class="error" id="permission-error" role="alert"></p>
         <h3>Sites</h3>
         <p class="help">
           Sessions can read or act only on sites you let the extension into, and only as far as the

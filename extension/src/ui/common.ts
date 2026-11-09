@@ -116,17 +116,35 @@ export const CONNECTION_TEXT: Record<string, string> = {
   auth_failed: 'Mother Claude did not accept this browser',
 };
 
-/** Ask for optional permissions (needs the click that called it) and tell the worker. */
-export async function askPermissions(p: chrome.permissions.Permissions): Promise<boolean> {
-  const granted = await chrome.permissions.request(p).catch(() => false);
-  await request({ op: 'permissionsChanged' });
-  return granted;
+/**
+ * What Chrome did with a permission request: `ok` when it granted (or
+ * removed) it; otherwise `error` is Chrome's reason when it refused the
+ * request itself, and empty when the user said no in its prompt.
+ */
+export interface PermissionOutcome {
+  ok: boolean;
+  error: string;
 }
 
-export async function dropPermissions(p: chrome.permissions.Permissions): Promise<boolean> {
-  const removed = await chrome.permissions.remove(p).catch(() => false);
+async function permissionCall(call: () => Promise<boolean>): Promise<PermissionOutcome> {
+  let outcome: PermissionOutcome;
+  try {
+    outcome = { ok: await call(), error: '' };
+  } catch (e) {
+    outcome = { ok: false, error: e instanceof Error ? e.message : String(e) };
+  }
   await request({ op: 'permissionsChanged' });
-  return removed;
+  return outcome;
+}
+
+/** Ask for optional permissions (needs the click that called it) and tell the worker. */
+export function askPermissions(p: chrome.permissions.Permissions): Promise<PermissionOutcome> {
+  // Called before anything awaits, so the request still has the click.
+  return permissionCall(() => chrome.permissions.request(p));
+}
+
+export function dropPermissions(p: chrome.permissions.Permissions): Promise<PermissionOutcome> {
+  return permissionCall(() => chrome.permissions.remove(p));
 }
 
 /** Pairing form shared by the side panel and the options page. */

@@ -164,9 +164,9 @@ missing.
 
 ## Permissions, and why each is asked
 
-A fresh install can do nothing in your pages. The extension asks for each
-optional permission only when you press its button, in the side panel or on
-the options page, and you can take each back on the options page.
+A fresh install does nothing in your pages. The extension uses each
+permission in the second table only after you press its button, in the side
+panel or on the options page, and you can take each back on the options page.
 
 Always granted (asked at install):
 
@@ -188,6 +188,17 @@ Asked for when needed:
 | Debugger            | Clicks and keys the page treats as real (for sites that ignore scripted ones), screenshots of tabs in the background, the console, JavaScript dialogs, network-idle waits, and running a script the desktop approved. |
 | Navigation events   | Notices page loads earlier and reports why a page failed to load.                                                                                                                                                     |
 | Downloads           | Tells the session when a page it works on starts a download (the file name only).                                                                                                                                     |
+
+**The debugger comes with the install.** Chrome does not let an extension
+ask for the debugger later (it is one of the few permissions that cannot be
+optional), so the extension requires it, and Chrome lists it among the
+extension's permissions from the start: "Access the page debugger backend" and
+"Read and change all your data on all websites" (what a debugger can do in any
+page it attaches to). The extension does not use it until
+you press **Grant** next to **Debugger** on the options page; **Remove** stops
+it at once, in every tab, and forgets what it recorded there. Neither shows a
+Chrome prompt. (In version 0.1.0, which asked Chrome for it as an optional
+permission, **Grant** did nothing.)
 
 **The debugging bar.** While the debugger permission is in use, the browser
 shows "Mother Claude started debugging this browser" at the top. That is this
@@ -234,7 +245,7 @@ working.
 - **"Mother Claude cannot read this site yet"**: press **Allow on this site**
   in the side panel, and give the site a mode (Read or Act).
 - **A session says a dialog blocks the page**: answer the dialog in the tab, or
-  grant the debugger permission so the session can.
+  grant the debugger permission on the options page so the session can.
 - **"Another connection of this browser took over"**: the extension runs twice
   with the same pairing (two profiles copied from one?). Press **Reconnect now**
   on the options page in the one you want.

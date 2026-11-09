@@ -29,7 +29,16 @@
     "page": "options.html",
     "open_in_tab": true
   },
-  "permissions": ["storage", "tabs", "tabGroups", "scripting", "activeTab", "sidePanel", "alarms"],
-  "optional_permissions": ["debugger", "webNavigation", "downloads"],
+  "permissions": [
+    "storage",
+    "tabs",
+    "tabGroups",
+    "scripting",
+    "activeTab",
+    "sidePanel",
+    "alarms",
+    "debugger"
+  ],
+  "optional_permissions": ["webNavigation", "downloads"],
   "optional_host_permissions": ["<all_urls>"]
 }

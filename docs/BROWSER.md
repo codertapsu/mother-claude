@@ -295,5 +295,5 @@ result — so open only the sites you are happy for it to read.
 | *Browsing … is off* (`site_off`) / *read-only* (`site_read_only`) | Set the site's mode (§4) if you want the session there. |
 | *The user pressed Stop* (`stopped`) | Resume it on the Browser page, or wait a minute. |
 | *Nobody approved …* (`approval_timeout`) | Answer approvals sooner, or add a grant. |
-| *needs the extension's optional debugger permission* | Grant it in the extension. |
+| *needs the extension's optional debugger permission* | Press **Grant** next to **Debugger** on the extension's options page. |
 | *Mother Claude could not tell which session is calling* (`no_session`) | The session reaches Mother Claude without its identity; check that the Mother Claude plugin is enabled in it. |

@@ -25,7 +25,13 @@ import { Commands } from './commands.ts';
 import { Connection, DesktopError } from './connection.ts';
 import { DebuggerManager } from './debugger.ts';
 import { Dialogs, dialogKind, type DialogInfo } from './dialogs.ts';
-import { EXTENSION_VERSION, defaultBrowserName, grantedList, hasHostAccess } from './env.ts';
+import {
+  EXTENSION_VERSION,
+  defaultBrowserName,
+  grantedList,
+  hasHostAccess,
+  setDebuggerGranted,
+} from './env.ts';
 import { Leases, isPlaceholderUrl } from './leases.ts';
 import { PageBridge } from './page.ts';
 import { Router } from './router.ts';
@@ -508,6 +514,15 @@ async function handleUi(req: UiRequest): Promise<UiResponse> {
     case 'permissionsChanged':
       await permissionsChanged();
       return { ok: true };
+    case 'setDebugger': {
+      if (typeof chrome.debugger === 'undefined')
+        return fail('unsupported', 'This browser does not let extensions use its debugger.');
+      await setDebuggerGranted(req.granted === true);
+      // Removed: the debugger stops now, not at the sessions' next command.
+      if (req.granted !== true) await dbg.detachAll();
+      await permissionsChanged();
+      return { ok: true };
+    }
     case 'sessions': {
       const res = await desktopData({ type: 'sessions' });
       if (!res.ok) return res;

@@ -70,10 +70,11 @@ function manifestFor(t) {
   if (t === 'chrome-e2e') {
     // Optional permissions can only be granted through a browser prompt that
     // automation cannot click, so the test build asks for them up front: the
-    // fixture hosts and the optional APIs. Everything else is the real manifest.
+    // fixture hosts and the optional APIs. Everything else is the real manifest
+    // (the debugger is required there too, and granted on the options page).
     m.name = 'Mother Claude (e2e)';
     m.host_permissions = ['http://127.0.0.1/*', 'http://localhost/*'];
-    m.permissions = [...m.permissions, 'debugger', 'webNavigation', 'downloads'];
+    m.permissions = [...m.permissions, ...m.optional_permissions];
     m.optional_permissions = [];
   }
   if (t === 'firefox') {
@@ -86,10 +87,9 @@ function manifestFor(t) {
       default_panel: 'sidepanel.html',
       default_icon: m.action.default_icon,
     };
-    m.permissions = m.permissions.filter((p) => p !== 'sidePanel');
     // Firefox has no chrome.debugger: trusted input, background screenshots,
     // console and dialogs answer `debugger_unavailable` / `permission_needed`.
-    m.optional_permissions = m.optional_permissions.filter((p) => p !== 'debugger');
+    m.permissions = m.permissions.filter((p) => p !== 'sidePanel' && p !== 'debugger');
     m.browser_specific_settings = {
       gecko: { id: 'browser-extension@motherclaude.dev', strict_min_version: '128.0' },
     };

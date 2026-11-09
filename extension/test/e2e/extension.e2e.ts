@@ -8,7 +8,7 @@
 //   MC_E2E_BROWSER=/path/to/browser    another Chromium (Brave, Edge, Chrome for Testing)
 
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -21,6 +21,9 @@ const here = dirname(fileURLToPath(import.meta.url));
 const repo = join(here, '..', '..', '..');
 const BUILD = join(repo, 'dist-extension', 'chrome-e2e');
 const EXPECTED_ID = 'bagfjjgeehalpbpjjajhlghbehfmfclf';
+const VERSION = (
+  JSON.parse(readFileSync(join(repo, 'extension', 'manifest.json'), 'utf8')) as { version: string }
+).version;
 const LEASE = 'l_e2e';
 const executable = defaultBrowserPath();
 
@@ -109,6 +112,43 @@ describe(
       );
     }
 
+    /**
+     * Wait until the options page's debugger button reads `label` (it renders
+     * each status change a moment later), so a press is never on a stale one.
+     */
+    async function debuggerButton(sessionId: string, label: 'Grant' | 'Remove'): Promise<void> {
+      let shown = '';
+      for (let i = 0; i < 50 && shown !== label; i++) {
+        if (i > 0) await sleep(100);
+        shown = await browser.evaluate<string>(
+          sessionId,
+          `document.querySelector('[data-key="perm-debugger"]')?.textContent ?? ''`,
+        );
+      }
+      assert.equal(shown, label);
+    }
+
+    /** Press the options page's own Grant / Remove button for the debugger. */
+    async function pressDebuggerButton(
+      sessionId: string,
+      label: 'Grant' | 'Remove',
+    ): Promise<void> {
+      await debuggerButton(sessionId, label);
+      await browser.evaluate(
+        sessionId,
+        `document.querySelector('[data-key="perm-debugger"]').click()`,
+      );
+    }
+
+    async function uiStatus(
+      sessionId: string,
+    ): Promise<{ granted: string[]; debuggerAttached: number }> {
+      return (await ui(sessionId, { op: 'status' }))['status'] as {
+        granted: string[];
+        debuggerAttached: number;
+      };
+    }
+
     async function text(selector: string, opts: { tabId?: number } = {}): Promise<string> {
       const r = await cmd('read', { mode: 'text', selector }, opts);
       return String(ok(r, `read ${selector}`)['content']);
@@ -155,6 +195,24 @@ describe(
       assert.equal(extensionId, EXPECTED_ID);
     });
 
+    it('leaves the debugger unused until Grant on the options page, though Chrome holds it', async () => {
+      // Chrome refuses the debugger as an optional permission ("Only permissions
+      // specified in the manifest may be requested"), so every build requires it.
+      const held = await sw<{ permissions: string[] }>('chrome.permissions.getAll()');
+      assert.ok(held.permissions.includes('debugger'), JSON.stringify(held));
+      const options = await extensionPage('options.html');
+      assert.ok(!(await uiStatus(options.sessionId)).granted.includes('debugger'));
+      await pressDebuggerButton(options.sessionId, 'Grant');
+      let granted: string[] = [];
+      for (let i = 0; i < 50 && !granted.includes('debugger'); i++) {
+        await sleep(100);
+        granted = (await uiStatus(options.sessionId)).granted;
+      }
+      assert.ok(granted.includes('debugger'), JSON.stringify(granted));
+      await debuggerButton(options.sessionId, 'Remove');
+      await browser.send('Target.closeTarget', { targetId: options.targetId });
+    });
+
     it('refuses a wrong code, then pairs and authenticates with hello', async () => {
       const options = await extensionPage('options.html');
       // The worker must be on the mock's port before anything connects.
@@ -184,14 +242,14 @@ describe(
       const pair = await desktop.waitFor((f) => f.type === 'pair' && f['code'] === 'ABCD-EFGH');
       assert.equal(pair['name'], 'E2E Chrome');
       assert.equal((pair['browser'] as { name: string }).name.length > 0, true);
-      assert.equal(pair['extensionVersion'], '0.1.0');
+      assert.equal(pair['extensionVersion'], VERSION);
       const hello = await desktop.waitFor((f) => f.type === 'hello');
       assert.equal(hello['token'], desktop.token);
       const caps = hello['capabilities'] as Record<string, boolean>;
       assert.equal(caps['debugger'], true);
       assert.equal(caps['tabGroups'], true);
       assert.equal(caps['sidePanel'], true);
-      assert.ok(Array.isArray(hello['granted']));
+      assert.ok((hello['granted'] as string[]).includes('debugger'), JSON.stringify(hello));
       assert.ok(desktop.origins.every((o) => o === `chrome-extension://${EXPECTED_ID}`));
       const status = await ui(options.sessionId, { op: 'status' });
       const s = status['status'] as { connection: { state: string; appVersion: string } };
@@ -488,6 +546,37 @@ describe(
         errors.length >= 1 && errors.every((m) => m.level === 'error'),
         JSON.stringify(errors),
       );
+    });
+
+    it('stops the debugger at once on Remove, and Grant brings it back', async () => {
+      const options = await extensionPage('options.html');
+      assert.ok(
+        (await uiStatus(options.sessionId)).debuggerAttached > 0,
+        'attached by the console',
+      );
+      let since = Date.now();
+      await pressDebuggerButton(options.sessionId, 'Remove');
+      const removed = await desktop.event(
+        'permission.changed',
+        (f) => !(f['granted'] as string[]).includes('debugger'),
+        10_000,
+        since,
+      );
+      assert.ok(Array.isArray(removed['granted']));
+      assert.equal((await uiStatus(options.sessionId)).debuggerAttached, 0);
+      const refused = fails(await cmd('console'), 'permission_needed', 'console after Remove');
+      assert.deepEqual(refused.error?.data, { permission: 'debugger' });
+      since = Date.now();
+      await pressDebuggerButton(options.sessionId, 'Grant');
+      await desktop.event(
+        'permission.changed',
+        (f) => (f['granted'] as string[]).includes('debugger'),
+        10_000,
+        since,
+      );
+      ok(await cmd('console'), 'console after Grant');
+      assert.ok((await uiStatus(options.sessionId)).debuggerAttached > 0);
+      await browser.send('Target.closeTarget', { targetId: options.targetId });
     });
 
     it('evaluates an expression and reports what it throws', async () => {

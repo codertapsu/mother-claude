@@ -344,13 +344,21 @@ async function setMode(t: TabInfo, mode: SiteMode | null): Promise<void> {
   const pattern = hostPattern(t.url);
   // The permission prompt must come straight from the click.
   if (mode !== null && mode !== 'off' && !t.hostGranted && pattern) {
-    const ok = await askPermissions({ origins: [pattern] });
-    if (!ok)
-      siteMessage = 'Without access to this site, sessions cannot read it even in Read or Act.';
+    const asked = await askPermissions({ origins: [pattern] });
+    if (!asked.ok)
+      siteMessage =
+        asked.error || 'Without access to this site, sessions cannot read it even in Read or Act.';
   }
   if (!t.origin) return;
   const res = await request({ op: 'setSiteMode', origin: t.origin, mode });
   if (!res.ok) siteMessage = res.message;
+  await refreshTab();
+}
+
+/** "Allow on …": Chrome's prompt, straight from the click. */
+async function allowSites(origins: string[]): Promise<void> {
+  const asked = await askPermissions({ origins });
+  siteMessage = asked.error;
   await refreshTab();
 }
 
@@ -428,7 +436,7 @@ function renderTab(): void {
                 'button',
                 {
                   type: 'button',
-                  onclick: () => void askPermissions({ origins: [pattern] }).then(refreshTab),
+                  onclick: () => void allowSites([pattern]),
                 },
                 `Allow on ${new URL(t.url).hostname}`,
               )
@@ -437,7 +445,7 @@ function renderTab(): void {
             'button',
             {
               type: 'button',
-              onclick: () => void askPermissions({ origins: ['<all_urls>'] }).then(refreshTab),
+              onclick: () => void allowSites(['<all_urls>']),
             },
             'Allow on all sites',
           ),

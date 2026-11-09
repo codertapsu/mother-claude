@@ -105,6 +105,8 @@ export type UiRequest =
   | { op: 'addToLease'; tabId: number; lease: string }
   | { op: 'reconnect' }
   | { op: 'permissionsChanged' }
+  /** Grant or remove the debugger: Chrome holds it from install, this is the user's say (env.ts). */
+  | { op: 'setDebugger'; granted: boolean }
   | { op: 'leaseInfo'; lease: string }
   /** The live Claude Code sessions on this computer (from the desktop). */
   | { op: 'sessions' }

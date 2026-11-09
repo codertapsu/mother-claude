@@ -811,7 +811,7 @@ export class Commands {
     if (!tab.active || !win || win.state === 'minimized') {
       throw permissionNeeded(
         'debugger',
-        'a screenshot of a tab that is not on screen needs the "debugger" permission: grant it in the side panel',
+        'a screenshot of a tab that is not on screen needs the "debugger" permission: grant it in the Mother Claude extension’s options',
       );
     }
     let rect: Data | null = null;
@@ -832,7 +832,7 @@ export class Commands {
       } else if (/permission|<all_urls>|activeTab/i.test(msg)) {
         throw permissionNeeded(
           'debugger',
-          'screenshots need the "debugger" permission (or access to all sites): grant it in the side panel',
+          'screenshots need the "debugger" permission (granted in the Mother Claude extension’s options) or access to all sites (granted in its side panel)',
         );
       } else throw new CommandError('internal', msg);
     }

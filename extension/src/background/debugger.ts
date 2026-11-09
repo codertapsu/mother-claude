@@ -1,10 +1,10 @@
-// chrome.debugger (an optional permission): trusted input, screenshots,
-// console capture, the network log, cookies, eval and dialogs. Attached per
-// tab on first use, kept while
-// the tab is in its lease, detached when the lease closes. Chrome shows its
-// "started debugging this browser" bar while anything is attached; the side
-// panel explains it. If the user cancels that bar, we do not attach again in
-// that tab until its lease ends.
+// chrome.debugger, once the user grants it on the options page (env.ts):
+// trusted input, screenshots, console capture, the network log, cookies, eval
+// and dialogs. Attached per tab on first use, kept while the tab is in its
+// lease, detached when the lease closes or the user removes the grant. Chrome
+// shows its "started debugging this browser" bar while anything is attached;
+// the side panel explains it. If the user cancels that bar, we do not attach
+// again in that tab until its lease ends.
 
 import { CommandError, messageOf, permissionNeeded } from '../shared/errors.ts';
 import { dialogKind, type Dialogs } from './dialogs.ts';
@@ -195,7 +195,7 @@ export class DebuggerManager {
     if (!(await hasPermission('debugger'))) {
       throw permissionNeeded(
         'debugger',
-        `${why} needs the "debugger" permission: grant it in the Mother Claude side panel`,
+        `${why} needs the "debugger" permission: grant it in the Mother Claude extension’s options`,
       );
     }
     if (typeof chrome.debugger === 'undefined') {
@@ -227,6 +227,11 @@ export class DebuggerManager {
       } else {
         throw new CommandError('debugger_unavailable', `cannot debug this tab: ${msg}`);
       }
+    }
+    // Removed while it attached (detachAll ran before this tab was ours)?
+    if (!(await hasPermission('debugger'))) {
+      await chrome.debugger.detach({ tabId }).catch(() => undefined);
+      throw permissionNeeded('debugger', `${why} needs the "debugger" permission: it was removed`);
     }
     this.attached.add(tabId);
     this.networks.set(tabId, { inflight: new Map(), last: Date.now(), mainFrame: '' });
@@ -356,6 +361,28 @@ export class DebuggerManager {
     }
   }
 
+  /** The user removed the debugger: let go of every tab, and forget what it recorded. */
+  async detachAll(): Promise<void> {
+    const tabs = new Set([
+      ...this.attached,
+      ...this.cancelled,
+      ...this.consoleBuffers.keys(),
+      ...this.networks.keys(),
+      ...this.logs.keys(),
+    ]);
+    // A tab attached before the worker last restarted is not in `attached`.
+    // Detaching a tab we are not attached to fails, harmlessly (DevTools'
+    // own session there is not ours to end).
+    const stale = new Set<number>();
+    for (const t of await chrome.debugger.getTargets().catch(() => [])) {
+      if (t.attached && t.tabId !== undefined && !this.attached.has(t.tabId)) stale.add(t.tabId);
+    }
+    await Promise.all([
+      ...[...tabs].map((tabId) => this.detach(tabId)),
+      ...[...stale].map((tabId) => chrome.debugger.detach({ tabId }).catch(() => undefined)),
+    ]);
+  }
+
   consoleMessages(tabId: number): ConsoleMessage[] {
     return this.consoleBuffers.get(tabId) ?? [];
   }
@@ -370,7 +397,7 @@ export class DebuggerManager {
     this.consoleBuffers.set(tabId, buf);
   }
 
-  /** Listeners exist only once the permission does (it is optional). */
+  /** Listeners, where the browser has the API (Firefox has none). */
   listen(): void {
     if (this.listening || typeof chrome.debugger === 'undefined') return;
     this.listening = true;

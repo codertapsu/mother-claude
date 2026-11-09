@@ -111,11 +111,13 @@ installed Google Chrome:
   `Extensions.loadUnpacked`, which needs the pipe and
   `--enable-unsafe-extension-debugging`.
 - The **e2e build** differs from the real one in two ways only: the fixture
-  hosts (`127.0.0.1`, `localhost`) and the optional APIs (`debugger`,
-  `webNavigation`, `downloads`) are required permissions, because optional
-  ones can only be granted through a browser prompt automation cannot click;
-  and its default port is 1, so nothing can reach a real app on 6725 before
-  the test points it at the mock.
+  hosts (`127.0.0.1`, `localhost`) and the optional APIs (`webNavigation`,
+  `downloads`) are required permissions, because optional ones can only be
+  granted through a browser prompt automation cannot click; and its default
+  port is 1, so nothing can reach a real app on 6725 before the test points it
+  at the mock. The debugger is required in every build (Chrome refuses it as
+  an optional permission) and the suite grants it on the options page, as a
+  user does.
 - `test/e2e/mock-desktop.ts` plays the desktop (pairing, hello, state, leases,
   commands, approvals, site modes) on an ephemeral port and refuses any Origin
   but the pinned id. `test/e2e/fixtures.ts` serves the fixture pages on
@@ -165,7 +167,8 @@ All optional and backward compatible (a field the other side does not know is
 ignored):
 
 - `hello.granted`: the optional permissions and origins granted now (the same
-  list as `permission.changed.granted`); `hello.capabilities` also carries
+  list as `permission.changed.granted`; `debugger` once the user granted it on
+  the options page, whatever Chrome holds); `hello.capabilities` also carries
   `webNavigation`, `downloads` and `screenshotFallback`.
 - `permission_needed` names the permission in both `error.data` and the
   result's `data`: `{"permission": "debugger"}` or `{"permission": "https://github.com/*"}`.
