@@ -944,6 +944,7 @@ async fn plan_into(
     let st = state.clone();
     let (a2, items2, home2) = (a.to_string(), items.clone(), home.clone());
     let set = storage.set(&set_name);
+    let moving = req.mode == Mode::Move;
     let (ids, planned, skipped) = tokio::task::spawn_blocking(move || {
         let (mut ids, mut skipped) = sessions_of_projects(&st, &a2, &home2, &items2.projects);
         if items2.all {
@@ -959,8 +960,16 @@ async fn plan_into(
                 Err((code, message)) => skipped.push(Skipped::session(id, &code, message)),
             }
         }
-        let live = |id: &str| super::ops::is_live(&st, id);
-        let (planned, skips) = backup::plan_push_some(&set, &pass, &home2, &ids, &machine, &live)?;
+        // A copy waits only for a busy session; a move for its process to end.
+        let blocked = |id: &str| {
+            if moving {
+                super::ops::is_live(&st, id)
+            } else {
+                super::ops::is_busy(&st, id)
+            }
+        };
+        let (planned, skips) =
+            backup::plan_push_some(&set, &pass, &home2, &ids, &machine, &blocked, moving)?;
         skipped.extend(skips.into_iter().map(|s| skipped_of(&s)));
         Ok::<_, BackupError>((ids, planned, skipped))
     })
@@ -1447,7 +1456,9 @@ async fn run_into(
     };
     let progress = state.jobs.progress(job).unwrap_or_default();
     let (report, manifest) = tokio::task::spawn_blocking(move || {
-        let live = |id: &str| super::ops::is_live(&st, id);
+        // Copied when it is not busy; moved only when its process ended.
+        let busy = |id: &str| super::ops::is_busy(&st, id);
+        let open = |id: &str| super::ops::is_live(&st, id);
         let title_of = |id: &str| titles.get(id).cloned();
         let push = backup::PushInputs {
             home: &home,
@@ -1455,7 +1466,7 @@ async fn run_into(
             account_name: &set_name,
             passphrases: &pass,
             machine: &machine,
-            is_live: &live,
+            is_live: &busy,
             title_of: &title_of,
             progress: &progress,
         };
@@ -1463,6 +1474,7 @@ async fn run_into(
             Mode::Copy => backup::push_some(&push, &ids, false).map(|r| (r, None)),
             Mode::Move => backup::move_into_set(&backup::MoveIntoInputs {
                 push,
+                is_open: &open,
                 ids: &ids,
                 undo_root: &root2,
                 job_id: &job2,

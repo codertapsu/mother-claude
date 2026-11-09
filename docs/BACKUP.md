@@ -139,6 +139,9 @@ or everything of an account to a set of any storage, and back:
 - **Copy out of a set** restores into any account, from any set of any
   storage. **Move out of a set** then takes the conversations out of the set;
   their archives stay there for seven days, so that the move can be undone.
+- A conversation is moved into a set only once it is closed: an idle session
+  whose process is still open is backed up, but it stays in the account until
+  it is stopped.
 - **From one storage to another**, a copy re-encrypts each conversation to the
   target set's key and checks it before the target lists it; a move then takes
   it out of the source set, kept there seven days for the undo.
@@ -154,7 +157,12 @@ Per session, one archive: its transcript, its subagents' and workflows'
 transcripts, its file-history snapshots (what `/rewind` restores), its session
 environment and its todo lists. A session is archived again only when it
 changed here, so after the first run a backup of a large directory writes only
-what changed. A session that is running is skipped until it is idle. A backup's
+what changed. A session Claude is working in (a turn running, waiting for an
+answer, starting) is skipped until it is idle; an idle one is backed up even
+while its process stays open, as the sessions Mother Claude started keep
+theirs between turns. If Claude starts working in a session while it is being
+read, that archive is dropped and the session is listed as skipped, to back up
+again once it is idle: a backup never holds a copy taken mid-turn. A backup's
 progress counts the bytes as they are packed, against the total of everything
 it will archive, so a long first backup (a conversation of several GB takes a
 minute or two) shows how far it is rather than standing still.

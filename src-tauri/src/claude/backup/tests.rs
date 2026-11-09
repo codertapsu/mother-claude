@@ -1679,6 +1679,7 @@ fn a_move_into_a_set_archives_and_its_undo_brings_it_back() {
     let progress = Progress::default();
     let job = "20261021T190000-00000001";
     let (r, m) = move_into_set(&MoveIntoInputs {
+        is_open: &|_| false,
         push: push_inputs(&w, &w.home, &a, &pp, &not_live, &progress),
         ids: &[SID.to_string()],
         undo_root: &w.undo,
@@ -1747,14 +1748,15 @@ fn a_conversation_that_starts_during_a_move_into_a_set_stays() {
     let a = machine("mbp-a");
     let pp = [pass()];
     let progress = Progress::default();
-    // Not live while it is pushed and checked, live once it would move.
+    // Closed when the move starts, open (its process runs) once it would move.
     let calls = std::cell::Cell::new(0);
-    let live = |_: &str| {
+    let open = |_: &str| {
         calls.set(calls.get() + 1);
         calls.get() > 1
     };
     let (r, m) = move_into_set(&MoveIntoInputs {
-        push: push_inputs(&w, &w.home, &a, &pp, &live, &progress),
+        is_open: &open,
+        push: push_inputs(&w, &w.home, &a, &pp, &not_live, &progress),
         ids: &[SID.to_string()],
         undo_root: &w.undo,
         job_id: "20261021T191000-00000001",
@@ -1779,6 +1781,79 @@ fn a_conversation_that_starts_during_a_move_into_a_set_stays() {
     assert!(!w.undo.join("20261021T191000-00000001").exists());
 }
 
+/// A session read while its process runs: a second look after reading it
+/// tells whether anything wrote meanwhile (a turn that started), and a copy
+/// taken then is dropped rather than kept half-written.
+#[test]
+fn a_session_written_while_it_is_read_is_noticed() {
+    let w = world();
+    session(w.home.base(), SID);
+    let before = session_now(&w.home, SID).unwrap();
+    assert!(session_now(&w.home, SID).unwrap().unchanged_since(&before));
+    grow(&w.home, SID, "{\"type\":\"assistant\"}");
+    assert!(!session_now(&w.home, SID).unwrap().unchanged_since(&before));
+    assert_eq!(
+        BackupError::Changed("x".into()).code(),
+        "session_changed",
+        "the skip code the app knows"
+    );
+}
+
+/// An idle session whose process runs (open in a terminal or editor, or
+/// owned by Mother Claude between turns) is backed up — a copy reads only —
+/// but never moved out of its directory: that waits for its process to end.
+#[test]
+fn an_open_idle_session_is_backed_up_but_never_moved() {
+    let w = world();
+    session(w.home.base(), SID);
+    let a = machine("mbp-a");
+    let pp = [pass()];
+    let progress = Progress::default();
+    // Idle: not busy, so the copy takes it.
+    let r = push_some(
+        &push_inputs(&w, &w.home, &a, &pp, &not_live, &progress),
+        &[SID.to_string()],
+        false,
+    )
+    .unwrap();
+    assert_eq!(r.copied, [SID], "{r:?}");
+    assert!(r.skipped.is_empty(), "{r:?}");
+    // Busy (a turn runs): it waits, and says why.
+    let busy = |_: &str| true;
+    let r = push_some(
+        &push_inputs(&w, &w.home, &a, &pp, &busy, &progress),
+        &[SID.to_string()],
+        false,
+    )
+    .unwrap();
+    assert_eq!(r.skipped[0].code, "session_live");
+    assert_eq!(r.skipped[0].reason, BUSY_REFUSAL);
+    // Open: a move refuses it before anything is read.
+    let (r, m) = move_into_set(&MoveIntoInputs {
+        is_open: &|_| true,
+        push: push_inputs(&w, &w.home, &a, &pp, &not_live, &progress),
+        ids: &[SID.to_string()],
+        undo_root: &w.undo,
+        job_id: "20261021T191500-00000001",
+        storage: transfer::StorageRef {
+            storage: "backup".into(),
+            set: "Work".into(),
+            dir: w.set.dir.clone(),
+            into: true,
+        },
+        from_account: None,
+    })
+    .unwrap();
+    assert!(r.archived.is_empty() && m.is_none(), "{r:?}");
+    assert_eq!(r.skipped[0].code, "session_live");
+    assert_eq!(r.skipped[0].reason, OPEN_REFUSAL);
+    assert_eq!(
+        transfer::transcripts_of(&w.home, SID).len(),
+        1,
+        "still here"
+    );
+}
+
 /// §13.3 rule 4: a machine that has an archived conversation keeps it; its
 /// push of an unchanged copy leaves the mark, of a changed copy replaces the
 /// entry and so clears it.
@@ -1793,6 +1868,7 @@ fn a_push_of_a_changed_copy_clears_the_archived_mark() {
     let progress = Progress::default();
     let ma = machine("mbp-a");
     move_into_set(&MoveIntoInputs {
+        is_open: &|_| false,
         push: push_inputs(&w, a, &ma, &pp, &not_live, &progress),
         ids: &[SID.to_string()],
         undo_root: &w.undo,

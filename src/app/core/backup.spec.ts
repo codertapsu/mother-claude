@@ -384,7 +384,7 @@ describe('backup helpers', () => {
           bytes: 1,
         }),
       ),
-    ).toBe('2 sessions backed up · 40 unchanged · 1 running, skipped · settings saved');
+    ).toBe('2 sessions backed up · 40 unchanged · 1 skipped: Claude was working · settings saved');
     expect(
       jobSummary(
         done('backup', {

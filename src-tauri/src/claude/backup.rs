@@ -136,6 +136,9 @@ pub enum BackupError {
     /// A storage that cannot be added or changed as asked.
     #[error("{0}")]
     InvalidStorage(String),
+    /// A session's files changed while they were read: its copy was dropped.
+    #[error("{0}")]
+    Changed(String),
     #[error(transparent)]
     Transfer(#[from] transfer::TransferError),
 }
@@ -153,6 +156,7 @@ impl BackupError {
             Self::StorageNotFound(_) => "storage_not_found",
             Self::StorageUnavailable(_) => "storage_unavailable",
             Self::InvalidStorage(_) => "invalid_storage",
+            Self::Changed(_) => "session_changed",
             Self::Transfer(e) => e.code(),
         }
     }
@@ -1334,6 +1338,13 @@ pub struct PushReport {
     pub pairs: Option<pairs::SetPairs>,
 }
 
+/// Why a busy session is not backed up now.
+pub const BUSY_REFUSAL: &str =
+    "Claude is working in it right now: back it up again once it is idle";
+/// Why a session whose process runs is not moved (nor replaced).
+pub const OPEN_REFUSAL: &str =
+    "it is open: stop it (or close it where it runs) to move it, then try again";
+
 /// What a push needs.
 pub struct PushInputs<'a> {
     pub home: &'a ClaudeHome,
@@ -1342,6 +1353,9 @@ pub struct PushInputs<'a> {
     /// The current passphrase, then one a change left pending.
     pub passphrases: &'a [Secret],
     pub machine: &'a ThisMachine,
+    /// A session not to read now: one busy writing its files (a turn or
+    /// background work runs). An idle session is backed up even while its
+    /// process runs; its files are checked again after they were read.
     pub is_live: &'a dyn Fn(&str) -> bool,
     /// What the session list calls a session, for the index.
     pub title_of: &'a dyn Fn(&str) -> Option<String>,
@@ -1490,6 +1504,17 @@ impl SessionNow {
     /// Unchanged since `s` was recorded.
     fn is(&self, s: &Seen) -> bool {
         self.transcript_bytes == s.bytes && secs(self.newest_mtime) == s.secs
+    }
+
+    /// The same files, as large and as old, as `before`: nothing wrote
+    /// between the two looks.
+    fn unchanged_since(&self, before: &SessionNow) -> bool {
+        let mine: std::collections::BTreeSet<&PathBuf> = self.files.iter().collect();
+        let theirs: std::collections::BTreeSet<&PathBuf> = before.files.iter().collect();
+        mine == theirs
+            && self.bytes == before.bytes
+            && self.transcript_bytes == before.transcript_bytes
+            && self.newest_mtime == before.newest_mtime
     }
 
     /// The same as the set's copy (at an archive's whole seconds).
@@ -1945,7 +1970,8 @@ pub fn push_with(inp: &PushInputs<'_>, force: bool) -> Result<PushReport, Backup
     note_total(inp, &keys, &index, &seen, &ids, false, force);
     for id in ids {
         match push_session(inp, &keys, &index, seen.get(&id), &id, false, force) {
-            Pushed::Live => report.skipped_live.push(id),
+            // Claude started working in it while it was read: as busy.
+            Pushed::Live | Pushed::Failed(BackupError::Changed(_)) => report.skipped_live.push(id),
             Pushed::Failed(e) => report.failed.push((id, e.to_string())),
             Pushed::Same(note) => {
                 if let Some(s) = note {
@@ -2083,11 +2109,9 @@ pub fn push_some(
             continue;
         }
         match push_session(inp, &keys, &index, seen.get(id), id, archive, false) {
-            Pushed::Live => {
-                report
-                    .skipped
-                    .push(skip_of(id, "session_live", "it is running; stop it first"))
-            }
+            Pushed::Live => report
+                .skipped
+                .push(skip_of(id, "session_live", BUSY_REFUSAL)),
             Pushed::Failed(e) => report.skipped.push(skip_of(id, e.code(), e.to_string())),
             Pushed::Same(note) => {
                 if let Some(s) = note {
@@ -2303,6 +2327,20 @@ fn archive_session(
         &[(".mc/meta.json", meta)],
         Some(&inp.progress.bytes_done),
     )?;
+    // Read while its process may run: a turn that started meanwhile (and
+    // wrote) leaves this copy behind rather than a half-written one.
+    let after = session_now(inp.home, id);
+    if !after.as_ref().is_ok_and(|a| a.unchanged_since(now)) {
+        let named = index.sessions.values().any(|e| e.archive == archive);
+        if !named {
+            let _ = std::fs::remove_file(inp.set.sessions_dir().join(&archive));
+        }
+        return Err(BackupError::Changed(
+            "it changed while it was being backed up (Claude started working in it): back it up \
+             again once it is idle"
+                .into(),
+        ));
+    }
     Ok(IndexEntry {
         id: id.to_string(),
         cwd: now.cwd.clone(),
@@ -4006,6 +4044,9 @@ impl From<BackupError> for transfer::TransferError {
 /// What a move into a set needs (docs/ACCOUNTS.md §13.2, account → storage).
 pub struct MoveIntoInputs<'a> {
     pub push: PushInputs<'a>,
+    /// A session whose process runs: never moved out of its directory, idle
+    /// or not (`push.is_live` is only whether it may be read now).
+    pub is_open: &'a dyn Fn(&str) -> bool,
     pub ids: &'a [String],
     pub undo_root: &'a Path,
     pub job_id: &'a str,
@@ -4022,7 +4063,14 @@ pub struct MoveIntoInputs<'a> {
 pub fn move_into_set(
     inp: &MoveIntoInputs<'_>,
 ) -> Result<(SomeReport, Option<Manifest>), BackupError> {
-    let mut report = push_some(&inp.push, inp.ids, true)?;
+    let (open, ids): (Vec<String>, Vec<String>) =
+        inp.ids.iter().cloned().partition(|id| (inp.is_open)(id));
+    let mut report = push_some(&inp.push, &ids, true)?;
+    for id in open {
+        report
+            .skipped
+            .push(skip_of(&id, "session_live", OPEN_REFUSAL));
+    }
     if report.archived.is_empty() {
         return Ok((report, None));
     }
@@ -4052,12 +4100,12 @@ pub fn move_into_set(
     save(&m)?;
     let mut stays: Vec<String> = Vec::new();
     for id in report.archived.clone() {
-        if (inp.push.is_live)(&id) {
+        if (inp.is_open)(&id) {
             stays.push(id.clone());
             report.skipped.push(skip_of(
                 &id,
                 "session_live",
-                "it started meanwhile; it stays here",
+                "it was opened meanwhile; it stays here",
             ));
             continue;
         }
@@ -4296,6 +4344,7 @@ pub fn plan_push_some(
     ids: &[String],
     machine: &str,
     is_live: &dyn Fn(&str) -> bool,
+    moving: bool,
 ) -> Result<(Vec<PlannedPush>, Vec<Skip>), BackupError> {
     if passphrases.is_empty() {
         return Err(BackupError::NoPassphrase);
@@ -4329,7 +4378,8 @@ pub fn plan_push_some(
             continue;
         }
         if is_live(id) {
-            skipped.push(skip_of(id, "session_live", "it is running; stop it first"));
+            let why = if moving { OPEN_REFUSAL } else { BUSY_REFUSAL };
+            skipped.push(skip_of(id, "session_live", why));
             continue;
         }
         let now = match session_now(home, id) {

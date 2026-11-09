@@ -669,7 +669,9 @@ export function jobSummary(job: JobView): string {
         r.unchanged ? tr('{n} unchanged', { n: r.unchanged }) : '',
         r.conflicts.length ? plural(r.conflicts.length, 'conflict') : '',
         r.newerInSet.length ? tr('{n} newer in the backup', { n: r.newerInSet.length }) : '',
-        r.skippedLive.length ? tr('{n} running, skipped', { n: r.skippedLive.length }) : '',
+        r.skippedLive.length
+          ? tr('{n} skipped: Claude was working', { n: r.skippedLive.length })
+          : '',
         r.failed.length ? tr('{n} failed', { n: r.failed.length }) : '',
         r.warnings.length ? plural(r.warnings.length, 'warning') : '',
         r.config ? tr('settings saved') : '',

@@ -1456,7 +1456,7 @@ const TOPICS: HelpTopicSource[] = [
           'Check the result under **Recent**.',
         ],
         points: [
-          'A scheduled backup waits until no session of that account has been active for ten minutes. A running session is skipped.',
+          'A scheduled backup waits until no session of that account has been active for ten minutes. A session Claude is working in is skipped until it is idle; an idle one is backed up even while it stays open.',
           '**Pull on launch** pulls when the app starts, when no session runs.',
           'Sign-ins and tokens are never backed up: each computer signs in by itself.',
         ],

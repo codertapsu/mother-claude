@@ -796,7 +796,9 @@ pub async fn push(state: &AppState, account_id: &str, force: bool) -> Result<Str
         let account_id = a.id.clone();
         let set_dir = set.dir.clone();
         let result = tokio::task::spawn_blocking(move || {
-            let live = |s: &str| is_live(&st2, s);
+            // A backup reads: an idle session is copied even while its
+            // process runs; one in the middle of a turn waits.
+            let busy = |s: &str| transfer::ops::is_busy(&st2, s);
             let title_of = |s: &str| titles.get(s).cloned();
             super::push_with(
                 &super::PushInputs {
@@ -805,7 +807,7 @@ pub async fn push(state: &AppState, account_id: &str, force: bool) -> Result<Str
                     account_name: &a.name,
                     passphrases: &pass,
                     machine: &machine,
-                    is_live: &live,
+                    is_live: &busy,
                     title_of: &title_of,
                     progress: &progress,
                 },

@@ -517,5 +517,6 @@
   "Is that browser signed in to another Claude account? Copy the link into a private (incognito) window.": "Trình duyệt đó đang đăng nhập một tài khoản Claude khác? Hãy sao chép liên kết vào một cửa sổ riêng tư (ẩn danh).",
   "Show the link": "Hiện liên kết",
   "The sign-in link": "Liên kết đăng nhập",
-  "read or change cookies and site storage": "đọc hoặc thay đổi cookie và dữ liệu lưu trữ của trang"
+  "read or change cookies and site storage": "đọc hoặc thay đổi cookie và dữ liệu lưu trữ của trang",
+  "{n} skipped: Claude was working": "{n} bị bỏ qua: Claude đang làm việc"
 }

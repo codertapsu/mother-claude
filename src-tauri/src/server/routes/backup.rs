@@ -72,7 +72,8 @@ pub(crate) fn backup_error(e: BackupError) -> ApiError {
         | BackupError::NoPassphrase
         | BackupError::Tampered(_)
         | BackupError::KeyMissing(_)
-        | BackupError::StorageUnavailable(_) => StatusCode::CONFLICT,
+        | BackupError::StorageUnavailable(_)
+        | BackupError::Changed(_) => StatusCode::CONFLICT,
         BackupError::WrongPassphrase => StatusCode::FORBIDDEN,
         BackupError::StorageNotFound(_) => StatusCode::NOT_FOUND,
         BackupError::Invalid(_) | BackupError::InvalidStorage(_) => {

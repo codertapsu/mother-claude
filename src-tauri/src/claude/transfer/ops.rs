@@ -29,6 +29,58 @@ pub(crate) fn is_live(state: &AppState, id: &str) -> bool {
     state.live.is_live(id) || state.control.controls(id) || state.bridge.account_of(id).is_some()
 }
 
+/// Whether a session may be writing its files right now: it runs ([`is_live`])
+/// and is not idle — a turn runs (working, waiting on an approval, starting)
+/// or background work it started does (agents, workflows, shells). A live
+/// session that is idle, or only scheduled to resume, writes nothing: a
+/// backup (a copy) may read it; moving or replacing its files still waits
+/// for its process to end. A session the session list does not know is
+/// taken as busy. Blocking: call it off the runtime (`spawn_blocking`).
+pub(crate) fn is_busy(state: &AppState, id: &str) -> bool {
+    if !is_live(state, id) {
+        return false;
+    }
+    match status_now(state, id) {
+        Some((status, activity)) => busy_status(status, activity),
+        None => true,
+    }
+}
+
+/// [`is_busy`] by a session's status and activity.
+pub(crate) fn busy_status(
+    status: crate::claude::model::SessionStatus,
+    activity: crate::claude::model::ActivityKind,
+) -> bool {
+    use crate::claude::model::{ActivityKind, SessionStatus};
+    match status {
+        SessionStatus::Idle
+        | SessionStatus::Ended
+        | SessionStatus::Failed
+        | SessionStatus::Stopped => false,
+        // Between turns: only a wakeup ahead, nothing running.
+        SessionStatus::Background => activity != ActivityKind::Scheduled,
+        SessionStatus::Working | SessionStatus::Waiting | SessionStatus::Starting => true,
+    }
+}
+
+/// A session's status and activity as the session list has them now. The
+/// list is swapped in whole by the monitor, so a read waits a moment at most.
+fn status_now(
+    state: &AppState,
+    id: &str,
+) -> Option<(
+    crate::claude::model::SessionStatus,
+    crate::claude::model::ActivityKind,
+)> {
+    for _ in 0..200 {
+        if let Ok(snapshot) = state.snapshot.try_read() {
+            return snapshot.find(id).map(|s| (s.status, s.activity.kind));
+        }
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    None
+}
+
 /// Plan a transfer between two accounts (blocking file reads off the
 /// runtime).
 pub async fn plan(
@@ -393,4 +445,34 @@ pub enum ContinueCopyError {
     /// The desktop has not allowed copying between these two accounts.
     ConsentRequired,
     Transfer(TransferError),
+}
+
+#[cfg(test)]
+mod tests {
+    use super::busy_status;
+    use crate::claude::model::{ActivityKind, SessionStatus};
+
+    /// Only a session that may be writing its files is busy: a turn, a
+    /// start, background work. Idle, ended or only scheduled to resume, it
+    /// is not, whether or not its process runs.
+    #[test]
+    fn busy_means_writing_its_files() {
+        for (status, activity, busy) in [
+            (SessionStatus::Idle, ActivityKind::Idle, false),
+            (SessionStatus::Ended, ActivityKind::Ended, false),
+            (SessionStatus::Stopped, ActivityKind::Idle, false),
+            (SessionStatus::Failed, ActivityKind::Idle, false),
+            (SessionStatus::Background, ActivityKind::Scheduled, false),
+            (SessionStatus::Background, ActivityKind::Background, true),
+            (SessionStatus::Working, ActivityKind::Tool, true),
+            (SessionStatus::Waiting, ActivityKind::Waiting, true),
+            (SessionStatus::Starting, ActivityKind::Starting, true),
+        ] {
+            assert_eq!(
+                busy_status(status, activity),
+                busy,
+                "{status:?} {activity:?}"
+            );
+        }
+    }
 }
