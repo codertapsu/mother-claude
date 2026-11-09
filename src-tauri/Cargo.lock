@@ -3199,7 +3199,7 @@ dependencies = [
 
 [[package]]
 name = "mother-claude"
-version = "0.10.1"
+version = "0.10.2"
 dependencies = [
  "age",
  "anyhow",
