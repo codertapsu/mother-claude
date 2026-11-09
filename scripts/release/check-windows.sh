@@ -7,7 +7,8 @@
 # Windows before the Windows release leg did — which is how v0.4.0's first
 # Windows build failed, on the other machine, on a constant only Unix had. This
 # finds the same errors here in a minute or two: clippy for
-# x86_64-pc-windows-msvc over the app's library and binary, warnings denied.
+# x86_64-pc-windows-msvc over every target — the app's library and binary and
+# the tests, which must build on Windows too — warnings denied.
 # release-macos.sh runs it in its gate, before anything is tagged or built.
 #
 # Nothing is linked, so no Windows SDK is needed — but four build scripts
@@ -66,11 +67,11 @@ done
 EOF
 chmod +x "$TMP/llvm-rc"
 
-echo "==> clippy for $TARGET (the app's library and binary, warnings denied)"
+echo "==> clippy for $TARGET (every target, the tests too; warnings denied)"
 RC_x86_64_pc_windows_msvc="$TMP/llvm-rc" cargo clippy \
   --manifest-path src-tauri/Cargo.toml \
   --config "$TMP/config.toml" \
   --target "$TARGET" \
   --target-dir src-tauri/target/windows-check \
-  --lib --bins -- -D warnings
+  --all-targets -- -D warnings
 echo "    the Windows build type-checks."

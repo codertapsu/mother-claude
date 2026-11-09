@@ -13,11 +13,14 @@
   Windows installers are currently UNSIGNED (no Authenticode). SmartScreen will
   warn on first run ("More info" -> "Run anyway"); the release notes say so.
 
-  THE GATE HERE IS SMALLER THAN THE MAC'S, ON PURPOSE. The Rust test suite and
-  clippy's test targets assume Unix (48 `cfg(unix)` items, test files using
-  Unix-only APIs) and have never been run on Windows; the macOS leg runs the
-  full gate on the same commit. This leg runs what is known to hold here: a
-  clean `npm ci`, ESLint, the release tooling's own tests, and the build.
+  THE GATE HERE IS SMALLER THAN THE MAC'S, ON PURPOSE. Every Rust target
+  builds on Windows and the library's tests pass here (`cargo test --lib`),
+  but several integration suites (owned, switch_account, teams, accounts,
+  foreign, e2e) drive a stand-in `claude` written as a Python or sh script,
+  which Windows cannot launch. The macOS leg runs the full gate on the same
+  commit and type-checks every target for Windows. This leg runs what is
+  known to hold here: a clean `npm ci`, ESLint, the release tooling's own
+  tests, and the build.
 
   x86_64 only. The bundle carries sidecar/node_modules, and the Agent SDK in it
   ships Claude Code as a native binary npm picks for the machine that installed
