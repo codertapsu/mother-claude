@@ -31,6 +31,12 @@
 //! stripped as the bytes arrive, and the first complete token goes straight
 //! to the secret store. A run that shows no link within a minute, or does not
 //! finish within five, stops; a token account then offers the paste field.
+//!
+//! The run ends when the CLI does, not when its screen does ([`watch_exit`]):
+//! Windows' pseudo-console keeps the screen open after its program exits,
+//! until the terminal's master end is closed. A login that worked there sat
+//! on "Claude Code is finishing the sign-in…" until "No sign-in after five
+//! minutes", its new sign-in already stored by the CLI.
 
 use std::ffi::OsString;
 use std::path::PathBuf;
@@ -742,6 +748,10 @@ pub struct SignInJob {
     writer: Mutex<Option<Box<dyn std::io::Write + Send>>>,
     #[cfg(feature = "token-capture")]
     child: Mutex<Option<Box<dyn portable_pty::Child + Send + Sync>>>,
+    /// The terminal's master end, held until the CLI is gone
+    /// ([`watch_exit`]): on Windows closing it is what ends the screen.
+    #[cfg(feature = "token-capture")]
+    master: Mutex<Option<Box<dyn portable_pty::MasterPty + Send>>>,
 }
 
 impl std::fmt::Debug for SignInJob {
@@ -795,6 +805,8 @@ impl SignInJob {
             writer: Mutex::new(None),
             #[cfg(feature = "token-capture")]
             child: Mutex::new(None),
+            #[cfg(feature = "token-capture")]
+            master: Mutex::new(None),
         }
     }
 
@@ -1206,17 +1218,22 @@ pub fn start(
     let job = Arc::new(SignInJob::new(account, kind, auto_open));
     *lock(&job.writer) = Some(writer);
     *lock(&job.child) = Some(child);
+    *lock(&job.master) = Some(pair.master);
     sink.changed(&job);
+
+    // The master end stays open until the CLI is gone.
+    let watching = job.clone();
+    std::thread::Builder::new()
+        .name("sign-in-exit".into())
+        .spawn(move || watch_exit(&watching, EXIT_POLL, EXIT_GRACE))
+        .map_err(|e| spawn_err(e.to_string()))?;
 
     // The reader: until EOF (the CLI exited or was killed).
     let reading = job.clone();
     let reader_sink = sink.clone();
-    let master = pair.master;
     std::thread::Builder::new()
         .name("sign-in".into())
         .spawn(move || {
-            // The master end stays open while we read.
-            let _master = master;
             let mut screen = Screen::default();
             let mut buf = [0u8; 8192];
             loop {
@@ -1292,6 +1309,37 @@ pub fn start(
         })
         .map_err(|e| spawn_err(e.to_string()))?;
     Ok(job)
+}
+
+/// How often [`watch_exit`] looks at the CLI.
+#[cfg(feature = "token-capture")]
+const EXIT_POLL: Duration = Duration::from_millis(100);
+/// How long the screen stays open after the CLI exited, for its last output.
+#[cfg(feature = "token-capture")]
+const EXIT_GRACE: Duration = Duration::from_millis(250);
+
+/// Close the terminal once the CLI is gone (it exited, or [`SignInJob::kill`]
+/// reaped it), `grace` after it went. On Windows the pseudo-console keeps
+/// the screen open after its program exits, so the reader would read on
+/// until the deadline: a sign-in that worked ended "No sign-in after five
+/// minutes" (and every stopped run left its reader and `conhost.exe`
+/// behind). Elsewhere the screen ends with the CLI anyway; the reader keeps
+/// its own copy of the master end and reads what is left either way.
+#[cfg(feature = "token-capture")]
+fn watch_exit(job: &SignInJob, poll: Duration, grace: Duration) {
+    loop {
+        let gone = match lock(&job.child).as_mut() {
+            None => true,
+            Some(child) => !matches!(child.try_wait(), Ok(None)),
+        };
+        if gone {
+            break;
+        }
+        std::thread::sleep(poll);
+    }
+    std::thread::sleep(grace);
+    let master = lock(&job.master).take();
+    drop(master);
 }
 
 /// After the screen closed: whether the CLI exited well, given `grace` to
@@ -2109,6 +2157,162 @@ mod tests {
         );
         assert_eq!(spec.env_change("GONE"), Some(None));
         assert_eq!(spec.env_change("OTHER"), None);
+    }
+
+    /// What a run reports on its own threads.
+    #[cfg(feature = "token-capture")]
+    #[derive(Default)]
+    struct Seen {
+        exited: Mutex<usize>,
+    }
+
+    #[cfg(feature = "token-capture")]
+    impl SignInSink for Seen {
+        fn changed(&self, _: &Arc<SignInJob>) {}
+        fn token(&self, _: &str, _: Secret) -> Result<(), String> {
+            Ok(())
+        }
+        fn exited(&self, _: &Arc<SignInJob>) {
+            *lock(&self.exited) += 1;
+        }
+    }
+
+    /// `exit 0` through this platform's shell, in the run's pseudo-terminal.
+    #[cfg(feature = "token-capture")]
+    fn exits_at_once() -> RunSpec {
+        let (program, args) = if cfg!(windows) {
+            ("cmd.exe", vec!["/d", "/c", "exit 0"])
+        } else {
+            ("/bin/sh", vec!["-c", "exit 0"])
+        };
+        RunSpec {
+            program: program.into(),
+            args: args.into_iter().map(Into::into).collect(),
+            ..RunSpec::default()
+        }
+    }
+
+    /// A login whose CLI exits is handed over at once (whether it signed in
+    /// is `claude auth status`'s to say). On Windows the pseudo-console kept
+    /// the screen open after the CLI exited, so the run read on and timed
+    /// out five minutes later: "No sign-in after five minutes".
+    #[cfg(feature = "token-capture")]
+    #[test]
+    fn a_login_is_handed_over_when_its_cli_exits() {
+        let seen = Arc::new(Seen::default());
+        let job = start(
+            "acc_test",
+            SignInKind::Login,
+            &exits_at_once(),
+            false,
+            seen.clone(),
+            SIGN_IN_TIMEOUT,
+            LINK_TIMEOUT,
+        )
+        .unwrap();
+        let started = std::time::Instant::now();
+        while *lock(&seen.exited) == 0 {
+            assert!(
+                started.elapsed() < Duration::from_secs(15),
+                "the exit was not seen after {:?}: {:?}",
+                started.elapsed(),
+                job.view()
+            );
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        assert_eq!(*lock(&seen.exited), 1);
+        // Still running: the hand-over decides how it ends.
+        assert!(job.is_running());
+        job.cancel();
+    }
+
+    /// A cancelled run lets go of its terminal too (on Windows its reader and
+    /// `conhost.exe` stayed behind for good).
+    #[cfg(feature = "token-capture")]
+    #[test]
+    fn a_cancelled_run_closes_its_terminal() {
+        let (program, args) = if cfg!(windows) {
+            ("ping.exe", vec!["-n", "30", "127.0.0.1"])
+        } else {
+            ("/bin/sleep", vec!["30"])
+        };
+        let spec = RunSpec {
+            program: program.into(),
+            args: args.into_iter().map(Into::into).collect(),
+            ..RunSpec::default()
+        };
+        let job = start(
+            "acc_test",
+            SignInKind::Login,
+            &spec,
+            false,
+            Arc::new(Seen::default()),
+            SIGN_IN_TIMEOUT,
+            LINK_TIMEOUT,
+        )
+        .unwrap();
+        std::thread::sleep(Duration::from_millis(300));
+        assert!(lock(&job.master).is_some(), "open while the CLI runs");
+        assert!(job.cancel());
+        let started = std::time::Instant::now();
+        while lock(&job.master).is_some() {
+            assert!(
+                started.elapsed() < Duration::from_secs(5),
+                "the terminal stayed open"
+            );
+            std::thread::sleep(Duration::from_millis(50));
+        }
+    }
+
+    /// The real `claude auth login` on this machine, with a throwaway config
+    /// directory: a code typed in reaches it, and its answer — turning the
+    /// code down, or exiting — reaches the run. Needs `claude` installed;
+    /// signs nothing in and opens no browser.
+    ///
+    /// `cargo test --manifest-path src-tauri/Cargo.toml --lib real_login -- --ignored`
+    #[cfg(feature = "token-capture")]
+    #[test]
+    #[ignore]
+    fn a_real_login_answers_a_typed_code() {
+        let dir = tempfile::tempdir().unwrap();
+        let spec = crate::claude::accounts::signin::login_spec(
+            &crate::claude::claude_bin(),
+            Some(dir.path()),
+            false,
+            None,
+            None,
+        );
+        let job = start(
+            "acc_test",
+            SignInKind::Login,
+            &spec,
+            false,
+            Arc::new(Seen::default()),
+            SIGN_IN_TIMEOUT,
+            LINK_TIMEOUT,
+        )
+        .unwrap();
+        let wait = |what: &str, done: &dyn Fn(&SignInView) -> bool| {
+            let started = std::time::Instant::now();
+            loop {
+                let view = job.view();
+                if done(&view) {
+                    return view;
+                }
+                assert!(
+                    started.elapsed() < Duration::from_secs(60),
+                    "{what}: {view:?}"
+                );
+                std::thread::sleep(Duration::from_millis(100));
+            }
+        };
+        wait("no code prompt", &|v| v.state == SignInState::Code);
+        job.submit_code("notarealcode#notarealstate").unwrap();
+        let view = wait("the code got no answer", &|v| {
+            v.code_error.is_some() || !v.state.is_running()
+        });
+        println!("answered: {view:?}");
+        job.cancel();
     }
 
     /// The real `claude auth login`, in a pseudo-terminal as a sign-in runs
