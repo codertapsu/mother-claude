@@ -28,6 +28,16 @@ use crate::state::AppState;
 /// How often the interface list is re-read.
 const REFRESH_EVERY: Duration = Duration::from_secs(30);
 
+/// How long a new connection may go without sending a request before it is
+/// closed, so idle connections from the network cannot pile up. It counts
+/// after the TLS handshake, which has its own 10 s limit; hyper bounds the
+/// headers once they start.
+const FIRST_REQUEST_WITHIN: Duration = Duration::from_secs(30);
+
+/// How often a listener that cannot accept connections (out of file
+/// descriptors, say) says so in the log: it retries every 50 ms.
+const ACCEPT_ERROR_LOG_EVERY: Duration = Duration::from_secs(60);
+
 /// Listener handles and the shared TLS config (held in `RemoteState`).
 #[derive(Default)]
 pub struct LanRuntime {
@@ -202,9 +212,18 @@ pub async fn refresh(state: &AppState) {
         let app = super::router_for(state.clone(), Ingress::Lan);
         let cfg = config.clone();
         let h = handle.clone();
+        let logged = std::sync::Mutex::new(None::<std::time::Instant>);
         tokio::spawn(async move {
             if let Err(e) = axum_server::bind_rustls(addr, cfg)
                 .handle(h)
+                .first_request_timeout(FIRST_REQUEST_WITHIN)
+                .accept_error_handler(move |_, e| {
+                    let mut last = logged.lock().unwrap_or_else(|p| p.into_inner());
+                    if last.is_none_or(|t| t.elapsed() >= ACCEPT_ERROR_LOG_EVERY) {
+                        *last = Some(std::time::Instant::now());
+                        tracing::warn!(%addr, error = %e, "LAN listener cannot accept connections");
+                    }
+                })
                 .serve(app.into_make_service_with_connect_info::<SocketAddr>())
                 .await
             {
