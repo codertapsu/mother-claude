@@ -79,10 +79,18 @@ pub enum Browser {
     /// A private (incognito) Google Chrome window: no other account is signed
     /// in there, so the page cannot hand another account's consent over.
     ChromePrivate,
+    /// A Microsoft Edge InPrivate window: the same, for the many Windows PCs
+    /// that have Edge and no Chrome.
+    EdgePrivate,
 }
 
 impl Browser {
-    pub const ALL: [Browser; 3] = [Self::Default, Self::Chrome, Self::ChromePrivate];
+    pub const ALL: [Browser; 4] = [
+        Self::Default,
+        Self::Chrome,
+        Self::ChromePrivate,
+        Self::EdgePrivate,
+    ];
 }
 
 /// The browsers found on this machine besides the default one.
@@ -90,6 +98,8 @@ impl Browser {
 pub struct Installed {
     /// Google Chrome: the app bundle on macOS, the executable elsewhere.
     pub chrome: Option<PathBuf>,
+    /// Microsoft Edge, the same way.
+    pub edge: Option<PathBuf>,
 }
 
 impl Installed {
@@ -97,13 +107,17 @@ impl Installed {
     pub fn detect(platform: Platform) -> Self {
         let env = |key: &str| std::env::var_os(key).filter(|v| !v.is_empty());
         let home = super::home::user_home_dir();
+        let present = |p: &PathBuf| match platform {
+            Platform::MacOs => p.is_dir(),
+            _ => p.is_file(),
+        };
         Self {
             chrome: chrome_candidates(platform, &env, home.as_deref())
                 .into_iter()
-                .find(|p| match platform {
-                    Platform::MacOs => p.is_dir(),
-                    _ => p.is_file(),
-                }),
+                .find(present),
+            edge: edge_candidates(platform, &env, home.as_deref())
+                .into_iter()
+                .find(present),
         }
     }
 
@@ -111,6 +125,7 @@ impl Installed {
         match browser {
             Browser::Default => true,
             Browser::Chrome | Browser::ChromePrivate => self.chrome.is_some(),
+            Browser::EdgePrivate => self.edge.is_some(),
         }
     }
 
@@ -158,6 +173,43 @@ pub fn chrome_candidates(
     }
 }
 
+/// Where Microsoft Edge usually is, most likely first.
+pub fn edge_candidates(
+    platform: Platform,
+    env: &dyn Fn(&str) -> Option<OsString>,
+    home: Option<&Path>,
+) -> Vec<PathBuf> {
+    match platform {
+        Platform::MacOs => {
+            let mut out = vec![PathBuf::from("/Applications/Microsoft Edge.app")];
+            if let Some(home) = home {
+                out.push(home.join("Applications/Microsoft Edge.app"));
+            }
+            out
+        }
+        Platform::Windows => ["ProgramFiles(x86)", "ProgramFiles", "LOCALAPPDATA"]
+            .into_iter()
+            .filter_map(env)
+            .map(|base| {
+                PathBuf::from(base)
+                    .join("Microsoft")
+                    .join("Edge")
+                    .join("Application")
+                    .join("msedge.exe")
+            })
+            .collect(),
+        Platform::Linux => env("PATH")
+            .map(|path| {
+                std::env::split_paths(&path)
+                    .flat_map(|dir| {
+                        ["microsoft-edge", "microsoft-edge-stable"].map(|name| dir.join(name))
+                    })
+                    .collect()
+            })
+            .unwrap_or_default(),
+    }
+}
+
 /// A command line (no shell: the link is one argument).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Command {
@@ -176,6 +228,7 @@ pub fn command(
 ) -> Option<Command> {
     let url = OsString::from(link.as_str());
     let chrome = || installed.chrome.clone().map(PathBuf::into_os_string);
+    let edge = || installed.edge.clone().map(PathBuf::into_os_string);
     Some(match (platform, browser) {
         (Platform::MacOs, Browser::Default) => Command {
             program: "/usr/bin/open".into(),
@@ -217,14 +270,30 @@ pub fn command(
             program: chrome()?,
             args: vec!["--incognito".into(), url],
         },
+        (Platform::MacOs, Browser::EdgePrivate) => Command {
+            program: "/usr/bin/open".into(),
+            args: vec![
+                "-n".into(),
+                "-a".into(),
+                edge()?,
+                "--args".into(),
+                "--inprivate".into(),
+                url,
+            ],
+        },
+        (Platform::Windows | Platform::Linux, Browser::EdgePrivate) => Command {
+            program: edge()?,
+            args: vec!["--inprivate".into(), url],
+        },
     })
 }
 
 /// Why a link was not opened.
 #[derive(Debug, thiserror::Error)]
 pub enum OpenError {
-    /// Only Chrome can be missing: the default browser is always there.
-    #[error("Google Chrome is not installed on this machine")]
+    /// Only Chrome or Edge can be missing: the default browser is always
+    /// there.
+    #[error("{} is not installed on this machine", match .0 { Browser::EdgePrivate => "Microsoft Edge", _ => "Google Chrome" })]
     Unavailable(Browser),
     #[error("could not open the browser: {0}")]
     Spawn(String),
@@ -344,6 +413,7 @@ mod tests {
     fn chrome_at(p: &str) -> Installed {
         Installed {
             chrome: Some(PathBuf::from(p)),
+            edge: None,
         }
     }
 
@@ -524,16 +594,90 @@ mod tests {
     fn the_list_names_only_what_is_there() {
         assert_eq!(Installed::default().list(), [Browser::Default]);
         assert_eq!(
-            chrome_at("/Applications/Google Chrome.app").list(),
-            Browser::ALL
-        );
-        assert_eq!(
             serde_json::to_value(chrome_at("/x").list()).unwrap(),
             serde_json::json!(["default", "chrome", "chrome-private"])
         );
+        let edge_only = Installed {
+            chrome: None,
+            edge: Some(PathBuf::from(r"C:\Edge\msedge.exe")),
+        };
+        assert_eq!(
+            serde_json::to_value(edge_only.list()).unwrap(),
+            serde_json::json!(["default", "edge-private"])
+        );
+        let both = Installed {
+            edge: edge_only.edge.clone(),
+            ..chrome_at("/x")
+        };
+        assert_eq!(both.list(), Browser::ALL);
         let asked: Browser = serde_json::from_value(serde_json::json!("chrome-private")).unwrap();
         assert_eq!(asked, Browser::ChromePrivate);
+        let asked: Browser = serde_json::from_value(serde_json::json!("edge-private")).unwrap();
+        assert_eq!(asked, Browser::EdgePrivate);
         assert!(serde_json::from_value::<Browser>(serde_json::json!("firefox")).is_err());
+    }
+
+    #[test]
+    fn edge_opens_inprivate_where_it_usually_is() {
+        let win = |key: &str| match key {
+            "ProgramFiles(x86)" => Some(OsString::from(r"C:\Program Files (x86)")),
+            "ProgramFiles" => Some(OsString::from(r"C:\Program Files")),
+            _ => None,
+        };
+        let found = edge_candidates(Platform::Windows, &win, None);
+        assert_eq!(found.len(), 2);
+        assert!(found[0].starts_with(r"C:\Program Files (x86)"));
+        assert!(found[0].ends_with("msedge.exe"));
+        let exe = r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe";
+        let edge = Installed {
+            chrome: None,
+            edge: Some(PathBuf::from(exe)),
+        };
+        let c = command(
+            Platform::Windows,
+            Browser::EdgePrivate,
+            &edge,
+            &link(AUTHORIZE),
+            None,
+        )
+        .unwrap();
+        assert_eq!(c.program, exe);
+        assert_eq!(args(&c), ["--inprivate", AUTHORIZE]);
+        let c = command(
+            Platform::MacOs,
+            Browser::EdgePrivate,
+            &Installed {
+                chrome: None,
+                edge: Some(PathBuf::from("/Applications/Microsoft Edge.app")),
+            },
+            &link(AUTHORIZE),
+            None,
+        )
+        .unwrap();
+        assert_eq!(
+            args(&c),
+            [
+                "-n",
+                "-a",
+                "/Applications/Microsoft Edge.app",
+                "--args",
+                "--inprivate",
+                AUTHORIZE
+            ]
+        );
+        // Not installed: nothing to run, and the error names Edge.
+        assert!(command(
+            Platform::Windows,
+            Browser::EdgePrivate,
+            &chrome_at("/x"),
+            &link(AUTHORIZE),
+            None
+        )
+        .is_none());
+        assert_eq!(
+            OpenError::Unavailable(Browser::EdgePrivate).to_string(),
+            "Microsoft Edge is not installed on this machine"
+        );
     }
 
     #[test]

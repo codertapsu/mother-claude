@@ -107,8 +107,17 @@ export class MockSwitch {
     }
     if (sub === 'sign-in/open' && method === 'POST') {
       const browser = str(b['browser']);
-      if (browser !== 'default' && browser !== 'chrome' && browser !== 'chrome-private') {
-        return fail(422, 'invalid_body', 'browser: default, chrome or chrome-private');
+      if (
+        browser !== 'default' &&
+        browser !== 'chrome' &&
+        browser !== 'chrome-private' &&
+        browser !== 'edge-private'
+      ) {
+        return fail(
+          422,
+          'invalid_body',
+          'browser: default, chrome, chrome-private or edge-private',
+        );
       }
       if (!running(a.signIn)) {
         return fail(409, 'sign_in_not_running', 'No sign-in of this account runs.');

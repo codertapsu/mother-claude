@@ -11,6 +11,7 @@ import {
   untracked,
   viewChild,
 } from '@angular/core';
+import { NgTemplateOutlet } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 
 import { AccountsService } from '../../core/accounts.service';
@@ -24,6 +25,7 @@ import {
   advanceSignIn,
   browserLabel,
   isLongLivedToken,
+  isPrivateBrowser,
   looksLikeToken,
   mergeSignIn,
   normalizeBrowsers,
@@ -58,7 +60,7 @@ const POLL_MS = 1_500;
 @Component({
   selector: 'mc-sign-in-panel',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [FormsModule, CopyButtonComponent, IconComponent, TPipe],
+  imports: [FormsModule, NgTemplateOutlet, CopyButtonComponent, IconComponent, TPipe],
   template: `
     @if (run(); as r) {
       <div class="flow" role="status" [attr.data-state]="r.state">
@@ -83,16 +85,24 @@ const POLL_MS = 1_500;
             }}
           </p>
           <p class="muted small">{{ signInThere() }}</p>
+          @if (!isPrivate(r.opened)) {
+            <p class="muted small why">
+              {{
+                privateBrowsers().length
+                  ? ('Is that browser signed in to another Claude account? Use a private window: it starts signed out.'
+                    | t)
+                  : ('Is that browser signed in to another Claude account? Copy the link into a private (incognito) window.'
+                    | t)
+              }}
+            </p>
+          }
           <div class="row opens">
-            @if (privateOffered() && r.opened !== 'chrome-private') {
-              <button
-                class="btn small"
-                type="button"
-                [disabled]="busy()"
-                (click)="openIn('chrome-private')"
-              >
-                <mc-icon name="shield" [size]="14" /> {{ label('chrome-private') }}
-              </button>
+            @for (b of privateBrowsers(); track b) {
+              @if (r.opened !== b) {
+                <button class="btn small" type="button" [disabled]="busy()" (click)="openIn(b)">
+                  <mc-icon name="shield" [size]="14" /> {{ label(b) }}
+                </button>
+              }
             }
             <mc-copy-button
               [text]="r.url"
@@ -100,16 +110,7 @@ const POLL_MS = 1_500;
               [ariaLabel]="'Copy the sign-in link' | t"
             />
           </div>
-          @if (r.opened !== 'chrome-private') {
-            <p class="muted small">
-              {{
-                privateOffered()
-                  ? ('The wrong Claude account opened? A private window starts signed out.' | t)
-                  : ('The wrong Claude account opened? Copy the link into a private window of your browser.'
-                    | t)
-              }}
-            </p>
-          }
+          <ng-container *ngTemplateOutlet="linkBox; context: { $implicit: r.url }" />
         } @else {
           <p class="ask">{{ askText(r) }}</p>
           <p class="muted small why">
@@ -127,7 +128,7 @@ const POLL_MS = 1_500;
                 [disabled]="busy()"
                 (click)="openIn(b)"
               >
-                <mc-icon [name]="b === 'chrome-private' ? 'shield' : 'external'" [size]="14" />
+                <mc-icon [name]="isPrivate(b) ? 'shield' : 'external'" [size]="14" />
                 {{ browserText(b, first) }}
               </button>
             }
@@ -137,6 +138,7 @@ const POLL_MS = 1_500;
               [ariaLabel]="'Copy the sign-in link' | t"
             />
           </div>
+          <ng-container *ngTemplateOutlet="linkBox; context: { $implicit: r.url }" />
         }
 
         @if (r.url) {
@@ -190,6 +192,15 @@ const POLL_MS = 1_500;
     @if (error()) {
       <p class="error-text small" role="alert">{{ error() }}</p>
     }
+
+    <!-- The link itself, to paste into any browser by hand: one click
+         selects all of it. -->
+    <ng-template #linkBox let-url>
+      <details class="link">
+        <summary class="muted small">{{ 'Show the link' | t }}</summary>
+        <code class="url" [attr.aria-label]="'The sign-in link' | t">{{ url }}</code>
+      </details>
+    </ng-template>
   `,
   styles: [
     `
@@ -232,6 +243,22 @@ const POLL_MS = 1_500;
       /* The CLI asks for the code now. */
       .code.asked input {
         border-color: var(--accent);
+      }
+      .link summary {
+        cursor: pointer;
+      }
+      .url {
+        display: block;
+        margin-top: 0.35rem;
+        padding: 0.4rem 0.5rem;
+        max-height: 6rem;
+        overflow: auto;
+        font-size: 0.75rem;
+        overflow-wrap: anywhere;
+        user-select: all;
+        background: var(--bg-soft, var(--panel));
+        border: 1px solid var(--border);
+        border-radius: 6px;
       }
       /* A long label wraps on a phone rather than leave the sheet. */
       .opens .btn {
@@ -278,14 +305,14 @@ export class SignInPanelComponent {
         })
       : tr('Sign in there with the Claude account for {name}.', { name: a.name });
   });
-  protected readonly privateOffered = computed(() => this.browsers().includes('chrome-private'));
-  /** A token sign-in: the private window first, when the Mac has it. */
+  /** The private windows this computer can open: Chrome's, Edge's. */
+  protected readonly privateBrowsers = computed(() =>
+    this.browsers().filter((b) => isPrivateBrowser(b)),
+  );
+  /** A token sign-in: the private windows first, when the computer has one. */
   protected readonly tokenBrowsers = computed(() => {
     const list = this.browsers();
-    return [
-      ...list.filter((b) => b === 'chrome-private'),
-      ...list.filter((b) => b !== 'chrome-private'),
-    ];
+    return [...list.filter(isPrivateBrowser), ...list.filter((b) => !isPrivateBrowser(b))];
   });
 
   constructor() {
@@ -347,17 +374,30 @@ export class SignInPanelComponent {
     return browserLabel(b);
   }
 
+  protected isPrivate(b: SignInBrowser | undefined): boolean {
+    return !!b && isPrivateBrowser(b);
+  }
+
   /** A token sign-in's button: the first, a private window, recommended. */
   protected browserText(b: SignInBrowser, first: boolean): string {
-    return first && b === 'chrome-private'
+    return first && isPrivateBrowser(b)
       ? tr('{browser} (recommended)', { browser: browserLabel(b) })
       : browserLabel(b);
   }
 
-  /** "your default browser", "Chrome", "a private Chrome window". */
+  /** "your default browser", "Chrome", "a private Chrome window", "an Edge
+   * InPrivate window". */
   protected where(b: SignInBrowser): string {
-    if (b === 'chrome') return 'Chrome';
-    return b === 'chrome-private' ? tr('a private Chrome window') : tr('your default browser');
+    switch (b) {
+      case 'chrome':
+        return 'Chrome';
+      case 'chrome-private':
+        return tr('a private Chrome window');
+      case 'edge-private':
+        return tr('an Edge InPrivate window');
+      default:
+        return tr('your default browser');
+    }
   }
 
   /** A token sign-in: where it opened, and whose token to get there. */

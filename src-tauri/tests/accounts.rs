@@ -794,6 +794,7 @@ async fn a_sign_ins_link_opens_only_where_it_may() {
     let desk = f.desktop();
     let chrome = Installed {
         chrome: Some(PathBuf::from("/Applications/Google Chrome.app")),
+        edge: None,
     };
     f.st.opener.pretend_installed(chrome.clone());
     let (id, dir) = f.directory_account("Opener").await;

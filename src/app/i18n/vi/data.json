@@ -470,8 +470,6 @@
   "The sign-in opened in {where}.": "Trang đăng nhập đã mở trong {where}.",
   "The sign-in opens in your default browser…": "Trang đăng nhập đang mở trong trình duyệt mặc định của bạn…",
   "Copy the sign-in link": "Sao chép liên kết đăng nhập",
-  "The wrong Claude account opened? A private window starts signed out.": "Mở nhầm tài khoản Claude? Cửa sổ ẩn danh bắt đầu khi chưa đăng nhập.",
-  "The wrong Claude account opened? Copy the link into a private window of your browser.": "Mở nhầm tài khoản Claude? Hãy sao chép liên kết vào một cửa sổ ẩn danh của trình duyệt.",
   "Use a private window if you can: a browser already signed in to another Claude account would give its consent to the wrong one.": "Hãy dùng cửa sổ ẩn danh nếu được: trình duyệt đã đăng nhập vào tài khoản Claude khác sẽ đồng ý thay cho nhầm tài khoản.",
   "Claude Code didn't take that code: {error}": "Claude Code không nhận mã đó: {error}",
   "Paste the whole code the page shows. A code works once: for a new one, open the sign-in page again and approve.": "Dán toàn bộ mã trang hiển thị. Mỗi mã chỉ dùng được một lần: để lấy mã mới, hãy mở lại trang đăng nhập và cho phép.",
@@ -512,5 +510,12 @@
   "summary||task class": "tóm tắt",
   "classification||task class": "phân loại",
   "operations||task class": "vận hành",
-  "other||task class": "khác"
+  "other||task class": "khác",
+  "Open in an Edge InPrivate window": "Mở trong cửa sổ InPrivate của Edge",
+  "an Edge InPrivate window": "một cửa sổ InPrivate của Edge",
+  "Is that browser signed in to another Claude account? Use a private window: it starts signed out.": "Trình duyệt đó đang đăng nhập một tài khoản Claude khác? Hãy dùng cửa sổ riêng tư: nó bắt đầu ở trạng thái chưa đăng nhập.",
+  "Is that browser signed in to another Claude account? Copy the link into a private (incognito) window.": "Trình duyệt đó đang đăng nhập một tài khoản Claude khác? Hãy sao chép liên kết vào một cửa sổ riêng tư (ẩn danh).",
+  "Show the link": "Hiện liên kết",
+  "The sign-in link": "Liên kết đăng nhập",
+  "read or change cookies and site storage": "đọc hoặc thay đổi cookie và dữ liệu lưu trữ của trang"
 }

@@ -10,6 +10,7 @@ import {
   browserLabel,
   identityWarningText,
   isLongLivedToken,
+  isPrivateBrowser,
   looksLikeToken,
   mergeSignIn,
   normalizeBrowsers,
@@ -227,7 +228,11 @@ describe('sign-in helpers', () => {
       'chrome-private',
     ]);
     expect(normalizeBrowsers(null)).toEqual(['default']);
+    expect(normalizeBrowsers(['edge-private', 'default'])).toEqual(['default', 'edge-private']);
     expect(browserLabel('chrome-private')).toBe('Open in a private Chrome window');
+    expect(browserLabel('edge-private')).toBe('Open in an Edge InPrivate window');
+    expect(isPrivateBrowser('edge-private') && isPrivateBrowser('chrome-private')).toBeTrue();
+    expect(isPrivateBrowser('chrome') || isPrivateBrowser('default')).toBeFalse();
     expect(browserLabel('default')).toBe('Open in browser');
   });
 

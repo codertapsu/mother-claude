@@ -84,8 +84,10 @@ describe('SignInPanelComponent', () => {
       'Cancel',
     ]);
     expect(text(el)).toContain(
-      'The wrong Claude account opened? A private window starts signed out.',
+      'Is that browser signed in to another Claude account? Use a private window: it starts signed out.',
     );
+    // The link itself, selectable, to paste anywhere.
+    expect(text(el.querySelector('code.url'))).toBe(URL);
     backend.routes.set(`/accounts/${MOCK_ACCOUNT_WORK}/sign-in/open`, () => ({
       status: 200,
       body: {
@@ -106,13 +108,43 @@ describe('SignInPanelComponent', () => {
     });
     // The answer says where it opened.
     expect(text(el)).toContain('The sign-in opened in a private Chrome window.');
+    expect(text(el)).not.toContain('Use a private window');
     expect(buttons(el)).toEqual(['Copy link', 'Send the code', 'Cancel']);
+  });
+
+  it('offers an Edge InPrivate window on a PC that has Edge and no Chrome', async () => {
+    let el = await render(work, { kind: 'login', state: 'open', opened: 'default', startedAt: 1 }, [
+      'default',
+      'edge-private',
+    ]);
+    expect(buttons(el)).toEqual([
+      'Open in an Edge InPrivate window',
+      'Copy link',
+      'Send the code',
+      'Cancel',
+    ]);
+    fixture.destroy();
+    // Both: both private windows, a token sign-in recommending the first.
+    el = await render(pro, { kind: 'token', state: 'open', startedAt: 1 }, [
+      'default',
+      'chrome',
+      'chrome-private',
+      'edge-private',
+    ]);
+    expect([...el.querySelectorAll('.opens button')].map((b) => text(b))).toEqual([
+      'Open in a private Chrome window (recommended)',
+      'Open in an Edge InPrivate window',
+      'Open in browser',
+      'Open in Chrome',
+      'Copy link',
+    ]);
+    expect(text(el.querySelector('code.url'))).toBe(URL);
   });
 
   it('says a login is about to open, before the Mac opened it', async () => {
     const el = await render(work, { kind: 'login', state: 'open', startedAt: 1 }, ['default']);
     expect(text(el)).toContain('The sign-in opens in your default browser…');
-    expect(text(el)).toContain('Copy the link into a private window of your browser.');
+    expect(text(el)).toContain('Copy the link into a private (incognito) window.');
     expect(buttons(el)).toEqual(['Copy link', 'Send the code', 'Cancel']);
   });
 

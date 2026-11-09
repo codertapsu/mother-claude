@@ -19,7 +19,7 @@ const KINDS: readonly SignInKind[] = ['login', 'token'];
 const STATES: readonly SignInState[] = ['starting', 'open', 'code', 'done', 'failed', 'cancelled'];
 /** The states of a sign-in that still runs. */
 const RUNNING: ReadonlySet<SignInState> = new Set(['starting', 'open', 'code']);
-const BROWSERS: readonly SignInBrowser[] = ['default', 'chrome', 'chrome-private'];
+const BROWSERS: readonly SignInBrowser[] = ['default', 'chrome', 'chrome-private', 'edge-private'];
 /** The only places a sign-in link may lead (and their subdomains). */
 const SIGN_IN_HOSTS = ['claude.ai', 'claude.com', 'anthropic.com'];
 
@@ -189,13 +189,22 @@ export function normalizeBrowsers(raw: unknown): SignInBrowser[] {
   return BROWSERS.filter((b) => found.has(b));
 }
 
-/** "Open in browser", "Open in Chrome", "Open in a private Chrome window". */
+/** A window that starts signed out of every account: Chrome's private
+ * window, Edge's InPrivate one. */
+export function isPrivateBrowser(b: SignInBrowser): boolean {
+  return b === 'chrome-private' || b === 'edge-private';
+}
+
+/** "Open in browser", "Open in Chrome", "Open in a private Chrome window",
+ * "Open in an Edge InPrivate window". */
 export function browserLabel(b: SignInBrowser): string {
   switch (b) {
     case 'chrome':
       return tr('Open in Chrome');
     case 'chrome-private':
       return tr('Open in a private Chrome window');
+    case 'edge-private':
+      return tr('Open in an Edge InPrivate window');
     default:
       return tr('Open in browser');
   }

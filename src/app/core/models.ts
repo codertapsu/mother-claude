@@ -760,7 +760,7 @@ export interface IdentityWarning {
 }
 
 /** Where `POST /accounts/{id}/sign-in/open` opens the sign-in link. */
-export type SignInBrowser = 'default' | 'chrome' | 'chrome-private';
+export type SignInBrowser = 'default' | 'chrome' | 'chrome-private' | 'edge-private';
 
 export interface AccountView {
   /** `default` or `acc_` + 12 hex. */
