@@ -5,7 +5,7 @@
 
 use serde_json::{json, Value};
 
-use super::actions::{self, Call, Done, DEFAULT_TIMEOUT_MS, MAX_TIMEOUT_MS};
+use super::actions::{self, clip, Call, Done, DEFAULT_TIMEOUT_MS, MAX_TIMEOUT_MS};
 use super::redact;
 use super::sites::{self, SiteMode};
 use crate::mcp::{Content, Registry, ToolAnnotations, ToolCtx, ToolDef, ToolError, ToolOutput};
@@ -301,13 +301,24 @@ pub fn register(r: &mut Registry) {
             "Browser tabs",
             format!(
                 "List, open, select or close the tabs of this session's tab group. action: list \
-                 (default) | open (url optional: opens in the group and makes it active) | \
-                 select (tabId) | close (tabId). You only act in your own group's tabs. {SAFETY}"
+                 (default) | open (url optional: opens in the group and makes it active; urls: \
+                 several sites at once, in background tabs) | select (tabId) | close (tabId). \
+                 To work on several sites or pages at once, open each in its own tab and pass \
+                 its tabId to any other browser tool: tabs are independent (one command at a \
+                 time per tab, calls on different tabs may run side by side), and each site \
+                 keeps its own mode. You only act in your own group's tabs. {SAFETY}"
             ),
             object(
                 json!({
                     "action": {"type": "string", "enum": ["list", "open", "select", "close"]},
                     "url": {"type": "string", "description": "For open: an http(s) URL."},
+                    "urls": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "minItems": 1,
+                        "maxItems": 10,
+                        "description": "For open: several http(s) URLs, each in a new background tab of the group."
+                    },
                     "tabId": {"type": "integer", "description": "For select and close."},
                     "active": {"type": "boolean", "description": "For open: make it the active tab (default true)."}
                 }),
@@ -741,12 +752,134 @@ pub fn register(r: &mut Registry) {
         ),
         |ctx: ToolCtx, args: Value| async move { upload(ctx, args).await },
     );
+    r.add(
+        def(
+            "browser_network",
+            "Network requests",
+            "The HTTP requests the tab made (needs the extension's debugger permission; \
+             recording starts with the session's first command in the tab: reload to see a \
+             page's requests from the start). Lists method, URL, status, type, size and time; \
+             filter: part of the URL; type: document, xhr, fetch, script, stylesheet, image, \
+             font, media, websocket, other; failed: only failed or 4xx/5xx; since: epoch ms. \
+             requestId: one request in full, with its headers (credentials hidden) and, with \
+             body: true, its request and response bodies (text, cut to 50k characters; \
+             well-known token formats hidden). clear: forget what was recorded. Fine on \
+             read-only sites."
+                .into(),
+            object(
+                json!({
+                    "filter": {"type": "string"},
+                    "type": {"type": "string", "enum": ["document", "xhr", "fetch", "script", "stylesheet", "image", "font", "media", "websocket", "other"]},
+                    "failed": {"type": "boolean"},
+                    "since": {"type": "integer"},
+                    "limit": {"type": "integer", "minimum": 1, "maximum": 200},
+                    "requestId": {"type": "string"},
+                    "body": {"type": "boolean"},
+                    "clear": {"type": "boolean"},
+                    "tabId": tab_prop()
+                }),
+                &[],
+            ),
+            read_only(),
+        ),
+        |ctx: ToolCtx, args: Value| async move { network(ctx, args).await },
+    );
+    r.add(
+        def(
+            "browser_cookies",
+            "Cookies",
+            "The cookies the page's site sets for this page (needs the extension's debugger \
+             permission). action: get (default: names, domain, path, expiry, flags and sizes; \
+             values: true for the values too, which waits for the user's approval) | set \
+             (name, value; domain, path, secure, httpOnly, sameSite, expires: epoch seconds) | \
+             delete (name). Changing cookies waits for the user's approval and needs the site \
+             in act mode."
+                .into(),
+            object(
+                json!({
+                    "action": {"type": "string", "enum": ["get", "set", "delete"]},
+                    "name": {"type": "string"},
+                    "value": {"type": "string"},
+                    "values": {"type": "boolean"},
+                    "domain": {"type": "string"},
+                    "path": {"type": "string"},
+                    "secure": {"type": "boolean"},
+                    "httpOnly": {"type": "boolean"},
+                    "sameSite": {"type": "string", "enum": ["Strict", "Lax", "None"]},
+                    "expires": {"type": "integer"},
+                    "tabId": tab_prop()
+                }),
+                &[],
+            ),
+            acting(true),
+        ),
+        |ctx: ToolCtx, args: Value| async move { cookies(ctx, args).await },
+    );
+    r.add(
+        def(
+            "browser_storage",
+            "Site storage",
+            "What the page's site keeps in the browser. area: local (localStorage, the \
+             default) | session (sessionStorage) | indexeddb. action: get (keys and sizes; \
+             key: one entry; values: true for the values, which waits for the user's \
+             approval; for indexeddb: the databases, db: its stores and counts, store: its \
+             first records, limit) | set (key, value; local and session) | remove (key) | \
+             clear. Changing storage waits for the user's approval and needs the site in act \
+             mode. Well-known token formats stay hidden."
+                .into(),
+            object(
+                json!({
+                    "action": {"type": "string", "enum": ["get", "set", "remove", "clear"]},
+                    "area": {"type": "string", "enum": ["local", "session", "indexeddb"]},
+                    "key": {"type": "string"},
+                    "value": {"type": "string"},
+                    "values": {"type": "boolean"},
+                    "db": {"type": "string"},
+                    "store": {"type": "string"},
+                    "limit": {"type": "integer", "minimum": 1, "maximum": 100},
+                    "tabId": tab_prop()
+                }),
+                &[],
+            ),
+            acting(true),
+        ),
+        |ctx: ToolCtx, args: Value| async move { storage(ctx, args).await },
+    );
+    r.add(
+        def(
+            "browser_drag",
+            "Drag and drop",
+            "Drag an element (ref, or selector) onto another (toRef, or toSelector): list \
+             items, cards, drop zones, sliders. A drop zone a snapshot gives no ref gets one \
+             from browser_find (by its text). By default the page gets the drag-and-drop \
+             events a user's drag fires; trusted: true moves the real mouse instead (needs the \
+             extension's debugger permission), for pages that follow the pointer (sliders, \
+             canvases)."
+                .into(),
+            object(
+                json!({
+                    "ref": ref_prop("what to drag"),
+                    "selector": {"type": "string"},
+                    "toRef": ref_prop("where to drop it"),
+                    "toSelector": {"type": "string"},
+                    "trusted": {"type": "boolean"},
+                    "tabId": tab_prop()
+                }),
+                &[],
+            ),
+            acting(false),
+        ),
+        |ctx: ToolCtx, args: Value| async move { drag(ctx, args).await },
+    );
 }
 
 // ───────────────────────────────────────────────────────── handlers
 
 async fn tabs(ctx: ToolCtx, args: Value) -> Result<ToolOutput, ToolError> {
     let action = one_of(&args, "action", &["list", "open", "select", "close"])?.unwrap_or("list");
+    if action == "open" && args.get("urls").is_some_and(|u| !u.is_null()) {
+        return open_many(ctx, &args).await;
+    }
     let c = match action {
         "open" => {
             let url = str_arg(&args, "url")?
@@ -820,6 +953,73 @@ async fn tabs(ctx: ToolCtx, args: Value) -> Result<ToolOutput, ToolError> {
         })
         .collect();
     Ok(ToolOutput::json(json!({ "tabs": tabs })))
+}
+
+/// `browser_tabs` open with `urls`: each site in a background tab of its own,
+/// one after the other, each through every check a single open has (its
+/// site mode, an approval for a sensitive site). One refused site does not
+/// stop the others; the answer says what happened to each.
+async fn open_many(ctx: ToolCtx, args: &Value) -> Result<ToolOutput, ToolError> {
+    let urls: Vec<String> = match args.get("urls") {
+        Some(Value::Array(items)) => items
+            .iter()
+            .map(|u| {
+                u.as_str()
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty() && s.chars().count() <= 4000)
+                    .ok_or_else(|| ToolError::invalid("`urls` holds http(s) URLs (strings)."))
+            })
+            .collect::<Result<_, _>>()?,
+        _ => return Err(ToolError::invalid("`urls` is a list of http(s) URLs.")),
+    };
+    if urls.is_empty() || urls.len() > 10 {
+        return Err(ToolError::invalid("`urls` holds 1 to 10 URLs."));
+    }
+    let mut lines = Vec::with_capacity(urls.len());
+    let mut opened = 0;
+    for url in urls {
+        let mut c = Call::new(
+            "browser_tabs",
+            "tabs.open",
+            json!({ "url": url, "active": false }),
+        );
+        c.target_url = Some(url.clone());
+        c.summary = "Open".into();
+        match actions::perform(&ctx, c).await {
+            Ok(done) => {
+                opened += 1;
+                let tab = done
+                    .data
+                    .get("tabId")
+                    .and_then(Value::as_i64)
+                    .map(|t| format!("tabId {t}: "))
+                    .unwrap_or_default();
+                lines.push(format!("- {tab}{}", page_line(&done)));
+            }
+            // The user's Stop, or no browser at all: nothing more is tried.
+            Err(e) if matches!(e.code.as_str(), "stopped" | "no_browser" | "unavailable") => {
+                if opened == 0 {
+                    return Err(e);
+                }
+                lines.push(format!(
+                    "- the rest were not opened ({}: {})",
+                    e.code, e.message
+                ));
+                break;
+            }
+            Err(e) => lines.push(format!(
+                "- {}: not opened ({}: {})",
+                redact::text(&url),
+                e.code,
+                e.message
+            )),
+        }
+    }
+    Ok(text_out(format!(
+        "Opened {opened} tab(s) in the background:\n{}\nPass a tabId to the other browser \
+         tools to work in that tab.",
+        lines.join("\n")
+    )))
 }
 
 async fn navigate(ctx: ToolCtx, args: Value) -> Result<ToolOutput, ToolError> {
@@ -1318,9 +1518,415 @@ async fn upload(ctx: ToolCtx, args: Value) -> Result<ToolOutput, ToolError> {
     Ok(acted(format!("Attached {n} file(s) to {r}."), &done))
 }
 
+/// Longest request or response body a model gets.
+pub const BODY_MAX_CHARS: usize = 50_000;
+
+/// Headers as a model may see them ([`redact::header`]), sorted by name.
+fn headers_out(h: Option<&Value>) -> Value {
+    let mut out: Vec<(String, String)> = h
+        .and_then(Value::as_object)
+        .into_iter()
+        .flatten()
+        .map(|(k, v)| {
+            let v = v.as_str().map_or_else(|| v.to_string(), str::to_string);
+            (k.clone(), redact::header(k, &v))
+        })
+        .collect();
+    out.sort_by_key(|(name, _)| name.to_ascii_lowercase());
+    Value::Object(out.into_iter().map(|(k, v)| (k, json!(v))).collect())
+}
+
+/// A body as a model may see it: text, redacted and cut.
+fn body_out(text: &str) -> (String, bool) {
+    clip_text(&redact::text(text), BODY_MAX_CHARS)
+}
+
+async fn network(ctx: ToolCtx, args: Value) -> Result<ToolOutput, ToolError> {
+    let mut params = json!({});
+    if let Some(f) = str_arg(&args, "filter")?.filter(|s| !s.trim().is_empty()) {
+        params["filter"] = json!(f.chars().take(500).collect::<String>());
+    }
+    let types = [
+        "document",
+        "xhr",
+        "fetch",
+        "script",
+        "stylesheet",
+        "image",
+        "font",
+        "media",
+        "websocket",
+        "other",
+    ];
+    if let Some(t) = one_of(&args, "type", &types)? {
+        params["type"] = json!(t);
+    }
+    for key in ["failed", "body", "clear"] {
+        if let Some(b) = bool_arg(&args, key)? {
+            params[key] = json!(b);
+        }
+    }
+    if let Some(s) = int_arg(&args, "since")? {
+        params["since"] = json!(s);
+    }
+    params["limit"] = json!(int_arg(&args, "limit")?.map_or(50, |n| n.clamp(1, 200)));
+    let one = str_arg(&args, "requestId")?
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string);
+    if let Some(id) = &one {
+        if id.len() > 100 || id.chars().any(char::is_control) {
+            return Err(ToolError::invalid(
+                "`requestId` is an id from browser_network.",
+            ));
+        }
+        params["requestId"] = json!(id);
+    }
+    let c = call(
+        "browser_network",
+        "network",
+        params,
+        &args,
+        "Read the network requests",
+    )?;
+    let done = actions::perform(&ctx, c).await?;
+    if one.is_none() {
+        let mut data = done.data.clone();
+        redact::value(&mut data);
+        return Ok(ToolOutput::json(data));
+    }
+    // One request in full.
+    let r = done.data.get("request").cloned().unwrap_or(Value::Null);
+    let s = |k: &str| r.get(k).and_then(Value::as_str).unwrap_or_default();
+    let mut text = format!(
+        "{} {}\nStatus: {} {}\nType: {}  MIME: {}",
+        s("method"),
+        redact::text(s("url")),
+        r.get("status").map(Value::to_string).unwrap_or_default(),
+        s("statusText"),
+        s("type"),
+        s("mimeType"),
+    );
+    if let Some(e) = r
+        .get("failed")
+        .and_then(Value::as_str)
+        .filter(|e| !e.is_empty())
+    {
+        text.push_str(&format!("\nFailed: {e}"));
+    }
+    for (label, key) in [
+        ("Request headers", "requestHeaders"),
+        ("Response headers", "responseHeaders"),
+    ] {
+        let h = headers_out(r.get(key));
+        if h.as_object().is_some_and(|o| !o.is_empty()) {
+            text.push_str(&format!("\n\n{label}:"));
+            for (k, v) in h.as_object().into_iter().flatten() {
+                text.push_str(&format!("\n  {k}: {}", v.as_str().unwrap_or_default()));
+            }
+        }
+    }
+    if let Some(post) = r.get("postData").and_then(Value::as_str) {
+        let (post, cut) = body_out(post);
+        text.push_str(&format!("\n\nRequest body:\n{post}"));
+        if cut {
+            text.push_str("\n… (cut)");
+        }
+    }
+    if let Some(frames) = r.get("frames").and_then(Value::as_array) {
+        text.push_str(&format!("\n\nWebSocket frames ({}):", frames.len()));
+        for f in frames {
+            let (payload, _) = clip_text(
+                &redact::text(f.get("payload").and_then(Value::as_str).unwrap_or_default()),
+                2000,
+            );
+            text.push_str(&format!(
+                "\n  {} {}",
+                f.get("dir").and_then(Value::as_str).unwrap_or("?"),
+                payload
+            ));
+        }
+    }
+    if let Some(body) = done.data.get("body") {
+        if body.get("base64").and_then(Value::as_bool) == Some(true) {
+            text.push_str(&format!(
+                "\n\nResponse body: binary, {} bytes (not shown).",
+                body.get("size").and_then(Value::as_u64).unwrap_or(0)
+            ));
+        } else if let Some(t) = body.get("text").and_then(Value::as_str) {
+            let (t, cut) = body_out(t);
+            text.push_str(&format!("\n\nResponse body:\n{t}"));
+            if cut || body.get("truncated").and_then(Value::as_bool) == Some(true) {
+                text.push_str("\n… (cut)");
+            }
+        } else if let Some(why) = body.get("unavailable").and_then(Value::as_str) {
+            text.push_str(&format!("\n\nResponse body: not available ({why})."));
+        }
+    }
+    Ok(text_out(text))
+}
+
+/// Remove `value` from each object of `list` unless values were asked for
+/// (and approved); otherwise each value through [`redact::text`].
+fn values_out(list: Option<&mut Value>, values: bool) {
+    for item in list.and_then(Value::as_array_mut).into_iter().flatten() {
+        let Some(o) = item.as_object_mut() else {
+            continue;
+        };
+        if !values {
+            o.remove("value");
+            continue;
+        }
+        if let Some(v) = o.get_mut("value") {
+            let shown = v.as_str().map_or_else(|| v.to_string(), str::to_string);
+            *v = json!(redact::text(&shown));
+        }
+    }
+}
+
+async fn cookies(ctx: ToolCtx, args: Value) -> Result<ToolOutput, ToolError> {
+    let action = one_of(&args, "action", &["get", "set", "delete"])?.unwrap_or("get");
+    let name = str_arg(&args, "name")?
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
+    if let Some(n) = name {
+        if n.len() > 256 || n.chars().any(|c| c.is_control() || c == ';' || c == '=') {
+            return Err(ToolError::invalid("`name` is a cookie's name."));
+        }
+    }
+    let mut params = json!({});
+    if let Some(n) = name {
+        params["name"] = json!(n);
+    }
+    let (wire, summary) = match action {
+        "set" => {
+            let n =
+                name.ok_or_else(|| ToolError::invalid("`name` is required to set a cookie."))?;
+            let value = str_arg(&args, "value")?
+                .ok_or_else(|| ToolError::invalid("`value` is required to set a cookie."))?;
+            if value.len() > 4096 || value.chars().any(|c| c.is_control() || c == ';') {
+                return Err(ToolError::invalid(
+                    "`value` is at most 4096 characters, without `;` or control characters.",
+                ));
+            }
+            params["value"] = json!(value);
+            for key in ["domain", "path"] {
+                if let Some(v) = str_arg(&args, key)?.filter(|s| !s.trim().is_empty()) {
+                    params[key] = json!(v.trim());
+                }
+            }
+            for key in ["secure", "httpOnly"] {
+                if let Some(b) = bool_arg(&args, key)? {
+                    params[key] = json!(b);
+                }
+            }
+            if let Some(s) = one_of(&args, "sameSite", &["Strict", "Lax", "None"])? {
+                params["sameSite"] = json!(s);
+            }
+            if let Some(e) = int_arg(&args, "expires")? {
+                params["expires"] = json!(e);
+            }
+            ("cookies.set", format!("Set the cookie “{}”", clip(n, 60)))
+        }
+        "delete" => {
+            let n =
+                name.ok_or_else(|| ToolError::invalid("`name` is required to delete a cookie."))?;
+            for key in ["domain", "path"] {
+                if let Some(v) = str_arg(&args, key)?.filter(|s| !s.trim().is_empty()) {
+                    params[key] = json!(v.trim());
+                }
+            }
+            (
+                "cookies.delete",
+                format!("Delete the cookie “{}”", clip(n, 60)),
+            )
+        }
+        _ => {
+            let values = bool_arg(&args, "values")?.unwrap_or(false);
+            params["values"] = json!(values);
+            (
+                "cookies",
+                if values {
+                    "Read cookie values".to_string()
+                } else {
+                    "Read cookies".to_string()
+                },
+            )
+        }
+    };
+    let values = params.get("values").and_then(Value::as_bool) == Some(true);
+    let c = call("browser_cookies", wire, params, &args, &summary)?;
+    let done = actions::perform(&ctx, c).await?;
+    if wire != "cookies" {
+        return Ok(acted(format!("{summary}."), &done));
+    }
+    let mut data = done.data.clone();
+    values_out(data.get_mut("cookies"), values);
+    if let Some(u) = data.get_mut("url") {
+        *u = json!(redact::text(u.as_str().unwrap_or_default()));
+    }
+    Ok(ToolOutput::json(data))
+}
+
+async fn storage(ctx: ToolCtx, args: Value) -> Result<ToolOutput, ToolError> {
+    let action = one_of(&args, "action", &["get", "set", "remove", "clear"])?.unwrap_or("get");
+    let area = one_of(&args, "area", &["local", "session", "indexeddb"])?.unwrap_or("local");
+    let mut params = json!({ "area": area });
+    for (key, max) in [("key", 1024), ("db", 256), ("store", 256)] {
+        if let Some(v) = str_arg(&args, key)? {
+            if v.chars().count() > max {
+                return Err(ToolError::invalid(format!(
+                    "`{key}` is longer than {max} characters."
+                )));
+            }
+            params[key] = json!(v);
+        }
+    }
+    let key = params
+        .get("key")
+        .and_then(Value::as_str)
+        .map(str::to_string);
+    let where_ = match area {
+        "session" => "session storage",
+        "indexeddb" => "IndexedDB",
+        _ => "local storage",
+    };
+    if action != "get" && area == "indexeddb" {
+        return Err(ToolError::invalid(
+            "IndexedDB is read only here: set, remove and clear work on local and session \
+             storage.",
+        ));
+    }
+    let (wire, summary) = match action {
+        "set" => {
+            let k = key.ok_or_else(|| ToolError::invalid("`key` is required to set a value."))?;
+            let value = str_arg(&args, "value")?
+                .ok_or_else(|| ToolError::invalid("`value` is required to set a value."))?;
+            if value.len() > 1_000_000 {
+                return Err(ToolError::invalid("`value` is at most 1 MB."));
+            }
+            params["value"] = json!(value);
+            ("storage.set", format!("Set “{}” in {where_}", clip(&k, 60)))
+        }
+        "remove" => {
+            let k = key.ok_or_else(|| ToolError::invalid("`key` is required to remove one."))?;
+            (
+                "storage.remove",
+                format!("Remove “{}” from {where_}", clip(&k, 60)),
+            )
+        }
+        "clear" => ("storage.clear", format!("Clear the site's {where_}")),
+        _ => {
+            let values = bool_arg(&args, "values")?.unwrap_or(false);
+            params["values"] = json!(values);
+            if let Some(l) = int_arg(&args, "limit")? {
+                params["limit"] = json!(l.clamp(1, 100));
+            }
+            (
+                "storage",
+                format!(
+                    "Read the site's {where_}{}",
+                    if values { " with its values" } else { "" }
+                ),
+            )
+        }
+    };
+    let values = params.get("values").and_then(Value::as_bool) == Some(true);
+    let c = call("browser_storage", wire, params, &args, &summary)?;
+    let done = actions::perform(&ctx, c).await?;
+    if wire != "storage" {
+        return Ok(acted(format!("{summary}."), &done));
+    }
+    let mut data = done.data.clone();
+    for list in ["entries", "records"] {
+        values_out(data.get_mut(list), values);
+    }
+    // Keys and names may hold tokens too (the values are done above).
+    for list in ["entries", "records", "databases", "stores"] {
+        for item in data
+            .get_mut(list)
+            .and_then(Value::as_array_mut)
+            .into_iter()
+            .flatten()
+        {
+            for k in ["key", "name"] {
+                if let Some(v) = item.get_mut(k).filter(|v| v.is_string()) {
+                    *v = json!(redact::text(v.as_str().unwrap_or_default()));
+                }
+            }
+        }
+    }
+    Ok(ToolOutput::json(data))
+}
+
+async fn drag(ctx: ToolCtx, args: Value) -> Result<ToolOutput, ToolError> {
+    let (mut params, from) = target(&args)?;
+    // Where to drop it: `toRef`, else `toSelector`, checked as the source is.
+    let drop_args = json!({
+        "ref": args.get("toRef").cloned().unwrap_or(Value::Null),
+        "selector": args.get("toSelector").cloned().unwrap_or(Value::Null),
+    });
+    let (drop, to) = target(&drop_args).map_err(|_| {
+        ToolError::invalid(
+            "Give `toRef` (from browser_snapshot or browser_find) or `toSelector`: where to \
+             drop it.",
+        )
+    })?;
+    if let Some(r) = drop.get("ref") {
+        params["toRef"] = r.clone();
+    }
+    if let Some(s) = drop.get("selector") {
+        params["toSelector"] = s.clone();
+    }
+    if let Some(t) = bool_arg(&args, "trusted")? {
+        params["trusted"] = json!(t);
+    }
+    let c = call("browser_drag", "drag", params, &args, "Drag")?;
+    let done = actions::perform(&ctx, c).await?;
+    Ok(acted(format!("Dragged {from} onto {to}."), &done))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn headers_lose_credentials_and_values_go_only_when_asked() {
+        let h = headers_out(Some(&json!({
+            "content-type": "application/json",
+            "Authorization": "Bearer abcdefghijklmnopqrstuvwxyz",
+            "Set-Cookie": "sid=s3ss10n; HttpOnly",
+            "X-Request-Id": "req-42",
+        })));
+        assert_eq!(h["Authorization"], redact::REDACTED);
+        assert_eq!(h["Set-Cookie"], redact::REDACTED);
+        assert_eq!(h["content-type"], "application/json");
+        assert_eq!(h["X-Request-Id"], "req-42");
+        assert_eq!(h.as_object().unwrap().len(), 4);
+
+        let list = || {
+            json!([
+                {"name": "sid", "value": "s3ss10n"},
+                {"name": "gh", "value": "ghp_abcdefghijklmnopqrstuvwxyz0123456789"}
+            ])
+        };
+        // Not asked (or not approved): no value at all, whatever came back.
+        let mut l = list();
+        values_out(Some(&mut l), false);
+        assert!(l
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|c| c.get("value").is_none()));
+        // Asked: the values, a known token format still hidden.
+        let mut l = list();
+        values_out(Some(&mut l), true);
+        assert_eq!(l[0]["value"], "s3ss10n");
+        assert!(l[1]["value"].as_str().unwrap().contains(redact::REDACTED));
+        // A body is redacted and cut.
+        let (b, cut) = body_out(&"x".repeat(BODY_MAX_CHARS + 5));
+        assert!(cut && b.chars().count() == BODY_MAX_CHARS);
+    }
 
     #[test]
     fn every_tool_is_registered_with_an_object_schema() {
@@ -1350,6 +1956,10 @@ mod tests {
             "browser_console",
             "browser_dialog",
             "browser_upload",
+            "browser_network",
+            "browser_cookies",
+            "browser_storage",
+            "browser_drag",
         ] {
             assert!(names.iter().any(|n| n == want), "{want}");
         }
@@ -1399,6 +2009,32 @@ mod tests {
         assert!(t.contains("invalid_arguments"), "{t}");
         let t = err(r.call("browser_find", ctx(), json!({})).await.unwrap());
         assert!(t.contains("invalid_arguments"), "{t}");
+        // The new tools check theirs too.
+        for (tool, args) in [
+            ("browser_cookies", json!({"action": "set", "name": "a"})),
+            (
+                "browser_cookies",
+                json!({"action": "set", "name": "a;b", "value": "1"}),
+            ),
+            ("browser_cookies", json!({"action": "delete"})),
+            ("browser_storage", json!({"action": "set", "key": "k"})),
+            (
+                "browser_storage",
+                json!({"action": "clear", "area": "indexeddb"}),
+            ),
+            ("browser_storage", json!({"area": "cookies"})),
+            ("browser_drag", json!({"ref": "e1"})),
+            ("browser_drag", json!({"ref": "e1", "toRef": "e 2"})),
+            ("browser_network", json!({"type": "everything"})),
+            ("browser_tabs", json!({"action": "open", "urls": []})),
+            (
+                "browser_tabs",
+                json!({"action": "open", "urls": ["https://a.example", 7]}),
+            ),
+        ] {
+            let t = err(r.call(tool, ctx(), args.clone()).await.unwrap());
+            assert!(t.contains("invalid_arguments"), "{tool} {args}: {t}");
+        }
         // Valid, but no browser: says how to pair.
         let t = err(r.call("browser_snapshot", ctx(), json!({})).await.unwrap());
         assert!(

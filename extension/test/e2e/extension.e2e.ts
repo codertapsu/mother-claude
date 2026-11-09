@@ -760,6 +760,196 @@ describe(
       ok(await cmd('tabs.close', { tabId: second }), 'close second');
     });
 
+    it('works on two sites in two tabs side by side', async () => {
+      const a = ok(
+        await cmd('tabs.open', { url: `${fixtures.base}/form.html`, active: false }),
+        'site A',
+      )['tabId'] as number;
+      const b = ok(
+        await cmd('tabs.open', { url: `${fixtures.other}/spa.html`, active: false }),
+        'site B',
+      )['tabId'] as number;
+      const [ra, rb] = await Promise.all([
+        cmd('read', { mode: 'text', selector: 'h1' }, { tabId: a }),
+        cmd('read', { mode: 'text', selector: 'h1' }, { tabId: b }),
+      ]);
+      assert.notEqual(ok(ra, 'read A')['url'], ok(rb, 'read B')['url']);
+      assert.match(String(ok(ra, 'read A')['url']), new RegExp(`^${fixtures.base}`));
+      assert.match(String(ok(rb, 'read B')['url']), new RegExp(`^${fixtures.other}`));
+      // Each tab keeps its own site's mode.
+      desktop.setState({ siteModes: { ...desktop.state.siteModes, [fixtures.other]: 'off' } });
+      await sleep(150);
+      fails(await cmd('snapshot', {}, { tabId: b }), 'site_off', 'site B off');
+      ok(await cmd('snapshot', {}, { tabId: a }), 'site A still fine');
+      desktop.setState({ siteModes: { ...desktop.state.siteModes, [fixtures.other]: 'act' } });
+      await sleep(150);
+      ok(await cmd('tabs.close', { tabId: a }), 'close A');
+      ok(await cmd('tabs.close', { tabId: b }), 'close B');
+    });
+
+    it('records the tab’s requests, with headers and bodies on request', async () => {
+      // The log runs across page loads (like DevTools' "Preserve log"): an
+      // earlier visit to this page is in it, so start from a clean one.
+      ok(await cmd('network', { clear: true }), 'clear first');
+      ok(
+        await cmd('navigate', { url: `${fixtures.base}/network.html`, waitUntil: 'networkidle' }),
+        'navigate network',
+      );
+      ok(
+        await cmd('eval', {
+          expression: `fetch('/api/items', { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer abc' }, body: JSON.stringify({ name: 'pen' }) }).then(async (r) => (await r.text(), r.status))`,
+        }),
+        'post',
+      );
+      const list = ok(await cmd('network', { filter: '/api/' }), 'network list');
+      const requests = list['requests'] as Record<string, unknown>[];
+      const slow = requests.filter((r) => String(r['url']).includes('/api/slow'));
+      assert.equal(slow.length, 2, JSON.stringify(requests));
+      assert.ok(slow.every((r) => r['status'] === 200 && r['type'] === 'fetch'));
+      assert.ok(slow.every((r) => typeof r['ms'] === 'number' && (r['ms'] as number) >= 500));
+      assert.ok(!('requestHeaders' in (slow[0] ?? {})), 'a list has no headers');
+      const post = requests.find((r) => r['method'] === 'POST');
+      assert.ok(post, 'the POST is listed');
+      assert.equal(post['status'], 201);
+      // One in full: headers as sent (the desktop redacts them), the bodies.
+      const one = ok(await cmd('network', { requestId: post['id'], body: true }), 'network detail');
+      const req = one['request'] as Record<string, unknown>;
+      const sent = req['requestHeaders'] as Record<string, string>;
+      const authorization = Object.entries(sent).find(([k]) => k.toLowerCase() === 'authorization');
+      assert.equal(authorization?.[1], 'Bearer abc');
+      assert.equal(req['postData'], '{"name":"pen"}');
+      const got = req['responseHeaders'] as Record<string, string>;
+      assert.equal(got['x-request-id'], 'req-42');
+      assert.deepEqual(one['body'], { text: '{"created":{"name":"pen"}}', size: 26 });
+      // Filters, and forgetting.
+      const failed = ok(await cmd('network', { failed: true }), 'failed only');
+      assert.equal((failed['requests'] as unknown[]).length, 0);
+      ok(await cmd('network', { clear: true }), 'clear');
+      assert.equal((ok(await cmd('network'), 'after clear')['requests'] as unknown[]).length, 0);
+      fails(await cmd('network', { requestId: 'nope' }), 'not_found', 'unknown request');
+    });
+
+    it('reads cookies, the HttpOnly one too, values only when asked, and changes them', async () => {
+      ok(await cmd('navigate', { url: `${fixtures.base}/storage.html` }), 'navigate storage');
+      ok(await cmd('wait', { for: 'text', value: 'ready' }), 'page ready');
+      const plain = ok(await cmd('cookies'), 'cookies')['cookies'] as Record<string, unknown>[];
+      const sid = plain.find((c) => c['name'] === 'sid');
+      assert.ok(sid, JSON.stringify(plain));
+      assert.equal(sid['httpOnly'], true);
+      assert.ok(!('value' in sid), 'no value unless asked');
+      const valued = ok(await cmd('cookies', { values: true, name: 'sid' }), 'sid value')[
+        'cookies'
+      ] as Record<string, unknown>[];
+      assert.equal(valued[0]?.['value'], 's3ss10n');
+      ok(await cmd('cookies.set', { name: 'added', value: 'yes', path: '/' }), 'set');
+      const after = ok(await cmd('cookies', { values: true, name: 'added' }), 'added')[
+        'cookies'
+      ] as Record<string, unknown>[];
+      assert.equal(after[0]?.['value'], 'yes');
+      ok(await cmd('cookies.delete', { name: 'added' }), 'delete');
+      fails(await cmd('cookies', { name: 'added' }), 'not_found', 'deleted');
+      fails(
+        await cmd('cookies.set', { name: 'x', value: 'y', domain: 'example.com' }),
+        'unsupported',
+        'another site’s cookie',
+      );
+    });
+
+    it('reads and changes local and session storage, and reads IndexedDB', async () => {
+      const local = ok(await cmd('storage', { area: 'local' }), 'local');
+      const entries = local['entries'] as Record<string, unknown>[];
+      assert.deepEqual(
+        entries.map((e) => [e['key'], e['size'], 'value' in e]),
+        [
+          ['recent', 9, false],
+          ['theme', 4, false],
+        ],
+      );
+      const theme = ok(
+        await cmd('storage', { area: 'local', key: 'theme', values: true }),
+        'theme',
+      );
+      assert.equal((theme['entries'] as Record<string, unknown>[])[0]?.['value'], 'dark');
+      const session = ok(await cmd('storage', { area: 'session', values: true }), 'session');
+      assert.deepEqual(session['entries'], [{ key: 'draft', size: 5, value: 'hello' }]);
+      ok(await cmd('storage.set', { area: 'local', key: 'theme', value: 'light' }), 'set');
+      assert.equal(
+        ok(await cmd('eval', { expression: `localStorage.getItem('theme')` }), 'page sees it')[
+          'value'
+        ],
+        'light',
+      );
+      ok(await cmd('storage.remove', { area: 'local', key: 'recent' }), 'remove');
+      ok(await cmd('storage.clear', { area: 'session' }), 'clear');
+      assert.equal(ok(await cmd('storage', { area: 'session' }), 'session after')['count'], 0);
+      fails(await cmd('storage', { area: 'local', key: 'gone' }), 'not_found', 'no such key');
+      // IndexedDB: the databases, a database's stores, a store's records.
+      const dbs = ok(await cmd('storage', { area: 'indexeddb' }), 'databases');
+      assert.deepEqual(dbs['databases'], [{ name: 'appdb', version: 1 }]);
+      const stores = ok(await cmd('storage', { area: 'indexeddb', db: 'appdb' }), 'stores');
+      assert.deepEqual(
+        (stores['stores'] as Record<string, unknown>[]).map((s) => [s['name'], s['count']]),
+        [['items', 2]],
+      );
+      const records = ok(
+        await cmd('storage', { area: 'indexeddb', db: 'appdb', store: 'items', values: true }),
+        'records',
+      );
+      assert.deepEqual(
+        (records['records'] as Record<string, unknown>[]).map((r) => [r['key'], r['value']]),
+        [
+          ['1', '{"id":1,"title":"First"}'],
+          ['2', '{"id":2,"title":"Second","tags":["x"]}'],
+        ],
+      );
+      fails(await cmd('storage', { area: 'indexeddb', db: 'nope' }), 'not_found', 'no such db');
+      // Changing storage is acting: refused on a read-only site.
+      desktop.setState({ siteModes: { ...desktop.state.siteModes, [fixtures.base]: 'read' } });
+      await sleep(150);
+      ok(await cmd('storage', { area: 'local' }), 'reading on a read-only site');
+      fails(
+        await cmd('storage.set', { area: 'local', key: 'k', value: 'v' }),
+        'site_read_only',
+        'changing on a read-only site',
+      );
+      fails(await cmd('cookies.delete', { name: 'sid' }), 'site_read_only', 'cookie on read');
+      desktop.setState({ siteModes: { ...desktop.state.siteModes, [fixtures.base]: 'act' } });
+      await sleep(150);
+    });
+
+    it('drags with HTML drag-and-drop events, and with the pointer', async () => {
+      ok(await cmd('navigate', { url: `${fixtures.base}/drag.html` }), 'navigate drag');
+      const snap = String(ok(await cmd('snapshot'), 'snapshot')['snapshot']);
+      const card = refOf(snap, /button "Card"/);
+      // A drop zone is not interactive, so the snapshot gives it no ref:
+      // find does, by its text.
+      const found = ok(await cmd('find', { text: 'Drop here' }), 'find the zone')['matches'] as {
+        ref?: string;
+      }[];
+      const zone = found[0]?.ref;
+      assert.ok(zone, JSON.stringify(found));
+      const r = ok(await cmd('drag', { ref: card, toRef: zone }), 'drag card');
+      assert.equal(r['html5'], true);
+      assert.equal(r['dropped'], true);
+      assert.equal(await text('#dropped'), 'dropped card-1');
+      // A slider that follows the pointer: synthetic and trusted.
+      const knob = refOf(snap, /slider "Knob"/);
+      const end = refOf(snap, /button "Track end"/);
+      ok(await cmd('drag', { ref: knob, toRef: end }), 'drag knob');
+      assert.match(await text('#slid'), /^at (3[0-9]{2})$/);
+      ok(await cmd('navigate', { url: `${fixtures.base}/drag.html` }), 'again');
+      const again = String(ok(await cmd('snapshot'), 'snapshot')['snapshot']);
+      ok(
+        await cmd('drag', {
+          ref: refOf(again, /slider "Knob"/),
+          toRef: refOf(again, /button "Track end"/),
+          trusted: true,
+        }),
+        'trusted drag',
+      );
+      assert.match(await text('#slid'), /^at (3[0-9]{2})$/);
+    });
+
     it('measures snapshot sizes and round trips', async () => {
       const sizes: Record<string, unknown> = {};
       for (const [name, url] of [

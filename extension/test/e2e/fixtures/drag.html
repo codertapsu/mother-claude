@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Drag</title>
+    <style>
+      .box {
+        width: 120px;
+        height: 60px;
+        margin: 20px;
+        border: 1px solid #888;
+      }
+      #track {
+        position: relative;
+        width: 400px;
+        height: 40px;
+        margin: 20px;
+        background: #eee;
+      }
+      #knob {
+        position: absolute;
+        left: 0;
+        top: 0;
+        width: 40px;
+        height: 40px;
+        background: #46c;
+      }
+      #end {
+        position: absolute;
+        right: 0;
+        top: 0;
+        width: 40px;
+        height: 40px;
+      }
+    </style>
+  </head>
+  <body>
+    <!-- HTML drag and drop: a card onto a drop zone. -->
+    <div id="card" class="box" draggable="true" role="button" aria-label="Card">Card</div>
+    <div id="zone" class="box" role="region" aria-label="Drop zone">Drop here</div>
+    <p id="dropped">nothing dropped</p>
+    <!-- A slider that follows the pointer while its button is held. -->
+    <div id="track">
+      <div id="knob" role="slider" aria-label="Knob" aria-valuenow="0"></div>
+      <div id="end" role="button" aria-label="Track end"></div>
+    </div>
+    <p id="slid">at 0</p>
+    <script>
+      const card = document.getElementById('card');
+      const zone = document.getElementById('zone');
+      card.addEventListener('dragstart', (e) => e.dataTransfer.setData('text/plain', 'card-1'));
+      zone.addEventListener('dragover', (e) => e.preventDefault());
+      zone.addEventListener('drop', (e) => {
+        e.preventDefault();
+        document.getElementById('dropped').textContent =
+          'dropped ' + e.dataTransfer.getData('text/plain');
+      });
+      const knob = document.getElementById('knob');
+      const track = document.getElementById('track');
+      let held = false;
+      knob.addEventListener('pointerdown', () => (held = true));
+      document.addEventListener('pointermove', (e) => {
+        if (!held || !(e.buttons & 1)) return;
+        const x = Math.max(0, Math.min(360, e.clientX - track.getBoundingClientRect().left - 20));
+        knob.style.left = x + 'px';
+        knob.setAttribute('aria-valuenow', String(Math.round(x)));
+      });
+      document.addEventListener('pointerup', () => {
+        if (!held) return;
+        held = false;
+        document.getElementById('slid').textContent = 'at ' + knob.getAttribute('aria-valuenow');
+      });
+    </script>
+  </body>
+</html>

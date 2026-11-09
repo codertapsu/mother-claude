@@ -573,10 +573,23 @@ export const VI_TOPICS_B: Partial<Record<string, HelpTopicSource>> = {
         ],
       },
       {
+        heading: 'Nhiều trang, mạng, cookie và dữ liệu lưu trữ',
+        intro:
+          'Các phiên có thể làm việc trên nhiều trang cùng lúc và xem những gì bạn thấy trong công cụ dành cho nhà phát triển.',
+        points: [
+          'Một phiên có thể giữ nhiều thẻ trong nhóm của nó, mỗi thẻ một trang, và làm việc song song trên chúng. Mỗi trang giữ chế độ riêng.',
+          '**Mạng**: các yêu cầu một thẻ đã gửi (địa chỉ, trạng thái, kích thước, thời gian), một yêu cầu đầy đủ với header và nội dung, và các tin nhắn WebSocket. Việc ghi lại bắt đầu từ thao tác đầu tiên của phiên trong thẻ: tải lại trang để thấy các yêu cầu của nó từ đầu.',
+          '**Cookie**: tên, hạn dùng và các cờ của những cookie được gửi tới trang. Giá trị của chúng, và việc đặt hay xóa một cookie, đều chờ bạn duyệt.',
+          '**Dữ liệu lưu trữ**: local storage và session storage của trang, và các cơ sở dữ liệu IndexedDB của nó (chỉ đọc). Giá trị, và mọi thay đổi, đều chờ bạn duyệt.',
+          'Các header đăng nhập (như `Authorization` và `Cookie`) luôn hiện là `«redacted»`.',
+          'Yêu cầu mạng, cookie, ảnh chụp màn hình và console cần quyền **debugger** của tiện ích. Chrome hiện một thanh thông báo khi quyền này đang được dùng.',
+        ],
+      },
+      {
         heading: 'Yêu cầu duyệt',
         points: [
           'Yêu cầu hiện trong Hộp thư, trên trang của phiên, ở **Trình duyệt › Đang chờ bạn** và trong bảng bên. Câu trả lời đầu tiên được tính; không trả lời trong 5 phút được coi là từ chối.',
-          'Luôn hỏi khi: vào trang nhạy cảm, điền biểu mẫu có ô mật khẩu, thẻ thanh toán hoặc mã dùng một lần, chạy script, tải tệp lên, vượt giới hạn mỗi phút, và mọi thao tác trong một phút sau khi bị dừng (Stop).',
+          'Luôn hỏi khi: vào trang nhạy cảm, điền biểu mẫu có ô mật khẩu, thẻ thanh toán hoặc mã dùng một lần, chạy script, tải tệp lên, đọc hoặc thay đổi giá trị cookie và dữ liệu lưu trữ, vượt giới hạn mỗi phút, và mọi thao tác trong một phút sau khi bị dừng (Stop).',
           '**Luôn cho phép…** trên một yêu cầu duyệt sẽ lưu một quyền cho phép lâu dài. Các quyền này được liệt kê ở **Luôn cho phép**, nơi **Gỡ bỏ** sẽ rút lại một quyền.',
         ],
       },

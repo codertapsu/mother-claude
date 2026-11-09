@@ -466,7 +466,8 @@ the `browser_*` tools are `extension::mcp`). Invariants:
   sensitive site, `*` or a wildcard needs the dangerous right) are checked
   before a command is sent and again on the URL a result reports.
   `extension::danger` classifies every action (sensitive sites, forms with
-  secret fields, `eval`, `upload`, the per-minute limit, a recent Stop) and
+  secret fields, `eval`, `upload`, reading cookie or storage values and
+  changing either, the per-minute limit, a recent Stop) and
   raises a `crate::pending` item (`source: browser`, always dangerous); the
   extension's own checks are only defence in depth. A standing grant is a
   dangerous setting (audited, revocable); the Stop rule has none.
@@ -474,7 +475,9 @@ the `browser_*` tools are `extension::mcp`). Invariants:
   one-time-code or other secret field is refused outright (by the desktop
   from the last snapshot, by the extension through `refuseSecret`), and
   everything the extension returns is redacted again (`extension::redact`)
-  before a model sees it.
+  before a model sees it — a network request's credential headers whole
+  (`redact::header`), cookie and storage values only when the call asked
+  for them and the user approved.
 - **Records hold no values.** The activity log and the audit lines name the
   session, tool, action, origin and path (never a query string) and the
   outcome — never typed text, page content or tokens. Uploads read only the

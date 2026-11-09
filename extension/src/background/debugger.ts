@@ -1,5 +1,6 @@
 // chrome.debugger (an optional permission): trusted input, screenshots,
-// console capture, eval and dialogs. Attached per tab on first use, kept while
+// console capture, the network log, cookies, eval and dialogs. Attached per
+// tab on first use, kept while
 // the tab is in its lease, detached when the lease closes. Chrome shows its
 // "started debugging this browser" bar while anything is attached; the side
 // panel explains it. If the user cancels that bar, we do not attach again in
@@ -18,6 +19,106 @@ export interface ConsoleMessage {
 
 const CONSOLE_LIMIT = 1000;
 const TEXT_LIMIT = 2000;
+
+/** Requests kept per tab (the oldest go first). */
+export const NETWORK_LIMIT = 500;
+/** WebSocket frames kept per socket, and the longest payload kept. */
+const FRAME_LIMIT = 50;
+const FRAME_TEXT = 2000;
+/** The longest request body kept as sent (larger ones are fetched on demand). */
+const POST_DATA_LIMIT = 64 * 1024;
+/** The longest response body handed on. */
+export const BODY_LIMIT = 200_000;
+
+/** One request the tab made, as the debugger reported it. */
+export interface NetRecord {
+  id: string;
+  method: string;
+  url: string;
+  /** What Chrome calls the resource type, lower case: document, xhr, fetch, … */
+  type: string;
+  /** Epoch ms when it started. */
+  at: number;
+  status?: number;
+  statusText?: string;
+  mimeType?: string;
+  /** Bytes over the wire. */
+  size?: number;
+  /** How long it took, in ms (once it ended). */
+  ms?: number;
+  /** Why it failed ("net::ERR_…", "canceled"). */
+  failed?: string;
+  fromCache?: boolean;
+  redirects?: number;
+  protocol?: string;
+  remoteAddress?: string;
+  requestHeaders?: Record<string, string>;
+  responseHeaders?: Record<string, string>;
+  postData?: string;
+  hasPostData?: boolean;
+  /** WebSocket frames, sent (`>`) and received (`<`). */
+  frames?: { dir: '>' | '<'; payload: string; at: number }[];
+  /** CDP's monotonic start, for the duration. */
+  t0?: number;
+}
+
+/** A request in a list: what it is and how it went, no headers or bodies. */
+export function netSummary(r: NetRecord): Record<string, unknown> {
+  const out: Record<string, unknown> = {
+    id: r.id,
+    method: r.method,
+    url: r.url,
+    type: r.type,
+    at: r.at,
+  };
+  for (const k of [
+    'status',
+    'mimeType',
+    'size',
+    'ms',
+    'failed',
+    'fromCache',
+    'redirects',
+  ] as const) {
+    if (r[k] !== undefined && r[k] !== false) out[k] = r[k];
+  }
+  if (r.frames) out['frames'] = r.frames.length;
+  return out;
+}
+
+/** Whether a request matches a list's filters. */
+export function netMatches(
+  r: NetRecord,
+  f: { filter?: string; type?: string; failed?: boolean; since?: number },
+): boolean {
+  if (f.filter && !r.url.toLowerCase().includes(f.filter.toLowerCase())) return false;
+  if (f.type) {
+    const known = [
+      'document',
+      'xhr',
+      'fetch',
+      'script',
+      'stylesheet',
+      'image',
+      'font',
+      'media',
+      'websocket',
+    ];
+    if (f.type === 'other' ? known.includes(r.type) : r.type !== f.type) return false;
+  }
+  if (f.failed && !(r.failed || (r.status !== undefined && r.status >= 400))) return false;
+  if (f.since !== undefined && r.at < f.since) return false;
+  return true;
+}
+
+function headerMap(v: unknown): Record<string, string> | undefined {
+  if (typeof v !== 'object' || v === null) return undefined;
+  const out: Record<string, string> = {};
+  for (const [k, val] of Object.entries(v as Record<string, unknown>)) {
+    out[k] = typeof val === 'string' ? val : String(val);
+  }
+  return out;
+}
 
 type Params = Record<string, unknown>;
 
@@ -66,6 +167,8 @@ export class DebuggerManager {
     number,
     { inflight: Map<string, { at: number; url: string }>; last: number; mainFrame: string }
   >();
+  /** Each tab's requests, oldest first, and since when it records them. */
+  private readonly logs = new Map<number, { records: Map<string, NetRecord>; since: number }>();
   private listening = false;
   private readonly dialogs: Dialogs;
   /** Called when the user cancels the debugging bar (the side panel says why). */
@@ -127,14 +230,18 @@ export class DebuggerManager {
     }
     this.attached.add(tabId);
     this.networks.set(tabId, { inflight: new Map(), last: Date.now(), mainFrame: '' });
+    this.startLog(tabId);
     await Promise.all([
       this.send(tabId, 'Page.enable'),
       this.send(tabId, 'Runtime.enable'),
       this.send(tabId, 'Log.enable'),
-      // Only to count requests (network idle): no bodies kept.
-      this.send(tabId, 'Network.enable', { maxTotalBufferSize: 0, maxResourceBufferSize: 0 }).catch(
-        () => this.send(tabId, 'Network.enable'),
-      ),
+      // Requests are counted (network idle) and recorded (browser_network);
+      // the browser keeps recent bodies so one can be read on demand.
+      this.send(tabId, 'Network.enable', {
+        maxTotalBufferSize: 20 * 1024 * 1024,
+        maxResourceBufferSize: 5 * 1024 * 1024,
+        maxPostDataSize: POST_DATA_LIMIT,
+      }).catch(() => this.send(tabId, 'Network.enable')),
     ]).catch(() => undefined);
     const tree = await this.send<{ frameTree?: { frame?: { id?: string } } }>(
       tabId,
@@ -168,10 +275,79 @@ export class DebuggerManager {
     }
   }
 
+  /** Start recording the tab's requests (once: a log already there stays). */
+  startLog(tabId: number): void {
+    if (!this.logs.has(tabId)) this.logs.set(tabId, { records: new Map(), since: Date.now() });
+  }
+
+  /** The tab's recorded requests (oldest first) and since when it records. */
+  networkLog(tabId: number): { records: NetRecord[]; since: number } | null {
+    const log = this.logs.get(tabId);
+    return log ? { records: [...log.records.values()], since: log.since } : null;
+  }
+
+  request(tabId: number, id: string): NetRecord | null {
+    return this.logs.get(tabId)?.records.get(id) ?? null;
+  }
+
+  /** Forget what the tab recorded; it goes on recording. */
+  clearNetwork(tabId: number): void {
+    const log = this.logs.get(tabId);
+    if (log) {
+      log.records.clear();
+      log.since = Date.now();
+    }
+  }
+
+  /** A response's body: text, or how big a binary one is. */
+  async responseBody(
+    tabId: number,
+    id: string,
+  ): Promise<{
+    text?: string;
+    base64?: boolean;
+    size?: number;
+    truncated?: boolean;
+    unavailable?: string;
+  }> {
+    try {
+      const r = await this.send<{ body?: string; base64Encoded?: boolean }>(
+        tabId,
+        'Network.getResponseBody',
+        { requestId: id },
+      );
+      const body = r.body ?? '';
+      if (r.base64Encoded) return { base64: true, size: Math.floor((body.length * 3) / 4) };
+      return body.length > BODY_LIMIT
+        ? { text: body.slice(0, BODY_LIMIT), truncated: true, size: body.length }
+        : { text: body, size: body.length };
+    } catch (e) {
+      const msg = messageOf(e).replace(/^Network\.getResponseBody:\s*/, '');
+      return {
+        unavailable: /No resource|No data found/i.test(msg)
+          ? 'the browser no longer has it: load the page again and ask right after'
+          : msg,
+      };
+    }
+  }
+
+  /** A request body the event did not carry (a large one). */
+  async requestBody(tabId: number, id: string): Promise<string | null> {
+    try {
+      const r = await this.send<{ postData?: string }>(tabId, 'Network.getRequestPostData', {
+        requestId: id,
+      });
+      return r.postData ?? null;
+    } catch {
+      return null;
+    }
+  }
+
   async detach(tabId: number): Promise<void> {
     this.cancelled.delete(tabId);
     this.consoleBuffers.delete(tabId);
     this.networks.delete(tabId);
+    this.logs.delete(tabId);
     if (!this.attached.delete(tabId)) return;
     try {
       await chrome.debugger.detach({ tabId });
@@ -214,7 +390,139 @@ export class DebuggerManager {
     });
   }
 
+  /** Keep what a Network event says about its request. */
+  record(tabId: number, method: string, p: Params): void {
+    const log = this.logs.get(tabId);
+    const id = String(p['requestId'] ?? '');
+    if (!log || !id) return;
+    const records = log.records;
+    const get = (): NetRecord | undefined => records.get(id);
+    const add = (r: NetRecord): void => {
+      records.delete(id);
+      records.set(id, r);
+      while (records.size > NETWORK_LIMIT) {
+        const oldest = records.keys().next().value;
+        if (oldest === undefined) break;
+        records.delete(oldest);
+      }
+    };
+    const num = (v: unknown): number | undefined =>
+      typeof v === 'number' && Number.isFinite(v) ? v : undefined;
+    switch (method) {
+      case 'Network.requestWillBeSent': {
+        const req = (p['request'] ?? {}) as Record<string, unknown>;
+        const prev = get();
+        // A redirect reuses the request id: the same request, at its new URL.
+        if (prev && p['redirectResponse']) {
+          prev.url = String(req['url'] ?? prev.url);
+          prev.redirects = (prev.redirects ?? 0) + 1;
+          prev.requestHeaders = headerMap(req['headers']) ?? prev.requestHeaders;
+          return;
+        }
+        const wall = num(p['wallTime']);
+        const post = typeof req['postData'] === 'string' ? (req['postData'] as string) : undefined;
+        const r: NetRecord = {
+          id,
+          method: String(req['method'] ?? 'GET'),
+          url: String(req['url'] ?? ''),
+          type: String(p['type'] ?? 'Other').toLowerCase(),
+          at: wall !== undefined ? Math.round(wall * 1000) : Date.now(),
+        };
+        const t0 = num(p['timestamp']);
+        if (t0 !== undefined) r.t0 = t0;
+        const headers = headerMap(req['headers']);
+        if (headers) r.requestHeaders = headers;
+        if (post !== undefined) r.postData = post.slice(0, POST_DATA_LIMIT);
+        if (req['hasPostData'] === true) r.hasPostData = true;
+        add(r);
+        return;
+      }
+      case 'Network.requestWillBeSentExtraInfo': {
+        // The headers as sent, cookies included (redacted on the desktop).
+        const r = get();
+        const headers = headerMap(p['headers']);
+        if (r && headers) r.requestHeaders = { ...r.requestHeaders, ...headers };
+        return;
+      }
+      case 'Network.responseReceived': {
+        const r = get();
+        const res = (p['response'] ?? {}) as Record<string, unknown>;
+        if (!r) return;
+        const status = num(res['status']);
+        if (status !== undefined) r.status = status;
+        if (typeof res['statusText'] === 'string' && res['statusText'])
+          r.statusText = res['statusText'];
+        if (typeof res['mimeType'] === 'string') r.mimeType = res['mimeType'];
+        if (typeof res['protocol'] === 'string') r.protocol = res['protocol'];
+        const ip = res['remoteIPAddress'];
+        if (typeof ip === 'string' && ip)
+          r.remoteAddress = `${ip}:${String(res['remotePort'] ?? '')}`;
+        if (res['fromDiskCache'] === true || res['fromServiceWorker'] === true) r.fromCache = true;
+        r.responseHeaders = headerMap(res['headers']) ?? r.responseHeaders;
+        if (typeof p['type'] === 'string') r.type = p['type'].toLowerCase();
+        return;
+      }
+      case 'Network.responseReceivedExtraInfo': {
+        const r = get();
+        const headers = headerMap(p['headers']);
+        if (r && headers) r.responseHeaders = { ...r.responseHeaders, ...headers };
+        return;
+      }
+      case 'Network.loadingFinished':
+      case 'Network.loadingFailed': {
+        const r = get();
+        if (!r) return;
+        const t = num(p['timestamp']);
+        if (t !== undefined && r.t0 !== undefined)
+          r.ms = Math.max(0, Math.round((t - r.t0) * 1000));
+        const size = num(p['encodedDataLength']);
+        if (size !== undefined) r.size = size;
+        if (method === 'Network.loadingFailed') {
+          r.failed = p['canceled'] === true ? 'canceled' : String(p['errorText'] ?? 'failed');
+        }
+        return;
+      }
+      case 'Network.webSocketCreated':
+        add({
+          id,
+          method: 'GET',
+          url: String(p['url'] ?? ''),
+          type: 'websocket',
+          at: Date.now(),
+          frames: [],
+        });
+        return;
+      case 'Network.webSocketFrameSent':
+      case 'Network.webSocketFrameReceived': {
+        const r = get();
+        if (!r) return;
+        const frame = (p['response'] ?? {}) as Record<string, unknown>;
+        const opcode = num(frame['opcode']);
+        const payload =
+          opcode === 1
+            ? String(frame['payloadData'] ?? '')
+            : `(binary frame, opcode ${opcode ?? '?'})`;
+        r.frames ??= [];
+        r.frames.push({
+          dir: method === 'Network.webSocketFrameSent' ? '>' : '<',
+          payload: payload.length > FRAME_TEXT ? `${payload.slice(0, FRAME_TEXT)}…` : payload,
+          at: Date.now(),
+        });
+        if (r.frames.length > FRAME_LIMIT) r.frames.splice(0, r.frames.length - FRAME_LIMIT);
+        return;
+      }
+      case 'Network.webSocketClosed': {
+        const r = get();
+        if (r && r.failed === undefined) r.ms = Date.now() - r.at;
+        return;
+      }
+      default:
+        return;
+    }
+  }
+
   private onEvent(tabId: number, method: string, p: Params): void {
+    if (method.startsWith('Network.')) this.record(tabId, method, p);
     switch (method) {
       case 'Page.javascriptDialogOpening':
         this.dialogs.opened(tabId, dialogKind(p['type']), String(p['message'] ?? ''));

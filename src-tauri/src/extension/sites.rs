@@ -276,6 +276,8 @@ pub enum GrantAction {
     SecretForm,
     /// More actions a minute than the limit.
     Burst,
+    /// Reading cookie or storage values, and changing cookies or storage.
+    Secrets,
     /// A grant written by a newer version: never matches.
     #[serde(other)]
     Unknown,
@@ -290,6 +292,7 @@ impl GrantAction {
             GrantAction::Act => "act",
             GrantAction::SecretForm => "secretForm",
             GrantAction::Burst => "burst",
+            GrantAction::Secrets => "secrets",
             GrantAction::Unknown => "unknown",
         }
     }
@@ -302,6 +305,7 @@ impl GrantAction {
             "act" => Some(GrantAction::Act),
             "secretForm" => Some(GrantAction::SecretForm),
             "burst" => Some(GrantAction::Burst),
+            "secrets" => Some(GrantAction::Secrets),
             _ => None,
         }
     }
@@ -315,6 +319,7 @@ impl GrantAction {
             GrantAction::Act => "act on this sensitive site",
             GrantAction::SecretForm => "fill and submit forms with password or card fields",
             GrantAction::Burst => "act more than the per-minute limit",
+            GrantAction::Secrets => "read or change cookies and site storage",
             GrantAction::Unknown => "an unknown action",
         }
     }

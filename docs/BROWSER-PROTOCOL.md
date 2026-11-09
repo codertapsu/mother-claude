@@ -219,6 +219,12 @@ What the desktop does around commands *(added detail)*:
 | `dialog` | `{"accept":true,"text"?}` | `{}` |
 | `upload` | `{"ref","files":[{"name","mimeType","data":"<base64>"}]}` | `{}` (the desktop reads the files; the extension never reads the disk) |
 | `highlight` | `{"ref","ms"?:800}` | `{}` (shows the user what is about to be touched) |
+| `drag` *(added)* | `{"ref"\|"selector","toRef"\|"toSelector","trusted"?:false}` | `{"html5","dropped"?,"snapshot"?,"url","title"}` (HTML drag-and-drop events when the source is draggable, else pointer events; `trusted`: the real mouse, needs `debugger`) |
+| `network` *(added)* | `{"filter"?,"type"?,"failed"?,"since"?,"limit"?:50}` · `{"requestId","body"?:false}` · `{"clear":true}` | a list `{"requests":[{"id","method","url","type","at","status"?,"mimeType"?,"size"?,"ms"?,"failed"?,"fromCache"?,"redirects"?,"frames"?}],"total","recordingSince","note"?}`; one request `{"request":{… ,"requestHeaders","responseHeaders","postData"?,"frames"?},"body"?:{"text"\|"base64","size","truncated"?}\|{"unavailable"}}` (needs `debugger`; the last 500 requests per tab, across page loads) |
+| `cookies` *(added)* | `{"name"?,"values"?:false}` | `{"url","cookies":[{"name","domain","path","size","httpOnly","secure","sameSite"?,"expires"?,"session"?,"value"?}]}` (the cookies sent to the page's URL; `value` only with `values`; needs `debugger`) |
+| `cookies.set` / `cookies.delete` *(added)* | `{"name","value"?,"domain"?,"path"?,"secure"?,"httpOnly"?,"sameSite"?,"expires"?}` | `{"name"}` (the page's own site only: a `domain` it is not under is `unsupported`) |
+| `storage` *(added)* | `{"area":"local"\|"session","key"?,"values"?:false}` · `{"area":"indexeddb","db"?,"store"?,"limit"?:20,"values"?}` | `{"area","origin","count","entries":[{"key","size","value"?}],"truncated"?}`; IndexedDB: `{"databases":[{"name","version"}]}`, `{"db","version","stores":[{"name","keyPath","autoIncrement","indexes","count"}]}` or `{"db","store","count","records":[{"key","size","value"?}]}` (read only: a database is never created or upgraded) |
+| `storage.set` / `storage.remove` / `storage.clear` *(added)* | `{"area","key"?,"value"?}` | `{"area","key"?,…}` (local and session storage) |
 
 ### Snapshot format
 
@@ -290,8 +296,17 @@ the browser profile, so its approvals stay visible).
 - The desktop's `timeoutMs` is the deadline; the extension aborts the action
   and replies `timeout` itself 500 ms before it, so the desktop always gets
   a `result`.
-- Nothing the extension sends contains cookies, storage, or the value of a
-  redacted field. The desktop redacts again before anything reaches a model.
+- Nothing the extension sends contains the value of a redacted field. Cookie
+  and storage values go only in answer to a `cookies` or `storage` command
+  with `values: true`, which the desktop sends only after the user approved
+  it (or a standing `secrets` grant covers the site). A `network` request's
+  headers go as the browser sent them (cookies and `Authorization`
+  included): the desktop hides every credential header whole before a model
+  sees them, and redacts every text again (bodies, values, URLs).
+- Classes: `network`, `cookies` and `storage` observe (a site in `read` is
+  enough); `cookies.set`, `cookies.delete`, `storage.set`, `storage.remove`,
+  `storage.clear` and `drag` act. Reading values and every change to cookies
+  or storage need the user's approval (`secrets`).
 - The extension never acts outside a lease's tabs, except in the active tab
   of a window when the user granted it for that tab (`activeTab`).
 
@@ -372,3 +387,15 @@ Connecting a session from the side panel (both sides):
     with the tab's origin only. Errors: `invalid`, `not_found`,
     `not_connected` (no lease in this browser), `needs_desktop` (it runs
     without permission prompts), `no_channel` (nothing reaches it).
+
+Network, cookies, storage and drag (both sides):
+
+19. The commands `network`, `cookies`, `cookies.set`, `cookies.delete`,
+    `storage`, `storage.set`, `storage.remove`, `storage.clear` and `drag`
+    (the table above). An extension that does not know one answers
+    `unsupported`. The debugger keeps the browser's response bodies
+    (`Network.enable` with buffers of 20 MiB in all, 5 MiB a resource), so a
+    body can be read on demand while the browser still has it; a body of a
+    response still loading is `{"unavailable"}` after a wait of up to 3 s.
+20. The standing grant `secrets` ("read or change cookies and site storage")
+    covers reading values and changing cookies or storage on one origin.

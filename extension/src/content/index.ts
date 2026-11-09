@@ -7,6 +7,7 @@ import { parseKey } from '../shared/keys.ts';
 import {
   type Button,
   click,
+  drag,
   fillField,
   highlight,
   hover,
@@ -31,6 +32,16 @@ import { read, type ReadMode } from './read.ts';
 import { isSecretField } from './redact.ts';
 import { RefRegistry } from './refs.ts';
 import { SelectorNotFound, isDisabled, snapshot } from './snapshot.ts';
+import {
+  areaOf,
+  clearStorage,
+  describeDatabase,
+  listDatabases,
+  readStorage,
+  readStore,
+  removeStorage,
+  setStorage,
+} from './storage.ts';
 import { waitForNetworkIdle, waitForSelector, waitForText } from './wait.ts';
 
 declare const __MC_CONTENT_KEY__: string;
@@ -441,6 +452,56 @@ const methods: Record<string, Method> = {
       scrollY: window.scrollY,
       dpr: window.devicePixelRatio || 1,
     };
+  },
+
+  /** Drag `ref` onto `toRef` with the events a user's drag fires. */
+  async drag(p, ctx) {
+    const { el: from, what } = target(p);
+    const { el: to, what: toWhat } = target({ ref: p['toRef'], selector: p['toSelector'] });
+    actionable(from, what);
+    if (!to.isConnected)
+      throw new CommandError('stale_ref', `${toWhat} is gone: take a new snapshot`);
+    pending?.stop();
+    const tracker = new ChangeTracker(document, isOurs);
+    const outcome = await drag(from, to);
+    return settled(tracker, ctx, { ...outcome });
+  },
+
+  /** Where an element is, for the trusted drag's drop (no tracking). */
+  pointOf(p) {
+    const { el } = target(p);
+    return trustedPoint(el);
+  },
+
+  async storage(p) {
+    const values = p['values'] === true;
+    if (p['area'] === 'indexeddb') {
+      const db = str(p['db']);
+      const store = str(p['store']);
+      if (db && store) return readStore(db, store, num(p['limit'], 20), values);
+      if (db) return describeDatabase(db);
+      return { origin: location.origin, databases: await listDatabases() };
+    }
+    return readStorage(areaOf(p['area']), str(p['key']), values);
+  },
+
+  'storage.set'(p) {
+    const key = str(p['key']);
+    const value = str(p['value']);
+    if (key === undefined || value === undefined) {
+      throw new CommandError('not_found', 'storage.set needs a key and a value');
+    }
+    return setStorage(areaOf(p['area']), key, value);
+  },
+
+  'storage.remove'(p) {
+    const key = str(p['key']);
+    if (key === undefined) throw new CommandError('not_found', 'storage.remove needs a key');
+    return removeStorage(areaOf(p['area']), key);
+  },
+
+  'storage.clear'(p) {
+    return clearStorage(areaOf(p['area']));
   },
 
   viewport() {

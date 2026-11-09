@@ -118,6 +118,19 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
     await new Promise((r) => setTimeout(r, ms));
     return send(200, 'application/json', JSON.stringify({ ok: `waited ${ms}` }));
   }
+  if (url.pathname === '/api/login') {
+    // A session cookie the page's script cannot read.
+    return send(200, 'application/json', JSON.stringify({ user: 'ada' }), {
+      'set-cookie': 'sid=s3ss10n; Path=/; HttpOnly; SameSite=Lax',
+    });
+  }
+  if (url.pathname === '/api/items' && req.method === 'POST') {
+    let body = '';
+    for await (const chunk of req) body += String(chunk);
+    return send(201, 'application/json', JSON.stringify({ created: JSON.parse(body || '{}') }), {
+      'x-request-id': 'req-42',
+    });
+  }
   if (url.pathname === '/download/report.txt') {
     return send(200, 'text/plain', 'quarterly report\n', {
       'content-disposition': 'attachment; filename="report.txt"',

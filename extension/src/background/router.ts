@@ -36,6 +36,9 @@ const DIALOG_OK = new Set([
   'tabs.open',
   'console',
   'screenshot',
+  // Recorded by the browser, not asked of the blocked page.
+  'network',
+  'cookies',
 ]);
 /** Lease-level commands: no tab needed. */
 const LEASE_LEVEL = new Set(['tabs.list', 'tabs.open']);

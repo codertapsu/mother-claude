@@ -799,7 +799,7 @@ fn host_label(origin: Option<&str>) -> String {
     origin.map(sites::host_of).unwrap_or("the page").to_string()
 }
 
-fn clip(s: &str, max: usize) -> String {
+pub(super) fn clip(s: &str, max: usize) -> String {
     if s.chars().count() <= max {
         return s.to_string();
     }
@@ -906,6 +906,19 @@ fn approval_input(
             .any(|k| lower.contains(k))
             {
                 out["touchesStorage"] = json!(true);
+            }
+        }
+        // What it touches, never the value (the audit log sees none of it
+        // either).
+        "cookies" | "cookies.set" | "cookies.delete" | "storage" | "storage.set"
+        | "storage.remove" | "storage.clear" => {
+            for key in ["name", "area", "key", "db", "store"] {
+                if let Some(v) = p.get(key).and_then(Value::as_str) {
+                    out[key] = json!(clip(v, 200));
+                }
+            }
+            if let Some(v) = p.get("values").and_then(Value::as_bool) {
+                out["values"] = json!(v);
             }
         }
         "upload" => {

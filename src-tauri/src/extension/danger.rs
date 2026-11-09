@@ -8,6 +8,8 @@
 //!   one-time-code fields (typing into such a field itself is refused
 //!   outright, see [`secret_target`]);
 //! * `eval`; `upload`;
+//! * reading cookie or storage values (`cookies`, `storage` with `values`),
+//!   and every change to cookies or storage: they hold the user's sign-in;
 //! * more than the per-minute limit of actions on one site (a runaway loop);
 //! * any action while the user pressed Stop for another session in the same
 //!   browser less than a minute ago.
@@ -42,9 +44,8 @@ pub fn class_of(action: &str) -> Class {
         "tabs.list" | "tabs.select" | "tabs.close" | "highlight" => Class::Browser,
         "navigate" | "tabs.open" => Class::Navigate,
         "back" | "forward" | "reload" => Class::History,
-        "snapshot" | "read" | "find" | "wait" | "screenshot" | "console" | "scroll" => {
-            Class::Observe
-        }
+        "snapshot" | "read" | "find" | "wait" | "screenshot" | "console" | "scroll" | "network"
+        | "cookies" | "storage" => Class::Observe,
         _ => Class::Act,
     }
 }
@@ -75,6 +76,7 @@ pub enum DangerKind {
     Act,
     SecretForm,
     Burst,
+    Secrets,
     AfterStop,
 }
 
@@ -88,6 +90,7 @@ impl DangerKind {
             DangerKind::Act => Some(GrantAction::Act),
             DangerKind::SecretForm => Some(GrantAction::SecretForm),
             DangerKind::Burst => Some(GrantAction::Burst),
+            DangerKind::Secrets => Some(GrantAction::Secrets),
             DangerKind::AfterStop => None,
         }
     }
@@ -185,6 +188,28 @@ fn submits(f: &Facts) -> bool {
     }
 }
 
+/// Whether the action reads cookie or storage values, or changes cookies or
+/// storage, and the card's sentence. Names, sizes and flags alone are not
+/// secret.
+fn secrets_text(f: &Facts) -> Option<&'static str> {
+    let values = param(f, "values").and_then(Value::as_bool) == Some(true);
+    match f.action {
+        "cookies" if values => {
+            Some("It reads the site's cookie values, which can include the user's sign-in session.")
+        }
+        "storage" if values => Some(
+            "It reads values the site stored in the browser, which can include sign-in tokens.",
+        ),
+        "cookies.set" | "cookies.delete" => {
+            Some("It changes the site's cookies, which can sign the user in or out.")
+        }
+        "storage.set" | "storage.remove" | "storage.clear" => {
+            Some("It changes what the site stored in the browser.")
+        }
+        _ => None,
+    }
+}
+
 /// Every reason the action needs approval (before grants).
 pub fn classify(f: &Facts) -> Vec<Danger> {
     let class = class_of(f.action);
@@ -216,6 +241,9 @@ pub fn classify(f: &Facts) -> Vec<Danger> {
             "It uploads files from this computer.".into(),
         ),
         _ => {}
+    }
+    if let Some(text) = secrets_text(f) {
+        push(DangerKind::Secrets, &page, text.into());
     }
     if class == Class::Navigate {
         if let (Some(target), Some(category)) = (f.target_origin, f.target_sensitive) {
@@ -308,6 +336,83 @@ mod tests {
         assert_eq!(class_of("tabs.list").needs(), None);
         assert!(class_of("click").counts() && class_of("navigate").counts());
         assert!(!class_of("snapshot").counts());
+    }
+
+    #[test]
+    fn network_cookies_and_storage_observe_and_their_changes_act() {
+        for observing in ["network", "cookies", "storage"] {
+            assert_eq!(
+                class_of(observing).needs(),
+                Some(SiteMode::Read),
+                "{observing}"
+            );
+            assert!(!class_of(observing).counts(), "{observing}");
+        }
+        for acting in [
+            "cookies.set",
+            "cookies.delete",
+            "storage.set",
+            "storage.remove",
+            "storage.clear",
+            "drag",
+        ] {
+            assert_eq!(class_of(acting).needs(), Some(SiteMode::Act), "{acting}");
+        }
+    }
+
+    #[test]
+    fn cookie_and_storage_values_and_changes_need_approval_names_do_not() {
+        let at = |action: &'static str, p: &Value| {
+            kinds(&classify(&Facts {
+                action,
+                params: Some(p),
+                page_origin: Some("https://app.example.com"),
+                ..Default::default()
+            }))
+        };
+        // Names, sizes and flags, and the network log: no approval.
+        assert!(at("cookies", &json!({})).is_empty());
+        assert!(at("cookies", &json!({"values": false})).is_empty());
+        assert!(at("storage", &json!({"area": "local"})).is_empty());
+        assert!(at("network", &json!({"body": true})).is_empty());
+        assert!(at("drag", &json!({"ref": "e1", "toRef": "e2"})).is_empty());
+        // Values, and every change.
+        assert_eq!(
+            at("cookies", &json!({"values": true})),
+            [DangerKind::Secrets]
+        );
+        assert_eq!(
+            at("storage", &json!({"area": "indexeddb", "values": true})),
+            [DangerKind::Secrets]
+        );
+        for change in [
+            "cookies.set",
+            "cookies.delete",
+            "storage.set",
+            "storage.remove",
+            "storage.clear",
+        ] {
+            assert_eq!(at(change, &json!({})), [DangerKind::Secrets], "{change}");
+        }
+        // A standing grant on the origin covers it; on another it does not.
+        assert_eq!(DangerKind::Secrets.grant(), Some(GrantAction::Secrets));
+        let d = classify(&Facts {
+            action: "cookies",
+            params: Some(&json!({"values": true})),
+            page_origin: Some("https://app.example.com"),
+            ..Default::default()
+        });
+        let mut s = Settings::default();
+        s.grants.push(Grant {
+            id: "g_1".into(),
+            action: GrantAction::Secrets,
+            origin: "https://other.example.com".into(),
+            created_at: 0,
+            created_by: "PC".into(),
+        });
+        assert_eq!(uncovered(d.clone(), &s).len(), 1);
+        s.grants[0].origin = "https://app.example.com".into();
+        assert!(uncovered(d, &s).is_empty());
     }
 
     #[test]

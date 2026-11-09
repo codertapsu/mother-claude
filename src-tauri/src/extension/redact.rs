@@ -165,6 +165,27 @@ pub fn html(input: &str) -> String {
     text(&inputs).into_owned()
 }
 
+/// An HTTP header's value as a model may see it: the whole value of a header
+/// that carries credentials (`Authorization`, `Cookie`, `Set-Cookie`, API
+/// keys, CSRF and session tokens, anything named like a token, key, secret
+/// or password); any other through [`text`].
+pub fn header(name: &str, value: &str) -> String {
+    let n = name.to_ascii_lowercase();
+    let credential = matches!(
+        n.as_str(),
+        "authorization" | "proxy-authorization" | "cookie" | "set-cookie" | "x-api-key"
+    ) || [
+        "token", "secret", "password", "api-key", "apikey", "session", "csrf", "xsrf", "auth",
+    ]
+    .iter()
+    .any(|w| n.contains(w));
+    if credential && !value.is_empty() {
+        REDACTED.to_string()
+    } else {
+        text(value).into_owned()
+    }
+}
+
 /// A JSON value from the page: every string through [`text`], secret-named
 /// keys' values and `redacted: true` objects' values replaced.
 pub fn value(v: &mut Value) {
@@ -235,6 +256,32 @@ mod tests {
         // Ordinary text is untouched (and not copied).
         let plain = "The issue was opened 3 days ago by marcus.";
         assert!(matches!(text(plain), Cow::Borrowed(_)));
+    }
+
+    #[test]
+    fn credential_headers_are_redacted_whole() {
+        for name in [
+            "Authorization",
+            "Cookie",
+            "set-cookie",
+            "X-API-Key",
+            "X-CSRF-Token",
+            "x-amz-security-token",
+            "X-Session-Id",
+        ] {
+            assert_eq!(header(name, "anything at all"), REDACTED, "{name}");
+        }
+        assert_eq!(
+            header("Content-Type", "application/json"),
+            "application/json"
+        );
+        assert_eq!(header("Cookie", ""), "", "nothing to hide");
+        // Any other header still loses a token inside it.
+        assert!(header(
+            "Link",
+            "<https://x/?t=ghp_abcdefghijklmnopqrstuvwxyz0123456789>"
+        )
+        .contains(REDACTED));
     }
 
     #[test]

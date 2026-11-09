@@ -180,6 +180,92 @@ export function hover(el: Element): void {
   if (doc) lastHovered.set(doc, el);
 }
 
+/** The element a drag of `el` picks up: itself or an ancestor the browser
+ * would drag (draggable="true", an image, a link). */
+function draggableOf(el: Element): HTMLElement | null {
+  for (let e: Element | null = el; e; e = parentElementOrHost(e)) {
+    if (isHtml(e) && (e as HTMLElement).draggable) return e as HTMLElement;
+  }
+  return null;
+}
+
+const nextFrame = (): Promise<void> => new Promise((r) => setTimeout(r, 16));
+
+export interface DragOutcome {
+  /** HTML drag and drop (the source is draggable), else pointer events. */
+  html5: boolean;
+  /** HTML drag and drop: the target accepted the drop (its dragover said so). */
+  dropped?: boolean;
+}
+
+/**
+ * A synthetic drag of `from` onto `to`, as a user's would fire it: the HTML
+ * drag-and-drop events (dragstart … drop, dragend) with one DataTransfer when
+ * the source is draggable; else pointer and mouse events with the button
+ * held, moved along the way in a few steps (sortable lists, sliders built on
+ * pointer events).
+ */
+export async function drag(from: Element, to: Element): Promise<DragOutcome> {
+  scrollIntoViewIfNeeded(from);
+  const a = centerOf(from);
+  hover(from);
+  const press = { button: 0, buttons: 1 };
+  mouse(from, 'pointerdown', a, press);
+  mouse(from, 'mousedown', a, press);
+  const source = draggableOf(from);
+  if (source) {
+    const w = win(from);
+    const dt = new w.DataTransfer();
+    const fire = (el: Element, type: string, p: Point): boolean =>
+      el.dispatchEvent(
+        new (win(el).DragEvent)(type, {
+          bubbles: true,
+          cancelable: type !== 'dragend' && type !== 'dragleave',
+          composed: true,
+          view: win(el),
+          clientX: p.x,
+          clientY: p.y,
+          dataTransfer: dt,
+        }),
+      );
+    if (!fire(source, 'dragstart', a)) {
+      // The page refused the drag.
+      mouse(from, 'pointerup', a, { button: 0, buttons: 0 });
+      mouse(from, 'mouseup', a, { button: 0, buttons: 0 });
+      return { html5: true, dropped: false };
+    }
+    fire(source, 'drag', a);
+    await nextFrame();
+    scrollIntoViewIfNeeded(to);
+    const b = centerOf(to);
+    fire(to, 'dragenter', b);
+    // A drop target says yes by cancelling dragover.
+    const accepted = !fire(to, 'dragover', b);
+    if (accepted) fire(to, 'drop', b);
+    else fire(to, 'dragleave', b);
+    fire(source, 'dragend', b);
+    return { html5: true, dropped: accepted };
+  }
+  scrollIntoViewIfNeeded(to);
+  const start = centerOf(from);
+  const b = centerOf(to);
+  const doc = to.ownerDocument;
+  const steps = 8;
+  for (let i = 1; i <= steps; i++) {
+    const p = {
+      x: start.x + ((b.x - start.x) * i) / steps,
+      y: start.y + ((b.y - start.y) * i) / steps,
+    };
+    const under = (doc && hitTest(doc, p)) || to;
+    mouse(under, 'pointermove', p, { buttons: 1 });
+    mouse(under, 'mousemove', p, { buttons: 1 });
+    await nextFrame();
+  }
+  mouse(to, 'pointerup', b, { button: 0, buttons: 0 });
+  mouse(to, 'mouseup', b, { button: 0, buttons: 0 });
+  return { html5: false };
+}
+
 export type Button = 'left' | 'middle' | 'right';
 
 export interface ClickOutcome {

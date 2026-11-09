@@ -10,7 +10,8 @@ export type SiteMode = 'off' | 'read' | 'act';
 export const SITE_MODES: SiteMode[] = ['off', 'read', 'act'];
 
 /** The kind of approval a standing grant skips on one origin. */
-export type GrantAction = 'eval' | 'upload' | 'navigate' | 'act' | 'secretForm' | 'burst';
+export type GrantAction =
+  'eval' | 'upload' | 'navigate' | 'act' | 'secretForm' | 'burst' | 'secrets';
 
 export const GRANT_ACTIONS: GrantAction[] = [
   'eval',
@@ -19,6 +20,7 @@ export const GRANT_ACTIONS: GrantAction[] = [
   'act',
   'secretForm',
   'burst',
+  'secrets',
 ];
 
 export interface BrowserInfo {
@@ -182,6 +184,7 @@ export const GRANT_LABELS: Record<GrantAction, string> = {
   act: 'act on this sensitive site',
   secretForm: 'fill and submit forms with password or card fields',
   burst: 'go over the per-minute limit',
+  secrets: 'read or change cookies and site storage',
 };
 
 export function grantLabel(action: string): string {

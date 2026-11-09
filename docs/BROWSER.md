@@ -68,6 +68,27 @@ browser action, or when you press Stop.
 With several browsers connected, a session uses the one you used most
 recently, unless you pin one (*Use for new sessions*).
 
+**Several sites at once.** A session can keep many tabs in its group — one
+site in each, or several pages of one — and name the tab in any tool
+(`tabId`). `browser_tabs` with `urls` opens up to ten sites at once, in
+background tabs. Each tab runs one action at a time; actions in different
+tabs run side by side, and each site keeps its own mode.
+
+**Beyond the page.** What a person would look at in the browser's developer
+tools, sessions can too:
+
+- `browser_network`: the requests the tab made (method, address, status,
+  type, size, time; one request in full with its headers and, when asked,
+  its bodies; WebSocket messages). Recording starts with the session's first
+  action in the tab and keeps the last 500 requests, across page loads.
+- `browser_cookies`: the cookies sent to the page — names, domains, expiry and
+  flags (`HttpOnly` ones too) — and, when you approve it, their values; set
+  or delete one of the site's own.
+- `browser_storage`: the site's local and session storage (keys and sizes;
+  values when you approve it; set, remove, clear) and its IndexedDB
+  databases, stores and records (read only).
+- `browser_drag`: drag and drop (cards, list items, sliders, drop zones).
+
 ### Connect a session from the browser
 
 The other way round: from the extension's side panel you choose a session
@@ -99,8 +120,8 @@ panel:
 | Mode | Sessions may |
 |---|---|
 | **Off** (the default) | nothing: not open it, not see its title |
-| **Read** | open it, read it (snapshots, text, find, screenshots), scroll, wait |
-| **Act** | also click, type, fill forms, press keys, answer dialogs, upload, run scripts — the risky ones still ask you |
+| **Read** | open it, read it (snapshots, text, find, screenshots, the console, network requests, cookie and storage names), scroll, wait |
+| **Act** | also click, type, fill forms, press keys, drag, answer dialogs, upload, run scripts, change cookies and storage — the risky ones still ask you |
 
 A mode belongs to an origin (`https://github.com`, `http://localhost:3000`;
 the port counts, `https` and `http` are different sites). A wildcard such as
@@ -142,6 +163,8 @@ page says — which browser actions wait for you:
   fields (typing *into* such a field is never allowed: see §6);
 - `browser_eval` (a script in the page);
 - `browser_upload` (files from this computer);
+- reading cookie or storage **values**, and every change to cookies or
+  storage (they can hold your sign-in);
 - more than the per-minute limit of actions on one site (30 by default: a
   session stuck in a loop);
 - any session's action in a browser where you pressed Stop for another
@@ -169,10 +192,16 @@ The Stop rule has no grant.
   Claude redacts again what the extension sends (private keys, well-known
   token formats, bearer credentials, `password=…` pairs), before a model sees
   it.
-- Cookies and storage are never offered as tools. A script (`browser_eval`)
-  could read them, which is why every script asks first (unless you allowed
-  scripts on that site for good); the card says when one mentions cookies,
-  storage or credentials.
+- Cookie and storage **values** reach a session only when you approve it
+  (or allowed "read or change cookies and site storage" on that site for
+  good); names, sizes and flags need no approval. Even then, well-known token
+  formats stay `«redacted»`.
+- In network requests, credential headers (`Authorization`, `Cookie`,
+  `Set-Cookie`, API keys, CSRF and session tokens) always show as
+  `«redacted»`; bodies, addresses and values are redacted like page text.
+- A script (`browser_eval`) could read anything the page can, which is why
+  every script asks first (unless you allowed scripts on that site for good);
+  the card says when one mentions cookies, storage or credentials.
 - Screenshots show what is on screen (password fields show dots); turn them
   off under *Settings* if you prefer.
 
@@ -235,8 +264,18 @@ result — so open only the sites you are happy for it to read.
   answer with `browser_dialog`.
 - **Downloads** start from a click and cannot be stopped in advance; they
   show in the activity.
-- **Screenshots, the console and trusted clicks** need the extension's
-  optional *debugger* permission; Chrome shows a bar while it is attached.
+- **Screenshots, the console, network requests, cookies and trusted input**
+  need the extension's optional *debugger* permission; Chrome shows a bar
+  while it is attached. Storage, drag and drop and everything else work
+  without it.
+- **Network**: only requests made after the session's first action in the
+  tab are recorded (reload to see a page's from the start); a response body
+  can be read while the browser still holds it (recent ones, a few MB each),
+  and binary bodies show only their size. Requests are observed, not changed:
+  sessions cannot block or rewrite them.
+- **Cookies and storage**: only the page's own site's — the cookies sent to
+  the page, and storage of the page's origin. IndexedDB is read only, and
+  cross-origin frames' storage is not reached.
 - Going back or forward can land on a site the session may not see; the page
   then shows nothing to the model.
 - The extension's token lives in your browser profile. A program running as

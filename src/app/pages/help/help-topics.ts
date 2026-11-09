@@ -1658,10 +1658,23 @@ const TOPICS: HelpTopicSource[] = [
         ],
       },
       {
+        heading: 'Several sites, network, cookies and storage',
+        intro:
+          'Sessions can work on many sites at once and look at what you would see in the developer tools.',
+        points: [
+          'A session can keep several tabs in its group, one site in each, and work in them side by side. Each site keeps its own mode.',
+          "**Network**: the requests a tab made (address, status, size, time), one in full with its headers and bodies, and WebSocket messages. Recording starts with the session's first action in the tab: reload a page to see its requests from the start.",
+          '**Cookies**: names, expiry and flags of the cookies sent to the page. Their values, and setting or deleting one, wait for your approval.',
+          "**Storage**: the site's local and session storage, and its IndexedDB databases (read only). Values, and every change, wait for your approval.",
+          'Sign-in headers (such as `Authorization` and `Cookie`) always show as `«redacted»`.',
+          "Network requests, cookies, screenshots and the console need the extension's **debugger** permission. Chrome shows a bar while it is in use.",
+        ],
+      },
+      {
         heading: 'Approvals',
         points: [
           "Requests appear in the Inbox, on the session's page, under **Browser › Waiting for you** and in the side panel. The first answer wins; no answer within 5 minutes counts as no.",
-          'Always asked: a sensitive site, forms with password, card or one-time-code fields, running a script, uploading files, going over the per-minute limit, and any action in the minute after a Stop.',
+          'Always asked: a sensitive site, forms with password, card or one-time-code fields, running a script, uploading files, reading or changing cookie and storage values, going over the per-minute limit, and any action in the minute after a Stop.',
           '**Always…** on a card saves a standing grant. Grants are listed under **Always allowed**, where **Remove** takes one back.',
         ],
       },

@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Storage</title>
+  </head>
+  <body>
+    <h1>Storage</h1>
+    <p id="out">loading</p>
+    <script>
+      // What a typical app keeps: preferences in localStorage, a draft in
+      // sessionStorage, a readable cookie, an HttpOnly session cookie (set by
+      // the server, invisible to the page) and records in IndexedDB.
+      localStorage.setItem('theme', 'dark');
+      localStorage.setItem('recent', JSON.stringify(['a', 'b']));
+      sessionStorage.setItem('draft', 'hello');
+      document.cookie = 'pref=compact; path=/';
+      addEventListener('load', async () => {
+        await fetch('/api/login');
+        await new Promise((resolve, reject) => {
+          const req = indexedDB.open('appdb', 1);
+          req.onupgradeneeded = () => {
+            const store = req.result.createObjectStore('items', { keyPath: 'id' });
+            store.put({ id: 1, title: 'First' });
+            store.put({ id: 2, title: 'Second', tags: new Set(['x']) });
+          };
+          req.onsuccess = () => {
+            req.result.close();
+            resolve();
+          };
+          req.onerror = () => reject(req.error);
+        });
+        document.getElementById('out').textContent = 'ready';
+        document.title = 'Storage — ready';
+      });
+    </script>
+  </body>
+</html>

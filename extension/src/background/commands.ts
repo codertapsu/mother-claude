@@ -6,7 +6,13 @@ import { charKey, modifierMask, parseKey, type KeyDef, type Modifier } from '../
 import { MAX_FRAME_BYTES } from '../shared/protocol.ts';
 import { abortReason, sleep } from '../shared/queue.ts';
 import { modeFor, originOf } from '../shared/site.ts';
-import type { DebuggerManager } from './debugger.ts';
+import {
+  NETWORK_LIMIT,
+  netMatches,
+  netSummary,
+  type DebuggerManager,
+  type NetRecord,
+} from './debugger.ts';
 import type { DialogInfo, Dialogs } from './dialogs.ts';
 import { hasHostAccess } from './env.ts';
 import type { Leases } from './leases.ts';
@@ -161,6 +167,15 @@ export class Commands {
       eval: (c) => this.evaluate(c),
       console: (c) => this.console(c),
       dialog: (c) => this.dialog(c),
+      network: (c) => this.network(c),
+      cookies: (c) => this.cookies(c),
+      'cookies.set': (c) => this.cookiesSet(c),
+      'cookies.delete': (c) => this.cookiesDelete(c),
+      storage: (c) => this.content(c),
+      'storage.set': (c) => this.content(c),
+      'storage.remove': (c) => this.content(c),
+      'storage.clear': (c) => this.content(c),
+      drag: (c) => (c.params['trusted'] === true ? this.trustedDrag(c) : this.raced(c)),
     };
   }
 
@@ -903,6 +918,236 @@ export class Commands {
       );
     const messages = all.slice(-200).map((m) => ({ level: m.level, text: m.text, at: m.at }));
     return all.length > 200 ? { messages, truncated: true } : { messages };
+  }
+
+  // ------------------------------------------------- network and cookies
+
+  /**
+   * The tab's requests (recorded from the debugger's first attach to it):
+   * a filtered list of summaries, or one request in full with, on request,
+   * its bodies. Headers and bodies go out as the browser gave them; the
+   * desktop redacts credentials and tokens before a model sees them.
+   */
+  private async network(c: Cmd): Promise<Data> {
+    const tabId = this.tabId(c);
+    const fresh = !this.d.dbg.isAttached(tabId);
+    await this.d.dbg.ensure(tabId, 'reading the network');
+    if (c.params['clear'] === true) {
+      this.d.dbg.clearNetwork(tabId);
+      return { cleared: true };
+    }
+    const id = str(c.params['requestId']);
+    if (id) {
+      const rec = this.d.dbg.request(tabId, id);
+      if (!rec) {
+        throw new CommandError(
+          'not_found',
+          `no request ${id} in this tab (only the last ${NETWORK_LIMIT} are kept)`,
+        );
+      }
+      const request: Partial<NetRecord> = { ...rec };
+      delete request.t0;
+      const out: Data = { request };
+      if (c.params['body'] === true) {
+        // A body exists once the response has finished loading: give one
+        // still on its way a moment.
+        const until = Math.min(c.deadline - 200, Date.now() + 3000);
+        while (rec.ms === undefined && rec.failed === undefined && Date.now() < until) {
+          await sleep(100, c.signal);
+        }
+        if (rec.hasPostData && rec.postData === undefined) {
+          const post = await this.d.dbg.requestBody(tabId, id);
+          if (post !== null) request.postData = post;
+        }
+        if (rec.type === 'websocket') {
+          // Its frames are its content.
+        } else if (rec.ms === undefined && rec.failed === undefined) {
+          out['body'] = { unavailable: 'the response is still loading: ask again in a moment' };
+        } else {
+          out['body'] = await this.d.dbg.responseBody(tabId, id);
+        }
+      } else {
+        delete request.postData;
+      }
+      return out;
+    }
+    const log = this.d.dbg.networkLog(tabId) ?? { records: [], since: Date.now() };
+    const since = num(c.params['since']);
+    const filter = {
+      filter: str(c.params['filter']),
+      type: str(c.params['type']),
+      failed: c.params['failed'] === true,
+      ...(since !== undefined ? { since } : {}),
+    };
+    const matching = log.records.filter((r) => netMatches(r, filter));
+    const limit = Math.max(1, Math.min(200, num(c.params['limit']) ?? 50));
+    const out: Data = {
+      requests: matching.slice(-limit).map(netSummary),
+      total: matching.length,
+      recordingSince: log.since,
+    };
+    if (fresh || log.records.length === 0) {
+      out['note'] =
+        'Recording started with the first command in this tab: reload the page to see its requests from the start.';
+    }
+    return out;
+  }
+
+  /** The page's URL, for the cookies sent to it. */
+  private cookieUrl(c: Cmd): string {
+    const url = this.url(c);
+    if (!url || !/^https?:/i.test(url)) {
+      throw new CommandError('no_tab', 'cookies need a web page open in the tab');
+    }
+    return url;
+  }
+
+  /** A cookie domain the page may set: its own host or a parent of it. */
+  private cookieDomain(c: Cmd, url: string): string | undefined {
+    const domain = str(c.params['domain'])?.trim().toLowerCase();
+    if (!domain) return undefined;
+    const host = new URL(url).hostname.toLowerCase();
+    const bare = domain.replace(/^\./, '');
+    if (host !== bare && !host.endsWith(`.${bare}`)) {
+      throw new CommandError(
+        'unsupported',
+        `${domain} is not this page's site (${host}): only its own cookies can be changed`,
+      );
+    }
+    return domain;
+  }
+
+  private async cookies(c: Cmd): Promise<Data> {
+    const tabId = this.tabId(c);
+    const url = this.cookieUrl(c);
+    await this.d.dbg.ensure(tabId, 'reading cookies');
+    const res = await this.d.dbg.send<{ cookies?: Record<string, unknown>[] }>(
+      tabId,
+      'Network.getCookies',
+      { urls: [url] },
+    );
+    const name = str(c.params['name']);
+    const values = c.params['values'] === true;
+    const cookies = (res.cookies ?? [])
+      .filter((k) => !name || k['name'] === name)
+      .map((k) => {
+        const value = String(k['value'] ?? '');
+        const out: Data = {
+          name: k['name'],
+          domain: k['domain'],
+          path: k['path'],
+          size: k['size'] ?? value.length,
+          httpOnly: k['httpOnly'] === true,
+          secure: k['secure'] === true,
+        };
+        if (typeof k['sameSite'] === 'string') out['sameSite'] = k['sameSite'];
+        if (k['session'] === true) out['session'] = true;
+        else if (typeof k['expires'] === 'number' && k['expires'] > 0)
+          out['expires'] = k['expires'];
+        if (values) out['value'] = value;
+        return out;
+      });
+    if (name && cookies.length === 0) {
+      throw new CommandError('not_found', `no cookie “${name}” is sent to this page`);
+    }
+    return { url, cookies };
+  }
+
+  private async cookiesSet(c: Cmd): Promise<Data> {
+    const tabId = this.tabId(c);
+    const url = this.cookieUrl(c);
+    const name = str(c.params['name']);
+    const value = str(c.params['value']);
+    if (!name || value === undefined) {
+      throw new CommandError('not_found', 'cookies.set needs a name and a value');
+    }
+    const domain = this.cookieDomain(c, url);
+    await this.d.dbg.ensure(tabId, 'setting a cookie');
+    const sameSite = str(c.params['sameSite']);
+    const expires = num(c.params['expires']);
+    const res = await this.d.dbg.send<{ success?: boolean }>(tabId, 'Network.setCookie', {
+      name,
+      value,
+      url,
+      ...(domain ? { domain } : {}),
+      ...(str(c.params['path']) ? { path: str(c.params['path']) } : {}),
+      ...(typeof c.params['secure'] === 'boolean' ? { secure: c.params['secure'] } : {}),
+      ...(typeof c.params['httpOnly'] === 'boolean' ? { httpOnly: c.params['httpOnly'] } : {}),
+      ...(sameSite === 'Strict' || sameSite === 'Lax' || sameSite === 'None' ? { sameSite } : {}),
+      ...(expires !== undefined ? { expires } : {}),
+    });
+    if (res.success === false) {
+      throw new CommandError('unsupported', `the browser refused the cookie “${name}”`);
+    }
+    return { name };
+  }
+
+  private async cookiesDelete(c: Cmd): Promise<Data> {
+    const tabId = this.tabId(c);
+    const url = this.cookieUrl(c);
+    const name = str(c.params['name']);
+    if (!name) throw new CommandError('not_found', 'cookies.delete needs a name');
+    const domain = this.cookieDomain(c, url);
+    await this.d.dbg.ensure(tabId, 'deleting a cookie');
+    await this.d.dbg.send(tabId, 'Network.deleteCookies', {
+      name,
+      url,
+      ...(domain ? { domain } : {}),
+      ...(str(c.params['path']) ? { path: str(c.params['path']) } : {}),
+    });
+    return { name };
+  }
+
+  /**
+   * Drag with the real mouse: press on `ref`, move to `toRef` in steps with
+   * the button held, release there (pages that follow the pointer: sliders,
+   * canvases, pointer-based sortable lists).
+   */
+  private async trustedDrag(c: Cmd): Promise<Data> {
+    const tabId = this.tabId(c);
+    await this.d.dbg.ensure(tabId, 'a trusted drag');
+    const to = await this.call(c, 'pointOf', {
+      ref: c.params['toRef'],
+      selector: c.params['toSelector'],
+    });
+    const from = await this.call(c, 'trustedPoint', c.params);
+    const a = { x: num(from['x']) ?? 0, y: num(from['y']) ?? 0 };
+    const b = { x: num(to['x']) ?? 0, y: num(to['y']) ?? 0 };
+    const work = (async (): Promise<Data> => {
+      const send = (p: Data): Promise<Data> =>
+        this.d.dbg.send(tabId, 'Input.dispatchMouseEvent', p);
+      await send({ type: 'mouseMoved', x: a.x, y: a.y, button: 'none', buttons: 0 });
+      await send({
+        type: 'mousePressed',
+        x: a.x,
+        y: a.y,
+        button: 'left',
+        buttons: 1,
+        clickCount: 1,
+      });
+      const steps = 10;
+      for (let i = 1; i <= steps; i++) {
+        if (c.signal.aborted) throw abortReason(c.signal);
+        await send({
+          type: 'mouseMoved',
+          x: a.x + ((b.x - a.x) * i) / steps,
+          y: a.y + ((b.y - a.y) * i) / steps,
+          button: 'left',
+          buttons: 1,
+        });
+        await sleep(16, c.signal);
+      }
+      await send({
+        type: 'mouseReleased',
+        x: b.x,
+        y: b.y,
+        button: 'left',
+        buttons: 0,
+        clickCount: 1,
+      });
+      return this.call(c, 'trustedDone', {}).catch(() => this.pageInfo(tabId));
+    })();
+    return this.raceDialog(tabId, work);
   }
 
   private async dialog(c: Cmd): Promise<Data> {

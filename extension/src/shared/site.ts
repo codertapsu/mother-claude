@@ -149,6 +149,15 @@ export const ACTION_NEEDS: Record<string, ActionNeed> = {
   console: 'observe',
   highlight: 'observe',
   scroll: 'observe',
+  network: 'observe',
+  cookies: 'observe',
+  storage: 'observe',
+  'cookies.set': 'act',
+  'cookies.delete': 'act',
+  'storage.set': 'act',
+  'storage.remove': 'act',
+  'storage.clear': 'act',
+  drag: 'act',
   click: 'act',
   hover: 'act',
   dblclick: 'act',
@@ -207,6 +216,9 @@ export function activityText(action: string, url: string | undefined): string {
       if (action === 'wait') return `waiting on${where}`;
       if (action === 'scroll') return `scrolling${where}`;
       if (action === 'console') return `reading the console of${where}`;
+      if (action === 'network') return `reading the network requests of${where}`;
+      if (action === 'cookies') return `reading the cookies of${where}`;
+      if (action === 'storage') return `reading the storage of${where}`;
       if (action === 'back' || action === 'forward' || action === 'reload')
         return `navigating${where}`;
       return `reading${where}`;
@@ -215,6 +227,9 @@ export function activityText(action: string, url: string | undefined): string {
       if (action === 'upload') return `uploading on${where}`;
       if (action === 'eval') return `running a script on${where}`;
       if (action === 'press') return `pressing keys on${where}`;
+      if (action === 'drag') return `dragging on${where}`;
+      if (action.startsWith('cookies.')) return `changing the cookies of${where}`;
+      if (action.startsWith('storage.')) return `changing the storage of${where}`;
       return `clicking on${where}`;
     default:
       return 'managing its tabs';
