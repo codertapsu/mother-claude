@@ -18,9 +18,13 @@
 // Keys are the English text: `'…' | t` in templates, `tr('…')` in code.
 // Exit status 1 when something is missing or wrong.
 import { readFileSync, readdirSync, statSync } from 'node:fs';
-import { join, relative } from 'node:path';
+import { join, relative, sep } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const root = new URL('..', import.meta.url).pathname;
+// A path, not a URL's: on Windows `URL.pathname` is `/D:/…`.
+const root = fileURLToPath(new URL('..', import.meta.url));
+/** A path with `/` between its parts, whatever the system's separator. */
+const slashed = (p) => p.split(sep).join('/');
 const args = process.argv.slice(2);
 const wantText = args.includes('--text');
 const wantUnused = args.includes('--unused');
@@ -34,7 +38,7 @@ const DICTS = join(SRC, 'i18n/vi');
 function walk(dir) {
   return readdirSync(dir).flatMap((name) => {
     const p = join(dir, name);
-    return statSync(p).isDirectory() ? walk(p) : [p];
+    return statSync(p).isDirectory() ? walk(p) : [slashed(p)];
   });
 }
 
@@ -105,7 +109,7 @@ const used = new Map();
 const textLeft = [];
 
 for (const file of sources) {
-  const rel = relative(root, file);
+  const rel = slashed(relative(root, file));
   if (only && !only.has(rel)) continue;
   const src = readFileSync(file, 'utf8');
   for (const re of [PIPE, CALL]) {
