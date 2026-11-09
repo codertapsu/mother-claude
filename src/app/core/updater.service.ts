@@ -72,16 +72,17 @@ export class UpdaterService {
     this.status.set('checking');
     try {
       const { check } = await import('@tauri-apps/plugin-updater');
+      // `null` when this is the newest version (an `Update` is always one
+      // that can be installed).
       const update = await check();
       await this.dispose(); // free any resource held from a previous check
-      if (update?.available) {
+      if (update) {
         this.update = update;
         this.newVersion.set(update.version);
         this.notes.set(update.body ?? '');
         if (update.currentVersion) this.currentVersion.set(update.currentVersion);
         this.status.set('available');
       } else {
-        if (update) await this.close(update);
         this.status.set('uptodate');
       }
     } catch (e) {
