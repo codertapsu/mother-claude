@@ -3,17 +3,14 @@
 // typescript-eslint recommended + stylistic, as in ../eslint.config.js) plus
 // type-aware checks for floating promises, which matter in a service worker.
 import eslint from '@eslint/js';
+import { defineConfig, globalIgnores } from 'eslint/config';
 import tseslint from 'typescript-eslint';
 
-export default tseslint.config(
-  { ignores: ['**/node_modules/**'] },
+export default defineConfig([
+  globalIgnores(['**/node_modules/**']),
   {
     files: ['**/*.ts'],
-    extends: [
-      eslint.configs.recommended,
-      ...tseslint.configs.recommended,
-      ...tseslint.configs.stylistic,
-    ],
+    extends: [eslint.configs.recommended, tseslint.configs.recommended, tseslint.configs.stylistic],
     languageOptions: {
       parserOptions: {
         projectService: true,
@@ -76,4 +73,4 @@ export default tseslint.config(
       },
     },
   },
-);
+]);
