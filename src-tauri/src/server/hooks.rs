@@ -285,11 +285,12 @@ pub fn pid_alive(pid: u32) -> bool {
     r == 0 || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
 }
 
-/// Non-unix: no cheap existence check, so trust the pid the session reported
-/// (the live roster still ends sessions whose pidfile disappears).
+/// Elsewhere: the live roster's own check (on Windows, the process can be
+/// opened and has not exited), so a session killed without a `SessionEnd`
+/// loses its held prompts and its listener here too.
 #[cfg(not(unix))]
 pub fn pid_alive(pid: u32) -> bool {
-    pid > 1
+    pid > 1 && crate::claude::live::pid_exists(pid)
 }
 
 /// Whether hooks from `session_id`'s current process were seen (drives
