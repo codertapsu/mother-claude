@@ -170,6 +170,11 @@ ignored):
   list as `permission.changed.granted`; `debugger` once the user granted it on
   the options page, whatever Chrome holds); `hello.capabilities` also carries
   `webNavigation`, `downloads` and `screenshotFallback`.
+- `hello.freshBrowser: true`: the browser was closed (or the extension
+  reloaded) since the desktop last welcomed this one. `chrome.storage.session`
+  came up empty, which Chrome does then and never for a service-worker
+  restart; the flag is kept there until a `welcome`. The desktop ends the
+  leases from before (docs/BROWSER-PROTOCOL.md, addition 21).
 - `permission_needed` names the permission in both `error.data` and the
   result's `data`: `{"permission": "debugger"}` or `{"permission": "https://github.com/*"}`.
 - `type`/`fill`/`press` (and `trusted` typing): with `refuseSecret: true` a

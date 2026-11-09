@@ -828,6 +828,107 @@ async fn a_command_without_a_result_times_out() {
     assert_eq!(next_of(&mut ws, "pong").await["type"], "pong");
 }
 
+// ───────────────────────────────────────── how long a lease lasts
+
+/// Say hello again on a new socket, as the extension does after a reconnect
+/// (`fresh`: after the browser was closed); the socket after `welcome`, and
+/// the first `state`.
+async fn hello_again(base: &str, token: &str, fresh: bool) -> (Ws, Value) {
+    let mut ws = connect(base).await;
+    let mut hello = json!({"type": "hello", "id": "h2", "token": token,
+        "extensionVersion": "0.1.2", "browser": {"name": "Chrome", "version": "156.0"},
+        "capabilities": {"tabGroups": true}});
+    if fresh {
+        hello["freshBrowser"] = json!(true);
+    }
+    send(&mut ws, hello).await;
+    let _ = next_of(&mut ws, "welcome").await;
+    let state = next_of(&mut ws, "state").await;
+    (ws, state)
+}
+
+/// Until the desktop has seen `browser`'s socket go.
+async fn gone(st: &AppState, browser: &str) {
+    for _ in 0..100 {
+        if st.extension.hub.get(browser).is_none() {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    panic!("the browser's connection never closed");
+}
+
+/// A session stays connected to its browser: through a reconnect (a command
+/// waits for the extension to come back and keeps the tab group, with no new
+/// `lease.open`) and however long it goes quiet. Only a browser that was
+/// closed and started again (`freshBrowser`) ends the leases from before.
+/// Before, a command right after a reconnect opened a new group elsewhere,
+/// and ten idle minutes ended the lease.
+#[tokio::test]
+async fn a_lease_lasts_until_its_browser_is_closed() {
+    let (base, st) = boot().await;
+    let (mut ws, token, browser) = paired(&base, &st).await;
+    set_mode(&st, "https://example.test", "read").await;
+    let nav = |path: &str| {
+        call(
+            &st,
+            SESSION,
+            "browser_navigate",
+            json!({"url": format!("https://example.test/{path}"), "timeoutMs": 1000}),
+        )
+    };
+    // The first command opens the lease; nobody answers it (it times out).
+    let task = nav("a");
+    let open = next_of(&mut ws, "lease.open").await;
+    let lease = open["lease"].as_str().unwrap().to_string();
+    send(
+        &mut ws,
+        json!({"type": "lease.opened", "id": open["id"], "lease": lease, "groupId": 1}),
+    )
+    .await;
+    let _ = next_of(&mut ws, "command").await;
+    let _ = task.await.unwrap();
+
+    // The extension reconnects (its service worker restarted) while a
+    // command waits for it.
+    drop(ws);
+    gone(&st, &browser).await;
+    let task = nav("b");
+    tokio::time::sleep(Duration::from_millis(600)).await;
+    assert!(!task.is_finished(), "the command waits for the browser");
+    let (mut ws, state) = hello_again(&base, &token, false).await;
+    assert_eq!(state["leases"][0]["lease"], lease.as_str(), "kept");
+    let cmd = loop {
+        let f = next(&mut ws).await.expect("a frame");
+        assert_ne!(f["type"], "lease.open", "no new group");
+        if f["type"] == "command" {
+            break f;
+        }
+    };
+    assert_eq!(cmd["lease"], lease.as_str());
+    send(
+        &mut ws,
+        json!({"type": "result", "id": cmd["id"], "ok": false,
+               "error": {"code": "internal", "message": "test"}}),
+    )
+    .await;
+    let _ = task.await.unwrap();
+    assert_eq!(st.extension.leases.get(SESSION).unwrap().id, lease);
+
+    // The browser was closed and started again: the lease from before ends.
+    drop(ws);
+    gone(&st, &browser).await;
+    let (_ws, state) = hello_again(&base, &token, true).await;
+    assert_eq!(state["leases"], json!([]), "nothing from before");
+    assert!(st.extension.leases.get(SESSION).is_none());
+    let log = st.extension.activity.recent(Some(SESSION), 10);
+    assert!(
+        log.iter()
+            .any(|e| e.tool == "lease.close" && e.outcome == "browser closed"),
+        "{log:?}"
+    );
+}
+
 #[tokio::test]
 async fn stop_fails_the_command_and_refuses_new_ones_until_resumed() {
     let (base, st) = boot().await;

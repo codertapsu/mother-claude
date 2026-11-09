@@ -183,6 +183,11 @@ export interface HelloRequest {
   capabilities: Record<string, boolean>;
   /** Optional addition: the optional permissions and origins granted now. */
   granted?: string[];
+  /**
+   * Optional addition: the browser was closed (or the extension reloaded)
+   * since the desktop last welcomed this one, so the leases from before end.
+   */
+  freshBrowser?: boolean;
 }
 export interface ResultFrame {
   type: 'result';

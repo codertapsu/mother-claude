@@ -571,7 +571,7 @@ export const VI_TOPICS_B: Partial<Record<string, HelpTopicSource>> = {
           'Thao tác trình duyệt đầu tiên của một phiên sẽ mở một nhóm thẻ có màu, đặt tên theo phiên và dự án của nó. Phiên chỉ làm việc trong các thẻ của nhóm đó.',
           'Kéo một thẻ vào nhóm để giao nó cho phiên, hoặc kéo ra để lấy lại.',
           '**Sessions in this browser** trong bảng bên cho biết mỗi phiên đang làm gì.',
-          'Khi một phiên kết thúc, hoặc sau 10 phút không có thao tác trình duyệt nào, các thẻ của nó rời khỏi nhóm và vẫn mở.',
+          'Một phiên vẫn kết nối với nhóm thẻ của nó cho đến khi bạn nhấn **Stop**, đóng nhóm, đóng trình duyệt hoặc thoát Mother Claude — dù bao lâu không có thao tác trình duyệt nào, và cả sau khi phiên kết thúc.',
         ],
       },
       {

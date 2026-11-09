@@ -281,6 +281,9 @@ export class Connection {
         browser: await browserInfo(),
         capabilities: await capabilities(),
         granted: await grantedList(),
+        // The browser was closed since the desktop last welcomed us: the
+        // leases from before end (the desktop keeps them otherwise).
+        ...(this.store.session.freshBrowser ? { freshBrowser: true } : {}),
       },
       ws,
     );
@@ -288,6 +291,10 @@ export class Connection {
     const welcome = reply as WelcomeFrame;
     // Before any await: frames right behind `welcome` must not be dropped.
     this.authenticated = true;
+    if (this.store.session.freshBrowser) {
+      this.store.session.freshBrowser = false;
+      this.store.persist();
+    }
     this.attempt = 0;
     this.lastError = '';
     this.appVersion = welcome.appVersion ?? '';

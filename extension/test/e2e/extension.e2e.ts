@@ -244,6 +244,8 @@ describe(
       assert.equal((pair['browser'] as { name: string }).name.length > 0, true);
       assert.equal(pair['extensionVersion'], VERSION);
       const hello = await desktop.waitFor((f) => f.type === 'hello');
+      // A new browser: the leases from before this browser started end.
+      assert.equal(hello['freshBrowser'], true, JSON.stringify(hello));
       assert.equal(hello['token'], desktop.token);
       const caps = hello['capabilities'] as Record<string, boolean>;
       assert.equal(caps['debugger'], true);
@@ -1177,6 +1179,7 @@ describe(
       const snap = String(ok(await cmd('snapshot'), 'snapshot')['snapshot']);
       const name = refOf(snap, /textbox "Full name"/);
       const connections = desktop.connections;
+      const since = Date.now();
       const target = await browser.waitForTarget(
         (t) =>
           t.type === 'service_worker' && t.url.startsWith(`chrome-extension://${extensionId}/`),
@@ -1187,6 +1190,9 @@ describe(
       const panel = await extensionPage('sidepanel.html'); // any extension event wakes the worker
       for (let i = 0; i < 100 && !desktop.isConnected; i++) await sleep(100);
       assert.ok(desktop.isConnected && desktop.connections > connections, 'reconnected');
+      // The same browser, only its worker restarted: no fresh start, the lease stays.
+      const again = await desktop.waitFor((f) => f.type === 'hello', 10_000, since);
+      assert.equal(again['freshBrowser'], undefined, JSON.stringify(again));
       await connectWorker();
       ok(
         await cmd('type', { ref: name, text: 'after restart', clear: true }),

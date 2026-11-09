@@ -62,8 +62,11 @@ starts): `browser_navigate`, `browser_snapshot`, `browser_click`,
 first browser call opens its **lease**: a tab group in your browser, titled
 after the session and coloured. The session acts only in that group's tabs
 (and in the active tab of a window only when you granted the extension that
-tab). The lease ends when the session ends, after 10 minutes without a
-browser action, or when you press Stop.
+tab). The lease stays however long the session goes without a browser
+action — idle, busy with something else, or even ended (continued later, it
+keeps its tabs) — until you disconnect it (Stop, or closing its group),
+close the browser, or quit Mother Claude. If the extension loses its
+connection for a moment, the session waits for it to come back.
 
 With several browsers connected, a session uses the one you used most
 recently, unless you pin one (*Use for new sessions*).

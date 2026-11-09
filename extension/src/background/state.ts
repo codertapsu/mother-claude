@@ -74,6 +74,13 @@ export interface SessionData {
   /** Tabs where the user clicked the toolbar button (Chrome granted activeTab there). */
   activeGrants: Record<string, string>;
   desktop: DesktopState;
+  /**
+   * The browser started (or the extension was reloaded) since the desktop
+   * last welcomed us: chrome.storage.session came up empty, which Chrome does
+   * then and never for a service-worker restart. The next `hello` says so
+   * (`freshBrowser`), and the desktop ends the leases from before.
+   */
+  freshBrowser: boolean;
 }
 
 export function normalizeHost(raw: string): string | null {
@@ -101,6 +108,7 @@ function emptySession(): SessionData {
     shared: null,
     activeGrants: {},
     desktop: { siteModes: {}, settings: {}, pending: [], leases: null },
+    freshBrowser: false,
   };
 }
 
@@ -128,9 +136,16 @@ export class Store {
     try {
       const s = await chrome.storage.session.get(['mc']);
       const saved = s['mc'] as Partial<SessionData> | undefined;
-      if (saved) this.session = { ...emptySession(), ...saved };
+      if (saved) {
+        this.session = { ...emptySession(), ...saved };
+      } else {
+        // Empty: the browser started, or the extension was reloaded. Kept at
+        // once, so a worker restart before the desktop answers still knows.
+        this.session = { ...emptySession(), freshBrowser: true };
+        await this.flush();
+      }
     } catch {
-      // storage.session unavailable: start empty
+      // storage.session unavailable: start empty, never claiming a fresh start
     }
   }
 

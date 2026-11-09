@@ -123,10 +123,16 @@ only in tabs of its lease; a tab the user adds to the group joins the lease.
 How the desktop uses leases *(added detail)*: it opens one on a session's
 first command (and waits 10 s for `lease.opened`; an `error` reply fails
 that command), in the pinned browser or else the one the extension used most
-recently, colours chosen so the leases of one browser differ. It sends
-`lease.close` (`closeTabs: false`) when the session ends, after 10 minutes
-without a command, when the user stops the session from the desktop, or when
-the browser is removed; the reply is not awaited for long. On `lease.revoked`
+recently, colours chosen so the leases of one browser differ. A lease stays
+however long its session goes without a command, ended sessions' too (a
+session continued later keeps its tabs). The desktop sends `lease.close`
+(`closeTabs: false`) when the user stops the session from the desktop,
+connects it in another browser, or removes the browser; the reply is not
+awaited for long. A `hello` with `freshBrowser: true` ends that browser's
+leases from before, with no `lease.close` (the browser that held them is
+gone), so the `state` that follows names none of them. A command whose
+lease's browser is not connected waits up to 10 s for it to come back
+before the session gets a new lease elsewhere. On `lease.revoked`
 the desktop fails that lease's in-flight requests itself (a `result` with
 `error.code` `stopped`: the extension needn't answer them any more), refuses
 the session's commands for 60 s unless the user resumes it on the desktop,
@@ -399,3 +405,12 @@ Network, cookies, storage and drag (both sides):
     response still loading is `{"unavailable"}` after a wait of up to 3 s.
 20. The standing grant `secrets` ("read or change cookies and site storage")
     covers reading values and changing cookies or storage on one origin.
+
+A closed browser (both sides):
+
+21. `hello` may carry `freshBrowser: true`: the browser was closed (or the
+    extension reloaded) since the desktop last welcomed this one — Chrome
+    empties `chrome.storage.session` then, never when only the service
+    worker restarts. The extension keeps the flag there until a `welcome`.
+    The desktop ends that browser's leases from before (above). A desktop
+    that does not know it keeps them until it quits or the user stops them.

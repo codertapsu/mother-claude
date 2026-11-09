@@ -42,6 +42,10 @@ use crate::state::AppState;
 pub const APPROVAL_TIMEOUT: Duration = Duration::from_secs(300);
 /// How long `lease.open` waits for `lease.opened`.
 pub const LEASE_OPEN_TIMEOUT: Duration = Duration::from_secs(10);
+/// How long a command waits for its lease's browser to reconnect.
+pub const RECONNECT_WAIT: Duration = Duration::from_secs(10);
+/// How often it looks.
+const RECONNECT_POLL: Duration = Duration::from_millis(200);
 /// A command's deadline unless the tool says otherwise.
 pub const DEFAULT_TIMEOUT_MS: u64 = 30_000;
 /// The longest deadline a tool may ask for.
@@ -403,6 +407,10 @@ fn new_lease_id() -> String {
 }
 
 /// The session's lease and its connection: the existing one, or a new one.
+/// A lease whose browser is away for the moment waits up to
+/// [`RECONNECT_WAIT`] for it: the extension reconnects by itself (its
+/// service worker restarted, the network blinked), and a new lease would be
+/// a new tab group without the tabs the user connected.
 pub async fn ensure_lease(
     state: &AppState,
     session: &str,
@@ -411,12 +419,24 @@ pub async fn ensure_lease(
     let lock = ext.lease_lock(session);
     let _held = lock.lock().await;
     if let Some(lease) = ext.leases.get(session) {
-        if let Some(conn) = ext.hub.get(&lease.browser) {
-            ext.leases.touch(session);
-            return Ok((lease, conn));
+        let deadline = Instant::now() + RECONNECT_WAIT;
+        loop {
+            // Still this lease: a `freshBrowser` hello may have ended it.
+            if ext.leases.get(session).map(|l| l.id) != Some(lease.id.clone()) {
+                break;
+            }
+            if let Some(conn) = ext.hub.get(&lease.browser) {
+                ext.leases.touch(session);
+                return Ok((lease, conn));
+            }
+            if Instant::now() >= deadline {
+                // Its browser stayed away: a new lease, wherever the
+                // session can act.
+                ext.leases.remove(session);
+                break;
+            }
+            tokio::time::sleep(RECONNECT_POLL).await;
         }
-        // Its browser went away: a new lease, wherever the session can act.
-        ext.leases.remove(session);
     }
     let conn = pick_browser(state)?;
     let lease = open_lease(state, session, &conn).await?;
@@ -495,7 +515,6 @@ async fn open_lease(state: &AppState, session: &str, conn: &Arc<Conn>) -> Result
         opened_at: now,
         last_used: now,
         active_tab: None,
-        seen_live: false,
     };
     ext.leases.insert(lease.clone());
     lifecycle(state, &lease, "lease.open", "ok");
@@ -504,8 +523,30 @@ async fn open_lease(state: &AppState, session: &str, conn: &Arc<Conn>) -> Result
     Ok(lease)
 }
 
-/// End a lease (`lease.close`, best effort): its session ended, it idled, or
-/// the user stopped it from the desktop.
+/// The browser was closed and started again (`hello` with `freshBrowser`):
+/// the leases it held went with it. They end here and now, before its
+/// `state` (which then names none of them, so the extension adopts nothing
+/// from before); their approvals are withdrawn after. Its tabs are not its
+/// any more: no `lease.close` goes to it.
+pub fn browser_restarted(state: &AppState, browser: &str) {
+    let gone = state.extension.leases.remove_browser(browser);
+    if gone.is_empty() {
+        return;
+    }
+    for lease in &gone {
+        lifecycle(state, lease, "lease.close", "browser closed");
+    }
+    let st = state.clone();
+    tokio::spawn(async move {
+        for lease in gone {
+            withdraw_approvals(&st, &lease.session, "browser closed").await;
+        }
+    });
+    super::notify(state, "leases");
+}
+
+/// End a lease (`lease.close`, best effort): the user stopped it from the
+/// desktop, removed its browser, or connected its session in another one.
 pub async fn close_lease(state: &AppState, lease: &Lease, why: &str) {
     let ext = &state.extension;
     if ext.leases.get(&lease.session).map(|l| l.id) != Some(lease.id.clone()) {

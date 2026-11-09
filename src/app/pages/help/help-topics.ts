@@ -1656,7 +1656,7 @@ const TOPICS: HelpTopicSource[] = [
           "A session's first browser action opens a coloured tab group named after the session and its project. It works only in that group's tabs.",
           'Drag a tab into the group to give it to the session, or out to take it back.',
           "The side panel's **Sessions in this browser** shows what each one is doing.",
-          'When a session ends, or after 10 minutes without a browser action, its tabs leave the group and stay open.',
+          'A session stays connected to its tab group until you press **Stop**, close the group, close the browser or quit Mother Claude — however long it goes without a browser action, and even after it ends.',
         ],
       },
       {

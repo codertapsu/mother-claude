@@ -496,6 +496,10 @@ fn hello(
     let info = BrowserInfo::from_frame(v.get("browser"));
     let version = str_field(v, "extensionVersion");
     ext.browsers.touch(&browser.id, Some(&info), version);
+    // The browser was closed since it last connected: its leases went with it.
+    if v.get("freshBrowser") == Some(&Value::Bool(true)) {
+        super::actions::browser_restarted(state, &browser.id);
+    }
     let (conn, close_rx) = Conn::new(conn_id, &browser.id, origin, tx.clone());
     if let Ok(mut caps) = conn.capabilities.lock() {
         *caps = v.get("capabilities").cloned().unwrap_or(Value::Null);

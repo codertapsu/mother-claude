@@ -2,11 +2,15 @@
 //!
 //! One lease per calling session, in one browser, opened on the session's
 //! first browser tool call (`lease.open`: the extension makes a tab group
-//! titled after the session). It ends when the session ends, after
-//! [`IDLE_MS`] without a command, when its browser goes away, or when the
-//! user presses Stop (`lease.revoked`): then the session's commands are
-//! refused for [`STOP_MS`] unless the user resumes it, and every other
-//! session acting in that browser within the same minute needs an approval.
+//! titled after the session). It stays however long the session goes
+//! without a command — idle, busy elsewhere, or ended (a session continued
+//! later keeps its tabs) — until the user disconnects it, closes the
+//! browser (the next `hello` says `freshBrowser`) or quits the app.
+//! Disconnecting is Stop or closing its group (`lease.revoked`; then the
+//! session's commands are refused for [`STOP_MS`] unless the user resumes
+//! it, and every other session acting in that browser within the same
+//! minute needs an approval), connecting the session in another browser, or
+//! removing the browser.
 //!
 //! Also here: what the desktop knows about each lease tab
 //! ([`super::page::TabInfo`]) and the per-minute action counters.
@@ -18,8 +22,6 @@ use serde::Serialize;
 
 use super::page::{TabInfo, ACTIVE};
 
-/// A lease with no command for this long is closed.
-pub const IDLE_MS: i64 = 10 * 60 * 1000;
 /// How long a Stop refuses the stopped session's commands.
 pub const STOP_MS: i64 = 60 * 1000;
 /// Window of the per-minute action counter.
@@ -45,10 +47,6 @@ pub struct Lease {
     pub last_used: i64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub active_tab: Option<i64>,
-    /// The sweep saw its session live (only then does "not live any more"
-    /// mean it ended).
-    #[serde(skip)]
-    pub seen_live: bool,
 }
 
 /// A session the user stopped.
@@ -177,28 +175,12 @@ impl Leases {
             .collect()
     }
 
-    /// A command ran: the lease is not idle.
+    /// A command ran (the Browser page shows when; nothing closes a lease
+    /// for going without one).
     pub fn touch(&self, session: &str) {
         if let Some(l) = self.lock().leases.get_mut(session) {
             l.last_used = now_ms();
         }
-    }
-
-    /// The sweep saw the session live.
-    pub fn mark_seen_live(&self, session: &str) {
-        if let Some(l) = self.lock().leases.get_mut(session) {
-            l.seen_live = true;
-        }
-    }
-
-    /// Leases idle for [`IDLE_MS`].
-    pub fn idle(&self, now: i64) -> Vec<Lease> {
-        self.lock()
-            .leases
-            .values()
-            .filter(|l| now - l.last_used >= IDLE_MS)
-            .cloned()
-            .collect()
     }
 
     // ── tabs ──
@@ -434,7 +416,6 @@ mod tests {
             opened_at: now_ms(),
             last_used: now_ms(),
             active_tab: None,
-            seen_live: false,
         }
     }
 
@@ -473,20 +454,6 @@ mod tests {
 
         assert_eq!(l.remove_browser("b1").len(), 2);
         assert!(l.all().is_empty());
-    }
-
-    #[test]
-    fn idle_leases_are_found() {
-        let l = Leases::default();
-        let mut old = lease("s1", "b1", "blue");
-        old.last_used -= IDLE_MS + 1;
-        l.insert(old);
-        l.insert(lease("s2", "b1", "red"));
-        let idle = l.idle(now_ms());
-        assert_eq!(idle.len(), 1);
-        assert_eq!(idle[0].session, "s1");
-        l.touch("s1");
-        assert!(l.idle(now_ms()).is_empty());
     }
 
     #[test]

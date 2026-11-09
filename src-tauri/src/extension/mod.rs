@@ -247,48 +247,27 @@ pub fn notify_soon(state: &AppState, what: &'static str) {
     });
 }
 
-/// Start the background sweep (idle leases, ended sessions, expired Stops).
+/// Start the background sweep (expired Stops, old revoked browsers).
 pub fn start(state: &AppState) {
     let st = state.clone();
     tokio::spawn(async move {
         let mut tick = tokio::time::interval(Duration::from_secs(15));
         loop {
             tick.tick().await;
-            sweep(&st).await;
+            sweep(&st);
         }
     });
 }
 
-/// One sweep: close leases that went idle or whose session ended; forget
-/// expired Stops and old revoked browsers.
-pub async fn sweep(state: &AppState) {
+/// One sweep: forget expired Stops and old revoked browsers. It closes no
+/// lease: a session stays connected to its browser, idle, busy elsewhere or
+/// ended (a session continued later keeps its tabs), until the user
+/// disconnects it (Stop, closing its group, removing the browser), closes
+/// the browser (`freshBrowser` on its next `hello`) or quits the app.
+pub fn sweep(state: &AppState) {
     let ext = &state.extension;
     ext.leases.sweep();
     ext.browsers.sweep();
-    let now = crate::claude::registry::now_ms();
-    let mut closing: Vec<(leases::Lease, &'static str)> = ext
-        .leases
-        .idle(now)
-        .into_iter()
-        .map(|l| (l, "idle"))
-        .collect();
-    for lease in ext.leases.all() {
-        if closing.iter().any(|(l, _)| l.session == lease.session) {
-            continue;
-        }
-        let Some(s) = state.find_session(&lease.session).await else {
-            continue;
-        };
-        let ended = !s.live || s.status == crate::claude::model::SessionStatus::Ended;
-        if !ended {
-            ext.leases.mark_seen_live(&lease.session);
-        } else if lease.seen_live {
-            closing.push((lease, "session ended"));
-        }
-    }
-    for (lease, why) in closing {
-        actions::close_lease(state, &lease, why).await;
-    }
 }
 
 #[cfg(test)]
@@ -327,7 +306,6 @@ mod tests {
             opened_at: 1,
             last_used: 1,
             active_tab: None,
-            seen_live: false,
         });
         st.extension.track_approval(Approval {
             id: "p1".into(),
@@ -371,11 +349,17 @@ mod tests {
         assert!(st.extension.approval("p1").is_none());
     }
 
+    /// A lease lasts however long its session goes without a browser
+    /// command: idle, busy with something else or ended, it stays connected
+    /// until the user disconnects it, closes the browser or quits the app
+    /// (the sweep closed one after ten idle minutes, or once its session
+    /// ended).
     #[tokio::test]
-    async fn the_sweep_closes_idle_leases() {
+    async fn the_sweep_keeps_a_lease_however_long_it_goes_unused() {
         let st = state();
         let now = crate::claude::registry::now_ms();
-        for (session, last_used) in [("idle", now - leases::IDLE_MS - 1), ("busy", now)] {
+        let day = 24 * 60 * 60 * 1000;
+        for (session, last_used) in [("quiet", now - day), ("busy", now)] {
             st.extension.leases.insert(leases::Lease {
                 id: format!("l_{session}"),
                 session: session.into(),
@@ -383,17 +367,14 @@ mod tests {
                 browser: "brw_1".into(),
                 color: "blue".into(),
                 group_id: None,
-                opened_at: now,
+                opened_at: now - day,
                 last_used,
                 active_tab: None,
-                seen_live: false,
             });
         }
-        sweep(&st).await;
-        assert!(st.extension.leases.get("idle").is_none());
+        sweep(&st);
+        assert!(st.extension.leases.get("quiet").is_some());
         assert!(st.extension.leases.get("busy").is_some());
-        let log = st.extension.activity.recent(Some("idle"), 5);
-        assert_eq!(log[0].tool, "lease.close");
-        assert_eq!(log[0].outcome, "idle");
+        assert!(st.extension.activity.recent(Some("quiet"), 5).is_empty());
     }
 }
