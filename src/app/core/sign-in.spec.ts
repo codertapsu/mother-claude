@@ -97,9 +97,9 @@ describe('sign-in helpers', () => {
     expect(
       normalizeSignIn({ kind: 'login', state: 'open', opened: 'safari', startedAt: 1 }),
     ).toEqual({ kind: 'login', state: 'open', startedAt: 1 });
-    expect(signInEndedLately(run, 2_000 + 60_000)).toBeTrue();
-    expect(signInEndedLately(run, 2_000 + 4 * 60_000)).toBeFalse();
-    expect(signInEndedLately({ kind: 'login', state: 'open', startedAt: 1 }, 2)).toBeFalse();
+    expect(signInEndedLately(run, 2_000 + 60_000)).toBe(true);
+    expect(signInEndedLately(run, 2_000 + 4 * 60_000)).toBe(false);
+    expect(signInEndedLately({ kind: 'login', state: 'open', startedAt: 1 }, 2)).toBe(false);
     // Two reads of one run: the further state, the link and the browser either has.
     expect(
       mergeSignIn(
@@ -122,13 +122,13 @@ describe('sign-in helpers', () => {
       signIn: { kind: 'login', state: 'open', startedAt: 1 },
     });
     const pro = accountFixture({ id: 'acc_p', name: 'Pro', kind: 'token' });
-    expect(signInRunning(work.signIn)).toBeTrue();
-    expect(signInRunning({ kind: 'login', state: 'done', startedAt: 1 })).toBeFalse();
+    expect(signInRunning(work.signIn)).toBe(true);
+    expect(signInRunning({ kind: 'login', state: 'done', startedAt: 1 })).toBe(false);
     expect(activeSignIn([pro, work])?.id).toBe('acc_w');
     expect(signInWaitText(pro, [pro, work])).toBe("Waiting for Work's sign-in");
     expect(signInWaitText(work, [pro, work])).toBe('');
     // An older server: a browser login or a token capture that runs.
-    expect(accountSigningIn(accountFixture({ id: 'x', signingIn: true }))).toBeTrue();
+    expect(accountSigningIn(accountFixture({ id: 'x', signingIn: true }))).toBe(true);
     expect(
       accountSigningIn(
         accountFixture({
@@ -136,7 +136,7 @@ describe('sign-in helpers', () => {
           capture: { state: 'running', asksForCode: false, startedAt: 1 },
         }),
       ),
-    ).toBeTrue();
+    ).toBe(true);
     expect(activeSignIn([pro])).toBeUndefined();
   });
 
@@ -212,13 +212,13 @@ describe('sign-in helpers', () => {
 
   it('tells a token from a code', () => {
     const token = 'sk-ant-oat01-abcdefghijklmnop_-0123456789';
-    expect(looksLikeToken(token)).toBeTrue();
-    expect(looksLikeToken(`export CLAUDE_CODE_OAUTH_TOKEN=${token}`)).toBeTrue();
-    expect(looksLikeToken('SK-ANT-API03-abc')).toBeTrue();
-    expect(looksLikeToken('Xq3vYz0123#Rk1yZ0123')).toBeFalse();
-    expect(isLongLivedToken(` ${token}\n`)).toBeTrue();
-    expect(isLongLivedToken('sk-ant-api03-abcdefghijklmnop')).toBeFalse();
-    expect(isLongLivedToken(`token: ${token}`)).toBeFalse();
+    expect(looksLikeToken(token)).toBe(true);
+    expect(looksLikeToken(`export CLAUDE_CODE_OAUTH_TOKEN=${token}`)).toBe(true);
+    expect(looksLikeToken('SK-ANT-API03-abc')).toBe(true);
+    expect(looksLikeToken('Xq3vYz0123#Rk1yZ0123')).toBe(false);
+    expect(isLongLivedToken(` ${token}\n`)).toBe(true);
+    expect(isLongLivedToken('sk-ant-api03-abcdefghijklmnop')).toBe(false);
+    expect(isLongLivedToken(`token: ${token}`)).toBe(false);
   });
 
   it('lists the browsers, the default one always, and names them', () => {
@@ -231,8 +231,8 @@ describe('sign-in helpers', () => {
     expect(normalizeBrowsers(['edge-private', 'default'])).toEqual(['default', 'edge-private']);
     expect(browserLabel('chrome-private')).toBe('Open in a private Chrome window');
     expect(browserLabel('edge-private')).toBe('Open in an Edge InPrivate window');
-    expect(isPrivateBrowser('edge-private') && isPrivateBrowser('chrome-private')).toBeTrue();
-    expect(isPrivateBrowser('chrome') || isPrivateBrowser('default')).toBeFalse();
+    expect(isPrivateBrowser('edge-private') && isPrivateBrowser('chrome-private')).toBe(true);
+    expect(isPrivateBrowser('chrome') || isPrivateBrowser('default')).toBe(false);
     expect(browserLabel('default')).toBe('Open in browser');
   });
 

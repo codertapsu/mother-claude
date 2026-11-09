@@ -100,7 +100,7 @@ describe('DataJobComponent', () => {
         },
       },
     }));
-    const changed = jasmine.createSpy('changed');
+    const changed = vi.fn();
     const el = render(job());
     fixture.componentInstance.changed.subscribe(changed);
     const undo = () => el.querySelector('.undo .btn') as HTMLButtonElement;

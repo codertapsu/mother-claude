@@ -230,12 +230,12 @@ describe('InfoPanelComponent', () => {
     const heading = (el: HTMLElement) =>
       [...el.querySelectorAll('h2')].some((h) => h.textContent?.trim() === 'Plan usage');
     const rt = TestBed.inject(RealtimeService);
-    expect(heading(render(session({})))).toBeFalse();
+    expect(heading(render(session({})))).toBe(false);
     rt.mergePlanUsage({ ...plan, available: false });
-    expect(heading(render(session({})))).toBeFalse();
+    expect(heading(render(session({})))).toBe(false);
     rt.mergePlanUsage(plan);
     const el = render(session({}));
-    expect(heading(el)).toBeTrue();
+    expect(heading(el)).toBe(true);
     expect(el.querySelector('[role="meter"]')?.getAttribute('aria-valuenow')).toBe('42');
   });
 });

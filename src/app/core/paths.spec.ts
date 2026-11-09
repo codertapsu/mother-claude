@@ -29,15 +29,15 @@ describe('paths', () => {
       '\\\\nas\\share\\Mother Claude',
       '\\\\?\\C:\\Users\\m',
     ]) {
-      expect(isAbsoluteAnywhere(p)).withContext(p).toBeTrue();
+      expect(isAbsoluteAnywhere(p), p).toBe(true);
     }
     for (const p of ['', '~', '~/dev', 'dev\\app', 'Drive/MC', 'C:', 'C:dev', '\\\\', '1:/x']) {
-      expect(isAbsoluteAnywhere(p)).withContext(p).toBeFalse();
+      expect(isAbsoluteAnywhere(p), p).toBe(false);
     }
-    expect(isWindowsAbsolute('D:\\dev')).toBeTrue();
-    expect(isWindowsAbsolute('/Users/m')).toBeFalse();
-    expect(['~', '~/x', '~\\x'].every(isHomePath)).toBeTrue();
-    expect(['~x', '~user/x', 'x/~'].some(isHomePath)).toBeFalse();
+    expect(isWindowsAbsolute('D:\\dev')).toBe(true);
+    expect(isWindowsAbsolute('/Users/m')).toBe(false);
+    expect(['~', '~/x', '~\\x'].every(isHomePath)).toBe(true);
+    expect(['~x', '~user/x', 'x/~'].some(isHomePath)).toBe(false);
   });
 
   it("says what is wrong with a typed folder in the desktop's own words", () => {
@@ -114,17 +114,17 @@ describe('paths', () => {
   });
 
   it('compares a Windows path the way Windows does, and a Mac path exactly', () => {
-    expect(samePath('C:\\Users\\me\\app', 'c:/users/ME/app/')).toBeTrue();
-    expect(samePath('/Users/me/app', '/Users/me/app/')).toBeTrue();
-    expect(samePath('/Users/me/app', '/users/me/app')).toBeFalse();
-    expect(samePath('/Users/me/app', 'C:\\Users\\me\\app')).toBeFalse();
-    expect(pathWithin('C:\\Dev\\app\\src', 'c:/dev/app')).toBeTrue();
-    expect(pathWithin('C:\\dev\\app2', 'C:\\dev\\app')).toBeFalse();
-    expect(pathWithin('C:\\dev', 'C:\\')).toBeTrue();
-    expect(pathWithin('/p/acme/api', '/p/acme')).toBeTrue();
-    expect(pathWithin('/p/acme2', '/p/acme')).toBeFalse();
-    expect(pathWithin('/anything', '/')).toBeTrue();
-    expect(pathWithin('/p/acme', 'C:\\p\\acme')).toBeFalse();
+    expect(samePath('C:\\Users\\me\\app', 'c:/users/ME/app/')).toBe(true);
+    expect(samePath('/Users/me/app', '/Users/me/app/')).toBe(true);
+    expect(samePath('/Users/me/app', '/users/me/app')).toBe(false);
+    expect(samePath('/Users/me/app', 'C:\\Users\\me\\app')).toBe(false);
+    expect(pathWithin('C:\\Dev\\app\\src', 'c:/dev/app')).toBe(true);
+    expect(pathWithin('C:\\dev\\app2', 'C:\\dev\\app')).toBe(false);
+    expect(pathWithin('C:\\dev', 'C:\\')).toBe(true);
+    expect(pathWithin('/p/acme/api', '/p/acme')).toBe(true);
+    expect(pathWithin('/p/acme2', '/p/acme')).toBe(false);
+    expect(pathWithin('/anything', '/')).toBe(true);
+    expect(pathWithin('/p/acme', 'C:\\p\\acme')).toBe(false);
   });
 
   it("shortens a home folder's path on either system", () => {

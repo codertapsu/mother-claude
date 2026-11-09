@@ -52,11 +52,11 @@ describe('RealtimeService', () => {
     expect(rt.connection()).toBe('offline');
     window.dispatchEvent(new Event('online'));
     // The probe went out on the surviving socket…
-    expect(s.sent.some((f) => f.t === 'ping')).toBeTrue();
+    expect(s.sent.some((f) => f.t === 'ping')).toBe(true);
     // …and its answer proves the link.
     s.frame({ t: 'pong' });
     expect(rt.connection()).toBe('open');
-    expect(rt.canAct()).toBeTrue();
+    expect(rt.canAct()).toBe(true);
   });
 
   it('keeps the device token when REST still accepts it after a 4401 close', async () => {
@@ -153,9 +153,9 @@ describe('RealtimeService', () => {
     const s = goLive();
     const mark = rt.planUsageMark();
     s.frame({ t: 'planUsage', usage: plan(50) });
-    expect(rt.mergePlanUsage(plan(40), mark)).toBeFalse();
+    expect(rt.mergePlanUsage(plan(40), mark)).toBe(false);
     expect(rt.planUsage()?.windows[0].pct).toBe(50);
-    expect(rt.mergePlanUsage(plan(60), rt.planUsageMark())).toBeTrue();
+    expect(rt.mergePlanUsage(plan(60), rt.planUsageMark())).toBe(true);
     expect(rt.planUsage()?.windows[0].pct).toBe(60);
   });
 
@@ -215,9 +215,9 @@ describe('RealtimeService', () => {
     });
     const mark = rt.accountsMark();
     s.frame({ t: 'accounts', accounts: view('From the frame') });
-    expect(rt.mergeAccounts(view('From REST'), mark)).toBeFalse();
+    expect(rt.mergeAccounts(view('From REST'), mark)).toBe(false);
     expect(rt.accounts()?.accounts[1].name).toBe('From the frame');
-    expect(rt.mergeAccounts(view('Newer REST'), rt.accountsMark())).toBeTrue();
+    expect(rt.mergeAccounts(view('Newer REST'), rt.accountsMark())).toBe(true);
     expect(rt.accounts()?.accounts[1].name).toBe('Newer REST');
 
     const usageMark = rt.accountUsageMark();

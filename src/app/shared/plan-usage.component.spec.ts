@@ -170,18 +170,18 @@ describe('PlanUsageComponent', () => {
     }));
     const el = render(usage());
     const button = () => el.querySelector('.status button') as HTMLButtonElement;
-    expect(button().disabled).toBeFalse();
+    expect(button().disabled).toBe(false);
     button().click();
     await flush();
     fixture.detectChanges();
     expect(backend.calls).toContain('POST /usage/refresh');
     // The Default's refresh is the request it always was.
     expect(backend.bodyOf('POST /usage/refresh')).toEqual({});
-    expect(button().disabled).toBeTrue();
+    expect(button().disabled).toBe(true);
     expect(text(button())).toContain('Refresh in 42s');
     now.set(NOW + 43_000);
     fixture.detectChanges();
-    expect(button().disabled).toBeFalse();
+    expect(button().disabled).toBe(false);
   });
 
   it("never holds Refresh past a minute when this device's clock lags the Mac", () => {
@@ -190,7 +190,7 @@ describe('PlanUsageComponent', () => {
     expect(text(button)).toContain('Refresh in 60s');
     now.set(NOW + 61_000);
     fixture.detectChanges();
-    expect(button.disabled).toBeFalse();
+    expect(button.disabled).toBe(false);
   });
 
   it('counts the hold from when the numbers arrived, not from when they are shown', () => {
@@ -205,7 +205,7 @@ describe('PlanUsageComponent', () => {
     now.set(NOW + 3 * M);
     const el = render(null);
     const button = el.querySelector('.status button') as HTMLButtonElement;
-    expect(button.disabled).toBeFalse();
+    expect(button.disabled).toBe(false);
     expect(text(button).trim()).toBe('Refresh');
     // New numbers: a new minute.
     rt.mergePlanUsage(usage({ source: 'live', fetchedAt: NOW + 8 * M }));
@@ -240,7 +240,7 @@ describe('PlanUsageComponent', () => {
       return { status: 200, body: usage({ intervalSecs: 600, nextRefreshAt: NOW + 3 * M }) };
     });
     render(usage());
-    expect(await TestBed.inject(PlanUsageService).setIntervalSecs(600)).toBeTrue();
+    expect(await TestBed.inject(PlanUsageService).setIntervalSecs(600)).toBe(true);
     expect(rt.planUsage()?.intervalSecs).toBe(600);
     expect(rt.planUsage()?.nextRefreshAt).toBe(NOW + 10 * M);
     expect(backend.bodyOf('PUT /usage/settings')).toEqual({ intervalSecs: 600 });
@@ -273,15 +273,15 @@ describe('PlanUsageComponent', () => {
     fixture.detectChanges();
     expect(backend.bodyOf('POST /usage/refresh')).toEqual({ account: work });
     // The answer is that account's, not the Default's.
-    expect(rt.accountUsage().get(work)?.refreshing).toBeTrue();
-    expect(rt.planUsage()?.refreshing).toBeFalse();
+    expect(rt.accountUsage().get(work)?.refreshing).toBe(true);
+    expect(rt.planUsage()?.refreshing).toBe(false);
     expect(text(el)).toContain('Checking…');
   });
 
   it('holds Refresh for a minute after a read of the account', () => {
     const el = render(usage({ source: 'live', fetchedAt: NOW - 20_000 }));
     const button = el.querySelector('.status button') as HTMLButtonElement;
-    expect(button.disabled).toBeTrue();
+    expect(button.disabled).toBe(true);
     expect(text(button)).toContain('Refresh in 40s');
   });
 });

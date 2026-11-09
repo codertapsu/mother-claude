@@ -94,7 +94,7 @@ describe('BrowserActionComponent', () => {
     const allow = [...el.querySelectorAll<HTMLButtonElement>('button')].find((b) =>
       text(b).includes('Allow once'),
     )!;
-    expect(allow.disabled).toBeTrue();
+    expect(allow.disabled).toBe(true);
   });
 
   it('on the desktop: allow, or always allow (saved in Mother Claude)', async () => {
@@ -107,7 +107,7 @@ describe('BrowserActionComponent', () => {
     const el = fixture.nativeElement as HTMLElement;
     const button = (label: string) =>
       [...el.querySelectorAll<HTMLButtonElement>('button')].find((b) => text(b).includes(label))!;
-    expect(button('Allow once').disabled).toBeFalse();
+    expect(button('Allow once').disabled).toBe(false);
     button('Always').click();
     fixture.detectChanges();
     expect(text(el.querySelector('.panel'))).toContain('Saved in Mother Claude');

@@ -31,12 +31,12 @@ const s = (over: Partial<SessionSummary>): SessionSummary =>
 describe('the account filter', () => {
   it('matches the account picked, and every session when none is', () => {
     const work = { account: { id: 'acc_w' } };
-    expect(inAccount(work, '')).toBeTrue();
-    expect(inAccount(work, 'acc_w')).toBeTrue();
-    expect(inAccount(work, 'default')).toBeFalse();
+    expect(inAccount(work, '')).toBe(true);
+    expect(inAccount(work, 'acc_w')).toBe(true);
+    expect(inAccount(work, 'default')).toBe(false);
     // A session in a directory nobody registered names no account.
-    expect(inAccount({}, 'default')).toBeFalse();
-    expect(inAccount(undefined, '')).toBeTrue();
+    expect(inAccount({}, 'default')).toBe(false);
+    expect(inAccount(undefined, '')).toBe(true);
   });
 });
 
@@ -44,20 +44,20 @@ describe('session search', () => {
   it('finds what the card chips say', () => {
     const xhigh = s({ effort: 'xhigh', effortSource: 'observed' });
     // The chip reads "X-high"; the Info tab "Extra high".
-    expect(sessionMatches(xhigh, 'x-high')).toBeTrue();
-    expect(sessionMatches(xhigh, 'extra high')).toBeTrue();
-    expect(sessionMatches(xhigh, 'xhigh')).toBeTrue();
-    expect(sessionMatches(s({ effort: 'medium' }), 'med')).toBeTrue();
+    expect(sessionMatches(xhigh, 'x-high')).toBe(true);
+    expect(sessionMatches(xhigh, 'extra high')).toBe(true);
+    expect(sessionMatches(xhigh, 'xhigh')).toBe(true);
+    expect(sessionMatches(s({ effort: 'medium' }), 'med')).toBe(true);
 
     const off = s({ thinking: { mode: 'off', source: 'launch' } });
-    expect(sessionMatches(off, 'thinking off')).toBeTrue();
-    expect(sessionMatches(s({}), 'thinking off')).toBeFalse();
-    expect(sessionMatches(s({ ultracode: 'on' }), 'ultracode')).toBeTrue();
-    expect(sessionMatches(s({ ultracode: 'off' }), 'ultracode')).toBeFalse();
+    expect(sessionMatches(off, 'thinking off')).toBe(true);
+    expect(sessionMatches(s({}), 'thinking off')).toBe(false);
+    expect(sessionMatches(s({ ultracode: 'on' }), 'ultracode')).toBe(true);
+    expect(sessionMatches(s({ ultracode: 'off' }), 'ultracode')).toBe(false);
     // The model's id too, as the server matches it.
     const opus = s({ model: { id: 'claude-opus-4-8', label: 'Opus 4.8' } });
-    expect(sessionMatches(opus, 'claude-opus')).toBeTrue();
-    expect(sessionMatches(opus, 'opus 4.8')).toBeTrue();
+    expect(sessionMatches(opus, 'claude-opus')).toBe(true);
+    expect(sessionMatches(opus, 'opus 4.8')).toBe(true);
   });
 });
 
@@ -147,17 +147,20 @@ describe('SessionsComponent accounts', () => {
       card('d', undefined, { status: 'idle', activity: { kind: 'idle', label: 'Idle' } }),
     ]);
     const el = await render();
+    // Sorted: two of them share a group in whichever order.
     const groups = [...el.querySelectorAll('section.group')].map((g) => ({
       title: g.getAttribute('aria-label'),
-      cards: [...g.querySelectorAll('mc-session-card .name')].map((n) => text(n)),
-      pills: [...g.querySelectorAll('mc-status-pill')].map((p) => text(p).replace(', live', '')),
+      cards: [...g.querySelectorAll('mc-session-card .name')].map((n) => text(n)).sort(),
+      pills: [...g.querySelectorAll('mc-status-pill')]
+        .map((p) => text(p).replace(', live', ''))
+        .sort(),
     }));
     expect(groups).toEqual([
       { title: 'Working', cards: ['Session a'], pills: ['Working'] },
       {
         title: 'Will resume',
-        cards: jasmine.arrayWithExactContents(['Session b', 'Session c']),
-        pills: jasmine.arrayWithExactContents(['Background work', 'Scheduled']),
+        cards: ['Session b', 'Session c'],
+        pills: ['Background work', 'Scheduled'],
       },
       { title: 'Idle', cards: ['Session d'], pills: ['Idle'] },
     ]);
@@ -282,15 +285,14 @@ describe('SessionsComponent accounts', () => {
       .map((c, i) => (c === 'POST /data/delete' ? backend.bodies[i] : null))
       .filter(Boolean);
     // (In whichever order the cards sorted: they share a time.)
-    expect(asked).toEqual(
-      jasmine.arrayWithExactContents([
+    const byAccount = (bodies: unknown[]) =>
+      (bodies as { from: string; items: { sessions: string[] } }[])
+        .map((b) => ({ ...b, items: { ...b.items, sessions: [...b.items.sessions].sort() } }))
+        .sort((x, y) => x.from.localeCompare(y.from));
+    expect(byAccount(asked)).toEqual(
+      byAccount([
         { from: 'default', items: { sessions: ['a'] }, undo: true, dryRun: true },
-        {
-          from: MOCK_ACCOUNT_WORK,
-          items: { sessions: jasmine.arrayWithExactContents(['b', 'c']) },
-          undo: true,
-          dryRun: true,
-        },
+        { from: MOCK_ACCOUNT_WORK, items: { sessions: ['b', 'c'] }, undo: true, dryRun: true },
       ]),
     );
     expect(text(el.querySelector('mc-delete-data-sheet .planline'))).toContain('Deletes');
@@ -390,7 +392,7 @@ describe('SessionsComponent accounts', () => {
     // The page's Select is the sessions'; the projects have their own.
     expect(
       [...el.querySelectorAll('.page-head button')].map((b) => text(b)).includes('Select'),
-    ).toBeFalse();
+    ).toBe(false);
     expect(storageGet('mc_sessions_view')).toBe('projects');
     fixture.destroy();
     el = await render();

@@ -192,7 +192,7 @@ async fn internet_pairing_needs_typed_desktop_approval_and_hands_the_token_out_o
     let phone = via_tunnel("203.0.113.10");
     let typed = format!(
         "{}-{}-{}",
-        &code[..4].to_lowercase(),
+        code[..4].to_lowercase(),
         &code[4..8],
         &code[8..]
     );

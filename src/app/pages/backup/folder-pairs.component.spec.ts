@@ -137,13 +137,11 @@ describe('FolderPairsComponent', () => {
       type(el, 'there', there);
       button(el, 'Add pair')?.click();
       await settle();
-      expect(text(el.querySelector('.notice.error')))
-        .withContext(there)
-        .toBe(
-          "On DESKTOP-PC: Enter the folder's full path, starting with a drive like C:\\ or a share like \\\\server\\share.",
-        );
+      expect(text(el.querySelector('.notice.error')), there).toBe(
+        "On DESKTOP-PC: Enter the folder's full path, starting with a drive like C:\\ or a share like \\\\server\\share.",
+      );
     }
-    expect(backend.calls.some((c) => c.startsWith('POST'))).toBeFalse();
+    expect(backend.calls.some((c) => c.startsWith('POST'))).toBe(false);
     // `~` is this machine's home folder: the desktop expands it.
     backend.routes.set('/backup/pairs', () => ({ status: 201, body: paired() }));
     type(el, 'there', 'd:/dev');
@@ -260,7 +258,7 @@ describe('FolderPairsComponent', () => {
       ['/app', '/'],
     ]) {
       drafts.offer(AIR, project);
-      expect(drafts.take()?.otherFolder).withContext(project).toBe(above);
+      expect(drafts.take()?.otherFolder, project).toBe(above);
     }
   });
 });

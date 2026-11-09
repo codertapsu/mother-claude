@@ -55,10 +55,10 @@ describe('capacity helpers', () => {
     expect(rank({ model: 'sonnet', effort: 'high' })).toBeLessThan(
       rank({ model: 'opus', effort: 'low' }),
     );
-    expect(validModel('opus')).toBeTrue();
-    expect(validModel('claude-opus-4-8[1m]')).toBeTrue();
-    expect(validModel('gpt-5')).toBeFalse();
-    expect(validModel('claude-')).toBeFalse();
+    expect(validModel('opus')).toBe(true);
+    expect(validModel('claude-opus-4-8[1m]')).toBe(true);
+    expect(validModel('gpt-5')).toBe(false);
+    expect(validModel('claude-')).toBe(false);
   });
 
   it('finds what the server would refuse in a policy, by field', () => {
@@ -132,7 +132,7 @@ describe('capacity helpers', () => {
     expect(v?.queue).toEqual([]);
     expect(v?.routes).toEqual([]);
     expect(v?.running.length).toBe(full.running.length);
-    expect(v?.canEditPolicy).toBeTrue();
+    expect(v?.canEditPolicy).toBe(true);
   });
 
   it('names budgets and their notes in the language shown', async () => {

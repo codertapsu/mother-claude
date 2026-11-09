@@ -26,7 +26,7 @@ describe('ResumeNoteComponent', () => {
 
   it('says a VS Code session with background work running is not done', () => {
     const n = render({});
-    expect(n.shown).toBeTrue();
+    expect(n.shown).toBe(true);
     expect(n.text).toBe(
       'Claude picks this up when its background work finishes — closing VS Code now stops it.',
     );
@@ -53,7 +53,7 @@ describe('ResumeNoteComponent', () => {
       { live: false },
     ]) {
       const n = render(over);
-      expect(n.shown).toBeFalse();
+      expect(n.shown).toBe(false);
       expect(n.text).toBe('');
     }
   });

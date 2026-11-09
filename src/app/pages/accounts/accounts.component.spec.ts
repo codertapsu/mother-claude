@@ -46,7 +46,7 @@ describe('AccountsComponent', () => {
     expect(buttons(el)).toContain('Add account');
     // Nothing to choose between yet, and nowhere to move data to.
     expect(text(el)).not.toContain('New sessions run under');
-    expect(buttons(el).some((b) => b.startsWith('Move or copy'))).toBeFalse();
+    expect(buttons(el).some((b) => b.startsWith('Move or copy'))).toBe(false);
     expect(text(el)).toContain('Account tokens are kept in the macOS Keychain');
   });
 
@@ -65,7 +65,7 @@ describe('AccountsComponent', () => {
     );
     const labels = buttons(el);
     expect(labels).not.toContain('Add account');
-    expect(labels.some((b) => b.startsWith('Sign in'))).toBeFalse();
+    expect(labels.some((b) => b.startsWith('Sign in'))).toBe(false);
     // Manage: the name and colour (docs/ACCOUNTS.md §13.9).
     expect(labels.filter((b) => b.includes('Manage')).length).toBe(3);
     expect((el.querySelector('#acc-new-session') as HTMLSelectElement).value).toBe('default');
@@ -90,7 +90,7 @@ describe('AccountsComponent', () => {
     const sheet = el.querySelector('mc-account-sheet') as HTMLElement;
     expect(sheet.querySelector('mc-account-signin')).toBeNull();
     expect(text(sheet.querySelector('.onmac'))).toContain('changed on the Mac');
-    expect(buttons(sheet).some((b) => b.startsWith('Remove'))).toBeFalse();
+    expect(buttons(sheet).some((b) => b.startsWith('Remove'))).toBe(false);
     const name = sheet.querySelector<HTMLInputElement>('input[name="name"]')!;
     name.value = 'Acme';
     name.dispatchEvent(new Event('input'));
@@ -325,7 +325,7 @@ describe('AccountsComponent', () => {
     // One sign-in at a time: Pro's token waits for Work's.
     const proButton = [...rows[2].querySelectorAll<HTMLButtonElement>('button.primary')][0];
     expect(text(proButton)).toBe("Waiting for Work's sign-in");
-    expect(proButton.disabled).toBeTrue();
+    expect(proButton.disabled).toBe(true);
     showSignIn?.click();
     fixture.detectChanges();
     await flush();

@@ -109,7 +109,7 @@ describe('ContinueOnSheetComponent', () => {
     const opts = options(el);
     expect(opts.map((o) => text(o.querySelector('.oname')))).toEqual(['Work', 'Marcus (Pro)']);
     // Work keeps its own directory: it can be picked, the copy is said.
-    expect(opts[0].disabled).toBeFalse();
+    expect(opts[0].disabled).toBe(false);
     expect(text(opts[0])).toContain('Keeps its own directory');
     expect(text(opts[0])).toContain('copied there first (asked once)');
     // The token account shares the directory: a plain fork.
@@ -124,7 +124,7 @@ describe('ContinueOnSheetComponent', () => {
       status: 201,
       body: { id: 's2', forked: true },
     }));
-    const closed = jasmine.createSpy('closed');
+    const closed = vi.fn();
     const el = await open(session());
     fixture.componentInstance.closed.subscribe(closed);
     goButton(el).click();
@@ -267,10 +267,10 @@ describe('ContinueOnSheetComponent', () => {
     serveAccounts(backend, view);
     const el = await open(session(), MOCK_ACCOUNT_PRO);
     const opts = options(el);
-    expect(opts[1].disabled).toBeTrue();
+    expect(opts[1].disabled).toBe(true);
     expect(text(opts[1])).toContain('No token on this computer yet.');
     // The suggestion can't run: the first account that can is picked.
-    expect(opts[0].disabled).toBeFalse();
+    expect(opts[0].disabled).toBe(false);
     expect(text(goButton(el))).toBe('Continue on Work');
   });
 
@@ -284,7 +284,7 @@ describe('ContinueOnSheetComponent', () => {
     const el = await open(session({ account: work }), null);
     const opts = options(el);
     expect(opts.map((o) => text(o.querySelector('.oname')))).toEqual(['Default', 'Marcus (Pro)']);
-    expect(opts.every((o) => !o.disabled)).toBeTrue();
+    expect(opts.every((o) => !o.disabled)).toBe(true);
     expect(text(opts[0])).toContain('Keeps its own directory');
     expect(text(opts[1])).toContain("Uses the Default's directory");
   });

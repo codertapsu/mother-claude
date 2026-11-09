@@ -19,7 +19,7 @@ describe("the mock desktop's system", () => {
         'D:\\NAS\\MotherClaude is not a full path on this computer: start it with / (or ~ for your home folder)',
     });
     // `~\` is a home folder on Windows only.
-    expect('error' in mockFolder('~\\Backups', 'macos')).toBeTrue();
+    expect('error' in mockFolder('~\\Backups', 'macos')).toBe(true);
     expect(mockFolder('D:\\NAS\\MotherClaude', 'windows')).toEqual({
       path: 'D:\\NAS\\MotherClaude',
     });

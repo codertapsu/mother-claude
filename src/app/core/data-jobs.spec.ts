@@ -65,17 +65,17 @@ describe('data job helpers', () => {
   });
 
   it('offers undo only for a finished job whose undo has not run out', () => {
-    expect(canUndo(job({ state: 'done', undoUntil: 100 }), 50)).toBeTrue();
-    expect(canUndo(job({ state: 'done', undoUntil: 100 }), 100)).toBeFalse();
-    expect(canUndo(job({ state: 'done' }), 50)).toBeFalse();
-    expect(canUndo(job({ state: 'undone', undoUntil: 100 }), 50)).toBeFalse();
+    expect(canUndo(job({ state: 'done', undoUntil: 100 }), 50)).toBe(true);
+    expect(canUndo(job({ state: 'done', undoUntil: 100 }), 100)).toBe(false);
+    expect(canUndo(job({ state: 'done' }), 50)).toBe(false);
+    expect(canUndo(job({ state: 'undone', undoUntil: 100 }), 50)).toBe(false);
     // A failed transfer that could not put everything back keeps its undo.
     expect(
       canUndo(job({ state: 'failed', errorCode: 'transfer_incomplete', undoUntil: 100 }), 50),
-    ).toBeTrue();
-    expect(canUndo(job({ state: 'failed' }), 50)).toBeFalse();
-    expect(canUndo(job({ state: 'running', undoUntil: 100 }), 50)).toBeFalse();
-    expect(canUndo(null, 0)).toBeFalse();
+    ).toBe(true);
+    expect(canUndo(job({ state: 'failed' }), 50)).toBe(false);
+    expect(canUndo(job({ state: 'running', undoUntil: 100 }), 50)).toBe(false);
+    expect(canUndo(null, 0)).toBe(false);
   });
 
   it('measures progress by bytes, else files, else not at all', () => {
@@ -144,7 +144,7 @@ describe('data job helpers', () => {
     const job = (extra: Record<string, unknown>) =>
       normalizeJob({ id: 'j', kind: 'move', state: 'done', ...extra })!;
     expect(job({ fromStorage: 'stor_1', set: 'Shared' })).toEqual(
-      jasmine.objectContaining({ fromStorage: 'stor_1', set: 'Shared' }),
+      expect.objectContaining({ fromStorage: 'stor_1', set: 'Shared' }),
     );
     // The set named after the account on the other side goes unsaid.
     expect(

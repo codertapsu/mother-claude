@@ -126,7 +126,7 @@ describe('ProjectsViewComponent', () => {
     fixture.detectChanges();
     expect(text(el.querySelector('.selcount'))).toBe('2 selected');
     // Two accounts: one move cannot take both.
-    expect(button(el, 'Move or copy 2')!.disabled).toBeTrue();
+    expect(button(el, 'Move or copy 2')!.disabled).toBe(true);
     expect(text(el.querySelector('.selbar .why'))).toBe(MIXED_ACCOUNTS);
 
     button(el, 'Delete 2')!.click();
@@ -180,7 +180,7 @@ describe('ProjectsViewComponent', () => {
     });
     expect(el.querySelector('mc-sheet.menu-sheet')).toBeNull();
 
-    const copy = spyOn(navigator.clipboard, 'writeText').and.resolveTo();
+    const copy = vi.spyOn(navigator.clipboard, 'writeText').mockResolvedValue(undefined);
     menu().click();
     fixture.detectChanges();
     button(sheet(), 'Copy path')!.click();

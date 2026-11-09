@@ -179,7 +179,7 @@ describe('RoutingPolicyComponent', () => {
     c.edit();
     c.setRung(1, 'model', 'fable');
     fixture.detectChanges();
-    expect(c.invalid()).toBeTrue();
+    expect(c.invalid()).toBe(true);
     expect((fixture.nativeElement as HTMLElement).textContent).toContain(
       'Each rung must be above the one before it',
     );
@@ -187,7 +187,7 @@ describe('RoutingPolicyComponent', () => {
     expect(backend.calls).not.toContain('PUT /routing/policy');
     c.setRung(1, 'model', 'haiku');
     c.setClass('plan', 'model', 'sonnet');
-    expect(c.invalid()).toBeFalse();
+    expect(c.invalid()).toBe(false);
     await fixture.componentInstance.save();
     const sent = backend.bodyOf('PUT /routing/policy') as { classes: Record<string, unknown> };
     expect(sent.classes['plan']).toEqual({ model: 'sonnet', effort: 'high' });

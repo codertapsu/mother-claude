@@ -37,15 +37,15 @@ describe('account helpers', () => {
     });
     expect(v?.accounts.map((a) => a.id)).toEqual(['default', WORK, PRO]);
     const [def, work, pro] = v!.accounts;
-    expect(def.isDefault).toBeTrue();
+    expect(def.isDefault).toBe(true);
     // A colour that isn't #rrggbb falls back; a good one is kept (lower case).
     expect(def.color).toBe('#8b5cf6');
     expect(def.live).toBe(2);
     expect(work.name).toBe('Work');
     expect(work.color).toBe('#0ea5e9');
-    expect(work.signedIn).toBeTrue();
+    expect(work.signedIn).toBe(true);
     expect(pro.attention).toBeUndefined();
-    expect(pro.tokenStored).toBeFalse();
+    expect(pro.tokenStored).toBe(false);
     expect(v?.defaults).toEqual({
       newSession: WORK,
       bridge: 'default',
@@ -53,7 +53,7 @@ describe('account helpers', () => {
     });
     expect(v?.copyConsent).toEqual([{ from: 'default', to: WORK }]);
     expect(v?.secretStore).toBeUndefined();
-    expect(v?.tokenCapture).toBeTrue();
+    expect(v?.tokenCapture).toBe(true);
 
     expect(normalizeAccounts(null)).toBeNull();
     expect(normalizeAccounts({ defaults: {} })).toBeNull();
@@ -108,9 +108,9 @@ describe('account helpers', () => {
     // A rule naming a removed account is skipped.
     expect(accountForCwd(view, '/Users/me/gone/x').id).toBe(PRO);
     expect(accountForCwd(null, '/x')).toEqual({ id: 'default', via: 'default' });
-    expect(dirContains('/', '/anything')).toBeTrue();
-    expect(dirContains('/a/b', '/a/b')).toBeTrue();
-    expect(dirContains('/a/b', '/a/bc')).toBeFalse();
+    expect(dirContains('/', '/anything')).toBe(true);
+    expect(dirContains('/a/b', '/a/b')).toBe(true);
+    expect(dirContains('/a/b', '/a/bc')).toBe(false);
   });
 
   it('matches the projects of a Windows desktop the way Windows names folders', () => {
@@ -134,7 +134,7 @@ describe('account helpers', () => {
     expect(accountForCwd(view, 'D:\\dev2').id).toBe(PRO);
     // A Mac's folder never falls under a Windows one.
     expect(accountForCwd(view, '/dev/api').id).toBe(PRO);
-    expect(dirContains('C:\\', 'c:\\anything')).toBeTrue();
+    expect(dirContains('C:\\', 'c:\\anything')).toBe(true);
     // The registry keeps them, whichever system wrote them.
     const read = normalizeAccounts({
       accounts: [],
@@ -148,16 +148,16 @@ describe('account helpers', () => {
     const work = { id: WORK, kind: 'directory' };
     const pro = { id: PRO, kind: 'token' };
     expect(homeOf(pro)).toBe('default');
-    expect(needsCopy(def, pro)).toBeFalse();
-    expect(needsCopy(pro, def)).toBeFalse();
+    expect(needsCopy(def, pro)).toBe(false);
+    expect(needsCopy(pro, def)).toBe(false);
     // The unregistered-token pseudo account runs in the Default's directory.
-    expect(needsCopy({ id: 'unregistered', kind: 'token' }, pro)).toBeFalse();
-    expect(needsCopy(def, work)).toBeTrue();
-    expect(needsCopy(work, pro)).toBeTrue();
-    expect(accountCanRun({ attention: 'tokenMissing' })).toBeFalse();
-    expect(accountCanRun({ attention: 'signedOut' })).toBeFalse();
-    expect(accountCanRun({ attention: 'authFailed' })).toBeTrue();
-    expect(accountCanRun({})).toBeTrue();
+    expect(needsCopy({ id: 'unregistered', kind: 'token' }, pro)).toBe(false);
+    expect(needsCopy(def, work)).toBe(true);
+    expect(needsCopy(work, pro)).toBe(true);
+    expect(accountCanRun({ attention: 'tokenMissing' })).toBe(false);
+    expect(accountCanRun({ attention: 'signedOut' })).toBe(false);
+    expect(accountCanRun({ attention: 'authFailed' })).toBe(true);
+    expect(accountCanRun({})).toBe(true);
   });
 
   it('moves and copies only into directory accounts with another directory', () => {

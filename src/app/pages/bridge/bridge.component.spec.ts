@@ -192,7 +192,7 @@ describe('BridgeComponent conversations on disk', () => {
     expect(text(el.querySelector('.skips .why'))).toBe(
       'It is open in the API: close it there first.',
     );
-    expect(button(el, 'Nothing to delete')?.disabled).toBeTrue();
+    expect(button(el, 'Nothing to delete')?.disabled).toBe(true);
   });
 
   it('asks the server again after every delete, and drops a deleted conversation', async () => {

@@ -126,7 +126,7 @@ describe('SessionChipsComponent', () => {
     expect(select).not.toBeNull();
     expect(words(select.closest('label'))).toContain('Thinking default');
     expect([...select.options].map((o) => o.value)).toEqual(['', 'on', 'off']);
-    expect(select.disabled).toBeFalse();
+    expect(select.disabled).toBe(false);
     select.value = 'off';
     select.dispatchEvent(new Event('change'));
     await flush();
@@ -176,7 +176,7 @@ describe('SessionChipsComponent', () => {
     const { fixture, el } = render(ownedHaiku({ ...unavailable, control: ownedCaps() }));
     expect(el.querySelector('[role="switch"][aria-label="Ultracode"]')).toBeNull();
     const chip = button(el, 'Ultracode unavailable');
-    expect(chip?.classList.contains('warn')).toBeTrue();
+    expect(chip?.classList.contains('warn')).toBe(true);
     chip?.click();
     fixture.detectChanges();
     expect(sheet()).toContain("it can't run here");
@@ -185,7 +185,7 @@ describe('SessionChipsComponent', () => {
     const cancel = [...document.querySelectorAll('dialog[open] button')].find((b) =>
       b.textContent?.includes('Cancel the ultracode request'),
     ) as HTMLButtonElement;
-    expect(cancel.disabled).toBeFalse();
+    expect(cancel.disabled).toBe(false);
     cancel.click();
     await flush();
     expect(backend.bodyOf('POST /sessions/s1/ultracode')).toEqual({ enabled: false });
@@ -260,7 +260,7 @@ describe('SessionChipsComponent', () => {
       }),
     );
     const chip = button(el, 'Ultracode ?');
-    expect(chip?.classList.contains('off')).toBeTrue();
+    expect(chip?.classList.contains('off')).toBe(true);
     expect(chip?.getAttribute('aria-label')).toBe(
       'Ultracode: not known since the session restarted (it was on); the next message in VS Code shows it',
     );

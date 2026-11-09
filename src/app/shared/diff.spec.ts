@@ -70,7 +70,7 @@ describe('toSplitRows', () => {
     );
     const pair = split.find((r) => r.left?.text === 'old')!;
     expect(pair.right?.text).toBe('new'); // one side-by-side row, not two halves
-    expect(split.some((r) => r.header?.startsWith('\\'))).toBeTrue(); // marker kept
+    expect(split.some((r) => r.header?.startsWith('\\'))).toBe(true); // marker kept
   });
 
   it('strips CRLF carriage returns from patch lines', () => {

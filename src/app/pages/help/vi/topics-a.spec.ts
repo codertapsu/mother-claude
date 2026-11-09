@@ -51,7 +51,7 @@ describe('Vietnamese Help: the basics, sessions and remote topics', () => {
       const vi = VI_TOPICS_A[id]!;
 
       it('exists, with the English id, icon and group', () => {
-        expect(en).withContext('the English topic').toBeDefined();
+        expect(en, 'the English topic').toBeDefined();
         expect(vi).toBeDefined();
         expect(vi.id).toBe(id);
         expect(vi.icon).toBe(en.icon);
@@ -65,26 +65,22 @@ describe('Vietnamese Help: the basics, sessions and remote topics', () => {
         en.sections.forEach((e, i) => {
           const s = vi.sections[i];
           const where = `${id} › ${e.heading}`;
-          expect(s.heading).withContext(where).toBeTruthy();
-          expect(s.id).withContext(`${where}: its id comes from the English`).toBeUndefined();
-          expect(s.where).withContext(where).toBe(e.where);
-          expect(s.embed).withContext(where).toBe(e.embed);
-          expect(!!s.intro).withContext(`${where}: intro`).toBe(!!e.intro);
+          expect(s.heading, where).toBeTruthy();
+          expect(s.id, `${where}: its id comes from the English`).toBeUndefined();
+          expect(s.where, where).toBe(e.where);
+          expect(s.embed, where).toBe(e.embed);
+          expect(!!s.intro, `${where}: intro`).toBe(!!e.intro);
           for (const list of LISTS) {
-            expect(s[list]?.length ?? 0)
-              .withContext(`${where}: ${list}`)
-              .toBe(e[list]?.length ?? 0);
+            expect(s[list]?.length ?? 0, `${where}: ${list}`).toBe(e[list]?.length ?? 0);
           }
-          expect(code(s)).withContext(`${where}: code`).toEqual(code(e));
+          expect(code(s), `${where}: code`).toEqual(code(e));
           // The template tracks terms and links by their text.
           const terms = (s.terms ?? []).map((t) => t.term);
-          expect(new Set(terms).size).withContext(`${where}: terms`).toBe(terms.length);
+          expect(new Set(terms).size, `${where}: terms`).toBe(terms.length);
           const labels = (s.links ?? []).map((l) => l.label);
-          expect(new Set(labels).size).withContext(`${where}: links`).toBe(labels.length);
+          expect(new Set(labels).size, `${where}: links`).toBe(labels.length);
           for (const text of strings(s)) {
-            expect(text.split('**').length % 2)
-              .withContext(`${where}: unclosed bold in “${text}”`)
-              .toBe(1);
+            expect(text.split('**').length % 2, `${where}: unclosed bold in “${text}”`).toBe(1);
           }
         });
       });
@@ -109,7 +105,7 @@ describe('Vietnamese Help: the basics, sessions and remote topics', () => {
         const english = new Set((en.keywords ?? []).map((k) => k.toLowerCase()));
         expect(vi.keywords?.length).toBeGreaterThan(0);
         for (const k of vi.keywords ?? []) {
-          expect(english.has(k.toLowerCase())).withContext(k).toBeFalse();
+          expect(english.has(k.toLowerCase()), k).toBe(false);
         }
       });
     });
@@ -118,7 +114,7 @@ describe('Vietnamese Help: the basics, sessions and remote topics', () => {
   it('holds exactly these topics, and the Vietnamese Help uses them', () => {
     expect(Object.keys(VI_TOPICS_A).sort()).toEqual([...IDS].sort());
     for (const id of IDS) {
-      expect(VI_HELP.topics[id]).withContext(id).toBe(VI_TOPICS_A[id]);
+      expect(VI_HELP.topics[id], id).toBe(VI_TOPICS_A[id]);
     }
   });
 });

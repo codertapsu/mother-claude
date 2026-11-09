@@ -1,6 +1,7 @@
 import { Component } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { Router, provideRouter } from '@angular/router';
+import type { MockInstance } from 'vitest';
 
 import { FolderChoiceService } from './folder-choice.service';
 import { FakeBackend, flush, useFakeServer } from './mock/fake-server.testing';
@@ -33,14 +34,14 @@ describe('SessionActionsService: a conversation from another computer', () => {
   let backend: FakeBackend;
   let actions: SessionActionsService;
   let choices: FolderChoiceService;
-  let errors: jasmine.Spy;
+  let errors: MockInstance;
 
   beforeEach(() => {
     backend = new FakeBackend();
     useFakeServer(backend, [provideRouter([{ path: 'session/:id', component: BlankComponent }])]);
     actions = TestBed.inject(SessionActionsService);
     choices = TestBed.inject(FolderChoiceService);
-    errors = spyOn(TestBed.inject(NoticeService), 'error').and.callThrough();
+    errors = vi.spyOn(TestBed.inject(NoticeService), 'error');
   });
 
   afterEach(() => setActiveMock(null));
@@ -60,7 +61,7 @@ describe('SessionActionsService: a conversation from another computer', () => {
       suggestions: [HERE],
       machines: [{ id: 'm1', name: 'marcus-mbp', os: 'macos' }],
     });
-    expect(actions.busy().has(ID)).toBeFalse();
+    expect(actions.busy().has(ID)).toBe(false);
 
     choices.answer(HERE);
     expect(await done).toBe(ID);
@@ -102,7 +103,7 @@ describe('SessionActionsService: a conversation from another computer', () => {
     await flush();
     choices.answer(HERE);
     const res = await done;
-    expect(res.ok).toBeFalse();
+    expect(res.ok).toBe(false);
     expect(res.ok ? undefined : res.folder).toBe(HERE);
     expect(backend.bodyOf(`POST /sessions/${ID}/continue`)).toEqual({
       account: 'acc_work',
@@ -119,7 +120,7 @@ describe('SessionActionsService: a conversation from another computer', () => {
       { id: 'acc_work', name: 'Work' },
       HERE,
     );
-    expect(again.ok).toBeTrue();
+    expect(again.ok).toBe(true);
     expect(choices.question()).toBeNull();
 
     // Closed: cancelled, for the sheet to show nothing.
@@ -128,6 +129,6 @@ describe('SessionActionsService: a conversation from another computer', () => {
     await flush();
     choices.answer(null);
     const res2 = await closed;
-    expect(res2.ok ? false : res2.cancelled).toBeTrue();
+    expect(res2.ok ? false : res2.cancelled).toBe(true);
   });
 });

@@ -63,13 +63,13 @@ describe('fleetCounts', () => {
     );
     expect(priced.costToday).toBe(3);
     expect(priced.todaySessions).toBe(2);
-    expect(priced.priced).toBeTrue();
+    expect(priced.priced).toBe(true);
 
     const unpriced = fleetCounts(
       [s({ lastActivityAt: 2_000, usage: { input: 10, output: 5 } })],
       midnight,
     );
-    expect(unpriced.priced).toBeFalse();
+    expect(unpriced.priced).toBe(false);
     expect(unpriced.tokensToday).toBe(15);
   });
 });
@@ -150,7 +150,7 @@ describe('compactPlan', () => {
     expect(compactPlan(null, NOW)).toBeNull();
     expect(compactPlan(u({ available: false }), NOW)).toBeNull();
     const later = compactPlan(u(), NOW + 3 * H);
-    expect(later?.meters[0]).toEqual(jasmine.objectContaining({ pct: 0, left: '' }));
+    expect(later?.meters[0]).toEqual(expect.objectContaining({ pct: 0, left: '' }));
   });
 });
 

@@ -144,7 +144,7 @@ describe('TeamsComponent', () => {
       sheet.detectChanges();
       const s = el.querySelector(`select[name="${name}"]`) as HTMLSelectElement;
       const option = [...s.options].find((o) => (o.textContent ?? '').trim().startsWith(text));
-      expect(option).withContext(`${name}: ${text}`).toBeDefined();
+      expect(option, `${name}: ${text}`).toBeDefined();
       s.value = option?.value ?? '';
       s.dispatchEvent(new Event('change'));
       sheet.detectChanges();
@@ -155,12 +155,12 @@ describe('TeamsComponent', () => {
     await select('template', 'Mine');
     expect(el.textContent).toContain('A role runs without permission prompts.');
     const submit = el.querySelector('button[type="submit"]') as HTMLButtonElement;
-    expect(submit.disabled).toBeTrue();
+    expect(submit.disabled).toBe(true);
     // Back to a safe template: it starts.
     await select('template', 'Software delivery');
     expect(el.textContent).not.toContain('A role runs without permission prompts.');
     await select('effort-frontend', 'high');
-    expect(submit.disabled).toBeFalse();
+    expect(submit.disabled).toBe(false);
     let started: TeamView | undefined;
     sheet.componentInstance.started.subscribe((t: TeamView) => (started = t));
     submit.click();

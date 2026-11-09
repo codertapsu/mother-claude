@@ -56,7 +56,7 @@ describe('IdentityWarningComponent', () => {
     expect(text(el.querySelector('p'))).toBe(
       'It signed in as a different Claude account than before. Now: other@example.com.',
     );
-    const started = jasmine.createSpy('started');
+    const started = vi.fn();
     fixture.componentInstance.started.subscribe(started);
     button(el, 'Sign in again')?.click();
     await flush();

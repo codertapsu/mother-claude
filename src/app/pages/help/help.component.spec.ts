@@ -171,10 +171,10 @@ describe('Help content', () => {
     const ids = HELP_TOPICS.map((t) => t.id);
     expect(new Set(ids).size).toBe(ids.length);
     for (const t of HELP_TOPICS) {
-      expect(t.summary).withContext(t.id).toBeTruthy();
-      expect(t.sections.length).withContext(t.id).toBeGreaterThan(0);
+      expect(t.summary, t.id).toBeTruthy();
+      expect(t.sections.length, t.id).toBeGreaterThan(0);
       const sectionIds = t.sections.map((s) => s.id);
-      expect(new Set(sectionIds).size).withContext(t.id).toBe(sectionIds.length);
+      expect(new Set(sectionIds).size, t.id).toBe(sectionIds.length);
     }
   });
 
@@ -185,14 +185,15 @@ describe('Help content', () => {
         const target = link.path.match(/^\/help\/([^/]+)$/);
         if (target) {
           const topic = helpTopic(target[1]);
-          expect(topic).withContext(where).toBeDefined();
+          expect(topic, where).toBeDefined();
           if (link.fragment) {
-            expect(topic?.sections.map((s) => s.id))
-              .withContext(where)
-              .toContain(link.fragment);
+            expect(
+              topic?.sections.map((s) => s.id),
+              where,
+            ).toContain(link.fragment);
           }
         } else {
-          expect(pagePaths.has(link.path)).withContext(where).toBeTrue();
+          expect(pagePaths.has(link.path), where).toBe(true);
         }
       }
     }

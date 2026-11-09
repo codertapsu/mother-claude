@@ -164,7 +164,7 @@ describe('BridgeComponent servers', () => {
     expect(backend.bodyOf('POST /bridge/start')).toEqual({
       defaults: { cwd: '/Users/me/dev', permissionMode: 'default' },
     });
-    expect(backend.calls.some((c) => c.includes('/bridge/servers'))).toBeFalse();
+    expect(backend.calls.some((c) => c.includes('/bridge/servers'))).toBe(false);
   });
 
   it('lists the servers, main first, with state, port, account and tunnel', async () => {
@@ -223,7 +223,7 @@ describe('BridgeComponent servers', () => {
       defaults: Record<string, unknown>;
     };
     expect(body.defaults).toEqual(
-      jasmine.objectContaining({
+      expect.objectContaining({
         account: MOCK_ACCOUNT_WORK,
         accountOnly: true,
         cwd: '/Users/me/acme',
@@ -304,14 +304,14 @@ describe('BridgeComponent servers', () => {
       'Its account was removed, so it cannot start',
     );
     const start = button('Start Personal');
-    expect(start.disabled).toBeTrue();
+    expect(start.disabled).toBe(true);
     const picker = [...el.querySelectorAll<HTMLSelectElement>('select')].find((s) =>
       [...s.options].some((o) => text(o) === 'A removed account'),
     )!;
     picker.value = '';
     picker.dispatchEvent(new Event('change'));
     await settle();
-    expect(button('Start Personal').disabled).toBeFalse();
+    expect(button('Start Personal').disabled).toBe(false);
   });
 
   it("saves a stopped server's defaults without starting it", async () => {
@@ -323,8 +323,8 @@ describe('BridgeComponent servers', () => {
     }));
     await click('Save without starting');
     expect(backend.bodyOf('PATCH /bridge/servers/personal')).toEqual(
-      jasmine.objectContaining({
-        defaults: jasmine.objectContaining({ account: MOCK_ACCOUNT_PRO, accountOnly: true }),
+      expect.objectContaining({
+        defaults: expect.objectContaining({ account: MOCK_ACCOUNT_PRO, accountOnly: true }),
       }),
     );
     expect(text(el.querySelector('.said'))).toBe('Saved: Personal starts with these settings.');
@@ -343,7 +343,7 @@ describe('BridgeComponent servers', () => {
     const only = [...el.querySelectorAll<HTMLLabelElement>('label.check')].find((l) =>
       text(l).startsWith('Only this account'),
     )!;
-    expect(only.querySelector('input')!.checked).toBeTrue();
+    expect(only.querySelector('input')!.checked).toBe(true);
   });
 
   it('tells a phone that restarting a server open to tunnels closes it', async () => {

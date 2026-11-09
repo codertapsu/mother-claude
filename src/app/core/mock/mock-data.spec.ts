@@ -18,8 +18,8 @@ describe('MockData backups (the mock backend of Backup & sync, as the server ans
   let mock: MockData;
 
   beforeEach(() => {
-    jasmine.clock().install();
-    jasmine.clock().mockDate(new Date(1_800_000_000_000));
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(1_800_000_000_000));
     desktop = true;
     const accounts: AccountView[] = [
       accountFixture({ id: 'default', name: 'Default', isDefault: true, dir: '/u/.claude' }),
@@ -37,7 +37,7 @@ describe('MockData backups (the mock backend of Backup & sync, as the server ans
     mock = new MockData(host);
   });
 
-  afterEach(() => jasmine.clock().uninstall());
+  afterEach(() => vi.useRealTimers());
 
   const call = async (path: string, method: string, body?: unknown, q = '') => {
     const res = await mock.route(path, method, body, new URLSearchParams(q));
@@ -48,7 +48,7 @@ describe('MockData backups (the mock backend of Backup & sync, as the server ans
     await call('/backup/settings', 'PUT', { folder: '/Volumes/NAS/MotherClaude' });
     await call('/backup/passphrase', 'POST', { passphrase: 'correct horse battery staple' });
     const first = await call('/backup/push', 'POST', {});
-    jasmine.clock().tick(2_000);
+    vi.advanceTimersByTime(2_000);
     return first;
   };
 
@@ -74,10 +74,10 @@ describe('MockData backups (the mock backend of Backup & sync, as the server ans
     expect([a1.action, a1.differs]).toEqual(['localNewer', true]);
     const res = await call('/backup/pull', 'POST', { account: 'default', force: true });
     expect(res?.status).toBe(202);
-    jasmine.clock().tick(2_000);
+    vi.advanceTimersByTime(2_000);
     const done = await job(res?.body.jobs[0]);
     expect(done.state).toBe('done');
-    expect(done.result.force).toBeTrue();
+    expect(done.result.force).toBe(true);
     expect(done.result.replaced).toEqual(['a1']);
     expect(done.result.conflicts).toEqual([]);
     expect(done.result.skipped.map((x: { id: string; code: string }) => [x.id, x.code])).toEqual([
@@ -94,9 +94,9 @@ describe('MockData backups (the mock backend of Backup & sync, as the server ans
     // A second force answers the first.
     const again = await call('/backup/push', 'POST', { force: true });
     expect(again?.body.jobs[0]).toBe(forced?.body.jobs[0]);
-    jasmine.clock().tick(2_000);
+    vi.advanceTimersByTime(2_000);
     const done = await job(forced?.body.jobs[0]);
-    expect(done.result.force).toBeTrue();
+    expect(done.result.force).toBe(true);
   });
 
   it('keeps folder pairs as the server does: checked, listed, never twice, removed', async () => {
@@ -146,7 +146,7 @@ describe('MockData backups (the mock backend of Backup & sync, as the server ans
       await call('/backup/settings', 'PUT', { folder: 'D:\\Backups\\Mother Claude' });
       await call('/backup/passphrase', 'POST', { passphrase: 'correct horse battery staple' });
       await call('/backup/push', 'POST', {});
-      jasmine.clock().tick(2_000);
+      vi.advanceTimersByTime(2_000);
       // A machine that has not said its system yet.
       const box = 'ab'.repeat(16);
       mock.noteMachine('default', box, 'linux-box');
@@ -183,10 +183,10 @@ describe('MockData backups (the mock backend of Backup & sync, as the server ans
       ids: ['a1'],
       force: true,
     });
-    jasmine.clock().tick(2_000);
+    vi.advanceTimersByTime(2_000);
     const done = await job(res?.body.job);
     expect(done.result.replaced).toEqual(['a1']);
-    expect(done.result.force).toBeTrue();
+    expect(done.result.force).toBe(true);
     expect(done.sessions).toEqual(['a1']);
   });
 });

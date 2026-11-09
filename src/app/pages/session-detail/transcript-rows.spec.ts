@@ -48,8 +48,8 @@ describe('buildRows', () => {
     const events = [tool('t1'), result('t1')];
     const a = buildRows(events);
     const b = buildRows(events);
-    expect(sameRow(a[0], b[0])).toBeTrue();
+    expect(sameRow(a[0], b[0])).toBe(true);
     const c = buildRows([tool('t1')]);
-    expect(sameRow(a[0], c[0])).toBeFalse();
+    expect(sameRow(a[0], c[0])).toBe(false);
   });
 });

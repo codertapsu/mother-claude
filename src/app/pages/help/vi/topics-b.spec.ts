@@ -65,7 +65,7 @@ describe('Vietnamese Help, topics B', () => {
   it('translates its topics, and only those', () => {
     expect(Object.keys(VI_TOPICS_B).sort()).toEqual([...IDS].sort());
     for (const id of Object.keys(VI_TOPICS_A)) {
-      expect(IDS).withContext(`${id} is in topics-a`).not.toContain(id);
+      expect(IDS, `${id} is in topics-a`).not.toContain(id);
     }
   });
 
@@ -75,8 +75,8 @@ describe('Vietnamese Help, topics B', () => {
       const vi = VI_TOPICS_B[id]!;
 
       it('exists, with the English id, icon and group', () => {
-        expect(en).withContext('English topic').toBeDefined();
-        expect(vi).withContext('Vietnamese topic').toBeDefined();
+        expect(en, 'English topic').toBeDefined();
+        expect(vi, 'Vietnamese topic').toBeDefined();
         expect(vi.id).toBe(id);
         expect(vi.icon).toBe(en.icon);
         expect(vi.group).toBe(en.group);
@@ -88,40 +88,28 @@ describe('Vietnamese Help, topics B', () => {
         vi.sections.forEach((s, i) => {
           const e = en.sections[i];
           const where = `${id} §${i + 1} “${e.heading}”`;
-          expect(s.id).withContext(`${where}: an own id`).toBeUndefined();
-          expect(s.where).withContext(`${where}: where`).toBe(e.where);
-          expect(s.embed).withContext(`${where}: embed`).toBe(e.embed);
-          expect(!!s.intro).withContext(`${where}: intro`).toBe(!!e.intro);
+          expect(s.id, `${where}: an own id`).toBeUndefined();
+          expect(s.where, `${where}: where`).toBe(e.where);
+          expect(s.embed, `${where}: embed`).toBe(e.embed);
+          expect(!!s.intro, `${where}: intro`).toBe(!!e.intro);
           for (const key of LISTS) {
-            expect(s[key]?.length ?? 0)
-              .withContext(`${where}: ${key}`)
-              .toBe(e[key]?.length ?? 0);
+            expect(s[key]?.length ?? 0, `${where}: ${key}`).toBe(e[key]?.length ?? 0);
           }
-          expect(s.terms?.length ?? 0)
-            .withContext(`${where}: terms`)
-            .toBe(e.terms?.length ?? 0);
-          expect(s.links?.length ?? 0)
-            .withContext(`${where}: links`)
-            .toBe(e.links?.length ?? 0);
+          expect(s.terms?.length ?? 0, `${where}: terms`).toBe(e.terms?.length ?? 0);
+          expect(s.links?.length ?? 0, `${where}: links`).toBe(e.links?.length ?? 0);
         });
       });
 
       it('keeps the code of every line, and closes every bold', () => {
-        expect(codes(vi.intro)).withContext(`${id}: intro`).toEqual(codes(en.intro));
+        expect(codes(vi.intro), `${id}: intro`).toEqual(codes(en.intro));
         vi.sections.forEach((s, i) => {
           for (const [e, v] of pairs(en.sections[i], s)) {
-            expect(v)
-              .withContext(`${id} §${i + 1}: “${e}”`)
-              .toBeTruthy();
-            expect(codes(v))
-              .withContext(`${id} §${i + 1}: “${e}”`)
-              .toEqual(codes(e));
+            expect(v, `${id} §${i + 1}: “${e}”`).toBeTruthy();
+            expect(codes(v), `${id} §${i + 1}: “${e}”`).toEqual(codes(e));
           }
         });
         for (const text of strings(vi)) {
-          expect(text.split('**').length % 2)
-            .withContext(`${id}: “${text}”`)
-            .toBe(1);
+          expect(text.split('**').length % 2, `${id}: “${text}”`).toBe(1);
         }
       });
 
@@ -152,11 +140,11 @@ describe('Vietnamese Help, topics B', () => {
       await new Promise((resolve) => setTimeout(resolve, 10));
     }
     for (const id of IDS) {
-      expect(localizedTopic(id)?.title).withContext(id).toBe(VI_TOPICS_B[id]?.title);
+      expect(localizedTopic(id)?.title, id).toBe(VI_TOPICS_B[id]?.title);
     }
     await useLanguage('en');
     for (const id of IDS) {
-      expect(localizedTopic(id)?.title).withContext(id).toBe(helpTopic(id)?.title);
+      expect(localizedTopic(id)?.title, id).toBe(helpTopic(id)?.title);
     }
   });
 });

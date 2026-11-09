@@ -100,7 +100,7 @@ describe('ApiServerSheetComponent', () => {
     expect(field<HTMLInputElement>(el, 'cwd').value).toBe('/Users/me/dev');
     // A mode this form doesn't offer becomes "Ask me".
     expect(field<HTMLSelectElement>(el, 'permissionMode').value).toBe('default');
-    expect(field<HTMLInputElement>(el, 'isolate').checked).toBeTrue();
+    expect(field<HTMLInputElement>(el, 'isolate').checked).toBe(true);
     await type(el, 'name', 'Lab');
     await type(el, 'port', '5620');
     backend.routes.set('/bridge/servers', () => ({
@@ -127,7 +127,7 @@ describe('ApiServerSheetComponent', () => {
     const el = await open();
     expect(field(el, 'only')).toBeNull();
     await choose(el, 'account', MOCK_ACCOUNT_WORK);
-    expect(field<HTMLInputElement>(el, 'only').checked).toBeTrue();
+    expect(field<HTMLInputElement>(el, 'only').checked).toBe(true);
     expect(text(el.querySelector('label.check'))).toContain('every conversation runs as Work');
     await choose(el, 'account', '');
     expect(field(el, 'only')).toBeNull();
@@ -135,10 +135,10 @@ describe('ApiServerSheetComponent', () => {
 
   it('checks the name and the port before asking the server', async () => {
     const el = await open();
-    expect(submit(el).disabled).toBeTrue();
+    expect(submit(el).disabled).toBe(true);
     await type(el, 'name', 'work');
     expect(text(el)).toContain('Another API server is called that.');
-    expect(submit(el).disabled).toBeTrue();
+    expect(submit(el).disabled).toBe(true);
     await type(el, 'name', 'Lab');
     await type(el, 'port', '5613');
     expect(text(el)).toContain('Work uses that port.');
@@ -146,7 +146,7 @@ describe('ApiServerSheetComponent', () => {
     expect(text(el)).toContain('Enter a port from 1024 to 65535, or leave it empty.');
     await type(el, 'port', '');
     expect(text(el)).toContain('Empty: the first free port from 5613.');
-    expect(submit(el).disabled).toBeFalse();
+    expect(submit(el).disabled).toBe(false);
   });
 
   it('says whose a refused port is', async () => {
@@ -175,7 +175,7 @@ describe('ApiServerSheetComponent', () => {
       // No account or defaults here: those are on its panel.
       expect(field(el, 'account')).toBeNull();
       expect(field(el, 'cwd')).toBeNull();
-      expect(submit(el).disabled).toBeTrue();
+      expect(submit(el).disabled).toBe(true);
       await type(el, 'name', 'Acme');
       backend.routes.set('/bridge/servers/work', () => ({
         status: 200,

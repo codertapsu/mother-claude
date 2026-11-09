@@ -122,7 +122,7 @@ describe('move data helpers', () => {
       available: false,
       sets: [{ name: 'Shared', exists: true, keyMissing: false, sessions: 3, archived: 1 }],
     });
-    expect(list[0].available).toBeTrue();
+    expect(list[0].available).toBe(true);
   });
 
   it('makes the backup folder the only storage when the server lists none', () => {
@@ -175,9 +175,9 @@ describe('move data helpers', () => {
     expect(locationFromKey('')).toBeNull();
     expect(newSetStorage(newSetKey('stor_1'))).toBe('stor_1');
     expect(newSetStorage('a:default')).toBe('');
-    expect(sameLocation(set, setLocation('stor_1', 'A: b'))).toBeTrue();
-    expect(sameLocation(set, accountLocation('stor_1'))).toBeFalse();
-    expect(sameLocation(null, null)).toBeTrue();
+    expect(sameLocation(set, setLocation('stor_1', 'A: b'))).toBe(true);
+    expect(sameLocation(set, accountLocation('stor_1'))).toBe(false);
+    expect(sameLocation(null, null)).toBe(true);
   });
 
   it('knows which way data goes', () => {
@@ -207,11 +207,11 @@ describe('move data helpers', () => {
     expect(whatProblem('customizations', 'assign')).toContain('only between accounts');
     expect(whatProblem('projects', 'mixed', true)).toBe('Choose where they come from first.');
     expect(whatProblem('sessions', 'mixed', true)).toBe('');
-    expect(trustApplies('between', 'projects')).toBeTrue();
-    expect(trustApplies('fromStorage', 'all')).toBeTrue();
-    expect(trustApplies('toStorage', 'sessions')).toBeFalse();
-    expect(trustApplies('assign', 'sessions')).toBeFalse();
-    expect(trustApplies('between', 'customizations')).toBeFalse();
+    expect(trustApplies('between', 'projects')).toBe(true);
+    expect(trustApplies('fromStorage', 'all')).toBe(true);
+    expect(trustApplies('toStorage', 'sessions')).toBe(false);
+    expect(trustApplies('assign', 'sessions')).toBe(false);
+    expect(trustApplies('between', 'customizations')).toBe(false);
     expect(modeHint('move', 'toStorage', 'sessions', 'Work', 'Google Drive · Shared')).toContain(
       'in storage only',
     );
@@ -315,9 +315,9 @@ describe('move data helpers', () => {
       writesShared: true,
       truncated: true,
     });
-    expect(
-      normalizeMovePlan({ mode: 'copy', truncated: { sessions: true } })?.truncated,
-    ).toBeTrue();
+    expect(normalizeMovePlan({ mode: 'copy', truncated: { sessions: true } })?.truncated).toBe(
+      true,
+    );
     expect(normalizeMovePlan({ mode: 'copy' })?.jobs).toBe(1);
     expect(normalizeMovePlan({ mode: 'teleport' })).toBeNull();
   });
@@ -412,7 +412,7 @@ describe('move data helpers', () => {
       ['iCloud Drive · New set…', false],
     ]);
     expect(to[2].label).toBe('Google Drive (not available)');
-    expect(to[2].options.every((o) => o.disabled)).toBeTrue();
+    expect(to[2].options.every((o) => o.disabled)).toBe(true);
     expect(locationGroups([DEFAULT], [], 'to')[0].options[0].label).toBe('Default');
     // The server calls the backup folder "Backup folder": said once.
     expect(locationGroups([DEFAULT], [{ ...ICLOUD, label: 'Backup folder' }], 'to')[1].label).toBe(

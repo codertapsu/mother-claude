@@ -30,11 +30,11 @@ describe('switch account helpers', () => {
     expect(switchMode(s({}))).toBe('here');
     expect(switchMode(s({ owned: false, surface: 'vscode' }))).toBe('elsewhere');
     expect(switchMode(s({ live: false, owned: false }))).toBe('later');
-    expect(switchBusy(s({ status: 'working' }))).toBeTrue();
-    expect(switchBusy(s({ activity: { kind: 'tool', label: 'Running Bash' } }))).toBeTrue();
+    expect(switchBusy(s({ status: 'working' }))).toBe(true);
+    expect(switchBusy(s({ activity: { kind: 'tool', label: 'Running Bash' } }))).toBe(true);
     // Background tasks are no turn.
-    expect(switchBusy(s({ activity: { kind: 'background', label: 'Waiting' } }))).toBeFalse();
-    expect(switchBusy(s({ live: false, status: 'working' }))).toBeFalse();
+    expect(switchBusy(s({ activity: { kind: 'background', label: 'Waiting' } }))).toBe(false);
+    expect(switchBusy(s({ live: false, status: 'working' }))).toBe(false);
     expect(elsewhereText(s({ surface: 'vscode' }))).toBe(
       "It runs in VS Code: its account can't change while it runs there.",
     );
@@ -85,11 +85,11 @@ describe('switch account helpers', () => {
 
   it('knows a conversation of the API by its limit', () => {
     const limits = [{ code: 'bridge_thread', text: 'A conversation of the API.' }];
-    expect(isBridgeThread(s({ control: { limits } as SessionSummary['control'] }))).toBeTrue();
+    expect(isBridgeThread(s({ control: { limits } as SessionSummary['control'] }))).toBe(true);
     expect(
       isBridgeThread(s({ control: { limits: [] } as unknown as SessionSummary['control'] })),
-    ).toBeFalse();
-    expect(isBridgeThread(undefined)).toBeFalse();
+    ).toBe(false);
+    expect(isBridgeThread(undefined)).toBe(false);
   });
 
   it('puts a switch and its refusals in words', () => {

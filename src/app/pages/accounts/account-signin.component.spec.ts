@@ -69,7 +69,7 @@ describe('AccountSignInComponent', () => {
     const el = await render(work, view);
     const b = button(el, 'Waiting for');
     expect(text(b)).toBe("Waiting for Marcus (Pro)'s sign-in");
-    expect(b?.disabled).toBeTrue();
+    expect(b?.disabled).toBe(true);
     // Signing in again asks for the same Claude account.
     expect(text(el)).toContain('it asks for work@example.com again');
   });

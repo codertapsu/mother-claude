@@ -38,10 +38,10 @@ describe('session settings texts', () => {
 
   it('tells a model without effort levels apart from an unknown effort', () => {
     // Claude Code applied nothing: the model has no effort levels (Haiku).
-    expect(noEffortLevels(s({ effortSource: 'applied' }))).toBeTrue();
-    expect(noEffortLevels(s({}))).toBeFalse();
-    expect(noEffortLevels(s({ effortSource: 'requested' }))).toBeFalse();
-    expect(noEffortLevels(s({ effort: 'high', effortSource: 'applied' }))).toBeFalse();
+    expect(noEffortLevels(s({ effortSource: 'applied' }))).toBe(true);
+    expect(noEffortLevels(s({}))).toBe(false);
+    expect(noEffortLevels(s({ effortSource: 'requested' }))).toBe(false);
+    expect(noEffortLevels(s({ effort: 'high', effortSource: 'applied' }))).toBe(false);
   });
 
   it('dates a transcript ultracode value to the last message', () => {
@@ -179,14 +179,14 @@ describe('session settings texts', () => {
       s({ thinking: { mode: 'off', source }, startedAt: started, lastThinkingAt, usage: tokens });
 
     // This process thought (within the start-up slack, too).
-    expect(thoughtThisRun(off('launch', started - 2_000))).toBeTrue();
-    expect(thoughtThisRun(off('launch', started - 60_000))).toBeFalse();
-    expect(thoughtThisRun(off('launch'))).toBeFalse();
+    expect(thoughtThisRun(off('launch', started - 2_000))).toBe(true);
+    expect(thoughtThisRun(off('launch', started - 60_000))).toBe(false);
+    expect(thoughtThisRun(off('launch'))).toBe(false);
     // An ended session's thinking all counts.
-    expect(thoughtThisRun(s({ live: false, startedAt: started, lastThinkingAt: 1 }))).toBeTrue();
+    expect(thoughtThisRun(s({ live: false, startedAt: started, lastThinkingAt: 1 }))).toBe(true);
 
     const since = off('launch', NOW - M);
-    expect(thinkingOffContradicted(since)).toBeTrue();
+    expect(thinkingOffContradicted(since)).toBe(true);
     expect(thinkingChip(since)?.text).toBe('Thinking 25%');
     expect(thinkingLabel(since)).toBe('Thinking 25%');
     expect(thinkingTitle(since)).toBe(
@@ -197,7 +197,7 @@ describe('session settings texts', () => {
       'Your Claude settings turn thinking off by default',
     );
     // What Mother Claude set stands; an old run's thinking says nothing.
-    expect(thinkingOffContradicted(off('control', NOW - M))).toBeFalse();
+    expect(thinkingOffContradicted(off('control', NOW - M))).toBe(false);
     expect(thinkingLabel(off('control', NOW - M))).toBe('Thinking off');
     expect(thinkingLabel(off('launch', NOW - 60 * M))).toBe('Thinking off');
     expect(explainThinking(off('launch', NOW - 60 * M), NOW)[0]).toBe('Thinking is off.');

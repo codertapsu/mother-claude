@@ -24,11 +24,11 @@ const task = (id: string, over: Partial<BackgroundTask> = {}): BackgroundTask =>
 
 describe('shared/agents', () => {
   it('recognises shells and monitors as tasks, not transcript agents', () => {
-    expect(isTaskAgent({ kind: 'bash' })).toBeTrue();
-    expect(isTaskAgent({ kind: 'monitor' })).toBeTrue();
-    expect(isTaskAgent({ kind: 'subagent' })).toBeFalse();
-    expect(isTaskAgent({ kind: 'workflow-agent' })).toBeFalse();
-    expect(isTaskAgent({ kind: 'teammate' })).toBeFalse();
+    expect(isTaskAgent({ kind: 'bash' })).toBe(true);
+    expect(isTaskAgent({ kind: 'monitor' })).toBe(true);
+    expect(isTaskAgent({ kind: 'subagent' })).toBe(false);
+    expect(isTaskAgent({ kind: 'workflow-agent' })).toBe(false);
+    expect(isTaskAgent({ kind: 'teammate' })).toBe(false);
   });
 
   it('turns a shell agent into its task row, keyed by the task id', () => {

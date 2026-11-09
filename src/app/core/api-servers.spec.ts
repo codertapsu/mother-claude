@@ -106,12 +106,12 @@ describe('API servers: reading the wire', () => {
     expect(list.map((s) => s.id)).toEqual(['main', 'work', 'personal']);
     // The top-level payload is the main server's status, as before.
     expect(list[0]).toEqual(
-      jasmine.objectContaining({ name: 'Main', running: true, port: 5612, prefix: '' }),
+      expect.objectContaining({ name: 'Main', running: true, port: 5612, prefix: '' }),
     );
     expect(list[1]).toEqual(
-      jasmine.objectContaining({ name: 'Work', port: 5613, prefix: '/servers/work' }),
+      expect.objectContaining({ name: 'Work', port: 5613, prefix: '/servers/work' }),
     );
-    expect(list[2].accountMissing).toBeTrue();
+    expect(list[2].accountMissing).toBe(true);
     // `url: null` reads as no URL.
     expect(list[2].url).toBeUndefined();
   });
@@ -135,7 +135,7 @@ describe('API servers: reading the wire', () => {
       accountMissing: 'yes',
     }) as ServerStatus;
     expect(s.name).toBe('lab');
-    expect(s.running).toBeFalse();
+    expect(s.running).toBe(false);
     expect(s.tokenPolicy).toBe('local');
     expect(s.url).toBeUndefined();
     expect(s.tunnelUrl).toBe('https://lab.example');
@@ -143,7 +143,7 @@ describe('API servers: reading the wire', () => {
     expect(s.docsUrl).toBe('http://127.0.0.1:5620/docs/');
     expect(s.prefix).toBe('/servers/lab');
     expect(s.threads.length).toBe(1);
-    expect(s.accountMissing).toBeFalse();
+    expect(s.accountMissing).toBe(false);
     expect(normalizeServer({ name: 'x' })).toBeNull();
     // A prefix that isn't a plain path is made from the id.
     expect(normalizeServer({ id: 'lab', prefix: 'https://evil' })?.prefix).toBe('/servers/lab');
@@ -175,7 +175,7 @@ describe('API servers: reading the wire', () => {
     expect(serverPanel(status, null)).toBe(status);
     const pw = serverPanel(status, w);
     expect(pw).toEqual(
-      jasmine.objectContaining({
+      expect.objectContaining({
         port: 5613,
         url: 'http://127.0.0.1:5613',
         tunnelUrl: 'https://work.ngrok.app',
@@ -192,7 +192,7 @@ describe('API servers: reading the wire', () => {
     const pp = serverPanel(status, p);
     expect(pp.url).toBe('http://127.0.0.1:5614');
     expect(pp.docsUrl).toBe('http://127.0.0.1:5614/docs/');
-    expect(pp.running).toBeFalse();
+    expect(pp.running).toBe(false);
     expect(pp.startedAt).toBeUndefined();
   });
 });
@@ -201,7 +201,7 @@ describe('API servers: answers to actions', () => {
   it("takes a whole payload, keeping the servers when it lists none (the main server's routes)", () => {
     const before = withServers([work]);
     const after = absorbReply(before, main({ running: false }))!;
-    expect(after.running).toBeFalse();
+    expect(after.running).toBe(false);
     expect(serversOf(after).map((s) => s.id)).toEqual(['main', 'work']);
     // With no servers before, the payload is taken as it is.
     expect(absorbReply(main(), main({ running: false }))).toEqual(main({ running: false }));
@@ -213,14 +213,14 @@ describe('API servers: answers to actions', () => {
   it("replaces one server's entry, or adds it", () => {
     const before = withServers([work, personal]);
     const stopped = absorbReply(before, { ...work, running: false })!;
-    expect(serversOf(stopped).find((s) => s.id === 'work')?.running).toBeFalse();
+    expect(serversOf(stopped).find((s) => s.id === 'work')?.running).toBe(false);
     expect(serversOf(stopped).map((s) => s.id)).toEqual(['main', 'work', 'personal']);
     // The first server besides the main one makes the list.
     const added = absorbReply(main(), work)!;
     expect(serversOf(added).map((s) => s.name)).toEqual(['Main', 'Work']);
     // The main server's own status changes the top-level payload.
     const m = absorbReply(before, { id: MAIN_SERVER, name: 'Main', running: false, port: 5612 })!;
-    expect(m.running).toBeFalse();
+    expect(m.running).toBe(false);
     expect(m.claudeAccount).toBe('me@example.com (Max)');
     // Nothing usable: unchanged.
     expect(absorbReply(before, null)).toBe(before);
@@ -231,7 +231,7 @@ describe('API servers: answers to actions', () => {
     const two = withoutServer(withServers([{ id: 'main' }, work, personal]), 'work')!;
     expect(serversOf(two).map((s) => s.id)).toEqual(['main', 'personal']);
     const none = withoutServer(two, 'personal')!;
-    expect('servers' in none).toBeFalse();
+    expect('servers' in none).toBe(false);
     expect(serversOf(none)).toEqual([]);
     expect(withoutServer(main(), 'work')).toEqual(main());
   });
@@ -250,7 +250,7 @@ describe('API servers: the account and the Add form', () => {
       missing: false,
     });
     expect(serverAccount(p, nameOf)).toEqual(
-      jasmine.objectContaining({ name: 'A removed account', missing: true }),
+      expect.objectContaining({ name: 'A removed account', missing: true }),
     );
     expect(serverAccount({ defaults: {}, accountMissing: false }, nameOf)).toEqual({
       name: 'Automatic',

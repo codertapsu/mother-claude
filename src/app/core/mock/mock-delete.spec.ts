@@ -89,11 +89,11 @@ describe('MockDelete (the mock backend of deleting, as the server answers)', () 
     const plan = r?.body.plan;
     expect(plan.from).toBe('default');
     expect(plan.sessions).toEqual([
-      jasmine.objectContaining({ id: 'a1', account: 'default', title: 'Title a1' }),
+      expect.objectContaining({ id: 'a1', account: 'default', title: 'Title a1' }),
     ]);
     expect(plan.skipped).toEqual([
       { id: 'b1', code: 'session_live', message: 'session b1 is running; stop it first' },
-      jasmine.objectContaining({ id: 'zz', code: 'not_found' }),
+      expect.objectContaining({ id: 'zz', code: 'not_found' }),
       {
         id: 'a2',
         title: 'Title a2',
@@ -121,7 +121,7 @@ describe('MockDelete (the mock backend of deleting, as the server answers)', () 
     expect(started.length).toBe(1);
     expect(started[0].done().result).toEqual({
       deleted: [],
-      skipped: [jasmine.objectContaining({ id: 'a2', code: 'session_live' })],
+      skipped: [expect.objectContaining({ id: 'a2', code: 'session_live' })],
     });
   });
 

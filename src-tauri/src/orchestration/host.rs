@@ -14,6 +14,7 @@
 //! measured. "Free" is what the system can hand a new process without
 //! swapping (`sysinfo`'s available memory: free plus reclaimable caches).
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, RwLock};
 
 use serde::Serialize;
@@ -106,6 +107,8 @@ pub fn hardware_cap(running: usize, headroom: usize) -> usize {
 pub struct HostMonitor {
     /// Created on the first sample (cheap: nothing is read until asked).
     sys: Mutex<Option<sysinfo::System>>,
+    /// Whether creating it failed (said once in the log).
+    unavailable: AtomicBool,
     last: RwLock<HostSample>,
 }
 
@@ -139,39 +142,53 @@ impl HostMonitor {
         use sysinfo::{MemoryRefreshKind, Pid, ProcessRefreshKind, ProcessesToUpdate, System};
 
         let mut guard = self.sys.lock().unwrap_or_else(|p| p.into_inner());
-        let sys = guard.get_or_insert_with(System::new);
-        sys.refresh_memory_specifics(MemoryRefreshKind::nothing().with_ram());
-        let pids: Vec<Pid> = procs.iter().map(|(_, pid)| Pid::from_u32(*pid)).collect();
-        if !pids.is_empty() {
-            sys.refresh_processes_specifics(
-                ProcessesToUpdate::Some(&pids),
-                true,
-                ProcessRefreshKind::nothing().with_memory(),
-            );
+        if guard.is_none() {
+            match System::new() {
+                Ok(sys) => *guard = Some(sys),
+                // Tried again at the next sample; said once.
+                Err(e) if !self.unavailable.swap(true, Ordering::Relaxed) => {
+                    tracing::warn!(error = %e, "host memory cannot be read");
+                }
+                Err(_) => {}
+            }
         }
-        let mut sessions: Vec<SessionMemory> = procs
-            .iter()
-            .filter_map(|(id, pid)| {
-                let rss = sys.process(Pid::from_u32(*pid))?.memory();
-                (rss > 0).then(|| SessionMemory {
-                    session_id: id.clone(),
-                    pid: *pid,
-                    rss_bytes: rss,
-                })
-            })
-            .collect();
-        sessions.sort_by_key(|s| std::cmp::Reverse(s.rss_bytes));
-        let sample = HostSample {
+        // Without a reader the sample carries no memory figures, so it is
+        // not `sampled()` and admission goes without them.
+        let mut sample = HostSample {
             sampled_at: now,
-            total_memory: sys.total_memory(),
-            available_memory: sys.available_memory(),
-            used_memory: sys.used_memory(),
             cpus: std::thread::available_parallelism()
                 .map(|n| n.get())
                 .unwrap_or(1),
             load: load_average(),
-            sessions,
+            ..HostSample::default()
         };
+        if let Some(sys) = guard.as_mut() {
+            sys.refresh_memory_specifics(MemoryRefreshKind::nothing().with_ram());
+            let pids: Vec<Pid> = procs.iter().map(|(_, pid)| Pid::from_u32(*pid)).collect();
+            if !pids.is_empty() {
+                sys.refresh_processes_specifics(
+                    ProcessesToUpdate::Some(&pids),
+                    true,
+                    ProcessRefreshKind::nothing().with_memory(),
+                );
+            }
+            let mut sessions: Vec<SessionMemory> = procs
+                .iter()
+                .filter_map(|(id, pid)| {
+                    let rss = sys.process(Pid::from_u32(*pid))?.memory();
+                    (rss > 0).then(|| SessionMemory {
+                        session_id: id.clone(),
+                        pid: *pid,
+                        rss_bytes: rss,
+                    })
+                })
+                .collect();
+            sessions.sort_by_key(|s| std::cmp::Reverse(s.rss_bytes));
+            sample.total_memory = sys.total_memory();
+            sample.available_memory = sys.available_memory();
+            sample.used_memory = sys.used_memory();
+            sample.sessions = sessions;
+        }
         drop(guard);
         self.set(sample.clone());
         sample
@@ -180,11 +197,11 @@ impl HostMonitor {
 
 #[cfg(not(windows))]
 fn load_average() -> Option<[f64; 3]> {
-    let l = sysinfo::System::load_average();
-    [l.one, l.five, l.fifteen]
-        .iter()
+    let l = sysinfo::System::load_average().ok()?;
+    let load = [l.one, l.five, l.fifteen];
+    load.iter()
         .all(|v| v.is_finite() && *v >= 0.0)
-        .then_some([l.one, l.five, l.fifteen])
+        .then_some(load)
 }
 
 /// Windows keeps no load average (`sysinfo` answers zeros).

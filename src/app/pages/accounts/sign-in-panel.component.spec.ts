@@ -194,7 +194,7 @@ describe('SignInPanelComponent', () => {
         state: 'open',
         startedAt: 1,
       });
-      expect(el.querySelector('input[name="code"]')).withContext(a.name).not.toBeNull();
+      expect(el.querySelector('input[name="code"]'), a.name).not.toBeNull();
       expect(text(el)).toContain(
         'After you approve in the browser, Claude shows a code: copy it and paste it here.',
       );
@@ -287,7 +287,7 @@ describe('SignInPanelComponent', () => {
 
   it('tells its host how the sign-in ended', async () => {
     await render(work, { kind: 'login', state: 'open', startedAt: 1 });
-    const ended = jasmine.createSpy('ended');
+    const ended = vi.fn();
     fixture.componentInstance.finished.subscribe(ended);
     backend.routes.set(`/accounts/${MOCK_ACCOUNT_WORK}`, () => ({
       status: 200,

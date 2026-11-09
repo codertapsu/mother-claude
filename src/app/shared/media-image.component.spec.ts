@@ -20,7 +20,7 @@ describe('MediaImageComponent', () => {
         },
       ],
     });
-    const create = spyOn(URL, 'createObjectURL').and.callThrough();
+    const create = vi.spyOn(URL, 'createObjectURL');
     const fixture = TestBed.createComponent(MediaImageComponent);
     fixture.componentRef.setInput('ref', '/api/sessions/s1/media/1/u/0');
     document.body.appendChild(fixture.nativeElement);
@@ -30,7 +30,7 @@ describe('MediaImageComponent', () => {
     expect(deliver).toBeDefined();
     fixture.destroy();
     (fixture.nativeElement as HTMLElement).remove();
-    expect(signal?.aborted).toBeTrue();
+    expect(signal?.aborted).toBe(true);
     deliver(new Blob(['x'], { type: 'image/png' }));
     await new Promise((r) => setTimeout(r, 0));
     expect(create).not.toHaveBeenCalled();

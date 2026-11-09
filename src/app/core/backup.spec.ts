@@ -108,8 +108,8 @@ describe('backup helpers', () => {
       [undefined, true],
     ]);
     expect(ownSets(v!.sets).map((x) => x.account)).toEqual(['default', 'acc_5f1c9e2b7a40']);
-    expect(v?.passphraseChangeUnfinished).toBeTrue();
-    expect(normalizeBackupView({ settings: {} })?.passphraseChangeUnfinished).toBeFalse();
+    expect(v?.passphraseChangeUnfinished).toBe(true);
+    expect(normalizeBackupView({ settings: {} })?.passphraseChangeUnfinished).toBe(false);
     expect(v?.suggestions).toEqual([{ label: 'iCloud Drive', path: '/i' }]);
     expect(v?.jobs.map((j) => j.id)).toEqual(['j']);
     // No folder: null, not an empty string.
@@ -301,7 +301,7 @@ describe('backup helpers', () => {
     });
     expect(v?.machines).toEqual([{ id: 'w1', name: 'PC', os: 'windows' }]);
     expect(v?.pairs.map((p) => p.id)).toEqual(['fp_1']);
-    expect(v?.pairs[0].folders[1].here).toBeFalse();
+    expect(v?.pairs[0].folders[1].here).toBe(false);
     expect(normalizeFolderPairs({})).toBeNull();
     expect(osLabel('windows')).toBe('Windows');
     expect(osLabel('macos')).toBe('macOS');
@@ -316,14 +316,10 @@ describe('backup helpers', () => {
     const windows =
       "Enter the folder's full path, starting with a drive like C:\\ or a share like \\\\server\\share.";
     for (const ok of ['D:\\dev', 'd:/dev', '\\\\nas\\share']) {
-      expect(otherFolderProblem(ok, 'windows', 'macos'))
-        .withContext(ok)
-        .toBe('');
+      expect(otherFolderProblem(ok, 'windows', 'macos'), ok).toBe('');
     }
     for (const bad of ['/Users/m/dev', '~\\dev', 'dev']) {
-      expect(otherFolderProblem(bad, 'windows', 'macos'))
-        .withContext(bad)
-        .toBe(windows);
+      expect(otherFolderProblem(bad, 'windows', 'macos'), bad).toBe(windows);
     }
     expect(otherFolderProblem('/Users/m/dev', 'macos', 'windows')).toBe('');
     expect(otherFolderProblem('D:\\dev', 'linux', 'windows')).toBe(
@@ -461,7 +457,7 @@ describe('backup helpers', () => {
     });
     // An older server's result has none of them.
     expect(normalizePushResult({ archived: [] })).toEqual(
-      jasmine.objectContaining({ conflicts: [], newerInSet: [], warnings: [], removed: 0 }),
+      expect.objectContaining({ conflicts: [], newerInSet: [], warnings: [], removed: 0 }),
     );
   });
 
@@ -520,7 +516,7 @@ describe('backup helpers', () => {
       sameName: false,
     });
     // Two entries with this Mac's name: another Mac has it too.
-    expect(otherMachines([m('a', 'mbp'), m('c', 'mbp')], 'mbp').sameName).toBeTrue();
+    expect(otherMachines([m('a', 'mbp'), m('c', 'mbp')], 'mbp').sameName).toBe(true);
     // With this Mac's id, the other Mac of the same name is listed itself.
     expect(otherMachines([m('a', 'mbp'), m('c', 'mbp'), m('b', 'air')], 'mbp', 'a')).toEqual({
       others: [m('c', 'mbp'), m('b', 'air')],

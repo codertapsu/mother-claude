@@ -64,7 +64,7 @@ describe('DataJobsService', () => {
       status: 404,
       body: { error: { code: 'job_not_found', message: 'No such data job.' } },
     }));
-    await expectAsync(jobs.follow('gone', () => undefined)).toBeRejected();
+    await expect(jobs.follow('gone', () => undefined)).rejects.toThrow();
     expect(backend.calls.filter((c) => c === 'GET /data/jobs/gone').length).toBe(4);
   });
 });

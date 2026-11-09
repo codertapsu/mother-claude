@@ -241,7 +241,7 @@ describe('MoveDataSheetComponent', () => {
 
     button(el, 'Copy 1 conversation')?.click();
     await settle();
-    expect(lastMove()['dryRun']).toBeFalse();
+    expect(lastMove()['dryRun']).toBe(false);
     await new Promise((r) => setTimeout(r, 20));
     await settle();
     const row = el.querySelector('mc-data-job');
@@ -260,7 +260,7 @@ describe('MoveDataSheetComponent', () => {
   it('assigns between accounts of the shared folder: nothing moves, copy is not offered', async () => {
     const el = await open({ from: accountLocation('default'), what: 'all' });
     await choose(el, 'to', `a:${MOCK_ACCOUNT_PRO}`);
-    expect(button(el, 'Copy')?.disabled).toBeTrue();
+    expect(button(el, 'Copy')?.disabled).toBe(true);
     expect(button(el, 'Move')?.getAttribute('aria-pressed')).toBe('true');
     expect(text(el)).toContain("Nothing moves: it is recorded as Marcus (Pro)'s");
     expect(text(el)).toContain('a copy there would be the same conversation');
@@ -273,7 +273,7 @@ describe('MoveDataSheetComponent', () => {
     button(el, 'Check what it does')?.click();
     await settle();
     expect(lastMove()).toEqual(
-      jasmine.objectContaining({ to: MOCK_ACCOUNT_PRO, items: { all: true }, mode: 'move' }),
+      expect.objectContaining({ to: MOCK_ACCOUNT_PRO, items: { all: true }, mode: 'move' }),
     );
   });
 
@@ -310,7 +310,7 @@ describe('MoveDataSheetComponent', () => {
     button(el, 'Check what it does')?.click();
     await settle();
     expect(lastMove()).toEqual(
-      jasmine.objectContaining({
+      expect.objectContaining({
         from: 'default',
         to: { storage: DRIVE, set: 'Shared' },
         items: { sessions: ['s1', 's2'] },
@@ -375,7 +375,7 @@ describe('MoveDataSheetComponent', () => {
     button(el, 'Check what it does')?.click();
     await settle();
     expect(lastMove()).toEqual(
-      jasmine.objectContaining({
+      expect.objectContaining({
         from: { storage: DRIVE, set: 'Shared' },
         to: 'default',
         items: { sessions: ['aaaa1111'] },
@@ -402,12 +402,12 @@ describe('MoveDataSheetComponent', () => {
     });
     expect(text(select(el, 'from').selectedOptions[0])).toBe('Where each one is');
     // Only conversations can go from where each one is.
-    expect(button(el, 'Projects')?.disabled).toBeTrue();
+    expect(button(el, 'Projects')?.disabled).toBe(true);
     await choose(el, 'to', 'a:default');
     button(el, 'Check what it does')?.click();
     await settle();
     const body = lastMove();
-    expect('from' in body).toBeFalse();
+    expect('from' in body).toBe(false);
     expect(body['items']).toEqual({ sessions: ['s1', 'w1'] });
     expect(text(el)).toContain('It runs as 2 jobs');
     expect(text(el.querySelector('.plist'))).toContain('from Work');
@@ -441,7 +441,7 @@ describe('MoveDataSheetComponent', () => {
       },
     }));
     const el = await open({ from: accountLocation('default'), what: 'customizations' });
-    expect(button(el, 'Move')?.disabled).toBeTrue();
+    expect(button(el, 'Move')?.disabled).toBe(true);
     expect(text(el)).toContain('Customizations are only ever copied.');
     const boxes = [...el.querySelectorAll<HTMLInputElement>('.custom input[type="checkbox"]')];
     expect(boxes.length).toBe(9);
@@ -473,7 +473,7 @@ describe('MoveDataSheetComponent', () => {
     expect(text(el)).toContain(
       'Customizations are copied only between accounts in different folders.',
     );
-    expect(button(el, 'Check what it does')?.disabled).toBeTrue();
+    expect(button(el, 'Check what it does')?.disabled).toBe(true);
   });
 
   it('keeps the dangerous parts from a device without the right, saying why', async () => {
@@ -484,7 +484,7 @@ describe('MoveDataSheetComponent', () => {
       projects: ['/Users/me/dev/api'],
     });
     const trust = el.querySelector<HTMLInputElement>('.check input')!;
-    expect(trust.disabled).toBeTrue();
+    expect(trust.disabled).toBe(true);
     expect(text(el.querySelector('.check'))).toContain(
       'Needs dangerous actions for this device, granted on the computer in Remote › Devices.',
     );
@@ -502,7 +502,7 @@ describe('MoveDataSheetComponent', () => {
       what: 'all',
     });
     expect(select(el, 'to').value).toBe(`n:${DRIVE}`);
-    expect(button(el, 'Check what it does')?.disabled).toBeTrue();
+    expect(button(el, 'Check what it does')?.disabled).toBe(true);
     const name = el.querySelector<HTMLInputElement>('input[name="newSet"]')!;
     name.value = 'shared';
     name.dispatchEvent(new Event('input'));
@@ -515,7 +515,7 @@ describe('MoveDataSheetComponent', () => {
     button(el, 'Check what it does')?.click();
     await settle();
     expect(lastMove()).toEqual(
-      jasmine.objectContaining({
+      expect.objectContaining({
         from: MOCK_ACCOUNT_WORK,
         to: { storage: DRIVE, set: 'Archive 2026' },
         items: { all: true },
@@ -564,13 +564,13 @@ describe('MoveDataSheetComponent', () => {
     });
     // Pro uses the Default's folder, where s1 is.
     await choose(el, 'to', `a:${MOCK_ACCOUNT_PRO}`);
-    expect(button(el, 'Copy')?.disabled).toBeTrue();
+    expect(button(el, 'Copy')?.disabled).toBe(true);
     expect(button(el, 'Move')?.getAttribute('aria-pressed')).toBe('true');
     expect(text(el)).toContain("Nothing moves: it is recorded as Marcus (Pro)'s");
     expect(text(el)).not.toContain('Also trust their folders');
     // Into another directory it is a copy again.
     await choose(el, 'to', `a:${MOCK_ACCOUNT_WORK}`);
-    expect(button(el, 'Copy')?.disabled).toBeFalse();
+    expect(button(el, 'Copy')?.disabled).toBe(false);
   });
 
   it("puts the server's refusals in words and stays where it was", async () => {
@@ -661,9 +661,11 @@ describe('MoveDataSheetComponent', () => {
       backend.routes.set('/data/move', () => ({ status: 200, body: { plan: { mode: 'copy' } } }));
       button(el, 'Check what it does')?.click();
       await settle();
-      expect((lastMove()['items'] as { sessions: string[] }).sessions).toEqual(
-        jasmine.arrayWithExactContents(['x1', 'x2', 'x3']),
-      );
+      expect([...(lastMove()['items'] as { sessions: string[] }).sessions].sort()).toEqual([
+        'x1',
+        'x2',
+        'x3',
+      ]);
     });
 
     it('takes what is listed when the Mac cannot be asked for every match, and says so', async () => {

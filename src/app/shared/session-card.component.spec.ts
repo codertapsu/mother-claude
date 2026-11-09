@@ -170,7 +170,7 @@ describe('SessionCardComponent chips', () => {
     expect(list[2].title).toContain('5.1k tokens, 24% of the output');
     // A single setting keeps its own look.
     const alone = chips(base({ ultracode: 'on', ultracodeSource: 'applied' }));
-    expect(alone[1]).toEqual(jasmine.objectContaining({ text: 'Ultracode', tone: 'accent' }));
+    expect(alone[1]).toEqual(expect.objectContaining({ text: 'Ultracode', tone: 'accent' }));
     expect(chips(base({})).map((c) => c.text)).toEqual(['Opus 5.5']);
   });
 });

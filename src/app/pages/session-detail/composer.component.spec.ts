@@ -103,13 +103,13 @@ describe('ComposerComponent', () => {
     // Between turns, its background work or a wakeup resumes it later:
     // not in a turn, so a message goes in now rather than in the queue.
     at('background', 'background');
-    expect(ctx.busy()).toBeFalse();
+    expect(ctx.busy()).toBe(false);
     at('background', 'scheduled');
-    expect(ctx.busy()).toBeFalse();
+    expect(ctx.busy()).toBe(false);
     at('working', 'tool');
-    expect(ctx.busy()).toBeTrue();
+    expect(ctx.busy()).toBe(true);
     at('idle', 'idle');
-    expect(ctx.busy()).toBeFalse();
+    expect(ctx.busy()).toBe(false);
   });
 
   it('sends while Claude works, with Send now for at once', async () => {

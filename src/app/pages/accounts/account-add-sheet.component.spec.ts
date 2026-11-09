@@ -96,7 +96,7 @@ describe('AccountAddSheetComponent', () => {
       color: '#10b981',
     });
     expect(field.value).toBe('');
-    expect(backend.calls.some((c) => c.includes(TOKEN))).toBeFalse();
+    expect(backend.calls.some((c) => c.includes(TOKEN))).toBe(false);
     expect(text(el)).toContain('Side project is ready');
   });
 

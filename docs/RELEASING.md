@@ -259,8 +259,8 @@ Runs at the same time as step 2.
 |---|---|
 | Git | `git --version` |
 | PowerShell 7 | `pwsh --version` (the scripts declare `#requires -Version 7.0`) |
-| Node 24+ and npm | `node --version` |
-| Rust, **MSVC** host | `rustup show` → default host `x86_64-pc-windows-msvc` |
+| Node 24.15+ (or 26) and npm | `node --version` |
+| Rust 1.95 or newer, **MSVC** host | `rustup show` → default host `x86_64-pc-windows-msvc`; `rustup update` |
 | VS 2022 Build Tools, "Desktop development with C++" | `tauri build` fails at link time without it |
 | WebView2 runtime | preinstalled on Windows 11 |
 | GitHub CLI, logged in | `gh auth status` |

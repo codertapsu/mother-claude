@@ -83,7 +83,7 @@ describe('teams helpers', () => {
     expect(teams.map((t) => t.id)).toEqual(['b', 'a']);
     expect(
       upsertTeam(teams, { ...team('a', 1), stopped: true }).find((t) => t.id === 'a')?.stopped,
-    ).toBeTrue();
+    ).toBe(true);
   });
 
   it('applies overrides and knows when a start needs the dangerous right', () => {
@@ -93,13 +93,13 @@ describe('teams helpers', () => {
     ];
     const out = applyOverrides(roles, { dev: { model: 'haiku', autostart: true } });
     expect(out[1].model).toBe('haiku');
-    expect(out[1].autostart).toBeTrue();
+    expect(out[1].autostart).toBe(true);
     expect(out[1].permissionMode).toBe('acceptEdits');
     expect(out[0]).toBe(roles[0]);
-    expect(needsDangerous(out)).toBeFalse();
+    expect(needsDangerous(out)).toBe(false);
     expect(
       needsDangerous(applyOverrides(roles, { dev: { permissionMode: 'bypassPermissions' } })),
-    ).toBeTrue();
+    ).toBe(true);
   });
 
   it('parses templates tolerantly and shows them without the list fields', () => {

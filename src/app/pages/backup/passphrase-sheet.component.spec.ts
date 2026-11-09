@@ -1,4 +1,5 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
+import type { Mock } from 'vitest';
 
 import { FakeBackend, asDesktop, flush, useFakeServer } from '../../core/mock/fake-server.testing';
 import { setActiveMock } from '../../core/mock/mock-api';
@@ -9,7 +10,7 @@ const SECRET = 'ABCD-EFGH-JKLM-NPQR-STUV-WXYZ-2345-6789';
 describe('PassphraseSheetComponent', () => {
   let backend: FakeBackend;
   let fixture: ComponentFixture<PassphraseSheetComponent>;
-  let closed: jasmine.Spy;
+  let closed: Mock;
 
   beforeEach(() => {
     backend = new FakeBackend();
@@ -24,12 +25,12 @@ describe('PassphraseSheetComponent', () => {
 
   afterEach(() => setActiveMock(null));
 
-  let saved: jasmine.Spy;
+  let saved: Mock;
 
   const open = async (unfinished = false) => {
     fixture = TestBed.createComponent(PassphraseSheetComponent);
-    closed = jasmine.createSpy('closed');
-    saved = jasmine.createSpy('saved');
+    closed = vi.fn();
+    saved = vi.fn();
     fixture.componentInstance.closed.subscribe(closed);
     fixture.componentInstance.saved.subscribe(saved);
     fixture.componentRef.setInput('changing', true);
@@ -85,7 +86,7 @@ describe('PassphraseSheetComponent', () => {
     expect(text(el.querySelector('.secret'))).toBe(SECRET);
     // The copy button does not speak the secret.
     expect(el.querySelector(`[aria-label*="${SECRET}"]`)).toBeNull();
-    expect(button(el, 'Done')?.disabled).toBeTrue();
+    expect(button(el, 'Done')?.disabled).toBe(true);
 
     // Escape / the backdrop / ✕ are held back with a nudge.
     closeButton(el).click();
@@ -124,7 +125,7 @@ describe('PassphraseSheetComponent', () => {
     };
     await type(first, 'too short');
     expect(text(el)).toContain('At least 12 characters.');
-    expect(button(el, 'Save in the Keychain')?.disabled).toBeTrue();
+    expect(button(el, 'Save in the Keychain')?.disabled).toBe(true);
     await type(first, 'correct horse battery');
     await type(second, 'correct horse batterx');
     expect(text(el)).toContain('Type the same passphrase twice.');
@@ -184,7 +185,7 @@ describe('PassphraseSheetComponent', () => {
     expect(text(el.querySelector('.notice.warn'))).toBe(
       'The change did not finish: The Keychain refused the new passphrase: User interaction is not allowed. Some backups already open with this new passphrase, so write it down as well. Setting the passphrase again finishes the change.',
     );
-    expect(button(el, 'Done')?.disabled).toBeTrue();
+    expect(button(el, 'Done')?.disabled).toBe(true);
     closeButton(el).click();
     fixture.detectChanges();
     expect(closed).not.toHaveBeenCalled();

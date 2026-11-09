@@ -96,8 +96,8 @@ describe('SwitchAccountSheetComponent', () => {
     expect(text(el.querySelector('.lede'))).toContain(
       'The same session goes on under the account you pick',
     );
-    const success = spyOn(TestBed.inject(NoticeService), 'success').and.callThrough();
-    const closed = jasmine.createSpy('closed');
+    const success = vi.spyOn(TestBed.inject(NoticeService), 'success');
+    const closed = vi.fn();
     fixture.componentInstance.closed.subscribe(closed);
     button(el, 'Switch to Marcus (Pro)')?.click();
     await settle();
@@ -113,7 +113,7 @@ describe('SwitchAccountSheetComponent', () => {
       body: { id: 's1', account: MOCK_ACCOUNT_WORK, moved: true, job: 'j1' },
     }));
     const el = await open(session({ live: false, status: 'ended' }));
-    const success = spyOn(TestBed.inject(NoticeService), 'success').and.callThrough();
+    const success = vi.spyOn(TestBed.inject(NoticeService), 'success');
     target(el, 'Work')?.click();
     await settle();
     button(el, 'Switch to Work')?.click();
@@ -187,7 +187,7 @@ describe('SwitchAccountSheetComponent', () => {
     button(el, 'Allow and go on')?.click();
     await settle();
     expect(backend.bodyOf('PUT /accounts/copy-consent')).toEqual(
-      jasmine.objectContaining({ from: 'default', to: MOCK_ACCOUNT_WORK, granted: true }),
+      expect.objectContaining({ from: 'default', to: MOCK_ACCOUNT_WORK, granted: true }),
     );
     expect(asked).toBe(2);
   });
@@ -248,7 +248,7 @@ describe('SwitchAccountSheetComponent', () => {
     let el = await open(session({ status: 'working', control: api }));
     expect(el.querySelector('[aria-label="When"]')).toBeNull();
     expect(text(el.querySelector('.between'))).toContain('in the middle of a turn');
-    expect(button(el, 'Switch to Marcus (Pro)')?.disabled).toBeTrue();
+    expect(button(el, 'Switch to Marcus (Pro)')?.disabled).toBe(true);
     fixture.destroy();
 
     el = await open(session({ control: api }));

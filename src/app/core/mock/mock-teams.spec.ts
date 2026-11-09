@@ -26,7 +26,7 @@ describe('MockTeams', () => {
 
   const call = async (path: string, method = 'GET', body?: unknown) => {
     const r = mock.route(path, method, body);
-    expect(r).withContext(`${method} ${path}`).not.toBeNull();
+    expect(r, `${method} ${path}`).not.toBeNull();
     const res = r as Response;
     return { status: res.status, body: res.status === 204 ? null : await res.json() };
   };
@@ -74,7 +74,7 @@ describe('MockTeams', () => {
     expect(ok.status).toBe(201);
     expect(ok.body.label).toBe('shop');
     expect(ok.body.roles[0].state).toBe('starting');
-    expect(frames.some((f) => f.team?.id === ok.body.id)).toBeTrue();
+    expect(frames.some((f) => f.team?.id === ok.body.id)).toBe(true);
   });
 
   it('works the board and publishes each task', async () => {
@@ -86,7 +86,7 @@ describe('MockTeams', () => {
     });
     expect(created.status).toBe(201);
     const id = created.body.id as number;
-    expect(frames.some((f) => f.task?.id === id && f.teamId === team.id)).toBeTrue();
+    expect(frames.some((f) => f.task?.id === id && f.teamId === team.id)).toBe(true);
     const moved = await call(`/teams/${team.id}/tasks/${id}`, 'PATCH', { priority: 0 });
     expect(moved.body.priority).toBe(0);
     expect(moved.body.history.at(-1).action).toBe('priority');
@@ -110,7 +110,7 @@ describe('MockTeams', () => {
     const bad = await call(`/team-templates/${copy.body.id}`, 'PUT', { ...copy.body, roles: [] });
     expect(bad.status).toBe(422);
     const v = await call('/team-templates/validate', 'POST', { id: 'X Y', name: '', roles: [] });
-    expect(v.body.ok).toBeFalse();
+    expect(v.body.ok).toBe(false);
     expect(
       validateTemplate({ id: 'a', name: 'A', roles: [{ id: 'r', title: 'R' }] })[0].message,
     ).toContain('lead');
@@ -122,7 +122,7 @@ describe('MockTeams', () => {
     const team = (await call('/teams')).body.teams[0] as TeamView;
     expect((await call(`/teams/${team.id}`, 'DELETE')).status).toBe(409);
     const stopped = await call(`/teams/${team.id}/stop`, 'POST');
-    expect(stopped.body.stopped).toBeTrue();
+    expect(stopped.body.stopped).toBe(true);
     expect((await call(`/teams/${team.id}/roles/frontend/start`, 'POST')).status).toBe(409);
     expect((await call(`/teams/${team.id}`, 'DELETE')).status).toBe(204);
     expect(frames.at(-1)?.removed).toBe(team.id);

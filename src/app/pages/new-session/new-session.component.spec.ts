@@ -75,7 +75,7 @@ describe('NewSessionComponent account picker', () => {
     await pickProject(el, 'api-server');
     const body = await start(el);
     expect(body['cwd']).toBe('/Users/marcus/dev/api-server');
-    expect('account' in body).toBeFalse();
+    expect('account' in body).toBe(false);
   });
 
   it("preselects the project's account, else the default for new sessions", async () => {

@@ -132,9 +132,12 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) and [KNOWN_ISSUES.md](KNOWN_ISSUES.md).
 ## Prerequisites (macOS, Apple Silicon)
 
 - Xcode Command Line Tools — `xcode-select --install`
-- Node 24+ (Angular 22 needs ≥ 22.22.3) — `node --version`
-- Rust + the native target — `rustup target add aarch64-apple-darwin`
+- Node 24.15+ or 26 (Angular 22 supports ^22.22.3, ^24.15.0 and ≥ 26) —
+  `node --version`
+- Rust 1.95 or newer (`rustup update`) + the native target —
+  `rustup target add aarch64-apple-darwin`
   (and `rustup component add rustfmt clippy`)
+- Google Chrome, for `npm test` (the unit tests run in it headless)
 - Claude Code CLI on `PATH` — `claude --version` (verified against `2.1.282`)
 - Optional: `tmux`, to type into sessions that run in a tmux pane
 

@@ -27,10 +27,10 @@ describe('browser helpers', () => {
   });
 
   it('says which sites only the desktop opens to acting', () => {
-    expect(actNeedsDesktop('*', SENSITIVE)).toBeTrue();
-    expect(actNeedsDesktop('https://*.example.com', SENSITIVE)).toBeTrue();
-    expect(actNeedsDesktop('https://www.paypal.com', SENSITIVE)).toBeTrue();
-    expect(actNeedsDesktop('https://github.com', SENSITIVE)).toBeFalse();
+    expect(actNeedsDesktop('*', SENSITIVE)).toBe(true);
+    expect(actNeedsDesktop('https://*.example.com', SENSITIVE)).toBe(true);
+    expect(actNeedsDesktop('https://www.paypal.com', SENSITIVE)).toBe(true);
+    expect(actNeedsDesktop('https://github.com', SENSITIVE)).toBe(false);
     expect(sensitiveCategory('https://accounts.google.com', SENSITIVE)).toBe('identity');
     expect(sensitiveCategory('https://notpaypal.com', SENSITIVE)).toBeUndefined();
   });
@@ -65,7 +65,7 @@ describe('browser helpers', () => {
     })!;
     expect(v.action).toBe('fill');
     expect(v.fields[0]).toEqual({ ref: 'e1', name: 'Username', value: 'marcus' });
-    expect(v.submit).toBeTrue();
+    expect(v.submit).toBe(true);
     expect(v.reasons).toEqual(['It fills a form.']);
     expect(browserActionView(null)).toBeNull();
     expect(browserActionView({ url: 'x' })).toBeNull();

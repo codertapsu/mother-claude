@@ -60,7 +60,7 @@ describe('PendingCardComponent', () => {
       feedback: WritableSignal<string>;
       denyWithFeedback(): Promise<void>;
     };
-    const info = spyOn(TestBed.inject(NoticeService), 'info').and.callThrough();
+    const info = vi.spyOn(TestBed.inject(NoticeService), 'info');
     card.feedback.set('use the clean script instead');
     const sent = card.denyWithFeedback();
     await flush();

@@ -145,7 +145,7 @@ describe('RestoreSheetComponent', () => {
     ]);
     expect(boxes(el).map((b) => b.checked)).toEqual([true, true, false, false]);
     // A running session is never touched.
-    expect(boxes(el)[3].disabled).toBeTrue();
+    expect(boxes(el)[3].disabled).toBe(true);
     // The pruning warning sits next to its session.
     expect(text(rows[1].querySelector('.prune'))).toBe(PRUNE);
     expect(text(button(el, 'Restore'))).toBe('Restore 2 sessions');
@@ -226,7 +226,7 @@ describe('RestoreSheetComponent', () => {
     backend.routes.set('/backup/restore', () => ({ status: 202, body: { job: doneJob() } }));
     const el = await open();
     const trust = el.querySelector('.check input') as HTMLInputElement;
-    expect(trust.disabled).toBeTrue();
+    expect(trust.disabled).toBe(true);
     expect(text(el.querySelector('.check'))).toContain(
       'Needs dangerous actions for this device, granted on the computer in Remote › Devices.',
     );
@@ -316,7 +316,7 @@ describe('RestoreSheetComponent', () => {
     TestBed.inject(AuthService).me.set(me({ allowDangerous: false }));
     const el = await open();
     const force = el.querySelector('.check.force input') as HTMLInputElement;
-    expect(force.disabled).toBeTrue();
+    expect(force.disabled).toBe(true);
     expect(text(el.querySelector('.check.force'))).toContain(
       'Needs dangerous actions for this device, granted on the computer in Remote › Devices.',
     );

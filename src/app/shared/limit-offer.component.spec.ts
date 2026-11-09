@@ -103,7 +103,7 @@ describe('LimitOfferComponent', () => {
     fixture.detectChanges();
     // Switch account opens with that account's conversation in it.
     const dialog = el.querySelector('dialog') as HTMLDialogElement;
-    expect(dialog.open).toBeTrue();
+    expect(dialog.open).toBe(true);
     expect(text(dialog)).toContain('Switch to Marcus (Pro)');
   });
 

@@ -37,7 +37,7 @@ describe('MoveChecklistComponent', () => {
 
   it('selects every row the search matches, and says "matching" while searching', () => {
     render({ rows, selected: new Set(['b']) });
-    const picked = jasmine.createSpy('selectAll');
+    const picked = vi.fn();
     fixture.componentInstance.selectAll.subscribe(picked);
     expect(text(el.querySelector('.count'))).toBe('1 of 3 selected');
     button('Select all')?.click();
@@ -61,7 +61,7 @@ describe('MoveChecklistComponent', () => {
     expect(titles()).toEqual(['Engine', 'Openings']);
     // Two are ticked, one of them not listed: more are on the Mac.
     expect(text(el.querySelector('.count'))).toBe('2 selected');
-    const cleared = jasmine.createSpy('bulk');
+    const cleared = vi.fn();
     fixture.componentInstance.bulk.subscribe(cleared);
     button('None')?.click();
     expect(cleared).toHaveBeenCalledWith({ ids: ['a', 'x'], on: false });
@@ -69,7 +69,7 @@ describe('MoveChecklistComponent', () => {
 
   it('says when it is selecting, and why it took only what is listed', () => {
     render({ rows, selected: new Set(), selectingAll: true });
-    expect(button('Selecting…')?.disabled).toBeTrue();
+    expect(button('Selecting…')?.disabled).toBe(true);
     fixture.componentRef.setInput('selectingAll', false);
     fixture.componentRef.setInput('selectAllError', 'Only the conversations listed were selected.');
     fixture.detectChanges();

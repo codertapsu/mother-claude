@@ -141,7 +141,7 @@ describe('PullSheetComponent', () => {
     );
     expect(text(rest)).toContain('Running here — skipped');
     expect(text(button(el, 'Pull'))).toBe('Pull 3 sessions');
-    expect(backend.calls.some((c) => c.startsWith('POST'))).toBeFalse();
+    expect(backend.calls.some((c) => c.startsWith('POST'))).toBe(false);
   });
 
   it('pulls every account that has a backup, and lists the conflicts it kept', async () => {
@@ -294,7 +294,7 @@ describe('PullSheetComponent', () => {
     const el = await open(MOCK_ACCOUNT_WORK);
     expect(text(button(el, 'Pull'))).toBe('Pull 1 session');
     const force = el.querySelector('.check.force input') as HTMLInputElement;
-    expect(force.disabled).toBeFalse();
+    expect(force.disabled).toBe(false);
     force.checked = true;
     force.dispatchEvent(new Event('change'));
     fixture.detectChanges();
@@ -310,7 +310,7 @@ describe('PullSheetComponent', () => {
     button(el, 'Force pull')?.click();
     fixture.detectChanges();
     // Nothing is sent before the confirmation.
-    expect(backend.calls.some((c) => c.startsWith('POST'))).toBeFalse();
+    expect(backend.calls.some((c) => c.startsWith('POST'))).toBe(false);
     const confirm = text(el.querySelector('.confirm'));
     expect(confirm).toContain("The backup's copy replaces this Mac's copy of 1 session");
     expect(confirm).toContain('(1 newer here)');
@@ -337,7 +337,7 @@ describe('PullSheetComponent', () => {
     TestBed.inject(AuthService).me.set(null);
     const el = await open(MOCK_ACCOUNT_WORK);
     const force = el.querySelector('.check.force input') as HTMLInputElement;
-    expect(force.disabled).toBeTrue();
+    expect(force.disabled).toBe(true);
     expect(text(el.querySelector('.check.force .blocked'))).toContain('dangerous');
     expect(text(button(el, 'Pull'))).toBe('Pull 1 session');
   });

@@ -68,7 +68,7 @@ describe('FolderChoiceSheetComponent', () => {
     expect(text(el().querySelector('.remember'))).toBe(
       'Pair D:\\development\\projects on this PC with /Users/marcus/development/projects on marcus-mbp (macOS) — its other conversations there continue here without asking.',
     );
-    expect(remember()!.checked).toBeTrue();
+    expect(remember()!.checked).toBe(true);
   });
 
   it('answers the folder and pairs the folders above both projects', async () => {

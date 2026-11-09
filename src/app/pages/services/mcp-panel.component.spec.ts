@@ -94,8 +94,8 @@ describe('McpPanelComponent', () => {
     expect(text(el)).toContain('Claude Code tools (MCP)');
     expect(text(el)).toContain('mcp__plugin_mother-claude_mc__');
     const toggle = el.querySelector('input[type=checkbox]') as HTMLInputElement;
-    expect(toggle.checked).toBeTrue();
-    expect(toggle.disabled).toBeTrue();
+    expect(toggle.checked).toBe(true);
+    expect(toggle.disabled).toBe(true);
     expect(text(el)).toContain('Changed on the desktop app.');
     const calls = el.querySelectorAll('.call');
     expect(calls.length).toBe(2);
@@ -138,7 +138,7 @@ describe('McpPanelComponent', () => {
     }));
     const el = await render(status({ plugin: plugin() }));
     const toggle = el.querySelector('input[type=checkbox]') as HTMLInputElement;
-    expect(toggle.disabled).toBeFalse();
+    expect(toggle.disabled).toBe(false);
     toggle.checked = false;
     toggle.dispatchEvent(new Event('change'));
     await flush();

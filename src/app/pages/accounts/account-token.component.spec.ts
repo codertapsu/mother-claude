@@ -60,7 +60,7 @@ describe('AccountTokenComponent', () => {
         ? { status: 200, body: { available: true, tokenStored: false } }
         : { status: 200, body: { ...account, tokenStored: true, signedIn: true } };
     });
-    const done = jasmine.createSpy('done');
+    const done = vi.fn();
     const el = await render();
     fixture.componentInstance.done.subscribe(done);
     button(el, 'I already have a token').click();
@@ -75,7 +75,7 @@ describe('AccountTokenComponent', () => {
     await flush();
     expect(tokenRoute).toEqual({ token: TOKEN });
     // Nowhere else: not in any URL, nor in any other request.
-    expect(backend.calls.some((c) => c.includes(TOKEN))).toBeFalse();
+    expect(backend.calls.some((c) => c.includes(TOKEN))).toBe(false);
     const others = backend.bodies.filter((b) => b !== tokenRoute);
     expect(JSON.stringify(others)).not.toContain(TOKEN);
     expect(done).toHaveBeenCalled();
@@ -205,7 +205,7 @@ describe('AccountTokenComponent', () => {
           }
         : { status: 200, body: { ...account, tokenStored: true, signedIn: true } };
     });
-    const done = jasmine.createSpy('done');
+    const done = vi.fn();
     const el = await render();
     fixture.componentInstance.done.subscribe(done);
     const code = el.querySelector('input[name="code"]') as HTMLInputElement;
@@ -257,7 +257,7 @@ describe('AccountTokenComponent', () => {
     account = { ...account, signIn: undefined };
     el = await render();
     const wait = button(el, "Waiting for Default's sign-in");
-    expect(wait.disabled).toBeTrue();
+    expect(wait.disabled).toBe(true);
     expect(el.querySelector('mc-sign-in-panel')).toBeNull();
   });
 

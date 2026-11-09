@@ -503,6 +503,7 @@ the `browser_*` tools are `extension::mcp`). Invariants:
 npm install                 # Angular deps (root)
 npm run lint                # Angular ESLint
 npm run build               # Angular production build -> dist/
+npm test                    # Angular unit tests: Vitest in headless Chrome (scripts/test.mjs)
 npm run tauri:dev           # run desktop app (dev)
 npm run tauri:build         # package the app
 

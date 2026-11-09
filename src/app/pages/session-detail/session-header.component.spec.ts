@@ -84,7 +84,7 @@ describe('SessionHeaderComponent', () => {
     expect(button(el, 'Delete 1 conversation')).toBeDefined();
 
     const router = TestBed.inject(Router);
-    const navigate = spyOn(router, 'navigate').and.resolveTo(true);
+    const navigate = vi.spyOn(router, 'navigate').mockResolvedValue(true);
     const sheet = fixture.debugElement.query(
       (d) => d.componentInstance instanceof DeleteDataSheetComponent,
     ).componentInstance as DeleteDataSheetComponent;

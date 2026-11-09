@@ -139,7 +139,7 @@ describe('DeleteDataSheetComponent', () => {
       'It is open in the API: close it there first.',
     );
     expect(button(el, 'Delete 3 conversations')).toBeDefined();
-    expect((el.querySelector('.check input') as HTMLInputElement).checked).toBeTrue();
+    expect((el.querySelector('.check input') as HTMLInputElement).checked).toBe(true);
   });
 
   it('deletes for good when the copy is turned off, one job per account', async () => {
@@ -155,7 +155,7 @@ describe('DeleteDataSheetComponent', () => {
       status: 200,
       body: done('jw', MOCK_ACCOUNT_WORK, ['w1']),
     }));
-    const closed = jasmine.createSpy('closed');
+    const closed = vi.fn();
     const el = await open({
       what: '3 conversations',
       groups: [
@@ -188,7 +188,7 @@ describe('DeleteDataSheetComponent', () => {
     expect(el.querySelector('.undo')).toBeNull();
     expect(el.querySelector('.later')).toBeNull();
     button(el, 'Close')?.click();
-    const ran = closed.calls.mostRecent().args[0] as JobView[];
+    const ran = closed.mock.lastCall?.[0] as JobView[];
     expect([...deletedIds(ran)]).toEqual(['s1', 's2', 'w1']);
   });
 
@@ -214,7 +214,7 @@ describe('DeleteDataSheetComponent', () => {
     await settle();
     await new Promise((r) => setTimeout(r, 20));
     await settle();
-    expect((bodies()[1] as { undo: boolean }).undo).toBeTrue();
+    expect((bodies()[1] as { undo: boolean }).undo).toBe(true);
     expect(text(el.querySelector('.undo'))).toContain('Undo');
     expect(text(el.querySelector('.later'))).toBe(
       'Undo stays in Sessions › Projects, under Recently deleted, for seven days.',
@@ -263,7 +263,7 @@ describe('DeleteDataSheetComponent', () => {
     await settle();
     expect(text(el.querySelector('.planline'))).toBe('There is nothing to delete here.');
     expect(text(el.querySelector('.skips'))).toContain('It is not there any more.');
-    expect(button(el, 'Nothing to delete')?.disabled).toBeTrue();
+    expect(button(el, 'Nothing to delete')?.disabled).toBe(true);
   });
 
   it('names a skipped conversation from the store, and the accounts only when several', async () => {

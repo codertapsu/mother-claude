@@ -9,7 +9,7 @@ a single module absorbs version churn.
 - Claude Code `2.1.185` originally; re-verified against `2.1.276`, and the remote
   access and foreign-control work against `2.1.282` (CLI and the VS Code
   extension of the same version) on macOS (Apple M4 Pro, `aarch64-apple-darwin`).
-- Node v24, Rust 1.96.0, git 2.50.1, Xcode CLT present.
+- Node v24 (also checked on v26 LTS), Rust 1.99.1, git 2.50.1, Xcode CLT present.
 
 ## Remote access and foreign sessions: current limits
 
@@ -265,9 +265,12 @@ the product working and the commits green.
 - **Transcript view** loads the newest 150 events and pages older ones in with
   **Load earlier** (the server reads backwards, at most 300 events per page)
   rather than using CDK virtual scrolling (variable-height items).
-- **`ng test`** (karma) needs a headless Chrome; it is present on this machine.
-  The enforced per-commit Angular gates are `npm run lint` and `npm run build`
-  (plus `cargo fmt`/`clippy -D warnings`/`test`).
+- **`npm test`** runs the unit tests with Vitest in a headless Chrome (Vitest's
+  browser mode through Playwright, `scripts/test.mjs`): the Google Chrome
+  installed on the machine, or `CHROME_BIN`, or Playwright's own Chromium
+  after `npx playwright install chromium`. The enforced per-commit Angular
+  gates are `npm run lint` and `npm run build` (plus `cargo fmt`/`clippy -D
+  warnings`/`test`).
 
 ## Optional and unsanctioned pieces
 

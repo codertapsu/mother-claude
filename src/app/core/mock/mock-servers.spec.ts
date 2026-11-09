@@ -54,7 +54,7 @@ describe('MockServers (the mock backend of API servers)', () => {
     });
     expect(added?.status).toBe(201);
     expect(added?.body).toEqual(
-      jasmine.objectContaining({
+      expect.objectContaining({
         id: 'work',
         name: 'Work',
         port: 5613,
@@ -65,14 +65,14 @@ describe('MockServers (the mock backend of API servers)', () => {
     );
     const listed = (await call('/bridge'))?.body;
     expect(listed.servers.map((s: { id: string }) => s.id)).toEqual(['main', 'work']);
-    expect(listed.enabled).toBeTrue();
+    expect(listed.enabled).toBe(true);
 
     const started = await call('/bridge/servers/work/start', 'POST', {
       defaults: { cwd: '/y', account: 'acc_work' },
       openToTunnels: true,
     });
     expect(started?.body).toEqual(
-      jasmine.objectContaining({
+      expect.objectContaining({
         running: true,
         tokenPolicy: 'never',
         defaults: { cwd: '/y', account: 'acc_work' },
@@ -81,7 +81,7 @@ describe('MockServers (the mock backend of API servers)', () => {
 
     const changed = await call('/bridge/servers/work', 'PATCH', { name: 'Acme', port: 5620 });
     expect(changed?.body).toEqual(
-      jasmine.objectContaining({ id: 'work', name: 'Acme', port: 5620 }),
+      expect.objectContaining({ id: 'work', name: 'Acme', port: 5620 }),
     );
 
     const thread = await call('/bridge/servers/work/active-thread', 'POST', { threadId: 't-1' });
@@ -89,7 +89,7 @@ describe('MockServers (the mock backend of API servers)', () => {
 
     const stopped = await call('/bridge/servers/work/stop', 'POST', {});
     expect(stopped?.body).toEqual(
-      jasmine.objectContaining({ running: false, tokenPolicy: 'local' }),
+      expect.objectContaining({ running: false, tokenPolicy: 'local' }),
     );
 
     expect((await call('/bridge/servers/work', 'DELETE'))?.status).toBe(204);
@@ -99,7 +99,7 @@ describe('MockServers (the mock backend of API servers)', () => {
   it('gives each new server the first free port and a unique id', async () => {
     await call('/bridge/servers', 'POST', { name: 'Lab', port: 5613 });
     const second = (await call('/bridge/servers', 'POST', { name: 'Lab 2!' }))?.body;
-    expect(second).toEqual(jasmine.objectContaining({ id: 'lab-2', port: 5614 }));
+    expect(second).toEqual(expect.objectContaining({ id: 'lab-2', port: 5614 }));
     const third = (await call('/bridge/servers', 'POST', { name: '¡¡' }))?.body;
     expect(third.id).toBe('server');
   });
@@ -121,7 +121,7 @@ describe('MockServers (the mock backend of API servers)', () => {
     ]);
     const taken = await call('/bridge/servers', 'POST', { name: 'B', port: 5613 });
     expect(taken?.body.error).toEqual(
-      jasmine.objectContaining({ code: 'port_unavailable', port: 5613, server: 'work' }),
+      expect.objectContaining({ code: 'port_unavailable', port: 5613, server: 'work' }),
     );
     expect(await code('/bridge/servers', 'POST', { name: 'B', port: 5612 })).toEqual([
       409,
@@ -167,7 +167,7 @@ describe('MockServers (the mock backend of API servers)', () => {
     await call('/bridge/servers/work/start', 'POST', {});
     const refused = await call('/accounts/acc_work', 'DELETE');
     expect(refused?.body.error).toEqual(
-      jasmine.objectContaining({
+      expect.objectContaining({
         code: 'account_used_by_bridge',
         server: 'work',
         serverName: 'Work',
@@ -178,14 +178,14 @@ describe('MockServers (the mock backend of API servers)', () => {
     expect(await call('/accounts/acc_work', 'DELETE')).toBeNull();
     accounts = accounts.filter((a) => a.id !== 'acc_work');
     const listed = (await call('/bridge'))?.body;
-    expect(listed.servers[1].accountMissing).toBeTrue();
+    expect(listed.servers[1].accountMissing).toBe(true);
     const start = await call('/bridge/servers/work/start', 'POST', {});
     expect(start?.body.error).toEqual(
-      jasmine.objectContaining({ code: 'account_not_found', field: 'account' }),
+      expect.objectContaining({ code: 'account_not_found', field: 'account' }),
     );
     // Choosing another account (here: automatic) lets it start.
     const again = await call('/bridge/servers/work/start', 'POST', { defaults: {} });
-    expect(again?.body.running).toBeTrue();
+    expect(again?.body.running).toBe(true);
     expect(again?.body.accountMissing).toBeUndefined();
   });
 

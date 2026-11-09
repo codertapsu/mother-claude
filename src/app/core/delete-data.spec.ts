@@ -111,8 +111,8 @@ describe('delete data helpers', () => {
       lastActivityAt: 10,
     });
     expect(projectKey(list[1])).toBe('default\u0000/Users/me/dev/api');
-    expect(projectMatches(list[1], 'dev/ap')).toBeTrue();
-    expect(projectMatches(list[1], 'web')).toBeFalse();
+    expect(projectMatches(list[1], 'dev/ap')).toBe(true);
+    expect(projectMatches(list[1], 'web')).toBe(false);
     expect(normalizeDataProjects(null)).toEqual([]);
   });
 

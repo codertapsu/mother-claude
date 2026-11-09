@@ -23,7 +23,7 @@ describe('MockSwitch (switching and sign-ins, as the server answers)', () => {
   let mock: MockSwitch;
 
   beforeEach(() => {
-    jasmine.clock().install();
+    vi.useFakeTimers();
     role = 'desktop';
     consent = false;
     notices = [];
@@ -62,7 +62,7 @@ describe('MockSwitch (switching and sign-ins, as the server answers)', () => {
     mock = new MockSwitch(host);
   });
 
-  afterEach(() => jasmine.clock().uninstall());
+  afterEach(() => vi.useRealTimers());
 
   const call = async (path: string, method: string, body?: unknown) => {
     const res = mock.route(path, method, body);
@@ -85,7 +85,7 @@ describe('MockSwitch (switching and sign-ins, as the server answers)', () => {
     expect(pending).toEqual({ status: 202, body: { id: 'busy', account: 'acc_p', pending: true } });
     expect(sessions[0].switchingTo).toBe('acc_p');
     expect(notices.length).toBe(1);
-    jasmine.clock().tick(4_100);
+    vi.advanceTimersByTime(4_100);
     expect(owners['busy']).toBe('acc_p');
     expect(sessions[0].switchingTo).toBeUndefined();
     expect(notices[1]).toBe('success: api goes on under Pro');
@@ -98,7 +98,7 @@ describe('MockSwitch (switching and sign-ins, as the server answers)', () => {
       status: 200,
       body: { id: 'busy', account: 'default', cancelled: true },
     });
-    jasmine.clock().tick(5_000);
+    vi.advanceTimersByTime(5_000);
     expect(owners['busy']).toBe('default');
     // Now: the turn is interrupted, the switch is done.
     expect(
@@ -112,7 +112,7 @@ describe('MockSwitch (switching and sign-ins, as the server answers)', () => {
     expect([refused?.status, refused?.body.error.code]).toEqual([409, 'session_not_owned']);
     const ask = await call('/sessions/ended/account', 'POST', { account: 'acc_w' });
     expect(ask?.body.error).toEqual(
-      jasmine.objectContaining({ code: 'copy_consent_required', from: 'default', to: 'acc_w' }),
+      expect.objectContaining({ code: 'copy_consent_required', from: 'default', to: 'acc_w' }),
     );
     consent = true;
     expect((await call('/sessions/ended/account', 'POST', { account: 'acc_w' }))?.body).toEqual({
@@ -130,7 +130,7 @@ describe('MockSwitch (switching and sign-ins, as the server answers)', () => {
   it('signs in with a link, one at a time, and lands with a changed identity', async () => {
     expect((await call('/accounts/acc_w/login', 'POST', {}))?.status).toBe(202);
     expect(of('acc_w').signIn?.state).toBe('starting');
-    jasmine.clock().tick(800);
+    vi.advanceTimersByTime(800);
     expect(of('acc_w').signIn?.state).toBe('open');
     expect(of('acc_w').signIn?.url).toContain('https://claude.ai/');
     // Another account waits.
@@ -151,14 +151,14 @@ describe('MockSwitch (switching and sign-ins, as the server answers)', () => {
       of('acc_w').signIn?.startedAt,
     );
     // It never lands by itself: the page shows a code to paste.
-    jasmine.clock().tick(5_000);
+    vi.advanceTimersByTime(5_000);
     expect(of('acc_w').signIn?.state).toBe('code');
     await call('/accounts/acc_w/sign-in/code', 'POST', { code: 'abc#123' });
-    jasmine.clock().tick(1_300);
+    vi.advanceTimersByTime(1_300);
     expect(of('acc_w').signIn?.state).toBe('done');
     expect(of('acc_w').signIn?.finishedAt).toBeDefined();
     expect(of('acc_w').signIn?.codeSent).toBeUndefined();
-    expect(of('acc_w').signingIn).toBeFalse();
+    expect(of('acc_w').signingIn).toBe(false);
     expect(of('acc_w').identityWarning).toEqual({ kind: 'changed' });
     await call('/accounts/acc_w/identity/accept', 'POST', {});
     expect(of('acc_w').identityWarning).toBeUndefined();
@@ -171,16 +171,16 @@ describe('MockSwitch (switching and sign-ins, as the server answers)', () => {
       'running',
       'token',
     ]);
-    jasmine.clock().tick(2_800);
+    vi.advanceTimersByTime(2_800);
     expect(of('acc_p').signIn?.state).toBe('code');
     // Nothing opened by itself.
     expect(of('acc_p').signIn?.opened).toBeUndefined();
     const typed = await call('/accounts/acc_p/sign-in/code', 'POST', { code: 'abc#123' });
     expect(typed?.body.signIn.state).toBe('open');
-    expect(typed?.body.signIn.codeSent).toBeTrue();
-    jasmine.clock().tick(1_300);
+    expect(typed?.body.signIn.codeSent).toBe(true);
+    vi.advanceTimersByTime(1_300);
     expect(of('acc_p').signIn?.state).toBe('done');
-    expect(of('acc_p').tokenStored).toBeTrue();
+    expect(of('acc_p').tokenStored).toBe(true);
     // A pasted token is the backend's; a phone may not sign in.
     expect(mock.route('/accounts/acc_p/token', 'POST', { token: 'sk-ant-oat01-x' })).toBeNull();
     role = 'device';
@@ -193,7 +193,7 @@ describe('MockSwitch (switching and sign-ins, as the server answers)', () => {
     const early = await call('/accounts/acc_p/sign-in/code', 'POST', { code: 'abc' });
     expect([early?.status, early?.body.signIn.codeSent]).toEqual([200, true]);
     const rev = of('acc_p').signIn?.rev ?? 0;
-    jasmine.clock().tick(1_300);
+    vi.advanceTimersByTime(1_300);
     // Cut short (no `#state`): why, and it asks again; nothing landed.
     let run = of('acc_p').signIn;
     expect(run?.state).toBe('code');
@@ -215,7 +215,7 @@ describe('MockSwitch (switching and sign-ins, as the server answers)', () => {
     mock.tokenPasted('acc_p');
     run = of('acc_p').signIn;
     expect([run?.state, run?.codeSent]).toEqual(['done', undefined]);
-    jasmine.clock().tick(2_000);
+    vi.advanceTimersByTime(2_000);
     expect(of('acc_p').signIn?.state).toBe('done');
     // A finished run takes no code.
     const late = await call('/accounts/acc_p/sign-in/code', 'POST', { code: 'abc#def' });

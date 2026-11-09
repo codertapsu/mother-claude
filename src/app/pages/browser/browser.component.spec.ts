@@ -132,8 +132,8 @@ describe('BrowserComponent', () => {
     expect(text(el.querySelector('.lease'))).toContain('Docs · website');
     const sites = [...el.querySelectorAll('.site')].map(text);
     expect(sites[0]).toContain('Every other site');
-    expect(sites.some((s) => s.includes('https://github.com'))).toBeTrue();
-    expect(sites.some((s) => s.includes('payment'))).toBeTrue();
+    expect(sites.some((s) => s.includes('https://github.com'))).toBe(true);
+    expect(sites.some((s) => s.includes('payment'))).toBe(true);
     expect(text(el.querySelector('.activity'))).toContain('Clicked · github.com/acme/app');
     expect(text(el.querySelector('.activity'))).toContain('approved by you');
     // The approval renders as the shared pending card.
@@ -152,12 +152,12 @@ describe('BrowserComponent', () => {
     const act = [...paypal.querySelectorAll<HTMLButtonElement>('.segmented button')].find(
       (b) => text(b) === 'Act',
     )!;
-    expect(act.disabled).toBeTrue();
+    expect(act.disabled).toBe(true);
     const github = [...el.querySelectorAll('.site')].find((s) => text(s).includes('github'))!;
     const read = [...github.querySelectorAll<HTMLButtonElement>('.segmented button')].find(
       (b) => text(b) === 'Read',
     )!;
-    expect(read.disabled).toBeFalse();
+    expect(read.disabled).toBe(false);
     read.click();
     await flush();
     fixture.detectChanges();

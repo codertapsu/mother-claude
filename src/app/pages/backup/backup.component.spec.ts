@@ -194,14 +194,14 @@ describe('BackupComponent', () => {
 
     // The backup onto its own account: the Pull dialog for it.
     await dnd(def.querySelector('.tile.vault')!, def.querySelector('.tile.here')!);
-    expect((el.querySelector('mc-pull-sheet dialog') as HTMLDialogElement).open).toBeTrue();
+    expect((el.querySelector('mc-pull-sheet dialog') as HTMLDialogElement).open).toBe(true);
     expect(backend.calls).not.toContain('POST /backup/pull');
     (el.querySelector('mc-pull-sheet button[aria-label="Close"]') as HTMLButtonElement).click();
     await settle();
 
     // Onto another account: Restore into that one.
     await dnd(def.querySelector('.tile.vault')!, lane(el, 'Work').querySelector('.tile.here')!);
-    expect((el.querySelector('mc-restore-sheet dialog') as HTMLDialogElement).open).toBeTrue();
+    expect((el.querySelector('mc-restore-sheet dialog') as HTMLDialogElement).open).toBe(true);
     expect(backend.urls).toContain(`/backup/index?account=default&into=${MOCK_ACCOUNT_WORK}`);
 
     // A token account's lane takes nothing: its backup is the Default's.
@@ -258,7 +258,7 @@ describe('BackupComponent', () => {
     )!;
     await dnd(rows()[1], work);
     const restore = el.querySelector('mc-restore-sheet dialog') as HTMLDialogElement;
-    expect(restore.open).toBeTrue();
+    expect(restore.open).toBe(true);
     expect(backend.urls).toContain(`/backup/index?account=default&into=${MOCK_ACCOUNT_WORK}`);
     // Of those dropped, the one a restore takes starts selected.
     expect(text(restore.querySelector('.actions .btn'))).toBe('Restore 1 session');
@@ -269,7 +269,7 @@ describe('BackupComponent', () => {
     const pulls = backend.calls.filter((c) => c === 'POST /backup/pull').length;
     await dnd(rows()[2], lane(el, 'Default').querySelector('.tile.here')!);
     const pull = el.querySelector('mc-pull-sheet dialog') as HTMLDialogElement;
-    expect(pull.open).toBeTrue();
+    expect(pull.open).toBe(true);
     expect(backend.calls.filter((c) => c === 'POST /backup/pull').length).toBe(pulls);
     expect(text(pull)).toContain('Pull 1 session');
   });
@@ -299,7 +299,7 @@ describe('BackupComponent', () => {
 
     // An account onto the set: Move data from it into the set.
     await dnd(lane(el, 'Default').querySelector('.tile.here')!, shared);
-    expect((el.querySelector('mc-move-data-sheet dialog') as HTMLDialogElement).open).toBeTrue();
+    expect((el.querySelector('mc-move-data-sheet dialog') as HTMLDialogElement).open).toBe(true);
     expect(selects().slice(0, 2)).toEqual(['a:default', 's:stor_5d2c8e1f0a7b:Shared']);
     (
       el.querySelector('mc-move-data-sheet button[aria-label="Close"]') as HTMLButtonElement
@@ -308,7 +308,7 @@ describe('BackupComponent', () => {
 
     // The set onto an account: Move data out of it into that account.
     await dnd(shared, lane(el, 'Work').querySelector('.tile.here')!);
-    expect((el.querySelector('mc-move-data-sheet dialog') as HTMLDialogElement).open).toBeTrue();
+    expect((el.querySelector('mc-move-data-sheet dialog') as HTMLDialogElement).open).toBe(true);
     expect(selects().slice(0, 2)).toEqual(['s:stor_5d2c8e1f0a7b:Shared', `a:${MOCK_ACCOUNT_WORK}`]);
   });
 
@@ -325,8 +325,8 @@ describe('BackupComponent', () => {
     expect(el.querySelector('input[name="folder"]')).not.toBeNull();
     expect((el.querySelector('#backup-every') as HTMLSelectElement).value).toBe('6');
     expect(el.querySelector('.switch input')).not.toBeNull();
-    expect(button(el, 'Back up now')?.disabled).toBeFalse();
-    expect(button(el, 'Pull…')?.disabled).toBeFalse();
+    expect(button(el, 'Back up now')?.disabled).toBe(false);
+    expect(button(el, 'Pull…')?.disabled).toBe(false);
     const labels = [...el.querySelectorAll('.sacts .btn')].map((b) => b.getAttribute('aria-label'));
     expect(labels).toContain('Back up Default');
     expect(labels).toContain('Restore from the backup of Default');
@@ -367,7 +367,7 @@ describe('BackupComponent', () => {
     const labels = [...el.querySelectorAll('.sacts .btn')].map((b) => b.getAttribute('aria-label'));
     expect(labels).toContain('Back up Default');
     expect(labels).toContain('Back up Work');
-    expect(labels.some((l) => (l ?? '').includes('Marcus (Pro)'))).toBeFalse();
+    expect(labels.some((l) => (l ?? '').includes('Marcus (Pro)'))).toBe(false);
   });
 
   it("says when a set's key is not in the folder here, and checks again", async () => {
@@ -401,7 +401,7 @@ describe('BackupComponent', () => {
     button(el, 'Set the passphrase again')?.click();
     await settle();
     const dialog = el.querySelector('mc-passphrase-sheet dialog') as HTMLDialogElement;
-    expect(dialog.open).toBeTrue();
+    expect(dialog.open).toBe(true);
     expect(text(dialog.querySelector('.title'))).toBe('Finish the passphrase change');
   });
 
@@ -438,7 +438,7 @@ describe('BackupComponent', () => {
     });
     const el = await render();
     expect(text(el.querySelector('.sets'))).toContain('Choose a folder first');
-    expect(button(el, 'Back up now')?.disabled).toBeTrue();
+    expect(button(el, 'Back up now')?.disabled).toBe(true);
     // The empty list says it; no second line about it.
     expect(el.querySelector('.why')).toBeNull();
     button(el, 'iCloud Drive')?.click();
@@ -557,7 +557,7 @@ describe('BackupComponent', () => {
       'Backup of Default',
       'Backup of Work',
     ]);
-    expect(rows.every((r) => r.getAttribute('data-state') === 'done')).toBeTrue();
+    expect(rows.every((r) => r.getAttribute('data-state') === 'done')).toBe(true);
     expect(text(rows[0])).toContain('1 session backed up · 3 unchanged');
     // Once they ended the view is read again (last backups, machines).
     expect(backend.calls.filter((c) => c === 'GET /backup').length).toBeGreaterThan(1);
@@ -630,7 +630,7 @@ describe('BackupComponent', () => {
     (el.querySelector('[aria-label="Force backup of Default"]') as HTMLButtonElement).click();
     await settle();
     const dialog = el.querySelector('mc-force-backup-sheet dialog') as HTMLDialogElement;
-    expect(dialog.open).toBeTrue();
+    expect(dialog.open).toBe(true);
     expect(text(dialog.querySelector('.title'))).toBe('Force backup of Default');
     const what = text(dialog.querySelector('.what'));
     expect(what).toContain(
@@ -665,7 +665,7 @@ describe('BackupComponent', () => {
     await settle();
     const dialog = el.querySelector('mc-force-backup-sheet dialog') as HTMLElement;
     expect(text(dialog.querySelector('.blocked'))).toContain('dangerous');
-    expect(button(dialog, 'Force backup')?.disabled).toBeTrue();
+    expect(button(dialog, 'Force backup')?.disabled).toBe(true);
   });
 
   it("says why nothing was backed up, in the app's words", async () => {
