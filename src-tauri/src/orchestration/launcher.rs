@@ -1361,7 +1361,8 @@ mod tests {
         let fe = charter(&t, t.role("frontend").unwrap());
         assert!(fe.contains("Lead \"app/lead\" (the lead)"));
         assert!(fe.contains("You may change only src/app/**"));
-        assert!(fe.contains(".claude/worktrees/frontend"));
+        // Joined with the system's separator.
+        assert!(fe.replace('\\', "/").contains(".claude/worktrees/frontend"));
         assert!(fe.contains("branch worktree-frontend"));
         assert!(fe.contains("already claimed for you"));
         assert!(!fe.contains("task_create"));

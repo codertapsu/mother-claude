@@ -827,6 +827,7 @@ mod tests {
         assert_eq!(slot.previous, vec!["s-front".to_string()]);
         // Saved privately and read back.
         let file = dir.path().join("teams.json");
+        assert!(file.is_file());
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;

@@ -1602,7 +1602,9 @@ mod tests {
         let r = store.resolution(&a).unwrap();
         assert_eq!(r.outcome, PendingOutcome::Allowed);
         assert_eq!(r.by.as_ref().unwrap().kind, ResolverKind::Desktop);
-        assert_eq!(r.text.as_deref(), Some("Allowed by Mac"));
+        // "Mac" or "PC": this computer.
+        let by_desktop = format!("Allowed by {}", crate::claude::paths::machine_noun());
+        assert_eq!(r.text.as_deref(), Some(by_desktop.as_str()));
 
         let (b, _rb) = store.register(item("s1"));
         store

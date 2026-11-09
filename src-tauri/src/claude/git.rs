@@ -571,11 +571,13 @@ mod tests {
         let repo = init_repo(dir.path());
         fs::write(dir.path().join("a.txt"), "base\n").unwrap();
         let base = commit_all(&repo, "base");
-        // Name the default branch `main` and branch off it.
+        // Branch off the base, then name the default branch `main` (HEAD
+        // left it first: `init.defaultBranch` may have made it `main`
+        // already, and the current branch cannot be forced).
         let base_commit = repo.find_commit(base).unwrap();
-        repo.branch("main", &base_commit, true).unwrap();
         repo.branch("feature", &base_commit, true).unwrap();
         repo.set_head("refs/heads/feature").unwrap();
+        repo.branch("main", &base_commit, true).unwrap();
         fs::write(dir.path().join("b.txt"), "on branch\n").unwrap();
         commit_all(&repo, "feature work");
         fs::write(dir.path().join("c.txt"), "uncommitted\n").unwrap();

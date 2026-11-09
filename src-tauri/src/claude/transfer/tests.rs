@@ -409,10 +409,19 @@ fn old_undo_directories_are_pruned() {
         std::fs::create_dir_all(d).unwrap();
     }
     let long_ago = SystemTime::now() - Duration::from_secs(30 * 24 * 3600);
-    std::fs::File::open(&old)
-        .unwrap()
-        .set_modified(long_ago)
-        .unwrap();
+    // Windows opens a directory only with FILE_FLAG_BACKUP_SEMANTICS, and
+    // sets its times with FILE_WRITE_ATTRIBUTES.
+    #[cfg(windows)]
+    let dir = {
+        use std::os::windows::fs::OpenOptionsExt;
+        std::fs::OpenOptions::new()
+            .access_mode(0x0100)
+            .custom_flags(0x0200_0000)
+            .open(&old)
+    };
+    #[cfg(not(windows))]
+    let dir = std::fs::File::open(&old);
+    dir.unwrap().set_modified(long_ago).unwrap();
     prune_undo(tmp.path());
     assert!(!old.exists());
     assert!(fresh.exists());
@@ -1154,6 +1163,9 @@ fn a_project_that_cannot_go_whole_keeps_its_history_where_it_is() {
 
 use super::custom::{Custom, CustomAction};
 
+/// Every category (the test that copies them all links a skill, which needs
+/// Unix symlinks).
+#[cfg(unix)]
 const ALL_CUSTOMS: [Custom; 9] = [
     Custom::Memory,
     Custom::Settings,

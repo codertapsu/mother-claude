@@ -612,9 +612,16 @@ fn pushes_from_two_machines_merge_their_index() {
 fn tree(dir: &Path) -> Vec<String> {
     let mut all = Vec::new();
     let _ = crate::claude::transfer::walk(dir, &mut all);
+    // Written with `/` on every system.
     let mut out: Vec<String> = all
         .iter()
-        .map(|p| p.strip_prefix(dir).unwrap().display().to_string())
+        .map(|p| {
+            p.strip_prefix(dir)
+                .unwrap()
+                .display()
+                .to_string()
+                .replace('\\', "/")
+        })
         .collect();
     out.sort();
     out
@@ -1338,7 +1345,10 @@ fn an_update_that_fails_half_way_puts_the_local_copy_back() {
     assert!(r.updated.is_empty(), "{r:?}");
     assert_eq!(r.skipped.len(), 1, "{r:?}");
     assert!(
-        r.skipped[0].reason.contains("moved/file-history"),
+        r.skipped[0]
+            .reason
+            .replace('\\', "/")
+            .contains("moved/file-history"),
         "it failed after the first files moved: {r:?}"
     );
     assert_eq!(tree(b.base()), before);

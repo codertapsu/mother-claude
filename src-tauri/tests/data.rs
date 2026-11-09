@@ -61,9 +61,13 @@ fn fixture(base: &Path) -> Cleanup {
     std::fs::create_dir_all(sdir.join("subagents/workflows/wf_run-9")).unwrap();
     std::fs::create_dir_all(base.join("sessions")).unwrap();
 
-    // Task output under the CLI's temp root (the per-user dir in $TMPDIR).
+    // Task output under the CLI's temp root (the per-user dir in $TMPDIR),
+    // named as `claude_tmp_roots` names it: no uid on Windows, so 0.
+    #[cfg(unix)]
     // SAFETY: getuid has no preconditions.
     let uid = unsafe { libc::getuid() };
+    #[cfg(not(unix))]
+    let uid = 0u32;
     let out_dir = std::env::temp_dir()
         .join(format!("claude-{uid}"))
         .join(format!("mc-data-test-{}", uuid::Uuid::new_v4()));

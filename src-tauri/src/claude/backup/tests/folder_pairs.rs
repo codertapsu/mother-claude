@@ -568,12 +568,16 @@ fn concurrent_pair_edits_merge_and_removals_stick() {
 fn a_push_records_the_folder_as_its_machine_sees_it() {
     let w = world();
     let (mac, win) = (mac(), win());
-    // Started on Windows, its transcript in the Mac's folder name (pulled
-    // there before a pair): Windows records the Mac's folder.
+    // Its transcript in the Mac's folder name (pulled there before a pair),
+    // continued in the Windows folder. Each machine records the folder as it
+    // sees it (`paths::view_cwd`): one whose paths are the Mac's form (this
+    // test run as Windows on a Mac) the Mac's folder its project folder
+    // names; Windows itself the folder it last ran in there.
     session_in(&w.other, SID, MAC_APP);
     continue_in(&w.other, SID, WIN_APP, "continued before a pair");
     push_as(&w, &w.other, &win);
-    assert_eq!(index_of(&w).sessions[SID].folder.as_deref(), Some(MAC_APP));
+    let here = if cfg!(windows) { WIN_APP } else { MAC_APP };
+    assert_eq!(index_of(&w).sessions[SID].folder.as_deref(), Some(here));
     // The last cwd is read from the end only: a huge first line is skipped.
     let t = transcript_in(&w.home, OTHER, "/p/huge");
     std::fs::create_dir_all(t.parent().unwrap()).unwrap();

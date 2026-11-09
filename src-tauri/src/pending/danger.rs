@@ -510,9 +510,18 @@ mod tests {
         std::fs::create_dir_all(tmp.join("repo/src")).unwrap();
         std::fs::create_dir_all(tmp.join("home/.claude")).unwrap();
         std::fs::create_dir_all(tmp.join("elsewhere")).unwrap();
-        // A symlink inside the repo pointing at ~/.claude.
+        // A symlink inside the repo pointing at ~/.claude. Windows lets an
+        // account make one only in Developer Mode or elevated: elsewhere the
+        // case that goes through it is left out.
         #[cfg(unix)]
-        std::os::unix::fs::symlink(tmp.join("home/.claude"), tmp.join("repo/cfg")).unwrap();
+        let linked = {
+            std::os::unix::fs::symlink(tmp.join("home/.claude"), tmp.join("repo/cfg")).unwrap();
+            true
+        };
+        #[cfg(windows)]
+        let linked =
+            std::os::windows::fs::symlink_dir(tmp.join("home/.claude"), tmp.join("repo/cfg"))
+                .is_ok();
         let e = env(&tmp);
 
         let cases: Vec<(&str, Value, bool)> = vec![
@@ -710,6 +719,9 @@ mod tests {
             ("Glob", json!({ "pattern": "**/*.rs" }), false),
         ];
         for (tool, input, want) in cases {
+            if !linked && input["file_path"] == "cfg/settings.json" {
+                continue;
+            }
             let got = classify(&item(tool, input.clone()), &e);
             assert_eq!(got.is_some(), want, "{tool} {input} → {got:?}");
         }

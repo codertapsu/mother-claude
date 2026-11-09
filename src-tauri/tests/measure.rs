@@ -26,6 +26,7 @@ use mother_claude_lib::server::monitor;
 use mother_claude_lib::state::{Inner, ServerConfig};
 
 /// Peak resident set size of this process, in MB.
+#[cfg(unix)]
 fn peak_rss_mb() -> f64 {
     // SAFETY: getrusage fills a caller-owned struct.
     let mut ru: libc::rusage = unsafe { std::mem::zeroed() };
@@ -38,7 +39,39 @@ fn peak_rss_mb() -> f64 {
     }
 }
 
+/// This process's (peak, current) working set, in MB.
+#[cfg(windows)]
+fn working_set_mb() -> (f64, f64) {
+    use windows_sys::Win32::System::ProcessStatus::{
+        GetProcessMemoryInfo, PROCESS_MEMORY_COUNTERS,
+    };
+    use windows_sys::Win32::System::Threading::GetCurrentProcess;
+    let size = std::mem::size_of::<PROCESS_MEMORY_COUNTERS>();
+    // SAFETY: GetProcessMemoryInfo fills a caller-owned struct of the size
+    // given; the current process's pseudo-handle needs no closing.
+    let mut pmc: PROCESS_MEMORY_COUNTERS = unsafe { std::mem::zeroed() };
+    pmc.cb = size as u32;
+    if unsafe { GetProcessMemoryInfo(GetCurrentProcess(), &mut pmc, size as u32) } == 0 {
+        return (0.0, 0.0);
+    }
+    let mb = |b: usize| b as f64 / (1024.0 * 1024.0);
+    (mb(pmc.PeakWorkingSetSize), mb(pmc.WorkingSetSize))
+}
+
+/// Peak resident set size of this process, in MB.
+#[cfg(windows)]
+fn peak_rss_mb() -> f64 {
+    working_set_mb().0
+}
+
+/// Current resident set size, in MB.
+#[cfg(windows)]
+fn rss_mb() -> f64 {
+    working_set_mb().1
+}
+
 /// Current resident set size, in MB (`ps -o rss=`).
+#[cfg(unix)]
 fn rss_mb() -> f64 {
     std::process::Command::new("ps")
         .args(["-o", "rss=", "-p", &std::process::id().to_string()])

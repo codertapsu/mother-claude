@@ -2788,8 +2788,17 @@ mod tests {
     #[tokio::test]
     async fn run_lifecycle_invokes_cli() {
         // Stand in for `claude` with `echo` so we exercise the shell-out path
-        // without touching real sessions.
-        std::env::set_var("MOTHER_CLAUDE_CLI", "echo");
+        // without touching real sessions. Windows has no `echo` program: a
+        // batch file that echoes its arguments.
+        let dir = tempfile::tempdir().unwrap();
+        let cli = if cfg!(windows) {
+            let p = dir.path().join("echo.cmd");
+            std::fs::write(&p, "@echo %*\r\n").unwrap();
+            p.display().to_string()
+        } else {
+            "echo".to_string()
+        };
+        std::env::set_var("MOTHER_CLAUDE_CLI", &cli);
         let out = run_lifecycle("stop", "631b387d").await;
         let bad = run_lifecycle("stop", "abc-123").await;
         let action = run_lifecycle("attach", "631b387d").await;

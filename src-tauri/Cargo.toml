@@ -102,6 +102,10 @@ reqwest = { version = "0.13.5", default-features = false, features = ["json"] }
 tokio-tungstenite = "0.30.0"
 futures-util = "0.3.34"
 
+# The memory figures of the measurement tests (tests/measure.rs) on Windows.
+[target.'cfg(windows)'.dev-dependencies]
+windows-sys = { version = "0.61.2", features = ["Win32_System_ProcessStatus", "Win32_System_Threading"] }
+
 [features]
 # Foreign-session injection via PTY-driving `claude attach` (Stage 3). Uses
 # unsanctioned, unstable internals but is ON by default so the dashboard can

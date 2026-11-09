@@ -391,9 +391,14 @@ async fn notifications_batches_and_errors() {
         .header("content-type", "application/json")
         .body(big)
         .send()
-        .await
-        .unwrap();
-    assert_eq!(r.status(), StatusCode::PAYLOAD_TOO_LARGE);
+        .await;
+    // The server answers without reading the rest. Windows then resets the
+    // connection while the client is still sending, before it reads that
+    // answer; elsewhere the client reads it.
+    match r {
+        Ok(r) => assert_eq!(r.status(), StatusCode::PAYLOAD_TOO_LARGE),
+        Err(e) => assert!(cfg!(windows) && e.is_request(), "{e}"),
+    }
 }
 
 #[tokio::test]

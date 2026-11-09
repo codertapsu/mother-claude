@@ -1708,6 +1708,16 @@ mod tests {
         Secret::new(format!("sk-ant-oat01-{}", format!("{n:02}").repeat(20)))
     }
 
+    /// `p` (written with `/`) as an absolute path on this system: on
+    /// Windows a path from the root of no drive is not one.
+    fn abs(p: &str) -> String {
+        if cfg!(windows) {
+            format!("C:{p}")
+        } else {
+            p.to_string()
+        }
+    }
+
     #[test]
     fn the_apps_registry_tells_the_classifier_every_config_directory() {
         let tmp = tempfile::tempdir().unwrap();
@@ -2126,7 +2136,7 @@ mod tests {
             "defaults": {"newSession": "acc_bbbbbbbbbbbb", "bridge": "acc_eeeeeeeeeeee",
                          "byProject": {"/p": "acc_aaaaaaaaaaaa", "rel": "acc_aaaaaaaaaaaa", "/q": "acc_nope00000000"}},
             "copyConsent": [{"from": "default", "to": "acc_aaaaaaaaaaaa"}, {"from": "x", "to": "y"}, "junk"],
-            "backup": {"folder": "/backups", "everyHours": 6, "futureBackup": "x"}
+            "backup": {"folder": abs("/backups"), "everyHours": 6, "futureBackup": "x"}
         });
         std::fs::write(tmp.path().join(FILE_NAME), file.to_string()).unwrap();
         let reg = AccountRegistry::load(
@@ -2282,7 +2292,7 @@ mod tests {
             })
             .is_err());
         reg.set_backup_settings(BackupSettings {
-            folder: Some("/backups".into()),
+            folder: Some(abs("/backups").into()),
             every_hours: 6,
             ..Default::default()
         })
@@ -2302,12 +2312,12 @@ mod tests {
                 "version": 1,
                 "accounts": [],
                 "backup": {
-                    "folder": "/backups",
+                    "folder": abs("/backups"),
                     "storages": [
-                        {"id": "stor_0123456789ab", "label": "Disk", "path": "/Volumes/Disk/Claude",
+                        {"id": "stor_0123456789ab", "label": "Disk", "path": abs("/Volumes/Disk/Claude"),
                          "createdAt": 1, "fromTheFuture": true},
-                        {"id": "stor_0123456789ab", "label": "Twice", "path": "/twice"},
-                        {"id": "bad", "label": "Bad id", "path": "/bad"},
+                        {"id": "stor_0123456789ab", "label": "Twice", "path": abs("/twice")},
+                        {"id": "bad", "label": "Bad id", "path": abs("/bad")},
                         {"id": "stor_aaaaaaaaaaaa", "label": "Relative", "path": "relative"},
                         "not an object"
                     ]
@@ -2318,7 +2328,7 @@ mod tests {
         .unwrap();
         let (reg, _) = registry(tmp.path());
         let b = reg.backup_settings();
-        assert_eq!(b.folder.as_deref(), Some(Path::new("/backups")));
+        assert_eq!(b.folder.as_deref(), Some(Path::new(&abs("/backups"))));
         assert_eq!(b.storages.len(), 1, "{:?}", b.storages);
         assert_eq!(b.storages[0].label, "Disk");
         assert_eq!(b.storages[0].extra["fromTheFuture"], true, "kept as it was");
@@ -2326,13 +2336,14 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         std::fs::write(
             tmp.path().join(FILE_NAME),
-            serde_json::json!({"backup": {"folder": "/backups", "storages": {"x": 1}}}).to_string(),
+            serde_json::json!({"backup": {"folder": abs("/backups"), "storages": {"x": 1}}})
+                .to_string(),
         )
         .unwrap();
         let (reg, _) = registry(tmp.path());
         assert_eq!(
             reg.backup_settings().folder.as_deref(),
-            Some(Path::new("/backups"))
+            Some(Path::new(&abs("/backups")))
         );
         assert!(reg.backup_settings().storages.is_empty());
         let file = serde_json::to_value(reg.backup_settings()).unwrap();
