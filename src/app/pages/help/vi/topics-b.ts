@@ -356,6 +356,7 @@ export const VI_TOPICS_B: Partial<Record<string, HelpTopicSource>> = {
         ],
         points: [
           'Bản sao lưu theo lịch sẽ chờ đến khi không phiên nào của tài khoản đó hoạt động trong mười phút. Phiên mà Claude đang làm việc sẽ bị bỏ qua cho đến khi rảnh; phiên đang rảnh vẫn được sao lưu dù vẫn còn mở.',
+          'Khi một lần sao lưu kết thúc, một thông báo cho biết kết quả, và lý do nếu có phần bị bỏ qua.',
           '**Kéo về khi khởi động** sẽ kéo về lúc ứng dụng khởi động, khi không có phiên nào đang chạy.',
           'Thông tin đăng nhập và token không bao giờ được sao lưu: mỗi máy tính tự đăng nhập riêng.',
         ],

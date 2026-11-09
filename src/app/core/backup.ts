@@ -503,6 +503,65 @@ export function prunedOf(
   return sessions.filter((s) => selected.has(s.id) && !!s.pruneWarning);
 }
 
+/** How a finished backup went, for a toast: its level, headline and what
+ * to do about what it left out (null for a job that is not a backup or has
+ * not ended). */
+export function backupOutcome(
+  job: JobView,
+  name: string,
+): { level: 'success' | 'warning' | 'error'; title: string; text: string } | null {
+  if (job.kind !== 'backup') return null;
+  if (job.state === 'failed') {
+    return {
+      level: 'error',
+      title: tr('The backup of {name} failed', { name }),
+      text: jobSummary(job) || tr('It failed.'),
+    };
+  }
+  if (job.state !== 'done') return null;
+  const r = normalizePushResult(job.result);
+  const summary = jobSummary(job);
+  if (!r) return { level: 'success', title: tr('{name} is backed up', { name }), text: summary };
+  const left: string[] = [];
+  if (r.skippedLive.length) {
+    left.push(
+      tr(
+        'Claude was working in {conversations}, so they were not backed up: back up again once they are idle.',
+        { conversations: plural(r.skippedLive.length, 'conversation') },
+      ),
+    );
+  }
+  if (r.conflicts.length) {
+    left.push(
+      tr('{conversations} changed here and on another computer: pull to see both copies.', {
+        conversations: plural(r.conflicts.length, 'conversation'),
+      }),
+    );
+  }
+  if (r.newerInSet.length) {
+    left.push(
+      tr('The backup has newer copies of {conversations}: pull to bring them here.', {
+        conversations: plural(r.newerInSet.length, 'conversation'),
+      }),
+    );
+  }
+  if (r.failed.length) {
+    left.push(
+      tr('{conversations} could not be backed up.', {
+        conversations: plural(r.failed.length, 'conversation'),
+      }),
+    );
+  }
+  if (!left.length) {
+    return { level: 'success', title: tr('{name} is backed up', { name }), text: summary };
+  }
+  return {
+    level: 'warning',
+    title: tr('{name} is backed up, but not all of it', { name }),
+    text: [summary, ...left].filter(Boolean).join('\n'),
+  };
+}
+
 /** The warning restore and pull give about pruning (docs/ACCOUNTS.md §11.7;
  * English: shown with `tr()` or `| t` where it is read). */
 export const PRUNE_WARNING =

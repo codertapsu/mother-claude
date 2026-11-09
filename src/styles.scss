@@ -500,27 +500,123 @@ code {
 .error-text {
   color: var(--red);
 }
+/* ------------------------------------------------- Notices and callouts
+ * Whatever the app needs you to see stands out: a tinted panel with a strong
+ * coloured edge and its level's icon. A notice is one message (`.warn`,
+ * `.error`, `.ok`, else information); a callout adds a bold title and the
+ * actions that answer it. Both stay readable at their size: `.small` makes
+ * a notice a little smaller, never a footnote. */
+
+$notice-icon-info: url("data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='10'/%3E%3Cpath d='M12 16v-4M12 8h.01'/%3E%3C/svg%3E");
+$notice-icon-warn: url("data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z'/%3E%3Cpath d='M12 9v4M12 17h.01'/%3E%3C/svg%3E");
+$notice-icon-error: url("data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='10'/%3E%3Cpath d='m15 9-6 6M9 9l6 6'/%3E%3C/svg%3E");
+$notice-icon-ok: url("data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='10'/%3E%3Cpath d='m8.5 12 2.5 2.5 4.5-5'/%3E%3C/svg%3E");
+
 .notice {
-  font-size: 0.85rem;
-  padding: 0.55rem 0.75rem;
+  --notice-edge: var(--accent);
+  --notice-bg: var(--accent-soft);
+  --notice-border: var(--border-strong);
+  --notice-icon: #{$notice-icon-info};
+  position: relative;
+  font-size: 0.9rem;
+  font-weight: 500;
+  line-height: 1.45;
+  padding: 0.7rem 0.9rem 0.7rem 2.6rem;
   border-radius: var(--radius-sm);
-  border: 1px solid var(--border);
-  background: var(--panel-2);
+  border: 1px solid var(--notice-border);
+  border-left: 4px solid var(--notice-edge);
+  background: var(--notice-bg);
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+.notice::before {
+  content: '';
+  position: absolute;
+  left: 0.8rem;
+  top: 0.78rem;
+  width: 1.15rem;
+  height: 1.15rem;
+  background: var(--notice-edge);
+  mask: var(--notice-icon) no-repeat center / contain;
+}
+.notice.small {
+  font-size: 0.875rem;
+  padding: 0.6rem 0.8rem 0.6rem 2.45rem;
+}
+.notice.small::before {
+  top: 0.66rem;
+  width: 1.05rem;
+  height: 1.05rem;
 }
 .notice.warn {
-  border-color: var(--amber-border);
-  background: var(--amber-soft);
-  color: var(--text);
+  --notice-edge: var(--amber);
+  --notice-bg: var(--amber-soft);
+  --notice-border: var(--amber-border);
+  --notice-icon: #{$notice-icon-warn};
 }
 .notice.error {
-  border-color: var(--red-border);
-  background: var(--red-soft);
-  color: var(--text);
+  --notice-edge: var(--red);
+  --notice-bg: var(--red-soft);
+  --notice-border: var(--red-border);
+  --notice-icon: #{$notice-icon-error};
 }
 .notice.ok {
-  border-color: var(--green-border);
-  background: var(--green-soft);
+  --notice-edge: var(--green);
+  --notice-bg: var(--green-soft);
+  --notice-border: var(--green-border);
+  --notice-icon: #{$notice-icon-ok};
+}
+
+.callout {
+  --callout-edge: var(--accent);
+  --callout-bg: var(--accent-soft);
+  --callout-border: var(--border-strong);
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  margin: 0.75rem 0;
+  padding: 0.9rem 1rem;
+  border-radius: var(--radius);
+  border: 1px solid var(--callout-border);
+  border-left: 5px solid var(--callout-edge);
+  background: var(--callout-bg);
   color: var(--text);
+  line-height: 1.45;
+}
+.callout.warn {
+  --callout-edge: var(--amber);
+  --callout-bg: var(--amber-soft);
+  --callout-border: var(--amber-border);
+}
+.callout.error {
+  --callout-edge: var(--red);
+  --callout-bg: var(--red-soft);
+  --callout-border: var(--red-border);
+}
+.callout.ok {
+  --callout-edge: var(--green);
+  --callout-bg: var(--green-soft);
+  --callout-border: var(--green-border);
+}
+.callout-icon {
+  flex: 0 0 auto;
+  margin-top: 0.1rem;
+  color: var(--callout-edge);
+}
+.callout-body {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.4rem;
+  min-width: 0;
+}
+.callout-title {
+  font-size: 0.98rem;
+  font-weight: 650;
+}
+.callout-body p {
+  margin: 0;
+  font-size: 0.9rem;
 }
 
 /* --------------------------------------------------------------- Buttons */

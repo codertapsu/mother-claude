@@ -18,6 +18,7 @@ import {
   KEY_MISSING_TEXT,
   andList,
   backupErrorText,
+  backupOutcome,
   normalizeBackupView,
   normalizePullSkips,
   otherMachines,
@@ -30,6 +31,7 @@ import { tr } from '../../core/i18n/i18n';
 import { TPipe } from '../../core/i18n/t.pipe';
 import { BackupMachine, BackupSet, BackupView, JobView } from '../../core/models';
 import { folderExample, folderPathProblem, lastSegment, machineNoun } from '../../core/paths';
+import { NoticeService } from '../../core/notice.service';
 import { RealtimeService } from '../../core/realtime.service';
 import { StorageService } from '../../core/storage.service';
 import { CopyButtonComponent } from '../../shared/copy-button.component';
@@ -113,6 +115,7 @@ export class BackupComponent {
   protected readonly backups: SyncDropTarget = { kind: 'backups' };
   private readonly storageSection = viewChild(StorageSectionComponent);
   private api = inject(ApiService);
+  private notices = inject(NoticeService);
   private jobs = inject(DataJobsService);
   private realtime = inject(RealtimeService);
   private storage = inject(StorageService);
@@ -622,6 +625,18 @@ export class BackupComponent {
     this.passOpen.set(true);
   }
 
+  /** A finished backup, as a toast: what it did, and what it left out and
+   * why (a conversation Claude was working in, a conflict). */
+  private sayOutcome(j: JobView): void {
+    const name = j.account ? this.nameOf(j.account) : tr('the accounts');
+    const o = backupOutcome(j, name);
+    if (!o) return;
+    const opts = { title: o.title };
+    if (o.level === 'error') this.notices.show('error', o.text, opts);
+    else if (o.level === 'warning') this.notices.warn(o.text, { ...opts, timeout: 20_000 });
+    else this.notices.success(o.text, opts);
+  }
+
   protected jobChanged(j: JobView): void {
     this.live.update((prev) => new Map(prev).set(j.id, j));
   }
@@ -650,8 +665,20 @@ export class BackupComponent {
     const id = typeof first === 'string' ? first : first.id;
     if (!id || this.following.has(id)) return;
     this.following.add(id);
+    let said = false;
     void this.jobs
-      .follow(first, (j) => this.jobChanged(j), this.abort.signal)
+      .follow(
+        first,
+        (j) => {
+          this.jobChanged(j);
+          // How a backup went, said where it is seen, once.
+          if (!said && (j.state === 'done' || j.state === 'failed')) {
+            said = true;
+            this.sayOutcome(j);
+          }
+        },
+        this.abort.signal,
+      )
       .catch(() => undefined)
       .finally(() => {
         this.following.delete(id);

@@ -165,7 +165,9 @@ read, that archive is dropped and the session is listed as skipped, to back up
 again once it is idle: a backup never holds a copy taken mid-turn. A backup's
 progress counts the bytes as they are packed, against the total of everything
 it will archive, so a long first backup (a conversation of several GB takes a
-minute or two) shows how far it is rather than standing still.
+minute or two) shows how far it is rather than standing still. When it ends,
+a notice says how it went: backed up, backed up but not all of it (and why:
+skipped while Claude worked, conflicts, newer in the set, failed), or failed.
 
 Archives are never rewritten: each push of a session writes a new file, the
 set's index then names it, and the file it replaced is removed a day later. A

@@ -7,6 +7,7 @@ import {
   forceKinds,
   forceReplaces,
   forceText,
+  backupOutcome,
   jobSummary,
   normalizeBackupIndex,
   normalizeBackupView,
@@ -351,6 +352,27 @@ describe('backup helpers', () => {
     expect(jobSummary(done('pull', { restored: ['a'], relocated: ['b'] }))).toBe(
       '1 new · 1 moved into a paired folder',
     );
+  });
+
+  it('says how a finished backup went, and why it left something out', () => {
+    expect(backupOutcome(done('backup', { archived: ['a'], unchanged: 2 }), 'Work')).toEqual({
+      level: 'success',
+      title: 'Work is backed up',
+      text: '1 session backed up · 2 unchanged',
+    });
+    const busy = backupOutcome(done('backup', { archived: [], skippedLive: ['b'] }), 'Work');
+    expect(busy?.level).toBe('warning');
+    expect(busy?.title).toBe('Work is backed up, but not all of it');
+    expect(busy?.text).toContain(
+      'Claude was working in 1 conversation, so they were not backed up: back up again once they are idle.',
+    );
+    expect(
+      backupOutcome({ ...done('backup', null), state: 'failed', error: 'disk full' }, 'Work')
+        ?.level,
+    ).toBe('error');
+    // Not a backup, or not over: nothing to say.
+    expect(backupOutcome(done('pull', { restored: ['a'] }), 'Work')).toBeNull();
+    expect(backupOutcome({ ...done('backup', {}), state: 'running' }, 'Work')).toBeNull();
   });
 
   it('finds the selected sessions Claude Code would prune again', () => {
