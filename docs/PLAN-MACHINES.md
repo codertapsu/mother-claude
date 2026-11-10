@@ -812,13 +812,15 @@ Local (desktop, or a device where noted):
 | `POST /api/machines/pair` · `/join` · `/confirm` | DesktopOnly | pairing (§5.4) |
 | `PATCH /api/machines/:id` · `DELETE …` | DesktopOnly | rename, grants, revoke |
 | `ANY /api/machines/:id/proxy/<allowed path>` | Authed (+ the route's own guard, checked locally first) | forwards to the peer (§5.6) |
-| `POST /api/sessions/:id/move` | Authed; DangerousOk when it carries ignored files or trust | starts a move: `{to, code: "bundle"\|"remote"\|"none", apply: "checkout"\|"worktree", recipe, keepDriving}` |
+| `POST /api/sessions/:id/move` | Authed; DangerousOk when it carries ignored files or trust | starts a move: `{to, code: "bundle"\|"remote"\|"none", apply: "checkout"\|"worktree", recipe, keepDriving, takeOver, from}` — `takeOver` when the session's machine is offline, `from` a copy's time |
+| `POST /api/sessions/:id/move/preflight` | Authed | the move sheet's checks, the target's `/peer/moves/preflight` asked through the source; nothing written |
 | `GET /api/moves/:id` · `POST …/cancel` · `POST …/undo` | Authed | follow, cancel (before landed), undo |
 | `PUT /api/sessions/:id/copies` | Authed | which machines keep a copy |
 | `GET /api/roots` · `PUT …` | ManageData | roots (§5.12) |
 | `GET /api/machines/setup` | Authed | this machine's checks, and every peer's (fetched through `/peer/setup`) |
 | `POST /api/machines/setup/fix` | DesktopOnly | `{check}`: runs this machine's fix (or opens its settings page through the desktop) |
-| `POST /api/machines/setup/ask` | DesktopOnly | `{machine, check}`: asks a peer to show that fix to whoever is at it |
+| `POST /api/machines/setup/ask` | DesktopOnly | `{machine, check}`: asks a peer to show that fix to whoever is at it; `check` also names the asked actions — *Sign in…*, *Add the account*, *Clone it*, *Change the grants* — each confirmed on that machine |
+| `GET /api/machines/nearby` | DesktopOnly | computers on this network showing a pairing code (§5.4) |
 | `POST /api/machines/test` | DesktopOnly | the readiness test, for one pair or all |
 | `GET /api/machines/settings` · `PUT …` | DesktopOnly | relay, code transfer, where code lands, copies, keep awake (D10); a project's overrides |
 | `POST /api/machines/enable` | DesktopOnly | turns Machines on — refused while a blocker is left |
@@ -851,6 +853,26 @@ Peer-only (`Ingress::Peer`):
 
 ## 9. UI
 
+The screens are drafted in `spikes/machines/UX.md`; its eight decisions were
+taken as recommended on 2026-11-10:
+
+1. *Machines* is the first entry of the sidebar's *Connect* group, with a red
+   dot for health.
+2. The move is **Continue on another computer…** (button *Continue on
+   DESKTOP-PC*, and *Bring back to this Mac*), beside *Continue on another
+   account…*; never "Move to…".
+3. The page is *Machines*; sentences say "computer".
+4. Machine chips only on other computers' sessions; the *Machine* filter
+   covers the rest.
+5. Two desktops pair by the code and a *Nearby* list; the QR code is small
+   and secondary.
+6. *Keep driving it from here* is on by default in the move sheet.
+7. A phone may start a move when paired with the session's computer or one
+   that may *Move*; files outside git and a folder's trust need its dangerous
+   permission; setup, pairing, grants and options stay desktop-only.
+8. A target folder with changes of its own gets *Use a separate folder
+   (worktree)* in the sheet — never a wait or a merge.
+
 - **Machines setup** (a full-page wizard, §5.14): the seven steps with a
   progress rail; each check a row (state, why it matters in one line, *Fix* /
   *Open settings* / *Ask DESKTOP-PC*, *Check again*); machines side by side
@@ -862,9 +884,9 @@ Peer-only (`Ingress::Peer`):
   relayed), grants, *Pair a machine*, *Join*, roots, the settings of D10,
   recent moves, and **Machines health** (green, or the blockers with their
   fixes). A red dot on the sidebar entry when a blocker comes back.
-- **Sessions**: a machine filter; a badge per session (`💻 MacBook`,
-  `🖥 DESKTOP-PC`); offline machines greyed.
-- **A session's page**: *Continue on …* (the move dialog), *Keep a copy on …*,
+- **Sessions**: a machine filter; a chip on other computers' sessions
+  (`🖥 DESKTOP-PC`), none on this computer's; offline machines greyed.
+- **A session's page**: *Continue on another computer…* (the move sheet), *Keep a copy on …*,
   *Lives on DESKTOP-PC — Open there · Bring back here · Take over*; the
   composer and approvals work the same for remote sessions.
 - **New session**: *on this machine / on DESKTOP-PC*.
@@ -922,12 +944,14 @@ Exit: a decision record — iroh or the fallback transport — and the S5 table,
 in this document.
 
 **Status (2026-11-10): the Mac half is done** — tools and results in
-`spikes/machines/` (`RESULTS.md`; the screens in `UX.md`). It changed §3.5
+`spikes/machines/` (`RESULTS.md`; the screens in `UX.md`, agreed — §9). It changed §3.5
 (the move note is a message), §5.3 (what *No relay* and *Your own relay*
-need) and §5.14 (the app has no Local Network access on the Mac yet). The
-Windows half — S5 there, LAN and cross-network figures between the
-machines, S2's round trip, and a Mac session resumed on Windows — is listed
-at the end of `RESULTS.md`.
+need) and §5.14 (the app has no Local Network access on the Mac yet). What
+remains is listed at the end of `RESULTS.md`: the Mac's worst-state walk
+(`spikes/machines/setup-walk/macos.sh`, run by you: it needs your password
+and your clicks), and the Windows half — S5 there with its own walk, LAN and
+cross-network figures between the machines, S2's round trip, and a Mac
+session resumed on Windows.
 
 ### Phase 1 — set up and pair machines (≈ 4 weeks)
 

@@ -1113,7 +1113,7 @@ them there:
   /api/machines/setup/ask`, each confirmed on that machine.
 - `GET /api/machines/nearby` — the computers nearby showing a code (§2.2).
 
-## Decisions for you
+## Decisions (taken 2026-11-10: all eight as recommended)
 
 1. **Sidebar** — *Machines* first in the *Connect* group, a red dot for
    health. *Recommended.*
