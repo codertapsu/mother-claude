@@ -170,11 +170,16 @@ resumed in (`projects/<encoded cwd>/<id>.jsonl`), which the folder pairs
 already handle. The old paths inside the history stay — rewriting them would
 change what Claude remembers, break the byte-for-byte continuation check, and
 the backup already decided "the transcripts are never rewritten". Instead the
-resumed process is told, once, in its system prompt (`--append-system-prompt`,
-spike S3): *this conversation moved from macOS (`/Users/marcus/dev/app`) to
-Windows (`D:\dev\app`); paths in earlier messages refer to the old machine;
-the shell here is PowerShell / Git Bash.* No extra turn, no tokens spent on a
-message.
+session is told, once, in **a message of the conversation**: the first
+message after a move starts with *this conversation moved from macOS
+(`/Users/marcus/dev/app`) to Windows (`D:\dev\app`); paths in earlier messages
+refer to the old machine; the shell here is PowerShell / Git Bash*, prepended
+to your next message so it costs no extra turn. Not the system prompt: spike
+S3 found that Claude Code (2.1.322) records a conversation's first system
+prompt in the transcript and replays it on every resume, so an
+`--append-system-prompt` given on resume never reaches the model
+(`spikes/machines/RESULTS.md`). A message is recorded, survives every later
+resume, and works for owned and foreign continuation alike.
 
 ### 3.6 Platform differences that bite
 
@@ -298,9 +303,16 @@ desktop accepts (until then the setup lists the mismatch as a blocker):
 
 | Choice | What it is | When |
 |---|---|---|
-| **Public relays** (default) | n0's relay servers, the library's own default | works at once, anywhere |
-| **Your own relay** | the URL of an `iroh-relay` you run (on the NAS, a small VPS); optionally its pinned certificate | you want no third party in the path, or a relay near you |
-| **No relay** | direct connections only (the LAN, or hole punching across networks) | machines that only ever meet on one network |
+| **Public relays** (default) | n0's relay servers, the library's own default; n0's DNS finds a peer's current relay from its id | works at once, anywhere |
+| **Your own relay** | the URL of an `iroh-relay` you run (on the NAS, a small VPS); optionally its pinned certificate. A peer is dialled as *its id + this relay*, so no n0 service is asked anything | you want no third party in the path, or a relay near you |
+| **No relay** | direct connections only: the LAN, or a machine with a public address or a mapped router port (iroh coordinates hole punching through a relay, so without one machines on two networks rarely meet) | machines that only ever meet on one network |
+
+Every machine also keeps its peers' last direct addresses and tries them
+first: mDNS is filtered on some networks (guest Wi-Fi, some routers).
+
+Measured in spike S1 (both ends on one Mac): public relays ~2–3 MiB/s with a
+~78 ms round trip from here — fine for driving sessions, slow for a large
+first move; a direct path or your own relay is what makes moves fast.
 
 A relay only ever carries ciphertext between machine keys; it learns which
 machines talk, when, and from which addresses. The setup's readiness test
@@ -319,7 +331,8 @@ Keychain / Credential Manager; LAN discovery with the macOS local-network
 permission and the Windows firewall prompt; a relayed connection between two
 networks (a phone hotspot); WebSocket over a stream; throughput (target:
 ≥ 50 MB/s on the LAN); binary size; the crate's version and stability at the
-time.
+time. *Mac half done* (iroh 1.4.1, stable; the API rides on it unchanged; at
+most +13 MB of binary): `spikes/machines/RESULTS.md`.
 
 ### 5.4 Pairing
 
@@ -430,8 +443,9 @@ commit     lease: home = T, epoch + 1  ── replicate ─►  lease accepted
                                                        resume the owned session:
                                                          claude --resume <id> in the
                                                          mapped folder, same account,
-                                                         model, effort, mode,
-                                                         + the move note (§3.5)
+                                                         model, effort, mode;
+                                                         the move note leads the
+                                                         next message (§3.5)
 ```
 
 - **Preflight** (nothing written anywhere): T has an account of the same name
@@ -484,13 +498,24 @@ tree are untouched):
 ```text
 base      = HEAD (or none, an unborn branch)
 branch    = the current branch (or detached)
-idx_tree  = git write-tree                                  # what is staged
-tmp index = copy of .git/index
-wt_tree   = GIT_INDEX_FILE=tmp git add -A && git write-tree  # working tree, untracked
-                                                             # included, ignored not
-snap      = git commit-tree wt_tree -p base -m "mother-claude: move <session> from <machine>"
-keep      refs/mother-claude/moves/<session>/<epoch> = snap  (so gc keeps it)
+copies    = two copies of .git/index, each keeping the original's mtime   (F1)
+idx_tree  = GIT_INDEX_FILE=copy1 git write-tree                # what is staged
+wt_tree   = GIT_INDEX_FILE=copy2 git add -A && git write-tree  # working tree, untracked
+                                                               # included, ignored not
+check     = paths `git status` reports changed == paths differing between
+            the trees; on a mismatch re-hash every file and check again  (F1)
+index     = git commit-tree idx_tree -p base       # the staged tree travels too (F2)
+snap      = git commit-tree wt_tree -p base [-p earlier snapshots of this
+            session that T has]                    # small incremental bundles (F6)
+keep      refs/mother-claude/moves/<session>/<epoch>/{snap,index}  (so gc keeps them)
+always    -c core.hooksPath=<a private, empty dir>, GIT_OPTIONAL_LOCKS=0, never
+          the real index, commits never signed                     (F3, F4)
 ```
+
+Spike S2 (Mac half, 132 of 132 runs as designed) found F1–F7, folded in
+here; details in `spikes/machines/code/RESULTS-S2.md`. F1 matters most: a
+plain copy of the index, dated now, made git trust stale stat data and
+**silently miss an edit** in 6 of 60 snapshots.
 
 **Transfer**, either way (the project setting, P2P by default):
 
@@ -498,8 +523,13 @@ keep      refs/mother-claude/moves/<session>/<epoch> = snap  (so gc keeps it)
   branch (preflight); S runs `git bundle create - <refs> --not <what T has>`
   and streams it; T `git fetch`es from the bundle into
   `refs/mother-claude/moves/…`. No remote needed, nothing pushed anywhere.
-- **Through your remote** (GitHub or any remote): S pushes the snapshot to a
-  hidden ref (`refs/mother-claude/<machine>/<session>`) — and the branch, if
+  Fetches never follow submodules (`--no-recurse-submodules --no-tags
+  --no-write-fetch-head --no-auto-maintenance`): a submodule commit missing
+  on its remote otherwise fails the whole fetch (F5); submodule commits are
+  checked separately.
+- **Through your remote** (GitHub or any remote): S pushes the snapshot and
+  its staged tree to hidden refs (`refs/mother-claude/<machine>/<session>/{snap,index}`,
+  `--no-verify --recurse-submodules=no`) — and the branch, if
   you ticked *Also push the branch*; T fetches. Useful when the machines are
   rarely online together, or a repo is too large to send whole the first
   time. Both machines need non-interactive access to the remote (the setup
@@ -521,10 +551,22 @@ a worktree), one of:
   checked out at `base` (fast-forwarding it when it is behind; **stop** when it
   has commits `base` does not — offer a worktree, or *reset to the Mac's*,
   keeping T's tip as `refs/mother-claude/undo/<time>`), then
-  `git read-tree -m -u base snap` (working tree = the snapshot) and
-  `git read-tree idx_tree` (index = what was staged), so staged, unstaged and
-  untracked files are exactly as they were on S. No git hook runs (plumbing
-  only).
+  `git read-tree -m -u <T's HEAD> base`, `git read-tree -m -u base snap`
+  (working tree = the snapshot), `git read-tree idx_tree` (index = what was
+  staged) and `git update-index --refresh`, so staged, unstaged and untracked
+  files are exactly as they were on S. *Clean* means `git status --porcelain
+  -uall` is empty (untracked files count) and no merge, rebase, cherry-pick,
+  revert or bisect is in progress; a branch checked out in another worktree
+  stops too. Plumbing alone does **not** keep hooks from running
+  (`post-index-change`, `reference-transaction`, `pre-push` all fire): every
+  git call disables them (F3).
+- **Coming back** (*Bring back*): the source checkout still holds exactly
+  what it sent, so it would never look clean. A checkout whose HEAD is a
+  snapshot's base, index its staged tree and working tree its tree — for a
+  snapshot of *this* session — is **parked** and counts as clean for that
+  session (F7); any edit made meanwhile makes it an ordinary dirty checkout.
+  A session that lived in a worktree on T comes home to its home branch,
+  which the move records.
 - **A worktree** (chosen as the default, chosen for this move, or offered
   when T's checkout has changes of its own): `git worktree add` at the
   snapshot in `<app data>/machines/worktrees/<session>` (outside the
@@ -539,9 +581,14 @@ are kept under `refs/mother-claude/undo/<time>` for 7 days; *Undo move* puts
 them back.
 
 **Warnings in preflight**: the project uses Git LFS (objects come from the
-remote, not the bundle); submodules (their commits must exist on T); paths
-differing only in case; Windows path length; line-ending settings that would
-show the snapshot as changed.
+remote, not the bundle); submodules (their commits must exist on T; changes
+inside one never travel); paths differing only in case, and a case-only
+rename made on disk (invisible to git on a case-insensitive disk); names
+Windows cannot hold (`aux.txt`, a trailing dot, `?`); Windows path length;
+unstaged mode changes and new executables (they lose +x on Windows: stage
+them); untracked symlinks (plain files on Windows without Developer Mode);
+line-ending settings that would show the snapshot as changed (S2: every
+`autocrlf`/`eol` combination was tree-exact, only raw line endings differ).
 
 **Recipe** (optional, per project): commands to run after a move, per OS —
 kept in Mother Claude's data dir, editable on the project, or read from a
@@ -663,7 +710,7 @@ B = blocks the feature (or the part named); W = works, but worse — said why.
 | Mother Claude | every machine speaks the same Machines protocol | `hello` versions (§8) | B | *Update* on that machine (Software updates) |
 | | starts at login, so a restarted machine is reachable | the autostart entry | W | *Turn on* |
 | | the computer stays awake while another machine uses it | the setting; sleep timers (macOS `pmset -g`, Windows `powercfg /query`) | W | *Keep awake while used* (a power assertion held by the app — `IOPMAssertionCreateWithName` / `SetThreadExecutionState` — no system setting changed); *Open energy settings* |
-| Network (macOS) | Local Network access for Mother Claude (the app's `Info.plist` gains `NSLocalNetworkUsageDescription`, so the prompt says why) | an mDNS query and a UDP send to the LAN (denied: `No route to host`; there is no API to read the setting, so it is tried; while macOS's own prompt is open the check says so) | B† | *Open Local Network settings* (`x-apple.systempreferences:…Privacy_LocalNetwork`), switch Mother Claude on |
+| Network (macOS) | Local Network access for Mother Claude (the app's `Info.plist` gains `NSLocalNetworkUsageDescription`, so the prompt says why) | an mDNS query and a UDP send to the LAN (denied: `No route to host`, os error 65; there is no API to read the setting, so it is tried — from inside the app, which macOS holds responsible for everything it launches; while macOS's own prompt is open the check says so). Spike S5: today's app, without the key, is refused without a prompt | B† | *Open Local Network settings* (`x-apple.systempreferences:…Privacy_LocalNetwork`), switch Mother Claude on |
 | | the application firewall lets Mother Claude in | `socketfilterfw --getglobalstate`, `--getblockall`, `--getappblocked <app>` | B† | *Open Firewall settings*, allow Mother Claude |
 | Network (Windows) | the network is **Private** (Public blocks incoming connections) | `Get-NetConnectionProfile` | B† | *Open network settings* (`ms-settings:network-status`), set Private — or allow on Public, explained |
 | | a Defender Firewall rule lets Mother Claude in for the current profile, and no block rule of its own overrides it (Windows creates block rules when its first *Allow access?* prompt is cancelled) | `Get-NetFirewallApplicationFilter -Program <exe>` and its rules | B† | *Allow through the firewall*: one script run as administrator after the Windows UAC prompt — `New-NetFirewallRule -Program <exe> -Direction Inbound -Action Allow -Profile Private -Protocol UDP` (TCP too if the fallback transport is used), and Mother Claude's own block rules removed |
@@ -838,7 +885,7 @@ Peer-only (`Ingress::Peer`):
 | The relay reads or alters traffic | End-to-end encryption between machine keys; a relay sees ciphertext and timing; self-hosting `iroh-relay` is an option. |
 | A phone without the dangerous grant reaches for it through its desktop | The target allows a dangerous action only with its peer's grant **and** the acting principal's right on the source. |
 | A move loses work | A transaction with undo on both sides; the source copy is never deleted; conflicts become conflict copies, never merges. |
-| A move runs code from the repo (hooks, filters) | Git plumbing only (no checkout hooks); recipes run only when ticked, as the session's background task. |
+| A move runs code from the repo (hooks, filters) | Every git call with an empty, private `core.hooksPath` and pushes with `--no-verify` (plumbing alone still runs hooks — spike S2, F3); recipes run only when ticked, as the session's background task. |
 | Secrets leave a machine unintentionally | Ignored files never travel unless the project lists them and you tick them; `.credentials.json` and tokens never travel (sign-in stays per machine, as with backups). |
 | A replayed move | Move ids and lease epochs; a lower epoch is refused. |
 | The setup is used to weaken a machine from another one | A machine only *asks* (`/peer/setup/ask`): every fix runs on the machine it changes, after its own desktop confirms it, and an elevated one after the OS's administrator prompt as well. A fix opens a port to Mother Claude only, on the Private profile only, and the setup never turns a firewall off. |
@@ -874,12 +921,21 @@ than the numbers.
 Exit: a decision record — iroh or the fallback transport — and the S5 table,
 in this document.
 
+**Status (2026-11-10): the Mac half is done** — tools and results in
+`spikes/machines/` (`RESULTS.md`; the screens in `UX.md`). It changed §3.5
+(the move note is a message), §5.3 (what *No relay* and *Your own relay*
+need) and §5.14 (the app has no Local Network access on the Mac yet). The
+Windows half — S5 there, LAN and cross-network figures between the
+machines, S2's round trip, and a Mac session resumed on Windows — is listed
+at the end of `RESULTS.md`.
+
 ### Phase 1 — set up and pair machines (≈ 4 weeks)
 
 - `machines/identity.rs`, `store.rs`, `pairing.rs`, `transport.rs`, `protocol.rs`.
 - `server::context`: `Ingress::Peer`, `Principal::Peer`; `server::auth` guards; the allow-list of routes a peer may reach.
 - API §7 (pairing, list, grants, revoke, settings, enable); `/peer/hello`, `/peer/settings`.
 - The relay setting, all three choices, offered to every machine (§5.3).
+- `scripts/release/check-windows.sh`: an override for `blake3`'s C build (it comes with iroh), like ring's; measure the binary's real growth (at most +13 MB in the spike; iroh's `metrics` feature costs nothing).
 - `machines/setup.rs`, the part this phase needs: the Mother Claude, network and pairing checks with their fixes (the settings pages through `invoke`, the firewall script after the UAC prompt, the keep-awake assertion); `Info.plist` with `NSLocalNetworkUsageDescription`; `GET /api/machines/setup`, `POST /api/machines/setup/fix`, `POST /api/machines/setup/ask`, `POST /api/machines/test`, `GET /peer/setup`, `POST /peer/setup/ask`; the readiness test's steps 1–2; Machines health and its badge.
 - UI: the setup's steps 1–4 and 7 (this machine, pairing with the grants on the confirmation screen, every machine's checks side by side, the grants matrix, the test); the Machines page.
 - Tests: pairing with a wrong code or a wrong confirmation fails; a pinned-key mismatch is refused; a peer cannot reach admin routes, `/hooks`, `/ws/browser`, `/mcp`; revoke cuts connections; grants per ingress. Every check's detector against recorded outputs (`Get-NetConnectionProfile`, `Get-NetFirewallApplicationFilter`, `socketfilterfw`, `pmset`, `powercfg`) through a command-runner trait; fixes built as argv, never a shell string; a fix asked from another machine changes nothing until confirmed there; Machines stays off while a blocker is left; a blocker that comes back turns health red.
