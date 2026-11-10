@@ -1,0 +1,3296 @@
+{
+  "when": "2026-11-10T12:33:37.827Z",
+  "environment": {
+    "git": "git version 2.54.0 (Apple Git-157)",
+    "node": "v24.18.0",
+    "platform": "darwin",
+    "arch": "arm64",
+    "os": "Darwin 27.2.0",
+    "caseInsensitive": true,
+    "symlinks": true,
+    "execBit": true,
+    "lfs": null,
+    "tmp": "/var/folders/h5/1_t4qkxd2zj9gg2gk5yrp8dm0000gn/T"
+  },
+  "diagnostics": {
+    "writeTreeRewritesIndex": true,
+    "statusRewritesIndex": true,
+    "statusWithoutOptionalLocksRewritesIndex": false
+  },
+  "summary": {
+    "total": 132,
+    "ok": 132,
+    "bad": [],
+    "skipped": 8,
+    "ms": 165723
+  },
+  "rows": [
+    {
+      "case": "mix",
+      "title": "staged + unstaged + untracked, deleted, renamed (staged and on disk), ignored",
+      "transfer": "bundle",
+      "landing": "checkout",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 382,
+        "applyMs": 156,
+        "verifyMs": 119,
+        "totalMs": 1166
+      },
+      "bundleBytes": 1122,
+      "warnings": [],
+      "targetPath": "/private/var/folders/h5/1_t4qkxd2zj9gg2gk5yrp8dm0000gn/T/mc-s2-matrix-qpWb12/mix-bundle-checkout/dst",
+      "rawKinds": [],
+      "undo": "restored",
+      "ok": true
+    },
+    {
+      "case": "mix",
+      "title": "staged + unstaged + untracked, deleted, renamed (staged and on disk), ignored",
+      "transfer": "bundle",
+      "landing": "worktree",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 395,
+        "applyMs": 143,
+        "verifyMs": 120,
+        "totalMs": 1235
+      },
+      "bundleBytes": 1121,
+      "warnings": [],
+      "targetPath": "/private/var/folders/h5/1_t4qkxd2zj9gg2gk5yrp8dm0000gn/T/mc-s2-matrix-qpWb12/mix-bundle-worktree/appdata/machines/worktrees/ses_mix",
+      "rawKinds": [],
+      "undo": "restored",
+      "ok": true
+    },
+    {
+      "case": "mix",
+      "title": "staged + unstaged + untracked, deleted, renamed (staged and on disk), ignored",
+      "transfer": "remote",
+      "landing": "checkout",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 405,
+        "applyMs": 176,
+        "verifyMs": 120,
+        "totalMs": 1161
+      },
+      "bundleBytes": null,
+      "warnings": [],
+      "targetPath": "/private/var/folders/h5/1_t4qkxd2zj9gg2gk5yrp8dm0000gn/T/mc-s2-matrix-qpWb12/mix-remote-checkout/dst",
+      "rawKinds": [],
+      "undo": "restored",
+      "ok": true
+    },
+    {
+      "case": "mix",
+      "title": "staged + unstaged + untracked, deleted, renamed (staged and on disk), ignored",
+      "transfer": "remote",
+      "landing": "worktree",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 421,
+        "applyMs": 164,
+        "verifyMs": 130,
+        "totalMs": 1229
+      },
+      "bundleBytes": null,
+      "warnings": [],
+      "targetPath": "/private/var/folders/h5/1_t4qkxd2zj9gg2gk5yrp8dm0000gn/T/mc-s2-matrix-qpWb12/mix-remote-worktree/appdata/machines/worktrees/ses_mix",
+      "rawKinds": [],
+      "undo": "restored",
+      "ok": true
+    },
+    {
+      "case": "binary",
+      "title": "binary file changed, new binary untracked",
+      "transfer": "bundle",
+      "landing": "checkout",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 374,
+        "applyMs": 155,
+        "verifyMs": 122,
+        "totalMs": 938
+      },
+      "bundleBytes": 12940,
+      "warnings": [],
+      "targetPath": "/private/var/folders/h5/1_t4qkxd2zj9gg2gk5yrp8dm0000gn/T/mc-s2-matrix-qpWb12/binary-bundle-checkout/dst",
+      "rawKinds": [],
+      "ok": true
+    },
+    {
+      "case": "binary",
+      "title": "binary file changed, new binary untracked",
+      "transfer": "bundle",
+      "landing": "worktree",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 393,
+        "applyMs": 139,
+        "verifyMs": 120,
+        "totalMs": 1014
+      },
+      "bundleBytes": 12940,
+      "warnings": [],
+      "targetPath": "/private/var/folders/h5/1_t4qkxd2zj9gg2gk5yrp8dm0000gn/T/mc-s2-matrix-qpWb12/binary-bundle-worktree/appdata/machines/worktrees/ses_binary",
+      "rawKinds": [],
+      "ok": true
+    },
+    {
+      "case": "binary",
+      "title": "binary file changed, new binary untracked",
+      "transfer": "remote",
+      "landing": "checkout",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 400,
+        "applyMs": 170,
+        "verifyMs": 118,
+        "totalMs": 931
+      },
+      "bundleBytes": null,
+      "warnings": [],
+      "targetPath": "/private/var/folders/h5/1_t4qkxd2zj9gg2gk5yrp8dm0000gn/T/mc-s2-matrix-qpWb12/binary-remote-checkout/dst",
+      "rawKinds": [],
+      "ok": true
+    },
+    {
+      "case": "binary",
+      "title": "binary file changed, new binary untracked",
+      "transfer": "remote",
+      "landing": "worktree",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 407,
+        "applyMs": 156,
+        "verifyMs": 120,
+        "totalMs": 1005
+      },
+      "bundleBytes": null,
+      "warnings": [],
+      "targetPath": "/private/var/folders/h5/1_t4qkxd2zj9gg2gk5yrp8dm0000gn/T/mc-s2-matrix-qpWb12/binary-remote-worktree/appdata/machines/worktrees/ses_binary",
+      "rawKinds": [],
+      "ok": true
+    },
+    {
+      "case": "exec-bit",
+      "title": "exec bit: unstaged chmod, staged chmod, new executable (target fileMode=true)",
+      "transfer": "bundle",
+      "landing": "checkout",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 369,
+        "applyMs": 157,
+        "verifyMs": 118,
+        "totalMs": 937
+      },
+      "bundleBytes": 719,
+      "warnings": [
+        "unstaged-mode-change",
+        "untracked-exec"
+      ],
+      "targetPath": "/private/var/folders/h5/1_t4qkxd2zj9gg2gk5yrp8dm0000gn/T/mc-s2-matrix-qpWb12/exec-bit-bundle-checkout/dst",
+      "rawKinds": [],
+      "ok": true
+    },
+    {
+      "case": "exec-bit",
+      "title": "exec bit: unstaged chmod, staged chmod, new executable (target fileMode=true)",
+      "transfer": "bundle",
+      "landing": "worktree",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 374,
+        "applyMs": 140,
+        "verifyMs": 120,
+        "totalMs": 1004
+      },
+      "bundleBytes": 720,
+      "warnings": [
+        "unstaged-mode-change",
+        "untracked-exec"
+      ],
+      "targetPath": "/private/var/folders/h5/1_t4qkxd2zj9gg2gk5yrp8dm0000gn/T/mc-s2-matrix-qpWb12/exec-bit-bundle-worktree/appdata/machines/worktrees/ses_execbit",
+      "rawKinds": [],
+      "ok": true
+    },
+    {
+      "case": "exec-bit",
+      "title": "exec bit: unstaged chmod, staged chmod, new executable (target fileMode=true)",
+      "transfer": "remote",
+      "landing": "checkout",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 406,
+        "applyMs": 188,
+        "verifyMs": 132,
+        "totalMs": 979
+      },
+      "bundleBytes": null,
+      "warnings": [
+        "unstaged-mode-change",
+        "untracked-exec"
+      ],
+      "targetPath": "/private/var/folders/h5/1_t4qkxd2zj9gg2gk5yrp8dm0000gn/T/mc-s2-matrix-qpWb12/exec-bit-remote-checkout/dst",
+      "rawKinds": [],
+      "ok": true
+    },
+    {
+      "case": "exec-bit",
+      "title": "exec bit: unstaged chmod, staged chmod, new executable (target fileMode=true)",
+      "transfer": "remote",
+      "landing": "worktree",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 409,
+        "applyMs": 164,
+        "verifyMs": 120,
+        "totalMs": 1044
+      },
+      "bundleBytes": null,
+      "warnings": [
+        "unstaged-mode-change",
+        "untracked-exec"
+      ],
+      "targetPath": "/private/var/folders/h5/1_t4qkxd2zj9gg2gk5yrp8dm0000gn/T/mc-s2-matrix-qpWb12/exec-bit-remote-worktree/appdata/machines/worktrees/ses_execbit",
+      "rawKinds": [],
+      "ok": true
+    },
+    {
+      "case": "exec-bit-to-filemode-false",
+      "title": "the same, target core.fileMode=false (as on Windows)",
+      "transfer": "bundle",
+      "landing": "checkout",
+      "expected": "limit",
+      "outcome": "limit",
+      "limits": [
+        "filemode"
+      ],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 451,
+        "applyMs": 167,
+        "verifyMs": 131,
+        "totalMs": 1060
+      },
+      "bundleBytes": 760,
+      "warnings": [
+        "unstaged-mode-change",
+        "untracked-exec"
+      ],
+      "targetPath": "/private/var/folders/h5/1_t4qkxd2zj9gg2gk5yrp8dm0000gn/T/mc-s2-matrix-qpWb12/exec-bit-to-filemode-false-bundle-checkout/dst",
+      "rawKinds": [],
+      "ok": true
+    },
+    {
+      "case": "exec-bit-to-filemode-false",
+      "title": "the same, target core.fileMode=false (as on Windows)",
+      "transfer": "bundle",
+      "landing": "worktree",
+      "expected": "limit",
+      "outcome": "limit",
+      "limits": [
+        "filemode"
+      ],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 412,
+        "applyMs": 159,
+        "verifyMs": 146,
+        "totalMs": 1150
+      },
+      "bundleBytes": 760,
+      "warnings": [
+        "unstaged-mode-change",
+        "untracked-exec"
+      ],
+      "targetPath": "/private/var/folders/h5/1_t4qkxd2zj9gg2gk5yrp8dm0000gn/T/mc-s2-matrix-qpWb12/exec-bit-to-filemode-false-bundle-worktree/appdata/machines/worktrees/ses_execbittofilemodefalse",
+      "rawKinds": [],
+      "ok": true
+    },
+    {
+      "case": "exec-bit-to-filemode-false",
+      "title": "the same, target core.fileMode=false (as on Windows)",
+      "transfer": "remote",
+      "landing": "checkout",
+      "expected": "limit",
+      "outcome": "limit",
+      "limits": [
+        "filemode"
+      ],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 442,
+        "applyMs": 185,
+        "verifyMs": 140,
+        "totalMs": 1040
+      },
+      "bundleBytes": null,
+      "warnings": [
+        "unstaged-mode-change",
+        "untracked-exec"
+      ],
+      "targetPath": "/private/var/folders/h5/1_t4qkxd2zj9gg2gk5yrp8dm0000gn/T/mc-s2-matrix-qpWb12/exec-bit-to-filemode-false-remote-checkout/dst",
+      "rawKinds": [],
+      "ok": true
+    },
+    {
+      "case": "exec-bit-to-filemode-false",
+      "title": "the same, target core.fileMode=false (as on Windows)",
+      "transfer": "remote",
+      "landing": "worktree",
+      "expected": "limit",
+      "outcome": "limit",
+      "limits": [
+        "filemode"
+      ],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 431,
+        "applyMs": 164,
+        "verifyMs": 143,
+        "totalMs": 1091
+      },
+      "bundleBytes": null,
+      "warnings": [
+        "unstaged-mode-change",
+        "untracked-exec"
+      ],
+      "targetPath": "/private/var/folders/h5/1_t4qkxd2zj9gg2gk5yrp8dm0000gn/T/mc-s2-matrix-qpWb12/exec-bit-to-filemode-false-remote-worktree/appdata/machines/worktrees/ses_execbittofilemodefalse",
+      "rawKinds": [],
+      "ok": true
+    },
+    {
+      "case": "paths",
+      "title": "spaces, non-ASCII, NFD names; staged, unstaged, untracked",
+      "transfer": "bundle",
+      "landing": "checkout",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 424,
+        "applyMs": 173,
+        "verifyMs": 126,
+        "totalMs": 1045
+      },
+      "bundleBytes": 1056,
+      "warnings": [],
+      "targetPath": "/private/var/folders/h5/1_t4qkxd2zj9gg2gk5yrp8dm0000gn/T/mc-s2-matrix-qpWb12/paths-bundle-checkout/dst",
+      "rawKinds": [],
+      "ok": true
+    },
+    {
+      "case": "paths",
+      "title": "spaces, non-ASCII, NFD names; staged, unstaged, untracked",
+      "transfer": "bundle",
+      "landing": "worktree",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 410,
+        "applyMs": 153,
+        "verifyMs": 131,
+        "totalMs": 1092
+      },
+      "bundleBytes": 1057,
+      "warnings": [],
+      "targetPath": "/private/var/folders/h5/1_t4qkxd2zj9gg2gk5yrp8dm0000gn/T/mc-s2-matrix-qpWb12/paths-bundle-worktree/appdata/machines/worktrees/ses_paths",
+      "rawKinds": [],
+      "ok": true
+    },
+    {
+      "case": "paths",
+      "title": "spaces, non-ASCII, NFD names; staged, unstaged, untracked",
+      "transfer": "remote",
+      "landing": "checkout",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 408,
+        "applyMs": 176,
+        "verifyMs": 118,
+        "totalMs": 956
+      },
+      "bundleBytes": null,
+      "warnings": [],
+      "targetPath": "/private/var/folders/h5/1_t4qkxd2zj9gg2gk5yrp8dm0000gn/T/mc-s2-matrix-qpWb12/paths-remote-checkout/dst",
+      "rawKinds": [],
+      "ok": true
+    },
+    {
+      "case": "paths",
+      "title": "spaces, non-ASCII, NFD names; staged, unstaged, untracked",
+      "transfer": "remote",
+      "landing": "worktree",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 405,
+        "applyMs": 163,
+        "verifyMs": 123,
+        "totalMs": 1022
+      },
+      "bundleBytes": null,
+      "warnings": [],
+      "targetPath": "/private/var/folders/h5/1_t4qkxd2zj9gg2gk5yrp8dm0000gn/T/mc-s2-matrix-qpWb12/paths-remote-worktree/appdata/machines/worktrees/ses_paths",
+      "rawKinds": [],
+      "ok": true
+    },
+    {
+      "case": "ignored",
+      "title": "ignored files stay; a tracked file matching .gitignore travels",
+      "transfer": "bundle",
+      "landing": "checkout",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 413,
+        "applyMs": 182,
+        "verifyMs": 132,
+        "totalMs": 1033
+      },
+      "bundleBytes": 601,
+      "warnings": [],
+      "targetPath": "/private/var/folders/h5/1_t4qkxd2zj9gg2gk5yrp8dm0000gn/T/mc-s2-matrix-qpWb12/ignored-bundle-checkout/dst",
+      "rawKinds": [],
+      "ok": true
+    },
+    {
+      "case": "ignored",
+      "title": "ignored files stay; a tracked file matching .gitignore travels",
+      "transfer": "bundle",
+      "landing": "worktree",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 375,
+        "applyMs": 140,
+        "verifyMs": 121,
+        "totalMs": 1011
+      },
+      "bundleBytes": 602,
+      "warnings": [],
+      "targetPath": "/private/var/folders/h5/1_t4qkxd2zj9gg2gk5yrp8dm0000gn/T/mc-s2-matrix-qpWb12/ignored-bundle-worktree/appdata/machines/worktrees/ses_ignored",
+      "rawKinds": [],
+      "ok": true
+    },
+    {
+      "case": "ignored",
+      "title": "ignored files stay; a tracked file matching .gitignore travels",
+      "transfer": "remote",
+      "landing": "checkout",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 409,
+        "applyMs": 173,
+        "verifyMs": 116,
+        "totalMs": 952
+      },
+      "bundleBytes": null,
+      "warnings": [],
+      "targetPath": "/private/var/folders/h5/1_t4qkxd2zj9gg2gk5yrp8dm0000gn/T/mc-s2-matrix-qpWb12/ignored-remote-checkout/dst",
+      "rawKinds": [],
+      "ok": true
+    },
+    {
+      "case": "ignored",
+      "title": "ignored files stay; a tracked file matching .gitignore travels",
+      "transfer": "remote",
+      "landing": "worktree",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 392,
+        "applyMs": 156,
+        "verifyMs": 120,
+        "totalMs": 1006
+      },
+      "bundleBytes": null,
+      "warnings": [],
+      "targetPath": "/private/var/folders/h5/1_t4qkxd2zj9gg2gk5yrp8dm0000gn/T/mc-s2-matrix-qpWb12/ignored-remote-worktree/appdata/machines/worktrees/ses_ignored",
+      "rawKinds": [],
+      "ok": true
+    },
+    {
+      "case": "autocrlf-false-to-true",
+      "title": "LF source (autocrlf=false) → target autocrlf=true",
+      "transfer": "bundle",
+      "landing": "checkout",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 382,
+        "applyMs": 158,
+        "verifyMs": 117,
+        "totalMs": 959
+      },
+      "bundleBytes": 831,
+      "warnings": [],
+      "targetPath": "/private/var/folders/h5/1_t4qkxd2zj9gg2gk5yrp8dm0000gn/T/mc-s2-matrix-qpWb12/autocrlf-false-to-true-bundle-checkout/dst",
+      "rawKinds": [
+        "eol"
+      ],
+      "ok": true
+    },
+    {
+      "case": "autocrlf-false-to-true",
+      "title": "LF source (autocrlf=false) → target autocrlf=true",
+      "transfer": "bundle",
+      "landing": "worktree",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 380,
+        "applyMs": 141,
+        "verifyMs": 120,
+        "totalMs": 1016
+      },
+      "bundleBytes": 831,
+      "warnings": [],
+      "targetPath": "/private/var/folders/h5/1_t4qkxd2zj9gg2gk5yrp8dm0000gn/T/mc-s2-matrix-qpWb12/autocrlf-false-to-true-bundle-worktree/appdata/machines/worktrees/ses_autocrlffalsetotrue",
+      "rawKinds": [
+        "eol"
+      ],
+      "ok": true
+    },
+    {
+      "case": "autocrlf-false-to-true",
+      "title": "LF source (autocrlf=false) → target autocrlf=true",
+      "transfer": "remote",
+      "landing": "checkout",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 408,
+        "applyMs": 177,
+        "verifyMs": 121,
+        "totalMs": 961
+      },
+      "bundleBytes": null,
+      "warnings": [],
+      "targetPath": "/private/var/folders/h5/1_t4qkxd2zj9gg2gk5yrp8dm0000gn/T/mc-s2-matrix-qpWb12/autocrlf-false-to-true-remote-checkout/dst",
+      "rawKinds": [
+        "eol"
+      ],
+      "ok": true
+    },
+    {
+      "case": "autocrlf-false-to-true",
+      "title": "LF source (autocrlf=false) → target autocrlf=true",
+      "transfer": "remote",
+      "landing": "worktree",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 402,
+        "applyMs": 160,
+        "verifyMs": 120,
+        "totalMs": 1014
+      },
+      "bundleBytes": null,
+      "warnings": [],
+      "targetPath": "/private/var/folders/h5/1_t4qkxd2zj9gg2gk5yrp8dm0000gn/T/mc-s2-matrix-qpWb12/autocrlf-false-to-true-remote-worktree/appdata/machines/worktrees/ses_autocrlffalsetotrue",
+      "rawKinds": [
+        "eol"
+      ],
+      "ok": true
+    },
+    {
+      "case": "autocrlf-true-to-false",
+      "title": "CRLF working tree (autocrlf=true, as on Windows) → target autocrlf=false",
+      "transfer": "bundle",
+      "landing": "checkout",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 370,
+        "applyMs": 156,
+        "verifyMs": 118,
+        "totalMs": 928
+      },
+      "bundleBytes": 709,
+      "warnings": [],
+      "targetPath": "/private/var/folders/h5/1_t4qkxd2zj9gg2gk5yrp8dm0000gn/T/mc-s2-matrix-qpWb12/autocrlf-true-to-false-bundle-checkout/dst",
+      "rawKinds": [
+        "eol"
+      ],
+      "ok": true
+    },
+    {
+      "case": "autocrlf-true-to-false",
+      "title": "CRLF working tree (autocrlf=true, as on Windows) → target autocrlf=false",
+      "transfer": "bundle",
+      "landing": "worktree",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 372,
+        "applyMs": 141,
+        "verifyMs": 118,
+        "totalMs": 993
+      },
+      "bundleBytes": 708,
+      "warnings": [],
+      "targetPath": "/private/var/folders/h5/1_t4qkxd2zj9gg2gk5yrp8dm0000gn/T/mc-s2-matrix-qpWb12/autocrlf-true-to-false-bundle-worktree/appdata/machines/worktrees/ses_autocrlftruetofalse",
+      "rawKinds": [
+        "eol"
+      ],
+      "ok": true
+    },
+    {
+      "case": "autocrlf-true-to-false",
+      "title": "CRLF working tree (autocrlf=true, as on Windows) → target autocrlf=false",
+      "transfer": "remote",
+      "landing": "checkout",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 429,
+        "applyMs": 174,
+        "verifyMs": 118,
+        "totalMs": 970
+      },
+      "bundleBytes": null,
+      "warnings": [],
+      "targetPath": "/private/var/folders/h5/1_t4qkxd2zj9gg2gk5yrp8dm0000gn/T/mc-s2-matrix-qpWb12/autocrlf-true-to-false-remote-checkout/dst",
+      "rawKinds": [
+        "eol"
+      ],
+      "ok": true
+    },
+    {
+      "case": "autocrlf-true-to-false",
+      "title": "CRLF working tree (autocrlf=true, as on Windows) → target autocrlf=false",
+      "transfer": "remote",
+      "landing": "worktree",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 398,
+        "applyMs": 158,
+        "verifyMs": 121,
+        "totalMs": 998
+      },
+      "bundleBytes": null,
+      "warnings": [],
+      "targetPath": "/private/var/folders/h5/1_t4qkxd2zj9gg2gk5yrp8dm0000gn/T/mc-s2-matrix-qpWb12/autocrlf-true-to-false-remote-worktree/appdata/machines/worktrees/ses_autocrlftruetofalse",
+      "rawKinds": [
+        "eol"
+      ],
+      "ok": true
+    },
+    {
+      "case": "gitattributes-eol-lf",
+      "title": "`* text=auto eol=lf` committed; target autocrlf=true keeps LF",
+      "transfer": "bundle",
+      "landing": "checkout",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 404,
+        "applyMs": 156,
+        "verifyMs": 118,
+        "totalMs": 964
+      },
+      "bundleBytes": 692,
+      "warnings": [],
+      "targetPath": "/private/var/folders/h5/1_t4qkxd2zj9gg2gk5yrp8dm0000gn/T/mc-s2-matrix-qpWb12/gitattributes-eol-lf-bundle-checkout/dst",
+      "rawKinds": [],
+      "ok": true
+    },
+    {
+      "case": "gitattributes-eol-lf",
+      "title": "`* text=auto eol=lf` committed; target autocrlf=true keeps LF",
+      "transfer": "bundle",
+      "landing": "worktree",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 382,
+        "applyMs": 141,
+        "verifyMs": 122,
+        "totalMs": 1018
+      },
+      "bundleBytes": 689,
+      "warnings": [],
+      "targetPath": "/private/var/folders/h5/1_t4qkxd2zj9gg2gk5yrp8dm0000gn/T/mc-s2-matrix-qpWb12/gitattributes-eol-lf-bundle-worktree/appdata/machines/worktrees/ses_gitattributeseollf",
+      "rawKinds": [],
+      "ok": true
+    },
+    {
+      "case": "gitattributes-eol-lf",
+      "title": "`* text=auto eol=lf` committed; target autocrlf=true keeps LF",
+      "transfer": "remote",
+      "landing": "checkout",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 410,
+        "applyMs": 173,
+        "verifyMs": 118,
+        "totalMs": 946
+      },
+      "bundleBytes": null,
+      "warnings": [],
+      "targetPath": "/private/var/folders/h5/1_t4qkxd2zj9gg2gk5yrp8dm0000gn/T/mc-s2-matrix-qpWb12/gitattributes-eol-lf-remote-checkout/dst",
+      "rawKinds": [],
+      "ok": true
+    },
+    {
+      "case": "gitattributes-eol-lf",
+      "title": "`* text=auto eol=lf` committed; target autocrlf=true keeps LF",
+      "transfer": "remote",
+      "landing": "worktree",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 404,
+        "applyMs": 160,
+        "verifyMs": 121,
+        "totalMs": 1006
+      },
+      "bundleBytes": null,
+      "warnings": [],
+      "targetPath": "/private/var/folders/h5/1_t4qkxd2zj9gg2gk5yrp8dm0000gn/T/mc-s2-matrix-qpWb12/gitattributes-eol-lf-remote-worktree/appdata/machines/worktrees/ses_gitattributeseollf",
+      "rawKinds": [],
+      "ok": true
+    },
+    {
+      "case": "crlf-committed",
+      "title": "a CRLF file committed without attributes, changed; target autocrlf=true",
+      "transfer": "bundle",
+      "landing": "checkout",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 377,
+        "applyMs": 156,
+        "verifyMs": 119,
+        "totalMs": 940
+      },
+      "bundleBytes": 645,
+      "warnings": [],
+      "targetPath": "/private/var/folders/h5/1_t4qkxd2zj9gg2gk5yrp8dm0000gn/T/mc-s2-matrix-qpWb12/crlf-committed-bundle-checkout/dst",
+      "rawKinds": [
+        "eol"
+      ],
+      "ok": true
+    },
+    {
+      "case": "crlf-committed",
+      "title": "a CRLF file committed without attributes, changed; target autocrlf=true",
+      "transfer": "bundle",
+      "landing": "worktree",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 372,
+        "applyMs": 141,
+        "verifyMs": 122,
+        "totalMs": 999
+      },
+      "bundleBytes": 648,
+      "warnings": [],
+      "targetPath": "/private/var/folders/h5/1_t4qkxd2zj9gg2gk5yrp8dm0000gn/T/mc-s2-matrix-qpWb12/crlf-committed-bundle-worktree/appdata/machines/worktrees/ses_crlfcommitted",
+      "rawKinds": [
+        "eol"
+      ],
+      "ok": true
+    },
+    {
+      "case": "crlf-committed",
+      "title": "a CRLF file committed without attributes, changed; target autocrlf=true",
+      "transfer": "remote",
+      "landing": "checkout",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 394,
+        "applyMs": 176,
+        "verifyMs": 117,
+        "totalMs": 930
+      },
+      "bundleBytes": null,
+      "warnings": [],
+      "targetPath": "/private/var/folders/h5/1_t4qkxd2zj9gg2gk5yrp8dm0000gn/T/mc-s2-matrix-qpWb12/crlf-committed-remote-checkout/dst",
+      "rawKinds": [
+        "eol"
+      ],
+      "ok": true
+    },
+    {
+      "case": "crlf-committed",
+      "title": "a CRLF file committed without attributes, changed; target autocrlf=true",
+      "transfer": "remote",
+      "landing": "worktree",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 395,
+        "applyMs": 165,
+        "verifyMs": 137,
+        "totalMs": 1022
+      },
+      "bundleBytes": null,
+      "warnings": [],
+      "targetPath": "/private/var/folders/h5/1_t4qkxd2zj9gg2gk5yrp8dm0000gn/T/mc-s2-matrix-qpWb12/crlf-committed-remote-worktree/appdata/machines/worktrees/ses_crlfcommitted",
+      "rawKinds": [
+        "eol"
+      ],
+      "ok": true
+    },
+    {
+      "case": "behind",
+      "title": "target branch behind the base: fast-forward",
+      "transfer": "bundle",
+      "landing": "checkout",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 374,
+        "applyMs": 208,
+        "verifyMs": 118,
+        "totalMs": 1190
+      },
+      "bundleBytes": 819,
+      "warnings": [],
+      "targetPath": "/private/var/folders/h5/1_t4qkxd2zj9gg2gk5yrp8dm0000gn/T/mc-s2-matrix-qpWb12/behind-bundle-checkout/dst",
+      "rawKinds": [],
+      "undo": "restored",
+      "ok": true
+    },
+    {
+      "case": "behind",
+      "title": "target branch behind the base: fast-forward",
+      "transfer": "bundle",
+      "landing": "worktree",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 376,
+        "applyMs": 146,
+        "verifyMs": 121,
+        "totalMs": 1159
+      },
+      "bundleBytes": 803,
+      "warnings": [],
+      "targetPath": "/private/var/folders/h5/1_t4qkxd2zj9gg2gk5yrp8dm0000gn/T/mc-s2-matrix-qpWb12/behind-bundle-worktree/appdata/machines/worktrees/ses_behind",
+      "rawKinds": [],
+      "undo": "restored",
+      "ok": true
+    },
+    {
+      "case": "behind",
+      "title": "target branch behind the base: fast-forward",
+      "transfer": "remote",
+      "landing": "checkout",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 405,
+        "applyMs": 205,
+        "verifyMs": 116,
+        "totalMs": 1165
+      },
+      "bundleBytes": null,
+      "warnings": [],
+      "targetPath": "/private/var/folders/h5/1_t4qkxd2zj9gg2gk5yrp8dm0000gn/T/mc-s2-matrix-qpWb12/behind-remote-checkout/dst",
+      "rawKinds": [],
+      "undo": "restored",
+      "ok": true
+    },
+    {
+      "case": "behind",
+      "title": "target branch behind the base: fast-forward",
+      "transfer": "remote",
+      "landing": "worktree",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 400,
+        "applyMs": 158,
+        "verifyMs": 119,
+        "totalMs": 1162
+      },
+      "bundleBytes": null,
+      "warnings": [],
+      "targetPath": "/private/var/folders/h5/1_t4qkxd2zj9gg2gk5yrp8dm0000gn/T/mc-s2-matrix-qpWb12/behind-remote-worktree/appdata/machines/worktrees/ses_behind",
+      "rawKinds": [],
+      "undo": "restored",
+      "ok": true
+    },
+    {
+      "case": "diverged",
+      "title": "target branch has a commit the base lacks: stop, worktree offered",
+      "transfer": "bundle",
+      "landing": "checkout",
+      "expected": "stop",
+      "outcome": "stop",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [
+        "stop: the target's main has commits the snapshot's base lacks; offered: worktree, or reset it to the source (its tip kept as an undo ref)"
+      ],
+      "timings": {
+        "snapshotMs": 373,
+        "applyMs": 127,
+        "totalMs": 893
+      },
+      "bundleBytes": 766,
+      "warnings": [],
+      "targetPath": null,
+      "ok": true
+    },
+    {
+      "case": "diverged",
+      "title": "target branch has a commit the base lacks: stop, worktree offered",
+      "transfer": "bundle",
+      "landing": "worktree",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 372,
+        "applyMs": 141,
+        "verifyMs": 127,
+        "totalMs": 1037
+      },
+      "bundleBytes": 766,
+      "warnings": [],
+      "targetPath": "/private/var/folders/h5/1_t4qkxd2zj9gg2gk5yrp8dm0000gn/T/mc-s2-matrix-qpWb12/diverged-bundle-worktree/appdata/machines/worktrees/ses_diverged",
+      "rawKinds": [],
+      "ok": true
+    },
+    {
+      "case": "diverged",
+      "title": "target branch has a commit the base lacks: stop, worktree offered",
+      "transfer": "remote",
+      "landing": "checkout",
+      "expected": "stop",
+      "outcome": "stop",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [
+        "stop: the target's main has commits the snapshot's base lacks; offered: worktree, or reset it to the source (its tip kept as an undo ref)"
+      ],
+      "timings": {
+        "snapshotMs": 400,
+        "applyMs": 143,
+        "totalMs": 896
+      },
+      "bundleBytes": null,
+      "warnings": [],
+      "targetPath": null,
+      "ok": true
+    },
+    {
+      "case": "diverged",
+      "title": "target branch has a commit the base lacks: stop, worktree offered",
+      "transfer": "remote",
+      "landing": "worktree",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 408,
+        "applyMs": 159,
+        "verifyMs": 122,
+        "totalMs": 1048
+      },
+      "bundleBytes": null,
+      "warnings": [],
+      "targetPath": "/private/var/folders/h5/1_t4qkxd2zj9gg2gk5yrp8dm0000gn/T/mc-s2-matrix-qpWb12/diverged-remote-worktree/appdata/machines/worktrees/ses_diverged",
+      "rawKinds": [],
+      "ok": true
+    },
+    {
+      "case": "dirty-target",
+      "title": "target checkout has changes of its own: stop, worktree offered",
+      "transfer": "bundle",
+      "landing": "checkout",
+      "expected": "stop",
+      "outcome": "stop",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [
+        "stop: the target checkout has changes of its own; offered: worktree"
+      ],
+      "timings": {
+        "snapshotMs": 378,
+        "applyMs": 59,
+        "totalMs": 803
+      },
+      "bundleBytes": 618,
+      "warnings": [],
+      "targetPath": null,
+      "ok": true
+    },
+    {
+      "case": "dirty-target",
+      "title": "target checkout has changes of its own: stop, worktree offered",
+      "transfer": "bundle",
+      "landing": "worktree",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 376,
+        "applyMs": 144,
+        "verifyMs": 121,
+        "totalMs": 1004
+      },
+      "bundleBytes": 617,
+      "warnings": [],
+      "targetPath": "/private/var/folders/h5/1_t4qkxd2zj9gg2gk5yrp8dm0000gn/T/mc-s2-matrix-qpWb12/dirty-target-bundle-worktree/appdata/machines/worktrees/ses_dirtytarget",
+      "rawKinds": [],
+      "ok": true
+    },
+    {
+      "case": "dirty-target",
+      "title": "target checkout has changes of its own: stop, worktree offered",
+      "transfer": "remote",
+      "landing": "checkout",
+      "expected": "stop",
+      "outcome": "stop",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [
+        "stop: the target checkout has changes of its own; offered: worktree",
+        "hidden refs kept on the remote: the move is pending"
+      ],
+      "timings": {
+        "snapshotMs": 437,
+        "applyMs": 54,
+        "totalMs": 810
+      },
+      "bundleBytes": null,
+      "warnings": [],
+      "targetPath": null,
+      "ok": true
+    },
+    {
+      "case": "dirty-target",
+      "title": "target checkout has changes of its own: stop, worktree offered",
+      "transfer": "remote",
+      "landing": "worktree",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 398,
+        "applyMs": 156,
+        "verifyMs": 122,
+        "totalMs": 1000
+      },
+      "bundleBytes": null,
+      "warnings": [],
+      "targetPath": "/private/var/folders/h5/1_t4qkxd2zj9gg2gk5yrp8dm0000gn/T/mc-s2-matrix-qpWb12/dirty-target-remote-worktree/appdata/machines/worktrees/ses_dirtytarget",
+      "rawKinds": [],
+      "ok": true
+    },
+    {
+      "case": "target-other-branch",
+      "title": "target on another branch: switched to the source branch",
+      "transfer": "bundle",
+      "landing": "checkout",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 381,
+        "applyMs": 188,
+        "verifyMs": 117,
+        "totalMs": 1171
+      },
+      "bundleBytes": 643,
+      "warnings": [],
+      "targetPath": "/private/var/folders/h5/1_t4qkxd2zj9gg2gk5yrp8dm0000gn/T/mc-s2-matrix-qpWb12/target-other-branch-bundle-checkout/dst",
+      "rawKinds": [],
+      "undo": "restored",
+      "ok": true
+    },
+    {
+      "case": "target-other-branch",
+      "title": "target on another branch: switched to the source branch",
+      "transfer": "bundle",
+      "landing": "worktree",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 374,
+        "applyMs": 142,
+        "verifyMs": 119,
+        "totalMs": 1171
+      },
+      "bundleBytes": 642,
+      "warnings": [],
+      "targetPath": "/private/var/folders/h5/1_t4qkxd2zj9gg2gk5yrp8dm0000gn/T/mc-s2-matrix-qpWb12/target-other-branch-bundle-worktree/appdata/machines/worktrees/ses_targetotherbranch",
+      "rawKinds": [],
+      "undo": "restored",
+      "ok": true
+    },
+    {
+      "case": "target-other-branch",
+      "title": "target on another branch: switched to the source branch",
+      "transfer": "remote",
+      "landing": "checkout",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 393,
+        "applyMs": 197,
+        "verifyMs": 117,
+        "totalMs": 1134
+      },
+      "bundleBytes": null,
+      "warnings": [],
+      "targetPath": "/private/var/folders/h5/1_t4qkxd2zj9gg2gk5yrp8dm0000gn/T/mc-s2-matrix-qpWb12/target-other-branch-remote-checkout/dst",
+      "rawKinds": [],
+      "undo": "restored",
+      "ok": true
+    },
+    {
+      "case": "target-other-branch",
+      "title": "target on another branch: switched to the source branch",
+      "transfer": "remote",
+      "landing": "worktree",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 399,
+        "applyMs": 160,
+        "verifyMs": 128,
+        "totalMs": 1169
+      },
+      "bundleBytes": null,
+      "warnings": [],
+      "targetPath": "/private/var/folders/h5/1_t4qkxd2zj9gg2gk5yrp8dm0000gn/T/mc-s2-matrix-qpWb12/target-other-branch-remote-worktree/appdata/machines/worktrees/ses_targetotherbranch",
+      "rawKinds": [],
+      "undo": "restored",
+      "ok": true
+    },
+    {
+      "case": "unborn",
+      "title": "source branch has no commit yet; target an empty repo",
+      "transfer": "bundle",
+      "landing": "checkout",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 363,
+        "applyMs": 136,
+        "verifyMs": 116,
+        "totalMs": 978
+      },
+      "bundleBytes": 617,
+      "warnings": [
+        "unborn"
+      ],
+      "targetPath": "/private/var/folders/h5/1_t4qkxd2zj9gg2gk5yrp8dm0000gn/T/mc-s2-matrix-qpWb12/unborn-bundle-checkout/dst",
+      "rawKinds": [],
+      "undo": "restored",
+      "ok": true
+    },
+    {
+      "case": "unborn",
+      "title": "source branch has no commit yet; target an empty repo",
+      "transfer": "bundle",
+      "landing": "worktree",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 382,
+        "applyMs": 133,
+        "verifyMs": 120,
+        "totalMs": 1042
+      },
+      "bundleBytes": 618,
+      "warnings": [
+        "unborn"
+      ],
+      "targetPath": "/private/var/folders/h5/1_t4qkxd2zj9gg2gk5yrp8dm0000gn/T/mc-s2-matrix-qpWb12/unborn-bundle-worktree/appdata/machines/worktrees/ses_unborn",
+      "rawKinds": [],
+      "undo": "restored",
+      "ok": true
+    },
+    {
+      "case": "unborn",
+      "title": "source branch has no commit yet; target an empty repo",
+      "transfer": "remote",
+      "landing": "checkout",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 393,
+        "applyMs": 163,
+        "verifyMs": 117,
+        "totalMs": 992
+      },
+      "bundleBytes": null,
+      "warnings": [
+        "unborn"
+      ],
+      "targetPath": "/private/var/folders/h5/1_t4qkxd2zj9gg2gk5yrp8dm0000gn/T/mc-s2-matrix-qpWb12/unborn-remote-checkout/dst",
+      "rawKinds": [],
+      "undo": "restored",
+      "ok": true
+    },
+    {
+      "case": "unborn",
+      "title": "source branch has no commit yet; target an empty repo",
+      "transfer": "remote",
+      "landing": "worktree",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 399,
+        "applyMs": 159,
+        "verifyMs": 119,
+        "totalMs": 1066
+      },
+      "bundleBytes": null,
+      "warnings": [
+        "unborn"
+      ],
+      "targetPath": "/private/var/folders/h5/1_t4qkxd2zj9gg2gk5yrp8dm0000gn/T/mc-s2-matrix-qpWb12/unborn-remote-worktree/appdata/machines/worktrees/ses_unborn",
+      "rawKinds": [],
+      "undo": "restored",
+      "ok": true
+    },
+    {
+      "case": "detached",
+      "title": "source on a detached HEAD",
+      "transfer": "bundle",
+      "landing": "checkout",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 378,
+        "applyMs": 157,
+        "verifyMs": 116,
+        "totalMs": 1148
+      },
+      "bundleBytes": 629,
+      "warnings": [],
+      "targetPath": "/private/var/folders/h5/1_t4qkxd2zj9gg2gk5yrp8dm0000gn/T/mc-s2-matrix-qpWb12/detached-bundle-checkout/dst",
+      "rawKinds": [],
+      "undo": "restored",
+      "ok": true
+    },
+    {
+      "case": "detached",
+      "title": "source on a detached HEAD",
+      "transfer": "bundle",
+      "landing": "worktree",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 376,
+        "applyMs": 143,
+        "verifyMs": 134,
+        "totalMs": 1191
+      },
+      "bundleBytes": 629,
+      "warnings": [],
+      "targetPath": "/private/var/folders/h5/1_t4qkxd2zj9gg2gk5yrp8dm0000gn/T/mc-s2-matrix-qpWb12/detached-bundle-worktree/appdata/machines/worktrees/ses_detached",
+      "rawKinds": [],
+      "undo": "restored",
+      "ok": true
+    },
+    {
+      "case": "detached",
+      "title": "source on a detached HEAD",
+      "transfer": "remote",
+      "landing": "checkout",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 399,
+        "applyMs": 175,
+        "verifyMs": 120,
+        "totalMs": 1134
+      },
+      "bundleBytes": null,
+      "warnings": [],
+      "targetPath": "/private/var/folders/h5/1_t4qkxd2zj9gg2gk5yrp8dm0000gn/T/mc-s2-matrix-qpWb12/detached-remote-checkout/dst",
+      "rawKinds": [],
+      "undo": "restored",
+      "ok": true
+    },
+    {
+      "case": "detached",
+      "title": "source on a detached HEAD",
+      "transfer": "remote",
+      "landing": "worktree",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 395,
+        "applyMs": 156,
+        "verifyMs": 119,
+        "totalMs": 1151
+      },
+      "bundleBytes": null,
+      "warnings": [],
+      "targetPath": "/private/var/folders/h5/1_t4qkxd2zj9gg2gk5yrp8dm0000gn/T/mc-s2-matrix-qpWb12/detached-remote-worktree/appdata/machines/worktrees/ses_detached",
+      "rawKinds": [],
+      "undo": "restored",
+      "ok": true
+    },
+    {
+      "case": "submodule-present",
+      "title": "submodule moved to a commit the target has",
+      "transfer": "bundle",
+      "landing": "checkout",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [
+        "submodules: lib updated"
+      ],
+      "timings": {
+        "snapshotMs": 415,
+        "applyMs": 200,
+        "verifyMs": 131,
+        "totalMs": 1540
+      },
+      "bundleBytes": 671,
+      "warnings": [
+        "submodules"
+      ],
+      "targetPath": "/private/var/folders/h5/1_t4qkxd2zj9gg2gk5yrp8dm0000gn/T/mc-s2-matrix-qpWb12/submodule-present-bundle-checkout/dst",
+      "rawKinds": [],
+      "ok": true
+    },
+    {
+      "case": "submodule-present",
+      "title": "submodule moved to a commit the target has",
+      "transfer": "bundle",
+      "landing": "worktree",
+      "expected": "limit",
+      "outcome": "limit",
+      "limits": [
+        "submodule"
+      ],
+      "fails": [],
+      "problems": [],
+      "notes": [
+        "submodules: lib not-initialized"
+      ],
+      "timings": {
+        "snapshotMs": 416,
+        "applyMs": 143,
+        "verifyMs": 130,
+        "totalMs": 1567
+      },
+      "bundleBytes": 671,
+      "warnings": [
+        "submodules"
+      ],
+      "targetPath": "/private/var/folders/h5/1_t4qkxd2zj9gg2gk5yrp8dm0000gn/T/mc-s2-matrix-qpWb12/submodule-present-bundle-worktree/appdata/machines/worktrees/ses_submodulepresent",
+      "rawKinds": [
+        "submodule"
+      ],
+      "ok": true
+    },
+    {
+      "case": "submodule-present",
+      "title": "submodule moved to a commit the target has",
+      "transfer": "remote",
+      "landing": "checkout",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [
+        "submodules: lib updated"
+      ],
+      "timings": {
+        "snapshotMs": 442,
+        "applyMs": 217,
+        "verifyMs": 135,
+        "totalMs": 1542
+      },
+      "bundleBytes": null,
+      "warnings": [
+        "submodules"
+      ],
+      "targetPath": "/private/var/folders/h5/1_t4qkxd2zj9gg2gk5yrp8dm0000gn/T/mc-s2-matrix-qpWb12/submodule-present-remote-checkout/dst",
+      "rawKinds": [],
+      "ok": true
+    },
+    {
+      "case": "submodule-present",
+      "title": "submodule moved to a commit the target has",
+      "transfer": "remote",
+      "landing": "worktree",
+      "expected": "limit",
+      "outcome": "limit",
+      "limits": [
+        "submodule"
+      ],
+      "fails": [],
+      "problems": [],
+      "notes": [
+        "submodules: lib not-initialized"
+      ],
+      "timings": {
+        "snapshotMs": 471,
+        "applyMs": 159,
+        "verifyMs": 128,
+        "totalMs": 1621
+      },
+      "bundleBytes": null,
+      "warnings": [
+        "submodules"
+      ],
+      "targetPath": "/private/var/folders/h5/1_t4qkxd2zj9gg2gk5yrp8dm0000gn/T/mc-s2-matrix-qpWb12/submodule-present-remote-worktree/appdata/machines/worktrees/ses_submodulepresent",
+      "rawKinds": [
+        "submodule"
+      ],
+      "ok": true
+    },
+    {
+      "case": "submodule-missing",
+      "title": "submodule moved to a commit the target lacks",
+      "transfer": "bundle",
+      "landing": "checkout",
+      "expected": "limit",
+      "outcome": "limit",
+      "limits": [
+        "submodule"
+      ],
+      "fails": [],
+      "problems": [],
+      "notes": [
+        "submodules: lib missing"
+      ],
+      "timings": {
+        "snapshotMs": 423,
+        "applyMs": 178,
+        "verifyMs": 144,
+        "totalMs": 1478
+      },
+      "bundleBytes": 671,
+      "warnings": [
+        "submodules"
+      ],
+      "targetPath": "/private/var/folders/h5/1_t4qkxd2zj9gg2gk5yrp8dm0000gn/T/mc-s2-matrix-qpWb12/submodule-missing-bundle-checkout/dst",
+      "rawKinds": [
+        "submodule"
+      ],
+      "ok": true
+    },
+    {
+      "case": "submodule-missing",
+      "title": "submodule moved to a commit the target lacks",
+      "transfer": "bundle",
+      "landing": "worktree",
+      "expected": "limit",
+      "outcome": "limit",
+      "limits": [
+        "submodule"
+      ],
+      "fails": [],
+      "problems": [],
+      "notes": [
+        "submodules: lib not-initialized"
+      ],
+      "timings": {
+        "snapshotMs": 441,
+        "applyMs": 141,
+        "verifyMs": 129,
+        "totalMs": 1519
+      },
+      "bundleBytes": 670,
+      "warnings": [
+        "submodules"
+      ],
+      "targetPath": "/private/var/folders/h5/1_t4qkxd2zj9gg2gk5yrp8dm0000gn/T/mc-s2-matrix-qpWb12/submodule-missing-bundle-worktree/appdata/machines/worktrees/ses_submodulemissing",
+      "rawKinds": [
+        "submodule"
+      ],
+      "ok": true
+    },
+    {
+      "case": "submodule-missing",
+      "title": "submodule moved to a commit the target lacks",
+      "transfer": "remote",
+      "landing": "checkout",
+      "expected": "limit",
+      "outcome": "limit",
+      "limits": [
+        "submodule"
+      ],
+      "fails": [],
+      "problems": [],
+      "notes": [
+        "submodules: lib missing"
+      ],
+      "timings": {
+        "snapshotMs": 437,
+        "applyMs": 213,
+        "verifyMs": 145,
+        "totalMs": 1473
+      },
+      "bundleBytes": null,
+      "warnings": [
+        "submodules"
+      ],
+      "targetPath": "/private/var/folders/h5/1_t4qkxd2zj9gg2gk5yrp8dm0000gn/T/mc-s2-matrix-qpWb12/submodule-missing-remote-checkout/dst",
+      "rawKinds": [
+        "submodule"
+      ],
+      "ok": true
+    },
+    {
+      "case": "submodule-missing",
+      "title": "submodule moved to a commit the target lacks",
+      "transfer": "remote",
+      "landing": "worktree",
+      "expected": "limit",
+      "outcome": "limit",
+      "limits": [
+        "submodule"
+      ],
+      "fails": [],
+      "problems": [],
+      "notes": [
+        "submodules: lib not-initialized"
+      ],
+      "timings": {
+        "snapshotMs": 466,
+        "applyMs": 163,
+        "verifyMs": 135,
+        "totalMs": 1552
+      },
+      "bundleBytes": null,
+      "warnings": [
+        "submodules"
+      ],
+      "targetPath": "/private/var/folders/h5/1_t4qkxd2zj9gg2gk5yrp8dm0000gn/T/mc-s2-matrix-qpWb12/submodule-missing-remote-worktree/appdata/machines/worktrees/ses_submodulemissing",
+      "rawKinds": [
+        "submodule"
+      ],
+      "ok": true
+    },
+    {
+      "case": "symlink",
+      "title": "tracked symlink retargeted, new untracked symlink (target symlinks=true)",
+      "transfer": "bundle",
+      "landing": "checkout",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 378,
+        "applyMs": 157,
+        "verifyMs": 121,
+        "totalMs": 944
+      },
+      "bundleBytes": 649,
+      "warnings": [
+        "untracked-symlink"
+      ],
+      "targetPath": "/private/var/folders/h5/1_t4qkxd2zj9gg2gk5yrp8dm0000gn/T/mc-s2-matrix-qpWb12/symlink-bundle-checkout/dst",
+      "rawKinds": [],
+      "ok": true
+    },
+    {
+      "case": "symlink",
+      "title": "tracked symlink retargeted, new untracked symlink (target symlinks=true)",
+      "transfer": "bundle",
+      "landing": "worktree",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 382,
+        "applyMs": 143,
+        "verifyMs": 120,
+        "totalMs": 1023
+      },
+      "bundleBytes": 648,
+      "warnings": [
+        "untracked-symlink"
+      ],
+      "targetPath": "/private/var/folders/h5/1_t4qkxd2zj9gg2gk5yrp8dm0000gn/T/mc-s2-matrix-qpWb12/symlink-bundle-worktree/appdata/machines/worktrees/ses_symlink",
+      "rawKinds": [],
+      "ok": true
+    },
+    {
+      "case": "symlink",
+      "title": "tracked symlink retargeted, new untracked symlink (target symlinks=true)",
+      "transfer": "remote",
+      "landing": "checkout",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 449,
+        "applyMs": 172,
+        "verifyMs": 118,
+        "totalMs": 987
+      },
+      "bundleBytes": null,
+      "warnings": [
+        "untracked-symlink"
+      ],
+      "targetPath": "/private/var/folders/h5/1_t4qkxd2zj9gg2gk5yrp8dm0000gn/T/mc-s2-matrix-qpWb12/symlink-remote-checkout/dst",
+      "rawKinds": [],
+      "ok": true
+    },
+    {
+      "case": "symlink",
+      "title": "tracked symlink retargeted, new untracked symlink (target symlinks=true)",
+      "transfer": "remote",
+      "landing": "worktree",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 408,
+        "applyMs": 161,
+        "verifyMs": 119,
+        "totalMs": 1044
+      },
+      "bundleBytes": null,
+      "warnings": [
+        "untracked-symlink"
+      ],
+      "targetPath": "/private/var/folders/h5/1_t4qkxd2zj9gg2gk5yrp8dm0000gn/T/mc-s2-matrix-qpWb12/symlink-remote-worktree/appdata/machines/worktrees/ses_symlink",
+      "rawKinds": [],
+      "ok": true
+    },
+    {
+      "case": "symlink-to-no-symlinks",
+      "title": "the same, target core.symlinks=false (as on Windows by default)",
+      "transfer": "bundle",
+      "landing": "checkout",
+      "expected": "limit",
+      "outcome": "limit",
+      "limits": [
+        "symlink-as-file"
+      ],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 381,
+        "applyMs": 157,
+        "verifyMs": 124,
+        "totalMs": 958
+      },
+      "bundleBytes": 679,
+      "warnings": [
+        "untracked-symlink"
+      ],
+      "targetPath": "/private/var/folders/h5/1_t4qkxd2zj9gg2gk5yrp8dm0000gn/T/mc-s2-matrix-qpWb12/symlink-to-no-symlinks-bundle-checkout/dst",
+      "rawKinds": [
+        "symlink-as-file"
+      ],
+      "ok": true
+    },
+    {
+      "case": "symlink-to-no-symlinks",
+      "title": "the same, target core.symlinks=false (as on Windows by default)",
+      "transfer": "bundle",
+      "landing": "worktree",
+      "expected": "limit",
+      "outcome": "limit",
+      "limits": [
+        "symlink-as-file"
+      ],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 382,
+        "applyMs": 143,
+        "verifyMs": 130,
+        "totalMs": 1034
+      },
+      "bundleBytes": 680,
+      "warnings": [
+        "untracked-symlink"
+      ],
+      "targetPath": "/private/var/folders/h5/1_t4qkxd2zj9gg2gk5yrp8dm0000gn/T/mc-s2-matrix-qpWb12/symlink-to-no-symlinks-bundle-worktree/appdata/machines/worktrees/ses_symlinktonosymlinks",
+      "rawKinds": [
+        "symlink-as-file"
+      ],
+      "ok": true
+    },
+    {
+      "case": "symlink-to-no-symlinks",
+      "title": "the same, target core.symlinks=false (as on Windows by default)",
+      "transfer": "remote",
+      "landing": "checkout",
+      "expected": "limit",
+      "outcome": "limit",
+      "limits": [
+        "symlink-as-file"
+      ],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 397,
+        "applyMs": 171,
+        "verifyMs": 126,
+        "totalMs": 945
+      },
+      "bundleBytes": null,
+      "warnings": [
+        "untracked-symlink"
+      ],
+      "targetPath": "/private/var/folders/h5/1_t4qkxd2zj9gg2gk5yrp8dm0000gn/T/mc-s2-matrix-qpWb12/symlink-to-no-symlinks-remote-checkout/dst",
+      "rawKinds": [
+        "symlink-as-file"
+      ],
+      "ok": true
+    },
+    {
+      "case": "symlink-to-no-symlinks",
+      "title": "the same, target core.symlinks=false (as on Windows by default)",
+      "transfer": "remote",
+      "landing": "worktree",
+      "expected": "limit",
+      "outcome": "limit",
+      "limits": [
+        "symlink-as-file"
+      ],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 397,
+        "applyMs": 159,
+        "verifyMs": 130,
+        "totalMs": 1012
+      },
+      "bundleBytes": null,
+      "warnings": [
+        "untracked-symlink"
+      ],
+      "targetPath": "/private/var/folders/h5/1_t4qkxd2zj9gg2gk5yrp8dm0000gn/T/mc-s2-matrix-qpWb12/symlink-to-no-symlinks-remote-worktree/appdata/machines/worktrees/ses_symlinktonosymlinks",
+      "rawKinds": [
+        "symlink-as-file"
+      ],
+      "ok": true
+    },
+    {
+      "case": "case-rename-staged",
+      "title": "`git mv Readme.md README.md` (staged)",
+      "transfer": "bundle",
+      "landing": "checkout",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 379,
+        "applyMs": 156,
+        "verifyMs": 117,
+        "totalMs": 951
+      },
+      "bundleBytes": 547,
+      "warnings": [],
+      "targetPath": "/private/var/folders/h5/1_t4qkxd2zj9gg2gk5yrp8dm0000gn/T/mc-s2-matrix-qpWb12/case-rename-staged-bundle-checkout/dst",
+      "rawKinds": [],
+      "ok": true
+    },
+    {
+      "case": "case-rename-staged",
+      "title": "`git mv Readme.md README.md` (staged)",
+      "transfer": "bundle",
+      "landing": "worktree",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 380,
+        "applyMs": 142,
+        "verifyMs": 120,
+        "totalMs": 1011
+      },
+      "bundleBytes": 548,
+      "warnings": [],
+      "targetPath": "/private/var/folders/h5/1_t4qkxd2zj9gg2gk5yrp8dm0000gn/T/mc-s2-matrix-qpWb12/case-rename-staged-bundle-worktree/appdata/machines/worktrees/ses_caserenamestaged",
+      "rawKinds": [],
+      "ok": true
+    },
+    {
+      "case": "case-rename-staged",
+      "title": "`git mv Readme.md README.md` (staged)",
+      "transfer": "remote",
+      "landing": "checkout",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 397,
+        "applyMs": 170,
+        "verifyMs": 117,
+        "totalMs": 933
+      },
+      "bundleBytes": null,
+      "warnings": [],
+      "targetPath": "/private/var/folders/h5/1_t4qkxd2zj9gg2gk5yrp8dm0000gn/T/mc-s2-matrix-qpWb12/case-rename-staged-remote-checkout/dst",
+      "rawKinds": [],
+      "ok": true
+    },
+    {
+      "case": "case-rename-staged",
+      "title": "`git mv Readme.md README.md` (staged)",
+      "transfer": "remote",
+      "landing": "worktree",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 396,
+        "applyMs": 158,
+        "verifyMs": 120,
+        "totalMs": 1001
+      },
+      "bundleBytes": null,
+      "warnings": [],
+      "targetPath": "/private/var/folders/h5/1_t4qkxd2zj9gg2gk5yrp8dm0000gn/T/mc-s2-matrix-qpWb12/case-rename-staged-remote-worktree/appdata/machines/worktrees/ses_caserenamestaged",
+      "rawKinds": [],
+      "ok": true
+    },
+    {
+      "case": "case-rename-unstaged",
+      "title": "Readme.md renamed to README.md on disk only",
+      "transfer": "bundle",
+      "landing": "checkout",
+      "expected": "limit",
+      "outcome": "limit",
+      "limits": [
+        "case"
+      ],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 374,
+        "applyMs": 156,
+        "verifyMs": 117,
+        "totalMs": 932
+      },
+      "bundleBytes": 503,
+      "warnings": [],
+      "targetPath": "/private/var/folders/h5/1_t4qkxd2zj9gg2gk5yrp8dm0000gn/T/mc-s2-matrix-qpWb12/case-rename-unstaged-bundle-checkout/dst",
+      "rawKinds": [
+        "case"
+      ],
+      "ok": true
+    },
+    {
+      "case": "case-rename-unstaged",
+      "title": "Readme.md renamed to README.md on disk only",
+      "transfer": "bundle",
+      "landing": "worktree",
+      "expected": "limit",
+      "outcome": "limit",
+      "limits": [
+        "case"
+      ],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 411,
+        "applyMs": 144,
+        "verifyMs": 121,
+        "totalMs": 1054
+      },
+      "bundleBytes": 505,
+      "warnings": [],
+      "targetPath": "/private/var/folders/h5/1_t4qkxd2zj9gg2gk5yrp8dm0000gn/T/mc-s2-matrix-qpWb12/case-rename-unstaged-bundle-worktree/appdata/machines/worktrees/ses_caserenameunstaged",
+      "rawKinds": [
+        "case"
+      ],
+      "ok": true
+    },
+    {
+      "case": "case-rename-unstaged",
+      "title": "Readme.md renamed to README.md on disk only",
+      "transfer": "remote",
+      "landing": "checkout",
+      "expected": "limit",
+      "outcome": "limit",
+      "limits": [
+        "case"
+      ],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 398,
+        "applyMs": 178,
+        "verifyMs": 117,
+        "totalMs": 938
+      },
+      "bundleBytes": null,
+      "warnings": [],
+      "targetPath": "/private/var/folders/h5/1_t4qkxd2zj9gg2gk5yrp8dm0000gn/T/mc-s2-matrix-qpWb12/case-rename-unstaged-remote-checkout/dst",
+      "rawKinds": [
+        "case"
+      ],
+      "ok": true
+    },
+    {
+      "case": "case-rename-unstaged",
+      "title": "Readme.md renamed to README.md on disk only",
+      "transfer": "remote",
+      "landing": "worktree",
+      "expected": "limit",
+      "outcome": "limit",
+      "limits": [
+        "case"
+      ],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 398,
+        "applyMs": 156,
+        "verifyMs": 123,
+        "totalMs": 995
+      },
+      "bundleBytes": null,
+      "warnings": [],
+      "targetPath": "/private/var/folders/h5/1_t4qkxd2zj9gg2gk5yrp8dm0000gn/T/mc-s2-matrix-qpWb12/case-rename-unstaged-remote-worktree/appdata/machines/worktrees/ses_caserenameunstaged",
+      "rawKinds": [
+        "case"
+      ],
+      "ok": true
+    },
+    {
+      "case": "case-collision",
+      "title": "x/File.txt and x/file.txt in one tree (made on a case-sensitive machine)",
+      "transfer": "bundle",
+      "landing": "checkout",
+      "expected": "observe",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 375,
+        "applyMs": 156,
+        "verifyMs": 117,
+        "totalMs": 963
+      },
+      "bundleBytes": 626,
+      "warnings": [
+        "case-collision"
+      ],
+      "targetPath": "/private/var/folders/h5/1_t4qkxd2zj9gg2gk5yrp8dm0000gn/T/mc-s2-matrix-qpWb12/case-collision-bundle-checkout/dst",
+      "rawKinds": [],
+      "ok": true
+    },
+    {
+      "case": "case-collision",
+      "title": "x/File.txt and x/file.txt in one tree (made on a case-sensitive machine)",
+      "transfer": "bundle",
+      "landing": "worktree",
+      "expected": "observe",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 376,
+        "applyMs": 143,
+        "verifyMs": 121,
+        "totalMs": 1031
+      },
+      "bundleBytes": 628,
+      "warnings": [
+        "case-collision"
+      ],
+      "targetPath": "/private/var/folders/h5/1_t4qkxd2zj9gg2gk5yrp8dm0000gn/T/mc-s2-matrix-qpWb12/case-collision-bundle-worktree/appdata/machines/worktrees/ses_casecollision",
+      "rawKinds": [],
+      "ok": true
+    },
+    {
+      "case": "case-collision",
+      "title": "x/File.txt and x/file.txt in one tree (made on a case-sensitive machine)",
+      "transfer": "remote",
+      "landing": "checkout",
+      "expected": "observe",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 397,
+        "applyMs": 172,
+        "verifyMs": 118,
+        "totalMs": 958
+      },
+      "bundleBytes": null,
+      "warnings": [
+        "case-collision"
+      ],
+      "targetPath": "/private/var/folders/h5/1_t4qkxd2zj9gg2gk5yrp8dm0000gn/T/mc-s2-matrix-qpWb12/case-collision-remote-checkout/dst",
+      "rawKinds": [],
+      "ok": true
+    },
+    {
+      "case": "case-collision",
+      "title": "x/File.txt and x/file.txt in one tree (made on a case-sensitive machine)",
+      "transfer": "remote",
+      "landing": "worktree",
+      "expected": "observe",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 401,
+        "applyMs": 159,
+        "verifyMs": 120,
+        "totalMs": 1024
+      },
+      "bundleBytes": null,
+      "warnings": [
+        "case-collision"
+      ],
+      "targetPath": "/private/var/folders/h5/1_t4qkxd2zj9gg2gk5yrp8dm0000gn/T/mc-s2-matrix-qpWb12/case-collision-remote-worktree/appdata/machines/worktrees/ses_casecollision",
+      "rawKinds": [],
+      "ok": true
+    },
+    {
+      "case": "windows-names",
+      "title": "names Windows cannot hold (aux.txt, a trailing dot, ?)",
+      "transfer": "bundle",
+      "landing": "checkout",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 379,
+        "applyMs": 156,
+        "verifyMs": 117,
+        "totalMs": 938
+      },
+      "bundleBytes": 808,
+      "warnings": [
+        "windows-names"
+      ],
+      "targetPath": "/private/var/folders/h5/1_t4qkxd2zj9gg2gk5yrp8dm0000gn/T/mc-s2-matrix-qpWb12/windows-names-bundle-checkout/dst",
+      "rawKinds": [],
+      "ok": true
+    },
+    {
+      "case": "windows-names",
+      "title": "names Windows cannot hold (aux.txt, a trailing dot, ?)",
+      "transfer": "bundle",
+      "landing": "worktree",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 378,
+        "applyMs": 143,
+        "verifyMs": 121,
+        "totalMs": 1004
+      },
+      "bundleBytes": 806,
+      "warnings": [
+        "windows-names"
+      ],
+      "targetPath": "/private/var/folders/h5/1_t4qkxd2zj9gg2gk5yrp8dm0000gn/T/mc-s2-matrix-qpWb12/windows-names-bundle-worktree/appdata/machines/worktrees/ses_windowsnames",
+      "rawKinds": [],
+      "ok": true
+    },
+    {
+      "case": "windows-names",
+      "title": "names Windows cannot hold (aux.txt, a trailing dot, ?)",
+      "transfer": "remote",
+      "landing": "checkout",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 403,
+        "applyMs": 184,
+        "verifyMs": 123,
+        "totalMs": 952
+      },
+      "bundleBytes": null,
+      "warnings": [
+        "windows-names"
+      ],
+      "targetPath": "/private/var/folders/h5/1_t4qkxd2zj9gg2gk5yrp8dm0000gn/T/mc-s2-matrix-qpWb12/windows-names-remote-checkout/dst",
+      "rawKinds": [],
+      "ok": true
+    },
+    {
+      "case": "windows-names",
+      "title": "names Windows cannot hold (aux.txt, a trailing dot, ?)",
+      "transfer": "remote",
+      "landing": "worktree",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 441,
+        "applyMs": 162,
+        "verifyMs": 122,
+        "totalMs": 1066
+      },
+      "bundleBytes": null,
+      "warnings": [
+        "windows-names"
+      ],
+      "targetPath": "/private/var/folders/h5/1_t4qkxd2zj9gg2gk5yrp8dm0000gn/T/mc-s2-matrix-qpWb12/windows-names-remote-worktree/appdata/machines/worktrees/ses_windowsnames",
+      "rawKinds": [],
+      "ok": true
+    },
+    {
+      "case": "long-path",
+      "title": "a 250-character path (Windows MAX_PATH)",
+      "transfer": "bundle",
+      "landing": "checkout",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 396,
+        "applyMs": 160,
+        "verifyMs": 121,
+        "totalMs": 964
+      },
+      "bundleBytes": 1677,
+      "warnings": [
+        "long-path"
+      ],
+      "targetPath": "/private/var/folders/h5/1_t4qkxd2zj9gg2gk5yrp8dm0000gn/T/mc-s2-matrix-qpWb12/long-path-bundle-checkout/dst",
+      "rawKinds": [],
+      "ok": true
+    },
+    {
+      "case": "long-path",
+      "title": "a 250-character path (Windows MAX_PATH)",
+      "transfer": "bundle",
+      "landing": "worktree",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 398,
+        "applyMs": 142,
+        "verifyMs": 121,
+        "totalMs": 1038
+      },
+      "bundleBytes": 1677,
+      "warnings": [
+        "long-path"
+      ],
+      "targetPath": "/private/var/folders/h5/1_t4qkxd2zj9gg2gk5yrp8dm0000gn/T/mc-s2-matrix-qpWb12/long-path-bundle-worktree/appdata/machines/worktrees/ses_longpath",
+      "rawKinds": [],
+      "ok": true
+    },
+    {
+      "case": "long-path",
+      "title": "a 250-character path (Windows MAX_PATH)",
+      "transfer": "remote",
+      "landing": "checkout",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 437,
+        "applyMs": 187,
+        "verifyMs": 123,
+        "totalMs": 988
+      },
+      "bundleBytes": null,
+      "warnings": [
+        "long-path"
+      ],
+      "targetPath": "/private/var/folders/h5/1_t4qkxd2zj9gg2gk5yrp8dm0000gn/T/mc-s2-matrix-qpWb12/long-path-remote-checkout/dst",
+      "rawKinds": [],
+      "ok": true
+    },
+    {
+      "case": "long-path",
+      "title": "a 250-character path (Windows MAX_PATH)",
+      "transfer": "remote",
+      "landing": "worktree",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 437,
+        "applyMs": 170,
+        "verifyMs": 125,
+        "totalMs": 1058
+      },
+      "bundleBytes": null,
+      "warnings": [
+        "long-path"
+      ],
+      "targetPath": "/private/var/folders/h5/1_t4qkxd2zj9gg2gk5yrp8dm0000gn/T/mc-s2-matrix-qpWb12/long-path-remote-worktree/appdata/machines/worktrees/ses_longpath",
+      "rawKinds": [],
+      "ok": true
+    },
+    {
+      "case": "intent-to-add",
+      "title": "`git add -N` entry",
+      "transfer": "bundle",
+      "landing": "checkout",
+      "expected": "limit",
+      "outcome": "limit",
+      "limits": [
+        "ita"
+      ],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 379,
+        "applyMs": 157,
+        "verifyMs": 118,
+        "totalMs": 947
+      },
+      "bundleBytes": 636,
+      "warnings": [],
+      "targetPath": "/private/var/folders/h5/1_t4qkxd2zj9gg2gk5yrp8dm0000gn/T/mc-s2-matrix-qpWb12/intent-to-add-bundle-checkout/dst",
+      "rawKinds": [],
+      "ok": true
+    },
+    {
+      "case": "intent-to-add",
+      "title": "`git add -N` entry",
+      "transfer": "bundle",
+      "landing": "worktree",
+      "expected": "limit",
+      "outcome": "limit",
+      "limits": [
+        "ita"
+      ],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 382,
+        "applyMs": 142,
+        "verifyMs": 120,
+        "totalMs": 1017
+      },
+      "bundleBytes": 636,
+      "warnings": [],
+      "targetPath": "/private/var/folders/h5/1_t4qkxd2zj9gg2gk5yrp8dm0000gn/T/mc-s2-matrix-qpWb12/intent-to-add-bundle-worktree/appdata/machines/worktrees/ses_intenttoadd",
+      "rawKinds": [],
+      "ok": true
+    },
+    {
+      "case": "intent-to-add",
+      "title": "`git add -N` entry",
+      "transfer": "remote",
+      "landing": "checkout",
+      "expected": "limit",
+      "outcome": "limit",
+      "limits": [
+        "ita"
+      ],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 396,
+        "applyMs": 180,
+        "verifyMs": 119,
+        "totalMs": 950
+      },
+      "bundleBytes": null,
+      "warnings": [],
+      "targetPath": "/private/var/folders/h5/1_t4qkxd2zj9gg2gk5yrp8dm0000gn/T/mc-s2-matrix-qpWb12/intent-to-add-remote-checkout/dst",
+      "rawKinds": [],
+      "ok": true
+    },
+    {
+      "case": "intent-to-add",
+      "title": "`git add -N` entry",
+      "transfer": "remote",
+      "landing": "worktree",
+      "expected": "limit",
+      "outcome": "limit",
+      "limits": [
+        "ita"
+      ],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 400,
+        "applyMs": 161,
+        "verifyMs": 119,
+        "totalMs": 1017
+      },
+      "bundleBytes": null,
+      "warnings": [],
+      "targetPath": "/private/var/folders/h5/1_t4qkxd2zj9gg2gk5yrp8dm0000gn/T/mc-s2-matrix-qpWb12/intent-to-add-remote-worktree/appdata/machines/worktrees/ses_intenttoadd",
+      "rawKinds": [],
+      "ok": true
+    },
+    {
+      "case": "shallow-target",
+      "title": "target is a shallow clone (--depth 1); the change restores an old blob",
+      "transfer": "bundle",
+      "landing": "checkout",
+      "expected": "observe",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [
+        "target is shallow"
+      ],
+      "timings": {
+        "snapshotMs": 376,
+        "applyMs": 158,
+        "verifyMs": 122,
+        "totalMs": 997
+      },
+      "bundleBytes": 686,
+      "warnings": [],
+      "targetPath": "/private/var/folders/h5/1_t4qkxd2zj9gg2gk5yrp8dm0000gn/T/mc-s2-matrix-qpWb12/shallow-target-bundle-checkout/dst",
+      "rawKinds": [],
+      "ok": true
+    },
+    {
+      "case": "shallow-target",
+      "title": "target is a shallow clone (--depth 1); the change restores an old blob",
+      "transfer": "bundle",
+      "landing": "worktree",
+      "expected": "observe",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [
+        "target is shallow"
+      ],
+      "timings": {
+        "snapshotMs": 409,
+        "applyMs": 146,
+        "verifyMs": 121,
+        "totalMs": 1110
+      },
+      "bundleBytes": 687,
+      "warnings": [],
+      "targetPath": "/private/var/folders/h5/1_t4qkxd2zj9gg2gk5yrp8dm0000gn/T/mc-s2-matrix-qpWb12/shallow-target-bundle-worktree/appdata/machines/worktrees/ses_shallowtarget",
+      "rawKinds": [],
+      "ok": true
+    },
+    {
+      "case": "shallow-target",
+      "title": "target is a shallow clone (--depth 1); the change restores an old blob",
+      "transfer": "remote",
+      "landing": "checkout",
+      "expected": "observe",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 406,
+        "applyMs": 174,
+        "verifyMs": 121,
+        "totalMs": 1002
+      },
+      "bundleBytes": null,
+      "warnings": [],
+      "targetPath": "/private/var/folders/h5/1_t4qkxd2zj9gg2gk5yrp8dm0000gn/T/mc-s2-matrix-qpWb12/shallow-target-remote-checkout/dst",
+      "rawKinds": [],
+      "ok": true
+    },
+    {
+      "case": "shallow-target",
+      "title": "target is a shallow clone (--depth 1); the change restores an old blob",
+      "transfer": "remote",
+      "landing": "worktree",
+      "expected": "observe",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 407,
+        "applyMs": 159,
+        "verifyMs": 121,
+        "totalMs": 1072
+      },
+      "bundleBytes": null,
+      "warnings": [],
+      "targetPath": "/private/var/folders/h5/1_t4qkxd2zj9gg2gk5yrp8dm0000gn/T/mc-s2-matrix-qpWb12/shallow-target-remote-worktree/appdata/machines/worktrees/ses_shallowtarget",
+      "rawKinds": [],
+      "ok": true
+    },
+    {
+      "case": "hooks-diagnostic",
+      "title": "the mix case with the repo hooks NOT overridden (which hooks would run)",
+      "transfer": "bundle",
+      "landing": "checkout",
+      "expected": "observe",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 1353,
+        "applyMs": 848,
+        "verifyMs": 137,
+        "totalMs": 2686
+      },
+      "bundleBytes": 1154,
+      "warnings": [],
+      "targetPath": "/private/var/folders/h5/1_t4qkxd2zj9gg2gk5yrp8dm0000gn/T/mc-s2-matrix-qpWb12/hooks-diagnostic-bundle-checkout/dst",
+      "rawKinds": [],
+      "hooksFired": [
+        "post-index-change in src",
+        "reference-transaction in src",
+        "reference-transaction in dst",
+        "post-index-change in dst"
+      ],
+      "ok": true
+    },
+    {
+      "case": "hooks-diagnostic",
+      "title": "the mix case with the repo hooks NOT overridden (which hooks would run)",
+      "transfer": "bundle",
+      "landing": "worktree",
+      "expected": "observe",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 1088,
+        "applyMs": 846,
+        "verifyMs": 139,
+        "totalMs": 2496
+      },
+      "bundleBytes": 1154,
+      "warnings": [],
+      "targetPath": "/private/var/folders/h5/1_t4qkxd2zj9gg2gk5yrp8dm0000gn/T/mc-s2-matrix-qpWb12/hooks-diagnostic-bundle-worktree/appdata/machines/worktrees/ses_hooksdiagnostic",
+      "rawKinds": [],
+      "hooksFired": [
+        "post-index-change in src",
+        "reference-transaction in src",
+        "reference-transaction in dst",
+        "post-index-change in dst"
+      ],
+      "ok": true
+    },
+    {
+      "case": "hooks-diagnostic",
+      "title": "the mix case with the repo hooks NOT overridden (which hooks would run)",
+      "transfer": "remote",
+      "landing": "checkout",
+      "expected": "observe",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 1134,
+        "applyMs": 838,
+        "verifyMs": 137,
+        "totalMs": 2413
+      },
+      "bundleBytes": null,
+      "warnings": [],
+      "targetPath": "/private/var/folders/h5/1_t4qkxd2zj9gg2gk5yrp8dm0000gn/T/mc-s2-matrix-qpWb12/hooks-diagnostic-remote-checkout/dst",
+      "rawKinds": [],
+      "hooksFired": [
+        "post-index-change in src",
+        "reference-transaction in src",
+        "reference-transaction in dst",
+        "post-index-change in dst"
+      ],
+      "ok": true
+    },
+    {
+      "case": "hooks-diagnostic",
+      "title": "the mix case with the repo hooks NOT overridden (which hooks would run)",
+      "transfer": "remote",
+      "landing": "worktree",
+      "expected": "observe",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 1145,
+        "applyMs": 873,
+        "verifyMs": 142,
+        "totalMs": 2544
+      },
+      "bundleBytes": null,
+      "warnings": [],
+      "targetPath": "/private/var/folders/h5/1_t4qkxd2zj9gg2gk5yrp8dm0000gn/T/mc-s2-matrix-qpWb12/hooks-diagnostic-remote-worktree/appdata/machines/worktrees/ses_hooksdiagnostic",
+      "rawKinds": [],
+      "hooksFired": [
+        "post-index-change in src",
+        "reference-transaction in src",
+        "reference-transaction in dst",
+        "post-index-change in dst"
+      ],
+      "ok": true
+    },
+    {
+      "case": "lfs-carried",
+      "title": "Git LFS file changed and added; objects carried in the move dir",
+      "transfer": "bundle",
+      "landing": "checkout",
+      "expected": "-",
+      "outcome": "skip",
+      "ok": true,
+      "notes": [
+        "skipped: git-lfs not installed"
+      ],
+      "problems": [],
+      "fails": [],
+      "limits": [],
+      "timings": {}
+    },
+    {
+      "case": "lfs-carried",
+      "title": "Git LFS file changed and added; objects carried in the move dir",
+      "transfer": "bundle",
+      "landing": "worktree",
+      "expected": "-",
+      "outcome": "skip",
+      "ok": true,
+      "notes": [
+        "skipped: git-lfs not installed"
+      ],
+      "problems": [],
+      "fails": [],
+      "limits": [],
+      "timings": {}
+    },
+    {
+      "case": "lfs-carried",
+      "title": "Git LFS file changed and added; objects carried in the move dir",
+      "transfer": "remote",
+      "landing": "checkout",
+      "expected": "-",
+      "outcome": "skip",
+      "ok": true,
+      "notes": [
+        "skipped: git-lfs not installed"
+      ],
+      "problems": [],
+      "fails": [],
+      "limits": [],
+      "timings": {}
+    },
+    {
+      "case": "lfs-carried",
+      "title": "Git LFS file changed and added; objects carried in the move dir",
+      "transfer": "remote",
+      "landing": "worktree",
+      "expected": "-",
+      "outcome": "skip",
+      "ok": true,
+      "notes": [
+        "skipped: git-lfs not installed"
+      ],
+      "problems": [],
+      "fails": [],
+      "limits": [],
+      "timings": {}
+    },
+    {
+      "case": "lfs-not-carried",
+      "title": "the same without carrying LFS objects (they are on S only)",
+      "transfer": "bundle",
+      "landing": "checkout",
+      "expected": "-",
+      "outcome": "skip",
+      "ok": true,
+      "notes": [
+        "skipped: git-lfs not installed"
+      ],
+      "problems": [],
+      "fails": [],
+      "limits": [],
+      "timings": {}
+    },
+    {
+      "case": "lfs-not-carried",
+      "title": "the same without carrying LFS objects (they are on S only)",
+      "transfer": "bundle",
+      "landing": "worktree",
+      "expected": "-",
+      "outcome": "skip",
+      "ok": true,
+      "notes": [
+        "skipped: git-lfs not installed"
+      ],
+      "problems": [],
+      "fails": [],
+      "limits": [],
+      "timings": {}
+    },
+    {
+      "case": "lfs-not-carried",
+      "title": "the same without carrying LFS objects (they are on S only)",
+      "transfer": "remote",
+      "landing": "checkout",
+      "expected": "-",
+      "outcome": "skip",
+      "ok": true,
+      "notes": [
+        "skipped: git-lfs not installed"
+      ],
+      "problems": [],
+      "fails": [],
+      "limits": [],
+      "timings": {}
+    },
+    {
+      "case": "lfs-not-carried",
+      "title": "the same without carrying LFS objects (they are on S only)",
+      "transfer": "remote",
+      "landing": "worktree",
+      "expected": "-",
+      "outcome": "skip",
+      "ok": true,
+      "notes": [
+        "skipped: git-lfs not installed"
+      ],
+      "problems": [],
+      "fails": [],
+      "limits": [],
+      "timings": {}
+    },
+    {
+      "case": "round-trip",
+      "title": "S → T, the session works on T (edits, a commit), then back T → S into the parked checkout",
+      "transfer": "bundle",
+      "landing": "checkout",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [
+        "back: bundle 1172 B, chained 1; landed on the parked checkout (epoch 1), fast-forward, verified",
+        "undo of the way back restored the parked state"
+      ],
+      "timings": {
+        "snapshotMs": 386,
+        "applyMs": 155,
+        "verifyMs": 118,
+        "totalMs": 2053
+      },
+      "bundleBytes": 1137,
+      "warnings": [],
+      "targetPath": "/private/var/folders/h5/1_t4qkxd2zj9gg2gk5yrp8dm0000gn/T/mc-s2-matrix-qpWb12/round-trip-bundle-checkout/dst",
+      "rawKinds": [],
+      "ok": true
+    },
+    {
+      "case": "round-trip",
+      "title": "S → T, the session works on T (edits, a commit), then back T → S into the parked checkout",
+      "transfer": "bundle",
+      "landing": "worktree",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [
+        "back: bundle 1155 B, chained 1; landed on the parked checkout (epoch 1), create, verified",
+        "undo of the way back restored the parked state"
+      ],
+      "timings": {
+        "snapshotMs": 381,
+        "applyMs": 144,
+        "verifyMs": 121,
+        "totalMs": 2126
+      },
+      "bundleBytes": 1138,
+      "warnings": [],
+      "targetPath": "/private/var/folders/h5/1_t4qkxd2zj9gg2gk5yrp8dm0000gn/T/mc-s2-matrix-qpWb12/round-trip-bundle-worktree/appdata/machines/worktrees/ses_roundtrip",
+      "rawKinds": [],
+      "ok": true
+    },
+    {
+      "case": "round-trip",
+      "title": "S → T, the session works on T (edits, a commit), then back T → S into the parked checkout",
+      "transfer": "remote",
+      "landing": "checkout",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [
+        "back: landed on the parked checkout (epoch 1), fast-forward, verified",
+        "undo of the way back restored the parked state"
+      ],
+      "timings": {
+        "snapshotMs": 411,
+        "applyMs": 176,
+        "verifyMs": 118,
+        "totalMs": 2061
+      },
+      "bundleBytes": null,
+      "warnings": [],
+      "targetPath": "/private/var/folders/h5/1_t4qkxd2zj9gg2gk5yrp8dm0000gn/T/mc-s2-matrix-qpWb12/round-trip-remote-checkout/dst",
+      "rawKinds": [],
+      "ok": true
+    },
+    {
+      "case": "round-trip",
+      "title": "S → T, the session works on T (edits, a commit), then back T → S into the parked checkout",
+      "transfer": "remote",
+      "landing": "worktree",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [
+        "back: landed on the parked checkout (epoch 1), create, verified",
+        "undo of the way back restored the parked state"
+      ],
+      "timings": {
+        "snapshotMs": 412,
+        "applyMs": 162,
+        "verifyMs": 151,
+        "totalMs": 2175
+      },
+      "bundleBytes": null,
+      "warnings": [],
+      "targetPath": "/private/var/folders/h5/1_t4qkxd2zj9gg2gk5yrp8dm0000gn/T/mc-s2-matrix-qpWb12/round-trip-remote-worktree/appdata/machines/worktrees/ses_roundtrip",
+      "rawKinds": [],
+      "ok": true
+    },
+    {
+      "case": "round-trip-source-edited",
+      "title": "the same, but S was edited while the session was away: back is refused",
+      "transfer": "bundle",
+      "landing": "checkout",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [
+        "back: bundle 1197 B, chained 1; stopped as designed (the target checkout has changes of its own)"
+      ],
+      "timings": {
+        "snapshotMs": 386,
+        "applyMs": 163,
+        "verifyMs": 121,
+        "totalMs": 1576
+      },
+      "bundleBytes": 1168,
+      "warnings": [],
+      "targetPath": "/private/var/folders/h5/1_t4qkxd2zj9gg2gk5yrp8dm0000gn/T/mc-s2-matrix-qpWb12/round-trip-source-edited-bundle-checkout/dst",
+      "rawKinds": [],
+      "ok": true
+    },
+    {
+      "case": "round-trip-source-edited",
+      "title": "the same, but S was edited while the session was away: back is refused",
+      "transfer": "bundle",
+      "landing": "worktree",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [
+        "back: bundle 1196 B, chained 1; stopped as designed (the target checkout has changes of its own)"
+      ],
+      "timings": {
+        "snapshotMs": 384,
+        "applyMs": 145,
+        "verifyMs": 121,
+        "totalMs": 1654
+      },
+      "bundleBytes": 1167,
+      "warnings": [],
+      "targetPath": "/private/var/folders/h5/1_t4qkxd2zj9gg2gk5yrp8dm0000gn/T/mc-s2-matrix-qpWb12/round-trip-source-edited-bundle-worktree/appdata/machines/worktrees/ses_roundtripsourceedited",
+      "rawKinds": [],
+      "ok": true
+    },
+    {
+      "case": "round-trip-source-edited",
+      "title": "the same, but S was edited while the session was away: back is refused",
+      "transfer": "remote",
+      "landing": "checkout",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [
+        "back: stopped as designed (the target checkout has changes of its own)"
+      ],
+      "timings": {
+        "snapshotMs": 413,
+        "applyMs": 180,
+        "verifyMs": 120,
+        "totalMs": 1547
+      },
+      "bundleBytes": null,
+      "warnings": [],
+      "targetPath": "/private/var/folders/h5/1_t4qkxd2zj9gg2gk5yrp8dm0000gn/T/mc-s2-matrix-qpWb12/round-trip-source-edited-remote-checkout/dst",
+      "rawKinds": [],
+      "ok": true
+    },
+    {
+      "case": "round-trip-source-edited",
+      "title": "the same, but S was edited while the session was away: back is refused",
+      "transfer": "remote",
+      "landing": "worktree",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [
+        "back: stopped as designed (the target checkout has changes of its own)"
+      ],
+      "timings": {
+        "snapshotMs": 410,
+        "applyMs": 163,
+        "verifyMs": 122,
+        "totalMs": 1627
+      },
+      "bundleBytes": null,
+      "warnings": [],
+      "targetPath": "/private/var/folders/h5/1_t4qkxd2zj9gg2gk5yrp8dm0000gn/T/mc-s2-matrix-qpWb12/round-trip-source-edited-remote-worktree/appdata/machines/worktrees/ses_roundtripsourceedited",
+      "rawKinds": [],
+      "ok": true
+    },
+    {
+      "case": "large",
+      "title": "2,000 files / ~50 MB; 50 changed, 20+2 new, 5 deleted; then an incremental move",
+      "transfer": "bundle",
+      "landing": "checkout",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 1839,
+        "applyMs": 526,
+        "verifyMs": 404,
+        "totalMs": 10293
+      },
+      "bundleBytes": 2059720,
+      "warnings": [],
+      "targetPath": "/private/var/folders/h5/1_t4qkxd2zj9gg2gk5yrp8dm0000gn/T/mc-s2-matrix-qpWb12/large-bundle-checkout/dst",
+      "rawKinds": [],
+      "large": {
+        "repoFiles": 2000,
+        "repoBytes": 50055589,
+        "seedMs": 3281,
+        "fullBundle": {
+          "bytes": 23151367,
+          "ms": 142
+        },
+        "incremental": {
+          "snapshotMs": 913,
+          "bundleBytes": 1613,
+          "havesUsed": 3,
+          "chained": 1,
+          "unchainedBundleBytes": 2060705,
+          "applyVerifyMs": 1183,
+          "outcome": "pass"
+        }
+      },
+      "ok": true
+    },
+    {
+      "case": "large",
+      "title": "2,000 files / ~50 MB; 50 changed, 20+2 new, 5 deleted; then an incremental move",
+      "transfer": "bundle",
+      "landing": "worktree",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 1839,
+        "applyMs": 482,
+        "verifyMs": 608,
+        "totalMs": 4344
+      },
+      "bundleBytes": 2059720,
+      "warnings": [],
+      "targetPath": "/private/var/folders/h5/1_t4qkxd2zj9gg2gk5yrp8dm0000gn/T/mc-s2-matrix-qpWb12/large-bundle-worktree/appdata/machines/worktrees/ses_large",
+      "rawKinds": [],
+      "ok": true
+    },
+    {
+      "case": "large",
+      "title": "2,000 files / ~50 MB; 50 changed, 20+2 new, 5 deleted; then an incremental move",
+      "transfer": "remote",
+      "landing": "checkout",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 1884,
+        "applyMs": 582,
+        "verifyMs": 400,
+        "totalMs": 3778
+      },
+      "bundleBytes": null,
+      "warnings": [],
+      "targetPath": "/private/var/folders/h5/1_t4qkxd2zj9gg2gk5yrp8dm0000gn/T/mc-s2-matrix-qpWb12/large-remote-checkout/dst",
+      "rawKinds": [],
+      "ok": true
+    },
+    {
+      "case": "large",
+      "title": "2,000 files / ~50 MB; 50 changed, 20+2 new, 5 deleted; then an incremental move",
+      "transfer": "remote",
+      "landing": "worktree",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 1759,
+        "applyMs": 496,
+        "verifyMs": 726,
+        "totalMs": 4355
+      },
+      "bundleBytes": null,
+      "warnings": [],
+      "targetPath": "/private/var/folders/h5/1_t4qkxd2zj9gg2gk5yrp8dm0000gn/T/mc-s2-matrix-qpWb12/large-remote-worktree/appdata/machines/worktrees/ses_large",
+      "rawKinds": [],
+      "ok": true
+    }
+  ]
+}
