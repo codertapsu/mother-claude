@@ -225,6 +225,35 @@ bare repo stood in: GitHub's acceptance of `refs/mother-claude/*` pushes is
 unverified); partial clones, sparse checkouts, split index, fsmonitor;
 repositories over 1 GB.
 
+## Windows results (2026-11-11)
+
+Windows 11, Git for Windows 2.45.1, Git LFS 3.5.1, Node 24, NTFS,
+Defender real-time scanning on. `matrix`: **132 of 132 as designed** (90
+pass, 22 limits, 4 stopped by design, 4 expected errors from
+`lfs-not-carried`; 12 skipped: exec bits and Windows-illegal names), raw
+results in `results-win32-x64.json`. Two findings, fixed in the script:
+
+**F8 — Long paths are dropped silently.** With `core.longpaths` unset (git's
+default; the matrix's isolated config, and a fresh Git for Windows),
+`add -A` meets a 255-character path with *"warning: … Filename too long"*,
+exits 0, and leaves the file out; `git status` misses it the same way, so
+F1's cross-check agreed and verify passed on a snapshot that had lost the
+file. Fix: `-c core.longpaths=true` on every git call on Windows (built);
+the product also fails the snapshot on any such warning.
+
+**F9 — Git LFS writes hooks into the overriding hooks folder.** Every LFS
+case left `post-checkout`, `post-commit`, `post-merge` and `pre-push` in the
+"empty" `core.hooksPath` folder (LFS installs through `git rev-parse
+--git-path hooks`). The first run stopped on the script's own guard. Fix:
+the product uses a fresh, private folder per operation, checked empty
+before each call and deleted after; the script now reports and empties it
+(`hookIntrusions` in the results).
+
+Also seen: `lfs-carried` passes; symlinks are files on both sides
+(`core.symlinks=false` even with Developer Mode); the large case's snapshot
+took 42 s, most of it the script's own byte-by-byte proof with Defender
+scanning — the incremental move after it took 3.7 s with a 1.6 KB bundle.
+The real Mac ↔ Windows round trip (step 2 below) is still to run.
 ## Windows half
 
 On the Windows desktop, with Node ≥ 20 and Git for Windows (it ships

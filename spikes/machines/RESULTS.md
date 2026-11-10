@@ -1,18 +1,20 @@
 # Machines — Phase 0 results
 
 Run on the MacBook (macOS 27.2.1, arm64) on 2026-11-10 with iroh 1.4.1,
-Claude Code 2.1.322, git 2.54.0. The Windows half is still to run (last
-section). Raw outputs are written to `out/` (git-ignored).
+Claude Code 2.1.322, git 2.54.0, then on the Windows desktop (Windows 11
+Pro 26200, x64; Claude Code 2.1.317, Git for Windows 2.45.1 with Git LFS
+3.5.1) — see § "Windows half". Raw outputs are written to `out/`
+(git-ignored).
 
 ## Summary
 
 | Spike | Mac half | What it changes in the plan |
 |---|---|---|
-| S1 transport | **Works.** The app's axum/hyper stack, WebSocket included, runs unchanged over iroh streams; all three relay settings connect; dialling by id alone works through n0's DNS and moves to a direct path in 0.1 s. mDNS found nothing: macOS refused LAN traffic (S5). | §5.3: what *No relay* and *Your own relay* really need; peers keep each other's last addresses. Binary size to watch. |
-| S2 code | **Works.** 132 of 132 matrix runs as designed (8 skipped: no Git LFS on the Mac): both transfers, both landings, undo and bring-back round-trip a dirty tree exactly; every line-ending combination is tree-exact. A 50 MB repo moves as a 2 MB bundle, 1.6 KB the next time. | §5.10 gets seven fixes (F1–F7), F1 the important one: a snapshot could silently miss an edit. |
+| S1 transport | **Works** on both. Windows: mDNS finds a peer by id alone (0.4–0.8 s) — the Mac's failure was macOS's permission; ~260 MiB/s direct on one PC. Mac: **Works.** The app's axum/hyper stack, WebSocket included, runs unchanged over iroh streams; all three relay settings connect; dialling by id alone works through n0's DNS and moves to a direct path in 0.1 s. mDNS found nothing: macOS refused LAN traffic (S5). | §5.3: what *No relay* and *Your own relay* really need; peers keep each other's last addresses. Binary size to watch. |
+| S2 code | **Works** on both: 132 of 132 as designed on each (Windows with Git LFS). Windows found two more fixes (F8, F9). Mac: 132 of 132 matrix runs as designed (8 skipped: no Git LFS on the Mac): both transfers, both landings, undo and bring-back round-trip a dirty tree exactly; every line-ending combination is tree-exact. A 50 MB repo moves as a 2 MB bundle, 1.6 KB the next time. | §5.10 gets nine fixes (F1–F9): F1 and F8 because a snapshot could silently lose an edit or a long path. |
 | S3 Claude Code | **A move note given as `--append-system-prompt` is ignored on resume.** Claude Code 2.1.322 records a conversation's first system prompt in the transcript and replays it on every resume. A session resumed from another folder notices the new folder. | §3.5 and §5.8: the move note becomes a message in the conversation. Verify on Windows that the platform and shell update too. |
 | S4 UX | Screens drafted: `UX.md`, eight decisions for you at its end. | Four routes to add to §7 (listed in `UX.md`). |
-| S5 setup | Every macOS check is readable as a standard user. **Two real blockers found on this Mac:** Mother Claude has no Local Network access, and the Mac sleeps after 1 minute idle. | §5.14: the Local Network row needs `NSLocalNetworkUsageDescription` in the app first; the check runs inside the app. |
+| S5 setup | Every check is readable as a standard user on both. Windows: firewall off on every profile, Private network, never sleeps, Claude Code 2.1.317 (older than the Mac's). Mac: every macOS check is readable as a standard user. **Two real blockers found on this Mac:** Mother Claude has no Local Network access, and the Mac sleeps after 1 minute idle. | §5.14: the Local Network row needs `NSLocalNetworkUsageDescription` in the app first; the check runs inside the app. |
 
 ## S1 — transport
 
@@ -202,6 +204,93 @@ Findings:
   all, Local Network denied then allowed), which needs your administrator
   password and your OK. Same for Windows.
 
+## Windows half (2026-11-10)
+
+Run on the Windows desktop by a Claude session there, as a standard user
+(not elevated).
+
+### S5 — setup checks (Windows)
+
+`mc-spike checks`: **every check was readable without an administrator.**
+
+| Check (§5.14) | Here, now |
+|---|---|
+| Mother Claude runs | ok, 0.10.2; its script token found in `%APPDATA%\motherclaude\Mother Claude\data` |
+| Network profile | **Private** (Wi-Fi), same subnet as the Mac |
+| Defender Firewall | **off on all three profiles** (Domain, Private, Public); no rule for Mother Claude or the spike — so nothing blocks, and no *Allow access?* prompt appeared when the spike first listened |
+| LAN sends | allowed: a datagram to the gateway and an mDNS query both left (Windows has no Local Network permission) |
+| Controlled Folder Access | off |
+| Long paths (registry) | on; git `core.longpaths=true` in your global config |
+| Developer Mode | on, but git `core.symlinks` is false (Git for Windows' default) |
+| Sleep | never (standby 0 on AC and DC) |
+| Git Bash | found (`C:\Program Files\Git\bin\bash.exe`) |
+| git | 2.45.1, **Git LFS 3.5.1** |
+| Claude Code | **2.1.317 — older than the Mac's 2.1.322** (the setup's "same version everywhere" warning would fire); signed in |
+| Roots | `D:\development\projects` listable |
+
+The firewall being off everywhere is not a blocker for Machines, but it is
+the state most installs are *not* in: the walk (`setup-walk/windows.ps1`,
+below) turns it on to see the blocked case. A signed-out account was shown
+safely: `claude auth status --json` with `CLAUDE_CONFIG_DIR` set to an empty
+scratch folder reads `loggedIn: false`.
+
+### S1 — transport (Windows, both ends on this PC)
+
+| Scenario | Connect | Path | Request p50 | WebSocket p50 | Raw up / down | HTTP down / up |
+|---|---|---|---|---|---|---|
+| direct | 2.4 ms | direct | 0.13 ms | 0.08 ms | 266 / 258 MiB/s | 223 / 230 MiB/s |
+| **mdns** | 767 ms (**id alone, found on the LAN**) | direct | 0.13 ms | 0.08 ms | 247 / 242 MiB/s | 231 / 237 MiB/s |
+| own-relay | 14 ms | relay (local) | 0.18 ms | 0.15 ms | 112 / 110 MiB/s | 108 / 111 MiB/s |
+| public-relay | 94 ms | relay (n0) | 94 ms | 90 ms | 1 / 1 MiB/s | 1.2 / 1.2 MiB/s |
+| n0-dns | 275 ms | relay, then direct after 0.2 s | 0.13 ms | 0.08 ms | 288 / 293 MiB/s | 246 / 235 MiB/s |
+
+- **mDNS works on Windows**, in one process and between two processes
+  (`serve --relay none --lookup mdns` / `get <id>`: found in 0.36 s). This
+  confirms the Mac's mDNS failure was macOS refusing the LAN, not the library.
+- Direct throughput on one PC is ~260 MiB/s (the Mac did 78): the per-host
+  ceiling is far above a LAN's. n0's public relays gave ~1 MiB/s from here.
+- The spike builds natively on Windows (3 min, release) — the cross-check
+  from the Mac was right.
+- **Between the machines: still to run** — it needs someone at the Mac (its
+  Local Network permission). The Windows side is ready: `serve --pair-code
+  auto --forward …`, reachable by id alone.
+
+### S2 — code (Windows)
+
+`roundtrip.mjs matrix` on Windows with Git for Windows and Git LFS. Two new
+findings, fixed in the spike and to be folded into §5.10:
+
+- **F8 — long paths are dropped silently.** Without `core.longpaths=true`,
+  Git for Windows meets a path over 260 characters with a *warning*
+  ("Filename too long"), **exits 0**, and leaves the file out of `add -A` —
+  and out of `git status` too, so F1's cross-check agrees with the wrong
+  answer. A 255-character untracked file vanished from the snapshot while
+  every check passed. Fix: every git call on Windows runs with `-c
+  core.longpaths=true` (your global config already has it; a fresh Git for
+  Windows does not), and any "Filename too long" / "could not open
+  directory" warning fails the snapshot.
+- **F9 — Git LFS writes hooks into the overriding hooks folder.** On every
+  LFS case, `post-checkout`, `post-commit`, `post-merge` and `pre-push`
+  appeared in the "empty" `core.hooksPath` folder (LFS installs its hooks
+  through `git rev-parse --git-path hooks`, which returns the override). A
+  shared folder would then run them on every later git call. Fix: a fresh,
+  private, empty hooks folder per operation, checked empty before each git
+  call and deleted after.
+- LFS itself: **`lfs-carried` passes** (the objects travel in the move
+  folder); `lfs-not-carried` fails as designed ("remote missing object") —
+  carrying them is required.
+- Symlinks: with `core.symlinks=false` (Git for Windows' default even with
+  Developer Mode) both sides hold symlinks as files — a limit, as expected.
+
+Result after the fixes: **132 of 132 as designed** (90 pass, 22 known limits, 4 stopped by design, 4 expected errors — lfs-not-carried; 12 skipped: exec bits and names Windows cannot hold, which only a Mac can produce), 23 minutes. The 2,000-file / 50 MB repo moved as the same 2.06 MB bundle and 1.6 KB the next time; its snapshot took 42 s here against about 1 s on the Mac, but that includes the spike's own byte-by-byte proof of every file on both sides with Defender's real-time scanning on — Phase 3a times the product's path alone. The real round trip between the Mac and Windows is still to run (it needs the Mac).
+
+### S3 — Claude Code (Windows)
+
+Claude Code 2.1.317 here already has `--system-prompt-snapshot` (on by
+default), so the move note must be a message on both machines. **Still to
+run**: a Mac session resumed here — no Mac session has been pulled to this
+machine yet (Backup › pull is your action).
+
 ## Still to run
 
 ### On the Mac, with you at it (about 5 minutes)
@@ -224,49 +313,31 @@ The probe app keeps its Local Network permission, so it is also the Mac's
 side of the LAN test below: `bash spikes/machines/setup-walk/macos.sh run
 <mc-spike arguments>`.
 
-### On the Windows desktop
+### On the Windows desktop, with you at it (about 5 minutes)
 
-After `git pull`, in a Developer PowerShell, with a Claude session there (or
-by hand):
+Done here already: the build, S5's checks, S1 on one PC (mDNS included), and
+S2's matrix. Left for you, because it needs an administrator:
+`powershell -NoProfile -ExecutionPolicy Bypass -File
+spikes\machines\setup-walk\windows.ps1` from an **elevated** PowerShell. It
+asks before each change and puts each back: the network set Public, the
+firewall on with block rules as a cancelled prompt leaves them, then the
+setup's fix; Controlled Folder Access on; a signed-out account (an empty
+scratch config folder); long paths, Developer Mode and Git Bash read.
 
-1. Build: `cargo build --release --manifest-path spikes\machines\mc-spike\Cargo.toml`.
-2. **S5**: `spikes\machines\mc-spike\target\release\mc-spike.exe checks >
-   spikes\machines\out\checks-windows.json`; record the table above for
-   Windows (network profile, firewall profiles and rules, Controlled Folder
-   Access, long paths, Developer Mode, Git Bash, git, Claude Code), and which
-   checks needed an administrator.
-3. **S5, the worst states** — write `spikes\machines\setup-walk\windows.ps1`
-   there (testable only on Windows), the twin of `macos.sh`: run from an
-   elevated PowerShell, asking before each change, restoring each on exit;
-   `mc-spike checks` run as the standard user after each change. The states:
-   the network set **Public** (`Set-NetConnectionProfile`), back to Private;
-   **block rules** for `mc-spike.exe` as a cancelled *Allow access?* prompt
-   leaves them, then the setup's fix (an allow rule for the Private profile
-   and the block rules removed), then all of it removed; **Controlled Folder
-   Access** on, then off; `LongPathsEnabled` and Developer Mode read (changed
-   only if you agree); **Git Bash missing** simulated with a PATH and
-   `CLAUDE_CODE_GIT_BASH_PATH` the check cannot follow; a **signed-out
-   account** shown by a scratch directory account (`CLAUDE_CONFIG_DIR` of an
-   empty folder), never by signing yours out.
-4. **S1 on Windows**: `mc-spike local` — note the Windows Security *Allow
-   access?* prompt (Private / Public) when it first listens, and whether
-   `mdns` connects there. Then mDNS between two processes: `mc-spike serve
-   --relay none --lookup mdns --open --name a` in one window, `mc-spike get
-   <id> /spike/hello --relay none --lookup mdns --name b` in another.
-5. **S1 between the machines**: on Windows `mc-spike serve --pair-code auto
-   --forward http://127.0.0.1:6725` (the app's script token is found in its
-   data dir). On the Mac, through the probe app (its Local Network
-   permission): `bash spikes/machines/setup-walk/macos.sh run get
-   <WINDOWS_ID> /api/sessions --pair-code <CODE>`, then `… run bench
-   <WINDOWS_ID> --mib 256` — the LAN figure (target ≥ 50 MB/s) and its path.
-   Repeat with the Mac on a phone hotspot (across networks: hole-punched or
-   relayed), and with `--relay none` on both (LAN only).
-6. **S2 on Windows**: `node spikes\machines\code\roundtrip.mjs matrix` (Git
-   for Windows ships Git LFS, so the LFS cases run there), then the Mac →
-   Windows → Mac round trip in `code/RESULTS-S2.md` § "Windows half".
-7. **S3 on Windows**: pull a scratch session the Mac made (Backup › pull)
-   and resume it on Windows; ask it for its platform, shell and folder. If it
-   still says `darwin`, record it — the move then has to end the recorded
-   prompt.
-8. Fill in this file's Windows columns, then the decision record in
-   docs/PLAN-MACHINES.md §12 (iroh or the fallback).
+### Between the two machines
+
+1. **S1, the LAN figure.** On Windows: `mc-spike serve --pair-code auto
+   --forward http://127.0.0.1:6725` (it prints its id and a one-time code).
+   On the Mac, after its walk allowed Local Network for the probe app:
+   `bash spikes/machines/setup-walk/macos.sh run get <WINDOWS_ID>
+   /api/sessions --pair-code <CODE>`, then `… run bench <WINDOWS_ID> --mib
+   256` (target ≥ 50 MB/s; its path should say direct). Then the Mac on a
+   phone hotspot (across networks), and `--relay none` on both (LAN only).
+2. **S2, a real round trip**: `code/RESULTS-S2.md` § "Windows half", step 2
+   (Mac `demo` and `dirty`, Windows `haves`, Mac `snapshot`, Windows `apply`
+   and `verify`, then back).
+3. **S3**: a scratch session made on the Mac, backed up, pulled on Windows
+   (Backup › pull), resumed there; ask it for its platform, shell and folder.
+   If it still says `darwin`, the move must also end the recorded prompt.
+4. Then the decision record in docs/PLAN-MACHINES.md §12 (iroh or the
+   fallback).

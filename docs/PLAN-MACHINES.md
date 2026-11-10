@@ -508,14 +508,19 @@ index     = git commit-tree idx_tree -p base       # the staged tree travels too
 snap      = git commit-tree wt_tree -p base [-p earlier snapshots of this
             session that T has]                    # small incremental bundles (F6)
 keep      refs/mother-claude/moves/<session>/<epoch>/{snap,index}  (so gc keeps them)
-always    -c core.hooksPath=<a private, empty dir>, GIT_OPTIONAL_LOCKS=0, never
-          the real index, commits never signed                     (F3, F4)
+always    -c core.hooksPath=<a fresh, private, empty dir per operation>,
+          GIT_OPTIONAL_LOCKS=0, never the real index, commits never signed
+          (F3, F4, F9); on Windows -c core.longpaths=true, and a "Filename
+          too long" warning fails the snapshot                         (F8)
 ```
 
 Spike S2 (Mac half, 132 of 132 runs as designed) found F1–F7, folded in
 here; details in `spikes/machines/code/RESULTS-S2.md`. F1 matters most: a
 plain copy of the index, dated now, made git trust stale stat data and
-**silently miss an edit** in 6 of 60 snapshots.
+**silently miss an edit** in 6 of 60 snapshots. The Windows half added two: **F8**, Git for Windows without
+`core.longpaths` warns, exits 0 and leaves a long path out of both `add -A`
+and `status` (so F1's check agrees), and **F9**, Git LFS writes its hooks into
+the overriding hooks folder, which a shared folder would then run.
 
 **Transfer**, either way (the project setting, P2P by default):
 
@@ -943,10 +948,10 @@ than the numbers.
 Exit: a decision record — iroh or the fallback transport — and the S5 table,
 in this document.
 
-**Status (2026-11-10): the Mac half is done** — tools and results in
+**Status (2026-11-11): the Mac half is done, and the Windows half up to what needs both machines or an administrator** — tools and results in
 `spikes/machines/` (`RESULTS.md`; the screens in `UX.md`, agreed — §9). It changed §3.5
 (the move note is a message), §5.3 (what *No relay* and *Your own relay*
-need) and §5.14 (the app has no Local Network access on the Mac yet). What
+need) and §5.14 (the app has no Local Network access on the Mac yet). Windows added F8 and F9 (§5.10) and confirmed mDNS works where the OS allows it. What
 remains is listed at the end of `RESULTS.md`: the Mac's worst-state walk
 (`spikes/machines/setup-walk/macos.sh`, run by you: it needs your password
 and your clicks), and the Windows half — S5 there with its own walk, LAN and

@@ -1,0 +1,3322 @@
+{
+  "when": "2026-11-10T17:19:06.930Z",
+  "environment": {
+    "git": "git version 2.45.1.windows.1",
+    "node": "v24.15.0",
+    "platform": "win32",
+    "arch": "x64",
+    "os": "Windows_NT 10.0.26200",
+    "caseInsensitive": true,
+    "symlinks": true,
+    "execBit": false,
+    "lfs": "git-lfs/3.5.1 (GitHub; windows amd64; go 1.21.7; git e237bb3a)",
+    "tmp": "C:\\Users\\Admin\\AppData\\Local\\Temp"
+  },
+  "diagnostics": {
+    "writeTreeRewritesIndex": true,
+    "statusRewritesIndex": true,
+    "statusWithoutOptionalLocksRewritesIndex": false
+  },
+  "hookIntrusions": [
+    {
+      "before": "lfs-carried",
+      "files": [
+        "post-checkout",
+        "post-commit",
+        "post-merge",
+        "pre-push"
+      ]
+    },
+    {
+      "before": "lfs-carried",
+      "files": [
+        "post-checkout",
+        "post-commit",
+        "post-merge",
+        "pre-push"
+      ]
+    },
+    {
+      "before": "lfs-carried",
+      "files": [
+        "post-checkout",
+        "post-commit",
+        "post-merge",
+        "pre-push"
+      ]
+    },
+    {
+      "before": "lfs-not-carried",
+      "files": [
+        "post-checkout",
+        "post-commit",
+        "post-merge",
+        "pre-push"
+      ]
+    },
+    {
+      "before": "lfs-not-carried",
+      "files": [
+        "post-checkout",
+        "post-commit",
+        "post-merge",
+        "pre-push"
+      ]
+    },
+    {
+      "before": "lfs-not-carried",
+      "files": [
+        "post-checkout",
+        "post-commit",
+        "post-merge",
+        "pre-push"
+      ]
+    },
+    {
+      "before": "lfs-not-carried",
+      "files": [
+        "post-checkout",
+        "post-commit",
+        "post-merge",
+        "pre-push"
+      ]
+    },
+    {
+      "before": "round-trip",
+      "files": [
+        "post-checkout",
+        "post-commit",
+        "post-merge",
+        "pre-push"
+      ]
+    }
+  ],
+  "summary": {
+    "total": 132,
+    "ok": 132,
+    "bad": [],
+    "skipped": 12,
+    "ms": 1387478
+  },
+  "rows": [
+    {
+      "case": "mix",
+      "title": "staged + unstaged + untracked, deleted, renamed (staged and on disk), ignored",
+      "transfer": "bundle",
+      "landing": "checkout",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 2454,
+        "applyMs": 950,
+        "verifyMs": 793,
+        "totalMs": 7269
+      },
+      "bundleBytes": 1122,
+      "warnings": [],
+      "targetPath": "C:\\Users\\Admin\\AppData\\Local\\Temp\\mc-s2-matrix-hRS7Eo\\mix-bundle-checkout\\dst",
+      "rawKinds": [],
+      "undo": "restored",
+      "ok": true
+    },
+    {
+      "case": "mix",
+      "title": "staged + unstaged + untracked, deleted, renamed (staged and on disk), ignored",
+      "transfer": "bundle",
+      "landing": "worktree",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 2360,
+        "applyMs": 856,
+        "verifyMs": 779,
+        "totalMs": 7402
+      },
+      "bundleBytes": 1121,
+      "warnings": [],
+      "targetPath": "C:\\Users\\Admin\\AppData\\Local\\Temp\\mc-s2-matrix-hRS7Eo\\mix-bundle-worktree\\appdata\\machines\\worktrees\\ses_mix",
+      "rawKinds": [],
+      "undo": "restored",
+      "ok": true
+    },
+    {
+      "case": "mix",
+      "title": "staged + unstaged + untracked, deleted, renamed (staged and on disk), ignored",
+      "transfer": "remote",
+      "landing": "checkout",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 2486,
+        "applyMs": 1067,
+        "verifyMs": 755,
+        "totalMs": 7207
+      },
+      "bundleBytes": null,
+      "warnings": [],
+      "targetPath": "C:\\Users\\Admin\\AppData\\Local\\Temp\\mc-s2-matrix-hRS7Eo\\mix-remote-checkout\\dst",
+      "rawKinds": [],
+      "undo": "restored",
+      "ok": true
+    },
+    {
+      "case": "mix",
+      "title": "staged + unstaged + untracked, deleted, renamed (staged and on disk), ignored",
+      "transfer": "remote",
+      "landing": "worktree",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 2542,
+        "applyMs": 952,
+        "verifyMs": 757,
+        "totalMs": 9147
+      },
+      "bundleBytes": null,
+      "warnings": [],
+      "targetPath": "C:\\Users\\Admin\\AppData\\Local\\Temp\\mc-s2-matrix-hRS7Eo\\mix-remote-worktree\\appdata\\machines\\worktrees\\ses_mix",
+      "rawKinds": [],
+      "undo": "restored",
+      "ok": true
+    },
+    {
+      "case": "binary",
+      "title": "binary file changed, new binary untracked",
+      "transfer": "bundle",
+      "landing": "checkout",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 2344,
+        "applyMs": 963,
+        "verifyMs": 743,
+        "totalMs": 5773
+      },
+      "bundleBytes": 12941,
+      "warnings": [],
+      "targetPath": "C:\\Users\\Admin\\AppData\\Local\\Temp\\mc-s2-matrix-hRS7Eo\\binary-bundle-checkout\\dst",
+      "rawKinds": [],
+      "ok": true
+    },
+    {
+      "case": "binary",
+      "title": "binary file changed, new binary untracked",
+      "transfer": "bundle",
+      "landing": "worktree",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 2351,
+        "applyMs": 824,
+        "verifyMs": 796,
+        "totalMs": 6246
+      },
+      "bundleBytes": 12942,
+      "warnings": [],
+      "targetPath": "C:\\Users\\Admin\\AppData\\Local\\Temp\\mc-s2-matrix-hRS7Eo\\binary-bundle-worktree\\appdata\\machines\\worktrees\\ses_binary",
+      "rawKinds": [],
+      "ok": true
+    },
+    {
+      "case": "binary",
+      "title": "binary file changed, new binary untracked",
+      "transfer": "remote",
+      "landing": "checkout",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 2414,
+        "applyMs": 1041,
+        "verifyMs": 747,
+        "totalMs": 5689
+      },
+      "bundleBytes": null,
+      "warnings": [],
+      "targetPath": "C:\\Users\\Admin\\AppData\\Local\\Temp\\mc-s2-matrix-hRS7Eo\\binary-remote-checkout\\dst",
+      "rawKinds": [],
+      "ok": true
+    },
+    {
+      "case": "binary",
+      "title": "binary file changed, new binary untracked",
+      "transfer": "remote",
+      "landing": "worktree",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 2454,
+        "applyMs": 957,
+        "verifyMs": 759,
+        "totalMs": 6110
+      },
+      "bundleBytes": null,
+      "warnings": [],
+      "targetPath": "C:\\Users\\Admin\\AppData\\Local\\Temp\\mc-s2-matrix-hRS7Eo\\binary-remote-worktree\\appdata\\machines\\worktrees\\ses_binary",
+      "rawKinds": [],
+      "ok": true
+    },
+    {
+      "case": "exec-bit",
+      "title": "exec bit: unstaged chmod, staged chmod, new executable (target fileMode=true)",
+      "transfer": "bundle",
+      "landing": "checkout",
+      "expected": "-",
+      "outcome": "skip",
+      "ok": true,
+      "notes": [
+        "no exec bits on this file system"
+      ],
+      "problems": [],
+      "fails": [],
+      "limits": [],
+      "timings": {}
+    },
+    {
+      "case": "exec-bit",
+      "title": "exec bit: unstaged chmod, staged chmod, new executable (target fileMode=true)",
+      "transfer": "bundle",
+      "landing": "worktree",
+      "expected": "-",
+      "outcome": "skip",
+      "ok": true,
+      "notes": [
+        "no exec bits on this file system"
+      ],
+      "problems": [],
+      "fails": [],
+      "limits": [],
+      "timings": {}
+    },
+    {
+      "case": "exec-bit",
+      "title": "exec bit: unstaged chmod, staged chmod, new executable (target fileMode=true)",
+      "transfer": "remote",
+      "landing": "checkout",
+      "expected": "-",
+      "outcome": "skip",
+      "ok": true,
+      "notes": [
+        "no exec bits on this file system"
+      ],
+      "problems": [],
+      "fails": [],
+      "limits": [],
+      "timings": {}
+    },
+    {
+      "case": "exec-bit",
+      "title": "exec bit: unstaged chmod, staged chmod, new executable (target fileMode=true)",
+      "transfer": "remote",
+      "landing": "worktree",
+      "expected": "-",
+      "outcome": "skip",
+      "ok": true,
+      "notes": [
+        "no exec bits on this file system"
+      ],
+      "problems": [],
+      "fails": [],
+      "limits": [],
+      "timings": {}
+    },
+    {
+      "case": "exec-bit-to-filemode-false",
+      "title": "the same, target core.fileMode=false (as on Windows)",
+      "transfer": "bundle",
+      "landing": "checkout",
+      "expected": "-",
+      "outcome": "skip",
+      "ok": true,
+      "notes": [
+        "no exec bits on this file system"
+      ],
+      "problems": [],
+      "fails": [],
+      "limits": [],
+      "timings": {}
+    },
+    {
+      "case": "exec-bit-to-filemode-false",
+      "title": "the same, target core.fileMode=false (as on Windows)",
+      "transfer": "bundle",
+      "landing": "worktree",
+      "expected": "-",
+      "outcome": "skip",
+      "ok": true,
+      "notes": [
+        "no exec bits on this file system"
+      ],
+      "problems": [],
+      "fails": [],
+      "limits": [],
+      "timings": {}
+    },
+    {
+      "case": "exec-bit-to-filemode-false",
+      "title": "the same, target core.fileMode=false (as on Windows)",
+      "transfer": "remote",
+      "landing": "checkout",
+      "expected": "-",
+      "outcome": "skip",
+      "ok": true,
+      "notes": [
+        "no exec bits on this file system"
+      ],
+      "problems": [],
+      "fails": [],
+      "limits": [],
+      "timings": {}
+    },
+    {
+      "case": "exec-bit-to-filemode-false",
+      "title": "the same, target core.fileMode=false (as on Windows)",
+      "transfer": "remote",
+      "landing": "worktree",
+      "expected": "-",
+      "outcome": "skip",
+      "ok": true,
+      "notes": [
+        "no exec bits on this file system"
+      ],
+      "problems": [],
+      "fails": [],
+      "limits": [],
+      "timings": {}
+    },
+    {
+      "case": "paths",
+      "title": "spaces, non-ASCII, NFD names; staged, unstaged, untracked",
+      "transfer": "bundle",
+      "landing": "checkout",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 2377,
+        "applyMs": 946,
+        "verifyMs": 766,
+        "totalMs": 5847
+      },
+      "bundleBytes": 1059,
+      "warnings": [],
+      "targetPath": "C:\\Users\\Admin\\AppData\\Local\\Temp\\mc-s2-matrix-hRS7Eo\\paths-bundle-checkout\\dst",
+      "rawKinds": [],
+      "ok": true
+    },
+    {
+      "case": "paths",
+      "title": "spaces, non-ASCII, NFD names; staged, unstaged, untracked",
+      "transfer": "bundle",
+      "landing": "worktree",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 2361,
+        "applyMs": 877,
+        "verifyMs": 752,
+        "totalMs": 6216
+      },
+      "bundleBytes": 1057,
+      "warnings": [],
+      "targetPath": "C:\\Users\\Admin\\AppData\\Local\\Temp\\mc-s2-matrix-hRS7Eo\\paths-bundle-worktree\\appdata\\machines\\worktrees\\ses_paths",
+      "rawKinds": [],
+      "ok": true
+    },
+    {
+      "case": "paths",
+      "title": "spaces, non-ASCII, NFD names; staged, unstaged, untracked",
+      "transfer": "remote",
+      "landing": "checkout",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 2451,
+        "applyMs": 1083,
+        "verifyMs": 758,
+        "totalMs": 5801
+      },
+      "bundleBytes": null,
+      "warnings": [],
+      "targetPath": "C:\\Users\\Admin\\AppData\\Local\\Temp\\mc-s2-matrix-hRS7Eo\\paths-remote-checkout\\dst",
+      "rawKinds": [],
+      "ok": true
+    },
+    {
+      "case": "paths",
+      "title": "spaces, non-ASCII, NFD names; staged, unstaged, untracked",
+      "transfer": "remote",
+      "landing": "worktree",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 2471,
+        "applyMs": 948,
+        "verifyMs": 744,
+        "totalMs": 6205
+      },
+      "bundleBytes": null,
+      "warnings": [],
+      "targetPath": "C:\\Users\\Admin\\AppData\\Local\\Temp\\mc-s2-matrix-hRS7Eo\\paths-remote-worktree\\appdata\\machines\\worktrees\\ses_paths",
+      "rawKinds": [],
+      "ok": true
+    },
+    {
+      "case": "ignored",
+      "title": "ignored files stay; a tracked file matching .gitignore travels",
+      "transfer": "bundle",
+      "landing": "checkout",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 2320,
+        "applyMs": 921,
+        "verifyMs": 739,
+        "totalMs": 5708
+      },
+      "bundleBytes": 601,
+      "warnings": [],
+      "targetPath": "C:\\Users\\Admin\\AppData\\Local\\Temp\\mc-s2-matrix-hRS7Eo\\ignored-bundle-checkout\\dst",
+      "rawKinds": [],
+      "ok": true
+    },
+    {
+      "case": "ignored",
+      "title": "ignored files stay; a tracked file matching .gitignore travels",
+      "transfer": "bundle",
+      "landing": "worktree",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 2901,
+        "applyMs": 817,
+        "verifyMs": 735,
+        "totalMs": 7196
+      },
+      "bundleBytes": 602,
+      "warnings": [],
+      "targetPath": "C:\\Users\\Admin\\AppData\\Local\\Temp\\mc-s2-matrix-hRS7Eo\\ignored-bundle-worktree\\appdata\\machines\\worktrees\\ses_ignored",
+      "rawKinds": [],
+      "ok": true
+    },
+    {
+      "case": "ignored",
+      "title": "ignored files stay; a tracked file matching .gitignore travels",
+      "transfer": "remote",
+      "landing": "checkout",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 2401,
+        "applyMs": 1029,
+        "verifyMs": 747,
+        "totalMs": 5669
+      },
+      "bundleBytes": null,
+      "warnings": [],
+      "targetPath": "C:\\Users\\Admin\\AppData\\Local\\Temp\\mc-s2-matrix-hRS7Eo\\ignored-remote-checkout\\dst",
+      "rawKinds": [],
+      "ok": true
+    },
+    {
+      "case": "ignored",
+      "title": "ignored files stay; a tracked file matching .gitignore travels",
+      "transfer": "remote",
+      "landing": "worktree",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 2403,
+        "applyMs": 985,
+        "verifyMs": 753,
+        "totalMs": 6088
+      },
+      "bundleBytes": null,
+      "warnings": [],
+      "targetPath": "C:\\Users\\Admin\\AppData\\Local\\Temp\\mc-s2-matrix-hRS7Eo\\ignored-remote-worktree\\appdata\\machines\\worktrees\\ses_ignored",
+      "rawKinds": [],
+      "ok": true
+    },
+    {
+      "case": "autocrlf-false-to-true",
+      "title": "LF source (autocrlf=false) → target autocrlf=true",
+      "transfer": "bundle",
+      "landing": "checkout",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 2284,
+        "applyMs": 936,
+        "verifyMs": 755,
+        "totalMs": 5772
+      },
+      "bundleBytes": 859,
+      "warnings": [],
+      "targetPath": "C:\\Users\\Admin\\AppData\\Local\\Temp\\mc-s2-matrix-hRS7Eo\\autocrlf-false-to-true-bundle-checkout\\dst",
+      "rawKinds": [
+        "eol"
+      ],
+      "ok": true
+    },
+    {
+      "case": "autocrlf-false-to-true",
+      "title": "LF source (autocrlf=false) → target autocrlf=true",
+      "transfer": "bundle",
+      "landing": "worktree",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 2328,
+        "applyMs": 857,
+        "verifyMs": 741,
+        "totalMs": 6118
+      },
+      "bundleBytes": 831,
+      "warnings": [],
+      "targetPath": "C:\\Users\\Admin\\AppData\\Local\\Temp\\mc-s2-matrix-hRS7Eo\\autocrlf-false-to-true-bundle-worktree\\appdata\\machines\\worktrees\\ses_autocrlffalsetotrue",
+      "rawKinds": [
+        "eol"
+      ],
+      "ok": true
+    },
+    {
+      "case": "autocrlf-false-to-true",
+      "title": "LF source (autocrlf=false) → target autocrlf=true",
+      "transfer": "remote",
+      "landing": "checkout",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 2461,
+        "applyMs": 1062,
+        "verifyMs": 727,
+        "totalMs": 5738
+      },
+      "bundleBytes": null,
+      "warnings": [],
+      "targetPath": "C:\\Users\\Admin\\AppData\\Local\\Temp\\mc-s2-matrix-hRS7Eo\\autocrlf-false-to-true-remote-checkout\\dst",
+      "rawKinds": [
+        "eol"
+      ],
+      "ok": true
+    },
+    {
+      "case": "autocrlf-false-to-true",
+      "title": "LF source (autocrlf=false) → target autocrlf=true",
+      "transfer": "remote",
+      "landing": "worktree",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 2400,
+        "applyMs": 939,
+        "verifyMs": 747,
+        "totalMs": 6056
+      },
+      "bundleBytes": null,
+      "warnings": [],
+      "targetPath": "C:\\Users\\Admin\\AppData\\Local\\Temp\\mc-s2-matrix-hRS7Eo\\autocrlf-false-to-true-remote-worktree\\appdata\\machines\\worktrees\\ses_autocrlffalsetotrue",
+      "rawKinds": [
+        "eol"
+      ],
+      "ok": true
+    },
+    {
+      "case": "autocrlf-true-to-false",
+      "title": "CRLF working tree (autocrlf=true, as on Windows) → target autocrlf=false",
+      "transfer": "bundle",
+      "landing": "checkout",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 2300,
+        "applyMs": 953,
+        "verifyMs": 745,
+        "totalMs": 5685
+      },
+      "bundleBytes": 709,
+      "warnings": [],
+      "targetPath": "C:\\Users\\Admin\\AppData\\Local\\Temp\\mc-s2-matrix-hRS7Eo\\autocrlf-true-to-false-bundle-checkout\\dst",
+      "rawKinds": [
+        "eol"
+      ],
+      "ok": true
+    },
+    {
+      "case": "autocrlf-true-to-false",
+      "title": "CRLF working tree (autocrlf=true, as on Windows) → target autocrlf=false",
+      "transfer": "bundle",
+      "landing": "worktree",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 2359,
+        "applyMs": 808,
+        "verifyMs": 765,
+        "totalMs": 6088
+      },
+      "bundleBytes": 707,
+      "warnings": [],
+      "targetPath": "C:\\Users\\Admin\\AppData\\Local\\Temp\\mc-s2-matrix-hRS7Eo\\autocrlf-true-to-false-bundle-worktree\\appdata\\machines\\worktrees\\ses_autocrlftruetofalse",
+      "rawKinds": [
+        "eol"
+      ],
+      "ok": true
+    },
+    {
+      "case": "autocrlf-true-to-false",
+      "title": "CRLF working tree (autocrlf=true, as on Windows) → target autocrlf=false",
+      "transfer": "remote",
+      "landing": "checkout",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 2437,
+        "applyMs": 1034,
+        "verifyMs": 732,
+        "totalMs": 5637
+      },
+      "bundleBytes": null,
+      "warnings": [],
+      "targetPath": "C:\\Users\\Admin\\AppData\\Local\\Temp\\mc-s2-matrix-hRS7Eo\\autocrlf-true-to-false-remote-checkout\\dst",
+      "rawKinds": [
+        "eol"
+      ],
+      "ok": true
+    },
+    {
+      "case": "autocrlf-true-to-false",
+      "title": "CRLF working tree (autocrlf=true, as on Windows) → target autocrlf=false",
+      "transfer": "remote",
+      "landing": "worktree",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 2423,
+        "applyMs": 930,
+        "verifyMs": 739,
+        "totalMs": 6046
+      },
+      "bundleBytes": null,
+      "warnings": [],
+      "targetPath": "C:\\Users\\Admin\\AppData\\Local\\Temp\\mc-s2-matrix-hRS7Eo\\autocrlf-true-to-false-remote-worktree\\appdata\\machines\\worktrees\\ses_autocrlftruetofalse",
+      "rawKinds": [
+        "eol"
+      ],
+      "ok": true
+    },
+    {
+      "case": "gitattributes-eol-lf",
+      "title": "`* text=auto eol=lf` committed; target autocrlf=true keeps LF",
+      "transfer": "bundle",
+      "landing": "checkout",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 2357,
+        "applyMs": 919,
+        "verifyMs": 729,
+        "totalMs": 5755
+      },
+      "bundleBytes": 690,
+      "warnings": [],
+      "targetPath": "C:\\Users\\Admin\\AppData\\Local\\Temp\\mc-s2-matrix-hRS7Eo\\gitattributes-eol-lf-bundle-checkout\\dst",
+      "rawKinds": [],
+      "ok": true
+    },
+    {
+      "case": "gitattributes-eol-lf",
+      "title": "`* text=auto eol=lf` committed; target autocrlf=true keeps LF",
+      "transfer": "bundle",
+      "landing": "worktree",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 2340,
+        "applyMs": 829,
+        "verifyMs": 761,
+        "totalMs": 6126
+      },
+      "bundleBytes": 690,
+      "warnings": [],
+      "targetPath": "C:\\Users\\Admin\\AppData\\Local\\Temp\\mc-s2-matrix-hRS7Eo\\gitattributes-eol-lf-bundle-worktree\\appdata\\machines\\worktrees\\ses_gitattributeseollf",
+      "rawKinds": [],
+      "ok": true
+    },
+    {
+      "case": "gitattributes-eol-lf",
+      "title": "`* text=auto eol=lf` committed; target autocrlf=true keeps LF",
+      "transfer": "remote",
+      "landing": "checkout",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 2502,
+        "applyMs": 1036,
+        "verifyMs": 732,
+        "totalMs": 5753
+      },
+      "bundleBytes": null,
+      "warnings": [],
+      "targetPath": "C:\\Users\\Admin\\AppData\\Local\\Temp\\mc-s2-matrix-hRS7Eo\\gitattributes-eol-lf-remote-checkout\\dst",
+      "rawKinds": [],
+      "ok": true
+    },
+    {
+      "case": "gitattributes-eol-lf",
+      "title": "`* text=auto eol=lf` committed; target autocrlf=true keeps LF",
+      "transfer": "remote",
+      "landing": "worktree",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 2445,
+        "applyMs": 929,
+        "verifyMs": 745,
+        "totalMs": 6052
+      },
+      "bundleBytes": null,
+      "warnings": [],
+      "targetPath": "C:\\Users\\Admin\\AppData\\Local\\Temp\\mc-s2-matrix-hRS7Eo\\gitattributes-eol-lf-remote-worktree\\appdata\\machines\\worktrees\\ses_gitattributeseollf",
+      "rawKinds": [],
+      "ok": true
+    },
+    {
+      "case": "crlf-committed",
+      "title": "a CRLF file committed without attributes, changed; target autocrlf=true",
+      "transfer": "bundle",
+      "landing": "checkout",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 2398,
+        "applyMs": 2414,
+        "verifyMs": 731,
+        "totalMs": 7200
+      },
+      "bundleBytes": 645,
+      "warnings": [],
+      "targetPath": "C:\\Users\\Admin\\AppData\\Local\\Temp\\mc-s2-matrix-hRS7Eo\\crlf-committed-bundle-checkout\\dst",
+      "rawKinds": [
+        "eol"
+      ],
+      "ok": true
+    },
+    {
+      "case": "crlf-committed",
+      "title": "a CRLF file committed without attributes, changed; target autocrlf=true",
+      "transfer": "bundle",
+      "landing": "worktree",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 2308,
+        "applyMs": 811,
+        "verifyMs": 776,
+        "totalMs": 6055
+      },
+      "bundleBytes": 646,
+      "warnings": [],
+      "targetPath": "C:\\Users\\Admin\\AppData\\Local\\Temp\\mc-s2-matrix-hRS7Eo\\crlf-committed-bundle-worktree\\appdata\\machines\\worktrees\\ses_crlfcommitted",
+      "rawKinds": [
+        "eol"
+      ],
+      "ok": true
+    },
+    {
+      "case": "crlf-committed",
+      "title": "a CRLF file committed without attributes, changed; target autocrlf=true",
+      "transfer": "remote",
+      "landing": "checkout",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 2395,
+        "applyMs": 1057,
+        "verifyMs": 722,
+        "totalMs": 5627
+      },
+      "bundleBytes": null,
+      "warnings": [],
+      "targetPath": "C:\\Users\\Admin\\AppData\\Local\\Temp\\mc-s2-matrix-hRS7Eo\\crlf-committed-remote-checkout\\dst",
+      "rawKinds": [
+        "eol"
+      ],
+      "ok": true
+    },
+    {
+      "case": "crlf-committed",
+      "title": "a CRLF file committed without attributes, changed; target autocrlf=true",
+      "transfer": "remote",
+      "landing": "worktree",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 2457,
+        "applyMs": 973,
+        "verifyMs": 755,
+        "totalMs": 6083
+      },
+      "bundleBytes": null,
+      "warnings": [],
+      "targetPath": "C:\\Users\\Admin\\AppData\\Local\\Temp\\mc-s2-matrix-hRS7Eo\\crlf-committed-remote-worktree\\appdata\\machines\\worktrees\\ses_crlfcommitted",
+      "rawKinds": [
+        "eol"
+      ],
+      "ok": true
+    },
+    {
+      "case": "behind",
+      "title": "target branch behind the base: fast-forward",
+      "transfer": "bundle",
+      "landing": "checkout",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 2307,
+        "applyMs": 1056,
+        "verifyMs": 738,
+        "totalMs": 6969
+      },
+      "bundleBytes": 818,
+      "warnings": [],
+      "targetPath": "C:\\Users\\Admin\\AppData\\Local\\Temp\\mc-s2-matrix-hRS7Eo\\behind-bundle-checkout\\dst",
+      "rawKinds": [],
+      "undo": "restored",
+      "ok": true
+    },
+    {
+      "case": "behind",
+      "title": "target branch behind the base: fast-forward",
+      "transfer": "bundle",
+      "landing": "worktree",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 2288,
+        "applyMs": 818,
+        "verifyMs": 749,
+        "totalMs": 6981
+      },
+      "bundleBytes": 819,
+      "warnings": [],
+      "targetPath": "C:\\Users\\Admin\\AppData\\Local\\Temp\\mc-s2-matrix-hRS7Eo\\behind-bundle-worktree\\appdata\\machines\\worktrees\\ses_behind",
+      "rawKinds": [],
+      "undo": "restored",
+      "ok": true
+    },
+    {
+      "case": "behind",
+      "title": "target branch behind the base: fast-forward",
+      "transfer": "remote",
+      "landing": "checkout",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 2415,
+        "applyMs": 1192,
+        "verifyMs": 724,
+        "totalMs": 6926
+      },
+      "bundleBytes": null,
+      "warnings": [],
+      "targetPath": "C:\\Users\\Admin\\AppData\\Local\\Temp\\mc-s2-matrix-hRS7Eo\\behind-remote-checkout\\dst",
+      "rawKinds": [],
+      "undo": "restored",
+      "ok": true
+    },
+    {
+      "case": "behind",
+      "title": "target branch behind the base: fast-forward",
+      "transfer": "remote",
+      "landing": "worktree",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 2415,
+        "applyMs": 954,
+        "verifyMs": 735,
+        "totalMs": 6939
+      },
+      "bundleBytes": null,
+      "warnings": [],
+      "targetPath": "C:\\Users\\Admin\\AppData\\Local\\Temp\\mc-s2-matrix-hRS7Eo\\behind-remote-worktree\\appdata\\machines\\worktrees\\ses_behind",
+      "rawKinds": [],
+      "undo": "restored",
+      "ok": true
+    },
+    {
+      "case": "diverged",
+      "title": "target branch has a commit the base lacks: stop, worktree offered",
+      "transfer": "bundle",
+      "landing": "checkout",
+      "expected": "stop",
+      "outcome": "stop",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [
+        "stop: the target's main has commits the snapshot's base lacks; offered: worktree, or reset it to the source (its tip kept as an undo ref)"
+      ],
+      "timings": {
+        "snapshotMs": 2281,
+        "applyMs": 776,
+        "totalMs": 5476
+      },
+      "bundleBytes": 781,
+      "warnings": [],
+      "targetPath": null,
+      "ok": true
+    },
+    {
+      "case": "diverged",
+      "title": "target branch has a commit the base lacks: stop, worktree offered",
+      "transfer": "bundle",
+      "landing": "worktree",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 2290,
+        "applyMs": 826,
+        "verifyMs": 739,
+        "totalMs": 6234
+      },
+      "bundleBytes": 780,
+      "warnings": [],
+      "targetPath": "C:\\Users\\Admin\\AppData\\Local\\Temp\\mc-s2-matrix-hRS7Eo\\diverged-bundle-worktree\\appdata\\machines\\worktrees\\ses_diverged",
+      "rawKinds": [],
+      "ok": true
+    },
+    {
+      "case": "diverged",
+      "title": "target branch has a commit the base lacks: stop, worktree offered",
+      "transfer": "remote",
+      "landing": "checkout",
+      "expected": "stop",
+      "outcome": "stop",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [
+        "stop: the target's main has commits the snapshot's base lacks; offered: worktree, or reset it to the source (its tip kept as an undo ref)"
+      ],
+      "timings": {
+        "snapshotMs": 2464,
+        "applyMs": 851,
+        "totalMs": 5441
+      },
+      "bundleBytes": null,
+      "warnings": [],
+      "targetPath": null,
+      "ok": true
+    },
+    {
+      "case": "diverged",
+      "title": "target branch has a commit the base lacks: stop, worktree offered",
+      "transfer": "remote",
+      "landing": "worktree",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 2531,
+        "applyMs": 1032,
+        "verifyMs": 767,
+        "totalMs": 8144
+      },
+      "bundleBytes": null,
+      "warnings": [],
+      "targetPath": "C:\\Users\\Admin\\AppData\\Local\\Temp\\mc-s2-matrix-hRS7Eo\\diverged-remote-worktree\\appdata\\machines\\worktrees\\ses_diverged",
+      "rawKinds": [],
+      "ok": true
+    },
+    {
+      "case": "dirty-target",
+      "title": "target checkout has changes of its own: stop, worktree offered",
+      "transfer": "bundle",
+      "landing": "checkout",
+      "expected": "stop",
+      "outcome": "stop",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [
+        "stop: the target checkout has changes of its own; offered: worktree"
+      ],
+      "timings": {
+        "snapshotMs": 2299,
+        "applyMs": 354,
+        "totalMs": 5070
+      },
+      "bundleBytes": 618,
+      "warnings": [],
+      "targetPath": null,
+      "ok": true
+    },
+    {
+      "case": "dirty-target",
+      "title": "target checkout has changes of its own: stop, worktree offered",
+      "transfer": "bundle",
+      "landing": "worktree",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 2383,
+        "applyMs": 821,
+        "verifyMs": 746,
+        "totalMs": 6458
+      },
+      "bundleBytes": 648,
+      "warnings": [],
+      "targetPath": "C:\\Users\\Admin\\AppData\\Local\\Temp\\mc-s2-matrix-hRS7Eo\\dirty-target-bundle-worktree\\appdata\\machines\\worktrees\\ses_dirtytarget",
+      "rawKinds": [],
+      "ok": true
+    },
+    {
+      "case": "dirty-target",
+      "title": "target checkout has changes of its own: stop, worktree offered",
+      "transfer": "remote",
+      "landing": "checkout",
+      "expected": "stop",
+      "outcome": "stop",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [
+        "stop: the target checkout has changes of its own; offered: worktree",
+        "hidden refs kept on the remote: the move is pending"
+      ],
+      "timings": {
+        "snapshotMs": 2402,
+        "applyMs": 340,
+        "totalMs": 4612
+      },
+      "bundleBytes": null,
+      "warnings": [],
+      "targetPath": null,
+      "ok": true
+    },
+    {
+      "case": "dirty-target",
+      "title": "target checkout has changes of its own: stop, worktree offered",
+      "transfer": "remote",
+      "landing": "worktree",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 2421,
+        "applyMs": 967,
+        "verifyMs": 742,
+        "totalMs": 6043
+      },
+      "bundleBytes": null,
+      "warnings": [],
+      "targetPath": "C:\\Users\\Admin\\AppData\\Local\\Temp\\mc-s2-matrix-hRS7Eo\\dirty-target-remote-worktree\\appdata\\machines\\worktrees\\ses_dirtytarget",
+      "rawKinds": [],
+      "ok": true
+    },
+    {
+      "case": "target-other-branch",
+      "title": "target on another branch: switched to the source branch",
+      "transfer": "bundle",
+      "landing": "checkout",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 2311,
+        "applyMs": 1076,
+        "verifyMs": 734,
+        "totalMs": 6958
+      },
+      "bundleBytes": 642,
+      "warnings": [],
+      "targetPath": "C:\\Users\\Admin\\AppData\\Local\\Temp\\mc-s2-matrix-hRS7Eo\\target-other-branch-bundle-checkout\\dst",
+      "rawKinds": [],
+      "undo": "restored",
+      "ok": true
+    },
+    {
+      "case": "target-other-branch",
+      "title": "target on another branch: switched to the source branch",
+      "transfer": "bundle",
+      "landing": "worktree",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 2307,
+        "applyMs": 835,
+        "verifyMs": 755,
+        "totalMs": 7010
+      },
+      "bundleBytes": 642,
+      "warnings": [],
+      "targetPath": "C:\\Users\\Admin\\AppData\\Local\\Temp\\mc-s2-matrix-hRS7Eo\\target-other-branch-bundle-worktree\\appdata\\machines\\worktrees\\ses_targetotherbranch",
+      "rawKinds": [],
+      "undo": "restored",
+      "ok": true
+    },
+    {
+      "case": "target-other-branch",
+      "title": "target on another branch: switched to the source branch",
+      "transfer": "remote",
+      "landing": "checkout",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 2389,
+        "applyMs": 1203,
+        "verifyMs": 729,
+        "totalMs": 6961
+      },
+      "bundleBytes": null,
+      "warnings": [],
+      "targetPath": "C:\\Users\\Admin\\AppData\\Local\\Temp\\mc-s2-matrix-hRS7Eo\\target-other-branch-remote-checkout\\dst",
+      "rawKinds": [],
+      "undo": "restored",
+      "ok": true
+    },
+    {
+      "case": "target-other-branch",
+      "title": "target on another branch: switched to the source branch",
+      "transfer": "remote",
+      "landing": "worktree",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 2410,
+        "applyMs": 947,
+        "verifyMs": 763,
+        "totalMs": 7051
+      },
+      "bundleBytes": null,
+      "warnings": [],
+      "targetPath": "C:\\Users\\Admin\\AppData\\Local\\Temp\\mc-s2-matrix-hRS7Eo\\target-other-branch-remote-worktree\\appdata\\machines\\worktrees\\ses_targetotherbranch",
+      "rawKinds": [],
+      "undo": "restored",
+      "ok": true
+    },
+    {
+      "case": "unborn",
+      "title": "source branch has no commit yet; target an empty repo",
+      "transfer": "bundle",
+      "landing": "checkout",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 4345,
+        "applyMs": 833,
+        "verifyMs": 744,
+        "totalMs": 8236
+      },
+      "bundleBytes": 617,
+      "warnings": [
+        "unborn"
+      ],
+      "targetPath": "C:\\Users\\Admin\\AppData\\Local\\Temp\\mc-s2-matrix-hRS7Eo\\unborn-bundle-checkout\\dst",
+      "rawKinds": [],
+      "undo": "restored",
+      "ok": true
+    },
+    {
+      "case": "unborn",
+      "title": "source branch has no commit yet; target an empty repo",
+      "transfer": "bundle",
+      "landing": "worktree",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 2248,
+        "applyMs": 807,
+        "verifyMs": 733,
+        "totalMs": 6357
+      },
+      "bundleBytes": 617,
+      "warnings": [
+        "unborn"
+      ],
+      "targetPath": "C:\\Users\\Admin\\AppData\\Local\\Temp\\mc-s2-matrix-hRS7Eo\\unborn-bundle-worktree\\appdata\\machines\\worktrees\\ses_unborn",
+      "rawKinds": [],
+      "undo": "restored",
+      "ok": true
+    },
+    {
+      "case": "unborn",
+      "title": "source branch has no commit yet; target an empty repo",
+      "transfer": "remote",
+      "landing": "checkout",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 2407,
+        "applyMs": 987,
+        "verifyMs": 768,
+        "totalMs": 6203
+      },
+      "bundleBytes": null,
+      "warnings": [
+        "unborn"
+      ],
+      "targetPath": "C:\\Users\\Admin\\AppData\\Local\\Temp\\mc-s2-matrix-hRS7Eo\\unborn-remote-checkout\\dst",
+      "rawKinds": [],
+      "undo": "restored",
+      "ok": true
+    },
+    {
+      "case": "unborn",
+      "title": "source branch has no commit yet; target an empty repo",
+      "transfer": "remote",
+      "landing": "worktree",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 2459,
+        "applyMs": 940,
+        "verifyMs": 742,
+        "totalMs": 6435
+      },
+      "bundleBytes": null,
+      "warnings": [
+        "unborn"
+      ],
+      "targetPath": "C:\\Users\\Admin\\AppData\\Local\\Temp\\mc-s2-matrix-hRS7Eo\\unborn-remote-worktree\\appdata\\machines\\worktrees\\ses_unborn",
+      "rawKinds": [],
+      "undo": "restored",
+      "ok": true
+    },
+    {
+      "case": "detached",
+      "title": "source on a detached HEAD",
+      "transfer": "bundle",
+      "landing": "checkout",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 2297,
+        "applyMs": 928,
+        "verifyMs": 731,
+        "totalMs": 6816
+      },
+      "bundleBytes": 629,
+      "warnings": [],
+      "targetPath": "C:\\Users\\Admin\\AppData\\Local\\Temp\\mc-s2-matrix-hRS7Eo\\detached-bundle-checkout\\dst",
+      "rawKinds": [],
+      "undo": "restored",
+      "ok": true
+    },
+    {
+      "case": "detached",
+      "title": "source on a detached HEAD",
+      "transfer": "bundle",
+      "landing": "worktree",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 2331,
+        "applyMs": 825,
+        "verifyMs": 751,
+        "totalMs": 6990
+      },
+      "bundleBytes": 629,
+      "warnings": [],
+      "targetPath": "C:\\Users\\Admin\\AppData\\Local\\Temp\\mc-s2-matrix-hRS7Eo\\detached-bundle-worktree\\appdata\\machines\\worktrees\\ses_detached",
+      "rawKinds": [],
+      "undo": "restored",
+      "ok": true
+    },
+    {
+      "case": "detached",
+      "title": "source on a detached HEAD",
+      "transfer": "remote",
+      "landing": "checkout",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 2419,
+        "applyMs": 1043,
+        "verifyMs": 730,
+        "totalMs": 6790
+      },
+      "bundleBytes": null,
+      "warnings": [],
+      "targetPath": "C:\\Users\\Admin\\AppData\\Local\\Temp\\mc-s2-matrix-hRS7Eo\\detached-remote-checkout\\dst",
+      "rawKinds": [],
+      "undo": "restored",
+      "ok": true
+    },
+    {
+      "case": "detached",
+      "title": "source on a detached HEAD",
+      "transfer": "remote",
+      "landing": "worktree",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 2480,
+        "applyMs": 939,
+        "verifyMs": 763,
+        "totalMs": 7050
+      },
+      "bundleBytes": null,
+      "warnings": [],
+      "targetPath": "C:\\Users\\Admin\\AppData\\Local\\Temp\\mc-s2-matrix-hRS7Eo\\detached-remote-worktree\\appdata\\machines\\worktrees\\ses_detached",
+      "rawKinds": [],
+      "undo": "restored",
+      "ok": true
+    },
+    {
+      "case": "submodule-present",
+      "title": "submodule moved to a commit the target has",
+      "transfer": "bundle",
+      "landing": "checkout",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [
+        "submodules: lib updated"
+      ],
+      "timings": {
+        "snapshotMs": 2520,
+        "applyMs": 1187,
+        "verifyMs": 822,
+        "totalMs": 9748
+      },
+      "bundleBytes": 671,
+      "warnings": [
+        "submodules"
+      ],
+      "targetPath": "C:\\Users\\Admin\\AppData\\Local\\Temp\\mc-s2-matrix-hRS7Eo\\submodule-present-bundle-checkout\\dst",
+      "rawKinds": [],
+      "ok": true
+    },
+    {
+      "case": "submodule-present",
+      "title": "submodule moved to a commit the target has",
+      "transfer": "bundle",
+      "landing": "worktree",
+      "expected": "limit",
+      "outcome": "limit",
+      "limits": [
+        "submodule"
+      ],
+      "fails": [],
+      "problems": [],
+      "notes": [
+        "submodules: lib not-initialized"
+      ],
+      "timings": {
+        "snapshotMs": 2520,
+        "applyMs": 840,
+        "verifyMs": 832,
+        "totalMs": 9945
+      },
+      "bundleBytes": 666,
+      "warnings": [
+        "submodules"
+      ],
+      "targetPath": "C:\\Users\\Admin\\AppData\\Local\\Temp\\mc-s2-matrix-hRS7Eo\\submodule-present-bundle-worktree\\appdata\\machines\\worktrees\\ses_submodulepresent",
+      "rawKinds": [
+        "submodule"
+      ],
+      "ok": true
+    },
+    {
+      "case": "submodule-present",
+      "title": "submodule moved to a commit the target has",
+      "transfer": "remote",
+      "landing": "checkout",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [
+        "submodules: lib updated"
+      ],
+      "timings": {
+        "snapshotMs": 2765,
+        "applyMs": 1316,
+        "verifyMs": 829,
+        "totalMs": 9899
+      },
+      "bundleBytes": null,
+      "warnings": [
+        "submodules"
+      ],
+      "targetPath": "C:\\Users\\Admin\\AppData\\Local\\Temp\\mc-s2-matrix-hRS7Eo\\submodule-present-remote-checkout\\dst",
+      "rawKinds": [],
+      "ok": true
+    },
+    {
+      "case": "submodule-present",
+      "title": "submodule moved to a commit the target has",
+      "transfer": "remote",
+      "landing": "worktree",
+      "expected": "limit",
+      "outcome": "limit",
+      "limits": [
+        "submodule"
+      ],
+      "fails": [],
+      "problems": [],
+      "notes": [
+        "submodules: lib not-initialized"
+      ],
+      "timings": {
+        "snapshotMs": 2627,
+        "applyMs": 938,
+        "verifyMs": 804,
+        "totalMs": 9916
+      },
+      "bundleBytes": null,
+      "warnings": [
+        "submodules"
+      ],
+      "targetPath": "C:\\Users\\Admin\\AppData\\Local\\Temp\\mc-s2-matrix-hRS7Eo\\submodule-present-remote-worktree\\appdata\\machines\\worktrees\\ses_submodulepresent",
+      "rawKinds": [
+        "submodule"
+      ],
+      "ok": true
+    },
+    {
+      "case": "submodule-missing",
+      "title": "submodule moved to a commit the target lacks",
+      "transfer": "bundle",
+      "landing": "checkout",
+      "expected": "limit",
+      "outcome": "limit",
+      "limits": [
+        "submodule"
+      ],
+      "fails": [],
+      "problems": [],
+      "notes": [
+        "submodules: lib missing"
+      ],
+      "timings": {
+        "snapshotMs": 2514,
+        "applyMs": 1047,
+        "verifyMs": 919,
+        "totalMs": 9331
+      },
+      "bundleBytes": 673,
+      "warnings": [
+        "submodules"
+      ],
+      "targetPath": "C:\\Users\\Admin\\AppData\\Local\\Temp\\mc-s2-matrix-hRS7Eo\\submodule-missing-bundle-checkout\\dst",
+      "rawKinds": [
+        "submodule"
+      ],
+      "ok": true
+    },
+    {
+      "case": "submodule-missing",
+      "title": "submodule moved to a commit the target lacks",
+      "transfer": "bundle",
+      "landing": "worktree",
+      "expected": "limit",
+      "outcome": "limit",
+      "limits": [
+        "submodule"
+      ],
+      "fails": [],
+      "problems": [],
+      "notes": [
+        "submodules: lib not-initialized"
+      ],
+      "timings": {
+        "snapshotMs": 2613,
+        "applyMs": 833,
+        "verifyMs": 813,
+        "totalMs": 9658
+      },
+      "bundleBytes": 670,
+      "warnings": [
+        "submodules"
+      ],
+      "targetPath": "C:\\Users\\Admin\\AppData\\Local\\Temp\\mc-s2-matrix-hRS7Eo\\submodule-missing-bundle-worktree\\appdata\\machines\\worktrees\\ses_submodulemissing",
+      "rawKinds": [
+        "submodule"
+      ],
+      "ok": true
+    },
+    {
+      "case": "submodule-missing",
+      "title": "submodule moved to a commit the target lacks",
+      "transfer": "remote",
+      "landing": "checkout",
+      "expected": "limit",
+      "outcome": "limit",
+      "limits": [
+        "submodule"
+      ],
+      "fails": [],
+      "problems": [],
+      "notes": [
+        "submodules: lib missing"
+      ],
+      "timings": {
+        "snapshotMs": 2648,
+        "applyMs": 1146,
+        "verifyMs": 855,
+        "totalMs": 9257
+      },
+      "bundleBytes": null,
+      "warnings": [
+        "submodules"
+      ],
+      "targetPath": "C:\\Users\\Admin\\AppData\\Local\\Temp\\mc-s2-matrix-hRS7Eo\\submodule-missing-remote-checkout\\dst",
+      "rawKinds": [
+        "submodule"
+      ],
+      "ok": true
+    },
+    {
+      "case": "submodule-missing",
+      "title": "submodule moved to a commit the target lacks",
+      "transfer": "remote",
+      "landing": "worktree",
+      "expected": "limit",
+      "outcome": "limit",
+      "limits": [
+        "submodule"
+      ],
+      "fails": [],
+      "problems": [],
+      "notes": [
+        "submodules: lib not-initialized"
+      ],
+      "timings": {
+        "snapshotMs": 2609,
+        "applyMs": 944,
+        "verifyMs": 785,
+        "totalMs": 9463
+      },
+      "bundleBytes": null,
+      "warnings": [
+        "submodules"
+      ],
+      "targetPath": "C:\\Users\\Admin\\AppData\\Local\\Temp\\mc-s2-matrix-hRS7Eo\\submodule-missing-remote-worktree\\appdata\\machines\\worktrees\\ses_submodulemissing",
+      "rawKinds": [
+        "submodule"
+      ],
+      "ok": true
+    },
+    {
+      "case": "symlink",
+      "title": "tracked symlink retargeted, new untracked symlink (target symlinks=true)",
+      "transfer": "bundle",
+      "landing": "checkout",
+      "expected": "limit",
+      "outcome": "limit",
+      "limits": [
+        "symlink-as-file"
+      ],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 2304,
+        "applyMs": 916,
+        "verifyMs": 787,
+        "totalMs": 5704
+      },
+      "bundleBytes": 649,
+      "warnings": [
+        "untracked-symlink"
+      ],
+      "targetPath": "C:\\Users\\Admin\\AppData\\Local\\Temp\\mc-s2-matrix-hRS7Eo\\symlink-bundle-checkout\\dst",
+      "rawKinds": [
+        "symlink-as-file"
+      ],
+      "ok": true
+    },
+    {
+      "case": "symlink",
+      "title": "tracked symlink retargeted, new untracked symlink (target symlinks=true)",
+      "transfer": "bundle",
+      "landing": "worktree",
+      "expected": "limit",
+      "outcome": "limit",
+      "limits": [
+        "symlink-as-file"
+      ],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 2337,
+        "applyMs": 821,
+        "verifyMs": 826,
+        "totalMs": 6203
+      },
+      "bundleBytes": 650,
+      "warnings": [
+        "untracked-symlink"
+      ],
+      "targetPath": "C:\\Users\\Admin\\AppData\\Local\\Temp\\mc-s2-matrix-hRS7Eo\\symlink-bundle-worktree\\appdata\\machines\\worktrees\\ses_symlink",
+      "rawKinds": [
+        "symlink-as-file"
+      ],
+      "ok": true
+    },
+    {
+      "case": "symlink",
+      "title": "tracked symlink retargeted, new untracked symlink (target symlinks=true)",
+      "transfer": "remote",
+      "landing": "checkout",
+      "expected": "limit",
+      "outcome": "limit",
+      "limits": [
+        "symlink-as-file"
+      ],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 2407,
+        "applyMs": 1050,
+        "verifyMs": 787,
+        "totalMs": 5678
+      },
+      "bundleBytes": null,
+      "warnings": [
+        "untracked-symlink"
+      ],
+      "targetPath": "C:\\Users\\Admin\\AppData\\Local\\Temp\\mc-s2-matrix-hRS7Eo\\symlink-remote-checkout\\dst",
+      "rawKinds": [
+        "symlink-as-file"
+      ],
+      "ok": true
+    },
+    {
+      "case": "symlink",
+      "title": "tracked symlink retargeted, new untracked symlink (target symlinks=true)",
+      "transfer": "remote",
+      "landing": "worktree",
+      "expected": "limit",
+      "outcome": "limit",
+      "limits": [
+        "symlink-as-file"
+      ],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 2382,
+        "applyMs": 935,
+        "verifyMs": 796,
+        "totalMs": 6008
+      },
+      "bundleBytes": null,
+      "warnings": [
+        "untracked-symlink"
+      ],
+      "targetPath": "C:\\Users\\Admin\\AppData\\Local\\Temp\\mc-s2-matrix-hRS7Eo\\symlink-remote-worktree\\appdata\\machines\\worktrees\\ses_symlink",
+      "rawKinds": [
+        "symlink-as-file"
+      ],
+      "ok": true
+    },
+    {
+      "case": "symlink-to-no-symlinks",
+      "title": "the same, target core.symlinks=false (as on Windows by default)",
+      "transfer": "bundle",
+      "landing": "checkout",
+      "expected": "limit",
+      "outcome": "limit",
+      "limits": [
+        "symlink-as-file"
+      ],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 2313,
+        "applyMs": 922,
+        "verifyMs": 790,
+        "totalMs": 5734
+      },
+      "bundleBytes": 678,
+      "warnings": [
+        "untracked-symlink"
+      ],
+      "targetPath": "C:\\Users\\Admin\\AppData\\Local\\Temp\\mc-s2-matrix-hRS7Eo\\symlink-to-no-symlinks-bundle-checkout\\dst",
+      "rawKinds": [
+        "symlink-as-file"
+      ],
+      "ok": true
+    },
+    {
+      "case": "symlink-to-no-symlinks",
+      "title": "the same, target core.symlinks=false (as on Windows by default)",
+      "transfer": "bundle",
+      "landing": "worktree",
+      "expected": "limit",
+      "outcome": "limit",
+      "limits": [
+        "symlink-as-file"
+      ],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 2313,
+        "applyMs": 820,
+        "verifyMs": 801,
+        "totalMs": 6106
+      },
+      "bundleBytes": 679,
+      "warnings": [
+        "untracked-symlink"
+      ],
+      "targetPath": "C:\\Users\\Admin\\AppData\\Local\\Temp\\mc-s2-matrix-hRS7Eo\\symlink-to-no-symlinks-bundle-worktree\\appdata\\machines\\worktrees\\ses_symlinktonosymlinks",
+      "rawKinds": [
+        "symlink-as-file"
+      ],
+      "ok": true
+    },
+    {
+      "case": "symlink-to-no-symlinks",
+      "title": "the same, target core.symlinks=false (as on Windows by default)",
+      "transfer": "remote",
+      "landing": "checkout",
+      "expected": "limit",
+      "outcome": "limit",
+      "limits": [
+        "symlink-as-file"
+      ],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 2400,
+        "applyMs": 1154,
+        "verifyMs": 801,
+        "totalMs": 5792
+      },
+      "bundleBytes": null,
+      "warnings": [
+        "untracked-symlink"
+      ],
+      "targetPath": "C:\\Users\\Admin\\AppData\\Local\\Temp\\mc-s2-matrix-hRS7Eo\\symlink-to-no-symlinks-remote-checkout\\dst",
+      "rawKinds": [
+        "symlink-as-file"
+      ],
+      "ok": true
+    },
+    {
+      "case": "symlink-to-no-symlinks",
+      "title": "the same, target core.symlinks=false (as on Windows by default)",
+      "transfer": "remote",
+      "landing": "worktree",
+      "expected": "limit",
+      "outcome": "limit",
+      "limits": [
+        "symlink-as-file"
+      ],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 2387,
+        "applyMs": 946,
+        "verifyMs": 816,
+        "totalMs": 6064
+      },
+      "bundleBytes": null,
+      "warnings": [
+        "untracked-symlink"
+      ],
+      "targetPath": "C:\\Users\\Admin\\AppData\\Local\\Temp\\mc-s2-matrix-hRS7Eo\\symlink-to-no-symlinks-remote-worktree\\appdata\\machines\\worktrees\\ses_symlinktonosymlinks",
+      "rawKinds": [
+        "symlink-as-file"
+      ],
+      "ok": true
+    },
+    {
+      "case": "case-rename-staged",
+      "title": "`git mv Readme.md README.md` (staged)",
+      "transfer": "bundle",
+      "landing": "checkout",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 2318,
+        "applyMs": 920,
+        "verifyMs": 735,
+        "totalMs": 5677
+      },
+      "bundleBytes": 577,
+      "warnings": [],
+      "targetPath": "C:\\Users\\Admin\\AppData\\Local\\Temp\\mc-s2-matrix-hRS7Eo\\case-rename-staged-bundle-checkout\\dst",
+      "rawKinds": [],
+      "ok": true
+    },
+    {
+      "case": "case-rename-staged",
+      "title": "`git mv Readme.md README.md` (staged)",
+      "transfer": "bundle",
+      "landing": "worktree",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 2340,
+        "applyMs": 815,
+        "verifyMs": 748,
+        "totalMs": 6089
+      },
+      "bundleBytes": 548,
+      "warnings": [],
+      "targetPath": "C:\\Users\\Admin\\AppData\\Local\\Temp\\mc-s2-matrix-hRS7Eo\\case-rename-staged-bundle-worktree\\appdata\\machines\\worktrees\\ses_caserenamestaged",
+      "rawKinds": [],
+      "ok": true
+    },
+    {
+      "case": "case-rename-staged",
+      "title": "`git mv Readme.md README.md` (staged)",
+      "transfer": "remote",
+      "landing": "checkout",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 2432,
+        "applyMs": 1041,
+        "verifyMs": 730,
+        "totalMs": 5660
+      },
+      "bundleBytes": null,
+      "warnings": [],
+      "targetPath": "C:\\Users\\Admin\\AppData\\Local\\Temp\\mc-s2-matrix-hRS7Eo\\case-rename-staged-remote-checkout\\dst",
+      "rawKinds": [],
+      "ok": true
+    },
+    {
+      "case": "case-rename-staged",
+      "title": "`git mv Readme.md README.md` (staged)",
+      "transfer": "remote",
+      "landing": "worktree",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 2385,
+        "applyMs": 920,
+        "verifyMs": 740,
+        "totalMs": 6015
+      },
+      "bundleBytes": null,
+      "warnings": [],
+      "targetPath": "C:\\Users\\Admin\\AppData\\Local\\Temp\\mc-s2-matrix-hRS7Eo\\case-rename-staged-remote-worktree\\appdata\\machines\\worktrees\\ses_caserenamestaged",
+      "rawKinds": [],
+      "ok": true
+    },
+    {
+      "case": "case-rename-unstaged",
+      "title": "Readme.md renamed to README.md on disk only",
+      "transfer": "bundle",
+      "landing": "checkout",
+      "expected": "limit",
+      "outcome": "limit",
+      "limits": [
+        "case"
+      ],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 2281,
+        "applyMs": 964,
+        "verifyMs": 748,
+        "totalMs": 5734
+      },
+      "bundleBytes": 504,
+      "warnings": [],
+      "targetPath": "C:\\Users\\Admin\\AppData\\Local\\Temp\\mc-s2-matrix-hRS7Eo\\case-rename-unstaged-bundle-checkout\\dst",
+      "rawKinds": [
+        "case"
+      ],
+      "ok": true
+    },
+    {
+      "case": "case-rename-unstaged",
+      "title": "Readme.md renamed to README.md on disk only",
+      "transfer": "bundle",
+      "landing": "worktree",
+      "expected": "limit",
+      "outcome": "limit",
+      "limits": [
+        "case"
+      ],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 2321,
+        "applyMs": 804,
+        "verifyMs": 744,
+        "totalMs": 6008
+      },
+      "bundleBytes": 505,
+      "warnings": [],
+      "targetPath": "C:\\Users\\Admin\\AppData\\Local\\Temp\\mc-s2-matrix-hRS7Eo\\case-rename-unstaged-bundle-worktree\\appdata\\machines\\worktrees\\ses_caserenameunstaged",
+      "rawKinds": [
+        "case"
+      ],
+      "ok": true
+    },
+    {
+      "case": "case-rename-unstaged",
+      "title": "Readme.md renamed to README.md on disk only",
+      "transfer": "remote",
+      "landing": "checkout",
+      "expected": "limit",
+      "outcome": "limit",
+      "limits": [
+        "case"
+      ],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 2383,
+        "applyMs": 1021,
+        "verifyMs": 738,
+        "totalMs": 5584
+      },
+      "bundleBytes": null,
+      "warnings": [],
+      "targetPath": "C:\\Users\\Admin\\AppData\\Local\\Temp\\mc-s2-matrix-hRS7Eo\\case-rename-unstaged-remote-checkout\\dst",
+      "rawKinds": [
+        "case"
+      ],
+      "ok": true
+    },
+    {
+      "case": "case-rename-unstaged",
+      "title": "Readme.md renamed to README.md on disk only",
+      "transfer": "remote",
+      "landing": "worktree",
+      "expected": "limit",
+      "outcome": "limit",
+      "limits": [
+        "case"
+      ],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 2412,
+        "applyMs": 912,
+        "verifyMs": 737,
+        "totalMs": 5948
+      },
+      "bundleBytes": null,
+      "warnings": [],
+      "targetPath": "C:\\Users\\Admin\\AppData\\Local\\Temp\\mc-s2-matrix-hRS7Eo\\case-rename-unstaged-remote-worktree\\appdata\\machines\\worktrees\\ses_caserenameunstaged",
+      "rawKinds": [
+        "case"
+      ],
+      "ok": true
+    },
+    {
+      "case": "case-collision",
+      "title": "x/File.txt and x/file.txt in one tree (made on a case-sensitive machine)",
+      "transfer": "bundle",
+      "landing": "checkout",
+      "expected": "observe",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 2327,
+        "applyMs": 915,
+        "verifyMs": 759,
+        "totalMs": 5801
+      },
+      "bundleBytes": 655,
+      "warnings": [
+        "case-collision"
+      ],
+      "targetPath": "C:\\Users\\Admin\\AppData\\Local\\Temp\\mc-s2-matrix-hRS7Eo\\case-collision-bundle-checkout\\dst",
+      "rawKinds": [],
+      "ok": true
+    },
+    {
+      "case": "case-collision",
+      "title": "x/File.txt and x/file.txt in one tree (made on a case-sensitive machine)",
+      "transfer": "bundle",
+      "landing": "worktree",
+      "expected": "observe",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 2392,
+        "applyMs": 821,
+        "verifyMs": 776,
+        "totalMs": 6321
+      },
+      "bundleBytes": 626,
+      "warnings": [
+        "case-collision"
+      ],
+      "targetPath": "C:\\Users\\Admin\\AppData\\Local\\Temp\\mc-s2-matrix-hRS7Eo\\case-collision-bundle-worktree\\appdata\\machines\\worktrees\\ses_casecollision",
+      "rawKinds": [],
+      "ok": true
+    },
+    {
+      "case": "case-collision",
+      "title": "x/File.txt and x/file.txt in one tree (made on a case-sensitive machine)",
+      "transfer": "remote",
+      "landing": "checkout",
+      "expected": "observe",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 2391,
+        "applyMs": 1099,
+        "verifyMs": 726,
+        "totalMs": 5774
+      },
+      "bundleBytes": null,
+      "warnings": [
+        "case-collision"
+      ],
+      "targetPath": "C:\\Users\\Admin\\AppData\\Local\\Temp\\mc-s2-matrix-hRS7Eo\\case-collision-remote-checkout\\dst",
+      "rawKinds": [],
+      "ok": true
+    },
+    {
+      "case": "case-collision",
+      "title": "x/File.txt and x/file.txt in one tree (made on a case-sensitive machine)",
+      "transfer": "remote",
+      "landing": "worktree",
+      "expected": "observe",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 2422,
+        "applyMs": 929,
+        "verifyMs": 743,
+        "totalMs": 8277
+      },
+      "bundleBytes": null,
+      "warnings": [
+        "case-collision"
+      ],
+      "targetPath": "C:\\Users\\Admin\\AppData\\Local\\Temp\\mc-s2-matrix-hRS7Eo\\case-collision-remote-worktree\\appdata\\machines\\worktrees\\ses_casecollision",
+      "rawKinds": [],
+      "ok": true
+    },
+    {
+      "case": "windows-names",
+      "title": "names Windows cannot hold (aux.txt, a trailing dot, ?)",
+      "transfer": "bundle",
+      "landing": "checkout",
+      "expected": "-",
+      "outcome": "skip",
+      "ok": true,
+      "notes": [
+        "these names cannot be created on Windows"
+      ],
+      "problems": [],
+      "fails": [],
+      "limits": [],
+      "timings": {}
+    },
+    {
+      "case": "windows-names",
+      "title": "names Windows cannot hold (aux.txt, a trailing dot, ?)",
+      "transfer": "bundle",
+      "landing": "worktree",
+      "expected": "-",
+      "outcome": "skip",
+      "ok": true,
+      "notes": [
+        "these names cannot be created on Windows"
+      ],
+      "problems": [],
+      "fails": [],
+      "limits": [],
+      "timings": {}
+    },
+    {
+      "case": "windows-names",
+      "title": "names Windows cannot hold (aux.txt, a trailing dot, ?)",
+      "transfer": "remote",
+      "landing": "checkout",
+      "expected": "-",
+      "outcome": "skip",
+      "ok": true,
+      "notes": [
+        "these names cannot be created on Windows"
+      ],
+      "problems": [],
+      "fails": [],
+      "limits": [],
+      "timings": {}
+    },
+    {
+      "case": "windows-names",
+      "title": "names Windows cannot hold (aux.txt, a trailing dot, ?)",
+      "transfer": "remote",
+      "landing": "worktree",
+      "expected": "-",
+      "outcome": "skip",
+      "ok": true,
+      "notes": [
+        "these names cannot be created on Windows"
+      ],
+      "problems": [],
+      "fails": [],
+      "limits": [],
+      "timings": {}
+    },
+    {
+      "case": "long-path",
+      "title": "a 250-character path (Windows MAX_PATH)",
+      "transfer": "bundle",
+      "landing": "checkout",
+      "expected": "observe",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 2388,
+        "applyMs": 933,
+        "verifyMs": 739,
+        "totalMs": 5795
+      },
+      "bundleBytes": 1677,
+      "warnings": [
+        "long-path"
+      ],
+      "targetPath": "C:\\Users\\Admin\\AppData\\Local\\Temp\\mc-s2-matrix-hRS7Eo\\long-path-bundle-checkout\\dst",
+      "rawKinds": [],
+      "ok": true
+    },
+    {
+      "case": "long-path",
+      "title": "a 250-character path (Windows MAX_PATH)",
+      "transfer": "bundle",
+      "landing": "worktree",
+      "expected": "observe",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 2394,
+        "applyMs": 854,
+        "verifyMs": 749,
+        "totalMs": 6153
+      },
+      "bundleBytes": 1678,
+      "warnings": [
+        "long-path"
+      ],
+      "targetPath": "C:\\Users\\Admin\\AppData\\Local\\Temp\\mc-s2-matrix-hRS7Eo\\long-path-bundle-worktree\\appdata\\machines\\worktrees\\ses_longpath",
+      "rawKinds": [],
+      "ok": true
+    },
+    {
+      "case": "long-path",
+      "title": "a 250-character path (Windows MAX_PATH)",
+      "transfer": "remote",
+      "landing": "checkout",
+      "expected": "observe",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 2610,
+        "applyMs": 1145,
+        "verifyMs": 744,
+        "totalMs": 5993
+      },
+      "bundleBytes": null,
+      "warnings": [
+        "long-path"
+      ],
+      "targetPath": "C:\\Users\\Admin\\AppData\\Local\\Temp\\mc-s2-matrix-hRS7Eo\\long-path-remote-checkout\\dst",
+      "rawKinds": [],
+      "ok": true
+    },
+    {
+      "case": "long-path",
+      "title": "a 250-character path (Windows MAX_PATH)",
+      "transfer": "remote",
+      "landing": "worktree",
+      "expected": "observe",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 2557,
+        "applyMs": 1009,
+        "verifyMs": 763,
+        "totalMs": 6253
+      },
+      "bundleBytes": null,
+      "warnings": [
+        "long-path"
+      ],
+      "targetPath": "C:\\Users\\Admin\\AppData\\Local\\Temp\\mc-s2-matrix-hRS7Eo\\long-path-remote-worktree\\appdata\\machines\\worktrees\\ses_longpath",
+      "rawKinds": [],
+      "ok": true
+    },
+    {
+      "case": "intent-to-add",
+      "title": "`git add -N` entry",
+      "transfer": "bundle",
+      "landing": "checkout",
+      "expected": "limit",
+      "outcome": "limit",
+      "limits": [
+        "ita"
+      ],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 2302,
+        "applyMs": 966,
+        "verifyMs": 779,
+        "totalMs": 5780
+      },
+      "bundleBytes": 634,
+      "warnings": [],
+      "targetPath": "C:\\Users\\Admin\\AppData\\Local\\Temp\\mc-s2-matrix-hRS7Eo\\intent-to-add-bundle-checkout\\dst",
+      "rawKinds": [],
+      "ok": true
+    },
+    {
+      "case": "intent-to-add",
+      "title": "`git add -N` entry",
+      "transfer": "bundle",
+      "landing": "worktree",
+      "expected": "limit",
+      "outcome": "limit",
+      "limits": [
+        "ita"
+      ],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 2323,
+        "applyMs": 823,
+        "verifyMs": 738,
+        "totalMs": 6104
+      },
+      "bundleBytes": 636,
+      "warnings": [],
+      "targetPath": "C:\\Users\\Admin\\AppData\\Local\\Temp\\mc-s2-matrix-hRS7Eo\\intent-to-add-bundle-worktree\\appdata\\machines\\worktrees\\ses_intenttoadd",
+      "rawKinds": [],
+      "ok": true
+    },
+    {
+      "case": "intent-to-add",
+      "title": "`git add -N` entry",
+      "transfer": "remote",
+      "landing": "checkout",
+      "expected": "limit",
+      "outcome": "limit",
+      "limits": [
+        "ita"
+      ],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 2389,
+        "applyMs": 1061,
+        "verifyMs": 729,
+        "totalMs": 5653
+      },
+      "bundleBytes": null,
+      "warnings": [],
+      "targetPath": "C:\\Users\\Admin\\AppData\\Local\\Temp\\mc-s2-matrix-hRS7Eo\\intent-to-add-remote-checkout\\dst",
+      "rawKinds": [],
+      "ok": true
+    },
+    {
+      "case": "intent-to-add",
+      "title": "`git add -N` entry",
+      "transfer": "remote",
+      "landing": "worktree",
+      "expected": "limit",
+      "outcome": "limit",
+      "limits": [
+        "ita"
+      ],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 2536,
+        "applyMs": 935,
+        "verifyMs": 771,
+        "totalMs": 6184
+      },
+      "bundleBytes": null,
+      "warnings": [],
+      "targetPath": "C:\\Users\\Admin\\AppData\\Local\\Temp\\mc-s2-matrix-hRS7Eo\\intent-to-add-remote-worktree\\appdata\\machines\\worktrees\\ses_intenttoadd",
+      "rawKinds": [],
+      "ok": true
+    },
+    {
+      "case": "shallow-target",
+      "title": "target is a shallow clone (--depth 1); the change restores an old blob",
+      "transfer": "bundle",
+      "landing": "checkout",
+      "expected": "observe",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [
+        "target is shallow"
+      ],
+      "timings": {
+        "snapshotMs": 2293,
+        "applyMs": 924,
+        "verifyMs": 728,
+        "totalMs": 5908
+      },
+      "bundleBytes": 688,
+      "warnings": [],
+      "targetPath": "C:\\Users\\Admin\\AppData\\Local\\Temp\\mc-s2-matrix-hRS7Eo\\shallow-target-bundle-checkout\\dst",
+      "rawKinds": [],
+      "ok": true
+    },
+    {
+      "case": "shallow-target",
+      "title": "target is a shallow clone (--depth 1); the change restores an old blob",
+      "transfer": "bundle",
+      "landing": "worktree",
+      "expected": "observe",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [
+        "target is shallow"
+      ],
+      "timings": {
+        "snapshotMs": 2281,
+        "applyMs": 841,
+        "verifyMs": 770,
+        "totalMs": 6370
+      },
+      "bundleBytes": 686,
+      "warnings": [],
+      "targetPath": "C:\\Users\\Admin\\AppData\\Local\\Temp\\mc-s2-matrix-hRS7Eo\\shallow-target-bundle-worktree\\appdata\\machines\\worktrees\\ses_shallowtarget",
+      "rawKinds": [],
+      "ok": true
+    },
+    {
+      "case": "shallow-target",
+      "title": "target is a shallow clone (--depth 1); the change restores an old blob",
+      "transfer": "remote",
+      "landing": "checkout",
+      "expected": "observe",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 2407,
+        "applyMs": 1032,
+        "verifyMs": 742,
+        "totalMs": 5916
+      },
+      "bundleBytes": null,
+      "warnings": [],
+      "targetPath": "C:\\Users\\Admin\\AppData\\Local\\Temp\\mc-s2-matrix-hRS7Eo\\shallow-target-remote-checkout\\dst",
+      "rawKinds": [],
+      "ok": true
+    },
+    {
+      "case": "shallow-target",
+      "title": "target is a shallow clone (--depth 1); the change restores an old blob",
+      "transfer": "remote",
+      "landing": "worktree",
+      "expected": "observe",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 2450,
+        "applyMs": 937,
+        "verifyMs": 755,
+        "totalMs": 6361
+      },
+      "bundleBytes": null,
+      "warnings": [],
+      "targetPath": "C:\\Users\\Admin\\AppData\\Local\\Temp\\mc-s2-matrix-hRS7Eo\\shallow-target-remote-worktree\\appdata\\machines\\worktrees\\ses_shallowtarget",
+      "rawKinds": [],
+      "ok": true
+    },
+    {
+      "case": "hooks-diagnostic",
+      "title": "the mix case with the repo hooks NOT overridden (which hooks would run)",
+      "transfer": "bundle",
+      "landing": "checkout",
+      "expected": "observe",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 2712,
+        "applyMs": 1208,
+        "verifyMs": 823,
+        "totalMs": 8895
+      },
+      "bundleBytes": 1156,
+      "warnings": [],
+      "targetPath": "C:\\Users\\Admin\\AppData\\Local\\Temp\\mc-s2-matrix-hRS7Eo\\hooks-diagnostic-bundle-checkout\\dst",
+      "rawKinds": [],
+      "hooksFired": [
+        "post-index-change in src",
+        "reference-transaction in src",
+        "reference-transaction in dst",
+        "post-index-change in dst"
+      ],
+      "ok": true
+    },
+    {
+      "case": "hooks-diagnostic",
+      "title": "the mix case with the repo hooks NOT overridden (which hooks would run)",
+      "transfer": "bundle",
+      "landing": "worktree",
+      "expected": "observe",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 2612,
+        "applyMs": 1086,
+        "verifyMs": 811,
+        "totalMs": 7003
+      },
+      "bundleBytes": 1154,
+      "warnings": [],
+      "targetPath": "C:\\Users\\Admin\\AppData\\Local\\Temp\\mc-s2-matrix-hRS7Eo\\hooks-diagnostic-bundle-worktree\\appdata\\machines\\worktrees\\ses_hooksdiagnostic",
+      "rawKinds": [],
+      "hooksFired": [
+        "post-index-change in src",
+        "reference-transaction in src",
+        "reference-transaction in dst",
+        "post-index-change in dst"
+      ],
+      "ok": true
+    },
+    {
+      "case": "hooks-diagnostic",
+      "title": "the mix case with the repo hooks NOT overridden (which hooks would run)",
+      "transfer": "remote",
+      "landing": "checkout",
+      "expected": "observe",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 2766,
+        "applyMs": 1367,
+        "verifyMs": 805,
+        "totalMs": 6716
+      },
+      "bundleBytes": null,
+      "warnings": [],
+      "targetPath": "C:\\Users\\Admin\\AppData\\Local\\Temp\\mc-s2-matrix-hRS7Eo\\hooks-diagnostic-remote-checkout\\dst",
+      "rawKinds": [],
+      "hooksFired": [
+        "post-index-change in src",
+        "reference-transaction in src",
+        "reference-transaction in dst",
+        "post-index-change in dst"
+      ],
+      "ok": true
+    },
+    {
+      "case": "hooks-diagnostic",
+      "title": "the mix case with the repo hooks NOT overridden (which hooks would run)",
+      "transfer": "remote",
+      "landing": "worktree",
+      "expected": "observe",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 2749,
+        "applyMs": 1245,
+        "verifyMs": 808,
+        "totalMs": 7031
+      },
+      "bundleBytes": null,
+      "warnings": [],
+      "targetPath": "C:\\Users\\Admin\\AppData\\Local\\Temp\\mc-s2-matrix-hRS7Eo\\hooks-diagnostic-remote-worktree\\appdata\\machines\\worktrees\\ses_hooksdiagnostic",
+      "rawKinds": [],
+      "hooksFired": [
+        "post-index-change in src",
+        "reference-transaction in src",
+        "reference-transaction in dst",
+        "post-index-change in dst"
+      ],
+      "ok": true
+    },
+    {
+      "case": "lfs-carried",
+      "title": "Git LFS file changed and added; objects carried in the move dir",
+      "transfer": "bundle",
+      "landing": "checkout",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 4886,
+        "applyMs": 2559,
+        "verifyMs": 1620,
+        "totalMs": 19246
+      },
+      "bundleBytes": 909,
+      "warnings": [
+        "lfs"
+      ],
+      "targetPath": "C:\\Users\\Admin\\AppData\\Local\\Temp\\mc-s2-matrix-hRS7Eo\\lfs-carried-bundle-checkout\\dst",
+      "rawKinds": [],
+      "ok": true
+    },
+    {
+      "case": "lfs-carried",
+      "title": "Git LFS file changed and added; objects carried in the move dir",
+      "transfer": "bundle",
+      "landing": "worktree",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 4929,
+        "applyMs": 2044,
+        "verifyMs": 1589,
+        "totalMs": 19156
+      },
+      "bundleBytes": 911,
+      "warnings": [
+        "lfs"
+      ],
+      "targetPath": "C:\\Users\\Admin\\AppData\\Local\\Temp\\mc-s2-matrix-hRS7Eo\\lfs-carried-bundle-worktree\\appdata\\machines\\worktrees\\ses_lfscarried",
+      "rawKinds": [],
+      "ok": true
+    },
+    {
+      "case": "lfs-carried",
+      "title": "Git LFS file changed and added; objects carried in the move dir",
+      "transfer": "remote",
+      "landing": "checkout",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 4994,
+        "applyMs": 2716,
+        "verifyMs": 1576,
+        "totalMs": 18674
+      },
+      "bundleBytes": null,
+      "warnings": [
+        "lfs"
+      ],
+      "targetPath": "C:\\Users\\Admin\\AppData\\Local\\Temp\\mc-s2-matrix-hRS7Eo\\lfs-carried-remote-checkout\\dst",
+      "rawKinds": [],
+      "ok": true
+    },
+    {
+      "case": "lfs-carried",
+      "title": "Git LFS file changed and added; objects carried in the move dir",
+      "transfer": "remote",
+      "landing": "worktree",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 5006,
+        "applyMs": 2152,
+        "verifyMs": 1596,
+        "totalMs": 19079
+      },
+      "bundleBytes": null,
+      "warnings": [
+        "lfs"
+      ],
+      "targetPath": "C:\\Users\\Admin\\AppData\\Local\\Temp\\mc-s2-matrix-hRS7Eo\\lfs-carried-remote-worktree\\appdata\\machines\\worktrees\\ses_lfscarried",
+      "rawKinds": [],
+      "ok": true
+    },
+    {
+      "case": "lfs-not-carried",
+      "title": "the same without carrying LFS objects (they are on S only)",
+      "transfer": "bundle",
+      "landing": "checkout",
+      "expected": "observe",
+      "outcome": "error",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 4938,
+        "totalMs": 17619
+      },
+      "bundleBytes": 919,
+      "warnings": [
+        "lfs"
+      ],
+      "error": "git read-tree -m -u 4bf7bca38ac9f34e41c2cebc3644c445ce9eef01 f9c86b87f06df278bbee24944cc4cb0a07c587cf → exit 128: Downloading big.bin (100 KB) | Error downloading object: big.bin (3a23f9d): Smudge error: Error downloading big.bin (3a23f9d0b27a34ea4d83c4c0df5001bc2029577fa2de785c5d7ed84d488557c9): error transferring \"3a23f9d0b27a34ea4d83c4c0df5001bc2029577fa2de785c5d7ed84d488557c9\": [0] remote missing object 3a23f9d0b27a34ea4d83c4c0df5001bc2029577fa2de785c5d7ed84d488557c9 |  | Errors logged to 'C:\\Users\\Admin\\AppData\\Local\\Temp\\mc-s2-matrix-hRS7Eo\\lfs-not-carried-bundle-checkout\\dst\\.git\\lfs\\logs\\20261111T000833.2520365.log'. | Use `git lfs logs last` to view the log. | error: external filter 'git-lfs filter-process' failed",
+      "ok": true
+    },
+    {
+      "case": "lfs-not-carried",
+      "title": "the same without carrying LFS objects (they are on S only)",
+      "transfer": "bundle",
+      "landing": "worktree",
+      "expected": "observe",
+      "outcome": "error",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 4922,
+        "totalMs": 17572
+      },
+      "bundleBytes": 918,
+      "warnings": [
+        "lfs"
+      ],
+      "error": "git read-tree -m -u 4b825dc642cb6eb9a060e54bf8d69288fbee4904 d312e4ae34c7409d9ff9650ce69fa66203819510 → exit 128: Downloading big.bin (100 KB) | Error downloading object: big.bin (3a23f9d): Smudge error: Error downloading big.bin (3a23f9d0b27a34ea4d83c4c0df5001bc2029577fa2de785c5d7ed84d488557c9): error transferring \"3a23f9d0b27a34ea4d83c4c0df5001bc2029577fa2de785c5d7ed84d488557c9\": [0] remote missing object 3a23f9d0b27a34ea4d83c4c0df5001bc2029577fa2de785c5d7ed84d488557c9 |  | Errors logged to 'C:\\Users\\Admin\\AppData\\Local\\Temp\\mc-s2-matrix-hRS7Eo\\lfs-not-carried-bundle-worktree\\dst\\.git\\lfs\\logs\\20261111T000850.8520572.log'. | Use `git lfs logs last` to view the log. | error: external filter 'git-lfs filter-process' failed",
+      "ok": true
+    },
+    {
+      "case": "lfs-not-carried",
+      "title": "the same without carrying LFS objects (they are on S only)",
+      "transfer": "remote",
+      "landing": "checkout",
+      "expected": "observe",
+      "outcome": "error",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 5016,
+        "totalMs": 19397
+      },
+      "bundleBytes": null,
+      "warnings": [
+        "lfs"
+      ],
+      "error": "git read-tree -m -u e7017f06fc4e2e4c813873193407830c6a039d65 8469bfec4efe508569b154567e8e28d6d0b2b053 → exit 128: Downloading big.bin (100 KB) | Error downloading object: big.bin (3a23f9d): Smudge error: Error downloading big.bin (3a23f9d0b27a34ea4d83c4c0df5001bc2029577fa2de785c5d7ed84d488557c9): error transferring \"3a23f9d0b27a34ea4d83c4c0df5001bc2029577fa2de785c5d7ed84d488557c9\": [0] remote missing object 3a23f9d0b27a34ea4d83c4c0df5001bc2029577fa2de785c5d7ed84d488557c9 |  | Errors logged to 'C:\\Users\\Admin\\AppData\\Local\\Temp\\mc-s2-matrix-hRS7Eo\\lfs-not-carried-remote-checkout\\dst\\.git\\lfs\\logs\\20261111T000910.2832637.log'. | Use `git lfs logs last` to view the log. | error: external filter 'git-lfs filter-process' failed",
+      "ok": true
+    },
+    {
+      "case": "lfs-not-carried",
+      "title": "the same without carrying LFS objects (they are on S only)",
+      "transfer": "remote",
+      "landing": "worktree",
+      "expected": "observe",
+      "outcome": "error",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 5022,
+        "totalMs": 17318
+      },
+      "bundleBytes": null,
+      "warnings": [
+        "lfs"
+      ],
+      "error": "git read-tree -m -u 4b825dc642cb6eb9a060e54bf8d69288fbee4904 9c805b40a017778757c06de5469e7940ec8c5ded → exit 128: Downloading big.bin (100 KB) | Error downloading object: big.bin (3a23f9d): Smudge error: Error downloading big.bin (3a23f9d0b27a34ea4d83c4c0df5001bc2029577fa2de785c5d7ed84d488557c9): error transferring \"3a23f9d0b27a34ea4d83c4c0df5001bc2029577fa2de785c5d7ed84d488557c9\": [0] remote missing object 3a23f9d0b27a34ea4d83c4c0df5001bc2029577fa2de785c5d7ed84d488557c9 |  | Errors logged to 'C:\\Users\\Admin\\AppData\\Local\\Temp\\mc-s2-matrix-hRS7Eo\\lfs-not-carried-remote-worktree\\dst\\.git\\lfs\\logs\\20261111T000927.632072.log'. | Use `git lfs logs last` to view the log. | error: external filter 'git-lfs filter-process' failed",
+      "ok": true
+    },
+    {
+      "case": "round-trip",
+      "title": "S → T, the session works on T (edits, a commit), then back T → S into the parked checkout",
+      "transfer": "bundle",
+      "landing": "checkout",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [
+        "back: bundle 1170 B, chained 1; landed on the parked checkout (epoch 1), fast-forward, verified",
+        "undo of the way back restored the parked state"
+      ],
+      "timings": {
+        "snapshotMs": 2345,
+        "applyMs": 948,
+        "verifyMs": 739,
+        "totalMs": 12460
+      },
+      "bundleBytes": 1138,
+      "warnings": [],
+      "targetPath": "C:\\Users\\Admin\\AppData\\Local\\Temp\\mc-s2-matrix-hRS7Eo\\round-trip-bundle-checkout\\dst",
+      "rawKinds": [],
+      "ok": true
+    },
+    {
+      "case": "round-trip",
+      "title": "S → T, the session works on T (edits, a commit), then back T → S into the parked checkout",
+      "transfer": "bundle",
+      "landing": "worktree",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [
+        "back: bundle 1168 B, chained 1; landed on the parked checkout (epoch 1), create, verified",
+        "undo of the way back restored the parked state"
+      ],
+      "timings": {
+        "snapshotMs": 2328,
+        "applyMs": 817,
+        "verifyMs": 772,
+        "totalMs": 12743
+      },
+      "bundleBytes": 1139,
+      "warnings": [],
+      "targetPath": "C:\\Users\\Admin\\AppData\\Local\\Temp\\mc-s2-matrix-hRS7Eo\\round-trip-bundle-worktree\\appdata\\machines\\worktrees\\ses_roundtrip",
+      "rawKinds": [],
+      "ok": true
+    },
+    {
+      "case": "round-trip",
+      "title": "S → T, the session works on T (edits, a commit), then back T → S into the parked checkout",
+      "transfer": "remote",
+      "landing": "checkout",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [
+        "back: landed on the parked checkout (epoch 1), fast-forward, verified",
+        "undo of the way back restored the parked state"
+      ],
+      "timings": {
+        "snapshotMs": 2465,
+        "applyMs": 1072,
+        "verifyMs": 739,
+        "totalMs": 12287
+      },
+      "bundleBytes": null,
+      "warnings": [],
+      "targetPath": "C:\\Users\\Admin\\AppData\\Local\\Temp\\mc-s2-matrix-hRS7Eo\\round-trip-remote-checkout\\dst",
+      "rawKinds": [],
+      "ok": true
+    },
+    {
+      "case": "round-trip",
+      "title": "S → T, the session works on T (edits, a commit), then back T → S into the parked checkout",
+      "transfer": "remote",
+      "landing": "worktree",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [
+        "back: landed on the parked checkout (epoch 1), create, verified",
+        "undo of the way back restored the parked state"
+      ],
+      "timings": {
+        "snapshotMs": 2591,
+        "applyMs": 972,
+        "verifyMs": 751,
+        "totalMs": 12854
+      },
+      "bundleBytes": null,
+      "warnings": [],
+      "targetPath": "C:\\Users\\Admin\\AppData\\Local\\Temp\\mc-s2-matrix-hRS7Eo\\round-trip-remote-worktree\\appdata\\machines\\worktrees\\ses_roundtrip",
+      "rawKinds": [],
+      "ok": true
+    },
+    {
+      "case": "round-trip-source-edited",
+      "title": "the same, but S was edited while the session was away: back is refused",
+      "transfer": "bundle",
+      "landing": "checkout",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [
+        "back: bundle 1213 B, chained 1; stopped as designed (the target checkout has changes of its own)"
+      ],
+      "timings": {
+        "snapshotMs": 2326,
+        "applyMs": 940,
+        "verifyMs": 741,
+        "totalMs": 9463
+      },
+      "bundleBytes": 1198,
+      "warnings": [],
+      "targetPath": "C:\\Users\\Admin\\AppData\\Local\\Temp\\mc-s2-matrix-hRS7Eo\\round-trip-source-edited-bundle-checkout\\dst",
+      "rawKinds": [],
+      "ok": true
+    },
+    {
+      "case": "round-trip-source-edited",
+      "title": "the same, but S was edited while the session was away: back is refused",
+      "transfer": "bundle",
+      "landing": "worktree",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [
+        "back: bundle 1212 B, chained 1; stopped as designed (the target checkout has changes of its own)"
+      ],
+      "timings": {
+        "snapshotMs": 2341,
+        "applyMs": 841,
+        "verifyMs": 767,
+        "totalMs": 9943
+      },
+      "bundleBytes": 1169,
+      "warnings": [],
+      "targetPath": "C:\\Users\\Admin\\AppData\\Local\\Temp\\mc-s2-matrix-hRS7Eo\\round-trip-source-edited-bundle-worktree\\appdata\\machines\\worktrees\\ses_roundtripsourceedited",
+      "rawKinds": [],
+      "ok": true
+    },
+    {
+      "case": "round-trip-source-edited",
+      "title": "the same, but S was edited while the session was away: back is refused",
+      "transfer": "remote",
+      "landing": "checkout",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [
+        "back: stopped as designed (the target checkout has changes of its own)"
+      ],
+      "timings": {
+        "snapshotMs": 2624,
+        "applyMs": 1216,
+        "verifyMs": 764,
+        "totalMs": 11640
+      },
+      "bundleBytes": null,
+      "warnings": [],
+      "targetPath": "C:\\Users\\Admin\\AppData\\Local\\Temp\\mc-s2-matrix-hRS7Eo\\round-trip-source-edited-remote-checkout\\dst",
+      "rawKinds": [],
+      "ok": true
+    },
+    {
+      "case": "round-trip-source-edited",
+      "title": "the same, but S was edited while the session was away: back is refused",
+      "transfer": "remote",
+      "landing": "worktree",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [
+        "back: stopped as designed (the target checkout has changes of its own)"
+      ],
+      "timings": {
+        "snapshotMs": 2505,
+        "applyMs": 964,
+        "verifyMs": 745,
+        "totalMs": 9638
+      },
+      "bundleBytes": null,
+      "warnings": [],
+      "targetPath": "C:\\Users\\Admin\\AppData\\Local\\Temp\\mc-s2-matrix-hRS7Eo\\round-trip-source-edited-remote-worktree\\appdata\\machines\\worktrees\\ses_roundtripsourceedited",
+      "rawKinds": [],
+      "ok": true
+    },
+    {
+      "case": "large",
+      "title": "2,000 files / ~50 MB; 50 changed, 20+2 new, 5 deleted; then an incremental move",
+      "transfer": "bundle",
+      "landing": "checkout",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 42379,
+        "applyMs": 1715,
+        "verifyMs": 2765,
+        "totalMs": 155785
+      },
+      "bundleBytes": 2059722,
+      "warnings": [],
+      "targetPath": "C:\\Users\\Admin\\AppData\\Local\\Temp\\mc-s2-matrix-hRS7Eo\\large-bundle-checkout\\dst",
+      "rawKinds": [],
+      "large": {
+        "repoFiles": 2000,
+        "repoBytes": 50055589,
+        "seedMs": 15329,
+        "fullBundle": {
+          "bytes": 23151372,
+          "ms": 320
+        },
+        "incremental": {
+          "snapshotMs": 3748,
+          "bundleBytes": 1627,
+          "havesUsed": 3,
+          "chained": 1,
+          "unchainedBundleBytes": 2060704,
+          "applyVerifyMs": 42677,
+          "outcome": "pass"
+        }
+      },
+      "ok": true
+    },
+    {
+      "case": "large",
+      "title": "2,000 files / ~50 MB; 50 changed, 20+2 new, 5 deleted; then an incremental move",
+      "transfer": "bundle",
+      "landing": "worktree",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 37620,
+        "applyMs": 1952,
+        "verifyMs": 38857,
+        "totalMs": 119942
+      },
+      "bundleBytes": 2059722,
+      "warnings": [],
+      "targetPath": "C:\\Users\\Admin\\AppData\\Local\\Temp\\mc-s2-matrix-hRS7Eo\\large-bundle-worktree\\appdata\\machines\\worktrees\\ses_large",
+      "rawKinds": [],
+      "ok": true
+    },
+    {
+      "case": "large",
+      "title": "2,000 files / ~50 MB; 50 changed, 20+2 new, 5 deleted; then an incremental move",
+      "transfer": "remote",
+      "landing": "checkout",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 38497,
+        "applyMs": 1854,
+        "verifyMs": 2632,
+        "totalMs": 84386
+      },
+      "bundleBytes": null,
+      "warnings": [],
+      "targetPath": "C:\\Users\\Admin\\AppData\\Local\\Temp\\mc-s2-matrix-hRS7Eo\\large-remote-checkout\\dst",
+      "rawKinds": [],
+      "ok": true
+    },
+    {
+      "case": "large",
+      "title": "2,000 files / ~50 MB; 50 changed, 20+2 new, 5 deleted; then an incremental move",
+      "transfer": "remote",
+      "landing": "worktree",
+      "expected": "pass",
+      "outcome": "pass",
+      "limits": [],
+      "fails": [],
+      "problems": [],
+      "notes": [],
+      "timings": {
+        "snapshotMs": 41835,
+        "applyMs": 2062,
+        "verifyMs": 38531,
+        "totalMs": 125164
+      },
+      "bundleBytes": null,
+      "warnings": [],
+      "targetPath": "C:\\Users\\Admin\\AppData\\Local\\Temp\\mc-s2-matrix-hRS7Eo\\large-remote-worktree\\appdata\\machines\\worktrees\\ses_large",
+      "rawKinds": [],
+      "ok": true
+    }
+  ]
+}
