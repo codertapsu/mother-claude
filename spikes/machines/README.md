@@ -13,6 +13,7 @@ part of the app**: the app's gates (`cargo … --manifest-path src-tauri/…`,
 | S3 Claude Code | commands in RESULTS.md | resuming a moved session: the move note, the recorded system prompt, another folder |
 | S4 UX | `UX.md` | the screens to agree on before Phase 1 |
 | S5 setup | `mc-spike checks` | what each check of §5.14 can detect, read-only, as a standard user |
+| S5 worst states | `setup-walk/macos.sh` (and `windows.ps1`, to write on Windows) | the checks met in their worst states, each change asked first and put back |
 
 ## Build
 
@@ -57,5 +58,5 @@ shows the library's logs.
 
 ## The Windows half
 
-Steps, in RESULTS.md § "Still to run", for a Claude session on the Windows
-desktop (or by hand).
+Steps, in RESULTS.md § "Still to run": the Mac's walk with you at it, then
+the Windows half for a Claude session on the Windows desktop (or by hand).

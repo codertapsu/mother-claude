@@ -202,9 +202,32 @@ Findings:
   all, Local Network denied then allowed), which needs your administrator
   password and your OK. Same for Windows.
 
-## Still to run — the Windows half
+## Still to run
 
-On the Windows desktop, after `git pull`, in a Developer PowerShell:
+### On the Mac, with you at it (about 5 minutes)
+
+`bash spikes/machines/setup-walk/macos.sh` in Terminal, as your own user.
+It asks before every change and puts every setting back (on Ctrl-C too):
+
+1. **Local Network as the app will meet it**: the spike inside "MC Spike
+   Probe.app", whose `Info.plist` has `NSLocalNetworkUsageDescription`. Does
+   macOS ask now (the fix Phase 1 makes to Mother Claude)? Then allowed,
+   switched off in System Settings, switched on again — each read by the
+   check.
+2. **mDNS** between two endpoints inside the probe app (the positive case
+   this Mac could not show).
+3. **The firewall** on with *Block all incoming connections* (sudo, about a
+   minute), read by the check as a standard user, then put back.
+4. **Sleep**: the timers, and a keep-awake assertion as `pmset` reports it.
+
+The probe app keeps its Local Network permission, so it is also the Mac's
+side of the LAN test below: `bash spikes/machines/setup-walk/macos.sh run
+<mc-spike arguments>`.
+
+### On the Windows desktop
+
+After `git pull`, in a Developer PowerShell, with a Claude session there (or
+by hand):
 
 1. Build: `cargo build --release --manifest-path spikes\machines\mc-spike\Cargo.toml`.
 2. **S5**: `spikes\machines\mc-spike\target\release\mc-spike.exe checks >
@@ -212,25 +235,38 @@ On the Windows desktop, after `git pull`, in a Developer PowerShell:
    Windows (network profile, firewall profiles and rules, Controlled Folder
    Access, long paths, Developer Mode, Git Bash, git, Claude Code), and which
    checks needed an administrator.
-3. **S1 on Windows**: `mc-spike local` — note the Windows Security *Allow
+3. **S5, the worst states** — write `spikes\machines\setup-walk\windows.ps1`
+   there (testable only on Windows), the twin of `macos.sh`: run from an
+   elevated PowerShell, asking before each change, restoring each on exit;
+   `mc-spike checks` run as the standard user after each change. The states:
+   the network set **Public** (`Set-NetConnectionProfile`), back to Private;
+   **block rules** for `mc-spike.exe` as a cancelled *Allow access?* prompt
+   leaves them, then the setup's fix (an allow rule for the Private profile
+   and the block rules removed), then all of it removed; **Controlled Folder
+   Access** on, then off; `LongPathsEnabled` and Developer Mode read (changed
+   only if you agree); **Git Bash missing** simulated with a PATH and
+   `CLAUDE_CODE_GIT_BASH_PATH` the check cannot follow; a **signed-out
+   account** shown by a scratch directory account (`CLAUDE_CONFIG_DIR` of an
+   empty folder), never by signing yours out.
+4. **S1 on Windows**: `mc-spike local` — note the Windows Security *Allow
    access?* prompt (Private / Public) when it first listens, and whether
    `mdns` connects there. Then mDNS between two processes: `mc-spike serve
    --relay none --lookup mdns --open --name a` in one window, `mc-spike get
    <id> /spike/hello --relay none --lookup mdns --name b` in another.
-4. **S1 between the machines**: on Windows `mc-spike serve --pair-code auto
+5. **S1 between the machines**: on Windows `mc-spike serve --pair-code auto
    --forward http://127.0.0.1:6725` (the app's script token is found in its
-   data dir). On the Mac, **from Terminal.app** (so macOS can ask for Local
-   Network; allow it): `mc-spike get <WINDOWS_ID> /api/sessions --pair-code
-   <CODE>`, then `mc-spike bench <WINDOWS_ID> --mib 256` — the LAN figure
-   (target ≥ 50 MB/s) and its path. Repeat with the Mac on a phone hotspot
-   (across networks: hole-punched or relayed), and with `--relay none` on both
-   (LAN only).
-5. **S2 on Windows**: `node spikes\machines\code\roundtrip.mjs matrix` (Git
+   data dir). On the Mac, through the probe app (its Local Network
+   permission): `bash spikes/machines/setup-walk/macos.sh run get
+   <WINDOWS_ID> /api/sessions --pair-code <CODE>`, then `… run bench
+   <WINDOWS_ID> --mib 256` — the LAN figure (target ≥ 50 MB/s) and its path.
+   Repeat with the Mac on a phone hotspot (across networks: hole-punched or
+   relayed), and with `--relay none` on both (LAN only).
+6. **S2 on Windows**: `node spikes\machines\code\roundtrip.mjs matrix` (Git
    for Windows ships Git LFS, so the LFS cases run there), then the Mac →
    Windows → Mac round trip in `code/RESULTS-S2.md` § "Windows half".
-6. **S3 on Windows**: pull a scratch session the Mac made (Backup › pull)
+7. **S3 on Windows**: pull a scratch session the Mac made (Backup › pull)
    and resume it on Windows; ask it for its platform, shell and folder. If it
    still says `darwin`, record it — the move then has to end the recorded
    prompt.
-7. Fill in this file's Windows columns, then the decision record in
+8. Fill in this file's Windows columns, then the decision record in
    docs/PLAN-MACHINES.md §12 (iroh or the fallback).
