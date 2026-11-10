@@ -143,6 +143,7 @@ const SCRUBBED = new Set([
 ]);
 
 let toolDirs = null;
+const hookIntrusions = [];
 function ensureToolDirs() {
   if (toolDirs) return toolDirs;
   const dir = tmpDir('mc-s2-tool-');
@@ -183,6 +184,9 @@ function makeCtx({ isolated = false, hooks = false } = {}) {
     '-c', 'gc.auto=0', '-c', 'maintenance.auto=false', '-c', 'advice.detachedHead=false',
   ];
   if (!hooks) pre.push('-c', `core.hooksPath=${dirs.emptyHooks.replace(/\\/g, '/')}`);
+  // F8: without core.longpaths, Git for Windows warns "Filename too long", exits 0 and
+  // leaves the file out of add -A and status alike: a snapshot would silently drop it.
+  if (process.platform === 'win32') pre.push('-c', 'core.longpaths=true');
   if (isolated) pre.push('-c', 'init.defaultBranch=main', '-c', 'protocol.file.allow=always');
 
   function git(cwd, args, o = {}) {
@@ -1321,7 +1325,10 @@ const CASES = [
     id: 'symlink', title: 'tracked symlink retargeted, new untracked symlink (target symlinks=true)',
     skip: (env) => (env.symlinks ? null : 'cannot create symlinks here'),
     build(w, u) { buildSymlink(w, u, {}); },
-    expect: { checkout: 'pass', worktree: 'pass' },
+    // Git for Windows leaves core.symlinks false unless set, so both sides hold files there.
+    expect: (env) => (env.platform === 'win32'
+      ? { checkout: 'limit', worktree: 'limit', limits: ['symlink-as-file'] }
+      : { checkout: 'pass', worktree: 'pass' }),
   },
   {
     id: 'symlink-to-no-symlinks', title: 'the same, target core.symlinks=false (as on Windows by default)',
@@ -1614,7 +1621,14 @@ function expectationFor(c, landing, env) {
 }
 
 function runCase(c, transfer, landing, run) {
-  if (fs.readdirSync(ensureToolDirs().emptyHooks).length) throw new Error('the empty hooks dir is not empty');
+  // F9: a tool that installs hooks through `git rev-parse --git-path hooks` (Git LFS does)
+  // writes into the overriding directory; report it and empty it before the next case.
+  const intruders = fs.readdirSync(ensureToolDirs().emptyHooks);
+  if (intruders.length) {
+    hookIntrusions.push({ before: c.id, files: intruders });
+    console.error(`note: hooks written into the empty hooks dir before ${c.id}: ${intruders.join(', ')}`);
+    for (const f of intruders) rmrf(path.join(ensureToolDirs().emptyHooks, f));
+  }
   const w = world(run.root, `${c.id}-${transfer}-${landing}`);
   const u = run.u;
   const tool = makeCtx({ isolated: true, hooks: !!c.hooksDiag });
@@ -1738,7 +1752,7 @@ function runMatrix(opt) {
   console.log(`diagnostics: ${JSON.stringify(diag)}`);
   if (summary.bad.length) console.log(`not as designed: ${summary.bad.join(', ')}`);
   const file = path.join(HERE, `results-${process.platform}-${process.arch}${only ? '-partial' : ''}.json`);
-  writeJson(file, { when: new Date().toISOString(), environment: env, diagnostics: diag, summary, rows });
+  writeJson(file, { when: new Date().toISOString(), environment: env, diagnostics: diag, hookIntrusions, summary, rows });
   console.log(`results: ${file}`);
   if (!run.keep) rmrf(root);
   return summary.bad.length ? 1 : 0;
