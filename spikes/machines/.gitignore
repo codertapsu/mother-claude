@@ -1,0 +1,6 @@
+# Build output of the spike tools (never committed)
+target/
+mc-spike/target/
+# Keys and results written while running them
+*.key
+out/

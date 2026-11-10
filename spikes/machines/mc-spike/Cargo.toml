@@ -1,0 +1,45 @@
+[package]
+name = "mc-spike"
+version = "0.0.0"
+edition = "2021"
+publish = false
+description = "Phase 0 spike for docs/PLAN-MACHINES.md: S1 transport and S5 setup checks. Never shipped."
+
+[[bin]]
+name = "mc-spike"
+path = "src/main.rs"
+
+# The same HTTP stack without iroh: its size is the baseline for iroh's cost.
+[[bin]]
+name = "baseline"
+path = "src/bin/baseline.rs"
+
+[features]
+# The local relay server of `local --only own-relay` (iroh's test utilities).
+# Off for the size measurement: the product would not ship it.
+default = ["local-relay"]
+local-relay = ["iroh/test-utils"]
+
+[dependencies]
+iroh = "1.4.1"
+iroh-mdns-address-lookup = "0.6.1"
+iroh-tickets = "1.0.0"
+tokio = { version = "1.54.1", features = ["full"] }
+axum = { version = "0.8.9", features = ["ws"] }
+hyper = { version = "1", features = ["http1", "server", "client"] }
+hyper-util = { version = "0.1", features = ["tokio", "service", "client-legacy", "http1"] }
+http-body-util = "0.1"
+tokio-tungstenite = "0.30.0"
+futures-util = { version = "0.3", features = ["sink"] }
+bytes = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+anyhow = "1"
+rand = "0.9"
+directories = "6"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[profile.release]
+lto = "thin"
+codegen-units = 4
+strip = true
