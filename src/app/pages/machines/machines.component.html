@@ -402,6 +402,25 @@
       </section>
     }
 
+    <!-- ─────────────── Recent moves (UX §1.2, §7.2–§7.3) ─────────────── -->
+    @if (recentMoves().length) {
+      <section class="card moves" [attr.aria-label]="'Recent moves' | t">
+        <div class="chead">
+          <h2 class="first">{{ 'Recent moves' | t }}</h2>
+        </div>
+        <div class="move-list">
+          @for (e of shownMoves(); track e.move.id) {
+            <mc-move-card [entry]="e" />
+          }
+        </div>
+        @if (recentMoves().length > shownMoves().length) {
+          <button type="button" class="btn ghost small" (click)="allMoves.set(true)">
+            {{ 'Show all {n}' | t: { n: recentMoves().length } }}
+          </button>
+        }
+      </section>
+    }
+
     @if (isDesktop() && v.enabled) {
       <div class="row page-foot">
         <a class="btn" routerLink="/machines/setup">{{ 'Run the setup again' | t }}</a>

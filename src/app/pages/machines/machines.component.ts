@@ -17,8 +17,10 @@ import {
   sameGrants,
 } from '../../core/machines';
 import { MachinesService } from '../../core/machines.service';
+import { MovesService } from '../../core/moves.service';
 import { RemoteSessionsService } from '../../core/remote-sessions.service';
 import { IconComponent } from '../../shared/icon.component';
+import { MoveCardComponent } from '../../shared/move-card.component';
 import { RelativeTimePipe } from '../../shared/time.pipes';
 import { CheckListComponent } from './check-list.component';
 import { GrantsMatrixComponent } from './grants-matrix.component';
@@ -30,8 +32,10 @@ import { PairSheetComponent } from './pair-sheet.component';
 /**
  * Machines (docs/PLAN-MACHINES.md, spikes/machines/UX.md §1): this
  * computer, the paired ones with what each may do here, Machines health,
- * and the options. Off until the setup passed (§1.1). The phone sees it
- * read-only: pairing, grants, revoking and options belong to the desktop.
+ * the options, and *Recent moves* of sessions to and from this computer
+ * (§1.2, §7.2–§7.3: cancel, try again, undo). Off until the setup passed
+ * (§1.1). The phone sees it read-only — pairing, grants, revoking and
+ * options belong to the desktop — but may act on a move, as a device may.
  */
 @Component({
   selector: 'mc-machines',
@@ -42,6 +46,7 @@ import { PairSheetComponent } from './pair-sheet.component';
     GrantsMatrixComponent,
     IconComponent,
     JoinSheetComponent,
+    MoveCardComponent,
     OptionsFormComponent,
     PairSheetComponent,
     RelativeTimePipe,
@@ -56,6 +61,7 @@ export class MachinesComponent {
   private readonly router = inject(Router);
   protected readonly machines = inject(MachinesService);
   private readonly remote = inject(RemoteSessionsService);
+  private readonly moves = inject(MovesService);
 
   protected readonly isDesktop = this.auth.isDesktop;
   protected readonly computer = computerNoun;
@@ -85,6 +91,13 @@ export class MachinesComponent {
   protected readonly editingOptions = signal(false);
 
   protected readonly peers = computed(() => this.view()?.peers ?? []);
+  /** This computer's moves of sessions, sent and received (UX §1.2). */
+  protected readonly recentMoves = this.moves.here;
+  protected readonly allMoves = signal(false);
+  protected readonly shownMoves = computed(() => {
+    const all = this.recentMoves();
+    return this.allMoves() ? all : all.slice(0, 5);
+  });
   /** Machines is on, or being set up, or something is paired. */
   protected readonly inUse = computed(() => {
     const v = this.view();
@@ -113,6 +126,7 @@ export class MachinesComponent {
       clearTimeout(this.confirmTimer);
     });
     void this.machines.load();
+    void this.moves.load();
     // The checks behind the health card, once Machines is in use.
     let loaded = false;
     effect(() => {

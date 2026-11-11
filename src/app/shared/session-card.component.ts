@@ -1,8 +1,9 @@
 import { ChangeDetectionStrategy, Component, computed, inject, input, output } from '@angular/core';
 import { RouterLink } from '@angular/router';
 
-import { tr } from '../core/i18n/i18n';
+import { computerNoun, tr } from '../core/i18n/i18n';
 import { TPipe } from '../core/i18n/t.pipe';
+import { MachinesService } from '../core/machines.service';
 import { PendingRef, SessionSummary } from '../core/models';
 import { NowService } from '../core/now.service';
 import type { MachineTag } from '../core/remote-sessions.service';
@@ -47,7 +48,8 @@ interface PackedPart {
  * Another computer's session (`machine`) leads its chips with that
  * computer's name and opens its page there; while that computer is offline
  * the card is greyed, says since when, and offers no quick answers
- * (docs/PLAN-MACHINES.md §6.1).
+ * (docs/PLAN-MACHINES.md §6.1). A session that moved to another computer
+ * (`livesOn`) is shaded, with a chip saying where it lives now (§5.7).
  */
 @Component({
   selector: 'mc-session-card',
@@ -70,6 +72,7 @@ interface PackedPart {
     '[attr.data-status]': 'session().status',
     '[attr.data-selected]': "selectable() && selected() ? '' : null",
     '[class.offline]': 'offline()',
+    '[class.away]': '!!livesText()',
   },
   template: `
     @let s = session();
@@ -100,6 +103,9 @@ interface PackedPart {
     <div class="chips">
       @if (machine(); as m) {
         <mc-chip class="mchip" icon="monitor" [attr.title]="m.name">{{ m.name }}</mc-chip>
+      }
+      @if (livesText(); as l) {
+        <mc-chip class="lchip" icon="monitor" tone="amber" [attr.title]="l">{{ l }}</mc-chip>
       }
       <mc-channel-badge [surface]="s.surface" [control]="s.control" [session]="s" />
       @if (s.account; as a) {
@@ -244,8 +250,17 @@ interface PackedPart {
         opacity: 0.6;
         filter: grayscale(1);
       }
-      .mchip {
+      .mchip,
+      .lchip {
         max-width: 12rem;
+      }
+      /* Lives on another computer now: this copy is read only. */
+      :host(.away) {
+        background: var(--panel-2);
+      }
+      :host(.away) .name,
+      :host(.away) .last {
+        color: var(--muted);
       }
       /* A tap target of the full size, without growing the row. */
       .pick {
@@ -330,6 +345,7 @@ interface PackedPart {
 })
 export class SessionCardComponent {
   private clock = inject(NowService);
+  private machines = inject(MachinesService);
   protected readonly viewport = inject(ViewportService);
   readonly session = input.required<SessionSummary>();
   /** Show a checkbox (Sessions › Select). */
@@ -341,6 +357,15 @@ export class SessionCardComponent {
   readonly toggled = output<void>();
 
   protected readonly name = computed(() => sessionName(this.session()));
+  /** It lives on another computer now (its lease names one): where. */
+  protected readonly livesText = computed(() => {
+    const l = this.session().livesOn;
+    if (!l) return '';
+    if (l.machine === this.machines.view()?.self.id) {
+      return tr('Lives on this {computer}', { computer: computerNoun() });
+    }
+    return tr('Lives on {name}', { name: this.machines.peer(l.machine)?.name || l.name });
+  });
   protected readonly link = computed(() =>
     sessionLink(this.session().id, this.machine()?.id ?? this.session().machine),
   );

@@ -18,6 +18,7 @@ import {
 import { storageRemove } from '../../core/platform';
 import { RealtimeService } from '../../core/realtime.service';
 import { pastClock } from '../../shared/util';
+import { SELF_ID } from '../machines/machines.testing';
 import { SessionsComponent } from './sessions.component';
 
 @Component({ template: '' })
@@ -141,6 +142,44 @@ describe("SessionsComponent with other computers' sessions", () => {
 
     pick(el, '');
     expect(names(el).length).toBe(3);
+  });
+
+  it('shades a session that moved to another computer, saying where it lives', async () => {
+    const s = await goLive(backend);
+    pairedMachines();
+    s.frame({
+      t: 'sessions',
+      full: true,
+      sessions: [
+        remoteSession('here-1', {
+          title: 'Fix tray icon',
+          live: false,
+          status: 'ended',
+          livesOn: { machine: PEER_ID, name: 'DESKTOP-PC', since: Date.now(), epoch: 2 },
+        }),
+        remoteSession('here-2', { title: 'Release notes', status: 'idle' }),
+      ],
+      seq: 1,
+    });
+    // DESKTOP-PC's copy of a session that moved here.
+    remoteList(s, PEER_ID, [
+      remoteSession('r9', {
+        title: 'Build installer',
+        live: false,
+        status: 'ended',
+        livesOn: { machine: SELF_ID, name: 'MacBook', since: Date.now(), epoch: 3 },
+      }),
+    ]);
+    const el = await render();
+    const away = card(el, 'Fix tray icon');
+    expect(away?.classList.contains('away')).toBe(true);
+    expect(text(away?.querySelector('.lchip'))).toBe('Lives on DESKTOP-PC');
+    // It opens this computer's copy, which says where it lives.
+    expect(away?.querySelector('a.name')?.getAttribute('href')).toBe('/session/here-1');
+    expect(card(el, 'Release notes')?.classList.contains('away')).toBe(false);
+    expect(text(card(el, 'Build installer')?.querySelector('.lchip'))).toBe(
+      'Lives on this computer',
+    );
   });
 
   it('says a computer is still sending its sessions', async () => {

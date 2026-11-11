@@ -84,3 +84,14 @@
 .callout {
   margin: 0.5rem 0;
 }
+/* Recent moves: one card per move, a line between them. */
+.move-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin-bottom: 0.5rem;
+}
+.move-list mc-move-card + mc-move-card {
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--border);
+}
