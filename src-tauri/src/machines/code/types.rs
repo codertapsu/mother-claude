@@ -122,6 +122,9 @@ pub struct SnapshotRequest {
     /// checkout's own: a session that lived in a worktree goes home to its
     /// home branch, which the move recorded (plan §5.10 "Coming back").
     pub branch: Option<String>,
+    /// A code sync's step (plan §5.15), `session` being the sync's id: the
+    /// commits say so.
+    pub sync: bool,
 }
 
 impl SnapshotRequest {
@@ -136,6 +139,7 @@ impl SnapshotRequest {
             carry_lfs: true,
             chain: true,
             branch: None,
+            sync: false,
         }
     }
 }
@@ -428,6 +432,37 @@ pub enum LandingKind {
     Worktree,
 }
 
+/// What a checkout holds: HEAD, the branch it points at, what is staged and
+/// the working tree (untracked files included, ignored ones not) — the
+/// state code sync compares and keeps (plan §5.15).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TreeState {
+    /// `refs/heads/…`, none when detached.
+    #[serde(default)]
+    pub branch: Option<String>,
+    /// HEAD's commit, none on an unborn branch.
+    #[serde(default)]
+    pub head: Option<String>,
+    pub idx_tree: String,
+    pub wt_tree: String,
+}
+
+/// When a checkout landing may move a branch that has commits the
+/// snapshot's base lacks (its old tip is kept under the landing's undo
+/// ref either way).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub enum Reset {
+    /// Never: the landing stops ([`ApplyStop::Diverged`]).
+    #[default]
+    Never,
+    /// When the branch's tip is this commit: a code sync's last synced
+    /// head, which the other side rewrote (an amend, a rebase).
+    IfTip(String),
+    /// Always: the side that lost a sync conflict (its tip is kept).
+    Always,
+}
+
 #[derive(Clone, Debug)]
 pub struct ApplyRequest {
     /// The session the move must belong to.
@@ -439,6 +474,13 @@ pub struct ApplyRequest {
     pub keep_remote_refs: bool,
     /// The remote to fetch from when it is named differently here.
     pub remote: Option<String>,
+    /// A code sync's last synced state: the checkout counts as parked (F7)
+    /// exactly when it holds this, and stops ([`ApplyStop::NotParked`])
+    /// otherwise — even when clean. `None`: a move's rule (clean, or parked
+    /// for a snapshot of this session).
+    pub parked: Option<TreeState>,
+    /// Whether a branch with commits the base lacks may be moved.
+    pub reset: Reset,
 }
 
 impl ApplyRequest {
@@ -449,6 +491,8 @@ impl ApplyRequest {
             machine: crate::claude::backup::host_name(),
             keep_remote_refs: false,
             remote: None,
+            parked: None,
+            reset: Reset::Never,
         }
     }
 }
@@ -462,6 +506,9 @@ pub enum BranchAction {
     Create,
     Unborn,
     Detach,
+    /// Moved to the base although it had commits the base lacks
+    /// ([`Reset`]); its old tip is kept under the undo ref.
+    Reset,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -599,6 +646,9 @@ pub enum ApplyStop {
     WouldOverwrite { paths: Vec<String> },
     #[error("{} exists and is not empty.", .path.display())]
     WorktreeExists { path: PathBuf },
+    /// A code sync's checkout no longer holds its last synced state.
+    #[error("The checkout changed since it was last synced ({what}).")]
+    NotParked { what: String },
     #[error(transparent)]
     Failed(#[from] CodeError),
 }
@@ -612,7 +662,9 @@ impl ApplyStop {
             | ApplyStop::CheckedOutElsewhere { .. }
             | ApplyStop::WouldOverwrite { .. } => Some(Offer::Worktree),
             ApplyStop::Diverged { .. } => Some(Offer::WorktreeOrReset),
-            ApplyStop::WorktreeExists { .. } | ApplyStop::Failed(_) => None,
+            ApplyStop::WorktreeExists { .. }
+            | ApplyStop::NotParked { .. }
+            | ApplyStop::Failed(_) => None,
         }
     }
 

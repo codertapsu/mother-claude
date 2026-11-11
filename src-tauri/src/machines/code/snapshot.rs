@@ -10,8 +10,8 @@ use super::check::{
 };
 use super::git::{GitOp, GitRunner};
 use super::repo::{
-    busy, config_of, identity_env, index_tree, ls_tree, raw_of, repo_info, session_moves, status_z,
-    tree_diff, worktree_check, worktree_tree, DirCache, TreeEntry,
+    busy, checked_trees, config_of, identity_env, ls_tree, raw_of, repo_info, session_moves,
+    status_z, tree_diff, unmerged, DirCache, TreeEntry,
 };
 use super::types::{
     io_err, BundleInfo, CodeError, Haves, LfsInfo, ManifestEntry, MoveRefs, RemoteInfo,
@@ -92,7 +92,11 @@ pub fn haves(git: &GitRunner, repo: &Path, session: Option<&str>) -> Result<Have
 }
 
 /// The haves that are commits here (what a bundle may leave out).
-fn filter_haves(op: &GitOp, top: &Path, list: &[String]) -> Result<Vec<String>, CodeError> {
+pub(super) fn filter_haves(
+    op: &GitOp,
+    top: &Path,
+    list: &[String],
+) -> Result<Vec<String>, CodeError> {
     let list: Vec<&String> = list.iter().filter(|h| is_oid(h)).take(MAX_HAVES).collect();
     if list.is_empty() {
         return Ok(Vec::new());
@@ -339,32 +343,11 @@ pub fn snapshot(
     if let Some(what) = busy(&info) {
         return Err(CodeError::InProgress(what));
     }
-    if !op
-        .cmd(&top)
-        .args(["ls-files", "-u", "-z"])
-        .raw()?
-        .is_empty()
-    {
+    if unmerged(&op, &top)? {
         return Err(CodeError::Unmerged);
     }
 
-    let idx_tree = index_tree(&op, &info)?;
-    let mut wt_tree = worktree_tree(&op, &info, false)?;
-    let mut wt_check = worktree_check(&op, &top, &idx_tree, &wt_tree)?;
-    if !wt_check.ok {
-        // git's stat data misled the copy (F1): hash every file instead.
-        let first_missing = wt_check.missing.clone();
-        wt_tree = worktree_tree(&op, &info, true)?;
-        wt_check = worktree_check(&op, &top, &idx_tree, &wt_tree)?;
-        wt_check.recomputed = true;
-        wt_check.first_missing = first_missing;
-        if !wt_check.ok {
-            return Err(CodeError::StatusMismatch {
-                missing: wt_check.missing,
-                extra: wt_check.extra,
-            });
-        }
-    }
+    let (idx_tree, wt_tree, wt_check) = checked_trees(&op, &info)?;
     timings.insert("trees".to_string(), ms(t));
     t = Instant::now();
 
@@ -401,20 +384,34 @@ pub fn snapshot(
         cmd.arg("-m").arg(message).arg(tree).text()
     };
     let base_parent: Vec<&String> = base.iter().collect();
+    // Each snapshot's commits name its epoch: two snapshots of the same
+    // trees in the same second would otherwise be one commit, which a
+    // bundle leaves out when the target has the first (its ref with it).
+    let what = if req.sync { "code sync" } else { "move" };
     // The staged tree is not reachable from the snapshot: it travels as a
     // commit of its own with the same parent (F2), like git stash's.
     let index_commit = commit(
         &base_parent,
-        format!(
-            "mother-claude: staged state of {} from {machine}",
-            req.session
-        ),
+        if req.sync {
+            format!(
+                "mother-claude: staged state of code sync {} from {machine} ({epoch})",
+                req.session
+            )
+        } else {
+            format!(
+                "mother-claude: staged state of {} from {machine} ({epoch})",
+                req.session
+            )
+        },
         &idx_tree,
     )?;
     let snap_parents: Vec<&String> = base.iter().chain(chained.iter()).collect();
     let snap = commit(
         &snap_parents,
-        format!("mother-claude: move {} from {machine}", req.session),
+        format!(
+            "mother-claude: {what} {} from {machine} ({epoch})",
+            req.session
+        ),
         &wt_tree,
     )?;
     let refs = MoveRefs::for_move(&req.session, &epoch);

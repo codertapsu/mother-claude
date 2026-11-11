@@ -32,6 +32,7 @@ mod git;
 mod preflight;
 mod repo;
 mod snapshot;
+mod sync;
 mod types;
 mod verify;
 
@@ -47,5 +48,9 @@ pub use preflight::{
     branch_relation, checkout_state, target_check, BranchRelation, CheckoutState, TargetCheck,
 };
 pub use snapshot::{haves, snapshot};
+pub use sync::{
+    changes, keep_and_put_back, kept_prefix, known_commits, limits_only, prune_snapshots,
+    read_state, root_commits, tip_of, Changes, Checkout, Kept, PutBack, PutBackError,
+};
 pub use types::*;
 pub use verify::verify;

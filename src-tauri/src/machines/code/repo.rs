@@ -233,6 +233,35 @@ pub fn worktree_check(
     })
 }
 
+/// What is staged and the working tree, as trees, with F1's cross-check:
+/// when `git status` and the trees disagree, every file is hashed again;
+/// still disagreeing is an error (a snapshot would lose an edit).
+pub fn checked_trees(op: &GitOp, info: &RepoInfo) -> Result<(String, String, WtCheck), CodeError> {
+    let idx_tree = index_tree(op, info)?;
+    let mut wt_tree = worktree_tree(op, info, false)?;
+    let mut check = worktree_check(op, &info.top, &idx_tree, &wt_tree)?;
+    if !check.ok {
+        // git's stat data misled the copy (F1): hash every file instead.
+        let first_missing = check.missing.clone();
+        wt_tree = worktree_tree(op, info, true)?;
+        check = worktree_check(op, &info.top, &idx_tree, &wt_tree)?;
+        check.recomputed = true;
+        check.first_missing = first_missing;
+        if !check.ok {
+            return Err(CodeError::StatusMismatch {
+                missing: check.missing,
+                extra: check.extra,
+            });
+        }
+    }
+    Ok((idx_tree, wt_tree, check))
+}
+
+/// Whether the index has unmerged entries (a merge left half done).
+pub fn unmerged(op: &GitOp, top: &Path) -> Result<bool, CodeError> {
+    Ok(!op.cmd(top).args(["ls-files", "-u", "-z"]).raw()?.is_empty())
+}
+
 /// The empty tree's id in this repository (SHA-1 or SHA-256).
 pub fn empty_tree(op: &GitOp, top: &Path) -> Result<String, CodeError> {
     op.cmd(top)

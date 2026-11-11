@@ -8,15 +8,15 @@ use super::check::{
 };
 use super::git::{GitOp, GitRunner};
 use super::repo::{
-    at, busy, empty_tree, index_tree, ls_tree, parked_state, parse_status, raw_of,
-    remove_empty_parents, repo_info, same_raw, status_z, tree_diff, worktree_tree, DirCache,
-    Parked, RepoInfo,
+    at, busy, checked_trees, empty_tree, index_tree, ls_tree, parked_state, parse_status, raw_of,
+    remove_empty_parents, repo_info, same_raw, status_z, tree_diff, unmerged, worktree_tree,
+    DirCache, Parked, RepoInfo,
 };
 use super::snapshot::lfs_object;
 use super::types::{
     io_err, Applied, ApplyOutcome, ApplyRecord, ApplyRequest, ApplyStop, BranchAction, CodeError,
-    Landing, LandingKind, ParkedTrees, Raw, SnapshotMeta, SubmoduleLanding, SubmoduleState,
-    TransferKind, UndoInfo, Undone, APPLY, BUNDLE, FORMAT, META,
+    Landing, LandingKind, ParkedTrees, Raw, Reset, SnapshotMeta, SubmoduleLanding, SubmoduleState,
+    TransferKind, TreeState, UndoInfo, Undone, APPLY, BUNDLE, FORMAT, META,
 };
 
 /// The move's record, checked (it comes from another machine).
@@ -279,7 +279,7 @@ fn land_submodules(
     Ok(out)
 }
 
-fn refresh(op: &GitOp, top: &Path) -> Result<(), CodeError> {
+pub(super) fn refresh(op: &GitOp, top: &Path) -> Result<(), CodeError> {
     // `read-tree` leaves no stat data; a refresh re-hashes and records it.
     // Exit 1 only means some entries need updating.
     op.cmd(top)
@@ -350,6 +350,38 @@ fn short_branch(b: &str) -> String {
     b.strip_prefix("refs/heads/").unwrap_or(b).to_string()
 }
 
+/// A code sync's parked rule (plan §5.15): the checkout holds exactly
+/// `want` — HEAD, its branch, the staged tree and the working tree — or
+/// says what changed.
+fn parked_at(op: &GitOp, info: &RepoInfo, want: &TreeState) -> Result<Parked, ApplyStop> {
+    let not = |what: &str| {
+        Err(ApplyStop::NotParked {
+            what: what.to_string(),
+        })
+    };
+    if info.sym != want.branch {
+        return not("another branch is checked out");
+    }
+    if info.head != want.head {
+        return not("HEAD moved");
+    }
+    if unmerged(op, &info.top)? {
+        return not("a merge is half done");
+    }
+    let (idx_tree, wt_tree, _) = checked_trees(op, info)?;
+    if idx_tree != want.idx_tree {
+        return not("what is staged changed");
+    }
+    if wt_tree != want.wt_tree {
+        return not("files changed");
+    }
+    Ok(Parked {
+        epoch: "sync".to_string(),
+        wt_tree,
+        idx_tree,
+    })
+}
+
 fn land_checkout(
     op: &GitOp,
     info: &RepoInfo,
@@ -363,17 +395,25 @@ fn land_checkout(
         return Err(ApplyStop::Busy { what });
     }
     let status = status_z(op, top)?;
-    let parked: Option<Parked> = if status.is_empty() {
-        None
-    } else {
-        match parked_state(op, info, &meta.session)? {
+    let parked: Option<Parked> = match &req.parked {
+        // A code sync: parked exactly at its last synced state, clean or not.
+        Some(want) => {
+            let p = parked_at(op, info, want)?;
+            if status.is_empty() {
+                None
+            } else {
+                Some(p)
+            }
+        }
+        None if status.is_empty() => None,
+        None => match parked_state(op, info, &meta.session)? {
             Some(p) => Some(p),
             None => {
                 return Err(ApplyStop::Dirty {
                     changed: parse_status(&status).len(),
                 })
             }
-        }
+        },
     };
     fetch_move(op, top, in_dir, meta, req, record)?;
     let lfs_installed = install_lfs(info, in_dir, meta)?;
@@ -391,6 +431,17 @@ fn land_checkout(
                         .ok()? =>
                 {
                     BranchAction::FastForward
+                }
+                // Commits the base lacks: moved only as the request allows
+                // (its tip is kept under the undo ref below).
+                (Some(t), Some(_))
+                    if match &req.reset {
+                        Reset::Never => false,
+                        Reset::IfTip(tip) => tip == t,
+                        Reset::Always => true,
+                    } =>
+                {
+                    BranchAction::Reset
                 }
                 (Some(t), _) => {
                     return Err(ApplyStop::Diverged {
@@ -496,9 +547,9 @@ fn land_checkout(
         put_back(moved);
         return Err(e.into());
     }
-    // 3. The branch at base (created or fast-forwarded), HEAD on it.
+    // 3. The branch at base (created, fast-forwarded or reset), HEAD on it.
     match (&meta.branch, &meta.base, action) {
-        (Some(b), Some(base), BranchAction::FastForward) => {
+        (Some(b), Some(base), BranchAction::FastForward | BranchAction::Reset) => {
             let old = tip.clone().unwrap_or_default();
             op.cmd(top).args(["update-ref", b, base, &old]).raw()?;
         }
@@ -537,7 +588,12 @@ fn land_checkout(
 /// Paths the landing would write (in `revs`, not in `from`) where the
 /// checkout already has an untracked entry (a file it ignores), or where a
 /// parent folder is such a file.
-fn overwrites(op: &GitOp, top: &Path, from: &str, revs: &[&str]) -> Result<Vec<String>, CodeError> {
+pub(super) fn overwrites(
+    op: &GitOp,
+    top: &Path,
+    from: &str,
+    revs: &[&str],
+) -> Result<Vec<String>, CodeError> {
     // Tracked under any case: git itself manages those.
     let tracked: HashSet<String> = ls_tree(op, top, from)?
         .into_iter()
@@ -789,7 +845,7 @@ fn undo_checkout(
         op.cmd(top).args(["read-tree", &p.idx_tree]).raw()?;
     }
     match (&meta.branch, &meta.base, u.action) {
-        (Some(b), Some(base), BranchAction::FastForward) => {
+        (Some(b), Some(base), BranchAction::FastForward | BranchAction::Reset) => {
             let old = u.branch_old.clone().unwrap_or_default();
             op.cmd(top).args(["update-ref", b, &old, base]).raw()?;
         }
