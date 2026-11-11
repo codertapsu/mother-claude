@@ -170,6 +170,27 @@ describe('moves: the words', () => {
       "DESKTOP-PC doesn't let this computer move its sessions.",
     );
   });
+
+  it('says on which computer Machines is off', async () => {
+    hostOsSignal.set('macos');
+    const here = new ApiError(
+      'Machines is off on this computer: turn it on on the Machines page first.',
+      409,
+      'http',
+      'machines_off',
+    );
+    expect(moveErrorText(here)).toBe(
+      'Machines is off on this Mac: turn it on on the Machines page first.',
+    );
+    const there = new ApiError('Machines is off on DESKTOP-PC.', 403, 'http', 'machines_off');
+    expect(moveErrorText(there)).toBe('Machines is off on DESKTOP-PC.');
+    // As the other computer's check says it in the sheet.
+    expect(moveText('Machines is off on DESKTOP-PC.')).toBe('Machines is off on DESKTOP-PC.');
+    await useLanguage('vi');
+    expect(moveText('Machines is off on DESKTOP-PC.')).toBe(
+      'Tính năng Các máy đang tắt trên DESKTOP-PC.',
+    );
+  });
 });
 
 describe('MovesService', () => {

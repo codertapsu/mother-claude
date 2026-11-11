@@ -10,8 +10,15 @@
 //!   right now), then a paired machine's hello, setup checks, asks and
 //!   settings offer, the readiness test's transfer and the roots (`GET`
 //!   with `view`, `POST` with `move`: roots steer where a move lands), and
-//!   the setup's rest (`setup::routes`: accounts, origins, the code test).
+//!   the setup's rest (`setup::routes`: accounts, origins, the code test);
+//!   the session stream (`/ws`), the allow-listed session routes (`/api/*`,
+//!   [`peer_route_grant`]) and a move's target half (`move_routes`).
 //!   Nothing else is mounted there.
+//!
+//! While Machines is off here, another computer gets only what pairing and
+//! the setup need: `/ws`, `/api/*` and `/peer/moves/*` answer `403
+//! machines_off` (`super::serving`); this computer's proxy and moves answer
+//! `409 machines_off` (`super::using`).
 
 use axum::body::Body as HttpBody;
 use axum::extract::{Extension, Path, Query, State};
@@ -508,13 +515,7 @@ async fn enable(
             .with("blockers", list));
         }
     }
-    state.machines.store_write(|f| {
-        f.enabled = req.enabled;
-        if req.enabled {
-            f.setup_step = None;
-        }
-    });
-    super::publish(&state, "enabled");
+    super::set_enabled(&state, req.enabled);
     view_json(&state).await
 }
 
@@ -586,7 +587,8 @@ async fn revoke_peer(
 
 /// `/api/machines/{id}/proxy/<path>`: forwards a dashboard call to the paired
 /// machine's `/api/<path>` with who acts here (`X-MC-Acting`); the other
-/// machine decides with its grants and that person's right.
+/// machine decides with its grants and that person's right. Refused while
+/// Machines is off here (`409 machines_off`).
 async fn proxy(
     Authed(ctx): Authed,
     State(state): State<AppState>,
@@ -595,6 +597,9 @@ async fn proxy(
 ) -> Response {
     if !super::ids::is_machine_id(&id) || !state.machines.store_read(|f| f.peer(&id).is_some()) {
         return ApiError::not_found("machines_unknown", "Not a paired computer.").into_response();
+    }
+    if let Err(e) = super::using(&state) {
+        return e.into_response();
     }
     let method = req.method().clone();
     let query = req
@@ -746,8 +751,9 @@ pub fn peer_route_grant(method: &axum::http::Method, path: &str) -> Option<Grant
 
 // ─── the other machines ──────────────────────────────────────────────────────────
 
-/// Another machine's call on this one's API: allow-listed, with its grant,
-/// then served by the very router the dashboard uses.
+/// Another machine's call on this one's API: allow-listed, while Machines is
+/// on here, with its grant, then served by the very router the dashboard
+/// uses.
 async fn peer_api(
     ctx: ClientContext,
     State(state): State<AppState>,
@@ -766,6 +772,9 @@ async fn peer_api(
         return ApiError::not_found("not_found", "No such route for another computer.")
             .into_response();
     };
+    if let Err(e) = super::serving(&state) {
+        return e.into_response();
+    }
     if !state.machines.allows(&machine, grant, lan) {
         return ApiError::forbidden(
             "grant_missing",
@@ -792,14 +801,18 @@ async fn peer_api(
     }
 }
 
-/// The other machine subscribes to this one's sessions.
+/// The other machine subscribes to this one's sessions (while Machines is
+/// on here).
 async fn peer_ws(
     ctx: ClientContext,
     State(state): State<AppState>,
     headers: axum::http::HeaderMap,
     ws: axum::extract::WebSocketUpgrade,
 ) -> Response {
-    if let Err(e) = granted(&state, &ctx, Grant::View) {
+    let allowed = paired(&ctx)
+        .and_then(|_| super::serving(&state))
+        .and_then(|_| granted(&state, &ctx, Grant::View));
+    if let Err(e) = allowed {
         return e.into_response();
     }
     crate::server::ws::ws_handler(ws, State(state), ctx, headers).await

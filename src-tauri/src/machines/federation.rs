@@ -15,6 +15,11 @@
 //! When the link drops the machine is marked offline (`{t:"offline", since}`)
 //! and its sessions stay listed, greyed, until it is back. Nothing is copied
 //! to disk: seeing is remote.
+//!
+//! The links run only while Machines is on here: none is dialled while it
+//! is off, they start when it turns on ([`wake`]) and close when it turns
+//! off ([`stop`]). (The other computer refuses its `/ws` while Machines is
+//! off there.)
 
 use std::collections::{BTreeMap, HashMap};
 use std::sync::{Mutex, Weak};
@@ -42,12 +47,16 @@ struct Remote {
     subs: HashMap<(String, Option<String>), usize>,
     /// A task keeps (or tries to keep) the link.
     running: bool,
+    /// That task, to stop it when Machines turns off.
+    task: Option<tokio::task::AbortHandle>,
 }
 
 /// The federation's state (`MachinesState::federation`).
 #[derive(Default)]
 pub struct Federation {
     remotes: Mutex<HashMap<String, Remote>>,
+    /// Machines turned on: start the links now rather than at the next tick.
+    wake: std::sync::Arc<tokio::sync::Notify>,
 }
 
 impl Federation {
@@ -180,24 +189,59 @@ pub fn forget(state: &AppState, machine: &str) {
 
 // ─── the links ─────────────────────────────────────────────────────────────────
 
-/// Keeps a link to every paired machine while the transport runs.
+/// Machines turned on here: the links start now.
+pub fn wake(state: &AppState) {
+    state.machines.federation.wake.notify_one();
+}
+
+/// Machines turned off here: every link closes, and each machine shows as
+/// offline (its sessions as last heard stay cached for when it is back).
+pub fn stop(state: &AppState) {
+    let stopped: Vec<String> = state.machines.federation.with(|r| {
+        r.iter_mut()
+            .filter_map(|(id, m)| {
+                if let Some(t) = m.task.take() {
+                    t.abort();
+                }
+                m.running = false;
+                m.tx = None;
+                m.online.then(|| id.clone())
+            })
+            .collect()
+    });
+    for machine in stopped {
+        went_offline(state, &machine);
+    }
+}
+
+/// Keeps a link to every paired machine while the transport runs and
+/// Machines is on here.
 pub(crate) async fn run(state: Weak<Inner>) {
     let mut tick = tokio::time::interval(Duration::from_secs(5));
     tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     loop {
-        tick.tick().await;
+        let wake = match state.upgrade() {
+            Some(st) => st.machines.federation.wake.clone(),
+            None => break,
+        };
+        tokio::select! {
+            _ = tick.tick() => {}
+            _ = wake.notified() => {}
+        }
         let Some(st) = state.upgrade() else { break };
+        if !st.machines.enabled() {
+            continue;
+        }
         let peers: Vec<String> = st
             .machines
             .store_read(|f| f.peers.iter().map(|p| p.id.clone()).collect());
         for machine in peers {
-            let start = st.machines.federation.with(|r| {
+            st.machines.federation.with(|r| {
                 let m = r.entry(machine.clone()).or_default();
-                !std::mem::replace(&mut m.running, true)
+                if !std::mem::replace(&mut m.running, true) {
+                    m.task = Some(tokio::spawn(keep_link(state.clone(), machine)).abort_handle());
+                }
             });
-            if start {
-                tokio::spawn(keep_link(state.clone(), machine));
-            }
         }
     }
 }
@@ -206,6 +250,16 @@ async fn keep_link(state: Weak<Inner>, machine: String) {
     let mut backoff = Duration::from_secs(1);
     loop {
         let Some(st) = state.upgrade() else { return };
+        if !st.machines.enabled() {
+            // Turned off since: [`stop`] closed the others; this one ends.
+            st.machines.federation.with(|r| {
+                if let Some(m) = r.get_mut(&machine) {
+                    m.running = false;
+                    m.task = None;
+                }
+            });
+            return;
+        }
         let Some(key) = st
             .machines
             .store_read(|f| f.peer(&machine).map(|p| p.key.clone()))

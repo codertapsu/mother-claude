@@ -137,7 +137,8 @@ fn state_of(v: &Value) -> &str {
 
 /// Pairs `a` (host) and `b` (joiner); `b`'s grants to `a` are `b_gives`,
 /// `a`'s to `b` are `a_gives`. Then each greets the other, so both know
-/// what the other can do (`moves`).
+/// what the other can do (`moves`), and Machines is turned on on both, as
+/// *Turn on Machines* does once the setup passed.
 async fn pair(a: &Machine, b: &Machine, a_gives: Value, b_gives: Value) {
     let (s, v) = a.call("POST", "/machines/pair", None).await;
     assert_eq!(s, StatusCode::OK, "{v}");
@@ -169,6 +170,8 @@ async fn pair(a: &Machine, b: &Machine, a_gives: Value, b_gives: Value) {
     b.wait("the joiner to finish", |v| state_of(v) == "paired")
         .await;
     greet(a, b).await;
+    machines::set_enabled(&a.st, true);
+    machines::set_enabled(&b.st, true);
 }
 
 fn key_of(m: &Machine, peer: &str) -> String {
@@ -1100,4 +1103,61 @@ async fn a_move_follows_the_options_set_for_its_project() {
     )
     .await;
     assert_eq!(pre["code"]["apply"], "checkout", "{pre:#}");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn machines_off_on_either_computer_stops_a_move_before_it_starts() {
+    let w = world().await;
+    let body = to_t(&w, json!({ "code": "none" }));
+    let move_path = format!("/sessions/{SID}/move");
+    let preflight_path = format!("/sessions/{SID}/move/preflight");
+
+    // Off here: neither the checks nor the move start.
+    machines::set_enabled(&w.s.st, false);
+    for path in [&preflight_path, &move_path] {
+        let (s, v) = w.s.call("POST", path, Some(body.clone())).await;
+        assert_eq!(s, StatusCode::CONFLICT, "{path}: {v}");
+        assert_eq!(v["error"]["code"], "machines_off");
+    }
+    // The other computer can't start it through its proxy either.
+    let (s, v) =
+        w.t.call(
+            "POST",
+            &format!("/machines/{}/proxy/sessions/{SID}/move", w.s.id()),
+            Some(json!({ "to": w.t.id(), "code": "none" })),
+        )
+        .await;
+    assert_eq!(s, StatusCode::FORBIDDEN, "{v}");
+    assert_eq!(v["error"]["code"], "machines_off");
+
+    // Off there: the target refuses, which the checks say.
+    machines::set_enabled(&w.s.st, true);
+    machines::set_enabled(&w.t.st, false);
+    let pre = preflight(&w.s, body.clone()).await;
+    assert_eq!(pre["ok"], false, "{pre:#}");
+    let off = pre["blockers"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|b| b["code"] == "machines_off")
+        .unwrap_or_else(|| panic!("{pre:#}"));
+    assert_eq!(
+        off["message"],
+        format!("Machines is off on {}.", machines::this_name(&w.t.st))
+    );
+    let (s, v) = w.s.call("POST", &move_path, Some(body.clone())).await;
+    assert_eq!(s, StatusCode::CONFLICT, "{v}");
+    assert_eq!(v["error"]["code"], "move_blocked");
+    let (_, list) = w.s.call("GET", "/moves", None).await;
+    assert_eq!(
+        list["moves"].as_array().unwrap().len(),
+        0,
+        "nothing started"
+    );
+    assert!(lease_home(&w.s).is_none());
+
+    // On on both: it moves.
+    machines::set_enabled(&w.t.st, true);
+    let rec = move_session(&w.s, body).await;
+    assert_eq!(rec["state"], "resumed", "{rec:#}");
 }

@@ -155,6 +155,15 @@ const RULES: readonly Rule[] = [
         computer: computerNoun(),
       }),
   ],
+  // ── Machines turned off (machines/mod.rs `using`, `serving`) ──
+  [
+    /^Machines is off on this computer: turn it on on the Machines page first\.$/,
+    () =>
+      tr('Machines is off on this {computer}: turn it on on the Machines page first.', {
+        computer: computerNoun(),
+      }),
+  ],
+  [/^Machines is off on (.+)\.$/, (m) => tr('Machines is off on {name}.', { name: m[1] })],
   // ── The preflight: the other computer's checks (target.rs, folder.rs) ──
   [
     /^(.+) has no usable account named (.+)\.$/,
@@ -616,6 +625,16 @@ export function moveErrorText(e: unknown, names: MoveNames = {}): string {
       });
     case 'data_job_running':
       return tr('A backup, restore or transfer is running there; try again when it has finished.');
+    case 'machines_off':
+      // 409: Machines is off here; 403: on the computer the session lives on
+      // (worded by its scope already) or the one it goes to.
+      if (e.status === 409) {
+        return tr('Machines is off on this {computer}: turn it on on the Machines page first.', {
+          computer: computerNoun(),
+        });
+      }
+      if (e instanceof MachineApiError) return e.message;
+      return moveText(e.message) || describeError(e).text;
     case 'move_too_late':
     case 'move_not_undoable':
     case 'move_went_on':

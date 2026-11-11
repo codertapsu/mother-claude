@@ -5,6 +5,8 @@
   "Use your other computers from here: see and drive their sessions, and move a session — with its code — to another computer and back.": "Dùng các máy tính khác của bạn ngay từ đây: xem và điều khiển phiên của chúng, và chuyển một phiên — cùng mã nguồn của nó — sang máy tính khác rồi chuyển về.",
   "Machines are set up from the desktop app.": "Tính năng Các máy được thiết lập từ ứng dụng máy tính.",
   "Machines is off": "Tính năng Các máy đang tắt",
+  "Machines is off on {name}.": "Tính năng Các máy đang tắt trên {name}.",
+  "Machines is off on this {computer}: turn it on on the Machines page first.": "Tính năng Các máy đang tắt trên {computer} này: hãy bật nó trên trang Các máy trước.",
   "Setup: step {n} of 7 — 1 required left": "Thiết lập: bước {n}/7 — còn 1 mục bắt buộc",
   "Setup: step {n} of 7 — {k} required left": "Thiết lập: bước {n}/7 — còn {k} mục bắt buộc",
   "Go on with the setup": "Tiếp tục thiết lập",

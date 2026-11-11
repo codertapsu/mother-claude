@@ -400,6 +400,9 @@ async fn a_computer_without_the_move_grant_cannot_change_the_others_roots() {
         .unwrap();
         assert_eq!(s, 404, "{method} {path}");
     }
+    // (Through the proxy, with Machines on: still not one of its routes.)
+    machines::set_enabled(&a.st, true);
+    machines::set_enabled(&b.st, true);
     let (s, _) = a
         .call("GET", &format!("/machines/{idb}/proxy/roots"), None)
         .await;

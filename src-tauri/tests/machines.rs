@@ -194,6 +194,14 @@ fn grants(run: bool) -> Value {
     })
 }
 
+/// Machines turned on, as *Turn on Machines* does once the setup passed (the
+/// setup's own checks are not what these tests are about).
+fn turn_on(ms: &[&Machine]) {
+    for m in ms {
+        machines::set_enabled(&m.st, true);
+    }
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn two_computers_pair_greet_and_revoke() {
     let lookup = MemoryLookup::new();
@@ -277,6 +285,7 @@ async fn a_peer_reaches_only_its_routes_and_only_with_its_grants() {
     let a = machine(&lookup).await;
     let b = machine(&lookup).await;
     pair(&a, &b, grants(false), grants(false)).await;
+    turn_on(&[&a, &b]);
 
     // B may see A's checks…
     let (s, v) = transport::request(
@@ -645,6 +654,7 @@ async fn the_proxy_reads_and_drives_another_computers_sessions() {
     let a = machine(&lookup).await;
     let b = machine(&lookup).await;
     pair(&a, &b, grants(false), grants(false)).await;
+    turn_on(&[&a, &b]);
     session_on(&b);
     let desktop = a.st.auth.token.clone();
 
@@ -732,6 +742,7 @@ async fn a_dangerous_action_needs_the_grant_and_the_acting_persons_right() {
     let a = machine(&lookup).await;
     let b = machine(&lookup).await;
     pair(&a, &b, grants(false), grants(false)).await;
+    turn_on(&[&a, &b]);
     let desktop = a.st.auth.token.clone();
     let phone =
         a.st.devices
@@ -776,6 +787,7 @@ async fn another_computers_sessions_arrive_live_and_go_grey_when_it_stops() {
     let a = machine(&lookup).await;
     let b = machine(&lookup).await;
     pair(&a, &b, grants(false), grants(false)).await;
+    turn_on(&[&a, &b]);
     session_on(&b);
 
     let mut ws = dashboard(&a).await;
@@ -821,6 +833,7 @@ async fn an_approval_is_answered_from_either_computer_and_the_first_answer_wins(
         .await;
     assert_eq!(s, StatusCode::OK, "{v}");
     pair(&a, &b, grants(false), grants(false)).await;
+    turn_on(&[&a, &b]);
     session_on(&b);
     let desktop = a.st.auth.token.clone();
     let respond = format!("/sessions/{SID}/respond");
@@ -901,6 +914,7 @@ async fn the_same_session_id_on_two_computers_stays_two_sessions() {
     let a = machine(&lookup).await;
     let b = machine(&lookup).await;
     pair(&a, &b, grants(false), grants(false)).await;
+    turn_on(&[&a, &b]);
     // One id on both disks (as a backup pull leaves it), each its own.
     session_saying(&a, "said on A");
     session_saying(&b, "said on B");
@@ -951,4 +965,115 @@ async fn the_same_session_id_on_two_computers_stays_two_sessions() {
         .await;
     assert_eq!(s, StatusCode::NOT_FOUND, "{v}");
     assert_eq!(v["error"]["code"], "request_not_found");
+}
+
+/// A WebSocket to `to`'s `/ws` over `from`'s link, as the federation opens
+/// one: `Err` with the answer when it is refused.
+async fn open_peer_ws(from: &Machine, to: &Machine) -> Result<(), String> {
+    let conn = transport::connection_to(&from.st, &key_of(from, &to.id())).await?;
+    let (send, recv) = conn.open_bi().await.map_err(|e| e.to_string())?;
+    tokio_tungstenite::client_async("ws://peer/ws", tokio::io::join(recv, send))
+        .await
+        .map(|_| ())
+        .map_err(|e| e.to_string())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn while_machines_is_off_another_computer_only_pairs_and_runs_the_setup() {
+    let lookup = MemoryLookup::new();
+    let a = machine(&lookup).await;
+    let b = machine(&lookup).await;
+    pair(&a, &b, grants(false), grants(false)).await;
+    session_on(&b);
+    let desktop = a.st.auth.token.clone();
+    assert_eq!(a.view().await["enabled"], false, "off until turned on");
+
+    // Off on both. What pairing and the setup need still answers: the
+    // hello, the checks, the roots, the leases, the readiness test.
+    machines::greet(a.st.clone(), b.id(), key_of(&a, &b.id())).await;
+    a.wait("B online by its hello", |v| v["peers"][0]["online"] == true)
+        .await;
+    for path in ["/peer/setup", "/peer/roots", "/peer/leases"] {
+        let (s, v) = transport::request(&a.st, &b.id(), "GET", path, None, Duration::from_secs(20))
+            .await
+            .unwrap();
+        assert_eq!(s, 200, "{path} while off: {v}");
+    }
+    let (s, v) = a
+        .call("POST", "/machines/test", Some(json!({ "machine": b.id() })))
+        .await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    assert_eq!(v["results"][0]["tests"][1]["state"], "ok", "{v}");
+
+    // Nothing that uses it: A's proxy refuses here (409), B refuses its
+    // session routes, moves and session stream (403).
+    let (s, v) = proxied(&a, &desktop, "GET", &b, "/sessions", None).await;
+    assert_eq!(s, StatusCode::CONFLICT, "{v}");
+    assert_eq!(v["error"]["code"], "machines_off");
+    for (method, path, body) in [
+        ("GET", "/api/sessions", None),
+        ("POST", "/peer/moves/preflight", Some(json!({}))),
+        ("GET", "/peer/moves/mv_0123456789abcdef", None),
+    ] {
+        let (s, v) =
+            transport::request(&a.st, &b.id(), method, path, body, Duration::from_secs(20))
+                .await
+                .unwrap();
+        assert_eq!(s, 403, "{method} {path}: {v}");
+        assert_eq!(v["error"]["code"], "machines_off", "{path}");
+        assert_eq!(
+            v["error"]["message"],
+            format!("Machines is off on {}.", machines::this_name(&b.st))
+        );
+    }
+    let e = open_peer_ws(&a, &b)
+        .await
+        .expect_err("B's sessions refused");
+    assert!(e.contains("403"), "{e}");
+
+    // On only on B: B serves, but A neither proxies nor links to it.
+    turn_on(&[&b]);
+    open_peer_ws(&a, &b)
+        .await
+        .expect("B serves its sessions now");
+    let (s, v) = proxied(&a, &desktop, "GET", &b, "/sessions", None).await;
+    assert_eq!(s, StatusCode::CONFLICT, "{v}");
+    tokio::time::sleep(Duration::from_secs(6)).await;
+    assert_eq!(
+        a.view().await["peers"][0]["sessions"],
+        Value::Null,
+        "A dials no link while off"
+    );
+
+    // On on both: A sees and drives B's sessions, live.
+    turn_on(&[&a]);
+    a.wait("B's session listed on A", |v| {
+        v["peers"][0]["sessions"]["total"] == 1
+    })
+    .await;
+    let (s, v) = proxied(&a, &desktop, "GET", &b, "/sessions", None).await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+
+    // B turns it off again: its socket to A closes and A is refused.
+    let mut ws = dashboard(&a).await;
+    let from = b.id();
+    frame_where(&mut ws, "B online on A's dashboard", |v| {
+        v["t"] == "remote" && v["machine"] == from && v["frame"]["t"] == "online"
+    })
+    .await;
+    let (s, v) = b
+        .call(
+            "POST",
+            "/machines/enable",
+            Some(json!({ "enabled": false })),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    frame_where(&mut ws, "B's link closed", |v| {
+        v["t"] == "remote" && v["machine"] == from && v["frame"]["t"] == "offline"
+    })
+    .await;
+    let (s, v) = proxied(&a, &desktop, "GET", &b, "/sessions", None).await;
+    assert_eq!(s, StatusCode::FORBIDDEN, "{v}");
+    assert_eq!(v["error"]["code"], "machines_off");
 }

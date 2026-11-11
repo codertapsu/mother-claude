@@ -79,6 +79,8 @@ pub const MAX_SOCKETS_PER_DEVICE: usize = 8;
 
 /// Close codes.
 pub const CLOSE_UNAUTHORIZED: u16 = 4401;
+/// Another computer's socket, when Machines turns off here.
+pub const CLOSE_FORBIDDEN: u16 = 4403;
 pub const CLOSE_TIMEOUT: u16 = 4408;
 pub const CLOSE_REPLACED: u16 = 4409;
 
@@ -620,6 +622,8 @@ type CloseSignal = Option<(u16, &'static str)>;
 struct ClientEntry {
     device_id: Option<String>,
     desktop: bool,
+    /// Another of the user's computers (`Principal::Peer`).
+    peer: bool,
     opened: Instant,
     close: watch::Sender<CloseSignal>,
 }
@@ -655,11 +659,13 @@ impl Hub {
         self.clients.lock().unwrap_or_else(|p| p.into_inner())
     }
 
-    /// Register a socket; closes the device's oldest sockets beyond the cap.
+    /// Register a socket (`peer`: another computer's); closes the device's
+    /// oldest sockets beyond the cap.
     fn register(
         &self,
         device_id: Option<String>,
         desktop: bool,
+        peer: bool,
     ) -> (u64, watch::Receiver<CloseSignal>) {
         let id = self.next_id.fetch_add(1, Ordering::Relaxed) + 1;
         let (tx, rx) = watch::channel(None);
@@ -683,6 +689,7 @@ impl Hub {
             ClientEntry {
                 device_id,
                 desktop,
+                peer,
                 opened: Instant::now(),
                 close: tx,
             },
@@ -700,6 +707,23 @@ impl Hub {
         let ids: Vec<u64> = clients
             .iter()
             .filter(|(_, c)| c.device_id.as_deref() == Some(device_id))
+            .map(|(id, _)| *id)
+            .collect();
+        for id in &ids {
+            if let Some(c) = clients.remove(id) {
+                let _ = c.close.send(Some((code, reason)));
+            }
+        }
+        ids.len()
+    }
+
+    /// Close every socket another computer holds (Machines turned off
+    /// here). Returns how many.
+    pub fn close_peers(&self, code: u16, reason: &'static str) -> usize {
+        let mut clients = self.lock();
+        let ids: Vec<u64> = clients
+            .iter()
+            .filter(|(_, c)| c.peer)
             .map(|(id, _)| *id)
             .collect();
         for id in &ids {
@@ -1088,7 +1112,19 @@ async fn run_client(
     drop(preauth);
     let device_id = ctx.device_id().map(str::to_string);
     let desktop = ctx.is_desktop();
-    let (client_id, mut close_rx) = state.hub.register(device_id.clone(), desktop);
+    let (client_id, mut close_rx) = state.hub.register(device_id.clone(), desktop, peer);
+    // Machines turned off between the peer app's check and now: the hub
+    // closed every other computer's socket then, so close this one too.
+    if peer && !state.machines.enabled() {
+        state.hub.unregister(client_id);
+        close(
+            &mut socket,
+            CLOSE_FORBIDDEN,
+            "Machines is off on this computer",
+        )
+        .await;
+        return;
+    }
     if let Some(dev) = &device_id {
         state.presence.connect(dev, client_id);
     }
@@ -1691,16 +1727,16 @@ mod tests {
         let hub = Hub::new();
         let mut rxs = Vec::new();
         for _ in 0..MAX_SOCKETS_PER_DEVICE {
-            rxs.push(hub.register(Some("d1".into()), false));
+            rxs.push(hub.register(Some("d1".into()), false, false));
         }
         assert_eq!(hub.device_sockets("d1"), MAX_SOCKETS_PER_DEVICE);
-        let _extra = hub.register(Some("d1".into()), false);
+        let _extra = hub.register(Some("d1".into()), false, false);
         assert_eq!(hub.device_sockets("d1"), MAX_SOCKETS_PER_DEVICE);
         assert_eq!(
             *rxs[0].1.borrow(),
             Some((CLOSE_REPLACED, "too many sockets"))
         );
-        let _desk = hub.register(None, true);
+        let _desk = hub.register(None, true, false);
         assert_eq!(hub.desktop_count(), 1);
         assert_eq!(
             hub.close_device("d1", CLOSE_UNAUTHORIZED, "device revoked"),
@@ -1711,6 +1747,19 @@ mod tests {
             Some((CLOSE_UNAUTHORIZED, "device revoked"))
         );
         assert_eq!(hub.client_count(), 1);
+    }
+
+    #[test]
+    fn hub_closes_only_other_computers_sockets_when_machines_turns_off() {
+        let hub = Hub::new();
+        let (_, desk) = hub.register(None, true, false);
+        let (_, phone) = hub.register(Some("d1".into()), false, false);
+        let (_, peer) = hub.register(None, false, true);
+        assert_eq!(hub.close_peers(CLOSE_FORBIDDEN, "off"), 1);
+        assert_eq!(*peer.borrow(), Some((CLOSE_FORBIDDEN, "off")));
+        assert_eq!(*desk.borrow(), None);
+        assert_eq!(*phone.borrow(), None);
+        assert_eq!(hub.client_count(), 2);
     }
 
     #[test]

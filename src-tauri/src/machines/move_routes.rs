@@ -25,6 +25,12 @@
 //! /peer/moves/{id}`, `GET|PUT /peer/moves/{id}/files/{name}?offset=`,
 //! `POST /peer/moves/{id}/land`, `POST /peer/moves/{id}/undo`, `GET|POST
 //! /peer/leases`.
+//!
+//! While Machines is off here, `POST /api/sessions/{id}/move` and its
+//! preflight answer `409 machines_off`, and `/peer/moves/*` answer `403
+//! machines_off` — but for `DELETE /peer/moves/{id}`, which only takes back
+//! what a move that stopped left here. The leases stay open (a hello carries
+//! them anyway).
 
 use axum::extract::{DefaultBodyLimit, Path, Query, State};
 use axum::http::StatusCode;
@@ -104,6 +110,7 @@ async fn preflight(
     Body(body): Body<moves::MoveBody>,
 ) -> ApiResult<Json<moves::Preflight>> {
     valid_session(&id)?;
+    super::using(&state)?;
     Ok(Json(moves::preflight(&state, &ctx, &id, &body).await?))
 }
 
@@ -115,6 +122,7 @@ async fn start(
 ) -> ApiResult<Response> {
     may_move(&ctx)?;
     valid_session(&id)?;
+    super::using(&state)?;
     let (status, v) = moves::start(&state, &ctx, &id, &body).await?;
     Ok((status, Json(v)).into_response())
 }
@@ -184,6 +192,16 @@ fn mover(state: &AppState, ctx: &ClientContext) -> ApiResult<(String, bool)> {
     Ok((machine.clone(), *lan))
 }
 
+/// [`mover`], for a move's target half: refused while Machines is off here
+/// (`403 machines_off`).
+fn moving_here(state: &AppState, ctx: &ClientContext) -> ApiResult<(String, bool)> {
+    if !matches!(ctx.principal, Principal::Peer { .. }) {
+        return mover(state, ctx);
+    }
+    super::serving(state)?;
+    mover(state, ctx)
+}
+
 fn move_id(id: &str) -> ApiResult<()> {
     if moves::is_move_id(id) {
         Ok(())
@@ -197,7 +215,7 @@ async fn peer_preflight(
     State(state): State<AppState>,
     Body(ask): Body<wire::Ask>,
 ) -> ApiResult<Json<wire::Answer>> {
-    let (from, _) = mover(&state, &ctx)?;
+    let (from, _) = moving_here(&state, &ctx)?;
     Ok(Json(moves::peer_preflight(&state, &ctx, &from, ask).await?))
 }
 
@@ -207,7 +225,7 @@ async fn peer_create(
     Path(id): Path<String>,
     Body(mf): Body<wire::Manifest>,
 ) -> ApiResult<Json<Value>> {
-    let (from, _) = mover(&state, &ctx)?;
+    let (from, _) = moving_here(&state, &ctx)?;
     move_id(&id)?;
     Ok(Json(
         moves::peer_create(&state, &ctx, &from, &id, mf).await?,
@@ -219,11 +237,14 @@ async fn peer_state(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> ApiResult<Json<Value>> {
-    let (from, _) = mover(&state, &ctx)?;
+    let (from, _) = moving_here(&state, &ctx)?;
     move_id(&id)?;
     Ok(Json(moves::peer_state(&state, &from, &id).await?))
 }
 
+/// The source gave a move up: what it left here goes. Served while Machines
+/// is off too — it only takes back what that move brought (a move stopped
+/// by Machines turning off here is dropped at once, not at the next start).
 async fn peer_drop(
     ctx: ClientContext,
     State(state): State<AppState>,
@@ -239,7 +260,7 @@ async fn peer_file(
     State(state): State<AppState>,
     Path((id, name)): Path<(String, String)>,
 ) -> ApiResult<Json<Value>> {
-    let (from, _) = mover(&state, &ctx)?;
+    let (from, _) = moving_here(&state, &ctx)?;
     move_id(&id)?;
     Ok(Json(
         moves::peer_file_size(&state, &from, &id, &name).await?,
@@ -259,7 +280,7 @@ async fn peer_chunk(
     body: axum::body::Bytes,
 ) -> Response {
     let answer = async {
-        let (from, _) = mover(&state, &ctx)?;
+        let (from, _) = moving_here(&state, &ctx)?;
         move_id(&id)?;
         moves::peer_put_chunk(&state, &from, &id, &name, q.offset, body).await
     }
@@ -275,7 +296,7 @@ async fn peer_land(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> ApiResult<Json<wire::Landed>> {
-    let (from, _) = mover(&state, &ctx)?;
+    let (from, _) = moving_here(&state, &ctx)?;
     move_id(&id)?;
     Ok(Json(moves::peer_land(&state, &ctx, &from, &id).await?))
 }
@@ -285,7 +306,7 @@ async fn peer_undo(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> ApiResult<Json<Value>> {
-    let (from, _) = mover(&state, &ctx)?;
+    let (from, _) = moving_here(&state, &ctx)?;
     move_id(&id)?;
     Ok(Json(moves::peer_undo(&state, &from, &id).await?))
 }

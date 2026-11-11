@@ -17,8 +17,10 @@
 //! only from the transport's authenticated key, and reaches the peer routes
 //! only; nothing on a machine changes because another asked until that
 //! machine's desktop confirms it; the transport runs only while Machines is
-//! in use; one writer per session across machines (the lease); a config
-//! directory is written only by a move's landing, as a pull writes it.
+//! in use; while Machines is off on a machine, the others may only pair and
+//! run the setup with it ([`serving`], [`using`]); one writer per session
+//! across machines (the lease); a config directory is written only by a
+//! move's landing, as a pull writes it.
 
 pub mod acting;
 pub mod awake;
@@ -547,6 +549,63 @@ pub fn peer_name(state: &AppState, machine: &str) -> String {
 
 pub(crate) fn now() -> i64 {
     chrono::Utc::now().timestamp_millis()
+}
+
+// ─── on and off ──────────────────────────────────────────────────────────────────
+
+/// Turns Machines on or off on this computer (`POST /api/machines/enable`
+/// checks the setup's blockers first). On, the links to the other computers'
+/// sessions start at once; off, they close, and so do the other computers'
+/// links to this one's: while off, another computer may only pair and run
+/// the setup with this one ([`serving`]), and this one uses none ([`using`]).
+pub fn set_enabled(state: &AppState, on: bool) {
+    let was = state.machines.store_write(|f| {
+        let was = f.enabled;
+        f.enabled = on;
+        if on {
+            f.setup_step = None;
+        }
+        was
+    });
+    if was != on {
+        if on {
+            federation::wake(state);
+        } else {
+            federation::stop(state);
+            state.hub.close_peers(
+                crate::server::ws::CLOSE_FORBIDDEN,
+                "Machines is off on this computer",
+            );
+        }
+    }
+    publish(state, "enabled");
+}
+
+/// What another computer may use of this one: while Machines is off here,
+/// only what pairing and the setup need (hello, pairing, the setup's checks,
+/// asks and test, settings offers, roots, leases). Its session stream
+/// (`/ws`), the session routes (`/api/*`) and moves (`/peer/moves/*`) answer
+/// `403 machines_off`.
+pub(crate) fn serving(state: &AppState) -> Result<(), ApiError> {
+    if state.machines.enabled() {
+        return Ok(());
+    }
+    Err(ApiError::forbidden(
+        "machines_off",
+        format!("Machines is off on {}.", this_name(state)),
+    ))
+}
+
+/// Whether this computer may use another one: while Machines is off here,
+/// the proxy and starting a move answer `409 machines_off`.
+pub(crate) fn using(state: &AppState) -> Result<(), ApiError> {
+    if state.machines.enabled() {
+        return Ok(());
+    }
+    Err(ApiError::conflict(
+        "machines_off",
+        "Machines is off on this computer: turn it on on the Machines page first.",
+    ))
 }
 
 // ─── presence ──────────────────────────────────────────────────────────────────
