@@ -1740,31 +1740,7 @@ fn write_archive(
         let sealed = enc
             .wrap_output(hashing)
             .map_err(|e| io("encrypting", dest, e))?;
-        let gz = flate2::write::GzEncoder::new(sealed, flate2::Compression::default());
-        let mut tar = tar::Builder::new(CountingWriter { inner: gz, counted });
-        tar.follow_symlinks(false);
-        for d in dirs {
-            let rel = d.strip_prefix(base).unwrap_or(d);
-            tar.append_dir(rel, d).map_err(|e| io("archiving", d, e))?;
-        }
-        for (path, name) in files {
-            tar.append_path_with_name(path, name)
-                .map_err(|e| io("archiving", path, e))?;
-        }
-        for (name, data) in extra {
-            let mut header = tar::Header::new_gnu();
-            header.set_size(data.len() as u64);
-            header.set_mode(0o600);
-            header.set_mtime((now_ms() / 1000) as u64);
-            header.set_cksum();
-            tar.append_data(&mut header, name, &data[..])
-                .map_err(|e| io("archiving", Path::new(name), e))?;
-        }
-        let gz = tar
-            .into_inner()
-            .map_err(|e| io("archiving", dest, e))?
-            .inner;
-        let sealed = gz.finish().map_err(|e| io("compressing", dest, e))?;
+        let sealed = pack_into(sealed, dest, base, files, dirs, extra, counted)?;
         let hashing = sealed.finish().map_err(|e| io("encrypting", dest, e))?;
         let sha: String = hashing
             .hasher
@@ -1788,6 +1764,48 @@ fn write_archive(
         let _ = std::fs::remove_file(&tmp);
     }
     result
+}
+
+/// tar (paths relative to `base`) → gzip into `out`, handed back once the
+/// gzip stream is finished: an archive's plain part, which [`write_archive`]
+/// seals for a set and a move to another computer sends as it is
+/// (`session_pack`). `dest` names the archive in errors; `counted` is a job's
+/// progress, bumped as the bytes are packed.
+#[allow(clippy::too_many_arguments)]
+fn pack_into<W: Write>(
+    out: W,
+    dest: &Path,
+    base: &Path,
+    files: &[(PathBuf, PathBuf)],
+    dirs: &[PathBuf],
+    extra: &[(&str, Vec<u8>)],
+    counted: Option<&std::sync::atomic::AtomicU64>,
+) -> Result<W, BackupError> {
+    let gz = flate2::write::GzEncoder::new(out, flate2::Compression::default());
+    let mut tar = tar::Builder::new(CountingWriter { inner: gz, counted });
+    tar.follow_symlinks(false);
+    for d in dirs {
+        let rel = d.strip_prefix(base).unwrap_or(d);
+        tar.append_dir(rel, d).map_err(|e| io("archiving", d, e))?;
+    }
+    for (path, name) in files {
+        tar.append_path_with_name(path, name)
+            .map_err(|e| io("archiving", path, e))?;
+    }
+    for (name, data) in extra {
+        let mut header = tar::Header::new_gnu();
+        header.set_size(data.len() as u64);
+        header.set_mode(0o600);
+        header.set_mtime((now_ms() / 1000) as u64);
+        header.set_cksum();
+        tar.append_data(&mut header, name, &data[..])
+            .map_err(|e| io("archiving", Path::new(name), e))?;
+    }
+    let gz = tar
+        .into_inner()
+        .map_err(|e| io("archiving", dest, e))?
+        .inner;
+    gz.finish().map_err(|e| io("compressing", dest, e))
 }
 
 /// The configuration files of a config directory: everything that is not a
@@ -2685,7 +2703,14 @@ fn unpack(
     let r = dec
         .decrypt(std::iter::once(identity as &dyn age::Identity))
         .map_err(|e| BackupError::Io(format!("could not decrypt: {e}")))?;
-    let gz = flate2::read::GzDecoder::new(BufReader::new(r));
+    unpack_from(BufReader::new(r), stage, id)
+}
+
+/// [`unpack`]'s plain part: one session's tar.gz from `r` into `stage`
+/// (validated), returning its meta — a set's archive once decrypted, or a
+/// move's package as it came (`session_pack`).
+fn unpack_from<R: Read>(r: R, stage: &Path, id: &str) -> Result<Value, BackupError> {
+    let gz = flate2::read::GzDecoder::new(r);
     let mut tar = tar::Archive::new(gz);
     tar.set_preserve_mtime(true);
     tar.set_preserve_permissions(false);
