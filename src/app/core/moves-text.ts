@@ -67,6 +67,43 @@ const RULES: readonly Rule[] = [
     /^Carrying a folder's trust needs the dangerous permission \(set on the desktop\)\.$/,
     () => tr("Carrying a folder's trust needs the dangerous permission (set on the desktop)."),
   ],
+  // The files git ignores that a project carries (ignored.rs, source.rs).
+  [
+    /^Carrying files git ignores needs the dangerous permission \(set on the desktop\)\.$/,
+    () => tr('Carrying files git ignores needs the dangerous permission (set on the desktop).'),
+  ],
+  [
+    /^The project lists more than (\d+) files git ignores: at most \d+ travel\.$/,
+    (m) =>
+      tr('The project lists more than {n} files git ignores: at most {n} travel.', { n: m[1] }),
+  ],
+  [
+    /^(.+) is not a file inside the project, so it can't travel\.$/,
+    (m) => tr("{file} is not a file inside the project, so it can't travel.", { file: m[1] }),
+  ],
+  [
+    /^(.+) is larger than 1 MB: files git ignores travel only up to 1 MB each\.$/,
+    (m) =>
+      tr('{file} is larger than 1 MB: files git ignores travel only up to 1 MB each.', {
+        file: m[1],
+      }),
+  ],
+  [
+    /^(.+) is a symbolic link, or inside one: only plain files travel\.$/,
+    (m) => tr('{file} is a symbolic link, or inside one: only plain files travel.', { file: m[1] }),
+  ],
+  [
+    /^(.+) is not a plain file: only plain files travel\.$/,
+    (m) => tr('{file} is not a plain file: only plain files travel.', { file: m[1] }),
+  ],
+  [
+    /^(.+) could not be read here: (.+)$/,
+    (m) => tr('{file} could not be read here: {error}', { file: m[1], error: m[2] }),
+  ],
+  [
+    /^(.+)'s Mother Claude can't take files git ignores yet\.$/,
+    (m) => tr("{name}'s Mother Claude can't take files git ignores yet.", { name: m[1] }),
+  ],
   [
     /^A git operation is under way in (.+) \((.+)\): finish it first, or move only the conversation\.$/,
     (m) =>
@@ -232,6 +269,26 @@ const RULES: readonly Rule[] = [
       }),
   ],
   [
+    /^Carrying files git ignores needs (.+)'s Dangerous permission for this computer\.$/,
+    (m) =>
+      tr("Carrying files git ignores needs {name}'s Dangerous permission for this {computer}.", {
+        name: m[1],
+        computer: computerNoun(),
+      }),
+  ],
+  [
+    /^(.+) had its own (.+): kept for Undo move\.$/,
+    (m) => tr('{name} had its own {files}: kept for Undo move.', { name: m[1], files: m[2] }),
+  ],
+  [
+    /^Changed on (.+) since the move, so left as they are: (.+)\.$/,
+    (m) =>
+      tr('Changed on {name} since the move, so left as they are: {files}.', {
+        name: m[1],
+        files: m[2],
+      }),
+  ],
+  [
     /^A git operation is under way in (.+) \((.+)\)\.$/,
     (m) =>
       tr('A git operation is under way in {folder} ({operation}).', {
@@ -350,6 +407,13 @@ const RULES: readonly Rule[] = [
     /^Clone the project there first, or move only the conversation\.$/,
     () => tr('Clone the project there first, or move only the conversation.'),
   ],
+  [
+    /^Leave them here, or change the files the project carries \(Machines › Options › Each project\)\.$/,
+    () =>
+      tr(
+        'Leave them here, or change the files the project carries (Machines › Options › Each project).',
+      ),
+  ],
   // ── Why a move stopped (source.rs, target.rs) ──
   [/^It was cancelled\.$/, () => tr('It was cancelled.')],
   [/^The move's record is gone\.$/, () => tr("The move's record is gone.")],
@@ -368,6 +432,14 @@ const RULES: readonly Rule[] = [
   [
     /^The code could not be packed: (.+)$/,
     (m) => tr('The code could not be packed: {error}', { error: m[1] }),
+  ],
+  [
+    /^The files git ignores could not be packed: (.+)$/,
+    (m) => tr('The files git ignores could not be packed: {error}', { error: m[1] }),
+  ],
+  [
+    /^The files git ignores can't land here: (.+)$/,
+    (m) => tr("The files git ignores can't land here: {reason}", { reason: m[1] }),
   ],
   [
     /^(.+) can't be reached: (.+)$/,
@@ -508,6 +580,10 @@ const RULES: readonly Rule[] = [
     (m) => tr("The conversation can't be put back there: {error}", { error: m[1] }),
   ],
   [
+    /^The files git ignores can't be put back here: (.+)$/,
+    (m) => tr("The files git ignores can't be put back there: {error}", { error: m[1] }),
+  ],
+  [
     /^It lives on this computer already\.$/,
     () => tr('It lives on {here} already.', { here: here() }),
   ],
@@ -642,6 +718,8 @@ export function moveErrorText(e: unknown, names: MoveNames = {}): string {
     case 'move_not_cancellable':
     case 'move_code_stopped':
     case 'move_code_changed':
+    case 'move_ignored_stopped':
+    case 'move_ignored_changed':
     case 'session_live':
     case 'session_busy':
     case 'invalid_move':
@@ -702,6 +780,13 @@ export function failureText(m: MoveRecord, w: MoveWords = RECORD_WORDS): string 
       return there
         ? tr("The code can't land on {name}: {reason}", { name: there, reason })
         : tr("The code can't land here: {reason}", { reason });
+    }
+    case 'move_ignored_stopped': {
+      const stop = /^The files git ignores can't land here: (.+)$/.exec(e.message.trim());
+      const reason = stop ? stop[1] : e.message;
+      return there
+        ? tr("The files git ignores can't land on {name}: {reason}", { name: there, reason })
+        : tr("The files git ignores can't land here: {reason}", { reason });
     }
     case 'session_live_there':
       return there

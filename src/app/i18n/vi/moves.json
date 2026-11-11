@@ -254,5 +254,26 @@
   "{name} answered {status}.": "{name} trả lời {status}.",
   "{target} isn't paired with {source}.": "{target} chưa được ghép nối với {source}.",
   "{target} isn't paired with this {computer}.": "{target} chưa được ghép nối với {computer} này.",
-  "{name} doesn't let this {computer} move its sessions.": "{name} không cho {computer} này chuyển các phiên của nó."
+  "{name} doesn't let this {computer} move its sessions.": "{name} không cho {computer} này chuyển các phiên của nó.",
+
+  "Not in git": "Ngoài git",
+  "Carry them": "Mang theo chúng",
+  "Files git ignores that the project lists. They usually hold secrets.": "Các tệp git bỏ qua mà dự án liệt kê. Chúng thường chứa bí mật.",
+  "They stay where they are: carrying them needs the dangerous permission.": "Chúng ở lại chỗ cũ: mang theo chúng cần quyền thao tác nguy hiểm.",
+  "Carrying files git ignores needs the dangerous permission (set on the desktop).": "Mang theo các tệp git bỏ qua cần quyền thao tác nguy hiểm (đặt trên ứng dụng máy tính).",
+  "Carrying files git ignores needs {name}'s Dangerous permission for this {computer}.": "Mang theo các tệp git bỏ qua cần quyền Nguy hiểm mà {name} cấp cho {computer} này.",
+  "The project lists more than {n} files git ignores: at most {n} travel.": "Dự án liệt kê hơn {n} tệp git bỏ qua: chỉ tối đa {n} tệp được mang theo.",
+  "{file} is not a file inside the project, so it can't travel.": "{file} không phải là tệp nằm trong dự án, nên không thể mang theo.",
+  "{file} is larger than 1 MB: files git ignores travel only up to 1 MB each.": "{file} lớn hơn 1 MB: mỗi tệp git bỏ qua chỉ được mang theo khi không quá 1 MB.",
+  "{file} is a symbolic link, or inside one: only plain files travel.": "{file} là một liên kết tượng trưng, hoặc nằm trong một liên kết như vậy: chỉ tệp thường mới được mang theo.",
+  "{file} is not a plain file: only plain files travel.": "{file} không phải là tệp thường: chỉ tệp thường mới được mang theo.",
+  "{file} could not be read here: {error}": "Không đọc được {file} ở đây: {error}",
+  "{name}'s Mother Claude can't take files git ignores yet.": "Mother Claude trên {name} chưa nhận được các tệp git bỏ qua.",
+  "Leave them here, or change the files the project carries (Machines › Options › Each project).": "Hãy để chúng lại đây, hoặc đổi các tệp mà dự án mang theo (Các máy › Tùy chọn › Từng dự án).",
+  "{name} had its own {files}: kept for Undo move.": "{name} đã có {files} của riêng nó: được giữ lại để Hoàn tác việc chuyển.",
+  "Changed on {name} since the move, so left as they are: {files}.": "Đã thay đổi trên {name} sau khi chuyển, nên được giữ nguyên: {files}.",
+  "The files git ignores could not be packed: {error}": "Không đóng gói được các tệp git bỏ qua: {error}",
+  "The files git ignores can't land here: {reason}": "Các tệp git bỏ qua không thể đặt vào đây: {reason}",
+  "The files git ignores can't land on {name}: {reason}": "Các tệp git bỏ qua không thể đặt lên {name}: {reason}",
+  "The files git ignores can't be put back there: {error}": "Không thể đưa các tệp git bỏ qua về như cũ ở đó: {error}"
 }

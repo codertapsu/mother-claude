@@ -20,13 +20,16 @@
 //!    switch does it (after this turn, or now with an interrupt); an ended
 //!    one needs nothing; a foreign live one moves only as a copy.
 //! 3. *Packaging*: the session's files in the backup's layout
-//!    (`backup::session_pack`), and the code as a git snapshot (`code`).
+//!    (`backup::session_pack`), the code as a git snapshot (`code`), and the
+//!    files git ignores that the project lists to carry (`ignored`: the
+//!    dangerous right on both computers).
 //! 4. *Sending*: each file pushed in chunks of ≤ 8 MiB
 //!    (`PUT /peer/moves/{id}/files/{name}?offset=`), resumable from the size
 //!    T answers; T checks every hash before landing.
 //! 5. *Landing* (`target::land`): T applies the code (checkout or worktree;
 //!    a stop by design fails the move before *landed*, with the reason and
-//!    what it offers) and places the session's files with the pull's
+//!    what it offers), writes the carried ignored files into it (what they
+//!    replace kept for undo), and places the session's files with the pull's
 //!    machinery (new, fast-forward, or the incoming copy with T's own beside
 //!    it as a conflict copy), keeping everything for undo, and keeps the move
 //!    note for the session's next message.
@@ -48,6 +51,7 @@
 //! with a transcript's or a file's content.
 
 pub mod folder;
+pub mod ignored;
 pub mod note;
 mod resume;
 mod source;
@@ -204,6 +208,10 @@ pub struct CodePart {
     pub untracked: usize,
     /// The snapshot's warnings (`case-collision`, `lfs`, `submodules`, …).
     pub warnings: Vec<String>,
+    /// The files git ignores that travel with it (the project's list, as
+    /// found), under the repository's top.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub ignored: Vec<String>,
     /// Where it landed on the target.
     pub landed: Option<super::code::Applied>,
 }
@@ -212,7 +220,8 @@ pub struct CodePart {
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct FileEntry {
-    /// `session.tar.gz`, `meta.json`, `move.bundle` or `lfs.<oid>`.
+    /// `session.tar.gz`, `meta.json`, `move.bundle`, `lfs.<oid>` or
+    /// `ignored.tar.gz`.
     pub name: String,
     pub size: u64,
     pub sha256: String,
@@ -645,13 +654,14 @@ pub(crate) fn update(
     Some(rec)
 }
 
-/// Where a package's file is in a move's folder: `session.tar.gz`, and the
+/// Where a package's file is in a move's folder: `session.tar.gz`, the
 /// code's `meta.json`, `move.bundle` and Git LFS objects (`lfs.<oid>`) as
-/// `code::apply` reads them. Any other name is none.
+/// `code::apply` reads them, and the carried ignored files'
+/// `ignored.tar.gz`. Any other name is none.
 pub(crate) fn file_path(dir: &std::path::Path, name: &str) -> Option<PathBuf> {
     let code = dir.join("code");
     match name {
-        crate::claude::backup::session_pack::FILE => Some(dir.join(name)),
+        crate::claude::backup::session_pack::FILE | ignored::FILE => Some(dir.join(name)),
         super::code::META => Some(code.join(name)),
         super::code::BUNDLE => Some(code.join(name)),
         _ => {

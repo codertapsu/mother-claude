@@ -237,6 +237,32 @@ function untilText(ms: number): string {
               <dd>{{ conversationLine() }}</dd>
               <dt>{{ 'Code||source' | t }}</dt>
               <dd>{{ codeLine() }}</dd>
+              @if (ignoredLine(); as files) {
+                <dt>{{ 'Not in git' | t }}</dt>
+                <dd class="ignored">
+                  <span class="mono break">{{ files }}</span>
+                  @if (mayDangerous()) {
+                    <label class="check">
+                      <input
+                        type="checkbox"
+                        [checked]="carryIgnored()"
+                        [disabled]="busy()"
+                        (change)="carryIgnored.set($any($event.target).checked)"
+                      />
+                      <span>
+                        {{ 'Carry them' | t }}
+                        <span class="muted small hint">{{
+                          'Files git ignores that the project lists. They usually hold secrets.' | t
+                        }}</span>
+                      </span>
+                    </label>
+                  } @else {
+                    <span class="muted small">{{
+                      'They stay where they are: carrying them needs the dangerous permission.' | t
+                    }}</span>
+                  }
+                </dd>
+              }
             </dl>
             @if (bringBack()) {
               <p class="muted small">
@@ -585,6 +611,12 @@ function untilText(ms: number): string {
         flex-wrap: wrap;
         gap: 0.3rem 0.5rem;
       }
+      .ignored {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 0.3rem;
+      }
       .ok {
         color: var(--green);
       }
@@ -740,6 +772,9 @@ export class MoveSessionSheetComponent {
   protected readonly asCopy = signal(false);
   protected readonly recipe = signal(false);
   protected readonly trust = signal(false);
+  /** Carry the files git ignores that the project lists (with the
+   * dangerous right; on by default then). */
+  protected readonly carryIgnored = signal(true);
   protected readonly when = signal<'idle' | 'now'>('idle');
   protected readonly keepDriving = signal(true);
   protected readonly choosing = signal(false);
@@ -841,10 +876,10 @@ export class MoveSessionSheetComponent {
     return at ? this.moves.nameOf(at) : '';
   });
 
-  /** Who may carry a folder's trust: this device's dangerous right, and —
-   * a session on another computer — that computer's Dangerous permission
-   * for this one. */
-  private readonly mayDangerous = computed(() => {
+  /** Who may carry a folder's trust or the files git ignores: this device's
+   * dangerous right, and — a session on another computer — that computer's
+   * Dangerous permission for this one. */
+  protected readonly mayDangerous = computed(() => {
     const at = this.at();
     return this.auth.canDangerous() && (!at || this.scopes.context(at).mayDangerous());
   });
@@ -863,6 +898,9 @@ export class MoveSessionSheetComponent {
       ...(folder ? { folder } : {}),
       ...(this.asCopy() ? { asCopy: true } : {}),
       ...(this.trust() && this.mayDangerous() ? { trust: true } : {}),
+      // The files git ignores travel with the right (the server's default
+      // then), unless unticked; without it they stay where they are.
+      ...(this.mayDangerous() && !this.carryIgnored() ? { carryIgnored: false } : {}),
     };
   });
 
@@ -934,6 +972,14 @@ export class MoveSessionSheetComponent {
     }
     if (untracked) parts.push(untracked === 1 ? tr('1 new') : tr('{n} new', { n: untracked }));
     return `${branch} · ${parts.length ? parts.join(', ') : tr('no changes')}`;
+  });
+
+  /** The files git ignores that the project lists (*Not in git*), while the
+   * code moves. */
+  protected readonly ignoredLine = computed(() => {
+    const p = this.pre();
+    if (!p || !p.code.repo || this.codeValue() === 'none') return '';
+    return (p.code.ignored ?? []).join(' · ');
   });
 
   /** The project folder there: the one chosen, else the one it found. */
@@ -1075,6 +1121,7 @@ export class MoveSessionSheetComponent {
     this.asCopy.set(false);
     this.recipe.set(false);
     this.trust.set(false);
+    this.carryIgnored.set(true);
     this.when.set('idle');
     this.keepDriving.set(true);
     this.choosing.set(false);

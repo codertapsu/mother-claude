@@ -14,6 +14,7 @@ use axum::http::StatusCode;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
+use super::ignored;
 use super::resume::{self, Spec};
 use super::wire::{self, AccountAsk, CodeAsk};
 use super::{
@@ -62,6 +63,10 @@ pub struct MoveBody {
     pub recipe: Option<bool>,
     /// Carry the folder's trust there (the dangerous right).
     pub trust: Option<bool>,
+    /// Carry the files git ignores that the project lists: the dangerous
+    /// right on both computers. Left unsaid, they travel when whoever moves
+    /// it holds that right here, and stay otherwise; `false` leaves them.
+    pub carry_ignored: Option<bool>,
     /// The session's home is offline: it lives here from now on.
     pub take_over: Option<bool>,
     /// `idle` (after this turn, the default) | `now` (interrupting it).
@@ -84,6 +89,8 @@ struct Plan {
     as_copy: bool,
     recipe: bool,
     trust: bool,
+    /// `None`: as the caller's right says (`check`).
+    carry_ignored: Option<bool>,
     when: String,
 }
 
@@ -164,6 +171,7 @@ fn parse(state: &AppState, body: &MoveBody) -> ApiResult<Plan> {
         as_copy: body.as_copy.unwrap_or(false),
         recipe: body.recipe.unwrap_or(false),
         trust: body.trust.unwrap_or(false),
+        carry_ignored: body.carry_ignored,
         when: match when {
             crate::claude::switch::When::Idle => "idle".into(),
             crate::claude::switch::When::Now => "now".into(),
@@ -317,8 +325,10 @@ pub struct Preflight {
     /// The computer it goes to: `{id, name, os, online}`.
     pub to: Value,
     /// The code: `{mode, apply, repo, top, branch, head, changed, untracked,
-    /// origin, relation}` (`relation` of the target's branch to this base:
-    /// `create`, `same`, `fastForward`, `diverged`).
+    /// origin, relation, ignored, ignoredBytes, carryIgnored}` (`relation`
+    /// of the target's branch to this base: `create`, `same`,
+    /// `fastForward`, `diverged`; `ignored` the files git ignores that the
+    /// project lists, as found here — they travel when `carryIgnored`).
     pub code: Value,
     /// What the other computer said (its account, folder, checkout, …).
     pub target: Option<wire::Answer>,
@@ -336,6 +346,8 @@ struct Checked {
     answer: Option<wire::Answer>,
     hint: Option<String>,
     home_branch: Option<String>,
+    /// The files git ignores that travel (none when they stay here).
+    ignored: Vec<ignored::Found>,
 }
 
 /// `POST /api/sessions/{id}/move/preflight`: nothing is written anywhere.
@@ -458,6 +470,37 @@ async fn check(
         }
     }
 
+    // The files git ignores that the project lists to carry: found here
+    // (only plain files git ignores, never through a link), shown either
+    // way; carrying them is a dangerous act, here and there.
+    let listed: Vec<String> = opts
+        .recipe
+        .as_ref()
+        .map(|r| r.carry_ignored.clone())
+        .unwrap_or_default();
+    let carry = plan.carry_ignored.unwrap_or_else(|| ctx.may_dangerous());
+    let mut found: Vec<ignored::Found> = Vec::new();
+    if let Some(c) = code
+        .as_ref()
+        .filter(|_| code_mode != "none" && !listed.is_empty())
+    {
+        let (g, top, rel, l) = (git.clone(), c.state.top.clone(), c.rel.clone(), listed);
+        let scan = tokio::task::spawn_blocking(move || ignored::scan(&g, &top, &rel, &l))
+            .await
+            .unwrap_or_default();
+        found = scan.found;
+        if carry {
+            blockers.extend(scan.problems);
+        }
+    }
+    let carrying = carry && !found.is_empty();
+    if carrying && !ctx.may_dangerous() {
+        blockers.push(Check::new(
+            "ignored_needs_dangerous",
+            "Carrying files git ignores needs the dangerous permission (set on the desktop).",
+        ));
+    }
+
     // Where it goes home to, when it came from there (a worktree there, or a
     // folder no pair maps).
     let came = came_from(state, session, &plan.to);
@@ -501,6 +544,11 @@ async fn check(
                 rel: c.rel.clone(),
                 branch: home_branch.clone().or_else(|| c.state.branch.clone()),
                 origin: c.state.origin.clone(),
+                ignored: if carrying {
+                    found.iter().map(|f| f.path.clone()).collect()
+                } else {
+                    Vec::new()
+                },
             }),
         trust: plan.trust,
         permission_mode: local.settings.permission_mode.clone(),
@@ -525,6 +573,24 @@ async fn check(
             None
         }
     };
+    if carrying && answer.is_some() {
+        let takes = state.machines.store_read(|f| {
+            f.peer(&plan.to)
+                .is_some_and(|p| p.capabilities.iter().any(|c| c == protocol::IGNORED_FILES))
+        });
+        if !takes {
+            blockers.push(
+                Check::new(
+                    "ignored_unsupported",
+                    format!(
+                        "{}'s Mother Claude can't take files git ignores yet.",
+                        to.name
+                    ),
+                )
+                .fix(format!("Update Mother Claude on {}.", to.name)),
+            );
+        }
+    }
 
     // The branch there against this base.
     let mut relation = None;
@@ -621,6 +687,9 @@ async fn check(
                 "untracked": c.state.untracked,
                 "origin": c.state.origin,
                 "relation": relation,
+                "ignored": found.iter().map(|f| f.listed.as_str()).collect::<Vec<_>>(),
+                "ignoredBytes": found.iter().map(|f| f.size).sum::<u64>(),
+                "carryIgnored": carrying,
             }),
             _ => json!({ "mode": "none", "repo": code.is_some() }),
         },
@@ -637,6 +706,7 @@ async fn check(
         answer,
         hint,
         home_branch,
+        ignored: if carrying { found } else { Vec::new() },
     })
 }
 
@@ -813,6 +883,12 @@ pub async fn start(
             "Moving a session that runs without permission prompts",
         )?;
     }
+    if !checked.ignored.is_empty() {
+        crate::server::auth::require_dangerous(
+            ctx,
+            "Carrying files git ignores to another computer",
+        )?;
+    }
     let id = super::new_move_id();
     let acting = m::acting::header_for(state, ctx);
     let Some(active) = state
@@ -881,6 +957,7 @@ pub async fn start(
                 base: c.state.head.clone(),
                 changed: c.state.changed,
                 untracked: c.state.untracked,
+                ignored: checked.ignored.iter().map(|f| f.path.clone()).collect(),
                 ..CodePart::default()
             }),
         files: Vec::new(),
@@ -936,6 +1013,8 @@ pub async fn start(
             .map(|c| c.haves.clone())
             .unwrap_or_default(),
         folder: checked.plan.folder.clone(),
+        top: checked.code.as_ref().map(|c| c.state.top.clone()),
+        ignored: checked.ignored.clone(),
     };
     let st = state.clone();
     tokio::spawn(async move {
@@ -950,6 +1029,10 @@ struct Prepared {
     hint: Option<String>,
     haves: Vec<String>,
     folder: Option<String>,
+    /// The repository's top here.
+    top: Option<PathBuf>,
+    /// The files git ignores that travel.
+    ignored: Vec<ignored::Found>,
 }
 
 /// Why a move stopped before it landed.
@@ -1231,6 +1314,29 @@ async fn package(state: &AppState, id: &str, prep: &Prepared) -> Result<(), Fail
                 sent: 0,
             });
         }
+        // The files git ignores that travel, read again as they are now.
+        c.ignored.clear();
+        if let (Some(top), false) = (&prep.top, prep.ignored.is_empty()) {
+            let (top, list, out) = (top.clone(), prep.ignored.clone(), dir.join(ignored::FILE));
+            let packed = tokio::task::spawn_blocking(move || ignored::pack(&top, &list, &out))
+                .await
+                .map_err(|e| Fail::new("ignored_changed", e.to_string()))?
+                .map_err(|e| {
+                    Fail::new(
+                        "ignored_changed",
+                        format!("The files git ignores could not be packed: {e}"),
+                    )
+                })?;
+            c.ignored = packed.files.iter().map(|f| f.path.clone()).collect();
+            if !packed.files.is_empty() {
+                files.push(FileEntry {
+                    name: ignored::FILE.to_string(),
+                    size: packed.size,
+                    sha256: packed.sha256,
+                    sent: 0,
+                });
+            }
+        }
     }
     let total: u64 = files.iter().map(|f| f.size).sum();
     update(state, id, |r| {
@@ -1283,6 +1389,7 @@ async fn send(state: &AppState, id: &str, active: &Active, prep: &Prepared) -> R
             changed: c.changed,
             untracked: c.untracked,
             warnings: c.warnings.clone(),
+            ignored: c.ignored.clone(),
         }),
         settings: rec.settings.clone(),
         held: rec.held.clone(),

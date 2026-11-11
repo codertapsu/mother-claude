@@ -33,6 +33,11 @@ pub struct CodeAsk {
     pub branch: Option<String>,
     /// The source's `origin` URL.
     pub origin: Option<String>,
+    /// The files git ignores that travel with it (the project's list),
+    /// under the repository's top: carrying them needs the target's
+    /// `dangerous` grant for the source.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub ignored: Vec<String>,
 }
 
 /// `POST /peer/moves/preflight`.
@@ -159,6 +164,10 @@ pub struct CodeSpec {
     pub changed: usize,
     pub untracked: usize,
     pub warnings: Vec<String>,
+    /// The files git ignores in `ignored.tar.gz`, under the repository's
+    /// top (written into the landing once the code is there).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub ignored: Vec<String>,
 }
 
 /// `POST /peer/moves/{id}`: the package and everything the target needs to

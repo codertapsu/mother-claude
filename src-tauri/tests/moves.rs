@@ -350,7 +350,7 @@ fn repos() -> Repos {
     put(&seed, "a.txt", "alpha\n");
     put(&seed, "b.txt", "bravo\n");
     put(&seed, "src/main.rs", "fn main() {}\n");
-    put(&seed, ".gitignore", "target/\n");
+    put(&seed, ".gitignore", "target/\n.env.local\n*.local.json\n");
     git(&seed, &["add", "-A"]);
     git(&seed, &["commit", "-q", "-m", "seed"]);
     git(&seed, &["push", "-q", "origin", "HEAD:refs/heads/main"]);
@@ -1309,4 +1309,228 @@ async fn a_move_started_from_the_other_computer_needs_the_dangerous_grant_on_bot
             .any(|(k, e)| slashed(k) == slashed(&t_cwd) && e["hasTrustDialogAccepted"] == true)
     });
     assert!(trusted, "{there:#}");
+}
+
+// ─── files git ignores that a project carries ──────────────────────────────────
+
+/// S's project carries `files` although git ignores them (set from S's
+/// desktop: setting them is a dangerous act).
+async fn carry(w: &World, files: &[&str]) {
+    let (s, v) =
+        w.s.call(
+            "PUT",
+            "/machines/settings",
+            Some(json!({ "projects": { "upsert": [{
+                "project": w.s_cwd,
+                "recipe": { "carryIgnored": files }
+            }] } })),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+}
+
+/// The target gives the source its dangerous grant too.
+async fn t_trusts_s_with_danger(w: &World) {
+    let (s, v) =
+        w.t.call(
+            "PATCH",
+            &format!("/machines/{}", w.s.id()),
+            Some(json!({ "grants": risky() })),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn the_files_git_ignores_a_project_lists_land_in_the_checkout_and_undo_puts_back_its_own() {
+    let w = world().await;
+    put(&w.repos.s, ".env.local", "FROM=source\n");
+    put(&w.repos.s, "config/dev.local.json", "{}\n");
+    // The target has its own .env.local (git ignores it there too: its
+    // checkout is clean), and no config folder.
+    put(&w.repos.t, ".env.local", "FROM=target\n");
+    assert_eq!(git(&w.repos.t, &["status", "--porcelain"]), "");
+    carry(
+        &w,
+        &[".env.local", "config/dev.local.json", "not-there.env"],
+    )
+    .await;
+    let body = to_t(&w, json!({}));
+
+    // The sheet lists them (the one not on this computer is left out).
+    let pre = preflight(&w.s, body.clone()).await;
+    assert_eq!(
+        pre["code"]["ignored"],
+        json!([".env.local", "config/dev.local.json"]),
+        "{pre:#}"
+    );
+    assert_eq!(pre["code"]["carryIgnored"], true);
+    // The target has not given this computer its dangerous grant: refused.
+    assert_eq!(pre["ok"], false, "{pre:#}");
+    assert!(
+        codes(&pre["blockers"]).contains(&"ignored_needs_dangerous".to_string()),
+        "{pre:#}"
+    );
+    let (s, v) =
+        w.s.call("POST", &format!("/sessions/{SID}/move"), Some(body.clone()))
+            .await;
+    assert_eq!(s, StatusCode::CONFLICT, "{v}");
+    assert_eq!(v["error"]["code"], "move_blocked");
+    // A phone without the dangerous right here that asks for them is
+    // refused here too (and there: its missing right goes along)…
+    let phone =
+        w.s.st
+            .devices
+            .issue(
+                "Phone",
+                "ios",
+                None,
+                server::Ingress::Lan,
+                "192.168.1.20".parse().unwrap(),
+            )
+            .1;
+    t_trusts_s_with_danger(&w).await;
+    let phone_preflight = |body: Value| {
+        let phone = phone.clone();
+        let s = &w.s;
+        async move {
+            let (st, pre) = s
+                .call_as(
+                    &phone,
+                    "POST",
+                    &format!("/sessions/{SID}/move/preflight"),
+                    Some(body),
+                )
+                .await;
+            assert_eq!(st, StatusCode::OK, "{pre}");
+            pre
+        }
+    };
+    let mut asking = body.clone();
+    asking["carryIgnored"] = json!(true);
+    let pre = phone_preflight(asking).await;
+    let c = codes(&pre["blockers"]);
+    assert!(
+        !c.is_empty() && c.iter().all(|c| c == "ignored_needs_dangerous"),
+        "{pre:#}"
+    );
+    assert_eq!(
+        pre["blockers"][0]["message"],
+        "Carrying files git ignores needs the dangerous permission (set on the desktop)."
+    );
+    // …and left unsaid they stay where they are.
+    let pre = phone_preflight(body.clone()).await;
+    assert_eq!(pre["ok"], true, "{pre:#}");
+    assert_eq!(pre["code"]["carryIgnored"], false);
+    assert_eq!(pre["code"]["ignored"].as_array().map(Vec::len), Some(2));
+
+    // With the dangerous right on both computers they travel.
+    let pre = preflight(&w.s, body.clone()).await;
+    assert_eq!(pre["ok"], true, "{pre:#}");
+    let rec = move_session(&w.s, body).await;
+    assert_eq!(rec["state"], "resumed", "{rec:#}");
+    assert!(
+        rec["files"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|f| f["name"] == "ignored.tar.gz"),
+        "{rec:#}"
+    );
+    assert_eq!(read(&w.repos.t, ".env.local"), "FROM=source\n");
+    assert_eq!(read(&w.repos.t, "config/dev.local.json"), "{}\n");
+    assert!(
+        codes(&rec["warnings"]).contains(&"ignored_replaced".to_string()),
+        "the target says it kept its own: {rec:#}"
+    );
+    // The source's are where they were.
+    assert_eq!(read(&w.repos.s, ".env.local"), "FROM=source\n");
+
+    // Undo: the target's own copy is back, what came is gone.
+    let id = rec["id"].as_str().unwrap();
+    let (s, v) = w.s.call("POST", &format!("/moves/{id}/undo"), None).await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    assert_eq!(v["state"], "undone", "{v:#}");
+    assert_eq!(read(&w.repos.t, ".env.local"), "FROM=target\n");
+    assert!(!w.repos.t.join("config").exists(), "what it added is gone");
+    assert_eq!(git(&w.repos.t, &["status", "--porcelain"]), "");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn the_files_git_ignores_land_in_a_worktree_too() {
+    let w = world().await;
+    put(&w.repos.s, ".env.local", "FROM=source\n");
+    carry(&w, &[".env.local"]).await;
+    t_trusts_s_with_danger(&w).await;
+    let rec = move_session(&w.s, to_t(&w, json!({ "apply": "worktree" }))).await;
+    assert_eq!(rec["state"], "resumed", "{rec:#}");
+    let wt = PathBuf::from(rec["targetCwd"].as_str().unwrap());
+    assert!(
+        wt.starts_with(w.t.data().join("machines").join("worktrees")),
+        "{wt:?}"
+    );
+    assert_eq!(read(&wt, ".env.local"), "FROM=source\n");
+    assert!(
+        !w.repos.t.join(".env.local").exists(),
+        "the project folder is not touched"
+    );
+    let id = rec["id"].as_str().unwrap();
+    let (s, v) = w.s.call("POST", &format!("/moves/{id}/undo"), None).await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    assert!(!wt.join(".env.local").exists(), "{v:#}");
+}
+
+/// `link` is a link to the folder `target` (a junction on Windows, which
+/// needs no privilege there).
+fn link_dir(link: &Path, target: &Path) {
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(target, link).unwrap();
+    #[cfg(windows)]
+    {
+        let out = std::process::Command::new("cmd")
+            .args(["/C", "mklink", "/J"])
+            .arg(link)
+            .arg(target)
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "{out:?}");
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_listed_path_outside_the_project_or_through_a_link_is_refused_at_preflight() {
+    let w = world().await;
+    t_trusts_s_with_danger(&w).await;
+    let outside = tempfile::tempdir().unwrap();
+    put(outside.path(), "secret.env", "TOKEN=outside\n");
+    link_dir(&w.repos.s.join("linked"), outside.path());
+    carry(&w, &["linked/secret.env"]).await;
+    // A path that leaves the project can't be set; written by hand into the
+    // settings, it is refused all the same.
+    w.s.st.machines.store_write(|f| {
+        for p in f.projects.values_mut() {
+            if let Some(r) = p.recipe.as_mut() {
+                r.carry_ignored.push("../escape.env".into());
+            }
+        }
+    });
+    put(w.repos.s.parent().unwrap(), "escape.env", "TOKEN=escape\n");
+    let body = to_t(&w, json!({}));
+    let pre = preflight(&w.s, body.clone()).await;
+    assert_eq!(pre["ok"], false, "{pre:#}");
+    let c = codes(&pre["blockers"]);
+    assert!(c.contains(&"ignored_link".to_string()), "{pre:#}");
+    assert!(c.contains(&"ignored_bad_path".to_string()), "{pre:#}");
+    assert_eq!(pre["code"]["ignored"], json!([]), "nothing of them travels");
+    let (s, v) =
+        w.s.call("POST", &format!("/sessions/{SID}/move"), Some(body.clone()))
+            .await;
+    assert_eq!(s, StatusCode::CONFLICT, "{v}");
+    assert_eq!(v["error"]["code"], "move_blocked");
+    // Left here, the move goes on without them.
+    let mut leave = body;
+    leave["carryIgnored"] = json!(false);
+    leave["code"] = json!("none");
+    let pre = preflight(&w.s, leave).await;
+    assert_eq!(pre["ok"], true, "{pre:#}");
 }

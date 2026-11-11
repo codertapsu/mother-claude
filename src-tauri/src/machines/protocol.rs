@@ -28,10 +28,15 @@ pub const CAPABILITIES: &[&str] = &[
     "bulk",
     super::roots::CAPABILITY,
     MOVES,
+    IGNORED_FILES,
 ];
 
 /// The capability a machine needs to take (and send) sessions.
 pub const MOVES: &str = "moves";
+
+/// The capability a machine needs to take the files git ignores that a
+/// project carries with a move (`moves::ignored`).
+pub const IGNORED_FILES: &str = "ignoredFiles";
 
 /// Versions a machine reports.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

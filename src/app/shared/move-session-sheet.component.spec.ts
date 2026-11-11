@@ -354,6 +354,44 @@ describe('MoveSessionSheetComponent (Continue on another computer)', () => {
     expect(checks(el).some((c) => c.includes("doesn't trust"))).toBe(true);
   });
 
+  it('lists the files git ignores that travel, and leaves them on an untick or without the right', async () => {
+    const withIgnored = (b: SessionMoveBody) =>
+      preflightOk({
+        code: {
+          ...preflightOk().code,
+          ignored: ['.env.local', 'certs/dev.pem'],
+          carryIgnored: b.carryIgnored !== false,
+        },
+      });
+    preflight(withIgnored);
+    serveStart();
+    let el = await open(session());
+    const rows = [...el.querySelectorAll('.kv.what > *')].map(text);
+    expect(rows.slice(4, 5)).toEqual(['Not in git']);
+    expect(rows[5]).toContain('.env.local · certs/dev.pem');
+    expect(rows[5]).toContain('Carry them');
+    expect(asked.at(-1)).toEqual({ to: PEER_ID });
+    // Unticked: they stay, and the checks are asked again.
+    el.querySelector<HTMLInputElement>('.kv.what .ignored input')?.click();
+    await settle();
+    expect(asked.at(-1)).toEqual({ to: PEER_ID, carryIgnored: false });
+    action(el)?.click();
+    await settle();
+    expect(started()).toMatchObject({ carryIgnored: false });
+    fixture.destroy();
+
+    // A phone without the dangerous permission: listed, no tick, nothing
+    // asked (they stay, as the server does it then).
+    asPhoneOf('macos');
+    asked = [];
+    el = await open(session());
+    const line = text(el.querySelector('.kv.what .ignored'));
+    expect(line).toContain('.env.local');
+    expect(line).toContain('They stay where they are');
+    expect(el.querySelector('.kv.what .ignored input')).toBeNull();
+    expect(asked).toEqual([{ to: PEER_ID }]);
+  });
+
   it('shows the checks the start found again', async () => {
     preflight(() => preflightOk());
     backend.routes.set('/sessions/s1/move', () => ({

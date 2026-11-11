@@ -1,8 +1,10 @@
 //! The target's half of a move (docs/PLAN-MACHINES.md §5.8): answering a
 //! preflight (nothing written), receiving the package, landing it — the code
-//! first (a stop by design changes nothing), then the conversation with the
-//! pull's machinery, both kept for undo — resuming once the lease names this
-//! machine, undoing on request, and dropping what a failed move left.
+//! first (a stop by design changes nothing), then the files git ignores the
+//! project carries (`ignored`: this computer's `dangerous` grant for the
+//! source), then the conversation with the pull's machinery, all kept for
+//! undo — resuming once the lease names this machine, undoing on request,
+//! and dropping what a failed move left.
 //!
 //! Everything a source sends is checked before git or the file system sees
 //! it: ids, file names (a fixed list), sizes, hashes, paths, settings.
@@ -12,6 +14,7 @@ use std::path::{Path, PathBuf};
 use serde_json::{json, Value};
 
 use super::folder::{self, BadChoice};
+use super::ignored;
 use super::note::{self, Note};
 use super::resume::{self, Spec};
 use super::wire::{self, AccountAsk, AccountThere, CodeThere, FolderThere, SessionThere};
@@ -82,6 +85,7 @@ fn check_code_ask(c: &wire::CodeAsk) -> ApiResult<()> {
         || c.remote
             .as_deref()
             .is_some_and(|r| !code::valid_remote_name(r))
+        || !ignored::valid_list(&c.ignored)
     {
         return Err(bad("The move's code is not one this computer can take."));
     }
@@ -139,6 +143,12 @@ fn check_manifest(mf: &wire::Manifest) -> ApiResult<()> {
             )));
         }
     }
+    // The files git ignores come in their own file, with their list.
+    let carried = mf.files.iter().any(|f| f.name == ignored::FILE);
+    let listed = mf.code.as_ref().is_some_and(|c| !c.ignored.is_empty());
+    if carried != listed {
+        return Err(bad("The move's files git ignores came without their list."));
+    }
     if let Some(c) = &mf.code {
         check_code_ask(&wire::CodeAsk {
             mode: c.mode.clone(),
@@ -147,6 +157,7 @@ fn check_manifest(mf: &wire::Manifest) -> ApiResult<()> {
             rel: c.rel.clone(),
             branch: c.branch.clone(),
             origin: None,
+            ignored: c.ignored.clone(),
         })?;
         for oid in [&c.base, &c.snapshot, &c.index_tree].into_iter().flatten() {
             if !code::is_oid(oid) {
@@ -332,6 +343,17 @@ async fn resolve(
             format!(
                 "It runs without permission prompts: going on on {} needs its Dangerous \
                  permission for this computer.",
+                me.name
+            ),
+        ));
+    }
+    // The files git ignores the project carries: they usually hold
+    // secrets, so this computer's `dangerous` grant for the source too.
+    if ask.code.as_ref().is_some_and(|c| !c.ignored.is_empty()) && !ctx.may_dangerous() {
+        a.blockers.push(Check::new(
+            "ignored_needs_dangerous",
+            format!(
+                "Carrying files git ignores needs {}'s Dangerous permission for this computer.",
                 me.name
             ),
         ));
@@ -569,6 +591,7 @@ fn ask_of(mf: &wire::Manifest) -> wire::Ask {
             rel: c.rel.clone(),
             branch: c.branch.clone(),
             origin: None,
+            ignored: c.ignored.clone(),
         }),
         trust: mf.trust,
         permission_mode: mf.settings.permission_mode.clone(),
@@ -686,6 +709,7 @@ pub async fn peer_create(
                     changed: c.changed,
                     untracked: c.untracked,
                     warnings: c.warnings.clone(),
+                    ignored: c.ignored.clone(),
                     landed: None,
                 }),
                 files: mf
@@ -1050,6 +1074,41 @@ async fn land_checked(
             }
         }
     }
+    // The files git ignores that the project carries, into the folder the
+    // code landed in (what they replace kept in the move's folder for
+    // undo); a step after this puts them back before the code.
+    let mut carried = false;
+    let mut replaced: Vec<String> = Vec::new();
+    if let (Some(c), Some(a)) = (&mf.code, &applied) {
+        if !c.ignored.is_empty() {
+            let (top, archive, list, d) = (
+                a.path.clone(),
+                dir.join(ignored::FILE),
+                c.ignored.clone(),
+                dir.to_path_buf(),
+            );
+            let r = tokio::task::spawn_blocking(move || ignored::land(&top, &archive, &list, &d))
+                .await
+                .map_err(|e| ApiError::internal(e.to_string()));
+            match r {
+                Ok(Ok(l)) => {
+                    carried = true;
+                    replaced = l.replaced;
+                }
+                Ok(Err(why)) => {
+                    code_back(&git, &folder, &code_dir, true).await;
+                    return Err(ApiError::conflict(
+                        "move_ignored_stopped",
+                        format!("The files git ignores can't land here: {why}"),
+                    ));
+                }
+                Err(e) => {
+                    code_back(&git, &folder, &code_dir, true).await;
+                    return Err(e);
+                }
+            }
+        }
+    }
     // The conversation.
     let job = crate::claude::transfer::new_job_id();
     update(state, id, |r| {
@@ -1089,10 +1148,12 @@ async fn land_checked(
     let report = match landed {
         Ok(Ok((report, _))) => report,
         Ok(Err(e)) => {
+            ignored_back(dir, carried).await;
             code_back(&git, &folder, &code_dir, applied.is_some()).await;
             return Err(ApiError::conflict(e.code(), e.to_string()));
         }
         Err(e) => {
+            ignored_back(dir, carried).await;
             code_back(&git, &folder, &code_dir, applied.is_some()).await;
             return Err(e);
         }
@@ -1127,6 +1188,7 @@ async fn land_checked(
         state.machines.leases.take_note(&target_session);
         let (ur, j) = (undo_root.clone(), job.clone());
         let _ = tokio::task::spawn_blocking(move || crate::claude::transfer::undo(&ur, &j)).await;
+        ignored_back(dir, carried).await;
         code_back(&git, &folder, &code_dir, applied.is_some()).await;
         return Err(e);
     }
@@ -1160,6 +1222,16 @@ async fn land_checked(
         .iter()
         .map(|w| Check::new("landing", w.clone()))
         .collect();
+    if !replaced.is_empty() {
+        warnings.push(Check::new(
+            "ignored_replaced",
+            format!(
+                "{} had its own {}: kept for Undo move.",
+                m::this_name(state),
+                replaced.join(", ")
+            ),
+        ));
+    }
     if let Landed::Conflict { copy } = &report.landed {
         warnings.push(Check::new(
             "conflict_copy",
@@ -1198,6 +1270,26 @@ async fn land_checked(
     }
     let rec = load(state, id).ok_or_else(super::not_found)?;
     Ok(landed_answer(&rec))
+}
+
+/// Takes back the files git ignores a landing that failed had written (what
+/// they replaced comes back), before the code goes back.
+async fn ignored_back(move_dir: &Path, carried: bool) {
+    if !carried {
+        return;
+    }
+    let d = move_dir.to_path_buf();
+    match tokio::task::spawn_blocking(move || ignored::undo(&d)).await {
+        Ok(Ok(left)) if left.is_empty() => {}
+        Ok(Ok(left)) => tracing::warn!(
+            files = left.len(),
+            "files git ignores a failed landing wrote changed meanwhile: left as they are"
+        ),
+        Ok(Err(e)) => {
+            tracing::warn!(error = %e, "files git ignores could not be put back after a failed landing")
+        }
+        Err(e) => tracing::warn!(error = %e, "putting files git ignores back did not run"),
+    }
 }
 
 /// Puts the code back after a landing that failed once it was applied (off
@@ -1439,14 +1531,31 @@ async fn undo_core(state: &AppState, id: &str) -> ApiResult<(MoveRecord, lease::
         crate::pending::withdraw_session(state, &session, "the move was undone").await;
         crate::server::monitor::tick_once(state).await;
     }
+    // The files git ignores it carried, first: the code's own check then
+    // sees the landing as the move left it (whatever this computer ignores).
+    // Each goes back only while it is what the move wrote.
+    let move_dir = move_folder(state, id).ok_or_else(super::not_found)?;
+    let carried = rec.code.as_ref().is_some_and(|c| !c.ignored.is_empty());
+    let mut left: Vec<String> = Vec::new();
+    if carried {
+        let d = move_dir.clone();
+        left = tokio::task::spawn_blocking(move || ignored::undo(&d))
+            .await
+            .map_err(|e| ApiError::internal(e.to_string()))?
+            .map_err(|e| {
+                ApiError::conflict(
+                    "move_ignored_changed",
+                    format!("The files git ignores can't be put back here: {e}"),
+                )
+            })?;
+    }
     // The code.
     if let (Some(c), Some(folder)) = (rec.code.as_ref(), rec.target_folder.as_ref()) {
         if c.landed.is_some() {
-            let dir = move_folder(state, id).ok_or_else(super::not_found)?;
             let (g, repo, cd) = (
                 state.machines.moves.git(),
                 PathBuf::from(folder),
-                dir.join("code"),
+                move_dir.join("code"),
             );
             let undone = tokio::task::spawn_blocking(move || code::undo(&g, &repo, &cd))
                 .await
@@ -1454,10 +1563,23 @@ async fn undo_core(state: &AppState, id: &str) -> ApiResult<(MoveRecord, lease::
             match undone {
                 Ok(_) | Err(code::CodeError::AlreadyUndone) => {}
                 Err(e) => {
+                    // The move stays: so do the files it carried.
+                    if carried {
+                        let d = move_dir.clone();
+                        match tokio::task::spawn_blocking(move || ignored::redo(&d)).await {
+                            Ok(Ok(())) => {}
+                            Ok(Err(why)) => {
+                                tracing::warn!(error = %why, "files git ignores could not land again after a refused undo")
+                            }
+                            Err(why) => {
+                                tracing::warn!(error = %why, "landing files git ignores again did not run")
+                            }
+                        }
+                    }
                     return Err(ApiError::conflict(
                         "move_code_changed",
                         format!("The code can't be put back here: {e}"),
-                    ))
+                    ));
                 }
             }
         }
@@ -1495,6 +1617,15 @@ async fn undo_core(state: &AppState, id: &str) -> ApiResult<(MoveRecord, lease::
     let rec = update(state, id, |r| {
         r.undo_until = None;
         r.held.clear();
+        if !left.is_empty() {
+            r.warnings.push(Check::new(
+                "ignored_left",
+                format!(
+                    "Changed on {here} since the move, so left as they are: {}.",
+                    left.join(", ")
+                ),
+            ));
+        }
         r.reach(MoveState::Undone);
     })
     .ok_or_else(super::not_found)?;
@@ -1563,6 +1694,11 @@ async fn drop_core(state: &AppState, id: &str, code: &str, message: &str) -> Api
                     let _ = crate::claude::transfer::ops::undo(state, &job).await;
                 }
             }
+        }
+        if let Some(dir) = &dir {
+            // The files git ignores it carried, before the code.
+            let d = dir.clone();
+            let _ = tokio::task::spawn_blocking(move || ignored::undo(&d)).await;
         }
         if let (Some(dir), Some(folder)) = (&dir, rec.target_folder.as_ref()) {
             let applied = dir.join("code").join(code::APPLY);
@@ -1643,6 +1779,10 @@ mod tests {
         assert!(file_path(d, "session.tar.gz").is_some());
         assert!(file_path(d, "meta.json").is_some());
         assert!(file_path(d, "move.bundle").is_some());
+        assert_eq!(
+            file_path(d, "ignored.tar.gz"),
+            Some(d.join("ignored.tar.gz"))
+        );
         assert!(file_path(d, &format!("lfs.{}", "a".repeat(64))).is_some());
         for bad in ["../x", "settings.json", "lfs.zz", "lfs.", "code/meta.json"] {
             assert!(file_path(d, bad).is_none(), "{bad}");

@@ -78,6 +78,9 @@ export interface MoveCode {
   untracked: number;
   /** The snapshot's warnings (`lfs`, `submodules`, `case-collision`, …). */
   warnings: string[];
+  /** The files git ignores that travel with it (the project's list), under
+   * the repository's top. */
+  ignored?: string[];
   /** Where it landed on the target (`{landing, path, …}`). */
   landed?: { landing?: string; path?: string } | null;
 }
@@ -173,6 +176,10 @@ export interface SessionMoveBody {
   recipe?: boolean;
   /** Carry the folder's trust there (the dangerous right). */
   trust?: boolean;
+  /** Carry the files git ignores that the project lists (the dangerous
+   * right on both computers). Left out, they travel when this caller holds
+   * that right and stay otherwise; `false` leaves them. */
+  carryIgnored?: boolean;
   /** The session's computer is offline: it lives here from now on. */
   takeOver?: boolean;
   /** After this turn (`idle`, the default) or now, interrupting it. */
@@ -216,6 +223,11 @@ export interface PreflightCode {
   /** The target's branch against this base: `create`, `same`,
    * `fastForward`, `diverged`. */
   relation?: string | null;
+  /** The files git ignores that the project lists, as found here (*Not in
+   * git*); they travel when `carryIgnored`. */
+  ignored?: string[];
+  ignoredBytes?: number;
+  carryIgnored?: boolean;
 }
 
 /** What the other computer answered. */
@@ -387,6 +399,7 @@ export function normalizeMove(v: unknown): MoveRecord | null {
           changed: num(code['changed']),
           untracked: num(code['untracked']),
           warnings: strings(code['warnings']),
+          ignored: strings(code['ignored']),
         }
       : null,
     files: Array.isArray(r['files'])
@@ -485,6 +498,8 @@ export function normalizePreflight(v: unknown): MovePreflight | null {
       ...(code as unknown as PreflightCode),
       mode: str(code['mode']) || 'none',
       repo: code['repo'] === true,
+      ignored: strings(code['ignored']),
+      carryIgnored: code['carryIgnored'] === true,
     },
     target: t
       ? {
