@@ -19,11 +19,18 @@
 //!
 //! Phase 3a adds the rest (plan §5.14, "the setup's rest"): git, long
 //! paths, Claude Code, each account's sign-in and room for data
-//! (`checks`), with each account's sign-in as another computer may see it
-//! (`accounts`).
+//! (`checks`); accounts matched by name across computers (`accounts`);
+//! roots proposed from repositories' origins and *Clone it there*
+//! (`folders`); what another computer asks this one to do, done only when
+//! confirmed here (`asks`); the code options per project (`options`); and their
+//! routes (`routes`).
 
 pub mod accounts;
+pub mod asks;
 pub mod checks;
+pub mod folders;
+pub mod options;
+pub mod routes;
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -190,6 +197,9 @@ pub struct PeerChecks {
     /// Its tools and options (absent from an older build).
     #[serde(default)]
     pub facts: Option<Facts>,
+    /// What this machine asked of it, and how each went.
+    #[serde(default)]
+    pub asks: Vec<asks::Ask>,
 }
 
 /// One readiness-test line.
@@ -234,6 +244,16 @@ pub struct Cache {
     /// git's version, as the checks last read it.
     #[serde(default)]
     pub git: Option<String>,
+    /// What other machines asked this one to do (`asks`), newest last.
+    #[serde(default)]
+    pub asks: Vec<asks::Ask>,
+    /// The last scan for git repositories (`folders`): when, the roots'
+    /// folders it looked under, and what it found.
+    #[serde(skip)]
+    pub(crate) repos: Option<(i64, Vec<String>, Vec<folders::Repo>)>,
+    /// Remote checks other computers asked for, running now (`folders`).
+    #[serde(skip)]
+    pub(crate) remote_checks: usize,
     #[serde(skip)]
     dir: Option<PathBuf>,
 }
@@ -312,13 +332,14 @@ pub fn facts(state: &AppState) -> Facts {
     })
 }
 
-/// `GET /peer/setup`: this machine's checks for another machine's
-/// side-by-side view, and its tools.
-pub async fn peer_answer(state: &AppState) -> Value {
+/// `GET /peer/setup`: this machine's checks for `machine`'s side-by-side
+/// view, its tools, and what `machine` asked of it.
+pub async fn peer_answer(state: &AppState, machine: &str) -> Value {
     let v = view(state, false).await;
     json!({
         "checks": v["self"]["checks"],
         "facts": facts(state),
+        "asks": asks::made_by(state, machine),
     })
 }
 
@@ -1075,6 +1096,7 @@ pub async fn view(state: &AppState, fresh: bool) -> Value {
                 "checks": pc.checks,
                 "error": pc.error,
                 "facts": pc.facts,
+                "asks": pc.asks,
             })
         })
         .collect();
@@ -1170,6 +1192,13 @@ async fn fetch_one(state: &AppState, id: &str) -> PeerChecks {
             facts: v
                 .get("facts")
                 .and_then(|f| serde_json::from_value(f.clone()).ok()),
+            asks: v
+                .get("asks")
+                .and_then(|a| serde_json::from_value::<Vec<asks::Ask>>(a.clone()).ok())
+                .unwrap_or_default()
+                .into_iter()
+                .filter(|a| asks::is_ask_id(&a.id))
+                .collect(),
         },
         Ok((status, _)) => empty(format!("It answered {status}.")),
         Err(e) => empty(e),
@@ -1211,6 +1240,24 @@ pub async fn fetch_peer_checks(state: &AppState) {
     });
     let results = futures_util::future::join_all(asks).await;
     keep_peer_checks(state, results);
+}
+
+/// Asks one paired machine for its checks again (it said they changed).
+pub async fn fetch_peer_checks_of(state: &AppState, machine: &str) {
+    let pc = fetch_one(state, machine).await;
+    keep_peer_checks(state, vec![(machine.to_string(), pc)]);
+}
+
+/// Remembers an ask this machine just made of `machine` (until its next
+/// answer to `/peer/setup` says how it went).
+pub fn note_asked(state: &AppState, machine: &str, ask: asks::Ask) {
+    with_cache(state, |c| {
+        let entry = c.peers.entry(machine.to_string()).or_default();
+        entry.asks.retain(|a| a.id != ask.id);
+        entry.asks.push(ask);
+        c.save();
+    });
+    super::publish(state, "setup");
 }
 
 /// The readiness test with `machine`, or every paired machine.

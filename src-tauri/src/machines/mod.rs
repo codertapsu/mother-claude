@@ -90,6 +90,8 @@ pub struct SettingsOffer {
     pub from: String,
     pub from_name: String,
     pub relay: store::RelaySetting,
+    /// Its code options, when it sent them (an older build does not).
+    pub code: Option<store::CodeSettings>,
     pub at: i64,
 }
 
@@ -692,6 +694,8 @@ pub async fn view(state: &AppState) -> Value {
         "transport": { "running": endpoint.is_some(), "relay": relay },
         "health": setup::health_summary(state),
         "setupStep": file.setup_step,
+        // What other computers asked this one to do (`setup::asks`).
+        "asks": setup::asks::view(state),
     })
 }
 

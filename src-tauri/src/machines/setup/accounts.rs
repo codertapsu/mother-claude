@@ -7,12 +7,14 @@
 //! actions (`asks`): shown there, done only when someone there confirms.
 
 use std::collections::BTreeMap;
+use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 use crate::claude::accounts::signin::{self, LoginOptions};
 use crate::claude::accounts::{status, Account, AccountKind};
+use crate::machines::transport;
 use crate::server::error::ApiError;
 use crate::state::AppState;
 
@@ -292,6 +294,93 @@ pub fn table(cols: &[Column]) -> Vec<Row> {
             }
         })
         .collect()
+}
+
+/// Another computer's accounts (`GET /peer/accounts`): `Err` with why not.
+pub async fn fetch(state: &AppState, machine: &str) -> Result<Vec<AccountFact>, String> {
+    let (status, v) = transport::request(
+        state,
+        machine,
+        "GET",
+        PEER_PATH,
+        None,
+        Duration::from_secs(20),
+    )
+    .await?;
+    match status {
+        200 => serde_json::from_value(v["accounts"].clone())
+            .map_err(|_| "it answered something unexpected".to_string()),
+        404 => Err("older".into()),
+        403 => Err("refused".into()),
+        s => Err(format!("it answered {s}")),
+    }
+}
+
+/// `GET /api/machines/accounts`: every computer's accounts matched by name,
+/// with what this computer asked of the others and how it went.
+pub async fn view(state: &AppState) -> Value {
+    let here = crate::machines::machine_info(state);
+    let peers: Vec<(String, String)> = state.machines.store_read(|f| {
+        f.peers
+            .iter()
+            .map(|p| (p.id.clone(), p.display_name().to_string()))
+            .collect()
+    });
+    let fetched =
+        futures_util::future::join_all(peers.iter().map(|(id, _)| fetch(state, id))).await;
+    let mut cols = vec![Column {
+        machine: here.id.clone(),
+        accounts: Some(local(state)),
+    }];
+    let mut machines = vec![json!({
+        "id": here.id, "name": here.name, "here": true, "online": true, "error": null,
+    })];
+    for ((id, name), r) in peers.iter().zip(fetched) {
+        let online = state.machines.link(id).online;
+        let error = r.as_ref().err().cloned();
+        machines.push(json!({
+            "id": id, "name": name, "here": false, "online": online,
+            "error": error.map(|e| match e.as_str() {
+                "older" => format!("Update Mother Claude on {name} to see its accounts."),
+                "refused" => format!("{name} does not let this computer see it."),
+                _ => format!("Can't reach {name} now: {e}"),
+            }),
+        }));
+        cols.push(Column {
+            machine: id.clone(),
+            accounts: r.ok(),
+        });
+    }
+    let asked = super::with_cache(state, |c| {
+        c.peers
+            .iter()
+            .map(|(id, pc)| (id.clone(), pc.asks.clone()))
+            .collect::<BTreeMap<_, _>>()
+    });
+    let rows: Vec<Value> = table(&cols)
+        .into_iter()
+        .map(|row| {
+            let lower = row.name.to_lowercase();
+            let asks: BTreeMap<String, Value> = asked
+                .iter()
+                .filter_map(|(machine, list)| {
+                    let a = list.iter().rev().find(|a| {
+                        matches!(
+                            a.kind,
+                            super::asks::AskKind::SignIn | super::asks::AskKind::AddAccount
+                        ) && a.account.as_deref().map(str::to_lowercase).as_deref()
+                            == Some(lower.as_str())
+                    })?;
+                    Some((
+                        machine.clone(),
+                        serde_json::to_value(a).unwrap_or(Value::Null),
+                    ))
+                })
+                .collect();
+            json!({ "name": row.name, "default": row.default, "cells": row.cells, "asks": asks })
+        })
+        .collect();
+    json!({ "machine": here.id, "machines": machines, "accounts": rows })
 }
 
 #[cfg(test)]
