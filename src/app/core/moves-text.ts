@@ -351,6 +351,51 @@ const RULES: readonly Rule[] = [
         file: m[2],
       }),
   ],
+  // ── The remote, through which the code would travel (source.rs,
+  // target.rs: the setup's check made again, setup/folders.rs) ──
+  [
+    /^The remote (.+) doesn't answer from this computer without a prompt\.$/,
+    (m) =>
+      tr("The remote {remote} doesn't answer from this {computer} without a prompt.", {
+        remote: m[1],
+        computer: computerNoun(),
+      }),
+  ],
+  [
+    /^The remote (.+) doesn't answer on (.+) without a prompt\.$/,
+    (m) =>
+      tr("The remote {remote} doesn't answer on {name} without a prompt.", {
+        remote: m[1],
+        name: m[2],
+      }),
+  ],
+  [
+    /^The remote asked for a sign-in: sign in to it on this computer \(Git Credential Manager, or gh auth login\), then try again\.$/,
+    () =>
+      tr(
+        'The remote asked for a sign-in: sign in to it on this computer (Git Credential Manager, or gh auth login), then try again.',
+      ),
+  ],
+  [
+    /^The remote refused this computer's SSH key\.$/,
+    () => tr("The remote refused this computer's SSH key."),
+  ],
+  [
+    /^Can't reach the remote from this computer\.$/,
+    () => tr("Can't reach the remote from this computer."),
+  ],
+  [
+    /^The remote has no such repository, or this computer may not see it\.$/,
+    () => tr('The remote has no such repository, or this computer may not see it.'),
+  ],
+  [/^git could not reach the remote\.$/, () => tr('git could not reach the remote.')],
+  [
+    /^The remote did not answer in 30 seconds\.$/,
+    () => tr('The remote did not answer in 30 seconds.'),
+  ],
+  [/^git isn't installed on this computer\.$/, () => tr("git isn't installed on this computer.")],
+  // The other computer's fix, as its setup says it: "On DESKTOP-PC: …".
+  [/^On (.+?): (.+)$/, (m) => tr('On {name}: {fix}', { name: m[1], fix: moveText(m[2]) })],
   // ── Fixes ──
   [
     /^Update Mother Claude on (.+)\.$/,

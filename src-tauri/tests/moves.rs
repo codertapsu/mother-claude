@@ -1534,3 +1534,62 @@ async fn a_listed_path_outside_the_project_or_through_a_link_is_refused_at_prefl
     let pre = preflight(&w.s, leave).await;
     assert_eq!(pre["ok"], true, "{pre:#}");
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn code_through_the_remote_needs_it_to_answer_on_both_computers() {
+    let w = world().await;
+    let body = to_t(&w, json!({ "code": "remote" }));
+    let find = |pre: &Value, code: &str| {
+        pre["blockers"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|b| b["code"] == code)
+            .cloned()
+    };
+    // A local bare repository answers on both: nothing in the way.
+    let pre = preflight(&w.s, body.clone()).await;
+    assert_eq!(pre["ok"], true, "{pre:#}");
+
+    // Gone here: refused before anything starts, in the setup's words.
+    let origin = git(&w.repos.s, &["remote", "get-url", "origin"]);
+    let missing = w.repos.s.parent().unwrap().join("missing.git");
+    let missing = missing.to_str().unwrap();
+    git(&w.repos.s, &["remote", "set-url", "origin", missing]);
+    let pre = preflight(&w.s, body.clone()).await;
+    assert_eq!(pre["ok"], false, "{pre:#}");
+    let b = find(&pre, "remote_unreachable").unwrap_or_else(|| panic!("{pre:#}"));
+    assert_eq!(
+        b["message"],
+        "The remote origin doesn't answer from this computer without a prompt."
+    );
+    assert!(b["fix"].as_str().is_some_and(|f| !f.is_empty()), "{pre:#}");
+    assert!(find(&pre, "remote_unreachable_there").is_none(), "{pre:#}");
+    let (s, v) =
+        w.s.call("POST", &format!("/sessions/{SID}/move"), Some(body.clone()))
+            .await;
+    assert_eq!(s, StatusCode::CONFLICT, "{v}");
+    assert_eq!(v["error"]["code"], "move_blocked");
+
+    // Gone there: the other computer says so, naming itself.
+    git(&w.repos.s, &["remote", "set-url", "origin", &origin]);
+    git(&w.repos.t, &["remote", "set-url", "origin", missing]);
+    let pre = preflight(&w.s, body.clone()).await;
+    let b = find(&pre, "remote_unreachable_there").unwrap_or_else(|| panic!("{pre:#}"));
+    let there = machines::this_name(&w.t.st);
+    assert_eq!(
+        b["message"],
+        format!("The remote origin doesn't answer on {there} without a prompt.")
+    );
+    assert!(
+        b["fix"]
+            .as_str()
+            .is_some_and(|f| f.starts_with(&format!("On {there}: "))),
+        "{pre:#}"
+    );
+    assert!(find(&pre, "remote_unreachable").is_none(), "{pre:#}");
+
+    // Machine to machine needs no remote.
+    let pre = preflight(&w.s, to_t(&w, json!({ "code": "bundle" }))).await;
+    assert!(find(&pre, "remote_unreachable_there").is_none(), "{pre:#}");
+}

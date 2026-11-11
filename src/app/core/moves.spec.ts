@@ -171,6 +171,23 @@ describe('moves: the words', () => {
     );
   });
 
+  it("words the check of a move's remote, here and on the other computer", async () => {
+    hostOsSignal.set('macos');
+    expect(moveText("The remote origin doesn't answer from this computer without a prompt.")).toBe(
+      "The remote origin doesn't answer from this Mac without a prompt.",
+    );
+    const fix =
+      'On DESKTOP-PC: The remote has no such repository, or this computer may not see it.';
+    expect(moveText(fix)).toBe(fix);
+    await useLanguage('vi');
+    expect(moveText(fix)).toBe(
+      'Trên DESKTOP-PC: Remote không có kho này, hoặc máy tính này không được xem.',
+    );
+    expect(moveText("The remote origin doesn't answer on DESKTOP-PC without a prompt.")).toBe(
+      'Remote origin không phản hồi trên DESKTOP-PC mà không yêu cầu đăng nhập.',
+    );
+  });
+
   it('says on which computer Machines is off', async () => {
     hostOsSignal.set('macos');
     const here = new ApiError(

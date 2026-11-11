@@ -563,7 +563,8 @@ async fn resolve(
 }
 
 /// `POST /peer/moves/preflight`: this machine's half of the checks (nothing
-/// is written).
+/// is written). Code through the remote: the remote must answer here
+/// without a prompt (the setup's check, made again before the move).
 pub async fn peer_preflight(
     state: &AppState,
     ctx: &ClientContext,
@@ -572,7 +573,37 @@ pub async fn peer_preflight(
 ) -> ApiResult<wire::Answer> {
     check_ask(&ask)?;
     let epoch = ask.epoch;
-    Ok(resolve(state, ctx, from, &ask, Some(epoch)).await.answer)
+    let mut answer = resolve(state, ctx, from, &ask, Some(epoch)).await.answer;
+    let remote_here = ask
+        .code
+        .as_ref()
+        .filter(|c| c.mode == "remote")
+        .map(|c| c.remote.clone().unwrap_or_else(|| "origin".into()))
+        .filter(|r| {
+            answer
+                .code
+                .as_ref()
+                .is_some_and(|t| t.repo && t.remotes.contains(r))
+        });
+    if let (Some(remote), Some(folder)) = (remote_here, answer.folder.clone()) {
+        let r = crate::machines::setup::folders::remote_named_answers_async(
+            state.machines.moves.git(),
+            PathBuf::from(&folder.path),
+            remote.clone(),
+        )
+        .await;
+        if r.state != "ok" {
+            let me = m::this_name(state);
+            answer.blockers.push(
+                Check::new(
+                    "remote_unreachable_there",
+                    format!("The remote {remote} doesn't answer on {me} without a prompt."),
+                )
+                .fix(format!("On {me}: {}", r.detail)),
+            );
+        }
+    }
+    Ok(answer)
 }
 
 fn ask_of(mf: &wire::Manifest) -> wire::Ask {

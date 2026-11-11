@@ -447,6 +447,28 @@ async fn check(
                             plan.remote
                         ),
                     ));
+                } else if code_mode == "remote" {
+                    // It must answer without a prompt (the setup's check,
+                    // made again before this move).
+                    let r = crate::machines::setup::folders::remote_named_answers_async(
+                        git.clone(),
+                        c.state.top.clone(),
+                        plan.remote.clone(),
+                    )
+                    .await;
+                    if r.state != "ok" {
+                        blockers.push(
+                            Check::new(
+                                "remote_unreachable",
+                                format!(
+                                    "The remote {} doesn't answer from this computer without a \
+                                     prompt.",
+                                    plan.remote
+                                ),
+                            )
+                            .fix(r.detail),
+                        );
+                    }
                 }
                 code = Some(c);
             }

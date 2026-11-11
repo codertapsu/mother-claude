@@ -275,5 +275,8 @@
   "The files git ignores could not be packed: {error}": "Không đóng gói được các tệp git bỏ qua: {error}",
   "The files git ignores can't land here: {reason}": "Các tệp git bỏ qua không thể đặt vào đây: {reason}",
   "The files git ignores can't land on {name}: {reason}": "Các tệp git bỏ qua không thể đặt lên {name}: {reason}",
-  "The files git ignores can't be put back there: {error}": "Không thể đưa các tệp git bỏ qua về như cũ ở đó: {error}"
+  "The files git ignores can't be put back there: {error}": "Không thể đưa các tệp git bỏ qua về như cũ ở đó: {error}",
+
+  "The remote {remote} doesn't answer from this {computer} without a prompt.": "Remote {remote} không phản hồi {computer} này mà không yêu cầu đăng nhập.",
+  "The remote {remote} doesn't answer on {name} without a prompt.": "Remote {remote} không phản hồi trên {name} mà không yêu cầu đăng nhập."
 }

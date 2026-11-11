@@ -743,23 +743,36 @@ impl RemoteCheck {
 /// check *Through your git remote* needs on both computers (plan §5.14),
 /// made per project, on demand only.
 pub fn remote_answers(git: &GitRunner, repo: &Path) -> RemoteCheck {
+    remote_named_answers(git, repo, "origin")
+}
+
+/// [`remote_answers`] for the remote `remote` (a checked name: a move's).
+pub fn remote_named_answers(git: &GitRunner, repo: &Path, remote: &str) -> RemoteCheck {
+    if !crate::machines::code::valid_remote_name(remote) {
+        return RemoteCheck::failed("That is not a remote's name.", None);
+    }
     let op = match git.begin() {
         Ok(op) => op,
         Err(e) => return RemoteCheck::failed(&e.to_string(), None),
     };
     let origin = match op
         .cmd(repo)
-        .args(["config", "--get", "remote.origin.url"])
+        .args(["config", "--get", &format!("remote.{remote}.url")])
         .output()
     {
         Ok(o) if o.success => sanitize_origin(String::from_utf8_lossy(&o.stdout).trim()),
-        Ok(_) => return RemoteCheck::failed("This project has no remote named origin.", None),
+        Ok(_) => {
+            return RemoteCheck::failed(
+                &format!("This project has no remote named {remote}."),
+                None,
+            )
+        }
         Err(CodeError::NoGit(_)) => {
             return RemoteCheck::failed("git isn't installed on this computer.", None)
         }
         Err(e) => return RemoteCheck::failed(&e.to_string(), None),
     };
-    let out = no_prompt(op.cmd(repo).args(["ls-remote", "-q", "origin", "HEAD"])).output();
+    let out = no_prompt(op.cmd(repo).args(["ls-remote", "-q", remote, "HEAD"])).output();
     match out {
         Ok(o) if o.success => RemoteCheck {
             state: "ok".into(),
@@ -773,7 +786,17 @@ pub fn remote_answers(git: &GitRunner, repo: &Path) -> RemoteCheck {
 
 /// [`remote_answers`] off the runtime, within [`REMOTE_TIMEOUT`].
 pub async fn remote_answers_async(repo: PathBuf) -> RemoteCheck {
-    let run = tokio::task::spawn_blocking(move || remote_answers(&GitRunner::new(), &repo));
+    remote_named_answers_async(GitRunner::new(), repo, "origin".into()).await
+}
+
+/// [`remote_named_answers`] off the runtime, within [`REMOTE_TIMEOUT`] (a
+/// move's preflight: with the git moves run).
+pub async fn remote_named_answers_async(
+    git: GitRunner,
+    repo: PathBuf,
+    remote: String,
+) -> RemoteCheck {
+    let run = tokio::task::spawn_blocking(move || remote_named_answers(&git, &repo, &remote));
     match tokio::time::timeout(REMOTE_TIMEOUT, run).await {
         Ok(Ok(r)) => r,
         Ok(Err(e)) => RemoteCheck::failed(&e.to_string(), None),
