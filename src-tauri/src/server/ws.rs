@@ -184,7 +184,8 @@ pub enum ServerEvent {
     Teams(Box<crate::orchestration::events::TeamsFrame>),
     /// Machines changed (everyone): `{t:"machines", what}` with `what` one of
     /// `pairing`, `peers`, `setup`, `settings`, `enabled`, `self`,
-    /// `transport` — refetch `/api/machines` (docs/PLAN-MACHINES.md).
+    /// `transport` — refetch `/api/machines` — or `roots` — refetch
+    /// `/api/roots` (docs/PLAN-MACHINES.md).
     Machines { what: String },
     /// A move of a session to or from another computer changed (everyone):
     /// `{t:"move", move}` with the move's whole record as `GET

@@ -3,10 +3,14 @@
 //! * `/api/machines/*` — this machine's dashboard: reading is `Authed` (a
 //!   phone sees Machines read-only); everything that changes anything is
 //!   `DesktopOnly` (pairing, grants, revoking, settings, fixes, the test).
+//! * `/api/roots` — the roots (§5.12): `GET` and `PUT {upsert, remove}`,
+//!   the desktop or a paired device (`ManageData`), as folder pairs are.
 //! * `/peer/*` — the other machines, on the `Peer` ingress only
 //!   (`peer_app`): pairing (`/peer/pair/*`, the one unpaired key pairing
 //!   right now), then a paired machine's hello, setup checks, settings
-//!   offer and the readiness test's transfer. Nothing else is mounted there.
+//!   offer, the readiness test's transfer and the roots (`GET` with `view`,
+//!   `POST` with `move`: roots steer where a move lands). Nothing else is
+//!   mounted there.
 
 use axum::body::Body as HttpBody;
 use axum::extract::{Extension, Path, Query, State};
@@ -21,8 +25,8 @@ use super::grants::{Grant, Grants};
 use super::protocol::Hello;
 use super::store::RelaySetting;
 use super::transport::{self, PathKind};
-use super::{pairing, setup};
-use crate::server::auth::{Authed, DesktopOnly};
+use super::{pairing, roots, setup};
+use crate::server::auth::{Authed, DesktopOnly, ManageData};
 use crate::server::context::{ClientContext, Ingress, PeerCaller, Principal};
 use crate::server::error::{ApiError, ApiResult};
 use crate::server::routes::Body;
@@ -51,6 +55,7 @@ pub fn api_router() -> Router<AppState> {
             "/machines/{id}/proxy/{*rest}",
             any(proxy).layer(axum::extract::DefaultBodyLimit::max(PROXY_BODY_MAX)),
         )
+        .route("/roots", get(get_roots).put(put_roots))
         // Moving sessions (Phase 3a).
         .merge(super::move_routes::api_router())
 }
@@ -71,6 +76,7 @@ pub fn peer_router() -> Router<AppState> {
         .route("/peer/setup/ask", post(peer_setup_ask))
         .route("/peer/settings", post(peer_settings))
         .route("/peer/bulk", get(peer_bulk))
+        .route(roots::PEER_PATH, get(peer_get_roots).post(peer_post_roots))
         // A move's target half, and the leases (Phase 3a).
         .merge(super::move_routes::peer_router())
         // The paired machine's view of this one's sessions (plan §5.6).
@@ -606,6 +612,33 @@ async fn proxy(
 
 const PROXY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
 
+// ─── roots (§5.12) ───────────────────────────────────────────────────────────────
+
+/// `GET /api/roots`: this machine's id, the machines a root may name and the
+/// roots (`roots::view`).
+async fn get_roots(
+    ManageData(_): ManageData,
+    State(state): State<AppState>,
+) -> ApiResult<Json<Value>> {
+    tokio::task::spawn_blocking(move || roots::view(&state))
+        .await
+        .map(Json)
+        .map_err(|e| ApiError::internal(e.to_string()))
+}
+
+/// `PUT /api/roots {upsert: [{id?, name, paths}], remove: [id]}`: all or
+/// nothing; answers the view (`roots::change`).
+async fn put_roots(
+    ManageData(ctx): ManageData,
+    State(state): State<AppState>,
+    Body(req): Body<roots::Change>,
+) -> ApiResult<Json<Value>> {
+    tokio::task::spawn_blocking(move || roots::change(&state, &ctx, &req))
+        .await
+        .map_err(|e| ApiError::internal(e.to_string()))?
+        .map(Json)
+}
+
 /// What another machine may reach of this one's API, and the grant each
 /// needs. Everything else is not mounted for it (plan §5.6).
 pub fn peer_route_grant(method: &axum::http::Method, path: &str) -> Option<Grant> {
@@ -772,7 +805,9 @@ async fn peer_hello(
         .machines
         .store_read(|f| f.peer(&machine).cloned())
         .ok_or_else(|| ApiError::forbidden("peer_only", "Not paired."))?;
+    // The same hello it sends (its roots' digest, its leases).
     let reply: Hello = super::hello_for(&state, &peer);
+    roots::after_hello(&state, &machine, &hello);
     Ok(Json(serde_json::to_value(reply).unwrap_or(Value::Null)))
 }
 
@@ -902,6 +937,38 @@ async fn peer_settings(
     }));
     super::publish(&state, "settings");
     Ok(Json(json!({ "offered": true })))
+}
+
+/// Another machine reads this one's roots, tombstones included (`view`).
+async fn peer_get_roots(
+    ctx: ClientContext,
+    State(state): State<AppState>,
+) -> ApiResult<Json<Value>> {
+    granted(&state, &ctx, Grant::View)?;
+    Ok(Json(roots::message(&state)))
+}
+
+#[derive(Deserialize)]
+struct PeerRoots {
+    #[serde(default)]
+    roots: Value,
+}
+
+/// Another machine sends its roots: merged here only when this machine gave
+/// it the `move` grant for this request's path — roots steer where a move
+/// lands. The answer is this machine's roots, which the sender takes when
+/// it gave this machine the same grant.
+async fn peer_post_roots(
+    ctx: ClientContext,
+    State(state): State<AppState>,
+    Json(req): Json<PeerRoots>,
+) -> ApiResult<Json<Value>> {
+    let machine = granted(&state, &ctx, Grant::Move)?;
+    let changed = roots::receive(&state, &machine, &req.roots)
+        .map_err(|e| ApiError::unprocessable("roots_refused", e))?;
+    let mut answer = roots::message(&state);
+    answer["changed"] = json!(changed);
+    Ok(Json(answer))
 }
 
 #[derive(Deserialize)]

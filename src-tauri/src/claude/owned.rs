@@ -567,11 +567,25 @@ fn launch_account(
 
 /// The folder to continue a session in on this machine: the one the user
 /// chose; else its recorded folder when that is a folder here; else the
-/// folder a folder pair maps it to (docs/BACKUP.md "Folder pairs"). Else
-/// `409 folder_elsewhere` for the user to choose: a session another machine
-/// started whose folder no pair maps, or one whose folder is gone from here.
-/// `--resume` finds its transcript by its id wherever it was restored.
+/// folder a root (docs/PLAN-MACHINES.md §5.12) or a folder pair
+/// (docs/BACKUP.md "Folder pairs") maps it to. Else `409 folder_elsewhere`
+/// for the user to choose: a session another machine started whose folder
+/// nothing maps, or one whose folder is gone from here. `--resume` finds its
+/// transcript by its id wherever it was restored.
 async fn folder_here(state: &AppState, recorded: &str, chosen: Option<&str>) -> ApiResult<String> {
+    folder_here_from(state, None, recorded, chosen).await
+}
+
+/// [`folder_here`] for a folder that machine `from` recorded, when that is
+/// known (a session another computer moved here): its roots and folder
+/// pairs map it (`machines::roots::map_here`). Unknown, as for a session a
+/// backup brought: the roots of any other machine, then the folder pairs.
+pub async fn folder_here_from(
+    state: &AppState,
+    from: Option<&str>,
+    recorded: &str,
+    chosen: Option<&str>,
+) -> ApiResult<String> {
     use crate::claude::paths::{self, PathForm};
     let here = PathForm::here();
     if let Some(c) = chosen.map(str::trim).filter(|c| !c.is_empty()) {
@@ -589,7 +603,12 @@ async fn folder_here(state: &AppState, recorded: &str, chosen: Option<&str>) -> 
     if form == here && Path::new(recorded).is_dir() {
         return Ok(recorded.to_string());
     }
-    if let Some(m) = paths::map_here(recorded, &paths::local_pairs()) {
+    let by_root = match from {
+        Some(machine) => crate::machines::roots::map_here(state, machine, recorded),
+        None => crate::machines::roots::map_here_from_any(state, recorded),
+    };
+    let by_pair = paths::map_here(recorded, &paths::local_pairs());
+    for m in by_root.into_iter().chain(by_pair) {
         if PathForm::of_path(&m) == Some(here) && Path::new(&m).is_dir() {
             return Ok(m);
         }

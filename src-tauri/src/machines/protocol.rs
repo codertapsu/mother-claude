@@ -21,7 +21,14 @@ pub const ALPN_PAIR: &[u8] = b"mother-claude/pair/1";
 pub const PROTOCOL: u32 = 1;
 
 /// What this build can do with another machine.
-pub const CAPABILITIES: &[&str] = &["hello", "setup", "settings", "bulk", "moves"];
+pub const CAPABILITIES: &[&str] = &[
+    "hello",
+    "setup",
+    "settings",
+    "bulk",
+    super::roots::CAPABILITY,
+    MOVES,
+];
 
 /// The capability a machine needs to take (and send) sessions.
 pub const MOVES: &str = "moves";
@@ -76,6 +83,11 @@ pub struct Hello {
     pub grants_you_have: Grants,
     #[serde(default)]
     pub capabilities: Vec<String>,
+    /// The digest of the sender's roots, tombstones included, when it keeps
+    /// roots: the other side exchanges them when its own differ
+    /// (`roots::after_hello`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub roots_digest: Option<String>,
     /// The sender's leases (docs/PLAN-MACHINES.md §5.7): which machine each
     /// session lives on, merged by the receiver when the sender holds its
     /// `move` grant. Absent from an older build.

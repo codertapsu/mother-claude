@@ -549,6 +549,14 @@ Phase 1 is pairing and setup. Invariants:
   which macOS holds responsible.
 - Machines is *on* (`enabled`) only once the setup has no blocker left; it
   is off by default.
+- **Roots** (`machines::roots`, `roots` in `machines.json`): a named folder
+  with one path per machine id, replicated to the paired machines (per root
+  the last writer wins; a removal is a tombstone that sticks). A peer
+  changes this machine's roots only with the `move` grant this machine gave
+  it (`POST /peer/roots`; reading is `view`); `GET`/`PUT /api/roots` are
+  `ManageData`. Folder pairs are imported as two-entry roots, each once,
+  and roots are not written back into backup sets; mapping a path between
+  machines tries the roots, then the folder pairs.
 
 ## Build / lint / test commands
 
