@@ -1158,16 +1158,23 @@ fn skipped_transfer() -> TestLine {
 }
 
 /// Machines health: the checks at start and every 30 minutes (the paired
-/// machines' too while the transport runs).
+/// machines' too while the transport runs), once Machines is in use.
 pub async fn health_loop(state: AppState) {
     let weak = std::sync::Arc::downgrade(&state);
     drop(state);
     loop {
         {
             let Some(state) = weak.upgrade() else { break };
-            refresh(&state).await;
-            if transport::current(&state).await.is_some() {
-                fetch_peer_checks(&state).await;
+            // Only once Machines is in use: on, paired, or its setup begun.
+            // Nobody else pays for the probes.
+            let in_use = state.machines.store_read(|f| {
+                f.enabled || !f.peers.is_empty() || f.setup_step.is_some()
+            });
+            if in_use {
+                refresh(&state).await;
+                if transport::current(&state).await.is_some() {
+                    fetch_peer_checks(&state).await;
+                }
             }
         }
         tokio::time::sleep(HEALTH_EVERY).await;
