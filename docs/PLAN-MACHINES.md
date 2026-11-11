@@ -1042,7 +1042,14 @@ own computer's sessions (UX §6.1 has `/api/sessions` carry the others).*
 
 *Started on the `machines` branch (2026-11-11): `machines/code/`, the
 snapshot, both transfers, both landings, undo and the proof, ported from S2
-with its cases as tests (F10 above); nothing calls it yet.*
+with its cases as tests (F10 above). The backend of the move followed:
+`machines/lease.rs` (leases, exchanged on every hello and on `/peer/leases`,
+enforced in `ControlRegistry::spawn`), `machines/moves/` (the transaction,
+both sides, its records, recovery, take over and undo; the move note in
+`write_user`), `machines/move_routes.rs` (§7's routes and the peer's),
+`backup::session_pack` (the package and its landing, split out of the
+backup's archive and pull code) and `tests/moves.rs`. The screens are
+next.*
 
 **Decisions taken for building it (2026-11-11)**, where §5.7–§5.10 left a
 choice open:
