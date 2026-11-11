@@ -87,9 +87,25 @@ Machines page; *Revoke* forgets a computer and cuts its connections at once.
 ## Seeing and driving another computer
 
 Once paired, every computer's sessions appear in **Sessions** with a chip
-naming their computer (a filter picks one computer); open one and use it as
-if it ran here — the message box, approvals, stop, model, effort. A phone
-paired with any of your computers sees and drives them all through it.
+naming their computer (the *Machine* filter picks one computer); open one
+and use it as if it ran here — the message box, approvals, stop, model,
+effort. Its page says *Runs on DESKTOP-PC*. A few things stay on the
+computer a session runs on, and its page says so: switching its account,
+moving or copying it, deleting it, showing it in Finder or File Explorer,
+and opening it in VS Code.
+
+- **Inbox** lists what waits on you everywhere, each request with its
+  computer's chip; answer it here and the first answer wins, as with a
+  phone.
+- **New session** has a *Where* choice: start it on another computer, in
+  one of that computer's folders. Claude Code must already trust the folder
+  there (open it there with Claude Code once).
+- The **Machines** page shows how many sessions each computer has and how
+  many run, with *Open its sessions*.
+
+A phone paired with any of your computers sees and drives them all through
+it. (A phone whose live connection fails and falls back to refreshing every
+few seconds sees only that computer's own sessions for now.)
 
 A dangerous action on another computer needs both its **Dangerous**
 permission for this computer *and* your own right here: a phone without the

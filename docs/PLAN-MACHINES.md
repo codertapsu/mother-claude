@@ -1009,8 +1009,10 @@ next.*
 *Built on the `machines` branch (2026-11-11): the peer allow-list of the
 session routes (`machines::routes::peer_route_grant`), `X-MC-Acting`
 (`machines::acting`), the proxy and the federation
-(`machines::federation`, `{t:"remote"}` frames); its exit test is by hand
-with Phase 1's.*
+(`machines::federation`, `{t:"remote"}` frames) and the SPA's per-computer
+scopes (`src/app/core/machine-scope.ts`); its exit test is by hand with
+Phase 1's. Left for later: a client on the polling fallback sees only its
+own computer's sessions (UX §6.1 has `/api/sessions` carry the others).*
 
 - `machines/federation.rs`: subscriptions, merge, offline state; frames tagged `machine`.
 - The proxy route; `X-MC-Acting`; the dangerous intersection; audit on the target.
