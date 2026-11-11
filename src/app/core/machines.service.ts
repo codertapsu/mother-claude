@@ -143,7 +143,8 @@ export class MachinesService {
   }
 
   private onFrame(f: MachinesFrame): void {
-    if (!this.started) return;
+    // Code sync's frames are `SyncService`'s: nothing here changed.
+    if (!this.started || f.what === 'sync') return;
     void this.load();
     if (this.setupWatchers && f.what !== 'pairing' && f.what !== 'transport') {
       void this.loadSetup();

@@ -1669,7 +1669,7 @@ const TOPICS: HelpTopicSource[] = [
         heading: 'What travels',
         points: [
           'The branch’s commits and the staged, unstaged and untracked changes, exactly as they are: what a move carries. Nothing is merged, and nothing is pushed anywhere: code goes straight between the two computers.',
-          'Files git ignores, such as `.env` files, `node_modules` and build output, stay on each computer, except the ones the project lists under **Files git ignores that travel with it**, and only when the other computer gave this one its **Dangerous** permission.',
+          'Files git ignores, such as `.env` files, `node_modules` and build output, stay on each computer, except the ones the project lists under **Files git ignores that travel with it**, and only when the other computer gave this one its **Dangerous** permission. The copy such a file replaces there is kept in Mother Claude’s data folder there (the last ten).',
           'A few quiet seconds after a change, the computer that changed sends it; a check every minute catches anything missed. **Sync now** runs one at once.',
         ],
       },

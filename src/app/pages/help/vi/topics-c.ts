@@ -582,7 +582,7 @@ const TOPICS: HelpTopicSource[] = [
         heading: 'Những gì được chuyển',
         points: [
           'Các commit của nhánh và các thay đổi đã stage, chưa stage và chưa theo dõi, đúng như hiện có: những gì một lần chuyển phiên mang theo. Không có gì bị gộp và không có gì được đẩy lên đâu cả: mã nguồn đi thẳng giữa hai máy tính.',
-          'Các tệp git bỏ qua, như tệp `.env`, `node_modules` và kết quả build, ở nguyên trên mỗi máy, trừ những tệp dự án liệt kê trong **Các tệp git bỏ qua sẽ đi kèm**, và chỉ khi máy kia đã cấp cho máy này quyền **Nguy hiểm**.',
+          'Các tệp git bỏ qua, như tệp `.env`, `node_modules` và kết quả build, ở nguyên trên mỗi máy, trừ những tệp dự án liệt kê trong **Các tệp git bỏ qua sẽ đi kèm**, và chỉ khi máy kia đã cấp cho máy này quyền **Nguy hiểm**. Bản cũ mà một tệp như vậy thay thế ở máy đó được giữ trong thư mục dữ liệu của Mother Claude trên máy đó (mười bản gần nhất).',
           'Vài giây yên lặng sau một thay đổi, máy đã thay đổi sẽ gửi nó đi; một lần kiểm tra mỗi phút bắt những gì bị sót. **Đồng bộ ngay** chạy một lần ngay lập tức.',
         ],
       },

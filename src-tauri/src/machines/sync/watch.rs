@@ -422,8 +422,11 @@ mod tests {
             f.fetch_add(1, Ordering::SeqCst);
         })
         .unwrap();
-        // Let the watcher settle (FSEvents' latency).
-        tokio::time::sleep(Duration::from_millis(700)).await;
+        // Let the watcher settle (FSEvents' latency), and anything the
+        // repository's creation still sends run its course: counts start
+        // here.
+        tokio::time::sleep(Duration::from_millis(2000)).await;
+        let base = fired.load(Ordering::SeqCst);
         let wait_for = |want: usize| {
             let fired = fired.clone();
             async move {
@@ -444,6 +447,7 @@ mod tests {
         std::fs::write(top.join("debug.log"), b"x").unwrap();
         tokio::time::sleep(Duration::from_millis(2500)).await;
         let noise = fired.load(Ordering::SeqCst);
+        assert_eq!(noise, base, "noise started a check");
         // A burst of edits: one check, once it is quiet.
         for i in 0..4 {
             std::fs::write(top.join("src/a.txt"), format!("edit {i}")).unwrap();
@@ -460,6 +464,5 @@ mod tests {
         std::fs::create_dir_all(top.join(".git/refs/heads")).unwrap();
         std::fs::write(top.join(".git/refs/heads/topic"), b"0000\n").unwrap();
         assert!(wait_for(noise + 2).await, "a ref change was noticed");
-        assert_eq!(noise, 0, "noise started a check");
     }
 }

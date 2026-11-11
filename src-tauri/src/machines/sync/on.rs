@@ -257,10 +257,18 @@ async fn turn_on(
             .and_then(Value::as_str)
             .map(|m| format!("{name}: {m}"))
             .unwrap_or_else(|| format!("{name} refused ({status})."));
-        let st = axum::http::StatusCode::from_u16(status)
-            .ok()
-            .filter(|s| s.is_client_error() && *s != axum::http::StatusCode::UNAUTHORIZED)
-            .unwrap_or(axum::http::StatusCode::BAD_GATEWAY);
+        // Its refusal, as a conflict here (a 401 or 403 there is about this
+        // computer, never the person asking here).
+        let st = match axum::http::StatusCode::from_u16(status) {
+            Ok(s)
+                if s == axum::http::StatusCode::UNAUTHORIZED
+                    || s == axum::http::StatusCode::FORBIDDEN =>
+            {
+                axum::http::StatusCode::CONFLICT
+            }
+            Ok(s) if s.is_client_error() => s,
+            _ => axum::http::StatusCode::BAD_GATEWAY,
+        };
         return Err(ApiError::new(st, code, message));
     }
     let now = m::now();
@@ -340,7 +348,8 @@ async fn turn_off(state: &AppState, project: &str, machine: &str) -> ApiResult<(
 }
 
 /// Drops a pair here (its watcher, its step files); its kept refs stay in
-/// the repository.
+/// the repository, and the files git ignores its steps replaced stay in
+/// its folder of the data dir.
 pub(crate) fn forget(state: &AppState, id: &str) {
     state
         .machines
@@ -348,7 +357,9 @@ pub(crate) fn forget(state: &AppState, id: &str) {
         .write(|f| f.pairs.retain(|p| p.id != id));
     super::watch::refresh(state);
     if let Some(d) = state.machines.sync.dir_of(id) {
-        let _ = std::fs::remove_dir_all(d);
+        for part in ["in", "out"] {
+            let _ = std::fs::remove_dir_all(d.join(part));
+        }
     }
     super::publish(state);
 }

@@ -278,7 +278,7 @@ pub(crate) fn unreadable(state: &AppState, folder: &str, e: &CodeError) -> Strin
 pub async fn run(state: &AppState, id: &str, trigger: Trigger) -> Outcome {
     let outcome = locked(state, id, trigger, false).await;
     match outcome {
-        Outcome::TheyShouldSend => ask_to_send(state, id, trigger).await,
+        Outcome::TheyShouldSend => ask_to_send(state, id, trigger, false).await,
         o => o,
     }
 }
@@ -297,7 +297,8 @@ pub(crate) async fn run_auto(state: &AppState, id: &str, trigger: Trigger) {
 }
 
 /// The other computer sends its state (it changed, this one did not).
-async fn ask_to_send(state: &AppState, id: &str, trigger: Trigger) -> Outcome {
+/// `resolved`: a resolution here kept its side (it audits that too).
+async fn ask_to_send(state: &AppState, id: &str, trigger: Trigger, resolved: bool) -> Outcome {
     let Some(p) = state.machines.sync.pair(id) else {
         return Outcome::Off;
     };
@@ -308,7 +309,7 @@ async fn ask_to_send(state: &AppState, id: &str, trigger: Trigger) -> Outcome {
         &p,
         "POST",
         &format!("/peer/sync/{id}/push"),
-        Some(&json!({})),
+        Some(&json!({ "resolved": resolved })),
         LAND_TIMEOUT,
     )
     .await
@@ -1241,7 +1242,7 @@ pub async fn resolve(state: &AppState, id: &str, keep_here: bool) -> ApiResult<V
                 json!({ "keep": "there", "kept": kept.ref_name, "keptOn": "here" }),
             );
         }
-        ask_to_send(state, id, Trigger::Now).await;
+        ask_to_send(state, id, Trigger::Now, true).await;
     }
     let p = state
         .machines

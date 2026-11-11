@@ -386,9 +386,10 @@ unstaged and untracked changes, exactly as they are. Files git ignores —
 `.env` files, `node_modules`, build output — stay on each computer, but for
 the ones the project lists to carry (*Files git ignores that travel with
 it*, which needs the dangerous right to set) and only when the other
-computer gave this one its *Dangerous* permission. Nothing is ever merged,
-and nothing is pushed anywhere: code goes straight between the two
-computers.
+computer gave this one its *Dangerous* permission; the copy such a file
+replaces there is kept in Mother Claude's data folder there (the last ten).
+Nothing is ever merged, and nothing is pushed anywhere: code goes straight
+between the two computers.
 
 ### When it syncs
 

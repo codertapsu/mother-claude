@@ -686,6 +686,20 @@ async fn without_the_move_grant_it_waits() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn machines_off_on_either_computer_pauses_it() {
     let w = world().await;
+    // Off on B: B is not even asked.
+    machines::set_enabled(&w.b.st, false);
+    let (s, v) =
+        w.a.call(
+            "PUT",
+            "/machines/sync",
+            Some(json!({ "project": w.r.a, "machine": w.b.id(), "on": true })),
+        )
+        .await;
+    assert_eq!(s, StatusCode::CONFLICT, "{v}");
+    assert_eq!(v["error"]["code"], "machines_off", "{v}");
+    assert!(w.a.pair().await.is_null());
+    assert!(w.b.view().await["asks"].as_array().unwrap().is_empty());
+    machines::set_enabled(&w.b.st, true);
     let id = w.sync_on().await;
     put(&w.r.a, "a.txt", "alpha, while off\n");
     machines::set_enabled(&w.b.st, false);
@@ -761,11 +775,22 @@ async fn ignored_files_stay_unless_the_project_carries_them() {
         )
         .await;
     assert_eq!(s, StatusCode::OK, "{v}");
+    put(&w.r.b, ".env.local", "SECRET=b's own\n");
     put(&w.r.a, "a.txt", "alpha, carrying it\n");
     let p = w.a.sync_now(&id).await;
     assert_eq!(p["status"]["state"], "inSync", "{p:#}");
     assert_eq!(read(&w.r.b, ".env.local"), "SECRET=from-a\n");
     assert!(!w.r.b.join("target").exists(), "only what is listed");
+    // B's own copy it replaced is kept in B's data folder.
+    let replaced =
+        w.b._dir
+            .path()
+            .join("data/machines/sync")
+            .join(&id)
+            .join("replaced");
+    let sets: Vec<_> = std::fs::read_dir(&replaced).unwrap().flatten().collect();
+    assert_eq!(sets.len(), 1);
+    assert_eq!(read(&sets[0].path(), ".env.local"), "SECRET=b's own\n");
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

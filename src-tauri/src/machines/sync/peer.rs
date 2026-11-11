@@ -508,8 +508,47 @@ pub async fn land(
             "action": applied.action,
         }),
     );
+    if carried {
+        keep_replaced(state, id, &dir);
+    }
     step::tidy(state, id, &folder, &dir).await;
     Ok(json!({ "landed": true, "state": recorded, "files": files_changed }))
+}
+
+/// How many sets of replaced ignored files a pair keeps.
+const REPLACED_KEPT: usize = 10;
+
+/// The files git ignores a step replaced here (this computer's own copies)
+/// outlive the step: kept under `<app data>/machines/sync/<id>/replaced/
+/// <time>`, the newest [`REPLACED_KEPT`].
+fn keep_replaced(state: &AppState, id: &str, in_dir: &Path) {
+    let from = in_dir.join(ignored::KEPT);
+    let has_files = std::fs::read_dir(&from).is_ok_and(|mut d| d.next().is_some());
+    let Some(base) = state.machines.sync.dir_of(id).map(|d| d.join("replaced")) else {
+        return;
+    };
+    if !has_files {
+        return;
+    }
+    if std::fs::create_dir_all(&base).is_err() {
+        return;
+    }
+    crate::claude::transfer::private_dir(&base);
+    let stamp = chrono::Utc::now().format("%Y%m%dT%H%M%S%3f").to_string();
+    if let Err(e) = std::fs::rename(&from, base.join(&stamp)) {
+        tracing::warn!(error = %e, "files git ignores a step replaced could not be kept");
+        return;
+    }
+    let mut sets: Vec<PathBuf> = std::fs::read_dir(&base)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|e| e.path())
+        .collect();
+    sets.sort();
+    while sets.len() > REPLACED_KEPT {
+        let _ = std::fs::remove_dir_all(sets.remove(0));
+    }
 }
 
 // ─── the rest of a step ────────────────────────────────────────────────────────
@@ -624,10 +663,25 @@ pub async fn pause(state: &AppState, from: &str, id: &str, b: PauseBody) -> ApiR
     Ok(json!({ "paused": true }))
 }
 
+#[derive(Debug, Default, Deserialize)]
+pub struct PushBody {
+    /// The other computer's desktop kept this side in a conflict.
+    #[serde(default)]
+    pub resolved: bool,
+}
+
 /// `POST /peer/sync/{id}/push`: the other computer did not change and
 /// this one did (or a resolution chose this side): a step from here now.
-pub async fn push(state: &AppState, from: &str, id: &str) -> ApiResult<Value> {
-    active(state, id, from)?;
+pub async fn push(state: &AppState, from: &str, id: &str, b: PushBody) -> ApiResult<Value> {
+    let p = active(state, id, from)?;
+    if b.resolved {
+        audit(
+            state,
+            "machine.sync.resolved",
+            &p,
+            json!({ "keep": "here", "by": "there" }),
+        );
+    }
     let outcome = step::locked(state, id, Trigger::Now, true).await;
     let p = state
         .machines

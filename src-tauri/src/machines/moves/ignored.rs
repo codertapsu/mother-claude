@@ -39,7 +39,7 @@ pub const MAX_BYTES: u64 = 1 << 20;
 /// The target's record of what it wrote (in the move's folder).
 const RECORD: &str = "ignored.json";
 /// Where the target keeps the files they replaced (in the move's folder).
-const KEPT: &str = "ignored-undo";
+pub(crate) const KEPT: &str = "ignored-undo";
 
 /// The fix of a listed path that can't travel.
 const FIX: &str =

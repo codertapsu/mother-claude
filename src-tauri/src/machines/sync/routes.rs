@@ -245,10 +245,11 @@ async fn peer_push(
     ctx: ClientContext,
     State(state): State<AppState>,
     Path(id): Path<String>,
+    Body(b): Body<peer::PushBody>,
 ) -> ApiResult<Json<Value>> {
     let from = syncing(&state, &ctx)?;
     sync_id(&id)?;
-    peer::push(&state, &from, &id).await.map(Json)
+    peer::push(&state, &from, &id, b).await.map(Json)
 }
 
 async fn peer_lose(
