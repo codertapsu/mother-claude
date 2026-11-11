@@ -1593,3 +1593,80 @@ async fn code_through_the_remote_needs_it_to_answer_on_both_computers() {
     let pre = preflight(&w.s, to_t(&w, json!({ "code": "bundle" }))).await;
     assert!(find(&pre, "remote_unreachable_there").is_none(), "{pre:#}");
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn the_local_script_token_reads_moves_through_the_proxy_but_never_changes_one() {
+    let w = world().await;
+    let body = to_t(&w, json!({ "code": "none" }));
+    // Here: refused (as it always was).
+    let script = w.s.st.auth.script_token.clone();
+    let (s, local) =
+        w.s.call_as(
+            &script,
+            "POST",
+            &format!("/sessions/{SID}/move"),
+            Some(body.clone()),
+        )
+        .await;
+    assert_eq!(s, StatusCode::FORBIDDEN, "{local}");
+    assert_eq!(local["error"]["code"], "desktop_only");
+
+    // Through the other computer's proxy: the same refusal, for each
+    // change of a move…
+    let script = w.t.st.auth.script_token.clone();
+    let proxy = |path: &str| format!("/machines/{}/proxy{path}", w.s.id());
+    let some_move = "mv_0123456789abcdef";
+    for path in [
+        format!("/sessions/{SID}/move"),
+        format!("/moves/{some_move}/cancel"),
+        format!("/moves/{some_move}/undo"),
+        format!("/moves/{some_move}/retry"),
+    ] {
+        let (s, v) =
+            w.t.call_as(&script, "POST", &proxy(&path), Some(body.clone()))
+                .await;
+        assert_eq!(s, StatusCode::FORBIDDEN, "{path}: {v}");
+        assert_eq!(v["error"], local["error"], "{path}");
+    }
+    // …but it may read, and ask what a move would find.
+    let (s, v) = w.t.call_as(&script, "GET", &proxy("/moves"), None).await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    let (s, v) =
+        w.t.call_as(
+            &script,
+            "POST",
+            &proxy(&format!("/sessions/{SID}/move/preflight")),
+            Some(body.clone()),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    assert_eq!(v["ok"], true, "{v:#}");
+
+    // A computer that says the local script acts through it is refused
+    // there too (an older build's proxy would have forwarded it).
+    let (s, _, out) = transport::request_raw(
+        &w.t.st,
+        &w.s.id(),
+        "POST",
+        &format!("/api/sessions/{SID}/move"),
+        &[
+            ("x-mc-acting", "script; dangerous=0".to_string()),
+            ("content-type", "application/json".to_string()),
+        ],
+        serde_json::to_vec(&body).unwrap().into(),
+        Duration::from_secs(20),
+    )
+    .await
+    .unwrap();
+    let v: Value = serde_json::from_slice(&out).unwrap();
+    assert_eq!(s, 403, "{v}");
+    assert_eq!(v["error"]["code"], "desktop_only");
+
+    let (_, list) = w.s.call("GET", "/moves", None).await;
+    assert_eq!(
+        list["moves"].as_array().unwrap().len(),
+        0,
+        "nothing started"
+    );
+    assert!(lease_home(&w.s).is_none());
+}

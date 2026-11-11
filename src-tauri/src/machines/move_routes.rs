@@ -32,7 +32,7 @@
 //! what a move that stopped left here. The leases stay open (a hello carries
 //! them anyway).
 
-use axum::extract::{DefaultBodyLimit, Path, Query, State};
+use axum::extract::{DefaultBodyLimit, Extension, Path, Query, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
@@ -40,6 +40,7 @@ use axum::{Json, Router};
 use serde::Deserialize;
 use serde_json::{json, Value};
 
+use super::acting::Acting;
 use super::grants::Grant;
 use super::moves::{self, wire};
 use crate::server::auth::Authed;
@@ -85,12 +86,19 @@ pub fn peer_router() -> Router<AppState> {
 
 // ─── this machine's dashboard ────────────────────────────────────────────────────
 
-/// Who may start, cancel or undo a move: the desktop, a paired device, or
-/// another of your computers (through the proxy, with its `move` grant
-/// here) — never the local-script token.
-fn may_move(ctx: &ClientContext) -> ApiResult<()> {
+/// Who may start, cancel, undo or retry a move: the desktop, a paired
+/// device, or another of your computers (through the proxy, with its `move`
+/// grant here) — never the local-script token, here or acting through
+/// another computer's proxy (`acting`: who the peer says acts).
+pub(crate) fn may_move(ctx: &ClientContext, acting: Option<&Acting>) -> ApiResult<()> {
+    let script_through_a_peer =
+        matches!(ctx.principal, Principal::Peer { .. }) && acting.is_some_and(Acting::is_script);
     match ctx.principal {
-        Principal::Desktop | Principal::Device { .. } | Principal::Peer { .. } => Ok(()),
+        Principal::Desktop | Principal::Device { .. } | Principal::Peer { .. }
+            if !script_through_a_peer =>
+        {
+            Ok(())
+        }
         _ => Err(ApiError::forbidden(
             "desktop_only",
             "Moving a session is only available on the Mother Claude desktop app, a paired \
@@ -99,8 +107,29 @@ fn may_move(ctx: &ClientContext) -> ApiResult<()> {
     }
 }
 
+/// Whether a dashboard call (`method`, its path under `/api`) starts,
+/// cancels, undoes or retries a move: what the local-script token may not
+/// do, here or through the proxy (it may read, and ask for a preflight).
+pub(crate) fn changes_a_move(method: &axum::http::Method, path: &str) -> bool {
+    if *method != axum::http::Method::POST {
+        return false;
+    }
+    let segs: Vec<&str> = path.trim_matches('/').split('/').collect();
+    matches!(
+        segs.as_slice(),
+        ["sessions", _, "move"] | ["moves", _, "cancel" | "undo" | "retry"]
+    )
+}
+
 fn valid_session(id: &str) -> ApiResult<()> {
     crate::claude::ids::require_session_id(id)
+}
+
+/// Who the peer says acts behind its request (none on this computer's own).
+type ActingExt = Option<Extension<Acting>>;
+
+fn acting_of(acting: &ActingExt) -> Option<&Acting> {
+    acting.as_ref().map(|Extension(a)| a)
 }
 
 async fn preflight(
@@ -117,10 +146,11 @@ async fn preflight(
 async fn start(
     Authed(ctx): Authed,
     State(state): State<AppState>,
+    acting: ActingExt,
     Path(id): Path<String>,
     Body(body): Body<moves::MoveBody>,
 ) -> ApiResult<Response> {
-    may_move(&ctx)?;
+    may_move(&ctx, acting_of(&acting))?;
     valid_session(&id)?;
     super::using(&state)?;
     let (status, v) = moves::start(&state, &ctx, &id, &body).await?;
@@ -143,9 +173,10 @@ async fn get_one(
 async fn cancel(
     Authed(ctx): Authed,
     State(state): State<AppState>,
+    acting: ActingExt,
     Path(id): Path<String>,
 ) -> ApiResult<Json<Value>> {
-    may_move(&ctx)?;
+    may_move(&ctx, acting_of(&acting))?;
     let rec = moves::cancel(&state, &id).await?;
     Ok(Json(rec.view()))
 }
@@ -153,9 +184,10 @@ async fn cancel(
 async fn undo(
     Authed(ctx): Authed,
     State(state): State<AppState>,
+    acting: ActingExt,
     Path(id): Path<String>,
 ) -> ApiResult<Json<Value>> {
-    may_move(&ctx)?;
+    may_move(&ctx, acting_of(&acting))?;
     let rec = moves::undo(&state, &ctx, &id).await?;
     Ok(Json(rec.view()))
 }
@@ -163,9 +195,10 @@ async fn undo(
 async fn retry(
     Authed(ctx): Authed,
     State(state): State<AppState>,
+    acting: ActingExt,
     Path(id): Path<String>,
 ) -> ApiResult<Json<Value>> {
-    may_move(&ctx)?;
+    may_move(&ctx, acting_of(&acting))?;
     let rec = moves::retry(&state, &ctx, &id).await?;
     Ok(Json(rec.view()))
 }
@@ -327,4 +360,54 @@ async fn peer_leases_post(
     let (from, lan) = mover(&state, &ctx)?;
     let v = moves::peer_leases(&state, &from, lan, body).await?;
     Ok((StatusCode::OK, Json(v)).into_response())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::http::Method;
+
+    #[test]
+    fn a_moves_changes_are_told_from_its_reads() {
+        for path in [
+            "sessions/abc/move",
+            "/sessions/abc/move/",
+            "moves/mv_0123456789abcdef/cancel",
+            "moves/mv_0123456789abcdef/undo",
+            "moves/mv_0123456789abcdef/retry",
+        ] {
+            assert!(changes_a_move(&Method::POST, path), "{path}");
+        }
+        for (method, path) in [
+            (Method::POST, "sessions/abc/move/preflight"),
+            (Method::GET, "moves"),
+            (Method::GET, "moves/mv_0123456789abcdef"),
+            (Method::GET, "sessions/abc/move"),
+            (Method::POST, "sessions/abc/message"),
+        ] {
+            assert!(!changes_a_move(&method, path), "{method} {path}");
+        }
+    }
+
+    #[test]
+    fn the_local_script_token_never_changes_a_move_here_or_through_a_peer() {
+        let mut ctx = ClientContext::unknown();
+        ctx.principal = Principal::LocalScript;
+        assert_eq!(may_move(&ctx, None).unwrap_err().code, "desktop_only");
+        ctx.principal = Principal::Desktop;
+        assert!(may_move(&ctx, None).is_ok());
+        ctx.principal = Principal::Peer {
+            machine: "a".repeat(32),
+            lan: true,
+            dangerous: false,
+        };
+        let script = crate::machines::acting::parse(Some("script; dangerous=0"));
+        let desktop = crate::machines::acting::parse(Some("desktop"));
+        assert_eq!(
+            may_move(&ctx, Some(&script)).unwrap_err().code,
+            "desktop_only"
+        );
+        assert!(may_move(&ctx, Some(&desktop)).is_ok());
+        assert!(may_move(&ctx, None).is_ok(), "the peer itself");
+    }
 }

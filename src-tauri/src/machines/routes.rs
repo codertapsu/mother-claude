@@ -602,6 +602,14 @@ async fn proxy(
         return e.into_response();
     }
     let method = req.method().clone();
+    // The local-script token never starts, cancels, undoes or retries a
+    // move here; nor on another computer through this one (it may read).
+    if ctx.principal == Principal::LocalScript && super::move_routes::changes_a_move(&method, &rest)
+    {
+        if let Err(e) = super::move_routes::may_move(&ctx, None) {
+            return e.into_response();
+        }
+    }
     let query = req
         .uri()
         .query()

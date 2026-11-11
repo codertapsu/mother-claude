@@ -31,6 +31,14 @@ pub struct Acting {
     pub dangerous: bool,
 }
 
+impl Acting {
+    /// The local-script token acts through the peer: it may read, never
+    /// start, cancel, undo or retry a move (as on its own computer).
+    pub fn is_script(&self) -> bool {
+        self.label == "script"
+    }
+}
+
 /// The header this machine sends for `ctx`.
 pub fn header_for(state: &AppState, ctx: &ClientContext) -> String {
     let dangerous = u8::from(ctx.may_dangerous());
@@ -183,5 +191,13 @@ mod tests {
         assert!(!a.dangerous);
         assert_eq!(parse(Some("machine")).label, "machine");
         assert!(!parse(Some("machine")).dangerous, "nothing said: none");
+    }
+
+    #[test]
+    fn the_local_script_token_is_known_through_the_peer() {
+        assert!(parse(Some("script; dangerous=0")).is_script());
+        for other in [Some("desktop"), Some("machine; dangerous=1; name=x"), None] {
+            assert!(!parse(other).is_script(), "{other:?}");
+        }
     }
 }
