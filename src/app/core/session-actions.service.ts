@@ -6,6 +6,7 @@ import { FolderChoiceService, folderQuestionOf } from './folder-choice.service';
 import { tr } from './i18n/i18n';
 import { ContinueBody, SessionSummary } from './models';
 import { NoticeService } from './notice.service';
+import { SESSION_MACHINE, sessionLink } from './session-links';
 
 /** The answer to "continue on another account": the new session, or the
  * refusal for the caller to explain (the sheet shows it in place) — with
@@ -28,6 +29,9 @@ export class SessionActionsService {
   private router = inject(Router);
   private notices = inject(NoticeService);
   private folders = inject(FolderChoiceService);
+  /** Another computer's sessions (its scope's copy of this service): the
+   * pages opened are that computer's. */
+  private machine = inject(SESSION_MACHINE);
 
   /** Ids with a continue/fork request in flight. */
   readonly busy = signal<ReadonlySet<string>>(new Set());
@@ -120,12 +124,13 @@ export class SessionActionsService {
 
   /** Open the session page with its terminal view showing. */
   openTerminal(id: string): void {
-    void this.router.navigate(['/session', id], { queryParams: { view: 'terminal' } });
+    void this.router.navigate(sessionLink(id, this.machine), { queryParams: { view: 'terminal' } });
   }
 
   private async openSession(from: string, id: string): Promise<void> {
-    if (id !== from || !this.router.url.startsWith(`/session/${from}`)) {
-      await this.router.navigate(['/session', id]);
+    const page = this.machine ? `/session/${from}/on/${this.machine}` : `/session/${from}`;
+    if (id !== from || !this.router.url.startsWith(page)) {
+      await this.router.navigate(sessionLink(id, this.machine));
     }
   }
 

@@ -65,6 +65,16 @@ export interface PeerMachine {
   capabilities: string[];
   relay: RelaySetting | null;
   problem: 'olderApp' | 'newerApp' | null;
+  /** Its sessions as this computer last heard them (null: none heard yet;
+   * absent from an older server). */
+  sessions?: PeerSessions | null;
+}
+
+/** How many of a paired computer's sessions this one knows, and how many
+ * run. */
+export interface PeerSessions {
+  total: number;
+  running: number;
 }
 
 export type PairingRole = 'host' | 'joiner';
@@ -195,6 +205,19 @@ export interface MachinesFrame {
   what: string;
 }
 
+/**
+ * `{t:'remote', machine, frame}`: another computer's frame, republished by
+ * this one's link to it (docs/PLAN-MACHINES.md §5.6). Its sessions, pending
+ * items and their answers reach everyone; a session's transcript, stream and
+ * agents reach whoever subscribed to it (`sub` with `machine`). The link adds
+ * its own `online`, `offline{since}` and `forgotten` (revoked).
+ */
+export interface RemoteFrame {
+  t: 'remote';
+  machine: string;
+  frame: unknown;
+}
+
 // ─────────────────────────────────────────────────────────────── Helpers
 
 export const GRANT_NAMES: readonly GrantName[] = ['view', 'control', 'move', 'run', 'dangerous'];
@@ -284,6 +307,21 @@ export function pathLabel(path: MachinePath | null | undefined): string {
     default:
       return '';
   }
+}
+
+/** Whether `p` lets this computer do `grant` for the way the two are joined
+ * now (the local network, or the internet); null while it hasn't said. */
+export function grantedByPeer(p: PeerMachine | null | undefined, grant: GrantName): boolean | null {
+  const pair = p?.theirGrants?.[grant];
+  if (!p || !pair) return null;
+  if (p.path === 'lan') return pair.lan;
+  if (p.path === 'internet' || p.path === 'relay') return pair.internet;
+  return pair.lan || pair.internet;
+}
+
+/** A computer's id, short, until its name is known. */
+export function shortMachineId(id: string): string {
+  return id.slice(0, 8);
 }
 
 /** The pairing has not reached an end yet. */

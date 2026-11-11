@@ -12,10 +12,12 @@ import {
   Grants,
   MachinesSettings,
   PeerMachine,
+  PeerSessions,
   copyGrants,
   sameGrants,
 } from '../../core/machines';
 import { MachinesService } from '../../core/machines.service';
+import { RemoteSessionsService } from '../../core/remote-sessions.service';
 import { IconComponent } from '../../shared/icon.component';
 import { RelativeTimePipe } from '../../shared/time.pipes';
 import { CheckListComponent } from './check-list.component';
@@ -53,6 +55,7 @@ export class MachinesComponent {
   private readonly auth = inject(AuthService);
   private readonly router = inject(Router);
   protected readonly machines = inject(MachinesService);
+  private readonly remote = inject(RemoteSessionsService);
 
   protected readonly isDesktop = this.auth.isDesktop;
   protected readonly computer = computerNoun;
@@ -139,6 +142,22 @@ export class MachinesComponent {
 
   protected relay(s: MachinesSettings | undefined): string {
     return relayText(s?.relay);
+  }
+
+  /** How many of its sessions this computer knows, and how many run: live
+   * from its frames once they came, else as `GET /api/machines` said. */
+  protected sessionCounts(p: PeerMachine): PeerSessions | null {
+    const live = this.remote.byId().get(p.id);
+    if (live?.loaded) {
+      return { total: live.sessions.length, running: live.sessions.filter((s) => s.live).length };
+    }
+    return p.sessions ?? null;
+  }
+
+  protected countsText(c: PeerSessions): string {
+    return c.total === 1
+      ? tr('1 session, {m} running', { m: c.running })
+      : tr('{n} sessions, {m} running', { n: c.total, m: c.running });
   }
 
   protected versionsLine(p: {

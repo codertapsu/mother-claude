@@ -5,6 +5,8 @@ import { tr } from '../core/i18n/i18n';
 import { TPipe } from '../core/i18n/t.pipe';
 import { PendingRef, SessionSummary } from '../core/models';
 import { NowService } from '../core/now.service';
+import type { MachineTag } from '../core/remote-sessions.service';
+import { sessionLink } from '../core/session-links';
 import { ViewportService } from '../core/viewport.service';
 import { AccountChipComponent } from './account-chip.component';
 import { ActivityLineComponent } from './activity-line.component';
@@ -17,7 +19,7 @@ import { PendingCardComponent } from './pending-card.component';
 import { effortText, fastText, thinkingChip, ultracodeText } from './session-settings';
 import { StatusPillComponent } from './status-pill.component';
 import { TimeAgoComponent } from './time-ago.component';
-import { Tone, effortShortLabel, modeLabel, sessionName, shortPath } from './util';
+import { Tone, effortShortLabel, modeLabel, pastClock, sessionName, shortPath } from './util';
 
 /** One part of the packed settings chip (the smallest screens). */
 interface PackedPart {
@@ -41,6 +43,11 @@ interface PackedPart {
  * screens effort, ultracode and fast share one chip and thinking shows only
  * its figure, so the settings add at most one row of chips. While the list
  * selects (Sessions › Select) a checkbox leads the top row.
+ *
+ * Another computer's session (`machine`) leads its chips with that
+ * computer's name and opens its page there; while that computer is offline
+ * the card is greyed, says since when, and offers no quick answers
+ * (docs/PLAN-MACHINES.md §6.1).
  */
 @Component({
   selector: 'mc-session-card',
@@ -62,6 +69,7 @@ interface PackedPart {
   host: {
     '[attr.data-status]': 'session().status',
     '[attr.data-selected]': "selectable() && selected() ? '' : null",
+    '[class.offline]': 'offline()',
   },
   template: `
     @let s = session();
@@ -77,17 +85,22 @@ interface PackedPart {
         </label>
       }
       <mc-status-pill [status]="s.status" [live]="s.live" [activity]="s.activity" />
-      <a class="name" [routerLink]="['/session', s.id]">{{ name() }}</a>
+      <a class="name" [routerLink]="link()">{{ name() }}</a>
       <mc-time class="when" [ms]="s.lastActivityAt" />
     </div>
 
-    @if (showActivity()) {
+    @if (offline()) {
+      <p class="last offline-line">{{ offlineText() }}</p>
+    } @else if (showActivity()) {
       <mc-activity-line [activity]="s.activity" />
     } @else if (s.lastMessage || s.lastPrompt) {
       <p class="last">{{ s.lastMessage || s.lastPrompt }}</p>
     }
 
     <div class="chips">
+      @if (machine(); as m) {
+        <mc-chip class="mchip" icon="monitor" [attr.title]="m.name">{{ m.name }}</mc-chip>
+      }
       <mc-channel-badge [surface]="s.surface" [control]="s.control" [session]="s" />
       @if (s.account; as a) {
         <mc-account-chip [account]="a" />
@@ -179,10 +192,16 @@ interface PackedPart {
       <span class="ellipsis">{{ s.projectName }} · {{ path() }}</span>
     </div>
 
-    @if (single(); as p) {
-      <mc-pending-card [item]="p" [session]="s" [compact]="true" />
-    } @else if (s.pending.length > 1) {
-      <a class="more-pending" [routerLink]="['/session', s.id]">
+    <!-- An offline computer's requests wait until it is back. -->
+    @if (!offline() && single(); as p) {
+      <mc-pending-card
+        [item]="p"
+        [session]="s"
+        [compact]="true"
+        [machine]="machine()?.id ?? null"
+      />
+    } @else if (!offline() && s.pending.length > 1) {
+      <a class="more-pending" [routerLink]="link()">
         <mc-icon name="inbox" [size]="15" />
         {{ '{n} requests waiting · Review' | t: { n: s.pending.length } }}
         <mc-icon name="chevronRight" [size]="15" />
@@ -215,6 +234,18 @@ interface PackedPart {
       :host([data-selected]) {
         border-color: var(--accent);
         background: color-mix(in srgb, var(--accent-soft) 45%, var(--panel));
+      }
+      /* Another computer, offline: what shows is from when it was heard. */
+      :host(.offline) {
+        border-style: dashed;
+        background: var(--panel-2);
+      }
+      :host(.offline) > * {
+        opacity: 0.6;
+        filter: grayscale(1);
+      }
+      .mchip {
+        max-width: 12rem;
       }
       /* A tap target of the full size, without growing the row. */
       .pick {
@@ -304,10 +335,24 @@ export class SessionCardComponent {
   /** Show a checkbox (Sessions › Select). */
   readonly selectable = input(false);
   readonly selected = input(false);
+  /** The other computer it runs on (null: this one). */
+  readonly machine = input<MachineTag | null>(null);
   /** The checkbox was ticked or cleared. */
   readonly toggled = output<void>();
 
   protected readonly name = computed(() => sessionName(this.session()));
+  protected readonly link = computed(() =>
+    sessionLink(this.session().id, this.machine()?.id ?? this.session().machine),
+  );
+  /** Its computer is offline: the card shows the last state heard. */
+  protected readonly offline = computed(() => this.machine()?.online === false);
+  protected readonly offlineText = computed(() => {
+    const m = this.machine();
+    if (!m) return '';
+    return m.since
+      ? tr('{name} is offline since {time}', { name: m.name, time: pastClock(m.since) })
+      : tr('{name} is offline', { name: m.name });
+  });
   protected readonly effort = computed(() => effortText(this.session()));
   protected readonly effortShort = computed(() => effortShortLabel(this.session().effort));
   protected readonly ultracode = computed(() => {

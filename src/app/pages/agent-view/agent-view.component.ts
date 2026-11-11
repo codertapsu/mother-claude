@@ -9,6 +9,7 @@ import { TPipe } from '../../core/i18n/t.pipe';
 import { AgentInfo, UiEvent } from '../../core/models';
 import { NoticeService } from '../../core/notice.service';
 import { RealtimeService } from '../../core/realtime.service';
+import { SESSION_MACHINE, agentLink, sessionLink } from '../../core/session-links';
 import { TranscriptStore } from '../../core/transcript-store';
 import { ActivityLineComponent } from '../../shared/activity-line.component';
 import {
@@ -65,10 +66,10 @@ const AGENTS_POLL_TICKS = 4;
           <mc-icon name="back" />
         </a>
         <nav class="crumbs" [attr.aria-label]="'Breadcrumb' | t">
-          <a [routerLink]="['/session', sessionId()]">{{ sessionLabel() }}</a>
+          <a [routerLink]="sessionLink(sessionId(), machine)">{{ sessionLabel() }}</a>
           @if (parent(); as p) {
             <span aria-hidden="true">›</span>
-            <a [routerLink]="['/session', sessionId(), 'agent', p.id]">{{ p.label }}</a>
+            <a [routerLink]="agentLink(sessionId(), p.id, machine)">{{ p.label }}</a>
           }
           <span aria-hidden="true">›</span>
           <span class="here" aria-current="page">{{ agent()?.label || ('Agent' | t) }}</span>
@@ -289,6 +290,10 @@ const AGENTS_POLL_TICKS = 4;
   ],
 })
 export class AgentViewComponent {
+  /** The other computer the session runs on (null: this one). */
+  protected readonly machine = inject(SESSION_MACHINE);
+  protected readonly sessionLink = sessionLink;
+  protected readonly agentLink = agentLink;
   private route = inject(ActivatedRoute);
   private api = inject(ApiService);
   private realtime = inject(RealtimeService);
@@ -330,7 +335,9 @@ export class AgentViewComponent {
   });
   protected readonly parentLink = computed(() => {
     const p = this.parent();
-    return p ? ['/session', this.sessionId(), 'agent', p.id] : ['/session', this.sessionId()];
+    return p
+      ? agentLink(this.sessionId(), p.id, this.machine)
+      : sessionLink(this.sessionId(), this.machine);
   });
   protected readonly parentLabel = computed(() => this.parent()?.label ?? this.sessionLabel());
   protected readonly tokens = formatTokens;

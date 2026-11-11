@@ -16,9 +16,15 @@
         }
       </button>
     }
-    <a class="btn primary" routerLink="/new"
-      ><mc-icon name="plus" [size]="16" /> {{ 'New session' | t }}</a
-    >
+    @if (machineInEffect() && machineInEffect() !== HERE) {
+      <a class="btn primary" routerLink="/new" [queryParams]="{ machine: machineInEffect() }"
+        ><mc-icon name="plus" [size]="16" /> {{ 'New session' | t }}</a
+      >
+    } @else {
+      <a class="btn primary" routerLink="/new"
+        ><mc-icon name="plus" [size]="16" /> {{ 'New session' | t }}</a
+      >
+    }
   </div>
 
   <div class="segmented view-switch" role="group" [attr.aria-label]="'Show' | t">
@@ -75,7 +81,7 @@
             }
           </button>
           <button type="button" [attr.aria-pressed]="filter() === 'all'" (click)="setFilter('all')">
-            {{ 'All' | t }} <span class="n">{{ all().length }}</span>
+            {{ 'All' | t }} <span class="n">{{ everything().length }}</span>
           </button>
         </div>
         <select
@@ -111,6 +117,22 @@
             }
           </select>
         }
+        @if (machines().length) {
+          <select
+            class="machine-filter"
+            [attr.aria-label]="'Machine' | t"
+            [ngModel]="machineInEffect()"
+            (ngModelChange)="machine.set($event)"
+          >
+            <option value="">{{ 'All machines' | t }}</option>
+            <option [value]="HERE">{{ 'This {computer}' | t: { computer: computer() } }}</option>
+            @for (m of machines(); track m.id) {
+              <option [value]="m.id">
+                {{ m.online ? m.name : ('{name} (offline)' | t: { name: m.name }) }}
+              </option>
+            }
+          </select>
+        }
       </div>
     </div>
 
@@ -132,7 +154,7 @@
           <span></span><span></span><span></span>
         </div>
       }
-    } @else if (!all().length) {
+    } @else if (!everything().length && !machinesLoading().length) {
       <div class="card empty-state">
         <strong>{{ 'No sessions in the last 24 h' | t }}</strong>
         {{ 'Start one here, or run' | t }} <code>claude</code>
@@ -146,7 +168,7 @@
           </button>
         </div>
       </div>
-    } @else if (!groups().length) {
+    } @else if (!groups().length && !machinesLoading().length) {
       <div class="card empty-state">
         @if (historyOpen() && filter() === 'all') {
           <strong>{{ 'No current sessions match' | t }}</strong>
@@ -160,17 +182,26 @@
       </div>
     }
 
+    @if (loaded()) {
+      @for (m of machinesLoading(); track m.id) {
+        <p class="muted small machine-loading" role="status">
+          {{ "Loading {name}'s sessions…" | t: { name: m.name } }}
+        </p>
+      }
+    }
+
     @for (g of groups(); track g.key) {
       <section class="group" [attr.aria-label]="g.title">
         <h2>
           {{ g.title }} <span class="gcount">{{ g.items.length }}</span>
         </h2>
         <div class="cards">
-          @for (s of g.items; track s.id) {
+          @for (s of g.items; track cardKey(s)) {
             <mc-session-card
               [session]="s"
-              [selectable]="selecting()"
+              [selectable]="selecting() && !s.machine"
               [selected]="picked().has(s.id)"
+              [machine]="tagOf(s)"
               (toggled)="flip(s.id)"
             />
           }
@@ -178,7 +209,7 @@
       </section>
     }
 
-    @if (loaded() && (filter() === 'all' || historyOpen())) {
+    @if (loaded() && historyShown() && (filter() === 'all' || historyOpen())) {
       <section class="history" [attr.aria-label]="'Ended sessions' | t">
         @if (!historyOpen()) {
           <button class="btn block" type="button" (click)="openHistory()">

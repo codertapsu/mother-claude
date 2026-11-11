@@ -2,6 +2,7 @@ import { Injectable, Signal, computed, inject, signal } from '@angular/core';
 
 import { ApiError, ApiService } from './api.service';
 import { computerNoun, tr } from './i18n/i18n';
+import { MachineContext } from './machine-context';
 import {
   PendingItem,
   PendingOutcome,
@@ -69,8 +70,9 @@ function desktopName(name: string | undefined): string {
   }
 }
 
-/** "Allowed on Marcus's iPhone", "Answered at the Mac", "Expired". */
-export function resolutionText(r: PendingResolution): string {
+/** "Allowed on Marcus's iPhone", "Answered at the Mac", "Expired". Another
+ * computer's request (`machine`: its name) reads "Answered at DESKTOP-PC". */
+export function resolutionText(r: PendingResolution, machine?: string): string {
   const outcome = tr(OUTCOME_TEXT[r.outcome] ?? 'Settled');
   if (r.mine) return tr('{outcome} from here', { outcome });
   const by = r.by;
@@ -78,6 +80,11 @@ export function resolutionText(r: PendingResolution): string {
     return r.outcome === 'withdrawn' ? tr('{outcome} (answered elsewhere)', { outcome }) : outcome;
   }
   const computer = computerNoun();
+  if (machine && (by.kind === 'desktop' || by.kind === 'host')) {
+    return r.outcome === 'withdrawn'
+      ? tr('Answered at {name}', { name: machine })
+      : tr('{outcome} at {name}', { outcome, name: machine });
+  }
   switch (by.kind) {
     case 'device':
       return tr('{outcome} on {device}', { outcome, device: by.name || tr('another device') });
@@ -114,6 +121,8 @@ export function resolutionText(r: PendingResolution): string {
 export class PendingService {
   private api = inject(ApiService);
   private realtime = inject(RealtimeService);
+  /** Another computer's requests (its scope's copy of this service). */
+  private machine = inject(MachineContext, { optional: true });
 
   private readonly fullS = signal<ReadonlyMap<string, PendingItem>>(new Map());
   private readonly resolvedS = signal<ReadonlyMap<string, PendingResolution>>(new Map());
@@ -251,7 +260,9 @@ export class PendingService {
         const known = this.resolvedS().get(ref.id);
         return {
           alreadyDecided: true,
-          text: known ? resolutionText(known) : e.message || tr('Already answered elsewhere'),
+          text: known
+            ? resolutionText(known, this.machine?.name())
+            : e.message || tr('Already answered elsewhere'),
         };
       }
       throw e;

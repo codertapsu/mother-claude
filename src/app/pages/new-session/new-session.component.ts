@@ -1,6 +1,15 @@
-import { Component, computed, inject, linkedSignal, signal, viewChild } from '@angular/core';
+import {
+  Component,
+  computed,
+  effect,
+  inject,
+  linkedSignal,
+  signal,
+  untracked,
+  viewChild,
+} from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { Router } from '@angular/router';
+import { ActivatedRoute, Router } from '@angular/router';
 
 import { accountCanRun } from '../../core/accounts';
 import { AccountsService } from '../../core/accounts.service';
@@ -8,8 +17,12 @@ import { ApiError, ApiService, errorMessage } from '../../core/api.service';
 import { AuthService } from '../../core/auth.service';
 import { computerNoun, tr } from '../../core/i18n/i18n';
 import { TPipe } from '../../core/i18n/t.pipe';
+import { MachineScopes } from '../../core/machine-scope';
+import { grantedByPeer } from '../../core/machines';
+import { MachinesService } from '../../core/machines.service';
 import { AccountView, ImageAttachment, ProjectInfo } from '../../core/models';
-import { folderExample } from '../../core/paths';
+import { HostOs, folderExample } from '../../core/paths';
+import { sessionLink } from '../../core/session-links';
 import { accountErrorText, cannotRunReason } from '../../shared/accounts';
 import { IconComponent } from '../../shared/icon.component';
 import { MAX_IMAGES, prepareImage } from '../../shared/images';
@@ -23,12 +36,28 @@ interface Attachment extends ImageAttachment {
   preview: string;
 }
 
+/** Another computer a session can start on. */
+interface Where {
+  id: string;
+  name: string;
+  /** Its name, and why it can't be picked when it can't. */
+  label: string;
+  os: HostOs;
+  /** Online, and it lets this computer drive its sessions. */
+  ready: boolean;
+}
+
 /**
  * Start an owned session: pick a project (recent projects from the server;
  * the desktop may also type any path), the Claude account (while there are
  * several: the project's, else the default for new sessions, unless picked
  * here), model / effort / permission mode, a first prompt and optional
  * images.
+ *
+ * While other computers are paired (and Machines is on), *Where* picks the
+ * computer it starts on (docs/PLAN-MACHINES.md §6.4; `?machine=<id>`
+ * preselects one): its projects come from it, and the session starts there
+ * under its own account for the folder — through this computer's proxy.
  */
 @Component({
   selector: 'mc-new-session',
@@ -45,6 +74,47 @@ interface Attachment extends ImageAttachment {
             | t
         }}
       </p>
+
+      @if (wheres().length) {
+        <section class="card">
+          <h2 class="first">{{ 'Where' | t }}</h2>
+          <div class="wheres" role="radiogroup" [attr.aria-label]="'Where' | t">
+            <button
+              type="button"
+              role="radio"
+              class="where"
+              [class.on]="!where()"
+              [attr.aria-checked]="!where()"
+              (click)="pickWhere('')"
+            >
+              <mc-icon name="monitor" [size]="16" />
+              <span>{{ 'This {computer}' | t: { computer: computer() } }}</span>
+            </button>
+            @for (w of wheres(); track w.id) {
+              <button
+                type="button"
+                role="radio"
+                class="where"
+                [class.on]="where() === w.id"
+                [attr.aria-checked]="where() === w.id"
+                [disabled]="!w.ready"
+                (click)="pickWhere(w.id)"
+              >
+                <mc-icon name="monitor" [size]="16" />
+                <span>{{ w.label }}</span>
+              </button>
+            }
+          </div>
+          @if (target(); as t) {
+            <p class="field-hint">
+              {{
+                'It starts on {name}, under its account for the folder, and you drive it from here.'
+                  | t: { name: t.name }
+              }}
+            </p>
+          }
+        </section>
+      }
 
       <section class="card">
         <h2 class="first">{{ 'Project' | t }}</h2>
@@ -87,7 +157,11 @@ interface Attachment extends ImageAttachment {
         </div>
         @if (isDesktop()) {
           <label class="field path">
-            <span class="field-label">{{ 'Or any folder on this computer' | t }}</span>
+            @if (target(); as t) {
+              <span class="field-label">{{ 'Or any folder on {name}' | t: { name: t.name } }}</span>
+            } @else {
+              <span class="field-label">{{ 'Or any folder on this computer' | t }}</span>
+            }
             <input
               [ngModel]="cwd()"
               (ngModelChange)="cwd.set($event)"
@@ -99,7 +173,8 @@ interface Attachment extends ImageAttachment {
         }
       </section>
 
-      @if (accounts.multi()) {
+      <!-- This computer's accounts: another computer runs it under its own. -->
+      @if (accounts.multi() && !target()) {
         <section class="card">
           <h2 class="first">{{ 'Account' | t }}</h2>
           <label class="field">
@@ -177,7 +252,13 @@ interface Attachment extends ImageAttachment {
           (click)="start()"
         >
           <mc-icon name="send" [size]="16" />
-          {{ starting() ? ('Starting…' | t) : ('Start session' | t) }}
+          @if (starting()) {
+            {{ 'Starting…' | t }}
+          } @else if (target(); as t) {
+            {{ 'Start on {name}' | t: { name: t.name } }}
+          } @else {
+            {{ 'Start session' | t }}
+          }
         </button>
         @if (!cwd().trim()) {
           <span class="muted small">{{ 'Pick a project first.' | t }}</span>
@@ -253,6 +334,39 @@ interface Attachment extends ImageAttachment {
       .path {
         margin-top: 0.75rem;
       }
+      .wheres {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.4rem;
+      }
+      .where {
+        appearance: none;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.45rem;
+        min-height: var(--tap);
+        padding: 0.4rem 0.75rem;
+        font: inherit;
+        color: var(--text);
+        background: var(--panel-2);
+        border: 1px solid var(--border);
+        border-radius: var(--radius-sm);
+        cursor: pointer;
+      }
+      .where mc-icon {
+        color: var(--faint);
+      }
+      .where.on {
+        border-color: var(--accent);
+        background: var(--accent-soft);
+      }
+      .where.on mc-icon {
+        color: var(--accent-text);
+      }
+      .where:disabled {
+        cursor: default;
+        opacity: 0.6;
+      }
       .attach {
         display: flex;
         align-items: center;
@@ -324,12 +438,45 @@ export class NewSessionComponent {
   private api = inject(ApiService);
   private auth = inject(AuthService);
   private router = inject(Router);
+  private machines = inject(MachinesService);
+  private scopes = inject(MachineScopes);
   protected readonly accounts = inject(AccountsService);
   private readonly options = viewChild.required(LaunchOptionsComponent);
 
   protected readonly isDesktop = this.auth.isDesktop;
-  /** An example folder in the desktop's own form. */
-  protected readonly cwdPlaceholder = computed(() => folderExample(this.auth.hostOs(), 'project'));
+  protected readonly computer = computerNoun;
+  /** Other computers it can start on: the paired ones, while Machines is on. */
+  protected readonly wheres = computed<Where[]>(() => {
+    const v = this.machines.view();
+    if (!v?.enabled) return [];
+    return v.peers.map((p) => {
+      const drive = grantedByPeer(p, 'control') !== false;
+      const os: HostOs = p.os === 'macos' || p.os === 'windows' ? p.os : 'linux';
+      return {
+        id: p.id,
+        name: p.name,
+        label: !p.online
+          ? tr('{name} (offline)', { name: p.name })
+          : drive
+            ? p.name
+            : tr('{name} (watch only)', { name: p.name }),
+        os,
+        ready: p.online && drive,
+      };
+    });
+  });
+  /** The computer picked ('' = this one). */
+  protected readonly where = signal(
+    inject(ActivatedRoute).snapshot.queryParamMap.get('machine') ?? '',
+  );
+  /** The other computer it starts on, when one is picked and can. */
+  protected readonly target = computed(
+    () => this.wheres().find((w) => w.id === this.where() && w.ready) ?? null,
+  );
+  /** An example folder in the desktop's own form (the other computer's). */
+  protected readonly cwdPlaceholder = computed(() =>
+    folderExample(this.target()?.os ?? this.auth.hostOs(), 'project'),
+  );
   protected readonly projects = signal<ProjectInfo[]>([]);
   protected readonly loadingProjects = signal(true);
   protected readonly projectQuery = signal('');
@@ -393,9 +540,27 @@ export class NewSessionComponent {
   });
 
   constructor() {
-    void this.loadProjects();
+    let shownFor = this.target()?.id ?? '';
+    void this.loadProjects(shownFor);
+    // Another computer picked (or this one again): its projects.
+    effect(() => {
+      const id = this.target()?.id ?? '';
+      if (id === shownFor) return;
+      shownFor = id;
+      untracked(() => {
+        this.cwd.set('');
+        this.projectQuery.set('');
+        this.projects.set([]);
+        this.error.set('');
+        void this.loadProjects(id);
+      });
+    });
     // A picker needs the accounts: with only the Default nothing sent them.
     void this.accounts.ensureLoaded();
+  }
+
+  protected pickWhere(id: string): void {
+    this.where.set(id);
   }
 
   protected canRun(a: AccountView): boolean {
@@ -457,19 +622,22 @@ export class NewSessionComponent {
     }
     this.starting.set(true);
     this.error.set('');
+    // Another computer: through its scope, under its own account.
+    const machine = this.target()?.id ?? '';
+    const api = machine ? this.scopes.api(machine) : this.api;
     // Only while several accounts exist: the request is unchanged otherwise.
-    const account = this.accounts.multi() ? this.account() : '';
+    const account = this.accounts.multi() && !machine ? this.account() : '';
     try {
       const prompt = this.prompt().trim();
       const images = this.images().map(({ mediaType, data }) => ({ mediaType, data }));
-      const res = await this.api.spawnSession({
+      const res = await api.spawnSession({
         cwd,
         ...(prompt ? { prompt } : {}),
         ...opts.value(),
         ...(images.length ? { images } : {}),
         ...(account ? { account } : {}),
       });
-      if (res?.id) void this.router.navigate(['/session', res.id]);
+      if (res?.id) void this.router.navigate(sessionLink(res.id, machine));
       else void this.router.navigate(['/']);
     } catch (e) {
       const code = e instanceof ApiError ? (e.code ?? '') : '';
@@ -491,18 +659,25 @@ export class NewSessionComponent {
     }
   }
 
-  private async loadProjects(): Promise<void> {
+  /** The projects of this computer (`machine` ''), or another's. */
+  private async loadProjects(machine: string): Promise<void> {
+    const current = () => (this.target()?.id ?? '') === machine;
+    this.loadingProjects.set(true);
     try {
-      const { projects } = await this.api.getProjects();
+      const api = machine ? this.scopes.api(machine) : this.api;
+      const { projects } = await api.getProjects();
+      if (!current()) return;
       const sorted = [...(projects ?? [])].sort(
         (a, b) => (b.lastActivityAt ?? 0) - (a.lastActivityAt ?? 0),
       );
       this.projects.set(sorted);
       if (!this.cwd() && sorted.length === 1) this.cwd.set(sorted[0].path);
     } catch (e) {
-      this.error.set(tr('Could not load projects: {error}', { error: errorMessage(e) }));
+      if (current()) {
+        this.error.set(tr('Could not load projects: {error}', { error: errorMessage(e) }));
+      }
     } finally {
-      this.loadingProjects.set(false);
+      if (current()) this.loadingProjects.set(false);
     }
   }
 }

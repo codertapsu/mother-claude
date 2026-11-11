@@ -19,6 +19,7 @@ import {
 } from '../../core/delete-data';
 import { computerNoun, tr } from '../../core/i18n/i18n';
 import { TPipe } from '../../core/i18n/t.pipe';
+import { MachineContext } from '../../core/machine-context';
 import { KeyName, LaunchOverrides, McpServerStatus } from '../../core/models';
 import { anyTarget } from '../../core/move-data';
 import { NowService } from '../../core/now.service';
@@ -141,7 +142,11 @@ const KEYS: { key: KeyName; label: string; aria: string }[] = [
                   [label]="'Copy path' | t"
                   [ariaLabel]="copyTranscriptLabel()"
                 />
-                @if (ctx.isDesktop()) {
+                @if (machine; as m) {
+                  <span class="muted small">{{
+                    'Its files are on {name}: show them there.' | t: { name: m.name() }
+                  }}</span>
+                } @else if (ctx.isDesktop()) {
                   <button
                     class="btn small"
                     type="button"
@@ -346,7 +351,7 @@ const KEYS: { key: KeyName; label: string; aria: string }[] = [
         </dl>
       </section>
 
-      @if (plan.availableOf(planAccount())) {
+      @if (!machine && plan.availableOf(planAccount())) {
         <section class="card">
           <h2 class="first">{{ 'Plan usage' | t }}</h2>
           <p class="muted small plan-lede">
@@ -391,7 +396,7 @@ const KEYS: { key: KeyName; label: string; aria: string }[] = [
               <mc-icon name="refresh" [size]="14" /> {{ 'Respawn' | t }}
             </button>
           }
-          @if (s.control.lifecycle.rm) {
+          @if (rmOffered()) {
             <button
               class="btn danger"
               type="button"
@@ -403,7 +408,7 @@ const KEYS: { key: KeyName; label: string; aria: string }[] = [
             </button>
           }
         </div>
-        @if (s.control.lifecycle.rm && !ctx.canDangerous()) {
+        @if (rmOffered() && !ctx.canDangerous()) {
           <p class="muted small">
             {{
               'Removing needs the {computer}, or a device allowed to take dangerous actions.'
@@ -602,6 +607,8 @@ const KEYS: { key: KeyName; label: string; aria: string }[] = [
 })
 export class InfoPanelComponent {
   protected readonly ctx = inject(SessionContext);
+  /** Another computer's session (none: this computer's). */
+  protected readonly machine = inject(MachineContext, { optional: true });
   private api = inject(ApiService);
   private clock = inject(NowService);
   private accounts = inject(AccountsService);
@@ -635,9 +642,17 @@ export class InfoPanelComponent {
   protected readonly copyFolderLabel = computed(() => tr("Copy the session folder's path"));
   protected readonly revealing = signal(false);
   protected readonly revealError = signal('');
-  /** The folder can be moved or copied (the header hosts the sheet). */
+  /** The folder can be moved or copied (the header hosts the sheet): this
+   * computer's data only. */
   protected readonly moveOffered = computed(
-    () => !!this.ctx.session() && anyTarget(this.accounts.list(), this.storage.list() ?? []),
+    () =>
+      !!this.ctx.session() &&
+      !this.machine &&
+      anyTarget(this.accounts.list(), this.storage.list() ?? []),
+  );
+  /** Removing a background job: this computer's only. */
+  protected readonly rmOffered = computed(
+    () => !!this.ctx.session()?.control.lifecycle.rm && !this.machine,
   );
   protected readonly kindLabel = accountKindLabel;
   protected readonly terminal = computed(() => {
@@ -650,7 +665,7 @@ export class InfoPanelComponent {
   });
   protected readonly vscodeUrl = computed(() => {
     const s = this.ctx.session();
-    return s?.surface === 'vscode' && this.ctx.isDesktop()
+    return s?.surface === 'vscode' && this.ctx.isDesktop() && !this.machine
       ? `vscode://anthropic.claude-code/open?session=${encodeURIComponent(s.id)}`
       : '';
   });

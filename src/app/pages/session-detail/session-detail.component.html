@@ -1,8 +1,14 @@
 <div class="sd">
   <mc-session-header class="sd-head" />
+  @if (machine) {
+    <mc-machine-banner class="sd-machine" />
+  }
 
   @if (ctx.session(); as s) {
-    <mc-limit-offer class="sd-offer" [session]="s" />
+    @if (!machine) {
+      <!-- Offers this computer's other accounts: none for another's. -->
+      <mc-limit-offer class="sd-offer" [session]="s" />
+    }
     <mc-resume-note class="sd-note" [session]="s" />
     <div class="sd-tabs" role="tablist" [attr.aria-label]="'Session views' | t">
       @for (t of tabs; track t.id; let i = $index) {

@@ -28,6 +28,7 @@ import {
   PendingRef,
   PendingResolvedFrame,
   PlanUsage,
+  ResyncFrame,
   ServerFrame,
   SessionSummary,
   SessionsDiffFrame,
@@ -38,7 +39,7 @@ import {
 } from './models';
 import { NowService } from './now.service';
 import { normalizeAccountUsages, normalizePlanUsage } from './plan-usage';
-import type { MachinesFrame } from './machines';
+import type { MachinesFrame, RemoteFrame } from './machines';
 import type { TeamsFrame } from './teams';
 import { TranscriptStore, TranscriptStoreOptions } from './transcript-store';
 import { computerNoun, tr } from './i18n/i18n';
@@ -156,6 +157,48 @@ function subKey(session: string, agent?: string): string {
   return agent ? `${session}\u0000${agent}` : session;
 }
 
+interface RemoteSubEntry extends SubEntry {
+  machine: string;
+}
+
+function remoteKey(machine: string, session: string, agent?: string): string {
+  return `${machine}\u0000${subKey(session, agent)}`;
+}
+
+/** Another computer's sessions, as its frames said (docs/PLAN-MACHINES.md
+ * §5.6). */
+export interface RemoteMachine {
+  /** Its sessions by id, each stamped with `machine`. */
+  sessions: ReadonlyMap<string, SessionSummary>;
+  /** A full list of them arrived. */
+  loaded: boolean;
+  /** The link to it is up (until an `offline` frame). */
+  online: boolean;
+  /** When it went offline (ms), once it was heard and lost. */
+  since: number | null;
+}
+
+/** Another computer's frame, unwrapped from `{t:'remote'}`: its own kinds,
+ * and the link's `online`, `offline` and `forgotten`. */
+export type RemoteInner =
+  | SessionsFrame
+  | TranscriptFrame
+  | TranscriptResetFrame
+  | StreamFrame
+  | PendingFrame
+  | PendingResolvedFrame
+  | AgentsFrame
+  | ResyncFrame
+  | { t: 'online' }
+  | { t: 'offline'; since?: number | null }
+  | { t: 'forgotten' };
+
+/** One of another computer's frames, with whose it is. */
+export interface RemoteEvent {
+  machine: string;
+  frame: RemoteInner;
+}
+
 /**
  * RealtimeService — the WebSocket v2 client (design contract §4.6 + the §10
  * amendments), with a REST polling fallback for LAN clients whose socket
@@ -202,6 +245,13 @@ function subKey(session: string, agent?: string): string {
  * `/sessions` (ETag) and `/inbox` every 3 s (15 s hidden) and `/usage` every
  * 5 min, ticks `pollTick$` for open transcripts, and retries the socket
  * every 60 s.
+ *
+ * Other computers (docs/PLAN-MACHINES.md §5.6): `remote` frames keep
+ * `remote` (each computer's sessions, whether it is online) and feed
+ * `remote$`; `subscribeRemote(machine, session, agent?)` is `subscribe` for
+ * one of their sessions (`sub` with `machine`), re-sent like the others.
+ * Nothing of theirs enters `sessions`: their scoped services
+ * (`machine-scope.ts`) read them from here.
  */
 @Injectable({ providedIn: 'root' })
 export class RealtimeService {
@@ -278,6 +328,13 @@ export class RealtimeService {
    * `/api/machines` (docs/PLAN-MACHINES.md). */
   private readonly machinesS = new Subject<MachinesFrame>();
   readonly machines$: Observable<MachinesFrame> = this.machinesS.asObservable();
+  /** Other computers' sessions, by machine id, as their frames said. */
+  private readonly remoteS = signal<ReadonlyMap<string, RemoteMachine>>(new Map());
+  readonly remote = this.remoteS.asReadonly();
+  /** Every other computer's frame, unwrapped (their scoped services filter
+   * it by machine). */
+  private readonly remoteEventS = new Subject<RemoteEvent>();
+  readonly remote$: Observable<RemoteEvent> = this.remoteEventS.asObservable();
 
   readonly hello$: Observable<HelloFrame> = this.helloS.asObservable();
   readonly sessions$: Observable<SessionsFrame> = this.sessionsS.asObservable();
@@ -324,6 +381,8 @@ export class RealtimeService {
   private fullFrames = 0;
   private listenersBound = false;
   private readonly subs = new Map<string, SubEntry>();
+  /** Other computers' sessions subscribed to, by `remoteKey`. */
+  private readonly remoteSubs = new Map<string, RemoteSubEntry>();
   private fleetSubs = 0;
   private inboxSubs = 0;
 
@@ -522,6 +581,58 @@ export class RealtimeService {
     const store = new TranscriptStore(this.api, this, sessionId, opts);
     opts.destroyRef?.onDestroy(() => store.destroy());
     return store;
+  }
+
+  // ─────────────────────────────────────────────────── Other computers
+
+  /** Ref-counted `sub` of another computer's session (or one of its
+   * agents): `sub{session, agent?, since?, machine}`, re-sent after every
+   * reconnect. Call the returned function to release it. */
+  subscribeRemote(machine: string, sessionId: string, agentId?: string): () => void {
+    const key = remoteKey(machine, sessionId, agentId);
+    const entry = this.remoteSubs.get(key);
+    if (entry) {
+      entry.count += 1;
+    } else {
+      this.remoteSubs.set(key, { machine, session: sessionId, agent: agentId, count: 1 });
+      this.sendRemoteSub(key);
+    }
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      const e = this.remoteSubs.get(key);
+      if (!e) return;
+      e.count -= 1;
+      if (e.count <= 0) {
+        this.remoteSubs.delete(key);
+        this.send(
+          agentId
+            ? { t: 'unsub', session: sessionId, agent: agentId, machine }
+            : { t: 'unsub', session: sessionId, machine },
+        );
+      }
+    };
+  }
+
+  /** The newest transcript cursor held for another computer's session. */
+  noteRemoteTail(
+    machine: string,
+    sessionId: string,
+    tail: string | undefined,
+    agentId?: string,
+  ): void {
+    const e = this.remoteSubs.get(remoteKey(machine, sessionId, agentId));
+    if (e && tail) e.tail = tail;
+  }
+
+  /** A REST copy of another computer's session (its page's detail), merged
+   * as {@link mergeSession} merges this computer's. */
+  mergeRemoteSession(machine: string, s: SessionSummary): void {
+    if (this.connectionS() === 'open') return;
+    const m = this.remoteS().get(machine);
+    if (!s?.id || !m?.sessions.has(s.id)) return;
+    this.setRemote(machine, { ...m, sessions: new Map(m.sessions).set(s.id, { ...s, machine }) });
   }
 
   // ────────────────────────────────────────────────────────── Connection
@@ -883,10 +994,97 @@ export class RealtimeService {
       case 'machines':
         this.machinesS.next(frame);
         break;
+      case 'remote':
+        this.onRemote(frame);
+        break;
       default:
         // Unknown frame kinds from a newer server are ignored.
         break;
     }
+  }
+
+  /** Another computer's frame: its sessions and the link's state are kept
+   * here; everything it shows is passed on (`remote$`). */
+  private onRemote(f: RemoteFrame): void {
+    const machine = typeof f.machine === 'string' ? f.machine : '';
+    const raw = f.frame as { t?: unknown } | null | undefined;
+    if (!machine || !raw || typeof raw !== 'object' || typeof raw.t !== 'string') return;
+    const frame = raw as RemoteInner;
+    switch (frame.t) {
+      case 'sessions':
+        this.applyRemoteSessions(machine, frame);
+        break;
+      case 'online':
+        this.patchRemote(machine, { online: true, since: null });
+        break;
+      case 'offline':
+        this.patchRemote(machine, {
+          online: false,
+          since: typeof frame.since === 'number' ? frame.since : null,
+        });
+        break;
+      case 'forgotten':
+        this.remoteS.update((prev) => {
+          const next = new Map(prev);
+          next.delete(machine);
+          return next;
+        });
+        break;
+      case 'transcript': {
+        const e = this.remoteSubs.get(remoteKey(machine, frame.session, frame.agent));
+        if (e && frame.tail) e.tail = frame.tail;
+        break;
+      }
+      case 'pending':
+        if (!frame.item?.id) return;
+        break;
+      case 'pendingResolved':
+        if (!frame.id) return;
+        break;
+      case 'resync':
+        // It dropped frames for us: subscribe again (a full list follows).
+        for (const [key, e] of this.remoteSubs) if (e.machine === machine) this.sendRemoteSub(key);
+        break;
+      case 'transcriptReset':
+      case 'stream':
+      case 'agents':
+        break;
+      default:
+        // Nothing else of another computer's is shown here.
+        return;
+    }
+    this.remoteEventS.next({ machine, frame });
+  }
+
+  /** A list of another computer's sessions arrived (whole or a diff): it is
+   * online. */
+  private applyRemoteSessions(machine: string, frame: SessionsFrame): void {
+    const prev = this.remoteS().get(machine);
+    const sessions = new Map<string, SessionSummary>(frame.full ? undefined : prev?.sessions);
+    if (!frame.full) for (const id of frame.remove ?? []) sessions.delete(id);
+    for (const s of (frame.full ? frame.sessions : frame.upsert) ?? []) {
+      if (s?.id) sessions.set(s.id, { ...s, machine });
+    }
+    this.setRemote(machine, {
+      sessions,
+      loaded: !!prev?.loaded || !!frame.full,
+      online: true,
+      since: null,
+    });
+  }
+
+  private patchRemote(machine: string, patch: Partial<RemoteMachine>): void {
+    const prev: RemoteMachine = this.remoteS().get(machine) ?? {
+      sessions: new Map(),
+      loaded: false,
+      online: true,
+      since: null,
+    };
+    this.setRemote(machine, { ...prev, ...patch });
+  }
+
+  private setRemote(machine: string, m: RemoteMachine): void {
+    this.remoteS.update((prev) => new Map(prev).set(machine, m));
   }
 
   private onHello(frame: HelloFrame): void {
@@ -900,6 +1098,7 @@ export class RealtimeService {
     if (frame.me) this.auth.me.set(frame.me);
     this.send({ t: 'visible', v: document.visibilityState === 'visible' });
     for (const key of this.subs.keys()) this.sendSub(key);
+    for (const key of this.remoteSubs.keys()) this.sendRemoteSub(key);
     if (this.fleetSubs > 0) this.send({ t: 'subFleet' });
     if (this.inboxSubs > 0) this.send({ t: 'subInbox' });
     const reconnect = this.everConnected || wasLimited;
@@ -947,6 +1146,7 @@ export class RealtimeService {
    * diffs and roll the store back). */
   private resync(): void {
     for (const key of this.subs.keys()) this.sendSub(key);
+    for (const key of this.remoteSubs.keys()) this.sendRemoteSub(key);
     if (this.fleetSubs > 0) this.send({ t: 'subFleet' });
     if (this.inboxSubs > 0) this.send({ t: 'subInbox' });
     this.refetchS.next('resync');
@@ -976,6 +1176,19 @@ export class RealtimeService {
     const e = this.subs.get(key);
     if (!e) return;
     const frame: Extract<ClientFrame, { t: 'sub' }> = { t: 'sub', session: e.session };
+    if (e.agent) frame.agent = e.agent;
+    if (e.tail) frame.since = e.tail;
+    this.send(frame);
+  }
+
+  private sendRemoteSub(key: string): void {
+    const e = this.remoteSubs.get(key);
+    if (!e) return;
+    const frame: Extract<ClientFrame, { t: 'sub' }> = {
+      t: 'sub',
+      session: e.session,
+      machine: e.machine,
+    };
     if (e.agent) frame.agent = e.agent;
     if (e.tail) frame.since = e.tail;
     this.send(frame);

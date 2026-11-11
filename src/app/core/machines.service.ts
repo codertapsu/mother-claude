@@ -1,7 +1,15 @@
 import { Injectable, NgZone, computed, inject, signal } from '@angular/core';
 
 import { ApiService, describeError } from './api.service';
-import { MachinesFrame, MachinesView, SetupView, healthAlarm, pairingLive } from './machines';
+import {
+  MachinesFrame,
+  MachinesView,
+  PeerMachine,
+  SetupView,
+  healthAlarm,
+  pairingLive,
+  shortMachineId,
+} from './machines';
 import { RealtimeService } from './realtime.service';
 
 /** How often a live pairing is asked about while a Machines screen shows. */
@@ -121,6 +129,17 @@ export class MachinesService {
   /** A mutation's answer is the new view. */
   apply(v: MachinesView | null | undefined): void {
     if (v) this.view.set(v);
+  }
+
+  /** A paired computer, once the view is known. */
+  peer(id: string): PeerMachine | undefined {
+    return this.view()?.peers.find((p) => p.id === id);
+  }
+
+  /** A paired computer's name (the start of its id until the view is
+   * known). Reactive. */
+  nameOf(id: string): string {
+    return this.peer(id)?.name || shortMachineId(id);
   }
 
   private onFrame(f: MachinesFrame): void {

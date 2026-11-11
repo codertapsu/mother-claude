@@ -22,7 +22,8 @@
   padding: 0 max(0.35rem, env(safe-area-inset-right)) 0 max(0.35rem, env(safe-area-inset-left));
 }
 
-.sd-offer {
+.sd-offer,
+.sd-machine {
   flex: 0 0 auto;
 }
 .sd-offer.has-offers,

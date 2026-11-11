@@ -4,6 +4,7 @@ import { RouterLink } from '@angular/router';
 
 import { TPipe } from '../../core/i18n/t.pipe';
 import { AgentInfo, BackgroundTask, WorkflowRun } from '../../core/models';
+import { SESSION_MACHINE, agentLink } from '../../core/session-links';
 import { ActivityLineComponent } from '../../shared/activity-line.component';
 import {
   agentKindIcon,
@@ -154,7 +155,7 @@ import { TaskOutputComponent } from './task-output.component';
 
     <ng-template #agentRow let-a>
       <div class="agent" [style.--level]="a.level ?? 0">
-        <a class="main" [routerLink]="['/session', ctx.id(), 'agent', a.id]">
+        <a class="main" [routerLink]="agentLink(ctx.id(), a.id, machine)">
           <span class="kind" [title]="kindLabel(a) | t" [attr.data-tone]="tone(a.status)"
             ><mc-icon [name]="kindIcon(a)" [size]="16"
           /></span>
@@ -375,6 +376,9 @@ import { TaskOutputComponent } from './task-output.component';
 })
 export class AgentsPanelComponent {
   protected readonly ctx = inject(SessionContext);
+  /** The other computer the session runs on (null: this one). */
+  protected readonly machine = inject(SESSION_MACHINE);
+  protected readonly agentLink = agentLink;
   protected readonly output = signal<BackgroundTask | null>(null);
 
   /** Agents that belong to no workflow run, as a tree. Shells and monitors

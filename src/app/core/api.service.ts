@@ -127,6 +127,9 @@ import {
  * - Error bodies `{"error":{"code","message","field?"}}` become
  *   `ApiError.code/message/field`; 429 carries `retryAfter` (seconds).
  * - In dev mock mode (`?mock=1`) requests go to the fixture backend instead.
+ * - Another computer's client (`MachineApiService`, `machine-scope.ts`)
+ *   sends the same paths through `/api/machines/<id>/proxy` and words that
+ *   computer's refusals with its name ({@link MachineApiError}).
  *
  * Methods:
  *   Data      listSessions(q) · pollSessions(etag) · getSession(id) ·
@@ -209,6 +212,10 @@ export class ApiService {
 
   /** True once an /api call came back as an HTML page (tunnel interstitial). */
   readonly interstitial = signal(false);
+
+  /** Put between `/api` and every path: '' here; another computer's client
+   * (`machine-scope.ts`) sends through its proxy, `/machines/<id>/proxy`. */
+  protected readonly scope: string = '';
 
   // ───────────────────────────────────────────────────────────────── Data
 
@@ -1335,7 +1342,7 @@ export class ApiService {
     if (opts.auth !== false && cfg.token) headers.set('Authorization', `Bearer ${cfg.token}`);
     if (typeof init.body === 'string') headers.set('Content-Type', 'application/json');
 
-    const url = `${cfg.baseUrl}/api${path}`;
+    const url = `${cfg.baseUrl}/api${this.scope}${path}`;
     const mock = activeMock();
     let res: Response;
     try {
@@ -1374,27 +1381,42 @@ export class ApiService {
       // Only the credential in use now counts: an answer to a request sent
       // with a token that was replaced meanwhile (re-pairing) says nothing.
       if (opts.auth !== false && cfg.token === this.config.token()) {
-        this.auth.handleUnauthorized();
+        this.unauthorized();
       }
       const env = parseEnvelope(await res.text().catch(() => ''));
-      throw new ApiError(env.message || tr('Not paired'), 401, 'unauthorized', env.code);
+      throw this.failure(
+        new ApiError(env.message || tr('Not paired'), 401, 'unauthorized', env.code),
+      );
     }
     if (!res.ok) {
       const env = parseEnvelope(await res.text().catch(() => ''));
       // The header, else the body's copy (a proxy may drop the header).
       const header = Number(res.headers.get('retry-after'));
       const retry = Number.isFinite(header) && header > 0 ? header : env.retryAfter;
-      throw new ApiError(
-        env.message || `${res.status} ${res.statusText}`.trim(),
-        res.status,
-        'http',
-        env.code,
-        retry,
-        env.field,
-        env.extra,
+      throw this.failure(
+        new ApiError(
+          env.message || `${res.status} ${res.statusText}`.trim(),
+          res.status,
+          'http',
+          env.code,
+          retry,
+          env.field,
+          env.extra,
+        ),
       );
     }
     return res;
+  }
+
+  /** This client's credential was refused: the device may be unpaired. */
+  protected unauthorized(): void {
+    this.auth.handleUnauthorized();
+  }
+
+  /** The error a refused request rejects with: as the server said it here;
+   * another computer's client words some in that computer's name. */
+  protected failure(e: ApiError): ApiError {
+    return e;
   }
 }
 
@@ -1424,6 +1446,29 @@ export class ApiError extends Error {
   detail(key: string): string {
     const v = this.extra[key];
     return typeof v === 'string' ? v : '';
+  }
+}
+
+/** A refusal from (or on the way to) another computer, already worded for
+ * the person with that computer's name: `describeError` shows it as it is
+ * (docs/PLAN-MACHINES.md §6.2). */
+export class MachineApiError extends ApiError {
+  constructor(
+    cause: ApiError,
+    message: string,
+    /** The other computer's id. */
+    readonly machine: string,
+  ) {
+    super(
+      message,
+      cause.status,
+      cause.kind,
+      cause.code,
+      cause.retryAfter,
+      cause.field,
+      cause.extra,
+    );
+    this.name = 'MachineApiError';
   }
 }
 
@@ -1457,6 +1502,13 @@ export interface DescribedError {
  */
 export function describeError(e: unknown): DescribedError {
   if (!(e instanceof ApiError)) return { text: errorMessage(e) };
+  if (e instanceof MachineApiError) {
+    return {
+      text: e.message,
+      ...(e.code === 'machine_unreachable' ? { retry: true } : {}),
+      ...(e.code === 'dangerous_blocked' ? { dangerous: true } : {}),
+    };
+  }
   switch (e.kind) {
     case 'network':
       return {

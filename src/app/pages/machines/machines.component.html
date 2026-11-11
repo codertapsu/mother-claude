@@ -260,6 +260,14 @@
           }
         </div>
         <p class="muted small">{{ versionsLine(p) }}</p>
+        @if (sessionCounts(p); as c) {
+          <div class="row sessions">
+            <span class="small">{{ countsText(c) }}</span>
+            <a class="btn ghost small" routerLink="/" [queryParams]="{ machine: p.id }">
+              {{ 'Open its sessions' | t }}
+            </a>
+          </div>
+        }
         @if (p.problem === 'olderApp') {
           <p class="notice warn small">
             {{

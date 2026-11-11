@@ -48,6 +48,19 @@ const pages: Routes = [
     loadComponent: () =>
       import('./pages/agent-view/agent-view.component').then((m) => m.AgentViewComponent),
   },
+  // Another computer's session and its agents (docs/PLAN-MACHINES.md §6.2).
+  {
+    path: 'session/:id/on/:machine',
+    loadComponent: () =>
+      import('./pages/session-detail/remote-session.component').then(
+        (m) => m.RemoteSessionComponent,
+      ),
+  },
+  {
+    path: 'session/:id/agent/:agentId/on/:machine',
+    loadComponent: () =>
+      import('./pages/agent-view/remote-agent.component').then((m) => m.RemoteAgentComponent),
+  },
   {
     path: 'new',
     loadComponent: () =>

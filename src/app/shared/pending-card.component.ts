@@ -19,6 +19,8 @@ import { describeError } from '../core/api.service';
 import { AuthService } from '../core/auth.service';
 import { computerNoun, tr } from '../core/i18n/i18n';
 import { TPipe } from '../core/i18n/t.pipe';
+import { MachineContext } from '../core/machine-context';
+import { MachineScopes } from '../core/machine-scope';
 import {
   PendingItem,
   PendingRef,
@@ -30,9 +32,11 @@ import {
 import { NoticeService } from '../core/notice.service';
 import { PendingService, isFullItem, resolutionText } from '../core/pending.service';
 import { RealtimeService } from '../core/realtime.service';
+import { sessionLink } from '../core/session-links';
 import { AccountChipComponent } from './account-chip.component';
 import { BrowserActionComponent } from './browser-action.component';
 import { CapLimitsComponent } from './cap-limits.component';
+import { ChipComponent } from './chip.component';
 import { IconComponent, IconName } from './icon.component';
 import { renderMarkdown } from './markdown';
 import { SheetComponent } from './sheet.component';
@@ -83,6 +87,9 @@ interface SchemaField {
  *   account's chip while there are several.
  * - `gone` — the item left the store; the card shows how it was settled.
  * - `bodyMax` — cap the body height (the dock uses 45vh) and scroll inside.
+ * - `machine` — another computer's request (its id; the Inbox and the
+ *   list): answered through that computer's scope, named by its chip. On
+ *   that computer's session page its scope says so without it.
  * Outputs: `resolved`, `move` (J/K: ±1), `sendAsMessage` (typed feedback
  * when the item was answered elsewhere first).
  *
@@ -103,6 +110,7 @@ interface SchemaField {
     AccountChipComponent,
     BrowserActionComponent,
     CapLimitsComponent,
+    ChipComponent,
     IconComponent,
     SheetComponent,
     TimeAgoComponent,
@@ -122,11 +130,14 @@ interface SchemaField {
   },
 })
 export class PendingCardComponent {
-  private pendings = inject(PendingService);
+  private ownPendings = inject(PendingService);
   private auth = inject(AuthService);
   private realtime = inject(RealtimeService);
   private notices = inject(NoticeService);
   private router = inject(Router);
+  private scopes = inject(MachineScopes);
+  /** On another computer's session page: that computer. */
+  private scopedMachine = inject(MachineContext, { optional: true });
   private host = inject(ElementRef<HTMLElement>).nativeElement as HTMLElement;
 
   readonly item = input.required<PendingItem | PendingRef>();
@@ -135,23 +146,48 @@ export class PendingCardComponent {
   readonly showSession = input(false);
   readonly gone = input(false);
   readonly bodyMax = input<string | undefined>(undefined);
+  /** Another computer's request (its id), in a list of several computers'. */
+  readonly machine = input<string | null>(null);
   readonly resolved = output<PendingResolution>();
   readonly move = output<number>();
   readonly sendAsMessage = output<string>();
+
+  /** The other computer it waits at (null: this one). */
+  protected readonly mctx = computed<MachineContext | null>(() => {
+    const m = this.machine();
+    return m ? this.scopes.context(m) : this.scopedMachine;
+  });
+  /** Who answers it: this computer's requests, or that computer's scope. */
+  private readonly pendings = computed(() => {
+    const m = this.machine();
+    return m ? this.scopes.pending(m) : this.ownPendings;
+  });
+  /** Its session's page. */
+  protected readonly link = computed(() => sessionLink(this.item().sessionId, this.mctx()?.id));
 
   private readonly itemId = computed(() => this.item().id);
   /** The full item: loaded, or the input itself when it is one. */
   protected readonly full = computed<PendingItem | undefined>(() => {
     const it = this.item();
-    const cached = this.pendings.get(it.id);
+    const cached = this.pendings().get(it.id);
     if (cached) return cached;
     return isFullItem(it) ? it : undefined;
   });
   protected readonly loadingFull = signal(false);
   protected readonly loadError = signal('');
 
-  protected readonly busy = computed(() => this.pendings.inflight().has(this.itemId()));
-  protected readonly offline = computed(() => !this.realtime.canAct());
+  protected readonly busy = computed(() => this.pendings().inflight().has(this.itemId()));
+  protected readonly offline = computed(
+    () => !this.realtime.canAct() || this.mctx()?.online() === false,
+  );
+  /** Why answers wait: this device reconnecting, or the other computer
+   * offline. */
+  protected readonly offlineText = computed(() => {
+    const m = this.mctx();
+    return m && !m.online()
+      ? tr('{name} is offline: answers wait until it is back.', { name: m.name() })
+      : tr('Reconnecting… answers are paused until the connection is back.');
+  });
   protected readonly error = linkedSignal({ source: this.itemId, computation: () => '' });
   /** Our own answer's confirmation text. */
   protected readonly done = linkedSignal({ source: this.itemId, computation: () => '' });
@@ -176,7 +212,7 @@ export class PendingCardComponent {
   protected readonly planSheet = signal(false);
 
   /** How someone else settled it (pendingResolved), when they did. */
-  protected readonly resolution = computed(() => this.pendings.resolutionOf(this.itemId()));
+  protected readonly resolution = computed(() => this.pendings().resolutionOf(this.itemId()));
   /** While this client's own answer is in flight, the server's echo of it
    * (`pendingResolved` and the sessions diff land before the HTTP response)
    * says nothing about someone else: wait for the response to tell. */
@@ -188,15 +224,35 @@ export class PendingCardComponent {
   protected readonly settledText = computed(() => {
     if (this.done()) return this.done();
     const r = this.resolution();
-    if (r) return resolutionText(r);
+    if (r) return resolutionText(r, this.mctx()?.name());
     return tr('Answered elsewhere');
   });
 
   protected readonly canAct = computed(
     () => this.item().answerable && (this.full()?.source ?? this.item().source) !== 'observed',
   );
-  protected readonly canDangerous = this.auth.canDangerous;
+  /** Dangerous answers from here: this device's right, and — another
+   * computer's request — that computer's Dangerous permission for this one. */
+  protected readonly canDangerous = computed(
+    () => this.auth.canDangerous() && this.mctx()?.mayDangerous() !== false,
+  );
   protected readonly allowBlocked = computed(() => this.item().dangerous && !this.canDangerous());
+  /** Where a blocked dangerous request can be allowed instead. */
+  protected readonly blockedText = computed(() => {
+    const m = this.mctx();
+    if (!m) {
+      return tr(
+        'Approve dangerous actions on the {computer}, or allow this device to take them (Remote › Devices). You can still deny it here.',
+        { computer: computerNoun() },
+      );
+    }
+    return m.mayDangerous()
+      ? tr('Answer it at {name} or on this {computer}. You can still deny it here.', {
+          name: m.name(),
+          computer: computerNoun(),
+        })
+      : tr('Answer it at {name}. You can still deny it here.', { name: m.name() });
+  });
   protected readonly questions = computed<Question[]>(() => this.full()?.questions ?? []);
   protected readonly suggestions = computed<PermissionSuggestion[]>(
     () => this.full()?.suggestions ?? [],
@@ -324,8 +380,6 @@ export class PendingCardComponent {
     return s ? sessionName(s) : this.item().sessionId.slice(0, 8);
   });
   protected readonly surface = computed(() => surfaceLabel(this.session()?.surface ?? 'unknown'));
-  /** The desktop's computer, in words ("Mac", "PC"). */
-  protected readonly computer = computerNoun;
   protected readonly allAnswered = computed(() =>
     this.questions().every(
       (_, i) => (this.picks()[i]?.length ?? 0) > 0 || !!this.other()[i]?.trim(),
@@ -334,9 +388,27 @@ export class PendingCardComponent {
   protected readonly formValid = computed(() =>
     this.schemaFields().every((f) => !f.required || this.form()[f.key] !== undefined),
   );
+  /** Where an unanswerable prompt waits, in the compact card: "Waiting at
+   * the Mac (CLI)", "Waiting at DESKTOP-PC (CLI)". */
+  protected readonly waitingAt = computed(() => {
+    const m = this.mctx();
+    return m
+      ? tr('Waiting at {name} ({app})', { name: m.name(), app: this.surface() })
+      : tr('Waiting at the {computer} ({app})', { computer: computerNoun(), app: this.surface() });
+  });
   /** Where an unanswerable prompt can be answered. */
   protected readonly guidance = computed(() => {
     const s = this.session();
+    const m = this.mctx();
+    if (m) {
+      return s?.waitingFor
+        ? tr('Waiting for an answer at {name} in {app} ({what}).', {
+            name: m.name(),
+            app: this.surface(),
+            what: s.waitingFor,
+          })
+        : tr('Waiting for an answer at {name} in {app}.', { name: m.name(), app: this.surface() });
+    }
     if (!s) return tr('Answer it where the session runs.');
     const params = { computer: computerNoun(), app: this.surface(), what: s.waitingFor };
     return s.waitingFor
@@ -362,7 +434,7 @@ export class PendingCardComponent {
       if (!r || r.mine || this.compact() || this.busy() || told === r.id) return;
       told = r.id;
       untracked(() => {
-        const result = resolutionText(r);
+        const result = resolutionText(r, this.mctx()?.name());
         this.notices.info(
           this.feedback().trim()
             ? tr("{result}. Your note wasn't sent.", { result })
@@ -411,6 +483,22 @@ export class PendingCardComponent {
     return (s.standing || this.item().dangerous) && !this.canDangerous();
   }
 
+  /** Rules saved to settings files: where they can be allowed instead. */
+  protected standingText(): string {
+    const m = this.mctx();
+    return m
+      ? tr(
+          'Rules saved to settings files need {name}, or a computer it allows dangerous actions.',
+          {
+            name: m.name(),
+          },
+        )
+      : tr(
+          'Rules saved to settings files need the {computer}, or a device allowed to take dangerous actions (Remote › Devices).',
+          { computer: computerNoun() },
+        );
+  }
+
   // ─────────────────────────────────────────────────────────── Question
 
   isPicked(qi: number, label: string): boolean {
@@ -441,7 +529,7 @@ export class PendingCardComponent {
     if (!full) {
       this.loadingFull.set(true);
       try {
-        full = await this.pendings.ensure(it.sessionId, it.id);
+        full = await this.pendings().ensure(it.sessionId, it.id);
       } catch {
         full = undefined;
       } finally {
@@ -450,7 +538,7 @@ export class PendingCardComponent {
     }
     const q = full?.questions?.[0];
     if (!q) {
-      void this.router.navigate(['/session', it.sessionId]);
+      void this.router.navigate(this.link());
       return;
     }
     await this.respond(
@@ -562,7 +650,7 @@ export class PendingCardComponent {
     this.loadingFull.set(true);
     this.loadError.set('');
     try {
-      const full = await this.pendings.ensure(sessionId, id);
+      const full = await this.pendings().ensure(sessionId, id);
       if (!full && id === this.itemId() && !this.gone()) {
         this.loadError.set(tr('This request is no longer available.'));
       }
@@ -577,7 +665,7 @@ export class PendingCardComponent {
     const item = this.item();
     this.error.set('');
     try {
-      const res = await this.pendings.respond(item, body, doneText);
+      const res = await this.pendings().respond(item, body, doneText);
       if (!res) return; // already in flight elsewhere
       this.done.set(res.text);
       if (res.alreadyDecided) {

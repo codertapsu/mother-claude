@@ -3,6 +3,7 @@ import { Injectable, computed, effect, inject, signal } from '@angular/core';
 import { tr } from './i18n/i18n';
 import { NoticeService } from './notice.service';
 import { RealtimeService } from './realtime.service';
+import { RemoteSessionsService } from './remote-sessions.service';
 import { storageGet, storageSet } from './platform';
 
 const ALERTS_KEY = 'mc_alerts';
@@ -18,10 +19,14 @@ const BASE_TITLE = 'Mother Claude';
 export class AttentionService {
   private realtime = inject(RealtimeService);
   private notices = inject(NoticeService);
+  private remote = inject(RemoteSessionsService);
 
-  /** Requests someone can answer from here (observed ones wait at the desk). */
+  /** Requests someone can answer from here (observed ones wait at the
+   * desk), other computers' online ones included. */
   readonly pendingCount = computed(
-    () => this.realtime.pendingItems().filter((p) => p.answerable).length,
+    () =>
+      this.realtime.pendingItems().filter((p) => p.answerable).length +
+      this.remote.pending().filter((p) => p.answerable).length,
   );
   readonly alertsEnabled = signal(storageGet(ALERTS_KEY) !== '0');
 

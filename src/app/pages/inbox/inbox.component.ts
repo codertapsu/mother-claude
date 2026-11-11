@@ -13,10 +13,16 @@ import { AccountsService } from '../../core/accounts.service';
 import { AuthService } from '../../core/auth.service';
 import { computerNoun, tr } from '../../core/i18n/i18n';
 import { TPipe } from '../../core/i18n/t.pipe';
+import { MachineScopes } from '../../core/machine-scope';
 import { PendingRef, SessionSummary } from '../../core/models';
 import { NoticeService } from '../../core/notice.service';
 import { PendingService } from '../../core/pending.service';
 import { RealtimeService } from '../../core/realtime.service';
+import {
+  MachineTag,
+  RemotePendingRef,
+  RemoteSessionsService,
+} from '../../core/remote-sessions.service';
 import { inAccount } from '../../shared/accounts';
 import { IconComponent } from '../../shared/icon.component';
 import { Lingering, lingerList } from '../../shared/linger';
@@ -27,6 +33,13 @@ interface Entry {
   ref: PendingRef;
   gone: boolean;
   session?: SessionSummary;
+  /** Another computer's request: that computer. */
+  machine?: MachineTag;
+}
+
+/** A card's identity: requests of two computers never mix. */
+function entryKey(e: Entry): string {
+  return e.machine ? `${e.machine.id}\u0000${e.ref.id}` : e.ref.id;
 }
 
 /**
@@ -40,6 +53,11 @@ interface Entry {
  * cards and A/D/F answer the focused one. While more than the Default
  * account exists, each card names its session's account and a filter shows
  * one account's requests.
+ *
+ * Requests waiting at other computers that are online join in, named by
+ * their computer's chip and answered through it (the first answer wins
+ * there too; docs/PLAN-MACHINES.md §6.2). They are none of this computer's
+ * accounts: an account filter leaves them out.
  */
 @Component({
   selector: 'mc-inbox',
@@ -111,7 +129,7 @@ interface Entry {
             }}
           </p>
           <div class="stack">
-            @for (e of needs(); track e.ref.id; let i = $index) {
+            @for (e of needs(); track entryKey(e); let i = $index) {
               <div class="entry">
                 <p class="waited">
                   <mc-icon name="clock" [size]="12" />
@@ -122,6 +140,7 @@ interface Entry {
                   [session]="e.session"
                   [showSession]="true"
                   [gone]="e.gone"
+                  [machine]="e.machine?.id ?? null"
                   bodyMax="min(55vh, 26rem)"
                   (resolved)="focusCard(i + 1)"
                   (move)="focusCard(i + $event)"
@@ -145,12 +164,13 @@ interface Entry {
             }}
           </p>
           <div class="stack">
-            @for (e of desk(); track e.ref.id) {
+            @for (e of desk(); track entryKey(e)) {
               <mc-pending-card
                 [item]="e.ref"
                 [session]="e.session"
                 [showSession]="true"
                 [gone]="e.gone"
+                [machine]="e.machine?.id ?? null"
               />
             }
           </div>
@@ -233,6 +253,8 @@ export class InboxComponent {
   private pendings = inject(PendingService);
   private notices = inject(NoticeService);
   private auth = inject(AuthService);
+  private remote = inject(RemoteSessionsService);
+  private scopes = inject(MachineScopes);
   protected readonly accounts = inject(AccountsService);
 
   private readonly cards = viewChildren(PendingCardComponent, { read: ElementRef });
@@ -240,20 +262,33 @@ export class InboxComponent {
   /** `GET /inbox`, used until the live store has its first snapshot. */
   private readonly fetchedItems = signal<PendingRef[]>([]);
   protected readonly isDesktop = this.auth.isDesktop;
+  protected readonly entryKey = entryKey;
 
   protected readonly ready = computed(() => this.realtime.sessionsLoaded() || this.fetched());
   private readonly lingering = lingerList<PendingRef>(() =>
     this.realtime.sessionsLoaded() ? this.realtime.pendingItems() : this.fetchedItems(),
   );
+  /** Other computers' requests (none while no computer is paired). */
+  private readonly remoteLingering = lingerList<RemotePendingRef>(() => this.remote.pending());
   private readonly all = computed<Entry[]>(() => {
     const byId = new Map(this.realtime.sessions().map((s) => [s.id, s]));
-    return this.lingering()
-      .map((l: Lingering<PendingRef>) => ({
+    const machines = this.remote.byId();
+    return [
+      ...this.lingering().map((l: Lingering<PendingRef>) => ({
         ref: l.item,
         gone: l.gone,
         session: byId.get(l.item.sessionId),
-      }))
-      .sort((a, b) => a.ref.createdAt - b.ref.createdAt);
+      })),
+      ...this.remoteLingering().map((l: Lingering<RemotePendingRef>) => {
+        const m = machines.get(l.item.machine);
+        return {
+          ref: l.item,
+          gone: l.gone,
+          session: m?.sessions.find((s) => s.id === l.item.sessionId),
+          machine: m,
+        };
+      }),
+    ].sort((a, b) => a.ref.createdAt - b.ref.createdAt);
   });
   /** The account filter: only while more than the Default exists. */
   protected readonly accountFilterShown = this.accounts.multi;
@@ -269,7 +304,7 @@ export class InboxComponent {
   );
   private readonly entries = computed<Entry[]>(() => {
     const id = this.accountInEffect();
-    return id ? this.all().filter((e) => inAccount(e.session, id)) : this.all();
+    return id ? this.all().filter((e) => !e.machine && inAccount(e.session, id)) : this.all();
   });
   protected readonly needs = computed(() => this.entries().filter((e) => e.ref.answerable));
   protected readonly desk = computed(() => this.entries().filter((e) => !e.ref.answerable));
@@ -311,6 +346,14 @@ export class InboxComponent {
   }
 
   private async load(): Promise<void> {
+    // Other computers' full requests, through each one's scope.
+    for (const m of this.remote.list()) {
+      if (m.online)
+        void this.scopes
+          .pending(m.id)
+          .loadInbox()
+          .catch(() => undefined);
+    }
     try {
       this.fetchedItems.set(await this.pendings.loadInbox());
     } catch (e) {

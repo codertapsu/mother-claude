@@ -1,6 +1,6 @@
 import { Component, DestroyRef, computed, effect, inject, signal, untracked } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { RouterLink } from '@angular/router';
+import { ActivatedRoute, RouterLink } from '@angular/router';
 
 import { DEFAULT_ACCOUNT } from '../../core/accounts';
 import { AccountsService } from '../../core/accounts.service';
@@ -12,6 +12,7 @@ import { JobView, SessionSummary } from '../../core/models';
 import { anyTarget } from '../../core/move-data';
 import { storageGet, storageSet } from '../../core/platform';
 import { RealtimeService } from '../../core/realtime.service';
+import { MachineTag, RemoteSessionsService } from '../../core/remote-sessions.service';
 import { StorageService } from '../../core/storage.service';
 import {
   DeleteDataSheetComponent,
@@ -54,6 +55,15 @@ function byRecent(a: SessionSummary, b: SessionSummary): number {
   return (b.lastActivityAt ?? b.startedAt ?? 0) - (a.lastActivityAt ?? a.startedAt ?? 0);
 }
 
+/** A card's identity: another computer's session may share an id with one
+ * here (a session continued on another computer keeps its id). */
+function cardKey(s: SessionSummary): string {
+  return s.machine ? `${s.machine}\u0000${s.id}` : s.id;
+}
+
+/** The Machine filter: every computer, this one (`here`), or another's id. */
+const HERE = 'here';
+
 /**
  * Every session in the active scope (live, or active in the last 24 h),
  * searchable and filterable (by surface, project and — while more than the
@@ -68,6 +78,14 @@ function byRecent(a: SessionSummary, b: SessionSummary): number {
  * data with those conversations (from several accounts at once: each goes
  * from where it is). The *Sessions / Projects* switch shows every project
  * on disk instead (`ProjectsViewComponent`).
+ *
+ * Other computers' sessions (docs/PLAN-MACHINES.md §6.1) join the same
+ * groups with their computer's chip, and a *Machine* filter picks every
+ * computer, this one or one other (`?machine=<id>` opens it so); an offline
+ * computer's sessions stay, greyed, in a group of their own. They are never
+ * selected, an account filter (this computer's accounts) leaves them out,
+ * and earlier sessions are this computer's only. With no other computer
+ * paired the page is exactly this computer's.
  */
 @Component({
   selector: 'mc-sessions',
@@ -91,10 +109,49 @@ export class SessionsComponent {
   private api = inject(ApiService);
   private accounts = inject(AccountsService);
   private storage = inject(StorageService);
+  private remote = inject(RemoteSessionsService);
 
   protected readonly loaded = this.realtime.sessionsLoaded;
   protected readonly connection = this.realtime.connection;
+  /** This computer's sessions. */
   protected readonly all = this.realtime.sessions;
+
+  /** Other computers whose sessions show (none while none is paired). */
+  protected readonly machines = this.remote.list;
+  /** The Machine filter: '' every computer, `here` this one, else a
+   * computer's id. */
+  protected readonly machine = signal(
+    inject(ActivatedRoute).snapshot.queryParamMap.get('machine') ?? '',
+  );
+  /** The pick in effect: every computer once its computer is gone. */
+  protected readonly machineInEffect = computed(() => {
+    const m = this.machine();
+    return m === HERE || this.remote.byId().has(m) ? m : '';
+  });
+  /** This computer's sessions the Machine filter keeps. */
+  private readonly localShown = computed(() => {
+    const m = this.machineInEffect();
+    return m && m !== HERE ? [] : this.all();
+  });
+  /** Other computers' sessions the Machine filter keeps, online or not. */
+  private readonly remoteShown = computed(() => {
+    const m = this.machineInEffect();
+    if (m === HERE) return { online: [], offline: [] };
+    const list = this.machines().filter((x) => !m || x.id === m);
+    return {
+      online: list.filter((x) => x.online).flatMap((x) => x.sessions),
+      offline: list.filter((x) => !x.online).flatMap((x) => x.sessions),
+    };
+  });
+  /** Other computers still sending their first list. */
+  protected readonly machinesLoading = computed(() => {
+    const m = this.machineInEffect();
+    return this.machines().filter((x) => x.online && !x.loaded && (!m || x.id === m));
+  });
+  /** Every session the page has, of every computer. */
+  protected readonly everything = computed(() => [...this.all(), ...this.remote.sessions()]);
+  protected readonly cardKey = cardKey;
+  protected readonly HERE = HERE;
 
   protected readonly view = signal<View>(
     storageGet(VIEW_KEY) === 'projects' ? 'projects' : 'sessions',
@@ -125,16 +182,26 @@ export class SessionsComponent {
   private historyKey = '';
   private historyTimer?: ReturnType<typeof setTimeout>;
 
-  protected readonly liveCount = computed(() => this.all().filter((s) => s.live).length);
-  protected readonly needsCount = computed(() => this.all().filter(needsYou).length);
+  /** Sessions that can be live or waiting on someone now: this computer's
+   * and the online computers' (an offline one's are as last heard). */
+  private readonly current = computed(() => [
+    ...this.all(),
+    ...this.machines()
+      .filter((m) => m.online)
+      .flatMap((m) => m.sessions),
+  ]);
+  protected readonly liveCount = computed(() => this.current().filter((s) => s.live).length);
+  protected readonly needsCount = computed(() => this.current().filter(needsYou).length);
 
   protected readonly surfaces = computed(() =>
-    [...new Set([...this.all(), ...this.history()].map((s) => s.surface))].sort(),
+    [...new Set([...this.everything(), ...this.history()].map((s) => s.surface))].sort(),
   );
   protected readonly projects = computed(() =>
-    [...new Set([...this.all(), ...this.history()].map((s) => s.projectName).filter(Boolean))].sort(
-      (a, b) => a.localeCompare(b),
-    ),
+    [
+      ...new Set(
+        [...this.everything(), ...this.history()].map((s) => s.projectName).filter(Boolean),
+      ),
+    ].sort((a, b) => a.localeCompare(b)),
   );
 
   /** Everything the page filters by: the search, the pickers and the All /
@@ -156,9 +223,21 @@ export class SessionsComponent {
     only: '',
   }));
 
+  /** An account filter names one of this computer's accounts: other
+   * computers' sessions run under their own. */
   protected readonly visible = computed(() => {
     const f = this.filters();
-    return this.all().filter((s) => sessionPasses(s, f));
+    const remote = f.account ? [] : this.remoteShown().online;
+    return [...this.localShown(), ...remote].filter((s) => sessionPasses(s, f));
+  });
+  /** Offline computers' sessions the filters keep (none under Live or Needs
+   * you: they are as last heard). */
+  private readonly offlineVisible = computed(() => {
+    const f = this.filters();
+    if (f.only || f.account) return [];
+    return this.remoteShown()
+      .offline.filter((s) => sessionPasses(s, f))
+      .sort(byRecent);
   });
 
   protected readonly groups = computed<Group[]>(() => {
@@ -195,12 +274,22 @@ export class SessionsComponent {
       },
     ];
     // Unknown statuses from a newer server still show up.
-    const known = new Set(groups.flatMap((g) => g.items.map((s) => s.id)));
-    const other = list.filter((s) => !known.has(s.id));
+    const known = new Set(groups.flatMap((g) => g.items.map(cardKey)));
+    const other = list.filter((s) => !known.has(cardKey(s)));
     if (other.length) {
       groups.push({ key: 'other', title: tr('Other'), items: other.sort(byRecent) });
     }
+    const offline = this.offlineVisible();
+    if (offline.length) {
+      groups.push({ key: 'offline', title: tr('On computers that are offline'), items: offline });
+    }
     return groups.filter((g) => g.items.length);
+  });
+
+  /** Earlier sessions are this computer's: not under another computer. */
+  protected readonly historyShown = computed(() => {
+    const m = this.machineInEffect();
+    return !m || m === HERE;
   });
 
   protected readonly historyVisible = computed(() => {
@@ -260,7 +349,13 @@ export class SessionsComponent {
     this.surface.set('');
     this.project.set('');
     this.account.set('');
+    this.machine.set('');
     this.setFilter('all');
+  }
+
+  /** The other computer a card's session runs on (null: this one). */
+  protected tagOf(s: SessionSummary): MachineTag | null {
+    return this.remote.tagOf(s);
   }
 
   toggleSelecting(): void {
@@ -283,10 +378,13 @@ export class SessionsComponent {
    * server cannot be asked, the cards shown are selected and the bar says so. */
   async selectAll(): Promise<void> {
     if (this.selectingAll()) return;
+    // Another computer's sessions are never selected (their data is there).
     const shown = [
       ...this.groups().flatMap((g) => g.items),
       ...(this.historyOpen() ? this.historyVisible() : []),
-    ].map((s) => s.id);
+    ]
+      .filter((s) => !s.machine)
+      .map((s) => s.id);
     this.selectingAll.set(true);
     this.selectAllError.set('');
     let found: string[] = [];

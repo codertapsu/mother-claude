@@ -1,8 +1,9 @@
-import { ChangeDetectionStrategy, Component, computed, input, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject, input, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
 
 import { tr } from '../../core/i18n/i18n';
 import { TPipe } from '../../core/i18n/t.pipe';
+import { SESSION_MACHINE, agentLink } from '../../core/session-links';
 import { hunksToRows } from '../../shared/diff';
 import { DiffViewComponent } from '../../shared/diff-view.component';
 import { IconComponent } from '../../shared/icon.component';
@@ -68,7 +69,7 @@ import { ToolStep } from './transcript-rows';
           </p>
         }
         @if (agentId(); as a) {
-          <a class="btn small" [routerLink]="['/session', sessionId(), 'agent', a]">
+          <a class="btn small" [routerLink]="agentLink(sessionId(), a, machine)">
             <mc-icon name="agents" [size]="14" /> {{ "Open this agent's transcript" | t }}
           </a>
         }
@@ -170,6 +171,9 @@ import { ToolStep } from './transcript-rows';
   ],
 })
 export class ToolStepComponent {
+  /** The other computer the session runs on (null: this one). */
+  protected readonly machine = inject(SESSION_MACHINE);
+  protected readonly agentLink = agentLink;
   readonly step = input.required<ToolStep>();
   readonly sessionId = input('');
   readonly cwd = input('');

@@ -287,6 +287,10 @@ export interface SessionSummary {
   /** The account it switches to once its turn ends (docs/ACCOUNTS.md
    * §15.1; read with `switchingToOf`, switch-account.ts). */
   switchingTo?: unknown;
+  /** Another computer's session: the id of the computer it runs on, which
+   * this app stamps on what that computer's frames carry; absent for this
+   * computer's own (docs/PLAN-MACHINES.md §6.1). */
+  machine?: string;
 }
 
 // ─────────────────────────────────────────── 4.2 Pending items & responding
@@ -1819,12 +1823,15 @@ export type ServerFrame =
   // Teams of sessions (`core/teams.ts`).
   | import('./teams').TeamsFrame
   // Machines: your other computers (`core/machines.ts`).
-  | import('./machines').MachinesFrame;
+  | import('./machines').MachinesFrame
+  // Another computer's frame, republished (`core/machines.ts`).
+  | import('./machines').RemoteFrame;
 
+/** `machine` on `sub`/`unsub`: another computer's session (its id). */
 export type ClientFrame =
   | { t: 'auth'; token: string }
-  | { t: 'sub'; session: string; agent?: string; since?: string }
-  | { t: 'unsub'; session: string; agent?: string }
+  | { t: 'sub'; session: string; agent?: string; since?: string; machine?: string }
+  | { t: 'unsub'; session: string; agent?: string; machine?: string }
   | { t: 'subFleet' }
   | { t: 'unsubFleet' }
   | { t: 'subInbox' }

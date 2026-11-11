@@ -13,6 +13,7 @@ import { Router, RouterLink } from '@angular/router';
 
 import { DEFAULT_ACCOUNT } from '../../core/accounts';
 import { AccountsService } from '../../core/accounts.service';
+import { MachineContext } from '../../core/machine-context';
 import { accountLocation, anyTarget } from '../../core/move-data';
 import { StorageService } from '../../core/storage.service';
 import { NoticeService } from '../../core/notice.service';
@@ -24,6 +25,7 @@ import { JobView, SessionPushPref } from '../../core/models';
 import { AccountChipComponent } from '../../shared/account-chip.component';
 import { ActivityLineComponent } from '../../shared/activity-line.component';
 import { capRename, capTerminal } from '../../shared/caps';
+import { ChipComponent } from '../../shared/chip.component';
 import { ContinueOnSheetComponent, canContinue } from '../../shared/continue-on-sheet.component';
 import { CopyButtonComponent } from '../../shared/copy-button.component';
 import { IconComponent } from '../../shared/icon.component';
@@ -49,7 +51,9 @@ import { SessionContext } from './session-context';
  * (rename, continue/fork, continue on another account, moving or copying
  * it or its project to another account or a storage, deleting it,
  * terminal, notifications, resume command, stop/respawn/remove). 48 px tall
- * on phones.
+ * on phones. Another computer's session shows that computer's chip, and
+ * its menu leaves out what only that computer does (its accounts, moving,
+ * copying, deleting, removing, notifications here), saying so in one line.
  */
 @Component({
   selector: 'mc-session-header',
@@ -59,6 +63,7 @@ import { SessionContext } from './session-context';
     RouterLink,
     AccountChipComponent,
     ActivityLineComponent,
+    ChipComponent,
     ContinueOnSheetComponent,
     CopyButtonComponent,
     IconComponent,
@@ -90,6 +95,9 @@ import { SessionContext } from './session-context';
               [live]="s.live"
               [activity]="s.activity"
             />
+            @if (machine; as m) {
+              <mc-chip class="mchip" icon="monitor" [attr.title]="m.name()">{{ m.name() }}</mc-chip>
+            }
             @if (s.account; as a) {
               <mc-account-chip class="acct" [account]="a" />
             }
@@ -164,10 +172,20 @@ import { SessionContext } from './session-context';
               <span>{{ 'Move or copy this project…' | t }}</span>
             </button>
           }
-          <button class="item" type="button" (click)="openDelete()">
-            <mc-icon name="trash" [size]="18" />
-            <span>{{ 'Delete…' | t }}</span>
-          </button>
+          @if (machine; as m) {
+            <p class="item static elsewhere">
+              <mc-icon name="monitor" [size]="18" />
+              <span>{{
+                'Switching its account, moving, copying and deleting it are done on {name}.'
+                  | t: { name: m.name() }
+              }}</span>
+            </p>
+          } @else {
+            <button class="item" type="button" (click)="openDelete()">
+              <mc-icon name="trash" [size]="18" />
+              <span>{{ 'Delete…' | t }}</span>
+            </button>
+          }
           @if (terminal()) {
             <button class="item" type="button" (click)="openTerminal()">
               <mc-icon name="terminal" [size]="18" />
@@ -232,7 +250,7 @@ import { SessionContext } from './session-context';
             <mc-icon name="info" [size]="18" />
             <span>{{ 'Session info' | t }}</span>
           </button>
-          @if (s.control.lifecycle.stop || s.control.lifecycle.respawn || s.control.lifecycle.rm) {
+          @if (s.control.lifecycle.stop || s.control.lifecycle.respawn || rmOffered()) {
             <div class="lifecycle">
               @if (s.control.lifecycle.stop) {
                 <button class="btn" type="button" (click)="lifecycle('stop')">
@@ -244,7 +262,7 @@ import { SessionContext } from './session-context';
                   <mc-icon name="refresh" [size]="14" /> {{ 'Respawn' | t }}
                 </button>
               }
-              @if (s.control.lifecycle.rm) {
+              @if (rmOffered()) {
                 <button
                   class="btn danger"
                   type="button"
@@ -307,32 +325,36 @@ import { SessionContext } from './session-context';
         </button>
       </mc-sheet>
 
-      <mc-continue-on-sheet
-        [open]="continueOn()"
-        [sessions]="continueOnSessions()"
-        [suggested]="continueOnSuggestion()"
-        (closed)="continueOn.set(false)"
-      />
-      <mc-switch-account-sheet
-        [open]="switching()"
-        [sessions]="continueOnSessions()"
-        [suggested]="continueOnSuggestion()"
-        [tasks]="taskCount()"
-        (closed)="switching.set(false)"
-      />
+      @if (!machine) {
+        <!-- This computer's accounts and data: another computer's session
+             has none of them here. -->
+        <mc-continue-on-sheet
+          [open]="continueOn()"
+          [sessions]="continueOnSessions()"
+          [suggested]="continueOnSuggestion()"
+          (closed)="continueOn.set(false)"
+        />
+        <mc-switch-account-sheet
+          [open]="switching()"
+          [sessions]="continueOnSessions()"
+          [suggested]="continueOnSuggestion()"
+          [tasks]="taskCount()"
+          (closed)="switching.set(false)"
+        />
 
-      @if (moveOffered()) {
-        <mc-move-data-sheet
-          [open]="!!ctx.moveCopy()"
-          [start]="moveStart()"
-          (closed)="ctx.moveCopy.set(null)"
+        @if (moveOffered()) {
+          <mc-move-data-sheet
+            [open]="!!ctx.moveCopy()"
+            [start]="moveStart()"
+            (closed)="ctx.moveCopy.set(null)"
+          />
+        }
+        <mc-delete-data-sheet
+          [open]="!!deleteStart()"
+          [start]="deleteStart()"
+          (closed)="deleteClosed($event)"
         />
       }
-      <mc-delete-data-sheet
-        [open]="!!deleteStart()"
-        [start]="deleteStart()"
-        (closed)="deleteClosed($event)"
-      />
     }
   `,
   styles: [
@@ -373,6 +395,15 @@ import { SessionContext } from './session-context';
       .acct {
         flex: 0 0 auto;
         max-width: 45%;
+      }
+      .mchip {
+        flex: 0 1 auto;
+        max-width: 35%;
+      }
+      .item.elsewhere {
+        margin: 0;
+        font-size: 0.85rem;
+        color: var(--muted);
       }
       .act {
         font-size: 0.75rem;
@@ -497,6 +528,8 @@ import { SessionContext } from './session-context';
 })
 export class SessionHeaderComponent {
   protected readonly ctx = inject(SessionContext);
+  /** Another computer's session (none: this computer's). */
+  protected readonly machine = inject(MachineContext, { optional: true });
   private realtime = inject(RealtimeService);
   private push = inject(PushService);
   private notices = inject(NoticeService);
@@ -534,25 +567,31 @@ export class SessionHeaderComponent {
   protected readonly pushPref = computed<SessionPushPref | ''>(() =>
     this.push.sessionPref(this.ctx.id()),
   );
-  /** Push is per device: the desktop app shows everything live instead. */
-  protected readonly pushAvailable = computed(() => !this.ctx.isDesktop());
+  /** Push is per device: the desktop app shows everything live instead.
+   * Another computer's sessions notify where they run. */
+  protected readonly pushAvailable = computed(() => !this.ctx.isDesktop() && !this.machine);
   protected readonly turnArmed = computed(() => this.push.turnFinishedArmed(this.ctx.id()));
+  /** VS Code on this computer: never another computer's session. */
   protected readonly vscodeUrl = computed(() => {
     const s = this.ctx.session();
-    return s?.surface === 'vscode' && this.ctx.isDesktop()
+    return s?.surface === 'vscode' && this.ctx.isDesktop() && !this.machine
       ? `vscode://anthropic.claude-code/open?session=${encodeURIComponent(s.id)}`
       : '';
   });
+  /** Removing a background job: this computer's only. */
+  protected readonly rmOffered = computed(
+    () => !!this.ctx.session()?.control.lifecycle.rm && !this.machine,
+  );
   /** Sessions name an account only while more than the Default exists. */
   protected readonly continueOnOffered = computed(() => {
     const s = this.ctx.session();
-    return !!s?.account && canContinue(s);
+    return !!s?.account && !this.machine && canContinue(s);
   });
   /** Switch account: a session that runs here or not at all, or (another
    * app runs it) Continue on instead — while there are several accounts. */
   protected readonly switchOffered = computed(() => {
     const s = this.ctx.session();
-    return !!s?.account && (switchMode(s) !== 'elsewhere' || canContinue(s));
+    return !!s?.account && !this.machine && (switchMode(s) !== 'elsewhere' || canContinue(s));
   });
   protected readonly switching = signal(false);
   /** The background tasks a switch stops (the detail's, when read). */
@@ -571,7 +610,10 @@ export class SessionHeaderComponent {
   /** Somewhere to move it: another account, or a storage (the desktop
    * and paired phones alike, docs/ACCOUNTS.md §13.9). */
   protected readonly moveOffered = computed(
-    () => !!this.ctx.session() && anyTarget(this.accounts.list(), this.storage.list() ?? []),
+    () =>
+      !!this.ctx.session() &&
+      !this.machine &&
+      anyTarget(this.accounts.list(), this.storage.list() ?? []),
   );
   /** Move data with the conversation, or every conversation of its folder. */
   /** Move data with the conversation, or every conversation of its folder:
@@ -591,7 +633,7 @@ export class SessionHeaderComponent {
 
   constructor() {
     // Where things can be moved to: the storages count too.
-    void this.storage.ensureLoaded();
+    if (!this.machine) void this.storage.ensureLoaded();
     // The composer's `/rename` lands here.
     effect(() => {
       if (this.ctx.openPicker() !== 'rename') return;
@@ -604,6 +646,7 @@ export class SessionHeaderComponent {
 
   protected openMenu(): void {
     this.menu.set(true);
+    if (this.machine) return;
     void this.storage.ensureLoaded();
     if (!this.push.prefs()) void this.push.loadPrefs();
   }

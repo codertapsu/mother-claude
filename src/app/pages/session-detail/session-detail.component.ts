@@ -3,6 +3,7 @@ import { ActivatedRoute, ParamMap, Router, RouterLink } from '@angular/router';
 
 import { tr } from '../../core/i18n/i18n';
 import { TPipe } from '../../core/i18n/t.pipe';
+import { MachineContext } from '../../core/machine-context';
 import { ViewportService } from '../../core/viewport.service';
 import { IconComponent } from '../../shared/icon.component';
 import { LimitOfferComponent } from '../../shared/limit-offer.component';
@@ -11,6 +12,7 @@ import { AgentsPanelComponent } from './agents-panel.component';
 import { ChangesPanelComponent } from './changes-panel.component';
 import { ComposerComponent } from './composer.component';
 import { InfoPanelComponent } from './info-panel.component';
+import { MachineBannerComponent } from './machine-banner.component';
 import { PendingDockComponent } from './pending-dock.component';
 import { SessionChipsComponent } from './session-chips.component';
 import { SessionContext, SessionTab } from './session-context';
@@ -43,6 +45,9 @@ const TABS: TabDef[] = [
  * `?view=terminal` opens the terminal view; `?tab=agents|changes|info`
  * selects a tab; `?pending=<id>` (a notification tap) opens Chat with that
  * request in front.
+ *
+ * Another computer's session (`RemoteSessionComponent`) is this page in that
+ * computer's scope, with a line under the header saying where it runs.
  */
 @Component({
   selector: 'mc-session-detail',
@@ -55,6 +60,7 @@ const TABS: TabDef[] = [
     IconComponent,
     InfoPanelComponent,
     LimitOfferComponent,
+    MachineBannerComponent,
     PendingDockComponent,
     ResumeNoteComponent,
     SessionChipsComponent,
@@ -69,6 +75,8 @@ const TABS: TabDef[] = [
 })
 export class SessionDetailComponent {
   protected readonly ctx = inject(SessionContext);
+  /** Another computer's session (none: this computer's). */
+  protected readonly machine = inject(MachineContext, { optional: true });
   private route = inject(ActivatedRoute);
   private router = inject(Router);
   private viewport = inject(ViewportService);

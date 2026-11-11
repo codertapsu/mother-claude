@@ -16,6 +16,7 @@ import { RouterLink } from '@angular/router';
 import { ApiService } from '../../core/api.service';
 import { tr } from '../../core/i18n/i18n';
 import { TPipe } from '../../core/i18n/t.pipe';
+import { MachineContext } from '../../core/machine-context';
 import { CommandInfo, PendingRef } from '../../core/models';
 import { NoticeService } from '../../core/notice.service';
 import { PendingService } from '../../core/pending.service';
@@ -119,7 +120,9 @@ function builtinCommands(): CommandInfo[] {
  *   channels) are uploaded and referenced as `@<path>`.
  * - Waiting messages are listed with ✕ while they can still be taken back,
  *   and Send now where the session takes it.
- * - A session that can't take messages explains why, with its fixes.
+ * - A session that can't take messages explains why, with its fixes; another
+ *   computer's says when that computer is offline or lets this one watch
+ *   only.
  */
 @Component({
   selector: 'mc-composer',
@@ -130,6 +133,8 @@ function builtinCommands(): CommandInfo[] {
 })
 export class ComposerComponent {
   protected readonly ctx = inject(SessionContext);
+  /** Another computer's session (none: this computer's). */
+  private machine = inject(MachineContext, { optional: true });
   private api = inject(ApiService);
   private notices = inject(NoticeService);
   private pendings = inject(PendingService);
@@ -160,10 +165,13 @@ export class ComposerComponent {
   protected readonly session = this.ctx.session;
   protected readonly caps = this.ctx.caps;
   protected readonly coarse = this.viewport.coarse;
+  /** Why another computer's session takes nothing from here now (offline,
+   * or it lets this computer watch only); '' otherwise. */
+  protected readonly machineBlock = computed(() => this.machine?.blocked() ?? '');
   protected readonly mode = computed<'message' | 'resume' | 'blocked'>(() => {
     const s = this.session();
     const c = this.caps();
-    if (!s || !c) return 'blocked';
+    if (!s || !c || this.machineBlock()) return 'blocked';
     if (s.live && c.message !== 'none') return 'message';
     if (!s.live && (c.continueOwned || c.fork)) return 'resume';
     return 'blocked';

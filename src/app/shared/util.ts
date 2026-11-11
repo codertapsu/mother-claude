@@ -88,6 +88,15 @@ export function resetClock(resetsAt: number | undefined, now = Date.now()): stri
   return `${d.toLocaleDateString(locale(), { day: 'numeric', month: 'short' })}, ${time}`;
 }
 
+/** A past moment people can place: "14:32" today, else "3 Oct, 14:32". */
+export function pastClock(at: number | null | undefined, now = Date.now()): string {
+  if (!at) return '';
+  const d = new Date(at);
+  const time = d.toLocaleTimeString(locale(), { hour: '2-digit', minute: '2-digit' });
+  if (d.toDateString() === new Date(now).toDateString()) return time;
+  return `${d.toLocaleDateString(locale(), { day: 'numeric', month: 'short' })}, ${time}`;
+}
+
 // ─────────────────────────────────────────────────────────────── Numbers
 
 export function formatTokens(n?: number): string {
