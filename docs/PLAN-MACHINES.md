@@ -535,6 +535,17 @@ plain copy of the index, dated now, made git trust stale stat data and
 and `status` (so F1's check agrees), and **F9**, Git LFS writes its hooks into
 the overriding hooks folder, which a shared folder would then run.
 
+The Rust port (`machines/code/`, 2026-11-11) added a tenth: **F10**,
+`read-tree -m -u` silently overwrites a file the *target* ignores when the
+snapshot tracks or carries one at that path. Landing checks for such paths
+first and stops before anything changes (*would overwrite*, offering a
+worktree); a step that fails half-way puts the checkout back. Undo refuses
+when the landing changed since the apply (it would wipe that work), and
+every id, ref, name and path in a move's record is checked before git or
+the file system sees it, as it comes from the other machine. Still open:
+when the two machines ignore different files, the proof (`verify`) reports
+a file only the target ignores as a difference.
+
 **Transfer**, either way (the project setting, P2P by default):
 
 - **Machine to machine** (default): T says which commits it has for that
@@ -1022,6 +1033,10 @@ own computer's sessions (UX §6.1 has `/api/sessions` carry the others).*
 - Exit: from the Mac you start, watch, answer and stop a session on Windows; so does a phone paired with the Mac.
 
 ### Phase 3a — move a session (≈ 5 weeks)
+
+*Started on the `machines` branch (2026-11-11): `machines/code/`, the
+snapshot, both transfers, both landings, undo and the proof, ported from S2
+with its cases as tests (F10 above); nothing calls it yet.*
 
 - `machines/lease.rs`; enforcement in `claude/control.rs` (refuse a session leased elsewhere).
 - `machines/moves.rs`: preflight, freeze (reuse `claude/switch.rs`), package (reuse `archive_session`), send/receive (bulk streams), land (reuse the pull's placement through the roots, its conflict rule and undo), commit (lease), resume with the move note.
