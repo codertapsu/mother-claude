@@ -12,7 +12,7 @@ use axum::body::Body as HttpBody;
 use axum::extract::{Extension, Path, Query, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
-use axum::routing::{get, patch, post, put};
+use axum::routing::{any, get, patch, post, put};
 use axum::{Json, Router};
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -47,7 +47,14 @@ pub fn api_router() -> Router<AppState> {
         .route("/machines/settings/offer", post(answer_offer))
         .route("/machines/enable", post(enable))
         .route("/machines/{id}", patch(update_peer).delete(revoke_peer))
+        .route(
+            "/machines/{id}/proxy/{*rest}",
+            any(proxy).layer(axum::extract::DefaultBodyLimit::max(PROXY_BODY_MAX)),
+        )
 }
+
+/// The largest request forwarded to another machine (a message with images).
+const PROXY_BODY_MAX: usize = 32 * 1024 * 1024;
 
 /// `/peer/*`.
 pub fn peer_router() -> Router<AppState> {
@@ -62,9 +69,11 @@ pub fn peer_router() -> Router<AppState> {
         .route("/peer/setup/ask", post(peer_setup_ask))
         .route("/peer/settings", post(peer_settings))
         .route("/peer/bulk", get(peer_bulk))
-        .fallback(|| async {
-            ApiError::not_found("not_found", "No such route for another computer.")
-        })
+        // The paired machine's view of this one's sessions (plan §5.6).
+        .route("/ws", get(peer_ws))
+        // `/api/*` is served from the fallback, so no path parameter of this
+        // router reaches the dashboard's handlers it forwards to.
+        .fallback(peer_api)
 }
 
 /// The peer router with the hardening layers and the context middleware,
@@ -504,7 +513,185 @@ async fn revoke_peer(
     view_json(&state).await
 }
 
+// ─── driving another machine through this one ───────────────────────────────────
+
+/// `/api/machines/{id}/proxy/<path>`: forwards a dashboard call to the paired
+/// machine's `/api/<path>` with who acts here (`X-MC-Acting`); the other
+/// machine decides with its grants and that person's right.
+async fn proxy(
+    Authed(ctx): Authed,
+    State(state): State<AppState>,
+    Path((id, rest)): Path<(String, String)>,
+    req: axum::extract::Request,
+) -> Response {
+    if !super::ids::is_machine_id(&id) || !state.machines.store_read(|f| f.peer(&id).is_some()) {
+        return ApiError::not_found("machines_unknown", "Not a paired computer.").into_response();
+    }
+    let method = req.method().clone();
+    let query = req
+        .uri()
+        .query()
+        .map(|q| format!("?{q}"))
+        .unwrap_or_default();
+    let content_type = req
+        .headers()
+        .get(axum::http::header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .map(str::to_string);
+    let body = match axum::body::to_bytes(req.into_body(), PROXY_BODY_MAX).await {
+        Ok(b) => b,
+        Err(_) => {
+            return ApiError::new(
+                StatusCode::PAYLOAD_TOO_LARGE,
+                "too_large",
+                "That is too large to send.",
+            )
+            .into_response()
+        }
+    };
+    let mut headers = vec![(
+        super::acting::HEADER,
+        super::acting::header_for(&state, &ctx),
+    )];
+    if let Some(ct) = content_type {
+        headers.push(("content-type", ct));
+    }
+    let path = format!("/api/{rest}{query}");
+    match transport::request_raw(
+        &state,
+        &id,
+        method.as_str(),
+        &path,
+        &headers,
+        body,
+        PROXY_TIMEOUT,
+    )
+    .await
+    {
+        Ok((status, content_type, bytes)) => {
+            let mut resp = Response::new(HttpBody::from(bytes));
+            *resp.status_mut() = StatusCode::from_u16(status).unwrap_or(StatusCode::BAD_GATEWAY);
+            if let Some(ct) = content_type.and_then(|c| axum::http::HeaderValue::from_str(&c).ok())
+            {
+                resp.headers_mut()
+                    .insert(axum::http::header::CONTENT_TYPE, ct);
+            }
+            resp
+        }
+        Err(e) => {
+            let name = state
+                .machines
+                .store_read(|f| f.peer(&id).map(|p| p.display_name().to_string()))
+                .unwrap_or_default();
+            ApiError::new(
+                StatusCode::BAD_GATEWAY,
+                "machine_unreachable",
+                format!("{name} can't be reached right now: {e}"),
+            )
+            .with("machine", id)
+            .into_response()
+        }
+    }
+}
+
+const PROXY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
+
+/// What another machine may reach of this one's API, and the grant each
+/// needs. Everything else is not mounted for it (plan §5.6).
+pub fn peer_route_grant(method: &axum::http::Method, path: &str) -> Option<Grant> {
+    use axum::http::Method;
+    let segs: Vec<&str> = path.trim_matches('/').split('/').collect();
+    let read = *method == Method::GET;
+    let write = *method == Method::POST || *method == Method::DELETE;
+    let grant = match (segs.as_slice(), read, write) {
+        (["sessions"], true, _) => Grant::View,
+        (["sessions"], _, true) if *method == Method::POST => Grant::Control,
+        (["sessions", _], true, _) => Grant::View,
+        (
+            ["sessions", _, "transcript" | "agents" | "diff" | "file-patch" | "files" | "commands" | "context"
+            | "mcp" | "terminal"],
+            true,
+            _,
+        ) => Grant::View,
+        (["sessions", _, "media", _, _, _], true, _) => Grant::View,
+        (["sessions", _, "tasks", _, "output"], true, _) => Grant::View,
+        (["agents" | "projects" | "defaults" | "inbox" | "usage"], true, _) => Grant::View,
+        (
+            ["sessions", _, "message" | "uploads" | "interrupt" | "model" | "mode" | "effort" | "ultracode"
+            | "thinking" | "rename" | "respond" | "continue" | "stop" | "respawn" | "keys"],
+            _,
+            true,
+        ) if *method == Method::POST => Grant::Control,
+        (["sessions", _, "tasks", _, "stop"], _, true) if *method == Method::POST => Grant::Control,
+        (["sessions", _, "queue", _], _, true) if *method == Method::DELETE => Grant::Control,
+        (["sessions", _, "queue", _, "send-now"], _, true) if *method == Method::POST => {
+            Grant::Control
+        }
+        _ => return None,
+    };
+    Some(grant)
+}
+
 // ─── the other machines ──────────────────────────────────────────────────────────
+
+/// Another machine's call on this one's API: allow-listed, with its grant,
+/// then served by the very router the dashboard uses.
+async fn peer_api(
+    ctx: ClientContext,
+    State(state): State<AppState>,
+    mut req: axum::extract::Request,
+) -> Response {
+    let (machine, lan) = match paired(&ctx) {
+        Ok(p) => p,
+        Err(e) => return e.into_response(),
+    };
+    let full = req.uri().path().to_string();
+    let Some(path) = full.strip_prefix("/api/").map(|p| format!("/{p}")) else {
+        return ApiError::not_found("not_found", "No such route for another computer.")
+            .into_response();
+    };
+    let Some(grant) = peer_route_grant(req.method(), &path) else {
+        return ApiError::not_found("not_found", "No such route for another computer.")
+            .into_response();
+    };
+    if !state.machines.allows(&machine, grant, lan) {
+        return ApiError::forbidden(
+            "grant_missing",
+            format!(
+                "This computer has not given yours the \"{}\" permission.",
+                grant.as_str()
+            ),
+        )
+        .with("grant", grant.as_str())
+        .into_response();
+    }
+    let rewritten = match req.uri().query() {
+        Some(q) => format!("{path}?{q}"),
+        None => path,
+    };
+    match rewritten.parse::<axum::http::Uri>() {
+        Ok(uri) => *req.uri_mut() = uri,
+        Err(_) => return ApiError::bad_request("Malformed path.").into_response(),
+    }
+    use tower::ServiceExt;
+    match state.machines.api_app(&state).oneshot(req).await {
+        Ok(resp) => resp,
+        Err(never) => match never {},
+    }
+}
+
+/// The other machine subscribes to this one's sessions.
+async fn peer_ws(
+    ctx: ClientContext,
+    State(state): State<AppState>,
+    headers: axum::http::HeaderMap,
+    ws: axum::extract::WebSocketUpgrade,
+) -> Response {
+    if let Err(e) = granted(&state, &ctx, Grant::View) {
+        return e.into_response();
+    }
+    crate::server::ws::ws_handler(ws, State(state), ctx, headers).await
+}
 
 /// The caller as the transport authenticated it (never from the request).
 fn caller_of(caller: Option<Extension<PeerCaller>>) -> ApiResult<PeerCaller> {
@@ -517,7 +704,7 @@ fn caller_of(caller: Option<Extension<PeerCaller>>) -> ApiResult<PeerCaller> {
 /// local network.
 fn paired(ctx: &ClientContext) -> ApiResult<(String, bool)> {
     match &ctx.principal {
-        Principal::Peer { machine, lan } => Ok((machine.clone(), *lan)),
+        Principal::Peer { machine, lan, .. } => Ok((machine.clone(), *lan)),
         _ => Err(ApiError::forbidden(
             "peer_only",
             "Only a paired computer can call this.",

@@ -128,7 +128,8 @@ async fn start_inner(state: &AppState) -> Result<Endpoint, String> {
     if let Some(m) = &mdns {
         tasks.push(tokio::spawn(watch_nearby(weak.clone(), m.clone())).abort_handle());
     }
-    tasks.push(tokio::spawn(super::presence_loop(weak)).abort_handle());
+    tasks.push(tokio::spawn(super::presence_loop(weak.clone())).abort_handle());
+    tasks.push(tokio::spawn(super::federation::run(weak)).abort_handle());
     tracing::info!(id = %endpoint.id(), relay = relay.mode.as_str(), "Machines transport started");
     *net = Some(Net {
         endpoint: endpoint.clone(),
@@ -522,6 +523,66 @@ pub async fn request_key(
             Err(e)
         }
     }
+}
+
+/// A request with raw bytes both ways (the dashboard's proxy): the status,
+/// the answer's content type and its body.
+pub async fn request_raw(
+    state: &AppState,
+    machine: &str,
+    method: &str,
+    path: &str,
+    headers: &[(&str, String)],
+    body: Bytes,
+    timeout: Duration,
+) -> Result<(u16, Option<String>, Bytes), String> {
+    let key = state
+        .machines
+        .store_read(|f| f.peer(machine).map(|p| p.key.clone()))
+        .ok_or_else(|| "not a paired computer".to_string())?;
+    let conn = tokio::time::timeout(timeout, connection_to(state, &key))
+        .await
+        .map_err(|_| "it could not be reached in time".to_string())??;
+    let exchange = async {
+        let (send, recv) = conn
+            .open_bi()
+            .await
+            .map_err(|e| format!("could not open a stream: {e}"))?;
+        let io = TokioIo::new(tokio::io::join(recv, send));
+        let (mut sender, connection) = hyper::client::conn::http1::handshake(io)
+            .await
+            .map_err(|e| format!("could not start a request: {e}"))?;
+        tokio::spawn(async move {
+            let _ = connection.await;
+        });
+        let mut req = axum::http::Request::builder()
+            .method(method)
+            .uri(path)
+            .header("host", "peer");
+        for (k, v) in headers {
+            req = req.header(*k, v.as_str());
+        }
+        let req = req.body(Full::new(body)).map_err(|e| e.to_string())?;
+        let resp = sender
+            .send_request(req)
+            .await
+            .map_err(|e| format!("the request failed: {e}"))?;
+        let status = resp.status().as_u16();
+        let content_type = resp
+            .headers()
+            .get(axum::http::header::CONTENT_TYPE)
+            .and_then(|v| v.to_str().ok())
+            .map(str::to_string);
+        let bytes = http_body_util::Limited::new(resp.into_body(), 64 * 1024 * 1024)
+            .collect()
+            .await
+            .map_err(|e| format!("the answer could not be read: {e}"))?
+            .to_bytes();
+        Ok::<_, String>((status, content_type, bytes))
+    };
+    tokio::time::timeout(timeout, exchange)
+        .await
+        .map_err(|_| "it did not answer in time".to_string())?
 }
 
 /// One request to the paired machine `machine` (by id).

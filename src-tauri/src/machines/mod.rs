@@ -14,7 +14,9 @@
 //! machine's desktop confirms it; the transport runs only while Machines is
 //! in use; nothing here writes a config directory.
 
+pub mod acting;
 pub mod awake;
+pub mod federation;
 pub mod grants;
 pub mod identity;
 pub mod ids;
@@ -106,6 +108,10 @@ pub struct MachinesState {
     offer: Mutex<Option<SettingsOffer>>,
     pub(crate) awake: awake::KeepAwake,
     peer_app: OnceLock<axum::Router>,
+    /// The dashboard's own `/api` router, serving allow-listed peer calls.
+    api_app: OnceLock<axum::Router>,
+    /// Other machines' sessions, as their links report them.
+    pub(crate) federation: federation::Federation,
     test_lookup: Mutex<Option<MemoryLookup>>,
     /// Fixes run for real (UAC, System Settings) only once the app turns
     /// this on; tests only record them.
@@ -137,6 +143,8 @@ impl MachinesState {
             offer: Mutex::new(None),
             awake: awake::KeepAwake::default(),
             peer_app: OnceLock::new(),
+            api_app: OnceLock::new(),
+            federation: federation::Federation::default(),
             test_lookup: Mutex::new(None),
             fixes_live: AtomicBool::new(false),
             fixes_asked: Mutex::new(Vec::new()),
@@ -240,6 +248,12 @@ impl MachinesState {
     pub(crate) fn peer_app(&self, state: &AppState) -> axum::Router {
         self.peer_app
             .get_or_init(|| routes::peer_app(state.clone()))
+            .clone()
+    }
+
+    pub(crate) fn api_app(&self, state: &AppState) -> axum::Router {
+        self.api_app
+            .get_or_init(|| crate::server::routes::api_router().with_state(state.clone()))
             .clone()
     }
 
@@ -438,6 +452,7 @@ pub fn revoke(state: &AppState, machine: &str) -> bool {
         .lock()
         .unwrap_or_else(|e| e.into_inner())
         .remove(machine);
+    federation::forget(state, machine);
     audit(state, "machine.revoked", machine, &name);
     publish(state, "peers");
     true
@@ -691,6 +706,7 @@ fn peer_view(state: &AppState, p: &PeerRecord) -> Value {
         "capabilities": p.capabilities,
         "relay": p.relay,
         "problem": problem,
+        "sessions": state.machines.federation.counts(&p.id).map(|(total, running)| json!({ "total": total, "running": running })),
     })
 }
 

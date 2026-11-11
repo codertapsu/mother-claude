@@ -61,7 +61,7 @@ use serde_json::Value;
 use tokio::sync::broadcast::error::RecvError;
 use tokio::sync::{watch, Notify};
 
-use super::context::{origin_is_local, ClientContext};
+use super::context::{origin_is_local, ClientContext, Principal};
 use super::error::ApiError;
 use crate::claude::model::{
     AgentInfo, FleetSession, FleetSummary, NoticeLevel, PendingItem, PendingPreview,
@@ -186,6 +186,17 @@ pub enum ServerEvent {
     /// `pairing`, `peers`, `setup`, `settings`, `enabled`, `self`,
     /// `transport` — refetch `/api/machines` (docs/PLAN-MACHINES.md).
     Machines { what: String },
+    /// A frame from another computer's own `/ws` (docs/PLAN-MACHINES.md
+    /// §5.6): `{t:"remote", machine, frame}`. Its sessions, pending items
+    /// and an `offline` marker go to everyone; a session's transcript,
+    /// stream and agents only to clients subscribed to that machine's session
+    /// (`sub` with `machine`).
+    Remote {
+        machine: String,
+        frame: Value,
+        #[serde(skip)]
+        session: Option<String>,
+    },
 }
 
 /// Who receives an event.
@@ -200,6 +211,8 @@ pub enum Audience<'a> {
     /// Session subscribers plus inbox subscribers.
     SessionOrInbox(&'a str),
     Fleet,
+    /// Clients subscribed to that session of that other computer.
+    Remote(&'a str, &'a str),
 }
 
 impl ServerEvent {
@@ -214,6 +227,12 @@ impl ServerEvent {
             | ServerEvent::AccountUsage { .. }
             | ServerEvent::Browser { .. } => Audience::All,
             ServerEvent::Teams(_) | ServerEvent::Machines { .. } => Audience::All,
+            ServerEvent::Remote {
+                machine,
+                session: Some(session),
+                ..
+            } => Audience::Remote(machine, session),
+            ServerEvent::Remote { session: None, .. } => Audience::All,
             ServerEvent::Transcript { session, agent, .. }
             | ServerEvent::TranscriptReset { session, agent } => {
                 Audience::SessionKey(session, agent.as_deref())
@@ -875,11 +894,19 @@ struct Subs {
     sessions: HashSet<SubKey>,
     fleet: bool,
     inbox: bool,
+    /// Other computers' sessions: `(machine, session, agent)`.
+    remote: HashSet<(String, String, Option<String>)>,
 }
 
 impl Subs {
     fn has_session(&self, session: &str) -> bool {
         self.sessions.iter().any(|(s, _)| s == session)
+    }
+
+    fn has_remote(&self, machine: &str, session: &str) -> bool {
+        self.remote
+            .iter()
+            .any(|(m, s, _)| m == machine && s == session)
     }
 }
 
@@ -897,11 +924,16 @@ enum ClientFrame {
         agent: Option<String>,
         #[serde(default)]
         since: Option<String>,
+        /// Another computer's session (docs/PLAN-MACHINES.md §5.6).
+        #[serde(default)]
+        machine: Option<String>,
     },
     Unsub {
         session: String,
         #[serde(default)]
         agent: Option<String>,
+        #[serde(default)]
+        machine: Option<String>,
     },
     SubFleet,
     UnsubFleet,
@@ -1014,7 +1046,10 @@ async fn run_client(
     preauth: Option<super::ratelimit::PreAuthSlot>,
 ) {
     // 1. Authenticate (header / local ?token= already resolved, else first frame).
-    if !ctx.principal.is_user() {
+    // Another computer was authenticated by the transport (its key) and its
+    // grant checked by the peer app; it never sends a token.
+    let peer = matches!(ctx.principal, Principal::Peer { .. });
+    if !ctx.principal.is_user() && !peer {
         let wait = tokio::time::timeout(AUTH_TIMEOUT, first_auth_token(&mut socket));
         let token = match &preauth {
             Some(slot) => tokio::select! {
@@ -1071,6 +1106,13 @@ async fn run_client(
     for frame in account_usage_frames(&state) {
         out.push_event(&frame);
     }
+    // Other computers' sessions, as last heard (a peer gets none: no relay
+    // of a third machine's sessions).
+    if !peer {
+        for frame in crate::machines::federation::initial_frames(&state) {
+            out.push_event(&frame);
+        }
+    }
     // The first client may make stale plan usage worth a read.
     crate::claude::usage::on_client_connected(&state, state.hub.client_count());
 
@@ -1101,7 +1143,13 @@ async fn run_client(
                                 .map(|g| g.inbox || g.has_session(s))
                                 .unwrap_or(false),
                             Audience::Fleet => subs.lock().map(|g| g.fleet).unwrap_or(false),
+                            Audience::Remote(m, s) => {
+                                subs.lock().map(|g| g.has_remote(m, s)).unwrap_or(false)
+                            }
                         };
+                        // A peer never receives another computer's frames.
+                        let wanted =
+                            wanted && !(peer && matches!(&*ev, ServerEvent::Remote { .. }));
                         if wanted {
                             out.push_event(&ev);
                         }
@@ -1139,6 +1187,11 @@ async fn run_client(
                             .and_then(|f| serde_json::to_string(&f).ok());
                         let others: Vec<String> = account_usage_frames(&state)
                             .iter()
+                            .chain(if peer {
+                                Vec::new()
+                            } else {
+                                crate::machines::federation::initial_frames(&state)
+                            }.iter())
                             .filter_map(|f| serde_json::to_string(f).ok())
                             .collect();
                         let mut sent = socket.send(Message::Text(resync.into())).await;
@@ -1207,6 +1260,9 @@ async fn run_client(
         if g.inbox {
             state.hub.inbox_subs.fetch_sub(1, Ordering::Relaxed);
         }
+        for (machine, session, agent) in &g.remote {
+            crate::machines::federation::unsubscribe(&state, machine, session, agent.as_deref());
+        }
     }
     state.hub.unregister(client_id);
     if let Some(dev) = &device_id {
@@ -1233,6 +1289,7 @@ fn handle_frame(
             session,
             agent,
             since,
+            machine,
         } => {
             // Ids name files: only well-formed ones are accepted.
             if session.is_empty()
@@ -1241,6 +1298,27 @@ fn handle_frame(
                     .as_deref()
                     .is_some_and(|a| !crate::claude::ids::is_agent_id(a))
             {
+                return;
+            }
+            if let Some(machine) = machine {
+                // Another computer's session: the federation subscribes there.
+                if !crate::machines::ids::is_machine_id(&machine) {
+                    return;
+                }
+                let key = (machine.clone(), session.clone(), agent.clone());
+                let added = subs
+                    .lock()
+                    .map(|mut g| g.remote.len() < MAX_SUBS_PER_CLIENT && g.remote.insert(key))
+                    .unwrap_or(false);
+                if added {
+                    crate::machines::federation::subscribe(
+                        state,
+                        &machine,
+                        &session,
+                        agent.as_deref(),
+                        since.as_deref(),
+                    );
+                }
                 return;
             }
             let key: SubKey = (session.clone(), agent.clone());
@@ -1259,7 +1337,27 @@ fn handle_frame(
                 });
             }
         }
-        ClientFrame::Unsub { session, agent } => {
+        ClientFrame::Unsub {
+            session,
+            agent,
+            machine,
+        } => {
+            if let Some(machine) = machine {
+                let key = (machine, session, agent);
+                let removed = subs
+                    .lock()
+                    .map(|mut g| g.remote.remove(&key))
+                    .unwrap_or(false);
+                if removed {
+                    crate::machines::federation::unsubscribe(
+                        state,
+                        &key.0,
+                        &key.1,
+                        key.2.as_deref(),
+                    );
+                }
+                return;
+            }
             let key: SubKey = (session, agent);
             if let Ok(mut g) = subs.lock() {
                 if g.sessions.remove(&key) {
@@ -1529,7 +1627,7 @@ mod tests {
         let f: ClientFrame =
             serde_json::from_str(r#"{"t":"sub","session":"a","since":"12"}"#).unwrap();
         assert!(
-            matches!(f, ClientFrame::Sub { ref session, agent: None, since: Some(ref s) } if session == "a" && s == "12")
+            matches!(f, ClientFrame::Sub { ref session, agent: None, since: Some(ref s), .. } if session == "a" && s == "12")
         );
         let f: ClientFrame =
             serde_json::from_str(r#"{"t":"sub","session":"a","agent":"a1"}"#).unwrap();

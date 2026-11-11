@@ -3828,6 +3828,7 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.21",
  "tokio",
+ "tokio-tungstenite 0.29.0",
  "tokio-tungstenite 0.30.0",
  "tower",
  "tower-http 0.7.1",

@@ -126,7 +126,14 @@ pub enum Principal {
     /// path on the local network (the grants' LAN column) rather than a
     /// relayed or public one (their internet column). It reaches the peer
     /// routes only (`machines::routes`); the guards there check its grants.
-    Peer { machine: String, lan: bool },
+    /// `dangerous`: its `dangerous` grant holds for this path **and** the
+    /// person acting through it (`X-MC-Acting`) had the dangerous right on
+    /// its machine (`machines::acting`).
+    Peer {
+        machine: String,
+        lan: bool,
+        dangerous: bool,
+    },
 }
 
 /// What the Machines transport knows about the caller of a request on the
@@ -317,10 +324,9 @@ impl ClientContext {
             // machine; the channel lets it answer only its own browser
             // approvals.
             Principal::Extension { .. } => self.ingress == Ingress::Loopback && self.on_machine,
-            // Nothing dangerous is reachable over the peer routes yet; a
-            // proxied dangerous action will need the peer's own grant and the
-            // acting person's right on its machine (plan §5.5).
-            Principal::Peer { .. } => false,
+            // The peer's own grant and the acting person's right on its
+            // machine, both (plan §5.5), resolved by the middleware.
+            Principal::Peer { dangerous, .. } => *dangerous,
         }
     }
 
@@ -777,7 +783,21 @@ pub async fn middleware(State(state): State<AppState>, mut req: Request, next: N
             ..
         }) = req.extensions().get::<PeerCaller>().cloned()
         {
-            ctx.principal = Principal::Peer { machine, lan };
+            let acting = crate::machines::acting::parse(
+                req.headers()
+                    .get(crate::machines::acting::HEADER)
+                    .and_then(|v| v.to_str().ok()),
+            );
+            let dangerous = acting.dangerous
+                && state
+                    .machines
+                    .allows(&machine, crate::machines::grants::Grant::Dangerous, lan);
+            ctx.principal = Principal::Peer {
+                machine,
+                lan,
+                dangerous,
+            };
+            req.extensions_mut().insert(acting);
         }
         req.extensions_mut().insert(ctx);
         req.extensions_mut().insert(state.clone());

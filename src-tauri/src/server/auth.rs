@@ -473,17 +473,19 @@ impl<S: Send + Sync> FromRequestParts<S> for Authed {
     async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
         let ctx = ctx_of(parts);
         match ctx.principal {
-            Principal::Desktop | Principal::Device { .. } | Principal::LocalScript => {
-                Ok(Authed(ctx))
-            }
+            // Another computer reaches only the routes the peer app
+            // allow-lists, each with the grant it needs (machines::routes).
+            Principal::Desktop
+            | Principal::Device { .. }
+            | Principal::LocalScript
+            | Principal::Peer { .. } => Ok(Authed(ctx)),
             Principal::Anonymous => Err(unauthorized(&ctx)),
             Principal::Hook | Principal::Sidecar | Principal::Mcp => Err(ApiError::forbidden(
                 "wrong_credential",
                 "This credential is only valid for its own endpoint.",
             )),
-            // A browser extension's token works on `/ws/browser` only;
-            // another computer reaches its own peer routes only.
-            Principal::Extension { .. } | Principal::Peer { .. } => Err(ApiError::forbidden(
+            // A browser extension's token works on `/ws/browser` only.
+            Principal::Extension { .. } => Err(ApiError::forbidden(
                 "wrong_credential",
                 "This credential is only valid for its own endpoint.",
             )),
@@ -684,9 +686,11 @@ pub async fn require_api_principal(req: Request<Body>, next: Next) -> Response {
         .cloned()
         .unwrap_or_else(ClientContext::unknown);
     match ctx.principal {
-        Principal::Desktop | Principal::Device { .. } | Principal::LocalScript => {
-            next.run(req).await
-        }
+        // A peer arrives here only through the peer app's allow-list.
+        Principal::Desktop
+        | Principal::Device { .. }
+        | Principal::LocalScript
+        | Principal::Peer { .. } => next.run(req).await,
         Principal::Sidecar if req.uri().path().ends_with("/permission-request") => {
             next.run(req).await
         }

@@ -289,26 +289,39 @@ async fn a_peer_reaches_only_its_routes_and_only_with_its_grants() {
     .unwrap();
     assert_eq!(s, 200, "{v}");
     assert!(v["checks"].as_array().is_some_and(|c| !c.is_empty()));
-    // …but never the dashboard API, the hooks or the MCP server.
-    for path in [
+    // …and the allow-listed part of its API (Phase 2), but never the rest
+    // of it, the hooks or the MCP server.
+    let (s, v) = transport::request(
+        &b.st,
+        &a.id(),
+        "GET",
         "/api/sessions",
+        None,
+        Duration::from_secs(10),
+    )
+    .await
+    .unwrap();
+    assert_eq!(s, 200, "{v}");
+    for path in [
         "/api/machines",
+        "/api/accounts",
+        "/api/backup",
+        "/api/me",
         "/hooks/event",
         "/mcp",
-        "/ws",
     ] {
         let (s, _) = transport::request(&b.st, &a.id(), "GET", path, None, Duration::from_secs(10))
             .await
             .unwrap();
         assert_eq!(s, 404, "{path} is not mounted for another computer");
     }
-    // A token sent over the peer link is never read.
+    // Changing anything here stays closed to it.
     let (s, _) = transport::request(
         &b.st,
         &a.id(),
-        "GET",
-        "/api/machines",
-        None,
+        "POST",
+        "/api/machines/pair",
+        Some(json!({})),
         Duration::from_secs(10),
     )
     .await
@@ -485,4 +498,235 @@ async fn the_relay_setting_is_validated_and_offered() {
     assert_eq!(s, StatusCode::OK, "{v}");
     assert_eq!(a.view().await["settings"]["keepAwake"], true);
     assert!(a.st.machines.recorded_fixes().is_empty());
+}
+
+// ─── Phase 2: seeing and driving another computer's sessions ───────────────────
+
+const SID: &str = "fed00000-1111-4222-8333-444455556666";
+
+/// A finished session on `m`'s disk, and its monitor running, so `m`'s
+/// session list has it.
+fn session_on(m: &Machine) {
+    let home = m._dir.path().join("home");
+    let dir = home.join("projects").join("-tmp-fed");
+    std::fs::create_dir_all(&dir).unwrap();
+    let t0 = chrono::Utc::now().timestamp_millis() - 30_000;
+    let iso = |ms: i64| {
+        chrono::DateTime::from_timestamp_millis(ms)
+            .unwrap()
+            .to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
+    };
+    let lines = [
+        json!({"type":"user","uuid":"f-u1","timestamp":iso(t0),"cwd":"/tmp/fed","permissionMode":"default","origin":{"kind":"human"},"message":{"role":"user","content":"hello from the other computer"}}),
+        json!({"type":"assistant","uuid":"f-a1","timestamp":iso(t0 + 1000),"message":{"id":"msg_f1","model":"claude-haiku-4-5","content":[{"type":"text","text":"Hi."}],"usage":{"input_tokens":5,"output_tokens":1}}}),
+    ];
+    let text: String = lines.iter().map(|l| l.to_string() + "\n").collect();
+    std::fs::write(dir.join(format!("{SID}.jsonl")), text).unwrap();
+    tokio::spawn(server::monitor::run(m.st.clone()));
+}
+
+async fn proxied(
+    a: &Machine,
+    token: &str,
+    method: &str,
+    b: &Machine,
+    path: &str,
+    body: Option<Value>,
+) -> (StatusCode, Value) {
+    a.call_as(
+        token,
+        method,
+        &format!("/machines/{}/proxy{path}", b.id()),
+        body,
+    )
+    .await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn the_proxy_reads_and_drives_another_computers_sessions() {
+    let lookup = MemoryLookup::new();
+    let a = machine(&lookup).await;
+    let b = machine(&lookup).await;
+    pair(&a, &b, grants(false), grants(false)).await;
+    session_on(&b);
+    let desktop = a.st.auth.token.clone();
+
+    // B's sessions, read through A.
+    let deadline = Instant::now() + Duration::from_secs(30);
+    loop {
+        let (s, v) = proxied(&a, &desktop, "GET", &b, "/sessions", None).await;
+        assert_eq!(s, StatusCode::OK, "{v}");
+        let found = v["sessions"]
+            .as_array()
+            .is_some_and(|l| l.iter().any(|x| x["id"] == SID));
+        if found {
+            break;
+        }
+        assert!(Instant::now() < deadline, "B's session never showed: {v}");
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    }
+    let (s, v) = proxied(
+        &a,
+        &desktop,
+        "GET",
+        &b,
+        &format!("/sessions/{SID}/transcript"),
+        None,
+    )
+    .await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+
+    // Not allow-listed: B's accounts, backups, devices, machines.
+    for path in ["/accounts", "/backup", "/devices", "/machines", "/remote"] {
+        let (s, _) = proxied(&a, &desktop, "GET", &b, path, None).await;
+        assert_eq!(
+            s,
+            StatusCode::NOT_FOUND,
+            "{path} is closed to another computer"
+        );
+    }
+
+    // Driving reaches the handler (the session is not running here: not a
+    // permission error).
+    let (s, v) = proxied(
+        &a,
+        &desktop,
+        "POST",
+        &b,
+        &format!("/sessions/{SID}/interrupt"),
+        Some(json!({})),
+    )
+    .await;
+    assert!(
+        s != StatusCode::FORBIDDEN && s != StatusCode::NOT_FOUND
+            || v["error"]["code"] == "session_not_found",
+        "{s} {v}"
+    );
+
+    // Without "control" from B, A may only look.
+    let mut look = grants(false);
+    look["control"] = json!({"lan": false, "internet": false});
+    let (s, v) = b
+        .call(
+            "PATCH",
+            &format!("/machines/{}", a.id()),
+            Some(json!({ "grants": look })),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    let (s, v) = proxied(
+        &a,
+        &desktop,
+        "POST",
+        &b,
+        &format!("/sessions/{SID}/interrupt"),
+        Some(json!({})),
+    )
+    .await;
+    assert_eq!(s, StatusCode::FORBIDDEN, "{v}");
+    assert_eq!(v["error"]["code"], "grant_missing");
+    let (s, _) = proxied(&a, &desktop, "GET", &b, &format!("/sessions/{SID}"), None).await;
+    assert_eq!(s, StatusCode::OK, "seeing still works");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_dangerous_action_needs_the_grant_and_the_acting_persons_right() {
+    let lookup = MemoryLookup::new();
+    let a = machine(&lookup).await;
+    let b = machine(&lookup).await;
+    pair(&a, &b, grants(false), grants(false)).await;
+    let desktop = a.st.auth.token.clone();
+    let phone =
+        a.st.devices
+            .issue(
+                "Phone",
+                "ios",
+                None,
+                server::Ingress::Lan,
+                "192.168.1.20".parse().unwrap(),
+            )
+            .1;
+    let keys = format!("/sessions/{SID}/keys");
+    let body = Some(json!({ "keys": "ls" }));
+
+    // B has not given A the dangerous grant: nobody on A gets it.
+    let (s, v) = proxied(&a, &desktop, "POST", &b, &keys, body.clone()).await;
+    assert_eq!(v["error"]["code"], "dangerous_blocked", "{s} {v}");
+
+    let mut risky = grants(false);
+    risky["dangerous"] = json!({"lan": true, "internet": false});
+    let (s, v) = b
+        .call(
+            "PATCH",
+            &format!("/machines/{}", a.id()),
+            Some(json!({ "grants": risky })),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+
+    // The phone has no dangerous right on A: still refused on B.
+    let (s, v) = proxied(&a, &phone, "POST", &b, &keys, body.clone()).await;
+    assert_eq!(v["error"]["code"], "dangerous_blocked", "{s} {v}");
+    // The desktop has it, and B granted it: past the gate (the session does
+    // not exist there, which is the next answer).
+    let (s, v) = proxied(&a, &desktop, "POST", &b, &keys, body).await;
+    assert_ne!(v["error"]["code"], "dangerous_blocked", "{s} {v}");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn another_computers_sessions_arrive_live_and_go_grey_when_it_stops() {
+    use futures_util::{SinkExt, StreamExt};
+    use tokio_tungstenite::tungstenite::Message;
+
+    let lookup = MemoryLookup::new();
+    let a = machine(&lookup).await;
+    let b = machine(&lookup).await;
+    pair(&a, &b, grants(false), grants(false)).await;
+    session_on(&b);
+
+    let ws_url = format!("{}/ws", a.url.replace("http://", "ws://"));
+    let (mut ws, _) = tokio_tungstenite::connect_async(ws_url).await.unwrap();
+    ws.send(Message::Text(
+        json!({"t": "auth", "token": a.st.auth.token})
+            .to_string()
+            .into(),
+    ))
+    .await
+    .unwrap();
+    let mut saw_session = false;
+    let deadline = Instant::now() + Duration::from_secs(45);
+    while Instant::now() < deadline && !saw_session {
+        let Ok(Some(Ok(Message::Text(text)))) =
+            tokio::time::timeout(Duration::from_secs(5), ws.next()).await
+        else {
+            continue;
+        };
+        let v: Value = serde_json::from_str(&text).unwrap_or(Value::Null);
+        if v["t"] == "remote" && v["machine"] == b.id() && v["frame"]["t"] == "sessions" {
+            let lists = [&v["frame"]["sessions"], &v["frame"]["upsert"]];
+            saw_session = lists.iter().any(|l| {
+                l.as_array()
+                    .is_some_and(|l| l.iter().any(|s| s["id"] == SID))
+            });
+        }
+    }
+    assert!(
+        saw_session,
+        "B's session reached A's dashboard as a remote frame"
+    );
+
+    // B stops: A's dashboard is told it is offline.
+    transport::stop(&b.st).await;
+    let mut offline = false;
+    let deadline = Instant::now() + Duration::from_secs(45);
+    while Instant::now() < deadline && !offline {
+        let Ok(Some(Ok(Message::Text(text)))) =
+            tokio::time::timeout(Duration::from_secs(5), ws.next()).await
+        else {
+            continue;
+        };
+        let v: Value = serde_json::from_str(&text).unwrap_or(Value::Null);
+        offline = v["t"] == "remote" && v["machine"] == b.id() && v["frame"]["t"] == "offline";
+    }
+    assert!(offline, "A was told B is offline");
 }

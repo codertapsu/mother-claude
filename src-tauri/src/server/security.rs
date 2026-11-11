@@ -249,6 +249,10 @@ async fn audit(req: Request, next: Next) -> Response {
     let state = req.extensions().get::<AppState>().cloned();
     let method = req.method().clone();
     let path = req.uri().path().to_string();
+    let acting = req
+        .extensions()
+        .get::<crate::machines::acting::Acting>()
+        .cloned();
     let resp = next.run(req).await;
 
     let Some(state) = state else { return resp };
@@ -284,14 +288,30 @@ async fn audit(req: Request, next: Next) -> Response {
         dangerous: dangerous.clone(),
         device_name: device.as_ref().map(|d| d.1.clone()),
         ..match &ctx.principal {
-            // Another computer's action (docs/PLAN-MACHINES.md §5.5).
+            // Another computer's action, with who acted through it
+            // (docs/PLAN-MACHINES.md §5.5).
             Principal::Peer { machine, .. } => AuditEntry {
                 device_id: Some(machine.clone()),
+                device_name: Some(peer_name(&state, machine)),
+                detail: acting
+                    .as_ref()
+                    .map(|a| serde_json::json!({ "acting": a.label })),
                 ..AuditEntry::from_ctx(&ctx, "machine.action")
             },
             _ => AuditEntry::from_ctx(&ctx, "http"),
         }
     });
+    if let (Principal::Peer { machine, .. }, Some(what)) = (&ctx.principal, &dangerous) {
+        let by = acting.map(|a| a.label).unwrap_or_else(|| "machine".into());
+        crate::server::ws::publish_desktop_notice(
+            &state,
+            NoticeLevel::Warning,
+            format!(
+                "{} ({by}) performed a dangerous action here: {what}",
+                peer_name(&state, machine)
+            ),
+        );
+    }
     if let Some((id, name)) = device {
         state.devices.note_action(
             &id,
@@ -317,6 +337,14 @@ async fn audit(req: Request, next: Next) -> Response {
         }
     }
     resp
+}
+
+/// A paired machine's name, for audit lines and notices.
+fn peer_name(state: &AppState, machine: &str) -> String {
+    state
+        .machines
+        .store_read(|f| f.peer(machine).map(|p| p.display_name().to_string()))
+        .unwrap_or_else(|| machine.chars().take(8).collect())
 }
 
 #[cfg(test)]
