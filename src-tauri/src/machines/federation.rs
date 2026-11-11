@@ -322,7 +322,8 @@ fn handle(state: &AppState, machine: &str, tx: &mpsc::UnboundedSender<String>, f
             cache_sessions(state, machine, &frame);
             publish(None);
         }
-        "pending" | "pendingResolved" | "resync" => publish(None),
+        // A move it runs (to or from anywhere), as its own dashboards see it.
+        "pending" | "pendingResolved" | "resync" | "move" => publish(None),
         "transcript" | "transcriptReset" | "stream" | "agents" => {
             if let Some(session) = session_scoped() {
                 publish(Some(session));

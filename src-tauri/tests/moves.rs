@@ -978,6 +978,62 @@ async fn without_the_move_permission_a_move_is_refused_either_way() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn the_other_computers_half_of_a_move_reaches_this_dashboard() {
+    use futures_util::{SinkExt, StreamExt};
+    use tokio_tungstenite::tungstenite::Message;
+
+    let w = world().await;
+    let t_id = w.t.id();
+    let ws_url = format!("{}/ws", w.s.url.replace("http://", "ws://"));
+    let (mut ws, _) = tokio_tungstenite::connect_async(ws_url).await.unwrap();
+    ws.send(Message::Text(
+        json!({"t": "auth", "token": w.s.st.auth.token})
+            .to_string()
+            .into(),
+    ))
+    .await
+    .unwrap();
+    let mut next_where = async |what: &str, pred: &dyn Fn(&Value) -> bool| {
+        let deadline = Instant::now() + Duration::from_secs(60);
+        while Instant::now() < deadline {
+            let Ok(Some(Ok(Message::Text(text)))) =
+                tokio::time::timeout(Duration::from_secs(5), ws.next()).await
+            else {
+                continue;
+            };
+            let v: Value = serde_json::from_str(&text).unwrap_or(Value::Null);
+            if pred(&v) {
+                return;
+            }
+        }
+        panic!("timed out waiting for {what}");
+    };
+    // The source's link to the target is up (its session list arrived)…
+    next_where("the link to the target", &|v| {
+        v["t"] == "remote" && v["machine"] == t_id.as_str() && v["frame"]["t"] == "sessions"
+    })
+    .await;
+    // …so the target's own record of the move arrives here as it goes.
+    let (s, v) =
+        w.s.call(
+            "POST",
+            &format!("/sessions/{SID}/move"),
+            Some(to_t(&w, json!({ "code": "none" }))),
+        )
+        .await;
+    assert_eq!(s, StatusCode::ACCEPTED, "{v}");
+    let id = v["id"].as_str().expect("a move id").to_string();
+    next_where("the target's half of the move", &|v| {
+        v["t"] == "remote"
+            && v["machine"] == t_id.as_str()
+            && v["frame"]["t"] == "move"
+            && v["frame"]["move"]["id"] == id.as_str()
+            && v["frame"]["move"]["role"] == "in"
+    })
+    .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_root_maps_the_folder_there_without_asking() {
     let w = world().await;
     let (s_id, t_id) = (w.s.id(), w.t.id());
