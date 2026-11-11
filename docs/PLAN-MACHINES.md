@@ -331,8 +331,10 @@ Keychain / Credential Manager; LAN discovery with the macOS local-network
 permission and the Windows firewall prompt; a relayed connection between two
 networks (a phone hotspot); WebSocket over a stream; throughput (target:
 ≥ 50 MB/s on the LAN); binary size; the crate's version and stability at the
-time. *Mac half done* (iroh 1.4.1, stable; the API rides on it unchanged; at
-most +13 MB of binary): `spikes/machines/RESULTS.md`.
+time. *Done* (iroh 1.4.1, stable; the API rides on it unchanged; at most
++13 MB of binary; between the Mac and Windows, direct by key alone and **as
+fast as plain TCP** on the same Wi-Fi — 26–30 MiB/s there, so the target is
+the link's own speed, not a fixed figure): `spikes/machines/RESULTS.md`.
 
 ### 5.4 Pairing
 
@@ -948,15 +950,27 @@ than the numbers.
 Exit: a decision record — iroh or the fallback transport — and the S5 table,
 in this document.
 
-**Status (2026-11-11): the Mac half is done, and the Windows half up to what needs both machines or an administrator** — tools and results in
-`spikes/machines/` (`RESULTS.md`; the screens in `UX.md`, agreed — §9). It changed §3.5
-(the move note is a message), §5.3 (what *No relay* and *Your own relay*
-need) and §5.14 (the app has no Local Network access on the Mac yet). Windows added F8 and F9 (§5.10) and confirmed mDNS works where the OS allows it. What
-remains is listed at the end of `RESULTS.md`: the Mac's worst-state walk
-(`spikes/machines/setup-walk/macos.sh`, run by you: it needs your password
-and your clicks), and the Windows half — S5 there with its own walk, LAN and
-cross-network figures between the machines, S2's round trip, and a Mac
-session resumed on Windows.
+**Status (2026-11-11): both halves have run**, up to what needs an
+administrator or both machines at once — tools and results in
+`spikes/machines/` (`RESULTS.md`; the screens in `UX.md`, agreed — §9). The
+spikes changed §3.5 (the move note is a message), §5.3 (what *No relay* and
+*Your own relay* need), §5.10 (nine fixes, F1–F9) and §5.14 (the app has no
+Local Network access on the Mac yet). Left, at the end of `RESULTS.md`: the
+two worst-state walks (`setup-walk/macos.sh`, `setup-walk/windows.ps1` —
+your password, your clicks), one run across two networks, S2's real round
+trip between the machines, and a Mac session resumed on Windows.
+
+**Decision (2026-11-11): the transport is iroh** (1.4.x), not the fallback.
+It carried the app's HTTP and WebSocket stack unchanged on macOS and
+Windows; the Mac found the Windows desktop by its key alone — through n0's
+DNS, or by mDNS with no relay — and talked to it directly from the first
+packet; its throughput equalled plain TCP on the same Wi-Fi; pairing by key
+and a read-only forward of the real API worked; all three relay settings
+connect; the binary grows by at most 13 MB. To keep in view: n0's public
+relays are slow (1–3 MiB/s from here), macOS needs the Local Network
+permission (Phase 1 adds `NSLocalNetworkUsageDescription`), and one run
+across two networks (a phone hotspot) is left to see hole punching against
+the relay.
 
 ### Phase 1 — set up and pair machines (≈ 4 weeks)
 

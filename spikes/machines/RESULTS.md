@@ -10,7 +10,7 @@ Pro 26200, x64; Claude Code 2.1.317, Git for Windows 2.45.1 with Git LFS
 
 | Spike | Mac half | What it changes in the plan |
 |---|---|---|
-| S1 transport | **Works** on both. Windows: mDNS finds a peer by id alone (0.4–0.8 s) — the Mac's failure was macOS's permission; ~260 MiB/s direct on one PC. Mac: **Works.** The app's axum/hyper stack, WebSocket included, runs unchanged over iroh streams; all three relay settings connect; dialling by id alone works through n0's DNS and moves to a direct path in 0.1 s. mDNS found nothing: macOS refused LAN traffic (S5). | §5.3: what *No relay* and *Your own relay* really need; peers keep each other's last addresses. Binary size to watch. |
+| S1 transport | **Works**, and between the machines: the Mac dialled Windows by its key alone (n0's DNS, or mDNS with no relay) and ran direct from the first packet, **as fast as plain TCP** on the same Wi-Fi (26–30 MiB/s, the link's ceiling). On each: Windows: mDNS finds a peer by id alone (0.4–0.8 s) — the Mac's failure was macOS's permission; ~260 MiB/s direct on one PC. Mac: **Works.** The app's axum/hyper stack, WebSocket included, runs unchanged over iroh streams; all three relay settings connect; dialling by id alone works through n0's DNS and moves to a direct path in 0.1 s. mDNS found nothing: macOS refused LAN traffic (S5). | §5.3: what *No relay* and *Your own relay* really need; peers keep each other's last addresses. Binary size to watch. |
 | S2 code | **Works** on both: 132 of 132 as designed on each (Windows with Git LFS). Windows found two more fixes (F8, F9). Mac: 132 of 132 matrix runs as designed (8 skipped: no Git LFS on the Mac): both transfers, both landings, undo and bring-back round-trip a dirty tree exactly; every line-ending combination is tree-exact. A 50 MB repo moves as a 2 MB bundle, 1.6 KB the next time. | §5.10 gets nine fixes (F1–F9): F1 and F8 because a snapshot could silently lose an edit or a long path. |
 | S3 Claude Code | **A move note given as `--append-system-prompt` is ignored on resume.** Claude Code 2.1.322 records a conversation's first system prompt in the transcript and replays it on every resume. A session resumed from another folder notices the new folder. | §3.5 and §5.8: the move note becomes a message in the conversation. Verify on Windows that the platform and shell update too. |
 | S4 UX | Screens drafted: `UX.md`, eight decisions for you at its end. | Four routes to add to §7 (listed in `UX.md`). |
@@ -268,8 +268,18 @@ scratch folder reads `loggedIn: false`.
   planned for Mother Claude (`NSLocalNetworkUsageDescription`). The plan's
   ≥ 50 MB/s was **not** reached here — but HTTP equals raw, one PC alone
   does ~260 MiB/s, and both machines are on Wi-Fi (every packet crosses the
-  air twice), so the link is the likely ceiling; a plain TCP transfer on the
-  same Wi-Fi decides it (below).
+  air twice), so the link is the likely ceiling — and a plain TCP transfer on the
+  same Wi-Fi settled it:
+- **The link is the ceiling.** Plain TCP on the same Wi-Fi, no iroh (curl
+  against a Node server streaming zeros): **25.9 MiB/s down, 30.2 MiB/s
+  up**; iroh's raw streams did 26.3 / 29.6 — **within 2% of plain TCP**.
+  The ≥ 50 MB/s target belongs to the network (wired, or faster Wi-Fi), not
+  to the transport; the plan now asks for the link's own speed.
+- ***No relay* works between the machines.** `--relay none --lookup mdns`
+  on both ends: Windows **found by mDNS from its id alone in 1.3 s**, paired,
+  direct (7 ms); request p50 5.4 ms, WebSocket echo p50 4.9 ms; 64 MiB at
+  26.7 / 20.9 MiB/s raw up / down, 29.0 / 20.1 MiB/s HTTP up / down (a
+  busier minute on the air: a 44 ms round trip under load).
 
 ### S2 — code (Windows)
 
@@ -342,12 +352,11 @@ scratch config folder); long paths, Developer Mode and Git Bash read.
 
 ### Between the two machines
 
-1. **S1** — the LAN figure is in (§ "Windows half" › S1). Left: a plain TCP
-   transfer on the same Wi-Fi (is the link the ceiling?), the *No relay*
-   setting between the machines (`serve --relay none --lookup mdns` on
-   Windows, `macos.sh run bench <id> --relay none --lookup mdns
-   --pair-code <code>` on the Mac), and the Mac on a phone hotspot (across
-   networks: hole-punched or relayed).2. **S2, a real round trip**: `code/RESULTS-S2.md` § "Windows half", step 2
+1. **S1** — done but one run: the Mac on a phone hotspot (two networks:
+   does iroh hole-punch or relay?). With the Windows `serve … --name win`
+   running: `bash spikes/machines/setup-walk/macos.sh run bench <WINDOWS_ID>
+   --mib 16` (the Mac is already paired), and read `pathChanges`.
+2. **S2, a real round trip**: `code/RESULTS-S2.md` § "Windows half", step 2
    (Mac `demo` and `dirty`, Windows `haves`, Mac `snapshot`, Windows `apply`
    and `verify`, then back).
 3. **S3**: a scratch session made on the Mac, backed up, pulled on Windows
