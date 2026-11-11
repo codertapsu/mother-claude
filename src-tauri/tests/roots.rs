@@ -25,7 +25,19 @@ struct Machine {
     dir: TempDir,
 }
 
+/// The process-wide part, once: with `CLAUDE_CONFIG_DIR` set, a test home's
+/// `.claude.json` is inside it, never the user's own `~/.claude.json`.
+fn isolate() {
+    static ONCE: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
+    ONCE.get_or_init(|| {
+        let dir = tempfile::tempdir().unwrap().keep();
+        std::env::set_var("CLAUDE_CONFIG_DIR", dir.join("unused-config"));
+        dir
+    });
+}
+
 async fn machine(lookup: &MemoryLookup) -> Machine {
+    isolate();
     let dir = tempfile::tempdir().unwrap();
     let mut auth = Auth::ephemeral();
     auth.config_dir = Some(dir.path().join("data"));

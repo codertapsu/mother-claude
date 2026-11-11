@@ -3,7 +3,8 @@
 //! an in-memory address lookup (no relay, no mDNS). Everything goes through
 //! the real dashboard API and the real QUIC transport: pairing with a code
 //! and six digits, the hello, grants, revoking, and the door refusing a key
-//! nobody paired. Nothing touches `~/.claude` or spawns `claude`.
+//! nobody paired. Nothing touches `~/.claude` or `~/.claude.json`
+//! (`CLAUDE_CONFIG_DIR` is set) or spawns `claude`.
 
 use std::net::SocketAddr;
 use std::time::{Duration, Instant};
@@ -24,7 +25,19 @@ struct Machine {
     _dir: TempDir,
 }
 
+/// The process-wide part, once: with `CLAUDE_CONFIG_DIR` set, a test home's
+/// `.claude.json` is inside it, never the user's own `~/.claude.json`.
+fn isolate() {
+    static ONCE: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
+    ONCE.get_or_init(|| {
+        let dir = tempfile::tempdir().unwrap().keep();
+        std::env::set_var("CLAUDE_CONFIG_DIR", dir.join("unused-config"));
+        dir
+    });
+}
+
 async fn machine(lookup: &MemoryLookup) -> Machine {
+    isolate();
     let dir = tempfile::tempdir().unwrap();
     let mut auth = Auth::ephemeral();
     auth.config_dir = Some(dir.path().join("data"));
