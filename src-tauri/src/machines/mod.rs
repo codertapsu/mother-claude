@@ -24,6 +24,7 @@
 
 pub mod acting;
 pub mod awake;
+pub mod chunks;
 pub mod code;
 pub mod federation;
 pub mod grants;

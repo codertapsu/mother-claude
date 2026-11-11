@@ -27,6 +27,7 @@ use crate::claude::backup::session_pack::{self, LandInputs, Landed};
 use crate::claude::home::ClaudeHome;
 use crate::claude::owned;
 use crate::claude::paths;
+use crate::machines::chunks::{self, AppendError, Refusal};
 use crate::machines::code::{self, ApplyRequest, Landing};
 use crate::machines::lease::{self, Lease};
 use crate::machines::{self as m, protocol};
@@ -643,25 +644,10 @@ fn load_manifest(state: &AppState, id: &str) -> Option<wire::Manifest> {
     crate::persist::read_json(&manifest_path(&move_folder(state, id)?))
 }
 
-/// A file's name while it is still arriving.
-fn part_of(path: &Path) -> PathBuf {
-    let name = path
-        .file_name()
-        .map(|n| n.to_string_lossy().into_owned())
-        .unwrap_or_default();
-    path.with_file_name(format!("{name}.part"))
-}
-
 /// How much of a file this machine has: all of it once checked, else what
 /// arrived.
 fn have(dir: &Path, name: &str) -> u64 {
-    let Some(path) = file_path(dir, name) else {
-        return 0;
-    };
-    std::fs::metadata(&path)
-        .or_else(|_| std::fs::metadata(part_of(&path)))
-        .map(|m| m.len())
-        .unwrap_or(0)
+    file_path(dir, name).map_or(0, |p| chunks::have(&p))
 }
 
 /// An incoming move of `from`'s, as this machine has it.
@@ -845,34 +831,22 @@ pub async fn peer_put_chunk(
     let dir = move_folder(state, id).ok_or_else(super::not_found)?;
     let path = file_path(&dir, name).ok_or_else(|| bad("No such file."))?;
     let _one = state.machines.moves.chunks.lock().await;
-    let size = have(&dir, name);
-    if offset != size || path.exists() {
-        return Err(ApiError::conflict(
-            "offset_mismatch",
-            "This computer has another part of the file.",
-        )
-        .with("size", size.min(f.size)));
-    }
-    if offset + bytes.len() as u64 > f.size {
-        return Err(bad("The file is longer than the move said."));
-    }
-    let part = part_of(&path);
-    let written = tokio::task::spawn_blocking(move || -> std::io::Result<u64> {
-        use std::io::Write;
-        if let Some(parent) = part.parent() {
-            std::fs::create_dir_all(parent)?;
-        }
-        let mut file = std::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&part)?;
-        file.write_all(&bytes)?;
-        file.flush()?;
-        Ok(file.metadata()?.len())
-    })
-    .await
-    .map_err(|e| ApiError::internal(e.to_string()))?
-    .map_err(|e| ApiError::internal(format!("The file could not be written here: {e}")))?;
+    let total = f.size;
+    let written = tokio::task::spawn_blocking(move || chunks::append(&path, offset, &bytes, total))
+        .await
+        .map_err(|e| ApiError::internal(e.to_string()))?
+        .map_err(|e| match e {
+            AppendError::Refused(Refusal::Offset(size)) => ApiError::conflict(
+                "offset_mismatch",
+                "This computer has another part of the file.",
+            )
+            .with("size", size),
+            AppendError::Refused(Refusal::TooLong) => bad("The file is longer than the move said."),
+            AppendError::Refused(Refusal::TooLarge) => bad("A chunk is at most 8 MiB."),
+            AppendError::Io(e) => {
+                ApiError::internal(format!("The file could not be written here: {e}"))
+            }
+        })?;
     let total: u64 = mf
         .files
         .iter()
@@ -893,28 +867,7 @@ pub async fn peer_put_chunk(
 fn verify_files(dir: &Path, mf: &wire::Manifest) -> Result<(), String> {
     for f in &mf.files {
         let path = file_path(dir, &f.name).ok_or_else(|| format!("{} has no place", f.name))?;
-        if !path.exists() && f.size == 0 {
-            // Nothing to send: made here.
-            if let Some(parent) = path.parent() {
-                std::fs::create_dir_all(parent).map_err(|e| format!("{}: {e}", f.name))?;
-            }
-            std::fs::write(&path, b"").map_err(|e| format!("{}: {e}", f.name))?;
-        }
-        if !path.exists() {
-            let part = part_of(&path);
-            let (size, sha) = crate::claude::transfer::sha256_file(&part)
-                .map_err(|_| format!("{} did not arrive", f.name))?;
-            if size != f.size || sha != f.sha256 {
-                return Err(format!("{} did not arrive whole", f.name));
-            }
-            std::fs::rename(&part, &path).map_err(|e| format!("{}: {e}", f.name))?;
-        } else {
-            let (size, sha) = crate::claude::transfer::sha256_file(&path)
-                .map_err(|e| format!("{}: {e}", f.name))?;
-            if size != f.size || sha != f.sha256 {
-                return Err(format!("{} is not what was sent", f.name));
-            }
-        }
+        chunks::finish(&path, f.size, &f.sha256)?;
     }
     Ok(())
 }
@@ -1819,7 +1772,7 @@ mod tests {
             assert!(file_path(d, bad).is_none(), "{bad}");
         }
         assert_eq!(
-            part_of(&d.join("session.tar.gz")),
+            chunks::part_of(&d.join("session.tar.gz")),
             d.join("session.tar.gz.part")
         );
     }

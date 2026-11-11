@@ -20,12 +20,13 @@ use super::wire::{self, AccountAsk, CodeAsk};
 use super::{
     call, file_path, injected, load, move_folder, peer_ref, refusal, save, this_machine, update,
     AccountPart, Active, Carried, Check, CodePart, FileEntry, MoveFailure, MoveRecord, MoveState,
-    Role, CHUNK, CHUNK_TIMEOUT, LAND_TIMEOUT, PREFLIGHT_TIMEOUT, UNDO_KEEP_MS,
+    Role, CHUNK, LAND_TIMEOUT, PREFLIGHT_TIMEOUT, UNDO_KEEP_MS,
 };
 use crate::claude::backup::session_pack;
 use crate::claude::control::{CloseRefused, Driver};
 use crate::claude::home::ClaudeHome;
 use crate::claude::owned;
+use crate::machines::chunks::{self, PutError};
 use crate::machines::code::{self, BranchRelation, CheckoutState, GitRunner};
 use crate::machines::lease::{self, Lease};
 use crate::machines::{self as m, protocol};
@@ -37,8 +38,6 @@ use crate::state::AppState;
 const STOP_WAIT: Duration = Duration::from_secs(20);
 /// How long an interrupted turn may take to end before the process stops.
 const INTERRUPT_WAIT: Duration = Duration::from_secs(10);
-/// How many times a chunk is tried before the move fails.
-const CHUNK_TRIES: u32 = 5;
 
 /// `POST /api/sessions/{id}/move` and `…/move/preflight`.
 #[derive(Clone, Debug, Default, Deserialize)]
@@ -1460,7 +1459,7 @@ async fn send(state: &AppState, id: &str, active: &Active, prep: &Prepared) -> R
             cancelled(active)?;
             let n = ((f.size - offset) as usize).min(CHUNK);
             let p = path.clone();
-            let bytes = tokio::task::spawn_blocking(move || read_chunk(&p, offset, n))
+            let bytes = tokio::task::spawn_blocking(move || chunks::read_chunk(&p, offset, n))
                 .await
                 .map_err(|e| Fail::new("send_failed", e.to_string()))?
                 .map_err(|e| Fail::new("send_failed", format!("{}: {e}", f.name)))?;
@@ -1491,16 +1490,7 @@ async fn send(state: &AppState, id: &str, active: &Active, prep: &Prepared) -> R
     Ok(())
 }
 
-fn read_chunk(path: &Path, offset: u64, n: usize) -> std::io::Result<Vec<u8>> {
-    use std::io::{Read, Seek, SeekFrom};
-    let mut f = std::fs::File::open(path)?;
-    f.seek(SeekFrom::Start(offset))?;
-    let mut buf = vec![0u8; n];
-    f.read_exact(&mut buf)?;
-    Ok(buf)
-}
-
-/// One chunk, tried again a few times; returns what the target has after it.
+/// One chunk (tried again a few times); returns what the target has after it.
 async fn put_chunk(
     state: &AppState,
     rec: &MoveRecord,
@@ -1510,49 +1500,18 @@ async fn put_chunk(
     acting: &str,
 ) -> Result<u64, Fail> {
     let path = format!("/peer/moves/{}/files/{name}?offset={offset}", rec.id);
-    let bytes = axum::body::Bytes::from(bytes);
-    let mut headers: Vec<(&str, String)> =
-        vec![("content-type", "application/octet-stream".to_string())];
-    if !acting.is_empty() {
-        headers.push((m::acting::HEADER, acting.to_string()));
+    match chunks::put(state, &rec.to.id, &path, bytes, acting).await {
+        Ok(size) => Ok(size),
+        Err(PutError::Refused(status, v)) => Err(refusal(status, &v, &rec.to.name).into()),
+        Err(PutError::Odd) => Err(Fail::new(
+            "send_failed",
+            format!("{} answered oddly", rec.to.name),
+        )),
+        Err(PutError::Offline(last)) => Err(Fail::new(
+            "target_offline",
+            format!("{} went offline while it was sent: {last}", rec.to.name),
+        )),
     }
-    let mut last = String::new();
-    for attempt in 0..CHUNK_TRIES {
-        if attempt > 0 {
-            tokio::time::sleep(Duration::from_secs(1 << attempt.min(4))).await;
-        }
-        match m::transport::request_raw(
-            state,
-            &rec.to.id,
-            "PUT",
-            &path,
-            &headers,
-            bytes.clone(),
-            CHUNK_TIMEOUT,
-        )
-        .await
-        {
-            Ok((200, _, out)) | Ok((409, _, out)) => {
-                let v: Value = serde_json::from_slice(&out).unwrap_or(Value::Null);
-                let size = v
-                    .get("size")
-                    .or_else(|| v.pointer("/error/size"))
-                    .and_then(Value::as_u64);
-                return size.ok_or_else(|| {
-                    Fail::new("send_failed", format!("{} answered oddly", rec.to.name))
-                });
-            }
-            Ok((status, _, out)) => {
-                let v: Value = serde_json::from_slice(&out).unwrap_or(Value::Null);
-                return Err(refusal(status, &v, &rec.to.name).into());
-            }
-            Err(e) => last = e,
-        }
-    }
-    Err(Fail::new(
-        "target_offline",
-        format!("{} went offline while it was sent: {last}", rec.to.name),
-    ))
 }
 
 /// Asks the target to land it.

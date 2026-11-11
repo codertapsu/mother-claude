@@ -80,12 +80,10 @@ pub use target::{
 };
 
 /// The largest chunk a source sends in one request.
-pub const CHUNK: usize = 8 * 1024 * 1024;
+pub const CHUNK: usize = super::chunks::CHUNK;
 /// How long T may take to land a move (git on a large tree, a large
 /// conversation's files).
 pub(crate) const LAND_TIMEOUT: Duration = Duration::from_secs(15 * 60);
-/// How long one chunk may take (over a slow relay, 8 MiB is a minute).
-pub(crate) const CHUNK_TIMEOUT: Duration = Duration::from_secs(180);
 /// How long a preflight may take there (`git status` and the haves).
 pub(crate) const PREFLIGHT_TIMEOUT: Duration = Duration::from_secs(90);
 /// The undo of a move is offered this long (the undo folder's own life).
