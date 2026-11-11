@@ -47,6 +47,33 @@ describe('HelpComponent', () => {
     expect(text(el().querySelector('#help-count'))).toBe(`${HELP_TOPICS.length} topics`);
   });
 
+  it('groups the Machines topics under Your computers, and finds a move by its words', async () => {
+    await harness.navigateByUrl('/help', HelpComponent);
+    const group = el().querySelector('#help-group-machines')?.closest('section');
+    expect(text(group?.querySelector('h2'))).toBe('Your computers');
+    const ids = [...(group?.querySelectorAll('.topic-card') ?? [])].map(
+      (a) =>
+        a
+          .getAttribute('href')
+          ?.replace(/^.*\/help\//, '')
+          .split('#')[0],
+    );
+    expect(ids).toEqual([
+      'machines-setup',
+      'machines-pair',
+      'machines-permissions',
+      'machines-sessions',
+      'machines-move',
+    ]);
+
+    search('take over');
+    expect(cardIds()).toContain('machines-move');
+    // Its troubleshooting sits with the other troubleshooting.
+    search('nearby');
+    expect(cardIds()).toContain('machines-troubleshooting');
+    expect(helpTopic('machines-troubleshooting')?.group).toBe('troubleshooting');
+  });
+
   it('searches titles, summaries and the steps themselves, ignoring case', async () => {
     await harness.navigateByUrl('/help', HelpComponent);
     // Only a step of the browser topic says it.

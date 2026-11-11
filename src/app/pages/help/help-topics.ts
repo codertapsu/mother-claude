@@ -13,6 +13,7 @@ export const HELP_GROUPS: readonly HelpGroup[] = [
   { id: 'basics', title: 'Basics' },
   { id: 'sessions', title: 'Your sessions' },
   { id: 'remote', title: 'Phone & remote' },
+  { id: 'machines', title: 'Your computers' },
   { id: 'data', title: 'Accounts & data' },
   { id: 'browser-teams', title: 'Browser & teams' },
   { id: 'advanced', title: 'Advanced' },
@@ -79,7 +80,7 @@ const TOPICS: HelpTopicSource[] = [
       {
         heading: 'Find your way around',
         points: [
-          'On the desktop app, the sidebar has **Sessions**, **Inbox**, **Agents**, **New session** and **Teams**; under **Your data**, **Accounts** and **Backup & sync**; under **Connect**, **Remote**, **Browser** and **API**; under **System**, **Capacity** and **Settings**; and **Help** at the bottom.',
+          'On the desktop app, the sidebar has **Sessions**, **Inbox**, **Agents**, **New session** and **Teams**; under **Your data**, **Accounts** and **Backup & sync**; under **Connect**, **Machines**, **Remote**, **Browser** and **API**; under **System**, **Capacity** and **Settings**; and **Help** at the bottom.',
           'On a phone, the tabs at the bottom are **Sessions**, **Inbox**, **Agents** and **More**. Everything else is under **More**.',
           'The dot at the bottom of the sidebar (at the top on a phone) shows the connection. **Live** means updates arrive as they happen.',
           'The button beside it switches the theme between dark, light and system. **Settings › Appearance** also has the language, the accent colour and the background.',
@@ -452,6 +453,10 @@ const TOPICS: HelpTopicSource[] = [
           {
             term: 'Switch account…',
             text: 'Runs it under another Claude account (with several accounts). **Continue on another account…** does it for a session started elsewhere.',
+          },
+          {
+            term: 'Continue on another computer…',
+            text: 'Moves the session, with its code, to another of your computers. On a session another computer runs, **Bring back to this Mac** (or **Bring back to this PC**) brings it here.',
           },
           {
             term: 'Move or copy…',
@@ -1099,6 +1104,517 @@ const TOPICS: HelpTopicSource[] = [
         ],
         points: [
           'The hooks that running sessions already loaded go quiet first; then Claude Code removes the plugin.',
+        ],
+      },
+    ],
+  },
+
+  // ───────────────────────────────────────────────────── Your computers
+  {
+    id: 'machines-setup',
+    title: 'Set up Machines',
+    icon: 'monitor',
+    group: 'machines',
+    summary:
+      'Connect your computers: the checks on each one, what fixes them, and the test before it turns on.',
+    intro:
+      "Machines connects your computers: from any of them you see and drive every computer's Claude Code sessions, and move a session, with its code, to another computer and back. It is off until you set it up in the desktop app. The setup runs on each computer, because only a computer can check itself.",
+    keywords: [
+      'machines',
+      'computers',
+      'another computer',
+      'second computer',
+      'setup',
+      'checks',
+      'firewall',
+      'local network',
+      'relay',
+      'health',
+      'long paths',
+    ],
+    sections: [
+      {
+        heading: 'What you need',
+        points: [
+          'Mother Claude, this version or newer, on each computer.',
+          'Each computer switched on, with the internet or on the same network as the others.',
+          "On Windows, an administrator's OK once, for the firewall.",
+          'About 10 minutes, with each computer at hand.',
+        ],
+      },
+      {
+        heading: 'Run the setup',
+        where: 'desktop',
+        intro:
+          'Open **Machines** and press **Set up Machines**. Seven steps follow: **Next** and **Back** move between them, and **Go on with the setup** on Machines brings you back to the one you left.',
+        steps: [
+          '**This Mac** (or **This PC**): fix what its checks find. Required ones come first.',
+          '**Your machines**: pair each of your other computers.',
+          "**Every machine**: each computer's checks, side by side.",
+          '**What each may do**: what each computer may do on this one. Press **Save** after a change.',
+          '**Accounts and folders**: your accounts and shared folders on every computer.',
+          "**Options**: the relay, how a moving session's code travels and where it lands.",
+          '**Test, then turn on**: press **Run the test**, then **Turn on Machines**.',
+        ],
+        tips: [
+          '**Turn on Machines** stays greyed out while a required check is left, and says how many.',
+          'The checks keep running afterwards as **Machines health**: a red dot on **Machines** in the sidebar says something broke again.',
+        ],
+        links: [
+          { label: 'Open Machines', path: '/machines' },
+          { label: 'See Pair your computers', path: '/help/machines-pair' },
+        ],
+      },
+      {
+        heading: 'What is checked',
+        intro:
+          'A **Required** check keeps Machines off; a **Recommended** one works, but worse. Each says why it matters, and its button fixes it or opens the right settings page.',
+        terms: [
+          {
+            term: 'Mother Claude',
+            text: 'Every computer needs a version that speaks the same Machines protocol. Update the older one.',
+          },
+          {
+            term: 'Stays awake while used',
+            text: 'A computer asleep cannot answer the others. **Keep awake while used** keeps it awake while a paired computer is connected; no system setting changes.',
+          },
+          {
+            term: 'Local Network access (Mac)',
+            text: 'Without it, the Mac reaches your other computers only through the relay, even at home. Allow it when macOS asks, or press **Open Local Network settings** and switch Mother Claude on.',
+          },
+          {
+            term: 'The firewall (Mac)',
+            text: 'If it blocks Mother Claude, the others reach the Mac only through the relay. Press **Open Firewall settings** and allow Mother Claude.',
+          },
+          {
+            term: 'The network type (Windows)',
+            text: 'On a Public network, Windows blocks incoming connections. Press **Open network settings** and set your home or office network to Private.',
+          },
+          {
+            term: 'The firewall (Windows)',
+            text: "Without a rule, the others reach the PC only through the relay. **Allow through the firewall** adds one rule for Mother Claude, after Windows asks for an administrator's OK.",
+          },
+          {
+            term: 'The relay',
+            text: 'Across networks, your computers meet through it. Check its address, or pick the public relays under **Options**.',
+          },
+          {
+            term: 'Paired computers',
+            text: 'Machines works between computers you paired. Each pair needs the same Machines protocol and relay setting: **Use this setting everywhere** offers yours to the others.',
+          },
+          {
+            term: 'git',
+            text: "A session's code moves through git, 2.30 or newer, on both computers: **Install the command line tools** on a Mac, **Install Git for Windows** on Windows.",
+          },
+          {
+            term: 'Long paths (Windows)',
+            text: "Git for Windows leaves out paths longer than 260 characters unless long paths are on. **Turn on for git** turns them on for you; Windows' own setting needs an administrator.",
+          },
+          {
+            term: 'Claude Code',
+            text: 'Sessions run in it, and one moved to an older version may not resume. **Update Claude Code** runs `claude update` when you press it.',
+          },
+          {
+            term: 'Each account',
+            text: "Signed in on this computer. Only that account's sessions wait for it: Machines turns on without it. **Sign in…** starts its sign-in here.",
+          },
+          {
+            term: 'Free space',
+            text: "Moves land in Mother Claude's data folder first: 5 GB free is recommended.",
+          },
+        ],
+        notes: [
+          'The network checks are required only with **No relay**. With a relay they are recommended: your computers still meet, through the relay, more slowly.',
+        ],
+      },
+      {
+        heading: 'Accounts and folders',
+        points: [
+          'An account is matched by its name on each computer, whatever the case of its letters, and the Default by the Default. A session moves to the account of the same name and runs only where it is signed in.',
+          "Another computer sees only your accounts' names, kinds and whether they are signed in: never a token, an email or a folder.",
+          'A shared folder is one folder on each computer, such as `~/development/projects` on a Mac and `D:\\development\\projects` on Windows: a project under it on one is the same project, at the same place, on the other.',
+          "The setup proposes shared folders from your projects' git remotes: press **Use** to take one, or **Add a folder** to add your own. Your folder pairs from **Backup & sync** are kept.",
+          "A project only one computer has offers **Clone it on …** or **Clone it here**. A project with no git remote can't move with its code.",
+          '**Sign in on …**, **Add it on …** and **Clone it on …** are asked of that computer: someone there confirms them.',
+        ],
+      },
+      {
+        heading: 'Options',
+        terms: [
+          {
+            term: 'Relay',
+            text: '**Public relays (default)** work at once, anywhere. **Your own relay** is an `iroh-relay` you run, on a NAS or a small server: type its `https://` address. **No relay**: your computers meet on the same network only. A relay only ever carries encrypted traffic.',
+          },
+          {
+            term: 'How code travels when a session moves',
+            text: '**Machine to machine (default)**: straight to the other computer, nothing pushed anywhere. **Through your git remote**: hidden refs on your remote, deleted after the move unless you keep them; both computers need access to it without a password prompt.',
+          },
+          {
+            term: 'Where the code lands',
+            text: '**In the project folder, when it has no changes of its own (default)**, or **Always in a separate folder (a worktree), never the project folder**.',
+          },
+          {
+            term: 'Keep awake',
+            text: 'While another computer uses this one, Mother Claude keeps it awake. No system setting changes.',
+          },
+        ],
+        points: [
+          'Use the same relay on every computer (two computers on different relays may never meet), and best the same code options: a change here is offered to the others, and each takes it when someone there presses **Use it here too** (or **Keep mine**). A move follows the options of the computer it starts from.',
+          "**Each project** can move its code another way, and has a recipe: **After a move, ask Claude to run**, one command a line, for macOS, Windows and Linux. They go to Claude, which runs them through the session's own approvals.",
+          "**Check the remote** checks whether a project's git remote answers without a password prompt on each computer. It runs only when you press it.",
+        ],
+      },
+    ],
+  },
+  {
+    id: 'machines-pair',
+    title: 'Pair your computers',
+    icon: 'key',
+    group: 'machines',
+    summary: 'Pair two computers with a one-time code, and check the same six digits on both.',
+    intro:
+      'Two computers pair once, in their desktop apps: on the same network or across the internet, with no port to open and no tunnel to run.',
+    keywords: ['pair', 'join', 'code', 'nearby', 'six digits', 'revoke', 'unpair', 'rename', 'key'],
+    sections: [
+      {
+        heading: 'Pair two computers',
+        where: 'desktop',
+        steps: [
+          'On the first computer, open **Machines** and press **Pair a machine**. An 8-character code appears: it works once, for five minutes.',
+          'On the other computer, open **Machines** and press **Join…**.',
+          'Type the code in **Code** and press **Join**.',
+          'Check that both screens show the same six digits.',
+          'On each computer, choose what the other may do on it, then press **The numbers match — Pair**.',
+        ],
+        tips: [
+          '**Nearby** lists the computers on your network that show a code, so you can see you join the right one. None nearby? The code works across the internet too.',
+          'The setup has the same buttons in its **Your machines** step.',
+        ],
+        links: [{ label: 'Open Machines', path: '/machines' }],
+      },
+      {
+        heading: 'Across the internet',
+        points: [
+          'When the other computer joined over the internet, the first one does not show the digits: type the six the other computer shows, then press **Pair**.',
+          'A wrong number ends the pairing, and nothing is paired. Start again with a new code.',
+        ],
+      },
+      {
+        heading: 'Why it is safe',
+        points: [
+          'Only someone with the code can start a pairing: the code finds the other computer, and proves you have it.',
+          "The six digits come from both computers' keys, so a computer in the middle, even one that saw the code, would make the two screens show different numbers.",
+          'Nothing is stored until both computers confirm.',
+          'A paired computer is recognised by its key alone, kept in your Keychain or Windows Credential Manager. Reinstalling Mother Claude makes a new key: pair that computer again.',
+        ],
+      },
+      {
+        heading: 'Rename or revoke a computer',
+        where: 'desktop',
+        points: [
+          "On **Machines**, each paired computer's card has **Rename** (its name on this computer) and **Revoke**.",
+          '**Revoke**, then **Tap again to revoke**: this computer forgets the other and cuts its connections at once.',
+          'Revoking works on one computer only: revoke a lost or stolen computer on each of your others.',
+          '**Turn Machines off** does not unpair: a paired computer keeps what it may do here until you revoke it.',
+        ],
+      },
+    ],
+  },
+  {
+    id: 'machines-permissions',
+    title: 'What another computer may do',
+    icon: 'shield',
+    group: 'machines',
+    summary:
+      'The permissions each computer gives the others, on the same network and over the internet.',
+    intro:
+      'Each computer decides what each of the others may do on it. You choose when you pair, and can change it later on **Machines**.',
+    keywords: [
+      'permissions',
+      'grants',
+      'see',
+      'drive',
+      'move',
+      'dangerous',
+      'audit',
+      'internet',
+      'same network',
+    ],
+    sections: [
+      {
+        heading: 'The permissions',
+        terms: [
+          {
+            term: 'See',
+            text: 'List its sessions, read their transcripts, see their approvals and questions. On by default.',
+          },
+          {
+            term: 'Drive',
+            text: 'Send messages, answer ordinary approvals, interrupt, stop, and set model, effort and mode. On by default.',
+          },
+          { term: 'Move', text: 'Move sessions to this computer and away from it. On by default.' },
+          { term: 'Run', text: 'Run commands and tasks here. Not available yet: it stays off.' },
+          {
+            term: 'Dangerous',
+            text: 'Bypass permissions, approve tool calls flagged dangerous, send raw keys. Off by default.',
+          },
+        ],
+        points: [
+          'Driving needs seeing; moving and dangerous actions need driving. Ticking one ticks what it needs; unticking one unticks what needs it.',
+        ],
+      },
+      {
+        heading: 'Same network or internet',
+        points: [
+          'Each permission has two columns: **Same network**, for a direct path on your local network, and **Internet**, for everything else, the relay included.',
+          "A computer's card on **Machines** shows how it is connected now: **Direct (same network)**, **Direct (internet)** or **Through the relay (slower)**.",
+        ],
+      },
+      {
+        heading: 'Change them',
+        where: 'desktop',
+        steps: [
+          'Open **Machines**.',
+          "On the other computer's card, next to **On this Mac, … may** (or **On this PC, … may**), press **Change**.",
+          'Tick or untick the boxes, then press **Save**.',
+        ],
+        points: [
+          '**On …, this Mac may** shows what the other computer lets this one do. Only that computer can change it.',
+          'The setup has the same table in its **What each may do** step.',
+        ],
+        links: [{ label: 'Open Machines', path: '/machines' }],
+      },
+      {
+        heading: 'Dangerous actions through another computer',
+        points: [
+          "A dangerous action on another computer needs both: that computer's **Dangerous** permission for this one, and your own right here. A phone without the dangerous permission on this computer can't reach for it through this computer.",
+          "Every change another computer makes here is written to this computer's audit log, with who acted through it; a dangerous one also shows a notice here.",
+          'With **Dangerous**, another computer can run anything here: give it only to a computer you trust as much as this one.',
+        ],
+      },
+    ],
+  },
+  {
+    id: 'machines-sessions',
+    title: "Use another computer's sessions",
+    icon: 'sessions',
+    group: 'machines',
+    summary:
+      "See and drive every computer's sessions from any of them, and start one on another computer.",
+    intro:
+      "Once two computers are paired, each lists the other's Claude Code sessions. Open one and use it as if it ran here.",
+    keywords: [
+      'other computer',
+      'machine filter',
+      'chip',
+      'inbox',
+      'offline',
+      'where',
+      'new session',
+      'phone',
+      'remote control',
+    ],
+    sections: [
+      {
+        heading: 'Find them',
+        points: [
+          "**Sessions** lists every computer's sessions. Another computer's have a chip with its name; this computer's have none.",
+          'The **Machine** filter picks one computer: **All machines**, **This Mac** (or **This PC**), or another computer by name.',
+          "On **Machines**, a computer's card says how many sessions it has and how many run; **Open its sessions** lists them.",
+          '**Inbox** lists what waits on you everywhere, each request with its computer. Answer it here: the first answer wins, as with a phone.',
+        ],
+        links: [{ label: 'Open Sessions', path: '/' }],
+      },
+      {
+        heading: 'Drive them',
+        points: [
+          "Open one: its page says **Runs on … — you drive it from here.** The message box, approvals, stop, model, effort and mode work as for this computer's sessions.",
+          "Without the other computer's **Drive** permission, the page says **Runs on … — you can watch it from here.**, and what you try says why, for example **… lets this Mac watch its sessions, not drive them.**",
+          'Switching its account, moving or copying it to another account or a storage, deleting it, showing its files and opening it in VS Code are done on the computer it runs on.',
+        ],
+      },
+      {
+        heading: 'Start a session on another computer',
+        steps: [
+          'Open **New session**.',
+          'Under **Where**, pick the other computer.',
+          'Pick a project, or type a path under **Or any folder on …** (desktop app).',
+          'Press **Start on …**.',
+        ],
+        points: [
+          "It runs under that computer's account for the folder, and you drive it from here.",
+          'Claude Code must already trust the folder there: open it there with Claude Code once.',
+        ],
+        links: [{ label: 'Open New session', path: '/new' }],
+      },
+      {
+        heading: 'When a computer is offline',
+        points: [
+          'Its sessions stay listed, greyed, under **On computers that are offline**, until it is back.',
+          "A session's page says since when its computer is offline. What you see is from then, and sending waits until it is back.",
+          'A computer asleep cannot answer: **Keep awake while used** keeps each one awake while another uses it.',
+        ],
+      },
+      {
+        heading: 'From a phone',
+        points: [
+          'A phone paired with any of your computers sees and drives all of them through it.',
+          "A dangerous action on another computer needs the phone's dangerous permission on the computer it is paired with, and that computer's **Dangerous** permission on the other.",
+          "A phone on **Limited** (refreshing every few seconds instead of live updates) sees only its own computer's sessions for now.",
+          'Setting up Machines, pairing computers and changing their permissions are done in the desktop app.',
+        ],
+      },
+    ],
+  },
+  {
+    id: 'machines-move',
+    title: 'Move a session to another computer',
+    icon: 'move',
+    group: 'machines',
+    summary: 'Continue a session on another computer, with its code, then bring it back or undo.',
+    intro:
+      'A session can go on on another of your computers: the same conversation, with its code, where it stands. A session lives on one computer at a time; the computer it left keeps its copy, read only, and says where it lives now.',
+    keywords: [
+      'move',
+      'continue on another computer',
+      'bring back',
+      'take over',
+      'undo',
+      'worktree',
+      'recipe',
+      'code',
+      'lives on',
+    ],
+    sections: [
+      {
+        heading: 'Move it',
+        steps: [
+          "Open the session's **⋯** menu and choose **Continue on another computer…**.",
+          'Under **Computer**, pick where it goes. Mother Claude asks that computer first and shows what it found: nothing is written anywhere yet.',
+          'Check **What goes**, **Where it goes**, **Code travels**, **Code lands** and the **Checks**.',
+          'Press **Continue on …**.',
+        ],
+        tips: [
+          "On another computer's session, the menu has **Bring back to this Mac** (or **Bring back to this PC**), or **Continue on this Mac…** for one that never lived here. A move always starts on the computer the session lives on: from here, Mother Claude asks that computer to do it.",
+        ],
+      },
+      {
+        heading: 'The choices',
+        terms: [
+          {
+            term: 'Computer',
+            text: 'The paired computers that are online and let this one move sessions to them. An offline one says since when.',
+          },
+          {
+            term: 'What goes',
+            text: "The conversation's size, with its subagents, and the code: its branch, how many files changed and how many are new.",
+          },
+          {
+            term: 'Where it goes',
+            text: "The project's folder there, found through your shared folders, a folder pair or the same path. **Change…** picks another; when none is found, **Choose its folder on …** lists that computer's projects.",
+          },
+          {
+            term: 'Code travels',
+            text: '**Machine to machine** (the default: straight between the two, nothing pushed anywhere), **Through your git remote** (hidden refs on your remote, removed afterwards unless kept) or **Only the conversation**.',
+          },
+          {
+            term: 'Code lands',
+            text: '**In the project folder** (the default, when it has no changes of its own there) or **In a separate folder (worktree)**: the project folder is then never touched, and nothing is merged into it.',
+          },
+          {
+            term: 'After the move',
+            text: "When the project has a recipe (set under **Options › Each project**, or a `.mother-claude/recipe.json` committed in the project): ask Claude to run its commands there, such as `npm ci`. They are in Claude's first message there and go through its own approvals: Mother Claude never runs a command on the other computer.",
+          },
+          {
+            term: 'When',
+            text: 'While a turn runs: **After this turn** (the default: it finishes first) or **Now** (it interrupts the turn; what you had queued goes along).',
+          },
+          {
+            term: 'Keep driving it from here',
+            text: 'On by default: after the move, this page becomes the session where it runs now.',
+          },
+          {
+            term: "Carry this folder's trust to …",
+            text: 'Shown when Claude Code there never opened that folder. A trusted folder runs its project hooks and MCP servers without asking, so this is a dangerous action: it needs the desktop app or a device allowed dangerous actions, and the **Dangerous** permission the computer it goes to gives the one it leaves.',
+          },
+        ],
+      },
+      {
+        heading: 'Checks',
+        points: [
+          '**Checks** lists what is fine, what blocks the move with its fix, and what only makes it worse (Claude Code older there, line endings, Git LFS, submodules).',
+          'While something blocks it, the button reads **Fix the checks first**. When the project folder there has changes of its own, or its branch went on there, Mother Claude offers **Use a separate folder (worktree)**.',
+          'A session another app runs (VS Code, a terminal) cannot be stopped by Mother Claude: a copy goes on there as a new session while this one goes on here. The button reads **Continue as a copy on …**; or end it in that app first.',
+        ],
+      },
+      {
+        heading: 'While it moves',
+        points: [
+          'Each step shows with its time: checked, stopped here, packed, sent (how much, and about how long is left), placed there, started there.',
+          "**Cancel the move** works until it is being placed there. **Close (it goes on)** leaves it running; the session's page says what it does meanwhile.",
+          'A connection that drops for a moment while it sends picks up where it stopped.',
+          "The first message the session gets there tells Claude it moved: from which computer and folder to which, that paths in earlier messages are the old computer's, and which shell it has now. The conversation itself is never rewritten.",
+        ],
+      },
+      {
+        heading: 'If something fails',
+        terms: [
+          {
+            term: 'Before it is placed there',
+            text: 'Nothing is lost: the session goes on here as it was (and starts again if it ran), and the other computer drops what it received. Mother Claude says why; **Try again** goes back to the choices.',
+          },
+          {
+            term: "The code can't land in the project folder",
+            text: 'Mother Claude offers a separate folder (worktree) and asks again.',
+          },
+          {
+            term: "Placed, but didn't start there",
+            text: 'Its account is not signed in there, for instance. It lives there now: **Try again** starts it there without sending anything twice; **Undo move** takes it back.',
+          },
+        ],
+      },
+      {
+        heading: 'Lives on …',
+        intro:
+          'The computer a session left keeps its copy, greyed in the lists with a chip **Lives on …**. Its page says where the session lives and since when, with:',
+        terms: [
+          { term: 'Open there', text: 'The session where it runs now.' },
+          {
+            term: 'Bring it back here',
+            text: "A move back to this computer, started on the one it lives on, while that one is online. Only what happened there is added: this computer's copy is the start of the same conversation.",
+          },
+          {
+            term: 'Take over…',
+            text: "Only while the computer it lives on is offline: the session goes on here from this computer's copy, which has the conversation only up to when it moved, with this computer's project folder as it is. If the other computer went on with it meanwhile, both versions are kept side by side when it next moves there.",
+          },
+        ],
+        points: ["Messages can't be sent to the copy here; its page says why."],
+      },
+      {
+        heading: 'Undo a move',
+        steps: [
+          "Find the move: in the sheet once it is done, under **Recent moves** on **Machines**, or under **Moves between computers** on the session's **Info** tab.",
+          'Press **Undo move**.',
+          'Press **Tap again to undo**.',
+        ],
+        points: [
+          "Undo is offered for seven days. It puts the other computer's project folder and branch back as they were, takes the conversation's files there back out, and the session lives here again (it starts again here if it ran).",
+          'An undo is refused once the session went on there: bring it back instead, so nothing it did there is lost. A copy is never undone: stop or delete it there.',
+        ],
+      },
+      {
+        heading: 'What never moves',
+        points: [
+          'Files git ignores, such as `.env` files, `node_modules` and build output, stay where they are. Set the project up there with a recipe.',
+          'Sign-ins: tokens, keys and `.credentials.json` stay on each computer. The session runs under the account of the same name there, signed in there.',
+          'The worktree a move made on the other computer stays there when the session leaves it; its work went with the session. Remove it there.',
+        ],
+      },
+      {
+        heading: 'From a phone',
+        points: [
+          'A phone paired with any of your computers moves sessions the same way, in one column.',
+          "Carrying a folder's trust needs the phone's dangerous permission, set in the desktop app; without it the option does not show.",
         ],
       },
     ],
@@ -2247,6 +2763,146 @@ const TOPICS: HelpTopicSource[] = [
           {
             term: '`mcp_disabled`',
             text: "Turn **Give sessions Mother Claude's tools** back on under **Services**.",
+          },
+        ],
+      },
+    ],
+  },
+  {
+    id: 'machines-troubleshooting',
+    title: 'Troubleshooting Machines',
+    icon: 'question',
+    group: 'troubleshooting',
+    summary: "When two computers don't find each other, refuse an action, or a move stops.",
+    intro: 'Find the message or symptom you see, then the fix.',
+    keywords: [
+      'machines',
+      'computers',
+      'pairing',
+      'nearby',
+      'relay',
+      'offline',
+      'permission',
+      'move',
+      'trust',
+      'account',
+    ],
+    sections: [
+      {
+        heading: 'Setup',
+        terms: [
+          {
+            term: 'Turn on Machines is greyed out',
+            text: 'A required check is left; the line above the button says how many. Fix them in the steps **This Mac** (or **This PC**) and **Every machine**.',
+          },
+          {
+            term: 'Allow through the firewall changed nothing',
+            text: "Windows asks for an administrator's OK first. When it was declined, the firewall was not changed: press it again.",
+          },
+          {
+            term: 'Only its sessions wait for it: Machines works without.',
+            text: 'That account is not signed in on that computer. Its sessions wait for it there; everything else works.',
+          },
+        ],
+      },
+      {
+        heading: 'Pairing',
+        terms: [
+          {
+            term: 'The other computer is not in Nearby',
+            text: 'The code works anyway, across networks too: type it. On a Mac, check Local Network access for Mother Claude.',
+          },
+          {
+            term: 'No computer showing this code was found.',
+            text: 'Check the code, and that both computers have the internet or share a network. A code lasts five minutes.',
+          },
+          {
+            term: "That code doesn't match.",
+            text: 'Check it on the other computer, or make a new one there.',
+          },
+          {
+            term: 'This code was used by two computers, so neither can pair.',
+            text: 'Make a new code.',
+          },
+          {
+            term: "That's not the number on …",
+            text: 'Nothing was paired. Start again, and type the six digits the other computer shows.',
+          },
+          {
+            term: 'The pairing was not confirmed in time.',
+            text: 'Confirm on both computers within ten minutes of making the code. Start again.',
+          },
+        ],
+      },
+      {
+        heading: 'Connection',
+        terms: [
+          {
+            term: 'Through the relay (slower), at home',
+            text: 'On a Mac: Local Network access. On Windows: the network type and the firewall. **Machines health** says which.',
+          },
+          {
+            term: '… uses another relay setting',
+            text: 'Two computers on different relays may never meet. Press **Use it here too** on one of them, or **Use this setting everywhere** on the other.',
+          },
+          {
+            term: 'A computer is offline',
+            text: 'It is asleep, switched off, or Mother Claude is not running there. Its sessions stay listed, greyed, until it is back.',
+          },
+          {
+            term: 'Older than this computer’s',
+            text: "That computer's Mother Claude is older: its sessions show, but nothing moves to or from it until you update it.",
+          },
+        ],
+      },
+      {
+        heading: 'Permissions',
+        terms: [
+          {
+            term: '… lets this computer watch its sessions, not drive them.',
+            text: "Its **Drive** permission for this computer is off: change it on that computer's **Machines** page.",
+          },
+          {
+            term: "… doesn't let this computer take dangerous actions there.",
+            text: 'Its **Dangerous** permission for this computer is off: change it on that computer. A phone also needs its own dangerous permission on the computer it is paired with.',
+          },
+          {
+            term: "… doesn't let this computer move its sessions.",
+            text: 'Its **Move** permission for this computer is off on the network you use now: change it on that computer.',
+          },
+          {
+            term: '… refused this computer',
+            text: 'Check on that computer that the two are still paired. If it revoked this one, pair them again.',
+          },
+        ],
+      },
+      {
+        heading: 'Moving a session',
+        terms: [
+          {
+            term: '… has no account named …',
+            text: "Add the account there with the same name (**Accounts**) and sign it in. A session of the Default account goes on under that computer's Default.",
+          },
+          {
+            term: "… isn't signed in on …",
+            text: 'Sign it in on that computer (**Accounts** there), then try again.',
+          },
+          {
+            term: "… doesn't trust … yet.",
+            text: "Open that folder once with Claude Code there, or carry the folder's trust (it needs the dangerous permission).",
+          },
+          {
+            term: '… has changes of its own',
+            text: 'Use a separate folder (worktree), or commit or stash the changes there first.',
+          },
+          { term: '… runs this session right now.', text: 'Stop it on that computer first.' },
+          {
+            term: 'It runs without permission prompts',
+            text: "A session in bypass-permissions mode needs the dangerous right here, and the other computer's **Dangerous** permission for this one.",
+          },
+          {
+            term: "Couldn't move …",
+            text: 'Nothing was lost: it stays where it was, and the message says why. **Try again** goes back to the choices.',
           },
         ],
       },

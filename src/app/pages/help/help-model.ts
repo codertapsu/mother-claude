@@ -3,7 +3,14 @@ import { slugify } from './help-text';
 
 /** The headings the Help landing groups its topics under, in order. */
 export type HelpGroupId =
-  'basics' | 'sessions' | 'remote' | 'data' | 'browser-teams' | 'advanced' | 'troubleshooting';
+  | 'basics'
+  | 'sessions'
+  | 'remote'
+  | 'machines'
+  | 'data'
+  | 'browser-teams'
+  | 'advanced'
+  | 'troubleshooting';
 
 export interface HelpGroup {
   id: HelpGroupId;

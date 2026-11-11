@@ -79,7 +79,7 @@ const TOPICS: HelpTopicSource[] = [
       {
         heading: 'Làm quen với ứng dụng',
         points: [
-          'Trên ứng dụng máy tính, thanh bên có **Phiên**, **Hộp thư**, **Tác tử**, **Phiên mới** và **Nhóm**; trong **Dữ liệu của bạn** là **Tài khoản** và **Sao lưu & đồng bộ**; trong **Kết nối** là **Từ xa**, **Trình duyệt** và **API**; trong **Hệ thống** là **Công suất** và **Cài đặt**; cùng **Trợ giúp** ở dưới cùng.',
+          'Trên ứng dụng máy tính, thanh bên có **Phiên**, **Hộp thư**, **Tác tử**, **Phiên mới** và **Nhóm**; trong **Dữ liệu của bạn** là **Tài khoản** và **Sao lưu & đồng bộ**; trong **Kết nối** là **Các máy**, **Từ xa**, **Trình duyệt** và **API**; trong **Hệ thống** là **Công suất** và **Cài đặt**; cùng **Trợ giúp** ở dưới cùng.',
           'Trên điện thoại, các thẻ ở dưới cùng là **Phiên**, **Hộp thư**, **Tác tử** và **Thêm**. Mọi mục khác nằm trong **Thêm**.',
           'Chấm ở cuối thanh bên (ở trên cùng trên điện thoại) cho biết trạng thái kết nối. **Trực tiếp** nghĩa là cập nhật đến ngay khi có.',
           'Nút bên cạnh đổi giao diện giữa tối, sáng và theo hệ thống. **Cài đặt › Hiển thị** còn có ngôn ngữ, màu nhấn và nền.',
@@ -464,6 +464,10 @@ const TOPICS: HelpTopicSource[] = [
           {
             term: 'Đổi tài khoản…',
             text: 'Chạy phiên bằng một tài khoản Claude khác (khi có nhiều tài khoản). **Tiếp tục trên tài khoản khác…** làm việc này cho phiên bắt đầu ở nơi khác.',
+          },
+          {
+            term: 'Tiếp tục trên máy tính khác…',
+            text: 'Chuyển phiên, cùng mã nguồn của nó, sang một máy tính khác của bạn. Với phiên đang chạy trên máy khác, **Đưa về máy Mac này** (hoặc **Đưa về máy PC này**) đưa nó về đây.',
           },
           {
             term: 'Di chuyển hoặc sao chép…',
