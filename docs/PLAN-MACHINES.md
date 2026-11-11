@@ -1044,6 +1044,55 @@ own computer's sessions (UX §6.1 has `/api/sessions` carry the others).*
 snapshot, both transfers, both landings, undo and the proof, ported from S2
 with its cases as tests (F10 above); nothing calls it yet.*
 
+**Decisions taken for building it (2026-11-11)**, where §5.7–§5.10 left a
+choice open:
+
+1. **Files travel as chunks the source pushes**: `PUT /peer/moves/:id/files/:name?offset=N`
+   (≤ 8 MiB a request, the target appends), `GET …` answers the size it has,
+   so a broken transfer resumes; the sha256 of each file is checked before
+   landing. No zstd: the archive is gzipped and a bundle is already packed.
+2. **The package** is the session's files in the backup's layout (the same
+   file list as `archive_session`, with `.mc/meta.json`), an unencrypted
+   tar.gz (the link is encrypted), made by a pack function split out of the
+   backup's archive code. **Landing** reuses the pull's staging, relocation,
+   placement, fast-forward replace and conflict copy, and its undo folder.
+3. **The account there**: the same name (case-insensitive), else Default for
+   Default; anything else, or one not signed in, is a preflight blocker.
+4. **The folder there**: a root (§5.12), else a folder pair, else the same
+   path when it exists there, else preflight asks to choose among the
+   target's candidates (its projects).
+5. **Freezing**: an owned live session as `claude/switch.rs` does (after this
+   turn, or now with an interrupt); an ended one needs none. A foreign live
+   session moves only **as a copy** (`asCopy`): nothing frozen, no lease, and
+   the target forks it (`--fork-session`, a new id).
+6. **The lease** is enforced in `ControlRegistry::spawn` (`409
+   session_lives_elsewhere`, naming the machine), so every owned launch path
+   refuses; leases are exchanged on every hello and on `/peer/leases` (the
+   higher epoch wins, a tie goes to the higher machine id).
+7. **The move note** is kept with the lease until delivered and prepended
+   once, by `write_user`, to the next message the session gets.
+8. **A recipe is not run by Mother Claude**: its commands join the move note
+   as a request to Claude, so they run through the session's own tool
+   approvals — no new way to run code on another machine (Phase 4 adds that,
+   with its grant).
+9. **Who starts it**: `POST /api/sessions/:id/move` on the machine the session
+   lives on; the other machine's screens call it through the proxy (the
+   `move` grant). The target's `/peer/moves/*` need the target's `move` grant
+   for the source. Tests record the target's resume instead of starting
+   `claude` (as the setup's fixes are recorded).
+10. **A move's record** (`machines/moves/<id>.json`) walks `preflight →
+    freezing → packaging → sending → landing → landed → committed → resumed`,
+    or ends `failed`, `cancelled` or `undone`; after a restart a move before
+    *landed* is failed and unfrozen, one after it is finished.
+11. **Take over** needs the session's files on this machine (an earlier move
+    or a pull; copies are 3b). **Undo move** runs on the target: stop, undo
+    the code, put the placed files in the undo folder, lease back to the
+    source, which resumes the session if it ran when frozen.
+12. **Roots** live in `machines.json`, replicated to peers (last writer wins
+    per entry, removals stick); existing folder pairs are imported once as
+    two-entry roots. Backup sets keep their pairs as they are; writing roots
+    back into them comes later.
+
 - `machines/lease.rs`; enforcement in `claude/control.rs` (refuse a session leased elsewhere).
 - `machines/moves.rs`: preflight, freeze (reuse `claude/switch.rs`), package (reuse `archive_session`), send/receive (bulk streams), land (reuse the pull's placement through the roots, its conflict rule and undo), commit (lease), resume with the move note.
 - `machines/code.rs`: snapshot; both transfers (bundle — the default — and hidden refs on your remote, deleted after the move unless kept, the automatic fallback above 1 GB); both landings (the checkout when clean — the default — and a worktree, with *Remove the worktree*); undo refs; warnings. The choices per project and per move.
