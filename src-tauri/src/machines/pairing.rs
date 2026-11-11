@@ -1030,10 +1030,22 @@ async fn join_run(
     if let Some(seen) = state.machines.nearby_addr(&rendezvous_id.to_string()) {
         addr = seen;
     }
-    let conn = tokio::time::timeout(FIND_TIMEOUT, transport::dial(state, addr, ALPN_PAIR))
-        .await
-        .map_err(|_| not_found())?
-        .map_err(|_| not_found())?;
+    // The rendezvous publishes its address a moment after the code shows (n0's
+    // DNS), and mDNS answers in its own time: keep trying until the window ends.
+    let deadline = tokio::time::Instant::now() + FIND_TIMEOUT;
+    let conn = loop {
+        let left = deadline.saturating_duration_since(tokio::time::Instant::now());
+        match tokio::time::timeout(left, transport::dial(state, addr.clone(), ALPN_PAIR)).await {
+            Ok(Ok(conn)) => break conn,
+            Ok(Err(_)) if tokio::time::Instant::now() + Duration::from_secs(1) < deadline => {
+                tokio::time::sleep(Duration::from_secs(1)).await;
+                if let Some(seen) = state.machines.nearby_addr(&rendezvous_id.to_string()) {
+                    addr = seen;
+                }
+            }
+            _ => return Err(not_found()),
+        }
+    };
     let (mut send, mut recv) = conn.open_bi().await.map_err(|_| not_found())?;
     let req = json!({ "key": my_key, "proof": find_proof(code, my_key) });
     send.write_all(&serde_json::to_vec(&req).unwrap_or_default())

@@ -95,9 +95,10 @@ impl Machine {
         v
     }
 
-    /// Polls the view until `pred` holds (30 s at most).
+    /// Polls the view until `pred` holds (45 s at most: a wrong code is
+    /// looked for during the whole 25 s window).
     async fn wait(&self, what: &str, pred: impl Fn(&Value) -> bool) -> Value {
-        let deadline = Instant::now() + Duration::from_secs(30);
+        let deadline = Instant::now() + Duration::from_secs(45);
         loop {
             let v = self.view().await;
             if pred(&v) {
