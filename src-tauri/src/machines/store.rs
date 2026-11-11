@@ -86,7 +86,228 @@ fn normalize_url(u: &str) -> String {
     u.trim().trim_end_matches('/').to_ascii_lowercase()
 }
 
-/// The settings of D10 that Phase 1 uses. Unknown fields survive a save.
+/// A field read on its own: a value this build cannot read is its default,
+/// so one bad field never loses the rest (`machines.json` comes from older
+/// and newer builds alike).
+fn lenient<'de, D, T>(d: D) -> Result<T, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: DeserializeOwned + Default,
+{
+    let v = Value::deserialize(d)?;
+    Ok(serde_json::from_value(v).unwrap_or_default())
+}
+
+/// How a session's code travels when it moves (D10, plan §5.10).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum CodeTransfer {
+    /// Machine to machine: a git bundle over the peer link (the default).
+    /// `direct` is the plan's first name for it (§6), read as this.
+    #[default]
+    #[serde(alias = "direct")]
+    Bundle,
+    /// Through the project's git remote: hidden refs pushed there.
+    Remote,
+}
+
+impl CodeTransfer {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            CodeTransfer::Bundle => "bundle",
+            CodeTransfer::Remote => "remote",
+        }
+    }
+}
+
+/// Where a moved session's code lands on the target (D10).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum CodeApply {
+    /// The project's checkout when it has no changes of its own (the
+    /// default).
+    #[default]
+    Checkout,
+    /// Always a separate worktree; the checkout is never touched.
+    Worktree,
+}
+
+impl CodeApply {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            CodeApply::Checkout => "checkout",
+            CodeApply::Worktree => "worktree",
+        }
+    }
+}
+
+/// The code options of D10, the same on every machine (offered to the
+/// others like the relay): how code travels, where it lands, and whether a
+/// move's hidden refs stay on the remote. Each field is read on its own.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CodeSettings {
+    #[serde(default, deserialize_with = "lenient")]
+    pub transfer: CodeTransfer,
+    #[serde(default, deserialize_with = "lenient")]
+    pub apply: CodeApply,
+    /// Keep a move's hidden refs on the remote after the target fetched
+    /// them (off: they are deleted there, kept locally for undo).
+    #[serde(default, deserialize_with = "lenient")]
+    pub keep_remote_refs: bool,
+    #[serde(flatten, default)]
+    pub extra: BTreeMap<String, Value>,
+}
+
+impl CodeSettings {
+    /// The same choices (fields a newer build added do not count).
+    pub fn same_as(&self, other: &CodeSettings) -> bool {
+        self.transfer == other.transfer
+            && self.apply == other.apply
+            && self.keep_remote_refs == other.keep_remote_refs
+    }
+}
+
+/// A project's own code options; a field left out follows the settings.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CodeOverride {
+    #[serde(
+        default,
+        deserialize_with = "lenient",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub transfer: Option<CodeTransfer>,
+    #[serde(
+        default,
+        deserialize_with = "lenient",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub apply: Option<CodeApply>,
+    #[serde(
+        default,
+        deserialize_with = "lenient",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub keep_remote_refs: Option<bool>,
+}
+
+impl CodeOverride {
+    pub fn is_empty(&self) -> bool {
+        self.transfer.is_none() && self.apply.is_none() && self.keep_remote_refs.is_none()
+    }
+
+    /// `base` with this project's choices over it.
+    pub fn over(&self, base: &CodeSettings) -> CodeSettings {
+        CodeSettings {
+            transfer: self.transfer.unwrap_or(base.transfer),
+            apply: self.apply.unwrap_or(base.apply),
+            keep_remote_refs: self.keep_remote_refs.unwrap_or(base.keep_remote_refs),
+            extra: base.extra.clone(),
+        }
+    }
+}
+
+/// What to run after a move, per system (plan §5.10, decision 8: it joins
+/// the move note as a request to Claude, never run by Mother Claude).
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AfterMove {
+    #[serde(
+        default,
+        deserialize_with = "lenient",
+        skip_serializing_if = "Vec::is_empty"
+    )]
+    pub macos: Vec<String>,
+    #[serde(
+        default,
+        deserialize_with = "lenient",
+        skip_serializing_if = "Vec::is_empty"
+    )]
+    pub windows: Vec<String>,
+    #[serde(
+        default,
+        deserialize_with = "lenient",
+        skip_serializing_if = "Vec::is_empty"
+    )]
+    pub linux: Vec<String>,
+    #[serde(flatten, default)]
+    pub extra: BTreeMap<String, Value>,
+}
+
+impl AfterMove {
+    pub fn is_empty(&self) -> bool {
+        self.macos.is_empty() && self.windows.is_empty() && self.linux.is_empty()
+    }
+
+    /// The commands for a system as machines name it (`macos`, `windows`,
+    /// `linux`).
+    pub fn for_os(&self, os: &str) -> &[String] {
+        match os {
+            "macos" => &self.macos,
+            "windows" => &self.windows,
+            "linux" => &self.linux,
+            _ => &[],
+        }
+    }
+}
+
+/// A project's recipe: what to run after a move, and the files git ignores
+/// that still travel with it (opt-in; setting them is a dangerous act).
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Recipe {
+    #[serde(default, deserialize_with = "lenient")]
+    pub after_move: AfterMove,
+    /// Paths relative to the project, `/`-separated, that a move carries
+    /// although git ignores them (`.env.local`).
+    #[serde(
+        default,
+        deserialize_with = "lenient",
+        skip_serializing_if = "Vec::is_empty"
+    )]
+    pub carry_ignored: Vec<String>,
+    #[serde(flatten, default)]
+    pub extra: BTreeMap<String, Value>,
+}
+
+impl Recipe {
+    pub fn is_empty(&self) -> bool {
+        self.after_move.is_empty() && self.carry_ignored.is_empty()
+    }
+}
+
+/// One project's Machines settings (*Project settings › Machines*), kept
+/// under a root-relative key (`rt_…/app`) when a root holds the project,
+/// else its absolute path here (`setup::options`).
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectSettings {
+    #[serde(
+        default,
+        deserialize_with = "lenient",
+        skip_serializing_if = "CodeOverride::is_empty"
+    )]
+    pub code: CodeOverride,
+    #[serde(
+        default,
+        deserialize_with = "lenient",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub recipe: Option<Recipe>,
+    #[serde(default, deserialize_with = "lenient")]
+    pub updated_at: i64,
+    #[serde(flatten, default)]
+    pub extra: BTreeMap<String, Value>,
+}
+
+impl ProjectSettings {
+    pub fn is_empty(&self) -> bool {
+        self.code.is_empty() && self.recipe.as_ref().is_none_or(Recipe::is_empty)
+    }
+}
+
+/// The settings of D10. Unknown fields survive a save.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Settings {
@@ -95,6 +316,9 @@ pub struct Settings {
     /// Hold a keep-awake assertion while another machine uses this one.
     #[serde(default = "yes")]
     pub keep_awake: bool,
+    /// How code travels and where it lands (the defaults of every move).
+    #[serde(default, deserialize_with = "lenient")]
+    pub code: CodeSettings,
     #[serde(flatten, default)]
     pub extra: BTreeMap<String, Value>,
 }
@@ -108,6 +332,7 @@ impl Default for Settings {
         Self {
             relay: RelaySetting::default(),
             keep_awake: true,
+            code: CodeSettings::default(),
             extra: BTreeMap::new(),
         }
     }
@@ -191,11 +416,16 @@ pub struct MachinesFile {
     /// imported twice.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub roots_imported: Vec<String>,
+    /// Each project's own Machines settings (code options, recipe), by
+    /// `rt_…/<path in the root>` or the project's absolute path here
+    /// (`setup::options`). This machine's own: not replicated.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub projects: BTreeMap<String, ProjectSettings>,
     #[serde(flatten, default)]
     pub extra: BTreeMap<String, Value>,
 }
 
-const KNOWN: [&str; 7] = [
+const KNOWN: [&str; 8] = [
     "name",
     "enabled",
     "peers",
@@ -203,7 +433,13 @@ const KNOWN: [&str; 7] = [
     "setupStep",
     "roots",
     "rootsImported",
+    "projects",
 ];
+
+/// A key `projects` may hold: 1 to 1100 characters, no control character.
+pub fn is_project_key(k: &str) -> bool {
+    !k.trim().is_empty() && k.chars().count() <= 1100 && !k.chars().any(char::is_control)
+}
 
 fn take<T: DeserializeOwned>(obj: &Map<String, Value>, key: &str, target: &mut T) {
     if let Some(v) = obj.get(key) {
@@ -272,6 +508,17 @@ impl MachinesFile {
         take(obj, "rootsImported", &mut out.roots_imported);
         out.roots_imported
             .retain(|id| crate::claude::backup::pairs::is_pair_id(id));
+        if let Some(projects) = obj.get("projects").and_then(Value::as_object) {
+            for (key, v) in projects {
+                match serde_json::from_value::<ProjectSettings>(v.clone()) {
+                    Ok(p) if is_project_key(key) => {
+                        out.projects.insert(key.clone(), p);
+                    }
+                    Ok(_) => tracing::warn!("machines.json: a project with a bad key was skipped"),
+                    Err(e) => tracing::warn!(error = %e, "machines.json: a project was skipped"),
+                }
+            }
+        }
         for (k, val) in obj {
             if !KNOWN.contains(&k.as_str()) {
                 out.extra.insert(k.clone(), val.clone());
@@ -368,6 +615,75 @@ mod tests {
         assert_eq!(MachinesFile::from_value(&saved), f);
         let empty = serde_json::to_value(MachinesFile::default()).unwrap();
         assert!(empty.get("roots").is_none() && empty.get("rootsImported").is_none());
+    }
+
+    #[test]
+    fn the_code_options_default_and_read_field_by_field() {
+        let f = MachinesFile::from_value(&json!({ "settings": {"relay": {"mode": "none"}} }));
+        assert_eq!(f.settings.code, CodeSettings::default());
+        assert_eq!(f.settings.code.transfer, CodeTransfer::Bundle);
+        assert_eq!(f.settings.code.apply, CodeApply::Checkout);
+        assert!(!f.settings.code.keep_remote_refs);
+
+        // `direct` (the plan's first name) is a bundle; a bad field is its
+        // default and never loses the relay or the other fields.
+        let f = MachinesFile::from_value(&json!({ "settings": {
+            "relay": {"mode": "none"},
+            "code": {"transfer": "direct", "apply": "teleport", "keepRemoteRefs": true, "later": 1}
+        }}));
+        assert_eq!(f.settings.relay.mode, RelayMode::None);
+        assert_eq!(f.settings.code.transfer, CodeTransfer::Bundle);
+        assert_eq!(f.settings.code.apply, CodeApply::Checkout, "unknown value");
+        assert!(f.settings.code.keep_remote_refs);
+        let saved = serde_json::to_value(&f).unwrap();
+        assert_eq!(saved["settings"]["code"]["transfer"], "bundle");
+        assert_eq!(
+            saved["settings"]["code"]["later"], 1,
+            "a newer field survives"
+        );
+
+        let f = MachinesFile::from_value(&json!({ "settings": {"code": "remote"} }));
+        assert_eq!(f.settings.code, CodeSettings::default(), "not an object");
+        let f = MachinesFile::from_value(
+            &json!({ "settings": {"code": {"transfer": "remote", "apply": "worktree"}} }),
+        );
+        assert_eq!(f.settings.code.transfer, CodeTransfer::Remote);
+        assert_eq!(f.settings.code.apply, CodeApply::Worktree);
+    }
+
+    #[test]
+    fn projects_are_read_one_by_one() {
+        let f = MachinesFile::from_value(&json!({ "projects": {
+            "rt_1111111111111111/app": {
+                "code": {"transfer": "remote", "apply": "nope"},
+                "recipe": {"afterMove": {"windows": ["npm ci"], "macos": "npm ci"}, "carryIgnored": [".env.local"]},
+                "updatedAt": 5
+            },
+            "/Users/m/dev/x": {"code": {"apply": "worktree"}},
+            "bad\u{0007}key": {"code": {"apply": "worktree"}},
+            "/Users/m/dev/y": "not an object"
+        }}));
+        assert_eq!(f.projects.len(), 2, "{:?}", f.projects.keys());
+        let app = &f.projects["rt_1111111111111111/app"];
+        assert_eq!(app.code.transfer, Some(CodeTransfer::Remote));
+        assert_eq!(app.code.apply, None, "an unknown value is left out");
+        let recipe = app.recipe.as_ref().unwrap();
+        assert_eq!(recipe.after_move.windows, ["npm ci"]);
+        assert!(recipe.after_move.macos.is_empty(), "not a list");
+        assert_eq!(recipe.carry_ignored, [".env.local"]);
+        assert_eq!(
+            f.projects["/Users/m/dev/x"]
+                .code
+                .over(&CodeSettings::default())
+                .apply,
+            CodeApply::Worktree
+        );
+        let saved = serde_json::to_value(&f).unwrap();
+        assert_eq!(MachinesFile::from_value(&saved), f);
+        assert!(serde_json::to_value(MachinesFile::default())
+            .unwrap()
+            .get("projects")
+            .is_none());
     }
 
     #[test]

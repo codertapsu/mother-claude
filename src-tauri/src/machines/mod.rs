@@ -728,7 +728,7 @@ fn peer_view(state: &AppState, p: &PeerRecord) -> Value {
 }
 
 pub fn settings_view(s: &Settings) -> Value {
-    json!({ "relay": s.relay, "keepAwake": s.keep_awake })
+    json!({ "relay": s.relay, "keepAwake": s.keep_awake, "code": s.code })
 }
 
 #[cfg(test)]
