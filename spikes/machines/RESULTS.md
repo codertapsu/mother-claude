@@ -251,9 +251,25 @@ scratch folder reads `loggedIn: false`.
   ceiling is far above a LAN's. n0's public relays gave ~1 MiB/s from here.
 - The spike builds natively on Windows (3 min, release) — the cross-check
   from the Mac was right.
-- **Between the machines: still to run** — it needs someone at the Mac (its
-  Local Network permission). The Windows side is ready: `serve --pair-code
-  auto --forward …`, reachable by id alone.
+- **Between the machines (Mac → Windows, the same Wi-Fi)** — the Mac side in
+  the probe app (`setup-walk/macos.sh run …`), the Windows side `serve
+  --pair-code auto --forward http://127.0.0.1:6725`, dialled by **id alone**:
+
+  | | |
+  |---|---|
+  | Pairing, then Windows' `/api/sessions` through the forward | 200, its 4 sessions (counted by status) |
+  | Connect | 7.4 ms, **direct from the first packet** (the Windows desktop's LAN address); the n0 relay kept as a standby path (76 ms) |
+  | Round trip | 6 ms idle, 16 ms under load |
+  | Request p50 (new stream) / WebSocket echo p50 / 32 concurrent | 5.4 ms / 4.8 ms / 9.9 ms |
+  | Raw up / down | **29.6 / 26.3 MiB/s** (248 / 221 Mbit/s), 256 MiB each |
+  | HTTP down / up | 25.4 / 28.4 MiB/s |
+
+  So the probe app's Local Network access works, and with it the fix
+  planned for Mother Claude (`NSLocalNetworkUsageDescription`). The plan's
+  ≥ 50 MB/s was **not** reached here — but HTTP equals raw, one PC alone
+  does ~260 MiB/s, and both machines are on Wi-Fi (every packet crosses the
+  air twice), so the link is the likely ceiling; a plain TCP transfer on the
+  same Wi-Fi decides it (below).
 
 ### S2 — code (Windows)
 
@@ -326,14 +342,12 @@ scratch config folder); long paths, Developer Mode and Git Bash read.
 
 ### Between the two machines
 
-1. **S1, the LAN figure.** On Windows: `mc-spike serve --pair-code auto
-   --forward http://127.0.0.1:6725` (it prints its id and a one-time code).
-   On the Mac, after its walk allowed Local Network for the probe app:
-   `bash spikes/machines/setup-walk/macos.sh run get <WINDOWS_ID>
-   /api/sessions --pair-code <CODE>`, then `… run bench <WINDOWS_ID> --mib
-   256` (target ≥ 50 MB/s; its path should say direct). Then the Mac on a
-   phone hotspot (across networks), and `--relay none` on both (LAN only).
-2. **S2, a real round trip**: `code/RESULTS-S2.md` § "Windows half", step 2
+1. **S1** — the LAN figure is in (§ "Windows half" › S1). Left: a plain TCP
+   transfer on the same Wi-Fi (is the link the ceiling?), the *No relay*
+   setting between the machines (`serve --relay none --lookup mdns` on
+   Windows, `macos.sh run bench <id> --relay none --lookup mdns
+   --pair-code <code>` on the Mac), and the Mac on a phone hotspot (across
+   networks: hole-punched or relayed).2. **S2, a real round trip**: `code/RESULTS-S2.md` § "Windows half", step 2
    (Mac `demo` and `dirty`, Windows `haves`, Mac `snapshot`, Windows `apply`
    and `verify`, then back).
 3. **S3**: a scratch session made on the Mac, backed up, pulled on Windows
