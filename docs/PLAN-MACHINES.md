@@ -421,7 +421,7 @@ every online peer to do the same.
 ### 5.7 The lease
 
 ```json
-{ "session": "0f1e…", "home": "mch_9a…", "epoch": 7, "since": 1794230000000 }
+{ "session": "0f1e…", "home": "9a3c…", "epoch": 7, "since": 1794230000000 }
 ```
 
 - Kept per session in `<app data>/machines/leases.json` (0600), replicated to
@@ -654,10 +654,13 @@ the source machine):
 
   ```json
   { "root": "projects",
-    "paths": { "mch_mac…": "/Users/marcus/development/projects",
-               "mch_win…": "D:\\development\\projects",
-               "mch_linux…": "/home/marcus/projects" } }
+    "paths": { "9a3c…": "/Users/marcus/development/projects",
+               "5e71…": "D:\\development\\projects",
+               "c08d…": "/home/marcus/projects" } }
   ```
+
+  (Keyed by machine id: the 32 hex characters backups already use,
+  `identity.rs`.)
 
   Replicated between peers (last writer wins per entry, removals stick — the
   pairs' existing rule) and still stored in the backup sets.
@@ -808,7 +811,7 @@ administrator prompt.
 **Move manifest**:
 
 ```json
-{ "id": "mv_…", "session": "0f1e…", "account": "Work", "from": "mch_mac…", "to": "mch_win…",
+{ "id": "mv_…", "session": "0f1e…", "account": "Work", "from": "9a3c…", "to": "5e71…",
   "epoch": 8, "sourceCwd": "/Users/marcus/dev/app", "targetCwd": "D:\\dev\\app",
   "archive": {"sha256": "…", "size": 18342211},
   "transcript": {"sha256": "…", "size": 17110034},
