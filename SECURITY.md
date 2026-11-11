@@ -442,10 +442,15 @@ sessions and move a session, with its code, from one to another
 ([MACHINES.md](docs/MACHINES.md); the design is
 [PLAN-MACHINES.md](docs/PLAN-MACHINES.md)). Another computer is a principal
 like a paired phone, identified by a key instead of a token. _Turn on
-Machines_ waits until the setup has no required check left, but that switch
-is not what guards this computer: from the moment two computers are paired
-(step 2 of the setup), each may use the grants the other gave it, and
-turning Machines off does not stop that — revoking does.
+Machines_ waits until the setup has no required check left, and the switch
+guards this computer: while Machines is off here, a paired computer reaches
+only what pairing and the setup need (the hello, pairing, the setup's
+checks, asks and readiness test, settings offers, roots, leases) — never
+this computer's session stream (`/ws`), its session routes or its moves
+(`403 machines_off`) — and this computer uses none of the others (its proxy
+and its moves answer `409 machines_off`; its links to their sessions stay
+closed). Turning Machines off closes the links both ways at once; it does
+not unpair — revoking does.
 
 ### Identity and the connection
 
@@ -500,9 +505,10 @@ turning Machines off does not stop that — revoking does.
 ### What a paired computer may do here
 
 - Its requests reach the peer router only: `/peer/*` (hello, setup, settings
-  offers, roots, moves, leases), the session stream `/ws` (this computer's
-  own sessions — never a third computer's — and none of the desktop-only
-  frames) and an allow-list of session routes under `/api/`:
+  offers, roots, moves, leases), and — while Machines is on here — the
+  session stream `/ws` (this computer's own sessions — never a third
+  computer's — and none of the desktop-only frames) and an allow-list of
+  session routes under `/api/`:
   - **view**: the sessions list, a session and its transcript, agents,
     changes, files, context, MCP servers, terminal view and task output; the
     inbox, projects, defaults and plan usage; moves;
@@ -529,10 +535,15 @@ turning Machines off does not stop that — revoking does.
   its `dangerous` grant for this computer on that path **and** the acting
   person's right here: a phone without the dangerous grant on the Mac cannot
   reach for it through the Mac. A missing, malformed or unknown value is
-  never dangerous, and the right does not carry across a second computer (a
-  move another computer started reaches its target without it). A phone
-  paired with one of your computers reaches the others this way, through
-  it.
+  never dangerous. A move another computer starts here reaches its target
+  from this computer, which then says `machine` with the right it judged
+  for that computer (its acting person's right ∧ this computer's
+  `dangerous` grant for it); the target intersects that with its own
+  `dangerous` grant for this computer, so each hop needs its grant. The
+  local-script token may read moves through the proxy but never start,
+  cancel, undo or retry one (as on its own computer), and a computer that
+  says `script` acts through it is refused those too. A phone paired with
+  one of your computers reaches the others this way, through it.
 - The computer acted on writes every state change another computer makes to
   its audit log (`machine.action`: the computer, who acted through it, the
   method, path and status) and shows a desktop notice for every dangerous
@@ -561,14 +572,28 @@ turning Machines off does not stop that — revoking does.
   `core.hooksPath` set to a fresh, private, empty folder per operation —
   checked empty before every call (Git LFS writes its hooks there) and
   deleted after — so no hook of the repository runs (plumbing alone would run
-  some). Pushes use `--no-verify`; fetches never follow submodules. Files git
-  ignores (`.env`, `node_modules`, build output) never travel.
+  some). Pushes use `--no-verify`; fetches never follow submodules. With
+  _Through your git remote_, the preflight checks first that the remote
+  answers without a prompt on both computers (`git ls-remote`, no askpass,
+  Git Credential Manager non-interactive).
+- Files git ignores (`.env`, `node_modules`, build output) never travel,
+  but for the ones a project lists to carry (setting the list needs the
+  dangerous right): plain files under the repository's top that git ignores
+  there, at most 1 MiB each and 50 in all, read and written never through a
+  symbolic link or junction, in their own hashed `ignored.tar.gz` whose
+  entries the target checks against the list. Carrying them needs the
+  dangerous right on both computers (the mover's here, the target's
+  `dangerous` grant for this one). The target writes them, atomically, only
+  after the code landed; a file they replace is kept in the move's folder,
+  and _Undo move_ puts it back and removes the ones it added, each only
+  while it is as the move wrote it.
 - A move writes a project — its working tree and `.git` — only through that
-  plumbing, keeping the previous `HEAD` and branch tip under
-  `refs/mother-claude/undo/…` (_Undo move_ is offered for seven days). It
-  never merges: a project folder with changes of its own, or a landing that
-  would overwrite a file git ignores there, stops before anything changes and
-  offers a separate worktree in Mother Claude's data folder instead.
+  plumbing (and the carried files git ignores, as above), keeping the
+  previous `HEAD` and branch tip under `refs/mother-claude/undo/…` (_Undo
+  move_ is offered for seven days). It never merges: a project folder with
+  changes of its own, or a landing that would overwrite a file git ignores
+  there, stops before anything changes and offers a separate worktree in
+  Mother Claude's data folder instead.
 - The conversation lands in the account's config directory as a **pull**
   does: one data job at a time, refused while the session runs there,
   staged and placed atomically, every file it replaces kept in its undo copy
@@ -576,10 +601,11 @@ turning Machines off does not stop that — revoking does.
   conflict copy beside it, never merged. Sign-ins (tokens, keys,
   `.credentials.json`) never travel: the session runs under the account of
   the same name there.
-- **Carrying a folder's trust** (its `.claude.json` entry) and moving a
-  session that runs in `bypassPermissions` are dangerous on both computers:
-  the person who starts the move needs the dangerous right where the session
-  lives, and the receiving computer must have given that one `dangerous`.
+- **Carrying a folder's trust** (its `.claude.json` entry), carrying files
+  git ignores and moving a session that runs in `bypassPermissions` are
+  dangerous on both computers: the person who starts the move needs the
+  dangerous right where the session lives, and the receiving computer must
+  have given that one `dangerous`.
   The trust entry is added only when there is none, and only while no live
   process uses that config directory.
 - **One writer per session.** A lease names the computer a session lives on,
@@ -618,8 +644,9 @@ turning Machines off does not stop that — revoking does.
   can claim to be its desktop, so the grants you gave it are the limit. With
   `control` it answers ordinary approvals (a command it approves runs here);
   with `dangerous` it can switch a session to `bypassPermissions`, approve
-  dangerous tool calls, send raw keys and carry a folder's trust here. Give
-  `dangerous` only to a computer you would let act as this one's desktop.
+  dangerous tool calls, send raw keys and carry a folder's trust and files
+  git ignores here. Give `dangerous` only to a computer you would let act as
+  this one's desktop.
 - Revoking is per computer: there is no _revoke everywhere_ yet. For a lost
   or stolen computer, revoke it on each of the others. Its key stays in its
   own secret store, and what moves left on it (a conversation up to its move,

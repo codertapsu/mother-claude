@@ -276,7 +276,9 @@ function untilText(ms: number): string {
                 <dd class="where">
                   <span class="mono break">{{ f }}</span>
                   @if (applyValue() === 'worktree' && p.code.repo && codeValue() !== 'none') {
-                    <span class="muted small">{{ '(a separate folder beside it)' | t }}</span>
+                    <span class="muted small">{{
+                      "(a worktree of it, in Mother Claude's data folder)" | t
+                    }}</span>
                   }
                   @if (!choosing()) {
                     <button

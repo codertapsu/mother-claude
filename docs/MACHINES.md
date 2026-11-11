@@ -19,6 +19,11 @@ checklist side by side. Machines turns on only when no *required* check is
 left; the checks keep running afterwards as **Machines health** (a red dot
 on the sidebar entry when something breaks again).
 
+While Machines is off on a computer, the others can pair with it and run
+the setup and its readiness test with it — nothing else: they don't see,
+drive or move its sessions ("Machines is off on DESKTOP-PC."), and it
+doesn't use theirs. *Turn Machines off* doesn't unpair; *Revoke* does.
+
 The seven steps:
 
 1. **This computer** — its checks (below), each with what fixes it.
@@ -99,14 +104,15 @@ a password.
 | Option | Choices |
 |---|---|
 | How code travels | **Machine to machine** (default): straight to the other computer, nothing pushed anywhere · **Through your git remote**: hidden refs on your remote, deleted after the move unless you keep them |
-| Where it lands | **In the project folder** when it has no changes of its own (default) · **Always a separate folder** (a worktree) |
+| Where it lands | **In the project folder** when it has no changes of its own (default) · **Always a separate folder** (a worktree, in Mother Claude's data folder on the computer it goes to) |
 
 They are the same on every computer: a change is offered to the others,
 each taking it when someone there accepts. Each project can change them
 (*Each project*), with its **recipe**: commands to ask Claude to run after a
 move, per system (they go through the session's own approvals), and the
-files git ignores that travel with it — those usually hold secrets, so
-adding one needs the dangerous right.
+files git ignores that travel with it (such as `.env.local`) — those
+usually hold secrets, so adding one needs the dangerous right, and so does
+each move that carries them (*Not in git*, below).
 
 ### The readiness test
 
@@ -120,12 +126,14 @@ the projects both computers have.
 ## Pairing
 
 On the first computer, **Machines › Pair a machine** shows an 8-character
-code (it works once, for five minutes). On the other, **Machines › Join**:
-pick it from *Nearby* (same network) or type the code — it works across the
-internet too. Both screens then show the **same six digits**: check they
-match, choose on each computer what the other may do on it, and confirm on
-both. When the other computer joined over the internet, the first one asks
-you to *type* the number the other shows, as phone pairing does.
+code (it works once, for five minutes). On the other, **Machines › Join**
+and type the code — it works across the internet too. On the same network
+the Join sheet lists the computers showing a code under *Nearby*, so you can
+check which one you join; you still type its code (joining is proven with
+it). Both screens then show the **same six digits**: check they match,
+choose on each computer what the other may do on it, and confirm on both.
+When the other computer joined over the internet, the first one asks you to
+*type* the number the other shows, as phone pairing does.
 
 What the code and the digits protect against: the code finds the other
 computer, and only someone holding it can start a pairing; the digits are
@@ -145,7 +153,7 @@ that computer again.
 | **Drive** | send messages, answer ordinary approvals, interrupt, stop, set model, effort and mode | on |
 | **Move** | move sessions here and away ([below](#moving-a-session-to-another-computer)) | on |
 | **Run** | run commands and tasks here (later) | off |
-| **Dangerous** | bypass permissions, approve dangerous tool calls, send raw keys | off |
+| **Dangerous** | bypass permissions, approve dangerous tool calls, send raw keys, carry a folder's trust and files git ignores with a move | off |
 
 Each is set separately for the **same network** (a direct path on your
 local network) and the **internet** (everything else). Change them on the
@@ -153,8 +161,9 @@ Machines page; *Revoke* forgets a computer and cuts its connections at once.
 
 ## Seeing and driving another computer
 
-Once paired, every computer's sessions appear in **Sessions** with a chip
-naming their computer (the *Machine* filter picks one computer); open one
+Once paired, with Machines on on both, every computer's sessions appear in
+**Sessions** with a chip naming their computer (the *Machine* filter picks
+one computer); open one
 and use it as if it ran here — the message box, approvals, stop, model,
 effort. Its page says *Runs on DESKTOP-PC*. A few things stay on the
 computer a session runs on, and its page says so: switching its account,
@@ -176,9 +185,12 @@ few seconds sees only that computer's own sessions for now.)
 
 A dangerous action on another computer needs both its **Dangerous**
 permission for this computer *and* your own right here: a phone without the
-dangerous permission on the Mac cannot reach for it through the Mac. Every
-action another computer takes is in the audit log of the computer it acted
-on, with who acted; a dangerous one also shows a notice there.
+dangerous permission on the Mac cannot reach for it through the Mac. A move
+you start from here for another computer's session comes back to this one
+from there, so carrying a folder's trust or files git ignores then needs
+each computer's **Dangerous** permission for the other. Every action another
+computer takes is in the audit log of the computer it acted on, with who
+acted; a dangerous one also shows a notice there.
 
 When a computer goes offline, its sessions stay listed, greyed, until it is
 back.
@@ -206,17 +218,27 @@ written anywhere until you press **Continue on DESKTOP-PC**:
   move sessions to them (an offline one says since when).
 - **What goes** — the conversation's size (with its subagents) and the
   code: its branch, how many files changed and how many are new.
+- **Not in git** — the files git ignores that the project lists to carry
+  (*Options › Each project*), such as `.env.local`: plain files inside the
+  project that git ignores there, up to 1 MB each and 50 in all, never
+  through a symbolic link. They usually hold secrets, so they go only with
+  the dangerous right here and the other computer's *Dangerous* permission
+  for this one; untick *Carry them* to leave them. A file of the same name
+  there is kept, and *Undo move* puts it back.
 - **Where it goes** — the project's folder there: found through your folders
   (the same project on each computer), a folder pair, or the same path.
   *Change…* picks another; when it found none, *Choose its folder on
   DESKTOP-PC* lists that computer's projects.
 - **Code travels** — *Machine to machine* (the default: straight between
   the two, nothing pushed anywhere), *Through your git remote* (hidden refs
-  on your remote, removed afterwards), or *Only the conversation*.
+  on your remote, removed afterwards: the remote must answer without a
+  password prompt on both computers, checked before anything moves), or
+  *Only the conversation*.
 - **Code lands** — *In the project folder* (the default, when it has no
-  changes of its own there) or *In a separate folder (worktree)*, beside it:
-  the project folder is then never touched, and nothing is ever merged into
-  it.
+  changes of its own there) or *In a separate folder (worktree)*: a worktree
+  of the project in Mother Claude's data folder there
+  (`machines/worktrees/<session>`); the project folder is then never
+  touched, and nothing is ever merged into it.
 - **After the move** — when the project has a recipe (a
   `.mother-claude/recipe.json` with commands per system under `afterMove`,
   such as `npm ci`), *ask Claude to run* them there. They are a request in
@@ -238,7 +260,7 @@ written anywhere until you press **Continue on DESKTOP-PC**:
 **Checks** lists what is fine, what blocks the move (with its fix: *Sign
 Work in on DESKTOP-PC*, *Update Mother Claude on DESKTOP-PC*…) and what only
 makes it worse (*Claude Code there is older*, line endings, Git LFS,
-submodules). A blocker keeps the button from starting — *Fix the checks
+submodules). Machines must be on on both computers. A blocker keeps the button from starting — *Fix the checks
 first* — and the sheet offers what it can instead: a project folder there
 with changes of its own, or a branch that went on there, offers *Use a
 separate folder (worktree)*. A session another app runs (VS Code, a
@@ -305,17 +327,20 @@ there.
 ### What never moves
 
 - **Files git ignores** — `.env` files, `node_modules`, build output: they
-  stay where they are. Set the project up there with a recipe.
+  stay where they are, but for the few the project lists to carry (*Not in
+  git*, above). Set the project up there with a recipe.
 - **Sign-ins**: tokens, keys and `.credentials.json` stay on each computer;
   the account there is the one of the same name, signed in there.
-- **The worktree** a move made on the other computer stays there when the
-  session leaves it (its work went with the session); remove it there.
+- **The worktree** a move made on the other computer (in Mother Claude's
+  data folder there) stays when the session leaves it (its work went with
+  the session); remove it there.
 
 ### From a phone
 
 A phone paired with any of your computers moves sessions the same way, one
-column. Carrying a folder's trust needs the phone's dangerous permission
-(set on the desktop); without it the option does not show.
+column. Carrying a folder's trust or files git ignores needs the phone's
+dangerous permission (set on the desktop); without it the trust option does
+not show, and those files stay where they are.
 
 ## How it connects
 
@@ -337,9 +362,12 @@ connection.
 
 ## Troubleshooting
 
-- **The other computer is not in *Nearby*.** Type the code instead (it works
-  across networks too). On a Mac, check Local Network access for Mother
-  Claude.
+- **The other computer is not in *Nearby*.** *Nearby* only shows which
+  computer shows a code: you always type the code, and it works across
+  networks too. On a Mac, check Local Network access for Mother Claude.
+- **"Machines is off on DESKTOP-PC."** Turn it on there (its Machines page;
+  or here, when it names this computer). While Machines is off on a
+  computer, the others can only pair and run the setup with it.
 - **"No computer showing this code was found."** Check the code, and that
   both computers have the internet or share a network; the code lasts five
   minutes.
@@ -354,3 +382,9 @@ connection.
   Code there, or carry the folder's trust from the desktop.
 - **"… has changes of its own."** Use a separate folder (worktree), or commit
   or stash the changes there first.
+- **"The remote origin doesn't answer … without a prompt."** Sign in to the
+  remote on that computer (Git Credential Manager, `gh auth login`), check
+  its address, or move the code machine to machine.
+- **"Carrying files git ignores needs …"** They need the dangerous right
+  where the session lives and the *Dangerous* permission of the computer
+  they go to — or untick *Carry them*, and they stay where they are.

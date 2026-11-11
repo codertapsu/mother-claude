@@ -57,7 +57,7 @@ const TOPICS: HelpTopicSource[] = [
           '**Kiểm tra, rồi bật**: nhấn **Chạy kiểm tra**, rồi **Bật tính năng Các máy**.',
         ],
         tips: [
-          '**Bật tính năng Các máy** bị làm mờ khi còn mục kiểm tra bắt buộc, và cho biết còn bao nhiêu mục.',
+          '**Bật tính năng Các máy** bị làm mờ khi còn mục kiểm tra bắt buộc, và cho biết còn bao nhiêu mục. Cho đến khi bật, các máy tính của bạn chỉ ghép nối, chạy thiết lập và bài kiểm tra với nhau: không máy nào xem, điều khiển hay chuyển phiên của một máy đang tắt tính năng Các máy.',
           'Sau đó các mục kiểm tra vẫn tiếp tục chạy dưới tên **Tình trạng Các máy**: một chấm đỏ trên **Các máy** ở thanh bên báo có gì đó lại hỏng.',
         ],
         links: [
@@ -151,7 +151,7 @@ const TOPICS: HelpTopicSource[] = [
           },
           {
             term: 'Nơi mã nguồn được đặt',
-            text: '**Trong thư mục dự án, khi nó không có thay đổi riêng (mặc định)**, hoặc **Luôn ở một thư mục riêng (worktree), không bao giờ ở thư mục dự án**.',
+            text: '**Trong thư mục dự án, khi nó không có thay đổi riêng (mặc định)**, hoặc **Luôn ở một thư mục riêng (worktree), không bao giờ ở thư mục dự án**: một worktree trong thư mục dữ liệu của Mother Claude trên máy nhận phiên.',
           },
           {
             term: 'Giữ máy thức',
@@ -160,8 +160,8 @@ const TOPICS: HelpTopicSource[] = [
         ],
         points: [
           'Hãy dùng cùng máy chủ chuyển tiếp trên mọi máy (hai máy dùng máy chủ chuyển tiếp khác nhau có thể không bao giờ gặp được nhau), và tốt nhất là cùng tùy chọn mã nguồn: thay đổi ở đây được đề xuất cho các máy kia, và mỗi máy nhận khi người ở máy đó nhấn **Dùng cả ở đây** (hoặc **Giữ cài đặt của máy này**). Một lần chuyển theo tùy chọn của máy bắt đầu chuyển.',
-          '**Từng dự án** có thể chuyển mã nguồn theo cách khác, và có một công thức: **Sau khi chuyển, nhờ Claude chạy**, mỗi dòng một lệnh, cho macOS, Windows và Linux. Các lệnh được gửi cho Claude, và Claude chạy chúng qua các bước phê duyệt của chính phiên đó.',
-          '**Kiểm tra remote** xem remote git của một dự án có phản hồi mà không yêu cầu mật khẩu trên từng máy không. Việc kiểm tra chỉ chạy khi bạn nhấn nút.',
+          '**Từng dự án** có thể chuyển mã nguồn theo cách khác, và có một công thức: **Sau khi chuyển, nhờ Claude chạy**, mỗi dòng một lệnh, cho macOS, Windows và Linux. Các lệnh được gửi cho Claude, và Claude chạy chúng qua các bước phê duyệt của chính phiên đó. **Các tệp git bỏ qua sẽ đi kèm**, chẳng hạn `.env.local`, đi cùng mỗi lần chuyển của dự án: chúng thường chứa bí mật, nên việc thêm tệp, và việc mang chúng theo, đều cần quyền thao tác nguy hiểm.',
+          '**Kiểm tra remote** xem remote git của một dự án có phản hồi mà không yêu cầu mật khẩu trên từng máy không. Việc kiểm tra chỉ chạy khi bạn nhấn nút, và chạy lại trước mỗi lần chuyển qua remote.',
         ],
       },
     ],
@@ -198,7 +198,7 @@ const TOPICS: HelpTopicSource[] = [
           'Trên mỗi máy, chọn những gì máy kia được làm trên máy này, rồi nhấn **Dãy số khớp — Ghép nối**.',
         ],
         tips: [
-          '**Ở gần** liệt kê các máy tính trong mạng của bạn đang hiện mã, để bạn thấy mình tham gia đúng máy. Không có máy nào ở gần? Mã dùng được cả qua Internet.',
+          '**Ở gần** liệt kê các máy tính trong mạng của bạn đang hiện mã, để bạn kiểm tra máy nào đang hiện mã: bạn vẫn phải nhập mã của máy đó, vì việc tham gia cần mã. Không có máy nào ở gần? Mã dùng được cả qua Internet.',
           'Phần thiết lập có cùng các nút này ở bước **Các máy của bạn**.',
         ],
         links: [{ label: 'Mở trang Các máy', path: '/machines' }],
@@ -226,7 +226,7 @@ const TOPICS: HelpTopicSource[] = [
           'Trên **Các máy**, thẻ của mỗi máy đã ghép nối có **Đổi tên** (tên của nó trên máy này) và **Thu hồi**.',
           '**Thu hồi**, rồi **Nhấn lần nữa để thu hồi**: máy này quên máy kia và cắt các kết nối của nó ngay lập tức.',
           'Việc thu hồi chỉ có tác dụng trên một máy: hãy thu hồi một máy bị mất hoặc bị đánh cắp trên từng máy còn lại của bạn.',
-          '**Tắt tính năng Các máy** không hủy ghép nối: máy đã ghép nối vẫn giữ những quyền nó có ở đây cho đến khi bạn thu hồi.',
+          '**Tắt tính năng Các máy** không hủy ghép nối, nhưng khi tính năng này tắt, máy đã ghép nối chỉ ghép nối và chạy thiết lập được với máy này: nó không xem, điều khiển hay chuyển được các phiên ở đây, và máy này cũng không dùng các máy kia. **Thu hồi** để quên một máy.',
         ],
       },
     ],
@@ -268,7 +268,7 @@ const TOPICS: HelpTopicSource[] = [
           { term: 'Chạy', text: 'Chạy lệnh và tác vụ ở đây. Chưa có: quyền này luôn tắt.' },
           {
             term: 'Nguy hiểm',
-            text: 'Bỏ qua quyền, cho phép các lệnh gọi công cụ bị đánh dấu nguy hiểm, gửi phím thô. Tắt theo mặc định.',
+            text: 'Bỏ qua quyền, cho phép các lệnh gọi công cụ bị đánh dấu nguy hiểm, gửi phím thô, và mang theo sự tin cậy của thư mục cùng các tệp git bỏ qua khi chuyển phiên. Tắt theo mặc định.',
           },
         ],
         points: [
@@ -299,7 +299,7 @@ const TOPICS: HelpTopicSource[] = [
       {
         heading: 'Thao tác nguy hiểm qua máy khác',
         points: [
-          'Một thao tác nguy hiểm trên máy khác cần cả hai: quyền **Nguy hiểm** mà máy đó cấp cho máy này, và quyền của chính bạn ở đây. Một điện thoại không có quyền thao tác nguy hiểm trên máy này không thể dùng máy này để làm việc đó.',
+          'Một thao tác nguy hiểm trên máy khác cần cả hai: quyền **Nguy hiểm** mà máy đó cấp cho máy này, và quyền của chính bạn ở đây. Một điện thoại không có quyền thao tác nguy hiểm trên máy này không thể dùng máy này để làm việc đó. Một lần chuyển bạn bắt đầu từ đây cho phiên của máy khác sẽ quay về máy này từ máy đó: khi đó việc mang theo sự tin cậy của thư mục hay các tệp git bỏ qua cần quyền **Nguy hiểm** mà mỗi máy cấp cho máy kia.',
           'Mọi thay đổi mà máy khác thực hiện ở đây đều được ghi vào nhật ký kiểm tra của máy này, kèm người đã thao tác qua máy đó; thao tác nguy hiểm còn hiện thông báo ở đây.',
           'Có quyền **Nguy hiểm**, máy kia có thể chạy bất cứ thứ gì ở đây: chỉ cấp cho máy tính bạn tin cậy như chính máy này.',
         ],
@@ -314,7 +314,7 @@ const TOPICS: HelpTopicSource[] = [
     summary:
       'Xem và điều khiển phiên của mọi máy từ bất kỳ máy nào, và bắt đầu phiên trên máy khác.',
     intro:
-      'Sau khi hai máy tính được ghép nối, mỗi máy liệt kê các phiên Claude Code của máy kia. Mở một phiên và dùng nó như thể nó chạy ở đây.',
+      'Sau khi hai máy tính được ghép nối và tính năng Các máy được bật trên cả hai, mỗi máy liệt kê các phiên Claude Code của máy kia. Mở một phiên và dùng nó như thể nó chạy ở đây.',
     keywords: [
       'máy khác',
       'bộ lọc máy',
@@ -422,16 +422,20 @@ const TOPICS: HelpTopicSource[] = [
             text: 'Dung lượng cuộc trò chuyện, kèm các tác tử con, và mã nguồn: nhánh, số tệp đã thay đổi và số tệp mới.',
           },
           {
+            term: 'Ngoài git',
+            text: 'Các tệp git bỏ qua mà dự án liệt kê (**Tùy chọn › Từng dự án**), chẳng hạn `.env.local`. Chúng thường chứa bí mật, nên chỉ được mang theo khi có quyền thao tác nguy hiểm ở đây và quyền **Nguy hiểm** của máy nhận; bỏ đánh dấu **Mang theo chúng** để để chúng lại. Tệp cùng tên ở máy đó được giữ lại cho **Hoàn tác việc chuyển**.',
+          },
+          {
             term: 'Nơi đến',
             text: 'Thư mục của dự án trên máy kia, tìm qua thư mục dùng chung, cặp thư mục hoặc cùng đường dẫn. **Đổi…** để chọn thư mục khác; khi không tìm thấy, **Chọn thư mục của nó trên …** liệt kê các dự án của máy đó.',
           },
           {
             term: 'Cách chuyển mã nguồn',
-            text: '**Trực tiếp giữa các máy** (mặc định: thẳng giữa hai máy, không đẩy lên đâu cả), **Qua remote git của bạn** (ref ẩn trên remote của bạn, bị xoá sau đó trừ khi được giữ lại) hoặc **Chỉ cuộc trò chuyện**.',
+            text: '**Trực tiếp giữa các máy** (mặc định: thẳng giữa hai máy, không đẩy lên đâu cả), **Qua remote git của bạn** (ref ẩn trên remote của bạn, bị xoá sau đó trừ khi được giữ lại) hoặc **Chỉ cuộc trò chuyện**. Qua remote, remote phải phản hồi trên cả hai máy mà không yêu cầu mật khẩu: việc này được kiểm tra trước khi chuyển.',
           },
           {
             term: 'Nơi đặt mã nguồn',
-            text: '**Trong thư mục dự án** (mặc định, khi ở đó nó không có thay đổi riêng) hoặc **Trong thư mục riêng (worktree)**: khi đó thư mục dự án không bao giờ bị đụng đến, và không có gì được gộp vào nó.',
+            text: '**Trong thư mục dự án** (mặc định, khi ở đó nó không có thay đổi riêng) hoặc **Trong thư mục riêng (worktree)**: một worktree của nó trong thư mục dữ liệu của Mother Claude ở máy đó; khi đó thư mục dự án không bao giờ bị đụng đến, và không có gì được gộp vào nó.',
           },
           {
             term: 'Sau khi chuyển',
@@ -454,7 +458,7 @@ const TOPICS: HelpTopicSource[] = [
       {
         heading: 'Các mục kiểm tra',
         points: [
-          '**Kiểm tra** liệt kê những gì ổn, những gì chặn việc chuyển kèm cách sửa, và những gì chỉ làm nó kém đi (Claude Code ở máy kia cũ hơn, kiểu xuống dòng, Git LFS, submodule).',
+          '**Kiểm tra** liệt kê những gì ổn, những gì chặn việc chuyển kèm cách sửa, và những gì chỉ làm nó kém đi (Claude Code ở máy kia cũ hơn, kiểu xuống dòng, Git LFS, submodule). Tính năng Các máy phải được bật trên cả hai máy.',
           'Khi còn mục chặn, nút ghi **Hãy khắc phục các mục kiểm tra trước**. Khi thư mục dự án ở máy kia có thay đổi riêng, hoặc nhánh của nó đã đi tiếp ở đó, Mother Claude đề xuất **Dùng thư mục riêng (worktree)**.',
           'Phiên do ứng dụng khác chạy (VS Code, terminal) không thể bị Mother Claude dừng: một bản sao tiếp tục ở máy kia dưới dạng phiên mới, trong khi phiên này vẫn tiếp tục ở đây. Nút ghi **Tiếp tục dưới dạng bản sao trên …**; hoặc hãy kết thúc nó trong ứng dụng đó trước.',
         ],
@@ -517,16 +521,16 @@ const TOPICS: HelpTopicSource[] = [
       {
         heading: 'Những gì không bao giờ được chuyển',
         points: [
-          'Các tệp git bỏ qua, như tệp `.env`, `node_modules` và kết quả build, vẫn ở nguyên chỗ. Hãy thiết lập dự án ở máy kia bằng công thức.',
+          'Các tệp git bỏ qua, như tệp `.env`, `node_modules` và kết quả build, vẫn ở nguyên chỗ, trừ vài tệp mà dự án liệt kê để mang theo (**Ngoài git**). Hãy thiết lập dự án ở máy kia bằng công thức.',
           'Thông tin đăng nhập: token, khóa và `.credentials.json` ở lại trên từng máy. Phiên chạy với tài khoản cùng tên ở máy kia, đã đăng nhập ở đó.',
-          'Worktree mà một lần chuyển tạo ra trên máy kia vẫn ở lại đó khi phiên rời đi; công việc của nó đã đi cùng phiên. Hãy xóa nó ở máy đó.',
+          'Worktree mà một lần chuyển tạo ra trên máy kia, trong thư mục dữ liệu của Mother Claude ở đó, vẫn ở lại khi phiên rời đi; công việc của nó đã đi cùng phiên. Hãy xóa nó ở máy đó.',
         ],
       },
       {
         heading: 'Từ điện thoại',
         points: [
           'Điện thoại đã ghép nối với bất kỳ máy tính nào của bạn cũng chuyển phiên theo cùng cách, trên một cột.',
-          'Việc mang theo sự tin cậy của thư mục cần quyền thao tác nguy hiểm của điện thoại, được đặt trong ứng dụng máy tính; không có quyền này thì tùy chọn không hiện.',
+          'Việc mang theo sự tin cậy của thư mục hay các tệp git bỏ qua cần quyền thao tác nguy hiểm của điện thoại, được đặt trong ứng dụng máy tính; không có quyền này thì tùy chọn sự tin cậy không hiện, và các tệp đó ở lại chỗ cũ.',
         ],
       },
     ],
@@ -576,7 +580,7 @@ const TOPICS: HelpTopicSource[] = [
         terms: [
           {
             term: 'Máy kia không có trong Ở gần',
-            text: 'Mã vẫn dùng được, kể cả khi khác mạng: hãy nhập mã. Trên máy Mac, hãy kiểm tra quyền truy cập Mạng cục bộ của Mother Claude.',
+            text: 'Ở gần chỉ cho biết máy nào đang hiện mã: bạn luôn phải nhập mã, và mã dùng được cả khi khác mạng. Trên máy Mac, hãy kiểm tra quyền truy cập Mạng cục bộ của Mother Claude.',
           },
           {
             term: 'Không tìm thấy máy tính nào đang hiện mã này.',
@@ -618,6 +622,10 @@ const TOPICS: HelpTopicSource[] = [
           {
             term: 'Cũ hơn bản trên máy tính này',
             text: 'Mother Claude trên máy đó cũ hơn: các phiên của nó vẫn hiện, nhưng không gì được chuyển đến hay đi khỏi máy đó cho đến khi bạn cập nhật.',
+          },
+          {
+            term: 'Tính năng Các máy đang tắt trên …',
+            text: 'Hãy bật nó trên trang **Các máy** của máy đó (hoặc của máy này, khi thông báo nói đến máy này). Khi tính năng này tắt, các máy kia chỉ ghép nối và chạy thiết lập được với máy đó.',
           },
         ],
       },
@@ -665,6 +673,14 @@ const TOPICS: HelpTopicSource[] = [
           {
             term: 'Nó chạy không hỏi quyền',
             text: 'Phiên ở chế độ bỏ qua quyền cần quyền thao tác nguy hiểm ở đây, và quyền **Nguy hiểm** mà máy kia cấp cho máy này.',
+          },
+          {
+            term: 'Remote … không phản hồi … mà không yêu cầu đăng nhập.',
+            text: 'Hãy đăng nhập remote trên máy đó (Git Credential Manager, hoặc `gh auth login`) rồi thử lại, hoặc chuyển mã nguồn trực tiếp giữa hai máy.',
+          },
+          {
+            term: 'Mang theo các tệp git bỏ qua cần …',
+            text: 'Cần quyền thao tác nguy hiểm ở nơi phiên đang ở và quyền **Nguy hiểm** của máy nhận. Hoặc bỏ đánh dấu **Mang theo chúng**: các tệp ở lại chỗ cũ.',
           },
           {
             term: 'Không chuyển được …',

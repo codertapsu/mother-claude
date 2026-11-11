@@ -371,7 +371,7 @@ the link's own speed, not a fixed figure): `spikes/machines/RESULTS.md`.
 | `control` | send messages, answer ordinary approvals, interrupt, stop, set model/effort/mode (not bypass) | on | on |
 | `move` | move sessions to and from this machine, keep copies here | on | on |
 | `run` (Phase 4) | run commands and tasks here | off | off |
-| `dangerous` | what a device's dangerous grant allows: bypass permissions, dangerous approvals, raw keys, deleting | off | off |
+| `dangerous` | bypass permissions, dangerous approvals, raw keys, carrying a folder's trust and ignored files in a move (no delete route is open to a peer) | off | off |
 
 Changing a grant, revoking, renaming: desktop only, audited. **Revoke**
 closes the connections at once and forgets the key; *Revoke everywhere* asks
@@ -844,7 +844,7 @@ Local (desktop, or a device where noted):
 | `POST /api/machines/pair` · `/join` · `/confirm` | DesktopOnly | pairing (§5.4) |
 | `PATCH /api/machines/:id` · `DELETE …` | DesktopOnly | rename, grants, revoke |
 | `ANY /api/machines/:id/proxy/<allowed path>` | Authed (+ the route's own guard, checked locally first) | forwards to the peer (§5.6) |
-| `POST /api/sessions/:id/move` | Authed; DangerousOk when it carries ignored files or trust | starts a move: `{to, code: "bundle"\|"remote"\|"none", apply: "checkout"\|"worktree", recipe, keepDriving, takeOver, from}` — `takeOver` when the session's machine is offline, `from` a copy's time |
+| `POST /api/sessions/:id/move` | Authed; DangerousOk when it carries ignored files or trust | starts a move: `{to, code: "bundle"\|"remote"\|"none", apply: "checkout"\|"worktree", recipe, trust, carryIgnored, keepDriving, takeOver, from}` — `takeOver` when the session's machine is offline, `from` a copy's time; `409 machines_off` while Machines is off here |
 | `POST /api/sessions/:id/move/preflight` | Authed | the move sheet's checks, the target's `/peer/moves/preflight` asked through the source; nothing written |
 | `GET /api/moves/:id` · `POST …/cancel` · `POST …/undo` | Authed | follow, cancel (before landed), undo |
 | `PUT /api/sessions/:id/copies` | Authed | which machines keep a copy |
@@ -1123,6 +1123,30 @@ choice open:
     `map_here`) tries the roots — the longest matching path — then the
     folder pairs; continuing a session from another machine
     (`owned::folder_here_from`) does too.
+13. **Machines off blocks use, not pairing or the setup** (built
+    2026-11-11): while `enabled` is false, a machine's peer router serves
+    only hello, pairing, the setup's routes (checks, asks, accounts,
+    origins, the code test, the remote check), settings offers, bulk,
+    roots and leases, and answers `403 machines_off` on `/ws`, the proxied
+    `/api/*` and `/peer/moves/*` (a move's `DELETE` drop excepted: it only
+    takes back what a stopped move left); its own proxy and moves answer
+    `409 machines_off`, and its federation dials no link.
+14. **The acting person across a second hop** (§5.5): a peer acting for
+    another machine — a move that machine started through the proxy —
+    sends `X-MC-Acting: machine; dangerous=…` with the right it judged
+    (that machine's person ∧ its own `dangerous` grant for it); the
+    receiver intersects it with its own grant again. The local-script
+    token never changes a move through the proxy.
+15. **Ignored files** (§3.6, `moves::ignored`): the plain files under the
+    repository's top that git ignores on the source and that the project's
+    `carryIgnored` lists (set in Mother Claude, with the dangerous right; a
+    committed `.mother-claude/recipe.json` gives commands only), ≤ 1 MiB
+    each, ≤ 50, never through a link, travel as `ignored.tar.gz`. Carrying
+    them needs the dangerous right on both machines (left unsaid, they
+    travel only for a caller holding it); the target writes them once the
+    code landed, keeping what they replace for *Undo move*. With code
+    through the remote, the preflight runs the setup's remote check on
+    both machines.
 
 - `machines/lease.rs`; enforcement in `claude/control.rs` (refuse a session leased elsewhere).
 - `machines/moves.rs`: preflight, freeze (reuse `claude/switch.rs`), package (reuse `archive_session`), send/receive (bulk streams), land (reuse the pull's placement through the roots, its conflict rule and undo), commit (lease), resume with the move note.

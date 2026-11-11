@@ -1157,7 +1157,7 @@ const TOPICS: HelpTopicSource[] = [
           '**Test, then turn on**: press **Run the test**, then **Turn on Machines**.',
         ],
         tips: [
-          '**Turn on Machines** stays greyed out while a required check is left, and says how many.',
+          '**Turn on Machines** stays greyed out while a required check is left, and says how many. Until it is on, your computers only pair and run the setup and its test with each other: none sees, drives or moves the sessions of a computer where Machines is off.',
           'The checks keep running afterwards as **Machines health**: a red dot on **Machines** in the sidebar says something broke again.',
         ],
         links: [
@@ -1251,7 +1251,7 @@ const TOPICS: HelpTopicSource[] = [
           },
           {
             term: 'Where the code lands',
-            text: '**In the project folder, when it has no changes of its own (default)**, or **Always in a separate folder (a worktree), never the project folder**.',
+            text: "**In the project folder, when it has no changes of its own (default)**, or **Always in a separate folder (a worktree), never the project folder**: a worktree in Mother Claude's data folder on the computer it goes to.",
           },
           {
             term: 'Keep awake',
@@ -1260,8 +1260,8 @@ const TOPICS: HelpTopicSource[] = [
         ],
         points: [
           'Use the same relay on every computer (two computers on different relays may never meet), and best the same code options: a change here is offered to the others, and each takes it when someone there presses **Use it here too** (or **Keep mine**). A move follows the options of the computer it starts from.',
-          "**Each project** can move its code another way, and has a recipe: **After a move, ask Claude to run**, one command a line, for macOS, Windows and Linux. They go to Claude, which runs them through the session's own approvals.",
-          "**Check the remote** checks whether a project's git remote answers without a password prompt on each computer. It runs only when you press it.",
+          "**Each project** can move its code another way, and has a recipe: **After a move, ask Claude to run**, one command a line, for macOS, Windows and Linux. They go to Claude, which runs them through the session's own approvals. **Files git ignores that travel with it**, such as `.env.local`, go with each of its moves: they usually hold secrets, so adding one, and carrying them, need the dangerous right.",
+          "**Check the remote** checks whether a project's git remote answers without a password prompt on each computer. It runs only when you press it, and again before each move through the remote.",
         ],
       },
     ],
@@ -1287,7 +1287,7 @@ const TOPICS: HelpTopicSource[] = [
           'On each computer, choose what the other may do on it, then press **The numbers match — Pair**.',
         ],
         tips: [
-          '**Nearby** lists the computers on your network that show a code, so you can see you join the right one. None nearby? The code works across the internet too.',
+          '**Nearby** lists the computers on your network that show a code, so you can check which one shows it: you still type its code, as joining needs it. None nearby? The code works across the internet too.',
           'The setup has the same buttons in its **Your machines** step.',
         ],
         links: [{ label: 'Open Machines', path: '/machines' }],
@@ -1315,7 +1315,7 @@ const TOPICS: HelpTopicSource[] = [
           "On **Machines**, each paired computer's card has **Rename** (its name on this computer) and **Revoke**.",
           '**Revoke**, then **Tap again to revoke**: this computer forgets the other and cuts its connections at once.',
           'Revoking works on one computer only: revoke a lost or stolen computer on each of your others.',
-          '**Turn Machines off** does not unpair: a paired computer keeps what it may do here until you revoke it.',
+          "**Turn Machines off** does not unpair, but while it is off a paired computer can only pair and run the setup with this one: it can't see, drive or move its sessions, and this one doesn't use the others'. **Revoke** forgets a computer.",
         ],
       },
     ],
@@ -1356,7 +1356,7 @@ const TOPICS: HelpTopicSource[] = [
           { term: 'Run', text: 'Run commands and tasks here. Not available yet: it stays off.' },
           {
             term: 'Dangerous',
-            text: 'Bypass permissions, approve tool calls flagged dangerous, send raw keys. Off by default.',
+            text: "Bypass permissions, approve tool calls flagged dangerous, send raw keys, and carry a folder's trust and the files git ignores with a move. Off by default.",
           },
         ],
         points: [
@@ -1387,7 +1387,7 @@ const TOPICS: HelpTopicSource[] = [
       {
         heading: 'Dangerous actions through another computer',
         points: [
-          "A dangerous action on another computer needs both: that computer's **Dangerous** permission for this one, and your own right here. A phone without the dangerous permission on this computer can't reach for it through this computer.",
+          "A dangerous action on another computer needs both: that computer's **Dangerous** permission for this one, and your own right here. A phone without the dangerous permission on this computer can't reach for it through this computer. A move you start from here for another computer's session comes back to this one from it: carrying a folder's trust or the files git ignores then needs each computer's **Dangerous** permission for the other.",
           "Every change another computer makes here is written to this computer's audit log, with who acted through it; a dangerous one also shows a notice here.",
           'With **Dangerous**, another computer can run anything here: give it only to a computer you trust as much as this one.',
         ],
@@ -1402,7 +1402,7 @@ const TOPICS: HelpTopicSource[] = [
     summary:
       "See and drive every computer's sessions from any of them, and start one on another computer.",
     intro:
-      "Once two computers are paired, each lists the other's Claude Code sessions. Open one and use it as if it ran here.",
+      "Once two computers are paired and Machines is on on both, each lists the other's Claude Code sessions. Open one and use it as if it ran here.",
     keywords: [
       'other computer',
       'machine filter',
@@ -1510,16 +1510,20 @@ const TOPICS: HelpTopicSource[] = [
             text: "The conversation's size, with its subagents, and the code: its branch, how many files changed and how many are new.",
           },
           {
+            term: 'Not in git',
+            text: 'The files git ignores that the project lists (**Options › Each project**), such as `.env.local`. They usually hold secrets, so they go only with the dangerous right here and the **Dangerous** permission of the computer they go to; untick **Carry them** to leave them. A file of the same name there is kept for **Undo move**.',
+          },
+          {
             term: 'Where it goes',
             text: "The project's folder there, found through your shared folders, a folder pair or the same path. **Change…** picks another; when none is found, **Choose its folder on …** lists that computer's projects.",
           },
           {
             term: 'Code travels',
-            text: '**Machine to machine** (the default: straight between the two, nothing pushed anywhere), **Through your git remote** (hidden refs on your remote, removed afterwards unless kept) or **Only the conversation**.',
+            text: '**Machine to machine** (the default: straight between the two, nothing pushed anywhere), **Through your git remote** (hidden refs on your remote, removed afterwards unless kept) or **Only the conversation**. Through the remote, it must answer on both computers without a password prompt: that is checked before the move.',
           },
           {
             term: 'Code lands',
-            text: '**In the project folder** (the default, when it has no changes of its own there) or **In a separate folder (worktree)**: the project folder is then never touched, and nothing is merged into it.',
+            text: "**In the project folder** (the default, when it has no changes of its own there) or **In a separate folder (worktree)**: a worktree of it in Mother Claude's data folder there; the project folder is then never touched, and nothing is merged into it.",
           },
           {
             term: 'After the move',
@@ -1542,7 +1546,7 @@ const TOPICS: HelpTopicSource[] = [
       {
         heading: 'Checks',
         points: [
-          '**Checks** lists what is fine, what blocks the move with its fix, and what only makes it worse (Claude Code older there, line endings, Git LFS, submodules).',
+          '**Checks** lists what is fine, what blocks the move with its fix, and what only makes it worse (Claude Code older there, line endings, Git LFS, submodules). Machines must be on on both computers.',
           'While something blocks it, the button reads **Fix the checks first**. When the project folder there has changes of its own, or its branch went on there, Mother Claude offers **Use a separate folder (worktree)**.',
           'A session another app runs (VS Code, a terminal) cannot be stopped by Mother Claude: a copy goes on there as a new session while this one goes on here. The button reads **Continue as a copy on …**; or end it in that app first.',
         ],
@@ -1605,16 +1609,16 @@ const TOPICS: HelpTopicSource[] = [
       {
         heading: 'What never moves',
         points: [
-          'Files git ignores, such as `.env` files, `node_modules` and build output, stay where they are. Set the project up there with a recipe.',
+          'Files git ignores, such as `.env` files, `node_modules` and build output, stay where they are, except the few the project lists to carry (**Not in git**). Set the project up there with a recipe.',
           'Sign-ins: tokens, keys and `.credentials.json` stay on each computer. The session runs under the account of the same name there, signed in there.',
-          'The worktree a move made on the other computer stays there when the session leaves it; its work went with the session. Remove it there.',
+          "The worktree a move made on the other computer, in Mother Claude's data folder there, stays when the session leaves it; its work went with the session. Remove it there.",
         ],
       },
       {
         heading: 'From a phone',
         points: [
           'A phone paired with any of your computers moves sessions the same way, in one column.',
-          "Carrying a folder's trust needs the phone's dangerous permission, set in the desktop app; without it the option does not show.",
+          "Carrying a folder's trust or the files git ignores needs the phone's dangerous permission, set in the desktop app; without it the trust option does not show, and those files stay where they are.",
         ],
       },
     ],
@@ -2810,7 +2814,7 @@ const TOPICS: HelpTopicSource[] = [
         terms: [
           {
             term: 'The other computer is not in Nearby',
-            text: 'The code works anyway, across networks too: type it. On a Mac, check Local Network access for Mother Claude.',
+            text: 'Nearby only shows which computer shows a code: you always type the code, and it works across networks too. On a Mac, check Local Network access for Mother Claude.',
           },
           {
             term: 'No computer showing this code was found.',
@@ -2852,6 +2856,10 @@ const TOPICS: HelpTopicSource[] = [
           {
             term: 'Older than this computer’s',
             text: "That computer's Mother Claude is older: its sessions show, but nothing moves to or from it until you update it.",
+          },
+          {
+            term: 'Machines is off on …',
+            text: "Turn it on on that computer's **Machines** page (or this one's, when it names this computer). While it is off, the others can only pair and run the setup with it.",
           },
         ],
       },
@@ -2899,6 +2907,14 @@ const TOPICS: HelpTopicSource[] = [
           {
             term: 'It runs without permission prompts',
             text: "A session in bypass-permissions mode needs the dangerous right here, and the other computer's **Dangerous** permission for this one.",
+          },
+          {
+            term: "The remote … doesn't answer … without a prompt.",
+            text: 'Sign in to the remote on that computer (Git Credential Manager, or `gh auth login`) and try again, or move the code machine to machine.',
+          },
+          {
+            term: 'Carrying files git ignores needs …',
+            text: 'They need the dangerous right where the session lives and the **Dangerous** permission of the computer they go to. Or untick **Carry them**: they stay where they are.',
           },
           {
             term: "Couldn't move …",

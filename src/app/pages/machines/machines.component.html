@@ -232,7 +232,7 @@
         </div>
       }
       <p class="muted small">{{ versionsLine(v.self) }}</p>
-      <p class="muted small mono">{{ 'Key {key}' | t: { key: v.self.key } }}</p>
+      <p class="muted small mono">{{ 'Machine key {key}' | t: { key: v.self.key } }}</p>
     </section>
 
     <!-- ─────────────── Paired computers ─────────────── -->
@@ -353,7 +353,7 @@
         </div>
 
         <div class="row foot">
-          <span class="muted small mono">{{ 'Key {key}' | t: { key: p.key } }}</span>
+          <span class="muted small mono">{{ 'Machine key {key}' | t: { key: p.key } }}</span>
           <span class="muted small"
             >· {{ 'paired {time}' | t: { time: (p.pairedAt | relTime) } }}</span
           >

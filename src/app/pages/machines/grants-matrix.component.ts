@@ -68,7 +68,7 @@ import { grantRow } from './machines-text';
             <tr class="explain">
               <td colspan="3" class="small muted">
                 {{
-                  'Lets {name} bypass permissions, approve dangerous tool calls and delete conversations on this {computer}.'
+                  "Lets {name} bypass permissions, approve dangerous tool calls, send raw terminal keys, and carry a folder's trust and files git ignores with a move, on this {computer}."
                     | t: { name: name(), computer: computer() }
                 }}
               </td>

@@ -49,7 +49,7 @@ import { PairConfirmComponent } from './pair-confirm.component';
             @case ('waiting') {
               <p>
                 {{
-                  'On the other computer, open Mother Claude › Machines › Join, and type this code — or pick “{name}” among the computers nearby.'
+                  'On the other computer, open Mother Claude › Machines › Join and type this code. On the same network it lists “{name}” among the computers nearby, so you can check which computer shows the code.'
                     | t: { name: selfName() }
                 }}
               </p>

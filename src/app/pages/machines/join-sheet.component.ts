@@ -28,8 +28,10 @@ const NEARBY_MS = 3000;
 /**
  * *Join another machine*, on the computer that types the code
  * (spikes/machines/UX.md §2.2): the computers nearby showing a code, the
- * code, this computer's name; then the confirmation (§2.3). The code works
- * across the internet too, so the list is only a reassurance.
+ * code, this computer's name; then the confirmation (§2.3). Joining always
+ * takes the code (the proof that finds the other computer is built from
+ * it, `machines/pairing.rs`), and it works across the internet too: the
+ * list only shows which computer shows one, and says so.
  */
 @Component({
   selector: 'mc-join-machine-sheet',
@@ -60,6 +62,12 @@ const NEARBY_MS = 3000;
                     </li>
                   }
                 </ul>
+                <p class="muted small hint">
+                  {{
+                    'They are listed so you can check which computer shows a code: type its code below.'
+                      | t
+                  }}
+                </p>
               }
             </section>
             <label class="field">
@@ -174,6 +182,9 @@ const NEARBY_MS = 3000;
         align-items: baseline;
         gap: 0.5rem;
         padding: 0.3rem 0;
+      }
+      .nearby .hint {
+        margin: 0.2rem 0 0;
       }
       .code-input {
         letter-spacing: 0.1em;

@@ -383,19 +383,22 @@ bridge's Messages API client (an API key).
   user action: `claude plugin install/uninstall` from the desktop, a standing
   grant the user chose, a transcript purge through the SDK. Tests and scripts
   must never run the plugin installer against the real config. Our own code
-  writes into a config directory in exactly five explicit user actions
-  (docs/ACCOUNTS.md D4): creating a new directory account's empty directory
-  (mode 0700, `DesktopOnly`), **move/copy** of sessions or projects between
-  directory accounts and **copying customizations** (`CLAUDE.md`, settings,
-  skills, agents, commands, output styles, keybindings, the user-scope MCP
-  servers, prompt history; `claude/transfer.rs`, `claude/transfer/custom.rs`),
-  **restore** from a backup, **pull** from a backup set
+  writes into a config directory in exactly six explicit user actions
+  (docs/ACCOUNTS.md D4, docs/PLAN-MACHINES.md §5.8): creating a new
+  directory account's empty directory (mode 0700, `DesktopOnly`),
+  **move/copy** of sessions or projects between directory accounts and
+  **copying customizations** (`CLAUDE.md`, settings, skills, agents,
+  commands, output styles, keybindings, the user-scope MCP servers, prompt
+  history; `claude/transfer.rs`, `claude/transfer/custom.rs`), **restore**
+  from a backup, **pull** from a backup set
   (`claude/backup.rs`; with a folder pair, into the project folder it maps
   a session to, moving one an earlier pull placed under the other machine's
   path — kept for undo; a force pull or restore replaces the copy here,
-  also kept for undo) and **deleting** conversations and projects
-  (`claude/transfer/delete.rs`, docs/ACCOUNTS.md §14.3). The last four are the
-  desktop's or a paired device's (`ManageData`, docs/ACCOUNTS.md §13.9):
+  also kept for undo), **deleting** conversations and projects
+  (`claude/transfer/delete.rs`, docs/ACCOUNTS.md §14.3) and **landing a
+  session moved from another computer** (below). Move/copy, restore, pull
+  and deleting are the desktop's or a paired device's (`ManageData`,
+  docs/ACCOUNTS.md §13.9):
   carrying a folder's trust and copying the settings or MCP servers need the
   dangerous right, deleting always does (a dry run too), and the desktop is
   told what a device did. *Continue on* (a copy) and switching a session's
@@ -517,12 +520,23 @@ Phase 1 is pairing and setup. Invariants:
   transport (`machines::transport`: iroh QUIC between machine keys). It puts
   the QUIC-authenticated key on each request (`context::PeerCaller`); the
   context middleware makes a *paired* key the principal and never reads a
-  token on that ingress. Peers reach `machines::routes::peer_app` (`/peer/*`)
-  only — never `/api`, `/hooks`, `/mcp` or `/ws` — and each peer route checks
-  the peer's grant for the request's path (`lan`: a direct path to a private
-  or loopback address; otherwise its internet column). Unknown keys are
-  refused when the connection is accepted, except the one key pairing with
-  this machine right now (`/peer/pair/*` only).
+  token on that ingress. Peers reach `machines::routes::peer_app` only —
+  `/peer/*`, the session stream `/ws` and the allow-listed `/api` session
+  routes (`routes::peer_route_grant`), never another `/api` route, `/hooks`,
+  `/mcp` or `/ws/browser` — and each peer route checks the peer's grant for
+  the request's path (`lan`: a direct path to a private or loopback address;
+  otherwise its internet column). Unknown keys are refused when the
+  connection is accepted, except the one key pairing with this machine
+  right now (`/peer/pair/*` only).
+- **Who acts** (`machines::acting`, `X-MC-Acting`): a proxied request says
+  who acts on the sending machine and whether they hold the dangerous right
+  there; the receiver's `Principal::Peer { dangerous }` is that right ∧ its
+  own `dangerous` grant for the sender. A peer acting for another machine
+  (the second hop of a move that machine started through the proxy) sends
+  `machine` with the right it judged, and the receiver intersects it with
+  its own grant again: each hop needs its grant. The local-script token
+  never starts, cancels, undoes or retries a move, here or through the
+  proxy.
 - **The machine key** is `SecretName::MachineKey` in the secret store
   (Keychain, Credential Manager, a 0600 file elsewhere), never in a file of
   ours, a log, a frame or a backup; its public half is the endpoint id peers
@@ -553,7 +567,13 @@ Phase 1 is pairing and setup. Invariants:
   the local network. The Local Network check runs inside the app's process,
   which macOS holds responsible.
 - Machines is *on* (`enabled`) only once the setup has no blocker left; it
-  is off by default.
+  is off by default. **Off blocks use, not pairing or the setup**: the peer
+  router then serves only hello, pairing, the setup's routes, settings,
+  bulk, roots and leases (`/ws`, `/api/*` and `/peer/moves/*` answer `403
+  machines_off`, `machines::serving`; a move's `DELETE` drop stays open),
+  this machine's proxy and moves answer `409 machines_off`
+  (`machines::using`), and the federation dials no link
+  (`machines::set_enabled` starts the links, or closes them both ways).
 - **Roots** (`machines::roots`, `roots` in `machines.json`): a named folder
   with one path per machine id, replicated to the paired machines (per root
   the last writer wins; a removal is a tombstone that sticks). A peer
@@ -571,10 +591,13 @@ Phase 1 is pairing and setup. Invariants:
   docs/PLAN-MACHINES.md Phase 3a) freezes the session as an account switch
   does, carries its files and code (`machines::code`: git runs with argv
   only and a private empty hooks folder per operation, and every id, ref
-  and path in the record the other machine sent is checked before use),
-  lands them as a pull does and resumes there; the first message after it
-  carries the move note (`write_user`). A foreign live session moves only
-  as a copy. Tests record the target's resume, never start `claude`.
+  and path in the record the other machine sent is checked before use) and
+  the files git ignores that the project lists (`moves::ignored`: plain
+  files only, never through a link, the dangerous right on both machines,
+  what they replace kept for undo), lands them as a pull does and resumes
+  there; the first message after it carries the move note (`write_user`).
+  A foreign live session moves only as a copy. Tests record the target's
+  resume, never start `claude`.
 
 ## Build / lint / test commands
 

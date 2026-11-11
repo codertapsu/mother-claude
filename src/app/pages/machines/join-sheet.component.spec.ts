@@ -74,6 +74,10 @@ describe('JoinSheetComponent', () => {
     const nearby = el.querySelector('.nearby li');
     expect(text(nearby?.querySelector('strong'))).toBe('DESKTOP-PC');
     expect(text(nearby?.querySelector('.muted'))).toBe('Windows · showing a code');
+    // Listed to check which one shows a code: joining takes its code.
+    expect(text(el.querySelector('.nearby .hint'))).toBe(
+      'They are listed so you can check which computer shows a code: type its code below.',
+    );
     const name = el.querySelector<HTMLInputElement>('input[name="name"]')!;
     expect(name.value).toBe('MacBook');
     const join = button(el, 'Join')!;
