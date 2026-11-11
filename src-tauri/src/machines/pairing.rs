@@ -316,7 +316,9 @@ impl Session {
                 "os": o.info.os,
                 "path": o.path,
             })),
-            "digits": self.digits,
+            // A host that must type the digits never shows them: the person
+            // at it reads them off the other computer's screen.
+            "digits": (!(self.role == Role::Host && self.must_type)).then_some(self.digits.as_ref()).flatten(),
             "mustType": self.must_type,
             "confirmed": self.confirmed,
             "otherConfirmed": self.other_confirmed,
@@ -1362,6 +1364,21 @@ mod tests {
         assert_eq!(d, digits("K7QM4R2X", &a, &b, &na, &nb));
         assert_ne!(d, digits("K7QM4R2X", &a, &b, &na, &[3u8; 32]));
         assert_ne!(d, digits("K7QM4R2X", &b, &a, &na, &nb));
+    }
+
+    #[test]
+    fn a_host_that_must_type_never_shows_the_digits() {
+        let mut s = Session::new(Role::Host, "K7QM4R2X".into(), 1);
+        s.digits = Some("123456".into());
+        s.phase = Phase::Confirm;
+        assert_eq!(s.view()["digits"], "123456");
+        s.must_type = true;
+        assert!(s.view()["digits"].is_null());
+        assert_eq!(s.view()["mustType"], true);
+        let mut j = Session::new(Role::Joiner, "K7QM4R2X".into(), 2);
+        j.digits = Some("123456".into());
+        j.must_type = true;
+        assert_eq!(j.view()["digits"], "123456", "the joiner shows them");
     }
 
     #[test]
