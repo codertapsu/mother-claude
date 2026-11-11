@@ -804,6 +804,48 @@ one place the architecture allows it (a desktop-only OS concern); the
 elevated firewall and registry fixes run only after the OS's own
 administrator prompt.
 
+### 5.15 Code sync (before v0.11.0)
+
+Decided on 2026-11-12: a project's code is kept the same on two computers,
+both ways, **off by default** and turned on per project. Built on §5.10's
+snapshot, transfer and landing; nothing new runs git differently.
+
+- **What travels** (git-aware): the branch's commits and the staged,
+  unstaged and untracked changes — what a move carries. Files git ignores
+  stay put, except the ones the project lists to carry (`carryIgnored`, the
+  dangerous right, as moves do).
+- **Turning it on** for a project, from the desktop, pairs this folder with
+  the folder a root (§5.12) maps it to there. It is on only once **both**
+  computers turned it on: the first asks, the other's desktop confirms (the
+  asked-actions rule). Both folders must be git repositories of the same
+  project (the same `origin`, or a common commit), and each computer must
+  have given the other its `move` grant (sync writes into its checkout).
+  Machines off, the other computer offline or no grant: sync waits, says
+  why, and never queues writes for later.
+- **When**: a file watcher on the project notices a change; a few quiet
+  seconds later (debounced; `.git/` changes count — a commit, a branch
+  switch) the computer that changed syncs. A check every minute is the
+  safety net. *Sync now* runs it at once.
+- **One step**: both computers keep the **last synced state** (HEAD, branch,
+  staged tree, working tree). The changed side asks the other for its state:
+  unchanged → it sends a snapshot (a bundle without what the other has,
+  chained on the last one) and the other lands it in its checkout, which
+  counts as parked for this sync (F7), so it is clean by definition; both
+  record the new state. The other side's checkout changing in between makes
+  the landing stop (it is no longer parked) — that is a conflict, never an
+  overwrite.
+- **Both changed** (a conflict): sync **pauses** for that project, on both
+  computers, and the dashboard shows both sides: *Keep the Mac's* / *Keep
+  DESKTOP-PC's*. Nothing is merged on its own. The losing side's changes
+  are first kept as commits under `refs/mother-claude/sync/<id>/kept-<time>`
+  (nothing lost), its checkout is put back to the last synced state, and
+  the winner's lands as an ordinary step. Identical changes on both sides
+  are no conflict.
+- **Never alongside a move** of a session working in that project: sync
+  pauses while it runs.
+- Every step is audited on both computers (no file contents); a step that
+  fails leaves both checkouts as they were (the landing's own undo).
+
 ---
 
 ## 6. Data
