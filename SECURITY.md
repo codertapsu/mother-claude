@@ -33,6 +33,11 @@ the audit log is the peer's, or behind a loopback tunnel the last
 `X-Forwarded-For` value, else `Forwarded: for=`, else `CF-Connecting-IP` (see
 [HTTP hardening](#http-hardening)).
 
+Your other computers come through a door of their own, the Machines
+transport: a request there is never local, no token is read on it, and its
+principal is the paired key the connection authenticated (see
+[Machines](#machines-your-other-computers)).
+
 ## Credentials
 
 | credential                                                              | holder                                            | accepted                            | principal                                                                                                                                                |
@@ -42,6 +47,7 @@ the audit log is the peer's, or behind a loopback tunnel the last
 | device token `mcd_…`                                                    | paired phones and browsers                        | any ingress                         | Device                                                                                                                                                   |
 | hook token `mch_…`                                                      | the foreign-control plugin                        | only local, only `/hooks/*`         | Hook                                                                                                                                                     |
 | sidecar token `mcs_…`                                                   | the Path A sidecar (per run)                      | only local, only its callback route | Sidecar                                                                                                                                                  |
+| machine key — Ed25519, kept in the OS secret store                      | your other computers, once paired                 | only on the Machines transport      | Peer: the peer routes, with the grants this computer gave it ([Machines](#machines-your-other-computers))                                                |
 
 Tokens travel as `Authorization: Bearer`. `?token=` is accepted only from a
 local request (local scripts, SSE), so no token ever rides in a URL through a
@@ -133,7 +139,10 @@ shows no trust dialog. Dangerous actions are allowed for:
   grant for tunnels, proxies, Tailscale addresses and any other path;
 - on the bridge port, a request that is _local_ (curl, Postman, a localhost
   page), with no token or with the local-script token — never a page on another
-  website.
+  website;
+- another of your computers you gave **Dangerous** (for the network it uses
+  now), and then only for a person who holds the dangerous right on that
+  computer ([Machines](#machines-your-other-computers)).
 
 `MOTHER_CLAUDE_ALLOW_REMOTE_DANGEROUS=1` extends this to every device on the LAN
 (never through a tunnel). Every dangerous action by a device raises a desktop
@@ -281,7 +290,9 @@ Tokens appear in logs only as short fingerprints; request spans record the path,
 never the query string or headers. `audit.jsonl` (0600, rotated at 2 MB, in the
 app data dir — never under `~/.claude`) records every state change made by a
 device or local script, every pairing event and every device change, with the
-device, ingress and client address.
+device, ingress and client address — and every state change another of your
+computers makes, with who acted through it (`machine.action`), its pairings,
+grants, revocations, asks, moves and take-overs.
 
 ## Foreign-session control (the hooks plugin)
 
@@ -382,11 +393,13 @@ device, ingress and client address.
   anyone who may start one.
 - Our code writes into a Claude config directory in five explicit user
   actions only — a new account's empty directory (desktop only), move/copy,
-  restore, pull, deleting conversations — each refusing while a live process
-  uses a shared file it would write, keeping an undo for seven days, writing
-  atomically and leaving an audit line, whoever asked. A folder's trust (`hasTrustDialogAccepted`,
-  its allowed tools and MCP choices) is never copied or restored without the
-  explicit opt-in, which is a dangerous action.
+  restore, pull, deleting conversations — and, with Machines, when a session
+  moved here from another computer lands (as a pull does) — each refusing
+  while a live process uses a shared file it would write, keeping an undo for
+  seven days, writing atomically and leaving an audit line, whoever asked. A
+  folder's trust (`hasTrustDialogAccepted`, its allowed tools and MCP
+  choices) is never copied or restored without the explicit opt-in, which is
+  a dangerous action.
 - Backups are encrypted (age, X25519 per set, the set's key under the
   passphrase with scrypt); the only plaintext in a set is `set.json` (account
   name, the set's public key, machine ids, names and times), and it is display
@@ -421,6 +434,206 @@ device, ingress and client address.
   refuses while one is not there. A conversation moved into a set is removed
   from the account only after the set's copy was checked against it byte for
   byte.
+
+## Machines (your other computers)
+
+Pairing your computers lets each one list and drive the others' Claude Code
+sessions and move a session, with its code, from one to another
+([MACHINES.md](docs/MACHINES.md); the design is
+[PLAN-MACHINES.md](docs/PLAN-MACHINES.md)). Another computer is a principal
+like a paired phone, identified by a key instead of a token. _Turn on
+Machines_ waits until the setup has no required check left, but that switch
+is not what guards this computer: from the moment two computers are paired
+(step 2 of the setup), each may use the grants the other gave it, and
+turning Machines off does not stop that — revoking does.
+
+### Identity and the connection
+
+- Each install makes a **machine key** (Ed25519) on first use and keeps it in
+  the secret store (`machine-key`: the login Keychain, Windows Credential
+  Manager, a `0600` file elsewhere), never in a file of ours, a log, a frame
+  or a backup. Its public half is the computer's address on the transport.
+  `machines.json` (0600) holds each paired computer's id, name, public key,
+  grants and last addresses, and the shared settings: nothing secret.
+  Reinstalling makes a new key, which the others refuse until you pair again.
+- Computers talk over QUIC between their keys (iroh): the TLS 1.3 handshake
+  authenticates both ends by their keys, so a paired computer _is_ its
+  pinned key. Directly on the same network, hole-punched across networks,
+  otherwise through a relay that forwards ciphertext only. The relay setting,
+  meant to be the same on every computer: **public** (n0's relays, the
+  default; a computer's key is found through n0's DNS), **your own**
+  `iroh-relay` (an `https://` address; a peer is then dialled as its key plus
+  that relay, and no n0 service is asked anything) or **none** (the same
+  network only).
+- The transport runs only once Machines is in use: a pairing, a paired
+  computer, the setup's checks and test. A computer where nobody opens the
+  setup or pairs makes no new connection.
+- A connection from a key that is not paired is closed as it is accepted,
+  except the one key pairing with this computer right now, which reaches
+  `/peer/pair/*` only. Revoking a computer closes its connections at once,
+  and every request checks the grants as they are then.
+
+### Pairing two computers
+
+- **Pair a machine** (desktop only) shows an 8-character code (Crockford
+  base32, 40 bits) that works once, for five minutes. The code derives a
+  short-lived rendezvous key, so the other computer finds this one from the
+  code alone (mDNS on the local network — the _Nearby_ list — or n0's DNS
+  with the public relays). The rendezvous answers only a caller that proves
+  it holds the code (an HMAC over the caller's own key), and only with this
+  computer's real key and address. A code proven by two different computers
+  is spoiled for both.
+- The joiner then connects to the host's machine key and pairs over that
+  authenticated connection: an HMAC of the code over both keys, and a
+  commitment to its nonce before it sees the host's. Both screens show six
+  digits computed from the code, both keys and both nonces, so a computer in
+  the middle — even one that saw the code — cannot make the two screens
+  agree.
+- When the joiner did not come over a direct path on the local network, the
+  host never shows the digits: you type the ones the joiner shows. One wrong
+  number ends the pairing.
+- Each side chooses what the other may do on it, and nothing is stored until
+  both confirmed, within ten minutes. Pairing, joining, confirming, cancelling
+  and _Nearby_ are desktop-only; every pairing, grant change and revocation
+  is audited.
+
+### What a paired computer may do here
+
+- Its requests reach the peer router only: `/peer/*` (hello, setup, settings
+  offers, roots, moves, leases), the session stream `/ws` (this computer's
+  own sessions — never a third computer's — and none of the desktop-only
+  frames) and an allow-list of session routes under `/api/`:
+  - **view**: the sessions list, a session and its transcript, agents,
+    changes, files, context, MCP servers, terminal view and task output; the
+    inbox, projects, defaults and plan usage; moves;
+  - **control**: messages and uploads, interrupt, stop, respawn, model,
+    effort, mode, thinking, ultracode, rename, answering approvals,
+    continuing, keys, the message queue, and a new session (only in a folder
+    Claude Code already trusts there, `untrusted_cwd`);
+  - **move**: starting a move of a session that lives here, and cancelling,
+    undoing or retrying one.
+
+  Everything else answers `404`: the admin routes, accounts, backups,
+  devices, deleting, Machines' own settings, `/hooks/*`, `/mcp`,
+  `/ws/browser`, `/v1`.
+- **Grants**, set per computer for the **same network** (a direct path to a
+  private or loopback address, as the transport sees it for each request)
+  and for the **internet** (relayed or public) apart: `view`, `control` and
+  `move` (on for a new pairing), `run` (a later phase, off) and `dangerous`
+  (off). Driving needs seeing; moving, running and dangerous need driving.
+  Changing them, renaming and revoking are desktop-only.
+- **Driving through this computer.** The dashboard reaches another
+  computer's sessions through `/api/machines/<id>/proxy/…`, which adds
+  `X-MC-Acting`: `desktop`, a device's id and name and whether it holds the
+  dangerous right _here_, or `script`. A dangerous action there needs both
+  its `dangerous` grant for this computer on that path **and** the acting
+  person's right here: a phone without the dangerous grant on the Mac cannot
+  reach for it through the Mac. A missing, malformed or unknown value is
+  never dangerous, and the right does not carry across a second computer (a
+  move another computer started reaches its target without it). A phone
+  paired with one of your computers reaches the others this way, through
+  it.
+- The computer acted on writes every state change another computer makes to
+  its audit log (`machine.action`: the computer, who acted through it, the
+  method, path and status) and shows a desktop notice for every dangerous
+  one. The proxy never passes on a `401` (a phone would unpair itself): the
+  other computer refusing becomes `502 machine_refused`.
+
+### Moving a session
+
+- A move starts on the computer the session lives on
+  (`POST /api/sessions/<id>/move`: its desktop, a paired device, or another
+  computer through the proxy with the `move` grant there), and the receiving
+  computer's `/peer/moves/*` need **its** `move` grant for the sender. The
+  preflight only reads: nothing is written on either computer before the
+  move is started.
+- The receiving computer treats the move's record as untrusted input: the
+  session id, account name, folders, file names (from a fixed list, each
+  once), sizes, SHA-256 hashes, commit ids, branch and remote names, model
+  and permission settings, the recipe and the queued messages are checked
+  before git or the file system sees them, and every file's size and hash
+  again before it lands.
+- **git** runs from an argument list, never a shell, with the variables that
+  would point it at another repository, index or configuration removed
+  (`GIT_DIR`, `GIT_WORK_TREE`, `GIT_INDEX_FILE`, `GIT_CONFIG_PARAMETERS`,
+  `GIT_CONFIG_COUNT`, …), `GIT_TERMINAL_PROMPT=0` and `GIT_OPTIONAL_LOCKS=0`;
+  commits unsigned, no automatic maintenance, `core.fsmonitor=false`, and
+  `core.hooksPath` set to a fresh, private, empty folder per operation —
+  checked empty before every call (Git LFS writes its hooks there) and
+  deleted after — so no hook of the repository runs (plumbing alone would run
+  some). Pushes use `--no-verify`; fetches never follow submodules. Files git
+  ignores (`.env`, `node_modules`, build output) never travel.
+- A move writes a project — its working tree and `.git` — only through that
+  plumbing, keeping the previous `HEAD` and branch tip under
+  `refs/mother-claude/undo/…` (_Undo move_ is offered for seven days). It
+  never merges: a project folder with changes of its own, or a landing that
+  would overwrite a file git ignores there, stops before anything changes and
+  offers a separate worktree in Mother Claude's data folder instead.
+- The conversation lands in the account's config directory as a **pull**
+  does: one data job at a time, refused while the session runs there,
+  staged and placed atomically, every file it replaces kept in its undo copy
+  for seven days; a conversation both computers continued is kept as a
+  conflict copy beside it, never merged. Sign-ins (tokens, keys,
+  `.credentials.json`) never travel: the session runs under the account of
+  the same name there.
+- **Carrying a folder's trust** (its `.claude.json` entry) and moving a
+  session that runs in `bypassPermissions` are dangerous on both computers:
+  the person who starts the move needs the dangerous right where the session
+  lives, and the receiving computer must have given that one `dangerous`.
+  The trust entry is added only when there is none, and only while no live
+  process uses that config directory.
+- **One writer per session.** A lease names the computer a session lives on,
+  with an epoch every move raises; every launch Mother Claude makes refuses a
+  session leased elsewhere (`409 session_lives_elsewhere`). Leases are taken
+  only from a computer holding this one's `move` grant, the higher epoch
+  winning. _Take over_ works only while the computer the session lives on
+  does not answer, and is audited.
+- **Recipes** (a project's commands for after a move) are never run by
+  Mother Claude: they are a request in the first message Claude gets there,
+  and go through that session's own approvals.
+
+### Shared folders and asked actions
+
+- Shared folders (_roots_, one folder per computer) steer where a move lands,
+  so another computer's roots are merged here only when this computer gave
+  it `move` (reading them needs `view`); a malformed one — a path that is not
+  absolute, or holds `.`, `..` or a control character — is dropped.
+- Another computer can only **ask**. A fix, a sign-in, adding an account or
+  cloning a project shows here as a notice and under _Asked by your other
+  computers_, checked against this computer's own state (one of its own
+  checks or accounts; a clone only into a folder of one of its roots, from a
+  remote without credentials, never prompting; at most 20 open asks from one
+  computer), and runs only when someone confirms it on this computer's
+  desktop.
+- The fixes themselves run only from the desktop of the computer they change.
+  The Windows firewall fix runs after the UAC prompt and adds one inbound UDP
+  rule for Mother Claude's program, on the Private profile, removing the
+  inbound block rules that name Mother Claude; no fix turns a firewall off.
+  Shared settings another computer offers (the relay, the code options) apply
+  only when this desktop accepts them.
+
+### What this does not protect against
+
+- A paired computer is trusted to say who acts through it: a compromised one
+  can claim to be its desktop, so the grants you gave it are the limit. With
+  `control` it answers ordinary approvals (a command it approves runs here);
+  with `dangerous` it can switch a session to `bypassPermissions`, approve
+  dangerous tool calls, send raw keys and carry a folder's trust here. Give
+  `dangerous` only to a computer you would let act as this one's desktop.
+- Revoking is per computer: there is no _revoke everywhere_ yet. For a lost
+  or stolen computer, revoke it on each of the others. Its key stays in its
+  own secret store, and what moves left on it (a conversation up to its move,
+  a worktree) stays on its disk.
+- The lease binds what Mother Claude launches. A `claude --resume` you start
+  by hand on the computer a session left is not stopped; what it adds is kept
+  as a conflict copy when the session next moves there.
+- In a session that runs in `bypassPermissions`, nobody approves a recipe's
+  commands; that is one reason moving one needs the dangerous right on both
+  computers.
+- Relays and n0's DNS see which keys talk, when, from which addresses and how
+  much; your own relay, or _No relay_, keeps that from n0. While the
+  transport runs, mDNS announces this computer's key on the local network,
+  and during a pairing its name and system too (the _Nearby_ list).
 
 ## Reporting
 
