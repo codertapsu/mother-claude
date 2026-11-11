@@ -11,11 +11,11 @@
 //!
 //! | here | there | what happens |
 //! |---|---|---|
-//! | the same state | the same state | nothing travels: both record it |
 //! | unchanged | unchanged | in sync |
 //! | changed | unchanged | this side's snapshot lands there |
 //! | unchanged | changed | the other computer sends |
-//! | changed | changed | a conflict: paused on both |
+//! | changed | changed the same way | nothing travels: both record it |
+//! | changed | changed otherwise | a conflict: paused on both |
 //!
 //! The first step (no synced state yet) sends this side's state when the
 //! other checkout is clean and its branch is behind or the same, else asks
@@ -301,8 +301,9 @@ async fn ask_to_send(state: &AppState, id: &str, trigger: Trigger) -> Outcome {
     let Some(p) = state.machines.sync.pair(id) else {
         return Outcome::Off;
     };
+    let before = p.status.clone();
     set_status(state, id, Status::Syncing { since: m::now() });
-    match call(
+    let v = match call(
         state,
         &p,
         "POST",
@@ -312,35 +313,45 @@ async fn ask_to_send(state: &AppState, id: &str, trigger: Trigger) -> Outcome {
     )
     .await
     {
-        Ok(v) => {
-            let theirs = v.get("outcome").and_then(Value::as_str).unwrap_or("");
-            match theirs {
-                "sent" => Outcome::Received,
-                "conflict" => Outcome::Conflict,
-                "agreed" => Outcome::Agreed,
-                "unchanged" => {
-                    set_status(state, id, Status::InSync { at: m::now() });
-                    Outcome::Unchanged
-                }
-                _ => {
-                    // Its own status says why (it told this side, or the next
-                    // check will).
-                    if let Some(p) = state.machines.sync.pair(id) {
-                        if matches!(p.status, Status::Syncing { .. }) {
-                            let name = m::peer_name(state, &p.machine);
-                            let detail = v
-                                .pointer("/status/detail")
-                                .and_then(Value::as_str)
-                                .map(|d| format!("{name}: {d}"))
-                                .unwrap_or_else(|| format!("{name} did not send its changes."));
-                            pause(state, &p, Status::paused(Reason::Error, detail), trigger);
-                        }
-                    }
-                    Outcome::Paused(Reason::Error)
-                }
-            }
+        Ok(v) => v,
+        Err(why) => return pause_for(state, &p, why, trigger),
+    };
+    match v.get("outcome").and_then(Value::as_str).unwrap_or("") {
+        // Its landing here (or its pause) set this side's status already.
+        "sent" => Outcome::Received,
+        "conflict" => Outcome::Conflict,
+        "agreed" => Outcome::Agreed,
+        "unchanged" => {
+            set_status(state, id, Status::InSync { at: m::now() });
+            Outcome::Unchanged
         }
-        Err(why) => pause_for(state, &p, why, trigger),
+        "busy" => {
+            // It was stepping already: as it was, and looked at again.
+            set_status(state, id, before);
+            state.machines.sync.ask_again(id);
+            Outcome::Busy
+        }
+        _ => {
+            // It waits for something of its own: this side says what.
+            let Some(p) = state.machines.sync.pair(id) else {
+                return Outcome::Off;
+            };
+            if !matches!(p.status, Status::Syncing { .. }) {
+                return Outcome::Paused(p.status.reason().unwrap_or(Reason::Error));
+            }
+            let name = m::peer_name(state, &p.machine);
+            let theirs: Option<Status> = v
+                .get("status")
+                .and_then(|s| serde_json::from_value(s.clone()).ok());
+            let (reason, detail) = match theirs {
+                Some(Status::Paused { reason, detail, .. }) => {
+                    (reason, format!("{name}: {detail}"))
+                }
+                _ => (Reason::Error, format!("{name} did not send its changes.")),
+            };
+            pause(state, &p, Status::paused(reason, detail), trigger);
+            Outcome::Paused(reason)
+        }
     }
 }
 
@@ -756,12 +767,20 @@ async fn conflict(
         there: there.summary.clone(),
         first,
     };
+    let known = matches!(p.status.reason(), Some(Reason::Conflict)) && there.conflict;
     let Some(q) = update(state, &p.id, |q| {
         q.conflict = Some(c.clone());
-        q.status = Status::paused(Reason::Conflict, detail.clone());
+        if !known {
+            q.status = Status::paused(Reason::Conflict, detail.clone());
+        }
     }) else {
         return Outcome::Off;
     };
+    if known {
+        // Both knew it already (a check while it waits for a choice): its
+        // two sides as they are now, nothing said again.
+        return Outcome::Conflict;
+    }
     audit(
         state,
         "machine.sync.conflict",

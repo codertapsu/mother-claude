@@ -166,6 +166,7 @@ const FIXED: Record<string, () => string> = {
   'Accounts opened to add it.': () => tr('Accounts opened to add it.'),
   'Not now.': () => tr('Not now.'),
   'Cloning…': () => tr('Cloning…'),
+  'Turning it on…': () => tr('Turning it on…'),
   'That account is not on this computer any more.': () =>
     tr('That account is not on this computer any more.'),
   'The remote asked for a sign-in: sign in to it on this computer (Git Credential Manager, or gh auth login), then try again.':
@@ -197,6 +198,33 @@ const FIXED: Record<string, () => string> = {
  * reads in the language shown. */
 const PATTERNS: [RegExp, (m: RegExpExecArray) => string][] = [
   [/^Connected to (.+)\.$/, (m) => tr('Connected to {host}.', { host: m[1] })],
+  // What a request to keep a project in sync became (`sync/on.rs`).
+  [/^Kept in sync with (.+)\.$/, (m) => tr('Kept in sync with {name}.', { name: m[1] })],
+  [
+    /^(.+) turned it off before it was confirmed\.$/,
+    (m) => tr('{name} turned it off before it was confirmed.', { name: m[1] }),
+  ],
+  [
+    /^On\. (.+) can't be reached right now: the first sync runs when it is back\.$/,
+    (m) =>
+      tr("On. {name} can't be reached right now: the first sync runs when it is back.", {
+        name: m[1],
+      }),
+  ],
+  [
+    /^On\. (.+) differs on both computers: choose which one's to keep on the Machines page\.$/,
+    (m) =>
+      tr(
+        "On. {project} differs on both computers: choose which one's to keep on the Machines page.",
+        {
+          project: m[1],
+        },
+      ),
+  ],
+  [
+    /^On\. The first sync waits: (.+)$/,
+    (m) => tr('On. The first sync waits: {why}', { why: oneText(m[1]) }),
+  ],
   [
     /^git (\S+) is older than (\S+): update it\.$/,
     (m) => tr('git {v} is older than {min}: update it.', { v: m[1], min: m[2] }),

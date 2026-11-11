@@ -499,5 +499,11 @@
   "In sync with": "Đồng bộ với",
   "What changes in it on one computer goes to the other a few seconds later, both ways. Saving asks the other computer: it is on once someone there confirms.": "Thay đổi trên máy này được chuyển sang máy kia sau vài giây, theo cả hai chiều. Khi lưu, máy kia sẽ được hỏi: tính năng bật khi có người ở máy đó xác nhận.",
   "Saved. {name} was asked to keep it in sync: it is on once someone there confirms.": "Đã lưu. Đã đề nghị {name} giữ dự án đồng bộ: tính năng bật khi có người ở máy đó xác nhận.",
-  "code sync with {name}: {state}": "đồng bộ mã nguồn với {name}: {state}"
+  "code sync with {name}: {state}": "đồng bộ mã nguồn với {name}: {state}",
+  "Turning it on…": "Đang bật…",
+  "Kept in sync with {name}.": "Đã giữ đồng bộ với {name}.",
+  "{name} turned it off before it was confirmed.": "{name} đã tắt nó trước khi được xác nhận.",
+  "On. {name} can't be reached right now: the first sync runs when it is back.": "Đã bật. Hiện không kết nối được {name}: lần đồng bộ đầu tiên sẽ chạy khi máy đó trực tuyến trở lại.",
+  "On. {project} differs on both computers: choose which one's to keep on the Machines page.": "Đã bật. {project} khác nhau trên hai máy tính: hãy chọn giữ bản của máy nào trên trang Các máy.",
+  "On. The first sync waits: {why}": "Đã bật. Lần đồng bộ đầu tiên đang chờ: {why}"
 }

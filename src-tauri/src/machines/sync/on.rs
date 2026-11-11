@@ -579,6 +579,11 @@ pub async fn accept(state: &AppState, ask: &Ask) -> Result<String, String> {
         transport::REQUEST_TIMEOUT,
     )
     .await;
+    if matches!(told, Ok((404, _))) {
+        // It turned it off before this computer confirmed.
+        forget(state, &id);
+        return Err(format!("{asker} turned it off before it was confirmed."));
+    }
     if !matches!(told, Ok((200, _))) {
         update(state, &id, |q| {
             q.status = Status::paused(

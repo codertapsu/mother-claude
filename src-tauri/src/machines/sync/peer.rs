@@ -706,6 +706,8 @@ pub struct OffBody {
 /// turned on again or removed.
 pub async fn off(state: &AppState, from: &str, id: &str, b: OffBody) -> ApiResult<Value> {
     let Ok(p) = pair_of(state, id, from) else {
+        // Asked, not answered yet: the request goes.
+        crate::machines::setup::asks::withdraw_sync(state, from, id);
         return Ok(json!({ "off": true }));
     };
     let peer = m::peer_name(state, from);

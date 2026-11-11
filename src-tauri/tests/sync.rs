@@ -845,3 +845,46 @@ async fn it_waits_while_a_session_working_in_the_project_moves() {
         "both changed meanwhile: {p:#}"
     );
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn turning_it_off_before_it_is_confirmed_withdraws_the_request() {
+    let w = world().await;
+    let body = |on: bool| json!({ "project": w.r.a, "machine": w.b.id(), "on": on });
+    let (s, v) = w.a.call("PUT", "/machines/sync", Some(body(true))).await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    let ask_open = |v: &Value| {
+        v["asks"].as_array().is_some_and(|l| {
+            l.iter()
+                .any(|a| a["kind"] == "sync" && a["state"] == "asked")
+        })
+    };
+    w.b.wait("the request on B", ask_open).await;
+    let (s, v) = w.a.call("PUT", "/machines/sync", Some(body(false))).await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    assert!(v["pairs"].as_array().unwrap().is_empty(), "{v}");
+    let on_b =
+        w.b.wait("the request withdrawn on B", |v| !ask_open(v))
+            .await;
+    let ask = on_b["asks"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|a| a["kind"] == "sync")
+        .cloned()
+        .unwrap();
+    assert_eq!(ask["state"], "failed", "{ask:#}");
+    assert!(ask["detail"]
+        .as_str()
+        .unwrap()
+        .contains("turned it off before it was confirmed"));
+    // Answering it now changes nothing.
+    let (s, _) =
+        w.b.call(
+            "POST",
+            &format!("/machines/asks/{}", ask["id"].as_str().unwrap()),
+            Some(json!({ "answer": "confirm" })),
+        )
+        .await;
+    assert_eq!(s, StatusCode::CONFLICT);
+    assert!(w.b.pair().await.is_null());
+}

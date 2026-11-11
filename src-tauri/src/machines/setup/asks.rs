@@ -423,6 +423,33 @@ fn set_state(state: &AppState, id: &str, s: AskState, detail: Option<String>) ->
     ask
 }
 
+/// The asking computer turned off a code sync it asked for before anyone
+/// here answered: its open ask is closed, saying so. Whether there was one.
+pub fn withdraw_sync(state: &AppState, from: &str, sync: &str) -> bool {
+    let open = super::with_cache(state, |c| {
+        c.asks
+            .iter()
+            .find(|a| {
+                a.open()
+                    && a.from == from
+                    && a.kind == AskKind::Sync
+                    && a.sync.as_deref() == Some(sync)
+            })
+            .map(|a| a.id.clone())
+    });
+    let Some(id) = open else {
+        return false;
+    };
+    let name = crate::machines::peer_name(state, from);
+    set_state(
+        state,
+        &id,
+        AskState::Failed,
+        Some(format!("{name} turned it off before it was confirmed.")),
+    );
+    true
+}
+
 /// Tells the asking computer to read its asks again (best effort, in the
 /// background).
 fn tell(state: &AppState, machine: &str) {
