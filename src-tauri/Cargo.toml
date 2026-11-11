@@ -82,6 +82,14 @@ sysinfo = { version = "0.40.1", default-features = false, features = ["system"] 
 # are already in the dependency graph.
 url = "2.5.8"
 regex = "1.13.1"
+# Machines (docs/PLAN-MACHINES.md): this user's computers, paired by key and
+# joined by QUIC — direct on the LAN, hole-punched or relayed across networks
+# (iroh, D7) — with the app's own axum router served per stream (hyper).
+iroh = "1.4.1"
+iroh-mdns-address-lookup = "0.6.1"
+hyper = { version = "1.12.0", features = ["http1", "server", "client"] }
+hyper-util = { version = "0.1.21", features = ["tokio", "service"] }
+http-body-util = "0.1.3"
 
 # The accounts feature keeps token accounts' tokens and the backup passphrase
 # in the login Keychain (docs/ACCOUNTS.md D3). Already in the tree through
@@ -94,7 +102,7 @@ security-framework = "3.7.0"
 # accounts' secrets (`secrets::CredentialStore`). Already in the dependency
 # graph.
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_Security_Credentials", "Win32_Storage_FileSystem", "Win32_System_Threading", "Win32_System_WindowsProgramming"] }
+windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_Security_Credentials", "Win32_Storage_FileSystem", "Win32_System_Power", "Win32_System_Threading", "Win32_System_WindowsProgramming"] }
 
 [dev-dependencies]
 tempfile = "3.27.0"

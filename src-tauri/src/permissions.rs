@@ -103,13 +103,17 @@ pub fn status() -> Vec<PermissionInfo> {
     }
 }
 
-/// Open a known System Settings privacy pane.
+/// Open a known System Settings pane: on macOS the privacy panes and the
+/// firewall; on Windows the network and firewall pages Machines' setup
+/// points at (docs/PLAN-MACHINES.md §5.14).
 pub fn open_settings_pane(pane_id: &str) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     {
         let url = match pane_id {
             "full-disk-access" => FDA_URL,
             "local-network" => LOCAL_NETWORK_URL,
+            "firewall" => "x-apple.systempreferences:com.apple.Network-Settings.extension?Firewall",
+            "energy" => "x-apple.systempreferences:com.apple.Battery-Settings.extension",
             other => return Err(format!("unknown settings pane: {other}")),
         };
         std::process::Command::new("open")
@@ -118,10 +122,25 @@ pub fn open_settings_pane(pane_id: &str) -> Result<(), String> {
             .map(|_| ())
             .map_err(|e| e.to_string())
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(windows)]
+    {
+        let uri = match pane_id {
+            "network-status" => "ms-settings:network-status",
+            "firewall" => "windowsdefender://network",
+            "energy" => "ms-settings:powersleep",
+            "ransomware" => "windowsdefender://ransomwareprotection",
+            other => return Err(format!("unknown settings pane: {other}")),
+        };
+        std::process::Command::new("explorer.exe")
+            .arg(uri)
+            .spawn()
+            .map(|_| ())
+            .map_err(|e| e.to_string())
+    }
+    #[cfg(not(any(target_os = "macos", windows)))]
     {
         let _ = pane_id;
-        Err("System Settings panes are macOS-only".into())
+        Err("System Settings panes are macOS- and Windows-only".into())
     }
 }
 

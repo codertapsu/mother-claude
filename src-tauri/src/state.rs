@@ -166,6 +166,9 @@ pub struct Inner {
     /// Teams of sessions: templates, boards, role sessions
     /// (`orchestration::teams`, docs/TEAMS.md).
     pub teams: crate::orchestration::teams::Teams,
+    /// The user's other computers: identity, pairing, the peer transport and
+    /// the setup's checks (`machines/`, docs/PLAN-MACHINES.md).
+    pub machines: crate::machines::MachinesState,
 }
 
 impl std::fmt::Debug for Inner {
@@ -245,6 +248,7 @@ impl Inner {
             mcp: crate::mcp::server::McpState::load(data_dir),
             extension: crate::extension::ExtensionState::load(data_dir),
             teams: crate::orchestration::teams::Teams::load(data_dir),
+            machines: crate::machines::MachinesState::load(data_dir),
             auth,
         })
     }

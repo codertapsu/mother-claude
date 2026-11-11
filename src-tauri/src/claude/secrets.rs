@@ -77,6 +77,9 @@ pub enum SecretName {
     /// A new backup passphrase while the sets are re-keyed with it: every set
     /// opens with one of the two until the change is through.
     BackupPassphrasePending,
+    /// This machine's private key for Machines (docs/PLAN-MACHINES.md §5.2):
+    /// its public half is the machine's address on the peer transport.
+    MachineKey,
 }
 
 impl SecretName {
@@ -86,6 +89,7 @@ impl SecretName {
             Self::AccountToken(id) => id.clone(),
             Self::BackupPassphrase => "backup-passphrase".to_string(),
             Self::BackupPassphrasePending => "backup-passphrase-pending".to_string(),
+            Self::MachineKey => "machine-key".to_string(),
         }
     }
 
@@ -95,6 +99,7 @@ impl SecretName {
             Self::AccountToken(id) => format!("{id}.token"),
             Self::BackupPassphrase => "backup-passphrase".to_string(),
             Self::BackupPassphrasePending => "backup-passphrase-pending".to_string(),
+            Self::MachineKey => "machine-key".to_string(),
         }
     }
 
@@ -102,7 +107,7 @@ impl SecretName {
     fn is_valid(&self) -> bool {
         match self {
             Self::AccountToken(id) => super::accounts::is_account_id(id),
-            Self::BackupPassphrase | Self::BackupPassphrasePending => true,
+            Self::BackupPassphrase | Self::BackupPassphrasePending | Self::MachineKey => true,
         }
     }
 }

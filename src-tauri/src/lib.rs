@@ -13,6 +13,7 @@ use tracing_subscriber::EnvFilter;
 pub mod bridge;
 pub mod claude;
 pub mod extension;
+pub mod machines;
 pub mod mcp;
 pub mod orchestration;
 pub mod pending;
@@ -211,6 +212,8 @@ pub fn run() {
     // Sign-in links open for real only in the app (the opener records
     // otherwise, so no test opens a browser).
     app_state.opener.open_for_real();
+    // Machines' fixes may open System Settings and ask for an administrator.
+    app_state.machines.enable_fixes();
     let exit_state = app_state.clone();
 
     tauri::Builder::default()

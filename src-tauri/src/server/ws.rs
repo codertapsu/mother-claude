@@ -182,6 +182,10 @@ pub enum ServerEvent {
     /// Teams of sessions changed (everyone): a team's view, a task of its
     /// board, a removed team or the templates (`orchestration::events`).
     Teams(Box<crate::orchestration::events::TeamsFrame>),
+    /// Machines changed (everyone): `{t:"machines", what}` with `what` one of
+    /// `pairing`, `peers`, `setup`, `settings`, `enabled`, `self`,
+    /// `transport` — refetch `/api/machines` (docs/PLAN-MACHINES.md).
+    Machines { what: String },
 }
 
 /// Who receives an event.
@@ -209,7 +213,7 @@ impl ServerEvent {
             | ServerEvent::Accounts { .. }
             | ServerEvent::AccountUsage { .. }
             | ServerEvent::Browser { .. } => Audience::All,
-            ServerEvent::Teams(_) => Audience::All,
+            ServerEvent::Teams(_) | ServerEvent::Machines { .. } => Audience::All,
             ServerEvent::Transcript { session, agent, .. }
             | ServerEvent::TranscriptReset { session, agent } => {
                 Audience::SessionKey(session, agent.as_deref())

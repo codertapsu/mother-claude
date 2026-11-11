@@ -333,6 +333,8 @@ pub fn api_router() -> Router<AppState> {
         )
         // ── teams of sessions (orchestration::routes, docs/TEAMS.md) ──
         .merge(crate::orchestration::routes::router())
+        // ── your other computers (machines::routes, docs/PLAN-MACHINES.md) ──
+        .merge(crate::machines::routes::api_router())
         .route_layer(axum::middleware::from_fn(auth::require_api_principal))
         // Outermost, so a route's own limit (set closer to its handler)
         // overrides it.

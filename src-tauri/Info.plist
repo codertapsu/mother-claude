@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!--
+    Merged by Tauri into the app's Info.plist (macOS only).
+
+    Machines (docs/PLAN-MACHINES.md §5.14): without a usage description macOS
+    refuses Mother Claude the local network without asking, so a Mac reaches
+    the user's other computers only through the relay, even at home (spike
+    S5). With it, macOS asks once and says why. iroh finds the other
+    computers on the network by mDNS under its own service name.
+  -->
+  <key>NSLocalNetworkUsageDescription</key>
+  <string>Mother Claude connects to your other computers on this network, so you can see and drive their Claude Code sessions from here.</string>
+  <key>NSBonjourServices</key>
+  <array>
+    <string>_irohv1._udp</string>
+  </array>
+</dict>
+</plist>
