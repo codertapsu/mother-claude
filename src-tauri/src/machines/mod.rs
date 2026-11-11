@@ -39,6 +39,7 @@ pub mod roots;
 pub mod routes;
 pub mod setup;
 pub mod store;
+pub mod sync;
 pub mod transport;
 
 use std::collections::HashMap;
@@ -143,6 +144,8 @@ pub struct MachinesState {
     /// Moves of sessions to and from this machine under way, and their test
     /// hooks.
     pub(crate) moves: moves::Moves,
+    /// Projects kept in sync with another computer (`machines/sync.json`).
+    pub(crate) sync: sync::SyncState,
 }
 
 impl std::fmt::Debug for MachinesState {
@@ -178,6 +181,7 @@ impl MachinesState {
             held_down: AtomicBool::new(false),
             leases: lease::Leases::load(data_dir),
             moves: moves::Moves::default(),
+            sync: sync::SyncState::load(data_dir),
         }
     }
 
@@ -399,6 +403,19 @@ impl MachinesState {
     pub fn fail_move_at(&self, step: Option<&str>) {
         self.moves.fail_at(step);
     }
+
+    /// The app turns this on: code sync watches its projects and checks
+    /// them every minute; until then (tests) a step runs only when asked.
+    pub fn enable_sync_watch(&self) {
+        self.sync.set_watching();
+    }
+
+    /// Tests: a code sync step fails at the named point (`land`: this
+    /// computer's landing, after it landed), once.
+    #[doc(hidden)]
+    pub fn fail_sync_at(&self, point: Option<&str>) {
+        self.sync.fail_at(point);
+    }
 }
 
 // ─── shared helpers ────────────────────────────────────────────────────────────
@@ -522,6 +539,7 @@ pub fn revoke(state: &AppState, machine: &str) -> bool {
         .unwrap_or_else(|e| e.into_inner())
         .remove(machine);
     federation::forget(state, machine);
+    sync::on::forget_machine(state, machine);
     audit(state, "machine.revoked", machine, &name);
     publish(state, "peers");
     true
@@ -578,6 +596,7 @@ pub fn set_enabled(state: &AppState, on: bool) {
                 "Machines is off on this computer",
             );
         }
+        sync::on::machines_turned(state, on);
     }
     publish(state, "enabled");
 }
@@ -695,8 +714,12 @@ pub async fn greet(state: AppState, machine: String, key: String) {
         Ok((status, _)) => mark_unanswered(&state, &machine, &format!("it answered {status}")),
         Err(e) => mark_unanswered(&state, &machine, &e),
     }
-    if state.machines.link(&machine).online != was_online {
+    let online = state.machines.link(&machine).online;
+    if online != was_online {
         publish(&state, "peers");
+        if online {
+            sync::step::on_peer_back(&state, &machine);
+        }
     }
 }
 
@@ -786,6 +809,8 @@ pub fn start(state: &AppState) {
         // that is away does not hold up the checks.
         let rec = st.clone();
         tokio::spawn(async move { moves::recover(&rec).await });
+        // Code sync's watchers and its minute's check (the app only).
+        sync::start(&st);
         setup::health_loop(st).await;
     });
 }

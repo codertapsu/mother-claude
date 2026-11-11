@@ -50,6 +50,9 @@ pub enum AskKind {
     AddAccount,
     /// `git clone <origin>` into a folder of one of this computer's roots.
     Clone,
+    /// Keep a project in sync with the asking computer (code sync,
+    /// plan §5.15): on only once confirmed here.
+    Sync,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -92,9 +95,16 @@ pub struct Ask {
     /// The remote, without credentials (`clone`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub origin: Option<String>,
-    /// Where the clone goes on this computer (`clone`).
+    /// Where the clone goes on this computer (`clone`); the project here
+    /// (`sync`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub folder: Option<String>,
+    /// The code sync's id (`sync`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sync: Option<String>,
+    /// The project's folder on the asking computer (`sync`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub there: Option<String>,
     pub at: i64,
     pub state: AskState,
     /// How it went, in a sentence (never git's own output).
@@ -118,6 +128,7 @@ impl Ask {
             && lower(&self.account) == lower(&other.account)
             && self.origin == other.origin
             && self.folder == other.folder
+            && self.there == other.there
     }
 }
 
@@ -137,6 +148,9 @@ pub struct AskRequest {
     pub root: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rel: Option<String>,
+    /// A code sync's request (`check: "sync"`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sync: Option<crate::machines::sync::on::SyncAsk>,
 }
 
 pub fn new_ask_id() -> String {
@@ -219,6 +233,8 @@ pub async fn receive(state: &AppState, from: &str, req: AskRequest) -> ApiResult
         account: None,
         origin: None,
         folder: None,
+        sync: None,
+        there: None,
         at: crate::machines::now(),
         state: AskState::Asked,
         detail: None,
@@ -254,6 +270,23 @@ pub async fn receive(state: &AppState, from: &str, req: AskRequest) -> ApiResult
             ask.kind = AskKind::AddAccount;
             ask.account = Some(name.clone());
             format!("{from_name} asks you to add the account {name} on this computer (Machines).")
+        }
+        "sync" => {
+            let asked = req
+                .sync
+                .as_ref()
+                .ok_or_else(|| ApiError::bad_request("Malformed request."))?;
+            let c = crate::machines::sync::on::check_ask(state, from, asked).await?;
+            ask.kind = AskKind::Sync;
+            ask.title = Some(c.title.clone());
+            ask.folder = Some(c.folder.clone());
+            ask.there = Some(c.there.clone());
+            ask.sync = Some(c.id.clone());
+            ask.origin = c.origin.clone();
+            format!(
+                "{from_name} asks to keep {} in sync with it: changes made on either computer go to the other (Machines).",
+                c.title
+            )
         }
         "clone" => {
             let origin = req
@@ -443,6 +476,9 @@ pub async fn answer(
         let a = set_state(state, id, AskState::Declined, Some("Not now.".into()));
         audit(state, ctx, &ask, "machine.ask.declined");
         tell(state, &ask.from);
+        if ask.kind == AskKind::Sync {
+            crate::machines::sync::on::declined(state, &ask);
+        }
         return Ok(json!({ "ask": a, "next": null }));
     }
     let mut next: Option<&str> = None;
@@ -480,6 +516,10 @@ pub async fn answer(
         AskKind::AddAccount => {
             next = Some("/accounts");
             Ok("Accounts opened to add it.".into())
+        }
+        AskKind::Sync => {
+            set_state(state, id, AskState::Running, Some("Turning it on…".into()));
+            crate::machines::sync::on::accept(state, &ask).await
         }
         AskKind::Clone => {
             let (Some(origin), Some(folder)) = (ask.origin.clone(), ask.folder.clone()) else {
@@ -580,6 +620,8 @@ mod tests {
             account: Some("Work".into()),
             origin: None,
             folder: None,
+            sync: None,
+            there: None,
             at: 1,
             state: AskState::Asked,
             detail: None,

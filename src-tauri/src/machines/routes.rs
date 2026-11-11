@@ -68,6 +68,8 @@ pub fn api_router() -> Router<AppState> {
         .merge(super::move_routes::api_router())
         // The setup's rest (Phase 3a): accounts, folders, asks, clones.
         .merge(super::setup::routes::api_router())
+        // Code sync (§5.15).
+        .merge(super::sync::routes::api_router())
 }
 
 /// The largest request forwarded to another machine (a message with images).
@@ -91,6 +93,8 @@ pub fn peer_router() -> Router<AppState> {
         .merge(super::move_routes::peer_router())
         // The setup's rest (Phase 3a): accounts, origins, the code test.
         .merge(super::setup::routes::peer_router())
+        // Code sync's other half (§5.15).
+        .merge(super::sync::routes::peer_router())
         // The paired machine's view of this one's sessions (plan §5.6).
         .route("/ws", get(peer_ws))
         // `/api/*` is served from the fallback, so no path parameter of this
