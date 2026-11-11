@@ -11,6 +11,7 @@ use std::time::{Duration, Instant};
 use iroh::address_lookup::MemoryLookup;
 use mother_claude_lib::claude::ClaudeHome;
 use mother_claude_lib::machines::{self, protocol, transport};
+use mother_claude_lib::pending;
 use mother_claude_lib::server::{self, auth::Auth};
 use mother_claude_lib::state::{AppState, Inner, ServerConfig};
 use reqwest::StatusCode;
@@ -508,6 +509,11 @@ const SID: &str = "fed00000-1111-4222-8333-444455556666";
 /// A finished session on `m`'s disk, and its monitor running, so `m`'s
 /// session list has it.
 fn session_on(m: &Machine) {
+    session_saying(m, "hello from the other computer");
+}
+
+/// [`session_on`], its first prompt `prompt`.
+fn session_saying(m: &Machine, prompt: &str) {
     let home = m._dir.path().join("home");
     let dir = home.join("projects").join("-tmp-fed");
     std::fs::create_dir_all(&dir).unwrap();
@@ -518,7 +524,7 @@ fn session_on(m: &Machine) {
             .to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
     };
     let lines = [
-        json!({"type":"user","uuid":"f-u1","timestamp":iso(t0),"cwd":"/tmp/fed","permissionMode":"default","origin":{"kind":"human"},"message":{"role":"user","content":"hello from the other computer"}}),
+        json!({"type":"user","uuid":"f-u1","timestamp":iso(t0),"cwd":"/tmp/fed","permissionMode":"default","origin":{"kind":"human"},"message":{"role":"user","content":prompt}}),
         json!({"type":"assistant","uuid":"f-a1","timestamp":iso(t0 + 1000),"message":{"id":"msg_f1","model":"claude-haiku-4-5","content":[{"type":"text","text":"Hi."}],"usage":{"input_tokens":5,"output_tokens":1}}}),
     ];
     let text: String = lines.iter().map(|l| l.to_string() + "\n").collect();
@@ -541,6 +547,96 @@ async fn proxied(
         body,
     )
     .await
+}
+
+/// Calls `f` until it returns `true` (30 s at most).
+async fn eventually<F, Fut>(what: &str, mut f: F)
+where
+    F: FnMut() -> Fut,
+    Fut: std::future::Future<Output = bool>,
+{
+    let deadline = Instant::now() + Duration::from_secs(30);
+    while !f().await {
+        assert!(Instant::now() < deadline, "timed out waiting for {what}");
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    }
+}
+
+type Ws =
+    tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>;
+
+/// `m`'s dashboard, signed in as its desktop.
+async fn dashboard(m: &Machine) -> Ws {
+    use futures_util::SinkExt;
+    use tokio_tungstenite::tungstenite::Message;
+
+    let ws_url = format!("{}/ws", m.url.replace("http://", "ws://"));
+    let (mut ws, _) = tokio_tungstenite::connect_async(ws_url).await.unwrap();
+    ws.send(Message::Text(
+        json!({"t": "auth", "token": m.st.auth.token})
+            .to_string()
+            .into(),
+    ))
+    .await
+    .unwrap();
+    ws
+}
+
+/// Reads `ws` until a frame satisfies `pred` (45 s at most).
+async fn frame_where(ws: &mut Ws, what: &str, pred: impl Fn(&Value) -> bool) -> Value {
+    use futures_util::StreamExt;
+    use tokio_tungstenite::tungstenite::Message;
+
+    let deadline = Instant::now() + Duration::from_secs(45);
+    while Instant::now() < deadline {
+        let Ok(Some(Ok(Message::Text(text)))) =
+            tokio::time::timeout(Duration::from_secs(5), ws.next()).await
+        else {
+            continue;
+        };
+        let v: Value = serde_json::from_str(&text).unwrap_or(Value::Null);
+        if pred(&v) {
+            return v;
+        }
+    }
+    panic!("timed out waiting for {what}");
+}
+
+/// A `remote` frame from `from` listing session [`SID`].
+fn lists_sid(v: &Value, from: &str) -> bool {
+    v["t"] == "remote"
+        && v["machine"] == from
+        && v["frame"]["t"] == "sessions"
+        && [&v["frame"]["sessions"], &v["frame"]["upsert"]]
+            .iter()
+            .any(|l| {
+                l.as_array()
+                    .is_some_and(|l| l.iter().any(|s| s["id"] == SID))
+            })
+}
+
+/// A permission prompt in `m`'s session [`SID`], raised as a channel raises
+/// one; keep the guard while it should stay pending.
+async fn prompt_on(
+    m: &Machine,
+) -> (
+    pending::PendingGuard,
+    tokio::sync::oneshot::Receiver<pending::Decision>,
+    String,
+) {
+    let (guard, rx) = pending::raise(
+        &m.st,
+        pending::PendingItem {
+            session_id: SID.into(),
+            tool_name: Some("Bash".into()),
+            title: "Run ls".into(),
+            input: Some(json!({ "command": "ls" })),
+            ..Default::default()
+        },
+    )
+    .await;
+    let id = guard.id().to_string();
+    (guard, rx, id)
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -676,58 +772,167 @@ async fn a_dangerous_action_needs_the_grant_and_the_acting_persons_right() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn another_computers_sessions_arrive_live_and_go_grey_when_it_stops() {
-    use futures_util::{SinkExt, StreamExt};
-    use tokio_tungstenite::tungstenite::Message;
-
     let lookup = MemoryLookup::new();
     let a = machine(&lookup).await;
     let b = machine(&lookup).await;
     pair(&a, &b, grants(false), grants(false)).await;
     session_on(&b);
 
-    let ws_url = format!("{}/ws", a.url.replace("http://", "ws://"));
-    let (mut ws, _) = tokio_tungstenite::connect_async(ws_url).await.unwrap();
-    ws.send(Message::Text(
-        json!({"t": "auth", "token": a.st.auth.token})
-            .to_string()
-            .into(),
-    ))
-    .await
-    .unwrap();
-    let mut saw_session = false;
-    let deadline = Instant::now() + Duration::from_secs(45);
-    while Instant::now() < deadline && !saw_session {
-        let Ok(Some(Ok(Message::Text(text)))) =
-            tokio::time::timeout(Duration::from_secs(5), ws.next()).await
-        else {
-            continue;
-        };
-        let v: Value = serde_json::from_str(&text).unwrap_or(Value::Null);
-        if v["t"] == "remote" && v["machine"] == b.id() && v["frame"]["t"] == "sessions" {
-            let lists = [&v["frame"]["sessions"], &v["frame"]["upsert"]];
-            saw_session = lists.iter().any(|l| {
-                l.as_array()
-                    .is_some_and(|l| l.iter().any(|s| s["id"] == SID))
-            });
-        }
-    }
-    assert!(
-        saw_session,
-        "B's session reached A's dashboard as a remote frame"
-    );
+    let mut ws = dashboard(&a).await;
+    let from = b.id();
+    frame_where(
+        &mut ws,
+        "B's session on A's dashboard, as a remote frame",
+        |v| lists_sid(v, &from),
+    )
+    .await;
 
     // B stops: A's dashboard is told it is offline.
     transport::stop(&b.st).await;
-    let mut offline = false;
-    let deadline = Instant::now() + Duration::from_secs(45);
-    while Instant::now() < deadline && !offline {
-        let Ok(Some(Ok(Message::Text(text)))) =
-            tokio::time::timeout(Duration::from_secs(5), ws.next()).await
-        else {
-            continue;
-        };
-        let v: Value = serde_json::from_str(&text).unwrap_or(Value::Null);
-        offline = v["t"] == "remote" && v["machine"] == b.id() && v["frame"]["t"] == "offline";
-    }
-    assert!(offline, "A was told B is offline");
+    frame_where(&mut ws, "A to be told B is offline", |v| {
+        v["t"] == "remote" && v["machine"] == from && v["frame"]["t"] == "offline"
+    })
+    .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn an_approval_is_answered_from_either_computer_and_the_first_answer_wins() {
+    let lookup = MemoryLookup::new();
+    let a = machine(&lookup).await;
+    let b = machine(&lookup).await;
+    let (s, v) = a
+        .call("PATCH", "/machines/self", Some(json!({ "name": "Studio" })))
+        .await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    pair(&a, &b, grants(false), grants(false)).await;
+    session_on(&b);
+    let desktop = a.st.auth.token.clone();
+    let respond = format!("/sessions/{SID}/respond");
+
+    // A's dashboard is linked to B (B's sessions reach it) before B asks.
+    let mut ws = dashboard(&a).await;
+    let from = b.id();
+    frame_where(&mut ws, "A's link to B", |v| lists_sid(v, &from)).await;
+
+    // B's session asks; A's dashboard shows the card…
+    let (_held, rx, id) = prompt_on(&b).await;
+    frame_where(&mut ws, "B's prompt on A's dashboard", |v| {
+        v["t"] == "remote"
+            && v["machine"] == from
+            && v["frame"]["t"] == "pending"
+            && v["frame"]["item"]["id"] == id.as_str()
+    })
+    .await;
+
+    // …and answers it through the proxy: B's session gets the answer, and
+    // B names the computer that answered, not itself.
+    let (s, v) = proxied(
+        &a,
+        &desktop,
+        "POST",
+        &b,
+        &respond,
+        Some(json!({ "requestId": id, "decision": "allow" })),
+    )
+    .await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    assert_eq!(v["resolution"]["text"], "Allowed by Studio", "{v}");
+    let d = pending::wait(rx, Duration::from_secs(10))
+        .await
+        .expect("B's session got A's answer");
+    assert!(d.is_allow());
+    // B's own desktop is too late.
+    let (s, v) = b
+        .call(
+            "POST",
+            &respond,
+            Some(json!({ "requestId": id, "decision": "deny" })),
+        )
+        .await;
+    assert_eq!(s, StatusCode::CONFLICT, "{v}");
+    assert_eq!(v["error"]["code"], "already_decided");
+
+    // The other way round: B answers first, A's answer is refused.
+    let (_held, rx, id) = prompt_on(&b).await;
+    let (s, v) = b
+        .call(
+            "POST",
+            &respond,
+            Some(json!({ "requestId": id, "decision": "deny" })),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    let d = pending::wait(rx, Duration::from_secs(10))
+        .await
+        .expect("B's session got B's answer");
+    assert!(!d.is_allow());
+    let (s, v) = proxied(
+        &a,
+        &desktop,
+        "POST",
+        &b,
+        &respond,
+        Some(json!({ "requestId": id, "decision": "allow" })),
+    )
+    .await;
+    assert_eq!(s, StatusCode::CONFLICT, "{v}");
+    assert_eq!(v["error"]["code"], "already_decided");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn the_same_session_id_on_two_computers_stays_two_sessions() {
+    let lookup = MemoryLookup::new();
+    let a = machine(&lookup).await;
+    let b = machine(&lookup).await;
+    pair(&a, &b, grants(false), grants(false)).await;
+    // One id on both disks (as a backup pull leaves it), each its own.
+    session_saying(&a, "said on A");
+    session_saying(&b, "said on B");
+    let desktop = a.st.auth.token.clone();
+    let transcript = format!("/sessions/{SID}/transcript");
+
+    // Here, A's own; through the proxy, B's.
+    eventually("A's own copy", || async {
+        let (s, v) = a.call("GET", &transcript, None).await;
+        s == StatusCode::OK && v.to_string().contains("said on A")
+    })
+    .await;
+    eventually("B's copy through A", || async {
+        let (s, v) = proxied(&a, &desktop, "GET", &b, &transcript, None).await;
+        s == StatusCode::OK && v.to_string().contains("said on B")
+    })
+    .await;
+    let (_, mine) = a.call("GET", &transcript, None).await;
+    assert!(!mine.to_string().contains("said on B"), "{mine}");
+    let (_, theirs) = proxied(&a, &desktop, "GET", &b, &transcript, None).await;
+    assert!(!theirs.to_string().contains("said on A"), "{theirs}");
+
+    // A's own list has one session with that id; B's arrives beside it,
+    // tagged with B.
+    let (_, list) = a.call("GET", "/sessions", None).await;
+    let here = list["sessions"]
+        .as_array()
+        .map(|l| l.iter().filter(|s| s["id"] == SID).count());
+    assert_eq!(here, Some(1), "{list}");
+    let mut ws = dashboard(&a).await;
+    let from = b.id();
+    frame_where(&mut ws, "B's copy, tagged with B", |v| lists_sid(v, &from)).await;
+
+    // B's prompt stays B's: A's own copy shows none and cannot answer it.
+    let (_held, _rx, id) = prompt_on(&b).await;
+    let detail = format!("/sessions/{SID}");
+    let (_, theirs) = proxied(&a, &desktop, "GET", &b, &detail, None).await;
+    let prompts = |v: &Value| v["pendingDetail"].as_array().map(Vec::len);
+    assert_eq!(prompts(&theirs), Some(1), "{theirs}");
+    let (_, mine) = a.call("GET", &detail, None).await;
+    assert_eq!(prompts(&mine), Some(0), "{mine}");
+    let (s, v) = a
+        .call(
+            "POST",
+            &format!("/sessions/{SID}/respond"),
+            Some(json!({ "requestId": id, "decision": "allow" })),
+        )
+        .await;
+    assert_eq!(s, StatusCode::NOT_FOUND, "{v}");
+    assert_eq!(v["error"]["code"], "request_not_found");
 }
