@@ -13,19 +13,20 @@
 //!   root maps it to (on demand only: never in the background).
 //!
 //! For the other computers (the `view` grant): `GET /peer/accounts`, `GET
-//! /peer/origins`, `POST /peer/setup/changed` (read
+//! /peer/origins`, `GET|POST /peer/setup/code-test` (the readiness test's
+//! git round trip, scratch folders only), `POST /peer/setup/changed` (read
 //! my checks again) and `POST /peer/setup/remote {root, rel}`.
 
 use std::path::{Path as FsPath, PathBuf};
 use std::time::Duration;
 
-use axum::extract::{Path, Query, State};
+use axum::extract::{DefaultBodyLimit, Path, Query, State};
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use serde::Deserialize;
 use serde_json::{json, Value};
 
-use super::{accounts, asks, folders};
+use super::{accounts, asks, codetest, folders};
 use crate::claude::paths::{self, PathForm};
 use crate::machines::code::GitRunner;
 use crate::machines::grants::Grant;
@@ -54,6 +55,12 @@ pub fn peer_router() -> Router<AppState> {
     Router::new()
         .route(accounts::PEER_PATH, get(peer_accounts))
         .route(folders::PEER_PATH, get(peer_origins))
+        .route(
+            codetest::PEER_PATH,
+            get(peer_code_make)
+                .post(peer_code_land)
+                .layer(DefaultBodyLimit::max(8 << 20)),
+        )
         .route("/peer/setup/changed", post(peer_changed))
         .route("/peer/setup/remote", post(peer_remote))
 }
@@ -258,6 +265,29 @@ async fn peer_origins(
 ) -> ApiResult<Json<Value>> {
     granted(&state, &ctx, Grant::View)?;
     Ok(Json(folders::peer_answer(&state, q.fresh).await))
+}
+
+async fn peer_code_make(
+    ctx: ClientContext,
+    State(state): State<AppState>,
+) -> ApiResult<Json<Value>> {
+    granted(&state, &ctx, Grant::View)?;
+    codetest::peer_make(&state)
+        .await
+        .map(Json)
+        .map_err(|e| ApiError::unprocessable("machines_code_test", e))
+}
+
+async fn peer_code_land(
+    ctx: ClientContext,
+    State(state): State<AppState>,
+    Json(p): Json<codetest::Package>,
+) -> ApiResult<Json<Value>> {
+    granted(&state, &ctx, Grant::View)?;
+    codetest::peer_land(&state, p)
+        .await
+        .map(Json)
+        .map_err(|e| ApiError::unprocessable("machines_code_test", e))
 }
 
 /// The other computer says its checks (or an ask) changed: read them again.

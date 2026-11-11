@@ -22,14 +22,17 @@
 //! (`checks`); accounts matched by name across computers (`accounts`);
 //! roots proposed from repositories' origins and *Clone it there*
 //! (`folders`); what another computer asks this one to do, done only when
-//! confirmed here (`asks`); the code options per project (`options`); and their
-//! routes (`routes`).
+//! confirmed here (`asks`); the code options per project (`options`); the
+//! readiness test's git round trip (`codetest`) and its other lines
+//! (`readiness`); and their routes (`routes`).
 
 pub mod accounts;
 pub mod asks;
 pub mod checks;
+pub mod codetest;
 pub mod folders;
 pub mod options;
+pub mod readiness;
 pub mod routes;
 
 use std::collections::BTreeMap;
@@ -251,6 +254,9 @@ pub struct Cache {
     /// folders it looked under, and what it found.
     #[serde(skip)]
     pub(crate) repos: Option<(i64, Vec<String>, Vec<folders::Repo>)>,
+    /// Readiness-test halves running now (`codetest`).
+    #[serde(skip)]
+    pub(crate) code_tests: usize,
     /// Remote checks other computers asked for, running now (`folders`).
     #[serde(skip)]
     pub(crate) remote_checks: usize,
@@ -1331,14 +1337,18 @@ async fn test_one(state: &AppState, machine: &str, name: &str) -> Readiness {
                     mibps: None,
                 }),
             }
+            // Steps 3–6: tools, a git round trip, accounts, folders.
+            tests.extend(readiness::lines(state, machine, name).await);
         }
         Ok(Err(e)) => {
             tests.push(failed_connect(&format!("Can't reach {name}: {e}")));
             tests.push(skipped_transfer());
+            tests.extend(readiness::skipped());
         }
         Err(_) => {
             tests.push(failed_connect(&format!("Can't reach {name} in time.")));
             tests.push(skipped_transfer());
+            tests.extend(readiness::skipped());
         }
     }
     Readiness {

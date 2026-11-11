@@ -1049,7 +1049,7 @@ mod tests {
     }
 
     #[test]
-    fn another_computer_runs_only_a_few_remote_checks_at_once() {
+    fn another_computer_runs_only_a_few_remote_checks_or_code_tests_at_once() {
         let state = crate::state::Inner::new(
             crate::claude::ClaudeHome::with_base(std::env::temp_dir()),
             crate::state::ServerConfig {
@@ -1064,6 +1064,12 @@ mod tests {
         assert!(remote_slot(&state).is_none(), "all taken");
         drop(slots);
         assert!(remote_slot(&state).is_some(), "released when dropped");
+        let halves: Vec<_> = (0..4)
+            .map(|_| super::super::codetest::begin_half(&state).expect("a half"))
+            .collect();
+        assert!(super::super::codetest::begin_half(&state).is_none());
+        drop(halves);
+        assert!(super::super::codetest::begin_half(&state).is_some());
     }
 
     #[test]
