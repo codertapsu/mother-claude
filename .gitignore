@@ -9,6 +9,8 @@ src-tauri/target/
 sidecar/dist/
 # Browser extension builds, zips and e2e reports (extension/build.mjs)
 dist-extension/
+# Vitest's screenshots of failed browser tests
+.vitest/
 
 # Rust
 **/*.rs.bk
