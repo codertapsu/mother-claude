@@ -1018,6 +1018,10 @@ async fn land_checked(
         let mut req = ApplyRequest::new(&mf.session, landing);
         req.machine = m::this_name(state);
         req.remote = c.remote.clone();
+        // This computer's choice for the project (D10).
+        req.keep_remote_refs = crate::machines::setup::options::effective(state, &folder)
+            .code
+            .keep_remote_refs;
         let (g, repo, cd) = (git.clone(), PathBuf::from(&folder), code_dir.clone());
         let r = tokio::task::spawn_blocking(move || code::apply(&g, &repo, &cd, &req))
             .await

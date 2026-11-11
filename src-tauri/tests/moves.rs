@@ -1063,3 +1063,41 @@ async fn a_root_maps_the_folder_there_without_asking() {
     assert_eq!(rec["targetCwd"], w.t_cwd.as_str());
     assert!(transcript_in(&w.t.home(), &w.t_cwd, SID).exists());
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_move_follows_the_options_set_for_its_project() {
+    let w = world().await;
+    let body = json!({ "to": w.t.id(), "folder": w.t_cwd });
+    // Nothing said: machine to machine, into the checkout, no recipe.
+    let pre = preflight(&w.s, body.clone()).await;
+    assert_eq!(pre["code"]["mode"], "bundle", "{pre:#}");
+    assert_eq!(pre["code"]["apply"], "checkout", "{pre:#}");
+    assert_eq!(pre["recipe"], json!([]), "{pre:#}");
+
+    // This project lands in a worktree, and Claude is asked to install first.
+    let (s, v) =
+        w.s.call(
+            "PUT",
+            "/machines/settings",
+            Some(json!({ "projects": { "upsert": [{
+                "project": w.s_cwd,
+                "code": { "apply": "worktree" },
+                "recipe": { "afterMove": {
+                    "macos": ["npm ci"], "windows": ["npm ci"], "linux": ["npm ci"]
+                } }
+            }] } })),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    let pre = preflight(&w.s, body).await;
+    assert_eq!(pre["code"]["apply"], "worktree", "{pre:#}");
+    assert_eq!(pre["recipe"], json!(["npm ci"]), "{pre:#}");
+
+    // What a move says itself still wins.
+    let pre = preflight(
+        &w.s,
+        json!({ "to": w.t.id(), "folder": w.t_cwd, "apply": "checkout" }),
+    )
+    .await;
+    assert_eq!(pre["code"]["apply"], "checkout", "{pre:#}");
+}

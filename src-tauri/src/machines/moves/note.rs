@@ -98,16 +98,23 @@ pub fn recipe_for(json: &serde_json::Value, os: &str) -> Vec<String> {
     json.get("afterMove")
         .and_then(|a| a.get(os))
         .and_then(serde_json::Value::as_array)
-        .map(|list| {
-            list.iter()
-                .filter_map(serde_json::Value::as_str)
-                .map(str::trim)
-                .filter(|c| !c.is_empty() && c.len() <= 300 && !c.contains(['\n', '\r']))
-                .take(10)
-                .map(str::to_string)
-                .collect()
-        })
+        .map(|list| clean(list.iter().filter_map(serde_json::Value::as_str)))
         .unwrap_or_default()
+}
+
+/// A project's recipe set in Mother Claude (`setup::options`), held to the
+/// same limits as [`recipe_for`].
+pub fn clean_recipe(commands: &[String]) -> Vec<String> {
+    clean(commands.iter().map(String::as_str))
+}
+
+fn clean<'a>(commands: impl Iterator<Item = &'a str>) -> Vec<String> {
+    commands
+        .map(str::trim)
+        .filter(|c| !c.is_empty() && c.len() <= 300 && !c.contains(['\n', '\r']))
+        .take(10)
+        .map(str::to_string)
+        .collect()
 }
 
 #[cfg(test)]

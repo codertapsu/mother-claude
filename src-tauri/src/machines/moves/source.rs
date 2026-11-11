@@ -87,22 +87,24 @@ struct Plan {
     when: String,
 }
 
-/// The defaults of D10 (the setup's choice for all machines), until a move
-/// names its own.
-fn code_defaults(state: &AppState) -> (&'static str, &'static str) {
-    let s = state.machines.settings();
-    let code = s.extra.get("code");
-    let get = |k: &str| code.and_then(|c| c.get(k)).and_then(Value::as_str);
-    (
-        match get("transfer") {
-            Some("remote") => "remote",
-            _ => "bundle",
-        },
-        match get("apply") {
-            Some("worktree") => "worktree",
-            _ => "checkout",
-        },
-    )
+/// The choices in force for the project in `cwd` (D10: the setup's choice
+/// for all machines, else the project's own), for what a move left unsaid.
+fn fill_defaults(plan: &mut Plan, opts: &crate::machines::setup::options::Effective) {
+    use crate::machines::store::{CodeApply, CodeTransfer};
+    if plan.code.is_empty() {
+        plan.code = match opts.code.transfer {
+            CodeTransfer::Remote => "remote",
+            CodeTransfer::Bundle => "bundle",
+        }
+        .into();
+    }
+    if plan.apply.is_empty() {
+        plan.apply = match opts.code.apply {
+            CodeApply::Worktree => "worktree",
+            CodeApply::Checkout => "checkout",
+        }
+        .into();
+    }
 }
 
 fn invalid(message: impl Into<String>) -> ApiError {
@@ -120,9 +122,9 @@ fn parse(state: &AppState, body: &MoveBody) -> ApiResult<Plan> {
             "Not a paired computer.",
         ));
     }
-    let (code_default, apply_default) = code_defaults(state);
+    // Left unsaid: the project's choice, filled once its folder is known.
     let code = match body.code.as_deref().map(str::trim) {
-        None | Some("") => code_default.to_string(),
+        None | Some("") => String::new(),
         Some("bundle" | "direct") => "bundle".into(),
         Some("remote") => "remote".into(),
         Some("none") => "none".into(),
@@ -133,7 +135,7 @@ fn parse(state: &AppState, body: &MoveBody) -> ApiResult<Plan> {
         }
     };
     let apply = match body.apply.as_deref().map(str::trim) {
-        None | Some("") => apply_default.to_string(),
+        None | Some("") => String::new(),
         Some(a @ ("checkout" | "worktree")) => a.to_string(),
         Some(other) => {
             return Err(invalid(format!(
@@ -363,11 +365,13 @@ async fn check(
             "Only Claude Code sessions (UUID ids) move to another computer.",
         ));
     }
-    let plan = parse(state, body)?;
+    let mut plan = parse(state, body)?;
     // It moves from where it lives.
     lease::require_here(state, session)?;
     let to = peer_ref(state, &plan.to);
     let local = local_facts(state, session).await?;
+    let opts = crate::machines::setup::options::effective(state, &local.cwd);
+    fill_defaults(&mut plan, &opts);
     let git = state.machines.moves.git();
     let mut blockers: Vec<Check> = Vec::new();
     let mut warnings: Vec<Check> = Vec::new();
@@ -463,11 +467,18 @@ async fn check(
     // Only from a worktree it lived in here.
     let home_branch = came.and_then(|c| c.1).filter(|_| in_worktree);
 
-    // Ask the other computer.
-    let recipe: Vec<String> = code
+    // Ask the other computer. The recipe set for the project in Mother
+    // Claude, else the one the repository commits.
+    let recipe: Vec<String> = opts
+        .recipe
         .as_ref()
-        .and_then(|c| c.recipe.as_ref())
-        .map(|r| super::note::recipe_for(r, &to.os))
+        .map(|r| super::note::clean_recipe(r.after_move.for_os(&to.os)))
+        .filter(|r| !r.is_empty())
+        .or_else(|| {
+            code.as_ref()
+                .and_then(|c| c.recipe.as_ref())
+                .map(|r| super::note::recipe_for(r, &to.os))
+        })
         .unwrap_or_default();
     let ask = wire::Ask {
         session: session.to_string(),
@@ -617,7 +628,6 @@ async fn check(
         recipe,
         as_copy: plan.as_copy,
     };
-    let mut plan = plan;
     plan.code = code_mode;
     Ok(Checked {
         pre,
