@@ -1167,9 +1167,9 @@ pub async fn health_loop(state: AppState) {
             let Some(state) = weak.upgrade() else { break };
             // Only once Machines is in use: on, paired, or its setup begun.
             // Nobody else pays for the probes.
-            let in_use = state.machines.store_read(|f| {
-                f.enabled || !f.peers.is_empty() || f.setup_step.is_some()
-            });
+            let in_use = state
+                .machines
+                .store_read(|f| f.enabled || !f.peers.is_empty() || f.setup_step.is_some());
             if in_use {
                 refresh(&state).await;
                 if transport::current(&state).await.is_some() {
