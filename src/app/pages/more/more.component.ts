@@ -31,6 +31,12 @@ const ENTRIES: Entry[] = [
     hint: 'Back up, restore and carry conversations to another computer',
   },
   {
+    path: '/machines',
+    icon: 'monitor',
+    label: 'Machines',
+    hint: 'Your other computers: their sessions, pairing, health',
+  },
+  {
     path: '/remote',
     icon: 'phone',
     label: 'Remote',

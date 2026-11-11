@@ -53,6 +53,18 @@ const pages: Routes = [
     loadComponent: () =>
       import('./pages/new-session/new-session.component').then((m) => m.NewSessionComponent),
   },
+  // Machines: your other computers (docs/PLAN-MACHINES.md); its setup is a
+  // page of its own.
+  {
+    path: 'machines',
+    loadComponent: () =>
+      import('./pages/machines/machines.component').then((m) => m.MachinesComponent),
+  },
+  {
+    path: 'machines/setup',
+    loadComponent: () =>
+      import('./pages/machines/setup.component').then((m) => m.MachinesSetupComponent),
+  },
   {
     path: 'remote',
     loadComponent: () => import('./pages/remote/remote.component').then((m) => m.RemoteComponent),

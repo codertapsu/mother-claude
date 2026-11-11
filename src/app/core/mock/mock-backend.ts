@@ -45,6 +45,7 @@ import { MockData } from './mock-data';
 import { MockDelete } from './mock-delete';
 import { MockMcp } from './mock-mcp';
 import { MockSwitch } from './mock-switch';
+import { MockMachines } from './mock-machines';
 import { MockTeams } from './mock-teams';
 import { MockMove } from './mock-move';
 import { mockFolder, mockFoldersLike, mockHostOs } from './mock-os';
@@ -135,6 +136,8 @@ class FixtureBackend implements MockBackend {
   /** Teams of sessions: templates, teams, boards (`/team-templates*`,
    * `/teams*`). */
   private readonly teams: MockTeams;
+  /** Machines: your other computers (`/machines*`). */
+  private readonly machines: MockMachines;
 
   constructor(readonly role: MockRole) {
     const now = Date.now();
@@ -265,6 +268,10 @@ class FixtureBackend implements MockBackend {
       remote: () => this.fx.remote,
       accountRef: (id) => (this.multi() ? this.accountRef(id) : undefined),
     });
+    this.machines = new MockMachines({
+      desktop: role === 'desktop',
+      broadcast: (frame) => this.broadcast(frame),
+    });
     this.teams = new MockTeams({
       desktop: role === 'desktop',
       broadcast: (frame) => this.broadcast(frame),
@@ -325,6 +332,9 @@ class FixtureBackend implements MockBackend {
     // Teams of sessions (docs/TEAMS.md)
     const teams = this.teams.route(path, method, body);
     if (teams) return teams;
+    // Machines (docs/PLAN-MACHINES.md)
+    const machines = this.machines.route(path, method, body);
+    if (machines) return machines;
 
     // Sessions
     if (path === '/sessions' && method === 'GET') {

@@ -38,6 +38,7 @@ import {
 } from './models';
 import { NowService } from './now.service';
 import { normalizeAccountUsages, normalizePlanUsage } from './plan-usage';
+import type { MachinesFrame } from './machines';
 import type { TeamsFrame } from './teams';
 import { TranscriptStore, TranscriptStoreOptions } from './transcript-store';
 import { computerNoun, tr } from './i18n/i18n';
@@ -273,6 +274,10 @@ export class RealtimeService {
    * "the templates changed" (docs/TEAMS.md). */
   private readonly teamsS = new Subject<TeamsFrame>();
   readonly teams$: Observable<TeamsFrame> = this.teamsS.asObservable();
+  /** Machines changed (pairing, peers, setup, settings…): refetch
+   * `/api/machines` (docs/PLAN-MACHINES.md). */
+  private readonly machinesS = new Subject<MachinesFrame>();
+  readonly machines$: Observable<MachinesFrame> = this.machinesS.asObservable();
 
   readonly hello$: Observable<HelloFrame> = this.helloS.asObservable();
   readonly sessions$: Observable<SessionsFrame> = this.sessionsS.asObservable();
@@ -874,6 +879,9 @@ export class RealtimeService {
         break;
       case 'teams':
         this.teamsS.next(frame);
+        break;
+      case 'machines':
+        this.machinesS.next(frame);
         break;
       default:
         // Unknown frame kinds from a newer server are ignored.

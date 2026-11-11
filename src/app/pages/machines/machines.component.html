@@ -1,0 +1,417 @@
+<div class="page">
+  <div class="page-head">
+    <h1>{{ 'Machines' | t }}</h1>
+    @if (isDesktop() && inUse()) {
+      <span class="spacer"></span>
+      <button type="button" class="btn" (click)="pairOpen.set(true)">
+        <mc-icon name="plus" [size]="15" /> {{ 'Pair a machine' | t }}
+      </button>
+      <button type="button" class="btn" (click)="joinOpen.set(true)">{{ 'Join…' | t }}</button>
+    }
+  </div>
+  <p class="lede">
+    {{
+      'Use your other computers from here: see and drive their sessions, and move a session — with its code — to another computer and back.'
+        | t
+    }}
+  </p>
+
+  @if (!isDesktop()) {
+    <p class="notice small">{{ 'Machines are set up from the desktop app.' | t }}</p>
+  }
+  @if (error()) {
+    <p class="notice error" role="alert">{{ error() }}</p>
+  }
+  @if (notice()) {
+    <p class="notice ok" role="status">{{ notice() }}</p>
+  }
+
+  @let v = view();
+  @if (!v) {
+    @if (loadError()) {
+      <p class="notice error" role="alert">{{ loadError() }}</p>
+    } @else {
+      <p class="muted" role="status">{{ 'Loading…' | t }}</p>
+    }
+  } @else {
+    <!-- ─────────────── Off (UX §1.1) ─────────────── -->
+    @if (!v.enabled) {
+      <section class="card off" [attr.aria-label]="'Machines is off' | t">
+        <h2 class="first">{{ 'Machines is off' | t }}</h2>
+        @if (v.setupStep !== null) {
+          <p>
+            {{
+              v.health.blockers === 1
+                ? ('Setup: step {n} of 7 — 1 required left' | t: { n: v.setupStep })
+                : ('Setup: step {n} of 7 — {k} required left'
+                  | t: { n: v.setupStep, k: v.health.blockers })
+            }}
+          </p>
+          @if (isDesktop()) {
+            <button type="button" class="btn primary" (click)="setUp()">
+              {{ 'Go on with the setup' | t }}
+            </button>
+          }
+        } @else {
+          <p>
+            {{
+              'Set it up once. It checks this {computer} and every computer you add, fixes what it can, and tests each pair before anything moves. About 10 minutes, with each computer at hand.'
+                | t: { computer: computer() }
+            }}
+          </p>
+          <p class="small">{{ 'You need:' | t }}</p>
+          <ul class="needs small">
+            <li>{{ 'Mother Claude 0.11 or newer on each computer' | t }}</li>
+            <li>{{ 'each computer switched on, with the internet or the same network' | t }}</li>
+            <li>{{ 'on Windows, an administrator’s OK once, for the firewall' | t }}</li>
+          </ul>
+          @if (isDesktop()) {
+            <button type="button" class="btn primary set-up" (click)="setUp()">
+              {{ 'Set up Machines' | t }}
+            </button>
+          }
+        }
+        @if (v.peers.length) {
+          <p class="muted small">
+            {{
+              v.peers.length === 1
+                ? ('Your paired computer stays paired while Machines is off.' | t)
+                : ('Your {n} paired computers stay paired while Machines is off.'
+                  | t: { n: v.peers.length })
+            }}
+          </p>
+        }
+      </section>
+    }
+
+    <!-- ─────────────── Health (UX §5) ─────────────── -->
+    @if (inUse()) {
+      <section class="card health" [attr.aria-label]="'Machines health' | t">
+        <div class="chead">
+          <h2 class="first">{{ 'Machines health' | t }}</h2>
+          <span
+            class="badge"
+            [class.ok]="v.health.state === 'ok'"
+            [class.warn]="v.health.state === 'warning'"
+            [class.danger]="v.health.state === 'blocker'"
+          >
+            {{ healthText() }}
+          </span>
+        </div>
+        <div class="row">
+          @if (v.health.at) {
+            <span class="muted small">{{
+              'Checked {time}' | t: { time: (v.health.at | relTime) }
+            }}</span>
+          }
+          <span class="spacer"></span>
+          @if (isDesktop()) {
+            <button type="button" class="btn small" [disabled]="checking()" (click)="recheck()">
+              <mc-icon name="refresh" [size]="14" />
+              {{ checking() ? ('Checking…' | t) : ('Re-check' | t) }}
+            </button>
+          }
+        </div>
+        @if (v.health.blockers || v.health.warnings) {
+          <mc-machine-checks
+            [checks]="selfChecks()"
+            [failingOnly]="true"
+            [busy]="busy()"
+            [readonly]="!isDesktop()"
+            [label]="thisTitle()"
+            (fix)="fix($event)"
+            (manual)="manual($event)"
+          />
+          @for (pc of peerChecks(); track pc.machine) {
+            @if (pc.error) {
+              <p class="muted small">
+                {{ '{name}: {error}' | t: { name: pc.name, error: pc.error } }}
+              </p>
+            }
+            <mc-machine-checks
+              [checks]="pc.checks"
+              [failingOnly]="true"
+              [remote]="true"
+              [machineName]="pc.name"
+              [readonly]="!isDesktop()"
+              [label]="pc.name"
+              (ask)="ask(pc.machine, pc.name, $event)"
+            />
+          }
+        }
+      </section>
+    }
+
+    <!-- ─────────────── A suggested setting (plan §5.3) ─────────────── -->
+    @if (v.offer; as o) {
+      <section class="callout warn" role="status">
+        <div class="callout-body">
+          <p>
+            {{
+              '{name} uses another relay setting: {relay}. Two computers on different relays may never meet.'
+                | t
+                  : {
+                      name: o.fromName,
+                      relay: relay({ relay: o.relay, keepAwake: v.settings.keepAwake }),
+                    }
+            }}
+          </p>
+          @if (isDesktop()) {
+            <div class="row">
+              <button
+                type="button"
+                class="btn primary small"
+                [disabled]="busy() === 'offer'"
+                (click)="answerOffer(true)"
+              >
+                {{ 'Use it here too' | t }}
+              </button>
+              <button
+                type="button"
+                class="btn ghost small"
+                [disabled]="busy() === 'offer'"
+                (click)="answerOffer(false)"
+              >
+                {{ 'Keep mine' | t }}
+              </button>
+            </div>
+          }
+        </div>
+      </section>
+    }
+
+    <!-- ─────────────── This computer ─────────────── -->
+    <section class="card self" [attr.aria-label]="thisTitle()">
+      <div class="chead">
+        <h2 class="first">{{ thisTitle() }}</h2>
+      </div>
+      @if (renaming() === 'self') {
+        <form class="row" (ngSubmit)="saveRename('self')">
+          <label class="field grow">
+            <span class="field-label">{{ 'Name' | t }}</span>
+            <input
+              name="selfName"
+              maxlength="40"
+              [ngModel]="renameText()"
+              (ngModelChange)="renameText.set($event)"
+            />
+          </label>
+          <button type="submit" class="btn primary small">{{ 'Save' | t }}</button>
+          <button type="button" class="btn ghost small" (click)="renaming.set(null)">
+            {{ 'Cancel' | t }}
+          </button>
+        </form>
+      } @else {
+        <div class="row">
+          <strong class="name">{{ v.self.name }}</strong>
+          <span class="spacer"></span>
+          @if (isDesktop()) {
+            <button
+              type="button"
+              class="btn ghost small"
+              (click)="startRename('self', v.self.name)"
+            >
+              {{ 'Rename' | t }}
+            </button>
+          }
+        </div>
+      }
+      <p class="muted small">{{ versionsLine(v.self) }}</p>
+      <p class="muted small mono">{{ 'Key {key}' | t: { key: v.self.key } }}</p>
+    </section>
+
+    <!-- ─────────────── Paired computers ─────────────── -->
+    @for (p of peers(); track p.id) {
+      <section class="card peer" [attr.aria-label]="p.name">
+        <div class="chead">
+          @if (renaming() === p.id) {
+            <form class="row grow" (ngSubmit)="saveRename(p.id)">
+              <label class="field grow">
+                <span class="field-label">{{
+                  'Name on this {computer}' | t: { computer: computer() }
+                }}</span>
+                <input
+                  name="peerName"
+                  maxlength="40"
+                  [ngModel]="renameText()"
+                  (ngModelChange)="renameText.set($event)"
+                />
+              </label>
+              <button type="submit" class="btn primary small">{{ 'Save' | t }}</button>
+              <button type="button" class="btn ghost small" (click)="renaming.set(null)">
+                {{ 'Cancel' | t }}
+              </button>
+            </form>
+          } @else {
+            <h2 class="first name">{{ p.name }}</h2>
+            <span class="status" [class.online]="p.online">
+              @if (p.online) {
+                <span class="dot" aria-hidden="true">●</span>
+                {{ 'Online · {path}' | t: { path: path(p) } }}
+              } @else {
+                <span class="dot" aria-hidden="true">○</span>
+                @if (p.lastSeen) {
+                  {{ 'Offline · seen {time}' | t: { time: (p.lastSeen | relTime) } }}
+                } @else {
+                  {{ 'Offline' | t }}
+                }
+              }
+            </span>
+          }
+        </div>
+        <p class="muted small">{{ versionsLine(p) }}</p>
+        @if (p.problem === 'olderApp') {
+          <p class="notice warn small">
+            {{
+              'Older than this {computer}’s: its sessions show, but nothing moves to or from it until it is updated.'
+                | t: { computer: computer() }
+            }}
+          </p>
+        } @else if (p.problem === 'newerApp') {
+          <p class="notice warn small">
+            {{
+              'Newer than this {computer}’s: update Mother Claude here.'
+                | t: { computer: computer() }
+            }}
+          </p>
+        }
+
+        <div class="grants">
+          <span class="small">{{
+            'On this {computer}, {name} may' | t: { computer: computer(), name: p.name }
+          }}</span>
+          @if (editingGrants() === p.id && draftGrants(); as draft) {
+            <mc-grants-matrix
+              [grants]="draft"
+              [name]="p.name"
+              [editable]="true"
+              [disabled]="busy() === p.id"
+              (changed)="draftGrants.set($event)"
+            />
+            <div class="row">
+              <button type="button" class="btn primary small" (click)="saveGrants(p)">
+                {{ 'Save' | t }}
+              </button>
+              <button type="button" class="btn ghost small" (click)="editingGrants.set(null)">
+                {{ 'Cancel' | t }}
+              </button>
+            </div>
+          } @else {
+            <span class="chips">
+              @for (g of grantNames; track g) {
+                <span class="gchip" [class.off]="!p.grants[g].lan && !p.grants[g].internet">
+                  {{ grantLabel(g) }} {{ grantVal(p.grants, g) }}
+                </span>
+              }
+            </span>
+            @if (isDesktop()) {
+              <button type="button" class="btn ghost small" (click)="startGrants(p)">
+                {{ 'Change' | t }}
+              </button>
+            }
+          }
+        </div>
+        <div class="grants">
+          <span class="small">{{
+            'On {name}, this {computer} may' | t: { computer: computer(), name: p.name }
+          }}</span>
+          @if (p.theirGrants; as their) {
+            <span class="chips">
+              @for (g of grantNames; track g) {
+                <span class="gchip" [class.off]="!their[g].lan && !their[g].internet">
+                  {{ grantLabel(g) }} {{ grantVal(their, g) }}
+                </span>
+              }
+            </span>
+            <span class="muted small">{{ '(changed on {name})' | t: { name: p.name } }}</span>
+          } @else {
+            <span class="muted small">{{ 'Not known yet.' | t }}</span>
+          }
+        </div>
+
+        <div class="row foot">
+          <span class="muted small mono">{{ 'Key {key}' | t: { key: p.key } }}</span>
+          <span class="muted small"
+            >· {{ 'paired {time}' | t: { time: (p.pairedAt | relTime) } }}</span
+          >
+          <span class="spacer"></span>
+          @if (isDesktop() && renaming() !== p.id) {
+            <button
+              type="button"
+              class="btn ghost small"
+              [disabled]="busy() === p.id"
+              (click)="startRename(p.id, p.name)"
+            >
+              {{ 'Rename' | t }}
+            </button>
+            <button
+              type="button"
+              class="btn small"
+              [class.danger]="armed('revoke:' + p.id)"
+              [disabled]="busy() === p.id"
+              (click)="revoke(p)"
+            >
+              {{ armed('revoke:' + p.id) ? ('Tap again to revoke' | t) : ('Revoke' | t) }}
+            </button>
+          }
+        </div>
+      </section>
+    }
+
+    <!-- ─────────────── Options ─────────────── -->
+    @if (inUse()) {
+      <section class="card options" [attr.aria-label]="'Options' | t">
+        <div class="chead">
+          <h2 class="first">{{ 'Options' | t }}</h2>
+          <span class="spacer"></span>
+          @if (isDesktop() && !editingOptions()) {
+            <button type="button" class="btn ghost small" (click)="editingOptions.set(true)">
+              {{ 'Change' | t }}
+            </button>
+          }
+        </div>
+        @if (editingOptions()) {
+          <mc-machines-options
+            [settings]="v.settings"
+            [cancellable]="true"
+            (saved)="optionsSaved()"
+            (cancelled)="editingOptions.set(false)"
+          />
+        } @else {
+          <dl class="kv">
+            <dt>{{ 'Relay' | t }}</dt>
+            <dd>{{ relay(v.settings) }}</dd>
+            <dt>{{ 'Keep awake' | t }}</dt>
+            <dd>
+              {{
+                v.settings.keepAwake
+                  ? ('while another computer uses this {computer}' | t: { computer: computer() })
+                  : ('Off' | t)
+              }}
+            </dd>
+          </dl>
+        }
+      </section>
+    }
+
+    @if (isDesktop() && v.enabled) {
+      <div class="row page-foot">
+        <a class="btn" routerLink="/machines/setup">{{ 'Run the setup again' | t }}</a>
+        <span class="spacer"></span>
+        <button
+          type="button"
+          class="btn ghost"
+          [disabled]="busy() === 'enable'"
+          (click)="turnOff()"
+        >
+          {{ 'Turn Machines off' | t }}
+        </button>
+      </div>
+    }
+  }
+
+  @if (isDesktop()) {
+    <mc-pair-machine-sheet [open]="pairOpen()" (closed)="pairOpen.set(false)" />
+    <mc-join-machine-sheet [open]="joinOpen()" (closed)="joinOpen.set(false)" />
+  }
+</div>

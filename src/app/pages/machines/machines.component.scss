@@ -1,0 +1,81 @@
+.page-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+.chead {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.35rem;
+}
+.chead h2 {
+  margin: 0;
+}
+.name {
+  font-size: 1rem;
+}
+.off {
+  background: linear-gradient(135deg, var(--accent-soft), transparent 70%), var(--panel);
+  border-color: var(--accent);
+}
+.off .set-up {
+  margin-top: 0.4rem;
+}
+.needs {
+  margin: 0.2rem 0 0.6rem;
+  padding-left: 1.2rem;
+}
+.health mc-machine-checks {
+  display: block;
+  margin-top: 0.4rem;
+}
+.status {
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+.status.online {
+  color: var(--green);
+}
+.grants {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0.45rem 0;
+}
+.grants mc-grants-matrix {
+  flex: 1 1 100%;
+}
+.chips {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+}
+.gchip {
+  font-size: 0.78rem;
+  padding: 0.1rem 0.45rem;
+  border-radius: 0.6rem;
+  border: 1px solid var(--green-border);
+  background: var(--green-soft);
+  color: var(--green);
+}
+.gchip.off {
+  border-color: var(--border);
+  background: transparent;
+  color: var(--faint);
+}
+.foot {
+  margin-top: 0.3rem;
+}
+.grow {
+  flex: 1 1 12rem;
+}
+.page-foot {
+  margin-top: 1rem;
+}
+.callout {
+  margin: 0.5rem 0;
+}

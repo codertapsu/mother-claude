@@ -1,0 +1,305 @@
+<div class="page">
+  <div class="page-head">
+    <a class="btn ghost small" routerLink="/machines" [attr.aria-label]="'Back to Machines' | t">
+      <mc-icon name="back" [size]="15" /> {{ 'Machines' | t }}
+    </a>
+    <h1>{{ 'Set up Machines' | t }}</h1>
+  </div>
+
+  @if (!isDesktop()) {
+    <p class="notice small">{{ 'Machines are set up from the desktop app.' | t }}</p>
+  } @else {
+    <nav class="rail" [attr.aria-label]="'Setup steps' | t">
+      <ol>
+        @for (s of steps(); track s.n) {
+          <li>
+            <button
+              type="button"
+              class="rstep"
+              [class.now]="step() === s.n"
+              [class.done]="step() > s.n"
+              [attr.aria-current]="step() === s.n ? 'step' : null"
+              (click)="go(s.n)"
+            >
+              <span class="num" aria-hidden="true">{{ s.n }}</span>
+              <span class="rtitle">{{ s.title }}</span>
+            </button>
+          </li>
+        }
+      </ol>
+    </nav>
+
+    @if (error()) {
+      <p class="notice error" role="alert">{{ error() }}</p>
+    }
+    @if (notice()) {
+      <p class="notice ok" role="status">{{ notice() }}</p>
+    }
+
+    <section class="card step-body" [attr.aria-label]="steps()[step() - 1].title">
+      <h2 class="first">{{ steps()[step() - 1].title }}</h2>
+      @switch (step()) {
+        <!-- ─────────────── 1. This computer ─────────────── -->
+        @case (1) {
+          <p class="muted small">
+            {{ 'Each check says why it matters; required ones come first.' | t }}
+          </p>
+          <div class="row">
+            <span class="spacer"></span>
+            <button type="button" class="btn small" [disabled]="checking()" (click)="recheck()">
+              <mc-icon name="refresh" [size]="14" />
+              {{ checking() ? ('Checking…' | t) : ('Re-check' | t) }}
+            </button>
+          </div>
+          <mc-machine-checks
+            [checks]="selfChecks()"
+            [busy]="busy()"
+            [label]="steps()[0].title"
+            (fix)="fix($event)"
+            (manual)="manual($event)"
+          />
+        }
+
+        <!-- ─────────────── 2. Your machines ─────────────── -->
+        @case (2) {
+          <p>
+            {{
+              'On each other computer: install Mother Claude 0.11 or newer, then open Machines › Join and type the code this {computer} shows.'
+                | t: { computer: computer() }
+            }}
+          </p>
+          <div class="row">
+            <button type="button" class="btn primary" (click)="pairOpen.set(true)">
+              <mc-icon name="plus" [size]="15" /> {{ 'Pair a machine' | t }}
+            </button>
+            <button type="button" class="btn" (click)="joinOpen.set(true)">
+              {{ 'Join…' | t }}
+            </button>
+          </div>
+          @if (peers().length) {
+            <ul class="peers">
+              @for (p of peers(); track p.id) {
+                <li>
+                  <strong>{{ p.name }}</strong>
+                  <span class="muted small">
+                    @if (p.online) {
+                      {{ 'Online · {path}' | t: { path: path(p) } }}
+                    } @else {
+                      {{ 'Offline' | t }}
+                    }
+                  </span>
+                </li>
+              }
+            </ul>
+          } @else {
+            <p class="muted small">{{ 'No other computer is paired yet.' | t }}</p>
+          }
+        }
+
+        <!-- ─────────────── 3. Every machine ─────────────── -->
+        @case (3) {
+          <p class="muted small">
+            {{
+              'A fix that needs someone at another computer is asked for there: nothing changes on a computer until it is confirmed on that computer.'
+                | t
+            }}
+          </p>
+          <div class="row">
+            <span class="spacer"></span>
+            <button type="button" class="btn small" [disabled]="checking()" (click)="recheck()">
+              <mc-icon name="refresh" [size]="14" />
+              {{ checking() ? ('Checking…' | t) : ('Re-check' | t) }}
+            </button>
+          </div>
+          <div class="columns">
+            <div class="column">
+              <h3>{{ thisTitle() }}</h3>
+              <mc-machine-checks
+                [checks]="selfChecks()"
+                [busy]="busy()"
+                [label]="thisTitle()"
+                (fix)="fix($event)"
+                (manual)="manual($event)"
+              />
+            </div>
+            @for (pc of peerChecks(); track pc.machine) {
+              <div class="column">
+                <h3>{{ pc.name }}</h3>
+                @if (pc.error) {
+                  <p class="notice warn small">
+                    {{ "Can't read its checks now: {error}" | t: { error: pc.error } }}
+                  </p>
+                }
+                <mc-machine-checks
+                  [checks]="pc.checks"
+                  [remote]="true"
+                  [machineName]="pc.name"
+                  [busy]="busy()"
+                  [label]="pc.name"
+                  (ask)="ask(pc.machine, pc.name, $event)"
+                />
+              </div>
+            } @empty {
+              <p class="muted small">{{ 'Pair a computer first (step 2).' | t }}</p>
+            }
+          </div>
+        }
+
+        <!-- ─────────────── 4. What each may do ─────────────── -->
+        @case (4) {
+          @for (p of peers(); track p.id) {
+            <div class="grant-block">
+              <h3>
+                {{
+                  'What {name} may do on this {computer}'
+                    | t: { name: p.name, computer: computer() }
+                }}
+              </h3>
+              <mc-grants-matrix
+                [grants]="draftOf(p)"
+                [name]="p.name"
+                [editable]="true"
+                [disabled]="busy() === p.id"
+                (changed)="setDraft(p, $event)"
+              />
+              <div class="row">
+                <button
+                  type="button"
+                  class="btn primary small"
+                  [disabled]="!changed(p) || busy() === p.id"
+                  (click)="saveGrants(p)"
+                >
+                  {{ 'Save' | t }}
+                </button>
+              </div>
+              <p class="small">
+                {{ 'On {name}, this {computer} may:' | t: { name: p.name, computer: computer() } }}
+                @if (p.theirGrants; as their) {
+                  @for (g of grantNames; track g) {
+                    <span class="gchip" [class.off]="!their[g].lan && !their[g].internet"
+                      >{{ grantLabel(g) }} {{ grantVal(their, g) }}</span
+                    >
+                  }
+                } @else {
+                  <span class="muted">{{ 'Not known yet.' | t }}</span>
+                }
+              </p>
+              <p class="muted small">{{ 'Changed on {name} only.' | t: { name: p.name } }}</p>
+            </div>
+          } @empty {
+            <p class="muted small">{{ 'Pair a computer first (step 2).' | t }}</p>
+          }
+        }
+
+        <!-- ─────────────── 5. Accounts and folders ─────────────── -->
+        @case (5) {
+          <p class="muted">
+            {{
+              'Comes with moving sessions: accounts matched by name on every computer, and the folders that map your projects.'
+                | t
+            }}
+          </p>
+        }
+
+        <!-- ─────────────── 6. Options ─────────────── -->
+        @case (6) {
+          @if (view(); as v) {
+            <mc-machines-options [settings]="v.settings" (saved)="optionsSaved()" />
+          }
+        }
+
+        <!-- ─────────────── 7. Test, then turn on ─────────────── -->
+        @case (7) {
+          <p class="muted small">
+            {{ 'A connection and a 20 MiB transfer with every paired computer.' | t }}
+          </p>
+          <div class="row">
+            <button
+              type="button"
+              class="btn"
+              [disabled]="testing() || !peers().length"
+              (click)="test()"
+            >
+              {{ testing() ? ('Testing…' | t) : ('Run the test' | t) }}
+            </button>
+          </div>
+          @if (lastTests().length) {
+            <table class="tests">
+              <caption class="visually-hidden">
+                {{
+                  'Readiness test' | t
+                }}
+              </caption>
+              <thead>
+                <tr>
+                  <th scope="col">{{ 'Computer' | t }}</th>
+                  <th scope="col">{{ 'Connect' | t }}</th>
+                  <th scope="col">{{ 'Transfer' | t }}</th>
+                </tr>
+              </thead>
+              <tbody>
+                @for (r of lastTests(); track r.machine) {
+                  <tr>
+                    <th scope="row">{{ r.name }}</th>
+                    @for (id of ['connect', 'transfer']; track id) {
+                      @let line = lineOf(r, id);
+                      <td [attr.data-state]="line?.state">
+                        <span aria-hidden="true">{{ stateMark(line?.state) }}</span>
+                        <span class="visually-hidden">{{ stateWord(line?.state) }}</span>
+                        <span class="small">{{ testDetail(line?.detail) }}</span>
+                        @if (id === 'connect' && line?.ms !== null && line?.ms !== undefined) {
+                          <span class="muted small">{{ '{ms} ms' | t: { ms: line?.ms } }}</span>
+                        }
+                      </td>
+                    }
+                  </tr>
+                }
+              </tbody>
+            </table>
+          }
+          <div class="turn-on">
+            @if (blockers() > 0) {
+              <p class="small" id="turn-on-reason">
+                {{
+                  blockers() === 1
+                    ? ('1 required check is left: fix it first.' | t)
+                    : ('{n} required checks are left: fix them first.' | t: { n: blockers() })
+                }}
+              </p>
+            }
+            @if (refused().length) {
+              <ul class="refused" role="alert">
+                @for (b of refused(); track b.id) {
+                  <li>
+                    <strong>{{ blockerTitle(b) }}</strong> — {{ blockerDetail(b) }}
+                  </li>
+                }
+              </ul>
+            }
+            <button
+              type="button"
+              class="btn primary"
+              [disabled]="blockers() > 0 || busy() === 'enable'"
+              [attr.aria-describedby]="blockers() > 0 ? 'turn-on-reason' : null"
+              (click)="turnOn()"
+            >
+              {{ 'Turn on Machines' | t }}
+            </button>
+          </div>
+        }
+      }
+      <div class="row nav">
+        <button type="button" class="btn ghost" [disabled]="step() === 1" (click)="go(step() - 1)">
+          {{ 'Back' | t }}
+        </button>
+        <span class="spacer"></span>
+        @if (step() < 7) {
+          <button type="button" class="btn" (click)="go(step() + 1)">{{ 'Next' | t }}</button>
+        }
+      </div>
+    </section>
+
+    <mc-pair-machine-sheet [open]="pairOpen()" (closed)="pairOpen.set(false)" />
+    <mc-join-machine-sheet [open]="joinOpen()" (closed)="joinOpen.set(false)" />
+  }
+</div>

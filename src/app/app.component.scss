@@ -176,6 +176,13 @@
   color: var(--green);
   border-color: var(--panel);
 }
+/* Machines health: a required check fails (no number to show). */
+.count-badge.dot {
+  min-width: 0.6rem;
+  width: 0.6rem;
+  height: 0.6rem;
+  padding: 0;
+}
 .faint {
   color: var(--faint);
 }

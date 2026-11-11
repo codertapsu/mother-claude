@@ -23,6 +23,14 @@ import { ConfigService } from './config.service';
 import { computerNoun, tr } from './i18n/i18n';
 import { activeMock } from './mock/mock-api';
 import type { DeleteBody } from './delete-data';
+import type {
+  Grants,
+  MachinesSettings,
+  MachinesView,
+  NearbyMachine,
+  Readiness,
+  SetupView,
+} from './machines';
 import type { MoveBody } from './move-data';
 import type {
   ObservedEvent,
@@ -184,6 +192,15 @@ import {
  *   Servers   addBridgeServer(body) · updateBridgeServer(id, patch) ·
  *             removeBridgeServer(id) · startBridgeServer(id, defaults) ·
  *             stopBridgeServer(id) · setBridgeServerThread(id, threadId)
+ *   Machines  getMachines() · renameThisMachine(name) · startPairing() ·
+ *             cancelPairing() · joinMachine(code, name?) ·
+ *             confirmPairing(grants, digits?) · nearbyMachines() ·
+ *             getMachinesSetup(fresh?) · recheckMachines() ·
+ *             fixMachineCheck(check) · askMachineFix(machine, check) ·
+ *             saveSetupProgress(step) · testMachines(machine?) ·
+ *             getMachinesSettings() · saveMachinesSettings(patch) ·
+ *             answerSettingsOffer(accept) · setMachinesEnabled(enabled) ·
+ *             updateMachine(id, patch) · revokeMachine(id)
  */
 @Injectable({ providedIn: 'root' })
 export class ApiService {
@@ -1177,6 +1194,117 @@ export class ApiService {
   /** Agent-team events interactive sessions reported (observe only). */
   getTeamEvents(): Promise<{ events: ObservedEvent[] }> {
     return this.req<{ events: ObservedEvent[] }>('/teams/events');
+  }
+
+  // ─── Machines: your other computers (docs/PLAN-MACHINES.md) ─────────────
+
+  getMachines(): Promise<MachinesView> {
+    return this.req<MachinesView>('/machines');
+  }
+
+  /** Desktop: this computer's name as the others see it. */
+  renameThisMachine(name: string): Promise<MachinesView> {
+    return this.req<MachinesView>('/machines/self', {
+      method: 'PATCH',
+      body: JSON.stringify({ name }),
+    });
+  }
+
+  /** Desktop: a new pairing code (replacing any pairing in progress). */
+  startPairing(): Promise<MachinesView> {
+    return this.post<MachinesView>('/machines/pair', {});
+  }
+
+  /** Desktop: cancel the pairing in progress (the other side is told). */
+  cancelPairing(): Promise<MachinesView> {
+    return this.req<MachinesView>('/machines/pair', { method: 'DELETE' });
+  }
+
+  /** Desktop: join the computer showing `code`; `name` names this one. */
+  joinMachine(code: string, name?: string): Promise<MachinesView> {
+    return this.post<MachinesView>('/machines/join', name ? { code, name } : { code });
+  }
+
+  /** Desktop: the numbers match — with what the other may do here (and the
+   * typed digits when it joined over the internet). */
+  confirmPairing(grants: Grants, digits?: string): Promise<MachinesView> {
+    return this.post<MachinesView>('/machines/confirm', digits ? { grants, digits } : { grants });
+  }
+
+  /** Desktop: computers on this network showing a pairing code. */
+  nearbyMachines(): Promise<{ machines: NearbyMachine[] }> {
+    return this.req<{ machines: NearbyMachine[] }>('/machines/nearby');
+  }
+
+  /** Every computer's checks; `fresh` runs them again first. */
+  getMachinesSetup(fresh = false): Promise<SetupView> {
+    return this.req<SetupView>(`/machines/setup${query({ fresh: fresh || undefined })}`);
+  }
+
+  /** Desktop: run every check again, here and on the paired computers. */
+  recheckMachines(): Promise<SetupView> {
+    return this.post<SetupView>('/machines/setup/check', {});
+  }
+
+  /** Desktop: run a check's fix on this computer. */
+  fixMachineCheck(check: string): Promise<SetupView> {
+    return this.post<SetupView>('/machines/setup/fix', { check });
+  }
+
+  /** Desktop: ask another computer to show one of its fixes to whoever is
+   * at it. */
+  askMachineFix(machine: string, check: string): Promise<{ asked: boolean }> {
+    return this.post<{ asked: boolean }>('/machines/setup/ask', { machine, check });
+  }
+
+  /** Desktop: the setup step left at (null when it is done). */
+  saveSetupProgress(step: number | null): Promise<MachinesView> {
+    return this.req<MachinesView>('/machines/setup/progress', {
+      method: 'PUT',
+      body: JSON.stringify({ step }),
+    });
+  }
+
+  /** Desktop: the readiness test with one computer, or every one. */
+  testMachines(machine?: string): Promise<{ results: Readiness[] }> {
+    return this.post<{ results: Readiness[] }>('/machines/test', machine ? { machine } : {});
+  }
+
+  getMachinesSettings(): Promise<MachinesSettings> {
+    return this.req<MachinesSettings>('/machines/settings');
+  }
+
+  /** Desktop: the relay and keeping awake. */
+  saveMachinesSettings(patch: Partial<MachinesSettings>): Promise<MachinesSettings> {
+    return this.req<MachinesSettings>('/machines/settings', {
+      method: 'PUT',
+      body: JSON.stringify(patch),
+    });
+  }
+
+  /** Desktop: take or leave another computer's suggested settings. */
+  answerSettingsOffer(accept: boolean): Promise<MachinesView> {
+    return this.post<MachinesView>('/machines/settings/offer', { accept });
+  }
+
+  /** Desktop: turn Machines on (refused while a required check fails:
+   * `409 machines_blocked` with `blockers`) or off. */
+  setMachinesEnabled(enabled: boolean): Promise<MachinesView> {
+    return this.post<MachinesView>('/machines/enable', { enabled });
+  }
+
+  /** Desktop: rename a paired computer here (`''` gives back its own name),
+   * or change what it may do here. */
+  updateMachine(id: string, patch: { name?: string; grants?: Grants }): Promise<MachinesView> {
+    return this.req<MachinesView>(`/machines/${enc(id)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(patch),
+    });
+  }
+
+  /** Desktop: forget a paired computer and cut its connections. */
+  revokeMachine(id: string): Promise<MachinesView> {
+    return this.req<MachinesView>(`/machines/${enc(id)}`, { method: 'DELETE' });
   }
 
   // ──────────────────────────────────────────────────────────── Transport

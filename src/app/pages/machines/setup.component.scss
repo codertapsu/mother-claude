@@ -1,0 +1,135 @@
+.page-head {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+.rail ol {
+  list-style: none;
+  margin: 0 0 0.75rem;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+.rstep {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.3rem 0.6rem 0.3rem 0.35rem;
+  border-radius: 1rem;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 0.82rem;
+}
+.rstep.now {
+  border-color: var(--accent);
+  color: var(--text);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+.rstep.done {
+  color: var(--text);
+}
+.num {
+  display: grid;
+  place-items: center;
+  width: 1.4rem;
+  height: 1.4rem;
+  border-radius: 50%;
+  border: 1.5px solid var(--border-strong);
+  font-weight: 700;
+  font-size: 0.75rem;
+}
+.rstep.now .num {
+  border-color: var(--accent);
+  color: var(--accent-text);
+}
+.rstep.done .num {
+  border-color: var(--green-border);
+  background: var(--green-soft);
+  color: var(--green);
+}
+.step-body h2 {
+  margin-bottom: 0.4rem;
+}
+.columns {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+  gap: 1rem;
+  margin-top: 0.5rem;
+}
+.column h3,
+.grant-block h3 {
+  margin: 0 0 0.3rem;
+  font-size: 0.9rem;
+}
+.peers {
+  list-style: none;
+  margin: 0.6rem 0 0;
+  padding: 0;
+}
+.peers li {
+  display: flex;
+  gap: 0.5rem;
+  align-items: baseline;
+  padding: 0.3rem 0;
+}
+.grant-block {
+  padding: 0.6rem 0;
+  border-bottom: 1px solid var(--border);
+}
+.grant-block:last-child {
+  border-bottom: 0;
+}
+.gchip {
+  display: inline-block;
+  font-size: 0.78rem;
+  padding: 0.05rem 0.4rem;
+  margin: 0.1rem 0.15rem;
+  border-radius: 0.6rem;
+  border: 1px solid var(--green-border);
+  background: var(--green-soft);
+  color: var(--green);
+}
+.gchip.off {
+  border-color: var(--border);
+  background: transparent;
+  color: var(--faint);
+}
+.tests {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0.6rem 0;
+}
+.tests th,
+.tests td {
+  text-align: left;
+  padding: 0.35rem 0.4rem;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+.tests td {
+  display: table-cell;
+}
+.tests td > span {
+  margin-right: 0.35rem;
+}
+.tests td[data-state='ok'] > span:first-child {
+  color: var(--green);
+}
+.tests td[data-state='failed'] > span:first-child {
+  color: var(--red);
+}
+.turn-on {
+  margin-top: 0.8rem;
+}
+.refused {
+  margin: 0.3rem 0 0.6rem;
+  padding-left: 1.2rem;
+  color: var(--red);
+}
+.nav {
+  margin-top: 1rem;
+}

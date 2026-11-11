@@ -1817,7 +1817,9 @@ export type ServerFrame =
   | PingFrame
   | PongFrame
   // Teams of sessions (`core/teams.ts`).
-  | import('./teams').TeamsFrame;
+  | import('./teams').TeamsFrame
+  // Machines: your other computers (`core/machines.ts`).
+  | import('./machines').MachinesFrame;
 
 export type ClientFrame =
   | { t: 'auth'; token: string }

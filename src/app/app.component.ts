@@ -1,4 +1,4 @@
-import { Component, computed, effect, inject, signal } from '@angular/core';
+import { Component, computed, effect, inject, signal, untracked } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { NavigationEnd, Router, RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
 import { filter, map } from 'rxjs';
@@ -14,6 +14,7 @@ import { sessionStorageGet, storageGet, storageSet } from './core/platform';
 import { PushService } from './core/push.service';
 import { RealtimeService, connectionDetail, connectionLabel } from './core/realtime.service';
 import { I18nService } from './core/i18n/i18n.service';
+import { MachinesService } from './core/machines.service';
 import { tr } from './core/i18n/i18n';
 import { TPipe } from './core/i18n/t.pipe';
 import { ThemeService } from './core/theme.service';
@@ -38,6 +39,7 @@ const WELCOME_SEEN_KEY = 'mc_welcome_seen';
 /** Sections reached through the phone's "More" tab. */
 const MORE_SECTIONS = [
   'more',
+  'machines',
   'new',
   'remote',
   'api',
@@ -58,6 +60,7 @@ const TITLES: Record<string, string> = {
   agents: 'Agents',
   more: 'More',
   new: 'New session',
+  machines: 'Machines',
   remote: 'Remote',
   api: 'API',
   browser: 'Browser',
@@ -78,7 +81,8 @@ interface NavItem {
   label: string;
   icon: IconName;
   exact?: boolean;
-  badge?: 'pending' | 'agents';
+  /** A count, or the Machines health dot. */
+  badge?: 'pending' | 'agents' | 'machines';
   desktopOnly?: boolean;
   /** The sidebar heading it starts or continues (none: the work itself). */
   group?: string;
@@ -125,6 +129,9 @@ export class AppComponent {
   /** Started here: the language follows the desktop's system name too. */
   private readonly i18n = inject(I18nService);
   protected readonly attention = inject(AttentionService);
+  /** Machines' health, for the sidebar's dot (desktop). */
+  private readonly machines = inject(MachinesService);
+  protected readonly machinesAlarm = this.machines.alarm;
 
   protected readonly ready = signal(false);
   protected readonly connection = this.realtime.connection;
@@ -174,6 +181,7 @@ export class AppComponent {
     { path: '/teams', label: 'Teams', icon: 'layers' },
     { path: '/accounts', label: 'Accounts', icon: 'user', group: 'Your data' },
     { path: '/backup', label: 'Backup & sync', icon: 'cloud', group: 'Your data' },
+    { path: '/machines', label: 'Machines', icon: 'monitor', badge: 'machines', group: 'Connect' },
     { path: '/remote', label: 'Remote', icon: 'phone', desktopOnly: true, group: 'Connect' },
     { path: '/browser', label: 'Browser', icon: 'globe', group: 'Connect' },
     { path: '/api', label: 'API', icon: 'code', group: 'Connect' },
@@ -235,6 +243,13 @@ export class AppComponent {
         this.notices.announce(tr('Connection: {state}', { state: connectionLabel(c) }));
       }
       lastConn = c;
+    });
+
+    // The desktop's sidebar shows Machines' health: keep its summary current.
+    effect(() => {
+      if (this.ready() && this.auth.state() === 'paired' && this.isDesktop()) {
+        untracked(() => this.machines.start());
+      }
     });
 
     // Pairing state drives the socket and the /pair redirect.
@@ -332,6 +347,9 @@ export class AppComponent {
     }
     if (item.badge === 'agents' && this.agentsRunning()) {
       return tr('{label}, {n} running', { label, n: this.agentsRunning() });
+    }
+    if (item.badge === 'machines' && this.machinesAlarm()) {
+      return tr('{label}, needs attention', { label });
     }
     return null;
   }

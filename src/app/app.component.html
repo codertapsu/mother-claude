@@ -26,6 +26,8 @@
               <span class="count-badge">{{ pendingCount() }}</span>
             } @else if (item.badge === 'agents' && agentsRunning()) {
               <span class="count-badge soft">{{ agentsRunning() }}</span>
+            } @else if (item.badge === 'machines' && machinesAlarm()) {
+              <span class="count-badge dot" aria-hidden="true"></span>
             }
           </a>
         }
