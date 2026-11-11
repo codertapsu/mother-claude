@@ -4922,6 +4922,7 @@ pub fn plan_between(
 
 pub mod ops;
 pub mod pairs;
+pub mod session_pack;
 pub mod storage;
 
 #[cfg(test)]
