@@ -986,6 +986,11 @@ while a transfer ran (§5.3: bulk transfers yield to the API).
 
 ### Phase 1 — set up and pair machines (≈ 4 weeks)
 
+*Built on the `machines` branch (2026-11-11): `src-tauri/src/machines/`,
+the Machines page and setup, `tests/machines.rs`; the user guide is
+[MACHINES.md](MACHINES.md). Its exit test, by hand on two computers, is
+next.*
+
 - `machines/identity.rs`, `store.rs`, `pairing.rs`, `transport.rs`, `protocol.rs`.
 - `server::context`: `Ingress::Peer`, `Principal::Peer`; `server::auth` guards; the allow-list of routes a peer may reach.
 - API §7 (pairing, list, grants, revoke, settings, enable); `/peer/hello`, `/peer/settings`.
@@ -997,6 +1002,12 @@ while a transfer ran (§5.3: bulk transfers yield to the API).
 - Exit: the Mac and Windows pair on the LAN and across networks; each lists the other online; **a fresh Windows user on a Public network with a cancelled firewall prompt, and a Mac with Local Network denied, are both walked to green by the setup alone**.
 
 ### Phase 2 — see and drive other machines (≈ 3 weeks)
+
+*Built on the `machines` branch (2026-11-11): the peer allow-list of the
+session routes (`machines::routes::peer_route_grant`), `X-MC-Acting`
+(`machines::acting`), the proxy and the federation
+(`machines::federation`, `{t:"remote"}` frames); its exit test is by hand
+with Phase 1's.*
 
 - `machines/federation.rs`: subscriptions, merge, offline state; frames tagged `machine`.
 - The proxy route; `X-MC-Acting`; the dangerous intersection; audit on the target.
