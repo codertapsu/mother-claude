@@ -848,7 +848,7 @@ Local (desktop, or a device where noted):
 | `POST /api/sessions/:id/move/preflight` | Authed | the move sheet's checks, the target's `/peer/moves/preflight` asked through the source; nothing written |
 | `GET /api/moves/:id` · `POST …/cancel` · `POST …/undo` | Authed | follow, cancel (before landed), undo |
 | `PUT /api/sessions/:id/copies` | Authed | which machines keep a copy |
-| `GET /api/roots` · `PUT …` | ManageData | roots (§5.12) |
+| `GET /api/roots` · `PUT …` | ManageData | roots (§5.12): `{machine, machines: [{id, name, os, here, paired}], roots: [{id, name, paths: {"<machine id>": "<path>"}, updatedAt, by, pair?}], max}`; `PUT {upsert: [{id?, name, paths}], remove: [id]}` — all or nothing, a root without `id` is new, one with an `id` gets that name and that whole `paths` map; answers the same view |
 | `GET /api/machines/setup` | Authed | this machine's checks, and every peer's (fetched through `/peer/setup`) |
 | `POST /api/machines/setup/fix` | DesktopOnly | `{check}`: runs this machine's fix (or opens its settings page through the desktop) |
 | `POST /api/machines/setup/ask` | DesktopOnly | `{machine, check}`: asks a peer to show that fix to whoever is at it; `check` also names the asked actions — *Sign in…*, *Add the account*, *Clone it*, *Change the grants* — each confirmed on that machine |
@@ -864,6 +864,7 @@ Peer-only (`Ingress::Peer`):
 | `POST /peer/hello` | the transport's key | handshake: versions, capabilities, grants it holds |
 | `GET /peer/setup` · `POST /peer/setup/ask` | PeerView | this machine's checks; a request to show a fix here (shown, never run, until confirmed here) |
 | `POST /peer/settings` | PeerView | the replicated settings (relay, code defaults) — applied only when this machine's desktop accepts them |
+| `GET /peer/roots` · `POST …` | PeerView · PeerMove | the roots with their tombstones and digest; `POST {roots}` merges the sender's (the `move` grant is the consent: roots steer where a move lands) and answers with the receiver's, which the sender takes only when it gave the receiver `move` too |
 | `POST /peer/moves/preflight` · `/receive` · `/land` | PeerMove | the target's half of a move |
 | `POST /peer/leases` | PeerMove | lease changes |
 | `POST /peer/copies/:session` | PeerMove | a copy's new bytes |
@@ -876,7 +877,10 @@ Peer-only (`Ingress::Peer`):
   1) and capabilities (`moves`, `copies`, `bundle`, `run`, …). A feature is
   used only when both sides list it, so a Mac on 0.12 and a Windows on 0.11
   still see each other's sessions; the Machines page says what an older peer
-  lacks and suggests updating it.
+  lacks and suggests updating it. It also carries the digest of the
+  sender's roots (`rootsDigest`, with the `roots` capability): when the two
+  differ they are exchanged (`/peer/roots`), once per change of either
+  digest or of the `move` grant either way.
 - Bulk transfers (archives, bundles, copies) use their own streams: chunked,
   zstd-compressed, each chunk hashed, resumable from the last acknowledged
   offset.
@@ -1092,6 +1096,20 @@ choice open:
     per entry, removals stick); existing folder pairs are imported once as
     two-entry roots. Backup sets keep their pairs as they are; writing roots
     back into them comes later.
+
+    *Built (`machines/roots.rs`, `tests/roots.rs`):* a root is `{id: "rt_…",
+    name, paths: {"<machine id>": "<path>"}, updatedAt, by, pair?, removed?}`;
+    per root the later `updatedAt` wins (a tie: the higher machine id), a
+    removal is a tombstone that wins over any live copy. They are sent to
+    every paired machine when they change and when a hello's digest differs;
+    a machine takes another's only with the `move` grant it gave it (reading
+    needs `view`). A folder pair becomes the root `rt_<the pair's hex>` (the
+    same on every machine; its name the last folder name of the side that
+    made it), once (`rootsImported`); a pair removed in the backups removes
+    its root while nobody edited it. Mapping (`roots::map_between`,
+    `map_here`) tries the roots — the longest matching path — then the
+    folder pairs; continuing a session from another machine
+    (`owned::folder_here_from`) does too.
 
 - `machines/lease.rs`; enforcement in `claude/control.rs` (refuse a session leased elsewhere).
 - `machines/moves.rs`: preflight, freeze (reuse `claude/switch.rs`), package (reuse `archive_session`), send/receive (bulk streams), land (reuse the pull's placement through the roots, its conflict rule and undo), commit (lease), resume with the move note.
