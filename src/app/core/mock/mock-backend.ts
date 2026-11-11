@@ -46,6 +46,7 @@ import { MockDelete } from './mock-delete';
 import { MockMcp } from './mock-mcp';
 import { MockSwitch } from './mock-switch';
 import { MockMachines } from './mock-machines';
+import { MOCK_MACHINES, MockMoves } from './mock-moves';
 import { MockTeams } from './mock-teams';
 import { MockMove } from './mock-move';
 import { mockFolder, mockFoldersLike, mockHostOs } from './mock-os';
@@ -138,6 +139,9 @@ class FixtureBackend implements MockBackend {
   private readonly teams: MockTeams;
   /** Machines: your other computers (`/machines*`). */
   private readonly machines: MockMachines;
+  /** Moving sessions between them (`?mockmachines=1`: `/moves*`,
+   * `/sessions/:id/move*`, the other computers' proxies). */
+  private readonly computerMoves: MockMoves | null;
 
   constructor(readonly role: MockRole) {
     const now = Date.now();
@@ -271,7 +275,20 @@ class FixtureBackend implements MockBackend {
     this.machines = new MockMachines({
       desktop: role === 'desktop',
       broadcast: (frame) => this.broadcast(frame),
+      paired: MOCK_MACHINES,
     });
+    this.computerMoves = MOCK_MACHINES
+      ? new MockMoves({
+          sessions: () => this.fx.sessions,
+          patchSession: (id, change) => this.patch(id, change),
+          addSession: (s) => {
+            this.fx.sessions.unshift(s);
+            this.seq += 1;
+            this.broadcast({ t: 'sessions', full: false, upsert: [s], seq: this.seq });
+          },
+          broadcast: (frame) => this.broadcast(frame),
+        })
+      : null;
     this.teams = new MockTeams({
       desktop: role === 'desktop',
       broadcast: (frame) => this.broadcast(frame),
@@ -332,7 +349,10 @@ class FixtureBackend implements MockBackend {
     // Teams of sessions (docs/TEAMS.md)
     const teams = this.teams.route(path, method, body);
     if (teams) return teams;
-    // Machines (docs/PLAN-MACHINES.md)
+    // Machines (docs/PLAN-MACHINES.md): moves of sessions first (they own
+    // the other computers' proxies)
+    const computerMoves = this.computerMoves?.route(path, method, body);
+    if (computerMoves) return computerMoves;
     const machines = this.machines.route(path, method, body);
     if (machines) return machines;
 
@@ -760,6 +780,7 @@ class FixtureBackend implements MockBackend {
     }
     socket.emit({ t: 'hello', v: 2, me: this.me(), serverTime: Date.now() });
     socket.emit({ t: 'sessions', full: true, sessions: this.fx.sessions, seq: this.seq });
+    for (const f of this.computerMoves?.initialFrames() ?? []) socket.emit(f);
     if (USAGE_MODE !== 'none') socket.emit({ t: 'planUsage', usage: this.fx.planUsage });
     // Like the server: accounts only once there is more than the Default.
     if (this.multi()) {

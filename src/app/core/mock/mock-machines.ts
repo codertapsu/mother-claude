@@ -1,7 +1,9 @@
 // Dev-only: Machines (`/api/machines*`, docs/PLAN-MACHINES.md) for
 // `?mock=1`. A pairing runs by itself: as the host, a computer joins a few
 // seconds after the code shows; as the joiner, the host answers. Confirming
-// pairs it. Never bundled in production builds.
+// pairs it. `?mockmachines=1` starts with Machines on and two computers
+// paired, and moves of sessions between them (`mock-moves.ts`). Never
+// bundled in production builds.
 
 import {
   Grants,
@@ -47,8 +49,47 @@ export class MockMachines {
     private readonly opts: {
       desktop: boolean;
       broadcast: (frame: MachinesFrame) => void;
+      /** `?mockmachines=1`: on, with DESKTOP-PC (online) and BUILD-BOX
+       * (offline) paired (`mock-moves.ts` serves their sessions). */
+      paired?: boolean;
     },
-  ) {}
+  ) {
+    if (opts.paired) {
+      this.enabled = true;
+      const now = Date.now();
+      this.peers = [
+        this.pairedPeer('f'.repeat(32), 'DESKTOP-PC', 'windows', true, now),
+        this.pairedPeer('e'.repeat(32), 'BUILD-BOX', 'linux', false, now - 40 * MIN),
+      ];
+    }
+  }
+
+  private pairedPeer(
+    id: string,
+    name: string,
+    os: string,
+    online: boolean,
+    lastSeen: number,
+  ): PeerMachine {
+    return {
+      id,
+      name,
+      os,
+      osVersion: os === 'windows' ? 'Windows 11 Pro' : 'Ubuntu 26.04',
+      versions: { app: '0.11.0', protocol: 1, claude: '2.1.322' },
+      key: '8C21 0E5F A9B3 4D67',
+      pairedAt: Date.now() - 3 * 24 * 60 * MIN,
+      lastSeen,
+      online,
+      path: online ? 'lan' : null,
+      rttMs: online ? 6.1 : null,
+      grants: defaultGrants(),
+      theirGrants: defaultGrants(),
+      capabilities: ['hello', 'setup', 'settings', 'bulk', 'moves', 'roots'],
+      relay: { mode: 'public', url: null },
+      problem: null,
+    };
+  }
 
   route(path: string, method: string, body: unknown): Response | null {
     if (!path.startsWith('/machines')) return null;
