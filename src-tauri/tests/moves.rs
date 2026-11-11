@@ -4,10 +4,12 @@
 //! `tests/machines.rs` harness). Sessions are ended ones on disk (or one a
 //! "foreign" pidfile holds); resumes are recorded, never `claude` started;
 //! git runs without this machine's configuration. Nothing touches
-//! `~/.claude`.
+//! `~/.claude` or `~/.claude.json`: `CLAUDE_CONFIG_DIR` is set, so each test
+//! home's `.claude.json` is its own (a carried trust lands there).
 
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 use std::time::{Duration, Instant};
 
 use iroh::address_lookup::MemoryLookup;
@@ -19,6 +21,17 @@ use reqwest::StatusCode;
 use serde_json::{json, Value};
 use tempfile::TempDir;
 
+/// The process-wide part, once: with `CLAUDE_CONFIG_DIR` set, a test home's
+/// `.claude.json` is inside it, never the user's own.
+fn isolate() {
+    static ONCE: OnceLock<PathBuf> = OnceLock::new();
+    ONCE.get_or_init(|| {
+        let dir = tempfile::tempdir().unwrap().keep();
+        std::env::set_var("CLAUDE_CONFIG_DIR", dir.join("unused-config"));
+        dir
+    });
+}
+
 struct Machine {
     st: AppState,
     url: String,
@@ -26,6 +39,7 @@ struct Machine {
 }
 
 async fn machine(lookup: &MemoryLookup) -> Machine {
+    isolate();
     let dir = tempfile::tempdir().unwrap();
     let mut auth = Auth::ephemeral();
     auth.config_dir = Some(dir.path().join("data"));
@@ -1160,4 +1174,139 @@ async fn machines_off_on_either_computer_stops_a_move_before_it_starts() {
     machines::set_enabled(&w.t.st, true);
     let rec = move_session(&w.s, body).await;
     assert_eq!(rec["state"], "resumed", "{rec:#}");
+}
+
+/// [`grants`] and the dangerous right on the local network.
+fn risky() -> Value {
+    let mut g = grants();
+    g["dangerous"] = json!({"lan": true, "internet": false});
+    g
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_move_started_from_the_other_computer_needs_the_dangerous_grant_on_both_hops() {
+    let lookup = MemoryLookup::new();
+    let s = machine(&lookup).await;
+    let t = machine(&lookup).await;
+    pair(&s, &t, risky(), risky()).await;
+    let repos = repos();
+    let s_cwd = canon(&repos.s);
+    let t_cwd = canon(&repos.t);
+    // The source trusts its folder (its own test home's `.claude.json`);
+    // the target has never opened its: the trust must be carried.
+    std::fs::write(
+        s.home().join(".claude.json"),
+        json!({ "projects": { &s_cwd: { "hasTrustDialogAccepted": true } } }).to_string(),
+    )
+    .unwrap();
+    session_on(&s, &s_cwd).await;
+    let (s_id, t_id) = (s.id(), t.id());
+    let body = json!({ "to": t_id, "folder": t_cwd, "code": "none", "trust": true });
+    // T's desktop asks S, through S's proxy here (the second hop is S
+    // asking T).
+    let via_proxy = |what: &str| format!("/machines/{s_id}/proxy/sessions/{SID}/{what}");
+    let refused_for_trust = |pre: &Value| {
+        pre["ok"] == false && codes(&pre["blockers"]).contains(&"trust_needs_dangerous".to_string())
+    };
+
+    // S has not given T the dangerous right: S refuses.
+    let mut no_danger = risky();
+    no_danger["dangerous"] = json!({"lan": false, "internet": false});
+    let (st, v) = s
+        .call(
+            "PATCH",
+            &format!("/machines/{t_id}"),
+            Some(json!({ "grants": no_danger })),
+        )
+        .await;
+    assert_eq!(st, StatusCode::OK, "{v}");
+    let (st, pre) = t
+        .call("POST", &via_proxy("move/preflight"), Some(body.clone()))
+        .await;
+    assert_eq!(st, StatusCode::OK, "{pre}");
+    assert!(refused_for_trust(&pre), "{pre:#}");
+    let (st, v) = t.call("POST", &via_proxy("move"), Some(body.clone())).await;
+    assert_eq!(st, StatusCode::CONFLICT, "{v}");
+    assert_eq!(v["error"]["code"], "move_blocked");
+
+    // S gives it; T has not given S the dangerous right: T refuses the
+    // second hop, though the person acting is T's own desktop.
+    let (st, v) = s
+        .call(
+            "PATCH",
+            &format!("/machines/{t_id}"),
+            Some(json!({ "grants": risky() })),
+        )
+        .await;
+    assert_eq!(st, StatusCode::OK, "{v}");
+    let (st, v) = t
+        .call(
+            "PATCH",
+            &format!("/machines/{s_id}"),
+            Some(json!({ "grants": no_danger })),
+        )
+        .await;
+    assert_eq!(st, StatusCode::OK, "{v}");
+    let (st, pre) = t
+        .call("POST", &via_proxy("move/preflight"), Some(body.clone()))
+        .await;
+    assert_eq!(st, StatusCode::OK, "{pre}");
+    assert!(refused_for_trust(&pre), "{pre:#}");
+    let msg = pre["blockers"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|b| b["code"] == "trust_needs_dangerous")
+        .unwrap()["message"]
+        .clone();
+    assert_eq!(
+        msg,
+        format!(
+            "Carrying the folder's trust needs {}'s Dangerous permission for this computer.",
+            machines::this_name(&t.st)
+        ),
+        "the target's refusal"
+    );
+    let (_, list) = s.call("GET", "/moves", None).await;
+    assert_eq!(
+        list["moves"].as_array().unwrap().len(),
+        0,
+        "nothing started"
+    );
+
+    // Both ways: it moves, and the trust is carried there.
+    let (st, v) = t
+        .call(
+            "PATCH",
+            &format!("/machines/{s_id}"),
+            Some(json!({ "grants": risky() })),
+        )
+        .await;
+    assert_eq!(st, StatusCode::OK, "{v}");
+    let (st, pre) = t
+        .call("POST", &via_proxy("move/preflight"), Some(body.clone()))
+        .await;
+    assert_eq!(st, StatusCode::OK, "{pre}");
+    assert_eq!(pre["ok"], true, "{pre:#}");
+    let (st, v) = t.call("POST", &via_proxy("move"), Some(body)).await;
+    assert_eq!(st, StatusCode::ACCEPTED, "{v}");
+    assert_eq!(
+        v["by"],
+        format!("machine {}", machines::peer_name(&s.st, &t_id))
+    );
+    let id = v["id"].as_str().unwrap().to_string();
+    let rec = wait_move(&s, &id, |r| r["finished"] == true).await;
+    assert_eq!(rec["state"], "resumed", "{rec:#}");
+    assert_eq!(rec["landing"]["trusted"], true, "{rec:#}");
+    assert_eq!(lease_home(&s).as_deref(), Some(t_id.as_str()));
+    // Its own `.claude.json` (on Windows Claude Code keys `C:/…`).
+    let there: Value =
+        serde_json::from_str(&std::fs::read_to_string(t.home().join(".claude.json")).unwrap())
+            .unwrap();
+    let slashed = |p: &str| p.replace('\\', "/");
+    let trusted = there["projects"].as_object().is_some_and(|p| {
+        p.iter()
+            .any(|(k, e)| slashed(k) == slashed(&t_cwd) && e["hasTrustDialogAccepted"] == true)
+    });
+    assert!(trusted, "{there:#}");
 }

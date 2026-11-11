@@ -7,6 +7,13 @@
 //! dangerous action only when the peer has its `dangerous` grant **and** the
 //! acting person had the right on the peer — so a phone without the grant
 //! on the Mac cannot reach for it through the Mac.
+//!
+//! **A second hop.** A move another computer started here (T's desktop asks
+//! S, through S's proxy, to move S's session to T) reaches T's
+//! `/peer/moves/*` from S. S then acts for T (`Principal::Peer`), so its
+//! header says `machine` with the right S judged for it — T's acting
+//! person's right ∧ S's `dangerous` grant for T — and T intersects that with
+//! its own `dangerous` grant for S again. Each hop needs its grant.
 
 use crate::server::context::{ClientContext, Principal};
 use crate::state::AppState;
@@ -16,8 +23,9 @@ pub const HEADER: &str = "x-mc-acting";
 /// Who acts, as the target reads it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Acting {
-    /// `desktop`, `device <name>`, `script`, or `machine` (no header: the
-    /// peer itself, e.g. its hello).
+    /// `desktop`, `device <name>`, `script`, `machine <name>` (another
+    /// computer acting through the peer: the second hop of a move it
+    /// started), or `machine` (no header: the peer itself, e.g. its hello).
     pub label: String,
     /// The acting person had the dangerous right on the peer.
     pub dangerous: bool,
@@ -37,6 +45,12 @@ pub fn header_for(state: &AppState, ctx: &ClientContext) -> String {
             )
         }
         Principal::LocalScript => format!("script; dangerous={dangerous}"),
+        // Another computer acting through this one: its right as this one
+        // judged it (its own person's right ∧ this computer's grant for it).
+        Principal::Peer { machine, .. } => format!(
+            "machine; dangerous={dangerous}; name={}",
+            encode(&super::peer_name(state, machine))
+        ),
         _ => format!("other; dangerous={dangerous}"),
     }
 }
@@ -65,27 +79,31 @@ pub fn parse(value: Option<&str>) -> Acting {
             }
         }
     }
+    let named = |kind: &str| {
+        let name: String = name.chars().filter(|c| !c.is_control()).take(64).collect();
+        let name = name.trim();
+        if name.is_empty() {
+            kind.to_string()
+        } else {
+            format!("{kind} {name}")
+        }
+    };
     match kind {
         "desktop" => Acting {
             label: "desktop".into(),
             dangerous: true,
         },
         "device" => Acting {
-            label: if name.is_empty() {
-                "device".into()
-            } else {
-                format!(
-                    "device {}",
-                    name.chars()
-                        .filter(|c| !c.is_control())
-                        .take(64)
-                        .collect::<String>()
-                )
-            },
+            label: named("device"),
             dangerous,
         },
         "script" => Acting {
             label: "script".into(),
+            dangerous,
+        },
+        // Another computer, through the peer (a move's second hop).
+        "machine" => Acting {
+            label: named("machine"),
             dangerous,
         },
         _ => Acting {
@@ -154,5 +172,16 @@ mod tests {
         );
         assert!(!parse(Some(&"x".repeat(600))).dangerous);
         assert_eq!(decode(&encode("a b;c=d%")), "a b;c=d%");
+    }
+
+    #[test]
+    fn another_computer_acting_through_the_peer_keeps_its_judged_right() {
+        let a = parse(Some("machine; dangerous=1; name=DESKTOP%2DPC"));
+        assert_eq!(a.label, "machine DESKTOP-PC");
+        assert!(a.dangerous, "the right the peer judged for it");
+        let a = parse(Some("machine; dangerous=0; name=x"));
+        assert!(!a.dangerous);
+        assert_eq!(parse(Some("machine")).label, "machine");
+        assert!(!parse(Some("machine")).dangerous, "nothing said: none");
     }
 }
