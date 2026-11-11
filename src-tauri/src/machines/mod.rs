@@ -8,11 +8,16 @@
 //! routes (`routes`: `/api/machines/*` for this machine's dashboard,
 //! `/peer/*` for the other machines).
 //!
+//! Phase 3a — moving a session with its code: which machine each session
+//! lives on (`lease`), the move itself (`moves`, both sides) and its routes
+//! (`move_routes`), over the git half in `code`.
+//!
 //! Invariants (plan §11): a peer is a principal (`Principal::Peer`), built
 //! only from the transport's authenticated key, and reaches the peer routes
 //! only; nothing on a machine changes because another asked until that
 //! machine's desktop confirms it; the transport runs only while Machines is
-//! in use; nothing here writes a config directory.
+//! in use; one writer per session across machines (the lease); a config
+//! directory is written only by a move's landing, as a pull writes it.
 
 pub mod acting;
 pub mod awake;
@@ -21,6 +26,9 @@ pub mod federation;
 pub mod grants;
 pub mod identity;
 pub mod ids;
+pub mod lease;
+pub mod move_routes;
+pub mod moves;
 pub mod pairing;
 pub mod protocol;
 pub mod routes;
@@ -118,6 +126,11 @@ pub struct MachinesState {
     /// this on; tests only record them.
     pub(crate) fixes_live: AtomicBool,
     pub(crate) fixes_asked: Mutex<Vec<String>>,
+    /// Which machine each session lives on (`machines/leases.json`).
+    pub(crate) leases: lease::Leases,
+    /// Moves of sessions to and from this machine under way, and their test
+    /// hooks.
+    pub(crate) moves: moves::Moves,
 }
 
 impl std::fmt::Debug for MachinesState {
@@ -149,6 +162,8 @@ impl MachinesState {
             test_lookup: Mutex::new(None),
             fixes_live: AtomicBool::new(false),
             fixes_asked: Mutex::new(Vec::new()),
+            leases: lease::Leases::load(data_dir),
+            moves: moves::Moves::default(),
         }
     }
 
@@ -344,6 +359,32 @@ impl MachinesState {
             .unwrap_or_else(|e| e.into_inner())
             .clone()
     }
+
+    /// The app turns this on: a move resumes its session with `claude`;
+    /// until then (tests) the resume is only recorded.
+    pub fn enable_resumes(&self) {
+        self.moves.enable_resumes();
+    }
+
+    /// The resumes moves asked for while they only record (tests): what
+    /// each would have launched.
+    #[doc(hidden)]
+    pub fn recorded_resumes(&self) -> Vec<Value> {
+        self.moves.recorded_resumes()
+    }
+
+    /// Tests: moves run git without this machine's configuration.
+    #[doc(hidden)]
+    pub fn use_isolated_git(&self) {
+        self.moves.use_git(code::GitRunner::new().isolated());
+    }
+
+    /// Tests: a move fails at the named step (`freeze`, `package`, `send`,
+    /// `land` — this machine's half — `commit`, `resume`), once.
+    #[doc(hidden)]
+    pub fn fail_move_at(&self, step: Option<&str>) {
+        self.moves.fail_at(step);
+    }
 }
 
 // ─── shared helpers ────────────────────────────────────────────────────────────
@@ -355,6 +396,19 @@ pub fn identity(state: &AppState) -> Result<Identity, String> {
     }
     let ident = identity::load(state)?;
     Ok(state.machines.ident.get_or_init(|| ident).clone())
+}
+
+/// This machine's id, without making a machine key: the identity's when it
+/// is loaded, else the per-install id the backups keep. `None` without a
+/// data dir that can hold one.
+pub fn self_id(state: &AppState) -> Option<String> {
+    if let Some(i) = state.machines.ident.get() {
+        return Some(i.id.clone());
+    }
+    crate::claude::backup::ops::this_machine(state)
+        .ok()
+        .map(|m| m.id)
+        .filter(|id| ids::is_machine_id(id))
 }
 
 /// The name this machine shows.
@@ -508,8 +562,10 @@ pub(crate) async fn presence_loop(state: Weak<Inner>) {
     }
 }
 
-/// The hello this machine sends `peer`.
-fn hello_for(state: &AppState, peer: &PeerRecord) -> Hello {
+/// The hello this machine sends `peer` (and answers its hello with): its
+/// leases only to a machine it lets see its sessions.
+pub(crate) fn hello_for(state: &AppState, peer: &PeerRecord) -> Hello {
+    let sees = peer.grants.view.lan || peer.grants.view.internet;
     Hello {
         machine: machine_info(state),
         relay: state.machines.settings().relay,
@@ -518,6 +574,11 @@ fn hello_for(state: &AppState, peer: &PeerRecord) -> Hello {
             .iter()
             .map(|s| s.to_string())
             .collect(),
+        leases: if sees {
+            state.machines.leases.wire()
+        } else {
+            Vec::new()
+        },
     }
 }
 
@@ -542,13 +603,19 @@ pub async fn greet(state: AppState, machine: String, key: String) {
             Ok(hello) if hello.machine.key == key && hello.machine.id == machine => {
                 let conn = state.machines.live_connection(&key);
                 learn(&state, &hello, conn.as_ref());
+                let path = conn.as_ref().map(transport::path_of);
                 state.machines.set_link(&machine, |l| {
                     l.online = true;
                     l.last_ok = Some(now());
-                    l.path = conn.as_ref().map(transport::path_of);
+                    l.path = path;
                     l.rtt_ms = conn.as_ref().and_then(transport::rtt_of);
                     l.error = None;
                 });
+                // Its leases: which machine each session lives on.
+                let lan = path == Some(PathKind::Lan);
+                let changed = lease::accept(&state, &machine, lan, &hello.leases).await;
+                moves::on_leases_changed(&state, &changed).await;
+                moves::follow_up(&state, &machine).await;
             }
             _ => mark_unanswered(&state, &machine, "it answered something unexpected"),
         },
@@ -641,6 +708,11 @@ pub fn start(state: &AppState) {
                 tracing::warn!(error = %e, "Machines transport did not start");
             }
         }
+        // A move a restart interrupted: failed and unfrozen before it
+        // landed, finished after (decision 10) — on its own, so a computer
+        // that is away does not hold up the checks.
+        let rec = st.clone();
+        tokio::spawn(async move { moves::recover(&rec).await });
         setup::health_loop(st).await;
     });
 }

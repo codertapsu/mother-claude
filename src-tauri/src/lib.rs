@@ -214,6 +214,8 @@ pub fn run() {
     app_state.opener.open_for_real();
     // Machines' fixes may open System Settings and ask for an administrator.
     app_state.machines.enable_fixes();
+    // A session moved here starts with `claude` (tests only record it).
+    app_state.machines.enable_resumes();
     let exit_state = app_state.clone();
 
     tauri::Builder::default()

@@ -328,6 +328,8 @@ pub async fn switch(
     if state.control.switches.is_underway(id) {
         return Err(owned::switching_account());
     }
+    // Its files here are a copy while it lives on another computer.
+    crate::machines::lease::require_here(state, id)?;
     if owned::live_elsewhere(state, id).await {
         return Err(session_not_owned());
     }
@@ -751,7 +753,7 @@ async fn spawn_resumed(
 
 /// The model it ran: what `get_settings` resolved (unless a change is not
 /// confirmed yet), else what the stream reported or we switched to.
-fn carried_model(live: &OwnedLive) -> Option<String> {
+pub(crate) fn carried_model(live: &OwnedLive) -> Option<String> {
     live.applied_model()
         .and_then(|a| a.model.clone())
         .or_else(|| live.model.clone())
@@ -761,7 +763,7 @@ fn carried_model(live: &OwnedLive) -> Option<String> {
 }
 
 /// The effort it ran at: what was asked for, else what the CLI applied.
-fn carried_effort(live: &OwnedLive) -> Option<String> {
+pub(crate) fn carried_effort(live: &OwnedLive) -> Option<String> {
     live.effort
         .clone()
         .or_else(|| live.applied_effort().and_then(|a| a.effort.clone()))

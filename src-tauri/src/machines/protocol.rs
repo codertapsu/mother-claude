@@ -21,7 +21,10 @@ pub const ALPN_PAIR: &[u8] = b"mother-claude/pair/1";
 pub const PROTOCOL: u32 = 1;
 
 /// What this build can do with another machine.
-pub const CAPABILITIES: &[&str] = &["hello", "setup", "settings", "bulk"];
+pub const CAPABILITIES: &[&str] = &["hello", "setup", "settings", "bulk", "moves"];
+
+/// The capability a machine needs to take (and send) sessions.
+pub const MOVES: &str = "moves";
 
 /// Versions a machine reports.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -73,6 +76,11 @@ pub struct Hello {
     pub grants_you_have: Grants,
     #[serde(default)]
     pub capabilities: Vec<String>,
+    /// The sender's leases (docs/PLAN-MACHINES.md §5.7): which machine each
+    /// session lives on, merged by the receiver when the sender holds its
+    /// `move` grant. Absent from an older build.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub leases: Vec<super::lease::WireLease>,
 }
 
 /// This OS, as machines name it.

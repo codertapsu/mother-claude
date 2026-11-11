@@ -73,6 +73,8 @@ pub async fn route_for(state: &AppState, id: &str) -> ApiResult<Route> {
     if state.control.switches.is_underway(id) {
         return Err(owned::switching_account());
     }
+    // It lives on another computer now (or is moving there): driven there.
+    crate::machines::lease::require_here(state, id)?;
     let s = state
         .find_session(id)
         .await

@@ -51,6 +51,8 @@ pub fn api_router() -> Router<AppState> {
             "/machines/{id}/proxy/{*rest}",
             any(proxy).layer(axum::extract::DefaultBodyLimit::max(PROXY_BODY_MAX)),
         )
+        // Moving sessions (Phase 3a).
+        .merge(super::move_routes::api_router())
 }
 
 /// The largest request forwarded to another machine (a message with images).
@@ -69,6 +71,8 @@ pub fn peer_router() -> Router<AppState> {
         .route("/peer/setup/ask", post(peer_setup_ask))
         .route("/peer/settings", post(peer_settings))
         .route("/peer/bulk", get(peer_bulk))
+        // A move's target half, and the leases (Phase 3a).
+        .merge(super::move_routes::peer_router())
         // The paired machine's view of this one's sessions (plan §5.6).
         .route("/ws", get(peer_ws))
         // `/api/*` is served from the fallback, so no path parameter of this
@@ -633,6 +637,16 @@ pub fn peer_route_grant(method: &axum::http::Method, path: &str) -> Option<Grant
         (["sessions", _, "queue", _, "send-now"], _, true) if *method == Method::POST => {
             Grant::Control
         }
+        // Moving a session away from here, or watching one move (Phase 3a).
+        (["sessions", _, "move"] | ["sessions", _, "move", "preflight"], _, true)
+            if *method == Method::POST =>
+        {
+            Grant::Move
+        }
+        (["moves"] | ["moves", _], true, _) => Grant::View,
+        (["moves", _, "cancel" | "undo" | "retry"], _, true) if *method == Method::POST => {
+            Grant::Move
+        }
         _ => return None,
     };
     Some(grant)
@@ -740,7 +754,7 @@ async fn peer_hello(
     caller: Option<Extension<PeerCaller>>,
     Json(hello): Json<Hello>,
 ) -> ApiResult<Json<Value>> {
-    let (machine, _) = paired(&ctx)?;
+    let (machine, lan) = paired(&ctx)?;
     let caller = caller_of(caller)?;
     if hello.machine.id != machine || hello.machine.key != caller.key {
         return Err(ApiError::forbidden(
@@ -750,19 +764,15 @@ async fn peer_hello(
     }
     let conn = state.machines.live_connection(&caller.key);
     super::learn(&state, &hello, conn.as_ref());
+    // Its leases (with this machine's `move` grant for it): which machine
+    // each session lives on.
+    let changed = super::lease::accept(&state, &machine, lan, &hello.leases).await;
+    super::moves::on_leases_changed(&state, &changed).await;
     let peer = state
         .machines
         .store_read(|f| f.peer(&machine).cloned())
         .ok_or_else(|| ApiError::forbidden("peer_only", "Not paired."))?;
-    let reply = Hello {
-        machine: super::machine_info(&state),
-        relay: state.machines.settings().relay,
-        grants_you_have: peer.grants,
-        capabilities: super::protocol::CAPABILITIES
-            .iter()
-            .map(|s| s.to_string())
-            .collect(),
-    };
+    let reply: Hello = super::hello_for(&state, &peer);
     Ok(Json(serde_json::to_value(reply).unwrap_or(Value::Null)))
 }
 

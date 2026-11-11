@@ -641,6 +641,12 @@ struct OwnedHandle {
     /// `true` once the reaper has cleaned up after the child: it is out of
     /// the registry, no longer owned, its pending items withdrawn.
     reaped: tokio::sync::watch::Sender<bool>,
+    /// The note a move to this computer left for the session's next
+    /// message (docs/PLAN-MACHINES.md §3.5, decision 7): prepended once by
+    /// [`write_user`], then gone.
+    note: Mutex<Option<String>>,
+    /// Told when the note went out (the lease's copy is taken then).
+    note_sent: Option<Box<dyn Fn() + Send + Sync>>,
 }
 
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -920,6 +926,15 @@ impl ControlRegistry {
         if self.controls(&id) {
             anyhow::bail!("session {id} is already controlled by Mother Claude");
         }
+        // One writer per session across computers (docs/PLAN-MACHINES.md
+        // D1): never one that lives on another machine, nor one moving
+        // there. A fork writes only its new id.
+        let written = opts.resume.as_deref().filter(|_| !opts.fork);
+        for sid in std::iter::once(id.as_str()).chain(written) {
+            if let Err(refusal) = crate::machines::lease::check_launch(state, sid) {
+                return Err(anyhow::Error::new(refusal));
+            }
+        }
 
         // Path A only when explicitly requested, and only for plain fresh
         // text sessions (it has no resume/fork/image support worth keeping).
@@ -964,6 +979,17 @@ impl ControlRegistry {
         let stdout = child.stdout.take();
         let stderr = child.stderr.take();
         let started_at = crate::claude::registry::now_ms();
+        // A move's note waits with the lease until a message carries it.
+        let note = state.machines.leases.note_of(&id);
+        let note_sent: Option<Box<dyn Fn() + Send + Sync>> = note.as_ref().map(|_| {
+            let weak = Arc::downgrade(state);
+            let sid = id.clone();
+            Box::new(move || {
+                if let Some(st) = weak.upgrade() {
+                    st.machines.leases.take_note(&sid);
+                }
+            }) as Box<dyn Fn() + Send + Sync>
+        });
 
         let handle = Arc::new(OwnedHandle {
             id: id.clone(),
@@ -999,6 +1025,8 @@ impl ControlRegistry {
             queued_content: Mutex::new(HashMap::new()),
             quiet: AtomicBool::new(false),
             reaped: tokio::sync::watch::channel(false).0,
+            note: Mutex::new(note),
+            note_sent,
         });
 
         {
@@ -1282,13 +1310,25 @@ pub(crate) async fn terminate_within(
     child.wait().await
 }
 
-/// Write a user message line and do the queue/turn bookkeeping.
+/// Write a user message line and do the queue/turn bookkeeping. The first
+/// message after a move to this computer carries the move's note before
+/// its own text (once: it is gone when the line went out).
 async fn write_user(
     h: &Arc<OwnedHandle>,
     text: &str,
     images: &[ImageInput],
     uuid: &str,
 ) -> Result<Delivery, ControlError> {
+    let note = lock(&h.note).clone();
+    let shown = text;
+    let with_note;
+    let text = match &note {
+        Some(n) => {
+            with_note = crate::machines::moves::note::prepend(n, text);
+            with_note.as_str()
+        }
+        None => text,
+    };
     let line = match h.driver {
         // The sidecar flattens content to text and has no uuid tracking.
         Driver::Sidecar => protocol::user_message_json(text),
@@ -1315,7 +1355,7 @@ async fn write_user(
         if h.driver == Driver::Stream && queued {
             live.queued.push(QueuedMessage {
                 id: uuid.to_string(),
-                text: text.chars().take(2000).collect(),
+                text: shown.chars().take(2000).collect(),
                 created_at: crate::claude::registry::now_ms(),
                 via: QueueVia::Owned,
                 status: QueueStatus::Queued,
@@ -1339,6 +1379,11 @@ async fn write_user(
         h.live().queued.retain(|q| q.id != uuid);
         lock(&h.queued_content).remove(uuid);
         return Err(e.into());
+    }
+    if note.is_some() && lock(&h.note).take().is_some() {
+        if let Some(sent) = &h.note_sent {
+            sent();
+        }
     }
     start_turn(h);
     Ok(if queued {
@@ -2829,7 +2874,36 @@ mod tests {
             queued_content: Mutex::new(HashMap::new()),
             quiet: AtomicBool::new(false),
             reaped: tokio::sync::watch::channel(false).0,
+            note: Mutex::new(None),
+            note_sent: None,
         }
+    }
+
+    /// A move's note waits for the first message that goes out: a write that
+    /// fails keeps it, and a message that is closed out never takes it.
+    #[tokio::test]
+    async fn a_moves_note_waits_for_a_message_that_goes_out() {
+        let h = Arc::new(test_handle("s"));
+        *lock(&h.note) = Some("[moved]".into());
+        assert!(matches!(
+            write_user(&h, "hello", &[], "u1").await,
+            Err(ControlError::Io(_))
+        ));
+        assert_eq!(
+            lock(&h.note).as_deref(),
+            Some("[moved]"),
+            "kept for the next one"
+        );
+        h.live().closing = true;
+        assert!(matches!(
+            write_user(&h, "hello", &[], "u2").await,
+            Err(ControlError::Switching)
+        ));
+        assert_eq!(lock(&h.note).as_deref(), Some("[moved]"));
+        assert_eq!(
+            crate::machines::moves::note::prepend("[moved]", "hello"),
+            "[moved]\n\nhello"
+        );
     }
 
     /// The gate an account switch closes: refused while busy when the

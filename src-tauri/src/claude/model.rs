@@ -542,6 +542,25 @@ pub struct SessionSummary {
     /// otherwise.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub switching_to: Option<String>,
+    /// The other computer it lives on now, when its lease names one
+    /// (docs/PLAN-MACHINES.md §5.7): this machine's copy is read only and
+    /// it runs there. Absent while it lives here.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lives_on: Option<LivesOn>,
+}
+
+/// The computer a session lives on, when it is not this one.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LivesOn {
+    /// Its machine id.
+    pub machine: String,
+    /// Its name as this computer shows it.
+    pub name: String,
+    /// Since when (ms).
+    pub since: i64,
+    /// The lease's epoch.
+    pub epoch: u64,
 }
 
 /// An account as a chip on a session, a conversation or a job.

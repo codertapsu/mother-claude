@@ -186,6 +186,14 @@ pub enum ServerEvent {
     /// `pairing`, `peers`, `setup`, `settings`, `enabled`, `self`,
     /// `transport` — refetch `/api/machines` (docs/PLAN-MACHINES.md).
     Machines { what: String },
+    /// A move of a session to or from another computer changed (everyone):
+    /// `{t:"move", move}` with the move's whole record as `GET
+    /// /api/moves/{id}` answers it (`machines::moves`, docs/PLAN-MACHINES.md
+    /// §5.8) — its state, steps, bytes sent, error.
+    Move {
+        #[serde(rename = "move")]
+        record: Value,
+    },
     /// A frame from another computer's own `/ws` (docs/PLAN-MACHINES.md
     /// §5.6): `{t:"remote", machine, frame}`. Its sessions, pending items
     /// and an `offline` marker go to everyone; a session's transcript,
@@ -226,7 +234,9 @@ impl ServerEvent {
             | ServerEvent::Accounts { .. }
             | ServerEvent::AccountUsage { .. }
             | ServerEvent::Browser { .. } => Audience::All,
-            ServerEvent::Teams(_) | ServerEvent::Machines { .. } => Audience::All,
+            ServerEvent::Teams(_) | ServerEvent::Machines { .. } | ServerEvent::Move { .. } => {
+                Audience::All
+            }
             ServerEvent::Remote {
                 machine,
                 session: Some(session),

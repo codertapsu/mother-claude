@@ -788,6 +788,10 @@ pub fn transcripts_recorded_in(projects_dir: &Path, dir: &Path) -> bool {
 }
 
 pub(crate) fn spawn_error(e: anyhow::Error) -> ApiError {
+    // It lives on another computer, or is moving there (D1).
+    if let Some(refusal) = e.downcast_ref::<crate::machines::lease::LeaseRefusal>() {
+        return refusal.api_error();
+    }
     let msg = format!("{e:#}");
     if msg.contains("already controlled") {
         ApiError::conflict("already_owned", msg)
@@ -932,6 +936,11 @@ pub async fn continue_as(
     // it, and continuing it then would make two writers.
     if state.control.switches.is_underway(id) {
         return Err(switching_account());
+    }
+    // Nor while it lives on another computer, or is moving there — unless
+    // it is forked (a copy writes only its new id).
+    if !req.fork.unwrap_or(false) {
+        crate::machines::lease::require_here(state, id)?;
     }
     // The session's own account; one that ran with a token no account holds
     // is the Default's for every decision below (its chip says otherwise).
