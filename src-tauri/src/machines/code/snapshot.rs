@@ -5,8 +5,8 @@ use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use super::check::{
-    is_lfs_oid, is_oid, now_rfc3339, safe_name, valid_remote_name, valid_session, windows_bad_name,
-    write_json,
+    is_lfs_oid, is_oid, now_rfc3339, safe_name, valid_branch, valid_remote_name, valid_session,
+    windows_bad_name, write_json,
 };
 use super::git::{GitOp, GitRunner};
 use super::repo::{
@@ -323,6 +323,12 @@ pub fn snapshot(
             });
         }
     }
+    if let Some(b) = req.branch.as_deref().filter(|b| !valid_branch(b)) {
+        return Err(CodeError::Invalid {
+            what: "branch",
+            value: b.to_string(),
+        });
+    }
     let machine = safe_name(&req.machine);
     let epoch = req.epoch.to_string();
     let op = git.begin()?;
@@ -363,7 +369,7 @@ pub fn snapshot(
     t = Instant::now();
 
     let base = info.head.clone();
-    let branch = info.sym.clone();
+    let branch = req.branch.clone().or_else(|| info.sym.clone());
     let bundle_move = req.transfer == Transfer::Bundle;
     let offered = req.haves.iter().filter(|h| is_oid(h)).count();
     let used = if bundle_move {

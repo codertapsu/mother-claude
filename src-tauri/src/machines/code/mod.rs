@@ -29,6 +29,7 @@
 mod apply;
 mod check;
 mod git;
+mod preflight;
 mod repo;
 mod snapshot;
 mod types;
@@ -38,8 +39,11 @@ mod verify;
 mod tests;
 
 pub use apply::{apply, undo};
-pub use check::{safe_name, valid_session};
+pub use check::{is_lfs_oid, is_oid, safe_name, valid_branch, valid_remote_name, valid_session};
 pub use git::{Git, GitOp, GitOutput, GitRunner};
+pub use preflight::{
+    branch_relation, checkout_state, target_check, BranchRelation, CheckoutState, TargetCheck,
+};
 pub use snapshot::{haves, snapshot};
 pub use types::*;
 pub use verify::verify;

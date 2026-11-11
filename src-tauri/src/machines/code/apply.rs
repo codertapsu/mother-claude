@@ -204,7 +204,11 @@ fn same_place(a: &Path, b: &Path) -> bool {
 }
 
 /// Another worktree that has `branch` checked out.
-fn other_worktree_on(op: &GitOp, top: &Path, branch: &str) -> Result<Option<PathBuf>, CodeError> {
+pub(super) fn other_worktree_on(
+    op: &GitOp,
+    top: &Path,
+    branch: &str,
+) -> Result<Option<PathBuf>, CodeError> {
     let out = op
         .cmd(top)
         .args(["worktree", "list", "--porcelain", "-z"])

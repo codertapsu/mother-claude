@@ -118,6 +118,10 @@ pub struct SnapshotRequest {
     pub carry_lfs: bool,
     /// Chain this session's earlier snapshots the target has (F6).
     pub chain: bool,
+    /// The branch the snapshot names (`refs/heads/…`) when it is not the
+    /// checkout's own: a session that lived in a worktree goes home to its
+    /// home branch, which the move recorded (plan §5.10 "Coming back").
+    pub branch: Option<String>,
 }
 
 impl SnapshotRequest {
@@ -131,6 +135,7 @@ impl SnapshotRequest {
             out_dir: out_dir.into(),
             carry_lfs: true,
             chain: true,
+            branch: None,
         }
     }
 }
