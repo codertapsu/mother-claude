@@ -17,7 +17,9 @@
 # file. The C ones are overridden through their `links` keys, and Tauri's gets
 # a stand-in resource compiler; both live in a temporary directory, never in
 # the repository. If a new dependency compiles C for Windows, this fails in its
-# build script: add an override for its `links` key below.
+# build script: add an override for its `links` key below. blake3 (through
+# iroh, Machines) has no `links` key: its build script reads `CARGO_FEATURE_PURE`
+# and then compiles no C, which only a check (nothing linked) may pretend.
 #
 # Needs: rustup target add x86_64-pc-windows-msvc
 set -euo pipefail
@@ -68,7 +70,7 @@ EOF
 chmod +x "$TMP/llvm-rc"
 
 echo "==> clippy for $TARGET (every target, the tests too; warnings denied)"
-RC_x86_64_pc_windows_msvc="$TMP/llvm-rc" cargo clippy \
+CARGO_FEATURE_PURE=1 RC_x86_64_pc_windows_msvc="$TMP/llvm-rc" cargo clippy \
   --manifest-path src-tauri/Cargo.toml \
   --config "$TMP/config.toml" \
   --target "$TARGET" \
