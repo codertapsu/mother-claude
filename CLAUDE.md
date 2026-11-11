@@ -401,7 +401,12 @@ bridge's Messages API client (an API key).
   told what a device did. *Continue on* (a copy) and switching a session's
   account (a move) also move or copy one conversation, for any
   authenticated caller, but only between two accounts the desktop gave copy
-  consent (docs/ACCOUNTS.md §11.2, §15.1). Each of them refuses to write a shared
+  consent (docs/ACCOUNTS.md §11.2, §15.1). **Landing a session moved from
+  another computer** (`machines::moves`, docs/PLAN-MACHINES.md §5.8) writes
+  as a pull does, through the same code (`claude/backup/session_pack.rs`),
+  when the person moving it asked for it and this computer gave the source
+  its `move` grant; carrying the folder's trust needs the dangerous right,
+  as the pull's does. Each of them refuses to write a shared
   file (`.claude.json`, `history.jsonl`, a file it replaces) while a live
   process uses that directory (a pidfile with a living pid in its `sessions/`,
   or a `.claude.json.lock` younger than 10 s) — only adding new files runs
@@ -557,6 +562,19 @@ Phase 1 is pairing and setup. Invariants:
   `ManageData`. Folder pairs are imported as two-entry roots, each once,
   and roots are not written back into backup sets; mapping a path between
   machines tries the roots, then the folder pairs.
+- **One writer per session across computers** (`machines::lease`,
+  `leases.json`): `ControlRegistry::spawn` refuses a session that lives on
+  another machine or is moving (`409 session_lives_elsewhere` /
+  `session_moving`), so every owned launch path does; leases travel on
+  every hello and `/peer/leases` (higher epoch wins, a tie goes to the
+  higher machine id). A move (`machines::moves`, decisions in
+  docs/PLAN-MACHINES.md Phase 3a) freezes the session as an account switch
+  does, carries its files and code (`machines::code`: git runs with argv
+  only and a private empty hooks folder per operation, and every id, ref
+  and path in the record the other machine sent is checked before use),
+  lands them as a pull does and resumes there; the first message after it
+  carries the move note (`write_user`). A foreign live session moves only
+  as a copy. Tests record the target's resume, never start `claude`.
 
 ## Build / lint / test commands
 
