@@ -290,13 +290,21 @@ pub fn note(data_dir: &Path, set_dir: &Path, seen: SetPairs) -> Cache {
 impl Cache {
     /// The live pairs of these sets (each once, by id).
     pub fn pairs_of(&self, set_dirs: &[PathBuf]) -> Vec<FolderPair> {
+        let mut out = self.all_pairs_of(set_dirs);
+        out.retain(FolderPair::live);
+        out
+    }
+
+    /// Every pair of these sets, removed ones too (each once, by id, a
+    /// removal sticking): what roots are imported from
+    /// (`machines::roots`).
+    pub fn all_pairs_of(&self, set_dirs: &[PathBuf]) -> Vec<FolderPair> {
         let mut out: Vec<FolderPair> = Vec::new();
         for d in set_dirs {
             if let Some(s) = self.sets.get(&set_key(d)) {
                 merge(&mut out, &s.pairs);
             }
         }
-        out.retain(FolderPair::live);
         out
     }
 

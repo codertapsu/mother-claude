@@ -1,7 +1,8 @@
 //! `machines.json` (0600, app data dir): this machine's chosen name, whether
-//! Machines is on, the paired machines and the settings of D10
-//! (docs/PLAN-MACHINES.md §6). Read field by field, so one bad field never
-//! loses the rest; fields from a newer version survive a save.
+//! Machines is on, the paired machines, the settings of D10 and the roots
+//! (docs/PLAN-MACHINES.md §6). Read field by field, so one bad field (or
+//! peer, or root) never loses the rest; fields from a newer version survive
+//! a save.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -12,6 +13,7 @@ use serde_json::{Map, Value};
 
 use super::grants::Grants;
 use super::protocol::Versions;
+use super::roots::Root;
 
 pub const FILE_NAME: &str = "machines.json";
 
@@ -180,11 +182,28 @@ pub struct MachinesFile {
     /// The setup step the user was on when they left it (1–7).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub setup_step: Option<u8>,
+    /// Roots (§5.12): a named folder with one path per machine, replicated
+    /// to the paired machines; a removed one stays as a tombstone
+    /// (`roots.rs`). Sorted by id.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub roots: Vec<Root>,
+    /// The folder pairs already imported as roots (their ids): none is
+    /// imported twice.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub roots_imported: Vec<String>,
     #[serde(flatten, default)]
     pub extra: BTreeMap<String, Value>,
 }
 
-const KNOWN: [&str; 5] = ["name", "enabled", "peers", "settings", "setupStep"];
+const KNOWN: [&str; 7] = [
+    "name",
+    "enabled",
+    "peers",
+    "settings",
+    "setupStep",
+    "roots",
+    "rootsImported",
+];
 
 fn take<T: DeserializeOwned>(obj: &Map<String, Value>, key: &str, target: &mut T) {
     if let Some(v) = obj.get(key) {
@@ -238,6 +257,21 @@ impl MachinesFile {
                 }
             }
         }
+        if let Some(roots) = obj.get("roots").and_then(Value::as_array) {
+            let mut kept = Vec::new();
+            for r in roots {
+                match serde_json::from_value::<Root>(r.clone()) {
+                    Ok(root) if root.well_formed() => kept.push(root),
+                    Ok(_) => tracing::warn!("machines.json: a malformed root was skipped"),
+                    Err(e) => tracing::warn!(error = %e, "machines.json: a root was skipped"),
+                }
+            }
+            // One copy per id, sorted, as a merge keeps them.
+            super::roots::merge(&mut out.roots, &kept);
+        }
+        take(obj, "rootsImported", &mut out.roots_imported);
+        out.roots_imported
+            .retain(|id| crate::claude::backup::pairs::is_pair_id(id));
         for (k, val) in obj {
             if !KNOWN.contains(&k.as_str()) {
                 out.extra.insert(k.clone(), val.clone());
@@ -306,6 +340,34 @@ mod tests {
         assert_eq!(f.settings.relay.mode, RelayMode::None);
         assert!(f.settings.keep_awake, "keepAwake defaults on");
         assert_eq!(f.peers.len(), 1);
+    }
+
+    #[test]
+    fn roots_are_read_one_by_one_and_saved_once() {
+        let good = json!({
+            "id": "rt_1111111111111111", "name": "projects",
+            "paths": { ID_A: "/Users/m/dev" }, "updatedAt": 5, "by": ID_A
+        });
+        let f = MachinesFile::from_value(&json!({
+            "roots": [
+                good,
+                {"id": "rt_bad"},
+                {"id": "rt_2222222222222222", "name": "x", "paths": {"nope": "/a"}, "updatedAt": 1}
+            ],
+            "rootsImported": ["fp_1111111111111111", "junk"],
+        }));
+        assert_eq!(
+            f.roots.len(),
+            1,
+            "a malformed root is skipped, the rest kept"
+        );
+        assert_eq!(f.roots_imported, ["fp_1111111111111111"]);
+        assert!(f.extra.is_empty(), "known fields are not kept twice");
+        let saved = serde_json::to_value(&f).unwrap();
+        assert_eq!(saved["roots"][0]["name"], "projects");
+        assert_eq!(MachinesFile::from_value(&saved), f);
+        let empty = serde_json::to_value(MachinesFile::default()).unwrap();
+        assert!(empty.get("roots").is_none() && empty.get("rootsImported").is_none());
     }
 
     #[test]

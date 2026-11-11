@@ -1277,6 +1277,16 @@ pub fn load_pairs(state: &AppState) {
     );
 }
 
+/// The folder pairs of the sets in the backup folder as they were last read
+/// (no set is opened), removed ones too: what roots fall back on
+/// (`machines::roots::map_between`).
+pub fn cached_pairs(state: &AppState) -> Vec<super::pairs::FolderPair> {
+    let Some(dir) = state.auth.config_dir.as_deref() else {
+        return Vec::new();
+    };
+    super::pairs::load(dir).all_pairs_of(&pair_set_dirs(state))
+}
+
 /// A machine as the pairs section shows it.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]

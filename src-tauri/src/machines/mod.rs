@@ -6,7 +6,8 @@
 //! transport (`transport`, iroh over QUIC), pairing (`pairing`), the setup's
 //! checks and fixes (`setup`), keeping awake while used (`awake`), and the
 //! routes (`routes`: `/api/machines/*` for this machine's dashboard,
-//! `/peer/*` for the other machines).
+//! `/peer/*` for the other machines). Phase 3a adds the roots (`roots`: one
+//! folder per machine, replicated, mapping a project between machines).
 //!
 //! Invariants (plan §11): a peer is a principal (`Principal::Peer`), built
 //! only from the transport's authenticated key, and reaches the peer routes
@@ -23,6 +24,7 @@ pub mod identity;
 pub mod ids;
 pub mod pairing;
 pub mod protocol;
+pub mod roots;
 pub mod routes;
 pub mod setup;
 pub mod store;
@@ -113,6 +115,8 @@ pub struct MachinesState {
     api_app: OnceLock<axum::Router>,
     /// Other machines' sessions, as their links report them.
     pub(crate) federation: federation::Federation,
+    /// The last exchange of roots with each machine.
+    pub(crate) roots_exchanges: roots::Exchanges,
     test_lookup: Mutex<Option<MemoryLookup>>,
     /// Fixes run for real (UAC, System Settings) only once the app turns
     /// this on; tests only record them.
@@ -146,6 +150,7 @@ impl MachinesState {
             peer_app: OnceLock::new(),
             api_app: OnceLock::new(),
             federation: federation::Federation::default(),
+            roots_exchanges: roots::Exchanges::default(),
             test_lookup: Mutex::new(None),
             fixes_live: AtomicBool::new(false),
             fixes_asked: Mutex::new(Vec::new()),
@@ -518,6 +523,7 @@ fn hello_for(state: &AppState, peer: &PeerRecord) -> Hello {
             .iter()
             .map(|s| s.to_string())
             .collect(),
+        roots_digest: Some(roots::digest(state)),
     }
 }
 
@@ -549,6 +555,7 @@ pub async fn greet(state: AppState, machine: String, key: String) {
                     l.rtt_ms = conn.as_ref().and_then(transport::rtt_of);
                     l.error = None;
                 });
+                roots::after_hello(&state, &machine, &hello);
             }
             _ => mark_unanswered(&state, &machine, "it answered something unexpected"),
         },
