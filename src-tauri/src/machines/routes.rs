@@ -7,10 +7,11 @@
 //!   the desktop or a paired device (`ManageData`), as folder pairs are.
 //! * `/peer/*` — the other machines, on the `Peer` ingress only
 //!   (`peer_app`): pairing (`/peer/pair/*`, the one unpaired key pairing
-//!   right now), then a paired machine's hello, setup checks, settings
-//!   offer, the readiness test's transfer and the roots (`GET` with `view`,
-//!   `POST` with `move`: roots steer where a move lands). Nothing else is
-//!   mounted there.
+//!   right now), then a paired machine's hello, setup checks, asks and
+//!   settings offer, the readiness test's transfer and the roots (`GET`
+//!   with `view`, `POST` with `move`: roots steer where a move lands), and
+//!   the setup's rest (`setup::routes`: accounts, origins, the code test).
+//!   Nothing else is mounted there.
 
 use axum::body::Body as HttpBody;
 use axum::extract::{Extension, Path, Query, State};
@@ -58,6 +59,8 @@ pub fn api_router() -> Router<AppState> {
         .route("/roots", get(get_roots).put(put_roots))
         // Moving sessions (Phase 3a).
         .merge(super::move_routes::api_router())
+        // The setup's rest (Phase 3a): accounts, folders, asks, clones.
+        .merge(super::setup::routes::api_router())
 }
 
 /// The largest request forwarded to another machine (a message with images).
@@ -79,6 +82,8 @@ pub fn peer_router() -> Router<AppState> {
         .route(roots::PEER_PATH, get(peer_get_roots).post(peer_post_roots))
         // A move's target half, and the leases (Phase 3a).
         .merge(super::move_routes::peer_router())
+        // The setup's rest (Phase 3a): accounts, origins, the code test.
+        .merge(super::setup::routes::peer_router())
         // The paired machine's view of this one's sessions (plan §5.6).
         .route("/ws", get(peer_ws))
         // `/api/*` is served from the fallback, so no path parameter of this
@@ -240,16 +245,20 @@ async fn fix(
 #[derive(Deserialize)]
 struct AskBody {
     machine: String,
-    check: String,
+    /// A check's id, or an asked action (`signIn`, `addAccount`, `clone`)
+    /// with its `account`, or `origin`, `root` and `rel`.
+    #[serde(flatten)]
+    ask: setup::asks::AskRequest,
 }
 
-/// Asks another machine to show one of its fixes to whoever is at it.
+/// Asks another machine to show one of its fixes, or an asked action, to
+/// whoever is at it: nothing changes there until someone confirms it there.
 async fn ask(
     DesktopOnly(_): DesktopOnly,
     State(state): State<AppState>,
     Body(req): Body<AskBody>,
 ) -> ApiResult<Json<Value>> {
-    if !super::ids::is_machine_id(&req.machine) || req.check.len() > 80 {
+    if !super::ids::is_machine_id(&req.machine) || req.ask.check.len() > 80 {
         return Err(ApiError::bad_request("Malformed request."));
     }
     let (status, body) = transport::request(
@@ -257,21 +266,34 @@ async fn ask(
         &req.machine,
         "POST",
         "/peer/setup/ask",
-        Some(json!({ "check": req.check })),
+        Some(serde_json::to_value(&req.ask).unwrap_or_default()),
         transport::REQUEST_TIMEOUT,
     )
     .await
     .map_err(|e| ApiError::new(StatusCode::BAD_GATEWAY, "machines_unreachable", e))?;
     if status >= 300 {
+        let code = body
+            .pointer("/error/code")
+            .and_then(Value::as_str)
+            .unwrap_or("machines_refused");
         return Err(ApiError::new(
             StatusCode::BAD_GATEWAY,
             "machines_refused",
             body.pointer("/error/message")
                 .and_then(Value::as_str)
                 .unwrap_or("The other computer refused."),
-        ));
+        )
+        .with("reason", code));
     }
-    Ok(Json(json!({ "asked": true })))
+    // What it keeps of it, until its checks say how it went.
+    let kept = body
+        .get("ask")
+        .and_then(|a| serde_json::from_value::<setup::asks::Ask>(a.clone()).ok())
+        .filter(|a| setup::asks::is_ask_id(&a.id));
+    if let Some(a) = &kept {
+        setup::note_asked(&state, &req.machine, a.clone());
+    }
+    Ok(Json(json!({ "asked": true, "ask": kept })))
 }
 
 #[derive(Deserialize)]
@@ -315,8 +337,15 @@ async fn test(
     Ok(Json(setup::readiness(&state, req.machine.as_deref()).await))
 }
 
+/// The settings with every project's own (`GET`/`PUT /api/machines/settings`).
+fn settings_answer(state: &AppState) -> Value {
+    let mut v = super::settings_view(&state.machines.settings());
+    v["projects"] = json!(setup::options::view(state));
+    v
+}
+
 async fn get_settings(Authed(_): Authed, State(state): State<AppState>) -> Json<Value> {
-    Json(super::settings_view(&state.machines.settings()))
+    Json(settings_answer(&state))
 }
 
 #[derive(Deserialize)]
@@ -326,16 +355,27 @@ struct SettingsBody {
     relay: Option<RelaySetting>,
     #[serde(default)]
     keep_awake: Option<bool>,
+    /// The code options every move starts from (offered to the others).
+    #[serde(default)]
+    code: Option<setup::options::CodeInput>,
+    /// Projects' own code options and recipes (this machine's only).
+    #[serde(default)]
+    projects: Option<setup::options::ProjectsChange>,
 }
 
 async fn put_settings(
-    DesktopOnly(_): DesktopOnly,
+    DesktopOnly(ctx): DesktopOnly,
     State(state): State<AppState>,
     Body(req): Body<SettingsBody>,
 ) -> ApiResult<Json<Value>> {
     if let Some(r) = &req.relay {
         r.validate()
             .map_err(|m| ApiError::unprocessable("machines_bad_relay", m).with("field", "relay"))?;
+    }
+    // A project's files to carry need the dangerous right: checked (and
+    // applied, all or nothing) before anything else changes.
+    if let Some(p) = &req.projects {
+        setup::options::change(&state, &ctx, p)?;
     }
     let before = state.machines.settings();
     state.machines.store_write(|f| {
@@ -345,10 +385,14 @@ async fn put_settings(
         if let Some(k) = req.keep_awake {
             f.settings.keep_awake = k;
         }
+        if let Some(c) = &req.code {
+            f.settings.code = c.over(&f.settings.code);
+        }
     });
     let after = state.machines.settings();
     super::awake::update(&state);
-    if !after.relay.same_as(&before.relay) {
+    let relay_changed = !after.relay.same_as(&before.relay);
+    if relay_changed {
         // A new relay means a new endpoint; then the others are offered it.
         let was_running = transport::current(&state).await.is_some();
         transport::stop(&state).await;
@@ -357,19 +401,22 @@ async fn put_settings(
                 tracing::warn!(error = %e, "Machines transport did not restart");
             }
         }
+    }
+    if relay_changed || !after.code.same_as(&before.code) {
         offer_settings(&state).await;
     }
     super::publish(&state, "settings");
-    Ok(Json(super::settings_view(&after)))
+    Ok(Json(settings_answer(&state)))
 }
 
-/// Offers this machine's shared settings to every online paired machine.
+/// Offers this machine's shared settings (the relay, the code options) to
+/// every online paired machine.
 pub async fn offer_settings(state: &AppState) {
-    let relay = state.machines.settings().relay;
+    let settings = state.machines.settings();
     let peers: Vec<String> = state
         .machines
         .store_read(|f| f.peers.iter().map(|p| p.id.clone()).collect());
-    let body = json!({ "relay": relay });
+    let body = json!({ "relay": settings.relay, "code": settings.code });
     let sends = peers.iter().map(|id| {
         transport::request(
             state,
@@ -400,14 +447,26 @@ async fn answer_offer(
         ));
     };
     state.machines.set_offer(None);
-    if req.accept && offer.relay.validate().is_ok() {
-        state
-            .machines
-            .store_write(|f| f.settings.relay = offer.relay.clone());
-        let was_running = transport::current(&state).await.is_some();
-        transport::stop(&state).await;
-        if was_running {
-            let _ = transport::ensure_started(&state).await;
+    if req.accept {
+        let before = state.machines.settings();
+        let relay_changes = offer.relay.validate().is_ok() && !offer.relay.same_as(&before.relay);
+        state.machines.store_write(|f| {
+            if relay_changes {
+                f.settings.relay = offer.relay.clone();
+            }
+            if let Some(c) = &offer.code {
+                // The choices only: what a newer build keeps here stays.
+                f.settings.code.transfer = c.transfer;
+                f.settings.code.apply = c.apply;
+                f.settings.code.keep_remote_refs = c.keep_remote_refs;
+            }
+        });
+        if relay_changes {
+            let was_running = transport::current(&state).await.is_some();
+            transport::stop(&state).await;
+            if was_running {
+                let _ = transport::ensure_started(&state).await;
+            }
         }
     }
     super::publish(&state, "settings");
@@ -766,7 +825,7 @@ fn paired(ctx: &ClientContext) -> ApiResult<(String, bool)> {
 }
 
 /// A paired machine holding `grant` for this request's path.
-fn granted(state: &AppState, ctx: &ClientContext, grant: Grant) -> ApiResult<String> {
+pub(crate) fn granted(state: &AppState, ctx: &ClientContext, grant: Grant) -> ApiResult<String> {
     let (machine, lan) = paired(ctx)?;
     if !state.machines.allows(&machine, grant, lan) {
         return Err(ApiError::forbidden(
@@ -856,55 +915,32 @@ async fn peer_pair_cancel(
     Ok(Json(pairing::host_peer_cancel(&state, &caller.key)?))
 }
 
-/// This machine's checks, for a paired machine's side-by-side view.
+/// This machine's checks, for a paired machine's side-by-side view, with its
+/// tools and what that machine asked of it.
 async fn peer_setup(ctx: ClientContext, State(state): State<AppState>) -> ApiResult<Json<Value>> {
-    granted(&state, &ctx, Grant::View)?;
-    let v = setup::view(&state, false).await;
-    Ok(Json(json!({ "checks": v["self"]["checks"] })))
+    let machine = granted(&state, &ctx, Grant::View)?;
+    Ok(Json(setup::peer_answer(&state, &machine).await))
 }
 
-#[derive(Deserialize)]
-struct PeerAsk {
-    check: String,
-}
-
-/// Another machine asks this one to show a fix to whoever is at it: a
-/// desktop notice — nothing runs until someone confirms it here.
+/// Another machine asks this one to show a fix, or an asked action, to
+/// whoever is at it: kept as an ask with a desktop notice — nothing runs
+/// until someone confirms it here (`setup::asks`).
 async fn peer_setup_ask(
     ctx: ClientContext,
     State(state): State<AppState>,
-    Json(req): Json<PeerAsk>,
+    Json(req): Json<setup::asks::AskRequest>,
 ) -> ApiResult<Json<Value>> {
     let machine = granted(&state, &ctx, Grant::View)?;
-    let name = state
-        .machines
-        .store_read(|f| f.peer(&machine).map(|p| p.display_name().to_string()))
-        .unwrap_or_default();
-    let check = setup::view(&state, false).await["self"]["checks"]
-        .as_array()
-        .and_then(|cs| cs.iter().find(|c| c["id"] == req.check.as_str()).cloned());
-    let Some(check) = check else {
-        return Err(ApiError::not_found(
-            "machines_unknown_check",
-            "No such check here.",
-        ));
-    };
-    let title = check["title"].as_str().unwrap_or("A check");
-    let fix = check["fix"]["label"]
-        .as_str()
-        .unwrap_or("Open Machines › Set up");
-    crate::server::ws::publish_desktop_notice(
-        &state,
-        crate::claude::model::NoticeLevel::Warning,
-        format!("{name} asks you to fix \"{title}\" on this computer: {fix} (Machines › Set up)."),
-    );
-    super::audit(&state, "machine.ask", &machine, &name);
-    Ok(Json(json!({ "shown": true })))
+    let ask = setup::asks::receive(&state, &machine, req).await?;
+    Ok(Json(json!({ "shown": true, "ask": ask })))
 }
 
 #[derive(Deserialize)]
 struct PeerSettings {
     relay: RelaySetting,
+    /// Its code options (absent from an older build).
+    #[serde(default)]
+    code: Option<super::store::CodeSettings>,
 }
 
 /// Another machine suggests the shared settings: kept as an offer until
@@ -921,7 +957,9 @@ async fn peer_settings(
             "Not a valid relay setting.",
         ));
     }
-    if req.relay.same_as(&state.machines.settings().relay) {
+    let mine = state.machines.settings();
+    let code_differs = req.code.as_ref().is_some_and(|c| !c.same_as(&mine.code));
+    if req.relay.same_as(&mine.relay) && !code_differs {
         state.machines.set_offer(None);
         return Ok(Json(json!({ "offered": false })));
     }
@@ -933,6 +971,7 @@ async fn peer_settings(
         from: machine,
         from_name: name,
         relay: req.relay,
+        code: req.code,
         at: super::now(),
     }));
     super::publish(&state, "settings");

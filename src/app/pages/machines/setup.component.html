@@ -134,6 +134,7 @@
                   [checks]="pc.checks"
                   [remote]="true"
                   [machineName]="pc.name"
+                  [asks]="pc.asks ?? []"
                   [busy]="busy()"
                   [label]="pc.name"
                   (ask)="ask(pc.machine, pc.name, $event)"
@@ -193,25 +194,37 @@
 
         <!-- ─────────────── 5. Accounts and folders ─────────────── -->
         @case (5) {
-          <p class="muted">
+          <p class="muted small">
             {{
-              'Comes with moving sessions: accounts matched by name on every computer, and the folders that map your projects.'
+              'A session moves to the account of the same name, into the folder that maps its project. What needs someone at another computer is asked there.'
                 | t
             }}
           </p>
+          <mc-machines-accounts-folders />
         }
 
         <!-- ─────────────── 6. Options ─────────────── -->
         @case (6) {
           @if (view(); as v) {
             <mc-machines-options [settings]="v.settings" (saved)="optionsSaved()" />
+            <h3 class="sub">{{ 'Each project' | t }}</h3>
+            <p class="muted small">
+              {{
+                'A project can move its code another way, and has a recipe: what to ask Claude to run after a move, and the files git ignores that go with it.'
+                  | t
+              }}
+            </p>
+            <mc-machines-project-options [defaults]="v.settings.code ?? defaults" />
           }
         }
 
         <!-- ─────────────── 7. Test, then turn on ─────────────── -->
         @case (7) {
           <p class="muted small">
-            {{ 'A connection and a 20 MiB transfer with every paired computer.' | t }}
+            {{
+              'With every paired computer, both ways: the connection, a 20 MiB transfer, git and Claude Code, a code round trip, the accounts and the folders. Nothing touches a project.'
+                | t
+            }}
           </p>
           <div class="row">
             <button
@@ -233,21 +246,22 @@
               <thead>
                 <tr>
                   <th scope="col">{{ 'Computer' | t }}</th>
-                  <th scope="col">{{ 'Connect' | t }}</th>
-                  <th scope="col">{{ 'Transfer' | t }}</th>
+                  @for (c of testColumns(); track c.id) {
+                    <th scope="col">{{ c.title }}</th>
+                  }
                 </tr>
               </thead>
               <tbody>
                 @for (r of lastTests(); track r.machine) {
                   <tr>
                     <th scope="row">{{ r.name }}</th>
-                    @for (id of ['connect', 'transfer']; track id) {
-                      @let line = lineOf(r, id);
+                    @for (c of testColumns(); track c.id) {
+                      @let line = lineOf(r, c.id);
                       <td [attr.data-state]="line?.state">
                         <span aria-hidden="true">{{ stateMark(line?.state) }}</span>
                         <span class="visually-hidden">{{ stateWord(line?.state) }}</span>
                         <span class="small">{{ testDetail(line?.detail) }}</span>
-                        @if (id === 'connect' && line?.ms !== null && line?.ms !== undefined) {
+                        @if (c.id === 'connect' && line?.ms !== null && line?.ms !== undefined) {
                           <span class="muted small">{{ '{ms} ms' | t: { ms: line?.ms } }}</span>
                         }
                       </td>
@@ -264,6 +278,17 @@
                   blockers() === 1
                     ? ('1 required check is left: fix it first.' | t)
                     : ('{n} required checks are left: fix them first.' | t: { n: blockers() })
+                }}
+              </p>
+            }
+            @if (scoped() > 0) {
+              <p class="muted small">
+                {{
+                  scoped() === 1
+                    ? ('1 account is not signed in somewhere: its sessions wait for it, the rest work.'
+                      | t)
+                    : ('{n} accounts are not signed in somewhere: their sessions wait for them, the rest work.'
+                      | t: { n: scoped() })
                 }}
               </p>
             }

@@ -700,9 +700,16 @@ fn is_temp_dir(p: &str) -> bool {
 /// sessions plus the ones trusted in the CLI, most recent first; only
 /// directories that still exist.
 pub async fn projects(Authed(_ctx): Authed, State(state): State<AppState>) -> impl IntoResponse {
+    Json(json!({ "projects": project_list(&state).await }))
+}
+
+/// This machine's projects ([`projects`]): the folders sessions ran in and
+/// the ones trusted in any account's directory, most recent first, only
+/// those that still exist. The Machines setup looks for git repos in them.
+pub async fn project_list(state: &AppState) -> Vec<ProjectInfo> {
     let sessions = state.sessions().await;
     let st = state.clone();
-    let projects = tokio::task::spawn_blocking(move || {
+    tokio::task::spawn_blocking(move || {
         // Trusted in any account's directory (docs/ACCOUNTS.md P2.1).
         let mut trusted: Vec<String> = Vec::new();
         for (_, home) in st.accounts.homes() {
@@ -754,8 +761,7 @@ pub async fn projects(Authed(_ctx): Authed, State(state): State<AppState>) -> im
         projects
     })
     .await
-    .unwrap_or_default();
-    Json(json!({ "projects": projects }))
+    .unwrap_or_default()
 }
 
 const EFFORT_LEVELS: [&str; 5] = ["low", "medium", "high", "xhigh", "max"];

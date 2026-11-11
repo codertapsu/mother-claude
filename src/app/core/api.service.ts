@@ -24,11 +24,19 @@ import { computerNoun, tr } from './i18n/i18n';
 import { activeMock } from './mock/mock-api';
 import type { DeleteBody } from './delete-data';
 import type {
+  AccountsTable,
+  AskBody,
+  FoldersView,
   Grants,
-  MachinesSettings,
+  MachineAsk,
+  MachinesSettingsPatch,
+  MachinesSettingsView,
   MachinesView,
   NearbyMachine,
   Readiness,
+  RemoteCheckView,
+  RootsChange,
+  RootsView,
   SetupView,
 } from './machines';
 import type { MoveBody } from './move-data';
@@ -212,7 +220,11 @@ import {
  *             saveSetupProgress(step) · testMachines(machine?) ·
  *             getMachinesSettings() · saveMachinesSettings(patch) ·
  *             answerSettingsOffer(accept) · setMachinesEnabled(enabled) ·
- *             updateMachine(id, patch) · revokeMachine(id)
+ *             updateMachine(id, patch) · revokeMachine(id) ·
+ *             askMachine(machine, body) · answerMachineAsk(id, answer) ·
+ *             getMachineAccounts() · getMachineFolders(fresh?) ·
+ *             cloneHere(body) · checkProjectRemote(project) ·
+ *             getRoots() · saveRoots(change)
  *   Moves     moveSessionPreflight(id, body) · moveSession(id, body) ·
  *             takeOverSession(id, self) · listMoves() · getMove(id) ·
  *             cancelMove(id) · undoMove(id) · retryMove(id)
@@ -1289,16 +1301,73 @@ export class ApiService {
     return this.post<{ results: Readiness[] }>('/machines/test', machine ? { machine } : {});
   }
 
-  getMachinesSettings(): Promise<MachinesSettings> {
-    return this.req<MachinesSettings>('/machines/settings');
+  /** The options with every project's own. */
+  getMachinesSettings(): Promise<MachinesSettingsView> {
+    return this.req<MachinesSettingsView>('/machines/settings');
   }
 
-  /** Desktop: the relay and keeping awake. */
-  saveMachinesSettings(patch: Partial<MachinesSettings>): Promise<MachinesSettings> {
-    return this.req<MachinesSettings>('/machines/settings', {
+  /** Desktop: the relay, keeping awake, the code options, and projects'
+   * own (a file to carry needs the dangerous right). */
+  saveMachinesSettings(patch: MachinesSettingsPatch): Promise<MachinesSettingsView> {
+    return this.req<MachinesSettingsView>('/machines/settings', {
       method: 'PUT',
       body: JSON.stringify(patch),
     });
+  }
+
+  /** Desktop: ask another computer for a fix or an asked action (*Sign
+   * in…*, *Add the account*, *Clone it*): shown there, done only when
+   * someone there confirms. */
+  askMachine(machine: string, body: AskBody): Promise<{ asked: boolean; ask?: MachineAsk | null }> {
+    return this.post<{ asked: boolean; ask?: MachineAsk | null }>('/machines/setup/ask', {
+      machine,
+      ...body,
+    });
+  }
+
+  /** Desktop: confirm (run) or decline what another computer asked. */
+  answerMachineAsk(
+    id: string,
+    answer: 'confirm' | 'decline',
+  ): Promise<{ ask: MachineAsk | null; next: string | null }> {
+    return this.post<{ ask: MachineAsk | null; next: string | null }>(`/machines/asks/${enc(id)}`, {
+      answer,
+    });
+  }
+
+  /** Every computer's accounts, matched by name. */
+  getMachineAccounts(): Promise<AccountsTable> {
+    return this.req<AccountsTable>('/machines/accounts');
+  }
+
+  /** Desktop: repositories matched by origin with every computer's. */
+  getMachineFolders(fresh = false): Promise<FoldersView> {
+    return this.req<FoldersView>(`/machines/folders${query({ fresh: fresh || undefined })}`);
+  }
+
+  /** Desktop: `git clone` a repository into a folder of a root here. */
+  cloneHere(body: {
+    origin: string;
+    root: string;
+    rel: string;
+  }): Promise<{ cloned: boolean; folder: string }> {
+    return this.post<{ cloned: boolean; folder: string }>('/machines/clone', body);
+  }
+
+  /** Desktop: whether a project's remote answers without a prompt, here
+   * and where a root maps it. */
+  checkProjectRemote(project: string): Promise<RemoteCheckView> {
+    return this.post<RemoteCheckView>('/machines/setup/remote', { project });
+  }
+
+  /** The roots: one folder per computer. */
+  getRoots(): Promise<RootsView> {
+    return this.req<RootsView>('/roots');
+  }
+
+  /** Add, change and remove roots, all or nothing. */
+  saveRoots(change: RootsChange): Promise<RootsView> {
+    return this.req<RootsView>('/roots', { method: 'PUT', body: JSON.stringify(change) });
   }
 
   /** Desktop: take or leave another computer's suggested settings. */

@@ -101,16 +101,88 @@ export interface PairingView {
   peerId: string | null;
 }
 
+/** How a session's code travels when it moves: machine to machine (a git
+ * bundle, the default) or through the project's git remote. */
+export type CodeTransfer = 'bundle' | 'remote';
+/** Where it lands: the project folder when it has no changes of its own
+ * (the default), or always a separate worktree. */
+export type CodeApply = 'checkout' | 'worktree';
+
+/** The code options every move starts from (D10), the same on every
+ * computer. */
+export interface CodeSettings {
+  transfer: CodeTransfer;
+  apply: CodeApply;
+  keepRemoteRefs: boolean;
+}
+
 export interface MachinesSettings {
   relay: RelaySetting;
   keepAwake: boolean;
+  /** Absent from an older server. */
+  code?: CodeSettings;
 }
 
-/** Another computer suggests its relay setting. */
+/** A project's own code options: a field left out follows the defaults. */
+export interface CodeOverride {
+  transfer?: CodeTransfer;
+  apply?: CodeApply;
+  keepRemoteRefs?: boolean;
+}
+
+/** What to run after a move, per system (asked of Claude in the move
+ * note, never run by Mother Claude). */
+export interface AfterMove {
+  macos?: string[];
+  windows?: string[];
+  linux?: string[];
+}
+
+/** A project's recipe: commands after a move, and the files git ignores
+ * that travel with it (setting those needs the dangerous right). */
+export interface Recipe {
+  afterMove?: AfterMove;
+  carryIgnored?: string[];
+}
+
+/** One project's own Machines settings. */
+export interface ProjectOptions {
+  /** `rt_…/<path in the root>`, or the project's folder. */
+  key: string;
+  /** Its folder on this computer (null: its root is gone). */
+  project: string | null;
+  root: { id: string; name: string } | null;
+  code: CodeOverride;
+  recipe: Recipe | null;
+  updatedAt: number;
+}
+
+/** `GET`/`PUT /api/machines/settings`. */
+export interface MachinesSettingsView extends MachinesSettings {
+  projects?: ProjectOptions[];
+}
+
+/** One project's settings as sent (the whole of them). */
+export interface ProjectInput {
+  project: string;
+  code: CodeOverride;
+  recipe?: Recipe | null;
+}
+
+/** `PUT /api/machines/settings`. */
+export interface MachinesSettingsPatch {
+  relay?: RelaySetting;
+  keepAwake?: boolean;
+  code?: Partial<CodeSettings>;
+  projects?: { upsert?: ProjectInput[]; remove?: string[] };
+}
+
+/** Another computer suggests its relay setting (and code options). */
 export interface SettingsOffer {
   from: string;
   fromName: string;
   relay: RelaySetting;
+  code?: CodeSettings | null;
   at: number;
 }
 
@@ -135,6 +207,9 @@ export interface MachinesView {
   health: MachinesHealth;
   /** The setup step left at (1–7), null when never started or finished. */
   setupStep: number | null;
+  /** What other computers asked this one to do (absent from an older
+   * server). */
+  asks?: MachineAsk[];
 }
 
 export type CheckState = 'ok' | 'warning' | 'blocker' | 'unknown' | 'na';
@@ -150,6 +225,39 @@ export interface SetupCheck {
   why: string;
   severity: 'required' | 'recommended';
   fix: { kind: FixKind; label: string } | null;
+  /** What a failure blocks when not all of Machines: `account` — that
+   * account's sessions (it does not keep Machines off). */
+  scope?: string | null;
+}
+
+/** A computer's tools and options, beside its checks. */
+export interface MachineFacts {
+  os: string;
+  git: string | null;
+  claude: string | null;
+  code: CodeSettings | null;
+}
+
+export type AskKind = 'fix' | 'signIn' | 'addAccount' | 'clone';
+export type AskState = 'asked' | 'running' | 'done' | 'declined' | 'failed';
+
+/** What one computer asked another to do: shown there, done only when
+ * someone there confirms it. */
+export interface MachineAsk {
+  id: string;
+  from: string;
+  fromName: string;
+  kind: AskKind;
+  check?: string;
+  title?: string;
+  fix?: string;
+  account?: string;
+  origin?: string;
+  folder?: string;
+  at: number;
+  state: AskState;
+  detail?: string;
+  answeredAt?: number;
 }
 
 /** One computer's checks. */
@@ -159,11 +267,14 @@ export interface MachineChecks {
   at: number | null;
   checks: SetupCheck[];
   error: string | null;
+  facts?: MachineFacts | null;
+  /** (Another computer's) what this computer asked of it. */
+  asks?: MachineAsk[];
 }
 
 export interface TestLine {
-  id: 'connect' | 'transfer' | string;
-  state: 'ok' | 'failed' | 'skipped' | string;
+  id: 'connect' | 'transfer' | 'tools' | 'code' | 'accounts' | 'folders' | string;
+  state: 'ok' | 'warning' | 'failed' | 'skipped' | string;
   detail: string;
   ms: number | null;
   mibps: number | null;
@@ -182,8 +293,148 @@ export interface SetupView {
   self: MachineChecks;
   peers: MachineChecks[];
   blockers: number;
+  /** The blockers that keep Machines off (an account not signed in
+   * blocks only its sessions); absent from an older server. */
+  gating?: number;
   warnings: number;
   tests: Readiness[];
+}
+
+// ───────────────────────────────────────────── Accounts and folders (step 5)
+
+export type AccountCellState =
+  'signedIn' | 'signedOut' | 'authFailed' | 'tokenMissing' | 'checkFailed' | 'unknown' | 'missing';
+
+/** One account on one computer. */
+export interface AccountCell {
+  state: AccountCellState;
+  kind?: string;
+  /** Its name there when it differs (the Default under another name). */
+  name?: string;
+}
+
+/** One account, matched by name across computers. */
+export interface AccountRow {
+  name: string;
+  default: boolean;
+  /** Machine id → its cell. */
+  cells: Record<string, AccountCell>;
+  /** Machine id → what this computer asked of it for this account. */
+  asks: Record<string, MachineAsk>;
+}
+
+/** `GET /api/machines/accounts`. */
+export interface AccountsTable {
+  machine: string;
+  machines: { id: string; name: string; here: boolean; online: boolean; error: string | null }[];
+  accounts: AccountRow[];
+}
+
+export interface RepoPair {
+  name: string;
+  origin: string;
+  here: string;
+  there: string;
+}
+
+/** A root to add (or a computer's folder to add to one), from the
+ * repositories it would map. */
+export interface RootProposal {
+  id: string;
+  name: string;
+  here: string;
+  there: string;
+  root?: string;
+  repos: RepoPair[];
+}
+
+/** A repository on one computer only. */
+export interface LoneRepo {
+  name: string;
+  path: string;
+  origin?: string;
+  root?: string;
+  rel?: string;
+  /** Where it would land on the other computer. */
+  mapped?: string;
+}
+
+/** This computer's repositories matched with one other's. */
+export interface PeerFolders {
+  machine: string;
+  name: string;
+  online: boolean;
+  error: string | null;
+  proposals: RootProposal[];
+  matched: RepoPair[];
+  mismatched: RepoPair[];
+  onlyHere: LoneRepo[];
+  onlyThere: LoneRepo[];
+}
+
+/** `GET /api/machines/folders`. */
+export interface FoldersView {
+  machine: string;
+  repos: number;
+  noOrigin: { name: string; path: string }[];
+  peers: PeerFolders[];
+}
+
+/** A computer a root may name (`GET /api/roots`). */
+export interface RootMachine {
+  id: string;
+  name: string;
+  os?: string;
+  here: boolean;
+  paired: boolean;
+}
+
+/** A root: one folder per computer. */
+export interface RootEntry {
+  id: string;
+  name: string;
+  paths: Record<string, string>;
+  updatedAt: number;
+  by: string;
+  pair?: string;
+}
+
+/** `GET`/`PUT /api/roots`. */
+export interface RootsView {
+  machine: string | null;
+  machines: RootMachine[];
+  roots: RootEntry[];
+  max: number;
+}
+
+export interface RootsChange {
+  upsert?: { id?: string; name: string; paths: Record<string, string> }[];
+  remove?: string[];
+}
+
+/** One computer's answer to whether a project's remote answers. */
+export interface RemoteResult {
+  machine: string;
+  name: string;
+  here: boolean;
+  state: 'ok' | 'failed' | 'skipped' | string;
+  detail: string;
+}
+
+/** `POST /api/machines/setup/remote`. */
+export interface RemoteCheckView {
+  project: string;
+  origin: string | null;
+  results: RemoteResult[];
+}
+
+/** `POST /api/machines/setup/ask`: a check's fix, or an asked action. */
+export interface AskBody {
+  check: string;
+  account?: string;
+  origin?: string;
+  root?: string;
+  rel?: string;
 }
 
 export interface NearbyMachine {
@@ -344,4 +595,38 @@ export function byUrgency(checks: readonly SetupCheck[]): SetupCheck[] {
  * up. */
 export function healthAlarm(v: MachinesView | null | undefined): boolean {
   return !!v && v.health.state === 'blocker' && (v.enabled || v.setupStep !== null);
+}
+
+/** The code options every computer starts with. */
+export function defaultCode(): CodeSettings {
+  return { transfer: 'bundle', apply: 'checkout', keepRemoteRefs: false };
+}
+
+export function sameCode(
+  a: CodeSettings | null | undefined,
+  b: CodeSettings | null | undefined,
+): boolean {
+  const x = a ?? defaultCode();
+  const y = b ?? defaultCode();
+  return x.transfer === y.transfer && x.apply === y.apply && x.keepRemoteRefs === y.keepRemoteRefs;
+}
+
+export function sameRelay(
+  a: RelaySetting | null | undefined,
+  b: RelaySetting | null | undefined,
+): boolean {
+  if (!a || !b) return a === b;
+  const url = (u: string | null) => (u ?? '').trim().replace(/\/+$/, '').toLowerCase();
+  return a.mode === b.mode && (a.mode !== 'custom' || url(a.url) === url(b.url));
+}
+
+/** The required checks that keep Machines off (an older server counts every
+ * blocker). */
+export function gatingOf(s: SetupView | null | undefined): number {
+  return s ? (s.gating ?? s.blockers) : 0;
+}
+
+/** An ask still waiting for someone, or running. */
+export function askOpen(a: MachineAsk | null | undefined): boolean {
+  return !!a && (a.state === 'asked' || a.state === 'running');
 }

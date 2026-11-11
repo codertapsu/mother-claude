@@ -6,14 +6,24 @@
 // bundled in production builds.
 
 import {
+  AccountsTable,
+  CodeSettings,
+  FoldersView,
   Grants,
+  MachineAsk,
   MachinesFrame,
   MachinesView,
   PairingView,
   PeerMachine,
+  ProjectInput,
+  ProjectOptions,
   Readiness,
+  RootEntry,
+  RootsChange,
+  RootsView,
   SetupCheck,
   SetupView,
+  defaultCode,
   defaultGrants,
 } from '../machines';
 
@@ -40,10 +50,27 @@ export class MockMachines {
     url: null,
   };
   private keepAwake = true;
+  private code: CodeSettings = defaultCode();
+  private projects: ProjectOptions[] = [];
   private peers: PeerMachine[] = [];
   private pairing: PairingView | null = null;
   private timer?: ReturnType<typeof setTimeout>;
   private tests: Readiness[] = [];
+  private roots: RootEntry[] = [];
+  /** What other computers asked this one (shown on the Machines page). */
+  private asks: MachineAsk[] = [
+    {
+      id: 'ask_0000000000000001',
+      from: 'f'.repeat(32),
+      fromName: 'DESKTOP-PC',
+      kind: 'signIn',
+      account: 'Work',
+      at: Date.now() - 2 * MIN,
+      state: 'asked',
+    },
+  ];
+  /** What this computer asked the others. */
+  private asked: MachineAsk[] = [];
 
   constructor(
     private readonly opts: {
@@ -92,17 +119,62 @@ export class MockMachines {
   }
 
   route(path: string, method: string, body: unknown): Response | null {
-    if (!path.startsWith('/machines')) return null;
+    if (!path.startsWith('/machines') && path !== '/roots') return null;
     const b = (body ?? {}) as Record<string, unknown>;
     const desk = () =>
       this.opts.desktop ? null : err(403, 'desktop_only', 'Only the desktop app can do this.');
     if (path === '/machines' && method === 'GET') return json(this.view());
     if (path === '/machines/setup' && method === 'GET') return json(this.setup());
-    if (path === '/machines/settings' && method === 'GET') {
-      return json({ relay: this.relay, keepAwake: this.keepAwake });
-    }
+    if (path === '/machines/settings' && method === 'GET') return json(this.settingsView());
+    if (path === '/machines/accounts' && method === 'GET') return json(this.accounts());
+    if (path === '/roots' && method === 'GET') return json(this.rootsView());
     const refused = desk();
     if (refused) return refused;
+    const ask = /^\/machines\/asks\/([^/]+)$/.exec(path);
+    if (ask && method === 'POST') {
+      const a = this.asks.find((x) => x.id === ask[1]);
+      if (!a) return err(404, 'machines_unknown_ask', 'No such request.');
+      a.state = b['answer'] === 'confirm' ? 'done' : 'declined';
+      a.answeredAt = Date.now();
+      a.detail =
+        a.state === 'declined'
+          ? 'Not now.'
+          : 'The sign-in started: finish it in the browser on this computer.';
+      return json({ ask: a, next: a.state === 'done' ? '/accounts' : null });
+    }
+    switch (`${method} ${path}`) {
+      case 'GET /machines/folders':
+        return json(this.folders());
+      case 'PUT /roots':
+        return this.changeRoots(b as RootsChange);
+      case 'POST /machines/clone':
+        return json({
+          cloned: true,
+          folder: `/Users/you/development/projects/${String(b['rel'])}`,
+        });
+      case 'POST /machines/setup/remote':
+        return json({
+          project: b['project'],
+          origin: 'https://github.com/you/app.git',
+          results: [
+            {
+              machine: '0'.repeat(32),
+              name: this.selfName,
+              here: true,
+              state: 'ok',
+              detail: 'The remote answers without a prompt.',
+            },
+            ...this.peers.map((p) => ({
+              machine: p.id,
+              name: p.name,
+              here: false,
+              state: 'failed',
+              detail:
+                'The remote asked for a sign-in: sign in to it on this computer (Git Credential Manager, or gh auth login), then try again.',
+            })),
+          ],
+        });
+    }
     switch (`${method} ${path}`) {
       case 'PATCH /machines/self':
         this.selfName = String(b['name'] ?? this.selfName).trim() || this.selfName;
@@ -134,8 +206,28 @@ export class MockMachines {
       case 'POST /machines/setup/fix':
         if (b['check'] === 'keepAwake') this.keepAwake = true;
         return json(this.setup());
-      case 'POST /machines/setup/ask':
-        return json({ asked: true });
+      case 'POST /machines/setup/ask': {
+        const kinds: Record<string, MachineAsk['kind']> = {
+          signIn: 'signIn',
+          addAccount: 'addAccount',
+          clone: 'clone',
+        };
+        const peer = this.peers.find((p) => p.id === b['machine']);
+        const made: MachineAsk = {
+          id: `ask_${Math.random().toString(16).slice(2, 18).padEnd(16, '0')}`,
+          from: '0'.repeat(32),
+          fromName: this.selfName,
+          kind: kinds[String(b['check'])] ?? 'fix',
+          check: kinds[String(b['check'])] ? undefined : String(b['check']),
+          account: b['account'] as string | undefined,
+          origin: b['origin'] as string | undefined,
+          folder: b['rel'] ? `D:\\development\\projects\\${String(b['rel'])}` : undefined,
+          at: Date.now(),
+          state: 'asked',
+        };
+        if (peer) this.asked.push(made);
+        return json({ asked: true, ask: made });
+      }
       case 'PUT /machines/setup/progress':
         this.setupStep = (b['step'] as number | null) ?? null;
         return json(this.view());
@@ -153,13 +245,55 @@ export class MockMachines {
               mibps: null,
             },
             { id: 'transfer', state: 'ok', detail: '20 MiB at 28.4 MiB/s.', ms: 704, mibps: 28.4 },
+            {
+              id: 'tools',
+              state: 'ok',
+              detail: 'git and Claude Code 2.1.322 on both.',
+              ms: null,
+              mibps: null,
+            },
+            { id: 'code', state: 'ok', detail: 'Both ways in 1.4 s.', ms: 1400, mibps: null },
+            {
+              id: 'accounts',
+              state: 'warning',
+              detail: `Work: not signed in on ${p.name} · Client X: not on ${p.name}`,
+              ms: null,
+              mibps: null,
+            },
+            {
+              id: 'folders',
+              state: this.roots.length ? 'ok' : 'warning',
+              detail: this.roots.length
+                ? `1 folder resolves on ${p.name} · 4 of 4 projects map.`
+                : `4 projects on both are not mapped yet (step 5)`,
+              ms: null,
+              mibps: null,
+            },
           ],
         }));
         return json({ results: this.tests });
-      case 'PUT /machines/settings':
+      case 'PUT /machines/settings': {
         if (b['relay']) this.relay = b['relay'] as typeof this.relay;
         if (typeof b['keepAwake'] === 'boolean') this.keepAwake = b['keepAwake'];
-        return json({ relay: this.relay, keepAwake: this.keepAwake });
+        if (b['code']) this.code = { ...this.code, ...(b['code'] as Partial<CodeSettings>) };
+        const projects = b['projects'] as
+          { upsert?: ProjectInput[]; remove?: string[] } | undefined;
+        for (const key of projects?.remove ?? []) {
+          this.projects = this.projects.filter((p) => p.key !== key && p.project !== key);
+        }
+        for (const p of projects?.upsert ?? []) {
+          this.projects = this.projects.filter((x) => x.project !== p.project);
+          this.projects.push({
+            key: p.project,
+            project: p.project,
+            root: null,
+            code: p.code,
+            recipe: p.recipe ?? null,
+            updatedAt: Date.now(),
+          });
+        }
+        return json(this.settingsView());
+      }
       case 'POST /machines/settings/offer':
         return json(this.view());
       case 'POST /machines/enable': {
@@ -360,7 +494,154 @@ export class MockMachines {
   }
 
   private blockers(): SetupCheck[] {
-    return this.checks().filter((c) => c.state === 'blocker');
+    return this.checks().filter((c) => c.state === 'blocker' && !c.scope);
+  }
+
+  private settingsView(): object {
+    return {
+      relay: this.relay,
+      keepAwake: this.keepAwake,
+      code: this.code,
+      projects: this.projects,
+    };
+  }
+
+  private accounts(): AccountsTable {
+    const me = '0'.repeat(32);
+    const machines = [
+      { id: me, name: this.selfName, here: true, online: true, error: null },
+      ...this.peers.map((p) => ({
+        id: p.id,
+        name: p.name,
+        here: false,
+        online: p.online,
+        error: null,
+      })),
+    ];
+    const cells = (here: AccountsTable['accounts'][number]['cells'][string], there: typeof here) =>
+      Object.fromEntries(machines.map((m) => [m.id, m.here ? here : there]));
+    return {
+      machine: me,
+      machines,
+      accounts: [
+        {
+          name: 'Default',
+          default: true,
+          cells: cells(
+            { state: 'signedIn', kind: 'default' },
+            { state: 'signedIn', kind: 'default' },
+          ),
+          asks: {},
+        },
+        {
+          name: 'Work',
+          default: false,
+          cells: cells(
+            { state: 'signedIn', kind: 'directory' },
+            { state: 'signedOut', kind: 'directory' },
+          ),
+          asks: Object.fromEntries(
+            this.asked
+              .filter((a) => a.kind === 'signIn' && a.account === 'Work')
+              .map((a) => [this.peers[0]?.id ?? '', a]),
+          ),
+        },
+        {
+          name: 'Client X',
+          default: false,
+          cells: cells({ state: 'signedIn', kind: 'token' }, { state: 'missing' }),
+          asks: {},
+        },
+      ],
+    };
+  }
+
+  private folders(): FoldersView {
+    const me = '0'.repeat(32);
+    return {
+      machine: me,
+      repos: 4,
+      noOrigin: [{ name: 'notes', path: '/Users/you/notes' }],
+      peers: this.peers.map((p) => ({
+        machine: p.id,
+        name: p.name,
+        online: p.online,
+        error: null,
+        proposals: this.roots.length
+          ? []
+          : [
+              {
+                id: 'pr_0123456789ab',
+                name: 'projects',
+                here: '/Users/you/development/projects',
+                there: 'D:\\development\\projects',
+                repos: ['mother-claude', 'codex-http-bridge', 'tray-tool', 'site'].map((n) => ({
+                  name: n,
+                  origin: `https://github.com/you/${n}.git`,
+                  here: `/Users/you/development/projects/${n}`,
+                  there: `D:\\development\\projects\\${n}`,
+                })),
+              },
+            ],
+        matched: [],
+        mismatched: [],
+        onlyHere: [
+          {
+            name: 'side-project',
+            path: '/Users/you/development/projects/side-project',
+            origin: 'https://github.com/you/side-project',
+            ...(this.roots.length
+              ? {
+                  root: this.roots[0].id,
+                  rel: 'side-project',
+                  mapped: 'D:\\development\\projects\\side-project',
+                }
+              : {}),
+          },
+        ],
+        onlyThere: [
+          {
+            name: 'win-tools',
+            path: 'D:\\development\\projects\\win-tools',
+            origin: 'https://github.com/you/win-tools',
+          },
+        ],
+      })),
+    };
+  }
+
+  private rootsView(): RootsView {
+    const me = '0'.repeat(32);
+    return {
+      machine: me,
+      machines: [
+        { id: me, name: this.selfName, os: 'macos', here: true, paired: false },
+        ...this.peers.map((p) => ({ id: p.id, name: p.name, os: p.os, here: false, paired: true })),
+      ],
+      roots: this.roots,
+      max: 64,
+    };
+  }
+
+  private changeRoots(c: RootsChange): Response {
+    for (const id of c.remove ?? []) this.roots = this.roots.filter((r) => r.id !== id);
+    for (const u of c.upsert ?? []) {
+      const existing = u.id ? this.roots.find((r) => r.id === u.id) : undefined;
+      if (existing) {
+        existing.name = u.name;
+        existing.paths = u.paths;
+        existing.updatedAt = Date.now();
+      } else {
+        this.roots.push({
+          id: `rt_${Math.random().toString(16).slice(2, 18).padEnd(16, '0')}`,
+          name: u.name,
+          paths: u.paths,
+          updatedAt: Date.now(),
+          by: '0'.repeat(32),
+        });
+      }
+    }
+    return json(this.rootsView());
   }
 
   private setup(): SetupView {
@@ -382,6 +663,7 @@ export class MockMachines {
         },
       ],
       error: null,
+      asks: this.asked,
     }));
     const all = [...self, ...peers.flatMap((p) => p.checks)];
     return {
@@ -394,6 +676,7 @@ export class MockMachines {
       },
       peers,
       blockers: all.filter((c) => c.state === 'blocker').length,
+      gating: all.filter((c) => c.state === 'blocker' && !c.scope).length,
       warnings: all.filter((c) => c.state === 'warning').length,
       tests: this.tests,
     };
@@ -413,7 +696,7 @@ export class MockMachines {
       },
       peers: this.peers,
       pairing: this.pairing,
-      settings: { relay: this.relay, keepAwake: this.keepAwake },
+      settings: { relay: this.relay, keepAwake: this.keepAwake, code: this.code },
       offer: null,
       transport: {
         running: true,
@@ -426,6 +709,7 @@ export class MockMachines {
         at: Date.now() - MIN,
       },
       setupStep: this.setupStep,
+      asks: this.asks,
     };
   }
 

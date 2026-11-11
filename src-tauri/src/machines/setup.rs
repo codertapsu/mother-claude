@@ -16,6 +16,24 @@
 //!   no test ever does either.
 //! * Results are kept in `machines/setup.json` (0600) for Machines health,
 //!   which reruns the checks at start and every 30 minutes.
+//!
+//! Phase 3a adds the rest (plan §5.14, "the setup's rest"): git, long
+//! paths, Claude Code, each account's sign-in and room for data
+//! (`checks`); accounts matched by name across computers (`accounts`);
+//! roots proposed from repositories' origins and *Clone it there*
+//! (`folders`); what another computer asks this one to do, done only when
+//! confirmed here (`asks`); the code options per project (`options`); the
+//! readiness test's git round trip (`codetest`) and its other lines
+//! (`readiness`); and their routes (`routes`).
+
+pub mod accounts;
+pub mod asks;
+pub mod checks;
+pub mod codetest;
+pub mod folders;
+pub mod options;
+pub mod readiness;
+pub mod routes;
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -25,7 +43,7 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
-use super::store::RelayMode;
+use super::store::{CodeSettings, RelayMode};
 use super::transport;
 use crate::server::error::ApiError;
 use crate::state::AppState;
@@ -89,6 +107,11 @@ pub struct Check {
     pub severity: Severity,
     #[serde(default)]
     pub fix: Option<Fix>,
+    /// What a failure blocks when it is not all of Machines (the plan's
+    /// "B for that account"): `account` — that account's sessions. Such a
+    /// blocker shows red but does not keep Machines off.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scope: Option<String>,
 }
 
 impl Check {
@@ -102,7 +125,14 @@ impl Check {
             why: why.into(),
             severity: Severity::Required,
             fix: None,
+            scope: None,
         }
+    }
+
+    /// A blocker that keeps Machines off (one with a scope blocks only its
+    /// part).
+    pub fn gates(&self) -> bool {
+        self.state == CheckState::Blocker && self.scope.is_none()
     }
 
     fn ok(mut self, detail: impl Into<String>) -> Self {
@@ -143,6 +173,21 @@ fn fix(kind: FixKind, label: &str) -> Option<Fix> {
     })
 }
 
+/// What a machine says of its tools beside its checks (`/peer/setup`): its
+/// system, git's and Claude Code's versions, and its code options.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Facts {
+    #[serde(default)]
+    pub os: String,
+    #[serde(default)]
+    pub git: Option<String>,
+    #[serde(default)]
+    pub claude: Option<String>,
+    #[serde(default)]
+    pub code: Option<CodeSettings>,
+}
+
 /// Another machine's checks, as it last answered.
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -152,15 +197,21 @@ pub struct PeerChecks {
     pub checks: Vec<Check>,
     #[serde(default)]
     pub error: Option<String>,
+    /// Its tools and options (absent from an older build).
+    #[serde(default)]
+    pub facts: Option<Facts>,
+    /// What this machine asked of it, and how each went.
+    #[serde(default)]
+    pub asks: Vec<asks::Ask>,
 }
 
 /// One readiness-test line.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TestLine {
-    /// `connect` | `transfer`.
+    /// `connect` | `transfer` | `tools` | `code` | `accounts` | `folders`.
     pub id: String,
-    /// `ok` | `failed` | `skipped`.
+    /// `ok` | `warning` | `failed` | `skipped`.
     pub state: String,
     pub detail: String,
     #[serde(default)]
@@ -193,6 +244,22 @@ pub struct Cache {
     pub tests: BTreeMap<String, Readiness>,
     #[serde(default)]
     pub claude: Option<String>,
+    /// git's version, as the checks last read it.
+    #[serde(default)]
+    pub git: Option<String>,
+    /// What other machines asked this one to do (`asks`), newest last.
+    #[serde(default)]
+    pub asks: Vec<asks::Ask>,
+    /// The last scan for git repositories (`folders`): when, the roots'
+    /// folders it looked under, and what it found.
+    #[serde(skip)]
+    pub(crate) repos: Option<(i64, Vec<String>, Vec<folders::Repo>)>,
+    /// Readiness-test halves running now (`codetest`).
+    #[serde(skip)]
+    pub(crate) code_tests: usize,
+    /// Remote checks other computers asked for, running now (`folders`).
+    #[serde(skip)]
+    pub(crate) remote_checks: usize,
     #[serde(skip)]
     dir: Option<PathBuf>,
 }
@@ -253,13 +320,39 @@ pub async fn run_local(state: &AppState) -> Vec<Check> {
     out.push(relay_check(state).await);
     out.push(pairing_check(state));
     out.extend(peer_checks(state));
+    // Phase 3a: what a move needs here (git, Claude Code, the accounts'
+    // sign-ins, room for data).
+    out.extend(checks::tools(state).await);
+    out.extend(checks::accounts(state).await);
+    out.push(checks::disk(state).await);
     out
+}
+
+/// What this machine tells another beside its checks (`/peer/setup`).
+pub fn facts(state: &AppState) -> Facts {
+    with_cache(state, |c| Facts {
+        os: super::protocol::this_os().to_string(),
+        git: c.git.clone(),
+        claude: c.claude.clone(),
+        code: Some(state.machines.settings().code),
+    })
+}
+
+/// `GET /peer/setup`: this machine's checks for `machine`'s side-by-side
+/// view, its tools, and what `machine` asked of it.
+pub async fn peer_answer(state: &AppState, machine: &str) -> Value {
+    let v = view(state, false).await;
+    json!({
+        "checks": v["self"]["checks"],
+        "facts": facts(state),
+        "asks": asks::made_by(state, machine),
+    })
 }
 
 async fn app_check(state: &AppState) -> Check {
     let claude = probe(&crate::claude::claude_bin(), &["--version"])
         .await
-        .and_then(|o| o.split_whitespace().next().map(str::to_string));
+        .and_then(|o| checks::parse_claude_version(&o));
     with_cache(state, |c| c.claude.clone_from(&claude));
     let c = Check::new(
         "app",
@@ -332,9 +425,11 @@ fn pairing_check(state: &AppState) -> Check {
     }
 }
 
-/// Per paired machine: a compatible version and the same relay setting.
+/// Per paired machine: a compatible version and the same relay setting (and,
+/// recommended, the same code options).
 fn peer_checks(state: &AppState) -> Vec<Check> {
-    let mine = state.machines.settings().relay;
+    let settings = state.machines.settings();
+    let mine = settings.relay;
     let peers = state.machines.store_read(|f| f.peers.clone());
     peers
         .iter()
@@ -347,6 +442,15 @@ fn peer_checks(state: &AppState) -> Vec<Check> {
                 "Each pair of computers needs the same Machines protocol and relay setting.",
             );
             let link = state.machines.link(&p.id);
+            let their_code = with_cache(state, |c| {
+                c.peers
+                    .get(&p.id)
+                    .and_then(|pc| pc.facts.as_ref())
+                    .and_then(|f| f.code.clone())
+            });
+            let code_differs = their_code
+                .as_ref()
+                .is_some_and(|c| !c.same_as(&settings.code));
             match (&p.versions, &p.relay) {
                 (Some(v), _) if !super::protocol::compatible(v.protocol) => c.failed(
                     true,
@@ -358,6 +462,13 @@ fn peer_checks(state: &AppState) -> Vec<Check> {
                     format!(
                         "{name} uses another relay setting ({}): two computers on different relays may never meet.",
                         r.mode.as_str()
+                    ),
+                    fix(FixKind::Auto, "Use this setting everywhere"),
+                ),
+                _ if code_differs => c.failed(
+                    false,
+                    format!(
+                        "{name} moves code with other options: a move follows the options of the computer it starts from."
                     ),
                     fix(FixKind::Auto, "Use this setting everywhere"),
                 ),
@@ -432,14 +543,25 @@ async fn probe(program: &str, args: &[&str]) -> Option<String> {
 
 /// Runs a program; `(succeeded, stdout)`.
 async fn run(program: &str, args: &[&str]) -> Option<(bool, String)> {
+    run_for(program, args, PROBE_TIMEOUT).await
+}
+
+/// [`run`] for a step that may take minutes (`claude update`).
+async fn run_long(program: &str, args: &[&str]) -> Option<(bool, String)> {
+    run_for(program, args, Duration::from_secs(300)).await
+}
+
+async fn run_for(program: &str, args: &[&str], timeout: Duration) -> Option<(bool, String)> {
     let mut cmd = tokio::process::Command::new(program);
-    cmd.args(args).kill_on_drop(true);
+    cmd.args(args)
+        .kill_on_drop(true)
+        .stdin(std::process::Stdio::null());
     #[cfg(windows)]
     {
         // No console window flashing up from a GUI app.
         cmd.creation_flags(0x0800_0000);
     }
-    let out = tokio::time::timeout(PROBE_TIMEOUT, cmd.output())
+    let out = tokio::time::timeout(timeout, cmd.output())
         .await
         .ok()?
         .ok()?;
@@ -788,17 +910,27 @@ pub fn ps_quote(s: &str) -> String {
 
 // ─── fixes ─────────────────────────────────────────────────────────────────────
 
+/// Records what a fix would do while fixes only record (tests): the
+/// settings page it would open, the administrator prompt, the sign-in,
+/// `claude update`, the clone.
+pub fn note(state: &AppState, what: &str) {
+    state
+        .machines
+        .fixes_asked
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .push(what.to_string());
+}
+
+/// Whether fixes run for real (the app turned them on).
+pub fn fixes_live(state: &AppState) -> bool {
+    state.machines.fixes_live.load(Ordering::Relaxed)
+}
+
 /// `POST /api/machines/setup/fix` (desktop only): runs a check's fix.
 pub async fn fix_check(state: &AppState, id: &str) -> Result<(), ApiError> {
-    let live = state.machines.fixes_live.load(Ordering::Relaxed);
-    let record = |what: &str| {
-        state
-            .machines
-            .fixes_asked
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .push(what.to_string());
-    };
+    let live = fixes_live(state);
+    let record = |what: &str| note(state, what);
     match id {
         "keepAwake" => {
             state.machines.store_write(|f| f.settings.keep_awake = true);
@@ -818,15 +950,50 @@ pub async fn fix_check(state: &AppState, id: &str) -> Result<(), ApiError> {
             }
         }
         _ if id.starts_with("peer:") => {
-            // "Use this setting everywhere": offer this machine's relay.
+            // "Use this setting everywhere": offer this machine's relay and
+            // code options.
             super::routes::offer_settings(state).await;
         }
-        _ => {
-            return Err(ApiError::unprocessable(
-                "fix_manual",
-                "This one is done by hand: the check says how.",
-            ))
+        "longPaths" => {
+            // Git for Windows: for this user only (`~/.gitconfig`).
+            record("git config --global core.longpaths true");
+            if live {
+                let done = tokio::task::spawn_blocking(|| {
+                    let git = super::code::GitRunner::new();
+                    let op = git.begin().map_err(|e| e.to_string())?;
+                    let dir = op.dir().to_path_buf();
+                    op.git(&dir, &["config", "--global", "core.longpaths", "true"])
+                        .map(|_| ())
+                        .map_err(|e| e.to_string())
+                })
+                .await
+                .map_err(|e| ApiError::internal(e.to_string()))?;
+                done.map_err(|e| ApiError::unprocessable("fix_failed", e))?;
+            }
         }
+        "claudeCode" => {
+            // `claude update`, run because the user pressed it here.
+            record("claude update");
+            if live {
+                let ran = run_long(&crate::claude::claude_bin(), &["update"]).await;
+                if !matches!(ran, Some((true, _))) {
+                    return Err(ApiError::unprocessable(
+                        "fix_failed",
+                        "Claude Code could not update itself: run `claude update` in a terminal, or reinstall it.",
+                    ));
+                }
+            }
+        }
+        _ => match id.strip_prefix("account:") {
+            // An account's own sign-in, its browser here.
+            Some(account) => accounts::sign_in(state, account).await?,
+            None => {
+                return Err(ApiError::unprocessable(
+                    "fix_manual",
+                    "This one is done by hand: the check says how.",
+                ))
+            }
+        },
     }
     refresh(state).await;
     Ok(())
@@ -934,17 +1101,32 @@ pub async fn view(state: &AppState, fresh: bool) -> Value {
                 "at": (pc.at > 0).then_some(pc.at),
                 "checks": pc.checks,
                 "error": pc.error,
+                "facts": pc.facts,
+                "asks": pc.asks,
             })
         })
         .collect();
     let (blockers, warnings) = count(&checks, peers.values());
+    let gating = gating(&checks, peers.values());
     json!({
-        "self": { "machine": me.id, "name": me.name, "at": at, "checks": checks, "error": null },
+        "self": {
+            "machine": me.id, "name": me.name, "at": at, "checks": checks, "error": null,
+            "facts": facts(state),
+        },
         "peers": peer_list,
         "blockers": blockers,
+        "gating": gating,
         "warnings": warnings,
         "tests": tests.values().collect::<Vec<_>>(),
     })
+}
+
+/// The blockers that keep Machines off (a scoped one blocks only its part).
+fn gating<'a>(own: &[Check], peers: impl Iterator<Item = &'a PeerChecks>) -> usize {
+    own.iter()
+        .chain(peers.flat_map(|p| p.checks.iter()))
+        .filter(|c| c.gates())
+        .count()
 }
 
 fn count<'a>(own: &[Check], peers: impl Iterator<Item = &'a PeerChecks>) -> (usize, usize) {
@@ -961,13 +1143,14 @@ fn count<'a>(own: &[Check], peers: impl Iterator<Item = &'a PeerChecks>) -> (usi
     (b, w)
 }
 
-/// This machine's blockers right now (for turning Machines on).
+/// This machine's blockers right now (for turning Machines on): a blocker
+/// with a scope (an account not signed in) blocks only its part.
 pub fn blockers(state: &AppState) -> Vec<Check> {
     with_cache(state, |c| {
         c.checks
             .iter()
             .chain(c.peers.values().flat_map(|p| p.checks.iter()))
-            .filter(|c| c.state == CheckState::Blocker)
+            .filter(|c| c.gates())
             .cloned()
             .collect()
     })
@@ -990,6 +1173,65 @@ pub fn health_summary(state: &AppState) -> Value {
     })
 }
 
+/// One paired machine's checks, tools and the asks this machine made of it.
+async fn fetch_one(state: &AppState, id: &str) -> PeerChecks {
+    let r = transport::request(
+        state,
+        id,
+        "GET",
+        "/peer/setup",
+        None,
+        Duration::from_secs(25),
+    )
+    .await;
+    let empty = |error: String| PeerChecks {
+        at: super::now(),
+        error: Some(error),
+        ..PeerChecks::default()
+    };
+    match r {
+        Ok((200, v)) => PeerChecks {
+            at: super::now(),
+            checks: serde_json::from_value(v.get("checks").cloned().unwrap_or_default())
+                .unwrap_or_default(),
+            error: None,
+            facts: v
+                .get("facts")
+                .and_then(|f| serde_json::from_value(f.clone()).ok()),
+            asks: v
+                .get("asks")
+                .and_then(|a| serde_json::from_value::<Vec<asks::Ask>>(a.clone()).ok())
+                .unwrap_or_default()
+                .into_iter()
+                .filter(|a| asks::is_ask_id(&a.id))
+                .collect(),
+        },
+        Ok((status, _)) => empty(format!("It answered {status}.")),
+        Err(e) => empty(e),
+    }
+}
+
+/// Keeps `results` (an unreachable machine keeps its last checks, with the
+/// error) and forgets machines no longer paired.
+fn keep_peer_checks(state: &AppState, results: Vec<(String, PeerChecks)>) {
+    let known: Vec<String> = state
+        .machines
+        .store_read(|f| f.peers.iter().map(|p| p.id.clone()).collect());
+    with_cache(state, |c| {
+        for (id, pc) in results {
+            let entry = c.peers.entry(id).or_default();
+            if pc.error.is_some() {
+                entry.error = pc.error;
+            } else {
+                *entry = pc;
+            }
+        }
+        c.peers.retain(|id, _| known.contains(id));
+        c.save();
+    });
+    super::publish(state, "setup");
+}
+
 /// Asks every online paired machine for its checks.
 pub async fn fetch_peer_checks(state: &AppState) {
     let peers: Vec<String> = state
@@ -998,51 +1240,27 @@ pub async fn fetch_peer_checks(state: &AppState) {
     let asks = peers.into_iter().map(|id| {
         let st = state.clone();
         async move {
-            let r = transport::request(
-                &st,
-                &id,
-                "GET",
-                "/peer/setup",
-                None,
-                Duration::from_secs(25),
-            )
-            .await;
-            let pc = match r {
-                Ok((200, v)) => PeerChecks {
-                    at: super::now(),
-                    checks: serde_json::from_value(v.get("checks").cloned().unwrap_or_default())
-                        .unwrap_or_default(),
-                    error: None,
-                },
-                Ok((status, _)) => PeerChecks {
-                    at: super::now(),
-                    checks: Vec::new(),
-                    error: Some(format!("It answered {status}.")),
-                },
-                Err(e) => PeerChecks {
-                    at: super::now(),
-                    checks: Vec::new(),
-                    error: Some(e),
-                },
-            };
+            let pc = fetch_one(&st, &id).await;
             (id, pc)
         }
     });
     let results = futures_util::future::join_all(asks).await;
+    keep_peer_checks(state, results);
+}
+
+/// Asks one paired machine for its checks again (it said they changed).
+pub async fn fetch_peer_checks_of(state: &AppState, machine: &str) {
+    let pc = fetch_one(state, machine).await;
+    keep_peer_checks(state, vec![(machine.to_string(), pc)]);
+}
+
+/// Remembers an ask this machine just made of `machine` (until its next
+/// answer to `/peer/setup` says how it went).
+pub fn note_asked(state: &AppState, machine: &str, ask: asks::Ask) {
     with_cache(state, |c| {
-        for (id, pc) in results {
-            // An unreachable machine keeps its last checks, with the error.
-            let entry = c.peers.entry(id).or_default();
-            if pc.error.is_some() {
-                entry.error = pc.error;
-            } else {
-                *entry = pc;
-            }
-        }
-        let known: Vec<String> = state
-            .machines
-            .store_read(|f| f.peers.iter().map(|p| p.id.clone()).collect());
-        c.peers.retain(|id, _| known.contains(id));
+        let entry = c.peers.entry(machine.to_string()).or_default();
+        entry.asks.retain(|a| a.id != ask.id);
+        entry.asks.push(ask);
         c.save();
     });
     super::publish(state, "setup");
@@ -1119,14 +1337,18 @@ async fn test_one(state: &AppState, machine: &str, name: &str) -> Readiness {
                     mibps: None,
                 }),
             }
+            // Steps 3–6: tools, a git round trip, accounts, folders.
+            tests.extend(readiness::lines(state, machine, name).await);
         }
         Ok(Err(e)) => {
             tests.push(failed_connect(&format!("Can't reach {name}: {e}")));
             tests.push(skipped_transfer());
+            tests.extend(readiness::skipped());
         }
         Err(_) => {
             tests.push(failed_connect(&format!("Can't reach {name} in time.")));
             tests.push(skipped_transfer());
+            tests.extend(readiness::skipped());
         }
     }
     Readiness {
