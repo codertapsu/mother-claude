@@ -58,7 +58,7 @@ describe('MachinesComponent', () => {
     const off = el.querySelector('.card.off');
     expect(text(off?.querySelector('h2'))).toBe('Machines is off');
     expect(text(off?.querySelector('.needs'))).toContain(
-      'Mother Claude 0.11 or newer on each computer',
+      'This version of Mother Claude, or newer, on each computer',
     );
     // Nothing to pair from, check or set while it was never set up.
     expect(button(el, 'Pair a machine')).toBeUndefined();

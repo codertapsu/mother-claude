@@ -1002,8 +1002,12 @@ while a transfer ran (§5.3: bulk transfers yield to the API).
 
 *Built on the `machines` branch (2026-11-11): `src-tauri/src/machines/`,
 the Machines page and setup, `tests/machines.rs`; the user guide is
-[MACHINES.md](MACHINES.md). Its exit test, by hand on two computers, is
-next.*
+[MACHINES.md](MACHINES.md). **Exit test passed by hand (2026-11-11)** on the
+Mac and the Windows desktop: from the worst case (Windows on a *Public*
+network with the firewall prompt cancelled, the Mac with Local Network
+denied) the setup alone got every check green; paired on the LAN through
+*Nearby*, and across networks (the Mac on a phone's hotspot) by typing the
+code and the digits.*
 
 - `machines/identity.rs`, `store.rs`, `pairing.rs`, `transport.rs`, `protocol.rs`.
 - `server::context`: `Ingress::Peer`, `Principal::Peer`; `server::auth` guards; the allow-list of routes a peer may reach.
@@ -1021,8 +1025,10 @@ next.*
 session routes (`machines::routes::peer_route_grant`), `X-MC-Acting`
 (`machines::acting`), the proxy and the federation
 (`machines::federation`, `{t:"remote"}` frames) and the SPA's per-computer
-scopes (`src/app/core/machine-scope.ts`); its exit test is by hand with
-Phase 1's. Left for later: a client on the polling fallback sees only its
+scopes (`src/app/core/machine-scope.ts`). **Exit test passed by hand
+(2026-11-11)**: from the Mac and from a phone paired with it, Windows'
+sessions were listed, started, driven, approved (session page and Inbox),
+stopped, greyed while Windows was offline and back after. Left for later: a client on the polling fallback sees only its
 own computer's sessions (UX §6.1 has `/api/sessions` carry the others).*
 
 - `machines/federation.rs`: subscriptions, merge, offline state; frames tagged `machine`.
