@@ -76,7 +76,7 @@ impl Federation {
 }
 
 /// The frames a dashboard gets when it connects: every other machine's
-/// sessions as last heard, and which are offline.
+/// sessions as last heard, then whether it is online.
 pub fn initial_frames(state: &AppState) -> Vec<ServerEvent> {
     state.machines.federation.with(|r| {
         let mut out = Vec::new();
@@ -91,13 +91,15 @@ pub fn initial_frames(state: &AppState) -> Vec<ServerEvent> {
                 }),
                 session: None,
             });
-            if !m.online {
-                out.push(ServerEvent::Remote {
-                    machine: machine.clone(),
-                    frame: json!({ "t": "offline", "since": m.since }),
-                    session: None,
-                });
-            }
+            out.push(ServerEvent::Remote {
+                machine: machine.clone(),
+                frame: if m.online {
+                    json!({ "t": "online" })
+                } else {
+                    json!({ "t": "offline", "since": m.since })
+                },
+                session: None,
+            });
         }
         out
     })

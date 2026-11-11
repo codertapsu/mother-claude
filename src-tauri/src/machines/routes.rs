@@ -568,6 +568,15 @@ async fn proxy(
     )
     .await
     {
+        // A 401 means "your credential here is gone" to every client (a phone
+        // unpairs itself); the other computer refusing is not that.
+        Ok((401, _, _)) => ApiError::new(
+            StatusCode::BAD_GATEWAY,
+            "machine_refused",
+            format!("{} refused this computer.", super::peer_name(&state, &id)),
+        )
+        .with("machine", id)
+        .into_response(),
         Ok((status, content_type, bytes)) => {
             let mut resp = Response::new(HttpBody::from(bytes));
             *resp.status_mut() = StatusCode::from_u16(status).unwrap_or(StatusCode::BAD_GATEWAY);
@@ -579,10 +588,7 @@ async fn proxy(
             resp
         }
         Err(e) => {
-            let name = state
-                .machines
-                .store_read(|f| f.peer(&id).map(|p| p.display_name().to_string()))
-                .unwrap_or_default();
+            let name = super::peer_name(&state, &id);
             ApiError::new(
                 StatusCode::BAD_GATEWAY,
                 "machine_unreachable",

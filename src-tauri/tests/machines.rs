@@ -787,10 +787,26 @@ async fn another_computers_sessions_arrive_live_and_go_grey_when_it_stops() {
     )
     .await;
 
-    // B stops: A's dashboard is told it is offline.
+    // A dashboard opened later gets them at once, and that B is online.
+    let mut late = dashboard(&a).await;
+    frame_where(&mut late, "B's sessions on connect", |v| {
+        lists_sid(v, &from)
+    })
+    .await;
+    frame_where(&mut late, "B online on connect", |v| {
+        v["t"] == "remote" && v["machine"] == from && v["frame"]["t"] == "online"
+    })
+    .await;
+
+    // B stops: A's dashboard is told it is offline (since then, not an
+    // earlier state).
+    let stopped = chrono::Utc::now().timestamp_millis();
     transport::stop(&b.st).await;
     frame_where(&mut ws, "A to be told B is offline", |v| {
-        v["t"] == "remote" && v["machine"] == from && v["frame"]["t"] == "offline"
+        v["t"] == "remote"
+            && v["machine"] == from
+            && v["frame"]["t"] == "offline"
+            && v["frame"]["since"].as_i64().is_some_and(|s| s >= stopped)
     })
     .await;
 }
