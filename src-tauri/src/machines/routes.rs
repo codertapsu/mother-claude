@@ -846,11 +846,11 @@ async fn peer_pair_cancel(
     Ok(Json(pairing::host_peer_cancel(&state, &caller.key)?))
 }
 
-/// This machine's checks, for a paired machine's side-by-side view.
+/// This machine's checks, for a paired machine's side-by-side view, with its
+/// tools.
 async fn peer_setup(ctx: ClientContext, State(state): State<AppState>) -> ApiResult<Json<Value>> {
     granted(&state, &ctx, Grant::View)?;
-    let v = setup::view(&state, false).await;
-    Ok(Json(json!({ "checks": v["self"]["checks"] })))
+    Ok(Json(setup::peer_answer(&state).await))
 }
 
 #[derive(Deserialize)]
