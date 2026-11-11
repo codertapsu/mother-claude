@@ -314,6 +314,17 @@ Measured in spike S1 (both ends on one Mac): public relays ~2–3 MiB/s with a
 ~78 ms round trip from here — fine for driving sessions, slow for a large
 first move; a direct path or your own relay is what makes moves fast.
 
+Across two separate networks (spike S1: a phone on mobile data and the home
+Wi-Fi) hole punching failed — the carrier's NAT — and every packet went
+through the relay: ~110 ms a request, fine for driving sessions, but 1.1
+MiB/s, and a 1 s round trip while a transfer filled the path. So **bulk
+streams (moves, copies) run at a lower QUIC stream priority than the API
+and the dashboard's frames**, a move says how long it will take before it
+starts, and a large first move across networks suggests your own relay or
+your remote (D10). After a network change the endpoint needs time to find
+a relay again (15 s in the spike): Machines health says "reconnecting", not
+"offline".
+
 A relay only ever carries ciphertext between machine keys; it learns which
 machines talk, when, and from which addresses. The setup's readiness test
 (§5.14) checks that every machine reaches the chosen relay, and shows for each
@@ -957,8 +968,8 @@ spikes changed §3.5 (the move note is a message), §5.3 (what *No relay* and
 *Your own relay* need), §5.10 (nine fixes, F1–F9) and §5.14 (the app has no
 Local Network access on the Mac yet). Left, at the end of `RESULTS.md`: the
 two worst-state walks (`setup-walk/macos.sh`, `setup-walk/windows.ps1` —
-your password, your clicks), one run across two networks, S2's real round
-trip between the machines, and a Mac session resumed on Windows.
+your password, your clicks), S2's real round trip between the machines,
+and a Mac session resumed on Windows.
 
 **Decision (2026-11-11): the transport is iroh** (1.4.x), not the fallback.
 It carried the app's HTTP and WebSocket stack unchanged on macOS and
@@ -968,9 +979,10 @@ packet; its throughput equalled plain TCP on the same Wi-Fi; pairing by key
 and a read-only forward of the real API worked; all three relay settings
 connect; the binary grows by at most 13 MB. To keep in view: n0's public
 relays are slow (1–3 MiB/s from here), macOS needs the Local Network
-permission (Phase 1 adds `NSLocalNetworkUsageDescription`), and one run
-across two networks (a phone hotspot) is left to see hole punching against
-the relay.
+permission (Phase 1 adds `NSLocalNetworkUsageDescription`), and across two
+networks (a phone on mobile data and the home Wi-Fi) hole punching failed,
+so everything went through the relay at ~1.1 MiB/s with a 1 s round trip
+while a transfer ran (§5.3: bulk transfers yield to the API).
 
 ### Phase 1 — set up and pair machines (≈ 4 weeks)
 
