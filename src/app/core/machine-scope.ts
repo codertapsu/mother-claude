@@ -15,6 +15,7 @@ import { ApiError, ApiService, MachineApiError } from './api.service';
 import { DefaultsService } from './defaults.service';
 import { computerNoun, tr } from './i18n/i18n';
 import { MachineContext } from './machine-context';
+import type { MoveFrame } from './moves';
 import {
   AgentsFrame,
   PendingFrame,
@@ -143,6 +144,8 @@ export class MachineRealtime extends RealtimeService {
   override readonly pending$ = this.kind<PendingFrame>('pending');
   override readonly pendingResolved$ = this.kind<PendingResolvedFrame>('pendingResolved');
   override readonly agents$ = this.kind<AgentsFrame>('agents');
+  /** Its moves, once it passes them on (until then `MovesService` polls). */
+  override readonly move$ = this.kind<MoveFrame>('move');
   /** Its views refetch when this computer's do, and when it is back or
    * dropped frames for us. */
   override readonly refetch$: Observable<RefetchReason> = merge(

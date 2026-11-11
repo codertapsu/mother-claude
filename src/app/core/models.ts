@@ -291,6 +291,23 @@ export interface SessionSummary {
    * this app stamps on what that computer's frames carry; absent for this
    * computer's own (docs/PLAN-MACHINES.md §6.1). */
   machine?: string;
+  /** The other computer it lives on now, when its lease names one
+   * (docs/PLAN-MACHINES.md §5.7): this copy is read only and it runs there.
+   * Absent while it lives where this summary comes from. */
+  livesOn?: LivesOn;
+}
+
+/** The computer a session lives on, as the computer that sent the summary
+ * names it (`claude/model.rs` `LivesOn`). */
+export interface LivesOn {
+  /** Its machine id. */
+  machine: string;
+  /** Its name as that computer shows it. */
+  name: string;
+  /** Since when (ms). */
+  since: number;
+  /** The lease's epoch. */
+  epoch: number;
 }
 
 // ─────────────────────────────────────────── 4.2 Pending items & responding
@@ -1825,7 +1842,9 @@ export type ServerFrame =
   // Machines: your other computers (`core/machines.ts`).
   | import('./machines').MachinesFrame
   // Another computer's frame, republished (`core/machines.ts`).
-  | import('./machines').RemoteFrame;
+  | import('./machines').RemoteFrame
+  // A move of a session to or from another computer (`core/moves.ts`).
+  | import('./moves').MoveFrame;
 
 /** `machine` on `sub`/`unsub`: another computer's session (its id). */
 export type ClientFrame =

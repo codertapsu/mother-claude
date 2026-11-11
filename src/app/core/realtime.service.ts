@@ -40,6 +40,7 @@ import {
 import { NowService } from './now.service';
 import { normalizeAccountUsages, normalizePlanUsage } from './plan-usage';
 import type { MachinesFrame, RemoteFrame } from './machines';
+import { MoveFrame, normalizeMove } from './moves';
 import type { TeamsFrame } from './teams';
 import { TranscriptStore, TranscriptStoreOptions } from './transcript-store';
 import { computerNoun, tr } from './i18n/i18n';
@@ -189,6 +190,7 @@ export type RemoteInner =
   | PendingResolvedFrame
   | AgentsFrame
   | ResyncFrame
+  | MoveFrame
   | { t: 'online' }
   | { t: 'offline'; since?: number | null }
   | { t: 'forgotten' };
@@ -251,7 +253,8 @@ export interface RemoteEvent {
  * `remote$`; `subscribeRemote(machine, session, agent?)` is `subscribe` for
  * one of their sessions (`sub` with `machine`), re-sent like the others.
  * Nothing of theirs enters `sessions`: their scoped services
- * (`machine-scope.ts`) read them from here.
+ * (`machine-scope.ts`) read them from here. `move$` carries this computer's
+ * moves of sessions to and from the others (§5.8), each record parsed.
  */
 @Injectable({ providedIn: 'root' })
 export class RealtimeService {
@@ -328,6 +331,10 @@ export class RealtimeService {
    * `/api/machines` (docs/PLAN-MACHINES.md). */
   private readonly machinesS = new Subject<MachinesFrame>();
   readonly machines$: Observable<MachinesFrame> = this.machinesS.asObservable();
+  /** A move of a session to or from another computer changed: its whole
+   * record (docs/PLAN-MACHINES.md §5.8). */
+  private readonly moveS = new Subject<MoveFrame>();
+  readonly move$: Observable<MoveFrame> = this.moveS.asObservable();
   /** Other computers' sessions, by machine id, as their frames said. */
   private readonly remoteS = signal<ReadonlyMap<string, RemoteMachine>>(new Map());
   readonly remote = this.remoteS.asReadonly();
@@ -994,6 +1001,11 @@ export class RealtimeService {
       case 'machines':
         this.machinesS.next(frame);
         break;
+      case 'move': {
+        const move = normalizeMove(frame.move);
+        if (move) this.moveS.next({ t: 'move', move });
+        break;
+      }
       case 'remote':
         this.onRemote(frame);
         break;
@@ -1045,6 +1057,14 @@ export class RealtimeService {
         // It dropped frames for us: subscribe again (a full list follows).
         for (const [key, e] of this.remoteSubs) if (e.machine === machine) this.sendRemoteSub(key);
         break;
+      case 'move': {
+        // Its own moves, should it pass them on (`MovesService` polls the
+        // ones it follows meanwhile).
+        const move = normalizeMove(frame.move);
+        if (!move) return;
+        this.remoteEventS.next({ machine, frame: { t: 'move', move } });
+        return;
+      }
       case 'transcriptReset':
       case 'stream':
       case 'agents':

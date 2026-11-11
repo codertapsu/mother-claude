@@ -32,6 +32,15 @@ import type {
   SetupView,
 } from './machines';
 import type { MoveBody } from './move-data';
+import {
+  MovePreflight,
+  MoveRecord,
+  SessionMoveBody,
+  TakeOverReply,
+  normalizeMove,
+  normalizeMoves,
+  normalizePreflight,
+} from './moves';
 import type {
   ObservedEvent,
   RoleStartResult,
@@ -204,6 +213,9 @@ import {
  *             getMachinesSettings() · saveMachinesSettings(patch) ·
  *             answerSettingsOffer(accept) · setMachinesEnabled(enabled) ·
  *             updateMachine(id, patch) · revokeMachine(id)
+ *   Moves     moveSessionPreflight(id, body) · moveSession(id, body) ·
+ *             takeOverSession(id, self) · listMoves() · getMove(id) ·
+ *             cancelMove(id) · undoMove(id) · retryMove(id)
  */
 @Injectable({ providedIn: 'root' })
 export class ApiService {
@@ -1314,6 +1326,56 @@ export class ApiService {
     return this.req<MachinesView>(`/machines/${enc(id)}`, { method: 'DELETE' });
   }
 
+  // ─── Moving a session to another computer (docs/PLAN-MACHINES.md §5.8) ──
+  // On the computer the session lives on: another computer's client sends
+  // them through its proxy (the `move` grant there).
+
+  /** The move sheet's checks, the other computer asked too; nothing is
+   * written anywhere. */
+  async moveSessionPreflight(id: string, body: SessionMoveBody): Promise<MovePreflight> {
+    const p = normalizePreflight(
+      await this.post<unknown>(`/sessions/${enc(id)}/move/preflight`, body),
+    );
+    if (!p) throw unreadable();
+    return p;
+  }
+
+  /** Starts a move: its record (`202`), then `move` frames. A blocker found
+   * again is `409 move_blocked` with the `preflight`. */
+  async moveSession(id: string, body: SessionMoveBody): Promise<MoveRecord> {
+    return moveOf(await this.post<unknown>(`/sessions/${enc(id)}/move`, body));
+  }
+
+  /** The session's computer is offline: it lives on this one (`self`, this
+   * computer's id) from now on, from its copy here. */
+  takeOverSession(id: string, self: string): Promise<TakeOverReply> {
+    return this.post<TakeOverReply>(`/sessions/${enc(id)}/move`, { to: self, takeOver: true });
+  }
+
+  /** Every move this computer keeps (sent and received), newest first. */
+  async listMoves(): Promise<MoveRecord[]> {
+    return normalizeMoves(await this.req<unknown>('/moves'));
+  }
+
+  async getMove(id: string): Promise<MoveRecord> {
+    return moveOf(await this.req<unknown>(`/moves/${enc(id)}`));
+  }
+
+  /** Until the other computer starts placing it (`409 move_too_late`). */
+  async cancelMove(id: string): Promise<MoveRecord> {
+    return moveOf(await this.post<unknown>(`/moves/${enc(id)}/cancel`, {}));
+  }
+
+  /** Undone on the computer it went to; it lives where it was again. */
+  async undoMove(id: string): Promise<MoveRecord> {
+    return moveOf(await this.post<unknown>(`/moves/${enc(id)}/undo`, {}));
+  }
+
+  /** A move that landed but did not start there starts again. */
+  async retryMove(id: string): Promise<MoveRecord> {
+    return moveOf(await this.post<unknown>(`/moves/${enc(id)}/retry`, {}));
+  }
+
   // ──────────────────────────────────────────────────────────── Transport
 
   private post<T>(path: string, body: unknown): Promise<T> {
@@ -1592,6 +1654,18 @@ export function describeError(e: unknown): DescribedError {
 
 function enc(v: string): string {
   return encodeURIComponent(v);
+}
+
+/** An answer that should have been JSON of a known shape, and was not. */
+function unreadable(): ApiError {
+  return new ApiError(tr('The server sent a response this app could not read.'), 200, 'parse');
+}
+
+/** A move's record, or the reason it is none. */
+function moveOf(v: unknown): MoveRecord {
+  const m = normalizeMove(v);
+  if (!m) throw unreadable();
+  return m;
 }
 
 /** `?a=1&b=2` from the defined, non-empty values. */
