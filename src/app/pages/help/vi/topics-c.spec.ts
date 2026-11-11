@@ -14,6 +14,7 @@ const IDS = [
   'machines-permissions',
   'machines-sessions',
   'machines-move',
+  'machines-sync',
   'machines-troubleshooting',
 ];
 

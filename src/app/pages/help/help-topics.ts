@@ -1624,6 +1624,100 @@ const TOPICS: HelpTopicSource[] = [
     ],
   },
 
+  {
+    id: 'machines-sync',
+    title: 'Keep a project in sync between two computers',
+    icon: 'refresh',
+    group: 'machines',
+    summary:
+      'A project’s code kept the same on two computers, both ways: what changes on one goes to the other.',
+    intro:
+      'Working on one project from two computers? Code sync keeps its code the same on both: an edit, a new file, a commit or a branch switch on one shows up on the other a few seconds later. It is off until you turn it on, for one project at a time, with one other computer.',
+    keywords: [
+      'code sync',
+      'sync',
+      'keep in sync',
+      'two computers',
+      'same code',
+      'conflict',
+      'kept',
+      'mirror',
+    ],
+    sections: [
+      {
+        heading: 'Turn it on',
+        where: 'desktop',
+        steps: [
+          'Open **Machines**, then **Run the setup again** (or **Set up Machines**), and go to **Options**.',
+          'Under **Each project**, press **Set a project’s own options…** and choose the project, or **Change** on one already listed.',
+          'Tick **Keep this project in sync with …** and press **Save**.',
+          'On the other computer, the request shows on its **Machines** page and as a notice: someone there presses **Keep it in sync** (or **Not now**).',
+        ],
+        tips: [
+          'It is on only once both computers said yes. The first sync then runs at once: the computer with changes, or newer commits, sends them to the one that is clean and behind. When both have changes of their own, you choose which to keep (below).',
+        ],
+      },
+      {
+        heading: 'What it needs',
+        points: [
+          'A shared folder that maps the project to its folder on the other computer (**Accounts and folders** in the setup). The folder there must be the same project: the same `origin`, or a commit in common. **Clone it on …** first when it is not there.',
+          'The **Move** permission both ways: code sync writes into each computer’s project folder.',
+          'Machines turned on on both computers.',
+        ],
+      },
+      {
+        heading: 'What travels',
+        points: [
+          'The branch’s commits and the staged, unstaged and untracked changes, exactly as they are: what a move carries. Nothing is merged, and nothing is pushed anywhere: code goes straight between the two computers.',
+          'Files git ignores, such as `.env` files, `node_modules` and build output, stay on each computer, except the ones the project lists under **Files git ignores that travel with it**, and only when the other computer gave this one its **Dangerous** permission.',
+          'A few quiet seconds after a change, the computer that changed sends it; a check every minute catches anything missed. **Sync now** runs one at once.',
+        ],
+      },
+      {
+        heading: 'The Code sync card',
+        intro: '**Machines › Code sync** lists each project kept in sync, and how it stands:',
+        terms: [
+          { term: 'In sync', text: 'When it last synced, and which way.' },
+          { term: 'Syncing…', text: 'Its changes are on their way.' },
+          {
+            term: 'Waiting for …',
+            text: 'The other computer was asked; nothing syncs until someone there confirms.',
+          },
+          {
+            term: 'Paused',
+            text: 'With the reason: the other computer is offline, Machines is off on one of the two, a **Move** permission is missing, or a session working in the project is moving between them. It goes on by itself once that ends, from the project as it is then: nothing is queued.',
+          },
+          { term: 'Changed on both', text: 'Both computers changed it: you choose (below).' },
+          {
+            term: 'Off',
+            text: 'Turned off on the other computer, or it said not now. **Turn on again** asks again; **Remove** drops it here.',
+          },
+        ],
+        points: ['**Turn off** stops it at once on this computer and tells the other one.'],
+      },
+      {
+        heading: 'When both computers changed it',
+        intro:
+          'Code sync never overwrites: when both computers changed the project since it was last synced, it stops on both, and the card shows how many files each side changed and whether it committed or switched branch.',
+        steps: [
+          'Press **Keep this Mac’s** (or **Keep this PC’s**) or **Keep …’s** for the other computer.',
+          'Tap it again to confirm.',
+        ],
+        points: [
+          'The side you don’t keep is first saved in its own repository, under `refs/mother-claude/sync/<id>/kept-<time>`: its working tree with the untracked files, what was staged and the commits it made. Its project folder then goes back to the last synced state, and the kept side’s changes arrive there.',
+          'The card lists each saved state. To look at one, in that computer’s project folder: `git show --stat refs/mother-claude/sync/<id>/kept-<time>`.',
+          'The same change made on both computers is not a conflict. When setting a side aside could lose something (a file git ignores in the way, a changed submodule, a merge under way), nothing changes and the card says why.',
+        ],
+      },
+      {
+        heading: 'From a phone',
+        points: [
+          'A phone sees **Code sync** and how each project stands, read only: turning it on or off, **Sync now** and choosing a side happen in the desktop app.',
+        ],
+      },
+    ],
+  },
+
   // ──────────────────────────────────────────────────── Accounts & data
   {
     id: 'accounts',

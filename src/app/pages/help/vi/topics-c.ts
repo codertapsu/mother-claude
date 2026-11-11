@@ -538,6 +538,104 @@ const TOPICS: HelpTopicSource[] = [
 
   // ──────────────────────────────────────────────────── Khắc phục sự cố
   {
+    id: 'machines-sync',
+    title: 'Giữ một dự án đồng bộ giữa hai máy tính',
+    icon: 'refresh',
+    group: 'machines',
+    summary:
+      'Mã nguồn của một dự án được giữ giống nhau trên hai máy tính, theo cả hai chiều: thay đổi trên máy này được chuyển sang máy kia.',
+    intro:
+      'Làm cùng một dự án trên hai máy tính? Đồng bộ mã nguồn giữ mã nguồn của nó giống nhau trên cả hai: một chỉnh sửa, một tệp mới, một commit hay một lần chuyển nhánh trên máy này sẽ xuất hiện trên máy kia sau vài giây. Tính năng này tắt cho đến khi bạn bật nó, cho từng dự án một, với một máy tính khác.',
+    keywords: [
+      'đồng bộ mã nguồn',
+      'đồng bộ',
+      'giữ đồng bộ',
+      'hai máy tính',
+      'cùng mã nguồn',
+      'xung đột',
+      'bản được giữ',
+      'phản chiếu',
+    ],
+    sections: [
+      {
+        heading: 'Bật tính năng',
+        where: 'desktop',
+        steps: [
+          'Mở **Các máy**, rồi **Chạy lại thiết lập** (hoặc **Thiết lập Các máy**), và đến bước **Tùy chọn**.',
+          'Trong **Từng dự án**, nhấn **Đặt tùy chọn riêng cho một dự án…** rồi chọn dự án, hoặc nhấn **Thay đổi** ở một dự án đã có trong danh sách.',
+          'Đánh dấu **Giữ dự án này đồng bộ với …** rồi nhấn **Lưu**.',
+          'Trên máy tính kia, đề nghị hiện ở trang **Các máy** và dưới dạng thông báo: người ở máy đó nhấn **Giữ đồng bộ** (hoặc **Để sau**).',
+        ],
+        tips: [
+          'Tính năng chỉ bật khi cả hai máy tính đều đồng ý. Lần đồng bộ đầu tiên chạy ngay sau đó: máy có thay đổi, hoặc có commit mới hơn, gửi chúng sang máy sạch và đang ở phía sau. Khi cả hai đều có thay đổi riêng, bạn chọn giữ bản nào (bên dưới).',
+        ],
+      },
+      {
+        heading: 'Những gì cần có',
+        points: [
+          'Một thư mục dùng chung ánh xạ dự án tới thư mục của nó trên máy tính kia (**Tài khoản và thư mục** trong thiết lập). Thư mục ở đó phải là cùng dự án: cùng `origin`, hoặc có chung một commit. Nếu dự án chưa có ở đó, hãy nhấn **Sao chép sang …** trước.',
+          'Quyền **Di chuyển** theo cả hai chiều: đồng bộ mã nguồn ghi vào thư mục dự án của mỗi máy.',
+          'Tính năng Các máy đang bật trên cả hai máy tính.',
+        ],
+      },
+      {
+        heading: 'Những gì được chuyển',
+        points: [
+          'Các commit của nhánh và các thay đổi đã stage, chưa stage và chưa theo dõi, đúng như hiện có: những gì một lần chuyển phiên mang theo. Không có gì bị gộp và không có gì được đẩy lên đâu cả: mã nguồn đi thẳng giữa hai máy tính.',
+          'Các tệp git bỏ qua, như tệp `.env`, `node_modules` và kết quả build, ở nguyên trên mỗi máy, trừ những tệp dự án liệt kê trong **Các tệp git bỏ qua sẽ đi kèm**, và chỉ khi máy kia đã cấp cho máy này quyền **Nguy hiểm**.',
+          'Vài giây yên lặng sau một thay đổi, máy đã thay đổi sẽ gửi nó đi; một lần kiểm tra mỗi phút bắt những gì bị sót. **Đồng bộ ngay** chạy một lần ngay lập tức.',
+        ],
+      },
+      {
+        heading: 'Thẻ Đồng bộ mã nguồn',
+        intro:
+          '**Các máy › Đồng bộ mã nguồn** liệt kê từng dự án được giữ đồng bộ, và tình trạng của nó:',
+        terms: [
+          { term: 'Đã đồng bộ', text: 'Lần đồng bộ gần nhất, và theo chiều nào.' },
+          { term: 'Đang đồng bộ…', text: 'Các thay đổi đang được chuyển.' },
+          {
+            term: 'Đang chờ …',
+            text: 'Máy tính kia đã được hỏi; chưa có gì được đồng bộ cho đến khi có người ở đó xác nhận.',
+          },
+          {
+            term: 'Tạm dừng',
+            text: 'Kèm lý do: máy tính kia đang ngoại tuyến, tính năng Các máy đang tắt trên một trong hai máy, thiếu một quyền **Di chuyển**, hoặc một phiên làm việc trong dự án đang được chuyển giữa hai máy. Nó tự tiếp tục khi điều đó kết thúc, từ dự án như lúc đó: không có gì bị xếp hàng chờ.',
+          },
+          {
+            term: 'Thay đổi ở cả hai',
+            text: 'Cả hai máy tính đều đã thay đổi nó: bạn chọn (bên dưới).',
+          },
+          {
+            term: 'Tắt',
+            text: 'Đã tắt trên máy tính kia, hoặc máy đó đã chọn để sau. **Bật lại** hỏi lại; **Gỡ bỏ** xóa nó khỏi máy này.',
+          },
+        ],
+        points: ['**Tắt** dừng tính năng ngay trên máy này và báo cho máy kia.'],
+      },
+      {
+        heading: 'Khi cả hai máy tính đều đã thay đổi',
+        intro:
+          'Đồng bộ mã nguồn không bao giờ ghi đè: khi cả hai máy tính đều đã thay đổi dự án kể từ lần đồng bộ trước, nó dừng trên cả hai, và thẻ cho biết mỗi bên đã thay đổi bao nhiêu tệp và có commit hay chuyển nhánh hay không.',
+        steps: [
+          'Nhấn **Giữ bản của máy Mac này** (hoặc **Giữ bản của máy PC này**) hoặc **Giữ bản của …** cho máy tính kia.',
+          'Nhấn lần nữa để xác nhận.',
+        ],
+        points: [
+          'Bên bạn không giữ trước tiên được lưu trong chính kho git của nó, dưới `refs/mother-claude/sync/<id>/kept-<time>`: cây làm việc cùng các tệp chưa theo dõi, những gì đã stage và các commit nó đã tạo. Sau đó thư mục dự án của nó trở về trạng thái đồng bộ gần nhất, và các thay đổi của bên được giữ sẽ được chuyển tới.',
+          'Thẻ liệt kê từng trạng thái đã lưu. Để xem một trạng thái, trong thư mục dự án của máy đó: `git show --stat refs/mother-claude/sync/<id>/kept-<time>`.',
+          'Cùng một thay đổi được thực hiện trên cả hai máy tính không phải là xung đột. Khi việc đặt một bên sang chỗ khác có thể làm mất thứ gì đó (một tệp git bỏ qua nằm cản đường, một submodule đã thay đổi, một lần merge đang dở), không có gì thay đổi và thẻ cho biết lý do.',
+        ],
+      },
+      {
+        heading: 'Từ điện thoại',
+        points: [
+          'Điện thoại thấy **Đồng bộ mã nguồn** và tình trạng của từng dự án, chỉ để đọc: bật hay tắt, **Đồng bộ ngay** và chọn một bên được thực hiện trong ứng dụng máy tính.',
+        ],
+      },
+    ],
+  },
+
+  {
     id: 'machines-troubleshooting',
     title: 'Khắc phục sự cố Các máy',
     icon: 'question',

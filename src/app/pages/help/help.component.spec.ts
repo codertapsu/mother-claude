@@ -64,10 +64,13 @@ describe('HelpComponent', () => {
       'machines-permissions',
       'machines-sessions',
       'machines-move',
+      'machines-sync',
     ]);
 
     search('take over');
     expect(cardIds()).toContain('machines-move');
+    search('keep in sync');
+    expect(cardIds()).toContain('machines-sync');
     // Its troubleshooting sits with the other troubleshooting.
     search('nearby');
     expect(cardIds()).toContain('machines-troubleshooting');
