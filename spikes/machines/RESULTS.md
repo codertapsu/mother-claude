@@ -280,6 +280,17 @@ scratch folder reads `loggedIn: false`.
   direct (7 ms); request p50 5.4 ms, WebSocket echo p50 4.9 ms; 64 MiB at
   26.7 / 20.9 MiB/s raw up / down, 29.0 / 20.1 MiB/s HTTP up / down (a
   busier minute on the air: a 44 ms round trip under load).
+- **A phone hotspot that still reached the home network** (the Mac on the
+  phone's hotspot; the direct path went to the Windows desktop's *home*
+  address, which mobile data alone cannot reach — the phone was routing
+  through its own connection to the home Wi-Fi): relay first (n0, 145 ms),
+  **direct after 0.3 s** through the phone's extra router (89 ms), 13–15
+  MiB/s raw, 6–10 MiB/s HTTP (16 MiB). The Mac's endpoint, started just
+  after the network change, had **no home relay for 15 s**; the connection
+  itself then took 0.34 s. In the app the endpoint lives on, but a laptop
+  that changes networks meets the same wait — Machines health should say
+  "reconnecting", not "offline". A run across two truly separate networks
+  (the phone on mobile data only) is still to do.
 
 ### S2 — code (Windows)
 
