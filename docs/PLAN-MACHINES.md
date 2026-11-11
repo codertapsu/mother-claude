@@ -1052,8 +1052,14 @@ enforced in `ControlRegistry::spawn`), `machines/moves/` (the transaction,
 both sides, its records, recovery, take over and undo; the move note in
 `write_user`), `machines/move_routes.rs` (§7's routes and the peer's),
 `backup::session_pack` (the package and its landing, split out of the
-backup's archive and pull code) and `tests/moves.rs`. The screens are
-next.*
+backup's archive and pull code) and `tests/moves.rs`. The screens
+followed: the move sheet and its progress
+(`shared/move-session-sheet.component.ts`), *Lives on …* with *Bring it
+back here* and *Take over…* on a session's page, *Recent moves* on the
+Machines page and the session's Info tab (`core/moves.service.ts`). Another
+computer does not pass its `move` frames on yet (`federation.rs`), so the
+SPA asks about a move it follows there until it ends; `?mock=1&mockmachines=1`
+shows them all. The user guide is `docs/MACHINES.md`.*
 
 **Decisions taken for building it (2026-11-11)**, where §5.7–§5.10 left a
 choice open:

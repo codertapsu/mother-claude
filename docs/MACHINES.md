@@ -1,13 +1,14 @@
 # Machines — one Mother Claude across your computers
 
 Pair your computers once, then see and drive every computer's Claude Code
-sessions from any of them — and from a phone paired with any of them. The
-design and the plan for what comes next (moving a session with its code,
-copies, work on another computer) are in
-[PLAN-MACHINES.md](PLAN-MACHINES.md).
+sessions from any of them — and from a phone paired with any of them — and
+move a session, with its code, to another computer and back. The design and
+the plan for what comes next (copies kept up to date, work on another
+computer) are in [PLAN-MACHINES.md](PLAN-MACHINES.md).
 
-> **Status**: Phases 1 (pairing and setup) and 2 (seeing and driving other
-> computers' sessions) are built. Moving sessions comes next.
+> **Status**: Phases 1 (pairing and setup), 2 (seeing and driving other
+> computers' sessions) and 3a (moving a session) are built. Keeping a copy
+> on another computer comes next.
 
 ## Turning it on
 
@@ -76,7 +77,7 @@ that computer again.
 |---|---|---|
 | **See** | list sessions, read transcripts, see approvals and questions | on |
 | **Drive** | send messages, answer ordinary approvals, interrupt, stop, set model, effort and mode | on |
-| **Move** | move sessions here and away (coming) | on |
+| **Move** | move sessions here and away ([below](#moving-a-session-to-another-computer)) | on |
 | **Run** | run commands and tasks here (later) | off |
 | **Dangerous** | bypass permissions, approve dangerous tool calls, send raw keys | off |
 
@@ -116,6 +117,140 @@ on, with who acted; a dangerous one also shows a notice there.
 When a computer goes offline, its sessions stay listed, greyed, until it is
 back.
 
+## Moving a session to another computer
+
+A session can go on on another of your computers: the same conversation,
+with its code, continuing where it stands. A session lives on one computer
+at a time — the one that runs it — and only that one may run it; the
+computer it left keeps its copy, read only, and says where it lives now.
+
+### The button
+
+On a session's page, the ⋮ menu has **Continue on another computer…**. On
+another computer's session it has **Bring back to this Mac** (*Continue on
+this Mac…* for a session that never lived here) and, when a third computer
+is paired, *Continue on another computer…* for the others. A move always
+starts on the computer the session lives on: from here, Mother Claude asks
+that computer to do it.
+
+The sheet asks the other computer first and shows what it found — nothing is
+written anywhere until you press **Continue on DESKTOP-PC**:
+
+- **Computer** — the paired computers that are online and let this one
+  move sessions to them (an offline one says since when).
+- **What goes** — the conversation's size (with its subagents) and the
+  code: its branch, how many files changed and how many are new.
+- **Where it goes** — the project's folder there: found through your folders
+  (the same project on each computer), a folder pair, or the same path.
+  *Change…* picks another; when it found none, *Choose its folder on
+  DESKTOP-PC* lists that computer's projects.
+- **Code travels** — *Machine to machine* (the default: straight between
+  the two, nothing pushed anywhere), *Through your git remote* (hidden refs
+  on your remote, removed afterwards), or *Only the conversation*.
+- **Code lands** — *In the project folder* (the default, when it has no
+  changes of its own there) or *In a separate folder (worktree)*, beside it:
+  the project folder is then never touched, and nothing is ever merged into
+  it.
+- **After the move** — when the project has a recipe (a
+  `.mother-claude/recipe.json` with commands per system under `afterMove`,
+  such as `npm ci`), *ask Claude to run* them there. They are a request in
+  Claude's first message there, and Claude runs them through its own
+  approvals: Mother Claude itself never runs a command on the other
+  computer.
+- **When** — while a turn runs: *After this turn* (the default: it finishes
+  first) or *Now* (it interrupts the turn; what you had queued goes along).
+- **Keep driving it from here** — on by default: when you close the sheet
+  after the move, the page becomes the session where it runs now, driven
+  from here as any session of that computer.
+- **Carry this folder's trust** — when Claude Code on the other computer
+  never opened that folder. A trusted folder runs its project hooks and MCP
+  servers without asking, so this is a dangerous action: the option shows
+  only on the desktop, or on a device allowed dangerous actions (and, for a
+  session on another computer, with that computer's *Dangerous* permission
+  for this one).
+
+**Checks** lists what is fine, what blocks the move (with its fix: *Sign
+Work in on DESKTOP-PC*, *Update Mother Claude on DESKTOP-PC*…) and what only
+makes it worse (*Claude Code there is older*, line endings, Git LFS,
+submodules). A blocker keeps the button from starting — *Fix the checks
+first* — and the sheet offers what it can instead: a project folder there
+with changes of its own, or a branch that went on there, offers *Use a
+separate folder (worktree)*. A session another app runs (VS Code, a
+terminal) cannot be stopped by Mother Claude: it goes on there **as a
+copy**, a new session, while this one goes on here (or end it there first).
+
+### While it moves
+
+The sheet then shows its steps with their times: checked, stopped here,
+packed, sent (with how much and about how long is left), placed there,
+started there. *Cancel the move* works until it is being placed there;
+*Close (it goes on)* leaves it running, and the session's page says what it
+does meanwhile, its composer waiting. A connection that drops for a moment
+while it sends picks up where it stopped.
+
+The first message the session gets there tells Claude it moved: from which
+computer and folder to which, that paths in earlier messages are the old
+computer's, which shell it has now, and the recipe when you asked for it.
+The conversation itself is never rewritten.
+
+### If something fails
+
+- **Before it is placed there**, nothing is lost: the session goes on here
+  as it was (and starts again if it ran), and the other computer drops what
+  it received. The sheet says why — "Couldn't move Fix tray icon:
+  DESKTOP-PC went offline while it was sent. It stays on this Mac, as it
+  was." — and *Try again* goes back to the choices.
+- **When the code can't land in the project folder there**, the sheet offers
+  a separate folder (worktree) and asks again.
+- **Placed but not started there** (its account is not signed in there, for
+  instance): it lives there now. *Try again* starts it there without sending
+  anything twice; *Undo move* takes it back.
+
+### Lives on …
+
+The computer a session left keeps its copy, greyed in the lists with a chip
+*Lives on DESKTOP-PC*. Its page says "Lives on DESKTOP-PC since 14:05 —
+moved from this Mac.", with:
+
+- **Open there** — the session where it runs.
+- **Bring it back here** — a move back to this computer, started on the one
+  it lives on (while it is online). Only what happened there is added: this
+  computer's copy is the start of the same conversation, and the code lands
+  on top of this computer's folder, which still holds what it sent.
+- **Take over…** — only while the computer it lives on is offline: the
+  session goes on here from this computer's copy, which has the
+  conversation only up to when it moved, with this computer's project
+  folder as it is. If the other computer went on with it meanwhile, both
+  versions are kept side by side when it next moves there.
+
+Messages can't be sent to the copy here; its page says why.
+
+### Undo
+
+**Undo move** — in the sheet when it is done, in *Recent moves* on the
+Machines page and on the session's Info tab — is offered for seven days. It
+puts the other computer's project folder and branch back as they were,
+takes the conversation's files there back out, and the session lives here
+again (it starts again here if it ran). It asks for a second tap. An undo is
+refused once the session went on there (bring it back instead, so nothing
+it did there is dropped), and a copy is never undone: stop or delete it
+there.
+
+### What never moves
+
+- **Files git ignores** — `.env` files, `node_modules`, build output: they
+  stay where they are. Set the project up there with a recipe.
+- **Sign-ins**: tokens, keys and `.credentials.json` stay on each computer;
+  the account there is the one of the same name, signed in there.
+- **The worktree** a move made on the other computer stays there when the
+  session leaves it (its work went with the session); remove it there.
+
+### From a phone
+
+A phone paired with any of your computers moves sessions the same way, one
+column. Carrying a folder's trust needs the phone's dangerous permission
+(set on the desktop); without it the option does not show.
+
 ## How it connects
 
 Your computers talk over QUIC between their keys, end to end encrypted:
@@ -146,3 +281,10 @@ connection.
   Network access; on Windows, the network type and the firewall check.
 - **"This computer has not given yours the … permission."** Change it on
   the other computer's Machines page.
+- **"DESKTOP-PC has no account named Work."** Add the account there with the
+  same name (Accounts) and sign it in; a session of the Default account
+  goes on under that computer's Default.
+- **"DESKTOP-PC doesn't trust … yet."** Open that folder once with Claude
+  Code there, or carry the folder's trust from the desktop.
+- **"… has changes of its own."** Use a separate folder (worktree), or commit
+  or stash the changes there first.
