@@ -1247,34 +1247,28 @@ fn pair_set_dirs(state: &AppState) -> Vec<PathBuf> {
 }
 
 /// Keep what a set's index said of folder pairs and machines (after a push,
-/// pull, restore or a look at its index), and make this machine's pairs the
-/// session list's.
+/// pull, restore or a look at its index), make this machine's pairs the
+/// session list's, and import new ones as roots (`machines::roots`).
 pub(crate) fn note_pairs(state: &AppState, set_dir: &Path, seen: Option<super::pairs::SetPairs>) {
     let (Some(dir), Some(seen)) = (state.auth.config_dir.as_deref(), seen) else {
         return;
     };
     let cache = super::pairs::note(dir, set_dir, seen);
-    super::pairs::apply(
-        dir,
-        &cache,
-        known_machine_id(state).as_deref(),
-        &pair_set_dirs(state),
-    );
+    let set_dirs = pair_set_dirs(state);
+    super::pairs::apply(dir, &cache, known_machine_id(state).as_deref(), &set_dirs);
+    crate::machines::roots::import_pairs(state, &cache.all_pairs_of(&set_dirs));
 }
 
 /// At launch, and when the backup folder changes: this machine's pairs, as
-/// the sets last said, for the session list.
+/// the sets last said, for the session list (and imported as roots).
 pub fn load_pairs(state: &AppState) {
     let Some(dir) = state.auth.config_dir.as_deref() else {
         return;
     };
     let cache = super::pairs::load(dir);
-    super::pairs::apply(
-        dir,
-        &cache,
-        known_machine_id(state).as_deref(),
-        &pair_set_dirs(state),
-    );
+    let set_dirs = pair_set_dirs(state);
+    super::pairs::apply(dir, &cache, known_machine_id(state).as_deref(), &set_dirs);
+    crate::machines::roots::import_pairs(state, &cache.all_pairs_of(&set_dirs));
 }
 
 /// The folder pairs of the sets in the backup folder as they were last read
