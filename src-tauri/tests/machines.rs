@@ -801,7 +801,7 @@ async fn another_computers_sessions_arrive_live_and_go_grey_when_it_stops() {
     // B stops: A's dashboard is told it is offline (since then, not an
     // earlier state).
     let stopped = chrono::Utc::now().timestamp_millis();
-    transport::stop(&b.st).await;
+    transport::go_offline(&b.st).await;
     frame_where(&mut ws, "A to be told B is offline", |v| {
         v["t"] == "remote"
             && v["machine"] == from

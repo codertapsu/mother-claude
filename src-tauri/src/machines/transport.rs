@@ -86,6 +86,13 @@ pub fn ensure_started(
 
 async fn start_inner(state: &AppState) -> Result<Endpoint, String> {
     let mut net = state.machines.net.lock().await;
+    if state
+        .machines
+        .held_down
+        .load(std::sync::atomic::Ordering::SeqCst)
+    {
+        return Err("this computer is offline".into());
+    }
     if let Some(n) = net.as_ref() {
         return Ok(n.endpoint.clone());
     }
@@ -151,6 +158,28 @@ pub async fn stop(state: &AppState) {
         drop(n);
         super::publish(state, "transport");
     }
+}
+
+/// Tests: this machine as if switched off. [`stop`] alone does not do it:
+/// the next request this machine makes (its link to a peer, a hello) starts
+/// the endpoint again, as a running app is online. Held down, nothing here
+/// starts it until [`come_back`].
+#[doc(hidden)]
+pub async fn go_offline(state: &AppState) {
+    state
+        .machines
+        .held_down
+        .store(true, std::sync::atomic::Ordering::SeqCst);
+    stop(state).await;
+}
+
+/// Tests: the machine [`go_offline`] held down may start its endpoint again.
+#[doc(hidden)]
+pub fn come_back(state: &AppState) {
+    state
+        .machines
+        .held_down
+        .store(false, std::sync::atomic::Ordering::SeqCst);
 }
 
 /// The running endpoint, if any (no start).

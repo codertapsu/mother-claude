@@ -712,7 +712,7 @@ async fn a_session_that_went_on_on_both_keeps_both_as_a_conflict_copy() {
     went_on(&there, &w.t_cwd, 2, "said there while it was away");
 
     // The target goes away; this machine takes over from its own copy.
-    transport::stop(&w.t.st).await;
+    transport::go_offline(&w.t.st).await;
     let (s, v) =
         w.s.call(
             "POST",
@@ -727,6 +727,7 @@ async fn a_session_that_went_on_on_both_keeps_both_as_a_conflict_copy() {
     went_on(&w.transcript, &w.s_cwd, 3, "said here meanwhile");
 
     // It is back, learns the lease, and the session moves there again.
+    transport::come_back(&w.t.st);
     transport::ensure_started(&w.t.st).await.unwrap();
     eventually("the target to learn the lease", || async {
         greet(&w.s, &w.t).await;

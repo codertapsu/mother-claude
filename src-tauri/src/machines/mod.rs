@@ -132,6 +132,9 @@ pub struct MachinesState {
     /// this on; tests only record them.
     pub(crate) fixes_live: AtomicBool,
     pub(crate) fixes_asked: Mutex<Vec<String>>,
+    /// Tests: this machine is "switched off" (`transport::go_offline`):
+    /// nothing starts its endpoint until `transport::come_back`.
+    pub(crate) held_down: AtomicBool,
     /// Which machine each session lives on (`machines/leases.json`).
     pub(crate) leases: lease::Leases,
     /// Moves of sessions to and from this machine under way, and their test
@@ -169,6 +172,7 @@ impl MachinesState {
             test_lookup: Mutex::new(None),
             fixes_live: AtomicBool::new(false),
             fixes_asked: Mutex::new(Vec::new()),
+            held_down: AtomicBool::new(false),
             leases: lease::Leases::load(data_dir),
             moves: moves::Moves::default(),
         }
