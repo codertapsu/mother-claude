@@ -238,7 +238,7 @@ export interface MachineFacts {
   code: CodeSettings | null;
 }
 
-export type AskKind = 'fix' | 'signIn' | 'addAccount' | 'clone';
+export type AskKind = 'fix' | 'signIn' | 'addAccount' | 'clone' | 'sync';
 export type AskState = 'asked' | 'running' | 'done' | 'declined' | 'failed';
 
 /** What one computer asked another to do: shown there, done only when
@@ -253,7 +253,12 @@ export interface MachineAsk {
   fix?: string;
   account?: string;
   origin?: string;
+  /** Where a clone goes, or the project here (`sync`). */
   folder?: string;
+  /** The code sync's id (`sync`). */
+  sync?: string;
+  /** The project's folder on the asking computer (`sync`). */
+  there?: string;
   at: number;
   state: AskState;
   detail?: string;
@@ -450,7 +455,77 @@ export interface Blocker {
   detail: string;
 }
 
-/** `{t:'machines', what}`: refetch `/api/machines` (and the setup). */
+// ─────────────────────────────────────────────────────────── Code sync
+
+/** Why a synced project waits (docs/PLAN-MACHINES.md §5.15). */
+export type SyncReason =
+  'conflict' | 'offline' | 'machinesOff' | 'noGrant' | 'moveRunning' | 'error';
+
+/** Where a synced project stands. */
+export type SyncStatus =
+  | { state: 'off'; detail: string | null }
+  | { state: 'waiting' }
+  | { state: 'inSync'; at: number }
+  | { state: 'syncing'; since: number }
+  | { state: 'paused'; reason: SyncReason; detail: string; since: number };
+
+/** What changed on one side since the project was last synced. */
+export interface SyncChanges {
+  files: number;
+  headMoved: boolean;
+  branchSwitched: boolean;
+  branch: string | null;
+  head: string | null;
+}
+
+/** A side's state a resolution kept, as a ref in that computer's
+ * repository. */
+export interface SyncKept {
+  ref: string;
+  side: 'here' | 'there';
+  commit: string | null;
+  files: number;
+  at: number;
+}
+
+/** One project kept in sync with another computer. */
+export interface SyncPair {
+  id: string;
+  machine: string;
+  machineName: string;
+  machineOs: string;
+  online: boolean;
+  /** The project's folder here, its name, and its folder there. */
+  folder: string;
+  name: string;
+  there: string;
+  here: { on: boolean };
+  /** `asked`: this computer asked and the other has not answered yet. */
+  peer: { on: boolean; asked: boolean };
+  status: SyncStatus;
+  last: {
+    at: number;
+    step: number;
+    branch: string | null;
+    head: string | null;
+    direction: 'out' | 'in' | 'both';
+    files: number;
+  } | null;
+  conflict: { at: number; first: boolean; here: SyncChanges; there: SyncChanges } | null;
+  kept: SyncKept[];
+  createdAt: number;
+  updatedAt: number;
+}
+
+/** `GET /api/machines/sync`. */
+export interface SyncView {
+  pairs: SyncPair[];
+  /** The app watches the projects (steps run on their own). */
+  watching: boolean;
+}
+
+/** `{t:'machines', what}`: refetch `/api/machines` (and the setup);
+ * `what: 'sync'`: refetch `/api/machines/sync`. */
 export interface MachinesFrame {
   t: 'machines';
   what: string;

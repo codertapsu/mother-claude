@@ -40,10 +40,12 @@ import {
 } from './machines-text';
 import { OptionsFormComponent, relayText } from './options-form.component';
 import { PairSheetComponent } from './pair-sheet.component';
+import { SyncCardComponent } from './sync-card.component';
 
 /**
  * Machines (docs/PLAN-MACHINES.md, spikes/machines/UX.md §1): this
  * computer, the paired ones with what each may do here, Machines health,
+ * the projects kept in sync with another computer (*Code sync*, §5.15),
  * the options, and *Recent moves* of sessions to and from this computer
  * (§1.2, §7.2–§7.3: cancel, try again, undo). Off until the setup passed
  * (§1.1). The phone sees it read-only — pairing, grants, revoking and
@@ -63,6 +65,7 @@ import { PairSheetComponent } from './pair-sheet.component';
     OptionsFormComponent,
     PairSheetComponent,
     RelativeTimePipe,
+    SyncCardComponent,
     TPipe,
   ],
   templateUrl: './machines.component.html',

@@ -33,6 +33,8 @@ import type {
   MachinesSettingsView,
   MachinesView,
   NearbyMachine,
+  SyncPair,
+  SyncView,
   Readiness,
   RemoteCheckView,
   RootsChange,
@@ -222,6 +224,8 @@ import {
  *             answerSettingsOffer(accept) · setMachinesEnabled(enabled) ·
  *             updateMachine(id, patch) · revokeMachine(id) ·
  *             askMachine(machine, body) · answerMachineAsk(id, answer) ·
+ *             getSync() · setSync(project, machine, on) · syncNow(id) ·
+ *             resolveSync(id, keep) ·
  *             getMachineAccounts() · getMachineFolders(fresh?) ·
  *             cloneHere(body) · checkProjectRemote(project) ·
  *             getRoots() · saveRoots(change)
@@ -1336,6 +1340,32 @@ export class ApiService {
   }
 
   /** Every computer's accounts, matched by name. */
+  /** `GET /api/machines/sync`: the projects kept in sync with another
+   * computer, and how each stands. */
+  getSync(): Promise<SyncView> {
+    return this.req<SyncView>('/machines/sync');
+  }
+
+  /** `PUT /api/machines/sync`: on asks the other computer (its desktop
+   * confirms there); off is at once here, and the other is told. */
+  setSync(project: string, machine: string, on: boolean): Promise<SyncView> {
+    return this.req<SyncView>('/machines/sync', {
+      method: 'PUT',
+      body: JSON.stringify({ project, machine, on }),
+    });
+  }
+
+  /** `POST /api/machines/sync/{id}/now`: a step now. */
+  syncNow(id: string): Promise<SyncPair> {
+    return this.post<SyncPair>(`/machines/sync/${enc(id)}/now`, {});
+  }
+
+  /** `POST /api/machines/sync/{id}/resolve`: the other side's state is kept
+   * under a ref and put back, then the kept side's lands. */
+  resolveSync(id: string, keep: 'here' | 'there'): Promise<SyncPair> {
+    return this.post<SyncPair>(`/machines/sync/${enc(id)}/resolve`, { keep });
+  }
+
   getMachineAccounts(): Promise<AccountsTable> {
     return this.req<AccountsTable>('/machines/accounts');
   }

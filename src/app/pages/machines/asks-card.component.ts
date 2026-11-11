@@ -10,7 +10,8 @@ import { serverText } from './machines-text';
 /**
  * What your other computers asked this one to do (docs/PLAN-MACHINES.md
  * §5.14, spikes/machines/UX.md §4.1): a check's fix, signing an account
- * in, adding an account, cloning a repository. Nothing runs because
+ * in, adding an account, cloning a repository, keeping a project in sync
+ * (§5.15). Nothing runs because
  * another computer asked: each waits for someone here to confirm it (the
  * desktop), or to say *Not now*, which that computer is told.
  */
@@ -109,6 +110,8 @@ export class AsksCardComponent {
         return tr('Add the account {account}', { account: a.account ?? '' });
       case 'clone':
         return tr('Clone {repo}', { repo: a.title ?? a.origin ?? '' });
+      case 'sync':
+        return tr('Keep {project} in sync', { project: a.title ?? '' });
       default:
         return serverText(a.title) || tr('A fix');
     }
@@ -125,6 +128,11 @@ export class AsksCardComponent {
           origin: a.origin ?? '',
           folder: a.folder ?? '',
         });
+      case 'sync':
+        return tr(
+          'Keep {folder} the same as {name}’s copy: what changes on either computer goes to the other. When both change it, you choose which to keep; nothing is merged.',
+          { folder: a.folder ?? '', name: a.fromName },
+        );
       default:
         return tr('Fix it on this computer: {fix}.', { fix: serverText(a.fix) });
     }
@@ -138,6 +146,8 @@ export class AsksCardComponent {
         return tr('Add it…');
       case 'clone':
         return tr('Clone it');
+      case 'sync':
+        return tr('Keep it in sync');
       default:
         return serverText(a.fix) || tr('Fix');
     }

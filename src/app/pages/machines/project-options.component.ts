@@ -1,5 +1,13 @@
 import { NgTemplateOutlet } from '@angular/common';
-import { ChangeDetectionStrategy, Component, inject, input, signal } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  DestroyRef,
+  computed,
+  inject,
+  input,
+  signal,
+} from '@angular/core';
 import { FormsModule } from '@angular/forms';
 
 import { ApiService, describeError } from '../../core/api.service';
@@ -13,10 +21,13 @@ import {
   ProjectInput,
   ProjectOptions,
   RemoteCheckView,
+  SyncPair,
   defaultCode,
 } from '../../core/machines';
+import { MachinesService } from '../../core/machines.service';
 import { ProjectInfo } from '../../core/models';
-import { applyText, serverText, transferText } from './machines-text';
+import { SyncService } from '../../core/sync.service';
+import { applyText, serverText, syncBadge, transferText } from './machines-text';
 
 /** A project's form: `''` follows the defaults. */
 interface Draft {
@@ -28,6 +39,14 @@ interface Draft {
   windows: string;
   linux: string;
   carry: string;
+  /** The computer it is kept in sync with ('': not synced). */
+  sync: string;
+}
+
+/** A row: a project with its own options, or one only kept in sync. */
+interface Row extends ProjectOptions {
+  /** No options of its own: it is listed for its code sync. */
+  syncOnly: boolean;
 }
 
 function lines(text: string): string[] {
@@ -45,7 +64,9 @@ function lines(text: string): string[] {
  * git ignores that travel with it. Adding a file to carry needs the
  * dangerous right: such files usually hold secrets. *Check the remote*
  * tells whether the project's remote answers without a prompt, here and on
- * the other computers (on demand only).
+ * the other computers (on demand only). *Keep this project in sync with …*
+ * (code sync, §5.15; off by default) asks the other computer when saved,
+ * and is on once someone there confirms it.
  */
 @Component({
   selector: 'mc-machines-project-options',
@@ -59,13 +80,13 @@ function lines(text: string): string[] {
       <p class="notice ok small" role="status">{{ notice() }}</p>
     }
     <ul class="list">
-      @for (p of projects(); track p.key) {
+      @for (p of rows(); track p.key) {
         <li>
           <div class="row">
             <strong>{{ nameOf(p) }}</strong>
             <span class="muted small mono">{{ p.project ?? p.key }}</span>
             <span class="spacer"></span>
-            @if (p.project) {
+            @if (p.project && !readonly()) {
               <button
                 type="button"
                 class="btn ghost small"
@@ -78,14 +99,16 @@ function lines(text: string): string[] {
                 {{ 'Change' | t }}
               </button>
             }
-            <button
-              type="button"
-              class="btn ghost small"
-              [disabled]="busy() === p.key"
-              (click)="remove(p)"
-            >
-              {{ 'Use the defaults' | t }}
-            </button>
+            @if (!p.syncOnly && !readonly()) {
+              <button
+                type="button"
+                class="btn ghost small"
+                [disabled]="busy() === p.key"
+                (click)="remove(p)"
+              >
+                {{ 'Use the defaults' | t }}
+              </button>
+            }
           </div>
           <span class="small">{{ summary(p) }}</span>
           @if (remote()?.key === p.key) {
@@ -207,6 +230,43 @@ function lines(text: string): string[] {
               ></textarea>
             </label>
           </fieldset>
+          @if (peers().length) {
+            <fieldset class="sync">
+              <label class="check">
+                <input
+                  type="checkbox"
+                  name="syncOn"
+                  [ngModel]="!!d.sync"
+                  (ngModelChange)="patch({ sync: $event ? d.sync || peers()[0].id : '' })"
+                />
+                @if (peers().length === 1) {
+                  {{ 'Keep this project in sync with {name}' | t: { name: peers()[0].name } }}
+                } @else {
+                  {{ 'Keep this project in sync with another computer' | t }}
+                }
+              </label>
+              @if (peers().length > 1 && d.sync) {
+                <label class="field">
+                  <span class="field-label">{{ 'In sync with' | t }}</span>
+                  <select
+                    name="syncWith"
+                    [ngModel]="d.sync"
+                    (ngModelChange)="patch({ sync: $event })"
+                  >
+                    @for (m of peers(); track m.id) {
+                      <option [value]="m.id">{{ m.name }}</option>
+                    }
+                  </select>
+                </label>
+              }
+              <span class="muted small">
+                {{
+                  'What changes in it on one computer goes to the other a few seconds later, both ways. Saving asks the other computer: it is on once someone there confirms.'
+                    | t
+                }}
+              </span>
+            </fieldset>
+          }
           <label class="field">
             <span class="field-label">
               {{ 'Files git ignores that travel with it' | t }}
@@ -263,10 +323,16 @@ function lines(text: string): string[] {
       .editor {
         margin: 0.5rem 0;
       }
-      fieldset.recipe {
+      fieldset.recipe,
+      fieldset.sync {
         border: 0;
         margin: 0;
         padding: 0;
+      }
+      fieldset.sync {
+        display: flex;
+        flex-direction: column;
+        gap: 0.25rem;
       }
       .remote {
         list-style: none;
@@ -292,9 +358,30 @@ export class ProjectOptionsComponent {
 
   private readonly api = inject(ApiService);
   private readonly auth = inject(AuthService);
+  private readonly machines = inject(MachinesService);
+  protected readonly sync = inject(SyncService);
 
   protected readonly canDangerous = this.auth.canDangerous;
   protected readonly projects = signal<ProjectOptions[]>([]);
+  /** The paired computers a project may be kept in sync with. */
+  protected readonly peers = computed(() => this.machines.view()?.peers ?? []);
+  /** Projects with their own options, then the ones only kept in sync. */
+  protected readonly rows = computed<Row[]>(() => {
+    const own: Row[] = this.projects().map((p) => ({ ...p, syncOnly: false }));
+    const synced: Row[] = this.sync
+      .pairs()
+      .filter((s) => !own.some((p) => p.project && this.samePair(s, p.project)))
+      .map((s) => ({
+        key: s.folder,
+        project: s.folder,
+        root: null,
+        code: {},
+        recipe: null,
+        updatedAt: s.createdAt,
+        syncOnly: true,
+      }));
+    return [...own, ...synced];
+  });
   protected readonly candidates = signal<ProjectInfo[]>([]);
   /** The project being changed (its key), or `new`. */
   protected readonly editing = signal<string | null>(null);
@@ -308,6 +395,12 @@ export class ProjectOptionsComponent {
 
   constructor() {
     void this.load();
+    const release = this.sync.watch();
+    inject(DestroyRef).onDestroy(release);
+  }
+
+  private samePair(s: SyncPair, project: string): boolean {
+    return this.sync.pairOf(project)?.id === s.id;
   }
 
   private async load(): Promise<void> {
@@ -361,6 +454,15 @@ export class ProjectOptionsComponent {
           : tr('carries {n} ignored files', { n: carried }),
       );
     }
+    const synced = this.sync.pairOf(p.project);
+    if (synced) {
+      parts.push(
+        tr('code sync with {name}: {state}', {
+          name: synced.machineName,
+          state: syncBadge(synced),
+        }),
+      );
+    }
     return parts.join(' · ') || tr('The defaults');
   }
 
@@ -383,6 +485,7 @@ export class ProjectOptionsComponent {
       windows: '',
       linux: '',
       carry: '',
+      sync: '',
     });
     this.editing.set('new');
     if (!this.candidates().length) {
@@ -407,6 +510,7 @@ export class ProjectOptionsComponent {
       windows: (after?.windows ?? []).join('\n'),
       linux: (after?.linux ?? []).join('\n'),
       carry: this.carriedBefore.join('\n'),
+      sync: this.syncedWith(p.project),
     });
     this.editing.set(p.key);
   }
@@ -429,9 +533,31 @@ export class ProjectOptionsComponent {
     await this.withBusy('save', async () => {
       const s = await this.api.saveMachinesSettings({ projects: { upsert: [input] } });
       this.projects.set(s.projects ?? []);
+      // Code sync: off at once here; on asks the other computer.
+      const before = this.syncedWith(d.project);
+      if (before && before !== d.sync) {
+        this.sync.apply(await this.api.setSync(d.project, before, false));
+      }
+      if (d.sync && d.sync !== before) {
+        this.sync.apply(await this.api.setSync(d.project, d.sync, true));
+        const name = this.machines.nameOf(d.sync);
+        this.editing.set(null);
+        this.notice.set(
+          tr('Saved. {name} was asked to keep it in sync: it is on once someone there confirms.', {
+            name,
+          }),
+        );
+        return;
+      }
       this.editing.set(null);
       this.notice.set(tr('Saved.'));
     });
+  }
+
+  /** The computer a project is kept in sync with (asked or on), else ''. */
+  private syncedWith(project: string | null): string {
+    const p = this.sync.pairOf(project);
+    return p && p.here.on && p.status.state !== 'off' ? p.machine : '';
   }
 
   protected async remove(p: ProjectOptions): Promise<void> {

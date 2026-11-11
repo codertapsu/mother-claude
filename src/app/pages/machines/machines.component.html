@@ -381,6 +381,11 @@
       </section>
     }
 
+    <!-- ─────────────── Code sync (plan §5.15) ─────────────── -->
+    @if (inUse()) {
+      <mc-machines-sync [readonly]="!isDesktop()" />
+    }
+
     <!-- ─────────────── Options ─────────────── -->
     @if (inUse()) {
       <section class="card options" [attr.aria-label]="'Options' | t">

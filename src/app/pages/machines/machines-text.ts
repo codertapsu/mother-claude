@@ -15,6 +15,8 @@ import {
   MachinePath,
   PairingView,
   SetupCheck,
+  SyncChanges,
+  SyncPair,
   defaultCode,
   osLabel,
   pathLabel,
@@ -516,4 +518,103 @@ export function grantValue(p: GrantPair): string {
 export function thisComputerTitle(): string {
   const s = tr('This {computer}', { computer: computerNoun() });
   return s.charAt(0).toLocaleUpperCase() + s.slice(1);
+}
+
+// ─────────────────────────────────────────────────────────── Code sync
+
+/** A synced project's state, in a word or two (its badge). */
+export function syncBadge(p: SyncPair): string {
+  const s = p.status;
+  switch (s.state) {
+    case 'inSync':
+      return tr('In sync');
+    case 'syncing':
+      return tr('Syncing…');
+    case 'waiting':
+      return tr('Waiting for {name}', { name: p.machineName });
+    case 'off':
+      return tr('Off');
+    case 'paused':
+      return s.reason === 'conflict' ? tr('Changed on both') : tr('Paused');
+  }
+}
+
+/** The badge's colour: `ok`, `warn` or `danger` (none: neutral). */
+export function syncTone(p: SyncPair): '' | 'ok' | 'warn' | 'danger' {
+  const s = p.status;
+  if (s.state === 'inSync') return 'ok';
+  if (s.state === 'paused') return s.reason === 'conflict' ? 'danger' : 'warn';
+  return '';
+}
+
+/** What a pause, a wait or an off says, in a sentence. */
+export function syncDetail(p: SyncPair): string {
+  const s = p.status;
+  const name = p.machineName;
+  switch (s.state) {
+    case 'waiting':
+      return tr(
+        '{name} shows the request to whoever is at it: nothing syncs until it is confirmed there.',
+        {
+          name,
+        },
+      );
+    case 'off': {
+      const d = s.detail ?? '';
+      if (d.endsWith(' said not now.')) return tr('{name} said not now.', { name });
+      if (d.startsWith('Turned off on ')) return tr('Turned off on {name}.', { name });
+      return serverText(d);
+    }
+    case 'paused':
+      switch (s.reason) {
+        case 'conflict':
+          return p.conflict?.first
+            ? tr('The project differs on both computers: choose which one’s to keep.')
+            : tr('Both computers changed it since it was last synced: choose which one’s to keep.');
+        case 'offline':
+          return tr('Waits until {name} is back online.', { name });
+        case 'machinesOff':
+          return tr('Waits until Machines is on on both computers.');
+        case 'noGrant':
+          return tr(
+            'Waits: each computer must give the other the Move permission, as it writes into its project folder.',
+          );
+        case 'moveRunning':
+          return tr('Waits while a session working in this project moves between computers.');
+        case 'error':
+          return tr('Waits: {why}', { why: serverText(s.detail) });
+      }
+      return '';
+    default:
+      return '';
+  }
+}
+
+/** The last step, in a line. */
+export function syncLastText(p: SyncPair): string {
+  const l = p.last;
+  if (!l) return '';
+  const files = l.files === 1 ? tr('1 file') : tr('{n} files', { n: l.files });
+  switch (l.direction) {
+    case 'out':
+      return tr('Last: {files} from this {computer} to {name}', {
+        files,
+        computer: computerNoun(),
+        name: p.machineName,
+      });
+    case 'in':
+      return tr('Last: {files} from {name}', { files, name: p.machineName });
+    case 'both':
+      return tr('Last: the same changes on both');
+  }
+}
+
+/** One side of a conflict, in a line. */
+export function syncChangesText(c: SyncChanges): string {
+  const parts: string[] = [];
+  if (c.files)
+    parts.push(c.files === 1 ? tr('1 file changed') : tr('{n} files changed', { n: c.files }));
+  if (c.branchSwitched && c.branch) parts.push(tr('now on {branch}', { branch: c.branch }));
+  else if (c.headMoved) parts.push(tr('new commits'));
+  return parts.join(' · ') || tr('no change to its files');
 }

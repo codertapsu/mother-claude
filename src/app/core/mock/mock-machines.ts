@@ -23,6 +23,7 @@ import {
   RootsView,
   SetupCheck,
   SetupView,
+  SyncPair,
   defaultCode,
   defaultGrants,
 } from '../machines';
@@ -71,6 +72,9 @@ export class MockMachines {
   ];
   /** What this computer asked the others. */
   private asked: MachineAsk[] = [];
+  /** Projects kept in sync (`?mockmachines=1`: one in sync, one changed
+   * on both). */
+  private syncPairs: SyncPair[] = [];
 
   constructor(
     private readonly opts: {
@@ -88,7 +92,126 @@ export class MockMachines {
         this.pairedPeer('f'.repeat(32), 'DESKTOP-PC', 'windows', true, now),
         this.pairedPeer('e'.repeat(32), 'BUILD-BOX', 'linux', false, now - 40 * MIN),
       ];
+      this.syncPairs = [
+        this.syncPair('sy_0000000000000001', 'app', {
+          state: 'inSync',
+          at: now - 2 * MIN,
+        }),
+        {
+          ...this.syncPair('sy_0000000000000002', 'website', {
+            state: 'paused',
+            reason: 'conflict',
+            detail: 'website changed on both computers: choose which one’s to keep.',
+            since: now - 5 * MIN,
+          }),
+          conflict: {
+            at: now - 5 * MIN,
+            first: false,
+            here: {
+              files: 3,
+              headMoved: false,
+              branchSwitched: false,
+              branch: 'main',
+              head: 'a1b2c3d4e5',
+            },
+            there: {
+              files: 1,
+              headMoved: true,
+              branchSwitched: false,
+              branch: 'main',
+              head: 'f6e5d4c3b2',
+            },
+          },
+        },
+      ];
     }
+  }
+
+  private syncPair(id: string, name: string, status: SyncPair['status']): SyncPair {
+    const now = Date.now();
+    return {
+      id,
+      machine: 'f'.repeat(32),
+      machineName: 'DESKTOP-PC',
+      machineOs: 'windows',
+      online: true,
+      folder: `/Users/you/development/projects/${name}`,
+      name,
+      there: `D:\\development\\projects\\${name}`,
+      here: { on: true },
+      peer: { on: true, asked: false },
+      status,
+      last: {
+        at: now - 2 * MIN,
+        step: 14,
+        branch: 'main',
+        head: 'a1b2c3d4e5',
+        direction: 'in',
+        files: 2,
+      },
+      conflict: null,
+      kept: [],
+      createdAt: now - 2 * 24 * 60 * MIN,
+      updatedAt: now - 2 * MIN,
+    };
+  }
+
+  /** `/api/machines/sync*` (code sync, docs/PLAN-MACHINES.md §5.15). */
+  private syncRoute(path: string, method: string, b: Record<string, unknown>): Response | null {
+    const view = () => json({ pairs: this.syncPairs, watching: true });
+    if (path === '/machines/sync' && method === 'PUT') {
+      const machine = String(b['machine'] ?? '');
+      const project = String(b['project'] ?? '');
+      const peer = this.peers.find((p) => p.id === machine);
+      if (!peer) return err(404, 'machines_unknown', 'Not a paired computer.');
+      this.syncPairs = this.syncPairs.filter((p) => p.folder !== project);
+      if (b['on'] === true) {
+        const name = project.split(/[\\/]/).filter(Boolean).pop() ?? project;
+        this.syncPairs.push({
+          ...this.syncPair(`sy_${Date.now().toString(16).padStart(16, '0')}`, name, {
+            state: 'waiting',
+          }),
+          folder: project,
+          machine: peer.id,
+          machineName: peer.name,
+          peer: { on: false, asked: true },
+          last: null,
+          createdAt: Date.now(),
+        });
+      }
+      this.syncFrame();
+      return view();
+    }
+    const one = /^\/machines\/sync\/([^/]+)\/(now|resolve)$/.exec(path);
+    if (one && method === 'POST') {
+      const p = this.syncPairs.find((x) => x.id === one[1]);
+      if (!p) return err(404, 'sync_unknown', 'No such synced project here.');
+      if (one[2] === 'resolve') {
+        if (!p.conflict) return err(409, 'sync_no_conflict', 'There is nothing to choose.');
+        const keepHere = b['keep'] === 'here';
+        p.kept = [
+          ...p.kept,
+          {
+            ref: `refs/mother-claude/sync/${p.id}/kept-20261112T101500-3fa2`,
+            side: keepHere ? 'there' : 'here',
+            commit: null,
+            files: keepHere ? p.conflict.there.files : p.conflict.here.files,
+            at: Date.now(),
+          },
+        ];
+        p.conflict = null;
+      }
+      if (!p.conflict && p.status.state !== 'off' && p.status.state !== 'waiting') {
+        p.status = { state: 'inSync', at: Date.now() };
+      }
+      this.syncFrame();
+      return json(p);
+    }
+    return null;
+  }
+
+  private syncFrame(): void {
+    this.opts.broadcast({ t: 'machines', what: 'sync' });
   }
 
   private pairedPeer(
@@ -128,8 +251,13 @@ export class MockMachines {
     if (path === '/machines/settings' && method === 'GET') return json(this.settingsView());
     if (path === '/machines/accounts' && method === 'GET') return json(this.accounts());
     if (path === '/roots' && method === 'GET') return json(this.rootsView());
+    if (path === '/machines/sync' && method === 'GET') {
+      return json({ pairs: this.syncPairs, watching: true });
+    }
     const refused = desk();
     if (refused) return refused;
+    const synced = this.syncRoute(path, method, b);
+    if (synced) return synced;
     const ask = /^\/machines\/asks\/([^/]+)$/.exec(path);
     if (ask && method === 'POST') {
       const a = this.asks.find((x) => x.id === ask[1]);
