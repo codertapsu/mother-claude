@@ -68,12 +68,40 @@ describe('OptionsFormComponent', () => {
     await settle();
     button(el, 'Save')!.click();
     await settle();
+    const code = { transfer: 'bundle', apply: 'checkout', keepRemoteRefs: false };
     expect(backend.bodyOf('PUT /machines/settings')).toEqual({
       relay: { mode: 'custom', url: 'https://relay.example.com' },
       keepAwake: false,
+      code,
     });
     expect(saved).toEqual([
-      { relay: { mode: 'custom', url: 'https://relay.example.com' }, keepAwake: false },
+      { relay: { mode: 'custom', url: 'https://relay.example.com' }, keepAwake: false, code },
     ]);
+  });
+
+  it('keeps the code options it was given, and offers keeping hidden refs only for a remote', async () => {
+    fixture = TestBed.createComponent(OptionsFormComponent);
+    fixture.componentRef.setInput('settings', {
+      relay: { mode: 'public', url: null },
+      keepAwake: true,
+      code: { transfer: 'bundle', apply: 'worktree', keepRemoteRefs: false },
+    } satisfies MachinesSettings);
+    fixture.detectChanges();
+    await settle();
+    const el = fixture.nativeElement as HTMLElement;
+    expect(
+      el.querySelector<HTMLInputElement>('input[name="apply"][value="worktree"]')!.checked,
+    ).toBe(true);
+    expect(el.querySelector('input[name="keepRemoteRefs"]')).toBeNull();
+    el.querySelector<HTMLInputElement>('input[name="transfer"][value="remote"]')!.click();
+    await settle();
+    expect(el.querySelector('input[name="keepRemoteRefs"]')).not.toBeNull();
+    button(el, 'Save')!.click();
+    await settle();
+    expect(backend.bodyOf('PUT /machines/settings')).toEqual({
+      relay: { mode: 'public', url: null },
+      keepAwake: true,
+      code: { transfer: 'remote', apply: 'worktree', keepRemoteRefs: false },
+    });
   });
 });

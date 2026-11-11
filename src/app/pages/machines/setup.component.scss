@@ -122,6 +122,17 @@
 .tests td[data-state='failed'] > span:first-child {
   color: var(--red);
 }
+.tests td[data-state='warning'] > span:first-child {
+  color: var(--amber);
+}
+.tests {
+  display: block;
+  overflow-x: auto;
+}
+h3.sub {
+  margin: 1rem 0 0.2rem;
+  font-size: 0.95rem;
+}
 .turn-on {
   margin-top: 0.8rem;
 }

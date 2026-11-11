@@ -34,6 +34,11 @@
       <p class="muted" role="status">{{ 'Loading…' | t }}</p>
     }
   } @else {
+    <!-- ─────────────── Asked by another computer (UX §4.1) ─────────────── -->
+    @if (v.asks?.length) {
+      <mc-machine-asks [asks]="v.asks" [readonly]="!isDesktop()" (answered)="askAnswered()" />
+    }
+
     <!-- ─────────────── Off (UX §1.1) ─────────────── -->
     @if (!v.enabled) {
       <section class="card off" [attr.aria-label]="'Machines is off' | t">
@@ -146,16 +151,26 @@
     @if (v.offer; as o) {
       <section class="callout warn" role="status">
         <div class="callout-body">
-          <p>
-            {{
-              '{name} uses another relay setting: {relay}. Two computers on different relays may never meet.'
-                | t
-                  : {
-                      name: o.fromName,
-                      relay: relay({ relay: o.relay, keepAwake: v.settings.keepAwake }),
-                    }
-            }}
-          </p>
+          @if (relayOffered(o, v.settings)) {
+            <p>
+              {{
+                '{name} uses another relay setting: {relay}. Two computers on different relays may never meet.'
+                  | t
+                    : {
+                        name: o.fromName,
+                        relay: relay({ relay: o.relay, keepAwake: v.settings.keepAwake }),
+                      }
+              }}
+            </p>
+          }
+          @if (codeOffered(o, v.settings)) {
+            <p>
+              {{
+                '{name} moves code another way: {code}. Use it here too, so a move works the same from either computer?'
+                  | t: { name: o.fromName, code: codeText(o.code) }
+              }}
+            </p>
+          }
           @if (isDesktop()) {
             <div class="row">
               <button
@@ -389,6 +404,8 @@
           <dl class="kv">
             <dt>{{ 'Relay' | t }}</dt>
             <dd>{{ relay(v.settings) }}</dd>
+            <dt>{{ 'Code' | t }}</dt>
+            <dd>{{ codeText(v.settings.code) }}</dd>
             <dt>{{ 'Keep awake' | t }}</dt>
             <dd>
               {{

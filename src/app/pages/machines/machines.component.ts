@@ -7,23 +7,35 @@ import { AuthService } from '../../core/auth.service';
 import { computerNoun, tr } from '../../core/i18n/i18n';
 import { TPipe } from '../../core/i18n/t.pipe';
 import {
+  CodeSettings,
   GRANT_NAMES,
   GrantName,
   Grants,
   MachinesSettings,
   PeerMachine,
   PeerSessions,
+  SettingsOffer,
   copyGrants,
+  sameCode,
   sameGrants,
+  sameRelay,
 } from '../../core/machines';
 import { MachinesService } from '../../core/machines.service';
 import { RemoteSessionsService } from '../../core/remote-sessions.service';
 import { IconComponent } from '../../shared/icon.component';
 import { RelativeTimePipe } from '../../shared/time.pipes';
+import { AsksCardComponent } from './asks-card.component';
 import { CheckListComponent } from './check-list.component';
 import { GrantsMatrixComponent } from './grants-matrix.component';
 import { JoinSheetComponent } from './join-sheet.component';
-import { grantShort, grantValue, osName, pathName, thisComputerTitle } from './machines-text';
+import {
+  codeText,
+  grantShort,
+  grantValue,
+  osName,
+  pathName,
+  thisComputerTitle,
+} from './machines-text';
 import { OptionsFormComponent, relayText } from './options-form.component';
 import { PairSheetComponent } from './pair-sheet.component';
 
@@ -38,6 +50,7 @@ import { PairSheetComponent } from './pair-sheet.component';
   imports: [
     FormsModule,
     RouterLink,
+    AsksCardComponent,
     CheckListComponent,
     GrantsMatrixComponent,
     IconComponent,
@@ -144,6 +157,26 @@ export class MachinesComponent {
     return relayText(s?.relay);
   }
 
+  protected codeText(c: CodeSettings | null | undefined): string {
+    return codeText(c);
+  }
+
+  /** The offer's relay differs from this computer's. */
+  protected relayOffered(o: SettingsOffer, s: MachinesSettings): boolean {
+    return !sameRelay(o.relay, s.relay);
+  }
+
+  /** The offer's code options differ from this computer's. */
+  protected codeOffered(o: SettingsOffer, s: MachinesSettings): boolean {
+    return !!o.code && !sameCode(o.code, s.code);
+  }
+
+  /** An ask was answered here: the view and the checks change. */
+  protected askAnswered(): void {
+    void this.machines.load();
+    void this.machines.loadSetup();
+  }
+
   /** How many of its sessions this computer knows, and how many run: live
    * from its frames once they came, else as `GET /api/machines` said. */
   protected sessionCounts(p: PeerMachine): PeerSessions | null {
@@ -196,6 +229,8 @@ export class MachinesComponent {
     await this.withBusy(check, async () => {
       this.machines.setup.set(await this.api.fixMachineCheck(check));
       await this.machines.load();
+      // An account's sign-in goes on in Accounts (its link, its code).
+      if (check.startsWith('account:')) void this.router.navigate(['/accounts']);
     });
   }
 

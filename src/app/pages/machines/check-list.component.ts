@@ -2,9 +2,9 @@ import { ChangeDetectionStrategy, Component, computed, input, output } from '@an
 
 import { tr } from '../../core/i18n/i18n';
 import { TPipe } from '../../core/i18n/t.pipe';
-import { CheckState, SetupCheck, byUrgency } from '../../core/machines';
+import { CheckState, MachineAsk, SetupCheck, askOpen, byUrgency } from '../../core/machines';
 import { IconComponent, IconName } from '../../shared/icon.component';
-import { checkTexts } from './machines-text';
+import { askText, checkTexts } from './machines-text';
 
 const MARKS: Record<CheckState, { icon: IconName; tone: string }> = {
   ok: { icon: 'check', tone: 'green' },
@@ -50,10 +50,18 @@ const MARKS: Record<CheckState, { icon: IconName; tone: string }> = {
             @if (c.state !== 'ok' && c.state !== 'na' && x.why) {
               <span class="muted small">{{ x.why }}</span>
             }
+            @if (c.state === 'blocker' && c.scope === 'account') {
+              <span class="muted small">{{
+                'Only its sessions wait for it: Machines works without.' | t
+              }}</span>
+            }
             @if (failing(c) && c.fix) {
               <div class="cacts">
                 @if (remote()) {
-                  @if (c.fix.kind !== 'manual') {
+                  @let asked = askFor(c);
+                  @if (asked && open(asked)) {
+                    <span class="muted small">{{ askedText(asked) }}</span>
+                  } @else if (c.fix.kind !== 'manual') {
                     <button
                       type="button"
                       class="btn small"
@@ -62,6 +70,9 @@ const MARKS: Record<CheckState, { icon: IconName; tone: string }> = {
                     >
                       {{ 'Ask {name} to fix' | t: { name: machineName() } }}
                     </button>
+                  }
+                  @if (asked && !open(asked)) {
+                    <span class="muted small">{{ askedText(asked) }}</span>
                   }
                   <span class="muted small">{{
                     'On {name}: {fix}' | t: { name: machineName(), fix: x.fix }
@@ -163,6 +174,8 @@ export class CheckListComponent {
   /** Another computer's checks (its name): offers *Ask {name} to fix*. */
   readonly remote = input(false);
   readonly machineName = input('');
+  /** (Another computer's) what this computer asked of it. */
+  readonly asks = input<readonly MachineAsk[]>([]);
   /** The check whose fix runs now. */
   readonly busy = input<string | null>(null);
   /** No actions (a phone, or not the moment). */
@@ -204,5 +217,18 @@ export class CheckListComponent {
 
   protected texts(c: SetupCheck): ReturnType<typeof checkTexts> {
     return checkTexts(c);
+  }
+
+  /** The last fix of `c` this computer asked for. */
+  protected askFor(c: SetupCheck): MachineAsk | null {
+    return [...this.asks()].reverse().find((a) => a.kind === 'fix' && a.check === c.id) ?? null;
+  }
+
+  protected open(a: MachineAsk): boolean {
+    return askOpen(a);
+  }
+
+  protected askedText(a: MachineAsk): string {
+    return askText(a, this.machineName());
   }
 }

@@ -12,19 +12,29 @@ import {
   PeerMachine,
   Readiness,
   copyGrants,
+  defaultCode,
+  gatingOf,
   sameGrants,
 } from '../../core/machines';
 import { MachinesService } from '../../core/machines.service';
 import { IconComponent } from '../../shared/icon.component';
+import { AccountsFoldersComponent } from './accounts-folders.component';
 import { CheckListComponent } from './check-list.component';
 import { GrantsMatrixComponent } from './grants-matrix.component';
 import { JoinSheetComponent } from './join-sheet.component';
 import { grantShort, grantValue, pathName, serverText, thisComputerTitle } from './machines-text';
 import { OptionsFormComponent } from './options-form.component';
 import { PairSheetComponent } from './pair-sheet.component';
+import { ProjectOptionsComponent } from './project-options.component';
 
 interface Step {
   n: number;
+  title: string;
+}
+
+/** A column of the readiness test (plan §5.14; UX §3.7). */
+interface TestColumn {
+  id: string;
   title: string;
 }
 
@@ -39,12 +49,14 @@ interface Step {
   selector: 'mc-machines-setup',
   imports: [
     RouterLink,
+    AccountsFoldersComponent,
     CheckListComponent,
     GrantsMatrixComponent,
     IconComponent,
     JoinSheetComponent,
     OptionsFormComponent,
     PairSheetComponent,
+    ProjectOptionsComponent,
     TPipe,
   ],
   templateUrl: './setup.component.html',
@@ -89,8 +101,31 @@ export class MachinesSetupComponent {
   protected readonly peers = computed(() => this.view()?.peers ?? []);
   protected readonly selfChecks = computed(() => this.setup()?.self.checks ?? []);
   protected readonly peerChecks = computed(() => this.setup()?.peers ?? []);
-  protected readonly blockers = computed(() => this.setup()?.blockers ?? 0);
+  /** The required checks that keep Machines off. */
+  protected readonly blockers = computed(() => gatingOf(this.setup()));
+  /** Required checks that block only a part (an account's sessions). */
+  protected readonly scoped = computed(() => {
+    const s = this.setup();
+    if (!s) return 0;
+    return [...s.self.checks, ...s.peers.flatMap((p) => p.checks)].filter(
+      (c) => c.state === 'blocker' && !!c.scope,
+    ).length;
+  });
   protected readonly lastTests = computed(() => this.results() ?? this.setup()?.tests ?? []);
+  protected readonly defaults = defaultCode();
+  /** The readiness test's columns: the lines any result has, in order. */
+  protected readonly testColumns = computed<TestColumn[]>(() => {
+    const all: TestColumn[] = [
+      { id: 'connect', title: tr('Connect') },
+      { id: 'transfer', title: tr('Transfer') },
+      { id: 'tools', title: tr('git, Claude Code') },
+      { id: 'code', title: tr('Code') },
+      { id: 'accounts', title: tr('Accounts') },
+      { id: 'folders', title: tr('Folders') },
+    ];
+    const seen = new Set(this.lastTests().flatMap((r) => r.tests.map((t) => t.id)));
+    return all.filter((c) => c.id === 'connect' || c.id === 'transfer' || seen.has(c.id));
+  });
 
   constructor() {
     const destroyRef = inject(DestroyRef);
@@ -151,6 +186,8 @@ export class MachinesSetupComponent {
     await this.withBusy(check, async () => {
       this.machines.setup.set(await this.api.fixMachineCheck(check));
       await this.machines.load();
+      // An account's sign-in goes on in Accounts (its link, its code).
+      if (check.startsWith('account:')) void this.router.navigate(['/accounts']);
     });
   }
 
@@ -158,6 +195,7 @@ export class MachinesSetupComponent {
     await this.withBusy(`${machine}:${check}`, async () => {
       await this.api.askMachineFix(machine, check);
       this.notice.set(tr('Asked {name}: it shows the fix to whoever is at it.', { name }));
+      await this.machines.loadSetup();
     });
   }
 
@@ -223,17 +261,31 @@ export class MachinesSetupComponent {
   }
 
   protected stateMark(state: string | undefined): string {
-    return state === 'ok' ? '✓' : state === 'failed' ? '✕' : '–';
+    switch (state) {
+      case 'ok':
+        return '✓';
+      case 'warning':
+        return '!';
+      case 'failed':
+        return '✕';
+      default:
+        return '–';
+    }
   }
 
   protected stateWord(state: string | undefined): string {
-    return state === 'ok'
-      ? tr('Passed')
-      : state === 'failed'
-        ? tr('Failed')
-        : state === 'skipped'
-          ? tr('Skipped')
-          : tr('Not run');
+    switch (state) {
+      case 'ok':
+        return tr('Passed');
+      case 'warning':
+        return tr('Passed, with a warning');
+      case 'failed':
+        return tr('Failed');
+      case 'skipped':
+        return tr('Skipped');
+      default:
+        return tr('Not run');
+    }
   }
 
   protected testDetail(detail: string | undefined): string {

@@ -13,7 +13,13 @@ import { FormsModule } from '@angular/forms';
 import { ApiService, describeError } from '../../core/api.service';
 import { computerNoun, tr } from '../../core/i18n/i18n';
 import { TPipe } from '../../core/i18n/t.pipe';
-import { MachinesSettings, RelayMode } from '../../core/machines';
+import {
+  CodeApply,
+  CodeTransfer,
+  MachinesSettings,
+  RelayMode,
+  defaultCode,
+} from '../../core/machines';
 
 /** A relay setting in words. */
 export function relayText(s: MachinesSettings['relay'] | null | undefined): string {
@@ -28,11 +34,14 @@ export function relayText(s: MachinesSettings['relay'] | null | undefined): stri
 }
 
 /**
- * The options of D10 that Machines uses now (docs/PLAN-MACHINES.md §5.3,
- * §5.14): how computers meet across networks (n0's public relays, your own
- * relay, or none) and keeping this computer awake while another uses it.
- * A changed relay is offered to the other computers, each of which takes
- * it only when its own desktop accepts.
+ * The options of D10 (docs/PLAN-MACHINES.md §5.3, §5.10, §5.14): how
+ * computers meet across networks (n0's public relays, your own relay, or
+ * none), how a moving session's code travels (machine to machine, or
+ * through your git remote) and where it lands (the project folder when it
+ * has no changes of its own, or always a worktree), and keeping this
+ * computer awake while another uses it. A changed relay or code option is
+ * offered to the other computers, each of which takes it only when its own
+ * desktop accepts.
  */
 @Component({
   selector: 'mc-machines-options',
@@ -101,6 +110,87 @@ export function relayText(s: MachinesSettings['relay'] | null | undefined): stri
           </span>
         </label>
       </fieldset>
+      <fieldset class="relay">
+        <legend class="field-label">{{ 'How code travels when a session moves' | t }}</legend>
+        <label class="opt">
+          <input
+            type="radio"
+            name="transfer"
+            value="bundle"
+            [ngModel]="transfer()"
+            (ngModelChange)="transfer.set($event)"
+          />
+          <span>
+            <strong>{{ 'Machine to machine (default)' | t }}</strong>
+            <span class="muted small">{{
+              'Straight to the other computer: no remote needed, nothing pushed anywhere.' | t
+            }}</span>
+          </span>
+        </label>
+        <label class="opt">
+          <input
+            type="radio"
+            name="transfer"
+            value="remote"
+            [ngModel]="transfer()"
+            (ngModelChange)="transfer.set($event)"
+          />
+          <span>
+            <strong>{{ 'Through your git remote' | t }}</strong>
+            <span class="muted small">{{
+              'GitHub or another: both computers need access to it without a password prompt.' | t
+            }}</span>
+          </span>
+        </label>
+        @if (transfer() === 'remote') {
+          <label class="opt sub">
+            <input
+              type="checkbox"
+              name="keepRemoteRefs"
+              [checked]="keepRemoteRefs()"
+              (change)="keepRemoteRefs.set($any($event.target).checked)"
+            />
+            <span>
+              <span>{{ 'Keep the hidden refs on the remote after a move' | t }}</span>
+              <span class="muted small">{{
+                'Off: they are deleted there once the other computer has them (kept locally for undo).'
+                  | t
+              }}</span>
+            </span>
+          </label>
+        }
+      </fieldset>
+      <fieldset class="relay">
+        <legend class="field-label">{{ 'Where the code lands' | t }}</legend>
+        <label class="opt">
+          <input
+            type="radio"
+            name="apply"
+            value="checkout"
+            [ngModel]="apply()"
+            (ngModelChange)="apply.set($event)"
+          />
+          <span>
+            <strong>{{
+              'In the project folder, when it has no changes of its own (default)' | t
+            }}</strong>
+          </span>
+        </label>
+        <label class="opt">
+          <input
+            type="radio"
+            name="apply"
+            value="worktree"
+            [ngModel]="apply()"
+            (ngModelChange)="apply.set($event)"
+          />
+          <span>
+            <strong>{{
+              'Always in a separate folder (a worktree), never the project folder' | t
+            }}</strong>
+          </span>
+        </label>
+      </fieldset>
       <label class="switch">
         <input
           type="checkbox"
@@ -119,6 +209,12 @@ export function relayText(s: MachinesSettings['relay'] | null | undefined): stri
           }}</span>
         </span>
       </label>
+      <p class="muted small">
+        {{
+          'Each project can change these, and each move too. The other computers take a change when someone there accepts it.'
+            | t
+        }}
+      </p>
       @if (error()) {
         <p class="notice error small" role="alert">{{ error() }}</p>
       }
@@ -157,6 +253,9 @@ export function relayText(s: MachinesSettings['relay'] | null | undefined): stri
       .url {
         margin-left: 1.6rem;
       }
+      .sub {
+        margin-left: 1.6rem;
+      }
     `,
   ],
 })
@@ -172,6 +271,9 @@ export class OptionsFormComponent {
   protected readonly mode = signal<RelayMode>('public');
   protected readonly url = signal('');
   protected readonly keepAwake = signal(true);
+  protected readonly transfer = signal<CodeTransfer>('bundle');
+  protected readonly apply = signal<CodeApply>('checkout');
+  protected readonly keepRemoteRefs = signal(false);
   protected readonly busy = signal(false);
   protected readonly error = signal('');
 
@@ -179,9 +281,13 @@ export class OptionsFormComponent {
     effect(() => {
       const s = this.settings();
       untracked(() => {
+        const code = s.code ?? defaultCode();
         this.mode.set(s.relay.mode);
         this.url.set(s.relay.url ?? '');
         this.keepAwake.set(s.keepAwake);
+        this.transfer.set(code.transfer);
+        this.apply.set(code.apply);
+        this.keepRemoteRefs.set(code.keepRemoteRefs);
       });
     });
   }
@@ -202,8 +308,13 @@ export class OptionsFormComponent {
       const next = await this.api.saveMachinesSettings({
         relay: { mode: this.mode(), url: this.mode() === 'custom' ? url : null },
         keepAwake: this.keepAwake(),
+        code: {
+          transfer: this.transfer(),
+          apply: this.apply(),
+          keepRemoteRefs: this.keepRemoteRefs(),
+        },
       });
-      this.saved.emit(next);
+      this.saved.emit({ relay: next.relay, keepAwake: next.keepAwake, code: next.code });
     } catch (e) {
       this.error.set(describeError(e).text);
     } finally {

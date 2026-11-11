@@ -6,11 +6,16 @@
 
 import { computerNoun, tr } from '../../core/i18n/i18n';
 import {
+  CodeApply,
+  CodeSettings,
+  CodeTransfer,
   GrantName,
   GrantPair,
+  MachineAsk,
   MachinePath,
   PairingView,
   SetupCheck,
+  defaultCode,
   osLabel,
   pathLabel,
 } from '../../core/machines';
@@ -100,23 +105,300 @@ const FIXED: Record<string, () => string> = {
   'Online, direct over the internet.': () => tr('Online, direct over the internet.'),
   'Online, through the relay.': () => tr('Online, through the relay.'),
   'Online.': () => tr('Online.'),
+  // Phase 3a: git, long paths, Claude Code, accounts, free space.
+  'Long paths': () => tr('Long paths'),
+  'Free space': () => tr('Free space'),
+  "A session's code moves through git, on both computers.": () =>
+    tr("A session's code moves through git, on both computers."),
+  'Windows and git leave out paths longer than 260 characters unless long paths are on.': () =>
+    tr('Windows and git leave out paths longer than 260 characters unless long paths are on.'),
+  'Sessions run in Claude Code; one moved to an older version may not resume.': () =>
+    tr('Sessions run in Claude Code; one moved to an older version may not resume.'),
+  'A session moves to the account of the same name, and runs only where it is signed in.': () =>
+    tr('A session moves to the account of the same name, and runs only where it is signed in.'),
+  "Moves and copies land in Mother Claude's data folder first.": () =>
+    tr("Moves and copies land in Mother Claude's data folder first."),
+  'Install the command line tools': () => tr('Install the command line tools'),
+  'Install Git for Windows': () => tr('Install Git for Windows'),
+  'Install git': () => tr('Install git'),
+  'Update git': () => tr('Update git'),
+  'Turn on for git': () => tr('Turn on for git'),
+  'Ask an administrator to turn on long paths': () =>
+    tr('Ask an administrator to turn on long paths'),
+  'Install Claude Code': () => tr('Install Claude Code'),
+  'Update Claude Code': () => tr('Update Claude Code'),
+  'Sign in…': () => tr('Sign in…'),
+  'Free some space': () => tr('Free some space'),
+  "git isn't installed: code can't move without it.": () =>
+    tr("git isn't installed: code can't move without it."),
+  'Could not run git.': () => tr('Could not run git.'),
+  'Checked once git runs.': () => tr('Checked once git runs.'),
+  'Git for Windows leaves out paths longer than 260 characters: core.longpaths is off for this user.':
+    () =>
+      tr(
+        'Git for Windows leaves out paths longer than 260 characters: core.longpaths is off for this user.',
+      ),
+  "Windows' own long paths setting is off: some tools can't open paths longer than 260 characters.":
+    () =>
+      tr(
+        "Windows' own long paths setting is off: some tools can't open paths longer than 260 characters.",
+      ),
+  'Long paths are on for git.': () => tr('Long paths are on for git.'),
+  'Long paths are on, for Windows and for git.': () =>
+    tr('Long paths are on, for Windows and for git.'),
+  "Claude Code isn't installed here, or can't be started: sessions can't run.": () =>
+    tr("Claude Code isn't installed here, or can't be started: sessions can't run."),
+  'Signed in.': () => tr('Signed in.'),
+  "Not signed in: its sessions can't run or move here until it is.": () =>
+    tr("Not signed in: its sessions can't run or move here until it is."),
+  'A session of it failed to sign in: sign in again.': () =>
+    tr('A session of it failed to sign in: sign in again.'),
+  "Its token isn't on this computer.": () => tr("Its token isn't on this computer."),
+  'Could not check its sign-in.': () => tr('Could not check its sign-in.'),
+  'Not checked yet.': () => tr('Not checked yet.'),
+  'Could not read the free space.': () => tr('Could not read the free space.'),
+  // What an ask became, and a remote's answer.
+  'Fixed.': () => tr('Fixed.'),
+  'The sign-in started: finish it in the browser on this computer.': () =>
+    tr('The sign-in started: finish it in the browser on this computer.'),
+  'Accounts opened to add it.': () => tr('Accounts opened to add it.'),
+  'Not now.': () => tr('Not now.'),
+  'Cloning…': () => tr('Cloning…'),
+  'That account is not on this computer any more.': () =>
+    tr('That account is not on this computer any more.'),
+  'The remote asked for a sign-in: sign in to it on this computer (Git Credential Manager, or gh auth login), then try again.':
+    () =>
+      tr(
+        'The remote asked for a sign-in: sign in to it on this computer (Git Credential Manager, or gh auth login), then try again.',
+      ),
+  "The remote refused this computer's SSH key.": () =>
+    tr("The remote refused this computer's SSH key."),
+  "Can't reach the remote from this computer.": () =>
+    tr("Can't reach the remote from this computer."),
+  'The remote has no such repository, or this computer may not see it.': () =>
+    tr('The remote has no such repository, or this computer may not see it.'),
+  'git could not reach the remote.': () => tr('git could not reach the remote.'),
+  "git isn't installed on this computer.": () => tr("git isn't installed on this computer."),
+  'The remote answers without a prompt.': () => tr('The remote answers without a prompt.'),
+  'This project has no remote named origin.': () => tr('This project has no remote named origin.'),
+  'The remote did not answer in 30 seconds.': () => tr('The remote did not answer in 30 seconds.'),
+  'The project is not on this computer: clone it there first.': () =>
+    tr('The project is not on this computer: clone it there first.'),
+  // The readiness test's other lines.
+  'Skipped: not connected.': () => tr('Skipped: not connected.'),
+  "git isn't installed here.": () => tr("git isn't installed here."),
+  "Claude Code isn't installed here.": () => tr("Claude Code isn't installed here."),
+  "Claude Code's version is not known.": () => tr("Claude Code's version is not known."),
 };
 
-/** A server text in the language shown when it is one of the fixed ones. */
-export function serverText(text: string | null | undefined): string {
-  if (!text) return '';
+/** Server texts with a name or a number in them: the pattern, and what it
+ * reads in the language shown. */
+const PATTERNS: [RegExp, (m: RegExpExecArray) => string][] = [
+  [/^Connected to (.+)\.$/, (m) => tr('Connected to {host}.', { host: m[1] })],
+  [
+    /^git (\S+) is older than (\S+): update it\.$/,
+    (m) => tr('git {v} is older than {min}: update it.', { v: m[1], min: m[2] }),
+  ],
+  [
+    /^Claude Code (\S+) is older than (.+)'s (\S+): a session moved here from there may not resume\.$/,
+    (m) =>
+      tr(
+        "Claude Code {v} is older than {name}'s {w}: a session moved here from there may not resume.",
+        {
+          v: m[1],
+          name: m[2],
+          w: m[3],
+        },
+      ),
+  ],
+  [
+    /^Only (.+) free where Mother Claude keeps its data\.$/,
+    (m) => tr('Only {size} free where Mother Claude keeps its data.', { size: m[1] }),
+  ],
+  [
+    /^(.+) free where Mother Claude keeps its data\.$/,
+    (m) => tr('{size} free where Mother Claude keeps its data.', { size: m[1] }),
+  ],
+  [
+    /^(.+) moves code with other options: a move follows the options of the computer it starts from\.$/,
+    (m) =>
+      tr(
+        '{name} moves code with other options: a move follows the options of the computer it starts from.',
+        { name: m[1] },
+      ),
+  ],
+  [/^Cloned into (.+)\.$/, (m) => tr('Cloned into {folder}.', { folder: m[1] })],
+  [/^(.+) is there already\.$/, (m) => tr('{folder} is there already.', { folder: m[1] })],
+  [
+    /^No folder maps this project to (.+)\.$/,
+    (m) => tr('No folder maps this project to {name}.', { name: m[1] }),
+  ],
+  [
+    /^Update Mother Claude on (.+) to (check it there|compare its tools|test moving code|compare its accounts|compare its folders|see its accounts|see its projects)\.$/,
+    (m) => {
+      const name = m[1];
+      switch (m[2]) {
+        case 'check it there':
+          return tr('Update Mother Claude on {name} to check it there.', { name });
+        case 'compare its tools':
+          return tr('Update Mother Claude on {name} to compare its tools.', { name });
+        case 'test moving code':
+          return tr('Update Mother Claude on {name} to test moving code.', { name });
+        case 'compare its accounts':
+          return tr('Update Mother Claude on {name} to compare its accounts.', { name });
+        case 'compare its folders':
+          return tr('Update Mother Claude on {name} to compare its folders.', { name });
+        case 'see its accounts':
+          return tr('Update Mother Claude on {name} to see its accounts.', { name });
+        default:
+          return tr('Update Mother Claude on {name} to see its projects.', { name });
+      }
+    },
+  ],
+  // After the longer sentences that start the same way.
+  [/^Update Mother Claude on (.+)$/, (m) => tr('Update Mother Claude on {name}', { name: m[1] })],
+  [
+    /^(.+) does not let this computer see it\.$/,
+    (m) => tr('{name} does not let this computer see it.', { name: m[1] }),
+  ],
+  [/^git isn't installed on (.+)\.$/, (m) => tr("git isn't installed on {name}.", { name: m[1] })],
+  [
+    /^Claude Code isn't installed on (.+)\.$/,
+    (m) => tr("Claude Code isn't installed on {name}.", { name: m[1] }),
+  ],
+  [
+    /^git (\S+) here is older than (\S+)\.$/,
+    (m) => tr('git {v} here is older than {min}.', { v: m[1], min: m[2] }),
+  ],
+  [
+    /^git (\S+) on (.+) is older than (\S+)\.$/,
+    (m) => tr('git {v} on {name} is older than {min}.', { v: m[1], name: m[2], min: m[3] }),
+  ],
+  [
+    /^Claude Code on (.+) \((\S+)\) is older than here \((\S+)\)\.$/,
+    (m) =>
+      tr('Claude Code on {name} ({v}) is older than here ({w}).', { name: m[1], v: m[2], w: m[3] }),
+  ],
+  [
+    /^Claude Code here \((\S+)\) is older than on (.+) \((\S+)\)\.$/,
+    (m) =>
+      tr('Claude Code here ({v}) is older than on {name} ({w}).', { v: m[1], name: m[2], w: m[3] }),
+  ],
+  [
+    /^git and Claude Code (\S+) on both\.$/,
+    (m) => tr('git and Claude Code {v} on both.', { v: m[1] }),
+  ],
+  [/^Both ways in ([\d.]+) s\.$/, (m) => tr('Both ways in {s} s.', { s: m[1] })],
+  [
+    /^1 account matches, signed in on (.+)\.$/,
+    (m) => tr('1 account matches, signed in on {name}.', { name: m[1] }),
+  ],
+  [
+    /^(\d+) accounts match, signed in on (.+)\.$/,
+    (m) => tr('{n} accounts match, signed in on {name}.', { n: m[1], name: m[2] }),
+  ],
+  [/^(.+): not on (.+)$/, (m) => tr('{account}: not on {name}', { account: m[1], name: m[2] })],
+  [
+    /^(.+): not signed in on (.+)$/,
+    (m) => tr('{account}: not signed in on {name}', { account: m[1], name: m[2] }),
+  ],
+  [
+    /^(.+): not checked on (.+)$/,
+    (m) => tr('{account}: not checked on {name}', { account: m[1], name: m[2] }),
+  ],
+  [/^1 folder resolves on (.+)$/, (m) => tr('1 folder resolves on {name}', { name: m[1] })],
+  [
+    /^(\d+) folders resolve on (.+)$/,
+    (m) => tr('{n} folders resolve on {name}', { n: m[1], name: m[2] }),
+  ],
+  [/^(\d+) of (\d+) projects map\.$/, (m) => tr('{m} of {n} projects map.', { m: m[1], n: m[2] })],
+  [
+    /^(.+): its folder is missing on (.+)$/,
+    (m) => tr('{root}: its folder is missing on {name}', { root: m[1], name: m[2] }),
+  ],
+  [
+    /^(.+): not known on (.+) yet$/,
+    (m) => tr('{root}: not known on {name} yet', { root: m[1], name: m[2] }),
+  ],
+  [
+    /^(.+): mapped elsewhere on (.+)$/,
+    (m) => tr('{project}: mapped elsewhere on {name}', { project: m[1], name: m[2] }),
+  ],
+  [
+    /^1 project on both is not mapped yet \(step 5\)$/,
+    () => tr('1 project on both is not mapped yet (step 5)'),
+  ],
+  [
+    /^(\d+) projects on both are not mapped yet \(step 5\)$/,
+    (m) => tr('{n} projects on both are not mapped yet (step 5)', { n: m[1] }),
+  ],
+  [
+    /^No folder maps a project to (.+) yet: accept or add one in step 5\.$/,
+    (m) =>
+      tr('No folder maps a project to {name} yet: accept or add one in step 5.', { name: m[1] }),
+  ],
+];
+
+/** One server text (no ` · ` in it) in the language shown. */
+function oneText(text: string): string {
   const known = FIXED[text];
   if (known) return known();
-  const update = /^Update Mother Claude on (.+)$/.exec(text);
-  if (update) return tr('Update Mother Claude on {name}', { name: update[1] });
   const paired = /^Paired with (\d+) computers?\.$/.exec(text);
   if (paired) {
     const n = Number(paired[1]);
     return n === 1 ? tr('Paired with 1 computer.') : tr('Paired with {n} computers.', { n });
   }
-  const connected = /^Connected to (.+)\.$/.exec(text);
-  if (connected) return tr('Connected to {host}.', { host: connected[1] });
+  for (const [re, f] of PATTERNS) {
+    const m = re.exec(text);
+    if (m) return f(m);
+  }
   return text;
+}
+
+/** A server text in the language shown when it is one of the fixed ones
+ * (each part of a `·`-joined list on its own). */
+export function serverText(text: string | null | undefined): string {
+  if (!text) return '';
+  if (FIXED[text]) return FIXED[text]();
+  return text.split(' · ').map(oneText).join(' · ');
+}
+
+/** How code travels, in words. */
+export function transferText(t: CodeTransfer | undefined): string {
+  return t === 'remote' ? tr('Through your git remote') : tr('Machine to machine');
+}
+
+/** Where code lands, in words. */
+export function applyText(a: CodeApply | undefined): string {
+  return a === 'worktree' ? tr('Always a separate folder (worktree)') : tr('In the project folder');
+}
+
+/** The code options in one line. */
+export function codeText(c: CodeSettings | null | undefined): string {
+  const code = c ?? defaultCode();
+  const parts = [transferText(code.transfer), applyText(code.apply)];
+  if (code.transfer === 'remote' && code.keepRemoteRefs) parts.push(tr('hidden refs kept'));
+  return parts.join(' · ');
+}
+
+/** How something asked of another computer went, in words. */
+export function askText(a: MachineAsk, name: string): string {
+  switch (a.state) {
+    case 'asked':
+      return tr('Asked — waiting for someone at {name}.', { name });
+    case 'running':
+      return tr('Under way on {name}…', { name });
+    case 'done':
+      return a.detail
+        ? tr('Done on {name}: {what}', { name, what: serverText(a.detail) })
+        : tr('Done on {name}.', { name });
+    case 'declined':
+      return tr('Not now (at {name}).', { name });
+    case 'failed':
+      return a.detail
+        ? tr('It failed on {name}: {why}', { name, why: serverText(a.detail) })
+        : tr('It failed on {name}.', { name });
+  }
 }
 
 /** A check's title, detail, why and fix label in the language shown. */
