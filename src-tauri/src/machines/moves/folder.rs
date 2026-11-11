@@ -1,10 +1,10 @@
-//! Where a moved session works on this machine (decision 4) — in one place,
-//! so roots (§5.12, `machines/roots.rs`) can take over from folder pairs
-//! here alone.
+//! Where a moved session works on this machine (decision 4), in one place:
+//! the user's choice, a root (§5.12, `machines/roots.rs`, folder pairs
+//! carried over), where it came from, the same path.
 
 use std::path::Path;
 
-use crate::claude::paths::{self, LocalPair, PathForm};
+use crate::claude::paths::{self, PathForm};
 use crate::state::AppState;
 
 /// The folder a session goes on in here.
@@ -13,7 +13,8 @@ pub struct Found {
     /// The folder, when one was found (it exists, as this machine writes
     /// paths).
     pub path: Option<String>,
-    /// `chosen` | `pair` | `hint` | `same`.
+    /// `chosen` | `root` (a root, or a folder pair the backups know) |
+    /// `hint` | `same`.
     pub how: &'static str,
     /// Folders here that may be the project, to choose from when none was.
     pub candidates: Vec<String>,
@@ -28,11 +29,11 @@ fn usable(p: &str) -> bool {
 }
 
 /// Where a session that worked in `folder` on machine `from` goes on here:
-/// the folder the user chose (`chosen`); else — until roots take this over —
-/// the folder a folder pair between the two machines maps it to; else where
-/// the source knows it goes (`hint`: it came from here); else the same path
-/// when it is a folder here; else none, with candidates (folders here of
-/// sessions and trusted projects that look like it).
+/// the folder the user chose (`chosen`); else the folder a root between the
+/// two machines maps it to (then a folder pair, `roots::map_here`); else
+/// where the source knows it goes (`hint`: it came from here); else the same
+/// path when it is a folder here; else none, with candidates (folders here
+/// of sessions and trusted projects that look like it).
 pub fn folder_there(
     state: &AppState,
     from: &str,
@@ -54,10 +55,13 @@ pub fn folder_there(
             candidates: Vec::new(),
         });
     }
-    if let Some(m) = map_by_pairs(state, from, folder).filter(|m| usable(m)) {
+    if let Some(m) = crate::machines::roots::map_here(state, from, folder)
+        .map(|m| paths::trim_end_separators(&m).to_string())
+        .filter(|m| usable(m))
+    {
         return Ok(Found {
             path: Some(m),
-            how: "pair",
+            how: "root",
             candidates: Vec::new(),
         });
     }
@@ -82,26 +86,6 @@ pub fn folder_there(
     })
 }
 
-/// `folder` (machine `from`'s) mapped here by the folder pairs this machine
-/// knows between the two (the longest match wins).
-fn map_by_pairs(state: &AppState, from: &str, folder: &str) -> Option<String> {
-    let view = crate::claude::backup::ops::pairs_view(state);
-    let me = view.machine.clone()?;
-    let local: Vec<LocalPair> = view
-        .pairs
-        .iter()
-        .filter_map(|p| {
-            let here = p.folders.iter().find(|s| s.machine == me)?;
-            let there = p.folders.iter().find(|s| s.machine == from)?;
-            Some(LocalPair {
-                here: here.folder.clone(),
-                there: there.folder.clone(),
-            })
-        })
-        .collect();
-    paths::map_here(folder, &local)
-}
-
 /// Folders here that may be `folder` (another machine's).
 fn candidates(state: &AppState, folder: &str) -> Vec<String> {
     let mut known: Vec<String> = Vec::new();
@@ -116,7 +100,7 @@ fn candidates(state: &AppState, folder: &str) -> Vec<String> {
 mod tests {
     use super::*;
 
-    /// The folder the user chose wins (when it is one here); then a pair
+    /// The folder the user chose wins (when it is one here); then a root
     /// (none here), then where the source says it came from, then the same
     /// path; else none, with candidates.
     #[tokio::test]

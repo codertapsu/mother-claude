@@ -77,7 +77,7 @@ pub struct AccountThere {
 #[serde(rename_all = "camelCase", default)]
 pub struct FolderThere {
     pub path: String,
-    /// `chosen` | `pair` | `hint` | `same`.
+    /// `chosen` | `root` (a root, or a folder pair) | `hint` | `same`.
     pub how: String,
     /// Claude Code trusts it there (else the trust must be carried).
     pub trusted: bool,

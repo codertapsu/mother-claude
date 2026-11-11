@@ -976,3 +976,33 @@ async fn without_the_move_permission_a_move_is_refused_either_way() {
     assert_eq!(st, 403, "{v}");
     assert!(lease_home(&s).is_none());
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_root_maps_the_folder_there_without_asking() {
+    let w = world().await;
+    let (s_id, t_id) = (w.s.id(), w.t.id());
+    // One root: the source's checkout here is the target's checkout there.
+    let (s, v) = w
+        .s
+        .call(
+            "PUT",
+            "/roots",
+            Some(json!({ "upsert": [{ "name": "app", "paths": { &s_id: w.s_cwd, &t_id: w.t_cwd } }] })),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    eventually("the root on the target", || async {
+        machines::roots::map_here(&w.t.st, &s_id, &w.s_cwd).as_deref() == Some(w.t_cwd.as_str())
+    })
+    .await;
+
+    let body = json!({ "to": t_id, "code": "none" });
+    let pre = preflight(&w.s, body.clone()).await;
+    assert_eq!(pre["ok"], true, "{pre:#}");
+    assert_eq!(pre["target"]["folder"]["how"], "root", "{pre:#}");
+    assert_eq!(pre["target"]["folder"]["path"], w.t_cwd.as_str());
+    let rec = move_session(&w.s, body).await;
+    assert_eq!(rec["state"], "resumed", "{rec:#}");
+    assert_eq!(rec["targetCwd"], w.t_cwd.as_str());
+    assert!(transcript_in(&w.t.home(), &w.t_cwd, SID).exists());
+}
