@@ -502,6 +502,54 @@ the `browser_*` tools are `extension::mcp`). Invariants:
   side panel (`lease.resumed`, its own Stops only, a desktop notice); other
   sessions acting in that browser need approval meanwhile.
 
+## Your other computers: Machines (docs/PLAN-MACHINES.md)
+
+`src-tauri/src/machines/`. Being built in phases on the `machines` branch;
+Phase 1 is pairing and setup. Invariants:
+
+- **A peer is a principal, from a key, on its own router.** `Ingress::Peer`
+  and `Principal::Peer { machine, lan }` come only from the Machines
+  transport (`machines::transport`: iroh QUIC between machine keys). It puts
+  the QUIC-authenticated key on each request (`context::PeerCaller`); the
+  context middleware makes a *paired* key the principal and never reads a
+  token on that ingress. Peers reach `machines::routes::peer_app` (`/peer/*`)
+  only — never `/api`, `/hooks`, `/mcp` or `/ws` — and each peer route checks
+  the peer's grant for the request's path (`lan`: a direct path to a private
+  or loopback address; otherwise its internet column). Unknown keys are
+  refused when the connection is accepted, except the one key pairing with
+  this machine right now (`/peer/pair/*` only).
+- **The machine key** is `SecretName::MachineKey` in the secret store
+  (Keychain, Credential Manager, a 0600 file elsewhere), never in a file of
+  ours, a log, a frame or a backup; its public half is the endpoint id peers
+  pin in `machines.json` (0600, read field by field).
+- **Pairing** (`machines::pairing`): an 8-character code (one use, five
+  minutes) derives a rendezvous key, so the joiner finds the host from the
+  code alone (mDNS on the local network — the *Nearby* list — or n0's DNS
+  with the public relays); the rendezvous only gives a code holder the
+  host's address. The six digits come from a commit-then-reveal exchange
+  over both machine keys; across the internet the host types them. Nothing
+  is stored until both desktops confirm, each choosing what the other may do
+  on it (`machines::grants`: view, control, move, run, dangerous; LAN and
+  internet columns).
+- **The transport runs only while Machines is in use** (a pairing, a paired
+  machine, the setup): a user who never pairs makes no new network traffic.
+  Relays (`machines.json` settings): public (n0's, the default), custom (an
+  `iroh-relay`; a peer is then dialled as key + that relay and no n0 service
+  is asked), none (the local network only).
+- **The setup's fixes** run only from the desktop of the machine they change
+  (`POST /api/machines/setup/fix`, `DesktopOnly`); another machine can only
+  ask (a desktop notice there). A fix that opens System Settings or the UAC
+  prompt runs only after `lib.rs` called `machines.enable_fixes()` — tests
+  only record it — and the keep-awake assertion is held only then too. The
+  network checks are *required* only with the *No relay* setting; with a
+  relay they are *recommended*.
+- **macOS**: `src-tauri/Info.plist` (merged by Tauri) declares
+  `NSLocalNetworkUsageDescription`; without it macOS silently denies the app
+  the local network. The Local Network check runs inside the app's process,
+  which macOS holds responsible.
+- Machines is *on* (`enabled`) only once the setup has no blocker left; it
+  is off by default.
+
 ## Build / lint / test commands
 
 ```bash
