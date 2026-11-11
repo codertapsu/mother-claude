@@ -1,9 +1,9 @@
 @if (mode() === 'blocked') {
-  @if (machineBlock()) {
+  @if (machineBlock() || moveBlock()) {
     <div class="blocked">
       <p class="why">
         <mc-icon name="monitor" [size]="16" />
-        <span>{{ machineBlock() }}</span>
+        <span>{{ machineBlock() || moveBlock() }}</span>
       </p>
     </div>
   } @else if (session(); as s) {

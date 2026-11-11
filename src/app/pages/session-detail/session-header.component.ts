@@ -19,9 +19,9 @@ import { StorageService } from '../../core/storage.service';
 import { NoticeService } from '../../core/notice.service';
 import { PushService } from '../../core/push.service';
 import { RealtimeService, connectionDetail, connectionLabel } from '../../core/realtime.service';
-import { tr } from '../../core/i18n/i18n';
+import { computerNoun, tr } from '../../core/i18n/i18n';
 import { TPipe } from '../../core/i18n/t.pipe';
-import { JobView, SessionPushPref } from '../../core/models';
+import { JobView, SessionPushPref, SessionSummary } from '../../core/models';
 import { AccountChipComponent } from '../../shared/account-chip.component';
 import { ActivityLineComponent } from '../../shared/activity-line.component';
 import { capRename, capTerminal } from '../../shared/caps';
@@ -35,6 +35,9 @@ import {
   deletedIds,
 } from '../../shared/delete-data-sheet.component';
 import { MoveDataSheetComponent, MoveStart } from '../../shared/move-data-sheet.component';
+import { MoveSessionSheetComponent } from '../../shared/move-session-sheet.component';
+import { MovesService } from '../../core/moves.service';
+import { RemoteSessionsService } from '../../core/remote-sessions.service';
 import { SheetComponent } from '../../shared/sheet.component';
 import { StatusPillComponent } from '../../shared/status-pill.component';
 import { runningTasks, switchMode } from '../../shared/switch-account';
@@ -48,12 +51,15 @@ import { SessionContext } from './session-context';
  * The session page's sticky top row: back, name, status, the Claude
  * account (while there are several) and what it is doing right now (with
  * elapsed time), the connection state when it isn't Live, and a ⋯ menu
- * (rename, continue/fork, continue on another account, moving or copying
- * it or its project to another account or a storage, deleting it,
- * terminal, notifications, resume command, stop/respawn/remove). 48 px tall
- * on phones. Another computer's session shows that computer's chip, and
- * its menu leaves out what only that computer does (its accounts, moving,
- * copying, deleting, removing, notifications here), saying so in one line.
+ * (rename, continue/fork, continue on another account, continue on another
+ * computer or bring it back here, moving or copying it or its project to
+ * another account or a storage, deleting it, terminal, notifications,
+ * resume command, stop/respawn/remove). 48 px tall on phones. Another
+ * computer's session shows that computer's chip, and its menu leaves out
+ * what only that computer does (its accounts, moving, copying, deleting,
+ * removing, notifications here), saying so in one line. The sheet that
+ * moves a session to another computer lives here (docs/PLAN-MACHINES.md
+ * §5.8): the *Lives on …* banner opens it too, and it outlives the banner.
  */
 @Component({
   selector: 'mc-session-header',
@@ -69,6 +75,7 @@ import { SessionContext } from './session-context';
     IconComponent,
     DeleteDataSheetComponent,
     MoveDataSheetComponent,
+    MoveSessionSheetComponent,
     SheetComponent,
     StatusPillComponent,
     SwitchAccountSheetComponent,
@@ -160,6 +167,18 @@ import { SessionContext } from './session-context';
             <button class="item" type="button" (click)="openContinueOn()">
               <mc-icon name="user" [size]="18" />
               <span>{{ 'Continue on another account…' | t }}</span>
+            </button>
+          }
+          @if (bringBackOffered()) {
+            <button class="item" type="button" (click)="openComputerMove('back')">
+              <mc-icon name="download" [size]="18" />
+              <span>{{ bringBackLabel() }}</span>
+            </button>
+          }
+          @if (computerMoveOffered()) {
+            <button class="item" type="button" (click)="openComputerMove('away')">
+              <mc-icon name="monitor" [size]="18" />
+              <span>{{ 'Continue on another computer…' | t }}</span>
             </button>
           }
           @if (moveOffered()) {
@@ -312,6 +331,17 @@ import { SessionContext } from './session-context';
           </form>
         }
       </mc-sheet>
+
+      <!-- Continue on another computer, or bring it back (docs/PLAN-MACHINES.md
+           §5.8): started on the computer it lives on. -->
+      <mc-move-session-sheet
+        [open]="computerMove() !== null"
+        [session]="computerMoveSession()"
+        [at]="computerMoveAt()"
+        [to]="computerMove() === 'back' ? moves.selfId() : null"
+        [since]="computerMove() === 'back' ? leftHereAt() : null"
+        (closed)="computerMove.set(null)"
+      />
 
       <mc-sheet [open]="connSheet()" [title]="'Connection' | t" (closed)="connSheet.set(false)">
         <p>
@@ -631,9 +661,80 @@ export class SessionHeaderComponent {
     },
   });
 
+  // ── Another computer (docs/PLAN-MACHINES.md §5.8, spikes/machines/UX.md §0) ──
+  protected readonly moves = inject(MovesService);
+  private readonly remoteSessions = inject(RemoteSessionsService);
+  /** The move sheet: away to another computer, or back to this one (the
+   * *Lives on …* banner opens it too). */
+  protected readonly computerMove = this.ctx.computerMove;
+  /** Where the session lives now: its lease's computer for this computer's
+   * copy of a session that moved away, else the page's own computer. */
+  private readonly livesAt = computed<string | null>(() => {
+    const lives = this.ctx.session()?.livesOn;
+    if (!this.machine && lives) return lives.machine;
+    return this.machine?.id ?? null;
+  });
+  /** …as it was when the sheet opened: the move itself changes it. */
+  protected readonly computerMoveAt = linkedSignal<'away' | 'back' | null, string | null>({
+    source: () => this.computerMove(),
+    computation: () => untracked(() => this.livesAt()),
+  });
+  /** The session as the computer it lives on shows it. */
+  protected readonly computerMoveSession = computed<SessionSummary | null>(() => {
+    const s = this.ctx.session() ?? null;
+    const at = this.computerMoveAt();
+    if (!s || !at || this.machine) return s;
+    return (
+      this.remoteSessions
+        .byId()
+        .get(at)
+        ?.sessions.find((x) => x.id === s.id) ?? s
+    );
+  });
+  /** When it left this computer, for *Bring back* (this computer's copy
+   * says, whichever page shows it). */
+  protected readonly leftHereAt = computed(() => {
+    const id = this.ctx.id();
+    const mine = this.machine ? this.moves.localCopy(id) : this.ctx.session();
+    return mine?.livesOn?.since ?? null;
+  });
+  /** Moves between computers: Machines on here and a computer paired. */
+  private readonly computersMove = computed(
+    () => this.moves.enabled() && this.moves.peers().length > 0,
+  );
+  /** *Bring back to this {computer}*: a session another computer runs, or
+   * this computer's copy of one that moved away. */
+  protected readonly bringBackOffered = computed(() => {
+    const s = this.ctx.session();
+    if (!s || !this.computersMove() || !this.moves.selfId()) return false;
+    const at = this.livesAt();
+    if (!at || at === this.moves.selfId()) return false;
+    // Another computer's copy of a session that lives elsewhere moves from
+    // where it lives.
+    if (this.machine && s.livesOn) return false;
+    return this.moves.peers().some((p) => p.id === at) && !this.moves.current(s.id);
+  });
+  protected readonly bringBackLabel = computed(() => {
+    const s = this.ctx.session();
+    const computer = computerNoun();
+    return s && (!this.machine || this.moves.leftHere(s.id))
+      ? tr('Bring back to this {computer}', { computer })
+      : tr('Continue on this {computer}…', { computer });
+  });
+  /** *Continue on another computer…*: from where it lives, to the others. */
+  protected readonly computerMoveOffered = computed(() => {
+    const s = this.ctx.session();
+    if (!s || !this.computersMove() || s.livesOn || this.moves.current(s.id)) return false;
+    const at = this.machine?.id ?? null;
+    const self = this.moves.selfId();
+    return this.moves.peers().some((p) => p.id !== at && p.id !== self);
+  });
+
   constructor() {
     // Where things can be moved to: the storages count too.
     if (!this.machine) void this.storage.ensureLoaded();
+    // Who is paired, for the moves to another computer.
+    this.moves.ensureMachines();
     // The composer's `/rename` lands here.
     effect(() => {
       if (this.ctx.openPicker() !== 'rename') return;
@@ -677,6 +778,11 @@ export class SessionHeaderComponent {
   protected openSwitch(): void {
     this.menu.set(false);
     this.switching.set(true);
+  }
+
+  protected openComputerMove(kind: 'away' | 'back'): void {
+    this.menu.set(false);
+    this.computerMove.set(kind);
   }
 
   /** Delete this conversation, from the account it is recorded as. */

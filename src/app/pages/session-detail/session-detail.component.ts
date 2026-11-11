@@ -12,7 +12,9 @@ import { AgentsPanelComponent } from './agents-panel.component';
 import { ChangesPanelComponent } from './changes-panel.component';
 import { ComposerComponent } from './composer.component';
 import { InfoPanelComponent } from './info-panel.component';
+import { LivesOnBannerComponent } from './lives-on-banner.component';
 import { MachineBannerComponent } from './machine-banner.component';
+import { MoveLineComponent } from './move-line.component';
 import { PendingDockComponent } from './pending-dock.component';
 import { SessionChipsComponent } from './session-chips.component';
 import { SessionContext, SessionTab } from './session-context';
@@ -60,7 +62,9 @@ const TABS: TabDef[] = [
     IconComponent,
     InfoPanelComponent,
     LimitOfferComponent,
+    LivesOnBannerComponent,
     MachineBannerComponent,
+    MoveLineComponent,
     PendingDockComponent,
     ResumeNoteComponent,
     SessionChipsComponent,

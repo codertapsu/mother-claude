@@ -3,6 +3,10 @@
   @if (machine) {
     <mc-machine-banner class="sd-machine" />
   }
+  @if (ctx.session()?.livesOn) {
+    <mc-lives-on-banner class="sd-machine" />
+  }
+  <mc-move-line class="sd-move" />
 
   @if (ctx.session(); as s) {
     @if (!machine) {

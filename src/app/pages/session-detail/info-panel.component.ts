@@ -22,6 +22,7 @@ import { TPipe } from '../../core/i18n/t.pipe';
 import { MachineContext } from '../../core/machine-context';
 import { KeyName, LaunchOverrides, McpServerStatus } from '../../core/models';
 import { anyTarget } from '../../core/move-data';
+import { MovesService } from '../../core/moves.service';
 import { NowService } from '../../core/now.service';
 import { PlanUsageService } from '../../core/plan-usage.service';
 import { StorageService } from '../../core/storage.service';
@@ -35,6 +36,7 @@ import { CopyButtonComponent } from '../../shared/copy-button.component';
 import { CostComponent } from '../../shared/cost.component';
 import { IconComponent } from '../../shared/icon.component';
 import { LaunchOptionsComponent } from '../../shared/launch-options.component';
+import { MoveCardComponent } from '../../shared/move-card.component';
 import { PlanUsageComponent } from '../../shared/plan-usage.component';
 import {
   fastText,
@@ -90,6 +92,7 @@ const KEYS: { key: KeyName; label: string; aria: string }[] = [
     CostComponent,
     IconComponent,
     LaunchOptionsComponent,
+    MoveCardComponent,
     PlanUsageComponent,
     StatusPillComponent,
     TimeAgoComponent,
@@ -488,6 +491,17 @@ const KEYS: { key: KeyName; label: string; aria: string }[] = [
           }
         </section>
       }
+
+      @if (sessionMoves().length) {
+        <section class="card">
+          <h2 class="first">{{ 'Moves between computers' | t }}</h2>
+          <div class="moves">
+            @for (e of sessionMoves(); track (e.at ?? '') + e.move.id) {
+              <mc-move-card [entry]="e" />
+            }
+          </div>
+        </section>
+      }
     }
   `,
   styles: [
@@ -497,6 +511,15 @@ const KEYS: { key: KeyName; label: string; aria: string }[] = [
         flex-direction: column;
         gap: 0.75rem;
         padding: 0.5rem 0 1rem;
+      }
+      .moves {
+        display: flex;
+        flex-direction: column;
+        gap: 0.75rem;
+      }
+      .moves mc-move-card + mc-move-card {
+        padding-top: 0.75rem;
+        border-top: 1px solid var(--border);
       }
       .card + .card {
         margin-top: 0;
@@ -613,7 +636,11 @@ export class InfoPanelComponent {
   private clock = inject(NowService);
   private accounts = inject(AccountsService);
   private storage = inject(StorageService);
+  private moves = inject(MovesService);
   protected readonly plan = inject(PlanUsageService);
+  /** Its moves between computers (docs/PLAN-MACHINES.md §5.8), the latest
+   * few. */
+  protected readonly sessionMoves = computed(() => this.moves.history(this.ctx.id()).slice(0, 5));
 
   protected overrides: LaunchOverrides = {};
   protected readonly keyList = KEYS;

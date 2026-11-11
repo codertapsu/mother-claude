@@ -14,9 +14,11 @@ import {
 import { RouterLink } from '@angular/router';
 
 import { ApiService } from '../../core/api.service';
-import { tr } from '../../core/i18n/i18n';
+import { computerNoun, tr } from '../../core/i18n/i18n';
 import { TPipe } from '../../core/i18n/t.pipe';
 import { MachineContext } from '../../core/machine-context';
+import { beforeLanded } from '../../core/moves';
+import { MovesService } from '../../core/moves.service';
 import { CommandInfo, PendingRef } from '../../core/models';
 import { NoticeService } from '../../core/notice.service';
 import { PendingService } from '../../core/pending.service';
@@ -135,6 +137,7 @@ export class ComposerComponent {
   protected readonly ctx = inject(SessionContext);
   /** Another computer's session (none: this computer's). */
   private machine = inject(MachineContext, { optional: true });
+  private moves = inject(MovesService);
   private api = inject(ApiService);
   private notices = inject(NoticeService);
   private pendings = inject(PendingService);
@@ -168,10 +171,45 @@ export class ComposerComponent {
   /** Why another computer's session takes nothing from here now (offline,
    * or it lets this computer watch only); '' otherwise. */
   protected readonly machineBlock = computed(() => this.machine?.blocked() ?? '');
+  /** Why it takes nothing while it lives on another computer, or moves to
+   * one (docs/PLAN-MACHINES.md §5.7); '' otherwise. */
+  protected readonly moveBlock = computed(() => {
+    const s = this.session();
+    if (!s) return '';
+    // A move of it under way first: it says where it goes.
+    const e = this.moves.current(s.id);
+    if (e && e.move.role === 'out' && !e.move.asCopy && beforeLanded(e.move)) {
+      const words = this.moves.words();
+      return words.isHere(e.move.to)
+        ? tr('Coming back to this {computer}: it takes messages once it is here.', {
+            computer: computerNoun(),
+          })
+        : tr('Moving to {name}: it takes messages again once it is there.', {
+            name: words.name(e.move.to),
+          });
+    }
+    const lives = s.livesOn;
+    if (lives) {
+      if (lives.machine === this.moves.selfId()) {
+        return tr('This session lives on this {computer} now: open it here to send.', {
+          computer: computerNoun(),
+        });
+      }
+      const peer = this.moves.peers().find((p) => p.id === lives.machine);
+      const name = peer?.name ?? lives.name;
+      if (this.machine) return tr('This session lives on {name} now: open it there.', { name });
+      return peer && !this.moves.online(peer.id)
+        ? tr('This session lives on {name}, which is offline: take it over to go on here.', {
+            name,
+          })
+        : tr('This session lives on {name} now: open it there, or bring it back here.', { name });
+    }
+    return '';
+  });
   protected readonly mode = computed<'message' | 'resume' | 'blocked'>(() => {
     const s = this.session();
     const c = this.caps();
-    if (!s || !c || this.machineBlock()) return 'blocked';
+    if (!s || !c || this.machineBlock() || this.moveBlock()) return 'blocked';
     if (s.live && c.message !== 'none') return 'message';
     if (!s.live && (c.continueOwned || c.fork)) return 'resume';
     return 'blocked';

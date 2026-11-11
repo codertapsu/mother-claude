@@ -108,6 +108,10 @@ export class SessionContext {
   /** Move data is open, for the session or its whole project (the header
    * hosts it; the Info tab opens it too). */
   readonly moveCopy = signal<'session' | 'project' | null>(null);
+  /** The move to another computer is open: away, or back to this one (the
+   * header hosts it, so it outlives the *Lives on …* banner that opens it
+   * too; docs/PLAN-MACHINES.md §5.8). */
+  readonly computerMove = signal<'away' | 'back' | null>(null);
   readonly composerFocused = signal(false);
   /** Text another part wants in the composer (e.g. unsent feedback). */
   readonly composerInsert = signal<{ text: string; at: number } | null>(null);
