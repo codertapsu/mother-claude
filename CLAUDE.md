@@ -598,6 +598,17 @@ Phase 1 is pairing and setup. Invariants:
   there; the first message after it carries the move note (`write_user`).
   A foreign live session moves only as a copy. Tests record the target's
   resume, never start `claude`.
+- **Code sync** (`machines::sync`, plan §5.15): a project's code is kept
+  the same on two computers only once both desktops turned it on (an
+  asked action) and each gave the other `move`; a step lands only into a
+  checkout holding its last synced state (`ApplyRequest::parked`), else it
+  is a conflict that pauses both — never a merge or an overwrite — and the
+  side not kept is saved whole under `refs/mother-claude/sync/<id>/kept-
+  <time>` before it is put back (`code::keep_and_put_back`, refused when
+  anything could be lost). Machines off, offline, no grant or a move in the
+  project pause it; nothing is queued. Its watchers and minute's check run
+  only once `lib.rs` called `enable_sync_watch()`: tests step through
+  *Sync now*.
 
 ## Build / lint / test commands
 

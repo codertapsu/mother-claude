@@ -1,14 +1,16 @@
 # Machines — one Mother Claude across your computers
 
 Pair your computers once, then see and drive every computer's Claude Code
-sessions from any of them — and from a phone paired with any of them — and
-move a session, with its code, to another computer and back. The design and
+sessions from any of them — and from a phone paired with any of them —
+move a session, with its code, to another computer and back, and keep a
+project's code the same on two computers. The design and
 the plan for what comes next (copies kept up to date, work on another
 computer) are in [PLAN-MACHINES.md](PLAN-MACHINES.md).
 
 > **Status**: Phases 1 (pairing and setup), 2 (seeing and driving other
 > computers' sessions) and 3a (moving a session, with the setup's checks for
-> it) are built. Keeping a copy on another computer comes next.
+> it) are built, and so is code sync (a project's code kept the same on two
+> computers). Keeping a copy on another computer comes next.
 
 ## Turning it on
 
@@ -341,6 +343,107 @@ A phone paired with any of your computers moves sessions the same way, one
 column. Carrying a folder's trust or files git ignores needs the phone's
 dangerous permission (set on the desktop); without it the trust option does
 not show, and those files stay where they are.
+
+## Keeping code in sync
+
+Working on the same project from two computers? **Code sync** keeps its
+code the same on both: what you change on one — an edit, a new file, a
+commit, a branch switch — shows up on the other a few seconds later, both
+ways. It is off until you turn it on, for one project at a time, with one
+other computer.
+
+### Turning it on
+
+1. On the desktop, open **Machines › Set up › Options**, and under **Each
+   project** choose the project (*Set a project's own options…*, or
+   **Change** on one already listed).
+2. Tick **Keep this project in sync with DESKTOP-PC** and press **Save**.
+3. DESKTOP-PC shows **Keep app in sync** on its Machines page (and as a
+   notice). Someone at DESKTOP-PC presses **Keep it in sync** — or *Not
+   now*.
+
+It is on only once both computers said yes. Then the first sync runs at
+once: the computer whose checkout has changes, or newer commits, sends them
+to the one that is clean and behind. When both have changes of their own,
+or each has commits the other lacks, you choose which to keep first
+(below).
+
+What it needs, checked when you turn it on:
+
+- **A shared folder** that maps the project to its folder on the other
+  computer (*Set up › Accounts and folders*); the folder there must be the
+  same project — the same `origin`, or a commit in common. If it is not
+  there yet, *Clone it on …* first.
+- **The Move permission both ways**: code sync writes into each computer's
+  project folder, so each must have given the other *Move* (Machines › the
+  computer › Change).
+- **Machines on** on both computers.
+
+### What it keeps the same, and what it never touches
+
+What travels is what a move carries: the branch's commits and the staged,
+unstaged and untracked changes, exactly as they are. Files git ignores —
+`.env` files, `node_modules`, build output — stay on each computer, but for
+the ones the project lists to carry (*Files git ignores that travel with
+it*, which needs the dangerous right to set) and only when the other
+computer gave this one its *Dangerous* permission. Nothing is ever merged,
+and nothing is pushed anywhere: code goes straight between the two
+computers.
+
+### When it syncs
+
+A few quiet seconds after a change — a saved file, a commit, a branch
+switch — the computer that changed sends it; a check every minute catches
+anything missed. **Sync now** on the Machines page runs one at once.
+
+### The Code sync card
+
+**Machines › Code sync** lists the projects kept in sync and how each
+stands:
+
+- **In sync** — when it last synced, and which way.
+- **Syncing…** — a step runs.
+- **Waiting for DESKTOP-PC** — it was asked; nothing syncs until someone
+  there confirms.
+- **Paused** — with the reason: the other computer is offline, Machines is
+  off on one of them, a Move permission is missing, or a session working in
+  the project is moving between the two computers. It goes on by itself
+  once that ends — from the checkouts as they are then; nothing is queued.
+- **Changed on both** — see below.
+- **Off** — turned off on the other computer (or it said *Not now*):
+  **Turn on again** asks again; **Remove** drops it here.
+
+**Turn off** stops it at once on this computer and tells the other.
+
+### When both computers changed it
+
+If both computers changed the project since it was last synced, code sync
+stops on both — never overwriting either — and the card shows both sides:
+how many files each changed, and whether it committed or switched branch.
+Choose **Keep this Mac's** or **Keep DESKTOP-PC's** (a second tap
+confirms). The side you don't keep is first saved in its own repository,
+under `refs/mother-claude/sync/<id>/kept-<time>` — its working tree with the
+untracked files, what was staged, and any commits it made — and its project
+folder goes back to the last synced state; then the kept side's changes
+arrive there as usual. The card lists each saved state. To look at one, in
+that computer's project folder:
+
+```sh
+git show --stat refs/mother-claude/sync/<id>/kept-<time>    # what it held
+git checkout refs/mother-claude/sync/<id>/kept-<time> -- .  # take its files back
+```
+
+The same change made on both sides (say, the same `git pull`) is not a
+conflict. When setting a side aside could lose something — a file git
+ignores where the other side has one, a submodule changed inside, a merge
+under way — nothing is changed and the card says why: sort it out there,
+then choose again.
+
+### From a phone
+
+A phone sees the Code sync card with each project's state, read only:
+turning it on or off, *Sync now* and choosing a side happen on the
+desktop.
 
 ## How it connects
 

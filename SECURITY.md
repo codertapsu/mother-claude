@@ -438,7 +438,8 @@ grants, revocations, asks, moves and take-overs.
 ## Machines (your other computers)
 
 Pairing your computers lets each one list and drive the others' Claude Code
-sessions and move a session, with its code, from one to another
+sessions, move a session, with its code, from one to another, and keep a
+project's code the same on two of them
 ([MACHINES.md](docs/MACHINES.md); the design is
 [PLAN-MACHINES.md](docs/PLAN-MACHINES.md)). Another computer is a principal
 like a paired phone, identified by a key instead of a token. _Turn on
@@ -618,15 +619,55 @@ not unpair — revoking does.
   Mother Claude: they are a request in the first message Claude gets there,
   and go through that session's own approvals.
 
+### Code sync
+
+- **Both desktops consent, and both grants hold.** A project is kept in sync
+  only once this computer's desktop turned it on (`PUT /api/machines/sync`,
+  desktop only) and the other computer's desktop confirmed the request
+  there (an asked action: shown, never run, until confirmed). The two
+  folders must be the same project (the same `origin`, or a commit in
+  common), mapped by a shared folder on both computers' own roots, and each
+  computer must have given the other `move`: every write into this
+  computer's checkout comes through `/peer/sync/*`, which needs this
+  computer's `move` grant for the sender on the path the request came over,
+  and Machines on here (`403 machines_off`). Turning it off is immediate on
+  either computer; only `…/off` is served without the grant. *Sync now*,
+  turning it on or off and choosing a side are the desktop's; a phone sees
+  the state only.
+- **It never merges and never overwrites.** A step lands only into a
+  checkout that holds exactly its last synced state (HEAD, branch, staged
+  tree, working tree); a change there in between stops it before anything
+  is written, and both computers pause for a person to choose. The side not
+  kept is first saved whole as one commit in its own repository, under
+  `refs/mother-claude/sync/<id>/kept-<time>` (working tree with untracked
+  files, staged state, its own commits), and is put back to the synced
+  state only through git plumbing, refused with nothing changed when
+  something could not come back (a file git ignores in the way, a changed
+  submodule, an operation under way). A branch is reset over commits it
+  has of its own only on the side that lost a choice, its old tip kept
+  under the landing's undo ref too.
+- **The same plumbing as a move**, with the same limits: git from an
+  argument list, its hooks replaced by a private empty folder, every id,
+  ref, name and path the other computer sends checked first, the step's
+  files (a fixed list of names) checked by size and SHA-256 before they
+  land, a landing that fails half-way put back. Files git ignores travel
+  only when the project lists them and the receiving computer gave the
+  sender `dangerous`. Nothing is pushed to a remote.
+- **It waits, never queues.** Machines off, the other computer offline, a
+  missing grant or a move of a session in the project pauses it; the next
+  check starts from the checkouts as they are. Steps, conflicts and
+  resolutions are audited on both computers (`machine.sync.*`: the project
+  folder's name and counts, never a file's content).
+
 ### Shared folders and asked actions
 
 - Shared folders (_roots_, one folder per computer) steer where a move lands,
   so another computer's roots are merged here only when this computer gave
   it `move` (reading them needs `view`); a malformed one — a path that is not
   absolute, or holds `.`, `..` or a control character — is dropped.
-- Another computer can only **ask**. A fix, a sign-in, adding an account or
-  cloning a project shows here as a notice and under _Asked by your other
-  computers_, checked against this computer's own state (one of its own
+- Another computer can only **ask**. A fix, a sign-in, adding an account,
+  cloning a project or keeping one in sync shows here as a notice and under
+  _Asked by your other computers_, checked against this computer's own state (one of its own
   checks or accounts; a clone only into a folder of one of its roots, from a
   remote without credentials, never prompting; at most 20 open asks from one
   computer), and runs only when someone confirms it on this computer's

@@ -806,6 +806,28 @@ administrator prompt.
 
 ### 5.15 Code sync (before v0.11.0)
 
+*Built on the `machines` branch (2026-11-12): `machines/sync/` (the pair
+and its record in `machines/sync.json`, the step, the watcher, the peer's
+half, the routes `GET|PUT /api/machines/sync`, `POST …/{id}/now`, `POST
+…/{id}/resolve` and `/peer/sync/{id}/*`), `code::sync` (a checkout's state,
+`keep_and_put_back`), a landing parked at a given state
+(`ApplyRequest::parked`) with its reset rule, the asked action of kind
+`sync`, the *Code sync* card and the per-project switch, and
+`tests/sync.rs`. The user guide is [MACHINES.md](MACHINES.md) "Keeping
+code in sync". Choices made where this section left one: a project syncs
+with one other computer at a time; a step always travels machine to
+machine (a bundle), never through the remote; the first sync sends the
+side with changes (or newer commits) to the side that is clean and behind,
+and is a conflict when neither is; a landing records the state it made,
+an exec bit or other limit of the receiving computer included, so limits
+never bounce back; the side that loses a conflict may have its branch
+reset over its own commits (kept under the kept ref and the undo ref);
+`Sync now` on the side that did not change asks the other to send; the
+files git ignores that a project carries travel with each step when the
+other computer gave `dangerous`, and a change to one alone starts no step;
+each side keeps the refs of its last three steps, and every 32nd step goes
+unchained so old steps' commits can be collected.*
+
 Decided on 2026-11-12: a project's code is kept the same on two computers,
 both ways, **off by default** and turned on per project. Built on §5.10's
 snapshot, transfer and landing; nothing new runs git differently.
@@ -858,6 +880,7 @@ snapshot, transfer and landing; nothing new runs git differently.
 | `machines/copies/<machine>/<account>/<session>/…` | copies, laid out like a config directory |
 | `machines/copies/index.json` | per copy: transcript size and prefix hash acknowledged, last turn time |
 | `machines/moves/<id>.json` | a move's manifest and state, while it runs (§5.8) |
+| `machines/sync.json` | the projects kept in sync (§5.15): per pair its id, the other computer, both folders, each side's consent, the last synced state `{head, branch, idxTree, wtTree, snapshot, step}`, its status, a conflict's two sides and the kept refs; `machines/sync/<id>/` holds a step's files while it travels |
 | `machines/worktrees/…` | worktrees for moves into a busy checkout, and for machine tasks |
 | Keychain / Credential Manager | `machine-key` (the private key) |
 
