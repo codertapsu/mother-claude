@@ -1151,18 +1151,20 @@ pub async fn respond(
         }
         Err((e, None)) => return Err(e),
     };
-    // The store cannot look up device names; fill it in, then publish.
-    if let Some(device) = ctx.device_id() {
-        let name = state
-            .devices
-            .get(device)
+    // The store cannot look up device or machine names; fill them in, then
+    // publish. Another computer answering is named, never "this Mac".
+    let name = match &ctx.principal {
+        Principal::Peer { machine, .. } => Some(crate::machines::peer_name(state, machine)),
+        _ => ctx
+            .device_id()
+            .and_then(|device| state.devices.get(device))
             .map(|d| d.name)
-            .filter(|n| !n.trim().is_empty());
-        if name.is_some() {
-            state
-                .pending
-                .set_resolution(resolution_for_decision(&item, &decision, ctx, name));
-        }
+            .filter(|n| !n.trim().is_empty()),
+    };
+    if name.is_some() {
+        state
+            .pending
+            .set_resolution(resolution_for_decision(&item, &decision, ctx, name));
     }
     publish_resolution(state, request_id);
     changed(state, session_id).await;

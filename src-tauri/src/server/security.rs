@@ -292,7 +292,7 @@ async fn audit(req: Request, next: Next) -> Response {
             // (docs/PLAN-MACHINES.md §5.5).
             Principal::Peer { machine, .. } => AuditEntry {
                 device_id: Some(machine.clone()),
-                device_name: Some(peer_name(&state, machine)),
+                device_name: Some(crate::machines::peer_name(&state, machine)),
                 detail: acting
                     .as_ref()
                     .map(|a| serde_json::json!({ "acting": a.label })),
@@ -308,7 +308,7 @@ async fn audit(req: Request, next: Next) -> Response {
             NoticeLevel::Warning,
             format!(
                 "{} ({by}) performed a dangerous action here: {what}",
-                peer_name(&state, machine)
+                crate::machines::peer_name(&state, machine)
             ),
         );
     }
@@ -337,14 +337,6 @@ async fn audit(req: Request, next: Next) -> Response {
         }
     }
     resp
-}
-
-/// A paired machine's name, for audit lines and notices.
-fn peer_name(state: &AppState, machine: &str) -> String {
-    state
-        .machines
-        .store_read(|f| f.peer(machine).map(|p| p.display_name().to_string()))
-        .unwrap_or_else(|| machine.chars().take(8).collect())
 }
 
 #[cfg(test)]

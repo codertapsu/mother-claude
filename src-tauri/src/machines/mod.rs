@@ -470,6 +470,15 @@ pub fn clean_peer_name(name: &str) -> String {
     }
 }
 
+/// A paired machine's name as the user sees it (their alias, else its own
+/// name), for audit lines, notices and who answered an approval.
+pub fn peer_name(state: &AppState, machine: &str) -> String {
+    state
+        .machines
+        .store_read(|f| f.peer(machine).map(|p| p.display_name().to_string()))
+        .unwrap_or_else(|| machine.chars().take(8).collect())
+}
+
 pub(crate) fn now() -> i64 {
     chrono::Utc::now().timestamp_millis()
 }
