@@ -726,6 +726,11 @@ pub fn secure_context_hint(state: &AppState, ctx: &ClientContext) -> Value {
             "ok",
             "Notifications can work when this page is served over trusted HTTPS.",
         ),
+        // Another computer never opens a page here; it has no notifications.
+        Ingress::Peer => (
+            "peer",
+            "Another computer does not receive this one's notifications.",
+        ),
     };
     json!({
         "code": code,

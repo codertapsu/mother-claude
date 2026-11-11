@@ -66,16 +66,22 @@ pub enum Ingress {
     Tunnel,
     /// The Claude HTTP bridge's dedicated loopback port (default 5612).
     BridgeLoopback,
+    /// Another of the user's computers, over the Machines transport (QUIC
+    /// between machine keys, `machines::transport`). Never local; its caller
+    /// is the authenticated key the transport put on the request
+    /// ([`PeerCaller`]) — a token sent over this ingress is never read.
+    Peer,
 }
 
 impl Ingress {
-    /// `loopback` | `lan` | `tunnel` | `bridge-loopback`.
+    /// `loopback` | `lan` | `tunnel` | `bridge-loopback` | `peer`.
     pub fn as_str(self) -> &'static str {
         match self {
             Ingress::Loopback => "loopback",
             Ingress::Lan => "lan",
             Ingress::Tunnel => "tunnel",
             Ingress::BridgeLoopback => "bridge-loopback",
+            Ingress::Peer => "peer",
         }
     }
 }
@@ -113,6 +119,26 @@ pub enum Principal {
     /// nothing but its own channel; there its side panel answers the
     /// browser approvals of its own leases (`extension::channel`).
     Extension { id: String },
+    /// Another of the user's computers, paired by key (docs/PLAN-MACHINES.md
+    /// §5.5): built from the Machines transport's authenticated key on the
+    /// `Peer` ingress only ([`PeerCaller`]), never from a token. `machine`
+    /// is its machine id; `lan` whether this request came over a direct
+    /// path on the local network (the grants' LAN column) rather than a
+    /// relayed or public one (their internet column). It reaches the peer
+    /// routes only (`machines::routes`); the guards there check its grants.
+    Peer { machine: String, lan: bool },
+}
+
+/// What the Machines transport knows about the caller of a request on the
+/// `Peer` ingress, put on the request before the context middleware runs:
+/// the key the QUIC handshake authenticated, the paired machine it belongs
+/// to (`None` while that key is only pairing) and whether the request came
+/// over a direct path on the local network.
+#[derive(Clone, Debug)]
+pub struct PeerCaller {
+    pub key: String,
+    pub machine: Option<String>,
+    pub lan: bool,
 }
 
 impl Principal {
@@ -143,6 +169,7 @@ impl Principal {
             Principal::Sidecar => "sidecar",
             Principal::Mcp => "mcp",
             Principal::Extension { .. } => "extension",
+            Principal::Peer { .. } => "peer",
         }
     }
 }
@@ -290,6 +317,10 @@ impl ClientContext {
             // machine; the channel lets it answer only its own browser
             // approvals.
             Principal::Extension { .. } => self.ingress == Ingress::Loopback && self.on_machine,
+            // Nothing dangerous is reachable over the peer routes yet; a
+            // proxied dangerous action will need the peer's own grant and the
+            // acting person's right on its machine (plan §5.5).
+            Principal::Peer { .. } => false,
         }
     }
 
@@ -562,6 +593,11 @@ pub fn is_private_ip(ip: IpAddr) -> bool {
 ///   `Tunnel`;
 /// * otherwise the listener's own ingress.
 pub fn effective_ingress(ingress: Ingress, peer: SocketAddr, headers: &HeaderMap) -> Ingress {
+    // Another computer's headers say nothing about the path: the transport
+    // decided it (`PeerCaller::lan`).
+    if ingress == Ingress::Peer {
+        return Ingress::Peer;
+    }
     if ingress == Ingress::Tunnel || has_proxy_headers(headers) {
         return Ingress::Tunnel;
     }
@@ -732,6 +768,21 @@ pub async fn middleware(State(state): State<AppState>, mut req: Request, next: N
         req.headers(),
         state.auth.allow_remote_dangerous,
     );
+    if ingress == Ingress::Peer {
+        // Another computer: who it is comes from the transport's
+        // authenticated key, never from a credential in the request.
+        if let Some(PeerCaller {
+            machine: Some(machine),
+            lan,
+            ..
+        }) = req.extensions().get::<PeerCaller>().cloned()
+        {
+            ctx.principal = Principal::Peer { machine, lan };
+        }
+        req.extensions_mut().insert(ctx);
+        req.extensions_mut().insert(state.clone());
+        return next.run(req).await;
+    }
     if let Err(rejection) =
         crate::server::auth::authenticate(&state, &mut ctx, req.headers(), req.uri())
     {

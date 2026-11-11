@@ -254,14 +254,20 @@ async fn audit(req: Request, next: Next) -> Response {
     let Some(state) = state else { return resp };
     let audited = matches!(
         ctx.principal,
-        Principal::Device { .. } | Principal::LocalScript | Principal::Anonymous
+        Principal::Device { .. }
+            | Principal::LocalScript
+            | Principal::Anonymous
+            | Principal::Peer { .. }
     );
     if !audited || !mutating(&method) {
         return resp;
     }
     // Anonymous callers are recorded only where they can change something
     // (pairing); everything else answered them 401 already.
-    if ctx.principal == Principal::Anonymous && !path.starts_with("/api/pair/") {
+    if ctx.principal == Principal::Anonymous
+        && !path.starts_with("/api/pair/")
+        && !path.starts_with("/peer/pair/")
+    {
         return resp;
     }
     let status = resp.status();
@@ -277,7 +283,14 @@ async fn audit(req: Request, next: Next) -> Response {
         status: Some(status.as_u16()),
         dangerous: dangerous.clone(),
         device_name: device.as_ref().map(|d| d.1.clone()),
-        ..AuditEntry::from_ctx(&ctx, "http")
+        ..match &ctx.principal {
+            // Another computer's action (docs/PLAN-MACHINES.md §5.5).
+            Principal::Peer { machine, .. } => AuditEntry {
+                device_id: Some(machine.clone()),
+                ..AuditEntry::from_ctx(&ctx, "machine.action")
+            },
+            _ => AuditEntry::from_ctx(&ctx, "http"),
+        }
     });
     if let Some((id, name)) = device {
         state.devices.note_action(

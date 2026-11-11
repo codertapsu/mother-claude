@@ -481,8 +481,9 @@ impl<S: Send + Sync> FromRequestParts<S> for Authed {
                 "wrong_credential",
                 "This credential is only valid for its own endpoint.",
             )),
-            // A browser extension's token works on `/ws/browser` only.
-            Principal::Extension { .. } => Err(ApiError::forbidden(
+            // A browser extension's token works on `/ws/browser` only;
+            // another computer reaches its own peer routes only.
+            Principal::Extension { .. } | Principal::Peer { .. } => Err(ApiError::forbidden(
                 "wrong_credential",
                 "This credential is only valid for its own endpoint.",
             )),
