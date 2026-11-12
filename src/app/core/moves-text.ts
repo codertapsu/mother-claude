@@ -1061,16 +1061,23 @@ export function progressLines(
     {
       key: 'packaging',
       label:
-        status(2) === 'done'
+        status(2) === 'done' && m.fromCopy
           ? sizes.code > 0
-            ? tr('Packed — conversation {conversation}, code {code}', {
-                conversation: formatBytes(sizes.conversation),
+            ? tr('Packed — the conversation is the copy {name} keeps, code {code}', {
+                name: to,
                 code: formatBytes(sizes.code),
               })
-            : tr('Packed — conversation {conversation}', {
-                conversation: formatBytes(sizes.conversation),
-              })
-          : tr('Packing it'),
+            : tr('Packed — the conversation is the copy {name} keeps', { name: to })
+          : status(2) === 'done'
+            ? sizes.code > 0
+              ? tr('Packed — conversation {conversation}, code {code}', {
+                  conversation: formatBytes(sizes.conversation),
+                  code: formatBytes(sizes.code),
+                })
+              : tr('Packed — conversation {conversation}', {
+                  conversation: formatBytes(sizes.conversation),
+                })
+            : tr('Packing it'),
       state: status(2),
       at: reachedAt(m, 'packaging'),
     },

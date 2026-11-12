@@ -18,6 +18,7 @@ import { RealtimeService } from './realtime.service';
 import { sessionLink } from './session-links';
 import { computerNoun, tr } from './i18n/i18n';
 import { MoveWords, moveSummary } from './moves-text';
+import type { TakeOverFromCopy } from './copies';
 
 /** A move, with the computer whose record it is. */
 export interface MoveEntry {
@@ -204,9 +205,13 @@ export class MovesService {
     return m;
   }
 
-  /** The computer a session lives on is offline: it lives here from now on. */
-  takeOver(session: string): Promise<TakeOverReply> {
-    return this.api.takeOverSession(session, this.selfId());
+  /** The computer a session lives on is offline: it lives here from now on
+   * (from the copy this computer keeps of it, when it keeps one). */
+  takeOver(
+    session: string,
+    opts: { fromCopy?: boolean; folder?: string } = {},
+  ): Promise<TakeOverReply & TakeOverFromCopy> {
+    return this.api.takeOverSession(session, this.selfId(), opts);
   }
 
   /** Cancel (until it is being placed), undo (until `undoUntil`) or try

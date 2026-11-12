@@ -4,6 +4,7 @@ import { Router, RouterLink } from '@angular/router';
 
 import { ApiService, describeError } from '../../core/api.service';
 import { AuthService } from '../../core/auth.service';
+import { copySize } from '../../core/copies';
 import { computerNoun, tr } from '../../core/i18n/i18n';
 import { TPipe } from '../../core/i18n/t.pipe';
 import {
@@ -28,6 +29,7 @@ import { MoveCardComponent } from '../../shared/move-card.component';
 import { RelativeTimePipe } from '../../shared/time.pipes';
 import { AsksCardComponent } from './asks-card.component';
 import { CheckListComponent } from './check-list.component';
+import { CopiesCardComponent } from './copies-card.component';
 import { GrantsMatrixComponent } from './grants-matrix.component';
 import { JoinSheetComponent } from './join-sheet.component';
 import {
@@ -47,7 +49,8 @@ import { SyncCardComponent } from './sync-card.component';
  * Machines (docs/PLAN-MACHINES.md, spikes/machines/UX.md §1): this
  * computer, the paired ones with what each may do here, Machines health,
  * the projects kept in sync with another computer (*Code sync*, §5.15),
- * the options, and *Recent moves* of sessions to and from this computer
+ * the copies kept current between computers (*Copies*, §5.9), the
+ * options, and *Recent moves* of sessions to and from this computer
  * (§1.2, §7.2–§7.3: cancel, try again, undo). Off until the setup passed
  * (§1.1). The phone sees it read-only — pairing, grants, revoking and
  * options belong to the desktop — but may act on a move, as a device may.
@@ -59,6 +62,7 @@ import { SyncCardComponent } from './sync-card.component';
     RouterLink,
     AsksCardComponent,
     CheckListComponent,
+    CopiesCardComponent,
     GrantsMatrixComponent,
     IconComponent,
     JoinSheetComponent,
@@ -178,6 +182,13 @@ export class MachinesComponent {
 
   protected codeText(c: CodeSettings | null | undefined): string {
     return codeText(c);
+  }
+
+  /** What this computer keeps of each other computer's copies. */
+  protected copiesCapText(s: MachinesSettings): string {
+    return tr('at most {size} of each computer’s', {
+      size: copySize(s.copiesCapBytes ?? 2 * 1024 ** 3),
+    });
   }
 
   /** The offer's relay differs from this computer's. */

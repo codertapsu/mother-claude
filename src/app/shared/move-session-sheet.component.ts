@@ -269,6 +269,14 @@ function untilText(ms: number): string {
                 {{ 'Nothing here is lost: only what happened there is added.' | t }}
               </p>
             }
+            @if (p.target?.copy?.held) {
+              <p class="muted small">
+                {{
+                  '{name} keeps a copy of it: the conversation does not travel again, only what is new.'
+                    | t: { name: targetName() }
+                }}
+              </p>
+            }
 
             <dl class="kv how">
               @if (folderThere(); as f) {

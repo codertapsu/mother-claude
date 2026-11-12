@@ -1,6 +1,7 @@
 import type { Dict } from '../../core/i18n/i18n';
 import common from './common.json';
 import control from './control.json';
+import copies from './copies.json';
 import core from './core.json';
 import data from './data.json';
 import machines from './machines.json';
@@ -27,5 +28,6 @@ export const VI: Dict = {
   ...platform,
   ...machines,
   ...moves,
+  ...copies,
   ...runs,
 };

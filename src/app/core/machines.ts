@@ -121,6 +121,9 @@ export interface MachinesSettings {
   keepAwake: boolean;
   /** Absent from an older server. */
   code?: CodeSettings;
+  /** What this computer keeps at most of each other computer's copies
+   * (absent from an older server). */
+  copiesCapBytes?: number;
 }
 
 /** A project's own code options: a field left out follows the defaults. */
@@ -154,6 +157,8 @@ export interface ProjectOptions {
   root: { id: string; name: string } | null;
   code: CodeOverride;
   recipe: Recipe | null;
+  /** The computers its sessions keep a copy on (§5.9). */
+  copies?: string[];
   updatedAt: number;
 }
 
@@ -167,6 +172,8 @@ export interface ProjectInput {
   project: string;
   code: CodeOverride;
   recipe?: Recipe | null;
+  /** The computers its sessions keep a copy on; left out, it stays. */
+  copies?: string[];
 }
 
 /** `PUT /api/machines/settings`. */
@@ -175,6 +182,7 @@ export interface MachinesSettingsPatch {
   keepAwake?: boolean;
   code?: Partial<CodeSettings>;
   projects?: { upsert?: ProjectInput[]; remove?: string[] };
+  copiesCapBytes?: number;
 }
 
 /** Another computer suggests its relay setting (and code options). */

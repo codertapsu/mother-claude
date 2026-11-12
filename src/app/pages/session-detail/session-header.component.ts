@@ -29,6 +29,7 @@ import { ChipComponent } from '../../shared/chip.component';
 import { ContinueOnSheetComponent, canContinue } from '../../shared/continue-on-sheet.component';
 import { CopyButtonComponent } from '../../shared/copy-button.component';
 import { IconComponent } from '../../shared/icon.component';
+import { KeepCopySheetComponent } from '../../shared/keep-copy-sheet.component';
 import {
   DeleteDataSheetComponent,
   DeleteStart,
@@ -52,9 +53,10 @@ import { SessionContext } from './session-context';
  * account (while there are several) and what it is doing right now (with
  * elapsed time), the connection state when it isn't Live, and a ⋯ menu
  * (rename, continue/fork, continue on another account, continue on another
- * computer or bring it back here, moving or copying it or its project to
- * another account or a storage, deleting it, terminal, notifications,
- * resume command, stop/respawn/remove). 48 px tall on phones. Another
+ * computer or bring it back here, keep a copy on another computer, moving
+ * or copying it or its project to another account or a storage, deleting
+ * it, terminal, notifications, resume command, stop/respawn/remove). 48 px
+ * tall on phones. Another
  * computer's session shows that computer's chip, and its menu leaves out
  * what only that computer does (its accounts, moving, copying, deleting,
  * removing, notifications here), saying so in one line. The sheet that
@@ -73,6 +75,7 @@ import { SessionContext } from './session-context';
     ContinueOnSheetComponent,
     CopyButtonComponent,
     IconComponent,
+    KeepCopySheetComponent,
     DeleteDataSheetComponent,
     MoveDataSheetComponent,
     MoveSessionSheetComponent,
@@ -179,6 +182,12 @@ import { SessionContext } from './session-context';
             <button class="item" type="button" (click)="openComputerMove('away')">
               <mc-icon name="monitor" [size]="18" />
               <span>{{ 'Continue on another computer…' | t }}</span>
+            </button>
+          }
+          @if (keepCopyOffered()) {
+            <button class="item" type="button" (click)="openKeepCopy()">
+              <mc-icon name="copy" [size]="18" />
+              <span>{{ 'Keep a copy on…' | t }}</span>
             </button>
           }
           @if (moveOffered()) {
@@ -342,6 +351,9 @@ import { SessionContext } from './session-context';
         [since]="computerMove() === 'back' ? leftHereAt() : null"
         (closed)="computerMove.set(null)"
       />
+
+      <!-- Keep a copy on another computer (docs/PLAN-MACHINES.md §5.9). -->
+      <mc-keep-copy-sheet [open]="keepCopy()" [session]="s.id" (closed)="keepCopy.set(false)" />
 
       <mc-sheet [open]="connSheet()" [title]="'Connection' | t" (closed)="connSheet.set(false)">
         <p>
@@ -730,6 +742,14 @@ export class SessionHeaderComponent {
     return this.moves.peers().some((p) => p.id !== at && p.id !== self);
   });
 
+  /** *Keep a copy on …*: a session that lives where this page shows it,
+   * while Machines is on here and a computer is paired. */
+  protected readonly keepCopyOffered = computed(() => {
+    const s = this.ctx.session();
+    return !!s && this.computersMove() && !s.livesOn && /^[0-9a-f-]{36}$/.test(s.id);
+  });
+  protected readonly keepCopy = signal(false);
+
   constructor() {
     // Where things can be moved to: the storages count too.
     if (!this.machine) void this.storage.ensureLoaded();
@@ -783,6 +803,11 @@ export class SessionHeaderComponent {
   protected openComputerMove(kind: 'away' | 'back'): void {
     this.menu.set(false);
     this.computerMove.set(kind);
+  }
+
+  protected openKeepCopy(): void {
+    this.menu.set(false);
+    this.keepCopy.set(true);
   }
 
   /** Delete this conversation, from the account it is recorded as. */

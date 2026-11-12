@@ -41,12 +41,19 @@ interface Draft {
   carry: string;
   /** The computer it is kept in sync with ('': not synced). */
   sync: string;
+  /** The computers its sessions keep a copy on (§5.9). */
+  copies: string[];
 }
 
 /** A row: a project with its own options, or one only kept in sync. */
 interface Row extends ProjectOptions {
   /** No options of its own: it is listed for its code sync. */
   syncOnly: boolean;
+}
+
+/** The same ids, in any order. */
+function sameIds(a: readonly string[], b: readonly string[]): boolean {
+  return a.length === b.length && a.every((x) => b.includes(x));
 }
 
 function lines(text: string): string[] {
@@ -66,7 +73,9 @@ function lines(text: string): string[] {
  * tells whether the project's remote answers without a prompt, here and on
  * the other computers (on demand only). *Keep this project in sync with …*
  * (code sync, §5.15; off by default) asks the other computer when saved,
- * and is on once someone there confirms it.
+ * and is on once someone there confirms it. *Keep a copy of its sessions on
+ * …* (§5.9; off by default) copies each of its sessions there after every
+ * turn — a session's own choice in its menu wins.
  */
 @Component({
   selector: 'mc-machines-project-options',
@@ -231,6 +240,26 @@ function lines(text: string): string[] {
             </label>
           </fieldset>
           @if (peers().length) {
+            <fieldset class="copies">
+              <legend class="field-label">{{ 'Keep a copy of its sessions on' | t }}</legend>
+              @for (m of peers(); track m.id) {
+                <label class="check">
+                  <input
+                    type="checkbox"
+                    [name]="'copy-' + m.id"
+                    [ngModel]="d.copies.includes(m.id)"
+                    (ngModelChange)="toggleCopy(m.id, $event)"
+                  />
+                  {{ m.name }}
+                </label>
+              }
+              <span class="muted small">
+                {{
+                  'After each turn, a copy of each of its sessions goes there: moving one is instant, and that computer can go on with it while this one sleeps. A session may choose otherwise in its menu.'
+                    | t
+                }}
+              </span>
+            </fieldset>
             <fieldset class="sync">
               <label class="check">
                 <input
@@ -324,12 +353,14 @@ function lines(text: string): string[] {
         margin: 0.5rem 0;
       }
       fieldset.recipe,
-      fieldset.sync {
+      fieldset.sync,
+      fieldset.copies {
         border: 0;
         margin: 0;
         padding: 0;
       }
-      fieldset.sync {
+      fieldset.sync,
+      fieldset.copies {
         display: flex;
         flex-direction: column;
         gap: 0.25rem;
@@ -377,6 +408,7 @@ export class ProjectOptionsComponent {
         root: null,
         code: {},
         recipe: null,
+        copies: [],
         updatedAt: s.createdAt,
         syncOnly: true,
       }));
@@ -392,6 +424,8 @@ export class ProjectOptionsComponent {
   protected readonly remote = signal<{ key: string; view: RemoteCheckView } | null>(null);
   /** The files a project carried when its form opened. */
   private carriedBefore: string[] = [];
+  /** The computers its sessions kept a copy on when its form opened. */
+  private copiesBefore: string[] = [];
 
   constructor() {
     void this.load();
@@ -454,6 +488,10 @@ export class ProjectOptionsComponent {
           : tr('carries {n} ignored files', { n: carried }),
       );
     }
+    const copies = (p.copies ?? []).map((id) => this.machines.nameOf(id));
+    if (copies.length) {
+      parts.push(tr('copies on {names}', { names: copies.join(', ') }));
+    }
     const synced = this.sync.pairOf(p.project);
     if (synced) {
       parts.push(
@@ -474,8 +512,22 @@ export class ProjectOptionsComponent {
     this.draft.update((d) => (d ? { ...d, ...p } : d));
   }
 
+  protected toggleCopy(id: string, on: boolean): void {
+    this.draft.update((d) =>
+      d
+        ? {
+            ...d,
+            copies: on
+              ? [...d.copies.filter((x) => x !== id), id]
+              : d.copies.filter((x) => x !== id),
+          }
+        : d,
+    );
+  }
+
   protected async add(): Promise<void> {
     this.carriedBefore = [];
+    this.copiesBefore = [];
     this.draft.set({
       project: '',
       transfer: '',
@@ -486,6 +538,7 @@ export class ProjectOptionsComponent {
       linux: '',
       carry: '',
       sync: '',
+      copies: [],
     });
     this.editing.set('new');
     if (!this.candidates().length) {
@@ -501,6 +554,7 @@ export class ProjectOptionsComponent {
     if (!p.project) return;
     const after = p.recipe?.afterMove;
     this.carriedBefore = p.recipe?.carryIgnored ?? [];
+    this.copiesBefore = [...(p.copies ?? [])];
     this.draft.set({
       project: p.project,
       transfer: p.code.transfer ?? '',
@@ -511,6 +565,7 @@ export class ProjectOptionsComponent {
       linux: (after?.linux ?? []).join('\n'),
       carry: this.carriedBefore.join('\n'),
       sync: this.syncedWith(p.project),
+      copies: [...(p.copies ?? [])],
     });
     this.editing.set(p.key);
   }
@@ -529,6 +584,8 @@ export class ProjectOptionsComponent {
         afterMove: { macos: lines(d.macos), windows: lines(d.windows), linux: lines(d.linux) },
         carryIgnored: lines(d.carry),
       },
+      // Left out, the project's copies stay as they are.
+      ...(sameIds(d.copies, this.copiesBefore) ? {} : { copies: d.copies }),
     };
     await this.withBusy('save', async () => {
       const s = await this.api.saveMachinesSettings({ projects: { upsert: [input] } });

@@ -1,7 +1,18 @@
-import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
-import { RouterLink } from '@angular/router';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  DestroyRef,
+  computed,
+  effect,
+  inject,
+  signal,
+  untracked,
+} from '@angular/core';
+import { Router, RouterLink } from '@angular/router';
 
 import { ApiError } from '../../core/api.service';
+import { copyClock } from '../../core/copies';
+import { CopiesService } from '../../core/copies.service';
 import { computerNoun, tr } from '../../core/i18n/i18n';
 import { TPipe } from '../../core/i18n/t.pipe';
 import { MachineContext } from '../../core/machine-context';
@@ -24,12 +35,34 @@ import { SessionContext } from './session-context';
  * *Take over…* (only while that computer is offline: it goes on here from
  * this computer's copy, after a warning). Another computer's copy of a
  * session that moved says where it lives now and opens it there.
+ *
+ * **Continue here from the copy of 14:32** (§5.9): when the computer a
+ * session lives on is offline and it kept a copy of the session current
+ * here, taking it over lands that copy — on this computer's page of a
+ * session that moved away, and on that computer's own page of it (it lives
+ * there: no *Lives on* line, only the offer).
  */
 @Component({
   selector: 'mc-lives-on-banner',
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [RouterLink, IconComponent, SheetComponent, TPipe],
   template: `
+    @if (!lives() && remoteCopy(); as h) {
+      <div class="box">
+        <p class="line" role="status">
+          <mc-icon name="copy" [size]="15" />
+          <span>{{
+            'This {computer} keeps a copy of this session, copied at {time}.'
+              | t: { computer: computer(), time: clock(h.copiedAt) }
+          }}</span>
+        </p>
+        <div class="acts">
+          <button class="btn small primary" type="button" (click)="openTakeOver()">
+            {{ 'Continue here from the copy of {time}' | t: { time: clock(h.copiedAt) } }}
+          </button>
+        </div>
+      </div>
+    }
     @if (lives()) {
       <div class="box">
         <p class="line" role="status">
@@ -54,19 +87,49 @@ import { SessionContext } from './session-context';
             }
             @if (canTakeOver()) {
               <button class="btn small" type="button" (click)="openTakeOver()">
-                {{ 'Take over…' | t }}
+                @if (heldCopy(); as h) {
+                  {{ 'Continue here from the copy of {time}' | t: { time: clock(h.copiedAt) } }}
+                } @else {
+                  {{ 'Take over…' | t }}
+                }
               </button>
             }
           </div>
         }
       </div>
+    }
 
-      @if (!machine) {
-        <mc-sheet
-          [open]="takingOver()"
-          [title]="'Take over {title}?' | t: { title: title() }"
-          (closed)="takingOver.set(false)"
-        >
+    @if (canTakeOver() || remoteCopy()) {
+      <mc-sheet
+        [open]="takingOver()"
+        [title]="'Take over {title}?' | t: { title: title() }"
+        (closed)="takingOver.set(false)"
+      >
+        @if (heldCopy(); as h) {
+          <p>
+            {{
+              '{name} is offline since {offline}. The session goes on here from the copy this {computer} keeps of it, as of {time}.'
+                | t
+                  : {
+                      name: homeName(),
+                      offline: offlineAt(),
+                      computer: computer(),
+                      time: clock(h.copiedAt),
+                    }
+            }}
+          </p>
+          @if (!h.complete) {
+            <p class="muted small">
+              {{ 'Its last copy did not finish: part of the last turn may be missing.' | t }}
+            </p>
+          }
+          <p>
+            {{
+              "The code is this {computer}'s project folder as it is: what {name} changed since isn't here."
+                | t: { name: homeName(), computer: computer() }
+            }}
+          </p>
+        } @else {
           <p>
             {{
               "{name} is offline since {offline}. The session goes on here from this {computer}'s copy: it has the conversation only up to {since}, when it moved."
@@ -85,27 +148,31 @@ import { SessionContext } from './session-context';
                 | t: { name: homeName(), computer: computer(), since: sinceAt() }
             }}
           </p>
-          <p>
-            {{
-              'If {name} went on with it meanwhile, both versions are kept side by side when it next moves there.'
-                | t: { name: homeName() }
-            }}
-          </p>
-          @if (takeOverError()) {
-            <p class="notice error small" role="alert">{{ takeOverError() }}</p>
-          }
-          <div class="row">
-            <button class="btn primary" type="button" [disabled]="busy()" (click)="takeOver()">
-              {{
-                busy() ? ('Taking over…' | t) : ('Take over from {time}' | t: { time: sinceAt() })
-              }}
-            </button>
-            <button class="btn ghost" type="button" (click)="takingOver.set(false)">
-              {{ 'Cancel' | t }}
-            </button>
-          </div>
-        </mc-sheet>
-      }
+        }
+        <p>
+          {{
+            'If {name} went on with it meanwhile, both versions are kept side by side when it next moves there.'
+              | t: { name: homeName() }
+          }}
+        </p>
+        @if (takeOverError()) {
+          <p class="notice error small" role="alert">{{ takeOverError() }}</p>
+        }
+        <div class="row">
+          <button class="btn primary" type="button" [disabled]="busy()" (click)="takeOver()">
+            @if (busy()) {
+              {{ 'Taking over…' | t }}
+            } @else if (heldCopy(); as h) {
+              {{ 'Continue here from the copy of {time}' | t: { time: clock(h.copiedAt) } }}
+            } @else {
+              {{ 'Take over from {time}' | t: { time: sinceAt() } }}
+            }
+          </button>
+          <button class="btn ghost" type="button" (click)="takingOver.set(false)">
+            {{ 'Cancel' | t }}
+          </button>
+        </div>
+      </mc-sheet>
     }
   `,
   styles: [
@@ -156,6 +223,10 @@ export class LivesOnBannerComponent {
   protected readonly machine = inject(MachineContext, { optional: true });
   protected readonly moves = inject(MovesService);
   private readonly notices = inject(NoticeService);
+  private readonly copies = inject(CopiesService);
+  private readonly router = inject(Router);
+  /** The copies' release, while the offer may show (its home offline). */
+  private release: (() => void) | null = null;
 
   protected readonly takingOver = signal(false);
   protected readonly busy = signal(false);
@@ -177,10 +248,11 @@ export class LivesOnBannerComponent {
     const l = this.lives();
     return !!l && this.moves.peers().some((p) => p.id === l.machine);
   });
-  /** Where it lives, as this computer names it. */
+  /** Where it lives, as this computer names it (another computer's page of
+   * its own session: that computer). */
   protected readonly homeName = computed(() => {
     const l = this.lives();
-    if (!l) return '';
+    if (!l) return this.machine?.name() ?? '';
     return this.homeIsPeer() ? this.moves.nameOf(l.machine) : l.name;
   });
   private readonly homeOnline = computed(() => {
@@ -190,9 +262,47 @@ export class LivesOnBannerComponent {
   protected readonly sinceAt = computed(() => pastClock(this.lives()?.since));
   protected readonly offlineAt = computed(() => {
     const l = this.lives();
-    const at = l ? this.moves.offlineSince(l.machine) : null;
+    const home = l?.machine ?? this.machine?.id ?? null;
+    const at = home ? this.moves.offlineSince(home) : null;
     return at ? pastClock(at) : tr('a while');
   });
+  /** Another computer's page of its own session, that computer offline:
+   * the copy of it this computer keeps (§5.9). */
+  protected readonly remoteCopy = computed(() => {
+    const m = this.machine;
+    if (!m || m.online() || this.lives() || !this.moves.enabled()) return null;
+    return this.copies.heldOf(this.ctx.id(), m.id) ?? null;
+  });
+  /** The copy a take over goes on from, when this computer keeps one. */
+  protected readonly heldCopy = computed(() => {
+    if (this.remoteCopy()) return this.remoteCopy();
+    const l = this.lives();
+    return l && this.canTakeOver() ? (this.copies.heldOf(this.ctx.id(), l.machine) ?? null) : null;
+  });
+  /** The copies are read while an offer may show: its home is offline. */
+  private readonly copyMayShow = computed(() => {
+    if (!this.moves.enabled()) return false;
+    if (this.machine) return !this.machine.online() && !this.lives();
+    return this.canTakeOver();
+  });
+
+  constructor() {
+    effect(() => {
+      const need = this.copyMayShow();
+      untracked(() => {
+        if (need && !this.release) this.release = this.copies.watch();
+        if (!need && this.release) {
+          this.release();
+          this.release = null;
+        }
+      });
+    });
+    inject(DestroyRef).onDestroy(() => this.release?.());
+  }
+
+  protected clock(ms: number | null | undefined): string {
+    return copyClock(ms) || tr('a while ago');
+  }
 
   protected readonly text = computed(() => {
     const l = this.lives();
@@ -262,12 +372,30 @@ export class LivesOnBannerComponent {
     this.busy.set(true);
     this.takeOverError.set('');
     try {
-      const reply = await this.moves.takeOver(id);
+      // From the copy this computer keeps, when it keeps one.
+      const reply = await this.moves.takeOver(id, this.heldCopy() ? { fromCopy: true } : {});
       this.takingOver.set(false);
-      this.notices.success(moveText(reply.warning), {
-        title: tr('{title} lives here again', { title: this.title() }),
-      });
-      void this.ctx.refreshDetail();
+      if (reply.fromCopy && reply.resumeError) {
+        this.notices.show(
+          'warning',
+          tr('It is on this {computer} now but did not start: {why}', {
+            computer: computerNoun(),
+            why: reply.resumeError,
+          }),
+        );
+      } else {
+        this.notices.success(moveText(reply.warning), {
+          title: reply.fromCopy
+            ? tr('{title} goes on here', { title: this.title() })
+            : tr('{title} lives here again', { title: this.title() }),
+        });
+      }
+      if (this.machine) {
+        // Another computer's page: the session lives on this one now.
+        void this.router.navigate(sessionLink(id, null));
+      } else {
+        void this.ctx.refreshDetail();
+      }
     } catch (e) {
       this.takeOverError.set(
         e instanceof ApiError && e.code === 'home_online'

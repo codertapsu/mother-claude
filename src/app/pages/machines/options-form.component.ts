@@ -38,8 +38,9 @@ export function relayText(s: MachinesSettings['relay'] | null | undefined): stri
  * computers meet across networks (n0's public relays, your own relay, or
  * none), how a moving session's code travels (machine to machine, or
  * through your git remote) and where it lands (the project folder when it
- * has no changes of its own, or always a worktree), and keeping this
- * computer awake while another uses it. A changed relay or code option is
+ * has no changes of its own, or always a worktree), how much this computer
+ * keeps of each other computer's copies (§5.9), and keeping this computer
+ * awake while another uses it. A changed relay or code option is
  * offered to the other computers, each of which takes it only when its own
  * desktop accepts.
  */
@@ -191,6 +192,25 @@ export function relayText(s: MachinesSettings['relay'] | null | undefined): stri
           </span>
         </label>
       </fieldset>
+      <label class="field cap">
+        <span class="field-label">{{ 'Copies of other computers’ sessions' | t }}</span>
+        <span class="cap-row">
+          <input
+            name="capGb"
+            type="number"
+            min="0.1"
+            max="4000"
+            step="0.5"
+            [ngModel]="capGb()"
+            (ngModelChange)="capGb.set($event)"
+          />
+          <span>{{ 'GB at most for each computer' | t }}</span>
+        </span>
+        <span class="muted small">{{
+          'When a computer’s copies here grow past it, the copy refreshed longest ago goes first.'
+            | t
+        }}</span>
+      </label>
       <label class="switch">
         <input
           type="checkbox"
@@ -256,6 +276,14 @@ export function relayText(s: MachinesSettings['relay'] | null | undefined): stri
       .sub {
         margin-left: 1.6rem;
       }
+      .cap-row {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+      }
+      .cap-row input {
+        width: 6rem;
+      }
     `,
   ],
 })
@@ -274,6 +302,10 @@ export class OptionsFormComponent {
   protected readonly transfer = signal<CodeTransfer>('bundle');
   protected readonly apply = signal<CodeApply>('checkout');
   protected readonly keepRemoteRefs = signal(false);
+  /** The copies' cap, in GB (1000³ bytes). */
+  protected readonly capGb = signal(2.1);
+  /** …as the settings had it: sent only when changed. */
+  private capGbBefore = 2.1;
   protected readonly busy = signal(false);
   protected readonly error = signal('');
 
@@ -288,6 +320,7 @@ export class OptionsFormComponent {
         this.transfer.set(code.transfer);
         this.apply.set(code.apply);
         this.keepRemoteRefs.set(code.keepRemoteRefs);
+        this.capGb.set(Math.round(((s.copiesCapBytes ?? 2 * 1024 ** 3) / 1e9) * 10) / 10);
       });
     });
   }
@@ -302,6 +335,12 @@ export class OptionsFormComponent {
       this.error.set(tr("Your relay's address must start with https://."));
       return;
     }
+    const capChanged = Number(this.capGb()) !== this.capGbBefore;
+    const cap = Math.round(Number(this.capGb()) * 1e9);
+    if (capChanged && (!Number.isFinite(cap) || cap < 64 * 1024 ** 2 || cap > 4 * 1024 ** 4)) {
+      this.error.set(tr('Keep between 0.1 and 4000 GB of each computer’s copies.'));
+      return;
+    }
     this.busy.set(true);
     this.error.set('');
     try {
@@ -313,8 +352,14 @@ export class OptionsFormComponent {
           apply: this.apply(),
           keepRemoteRefs: this.keepRemoteRefs(),
         },
+        ...(capChanged ? { copiesCapBytes: cap } : {}),
       });
-      this.saved.emit({ relay: next.relay, keepAwake: next.keepAwake, code: next.code });
+      this.saved.emit({
+        relay: next.relay,
+        keepAwake: next.keepAwake,
+        code: next.code,
+        copiesCapBytes: next.copiesCapBytes,
+      });
     } catch (e) {
       this.error.set(describeError(e).text);
     } finally {

@@ -141,6 +141,9 @@ export interface MoveRecord {
   heldCount: number;
   recipe: string[];
   trust: boolean;
+  /** The conversation landed from the copy the target keeps current (§5.9):
+   * it did not travel again. */
+  fromCopy?: boolean;
   steps: MoveStep[];
   error?: MoveFailure | null;
   warnings: MoveCheck[];
@@ -250,6 +253,9 @@ export interface PreflightTarget {
   session?: { here: boolean; live: boolean } | null;
   claude?: string | null;
   freeBytes?: number | null;
+  /** The copy of the session it keeps current (§5.9): the move lands from
+   * it, and the conversation does not travel again. */
+  copy?: { held: boolean; copiedAt?: number | null; bytes: number; complete: boolean } | null;
 }
 
 /** `POST /api/sessions/:id/move/preflight`: nothing is written anywhere. */
@@ -420,6 +426,7 @@ export function normalizeMove(v: unknown): MoveRecord | null {
     heldCount: num(r['heldCount']),
     recipe: strings(r['recipe']),
     trust: r['trust'] === true,
+    fromCopy: r['fromCopy'] === true,
     steps: Array.isArray(r['steps'])
       ? r['steps']
           .map((s) => obj(s))

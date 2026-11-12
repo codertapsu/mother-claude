@@ -41,6 +41,7 @@ import type {
   RootsView,
   SetupView,
 } from './machines';
+import type { CopiesView, SessionCopiesView, TakeOverFromCopy } from './copies';
 import type { MoveBody } from './move-data';
 import type { MachineRun, RunGrantsView, RunsView } from './runs';
 import type { HostedRolesView, MachineTask, TaskRemoved, TasksView } from './tasks';
@@ -236,8 +237,10 @@ import {
  *             cloneHere(body) · checkProjectRemote(project) ·
  *             getRoots() · saveRoots(change)
  *   Moves     moveSessionPreflight(id, body) · moveSession(id, body) ·
- *             takeOverSession(id, self) · listMoves() · getMove(id) ·
+ *             takeOverSession(id, self, opts?) · listMoves() · getMove(id) ·
  *             cancelMove(id) · undoMove(id) · retryMove(id)
+ *   Copies    getSessionCopies(id) · setSessionCopies(id, machines) ·
+ *             getCopies() · removeCopy(id)
  */
 @Injectable({ providedIn: 'root' })
 export class ApiService {
@@ -1372,6 +1375,33 @@ export class ApiService {
     return this.post<SyncPair>(`/machines/sync/${enc(id)}/resolve`, { keep });
   }
 
+  /** `GET /api/sessions/{id}/copies`: the computers it keeps a copy on,
+   * and how each copy stands (docs/PLAN-MACHINES.md §5.9). */
+  getSessionCopies(id: string): Promise<SessionCopiesView> {
+    return this.req<SessionCopiesView>(`/sessions/${enc(id)}/copies`);
+  }
+
+  /** `PUT /api/sessions/{id}/copies`: its own choice of computers, or
+   * `null` to follow its project's. A computer left out drops its copy. */
+  setSessionCopies(id: string, machines: string[] | null): Promise<SessionCopiesView> {
+    return this.req<SessionCopiesView>(`/sessions/${enc(id)}/copies`, {
+      method: 'PUT',
+      body: JSON.stringify({ machines }),
+    });
+  }
+
+  /** `GET /api/machines/copies`: the copies held here, and this
+   * computer's kept on others. */
+  getCopies(): Promise<CopiesView> {
+    return this.req<CopiesView>('/machines/copies');
+  }
+
+  /** `DELETE /api/machines/copies/{id}` (`held.…` here, `kept.…` there):
+   * answers the list. */
+  removeCopy(id: string): Promise<CopiesView> {
+    return this.req<CopiesView>(`/machines/copies/${enc(id)}`, { method: 'DELETE' });
+  }
+
   /** `GET /api/machines/runs`: runs on other computers, both ways. */
   getRuns(): Promise<RunsView> {
     return this.req<RunsView>('/machines/runs');
@@ -1523,8 +1553,16 @@ export class ApiService {
 
   /** The session's computer is offline: it lives on this one (`self`, this
    * computer's id) from now on, from its copy here. */
-  takeOverSession(id: string, self: string): Promise<TakeOverReply> {
-    return this.post<TakeOverReply>(`/sessions/${enc(id)}/move`, { to: self, takeOver: true });
+  takeOverSession(
+    id: string,
+    self: string,
+    opts: { fromCopy?: boolean; folder?: string } = {},
+  ): Promise<TakeOverReply & TakeOverFromCopy> {
+    return this.post<TakeOverReply & TakeOverFromCopy>(`/sessions/${enc(id)}/move`, {
+      to: self,
+      takeOver: true,
+      ...opts,
+    });
   }
 
   /** Every move this computer keeps (sent and received), newest first. */

@@ -386,6 +386,11 @@
       <mc-machines-sync [readonly]="!isDesktop()" />
     }
 
+    <!-- ─────────────── Copies kept current (plan §5.9) ─────────────── -->
+    @if (inUse()) {
+      <mc-machines-copies />
+    }
+
     <!-- ─────────────── Runs on other computers (Phase 4) ─────────────── -->
     @if (inUse()) {
       <mc-machines-runs [readonly]="!isDesktop()" />
@@ -416,6 +421,8 @@
             <dd>{{ relay(v.settings) }}</dd>
             <dt>{{ 'Code' | t }}</dt>
             <dd>{{ codeText(v.settings.code) }}</dd>
+            <dt>{{ 'Copies' | t }}</dt>
+            <dd>{{ copiesCapText(v.settings) }}</dd>
             <dt>{{ 'Keep awake' | t }}</dt>
             <dd>
               {{

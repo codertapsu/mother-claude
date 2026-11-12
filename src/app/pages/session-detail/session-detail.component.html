@@ -3,7 +3,9 @@
   @if (machine) {
     <mc-machine-banner class="sd-machine" />
   }
-  @if (ctx.session()?.livesOn) {
+  @if (ctx.session()?.livesOn || machine) {
+    <!-- Where it lives; another computer's page of its own session shows
+         only the offer to go on here from this computer's copy. -->
     <mc-lives-on-banner class="sd-machine" />
   }
   <mc-move-line class="sd-move" />

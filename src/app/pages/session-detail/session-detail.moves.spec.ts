@@ -1,6 +1,6 @@
 import { Component } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
-import { provideRouter } from '@angular/router';
+import { Router, provideRouter } from '@angular/router';
 import { RouterTestingHarness } from '@angular/router/testing';
 
 import { MachinesService } from '../../core/machines.service';
@@ -244,6 +244,115 @@ describe('a session page and moves between computers', () => {
       "It goes on here from this computer's copy. If DESKTOP-PC went on with it while it was away, both versions are kept side by side when it next moves there.",
       { title: 'Fix tray icon lives here again' },
     );
+  });
+
+  /** The copy of `l1` this computer keeps for DESKTOP-PC (§5.9). */
+  const copyHeld = () =>
+    backend.routes.set('/machines/copies', () => ({
+      status: 200,
+      body: {
+        enabled: true,
+        held: [
+          {
+            id: `held.${PEER_ID}.l1`,
+            machine: PEER_ID,
+            machineName: 'DESKTOP-PC',
+            online: false,
+            session: 'l1',
+            title: 'Fix tray icon',
+            cwd: 'D:\\dev\\app',
+            account: 'Default',
+            bytes: 1000,
+            files: 3,
+            copiedAt: Date.now() - 120_000,
+            turnAt: Date.now() - 120_000,
+            createdAt: Date.now() - 3_600_000,
+            complete: true,
+            livesHere: false,
+            canContinue: true,
+          },
+        ],
+        kept: [],
+        capBytes: 2 * 1024 ** 3,
+        used: {},
+      },
+    }));
+  const takenOver = () =>
+    backend.routes.set('/sessions/l1/move', () => ({
+      status: 200,
+      body: {
+        takenOver: true,
+        session: 'l1',
+        home: SELF_ID,
+        from: PEER_ID,
+        epoch: 3,
+        fromCopy: true,
+        resumed: true,
+        warning:
+          "It goes on here from this computer's copy. If DESKTOP-PC went on with it while it was away, both versions are kept side by side when it next moves there.",
+      },
+    }));
+
+  it('goes on here from the copy this computer keeps while the computer it lives on is offline', async () => {
+    here(moved());
+    remote(socket, PEER_ID, { t: 'offline', since: Date.now() - 600_000 });
+    copyHeld();
+    takenOver();
+    const el = await open('/session/l1');
+    const banner = el.querySelector('mc-lives-on-banner')!;
+    const offer = button(banner, 'Continue here from the copy of');
+    expect(offer).toBeTruthy();
+    expect(button(banner, 'Take over…')).toBeUndefined();
+    offer!.click();
+    harness.detectChanges();
+    const sheet = banner.querySelector('mc-sheet')!;
+    expect(text(sheet)).toContain(
+      'The session goes on here from the copy this computer keeps of it, as of',
+    );
+    button(sheet, 'Continue here from the copy of')?.click();
+    await settle();
+    expect(backend.bodyOf('POST /sessions/l1/move')).toEqual({
+      to: SELF_ID,
+      takeOver: true,
+      fromCopy: true,
+    });
+  });
+
+  it("offers its copy on another computer's page of its own session while that computer is offline", async () => {
+    here(remoteSession('other', { title: 'Something else' }));
+    remoteList(socket, PEER_ID, [there()]);
+    backend.routes.set(`${PROXY}/sessions/l1`, () => ({
+      status: 200,
+      body: { ...there(), pendingDetail: [] },
+    }));
+    backend.routes.set(`${PROXY}/sessions/l1/transcript`, () => ({
+      status: 200,
+      body: { events: [], tail: '0' },
+    }));
+    backend.routes.set(`${PROXY}/moves`, () => ({ status: 200, body: { moves: [] } }));
+    copyHeld();
+    takenOver();
+    // Online: nothing is offered.
+    let el = await open(`/session/l1/on/${PEER_ID}`);
+    expect(button(el, 'Continue here from the copy of')).toBeUndefined();
+    // Offline: the copy is offered, and taking it over goes to this
+    // computer's own page of it.
+    remote(socket, PEER_ID, { t: 'offline', since: Date.now() - 600_000 });
+    await settle();
+    el = harness.routeNativeElement as HTMLElement;
+    const banner = el.querySelector('mc-lives-on-banner')!;
+    expect(text(banner)).toContain('This computer keeps a copy of this session, copied at');
+    button(banner, 'Continue here from the copy of')!.click();
+    harness.detectChanges();
+    const sheet = banner.querySelector('mc-sheet')!;
+    button(sheet, 'Continue here from the copy of')?.click();
+    await settle();
+    expect(backend.bodyOf('POST /sessions/l1/move')).toEqual({
+      to: SELF_ID,
+      takeOver: true,
+      fromCopy: true,
+    });
+    expect(TestBed.inject(Router).url).toBe('/session/l1');
   });
 
   it("offers Bring back on another computer's session, through that computer", async () => {

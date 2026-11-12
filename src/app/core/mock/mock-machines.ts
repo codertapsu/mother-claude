@@ -27,6 +27,7 @@ import {
   defaultCode,
   defaultGrants,
 } from '../machines';
+import { MockCopies } from './mock-copies';
 
 const S = 1000;
 const MIN = 60 * S;
@@ -75,6 +76,9 @@ export class MockMachines {
   /** Projects kept in sync (`?mockmachines=1`: one in sync, one changed
    * on both). */
   private syncPairs: SyncPair[] = [];
+  /** Copies kept current between computers (`?mockmachines=1`: two held
+   * here). */
+  private copies: MockCopies;
 
   constructor(
     private readonly opts: {
@@ -85,6 +89,11 @@ export class MockMachines {
       paired?: boolean;
     },
   ) {
+    this.copies = new MockCopies(
+      () => this.peers,
+      () => this.opts.broadcast({ t: 'machines', what: 'copies' }),
+      !!opts.paired,
+    );
     if (opts.paired) {
       this.enabled = true;
       const now = Date.now();
@@ -242,6 +251,8 @@ export class MockMachines {
   }
 
   route(path: string, method: string, body: unknown): Response | null {
+    const copied = this.copies.route(path, method, (body ?? {}) as Record<string, unknown>);
+    if (copied) return copied;
     if (!path.startsWith('/machines') && path !== '/roots') return null;
     const b = (body ?? {}) as Record<string, unknown>;
     const desk = () =>
@@ -824,7 +835,12 @@ export class MockMachines {
       },
       peers: this.peers,
       pairing: this.pairing,
-      settings: { relay: this.relay, keepAwake: this.keepAwake, code: this.code },
+      settings: {
+        relay: this.relay,
+        keepAwake: this.keepAwake,
+        code: this.code,
+        copiesCapBytes: 2 * 1024 ** 3,
+      },
       offer: null,
       transport: {
         running: true,
