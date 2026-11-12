@@ -73,6 +73,8 @@ pub fn api_router() -> Router<AppState> {
         .merge(super::sync::routes::api_router())
         // Runs on other computers (Phase 4).
         .merge(super::work::routes::api_router())
+        // Copies kept current (Phase 3b).
+        .merge(super::copies::routes::api_router())
 }
 
 /// The largest request forwarded to another machine (a message with images).
@@ -100,6 +102,8 @@ pub fn peer_router() -> Router<AppState> {
         .merge(super::sync::routes::peer_router())
         // Running commands for another computer (Phase 4).
         .merge(super::work::routes::peer_router())
+        // Copies of its sessions this computer keeps for it (Phase 3b).
+        .merge(super::copies::routes::peer_router())
         // The paired machine's view of this one's sessions (plan §5.6).
         .route("/ws", get(peer_ws))
         // `/api/*` is served from the fallback, so no path parameter of this
@@ -377,6 +381,9 @@ struct SettingsBody {
     /// Projects' own code options and recipes (this machine's only).
     #[serde(default)]
     projects: Option<setup::options::ProjectsChange>,
+    /// What this computer keeps at most of each other computer's copies.
+    #[serde(default)]
+    copies_cap_bytes: Option<u64>,
 }
 
 async fn put_settings(
@@ -387,6 +394,15 @@ async fn put_settings(
     if let Some(r) = &req.relay {
         r.validate()
             .map_err(|m| ApiError::unprocessable("machines_bad_relay", m).with("field", "relay"))?;
+    }
+    if let Some(cap) = req.copies_cap_bytes {
+        if !(super::copies::MIN_CAP..=super::copies::MAX_CAP).contains(&cap) {
+            return Err(ApiError::unprocessable(
+                "machines_bad_cap",
+                "Keep between 64 MB and 4 TB of each computer's copies.",
+            )
+            .with("field", "copiesCapBytes"));
+        }
     }
     // A project's files to carry need the dangerous right: checked (and
     // applied, all or nothing) before anything else changes.
@@ -403,6 +419,9 @@ async fn put_settings(
         }
         if let Some(c) = &req.code {
             f.settings.code = c.over(&f.settings.code);
+        }
+        if let Some(cap) = req.copies_cap_bytes {
+            f.settings.copies_cap_bytes = cap;
         }
     });
     let after = state.machines.settings();
@@ -763,6 +782,10 @@ pub fn peer_route_grant(method: &axum::http::Method, path: &str) -> Option<Grant
         (["moves", _, "cancel" | "undo" | "retry"], _, true) if *method == Method::POST => {
             Grant::Move
         }
+        // Keeping a copy of one of its sessions (Phase 3b): the first half
+        // of a move.
+        (["sessions", _, "copies"], true, _) => Grant::View,
+        (["sessions", _, "copies"], _, _) if *method == Method::PUT => Grant::Move,
         _ => return None,
     };
     Some(grant)

@@ -138,6 +138,11 @@ pub struct Answer {
     pub session: SessionThere,
     pub claude: Option<String>,
     pub free_bytes: Option<u64>,
+    /// The copy of the session this computer keeps current for the source
+    /// (docs/PLAN-MACHINES.md §5.9): a move lands from it. Absent from an
+    /// older build, or when it keeps none.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub copy: Option<crate::machines::copies::wire::CopyThere>,
 }
 
 /// One file of a package.
@@ -197,6 +202,19 @@ pub struct Manifest {
     /// The transcript as packed.
     pub transcript_bytes: u64,
     pub transcript_sha256: String,
+    /// The conversation lands from the copy the target keeps current
+    /// (§5.9): every file of the session here, which the target checks its
+    /// copy against before it lands — `session.tar.gz` does not travel.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub from_copy: Option<FromCopy>,
+}
+
+/// The session's files, as a move that lands from the target's copy lists
+/// them: `name` is the path under the config directory (`/`-separated).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct FromCopy {
+    pub files: Vec<FileSpec>,
 }
 
 /// The target's answer to a landing.

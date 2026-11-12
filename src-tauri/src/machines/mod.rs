@@ -30,6 +30,7 @@ pub mod acting;
 pub mod awake;
 pub mod chunks;
 pub mod code;
+pub mod copies;
 pub mod federation;
 pub mod grants;
 pub mod identity;
@@ -151,6 +152,9 @@ pub struct MachinesState {
     pub(crate) moves: moves::Moves,
     /// Projects kept in sync with another computer (`machines/sync.json`).
     pub(crate) sync: sync::SyncState,
+    /// Copies kept current on other computers, and held here for them
+    /// (`machines/copies.json`, `machines/copies/`).
+    pub copies: copies::CopiesState,
     /// Commands run on another computer, or for one (`machines/work/`).
     pub work: work::WorkState,
 }
@@ -189,6 +193,7 @@ impl MachinesState {
             leases: lease::Leases::load(data_dir),
             moves: moves::Moves::default(),
             sync: sync::SyncState::load(data_dir),
+            copies: copies::CopiesState::load(data_dir),
             work: work::WorkState::load(data_dir),
         }
     }
@@ -463,6 +468,13 @@ impl MachinesState {
     #[doc(hidden)]
     pub fn fail_sync_at(&self, point: Option<&str>) {
         self.sync.fail_at(point);
+    }
+
+    /// The app turns this on: the sessions marked *Keep a copy on …* are
+    /// watched and copied after each turn; until then (tests) a round runs
+    /// only when `copies::source::tick` asks.
+    pub fn enable_copies(&self) {
+        self.copies.set_live();
     }
 }
 
@@ -770,6 +782,7 @@ pub async fn greet(state: AppState, machine: String, key: String) {
         publish(&state, "peers");
         if online {
             sync::step::on_peer_back(&state, &machine);
+            copies::on_peer_back(&state, &machine);
         }
     }
 }
@@ -866,6 +879,8 @@ pub fn start(state: &AppState) {
         tokio::spawn(async move { moves::recover(&rec).await });
         // Code sync's watchers and its minute's check (the app only).
         sync::start(&st);
+        // Copies kept current after each turn (the app only).
+        copies::start(&st);
         // Runs asked of other computers that had not ended: followed again.
         work::start(&st);
         setup::health_loop(st).await;
@@ -951,7 +966,12 @@ fn peer_view(state: &AppState, p: &PeerRecord) -> Value {
 }
 
 pub fn settings_view(s: &Settings) -> Value {
-    json!({ "relay": s.relay, "keepAwake": s.keep_awake, "code": s.code })
+    json!({
+        "relay": s.relay,
+        "keepAwake": s.keep_awake,
+        "code": s.code,
+        "copiesCapBytes": s.copies_cap_bytes,
+    })
 }
 
 #[cfg(test)]

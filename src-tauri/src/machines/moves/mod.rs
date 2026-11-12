@@ -59,8 +59,22 @@ mod target;
 pub mod wire;
 
 /// Whether an account can run a session here (a task handed over uses it
-/// too, `work::tasks`).
-pub(crate) use target::account_ready;
+/// too, `work::tasks`); the account of a name here, and settings another
+/// computer sent, checked (a copy taken over uses them, `copies`).
+pub(crate) use target::{account_ready, check_settings, resolve_account};
+
+/// The settings a session runs (or ran) with here, as a move carries them
+/// (a copy keeps them for a take over).
+pub(crate) fn settings_of(
+    state: &AppState,
+    session: &str,
+    summary: Option<&crate::claude::model::SessionSummary>,
+) -> Carried {
+    match crate::claude::owned::live_state(state, session) {
+        Some(live) => resume::carried(&live),
+        None => summary.map(resume::carried_of).unwrap_or_default(),
+    }
+}
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -381,6 +395,10 @@ pub struct MoveRecord {
     /// The folder's trust is carried (needs the dangerous right).
     #[serde(default)]
     pub trust: bool,
+    /// The conversation landed from the copy the target keeps current
+    /// (docs/PLAN-MACHINES.md §5.9): it did not travel again.
+    #[serde(default)]
+    pub from_copy: bool,
     /// When each state was reached.
     #[serde(default)]
     pub steps: Vec<Step>,
@@ -1167,6 +1185,7 @@ mod tests {
             held: vec!["secret words".into()],
             recipe: Vec::new(),
             trust: false,
+            from_copy: false,
             steps: Vec::new(),
             error: None,
             warnings: Vec::new(),

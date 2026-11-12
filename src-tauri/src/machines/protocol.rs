@@ -29,6 +29,7 @@ pub const CAPABILITIES: &[&str] = &[
     super::roots::CAPABILITY,
     MOVES,
     IGNORED_FILES,
+    super::copies::CAPABILITY,
     super::work::CAPABILITY,
     super::work::tasks::CAPABILITY,
     super::work::roles::CAPABILITY,

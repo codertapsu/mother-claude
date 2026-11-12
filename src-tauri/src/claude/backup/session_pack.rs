@@ -197,6 +197,121 @@ pub fn pack(
     })
 }
 
+/// Pack exactly `files` of session `id` — `(path under base, size,
+/// SHA-256)`, as the computer the session lives on listed them — from `base`,
+/// a copy kept outside any config directory but laid out like one (another
+/// computer's copy, docs/PLAN-MACHINES.md §5.9), into `out`. Each file must
+/// be one of the session's own, a plain file of that size and SHA-256: what
+/// lands is what that computer has, byte for byte, or nothing. Blocking.
+pub fn pack_listed(
+    base: &Path,
+    id: &str,
+    files: &[(String, u64, String)],
+    cwd: Option<&str>,
+    out: &Path,
+) -> Result<Packed, BackupError> {
+    use sha2::Digest;
+    if !crate::claude::ids::is_session_id(id) {
+        return Err(BackupError::Invalid(format!("{id:?} is not a session id")));
+    }
+    let mut list: Vec<(PathBuf, PathBuf)> = Vec::with_capacity(files.len());
+    let mut transcript: Option<(u64, String)> = None;
+    for (rel, size, sha) in files {
+        if !super::allowed_entry(rel, id) {
+            return Err(BackupError::Invalid(format!(
+                "{rel} is not one of the session's own files"
+            )));
+        }
+        let mut path = base.to_path_buf();
+        let mut name = PathBuf::new();
+        for c in rel.split('/') {
+            path.push(c);
+            name.push(c);
+        }
+        if !transfer::is_plain_file(&path) {
+            return Err(BackupError::Invalid(format!("the copy has no {rel}")));
+        }
+        let (got, got_sha) = transfer::sha256_file(&path).map_err(|e| io("reading", &path, e))?;
+        if got != *size || got_sha != *sha {
+            return Err(BackupError::Changed(format!(
+                "the copy's {rel} is not the one the session has"
+            )));
+        }
+        let parts: Vec<&str> = rel.split('/').collect();
+        if parts.len() == 3 && parts[2] == format!("{id}.jsonl") {
+            transcript = Some((got, got_sha));
+        }
+        list.push((path, name));
+    }
+    let (transcript_bytes, transcript_sha256) = transcript
+        .ok_or_else(|| BackupError::Invalid(format!("the copy of {id} has no transcript")))?;
+    let meta = serde_json::json!({
+        "version": SET_VERSION,
+        "id": id,
+        "cwd": cwd,
+        "folder": Value::Null,
+        "projectEntry": Value::Null,
+    });
+    let meta = serde_json::to_vec_pretty(&meta).unwrap_or_default();
+    let dir = out
+        .parent()
+        .ok_or_else(|| BackupError::Invalid(format!("{} has no folder", out.display())))?;
+    std::fs::create_dir_all(dir).map_err(|e| io("creating", dir, e))?;
+    let tmp = dir.join(format!(".session.mc-{}.tmp", uuid::Uuid::new_v4().simple()));
+    let written = (|| -> Result<(String, u64), BackupError> {
+        let file = std::fs::File::create(&tmp).map_err(|e| io("writing", &tmp, e))?;
+        let hashing = HashingWriter {
+            inner: BufWriter::new(file),
+            hasher: sha2::Sha256::new(),
+            bytes: 0,
+        };
+        let hashing = pack_into(
+            hashing,
+            &tmp,
+            base,
+            &list,
+            &[],
+            &[(".mc/meta.json", meta)],
+            None,
+        )?;
+        let sha: String = hashing
+            .hasher
+            .finalize()
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect();
+        let size = hashing.bytes;
+        let file = hashing
+            .inner
+            .into_inner()
+            .map_err(|e| io("writing", &tmp, e.error()))?;
+        crate::persist::sync_file(&file).map_err(|e| io("syncing", &tmp, e))?;
+        drop(file);
+        if std::fs::symlink_metadata(out).is_ok() {
+            std::fs::remove_file(out).map_err(|e| io("replacing", out, e))?;
+        }
+        std::fs::rename(&tmp, out).map_err(|e| io("placing", out, e))?;
+        Ok((sha, size))
+    })();
+    let (sha256, size) = match written {
+        Ok(w) => w,
+        Err(e) => {
+            let _ = std::fs::remove_file(&tmp);
+            return Err(e);
+        }
+    };
+    Ok(Packed {
+        path: out.to_path_buf(),
+        sha256,
+        size,
+        transcript_bytes,
+        transcript_sha256,
+        cwd: cwd.map(str::to_string),
+        folder: None,
+        files: list.len(),
+    })
+}
+
 /// What a landing did with the session.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase", tag = "action")]
@@ -549,6 +664,75 @@ mod tests {
             format!("{l1}\n{l2}\n{l3}\n")
         );
         assert!(!copy.exists());
+    }
+
+    /// A copy kept outside a config directory (another computer's, laid out
+    /// like one) packs exactly the files listed, each checked by its size
+    /// and SHA-256, and lands like any package; one that differs, or a path
+    /// that is not the session's, packs nothing.
+    #[test]
+    fn a_copy_packs_exactly_its_listed_files_or_nothing() {
+        let tmp = tempfile::tempdir().unwrap();
+        let copy = ClaudeHome::for_account_dir(tmp.path().join("copy"));
+        let dst = ClaudeHome::for_account_dir(tmp.path().join("dst"));
+        std::fs::create_dir_all(dst.base()).unwrap();
+        let cwd = "/Users/m/app";
+        let t = session(&copy, cwd, &[&line(cwd, 1), &line(cwd, 2)]);
+        let todo = copy.todos_dir().join(format!("{ID}.json"));
+        std::fs::create_dir_all(todo.parent().unwrap()).unwrap();
+        std::fs::write(&todo, b"[]").unwrap();
+        let rel = |p: &Path| {
+            p.strip_prefix(copy.base())
+                .unwrap()
+                .components()
+                .map(|c| c.as_os_str().to_string_lossy().into_owned())
+                .collect::<Vec<_>>()
+                .join("/")
+        };
+        let listed = |p: &Path| {
+            let (size, sha) = transfer::sha256_file(p).unwrap();
+            (rel(p), size, sha)
+        };
+        let files = vec![listed(&t), listed(&todo)];
+        let out = tmp.path().join("pkg").join(FILE);
+        let p = pack_listed(copy.base(), ID, &files, Some(cwd), &out).unwrap();
+        assert_eq!(p.files, 2);
+        assert_eq!(p.transcript_bytes, std::fs::metadata(&t).unwrap().len());
+        let (r, _) = land(&LandInputs {
+            archive: &out,
+            id: ID,
+            home: &dst,
+            project_dir: Some("D--dev-app"),
+            undo_root: &tmp.path().join("undo"),
+            job_id: "20261112T000001-00000001",
+            trust_key: None,
+            host: "DESKTOP-PC",
+            account: None,
+        })
+        .unwrap();
+        assert_eq!(r.landed, Landed::New);
+        let placed = dst
+            .projects_dir()
+            .join("D--dev-app")
+            .join(format!("{ID}.jsonl"));
+        assert_eq!(std::fs::read(placed).unwrap(), std::fs::read(&t).unwrap());
+        assert_eq!(
+            std::fs::read(dst.todos_dir().join(format!("{ID}.json"))).unwrap(),
+            b"[]"
+        );
+
+        // The copy is not what the session has: nothing is packed.
+        let mut wrong = files.clone();
+        wrong[0].2 = "0".repeat(64);
+        let again = tmp.path().join("pkg2").join(FILE);
+        assert!(pack_listed(copy.base(), ID, &wrong, Some(cwd), &again).is_err());
+        assert!(!again.exists());
+        // A path that is not the session's own.
+        let mut other = files.clone();
+        other[1].0 = "settings.json".into();
+        assert!(pack_listed(copy.base(), ID, &other, Some(cwd), &again).is_err());
+        // No transcript among them.
+        assert!(pack_listed(copy.base(), ID, &files[1..], Some(cwd), &again).is_err());
     }
 
     /// A package carries only the session's own files: anything else in it

@@ -68,6 +68,10 @@ pub struct MoveBody {
     pub carry_ignored: Option<bool>,
     /// The session's home is offline: it lives here from now on.
     pub take_over: Option<bool>,
+    /// A take over lands the copy this computer keeps of it (docs/
+    /// PLAN-MACHINES.md §5.9): on by default when there is one; `false`
+    /// goes on from what this computer's config directory has.
+    pub from_copy: Option<bool>,
     /// `idle` (after this turn, the default) | `now` (interrupting it).
     pub when: Option<String>,
     /// The remote of a `remote` move (default `origin`).
@@ -994,6 +998,7 @@ pub async fn start(
             Vec::new()
         },
         trust: checked.plan.trust,
+        from_copy: false,
         steps: Vec::new(),
         error: None,
         warnings: checked.pre.warnings.clone(),
@@ -1238,16 +1243,17 @@ async fn freeze(state: &AppState, id: &str, active: &Active) -> Result<(), Fail>
     Ok(())
 }
 
-/// The conversation (`session.tar.gz`) and the code (a snapshot: its
-/// `meta.json`, a bundle, Git LFS objects) in the move's folder.
-async fn package(state: &AppState, id: &str, prep: &Prepared) -> Result<(), Fail> {
-    let rec =
-        load(state, id).ok_or_else(|| Fail::new("move_lost", "The move's record is gone."))?;
-    let dir = move_folder(state, id)
-        .ok_or_else(|| Fail::new("no_data_dir", "This build has no data directory."))?;
-    std::fs::create_dir_all(&dir).map_err(|e| Fail::new("package_failed", e.to_string()))?;
-    crate::claude::transfer::private_dir(&dir);
-    // The conversation: a turn that writes meanwhile is waited out a little.
+/// The list of the session's files a move that lands from the target's copy
+/// sends (in the move's folder).
+const COPY_LIST: &str = "copy-files.json";
+
+/// The conversation packed (`session.tar.gz`): a turn that writes meanwhile
+/// is waited out a little.
+async fn pack_conversation(
+    dir: &Path,
+    rec: &MoveRecord,
+    prep: &Prepared,
+) -> Result<FileEntry, Fail> {
     let pairs = crate::claude::paths::local_pairs();
     let mut packed = None;
     for attempt in 0..3 {
@@ -1274,12 +1280,48 @@ async fn package(state: &AppState, id: &str, prep: &Prepared) -> Result<(), Fail
     }
     let packed = packed
         .ok_or_else(|| Fail::new("session_changed", "It kept changing while it was packed."))?;
-    let mut files = vec![FileEntry {
+    Ok(FileEntry {
         name: session_pack::FILE.to_string(),
         size: packed.size,
         sha256: packed.sha256.clone(),
         sent: 0,
-    }];
+    })
+}
+
+/// The conversation (`session.tar.gz`, or the list of its files when the
+/// target lands from its copy) and the code (a snapshot: its `meta.json`, a
+/// bundle, Git LFS objects) in the move's folder.
+async fn package(state: &AppState, id: &str, prep: &Prepared) -> Result<(), Fail> {
+    let rec =
+        load(state, id).ok_or_else(|| Fail::new("move_lost", "The move's record is gone."))?;
+    let dir = move_folder(state, id)
+        .ok_or_else(|| Fail::new("no_data_dir", "This build has no data directory."))?;
+    std::fs::create_dir_all(&dir).map_err(|e| Fail::new("package_failed", e.to_string()))?;
+    crate::claude::transfer::private_dir(&dir);
+    let mut files = Vec::new();
+    // The conversation: when the target keeps a copy of it current (§5.9),
+    // the copy is brought up to date and only the list of every file with
+    // its SHA-256 travels — the target lands from its copy once it checked
+    // it against that list. A copy of a session another process runs forks
+    // there from the package instead.
+    let listed = if rec.as_copy {
+        None
+    } else {
+        crate::machines::copies::source::for_move(state, &rec.session, &rec.to.id).await
+    };
+    if let Some(list) = listed {
+        let spec: Vec<wire::FileSpec> = list
+            .into_iter()
+            .map(|(name, size, sha256)| wire::FileSpec { name, size, sha256 })
+            .collect();
+        crate::persist::write_json_private(&dir.join(COPY_LIST), &spec)
+            .map_err(|e| Fail::new("package_failed", e.to_string()))?;
+        update(state, id, |r| r.from_copy = true);
+    } else {
+        let _ = std::fs::remove_file(dir.join(COPY_LIST));
+        update(state, id, |r| r.from_copy = false);
+        files.push(pack_conversation(&dir, &rec, prep).await?);
+    }
     // The code.
     let mut code = rec.code.clone();
     if let Some(c) = code.as_mut() {
@@ -1421,6 +1463,15 @@ async fn send(state: &AppState, id: &str, active: &Active, prep: &Prepared) -> R
         by: rec.by.clone(),
         transcript_bytes: 0,
         transcript_sha256: String::new(),
+        from_copy: if rec.from_copy {
+            Some(wire::FromCopy {
+                files: crate::persist::read_json(&dir.join(COPY_LIST)).ok_or_else(|| {
+                    Fail::new("package_failed", "The list of the session's files is gone.")
+                })?,
+            })
+        } else {
+            None
+        },
     };
     let body = serde_json::to_value(&manifest).unwrap_or(Value::Null);
     let to = rec.to.id.clone();
@@ -1959,8 +2010,12 @@ async fn take_over(
             "It lives on this computer already.",
         ));
     };
+    // The copy its home kept current here (§5.9), unless told otherwise.
+    let copy = crate::machines::copies::target::held_of(state, session)
+        .filter(|h| h.machine == old.home)
+        .filter(|_| body.from_copy != Some(false));
     let home = crate::claude::summaries::session_home(state, session);
-    if crate::claude::transfer::transcripts_of(&home, session).is_empty() {
+    if copy.is_none() && crate::claude::transfer::transcripts_of(&home, session).is_empty() {
         return Err(ApiError::conflict(
             "nothing_here",
             "This computer has nothing of this conversation: it can't go on here.",
@@ -1988,6 +2043,20 @@ async fn take_over(
         )
         .with("machine", old.home.clone()));
     }
+    // From the copy: it lands in this computer's config directory first (as
+    // a pull lands a session, undo kept); nothing changes when it can't.
+    let landed = match &copy {
+        Some(_) => Some(
+            crate::machines::copies::target::land_for_take_over(
+                state,
+                &old.home,
+                session,
+                body.folder.as_deref(),
+            )
+            .await?,
+        ),
+        None => None,
+    };
     let epoch = old.epoch + 1;
     state.machines.leases.set(
         session,
@@ -2008,9 +2077,12 @@ async fn take_over(
             action: "machine.lease.takeover".into(),
             device_id: Some(old.home.clone()),
             device_name: Some(name.clone()),
-            detail: Some(
-                json!({ "session": session, "epoch": epoch, "by": super::who(state, ctx) }),
-            ),
+            detail: Some(json!({
+                "session": session,
+                "epoch": epoch,
+                "by": super::who(state, ctx),
+                "fromCopy": landed.is_some(),
+            })),
             ..crate::server::devices::audit::AuditEntry::now()
         });
     crate::server::auth::note_device_action(
@@ -2018,6 +2090,28 @@ async fn take_over(
         ctx,
         &format!("took over a session from {name}"),
     );
+    // From the copy, it goes on here at once as an owned session, with the
+    // account, folder and settings it had there.
+    let (mut resumed, mut resume_error) = (false, None);
+    if let Some(l) = &landed {
+        match resume::start(
+            state,
+            &Spec {
+                session,
+                fork_as: None,
+                cwd: &l.cwd,
+                account: &l.account,
+                settings: &l.settings,
+                may_dangerous: ctx.may_dangerous(),
+                held: &[],
+            },
+        )
+        .await
+        {
+            Ok(_) => resumed = true,
+            Err(e) => resume_error = Some(resume::words(&e)),
+        }
+    }
     let warning = format!(
         "It goes on here from this computer's copy. If {name} went on with it while it was \
          away, both versions are kept side by side when it next moves there."
@@ -2031,6 +2125,14 @@ async fn take_over(
             "from": old.home,
             "epoch": epoch,
             "warning": warning,
+            "fromCopy": landed.is_some(),
+            "copiedAt": landed.as_ref().and_then(|l| l.copied_at),
+            "complete": landed.as_ref().map(|l| l.complete),
+            "cwd": landed.as_ref().map(|l| l.cwd.clone()),
+            "landing": landed.as_ref().map(|l| l.landing.clone()),
+            "warnings": landed.as_ref().map(|l| l.warnings.clone()).unwrap_or_default(),
+            "resumed": resumed,
+            "resumeError": resume_error,
         }),
     ))
 }

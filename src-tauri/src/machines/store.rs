@@ -295,6 +295,14 @@ pub struct ProjectSettings {
         skip_serializing_if = "Option::is_none"
     )]
     pub recipe: Option<Recipe>,
+    /// The computers its sessions keep a copy on (docs/PLAN-MACHINES.md
+    /// §5.9): their ids; a session's own choice wins.
+    #[serde(
+        default,
+        deserialize_with = "lenient",
+        skip_serializing_if = "Vec::is_empty"
+    )]
+    pub copies: Vec<String>,
     #[serde(default, deserialize_with = "lenient")]
     pub updated_at: i64,
     #[serde(flatten, default)]
@@ -303,7 +311,9 @@ pub struct ProjectSettings {
 
 impl ProjectSettings {
     pub fn is_empty(&self) -> bool {
-        self.code.is_empty() && self.recipe.as_ref().is_none_or(Recipe::is_empty)
+        self.code.is_empty()
+            && self.recipe.as_ref().is_none_or(Recipe::is_empty)
+            && self.copies.is_empty()
     }
 }
 
@@ -319,6 +329,11 @@ pub struct Settings {
     /// How code travels and where it lands (the defaults of every move).
     #[serde(default, deserialize_with = "lenient")]
     pub code: CodeSettings,
+    /// What this computer keeps at most of the copies of each other
+    /// computer's sessions (docs/PLAN-MACHINES.md §5.9): the copy refreshed
+    /// longest ago goes first. This computer's own: not offered.
+    #[serde(default = "copies_cap", deserialize_with = "cap_or_default")]
+    pub copies_cap_bytes: u64,
     #[serde(flatten, default)]
     pub extra: BTreeMap<String, Value>,
 }
@@ -327,12 +342,29 @@ fn yes() -> bool {
     true
 }
 
+fn copies_cap() -> u64 {
+    super::copies::DEFAULT_CAP
+}
+
+/// A cap read on its own: one out of bounds, or not a number, is the
+/// default.
+fn cap_or_default<'de, D>(d: D) -> Result<u64, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let v = Value::deserialize(d)?;
+    Ok(v.as_u64()
+        .filter(|n| (super::copies::MIN_CAP..=super::copies::MAX_CAP).contains(n))
+        .unwrap_or_else(copies_cap))
+}
+
 impl Default for Settings {
     fn default() -> Self {
         Self {
             relay: RelaySetting::default(),
             keep_awake: true,
             code: CodeSettings::default(),
+            copies_cap_bytes: copies_cap(),
             extra: BTreeMap::new(),
         }
     }
@@ -687,6 +719,33 @@ mod tests {
             .unwrap()
             .get("projects")
             .is_none());
+    }
+
+    #[test]
+    fn the_copies_cap_defaults_and_stays_within_its_bounds() {
+        let two_gib = 2 * 1024 * 1024 * 1024;
+        let f = MachinesFile::from_value(&json!({ "settings": {"relay": {"mode": "none"}} }));
+        assert_eq!(f.settings.copies_cap_bytes, two_gib);
+        for bad in [json!(5), json!("big"), json!(-1), json!(u64::MAX)] {
+            let f = MachinesFile::from_value(
+                &json!({ "settings": {"relay": {"mode": "none"}, "copiesCapBytes": bad}}),
+            );
+            assert_eq!(f.settings.copies_cap_bytes, two_gib, "{bad}");
+            assert_eq!(f.settings.relay.mode, RelayMode::None, "the rest is kept");
+        }
+        let f =
+            MachinesFile::from_value(&json!({ "settings": {"copiesCapBytes": 500_000_000u64} }));
+        assert_eq!(f.settings.copies_cap_bytes, 500_000_000);
+        let saved = serde_json::to_value(&f).unwrap();
+        assert_eq!(saved["settings"]["copiesCapBytes"], 500_000_000);
+        // A project's copies, read and saved with it.
+        let f = MachinesFile::from_value(&json!({ "projects": {
+            "/Users/m/dev/x": {"copies": [ID_A], "code": {"apply": "worktree"}},
+            "/Users/m/dev/y": {"copies": "nope"},
+        }}));
+        assert_eq!(f.projects["/Users/m/dev/x"].copies, [ID_A]);
+        assert!(f.projects["/Users/m/dev/y"].copies.is_empty());
+        assert!(!f.projects["/Users/m/dev/x"].is_empty());
     }
 
     #[test]

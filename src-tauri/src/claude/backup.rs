@@ -2673,7 +2673,7 @@ fn entry_name<R: Read>(entry: &tar::Entry<'_, R>) -> Option<String> {
 /// the entry's [`entry_name`], split on `/` alone so a Mac and Windows judge
 /// one archive alike: a component that is empty, `.` or `..`, or holds a
 /// `\` (a separator on Windows), is refused everywhere.
-fn allowed_entry(name: &str, id: &str) -> bool {
+pub(crate) fn allowed_entry(name: &str, id: &str) -> bool {
     // A directory's entry may end with its `/`.
     let name = name.strip_suffix('/').unwrap_or(name);
     let parts: Vec<&str> = name.split('/').collect();

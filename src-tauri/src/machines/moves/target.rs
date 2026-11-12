@@ -67,7 +67,7 @@ fn join_rel(base: &Path, rel: &str) -> PathBuf {
     out
 }
 
-fn check_settings(s: &super::Carried) -> ApiResult<()> {
+pub(crate) fn check_settings(s: &super::Carried) -> ApiResult<()> {
     if let Some(m) = &s.model {
         owned::validate_model(m)?;
     }
@@ -125,10 +125,31 @@ fn check_manifest(mf: &wire::Manifest) -> ApiResult<()> {
         hint: mf.hint.clone(),
         ..wire::Ask::default()
     })?;
-    if mf.files.is_empty()
-        || mf.files.len() > MAX_FILES
-        || !mf.files.iter().any(|f| f.name == session_pack::FILE)
-    {
+    // The conversation comes as its package, or lands from the copy this
+    // computer keeps (its files listed with their hashes).
+    let packaged = mf.files.iter().any(|f| f.name == session_pack::FILE);
+    match &mf.from_copy {
+        Some(list) => {
+            let mut seen = std::collections::HashSet::new();
+            if packaged
+                || list.files.is_empty()
+                || list.files.len() > crate::machines::copies::MAX_FILES
+                || list.files.iter().any(|f| {
+                    !crate::machines::copies::allowed_path(&f.name, &mf.session)
+                        || f.size > MAX_FILE
+                        || !is_sha256(&f.sha256)
+                        || !seen.insert(f.name.as_str())
+                })
+            {
+                return Err(bad(
+                    "The move's list of files is not one this computer takes.",
+                ));
+            }
+        }
+        None if !packaged => return Err(bad("The move's package is not complete.")),
+        None => {}
+    }
+    if mf.files.len() > MAX_FILES {
         return Err(bad("The move's package is not complete."));
     }
     let mut names = std::collections::HashSet::new();
@@ -196,7 +217,10 @@ fn check_manifest(mf: &wire::Manifest) -> ApiResult<()> {
 
 /// The account a move runs under here (decision 3): the same name
 /// (case-insensitive), else the Default for the source's Default.
-fn resolve_account(state: &AppState, ask: &AccountAsk) -> Result<(String, String), Check> {
+pub(crate) fn resolve_account(
+    state: &AppState,
+    ask: &AccountAsk,
+) -> Result<(String, String), Check> {
     let me = m::this_name(state);
     let all = state.accounts.accounts();
     let wanted = ask.name.trim();
@@ -555,6 +579,10 @@ async fn resolve(
         }
     }
     a.cwd = cwd.clone();
+    // The copy this computer keeps current for the source: the move lands
+    // from it.
+    let copy = crate::machines::copies::target::state_of(state, from, &ask.session);
+    a.copy = copy.held.then_some(copy);
     Resolved {
         answer: a,
         account,
@@ -627,7 +655,11 @@ fn ask_of(mf: &wire::Manifest) -> wire::Ask {
         }),
         trust: mf.trust,
         permission_mode: mf.settings.permission_mode.clone(),
-        bytes: mf.files.iter().map(|f| f.size).sum(),
+        bytes: mf.files.iter().map(|f| f.size).sum::<u64>()
+            + mf.from_copy
+                .as_ref()
+                .map(|l| l.files.iter().map(|f| f.size).sum::<u64>())
+                .unwrap_or(0),
         claude: None,
         // The lease the move raises is one above the source's.
         epoch: mf.epoch.saturating_sub(1),
@@ -741,17 +773,21 @@ pub async fn peer_create(
                     .collect(),
                 bytes_total: mf.files.iter().map(|f| f.size).sum(),
                 bytes_sent: 0,
-                conversation_bytes: mf
-                    .files
-                    .iter()
-                    .find(|f| f.name == session_pack::FILE)
-                    .map(|f| f.size)
-                    .unwrap_or(0),
+                conversation_bytes: match &mf.from_copy {
+                    Some(list) => list.files.iter().map(|f| f.size).sum(),
+                    None => mf
+                        .files
+                        .iter()
+                        .find(|f| f.name == session_pack::FILE)
+                        .map(|f| f.size)
+                        .unwrap_or(0),
+                },
                 settings: mf.settings.clone(),
                 was_running: false,
                 held: mf.held.clone(),
                 recipe: mf.recipe.clone(),
                 trust: mf.trust,
+                from_copy: mf.from_copy.is_some(),
                 steps: Vec::new(),
                 error: None,
                 warnings: Vec::new(),
@@ -1091,6 +1127,28 @@ async fn land_checked(
                     return Err(e);
                 }
             }
+        }
+    }
+    // The conversation: from this computer's copy, checked against the
+    // source's list first (each file's size and SHA-256), when it came so.
+    if let Some(list) = &mf.from_copy {
+        let files: Vec<(String, u64, String)> = list
+            .files
+            .iter()
+            .map(|f| (f.name.clone(), f.size, f.sha256.clone()))
+            .collect();
+        let packed = crate::machines::copies::target::pack_for_move(
+            state,
+            from,
+            &mf.session,
+            &files,
+            &dir.join(session_pack::FILE),
+        )
+        .await;
+        if let Err(e) = packed {
+            ignored_back(dir, carried).await;
+            code_back(&git, &folder, &code_dir, applied.is_some()).await;
+            return Err(e);
         }
     }
     // The conversation.

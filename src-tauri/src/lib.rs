@@ -220,6 +220,8 @@ pub fn run() {
     app_state.machines.enable_task_sessions();
     // Code sync watches its projects (tests drive its steps by hand).
     app_state.machines.enable_sync_watch();
+    // Copies are kept current after each turn (tests drive their rounds).
+    app_state.machines.enable_copies();
     let exit_state = app_state.clone();
 
     tauri::Builder::default()

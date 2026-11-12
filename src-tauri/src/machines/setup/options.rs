@@ -50,6 +50,9 @@ pub struct Effective {
     /// Its recipe, when it has one.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub recipe: Option<Recipe>,
+    /// The computers its sessions keep a copy on (§5.9).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub copies: Vec<String>,
     /// The key its own settings are kept under, when it has some.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub key: Option<String>,
@@ -127,11 +130,17 @@ pub fn effective(state: &AppState, project: &str) -> Effective {
             Some((key, p)) => Effective {
                 code: p.code.over(&f.settings.code),
                 recipe: p.recipe.filter(|r| !r.is_empty()),
+                copies: p
+                    .copies
+                    .into_iter()
+                    .filter(|m| f.peer(m).is_some())
+                    .collect(),
                 key: Some(key),
             },
             None => Effective {
                 code: f.settings.code.clone(),
                 recipe: None,
+                copies: Vec::new(),
                 key: None,
             },
         })
@@ -195,6 +204,10 @@ pub struct ProjectInput {
     pub code: CodeInput,
     #[serde(default)]
     pub recipe: Option<RecipeInput>,
+    /// The computers its sessions keep a copy on (§5.9); left out, it stays
+    /// as it was.
+    #[serde(default)]
+    pub copies: Option<Vec<String>>,
 }
 
 /// `projects` in `PUT /api/machines/settings`: projects to set and to
@@ -313,6 +326,8 @@ pub struct Applied {
     pub removed: Vec<String>,
     /// Files newly carried (the dangerous part).
     pub carried: Vec<String>,
+    /// Projects whose copies changed (to computers that keep them).
+    pub copies: Vec<String>,
 }
 
 /// Applies `change` to `file`'s projects as this computer (`here`) at
@@ -369,6 +384,32 @@ pub fn apply(
             before.as_ref().and_then(|(_, b)| b.recipe.as_ref()),
             recipe.as_ref(),
         ));
+        // The computers its sessions keep a copy on: paired ones only.
+        let copies = match &p.copies {
+            Some(list) => {
+                let mut out: Vec<String> = Vec::new();
+                for m in list {
+                    if file.peer(m).is_none() {
+                        return Err(ApiError::not_found(
+                            "machines_unknown",
+                            "Not a paired computer.",
+                        )
+                        .with("machine", m.as_str()));
+                    }
+                    if !out.contains(m) {
+                        out.push(m.clone());
+                    }
+                }
+                out
+            }
+            None => before
+                .as_ref()
+                .map(|(_, b)| b.copies.clone())
+                .unwrap_or_default(),
+        };
+        if before.as_ref().map(|(_, b)| &b.copies) != Some(&copies) && !copies.is_empty() {
+            out.copies.push(key.clone());
+        }
         // Kept under its folder before a root held it: under the root now.
         if let Some((old, _)) = &before {
             file.projects.remove(old);
@@ -380,6 +421,7 @@ pub fn apply(
                 keep_remote_refs: p.code.keep_remote_refs,
             },
             recipe,
+            copies,
             updated_at: now,
             extra: before.map(|(_, b)| b.extra).unwrap_or_default(),
         };
@@ -423,6 +465,7 @@ pub fn change(state: &AppState, ctx: &ClientContext, change: &ProjectsChange) ->
                 "set": applied.set,
                 "removed": applied.removed,
                 "carried": applied.carried.len(),
+                "copies": applied.copies,
             })),
             ..AuditEntry::from_ctx(ctx, "machines.projects")
         });
@@ -449,6 +492,7 @@ pub fn view(state: &AppState) -> Vec<Value> {
                     "root": root,
                     "code": p.code,
                     "recipe": p.recipe,
+                    "copies": p.copies,
                     "updatedAt": p.updated_at,
                 })
             })
@@ -503,6 +547,7 @@ mod tests {
                 project: project.into(),
                 code,
                 recipe,
+                copies: None,
             }],
             remove: vec![],
         }
