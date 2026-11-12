@@ -13,6 +13,10 @@
 //! lives on (`lease`), the move itself (`moves`, both sides) and its routes
 //! (`move_routes`), over the git half in `code`.
 //!
+//! Phase 4 — working on another machine without moving: a session runs
+//! commands on another computer at its own code (`work`: the `machine_*`
+//! tools, the work folders, approvals and standing grants, the runs).
+//!
 //! Invariants (plan §11): a peer is a principal (`Principal::Peer`), built
 //! only from the transport's authenticated key, and reaches the peer routes
 //! only; nothing on a machine changes because another asked until that
@@ -41,6 +45,7 @@ pub mod setup;
 pub mod store;
 pub mod sync;
 pub mod transport;
+pub mod work;
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -146,6 +151,8 @@ pub struct MachinesState {
     pub(crate) moves: moves::Moves,
     /// Projects kept in sync with another computer (`machines/sync.json`).
     pub(crate) sync: sync::SyncState,
+    /// Commands run on another computer, or for one (`machines/work/`).
+    pub work: work::WorkState,
 }
 
 impl std::fmt::Debug for MachinesState {
@@ -182,6 +189,7 @@ impl MachinesState {
             leases: lease::Leases::load(data_dir),
             moves: moves::Moves::default(),
             sync: sync::SyncState::load(data_dir),
+            work: work::WorkState::load(data_dir),
         }
     }
 
@@ -464,6 +472,7 @@ pub fn machine_info(state: &AppState) -> MachineInfo {
         os_version: identity::os_version(),
         versions: Versions::this_build(setup::claude_version(state)),
         key,
+        shell: Some(work::shell::Shell::here().kind.as_str().to_string()),
     }
 }
 
@@ -540,6 +549,7 @@ pub fn revoke(state: &AppState, machine: &str) -> bool {
         .remove(machine);
     federation::forget(state, machine);
     sync::on::forget_machine(state, machine);
+    work::stop_from(state, Some(machine), "This computer was unpaired.");
     audit(state, "machine.revoked", machine, &name);
     publish(state, "peers");
     true
@@ -595,6 +605,7 @@ pub fn set_enabled(state: &AppState, on: bool) {
                 crate::server::ws::CLOSE_FORBIDDEN,
                 "Machines is off on this computer",
             );
+            work::stop_from(state, None, "Machines was turned off on this computer.");
         }
         sync::on::machines_turned(state, on);
     }
@@ -764,6 +775,7 @@ pub fn learn(state: &AppState, hello: &Hello, conn: Option<&Connection>) {
                 || p.capabilities != hello.capabilities
                 || p.relay.as_ref() != Some(&hello.relay)
                 || p.their_grants != Some(hello.grants_you_have)
+                || (m.shell.is_some() && p.shell != m.shell)
                 || addrs
                     .as_ref()
                     .is_some_and(|a| !a.is_empty() && *a != p.addrs)
@@ -781,6 +793,9 @@ pub fn learn(state: &AppState, hello: &Hello, conn: Option<&Connection>) {
             p.capabilities = hello.capabilities.clone();
             p.relay = Some(hello.relay.clone());
             p.their_grants = Some(hello.grants_you_have);
+            if m.shell.is_some() {
+                p.shell = m.shell.clone();
+            }
             p.last_seen = Some(now());
             if let Some(a) = addrs.filter(|a| !a.is_empty()) {
                 p.addrs = a;
@@ -811,6 +826,8 @@ pub fn start(state: &AppState) {
         tokio::spawn(async move { moves::recover(&rec).await });
         // Code sync's watchers and its minute's check (the app only).
         sync::start(&st);
+        // Runs asked of other computers that had not ended: followed again.
+        work::start(&st);
         setup::health_loop(st).await;
     });
 }
@@ -886,6 +903,7 @@ fn peer_view(state: &AppState, p: &PeerRecord) -> Value {
         "grants": p.grants,
         "theirGrants": p.their_grants,
         "capabilities": p.capabilities,
+        "shell": p.shell,
         "relay": p.relay,
         "problem": problem,
         "sessions": state.machines.federation.counts(&p.id).map(|(total, running)| json!({ "total": total, "running": running })),

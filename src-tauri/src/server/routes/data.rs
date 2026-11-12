@@ -494,6 +494,14 @@ pub async fn task_output(
             "Not a valid task id.",
         ));
     }
+    // A command it runs on another computer: the output's tail as that
+    // computer last sent it (docs/PLAN-MACHINES.md Phase 4).
+    if let Some(run) = crate::machines::work::session_run(&state, &id, &task) {
+        let r = run.record();
+        let shown = crate::machines::work::tail_of(&r.tail, OUTPUT_TAIL as usize);
+        let truncated = r.output_size > shown.len() as u64;
+        return Ok(output_response(shown.to_string(), truncated, r.output_size));
+    }
     if claude::owned::has_handle(&state, &id) {
         if let Ok(v) = claude::owned::task_output(&state, &id, &task).await {
             if let Some(text) = v.get("output").and_then(Value::as_str) {

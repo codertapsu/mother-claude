@@ -29,6 +29,7 @@ pub const CAPABILITIES: &[&str] = &[
     super::roots::CAPABILITY,
     MOVES,
     IGNORED_FILES,
+    super::work::CAPABILITY,
 ];
 
 /// The capability a machine needs to take (and send) sessions.
@@ -75,6 +76,10 @@ pub struct MachineInfo {
     pub versions: Versions,
     /// Its machine key (hex).
     pub key: String,
+    /// The shell a run uses there (`zsh`, `pwsh`, `powershell`, …: Phase 4,
+    /// `work::shell`). Absent from an older build.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shell: Option<String>,
 }
 
 /// `POST /peer/hello`, both ways: who I am, my relay setting, what you may do

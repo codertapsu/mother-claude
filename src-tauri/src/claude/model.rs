@@ -695,6 +695,9 @@ pub enum PendingSource {
     Observed,
     /// A browser action waiting for approval (`extension::actions`).
     Browser,
+    /// A command a session asks to run on another computer
+    /// (`machines::work`, docs/PLAN-MACHINES.md Phase 4).
+    Machine,
 }
 
 /// Something a human must act on (design §4.2).
@@ -1009,6 +1012,8 @@ pub enum BackgroundTaskKind {
     Agent,
     Workflow,
     Monitor,
+    /// A command run on another computer (`machines::work`).
+    Machine,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]

@@ -209,7 +209,8 @@ pub struct PeerChecks {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TestLine {
-    /// `connect` | `transfer` | `tools` | `code` | `accounts` | `folders`.
+    /// `connect` | `transfer` | `tools` | `code` | `accounts` | `folders` |
+    /// `run` (an echo there) | `runBack` (an echo here, run by the other).
     pub id: String,
     /// `ok` | `warning` | `failed` | `skipped`.
     pub state: String,
@@ -970,6 +971,14 @@ pub async fn fix_check(state: &AppState, id: &str) -> Result<(), ApiError> {
                 .map_err(|e| ApiError::internal(e.to_string()))?;
                 done.map_err(|e| ApiError::unprocessable("fix_failed", e))?;
             }
+        }
+        "claudeTools" => {
+            // Services › Claude Code tools: Mother Claude's own setting.
+            state
+                .mcp
+                .set_enabled(true)
+                .map_err(|e| ApiError::internal(format!("Could not save the setting: {e}")))?;
+            crate::mcp::plugin::apply(state);
         }
         "claudeCode" => {
             // `claude update`, run because the user pressed it here.

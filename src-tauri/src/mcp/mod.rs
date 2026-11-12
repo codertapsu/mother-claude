@@ -1,6 +1,7 @@
 //! Mother Claude's MCP server (docs/PLAN-BROWSER-AND-TEAMS.md §5.4): the tools
 //! Claude Code sessions call — the browser (`browser_*`), the task board and
-//! teams (`task_*`, `team_*`), and Mother Claude itself (`mc_*`).
+//! teams (`task_*`, `team_*`), the user's other computers (`machine_*`,
+//! docs/PLAN-MACHINES.md Phase 4) and Mother Claude itself (`mc_*`).
 //!
 //! This file is the **contract** the areas share. A tool is a [`ToolDef`]
 //! (what `tools/list` shows) and a handler (what `tools/call` runs). Each area
@@ -194,6 +195,10 @@ pub type Handler =
 pub struct Tool {
     pub def: ToolDef,
     pub handler: Handler,
+    /// How long one call may run here; `None`: the server's own limit
+    /// (`server::CALL_TIMEOUT`). A tool that waits for a person or a long
+    /// job says so (`machine_run` waits for an approval, then a build).
+    pub limit: Option<std::time::Duration>,
 }
 
 /// The tools the server offers, in registration order.
@@ -210,13 +215,32 @@ impl Registry {
         F: Fn(ToolCtx, Value) -> Fut + Send + Sync + 'static,
         Fut: Future<Output = Result<ToolOutput, ToolError>> + Send + 'static,
     {
+        self.add_with_limit(def, None, handler);
+    }
+
+    /// [`Registry::add`] for a tool whose call may run longer than the
+    /// server's own limit (`limit`).
+    pub fn add_with_limit<F, Fut>(
+        &mut self,
+        def: ToolDef,
+        limit: Option<std::time::Duration>,
+        handler: F,
+    ) where
+        F: Fn(ToolCtx, Value) -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = Result<ToolOutput, ToolError>> + Send + 'static,
+    {
         let handler: Handler = Arc::new(move |ctx, args| Box::pin(handler(ctx, args)));
-        if let Some(old) = self.tools.iter_mut().find(|t| t.def.name == def.name) {
-            tracing::error!(tool = %def.name, "two MCP tools with one name; the later one wins");
-            *old = Tool { def, handler };
+        let tool = Tool {
+            def,
+            handler,
+            limit,
+        };
+        if let Some(old) = self.tools.iter_mut().find(|t| t.def.name == tool.def.name) {
+            tracing::error!(tool = %tool.def.name, "two MCP tools with one name; the later one wins");
+            *old = tool;
             return;
         }
-        self.tools.push(Tool { def, handler });
+        self.tools.push(tool);
     }
 
     pub fn list(&self) -> impl Iterator<Item = &ToolDef> {
@@ -245,12 +269,13 @@ impl Registry {
 }
 
 /// Every tool Mother Claude serves. Each area adds its `register` call here,
-/// one line, in this order: core, browser, teams.
+/// one line, in this order: core, browser, teams, machines.
 pub fn registry() -> Registry {
     let mut r = Registry::default();
     core_tools(&mut r);
     crate::extension::mcp::register(&mut r);
     crate::orchestration::mcp::register(&mut r);
+    crate::machines::work::mcp::register(&mut r);
     r
 }
 

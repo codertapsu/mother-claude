@@ -263,6 +263,31 @@ pub fn claude_check(mine: Option<&str>, peers: &[(String, String)]) -> Check {
     }
 }
 
+/// Claude Code tools (Mother Claude's MCP server, Services) are on: the
+/// `machine_*` tools are among them (plan §5.14: a warning, a blocker for
+/// Phase 4's tools — `scope: "tools"` blocks only those). Blocking only
+/// once another computer lets this one run commands (`runs_given`).
+pub fn claude_tools_check(on: bool, runs_given: bool) -> Check {
+    let c = Check::new(
+        "claudeTools",
+        "claude",
+        "Claude Code tools",
+        "Sessions here run commands on your other computers through Mother Claude's tools (machine_run).",
+    );
+    if on {
+        return c.ok("On: sessions here can use machine_run.");
+    }
+    let mut c = c.failed(
+        runs_given,
+        "Off: sessions here can't use machine_run or the other machine tools.",
+        fix(FixKind::Auto, "Turn on"),
+    );
+    if runs_given {
+        c.scope = Some("tools".into());
+    }
+    c
+}
+
 // ─── accounts ──────────────────────────────────────────────────────────────────
 
 /// One account's sign-in on this computer (the plan's "B for that
@@ -414,6 +439,15 @@ pub async fn tools(state: &AppState) -> Vec<Check> {
             .collect()
     });
     out.push(claude_check(mine.as_deref(), &peers));
+    let runs_given = state.machines.store_read(|f| {
+        f.peers.iter().any(|p| {
+            p.their_grants.is_some_and(|g| {
+                g.allows(crate::machines::grants::Grant::Run, true)
+                    || g.allows(crate::machines::grants::Grant::Run, false)
+            })
+        })
+    });
+    out.push(claude_tools_check(state.mcp.enabled(), runs_given));
     out
 }
 
@@ -609,6 +643,23 @@ mod tests {
             account_check(&fact(SignIn::Unknown)).state,
             CheckState::Unknown
         );
+    }
+
+    #[test]
+    fn claude_code_tools_block_only_the_machine_tools_once_runs_are_given() {
+        let on = claude_tools_check(true, true);
+        assert_eq!(on.state, CheckState::Ok);
+        let off = claude_tools_check(false, false);
+        assert_eq!(
+            off.state,
+            CheckState::Warning,
+            "nobody may run anything yet"
+        );
+        assert!(!off.gates());
+        let off = claude_tools_check(false, true);
+        assert_eq!(off.state, CheckState::Blocker);
+        assert_eq!(off.scope.as_deref(), Some("tools"));
+        assert!(!off.gates(), "Machines works without them");
     }
 
     #[test]

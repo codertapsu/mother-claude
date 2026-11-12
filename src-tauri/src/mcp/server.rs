@@ -55,8 +55,9 @@ use crate::state::AppState;
 
 /// Largest request body (a tool's arguments can carry a file or an image).
 pub const MCP_BODY_MAX: usize = 16 * 1024 * 1024;
-/// The longest one tool call may run here (tools have their own, shorter
-/// limits; this one only catches a handler that never ends).
+/// The longest one tool call may run here unless the tool names its own
+/// (`Tool::limit`; tools have their own, shorter limits inside; this one
+/// only catches a handler that never ends).
 pub const CALL_TIMEOUT: Duration = Duration::from_secs(120);
 /// Calls kept for the dashboard.
 pub const RECENT_CALLS: usize = 50;
@@ -739,6 +740,7 @@ impl Exchange {
             .as_ref()
             .and_then(|a| a.read_only_hint)
             .unwrap_or(false);
+        let limit = tool.limit.unwrap_or(CALL_TIMEOUT);
         let caller = self.caller().await;
         if let Some(session) = &caller.session_id {
             // A session that listed its tools before an app restart.
@@ -751,7 +753,7 @@ impl Exchange {
             state: self.state.clone(),
             caller: caller.clone(),
         };
-        let output = run_tool(&registry, &name, ctx, args, cancel_rx, CALL_TIMEOUT).await;
+        let output = run_tool(&registry, &name, ctx, args, cancel_rx, limit).await;
         let duration_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
         let ok = !output.is_error;
         self.state.mcp.record(CallRecord {

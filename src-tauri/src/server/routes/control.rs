@@ -520,6 +520,11 @@ pub async fn stop_task(
     State(state): State<AppState>,
     Path((id, task_id)): Path<(String, String)>,
 ) -> ApiResult<Json<Value>> {
+    // A command it runs on another computer: cancelled there.
+    if let Some(run) = crate::machines::work::session_run(&state, &id, &task_id) {
+        crate::machines::work::source::cancel_run(&state, &run).await?;
+        return Ok(ok());
+    }
     match route_for(&state, &id).await? {
         Route::Owned => owned::stop_task(&state, &id, &task_id).await?,
         other => return Err(unsupported("Stopping a background task", &other)),

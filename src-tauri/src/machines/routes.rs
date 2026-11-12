@@ -12,8 +12,9 @@
 //!   with `view`, `POST` with `move`: roots steer where a move lands), and
 //!   the setup's rest (`setup::routes`: accounts, origins, the code test);
 //!   the session stream (`/ws`), the allow-listed session routes (`/api/*`,
-//!   [`peer_route_grant`]) and a move's target half (`move_routes`).
-//!   Nothing else is mounted there.
+//!   [`peer_route_grant`]), a move's target half (`move_routes`), code
+//!   sync's (`sync::routes`) and runs for another computer (`work::routes`,
+//!   the `run` grant). Nothing else is mounted there.
 //!
 //! While Machines is off here, another computer gets only what pairing and
 //! the setup need: `/ws`, `/api/*` and `/peer/moves/*` answer `403
@@ -70,6 +71,8 @@ pub fn api_router() -> Router<AppState> {
         .merge(super::setup::routes::api_router())
         // Code sync (§5.15).
         .merge(super::sync::routes::api_router())
+        // Runs on other computers (Phase 4).
+        .merge(super::work::routes::api_router())
 }
 
 /// The largest request forwarded to another machine (a message with images).
@@ -95,6 +98,8 @@ pub fn peer_router() -> Router<AppState> {
         .merge(super::setup::routes::peer_router())
         // Code sync's other half (§5.15).
         .merge(super::sync::routes::peer_router())
+        // Running commands for another computer (Phase 4).
+        .merge(super::work::routes::peer_router())
         // The paired machine's view of this one's sessions (plan §5.6).
         .route("/ws", get(peer_ws))
         // `/api/*` is served from the fallback, so no path parameter of this
@@ -561,6 +566,8 @@ async fn update_peer(
     });
     if grants.is_some() {
         super::audit(&state, "machine.grants", &id, name.as_deref().unwrap_or(""));
+        // No `run` grant left: what it runs here stops.
+        super::work::grants_changed(&state, &id);
         // Tell it at once what it may now do here.
         let key = state
             .machines

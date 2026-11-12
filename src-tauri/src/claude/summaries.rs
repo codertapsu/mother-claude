@@ -1341,6 +1341,8 @@ pub async fn detail(state: &AppState, summary: SessionSummary) -> SessionDetail 
             }
         }
     }
+    // Commands it runs on other computers (docs/PLAN-MACHINES.md Phase 4).
+    tasks.extend(crate::machines::work::session_tasks(state, &id));
     SessionDetail {
         pending_detail: pending_detail(state, &id),
         summary,

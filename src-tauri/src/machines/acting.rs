@@ -63,6 +63,19 @@ pub fn header_for(state: &AppState, ctx: &ClientContext) -> String {
     }
 }
 
+/// The header a computer sends when it acts itself for one of its sessions
+/// (a command it asks another computer to run, docs/PLAN-MACHINES.md Phase
+/// 4): `machine` with its name and the right it judged — a dangerous
+/// approval allowed here, which only someone with the dangerous right can
+/// do. The other computer intersects it with its own `dangerous` grant.
+pub fn machine_header(name: &str, dangerous: bool) -> String {
+    format!(
+        "machine; dangerous={}; name={}",
+        u8::from(dangerous),
+        encode(name)
+    )
+}
+
 /// Reads the header (absent or malformed: the peer itself, nothing dangerous).
 pub fn parse(value: Option<&str>) -> Acting {
     let Some(v) = value
@@ -191,6 +204,11 @@ mod tests {
         assert!(!a.dangerous);
         assert_eq!(parse(Some("machine")).label, "machine");
         assert!(!parse(Some("machine")).dangerous, "nothing said: none");
+        // A computer acting itself (a run it asks for).
+        let a = parse(Some(&machine_header("Marcus’s Mac", true)));
+        assert_eq!(a.label, "machine Marcus’s Mac");
+        assert!(a.dangerous);
+        assert!(!parse(Some(&machine_header("Mac", false))).dangerous);
     }
 
     #[test]

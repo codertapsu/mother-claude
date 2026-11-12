@@ -47,13 +47,120 @@ pub fn skipped() -> Vec<TestLine> {
         .collect()
 }
 
-/// Steps 3–6 with `machine` (`name`).
+/// Steps 3–6 with `machine` (`name`), then the `machine_run` echo each
+/// way the `run` grant is given.
 pub async fn lines(state: &AppState, machine: &str, name: &str) -> Vec<TestLine> {
     let tools = tools_line(state, machine, name).await;
     let code = codetest::round_trip(state, machine, name).await;
     let accounts = accounts_line(state, machine, name).await;
     let folders = folders_line(state, machine, name).await;
-    vec![tools, code, accounts, folders]
+    let mut out = vec![tools, code, accounts, folders];
+    out.extend(run_lines(state, machine, name).await);
+    out
+}
+
+// ─── running commands (Phase 4) ────────────────────────────────────────────────
+
+/// The `machine_run` echo (docs/PLAN-MACHINES.md Phase 4), shown only when
+/// the `run` grant is given that way: `run` — this computer runs a fixed
+/// `echo` there; `runBack` — it has the other computer run it here.
+pub async fn run_lines(state: &AppState, machine: &str, name: &str) -> Vec<TestLine> {
+    let (there, here) = state
+        .machines
+        .store_read(|f| {
+            f.peer(machine).map(|p| {
+                (
+                    p.their_grants.is_some_and(|g| g.run.lan || g.run.internet),
+                    p.grants.run.lan || p.grants.run.internet,
+                )
+            })
+        })
+        .unwrap_or((false, false));
+    let mut out = Vec::new();
+    if there {
+        let v = crate::machines::work::routes::echo_on(state, machine).await;
+        out.push(echo_line("run", &v, name, true));
+    }
+    if here {
+        let acting =
+            crate::machines::acting::machine_header(&crate::machines::this_name(state), false);
+        let v = match crate::machines::moves::call(
+            state,
+            machine,
+            "POST",
+            "/peer/work/echo-back",
+            None,
+            &acting,
+            std::time::Duration::from_secs(120),
+        )
+        .await
+        {
+            Ok((200, v)) => v,
+            Ok((status, v)) => serde_json::json!({
+                "ok": false,
+                "status": status,
+                "code": v.pointer("/error/code").and_then(serde_json::Value::as_str),
+                "error": v.pointer("/error/message").and_then(serde_json::Value::as_str).unwrap_or("it refused"),
+            }),
+            Err(e) => serde_json::json!({ "ok": false, "error": e }),
+        };
+        out.push(echo_line("runBack", &v, name, false));
+    }
+    out
+}
+
+/// One echo's line: `there` — it ran on `name`; else here, by `name`.
+pub fn echo_line(id: &str, v: &serde_json::Value, name: &str, there: bool) -> TestLine {
+    use serde_json::Value;
+    let ok = v.get("ok").and_then(Value::as_bool).unwrap_or(false);
+    let label = v
+        .get("shellLabel")
+        .and_then(Value::as_str)
+        .unwrap_or("its shell")
+        .to_string();
+    let ms = v.get("ms").and_then(Value::as_f64);
+    if ok {
+        let detail = if there {
+            format!("echo ran on {name} in {label}.")
+        } else {
+            format!("{name} ran echo here in {label}.")
+        };
+        return TestLine {
+            id: id.into(),
+            state: "ok".into(),
+            detail,
+            ms,
+            mibps: None,
+        };
+    }
+    let old = v.get("status").and_then(Value::as_u64) == Some(404)
+        && v.get("code").and_then(Value::as_str) == Some("not_found");
+    let detail = if old {
+        format!("Update Mother Claude on {name} to test running commands.")
+    } else {
+        let why = v
+            .get("error")
+            .and_then(Value::as_str)
+            .map(str::to_string)
+            .or_else(|| {
+                v.get("exitCode")
+                    .and_then(Value::as_i64)
+                    .map(|c| format!("it ended with exit code {c}"))
+            })
+            .unwrap_or_else(|| "it printed something else".into());
+        if there {
+            format!("echo did not run on {name}: {why}")
+        } else {
+            format!("{name} could not run echo here: {why}")
+        }
+    };
+    TestLine {
+        id: id.into(),
+        state: if old { "skipped" } else { "failed" }.into(),
+        detail,
+        ms: None,
+        mibps: None,
+    }
 }
 
 // ─── tools ─────────────────────────────────────────────────────────────────────

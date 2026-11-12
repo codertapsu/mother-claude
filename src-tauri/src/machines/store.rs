@@ -379,6 +379,9 @@ pub struct PeerRecord {
     /// Its last home relay.
     #[serde(default)]
     pub relay_url: Option<String>,
+    /// The shell a run uses there, as it last said (Phase 4).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shell: Option<String>,
     #[serde(flatten, default)]
     pub extra: BTreeMap<String, Value>,
 }
