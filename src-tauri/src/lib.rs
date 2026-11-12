@@ -320,7 +320,9 @@ pub fn run() {
             open_settings_pane,
             reveal_app_in_finder,
             app_location,
-            server_info
+            server_info,
+            // The tray menu's language (an OS concern: its labels).
+            tray::tray_language
         ])
         .build(tauri::generate_context!())
         .expect("error while building Mother Claude")

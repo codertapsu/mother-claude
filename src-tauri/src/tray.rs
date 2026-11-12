@@ -12,11 +12,46 @@ use tauri::{AppHandle, Manager, Runtime, Window};
 const OPEN: &str = "open";
 const QUIT: &str = "quit";
 
+/// The menu's two items, kept so their words follow the window's language.
+struct Items<R: Runtime> {
+    open: MenuItem<R>,
+    quit: MenuItem<R>,
+}
+
+/// The menu's words in `lang`, the language the desktop's window shows
+/// (English for one this menu does not speak).
+fn labels(lang: &str) -> (&'static str, &'static str) {
+    match lang {
+        "vi" => ("Mở Mother Claude", "Thoát Mother Claude"),
+        _ => ("Open Mother Claude", "Quit Mother Claude"),
+    }
+}
+
+/// The desktop's window says which language it shows (`I18nService`):
+/// the menu speaks it. Only the window can tell — the choice is kept in its
+/// own storage — so it does, through `invoke`, at its start and at each
+/// switch; until then (a run started at sign-in, its window still
+/// loading) the menu is in English. No tray, nothing to do.
+#[tauri::command]
+pub fn tray_language<R: Runtime>(app: AppHandle<R>, lang: String) {
+    let Some(items) = app.try_state::<Items<R>>() else {
+        return;
+    };
+    let (open, quit) = labels(&lang);
+    let _ = items.open.set_text(open);
+    let _ = items.quit.set_text(quit);
+}
+
 /// Puts the icon in the tray (the app's own icon).
 pub fn build<R: Runtime>(app: &tauri::App<R>) -> tauri::Result<()> {
-    let open = MenuItem::with_id(app, OPEN, "Open Mother Claude", true, None::<&str>)?;
-    let quit = MenuItem::with_id(app, QUIT, "Quit Mother Claude", true, None::<&str>)?;
+    let (open, quit) = labels("en");
+    let open = MenuItem::with_id(app, OPEN, open, true, None::<&str>)?;
+    let quit = MenuItem::with_id(app, QUIT, quit, true, None::<&str>)?;
     let menu = Menu::with_items(app, &[&open, &quit])?;
+    app.manage(Items {
+        open: open.clone(),
+        quit: quit.clone(),
+    });
     let mut tray = TrayIconBuilder::with_id("main")
         .tooltip("Mother Claude")
         .menu(&menu)
@@ -65,4 +100,16 @@ pub fn hide_main<R: Runtime>(window: &Window<R>) {
     let _ = window
         .app_handle()
         .set_activation_policy(tauri::ActivationPolicy::Accessory);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::labels;
+
+    #[test]
+    fn the_menu_speaks_the_window_s_language_else_english() {
+        assert_eq!(labels("vi"), ("Mở Mother Claude", "Thoát Mother Claude"));
+        assert_eq!(labels("en"), ("Open Mother Claude", "Quit Mother Claude"));
+        assert_eq!(labels("xx"), labels("en"));
+    }
 }

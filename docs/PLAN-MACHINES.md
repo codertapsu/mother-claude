@@ -1537,7 +1537,11 @@ the login item started. Since 2026-11-13, one Mother Claude at a time:
 `tauri-plugin-single-instance`, registered first, so a second launch exits
 before its server, endpoint or window start, and the running one shows its
 window (`lib.rs` `second_launch`) — a second launch with `--tray` (the
-login item while it already runs) stays quiet.*
+login item while it already runs) stays quiet. The tray's menu speaks the
+window's language (en, vi): the language is chosen per device and kept in
+the webview's own storage, so the window tells the desktop through the
+`tray_language` invoke at its start and at each switch (an OS concern, as
+the architecture allows), and the menu is in English until it has.*
 
 *The dev mock covers every Machines screen (2026-11-13):
 `?mock=1&mockmachines=1` serves Machines on with DESKTOP-PC (online) and

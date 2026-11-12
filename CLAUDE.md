@@ -681,7 +681,10 @@ developed on `main`, as the rest of the app is. Invariants:
   `autostart` fix, and only after `lib.rs` called
   `autostart.enable_for_real()` — tests record. Started with `--tray`, the
   window stays hidden (`tauri.conf.json` makes it hidden; `lib.rs` shows it
-  otherwise) and closing it hides it again.
+  otherwise) and closing it hides it again. Its menu speaks the window's
+  language: the window tells it through the `tray_language` invoke (an OS
+  concern; the choice lives in the webview's storage, so Rust can't read
+  it), English until then.
 - **One Mother Claude at a time** (`tauri-plugin-single-instance`,
   registered first in `lib.rs`): a second launch exits before its server,
   endpoint or window start, and the running one shows its window

@@ -1150,6 +1150,10 @@ your other computers as usual. *Open Mother Claude* in the icon's menu (on
 Windows, a click on the icon) shows the window; closing the window hides it
 again; *Quit Mother Claude* ends it.
 
+The icon's menu speaks the language the window shows (Settings ›
+Appearance); while a sign-in start's window is still loading, it is in
+English for a moment.
+
 One Mother Claude runs at a time: opening it again while it runs (from the
 Start menu, the Dock, Finder) never starts a second copy — the one running
 shows its window, in front. The sign-in start finding it already running
