@@ -1327,8 +1327,43 @@ background task of its session in the session's detail (`tasks`, kind
 `{t:"machines", what:"runs"}` and the task output's 3 s refresh; turning
 Machines off, unpairing or taking back `run` (the column the run came in
 by) stops the other computer's runs; the whole output is kept up to 256 MiB; the readiness test runs the
-echo both ways (its `run` and `runBack` lines). `machine_task` and Teams'
-`machine` on a role are not built yet.*
+echo both ways (its `run` and `runBack` lines).*
+
+*Tasks built on main (2026-11-12), decision 8's second item:
+`machines/work/tasks/` (`mod.rs` the records, the state machine and the
+session's hooks, `source.rs` the asking computer, `target.rs` the one that
+runs it), `code::task` (`task_result`, `land_task_branch`,
+`remove_task_tree`, `drop_task_refs`; `SnapshotRequest::extra_parents` and
+`label`); the hooks `tasks::turn_ended` (the control stream's `result`),
+`turn_started` (`owned::send`, a cross-session turn) and `session_exited`
+(the reaper); `machine_task`, with `machine_wait` and `machine_cancel` taking
+a `task_…` id; the routes `GET /api/machines/tasks`, `GET …/tasks/{id}`,
+`POST …/tasks/{id}/cancel`, `DELETE …/tasks/{id}` (`ManageData`) and
+`/peer/work/tasks/*`; the `tasks` capability and frame; the approval card,
+the Runs card's *Tasks*; `tests/tasks.rs`. The user guide is
+[MACHINES.md](MACHINES.md) "Handing a task to another computer". Choices
+made where the decisions left one: the worktree is
+`<app data>/machines/work/tasks/<task>/<project>` (the project's name, so
+the session's project reads as it should; the record and the transfers sit
+beside it, in folders a project's name never takes); *done* ignores
+background work that may resume the session (the answer says so, and a
+turn it takes up by itself updates the branch when it ends); the branch's
+tip is the session's own HEAD when it committed everything and the last tip
+is in its history, else a snapshot commit whose second parent is the last
+result — each result descends from every earlier one, so the branch only
+fast-forwards; a branch someone committed onto, or that a worktree has
+checked out, is not moved (the record names the newer result's commit); a
+cancel, a stop there or a process that ends mid-turn still brings back what
+the session did; the task session is named *From <computer>: <first line>*
+on both lists, and the task is a background task of the asking session too;
+the asking computer keeps following a task that ended (its long poll, every
+5 minutes once it ended an hour ago) so a later turn's result lands; *Remove*
+needs the desktop or a paired device (never the local-script token), is
+refused while the task works, and removes the other computer's side when it
+can be reached (its 7-day prune otherwise); Machines off, unpairing or
+taking back `run` there cancels the tasks that still work, never one whose
+turn ended; `machine_list` says `mayTask`. Teams' `machine` on a role is not
+built yet.*
 
 ### Phase 5 — more machines and polish (≈ 3 weeks)
 

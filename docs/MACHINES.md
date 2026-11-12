@@ -3,17 +3,17 @@
 Pair your computers once, then see and drive every computer's Claude Code
 sessions from any of them — and from a phone paired with any of them —
 move a session, with its code, to another computer and back, keep a
-project's code the same on two computers, and let a session build and test
-on another computer. The design and the plan for what comes next (copies
-kept up to date, handing a task to another computer) are in
-[PLAN-MACHINES.md](PLAN-MACHINES.md).
+project's code the same on two computers, let a session build and test on
+another computer, and hand a task to a session there. The design and the
+plan for what comes next (copies kept up to date, a team's role on another
+computer) are in [PLAN-MACHINES.md](PLAN-MACHINES.md).
 
 > **Status**: Phases 1 (pairing and setup), 2 (seeing and driving other
 > computers' sessions) and 3a (moving a session, with the setup's checks for
 > it) are built, and so are code sync (a project's code kept the same on two
-> computers) and the first part of Phase 4: a session running commands on
-> another computer. Handing a task to a session on another computer, a
-> team's role there and keeping a copy there come next.
+> computers) and Phase 4's first two parts: a session running commands on
+> another computer, and handing a task to a session there. A team's role on
+> another computer and keeping a copy there come next.
 
 ## Turning it on
 
@@ -684,6 +684,160 @@ any other (Inbox, the session's page), follows runs and cancels them.
 the desktop). It sees *Always allowed runs* read only: *Revoke* is the
 desktop's.
 
+## Handing a task to another computer
+
+A session can also hand a whole task to a Claude Code session on another
+computer: the Mac's session asks the Windows desktop to *make the installer
+build on Windows*; a session there does it in its own copy of the project,
+at the Mac session's code; and what it did comes back to the Mac as a
+branch, with its last message as the summary. The session there is an
+ordinary session of that computer: you see it, drive it and answer its
+approvals from either computer.
+
+### Turning it on
+
+As for runs: the computer that will take tasks gives the one that asks its
+**Run** permission (a session that works there runs code there), and
+*Claude Code tools* stays on on the computer that asks. Both need this
+version of Mother Claude: an older one answers *Update Mother Claude on
+DESKTOP-PC: it does not take tasks from other computers yet.*
+`machine_list` says for each computer whether this one may hand it tasks
+(`mayTask`).
+
+### How a session uses it
+
+`machine_task` (the reference is [MCP.md](MCP.md#machines)):
+
+```json
+{ "machine": "DESKTOP-PC", "task": "Make the installer build on Windows. …" }
+```
+
+- **`task`** is the new session's whole prompt (64 KiB at most). That
+  session knows nothing of the conversation that hands it over, so Claude
+  writes in it what it needs to know.
+- **`permissionMode`** is the session's mode there: `default` unless asked
+  — it asks before it edits files or runs commands, and you answer from
+  either computer. `acceptEdits`, `plan` and `auto` may be asked as well;
+  `bypassPermissions` and `dontAsk` need the dangerous right on both
+  computers (below).
+- **`model`** and **`effort`** choose its model and reasoning effort there
+  (that computer's defaults otherwise).
+
+`machine_task` waits up to 10 minutes for the session's turn to end:
+
+```text
+task_3f1c0a9e2d7b4c11 on DESKTOP-PC: "Make the installer build on Windows." — in its own worktree of D:\dev\app there, at this session's code.
+It is done: its session's turn ended after 6 min 2 s.
+Its work is the branch mother-claude/DESKTOP-PC/task_3f1c0a9e2d7b4c11 in this repository: 2 commits and changes it left uncommitted, 4 files changed. It is never checked out or merged here; look with
+  git log --oneline 8d2e41c0b7a9..mother-claude/DESKTOP-PC/task_3f1c0a9e2d7b4c11
+  git diff 8d2e41c0b7a9...mother-claude/DESKTOP-PC/task_3f1c0a9e2d7b4c11
+(8d2e41c0b7a9 is this session's code as it was handed over, uncommitted changes included.)
+Its summary (its session's last message):
+…
+```
+
+A longer task answers *still running* with its id (`task_…`):
+`machine_wait` waits again and `machine_cancel` stops it — both take a
+task's id as well as a run's.
+
+### Who agrees
+
+- **The computer that takes it**, through its *Run* permission for the one
+  that asks, on the network in use. Without it nothing is asked or sent.
+- **You, for every task, on the computer that asks.** The approval (Inbox,
+  the session's page, your phones) shows the **Computer**, the **Folder**
+  (that computer's checkout of the project: the task gets its own worktree
+  of it), the whole **Task**, and the session's **Permission mode**, model,
+  effort and **Account** there. There is no *Always…*: a task is a
+  free-form prompt, so each one is approved.
+- **A session without approvals** (`bypassPermissions`, `dontAsk`) is a
+  dangerous approval — the desktop, or a device allowed dangerous actions —
+  and the computer that takes it must also have given the one that asks its
+  **Dangerous** permission; without it Claude is told so before you are
+  asked.
+
+On the computer that runs a task, taking back *Run* (in the column the task
+came in by), revoking the computer that asked or turning Machines off
+cancels the task while its session works; a task that ended is left as it
+is.
+
+### Where it works: its own worktree
+
+The computer that asks snapshots the session's working tree (commits,
+staged, unstaged and untracked files, not ignored ones) and sends what the
+other lacks, as for a run. There the task gets **its own worktree**,
+`machines/work/tasks/task_…/<project>` in Mother Claude's data folder: a
+git worktree of that computer's checkout of the project, detached at the
+snapshot, so the asking session's uncommitted changes are the worktree's
+first commit. Your checkout there is never touched (its files, index,
+branch and `HEAD`), and neither is the run work folder.
+
+The session starts there as one Mother Claude runs (an *owned* session),
+with the task as its first message after a short note: that the task was
+handed over from the Mac, and that it finishes by committing its work or by
+leaving its changes in the working tree. It runs under the account with the
+same name as the asking session's account, else the Default, which must be
+signed in there. Both computers' lists call it *From MacBook: <the task's
+first line>*.
+
+### When it ends, and what comes back
+
+A task is **done** when its session's turn ends with no approval waiting
+and no message queued. Then:
+
+1. that computer snapshots the worktree — the session's commits and what it
+   left uncommitted — and sends a bundle of what this computer lacks;
+2. this computer makes it the branch **`mother-claude/<computer>/<task>`**
+   in the asking session's repository. It is never checked out and never
+   merged: review it with `git log` and `git diff` (the answer names the
+   commit it starts from), merge or cherry-pick what you want, or delete
+   it;
+3. the session's last message is the task's summary.
+
+A task that changed nothing makes no branch, and says so.
+
+The session stays there after its turn: send it another message, from
+either computer, and the task **runs again**; when that turn ends, the
+branch **moves forward** with what it did since — never rewritten: each
+result builds on the last one. A branch you committed onto here, or one a
+worktree here has checked out, is not moved: the task names the newer
+result's commit instead (`git branch <name> <commit>` makes a branch of
+it).
+
+### Following tasks
+
+**Machines › Runs › Tasks** lists the tasks both ways — those this
+computer's sessions handed elsewhere (*To DESKTOP-PC*) and those other
+computers handed this one (*From MacBook*) — with the project, the task's
+first line, how it stands (*Working*, *Waiting for an answer*, *Bringing
+its work back*, *Done*, *Stopped*, *Cancelled*, …), the branch and what it
+holds, and:
+
+- **Open its session** — its page on the computer it runs on (another
+  computer's session page for a task handed over: drive it and answer its
+  approvals from here);
+- **Summary** — its session's last message;
+- **Cancel** — while it works: its session is stopped (what it did so far
+  still comes back);
+- **Remove** — once it ended (tap twice): its session and worktree there
+  go, and its records on both computers; **its branch stays**.
+
+A task is kept 7 days after it last ended, with its worktree, then removed
+by itself. On the asking session's page it is a background task (**Agents**
+› **Background tasks**): **Output** shows how it stands, its branch and
+summary; **Cancel** stops it.
+
+Both computers write each task in the audit log with its id, the computer,
+the folder and the SHA-256 of the task's first line — never the task's
+text.
+
+### From a phone
+
+A phone paired with the computer that asks answers a task's approval like
+any other, follows tasks, opens their sessions, cancels and removes them. A
+task whose session runs without approvals needs the phone's dangerous
+permission.
+
 ## How it connects
 
 Your computers talk over QUIC between their keys, end to end encrypted:
@@ -752,3 +906,17 @@ connection.
 - **"Another run used the work folder since: run it again to get the
   file."** The next run reset the work folder. Run the command again and
   fetch the file before another run starts.
+- **"Update Mother Claude on DESKTOP-PC: it does not take tasks from other
+  computers yet."** Its Mother Claude is older: update it there.
+- **"A session that runs in bypassPermissions on DESKTOP-PC needs
+  DESKTOP-PC's Dangerous permission for this computer."** Tick *Dangerous*
+  for this computer on DESKTOP-PC's Machines page — or hand the task over in
+  the default mode, and answer its approvals.
+- **"… isn't signed in on DESKTOP-PC."** The task's session runs under the
+  account with the asking session's account's name there, else the Default:
+  sign that one in on DESKTOP-PC (Accounts there).
+- **A task's branch did not move: "… is checked out in …" or "… has commits
+  the task's result does not have".** A worktree here has the branch
+  checked out, or you committed onto it: Mother Claude never moves it under
+  you. The task names the newer result's commit; make a branch of it with
+  `git branch <name> <commit>`.

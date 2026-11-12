@@ -512,7 +512,7 @@ computer runs for the others; it does not unpair — revoking does.
 ### What a paired computer may do here
 
 - Its requests reach the peer router only: `/peer/*` (hello, setup, settings
-  offers, roots, moves, leases, code sync, runs), and — while Machines is on
+  offers, roots, moves, leases, code sync, runs, tasks), and — while Machines is on
   here — the
   session stream `/ws` (this computer's own sessions — never a third
   computer's — and none of the desktop-only frames) and an allow-list of
@@ -534,7 +534,8 @@ computer runs for the others; it does not unpair — revoking does.
   private or loopback address, as the transport sees it for each request)
   and for the **internet** (relayed or public) apart: `view`, `control` and
   `move` (on for a new pairing), `run` (off: commands for its sessions, in a
-  work folder, [below](#running-commands)) and `dangerous` (off). Driving
+  work folder, [below](#running-commands), and tasks handed to a session
+  here, [below](#handing-a-task-over)) and `dangerous` (off). Driving
   needs seeing; moving, running and dangerous need driving. Changing them,
   renaming and revoking are desktop-only.
 - **Driving through this computer.** The dashboard reaches another
@@ -750,6 +751,80 @@ runs a command on another of your computers at the session's code.
   computer or taking back its `run` grant (the column the run came in by)
   stops what it runs here at once.
 
+### Handing a task over
+
+A session's `machine_task` hands a task to a Claude Code session on another
+of your computers, in its own worktree there at the session's code; what it
+did comes back as a branch.
+
+- **It needs `run`.** A session that works here runs code here, so the
+  `/peer/work/tasks/*` routes check the same `run` grant for the path the
+  request came over, and that Machines is on here (`403 machines_off`). A
+  task is reached only by the computer that handed it over; its id, the
+  project's path, the session's folder, the text (64 KiB at most), the
+  permission mode, model and effort, the account's name, the branch's name,
+  the commits that computer has, file names, sizes and SHA-256 hashes and
+  the snapshot's record are checked before git, the file system or the
+  session sees them.
+- **Every task is approved, always.** A pending item on the computer that
+  asks (source `machine`, `toolName: "machine_task"`) names the computer,
+  its folder, the whole task, the permission mode, model, effort and
+  account there. No standing grant ever covers a task — it is a free-form
+  prompt — and its card offers none.
+- **A session without approvals needs both rights.** `bypassPermissions`
+  or `dontAsk` makes the approval dangerous (only someone holding the
+  dangerous right allows it) and needs the receiving computer's
+  `dangerous` grant for the asking one: the asking computer sends
+  `X-MC-Acting: machine; dangerous=1` only after such an approval, and the
+  receiver intersects it with its grant (checked again when the session
+  starts; a desktop notice there). Only then is the session launched with
+  `--allow-dangerously-skip-permissions`; in every other mode it is launched
+  without it, as a session started by a caller without the dangerous right,
+  and stopped if its settings bring it up without approvals anyway.
+- **It works in its own worktree, never in your checkout**:
+  `machines/work/tasks/<task>/<project>` in the data dir, a detached git
+  worktree of this computer's checkout at the snapshot the other computer
+  sent. The checkout's working tree, index, `HEAD` and branches are never
+  written; its `.git` gains the worktree's entry and the snapshots' objects
+  and refs under `refs/mother-claude/moves/<task>/` and `…/<task>-result/`.
+  Git runs as for a move (an argument list, a scrubbed environment, a
+  private empty hooks folder per call). Unlike a run, the session there is
+  an ordinary owned session — not a sandbox: it reads and runs what your
+  user can, through its own approvals in its permission mode, which anyone
+  holding `control` for it answers from either computer. The worktree holds
+  the asking project's own files, its `.claude/` settings, hooks and
+  `.mcp.json` included, and the session loads them as Claude Code does in
+  that project — running the project's code, which is what the `run` grant
+  allows (a task's worktree is not a folder Claude Code was asked to trust
+  there, and it is started as the desktop would start it).
+- **Its account** is the one with the asking session's account's name,
+  else the Default; a token account's token never travels, and one that is
+  missing or signed out here refuses the task before anyone is asked.
+- **What comes back is checked, and only ever adds a branch.** The result —
+  a snapshot of the worktree, chained on the last result — is fetched into
+  the asking repository and checked like every snapshot (its commits, trees,
+  base, objects and manifest against its record), then becomes
+  `refs/heads/mother-claude/<computer>/<task>`, a name the asking computer
+  makes itself. It is never checked out and never merged; it moves only
+  forward (a fast-forward), never while a worktree has it checked out, never
+  over a commit someone added to it. A task that changed nothing makes no
+  branch.
+- **The audit holds no task text.** Both computers write
+  `machine.task.asked`, `machine.task.start` (the computer that runs it),
+  `machine.task` (each end) and `machine.task.remove`, and the asking one
+  `machine.task.result`, with the task's id, the computer, the folder, the
+  SHA-256 of the task's first line, the permission mode and the branch —
+  never the task itself. The tasks' own records
+  (`machines/work/tasks/<task>/task.json`, 0600) hold the task and its
+  session's last message for the Runs card, and go with the task: removed
+  from the card (`DELETE /api/machines/tasks/{id}`: the desktop or a paired
+  device, never the local-script token), or 7 days after it last ended, its
+  worktree and refs there with it — never its branch here.
+- **Taking it back cancels it.** Turning Machines off here, revoking a
+  computer or taking back its `run` grant (the column the task came in by)
+  stops the session of each of its tasks that still works; a task whose
+  turn ended keeps its session as it is.
+
 ### Shared folders and asked actions
 
 - Shared folders (_roots_, one folder per computer) steer where a move lands,
@@ -784,7 +859,10 @@ runs a command on another of your computers at the session's code.
   any command it likes in its work folder here — and from there reach
   whatever your user can. Only commands the rules flag also need
   `dangerous`, and those rules are a list of known paths, not a sandbox.
-  Give `run` only to a computer you would let type into a terminal here.
+  The same holds for tasks: a compromised computer holding `run` can start
+  Claude Code sessions here with prompts of its choosing (in a mode with
+  approvals, unless it also holds `dangerous`). Give `run` only to a
+  computer you would let type into a terminal here.
 - Revoking is per computer: there is no _revoke everywhere_ yet. For a lost
   or stolen computer, revoke it on each of the others. Its key stays in its
   own secret store, and what moves left on it (a conversation up to its move,

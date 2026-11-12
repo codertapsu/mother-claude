@@ -625,6 +625,25 @@ developed on `main`, as the rest of the app is. Invariants:
   group / job object). Audits keep the program's name and the command's
   SHA-256, never the line. Tests run real `echo`/`exit`/`sleep` in zsh or
   PowerShell, never `claude`.
+- **Tasks on another computer** (`machines::work::tasks`, plan Phase 4
+  decision 6): `machine_task` needs the target's `run` grant and an
+  approval on the source **every time** (no standing grant ever covers a
+  task); `bypassPermissions`/`dontAsk` is a dangerous approval and needs the
+  target's `dangerous` grant (the hop rule). The target starts an **owned**
+  session through `ControlRegistry::spawn` in the task's own worktree,
+  `<app data>/machines/work/tasks/<task>/<project>` (detached at the
+  snapshot; the checkout never touched), under the account of the asking
+  session's account's name, else the Default. The task is done when its
+  turn ends with no approval waiting and nothing queued (`tasks::turn_ended`
+  from the stream's `result`; `turn_started` from `owned::send`;
+  `session_exited` from the reaper); its result is a snapshot chained on the
+  last one (`code::task_result`) and becomes `refs/heads/mother-claude/
+  <machine>/<task>` on the source (`code::land_task_branch`): never checked
+  out or merged, moved only forward, never under a worktree that has it;
+  no change, no branch. Audits keep the first line's SHA-256, never the
+  task. Task sessions start for real only once `lib.rs` called
+  `enable_task_sessions()`: tests record the spawn and end the turn through
+  `tasks::turn_ended`, never start `claude`.
 
 ## Build / lint / test commands
 

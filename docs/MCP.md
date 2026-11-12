@@ -42,7 +42,8 @@ helper, the token file), `api.rs` (the dashboard's panel), `session_tool.rs`
 * **A tool's failure is a result** (`isError: true`, text `"<message>
   (<code>)"`), never a protocol error. Each call runs under a 120 s ceiling
   (`timeout`) unless its tool names a longer one (`Tool::limit`:
-  `machine_run` 60 minutes, `machine_wait` 11, `machine_output` 20), a
+  `machine_run` and `machine_task` 60 minutes, `machine_wait` 11,
+  `machine_output` 20), a
   cancellation (`cancelled`) and a panic guard (`internal`, debug builds;
   release builds abort on a panic, so a tool must never panic).
 * **Off switch**: Services › Claude Code tools (desktop only, persisted in
@@ -221,21 +222,25 @@ Each area registers its own tools and documents them:
 ### Machines
 
 `src-tauri/src/machines/work/mcp.rs` (docs/PLAN-MACHINES.md Phase 4; tests
-in `tests/work.rs`; the user guide is [MACHINES.md](MACHINES.md) "Running
-commands on another computer"). A session runs a command on another of the
-user's paired computers at its own code: Mother Claude snapshots the
+in `tests/work.rs` and `tests/tasks.rs`; the user guide is
+[MACHINES.md](MACHINES.md) "Running commands on another computer" and
+"Handing a task to another computer"). A session runs a command on another
+of the user's paired computers at its own code: Mother Claude snapshots the
 session's project, sends what the other computer lacks, and that computer
 runs the command in a kept work folder of its own (a worktree of its
-checkout; its checkout is never touched).
+checkout; its checkout is never touched). Or it hands that computer a task:
+an owned Claude Code session there, in its own worktree at the session's
+code, whose work comes back as a branch here.
 
 | Tool | Input | Answer |
 |---|---|---|
-| `machine_list` | `{}` | JSON, also as `structuredContent`: `{machinesOn, thisComputer: {name, os, shell}, machines: [{id, name, os, osVersion, shell, shellLabel, online, path, theirGrants: {run: {lan, internet}} \| null, mayRun, why, versions}]}`; `path` is `lan`, `internet`, `relay` or null, `why` says why `mayRun` is false |
+| `machine_list` | `{}` | JSON, also as `structuredContent`: `{machinesOn, thisComputer: {name, os, shell}, machines: [{id, name, os, osVersion, shell, shellLabel, online, path, theirGrants: {run: {lan, internet}} \| null, mayRun, why, mayTask, whyNotTask, versions}]}`; `path` is `lan`, `internet`, `relay` or null, `why` says why `mayRun` is false, `whyNotTask` why `mayTask` is false when runs are allowed (an older build) |
 | `machine_run` | `{machine, command, cwd?, timeout?, artifacts?}` | text: where it ran (computer, shell, work folder), how it ended (exit code and duration; cancelled; out of time; could not run, and why), the output's last 64 KiB, the files `artifacts` matched with their sizes — or, after 10 minutes, *still running* with the run's id and its latest output |
-| `machine_wait` | `{id, timeout?}` | the same, after waiting up to `timeout` seconds (600 by default and at most) |
+| `machine_task` | `{machine, task, permissionMode?, model?, effort?}` | text: the task's id, the computer and the folder; once its session's turn ended (with no approval waiting and nothing queued): how it ended (done; its session stopped; cancelled; could not start, and why), the branch `mother-claude/<computer>/<task>` its work became here with its commits, files changed and whether some of it is uncommitted, the `git log`/`git diff` to look with, or *It changed nothing, so no branch was made*, then its session's last message (the summary) and its session's id there — or, after 10 minutes, *still running* (or *waits for an answer* there) with the task's id |
+| `machine_wait` | `{id, timeout?}` | the same as `machine_run` or `machine_task` (by the id: `run_…` or `task_…`), after waiting up to `timeout` seconds (600 by default and at most). A task that ended answers at once; one that runs again answers its next end |
 | `machine_output` | `{id, from?, max?}` | a page of the whole output, kept a day on the computer that ran it: bytes `from`–`to` of `size`, and the call for the next page while there is more |
 | `machine_output` | `{id, artifact}` | one file the run listed (64 MiB at most) brought into the project at `.mother-claude/artifacts/<run>/<path>`, and where it is |
-| `machine_cancel` | `{id}` | stops the run there with its whole process tree; answers how it stands |
+| `machine_cancel` | `{id}` | a run: stops it there with its whole process tree; a task: stops its session there (what it did so far still comes back as its branch). Answers how it stands |
 
 The arguments:
 
@@ -253,6 +258,13 @@ The arguments:
   100 files are listed, once the command ended by itself.
 * `from` — a byte offset, negative from the end; `max` — 1024–262144 bytes,
   65536 by default.
+* `task` — the task session's whole prompt, at most 64 KiB (it knows
+  nothing of the asking conversation); its first line names the task in
+  approvals, lists and records.
+* `permissionMode` — the task session's mode there: `default` (the
+  default), `acceptEdits`, `plan`, `auto`, `bypassPermissions`, `dontAsk`;
+  `model` — a model name; `effort` — `low`, `medium`, `high`, `xhigh`,
+  `max`.
 
 How a call goes:
 
@@ -281,18 +293,33 @@ How a call goes:
   classifies the command itself too, before the approval (its verdict comes
   back with *where it would run*): a flag on either side makes the approval
   dangerous, and that computer checks again when the run starts.
-* **Long calls.** A `machine_run` call may take an approval (up to 10
-  minutes), the code's transfer and the run (waited for up to 10 minutes),
-  so the server lets it run up to 60 minutes; `machine_wait` up to 11 and
-  `machine_output` up to 20 (a large file). `machine_list` and
-  `machine_cancel` keep the 120 s ceiling.
+* **A task** needs the same `run` grant (and a build that takes tasks, else
+  "Update Mother Claude on … it does not take tasks"), and an approval every
+  time: a `crate::pending` item (`source: "machine"`, `toolName:
+  "machine_task"`, its `input` `{kind: "task", machine, machineName, os,
+  checkout, cwd, task, firstLine, permissionMode, model, effort, account,
+  project, projectName}`), never with a suggestion — no standing grant
+  covers a task. `bypassPermissions` or `dontAsk` makes it dangerous, and is
+  refused before anyone is asked when the other computer has not given this
+  one its `dangerous` grant (`not_allowed`); it checks again itself
+  (`dangerous_needed`). That computer answers where the project is and which
+  account its session would run as (`account_missing`,
+  `account_signed_out`, `account_token_missing` otherwise). The task
+  belongs to the session that handed it over, or to its project, as a run
+  does.
+* **Long calls.** A `machine_run` or `machine_task` call may take an
+  approval (up to 10 minutes), the code's transfer and the run or the
+  task's turn (waited for up to 10 minutes), so the server lets it run up to
+  60 minutes; `machine_wait` up to 11 and `machine_output` up to 20 (a large
+  file). `machine_list` and `machine_cancel` keep the 120 s ceiling.
 * **Answers are plain text**, but for `machine_list`: the model reads a
   run's result as it would a terminal's. A failure is an `isError` result
   with its code (above, or the other computer's own: `grant_missing`,
   `machines_off`, `run_failed`, …).
 * `machine_list` and `machine_wait` are read-only, so they write no
-  `mcp.call` line; every run is audited by Machines on both computers
-  (MACHINES.md, SECURITY.md "Running commands").
+  `mcp.call` line; every run and task is audited by Machines on both
+  computers (MACHINES.md, SECURITY.md "Running commands", "Handing a task
+  over").
 
 ## The panel (Services › Claude Code tools)
 
