@@ -559,6 +559,8 @@ export function capabilityText(cap: string): string {
       return tr('move sessions');
     case 'ignoredFiles':
       return tr('take files git ignores with a move');
+    case 'replaceBranch':
+      return tr('replace a branch with a move');
     case 'roots':
       return tr('share folders');
     case 'sync':

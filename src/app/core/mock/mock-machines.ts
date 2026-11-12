@@ -43,6 +43,7 @@ const ALL_CAPABILITIES = [
   'roots',
   'moves',
   'ignoredFiles',
+  'replaceBranch',
   'run',
   'tasks',
   'teamRoles',

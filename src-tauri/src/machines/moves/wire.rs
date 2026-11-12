@@ -173,6 +173,13 @@ pub struct CodeSpec {
     /// top (written into the landing once the code is there).
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub ignored: Vec<String>,
+    /// *Replace the branch there* (the `replaceBranch` capability): the tip
+    /// of the target's branch the person moving it saw and chose to replace.
+    /// A checkout landing moves that branch to `base` only while its tip is
+    /// still this commit (else it stops, offering a worktree), keeping it
+    /// under the landing's undo ref.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub replaces: Option<String>,
 }
 
 /// `POST /peer/moves/{id}`: the package and everything the target needs to

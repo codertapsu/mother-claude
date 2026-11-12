@@ -279,7 +279,14 @@ makes it worse (*Claude Code there is older*, line endings, Git LFS,
 submodules). Machines must be on on both computers. A blocker keeps the button from starting — *Fix the checks
 first* — and the sheet offers what it can instead: a project folder there
 with changes of its own, or a branch that went on there, offers *Use a
-separate folder (worktree)*. A session another app runs (VS Code, a
+separate folder (worktree)*. A branch that went on there (commits there
+this computer doesn't have) also offers **Replace feat/login on
+DESKTOP-PC with this Mac's**: the branch there becomes this computer's —
+only the tip the checks saw; if it moves on meanwhile, the move stops —
+and its own commits there are kept under
+`refs/mother-claude/undo/<time>/branch`, which *Undo move* puts back. The
+sheet says it is in force under *Code lands*, where it can be unticked. A
+session another app runs (VS Code, a
 terminal) cannot be stopped by Mother Claude: it goes on there **as a
 copy**, a new session, while this one goes on here (or end it there first).
 
@@ -312,7 +319,8 @@ The conversation itself is never rewritten.
   DESKTOP-PC went offline while it was sent. It stays on this Mac, as it
   was." — and *Try again* goes back to the choices.
 - **When the code can't land in the project folder there**, the sheet offers
-  a separate folder (worktree) and asks again.
+  a separate folder (worktree) and asks again — or, when the branch there
+  went on there, replacing it with this computer's.
 - **Placed but not started there** (its account is not signed in there, for
   instance): it lives there now. *Try again* starts it there without sending
   anything twice; *Undo move* takes it back.

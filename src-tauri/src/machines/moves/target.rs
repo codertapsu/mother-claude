@@ -181,7 +181,10 @@ fn check_manifest(mf: &wire::Manifest) -> ApiResult<()> {
             origin: None,
             ignored: c.ignored.clone(),
         })?;
-        for oid in [&c.base, &c.snapshot, &c.index_tree].into_iter().flatten() {
+        for oid in [&c.base, &c.snapshot, &c.index_tree, &c.replaces]
+            .into_iter()
+            .flatten()
+        {
             if !code::is_oid(oid) {
                 return Err(bad(
                     "The move's code names a commit this computer can't take.",
@@ -759,6 +762,7 @@ pub async fn peer_create(
                     untracked: c.untracked,
                     warnings: c.warnings.clone(),
                     ignored: c.ignored.clone(),
+                    replaces: c.replaces.clone(),
                     landed: None,
                 }),
                 files: mf
@@ -1062,6 +1066,12 @@ async fn land_checked(
         let mut req = ApplyRequest::new(&mf.session, landing);
         req.machine = m::this_name(state);
         req.remote = c.remote.clone();
+        // *Replace the branch there*: only the tip the person moving it saw
+        // (checked as a commit id above); its commits stay under the undo
+        // ref.
+        if let Some(tip) = c.replaces.clone().filter(|_| !worktree) {
+            req.reset = code::Reset::IfTip(tip);
+        }
         // This computer's choice for the project (D10).
         req.keep_remote_refs = crate::machines::setup::options::effective(state, &folder)
             .code
@@ -1271,6 +1281,26 @@ async fn land_checked(
                 "{} had its own {}: kept for Undo move.",
                 m::this_name(state),
                 replaced.join(", ")
+            ),
+        ));
+    }
+    // *Replace the branch there*: say where its own commits are.
+    if let Some(a) = applied
+        .as_ref()
+        .filter(|a| a.action == Some(code::BranchAction::Reset))
+    {
+        let branch = mf
+            .code
+            .as_ref()
+            .and_then(|c| c.branch.as_deref())
+            .map(|b| b.trim_start_matches("refs/heads/"))
+            .unwrap_or("Its branch");
+        warnings.push(Check::new(
+            "branch_replaced",
+            format!(
+                "{branch} had commits of its own on {}: kept for Undo move under {}/branch.",
+                m::this_name(state),
+                a.undo_ref.as_deref().unwrap_or("refs/mother-claude/undo")
             ),
         ));
     }

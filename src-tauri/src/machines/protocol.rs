@@ -29,6 +29,7 @@ pub const CAPABILITIES: &[&str] = &[
     super::roots::CAPABILITY,
     MOVES,
     IGNORED_FILES,
+    REPLACE_BRANCH,
     super::copies::CAPABILITY,
     super::work::CAPABILITY,
     super::work::tasks::CAPABILITY,
@@ -44,6 +45,11 @@ pub const MOVES: &str = "moves";
 /// The capability a machine needs to take the files git ignores that a
 /// project carries with a move (`moves::ignored`).
 pub const IGNORED_FILES: &str = "ignoredFiles";
+
+/// The capability a machine needs to land a move that replaces its branch
+/// with the source's (plan §5.10, *Replace the branch there*): a move's
+/// code naming the tip it may replace (`CodeSpec::replaces`).
+pub const REPLACE_BRANCH: &str = "replaceBranch";
 
 /// Code sync (`sync`, plan §5.15). Advertised so the Machines page can
 /// name it when another computer lacks it; sync itself does not require it

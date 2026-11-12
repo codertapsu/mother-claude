@@ -81,8 +81,11 @@ export interface MoveCode {
   /** The files git ignores that travel with it (the project's list), under
    * the repository's top. */
   ignored?: string[];
-  /** Where it landed on the target (`{landing, path, …}`). */
-  landed?: { landing?: string; path?: string } | null;
+  /** *Replace the branch there*: the tip of the target's branch it
+   * replaces (kept under the landing's undo ref for *Undo move*). */
+  replaces?: string | null;
+  /** Where it landed on the target (`{landing, path, action, undoRef…}`). */
+  landed?: { landing?: string; path?: string; action?: string; undoRef?: string } | null;
 }
 
 /** What the target did with the conversation. */
@@ -183,6 +186,9 @@ export interface SessionMoveBody {
    * right on both computers). Left out, they travel when this caller holds
    * that right and stay otherwise; `false` leaves them. */
   carryIgnored?: boolean;
+  /** The project folder's branch there went on there: replace it with this
+   * computer's (its commits there kept for *Undo move*). */
+  replaceBranch?: boolean;
   /** The session's computer is offline: it lives here from now on. */
   takeOver?: boolean;
   /** After this turn (`idle`, the default) or now, interrupting it. */
@@ -231,6 +237,8 @@ export interface PreflightCode {
   ignored?: string[];
   ignoredBytes?: number;
   carryIgnored?: boolean;
+  /** The branch there (diverged) is replaced by this computer's. */
+  replaceBranch?: boolean;
 }
 
 /** What the other computer answered. */
@@ -406,6 +414,7 @@ export function normalizeMove(v: unknown): MoveRecord | null {
           untracked: num(code['untracked']),
           warnings: strings(code['warnings']),
           ignored: strings(code['ignored']),
+          replaces: optStr(code['replaces']),
         }
       : null,
     files: Array.isArray(r['files'])
@@ -507,6 +516,7 @@ export function normalizePreflight(v: unknown): MovePreflight | null {
       repo: code['repo'] === true,
       ignored: strings(code['ignored']),
       carryIgnored: code['carryIgnored'] === true,
+      replaceBranch: code['replaceBranch'] === true,
     },
     target: t
       ? {

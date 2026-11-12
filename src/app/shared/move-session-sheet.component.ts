@@ -153,6 +153,11 @@ function untilText(ms: number): string {
                 <button class="btn" type="button" (click)="again(offer)">
                   {{ offerText(offer) }}
                 </button>
+                @if (offer === 'worktree-or-reset') {
+                  <button class="btn" type="button" (click)="again('reset')">
+                    {{ replaceLabel() }}
+                  </button>
+                }
               }
               <button class="btn primary" type="button" (click)="again(null)">
                 {{ 'Try again' | t }}
@@ -351,6 +356,22 @@ function untilText(ms: number): string {
                         }}</span
                       >
                     }
+                    @if (replaceBranch() && applyValue() === 'checkout') {
+                      <label class="check">
+                        <input
+                          type="checkbox"
+                          checked
+                          [disabled]="busy()"
+                          (change)="replaceBranch.set($any($event.target).checked)"
+                        />
+                        <span>
+                          {{ replaceLabel() }}
+                          <span class="muted small hint">{{
+                            'Its commits there are kept: Undo move puts them back.' | t
+                          }}</span>
+                        </span>
+                      </label>
+                    }
                   </dd>
                 }
               }
@@ -510,6 +531,16 @@ function untilText(ms: number): string {
                         (click)="takeOffer(b)"
                       >
                         {{ label }}
+                      </button>
+                    }
+                    @if (b.offer === 'worktree-or-reset') {
+                      <button
+                        class="btn small offer"
+                        type="button"
+                        [disabled]="busy() || replaceBranch()"
+                        (click)="takeReset()"
+                      >
+                        {{ replaceLabel() }}
                       </button>
                     }
                   </span>
@@ -799,6 +830,9 @@ export class MoveSessionSheetComponent {
   /** Carry the files git ignores that the project lists (with the
    * dangerous right; on by default then). */
   protected readonly carryIgnored = signal(true);
+  /** The project folder's branch there went on there: replace it with this
+   * computer's (its commits there kept for *Undo move*). */
+  protected readonly replaceBranch = signal(false);
   protected readonly when = signal<'idle' | 'now'>('idle');
   protected readonly keepDriving = signal(true);
   protected readonly choosing = signal(false);
@@ -925,6 +959,7 @@ export class MoveSessionSheetComponent {
       // The files git ignores travel with the right (the server's default
       // then), unless unticked; without it they stay where they are.
       ...(this.mayDangerous() && !this.carryIgnored() ? { carryIgnored: false } : {}),
+      ...(this.replaceBranch() && apply !== 'worktree' ? { replaceBranch: true } : {}),
     };
   });
 
@@ -1013,6 +1048,22 @@ export class MoveSessionSheetComponent {
   protected readonly cleanThere = computed(() => {
     const c = this.pre()?.target?.code;
     return this.applyValue() === 'checkout' && !!c && c.repo && (c.clean || c.parked);
+  });
+  /** *Replace feat/login on DESKTOP-PC with this Mac's* (plan §5.10); a
+   * session on another computer replaces it with that one's. */
+  protected readonly replaceLabel = computed(() => {
+    const branch = branchName(this.pre()?.code.branch);
+    const name = this.targetName();
+    if (this.at()) {
+      const source = this.sourceName();
+      return branch
+        ? tr("Replace {branch} on {name} with {source}'s", { branch, name, source })
+        : tr("Replace the branch on {name} with {source}'s", { name, source });
+    }
+    const computer = computerNoun();
+    return branch
+      ? tr("Replace {branch} on {name} with this {computer}'s", { branch, name, computer })
+      : tr("Replace the branch on {name} with this {computer}'s", { name, computer });
   });
   protected readonly candidates = computed(() => folderCandidates(this.chooserCheck(), this.pre()));
   /** The folder field holds a typed path, not one of the candidates. */
@@ -1152,6 +1203,7 @@ export class MoveSessionSheetComponent {
     this.recipe.set(false);
     this.trust.set(false);
     this.carryIgnored.set(true);
+    this.replaceBranch.set(false);
     this.when.set('idle');
     this.keepDriving.set(true);
     this.choosing.set(false);
@@ -1200,6 +1252,7 @@ export class MoveSessionSheetComponent {
     this.folder.set(null);
     this.choosing.set(false);
     this.trust.set(false);
+    this.replaceBranch.set(false);
     this.pre.set(null);
     this.error.set('');
   }
@@ -1231,6 +1284,12 @@ export class MoveSessionSheetComponent {
       default:
         return false;
     }
+  }
+
+  /** *Replace the branch there with this computer's*: asked again with it. */
+  protected takeReset(): void {
+    this.apply.set('checkout');
+    this.replaceBranch.set(true);
   }
 
   protected takeOffer(c: MoveCheck): void {
@@ -1343,6 +1402,7 @@ export class MoveSessionSheetComponent {
     this.error.set('');
     this.pre.set(null);
     if (offer === 'worktree' || offer === 'worktree-or-reset') this.apply.set('worktree');
+    if (offer === 'reset') this.takeReset();
   }
 
   protected until(ms: number): string {

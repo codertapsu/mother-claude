@@ -426,6 +426,23 @@ export class MockMoves {
           offer: 'worktree',
         });
       }
+      // Its branch went on there (plan §5.10): a worktree, or replacing it.
+      if (repo && b.apply !== 'worktree' && s.id === 's-db') {
+        if (b.replaceBranch) {
+          warnings.push({
+            code: 'branch_replaced',
+            message: `feat/windows-tray on ${name} is replaced by this computer's: its own commits there are kept for Undo move.`,
+          });
+        } else {
+          blockers.push({
+            code: 'branch_diverged',
+            message: `feat/windows-tray on ${name} has commits this computer doesn't.`,
+            fix: "Use a separate folder (worktree) there, or replace the branch there with this computer's (its commits are kept for Undo move).",
+            offer: 'worktree-or-reset',
+            detail: { branch: 'feat/windows-tray', tip: 'b'.repeat(40) },
+          });
+        }
+      }
       if (b.folder === undefined && s.id === 's-docs') {
         blockers.push({
           code: 'folder_elsewhere',
@@ -464,7 +481,8 @@ export class MockMoves {
             changed: 8,
             untracked: 2,
             origin: 'git@github.com:marcus/app.git',
-            relation: 'fastForward',
+            relation: s.id === 's-db' ? 'diverged' : 'fastForward',
+            replaceBranch: s.id === 's-db' && !!b.replaceBranch && b.apply !== 'worktree',
             // The files git ignores the project lists to carry (*Not in
             // git*): they travel unless unticked.
             ignored: ['.env.local', 'config/dev.secrets.json'],
@@ -563,6 +581,22 @@ export class MockMoves {
           },
         ];
         r.code = { ...r.code, ignored: ['.env.local', 'config/dev.secrets.json'] };
+      }
+      if (r.state === 'landed' && r.code && b.replaceBranch && b.apply !== 'worktree') {
+        // The branch there was replaced: its own commits kept for Undo move.
+        const undoRef = 'refs/mother-claude/undo/20261113T101500-3fa2';
+        r.warnings = [
+          ...r.warnings,
+          {
+            code: 'branch_replaced',
+            message: `feat/windows-tray had commits of its own on ${to.name}: kept for Undo move under ${undoRef}/branch.`,
+          },
+        ];
+        r.code = {
+          ...r.code,
+          replaces: 'b'.repeat(40),
+          landed: { landing: 'checkout', path: r.targetCwd ?? '', action: 'reset', undoRef },
+        };
       }
       if (r.state === 'committed' && !r.asCopy) {
         r.undoUntil = Date.now() + WEEK;

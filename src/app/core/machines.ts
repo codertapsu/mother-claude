@@ -864,6 +864,7 @@ export function unpairedPairs(peers: readonly PeerMachine[]): [PeerMachine, Peer
 export const CAPABILITY_LABELS: Record<string, string> = {
   moves: 'move sessions',
   ignoredFiles: 'take files git ignores with a move',
+  replaceBranch: 'replace a branch with a move',
   roots: 'share folders',
   sync: 'keep code in sync',
   run: 'run commands for your other computers',

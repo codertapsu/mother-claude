@@ -559,6 +559,7 @@
   "share folders": "dùng chung thư mục",
   "take Revoke everywhere": "nhận lệnh Thu hồi ở mọi nơi",
   "take files git ignores with a move": "nhận các tệp git bỏ qua khi chuyển phiên",
+  "replace a branch with a move": "thay một nhánh khi chuyển phiên",
   "take tasks": "nhận tác vụ",
   "{a} and {b} are paired already.": "{a} và {b} đã được ghép nối với nhau.",
   "{from} introduces {name}: pair this {computer} with it?": "{from} giới thiệu {name}: ghép nối {computer} này với máy đó?",

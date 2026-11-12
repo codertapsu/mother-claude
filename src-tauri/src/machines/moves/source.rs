@@ -51,6 +51,11 @@ pub struct MoveBody {
     /// `checkout` (the default: the project folder there, when clean) |
     /// `worktree` (always a separate one).
     pub apply: Option<String>,
+    /// The project folder's branch there has commits this computer's lacks:
+    /// replace it with this computer's (plan §5.10, *Replace the branch
+    /// there*), its tip kept under the landing's undo ref for *Undo move*.
+    /// Only the tip the preflight saw is replaced.
+    pub replace_branch: Option<bool>,
     /// The folder there, when the user chose one.
     pub folder: Option<String>,
     /// Keep driving it from here (on by default; the screens' choice).
@@ -86,6 +91,8 @@ struct Plan {
     code: String,
     /// `checkout` | `worktree`.
     apply: String,
+    /// Replace the branch there when it went on there (`checkout` only).
+    replace_branch: bool,
     remote: String,
     folder: Option<String>,
     keep_driving: bool,
@@ -168,6 +175,7 @@ fn parse(state: &AppState, body: &MoveBody) -> ApiResult<Plan> {
         to,
         code,
         apply,
+        replace_branch: body.replace_branch.unwrap_or(false),
         remote,
         folder: body.folder.clone().filter(|f| !f.trim().is_empty()),
         keep_driving: body.keep_driving.unwrap_or(true),
@@ -328,10 +336,12 @@ pub struct Preflight {
     /// The computer it goes to: `{id, name, os, online}`.
     pub to: Value,
     /// The code: `{mode, apply, repo, top, branch, head, changed, untracked,
-    /// origin, relation, ignored, ignoredBytes, carryIgnored}` (`relation`
-    /// of the target's branch to this base: `create`, `same`,
-    /// `fastForward`, `diverged`; `ignored` the files git ignores that the
-    /// project lists, as found here — they travel when `carryIgnored`).
+    /// origin, relation, ignored, ignoredBytes, carryIgnored,
+    /// replaceBranch}` (`relation` of the target's branch to this base:
+    /// `create`, `same`, `fastForward`, `diverged`; `ignored` the files git
+    /// ignores that the project lists, as found here — they travel when
+    /// `carryIgnored`; `replaceBranch` when a diverged branch there is
+    /// replaced by this computer's).
     pub code: Value,
     /// What the other computer said (its account, folder, checkout, …).
     pub target: Option<wire::Answer>,
@@ -351,6 +361,9 @@ struct Checked {
     home_branch: Option<String>,
     /// The files git ignores that travel (none when they stay here).
     ignored: Vec<ignored::Found>,
+    /// The tip of the branch there this move replaces (*Replace the branch
+    /// there*, the branch having gone on there).
+    replaces: Option<String>,
 }
 
 /// `POST /api/sessions/{id}/move/preflight`: nothing is written anywhere.
@@ -619,11 +632,13 @@ async fn check(
 
     // The branch there against this base.
     let mut relation = None;
+    let mut replaces = None;
     if let (Some(c), Some(a)) = (&code, &answer) {
         if let Some(there) = a.code.as_ref().filter(|t| t.repo) {
             let base = c.state.head.clone();
             let tip = there.branch_tip.clone();
             let (g, top) = (git.clone(), c.state.top.clone());
+            let seen = tip.clone();
             let r = tokio::task::spawn_blocking(move || {
                 code::branch_relation(&g, &top, base.as_deref(), tip.as_deref())
             })
@@ -637,14 +652,52 @@ async fn check(
                     .as_deref()
                     .map(|b| b.trim_start_matches("refs/heads/"))
                     .unwrap_or("Its branch");
-                blockers.push(
-                    Check::new(
-                        "branch_diverged",
-                        format!("{branch} on {} has commits this computer doesn't.", to.name),
-                    )
-                    .fix("Use a separate folder (worktree) there.")
-                    .offer("worktree"),
-                );
+                // Replacing it lands only where the other computer can, and
+                // only the tip seen here (the landing stops if it moved).
+                let can_replace = state.machines.store_read(|f| {
+                    f.peer(&plan.to).is_some_and(|p| {
+                        p.capabilities.iter().any(|c| c == protocol::REPLACE_BRANCH)
+                    })
+                });
+                match seen.filter(|t| code::is_oid(t)) {
+                    Some(tip) if plan.replace_branch && can_replace => {
+                        warnings.push(Check::new(
+                            "branch_replaced",
+                            format!(
+                                "{branch} on {} is replaced by this computer's: its own commits \
+                                 there are kept for Undo move.",
+                                to.name
+                            ),
+                        ));
+                        replaces = Some(tip);
+                    }
+                    _ if plan.replace_branch => blockers.push(
+                        Check::new(
+                            "replace_unsupported",
+                            format!("{}'s Mother Claude can't replace a branch yet.", to.name),
+                        )
+                        .fix(format!("Update Mother Claude on {}.", to.name))
+                        .offer("worktree"),
+                    ),
+                    _ => blockers.push(
+                        Check::new(
+                            "branch_diverged",
+                            format!("{branch} on {} has commits this computer doesn't.", to.name),
+                        )
+                        .fix(if can_replace {
+                            "Use a separate folder (worktree) there, or replace the branch there \
+                             with this computer's (its commits are kept for Undo move)."
+                        } else {
+                            "Use a separate folder (worktree) there."
+                        })
+                        .offer(if can_replace {
+                            "worktree-or-reset"
+                        } else {
+                            "worktree"
+                        })
+                        .detail(json!({ "branch": branch, "tip": there.branch_tip })),
+                    ),
+                }
             }
             if let (Some(mine), Some(theirs)) = (&c.state.origin, &there.origin) {
                 if !same_origin(mine, theirs) {
@@ -715,6 +768,7 @@ async fn check(
                 "ignored": found.iter().map(|f| f.listed.as_str()).collect::<Vec<_>>(),
                 "ignoredBytes": found.iter().map(|f| f.size).sum::<u64>(),
                 "carryIgnored": carrying,
+                "replaceBranch": replaces.is_some(),
             }),
             _ => json!({ "mode": "none", "repo": code.is_some() }),
         },
@@ -732,6 +786,7 @@ async fn check(
         hint,
         home_branch,
         ignored: if carrying { found } else { Vec::new() },
+        replaces,
     })
 }
 
@@ -983,6 +1038,7 @@ pub async fn start(
                 changed: c.state.changed,
                 untracked: c.state.untracked,
                 ignored: checked.ignored.iter().map(|f| f.path.clone()).collect(),
+                replaces: checked.replaces.clone(),
                 ..CodePart::default()
             }),
         files: Vec::new(),
@@ -1453,6 +1509,7 @@ async fn send(state: &AppState, id: &str, active: &Active, prep: &Prepared) -> R
             untracked: c.untracked,
             warnings: c.warnings.clone(),
             ignored: c.ignored.clone(),
+            replaces: c.replaces.clone(),
         }),
         settings: rec.settings.clone(),
         held: rec.held.clone(),

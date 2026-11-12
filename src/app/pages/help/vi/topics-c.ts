@@ -551,6 +551,7 @@ const TOPICS: HelpTopicSource[] = [
         points: [
           '**Kiểm tra** liệt kê những gì ổn, những gì chặn việc chuyển kèm cách sửa, và những gì chỉ làm nó kém đi (Claude Code ở máy kia cũ hơn, kiểu xuống dòng, Git LFS, submodule). Tính năng Các máy phải được bật trên cả hai máy.',
           'Khi còn mục chặn, nút ghi **Hãy khắc phục các mục kiểm tra trước**. Khi thư mục dự án ở máy kia có thay đổi riêng, hoặc nhánh của nó đã đi tiếp ở đó, Mother Claude đề xuất **Dùng thư mục riêng (worktree)**.',
+          'Khi nhánh của nó đã đi tiếp ở máy kia, Mother Claude còn đề xuất thay nhánh đó bằng nhánh của máy này: các commit riêng của nhánh ở đó được giữ lại, và **Hoàn tác việc chuyển** sẽ đưa chúng trở lại. Nếu nhánh ở đó đi tiếp trước khi việc chuyển hoàn tất, việc chuyển sẽ dừng.',
           'Phiên do ứng dụng khác chạy (VS Code, terminal) không thể bị Mother Claude dừng: một bản sao tiếp tục ở máy kia dưới dạng phiên mới, trong khi phiên này vẫn tiếp tục ở đây. Nút ghi **Tiếp tục dưới dạng bản sao trên …**; hoặc hãy kết thúc nó trong ứng dụng đó trước.',
         ],
       },

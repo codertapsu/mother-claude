@@ -228,6 +228,11 @@ pub struct CodePart {
     /// found), under the repository's top.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub ignored: Vec<String>,
+    /// The tip of the target's branch this move replaces with the source's
+    /// (*Replace the branch there*, plan §5.10): kept under the landing's
+    /// undo ref, put back by *Undo move*.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub replaces: Option<String>,
     /// Where it landed on the target.
     pub landed: Option<super::code::Applied>,
 }

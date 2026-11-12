@@ -202,6 +202,58 @@ describe('MoveSessionSheetComponent (Continue on another computer)', () => {
     });
   });
 
+  it('offers a worktree or replacing the branch there when it went on there', async () => {
+    preflight((b) =>
+      b.replaceBranch
+        ? preflightOk({
+            code: { ...preflightOk().code, relation: 'diverged', replaceBranch: true },
+            warnings: [
+              moveCheck(
+                'branch_replaced',
+                "feat/login on DESKTOP-PC is replaced by this computer's: its own commits there are kept for Undo move.",
+              ),
+            ],
+          })
+        : preflightBlocked([
+            moveCheck(
+              'branch_diverged',
+              "feat/login on DESKTOP-PC has commits this computer doesn't.",
+              {
+                fix: "Use a separate folder (worktree) there, or replace the branch there with this computer's (its commits are kept for Undo move).",
+                offer: 'worktree-or-reset',
+              },
+            ),
+          ]),
+    );
+    serveStart();
+    const el = await open(session());
+    const offers = [...el.querySelectorAll<HTMLButtonElement>('button.offer')];
+    expect(offers.map(text)).toEqual([
+      'Use a separate folder (worktree)',
+      "Replace feat/login on DESKTOP-PC with this computer's",
+    ]);
+
+    offers[1].click();
+    await settle();
+    expect(asked.at(-1)).toEqual({ to: PEER_ID, apply: 'checkout', replaceBranch: true });
+    expect(checks(el)).toContain(
+      "warning: Recommended: feat/login on DESKTOP-PC is replaced by this computer's: its own commits there are kept for Undo move.",
+    );
+    // In force, and can be unticked under *Code lands*.
+    expect(text(el.querySelector('.lands label.check'))).toBe(
+      "Replace feat/login on DESKTOP-PC with this computer's Its commits there are kept: Undo move puts them back.",
+    );
+    action(el)?.click();
+    await settle();
+    expect(started()).toEqual({
+      to: PEER_ID,
+      code: 'bundle',
+      apply: 'checkout',
+      replaceBranch: true,
+      keepDriving: true,
+    });
+  });
+
   it('offers its folders there when it found none, and asks with the one chosen', async () => {
     preflight((b) =>
       b.folder

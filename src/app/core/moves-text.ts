@@ -104,6 +104,36 @@ const RULES: readonly Rule[] = [
     /^(.+)'s Mother Claude can't take files git ignores yet\.$/,
     (m) => tr("{name}'s Mother Claude can't take files git ignores yet.", { name: m[1] }),
   ],
+  // ── Replacing the branch there (source.rs, target.rs) ──
+  [
+    /^(.+)'s Mother Claude can't replace a branch yet\.$/,
+    (m) => tr("{name}'s Mother Claude can't replace a branch yet.", { name: m[1] }),
+  ],
+  [
+    /^(.+) on (.+) is replaced by this computer's: its own commits there are kept for Undo move\.$/,
+    (m) =>
+      tr(
+        "{branch} on {name} is replaced by this {computer}'s: its own commits there are kept for Undo move.",
+        { branch: m[1], name: m[2], computer: computerNoun() },
+      ),
+  ],
+  [
+    /^Use a separate folder \(worktree\) there, or replace the branch there with this computer's \(its commits are kept for Undo move\)\.$/,
+    () =>
+      tr(
+        "Use a separate folder (worktree) there, or replace the branch there with this {computer}'s (its commits are kept for Undo move).",
+        { computer: computerNoun() },
+      ),
+  ],
+  [
+    /^(.+) had commits of its own on (.+): kept for Undo move under (.+)\.$/,
+    (m) =>
+      tr('{branch} had commits of its own on {name}: kept for Undo move under {ref}.', {
+        branch: m[1],
+        name: m[2],
+        ref: m[3],
+      }),
+  ],
   [
     /^A git operation is under way in (.+) \((.+)\): finish it first, or move only the conversation\.$/,
     (m) =>

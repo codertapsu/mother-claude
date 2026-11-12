@@ -127,10 +127,15 @@ fn a_rewritten_history_resets_only_the_synced_tip_and_undo_puts_it_back() {
     let a = step(&w, &w.src, &w.dst, &last, Reset::IfTip(tip.clone()), "s2").expect("lands");
     assert_eq!(a.action, Some(BranchAction::Reset));
     assert_eq!(state(&w.dst), state(&w.src));
-    // The old tip is kept, and undo puts it back.
+    // The old tip is kept (as HEAD and as the branch's), and undo puts it
+    // back.
     let undo_ref = a.undo_ref.expect("an undo ref");
     assert_eq!(
         w.fx.git(&w.dst, &["rev-parse", &format!("{undo_ref}/head")]),
+        tip
+    );
+    assert_eq!(
+        w.fx.git(&w.dst, &["rev-parse", &format!("{undo_ref}/branch")]),
         tip
     );
     undo(&runner(), &w.dst, &w.dir.join("s2")).expect("undo");

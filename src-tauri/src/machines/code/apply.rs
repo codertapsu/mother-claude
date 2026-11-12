@@ -503,7 +503,9 @@ fn land_checkout(
         return Err(ApplyStop::WouldOverwrite { paths: blocked });
     }
 
-    // Undo: HEAD and the branch's old tip, kept as refs.
+    // Undo: HEAD and the branch's old tip, kept as refs. A branch that is
+    // reset always has its old tip under `…/branch` (plan §5.10: *keeping
+    // T's tip*), even when it was HEAD too.
     let stamp = stamp();
     let undo_ref = format!("refs/mother-claude/undo/{stamp}");
     if let Some(h) = &info.head {
@@ -511,7 +513,10 @@ fn land_checkout(
             .args(["update-ref", &format!("{undo_ref}/head"), h, ""])
             .raw()?;
     }
-    if let Some(t) = tip.as_ref().filter(|t| Some(*t) != info.head.as_ref()) {
+    if let Some(t) = tip
+        .as_ref()
+        .filter(|t| Some(*t) != info.head.as_ref() || action == BranchAction::Reset)
+    {
         op.cmd(top)
             .args(["update-ref", &format!("{undo_ref}/branch"), t, ""])
             .raw()?;

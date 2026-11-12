@@ -1670,3 +1670,88 @@ async fn the_local_script_token_reads_moves_through_the_proxy_but_never_changes_
     );
     assert!(lease_home(&w.s).is_none());
 }
+
+/// The branch went on on the target (plan §5.10): the preflight offers a
+/// separate folder or replacing it; replaced only when asked, and only the
+/// tip the preflight saw, the target's own commits kept under the landing's
+/// undo ref — and *Undo move* puts the branch and its files back.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_branch_that_went_on_there_is_replaced_only_when_asked_and_undo_puts_it_back() {
+    let w = world().await;
+    // The target commits on main: a commit the source lacks.
+    put(&w.repos.t, "t-only.txt", "made on T\n");
+    git(&w.repos.t, &["add", "-A"]);
+    git(&w.repos.t, &["commit", "-q", "-m", "on T"]);
+    let t_tip = git(&w.repos.t, &["rev-parse", "HEAD"]);
+    dirty(&w.repos.s);
+    let s_base = git(&w.repos.s, &["rev-parse", "HEAD"]);
+
+    // Left unsaid: a blocker offering both.
+    let pre = preflight(&w.s, to_t(&w, json!({}))).await;
+    assert_eq!(pre["ok"], false, "{pre:#}");
+    assert_eq!(pre["code"]["relation"], "diverged");
+    let blocker = pre["blockers"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|b| b["code"] == "branch_diverged")
+        .unwrap_or_else(|| panic!("a diverged blocker: {pre:#}"))
+        .clone();
+    assert_eq!(blocker["offer"], "worktree-or-reset", "{blocker}");
+    assert_eq!(blocker["detail"]["tip"], t_tip.as_str());
+    let (s, v) =
+        w.s.call(
+            "POST",
+            &format!("/sessions/{SID}/move"),
+            Some(to_t(&w, json!({}))),
+        )
+        .await;
+    assert_eq!(s, StatusCode::CONFLICT, "{v}");
+    assert_eq!(git(&w.repos.t, &["rev-parse", "refs/heads/main"]), t_tip);
+
+    // Asked to replace it: said, not blocked.
+    let body = to_t(&w, json!({ "replaceBranch": true }));
+    let pre = preflight(&w.s, body.clone()).await;
+    assert_eq!(pre["ok"], true, "{pre:#}");
+    assert_eq!(pre["code"]["replaceBranch"], true);
+    assert!(
+        codes(&pre["warnings"]).contains(&"branch_replaced".to_string()),
+        "{pre:#}"
+    );
+
+    let rec = move_session(&w.s, body).await;
+    assert_eq!(rec["state"], "resumed", "{rec:#}");
+    assert_eq!(rec["code"]["replaces"], t_tip.as_str());
+    assert_eq!(rec["code"]["landed"]["action"], "reset", "{rec:#}");
+    // The target's main is the source's base; its own commit is kept.
+    assert_eq!(git(&w.repos.t, &["rev-parse", "refs/heads/main"]), s_base);
+    let undo_ref = rec["code"]["landed"]["undoRef"]
+        .as_str()
+        .expect("an undo ref")
+        .to_string();
+    assert!(
+        undo_ref.starts_with("refs/mother-claude/undo/"),
+        "{undo_ref}"
+    );
+    assert_eq!(
+        git(&w.repos.t, &["rev-parse", &format!("{undo_ref}/branch")]),
+        t_tip
+    );
+    assert!(
+        codes(&rec["warnings"]).contains(&"branch_replaced".to_string()),
+        "the target says where its commits are: {rec:#}"
+    );
+    for f in ["a.txt", "b.txt", "notes/new.md"] {
+        assert_eq!(read(&w.repos.t, f), read(&w.repos.s, f), "{f}");
+    }
+    assert!(!w.repos.t.join("t-only.txt").exists());
+
+    // Undo move: the target's branch, and its file, are back.
+    let id = rec["id"].as_str().unwrap();
+    let (s, v) = w.s.call("POST", &format!("/moves/{id}/undo"), None).await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    assert_eq!(v["state"], "undone", "{v:#}");
+    assert_eq!(git(&w.repos.t, &["rev-parse", "refs/heads/main"]), t_tip);
+    assert_eq!(read(&w.repos.t, "t-only.txt"), "made on T\n");
+    assert_eq!(git(&w.repos.t, &["status", "--porcelain"]), "");
+}

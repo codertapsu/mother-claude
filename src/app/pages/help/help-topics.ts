@@ -1659,6 +1659,7 @@ const TOPICS: HelpTopicSource[] = [
         points: [
           '**Checks** lists what is fine, what blocks the move with its fix, and what only makes it worse (Claude Code older there, line endings, Git LFS, submodules). Machines must be on on both computers.',
           'While something blocks it, the button reads **Fix the checks first**. When the project folder there has changes of its own, or its branch went on there, Mother Claude offers **Use a separate folder (worktree)**.',
+          "When its branch went on there, Mother Claude also offers to replace it with this computer's: the branch there's own commits are kept, and **Undo move** puts them back. If the branch there moves on before the move lands, the move stops.",
           'A session another app runs (VS Code, a terminal) cannot be stopped by Mother Claude: a copy goes on there as a new session while this one goes on here. The button reads **Continue as a copy on …**; or end it in that app first.',
         ],
       },

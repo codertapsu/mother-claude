@@ -579,7 +579,14 @@ a worktree), one of:
 - **The checkout** (default when T's working tree is clean): the branch is
   checked out at `base` (fast-forwarding it when it is behind; **stop** when it
   has commits `base` does not — offer a worktree, or *reset to the Mac's*,
-  keeping T's tip as `refs/mother-claude/undo/<time>`), then
+  keeping T's tip as `refs/mother-claude/undo/<time>`; *built 2026-11-13*:
+  the blocker `branch_diverged` offers `worktree-or-reset` when T lists the
+  `replaceBranch` capability, `replaceBranch: true` on the move turns it
+  into a warning, the move's code carries the tip the preflight saw
+  (`CodeSpec::replaces`) and T lands with `Reset::IfTip` — a tip that moved
+  meanwhile stops the landing — keeping it under the landing's
+  `refs/mother-claude/undo/<time>/branch`, which *Undo move* puts back),
+  then
   `git read-tree -m -u <T's HEAD> base`, `git read-tree -m -u base snap`
   (working tree = the snapshot), `git read-tree idx_tree` (index = what was
   staged) and `git update-index --refresh`, so staged, unstaged and untracked

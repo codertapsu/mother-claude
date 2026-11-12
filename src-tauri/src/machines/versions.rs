@@ -21,6 +21,7 @@ use super::store::PeerRecord;
 pub const NAMED: &[&str] = &[
     protocol::MOVES,
     protocol::IGNORED_FILES,
+    protocol::REPLACE_BRANCH,
     super::roots::CAPABILITY,
     protocol::SYNC,
     super::work::CAPABILITY,
