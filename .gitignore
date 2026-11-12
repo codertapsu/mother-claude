@@ -11,6 +11,8 @@ sidecar/dist/
 dist-extension/
 # Vitest's screenshots of failed browser tests
 .vitest/
+# Claude Code's worktrees (`claude -w`, agents in a worktree, team roles)
+.claude/worktrees/
 
 # Rust
 **/*.rs.bk
