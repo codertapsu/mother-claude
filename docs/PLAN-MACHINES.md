@@ -1290,6 +1290,22 @@ open:
 7. **Records**: every run and task is audited on both computers with the
    program's name and a hash of the command line (never the whole line: it
    can carry secrets), the folder, the exit code and the duration.
+9. **A team role on another computer** (part 3): a template role may carry
+   `machine` — a paired computer's name or id, or `os:windows` / `os:macos`
+   (the first online paired computer of that OS that gave this one `run`).
+   The lead's launcher starts it *there* through a peer request: that
+   computer runs `capacity::admit` itself and starts the role as an owned
+   session in a task worktree at the lead's code snapshot (part 2's
+   machinery), with the role's charter, settings and team tools exactly as
+   a local role gets them, and the ownership guard's path globs. The board
+   stays with the lead: the role session's `task_*` tools there reach the
+   lead's board through the peer link, accepted only for the team and role
+   the lead started there (a binding the lead mints at start). Stop,
+   idle-stop and resume come from the lead's launcher. What the role
+   commits comes back as the branch `mother-claude/<machine>/<team>/<role>`
+   (forward only) when it marks a task done, and the board records it. Only
+   owned role sessions run elsewhere; a foreign session never takes a
+   remote role. Needs the target's `run` grant, like every run.
 8. **Order**: runs first (`machine_list`, `machine_run`, `machine_wait`,
    `machine_output`, `machine_cancel`, the grant, approvals and standing
    grants, the setup's `run` column and readiness echo, the runs list on the
