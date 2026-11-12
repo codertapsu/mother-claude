@@ -187,6 +187,17 @@ const FIXED: Record<string, () => string> = {
   'The remote did not answer in 30 seconds.': () => tr('The remote did not answer in 30 seconds.'),
   'The project is not on this computer: clone it there first.': () =>
     tr('The project is not on this computer: clone it there first.'),
+  // Phase 4: Claude Code tools, for the machine tools.
+  'Claude Code tools': () => tr('Claude Code tools'),
+  "Sessions here run commands on your other computers through Mother Claude's tools (machine_run).":
+    () =>
+      tr(
+        "Sessions here run commands on your other computers through Mother Claude's tools (machine_run).",
+      ),
+  'On: sessions here can use machine_run.': () => tr('On: sessions here can use machine_run.'),
+  "Off: sessions here can't use machine_run or the other machine tools.": () =>
+    tr("Off: sessions here can't use machine_run or the other machine tools."),
+  'Turn on': () => tr('Turn on'),
   // The readiness test's other lines.
   'Skipped: not connected.': () => tr('Skipped: not connected.'),
   "git isn't installed here.": () => tr("git isn't installed here."),
@@ -198,6 +209,23 @@ const FIXED: Record<string, () => string> = {
  * reads in the language shown. */
 const PATTERNS: [RegExp, (m: RegExpExecArray) => string][] = [
   [/^Connected to (.+)\.$/, (m) => tr('Connected to {host}.', { host: m[1] })],
+  // The readiness test's `machine_run` echo, each way (`setup/readiness.rs`).
+  [
+    /^echo ran on (.+) in (.+)\.$/,
+    (m) => tr('echo ran on {name} in {shell}.', { name: m[1], shell: m[2] }),
+  ],
+  [
+    /^(.+) ran echo here in (.+)\.$/,
+    (m) => tr('{name} ran echo here in {shell}.', { name: m[1], shell: m[2] }),
+  ],
+  [
+    /^echo did not run on (.+?): (.+)$/s,
+    (m) => tr('echo did not run on {name}: {why}', { name: m[1], why: m[2] }),
+  ],
+  [
+    /^(.+?) could not run echo here: (.+)$/s,
+    (m) => tr('{name} could not run echo here: {why}', { name: m[1], why: m[2] }),
+  ],
   // What a request to keep a project in sync became (`sync/on.rs`).
   [/^Kept in sync with (.+)\.$/, (m) => tr('Kept in sync with {name}.', { name: m[1] })],
   [
@@ -264,7 +292,7 @@ const PATTERNS: [RegExp, (m: RegExpExecArray) => string][] = [
     (m) => tr('No folder maps this project to {name}.', { name: m[1] }),
   ],
   [
-    /^Update Mother Claude on (.+) to (check it there|compare its tools|test moving code|compare its accounts|compare its folders|see its accounts|see its projects)\.$/,
+    /^Update Mother Claude on (.+) to (check it there|compare its tools|test moving code|compare its accounts|compare its folders|see its accounts|see its projects|test running commands)\.$/,
     (m) => {
       const name = m[1];
       switch (m[2]) {
@@ -280,6 +308,8 @@ const PATTERNS: [RegExp, (m: RegExpExecArray) => string][] = [
           return tr('Update Mother Claude on {name} to compare its folders.', { name });
         case 'see its accounts':
           return tr('Update Mother Claude on {name} to see its accounts.', { name });
+        case 'test running commands':
+          return tr('Update Mother Claude on {name} to test running commands.', { name });
         default:
           return tr('Update Mother Claude on {name} to see its projects.', { name });
       }

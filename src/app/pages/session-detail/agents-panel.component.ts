@@ -15,7 +15,7 @@ import {
   orderAgentTree,
 } from '../../shared/agents';
 import { ChipComponent } from '../../shared/chip.component';
-import { IconComponent } from '../../shared/icon.component';
+import { IconComponent, IconName } from '../../shared/icon.component';
 import { TimeAgoComponent } from '../../shared/time-ago.component';
 import { formatDuration, formatTokens } from '../../shared/util';
 import { SessionContext } from './session-context';
@@ -24,8 +24,10 @@ import { TaskOutputComponent } from './task-output.component';
 /**
  * Everything the session has running on the side: its subagents as a tree
  * (nesting by parent), workflow runs with their phases and per-agent state,
- * and background tasks (shells, monitors) with their output tail. Stop
- * buttons where the session allows it; tap an agent for its transcript.
+ * and background tasks (shells, monitors, commands it runs on another
+ * computer) with their output tail. Stop buttons where the session allows
+ * it (a command on another computer: Cancel, whatever the session is); tap
+ * an agent for its transcript.
  */
 @Component({
   selector: 'mc-agents-panel',
@@ -120,7 +122,7 @@ import { TaskOutputComponent } from './task-output.component';
         <div class="list">
           @for (t of tasks(); track t.id) {
             <div class="task">
-              <mc-icon [name]="t.kind === 'monitor' ? 'activity' : 'terminal'" [size]="16" />
+              <mc-icon [name]="taskIcon(t)" [size]="16" />
               <div class="tbody">
                 <span class="tlabel mono">{{ t.label }}</span>
                 <span class="tmeta">
@@ -135,7 +137,18 @@ import { TaskOutputComponent } from './task-output.component';
                   {{ 'Output' | t }}
                 </button>
               }
-              @if (t.status === 'running' && ctx.caps()?.stopTask) {
+              @if (t.status === 'running' && t.kind === 'machine' && ctx.canAct()) {
+                <!-- A command on another computer: cancelled there, its
+                     whole process tree with it. -->
+                <button
+                  class="btn small danger"
+                  type="button"
+                  [attr.aria-label]="'Cancel {name}' | t: { name: t.label }"
+                  (click)="ctx.stopTask(t.id, t.label)"
+                >
+                  <mc-icon name="stop" [size]="13" /> {{ 'Cancel' | t }}
+                </button>
+              } @else if (t.status === 'running' && ctx.caps()?.stopTask) {
                 <button
                   class="btn small danger"
                   type="button"
@@ -421,6 +434,11 @@ export class AgentsPanelComponent {
         (b.startedAt ?? 0) - (a.startedAt ?? 0),
     ),
   );
+
+  /** A shell, a monitor, or a command on another computer. */
+  protected taskIcon(t: BackgroundTask): IconName {
+    return t.kind === 'monitor' ? 'activity' : t.kind === 'machine' ? 'monitor' : 'terminal';
+  }
 
   protected readonly tokens = formatTokens;
   protected readonly duration = formatDuration;

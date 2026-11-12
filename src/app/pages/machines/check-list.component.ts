@@ -55,6 +55,11 @@ const MARKS: Record<CheckState, { icon: IconName; tone: string }> = {
                 'Only its sessions wait for it: Machines works without.' | t
               }}</span>
             }
+            @if (c.state === 'blocker' && c.scope === 'tools') {
+              <span class="muted small">{{
+                'Only the machine tools wait for it: Machines works without.' | t
+              }}</span>
+            }
             @if (failing(c) && c.fix) {
               <div class="cacts">
                 @if (remote()) {

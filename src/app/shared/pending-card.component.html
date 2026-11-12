@@ -42,6 +42,13 @@
         ><mc-icon name="globe" [size]="12" /> {{ 'in the browser' | t }}</span
       >
     }
+    @if (!compact() && isMachineRun()) {
+      <span
+        class="tag"
+        [title]="'A Claude Code session wants to run this on another of your computers' | t"
+        ><mc-icon name="monitor" [size]="12" /> {{ 'on another computer' | t }}</span
+      >
+    }
     @if (!compact() && full()?.source === 'hook') {
       <span class="tag" [title]="'Delivered through the hooks plugin; the first answer wins' | t">{{
         'via hooks' | t
@@ -69,7 +76,7 @@
       <p class="qtext clamp">{{ questionText() }}</p>
     }
   } @else if (item().kind === 'permission' && item().detail) {
-    <pre class="detail clamp">{{ item().detail }}</pre>
+    <pre class="detail clamp">{{ detailText() }}</pre>
   } @else if (item().detail) {
     <p class="detail clamp">{{ item().detail }}</p>
   }
@@ -252,6 +259,8 @@
         @default {
           @if (isBrowser()) {
             <mc-browser-action [input]="full()?.input" />
+          } @else if (isMachineRun()) {
+            <mc-machine-run-action [input]="full()?.input" />
           } @else if (hasPreview()) {
             <mc-tool-preview
               [name]="toolName()"
@@ -365,7 +374,7 @@
                 [disabled]="busy() || offline() || suggestionBlocked(s)"
                 (click)="allowAlways(s)"
               >
-                <span class="slabel">{{ s.label }}</span>
+                <span class="slabel">{{ suggestionLabel(s) }}</span>
                 <span class="muted small sdest">{{ destination(s.destination) }}</span>
               </button>
             }
@@ -422,7 +431,7 @@
               }
               {{ 'Allow once' | t }}
             </button>
-            @if (suggestions().length) {
+            @if (showAlways()) {
               <button
                 class="btn"
                 type="button"

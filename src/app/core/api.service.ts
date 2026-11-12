@@ -42,6 +42,7 @@ import type {
   SetupView,
 } from './machines';
 import type { MoveBody } from './move-data';
+import type { MachineRun, RunGrantsView, RunsView } from './runs';
 import {
   MovePreflight,
   MoveRecord,
@@ -225,7 +226,8 @@ import {
  *             updateMachine(id, patch) · revokeMachine(id) ·
  *             askMachine(machine, body) · answerMachineAsk(id, answer) ·
  *             getSync() · setSync(project, machine, on) · syncNow(id) ·
- *             resolveSync(id, keep) ·
+ *             resolveSync(id, keep) · getRuns() · getRun(id) ·
+ *             cancelRun(id) · getRunGrants() · revokeRunGrant(id) ·
  *             getMachineAccounts() · getMachineFolders(fresh?) ·
  *             cloneHere(body) · checkProjectRemote(project) ·
  *             getRoots() · saveRoots(change)
@@ -1364,6 +1366,32 @@ export class ApiService {
    * under a ref and put back, then the kept side's lands. */
   resolveSync(id: string, keep: 'here' | 'there'): Promise<SyncPair> {
     return this.post<SyncPair>(`/machines/sync/${enc(id)}/resolve`, { keep });
+  }
+
+  /** `GET /api/machines/runs`: runs on other computers, both ways. */
+  getRuns(): Promise<RunsView> {
+    return this.req<RunsView>('/machines/runs');
+  }
+
+  /** `GET /api/machines/runs/{id}`: one run whole (its output's last 64 KiB). */
+  getRun(id: string): Promise<MachineRun> {
+    return this.req<MachineRun>(`/machines/runs/${enc(id)}`);
+  }
+
+  /** `POST /api/machines/runs/{id}/cancel`: stops it, there or here. */
+  cancelRun(id: string): Promise<MachineRun> {
+    return this.post<MachineRun>(`/machines/runs/${enc(id)}/cancel`, {});
+  }
+
+  /** `GET /api/machines/run-grants`: the commands a project may run on
+   * another computer without asking. */
+  getRunGrants(): Promise<RunGrantsView> {
+    return this.req<RunGrantsView>('/machines/run-grants');
+  }
+
+  /** Desktop: `DELETE /api/machines/run-grants/{id}`; answers the list. */
+  revokeRunGrant(id: string): Promise<RunGrantsView> {
+    return this.req<RunGrantsView>(`/machines/run-grants/${enc(id)}`, { method: 'DELETE' });
   }
 
   getMachineAccounts(): Promise<AccountsTable> {

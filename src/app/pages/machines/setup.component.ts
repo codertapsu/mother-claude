@@ -122,6 +122,9 @@ export class MachinesSetupComponent {
       { id: 'code', title: tr('Code') },
       { id: 'accounts', title: tr('Accounts') },
       { id: 'folders', title: tr('Folders') },
+      // Running commands (Phase 4): only where the Run permission is given.
+      { id: 'run', title: tr('Run there') },
+      { id: 'runBack', title: tr('Run here') },
     ];
     const seen = new Set(this.lastTests().flatMap((r) => r.tests.map((t) => t.id)));
     return all.filter((c) => c.id === 'connect' || c.id === 'transfer' || seen.has(c.id));

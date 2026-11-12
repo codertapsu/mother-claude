@@ -338,7 +338,15 @@ export type PendingKind = 'permission' | 'question' | 'plan' | 'elicitation';
 
 /** observed = seen on disk, not answerable from here; browser = a browser
  * action waiting for approval (docs/BROWSER.md). */
-export type PendingSource = 'owned' | 'hook' | 'bridge' | 'sidecar' | 'observed' | 'browser';
+export type PendingSource =
+  | 'owned'
+  | 'hook'
+  | 'bridge'
+  | 'sidecar'
+  | 'observed'
+  | 'browser'
+  /** A command a session asks to run on another computer (Machines). */
+  | 'machine';
 
 export interface PendingItem {
   id: string;
@@ -469,7 +477,8 @@ export interface Todo {
 
 export interface BackgroundTask {
   id: string;
-  kind: 'bash' | 'agent' | 'workflow' | 'monitor';
+  /** `machine`: a command it runs on another computer (Machines). */
+  kind: 'bash' | 'agent' | 'workflow' | 'monitor' | 'machine';
   label: string;
   status: string;
   startedAt?: number;

@@ -40,6 +40,7 @@ import {
 } from './machines-text';
 import { OptionsFormComponent, relayText } from './options-form.component';
 import { PairSheetComponent } from './pair-sheet.component';
+import { RunsCardComponent } from './runs-card.component';
 import { SyncCardComponent } from './sync-card.component';
 
 /**
@@ -65,6 +66,7 @@ import { SyncCardComponent } from './sync-card.component';
     OptionsFormComponent,
     PairSheetComponent,
     RelativeTimePipe,
+    RunsCardComponent,
     SyncCardComponent,
     TPipe,
   ],

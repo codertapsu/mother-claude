@@ -31,6 +31,7 @@ import {
 } from '../core/models';
 import { NoticeService } from '../core/notice.service';
 import { PendingService, isFullItem, resolutionText } from '../core/pending.service';
+import { machineRunInput } from '../core/runs';
 import { RealtimeService } from '../core/realtime.service';
 import { sessionLink } from '../core/session-links';
 import { AccountChipComponent } from './account-chip.component';
@@ -38,6 +39,7 @@ import { BrowserActionComponent } from './browser-action.component';
 import { CapLimitsComponent } from './cap-limits.component';
 import { ChipComponent } from './chip.component';
 import { IconComponent, IconName } from './icon.component';
+import { MachineRunActionComponent } from './machine-run-action.component';
 import { renderMarkdown } from './markdown';
 import { SheetComponent } from './sheet.component';
 import { TimeAgoComponent } from './time-ago.component';
@@ -62,6 +64,7 @@ const DESTINATIONS: Record<string, string> = {
   userSettings: 'Saved in ~/.claude/settings.json (all your projects)',
   cliArg: 'This run only',
   browser: 'Saved in Mother Claude (Browser › Always allowed)',
+  machines: 'Saved in Mother Claude (Machines › Always allowed runs)',
 };
 
 interface SchemaField {
@@ -112,6 +115,7 @@ interface SchemaField {
     CapLimitsComponent,
     ChipComponent,
     IconComponent,
+    MachineRunActionComponent,
     SheetComponent,
     TimeAgoComponent,
     ToolPreviewComponent,
@@ -285,6 +289,21 @@ export class PendingCardComponent {
   protected readonly isBrowser = computed(
     () => (this.full()?.source ?? this.item().source) === 'browser',
   );
+  /** A command a session asks to run on another computer (Machines). */
+  protected readonly isMachineRun = computed(
+    () => (this.full()?.source ?? this.item().source) === 'machine',
+  );
+  /** Its "always allow …" is a standing grant: offered only to whoever may
+   * attach one (the dangerous right), never shown greyed out to others. */
+  protected readonly showAlways = computed(
+    () => this.suggestions().length > 0 && (!this.isMachineRun() || this.canDangerous()),
+  );
+  /** The item's detail as the card shows it (a run's, in the language
+   * shown). */
+  protected readonly detailText = computed(() => {
+    const d = this.item().detail ?? '';
+    return this.isMachineRun() ? runDetail(d) : d;
+  });
   protected readonly toolName = computed(() => this.full()?.toolName ?? this.item().toolName ?? '');
   protected readonly hasPreview = computed(() => {
     const f = this.full();
@@ -334,7 +353,7 @@ export class PendingCardComponent {
       case 'elicitation':
         return 'info';
       default:
-        return this.isBrowser() ? 'globe' : 'shield';
+        return this.isMachineRun() ? 'monitor' : this.isBrowser() ? 'globe' : 'shield';
     }
   });
   protected readonly heading = computed(() => {
@@ -350,11 +369,14 @@ export class PendingCardComponent {
         return tr('Plan ready for review');
       case 'elicitation':
         return it.title || tr('Input requested');
-      default:
+      default: {
+        const run = this.isMachineRun() ? machineRunInput(this.full()?.input) : null;
+        if (run) return tr('Run a command on {name}?', { name: run.machineName });
         return (
           pendingTitle(it.title) ||
           (it.toolName ? tr('Allow {tool}?', { tool: it.toolName }) : tr('Allow this tool?'))
         );
+      }
     }
   });
   /** How many questions Claude asks: the full item's, else the preview's count. */
@@ -453,7 +475,7 @@ export class PendingCardComponent {
   allowAlways(s: PermissionSuggestion): Promise<void> {
     return this.respond(
       { decision: 'allow', suggestion: s.index },
-      tr('Allowed · {rule}', { rule: s.label }),
+      tr('Allowed · {rule}', { rule: this.suggestionLabel(s) }),
     );
   }
 
@@ -477,6 +499,17 @@ export class PendingCardComponent {
     const known = DESTINATIONS[d ?? ''];
     if (known) return tr(known);
     return d ? tr('Saved to {place}', { place: d }) : tr('Saved to your settings');
+  }
+
+  /** A suggestion's label: a run's standing grant in the language shown
+   * (the server's English for the rest). */
+  suggestionLabel(s: PermissionSuggestion): string {
+    if (s.kind !== 'machineRunGrant') return s.label;
+    const raw = s.raw as { prefix?: unknown } | null | undefined;
+    const prefix = typeof raw?.prefix === 'string' ? raw.prefix : '';
+    const name = machineRunInput(this.full()?.input)?.machineName ?? '';
+    if (!prefix || !name) return s.label;
+    return tr('Always allow “{prefix}” on {name} for this project', { prefix, name });
   }
 
   suggestionBlocked(s: PermissionSuggestion): boolean {
@@ -694,5 +727,19 @@ export function pendingTitle(title: string | undefined): string {
   if (use) return tr('Claude wants to use {tool}', { tool: use[1] });
   const allow = /^Allow (.+)\?$/.exec(t);
   if (allow) return tr('Allow {tool}?', { tool: allow[1] });
+  const run = /^Run on (.+?): (.+)$/s.exec(t);
+  if (run) return tr('Run on {name}: {command}', { name: run[1], command: run[2] });
   return title ?? '';
+}
+
+/** A run approval's detail (`machines::work::source::approve`) in the
+ * language shown; any other text as it came. */
+export function runDetail(detail: string): string {
+  const m = /^In (.+) on (.+) \((.+)\), in a work folder at this session's code\.$/s.exec(detail);
+  if (!m) return detail;
+  return tr('In {folder} on {name} ({shell}), in a work folder at this session’s code.', {
+    folder: m[1],
+    name: m[2],
+    shell: m[3],
+  });
 }

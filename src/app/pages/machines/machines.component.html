@@ -386,6 +386,11 @@
       <mc-machines-sync [readonly]="!isDesktop()" />
     }
 
+    <!-- ─────────────── Runs on other computers (Phase 4) ─────────────── -->
+    @if (inUse()) {
+      <mc-machines-runs [readonly]="!isDesktop()" />
+    }
+
     <!-- ─────────────── Options ─────────────── -->
     @if (inUse()) {
       <section class="card options" [attr.aria-label]="'Options' | t">

@@ -10,7 +10,8 @@ import { grantRow } from './machines-text';
  * same network and over the internet (docs/PLAN-MACHINES.md §5.4). Editable
  * at pairing and on a computer's card; it keeps the dependencies the server
  * enforces (driving needs seeing; moving, running and dangerous actions
- * need driving). Running is a later phase: shown, never ticked.
+ * need driving). Running (Phase 4) and dangerous actions are off until
+ * someone ticks them, and each says what it allows once it is on.
  */
 @Component({
   selector: 'mc-grants-matrix',
@@ -38,9 +39,6 @@ import { grantRow } from './machines-text';
             <th scope="row">
               <span class="rowhead">
                 <span>{{ rowLabel(g) }}</span>
-                @if (g === 'run') {
-                  <span class="muted small">{{ '(later)' | t }}</span>
-                }
                 @if (g === 'dangerous') {
                   <span class="badge danger">{{ 'risky' | t }}</span>
                 }
@@ -52,7 +50,7 @@ import { grantRow } from './machines-text';
                   <input
                     type="checkbox"
                     [checked]="grants()[g][col]"
-                    [disabled]="g === 'run' || disabled()"
+                    [disabled]="disabled()"
                     [attr.aria-label]="cellLabel(g, col)"
                     (change)="toggle(g, col, $any($event.target).checked)"
                   />
@@ -64,11 +62,21 @@ import { grantRow } from './machines-text';
               </td>
             }
           </tr>
+          @if (g === 'run' && runOn()) {
+            <tr class="explain">
+              <td colspan="3" class="small muted">
+                {{
+                  'Lets {name} run commands on this {computer}, in a work folder of its own at its session’s code (this {computer}’s copy of the project is never touched). Each run is approved on {name} unless you always allow a command there.'
+                    | t: { name: name(), computer: computer() }
+                }}
+              </td>
+            </tr>
+          }
           @if (g === 'dangerous' && dangerousOn()) {
             <tr class="explain">
               <td colspan="3" class="small muted">
                 {{
-                  "Lets {name} bypass permissions, approve dangerous tool calls, send raw terminal keys, and carry a folder's trust and files git ignores with a move, on this {computer}."
+                  "Lets {name} bypass permissions, approve dangerous tool calls, send raw terminal keys, carry a folder's trust and files git ignores with a move, and run commands Mother Claude marks dangerous, on this {computer}."
                     | t: { name: name(), computer: computer() }
                 }}
               </td>
@@ -134,6 +142,7 @@ export class GrantsMatrixComponent {
   protected readonly dangerousOn = computed(
     () => this.grants().dangerous.lan || this.grants().dangerous.internet,
   );
+  protected readonly runOn = computed(() => this.grants().run.lan || this.grants().run.internet);
 
   protected rowLabel(g: GrantName): string {
     return grantRow(g);
