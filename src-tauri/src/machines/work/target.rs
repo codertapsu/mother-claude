@@ -132,9 +132,9 @@ fn no_checkout(state: &AppState, project: &str, why: String) -> ApiError {
     ApiError::not_found(
         "work_no_checkout",
         format!(
-            "{name} isn't on {}: {why} Clone it there first (Machines › Set up › Accounts and \
-             folders: Clone it there), then run it again.",
-            m::this_name(state)
+            "{name} isn't on {this}: {why} Clone it on {this} first (Machines › Set up › \
+             Accounts and folders), then run it again.",
+            this = m::this_name(state)
         ),
     )
     .with("project", name)
@@ -179,13 +179,26 @@ pub async fn locate(state: &AppState, from: &str, project: &str) -> ApiResult<Pa
 #[serde(rename_all = "camelCase")]
 pub struct PrepareBody {
     pub project: String,
+    /// The command it would run: this computer's classifier reads it too,
+    /// so the asking computer can ask for a dangerous approval when only
+    /// this one calls it dangerous (paths written this computer's way).
+    #[serde(default)]
+    pub command: Option<String>,
 }
 
 /// `POST /peer/work/prepare`: where the project is here, its work folder,
-/// this computer's shell and what the snapshot may leave out (nothing is
-/// written).
+/// this computer's shell, what the snapshot may leave out, and why this
+/// computer would call the command dangerous (nothing is written).
 pub async fn prepare(state: &AppState, from: &str, body: PrepareBody) -> ApiResult<Value> {
     let checkout = locate(state, from, &body.project).await?;
+    let dangerous = body
+        .command
+        .as_deref()
+        .filter(|c| c.len() <= MAX_COMMAND)
+        .and_then(|c| {
+            let env = crate::pending::DangerEnv::current(Some(&checkout.to_string_lossy()));
+            crate::pending::sensitive_command(c, &env)
+        });
     let work = work_id(from, &body.project);
     let folder = state
         .machines
@@ -208,6 +221,7 @@ pub async fn prepare(state: &AppState, from: &str, body: PrepareBody) -> ApiResu
         "shellLabel": shell.kind.label(),
         "haves": haves.haves,
         "shallow": haves.shallow,
+        "dangerous": dangerous,
     }))
 }
 
@@ -304,10 +318,12 @@ fn check_begin(b: &BeginBody, in_dir: &Path) -> ApiResult<()> {
             return Err(bad("The artifacts' glob."));
         }
     }
-    for s in [&b.session, &b.session_title] {
-        if s.as_ref().is_some_and(|s| s.len() > 300) {
-            return Err(bad("The session."));
-        }
+    if b.session
+        .as_deref()
+        .is_some_and(|s| !crate::claude::ids::is_session_id(s))
+        || b.session_title.as_ref().is_some_and(|t| t.len() > 300)
+    {
+        return Err(bad("The session."));
     }
     if b.files.len() > MAX_FILES {
         return Err(bad("Too many files."));
@@ -365,6 +381,7 @@ pub async fn begin(
     let checkout = locate(state, from, &b.project).await?;
     let dangerous = b.dangerous || flagged_here(&b.command, &checkout);
     check_dangerous(state, ctx, dangerous)?;
+    let via_lan = matches!(ctx.principal, Principal::Peer { lan: true, .. });
     if let Some(run) = state.machines.work.get(&b.run) {
         let (mine, sending) = run.peek(|r| {
             (
@@ -430,6 +447,7 @@ pub async fn begin(
             approved_by: None,
             grant: None,
             unreachable: false,
+            via_lan: Some(via_lan),
             updated_at: m::now(),
         };
         state.machines.work.prune();

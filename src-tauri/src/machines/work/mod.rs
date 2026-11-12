@@ -325,6 +325,10 @@ pub struct RunRecord {
     /// The asking side: the other computer did not answer the last time.
     #[serde(default)]
     pub unreachable: bool,
+    /// The side that runs it: whether it was asked for over the local
+    /// network (the `run` grant's column that let it in).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub via_lan: Option<bool>,
     #[serde(default)]
     pub updated_at: i64,
 }
@@ -805,21 +809,36 @@ pub fn stop_from(state: &AppState, machine: Option<&str>, why: &str) {
     }
 }
 
-/// After `machine`'s grants changed here: its runs stop when it may run
-/// nothing here any more.
+/// After `machine`'s grants changed here: each of its runs stops when the
+/// `run` grant's column that let it in (the local network, or not) is gone.
 pub fn grants_changed(state: &AppState, machine: &str) {
-    let may = state
-        .machines
-        .allows(machine, super::grants::Grant::Run, true)
-        || state
-            .machines
-            .allows(machine, super::grants::Grant::Run, false);
-    if !may {
-        stop_from(
-            state,
-            Some(machine),
-            "This computer took back the Run permission.",
-        );
+    use super::grants::Grant;
+    for run in state.machines.work.all() {
+        let (hit, lan) = run.peek(|r| {
+            (
+                r.direction == Direction::In && !r.state.ended() && r.machine == machine,
+                r.via_lan,
+            )
+        });
+        if !hit {
+            continue;
+        }
+        let may = match lan {
+            Some(lan) => state.machines.allows(machine, Grant::Run, lan),
+            None => {
+                state.machines.allows(machine, Grant::Run, true)
+                    || state.machines.allows(machine, Grant::Run, false)
+            }
+        };
+        if !may {
+            tracing::info!(run = %run.id, "the Run permission was taken back: the run is stopped");
+            run.update(|r| {
+                if r.error.is_none() {
+                    r.error = Some("This computer took back the Run permission.".into());
+                }
+            });
+            run.ask_cancel();
+        }
     }
 }
 

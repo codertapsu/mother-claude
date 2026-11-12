@@ -223,8 +223,8 @@ pub fn why_not(state: &AppState, peer: &PeerRecord) -> Option<String> {
         .is_some_and(|g| !g.allows(Grant::Run, lan))
     {
         return Some(format!(
-            "{name} has not given this computer the Run permission{}: turn it on there (Machines \
-             › {this} › What it may do on {name}).",
+            "{name} has not given this computer the Run permission{}: on {name}, open Machines, \
+             press Change on {this}'s card and tick Run.",
             if lan { "" } else { " over the internet" },
             this = m::this_name(state),
         ));
@@ -254,6 +254,8 @@ struct There {
     shell: String,
     shell_label: String,
     haves: Vec<String>,
+    /// Why the other computer calls the command dangerous, when it does.
+    dangerous: Option<String>,
 }
 
 fn there_of(v: &Value) -> Option<There> {
@@ -278,6 +280,7 @@ fn there_of(v: &Value) -> Option<There> {
                     .collect()
             })
             .unwrap_or_default(),
+        dangerous: s("dangerous").map(|d| clip(&d, 300)),
     })
 }
 
@@ -515,7 +518,7 @@ pub async fn run(state: &AppState, caller: &Caller, ask: Ask) -> Result<String, 
         &peer.id,
         "POST",
         "/peer/work/prepare",
-        Some(&json!({ "project": project })),
+        Some(&json!({ "project": project, "command": command })),
         false,
         CALL,
     )
@@ -526,9 +529,16 @@ pub async fn run(state: &AppState, caller: &Caller, ask: Ask) -> Result<String, 
             format!("{} answered oddly.", peer.display_name()),
         )
     })?;
-    // Who agrees: a standing grant, or a person here.
+    // Who agrees: a standing grant, or a person here. Dangerous when this
+    // computer's classifier or the other's says so (each reads paths its
+    // own way).
     let env = crate::pending::DangerEnv::current(Some(&project));
-    let dangerous = crate::pending::sensitive_command(&command, &env);
+    let dangerous = crate::pending::sensitive_command(&command, &env).or_else(|| {
+        there
+            .dangerous
+            .clone()
+            .map(|why| format!("{why} (on {})", peer.display_name()))
+    });
     let covered = if dangerous.is_none() {
         state
             .machines
@@ -598,6 +608,7 @@ pub async fn run(state: &AppState, caller: &Caller, ask: Ask) -> Result<String, 
         approved_by: allowed.by.clone(),
         grant: allowed.grant.clone(),
         unreachable: false,
+        via_lan: None,
         updated_at: m::now(),
     };
     let run = state
@@ -1391,6 +1402,7 @@ mod tests {
             approved_by: None,
             grant: None,
             unreachable: false,
+            via_lan: None,
             updated_at: 1,
         }
     }
