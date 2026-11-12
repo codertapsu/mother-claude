@@ -1,6 +1,6 @@
 import { Component, computed, effect, inject, signal, untracked } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
-import { NavigationEnd, Router, RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
+import { NavigationEnd, Router, RouterLink, RouterOutlet } from '@angular/router';
 import { filter, map } from 'rxjs';
 
 import { ApiService } from './core/api.service';
@@ -15,6 +15,17 @@ import { PushService } from './core/push.service';
 import { RealtimeService, connectionDetail, connectionLabel } from './core/realtime.service';
 import { I18nService } from './core/i18n/i18n.service';
 import { MachinesService } from './core/machines.service';
+import {
+  HELP_ENTRY,
+  MORE_ENTRY,
+  NavEntry,
+  barPlaces,
+  moreActive,
+  sectionOf,
+  sidebarPlaces,
+  titleOf,
+} from './core/nav';
+import { NavBadges } from './core/nav-badges';
 import { tr } from './core/i18n/i18n';
 import { TPipe } from './core/i18n/t.pipe';
 import { ThemeService } from './core/theme.service';
@@ -36,71 +47,18 @@ export function isStillPending(p: PendingPair, now: number): boolean {
 }
 const WELCOME_SEEN_KEY = 'mc_welcome_seen';
 
-/** Sections reached through the phone's "More" tab. */
-const MORE_SECTIONS = [
-  'more',
-  'machines',
-  'new',
-  'remote',
-  'api',
-  'browser',
-  'settings',
-  'accounts',
-  'backup',
-  'services',
-  'help',
-  'onboarding',
-  'capacity',
-  'teams',
-];
-
-const TITLES: Record<string, string> = {
-  '': 'Sessions',
-  inbox: 'Inbox',
-  agents: 'Agents',
-  more: 'More',
-  new: 'New session',
-  machines: 'Machines',
-  remote: 'Remote',
-  api: 'API',
-  browser: 'Browser',
-  settings: 'Settings',
-  accounts: 'Accounts',
-  backup: 'Backup & sync',
-  services: 'Services',
-  help: 'Help',
-  teams: 'Teams',
-  onboarding: 'Welcome',
-  pair: 'Pair this device',
-  session: 'Session',
-  capacity: 'Capacity',
-};
-
-interface NavItem {
-  path: string;
-  label: string;
-  icon: IconName;
-  exact?: boolean;
-  /** A count, or the Machines health dot. */
-  badge?: 'pending' | 'agents' | 'machines';
-  desktopOnly?: boolean;
-  /** The sidebar heading it starts or continues (none: the work itself). */
-  group?: string;
-}
-
 /**
  * The app shell: a phone layout (< 768 px: top bar with the connection dot +
- * bottom tabs Sessions · Inbox · Agents · More) and a desktop layout (left
- * nav). Also owns startup: config → pairing state → realtime → push, the
- * redirect to /pair when this device is not (or no longer) paired, and the
- * desktop-only onboarding/updater bits.
+ * the bottom bar's tabs and More) and a desktop layout (left nav), both
+ * drawn from the map (core/nav.ts). Also owns startup: config → pairing
+ * state → realtime → push, the redirect to /pair when this device is not
+ * (or no longer) paired, and the desktop-only onboarding/updater bits.
  */
 @Component({
   selector: 'mc-root',
   imports: [
     RouterOutlet,
     RouterLink,
-    RouterLinkActive,
     IconComponent,
     LimitationsComponent,
     FolderChoiceSheetComponent,
@@ -131,11 +89,11 @@ export class AppComponent {
   protected readonly attention = inject(AttentionService);
   /** Machines' health, for the sidebar's dot (desktop). */
   private readonly machines = inject(MachinesService);
-  protected readonly machinesAlarm = this.machines.alarm;
+  /** What the map's badges show. */
+  protected readonly badges = inject(NavBadges);
 
   protected readonly ready = signal(false);
   protected readonly connection = this.realtime.connection;
-  protected readonly pendingCount = this.attention.pendingCount;
   protected readonly interstitial = this.api.interstitial;
   protected readonly desktopRejected = this.auth.desktopRejected;
   protected readonly needsPermission = computed(() => this.permissions.missingRequired());
@@ -144,12 +102,6 @@ export class AppComponent {
   protected readonly mock = this.config.mock;
   protected readonly showWelcome = signal(false);
   protected readonly lastData = this.realtime.lastDataAt;
-  /** Running agents across every session (the Agents tab badge). */
-  protected readonly agentsRunning = computed(() =>
-    this.realtime
-      .sessions()
-      .reduce((n, s) => n + (s.agents?.running ?? 0) + (s.agents?.backgroundRunning ?? 0), 0),
-  );
   /** Desktop: pairing requests waiting for the typed-number approval. */
   private readonly pairQueue = signal<PendingPair[]>([]);
   protected readonly pairRequest = computed(() => this.pairQueue()[0] ?? null);
@@ -164,33 +116,17 @@ export class AppComponent {
     ),
     { initialValue: this.router.url },
   );
-  private readonly section = computed(() => {
-    const path = (this.url() ?? '/').split(/[?#]/)[0].replace(/^\//, '');
-    return path.split('/')[0] ?? '';
-  });
-  protected readonly pageTitle = computed(() => tr(TITLES[this.section()] ?? 'Mother Claude'));
+  private readonly section = computed(() => sectionOf(this.url() ?? '/'));
+  protected readonly pageTitle = computed(() => tr(titleOf(this.section())));
   /** The session page owns the whole phone screen (its own header). */
   protected readonly immersive = computed(() => this.section() === 'session');
-  protected readonly moreActive = computed(() => MORE_SECTIONS.includes(this.section()));
 
-  protected readonly nav: NavItem[] = [
-    { path: '/', label: 'Sessions', icon: 'sessions', exact: true },
-    { path: '/inbox', label: 'Inbox', icon: 'inbox', badge: 'pending' },
-    { path: '/agents', label: 'Agents', icon: 'agents', badge: 'agents' },
-    { path: '/new', label: 'New session', icon: 'plus' },
-    { path: '/teams', label: 'Teams', icon: 'layers' },
-    { path: '/accounts', label: 'Accounts', icon: 'user', group: 'Your data' },
-    { path: '/backup', label: 'Backup & sync', icon: 'cloud', group: 'Your data' },
-    { path: '/machines', label: 'Machines', icon: 'monitor', badge: 'machines', group: 'Connect' },
-    { path: '/remote', label: 'Remote', icon: 'phone', desktopOnly: true, group: 'Connect' },
-    { path: '/browser', label: 'Browser', icon: 'globe', group: 'Connect' },
-    { path: '/api', label: 'API', icon: 'code', group: 'Connect' },
-    { path: '/capacity', label: 'Capacity', icon: 'gauge', group: 'System' },
-    { path: '/settings', label: 'Settings', icon: 'settings', group: 'System' },
-  ];
-  protected readonly desktopNav = computed(() =>
-    this.nav.filter((n) => !n.desktopOnly || this.isDesktop()),
-  );
+  // The map (core/nav.ts): the sidebar, the phone's bar and its More tab.
+  protected readonly sidebar = computed(() => sidebarPlaces(this.isDesktop()));
+  protected readonly bar = barPlaces();
+  protected readonly helpEntry = HELP_ENTRY;
+  protected readonly moreEntry = MORE_ENTRY;
+  protected readonly moreActive = computed(() => moreActive(this.section()));
 
   protected readonly connLabel = computed(() => connectionLabel(this.connection()));
   protected readonly connDetail = computed(() => connectionDetail(this.connection()));
@@ -339,19 +275,9 @@ export class AppComponent {
     return p === 'dark' ? tr('Dark') : p === 'light' ? tr('Light') : tr('System||theme');
   }
 
-  /** A sidebar link's name for screen readers, with its count. */
-  protected navLabel(item: NavItem): string | null {
-    const label = tr(item.label);
-    if (item.badge === 'pending' && this.pendingCount()) {
-      return tr('{label}, {n} waiting', { label, n: this.pendingCount() });
-    }
-    if (item.badge === 'agents' && this.agentsRunning()) {
-      return tr('{label}, {n} running', { label, n: this.agentsRunning() });
-    }
-    if (item.badge === 'machines' && this.machinesAlarm()) {
-      return tr('{label}, needs attention', { label });
-    }
-    return null;
+  /** The entry the page shown belongs to. */
+  protected isCurrent(entry: NavEntry): boolean {
+    return entry.sections.includes(this.section());
   }
 
   protected themeIcon(): IconName {

@@ -12,8 +12,6 @@
   "The server rejected the desktop's own token. Restart Mother Claude.": "Máy chủ đã từ chối token của chính ứng dụng máy tính. Hãy khởi động lại Mother Claude.",
   "A required macOS permission is missing.": "Còn thiếu một quyền macOS cần thiết.",
   "Finish setup so Mother Claude can read your sessions.": "Hoàn tất thiết lập để Mother Claude đọc được các phiên của bạn.",
-  "Inbox, {n} waiting": "Hộp thư, {n} đang chờ",
-  "Agents, {n} running": "Tác tử, {n} đang chạy",
   "{label}, {n} waiting": "{label}, {n} đang chờ",
   "{label}, {n} running": "{label}, {n} đang chạy",
   "Updated": "Cập nhật",

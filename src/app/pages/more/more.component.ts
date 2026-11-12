@@ -3,87 +3,26 @@ import { RouterLink } from '@angular/router';
 
 import { AuthService } from '../../core/auth.service';
 import { TPipe } from '../../core/i18n/t.pipe';
+import { moreEntries } from '../../core/nav';
 import { RealtimeService, connectionLabel } from '../../core/realtime.service';
-import { IconComponent, IconName } from '../../shared/icon.component';
+import { IconComponent } from '../../shared/icon.component';
 
-interface Entry {
-  path: string;
-  icon: IconName;
-  label: string;
-  hint: string;
-  desktopOnly?: boolean;
-}
-
-/** Labels and hints in English, translated where shown. */
-const ENTRIES: Entry[] = [
-  { path: '/new', icon: 'plus', label: 'New session', hint: 'Start an owned Claude Code session' },
-  { path: '/teams', icon: 'layers', label: 'Teams', hint: 'A lead and role sessions on a board' },
-  {
-    path: '/accounts',
-    icon: 'user',
-    label: 'Accounts',
-    hint: 'Several Claude accounts, sign-in, moving conversations',
-  },
-  {
-    path: '/backup',
-    icon: 'cloud',
-    label: 'Backup & sync',
-    hint: 'Back up, restore and carry conversations to another computer',
-  },
-  {
-    path: '/machines',
-    icon: 'monitor',
-    label: 'Machines',
-    hint: 'Your other computers: their sessions, pairing, health',
-  },
-  {
-    path: '/remote',
-    icon: 'phone',
-    label: 'Remote',
-    hint: 'Pair devices, internet access, foreign sessions',
-    desktopOnly: true,
-  },
-  {
-    path: '/settings',
-    icon: 'settings',
-    label: 'Settings',
-    hint: 'Notifications, theme, plan usage, connection',
-  },
-  { path: '/api', icon: 'code', label: 'HTTP API', hint: 'Drive Claude from scripts and tools' },
-  {
-    path: '/capacity',
-    icon: 'gauge',
-    label: 'Capacity',
-    hint: 'Role sessions, why they wait, budgets, routing and costs',
-  },
-  {
-    path: '/browser',
-    icon: 'globe',
-    label: 'Browser',
-    hint: 'Sessions in your browser: site modes, approvals',
-  },
-  { path: '/services', icon: 'activity', label: 'Services', hint: 'Daemon and MCP servers' },
-  {
-    path: '/help',
-    icon: 'question',
-    label: 'Help',
-    hint: 'How to use every feature, step by step',
-  },
-];
-
-/** The phone's "More" tab: everything that isn't a primary tab. */
+/** The phone's "More" tab: the places the bottom bar has no room for, from
+ * the map (core/nav.ts). */
 @Component({
   selector: 'mc-more',
   imports: [RouterLink, IconComponent, TPipe],
   template: `
     <div class="page narrow">
       <div class="card list">
-        @for (e of entries(); track e.path) {
+        @for (e of entries(); track e.id) {
           <a class="list-row entry" [routerLink]="e.path">
             <span class="ico"><mc-icon [name]="e.icon" /></span>
             <span class="text">
-              <span class="label">{{ e.label | t }}</span>
-              <span class="muted small">{{ e.hint | t }}</span>
+              <span class="label">{{ e.moreLabel ?? e.label | t }}</span>
+              @if (e.hint) {
+                <span class="muted small">{{ e.hint | t }}</span>
+              }
             </span>
             <mc-icon name="chevronRight" [size]="16" />
           </a>
@@ -136,7 +75,5 @@ export class MoreComponent {
   private auth = inject(AuthService);
   private readonly connection = inject(RealtimeService).connection;
   protected readonly connLabel = computed(() => connectionLabel(this.connection()));
-  protected readonly entries = computed(() =>
-    ENTRIES.filter((e) => !e.desktopOnly || this.auth.isDesktop()),
-  );
+  protected readonly entries = computed(() => moreEntries(this.auth.isDesktop()));
 }

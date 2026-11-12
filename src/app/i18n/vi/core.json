@@ -599,5 +599,6 @@
   "At most {n} images.": "Tối đa {n} ảnh.",
   "Enter a custom model id, or pick a model from the list.": "Hãy nhập id mô hình tùy chỉnh, hoặc chọn một mô hình trong danh sách.",
   "Could not start the session: {error}": "Không bắt đầu được phiên: {error}",
-  "Could not load projects: {error}": "Không tải được dự án: {error}"
+  "Could not load projects: {error}": "Không tải được dự án: {error}",
+  "Answer on the desktop app.": "Hãy trả lời trên ứng dụng máy tính."
 }

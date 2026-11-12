@@ -744,5 +744,7 @@
   "scoped||plan window": "theo phạm vi",
   "Claude wants to use {tool}": "Claude muốn dùng {tool}",
   "Running {n} agents": "Đang chạy {n} tác tử",
-  "Claude has {n} questions": "Claude có {n} câu hỏi"
+  "Claude has {n} questions": "Claude có {n} câu hỏi",
+  "How it works ›": "Cách hoạt động ›",
+  "More actions": "Thao tác khác"
 }

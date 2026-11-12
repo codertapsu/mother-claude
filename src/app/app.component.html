@@ -9,24 +9,21 @@
         <span>Mother Claude</span>
       </a>
       <nav class="side-nav" [attr.aria-label]="'Primary' | t">
-        @for (item of desktopNav(); track item.path; let i = $index) {
-          @if (item.group && item.group !== desktopNav()[i - 1]?.group) {
+        @for (item of sidebar(); track item.id; let i = $index) {
+          @if (item.group && item.group !== sidebar()[i - 1]?.group) {
             <span class="nav-group" aria-hidden="true">{{ item.group | t }}</span>
           }
           <a
             [routerLink]="item.path"
-            routerLinkActive="active"
-            ariaCurrentWhenActive="page"
-            [routerLinkActiveOptions]="{ exact: !!item.exact }"
-            [attr.aria-label]="navLabel(item)"
+            [class.active]="isCurrent(item)"
+            [attr.aria-current]="isCurrent(item) ? 'page' : null"
+            [attr.aria-label]="badges.label(item)"
           >
             <mc-icon [name]="item.icon" />
             <span class="label">{{ item.label | t }}</span>
-            @if (item.badge === 'pending' && pendingCount()) {
-              <span class="count-badge">{{ pendingCount() }}</span>
-            } @else if (item.badge === 'agents' && agentsRunning()) {
-              <span class="count-badge soft">{{ agentsRunning() }}</span>
-            } @else if (item.badge === 'machines' && machinesAlarm()) {
+            @if (badges.count(item.badge); as n) {
+              <span class="count-badge" [class.soft]="item.badge === 'agents'">{{ n }}</span>
+            } @else if (badges.dot(item.badge)) {
               <span class="count-badge dot" aria-hidden="true"></span>
             }
           </a>
@@ -35,11 +32,11 @@
       <div class="side-foot">
         <a
           class="help-link"
-          routerLink="/help"
-          routerLinkActive="active"
-          ariaCurrentWhenActive="page"
+          [routerLink]="helpEntry.path"
+          [class.active]="isCurrent(helpEntry)"
+          [attr.aria-current]="isCurrent(helpEntry) ? 'page' : null"
         >
-          <mc-icon name="question" [size]="16" /> {{ 'Help' | t }}
+          <mc-icon [name]="helpEntry.icon" [size]="16" /> {{ helpEntry.label | t }}
         </a>
         @if (updateAvailable()) {
           <a class="update" routerLink="/settings">
@@ -158,54 +155,31 @@
 
     <!-- Phone: bottom tabs -->
     <nav class="tabbar" [attr.aria-label]="'Primary' | t">
+      @for (item of bar; track item.id) {
+        <a
+          [routerLink]="item.path"
+          [class.active]="isCurrent(item)"
+          [attr.aria-current]="isCurrent(item) ? 'page' : null"
+          [attr.aria-label]="badges.label(item)"
+        >
+          <span class="icon-wrap">
+            <mc-icon [name]="item.icon" [size]="22" />
+            @if (badges.count(item.badge); as n) {
+              <span class="count-badge" [class.soft]="item.badge === 'agents'">{{ n }}</span>
+            } @else if (badges.dot(item.badge)) {
+              <span class="count-badge dot" aria-hidden="true"></span>
+            }
+          </span>
+          <span>{{ item.label | t }}</span>
+        </a>
+      }
       <a
-        routerLink="/"
-        routerLinkActive="active"
-        ariaCurrentWhenActive="page"
-        [routerLinkActiveOptions]="{ exact: true }"
-      >
-        <mc-icon name="sessions" [size]="22" />
-        <span>{{ 'Sessions' | t }}</span>
-      </a>
-      <a
-        routerLink="/inbox"
-        routerLinkActive="active"
-        ariaCurrentWhenActive="page"
-        [attr.aria-label]="
-          pendingCount() ? ('Inbox, {n} waiting' | t: { n: pendingCount() }) : null
-        "
-      >
-        <span class="icon-wrap">
-          <mc-icon name="inbox" [size]="22" />
-          @if (pendingCount()) {
-            <span class="count-badge">{{ pendingCount() }}</span>
-          }
-        </span>
-        <span>{{ 'Inbox' | t }}</span>
-      </a>
-      <a
-        routerLink="/agents"
-        routerLinkActive="active"
-        ariaCurrentWhenActive="page"
-        [attr.aria-label]="
-          agentsRunning() ? ('Agents, {n} running' | t: { n: agentsRunning() }) : null
-        "
-      >
-        <span class="icon-wrap">
-          <mc-icon name="agents" [size]="22" />
-          @if (agentsRunning()) {
-            <span class="count-badge soft">{{ agentsRunning() }}</span>
-          }
-        </span>
-        <span>{{ 'Agents' | t }}</span>
-      </a>
-      <a
-        routerLink="/more"
+        [routerLink]="moreEntry.path"
         [class.active]="moreActive()"
         [attr.aria-current]="moreActive() ? 'page' : null"
       >
-        <mc-icon name="more" [size]="22" />
-        <span>{{ 'More' | t }}</span>
+        <mc-icon [name]="moreEntry.icon" [size]="22" />
+        <span>{{ moreEntry.label | t }}</span>
       </a>
     </nav>
   </div>
