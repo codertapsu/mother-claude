@@ -4,6 +4,7 @@
 mod cases;
 mod special;
 mod sync;
+mod task;
 mod work;
 
 use std::collections::BTreeMap;

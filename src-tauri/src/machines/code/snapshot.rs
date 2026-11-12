@@ -363,7 +363,10 @@ pub fn snapshot(
     // F6: this session's earlier snapshots the target has become extra
     // parents (after base): otherwise `--not <earlier snapshot>` excludes
     // nothing (it is no ancestor) and every move re-sends the last one's.
-    let chained: Vec<String> = if req.chain && bundle_move {
+    // A task's result names its own (the last result, made here).
+    let chained: Vec<String> = if !req.extra_parents.is_empty() {
+        filter_haves(&op, &top, &req.extra_parents)?
+    } else if req.chain && bundle_move {
         session_moves(&op, &top, &req.session)?
             .into_iter()
             .map(|m| m.snap)
@@ -372,6 +375,11 @@ pub fn snapshot(
     } else {
         Vec::new()
     };
+    // HEAD itself is the first parent already (never a parent twice).
+    let chained: Vec<String> = chained
+        .into_iter()
+        .filter(|c| base.as_ref() != Some(c))
+        .collect();
     let id_env = identity_env(&op, &top)?;
     let commit = |parents: &[&String], message: String, tree: &str| {
         let mut cmd = op.cmd(&top).args(["commit-tree", "--no-gpg-sign"]);
@@ -388,11 +396,18 @@ pub fn snapshot(
     // trees in the same second would otherwise be one commit, which a
     // bundle leaves out when the target has the first (its ref with it).
     let what = if req.sync { "code sync" } else { "move" };
+    let label = req
+        .label
+        .as_deref()
+        .map(|l| l.chars().filter(|c| !c.is_control()).take(200).collect())
+        .filter(|l: &String| !l.trim().is_empty());
     // The staged tree is not reachable from the snapshot: it travels as a
     // commit of its own with the same parent (F2), like git stash's.
     let index_commit = commit(
         &base_parent,
-        if req.sync {
+        if let Some(l) = &label {
+            format!("mother-claude: staged state of {l} ({epoch})")
+        } else if req.sync {
             format!(
                 "mother-claude: staged state of code sync {} from {machine} ({epoch})",
                 req.session
@@ -408,10 +423,13 @@ pub fn snapshot(
     let snap_parents: Vec<&String> = base.iter().chain(chained.iter()).collect();
     let snap = commit(
         &snap_parents,
-        format!(
-            "mother-claude: {what} {} from {machine} ({epoch})",
-            req.session
-        ),
+        match &label {
+            Some(l) => format!("mother-claude: {l} ({epoch})"),
+            None => format!(
+                "mother-claude: {what} {} from {machine} ({epoch})",
+                req.session
+            ),
+        },
         &wt_tree,
     )?;
     let refs = MoveRefs::for_move(&req.session, &epoch);

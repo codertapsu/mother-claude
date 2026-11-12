@@ -10,7 +10,10 @@
 //!
 //! A run on another computer (Phase 4, `work`) uses the same snapshot and
 //! fetch for its work folder: a kept worktree of the target's checkout,
-//! reset to each snapshot, the files git ignores kept.
+//! reset to each snapshot, the files git ignores kept. A task handed to
+//! another computer (`task`) gets a worktree of its own at the snapshot;
+//! what its session did comes back as a snapshot of that worktree and
+//! becomes a branch on the asking computer, moved only forward.
 //!
 //! Ported from spike S2 (`spikes/machines/code/roundtrip.mjs`; findings
 //! F1–F9 in `RESULTS-S2.md`). Invariants:
@@ -37,6 +40,7 @@ mod preflight;
 mod repo;
 mod snapshot;
 mod sync;
+mod task;
 mod types;
 mod verify;
 mod work;
@@ -56,6 +60,11 @@ pub use snapshot::{haves, snapshot};
 pub use sync::{
     changes, keep_and_put_back, kept_prefix, known_commits, limits_only, prune_snapshots,
     read_state, root_commits, tip_of, Changes, Checkout, Kept, PutBack, PutBackError,
+};
+pub use task::{
+    drop_task_refs, land_task_branch, remove_task_tree, result_session, short_branch, task_branch,
+    task_result, TaskBranchError, TaskLanded, TaskResult, TaskResultRequest, TaskTip,
+    TASK_BRANCH_PREFIX,
 };
 pub use types::*;
 pub use verify::verify;

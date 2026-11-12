@@ -102,7 +102,11 @@ pub fn reset_work_tree(
 
 /// Whether `folder` is a worktree of `info`'s repository (its own `.git`
 /// file, naming that repository's common folder).
-fn is_worktree_of(op: &GitOp, info: &RepoInfo, folder: &Path) -> Result<bool, CodeError> {
+pub(super) fn is_worktree_of(
+    op: &GitOp,
+    info: &RepoInfo,
+    folder: &Path,
+) -> Result<bool, CodeError> {
     if !folder.join(".git").is_file() {
         return Ok(false);
     }

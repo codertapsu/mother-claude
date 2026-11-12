@@ -125,6 +125,15 @@ pub struct SnapshotRequest {
     /// A code sync's step (plan §5.15), `session` being the sync's id: the
     /// commits say so.
     pub sync: bool,
+    /// Commits that become the snapshot's extra parents (after its base)
+    /// whatever the target has — instead of [`Self::chain`]'s: a task's
+    /// result descends from its last one, so the branch it becomes only
+    /// moves forward (Phase 4, `task`). Those that are no commit here are
+    /// left out.
+    pub extra_parents: Vec<String>,
+    /// What the commits say they are (`mother-claude: <label> (<epoch>)`),
+    /// instead of a move's or a code sync's words.
+    pub label: Option<String>,
 }
 
 impl SnapshotRequest {
@@ -140,6 +149,8 @@ impl SnapshotRequest {
             chain: true,
             branch: None,
             sync: false,
+            extra_parents: Vec::new(),
+            label: None,
         }
     }
 }
