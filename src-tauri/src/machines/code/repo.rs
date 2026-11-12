@@ -39,7 +39,7 @@ pub fn repo_info(op: &GitOp, repo: &Path) -> Result<RepoInfo, CodeError> {
     if !out.success || top.is_empty() {
         return Err(not_repo());
     }
-    let top = PathBuf::from(top);
+    let top = native(&top);
     let lines = op.git(
         &top,
         &[
@@ -50,7 +50,7 @@ pub fn repo_info(op: &GitOp, repo: &Path) -> Result<RepoInfo, CodeError> {
             "index",
         ],
     )?;
-    let mut it = lines.lines().map(|l| top.join(l));
+    let mut it = lines.lines().map(|l| top.join(native(l)));
     let (Some(git_dir), Some(common_dir), Some(index_path)) = (it.next(), it.next(), it.next())
     else {
         return Err(not_repo());
@@ -66,6 +66,16 @@ pub fn repo_info(op: &GitOp, repo: &Path) -> Result<RepoInfo, CodeError> {
         sym,
         head,
     })
+}
+
+/// A path git printed, in this computer's own form: Git for Windows prints
+/// `C:/Users/me/app`, which would be stored, shown and sent on as such.
+fn native(path: &str) -> PathBuf {
+    if cfg!(windows) {
+        PathBuf::from(path.replace('/', "\\"))
+    } else {
+        PathBuf::from(path)
+    }
 }
 
 fn parse_bool(v: &str) -> Option<bool> {
@@ -724,6 +734,21 @@ pub fn remove_empty_parents(top: &Path, file: &Path) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_checkouts_paths_are_in_this_computers_own_form() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let git = super::super::GitRunner::new().isolated();
+        let op = git.begin().expect("op");
+        op.git(tmp.path(), &["init", "-q"]).expect("init");
+        let info = repo_info(&op, tmp.path()).expect("repo");
+        for p in [&info.top, &info.git_dir, &info.common_dir, &info.index_path] {
+            let s = p.to_string_lossy();
+            assert!(!cfg!(windows) || !s.contains('/'), "{s}");
+            assert!(p.starts_with(&info.top), "{s}");
+        }
+        assert!(info.index_path.ends_with(Path::new(".git").join("index")));
+    }
 
     #[test]
     fn status_parses_renames_and_untracked_folders() {
