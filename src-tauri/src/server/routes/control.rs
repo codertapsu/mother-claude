@@ -161,6 +161,19 @@ pub async fn message(
     if body.text.trim().is_empty() && body.images.is_empty() {
         return Err(ApiError::unprocessable("empty_message", "Send some text."));
     }
+    // A task another computer handed over, its session stopped while idle:
+    // the message resumes it there (docs/PLAN-MACHINES.md Phase 4).
+    if let Some(receipt) = crate::machines::work::tasks::target::resume_with(
+        &state,
+        ctx.may_dangerous(),
+        &id,
+        &body.text,
+        &body.images,
+    )
+    .await?
+    {
+        return Ok(Json(receipt));
+    }
     let route = route_for(&state, &id).await?;
     if !body.images.is_empty() && !matches!(route, Route::Owned) {
         return Err(ApiError::unprocessable(
@@ -183,6 +196,12 @@ pub async fn deliver_message(
     id: &str,
     text: &str,
 ) -> ApiResult<MessageReceipt> {
+    if let Some(receipt) =
+        crate::machines::work::tasks::target::resume_with(state, ctx.may_dangerous(), id, text, &[])
+            .await?
+    {
+        return Ok(receipt);
+    }
     let route = route_for(state, id).await?;
     gate_unapproved(state, ctx, id).await?;
     deliver_on(state, ctx, id, route, text, &[]).await

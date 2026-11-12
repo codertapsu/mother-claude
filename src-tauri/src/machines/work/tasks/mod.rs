@@ -37,6 +37,14 @@
 //! no branch. The worktree stays there until the task is removed (*Remove*,
 //! or 7 days after it last ended), so its session can be continued.
 //!
+//! **Idle.** A done task's session that sits idle with nothing to do — no
+//! turn, no approval waiting, no message queued, no background work — for
+//! the launcher's idle-stop minutes ([`IDLE_STOP_MINUTES`], the rule local
+//! team roles follow) is stopped ([`stop_idle`]): its worktree and record
+//! stay, and a message to it from either computer resumes it in its worktree
+//! (`--resume`, [`target::resume_with`]), so its next turn's end still moves
+//! the branch forward.
+//!
 //! **Records.** Each computer keeps its tasks — the ones it handed over and
 //! the ones it took — under `<app data>/machines/work/tasks/<task>/task.json`
 //! (0600); both audit them with the task's id, the computer, the folder and
@@ -81,6 +89,10 @@ pub const RECORD: &str = "task.json";
 pub const IN_DIR: &str = ".in";
 /// The folder (there) holding the results made, one per number.
 pub const RESULTS_DIR: &str = ".results";
+/// Minutes a done task's session may sit idle with nothing to do before it
+/// is stopped: the launcher's default for team roles (docs/TEAMS.md "How a
+/// team runs").
+pub const IDLE_STOP_MINUTES: u32 = crate::orchestration::templates::DEFAULT_IDLE_STOP_MINUTES;
 
 // ─── ids ───────────────────────────────────────────────────────────────────────
 
@@ -394,6 +406,10 @@ pub struct TaskRecord {
     /// network (the `run` grant's column that let it in).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub via_lan: Option<bool>,
+    /// Its session was stopped after it sat idle with nothing to do (the
+    /// launcher's idle-stop rule); a message to it resumes it there.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub idle_stopped_at: Option<i64>,
     #[serde(default)]
     pub updated_at: i64,
     // ── kept, never shown ──
@@ -586,6 +602,8 @@ pub struct Tasks {
     /// spawn is only recorded.
     live: std::sync::atomic::AtomicBool,
     spawns: Mutex<Vec<Value>>,
+    /// The sessions stopped while task sessions are only recorded (tests).
+    stops: Mutex<Vec<String>>,
 }
 
 impl std::fmt::Debug for Tasks {
@@ -610,6 +628,7 @@ impl Tasks {
             chunks: tokio::sync::Mutex::new(()),
             live: std::sync::atomic::AtomicBool::new(false),
             spawns: Mutex::new(Vec::new()),
+            stops: Mutex::new(Vec::new()),
         }
     }
 
@@ -711,6 +730,18 @@ impl Tasks {
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .clone()
+    }
+
+    pub(crate) fn record_stop(&self, session: &str) {
+        self.stops
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .push(session.to_string());
+    }
+
+    /// The task sessions stopped while sessions are only recorded (tests).
+    pub fn recorded_stops(&self) -> Vec<String> {
+        self.stops.lock().unwrap_or_else(|e| e.into_inner()).clone()
     }
 }
 
@@ -987,14 +1018,77 @@ pub fn turn_started(state: &AppState, session: &str) {
     };
     task.note_turn_started();
     let s = task.state();
-    if let Some(next) = on_turn_start(s) {
+    let parked = task.peek(|r| r.idle_stopped_at.is_some());
+    let next = on_turn_start(s);
+    if next.is_some() || parked {
         task.update(|r| {
-            r.state = next;
-            r.ended_at = None;
+            if let Some(next) = next {
+                r.state = next;
+                r.ended_at = None;
+            }
+            // Its session runs again.
+            r.idle_stopped_at = None;
         });
         state.machines.work.tasks.save(&task);
         publish(state);
     }
+}
+
+/// Whether a task's session sits idle with nothing to do there: its process
+/// up and between turns, nothing queued, no approval waiting, no background
+/// work and no wakeup that would resume it. (While sessions are only
+/// recorded — tests — a session that was not stopped counts as up.)
+fn idle_here(state: &AppState, session: &str) -> bool {
+    if !state.pending.list(session).is_empty() {
+        return false;
+    }
+    if !state.machines.work.tasks.sessions_live() {
+        return true;
+    }
+    state.control.is_idle(session) == Some(true) && state.activity.between(session).is_none()
+}
+
+/// The launcher's idle-stop rule for the task sessions this computer runs
+/// for another one (`orchestration::launcher::tick` asks every few seconds,
+/// with `now`): a done task's session idle with nothing to do for
+/// [`IDLE_STOP_MINUTES`] since its turn ended is stopped. The task stays
+/// done, its worktree and record stay; a message from either computer
+/// resumes it (`target::resume_with`). Answers the tasks whose session it
+/// stopped.
+pub async fn stop_idle(state: &AppState, now: i64) -> Vec<String> {
+    let mut stopped = Vec::new();
+    for t in state.machines.work.tasks.all() {
+        let (due, session) = t.peek(|r| {
+            let due = r.direction == Direction::In
+                && r.state == TaskState::Done
+                && r.idle_stopped_at.is_none()
+                && r.ended_at.is_some_and(|e| {
+                    crate::orchestration::launcher::idle_stop_due(e, now, IDLE_STOP_MINUTES)
+                });
+            (due, r.task_session.clone())
+        });
+        let Some(session) = session.filter(|_| due) else {
+            continue;
+        };
+        if !idle_here(state, &session) {
+            continue;
+        }
+        t.update(|r| r.idle_stopped_at = Some(now));
+        state.machines.work.tasks.save(&t);
+        audit(state, "machine.task.idle_stop", &t.record());
+        tracing::info!(task = %t.id, "a done task's session sat idle: stopped");
+        if state.machines.work.tasks.sessions_live() {
+            let _ = state
+                .control
+                .stop_and_wait(&session, std::time::Duration::from_secs(15))
+                .await;
+        } else {
+            state.machines.work.tasks.record_stop(&session);
+        }
+        publish(state);
+        stopped.push(t.id.clone());
+    }
+    stopped
 }
 
 /// A task session's process ended: a task in a turn stops, and what it did
@@ -1203,6 +1297,7 @@ mod tests {
             unreachable: false,
             gone_there: false,
             via_lan: None,
+            idle_stopped_at: None,
             updated_at: 3,
             account: Some("default".into()),
             haves: vec!["d".repeat(40)],

@@ -384,6 +384,7 @@ pub async fn hand_over(state: &AppState, caller: &Caller, ask: Ask) -> Result<St
         unreachable: false,
         gone_there: false,
         via_lan: None,
+        idle_stopped_at: None,
         updated_at: now,
         account: None,
         haves: Vec::new(),
@@ -624,9 +625,13 @@ fn take_status(state: &AppState, t: &Task, v: &Value) {
         if let Some(x) = text("accountName", 200) {
             r.account_name = Some(x);
         }
+        r.idle_stopped_at = s.get("idleStoppedAt").and_then(Value::as_i64);
     });
     let after = t.record();
-    if after.state != before.state || after.results != before.results || after.turns != before.turns
+    if after.state != before.state
+        || after.results != before.results
+        || after.turns != before.turns
+        || after.idle_stopped_at != before.idle_stopped_at
     {
         if after.state.ended() && after.ended_at.is_none() {
             let now = m::now();
@@ -687,11 +692,12 @@ async fn follower(state: AppState, t: Arc<Task>) {
         let r = t.record();
         let theirs = r.their_state.unwrap_or(r.state);
         let path = format!(
-            "/peer/work/tasks/{}?wait={POLL_WAIT}&state={}&results={}&landed={}",
+            "/peer/work/tasks/{}?wait={POLL_WAIT}&state={}&results={}&landed={}&idle={}",
             r.id,
             theirs.as_str(),
             r.results,
-            r.landed
+            r.landed,
+            r.idle_stopped_at.is_some()
         );
         let acting = acting(&state, false);
         match moves::call(&state, &r.machine, "GET", &path, None, &acting, POLL).await {
@@ -1295,6 +1301,7 @@ mod tests {
             unreachable: false,
             gone_there: false,
             via_lan: None,
+            idle_stopped_at: None,
             updated_at: 1,
             account: None,
             haves: Vec::new(),

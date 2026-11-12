@@ -804,6 +804,16 @@ worktree here has checked out, is not moved: the task names the newer
 result's commit instead (`git branch <name> <commit>` makes a branch of
 it).
 
+A done task's session that sits idle with nothing to do — no approval
+waiting, no message queued, no background work — for 30 minutes (the idle
+stop team roles get) is **stopped** there, so a finished task does not keep
+a `claude` running; the task stays done and its worktree stays. *Its
+session stopped after sitting idle* shows on its card, and a message to it
+from either computer **resumes it** in its worktree (`--resume`, the same
+conversation), so the task runs again and the branch moves forward as
+above. A session that runs without approvals is resumed only by someone
+with the dangerous right.
+
 ### Following tasks
 
 **Machines › Runs › Tasks** lists the tasks both ways — those this

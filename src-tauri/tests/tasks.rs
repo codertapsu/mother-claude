@@ -727,6 +727,104 @@ async fn a_task_s_work_comes_back_as_a_branch_that_only_moves_forward() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn an_idle_task_session_stops_and_a_message_resumes_it_in_its_worktree() {
+    let w = world().await;
+    let (call, _, spawn) = w
+        .allowed(json!({ "machine": w.b_name(), "task": "Write a README." }))
+        .await;
+    let task = s(&spawn, "task");
+    let session = s(&spawn, "session");
+    let folder = PathBuf::from(s(&spawn, "folder"));
+    put(&folder, "README.md", "Build with cargo.\n");
+    end_turn(&w.b, &session, "Wrote a README.");
+    let r = call.await.unwrap();
+    assert!(!is_error(&r), "{}", text(&r));
+    let short = w.branch(&task);
+    let short = short.strip_prefix("refs/heads/").unwrap().to_string();
+    let first = git(&w.r.a, &["rev-parse", &short]);
+    let done_at = w.b.task(&task).await["endedAt"].as_i64().expect("ended");
+    // Not before the launcher's idle-stop minutes.
+    let minute = 60_000;
+    let soon = done_at + i64::from(tasks::IDLE_STOP_MINUTES - 1) * minute;
+    assert!(tasks::stop_idle(&w.b.st, soon).await.is_empty());
+    assert!(w.b.st.machines.recorded_task_stops().is_empty());
+    // Then its session stops; the task stays done, its worktree and record
+    // stay, and the asking computer hears of it.
+    let later = done_at + i64::from(tasks::IDLE_STOP_MINUTES) * minute;
+    assert_eq!(tasks::stop_idle(&w.b.st, later).await, vec![task.clone()]);
+    assert_eq!(w.b.st.machines.recorded_task_stops(), vec![session.clone()]);
+    assert!(
+        tasks::stop_idle(&w.b.st, later + minute).await.is_empty(),
+        "stopped once"
+    );
+    let rec = w.b.task(&task).await;
+    assert_eq!(rec["state"], "done", "{rec:#}");
+    assert_eq!(rec["idleStoppedAt"], later);
+    assert!(folder.join("README.md").is_file(), "the worktree stays");
+    w.a.task_until(&task, "the stop heard here", |v| {
+        v["idleStoppedAt"] == later
+    })
+    .await;
+    assert!(w.b.st.devices.audit.recent(200).iter().any(|e| {
+        e.action == "machine.task.idle_stop"
+            && e.detail
+                .as_ref()
+                .is_some_and(|d| d["task"] == task.as_str())
+    }));
+    // A message from the asking computer (its dashboard drives the session
+    // through B's own route) resumes it there, in its worktree.
+    let (st, v) = transport::request(
+        &w.a.st,
+        &w.b.id(),
+        "POST",
+        &format!("/api/sessions/{session}/message"),
+        Some(json!({ "text": "Add a licence too." })),
+        Duration::from_secs(20),
+    )
+    .await
+    .unwrap();
+    assert_eq!(st, 200, "{v}");
+    assert_eq!(v["delivery"], "sent", "{v}");
+    let resumed = w.b.spawned(2).await;
+    assert_eq!(resumed["resume"], session.as_str(), "{resumed}");
+    assert_eq!(resumed["session"], session.as_str(), "resumed in place");
+    assert_eq!(resumed["cwd"], s(&spawn, "cwd"), "in its worktree");
+    assert_eq!(resumed["prompt"], "Add a licence too.");
+    assert_eq!(resumed["permissionMode"], "default");
+    let rec =
+        w.b.task_until(&task, "running there again", |v| v["state"] == "running")
+            .await;
+    assert!(rec["idleStoppedAt"].is_null(), "{rec:#}");
+    w.a.task_until(&task, "running here again", |v| v["state"] == "running")
+        .await;
+    // Its next turn's end moves the branch forward, as before.
+    put(&folder, "LICENSE", "MIT\n");
+    end_turn(&w.b, &session, "Added a licence.");
+    w.a.task_until(&task, "the second result here", |v| v["landed"] == 2)
+        .await;
+    let second = git(&w.r.a, &["rev-parse", &short]);
+    assert_ne!(first, second);
+    assert!(
+        git_ok(&w.r.a, &["merge-base", "--is-ancestor", &first, &second]),
+        "the branch moved forward, never rewritten"
+    );
+    assert_eq!(git(&w.r.a, &["show", &format!("{short}:LICENSE")]), "MIT");
+    // A message to a session that runs is no resume: the usual route.
+    let n = w.b.st.machines.recorded_task_spawns().len();
+    let r = tasks::target::resume_with(
+        &w.b.st,
+        true,
+        "b0ee0000-1111-4222-8333-444455556666",
+        "x",
+        &[],
+    )
+    .await
+    .unwrap();
+    assert!(r.is_none(), "no task's session");
+    assert_eq!(w.b.st.machines.recorded_task_spawns().len(), n);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_task_that_changes_nothing_makes_no_branch() {
     let w = world().await;
     let (call, _, spawn) = w

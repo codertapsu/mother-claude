@@ -1378,8 +1378,13 @@ needs the desktop or a paired device (never the local-script token), is
 refused while the task works, and removes the other computer's side when it
 can be reached (its 7-day prune otherwise); Machines off, unpairing or
 taking back `run` there cancels the tasks that still work, never one whose
-turn ended; `machine_list` says `mayTask`. Teams' `machine` on a role is not
-built yet.*
+turn ended; `machine_list` says `mayTask`; a done task's session idle with
+nothing to do for 30 minutes (the launcher's idle-stop rule,
+`launcher::idle_stop_due`, applied by its loop through `tasks::stop_idle`)
+is stopped there, its worktree and record kept, and a message to it from
+either computer resumes it in its worktree (`tasks::target::resume_with`,
+ahead of the message route), so a later end still moves the branch
+forward. Teams' `machine` on a role is not built yet.*
 
 ### Phase 5 — more machines and polish (≈ 3 weeks)
 

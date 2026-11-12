@@ -75,5 +75,6 @@
   "In its own worktree there, at this session’s code: that computer’s own copy is not touched. Its work comes back here as a branch.": "Trong worktree riêng của tác vụ ở đó, với mã nguồn của phiên này: bản sao riêng của máy tính đó không bị động đến. Kết quả quay về đây dưới dạng một nhánh.",
   "Hand a task to {name}?": "Giao một tác vụ cho {name}?",
   "Hand a task to {name}: {task}": "Giao tác vụ cho {name}: {task}",
-  "In its own worktree of {folder} on {name}, at this session’s code.": "Trong worktree riêng của {folder} trên {name}, với mã nguồn của phiên này."
+  "In its own worktree of {folder} on {name}, at this session’s code.": "Trong worktree riêng của {folder} trên {name}, với mã nguồn của phiên này.",
+  "Its session stopped after sitting idle: a message to it resumes it.": "Phiên của tác vụ đã dừng sau khi nhàn rỗi: gửi cho nó một tin nhắn để tiếp tục."
 }

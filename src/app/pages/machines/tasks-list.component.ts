@@ -81,6 +81,11 @@ const SHOWN = 6;
           @if (t.error) {
             <p class="small detail">{{ t.error }}</p>
           }
+          @if (t.idleStoppedAt && t.state === 'done') {
+            <p class="small detail muted">
+              {{ 'Its session stopped after sitting idle: a message to it resumes it.' | t }}
+            </p>
+          }
           @if (t.branchNote) {
             <p class="small detail warn">{{ t.branchNote }}</p>
           }

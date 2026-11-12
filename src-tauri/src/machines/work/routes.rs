@@ -26,7 +26,7 @@
 //! `POST /peer/work/echo-back`. Tasks, under the same `run` grant
 //! (`tasks::target`): `POST /peer/work/tasks/prepare`,
 //! `POST /peer/work/tasks`, `PUT /peer/work/tasks/{id}/files/{name}?offset=`,
-//! `POST …/{id}/start`, `GET …/{id}?wait=&state=&results=&landed=`,
+//! `POST …/{id}/start`, `GET …/{id}?wait=&state=&results=&landed=&idle=`,
 //! `GET …/{id}/result`, `GET …/{id}/result/files/{name}?seq=&offset=`,
 //! `POST …/{id}/cancel`, `DELETE …/{id}`.
 

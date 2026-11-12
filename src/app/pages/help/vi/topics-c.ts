@@ -912,6 +912,7 @@ const TOPICS: HelpTopicSource[] = [
           'Nhánh không bao giờ được checkout hay merge: hãy xem nó bằng `git log` và `git diff`, rồi merge những gì bạn muốn, hoặc xóa nó.',
           'Claude cũng nhận tin nhắn cuối của phiên làm bản tóm tắt của tác vụ. Một tác vụ không thay đổi gì thì không tạo nhánh.',
           'Gửi cho phiên thêm một tin nhắn, từ bất kỳ máy nào, và tác vụ chạy lại: khi lượt đó kết thúc, nhánh tiến lên với những gì nó đã làm thêm. Nhánh không bao giờ bị viết lại những gì nó đã có, và một nhánh bạn đã commit lên hoặc đang checkout thì không bao giờ bị dịch chuyển.',
+          'Một tác vụ đã xong mà phiên của nó nhàn rỗi 30 phút không có gì để làm thì phiên đó được dừng trên máy kia, giống như các vai trò trong nhóm; worktree vẫn được giữ. Một tin nhắn gửi cho nó từ bất kỳ máy nào sẽ tiếp tục phiên trong worktree của nó, và tác vụ chạy lại.',
         ],
       },
       {

@@ -413,6 +413,12 @@ impl MachinesState {
         self.work.tasks.recorded_spawns()
     }
 
+    /// The task sessions stopped while they only record (tests).
+    #[doc(hidden)]
+    pub fn recorded_task_stops(&self) -> Vec<String> {
+        self.work.tasks.recorded_stops()
+    }
+
     /// Tests: moves run git without this machine's configuration.
     #[doc(hidden)]
     pub fn use_isolated_git(&self) {

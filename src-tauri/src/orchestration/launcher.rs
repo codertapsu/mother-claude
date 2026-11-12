@@ -918,7 +918,17 @@ async fn dispatch(state: &AppState, team: &Team, role: &RoleDef, session: &str, 
     }
 }
 
-/// One pass of the loop over every team.
+/// The idle-stop rule (docs/TEAMS.md "How a team runs", 5): a session that
+/// sat idle with nothing to do since `since` (epoch ms) is stopped once
+/// `minutes` went by (0: never). The loop applies it to role sessions; the
+/// sessions of tasks another computer handed this one follow it too
+/// (`machines::work::tasks::stop_idle`).
+pub fn idle_stop_due(since: i64, now: i64, minutes: u32) -> bool {
+    minutes > 0 && now - since >= i64::from(minutes) * 60_000
+}
+
+/// One pass of the loop over every team, then the sessions of the tasks
+/// other computers handed this one.
 pub async fn tick(state: &AppState) {
     let now = now_ms();
     let mut running = running_workers(state).await;
@@ -928,6 +938,7 @@ pub async fn tick(state: &AppState) {
         }
         tick_team(state, &team, now, &mut running).await;
     }
+    crate::machines::work::tasks::stop_idle(state, now).await;
 }
 
 /// What a role would start for, and how urgent it is.
@@ -1072,7 +1083,7 @@ async fn tick_team(state: &AppState, team: &Team, now: i64, running: &mut Vec<Ru
             }
         };
         let minutes = team.template.idle_stop_minutes();
-        if minutes > 0 && now - since >= i64::from(minutes) * 60_000 {
+        if idle_stop_due(since, now, minutes) {
             stop_role(
                 state,
                 &team.id,
@@ -1385,6 +1396,15 @@ mod tests {
             lead_opening(&quiet, &["[Mother Claude · board] x".into()]).as_deref(),
             Some("[Mother Claude · board] x")
         );
+    }
+
+    #[test]
+    fn the_idle_stop_rule_waits_the_minutes_and_zero_never_stops() {
+        let minute = 60_000;
+        assert!(!idle_stop_due(0, 29 * minute, 30));
+        assert!(idle_stop_due(0, 30 * minute, 30));
+        assert!(idle_stop_due(5, 5 + 31 * minute, 30));
+        assert!(!idle_stop_due(0, 1_000 * minute, 0), "0: never");
     }
 
     #[test]

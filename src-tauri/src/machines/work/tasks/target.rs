@@ -365,6 +365,7 @@ pub async fn begin(
             unreachable: false,
             gone_there: false,
             via_lan: Some(via_lan),
+            idle_stopped_at: None,
             updated_at: now,
             account: Some(account),
             haves: b.haves.clone(),
@@ -563,6 +564,57 @@ fn title_of(source: &str, r: &TaskRecord) -> String {
     clip(&format!("From {source}: {}", r.first_line), 80)
 }
 
+/// Where the task's session works: the asking session's folder in the
+/// project (when the code has it), else the worktree's top.
+fn session_cwd(r: &TaskRecord) -> String {
+    let top = PathBuf::from(&r.folder);
+    let inside = r.cwd.split('/').fold(top.clone(), |p, s| p.join(s));
+    if !r.cwd.is_empty() && inside.is_dir() {
+        inside
+    } else {
+        top
+    }
+    .display()
+    .to_string()
+}
+
+/// The options of the task's session, with everything but what starts it
+/// (`session_id`, `resume`); why not when the account or the mode refuse.
+fn session_options(
+    state: &AppState,
+    r: &TaskRecord,
+    may_dangerous: bool,
+    prompt: String,
+) -> Result<SpawnOptions, String> {
+    let account = r
+        .account
+        .clone()
+        .unwrap_or_else(|| crate::claude::accounts::DEFAULT_ID.to_string());
+    let caller = Caller {
+        may_dangerous,
+        // The folder is the task's own worktree, in our data folder.
+        desktop: true,
+    };
+    let mode = owned::launch_mode(Some(&r.permission_mode), caller).map_err(|e| e.message)?;
+    let account_env = state
+        .accounts
+        .env(&account)
+        .map_err(|e| owned::account_error(e).message)?;
+    Ok(SpawnOptions {
+        cwd: session_cwd(r),
+        prompt,
+        model: r.model.clone(),
+        effort: r.effort.clone(),
+        permission_mode: Some(mode),
+        allow_bypass: may_dangerous,
+        caller_may_dangerous: may_dangerous,
+        account: Some(account),
+        account_env,
+        quiet: true,
+        ..Default::default()
+    })
+}
+
 /// Starts the task's owned session in its worktree (records the spawn
 /// until the app turns task sessions on). Running from here: a turn that
 /// ends at once is the task's.
@@ -581,64 +633,27 @@ async fn start_session(
         r.state = TaskState::Running;
         r.started_at = Some(now);
     });
-    let account = r
-        .account
-        .clone()
-        .unwrap_or_else(|| crate::claude::accounts::DEFAULT_ID.to_string());
-    let caller = Caller {
-        may_dangerous,
-        // The folder is the task's own worktree, in our data folder.
-        desktop: true,
-    };
-    let mode = owned::launch_mode(Some(&r.permission_mode), caller).map_err(|e| e.message)?;
-    let account_env = state
-        .accounts
-        .env(&account)
-        .map_err(|e| owned::account_error(e).message)?;
-    // Where the asking session works in the project (its folder there, when
-    // the code has it), else the worktree's top.
-    let top = PathBuf::from(&r.folder);
-    let inside = r.cwd.split('/').fold(top.clone(), |p, s| p.join(s));
-    let cwd = if !r.cwd.is_empty() && inside.is_dir() {
-        inside
-    } else {
-        top
-    }
-    .display()
-    .to_string();
+    let mut opts = session_options(state, &r, may_dangerous, prompt)?;
+    opts.session_id = Some(session.clone());
     if !state.machines.work.tasks.sessions_live() {
         // Checked as it would be, then only recorded.
         crate::machines::lease::check_launch(state, &session).map_err(|e| e.to_string())?;
         state.machines.work.tasks.record_spawn(json!({
             "task": r.id,
             "session": session,
-            "cwd": cwd,
+            "cwd": opts.cwd,
             "folder": r.folder,
-            "prompt": prompt,
+            "prompt": opts.prompt,
             "title": title_of(&source, &r),
-            "permissionMode": mode,
+            "permissionMode": opts.permission_mode,
             "model": r.model,
             "effort": r.effort,
-            "account": account,
+            "account": opts.account,
             "accountName": r.account_name,
             "allowBypass": may_dangerous,
         }));
         return Ok(session);
     }
-    let opts = SpawnOptions {
-        cwd,
-        prompt,
-        model: r.model.clone(),
-        effort: r.effort.clone(),
-        permission_mode: Some(mode),
-        session_id: Some(session.clone()),
-        allow_bypass: may_dangerous,
-        caller_may_dangerous: may_dangerous,
-        account: Some(account),
-        account_env,
-        quiet: true,
-        ..Default::default()
-    };
     state
         .control
         .spawn(state, opts)
@@ -652,6 +667,94 @@ async fn start_session(
         }
     });
     Ok(session)
+}
+
+/// A message to a task session whose process is gone — stopped while idle
+/// ([`super::stop_idle`]), or ended with the app — resumes it in its
+/// worktree with the message (`--resume <id>`, in place; a fork under a new
+/// id when another process holds its transcript), so a turn it takes then
+/// moves the branch forward as before. `None`: the session is not one of a
+/// task that ended here (the usual message routes take it). A session that
+/// runs without approvals needs the sender's dangerous right.
+pub async fn resume_with(
+    state: &AppState,
+    may_dangerous: bool,
+    session: &str,
+    text: &str,
+    images: &[crate::claude::model::ImageInput],
+) -> ApiResult<Option<crate::claude::model::MessageReceipt>> {
+    if state.control.controls(session) {
+        return Ok(None);
+    }
+    let Some(t) = state.machines.work.tasks.of_session(session) else {
+        return Ok(None);
+    };
+    let r = t.record();
+    if !matches!(r.state, TaskState::Done | TaskState::Stopped) {
+        return Ok(None);
+    }
+    if r.dangerous && !may_dangerous {
+        return Err(ApiError::dangerous_blocked(
+            "This task's session runs without approvals: resuming it needs the dangerous right.",
+        ));
+    }
+    if text.len() > owned::MAX_TEXT_BYTES {
+        return Err(ApiError::unprocessable(
+            "message_too_long",
+            "The message is too long.",
+        ));
+    }
+    let images = owned::validate_images(images)?;
+    let mut opts = session_options(state, &r, r.dangerous && may_dangerous, text.to_string())
+        .map_err(|why| ApiError::conflict("task_not_resumed", why))?;
+    opts.images = images;
+    let fork = owned::live_elsewhere(state, session).await;
+    let id = if fork {
+        uuid::Uuid::new_v4().to_string()
+    } else {
+        session.to_string()
+    };
+    opts.resume = Some(session.to_string());
+    opts.fork = fork;
+    opts.session_id = fork.then(|| id.clone());
+    if fork {
+        t.update(|r| r.task_session = Some(id.clone()));
+    }
+    if !state.machines.work.tasks.sessions_live() {
+        crate::machines::lease::check_launch(state, &id)
+            .map_err(|e| ApiError::conflict("task_not_resumed", e.to_string()))?;
+        state.machines.work.tasks.record_spawn(json!({
+            "task": r.id,
+            "session": id,
+            "resume": session,
+            "fork": fork,
+            "cwd": opts.cwd,
+            "folder": r.folder,
+            "prompt": opts.prompt,
+            "permissionMode": opts.permission_mode,
+            "model": r.model,
+            "effort": r.effort,
+            "account": opts.account,
+            "accountName": r.account_name,
+            "allowBypass": opts.allow_bypass,
+        }));
+        // What the session's first turn would report.
+        super::turn_started(state, &id);
+    } else {
+        let spawned = state
+            .control
+            .spawn(state, opts)
+            .await
+            .map_err(owned::spawn_error)?;
+        // The stream's first turn says so too; said now, the task runs at once.
+        super::turn_started(state, &spawned);
+    }
+    audit(state, "machine.task.resume", &t.record());
+    tracing::info!(task = %r.id, "a message resumed a task's session");
+    Ok(Some(crate::claude::model::MessageReceipt {
+        delivery: crate::claude::model::Delivery::Sent,
+        message_id: uuid::Uuid::new_v4().to_string(),
+    }))
 }
 
 // ─── its result ────────────────────────────────────────────────────────────────
@@ -797,6 +900,7 @@ pub fn status_view(state: &AppState, t: &Task) -> Value {
             "checkout": r.checkout,
             "accountName": r.account_name,
             "os": r.os,
+            "idleStoppedAt": r.idle_stopped_at,
         }
     })
 }
@@ -815,6 +919,9 @@ pub struct StatusQuery {
     /// The results it took.
     #[serde(default)]
     pub landed: Option<u32>,
+    /// Whether it knows the task's session stopped while idle.
+    #[serde(default)]
+    pub idle: Option<bool>,
 }
 
 /// `GET /peer/work/tasks/{task}?wait=&state=&results=&landed=`: its status,
@@ -835,7 +942,11 @@ pub async fn status(state: &AppState, from: &str, id: &str, q: StatusQuery) -> A
     loop {
         let r = t.record();
         let shown = r.state.shown(super::asking(state, &r));
-        if q.state.as_deref() != Some(shown.as_str()) || q.results != Some(r.results) {
+        if q.state.as_deref() != Some(shown.as_str())
+            || q.results != Some(r.results)
+            || q.idle
+                .is_some_and(|idle| idle != r.idle_stopped_at.is_some())
+        {
             break;
         }
         // A second at a time: an approval coming or going changes it too.
@@ -1024,6 +1135,7 @@ mod tests {
             unreachable: false,
             gone_there: false,
             via_lan: None,
+            idle_stopped_at: None,
             updated_at: 0,
             account: None,
             haves: Vec::new(),

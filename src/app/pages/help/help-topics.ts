@@ -2003,6 +2003,7 @@ const TOPICS: HelpTopicSource[] = [
           'The branch is never checked out or merged: look at it with `git log` and `git diff`, then merge what you want, or delete it.',
           "Claude also gets the session's last message as the task's summary. A task that changed nothing makes no branch.",
           'Send the session another message, from either computer, and the task runs again: when that turn ends, the branch moves forward with what it did since. It never rewrites what the branch already holds, and never moves a branch you committed onto or have checked out.',
+          'A done task whose session sits idle for 30 minutes with nothing to do has its session stopped there, as team roles do; its worktree stays. A message to it from either computer resumes it in its worktree, and the task runs again.',
         ],
       },
       {

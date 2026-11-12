@@ -83,6 +83,8 @@ export interface MachineTask {
   unreachable: boolean;
   /** The asking side: the other computer removed it. */
   goneThere: boolean;
+  /** Its session was stopped after it sat idle (a message resumes it). */
+  idleStoppedAt?: number | null;
   updatedAt: number;
 }
 
