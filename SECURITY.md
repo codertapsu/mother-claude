@@ -103,10 +103,13 @@ These are **dangerous**:
 
 - switching to, starting in or continuing in `bypassPermissions`;
 - choosing a standing permission grant (a rule saved to user, project or local
-  settings, extra directories, `setMode: bypassPermissions`); a caller without
-  the right is offered each rule scoped to the session instead;
+  settings, extra directories, `setMode: bypassPermissions`, a command a
+  project may always run on another of your computers); a caller without
+  the right is offered each rule scoped to the session instead (a run on
+  another computer: once);
 - approving a tool call the server classifies as dangerous, whatever channel it
-  came from: an edit or shell command touching Claude Code configuration
+  came from — a command a session asks to run on another of your computers
+  included: an edit or shell command touching Claude Code configuration
   (`.claude/`, `.claude.json`, `.mcp.json`), Mother Claude's data dir, `~/.ssh`,
   shell startup files, launch agents, `.git/hooks` or `.git/config`, running
   `claude plugin|mcp|config`, or any read of Mother Claude's own data dir (its
@@ -292,7 +295,9 @@ app data dir — never under `~/.claude`) records every state change made by a
 device or local script, every pairing event and every device change, with the
 device, ingress and client address — and every state change another of your
 computers makes, with who acted through it (`machine.action`), its pairings,
-grants, revocations, asks, moves and take-overs.
+grants, revocations, asks, moves and take-overs, and every run of a command
+for or by another computer (`machine.run*`: the program's name and the
+command line's SHA-256, never the line).
 
 ## Foreign-session control (the hooks plugin)
 
@@ -438,20 +443,21 @@ grants, revocations, asks, moves and take-overs.
 ## Machines (your other computers)
 
 Pairing your computers lets each one list and drive the others' Claude Code
-sessions, move a session, with its code, from one to another, and keep a
-project's code the same on two of them
-([MACHINES.md](docs/MACHINES.md); the design is
+sessions, move a session, with its code, from one to another, keep a
+project's code the same on two of them, and let a session run commands on
+another ([MACHINES.md](docs/MACHINES.md); the design is
 [PLAN-MACHINES.md](docs/PLAN-MACHINES.md)). Another computer is a principal
 like a paired phone, identified by a key instead of a token. _Turn on
 Machines_ waits until the setup has no required check left, and the switch
 guards this computer: while Machines is off here, a paired computer reaches
 only what pairing and the setup need (the hello, pairing, the setup's
 checks, asks and readiness test, settings offers, roots, leases) — never
-this computer's session stream (`/ws`), its session routes or its moves
-(`403 machines_off`) — and this computer uses none of the others (its proxy
-and its moves answer `409 machines_off`; its links to their sessions stay
-closed). Turning Machines off closes the links both ways at once; it does
-not unpair — revoking does.
+this computer's session stream (`/ws`), its session routes, its moves or
+its runs (`403 machines_off`) — and this computer uses none of the others
+(its proxy and its moves answer `409 machines_off`, its sessions'
+`machine_run` is refused; its links to their sessions stay closed). Turning
+Machines off closes the links both ways at once and stops what this
+computer runs for the others; it does not unpair — revoking does.
 
 ### Identity and the connection
 
@@ -506,7 +512,8 @@ not unpair — revoking does.
 ### What a paired computer may do here
 
 - Its requests reach the peer router only: `/peer/*` (hello, setup, settings
-  offers, roots, moves, leases), and — while Machines is on here — the
+  offers, roots, moves, leases, code sync, runs), and — while Machines is on
+  here — the
   session stream `/ws` (this computer's own sessions — never a third
   computer's — and none of the desktop-only frames) and an allow-list of
   session routes under `/api/`:
@@ -526,9 +533,10 @@ not unpair — revoking does.
 - **Grants**, set per computer for the **same network** (a direct path to a
   private or loopback address, as the transport sees it for each request)
   and for the **internet** (relayed or public) apart: `view`, `control` and
-  `move` (on for a new pairing), `run` (a later phase, off) and `dangerous`
-  (off). Driving needs seeing; moving, running and dangerous need driving.
-  Changing them, renaming and revoking are desktop-only.
+  `move` (on for a new pairing), `run` (off: commands for its sessions, in a
+  work folder, [below](#running-commands)) and `dangerous` (off). Driving
+  needs seeing; moving, running and dangerous need driving. Changing them,
+  renaming and revoking are desktop-only.
 - **Driving through this computer.** The dashboard reaches another
   computer's sessions through `/api/machines/<id>/proxy/…`, which adds
   `X-MC-Acting`: `desktop`, a device's id and name and whether it holds the
@@ -659,6 +667,89 @@ not unpair — revoking does.
   resolutions are audited on both computers (`machine.sync.*`: the project
   folder's name and counts, never a file's content).
 
+### Running commands
+
+A session's `machine_run` (Mother Claude's MCP tools, [MCP.md](docs/MCP.md))
+runs a command on another of your computers at the session's code.
+
+- **The `run` grant** lets a computer have this one run commands for its
+  sessions: off until this computer's desktop ticks it, the same network
+  and the internet apart, and it needs `control`. The `/peer/work/*` routes
+  check it for the path the request came over, and that Machines is on here
+  (`403 machines_off`). The setup's readiness echo (`/peer/work/echo`)
+  needs the grant alone and runs only a fixed `echo machine-run-ok` in an
+  empty scratch folder; `/peer/work/echo-back` (`view`) only has this
+  computer ask the caller for that echo. A run is reached only by the
+  computer that asked for it, and everything that computer sends —
+  ids, the project's path, the folder to run in, the glob, file names,
+  sizes and SHA-256 hashes, the snapshot's record — is checked before git
+  or the file system sees it; a folder to run in or a glob never reaches
+  outside the project or into `.git`.
+- **Each run is approved on the computer that asks**, as a pending item
+  (source `machine`: the Inbox, the session's page, paired phones) naming
+  the computer, the folder and the command — unless a **standing grant**
+  covers it: a project, a computer and a command prefix, kept in
+  `machines/run-grants.json` (0600, written atomically), listed on the
+  Machines page and revoked from the desktop (`DELETE
+  /api/machines/run-grants/{id}`, desktop only). Attaching one is choosing
+  a standing grant, so it needs the dangerous right: the local-script token
+  or a phone without the grant may allow a run once, never always. A grant
+  covers a command only when the command's first words are the prefix's
+  words exactly (`cargo test` never covers `cargo test-foo`) and the
+  command holds no shell metacharacter (`;`, `&`, `|`, a backtick, `$`,
+  parentheses, braces, `<`, `>`, a line break), so nothing can be chained
+  to a granted prefix. None is offered for a shell or a program that runs
+  what it is given (`bash`, `pwsh`, `cmd`, `sudo`, `env`, `xargs`, …), nor
+  for an interpreter alone (`python`, `node`).
+- **A dangerous command needs both rights.** A command the shell-command
+  rules of [Dangerous actions](#dangerous-actions) flag is a dangerous
+  approval — only someone holding the dangerous right allows it, and no
+  standing grant ever covers one — and the computer that runs it requires
+  its own `dangerous` grant for the asking computer too: the asking
+  computer sends `X-MC-Acting: machine; dangerous=1` only after such an
+  approval, and the receiver intersects it with its grant. The receiver
+  also classifies the command itself, before the approval (its verdict
+  comes back with where the run would go): a flag on either side makes the
+  approval dangerous, and the receiver checks again when the run starts. A
+  dangerous run is a desktop notice on the computer that runs it.
+- **It runs in a work folder, never in your checkout**:
+  `machines/work/wk_…` in the data dir, one per project and asking
+  computer, a detached git worktree of this computer's checkout of the
+  project, reset to the snapshot the other computer sent (`git reset
+  --hard`, `git clean -fd`: the files git ignores stay). The checkout's
+  working tree, index, `HEAD` and branches are never written; its `.git`
+  gains the worktree's entry, the snapshots' objects and refs under
+  `refs/mother-claude/moves/wk_…/` (the last three). Git runs as for a
+  move: from an argument list, its environment scrubbed, and a private,
+  empty hooks folder for every call, so no hook of the repository runs.
+- **Its environment** is scrubbed as for the sessions Mother Claude starts:
+  the asking session's identity, Mother Claude's tokens, the accounts'
+  tokens, API keys, provider switches and the git variables that point at
+  another repository are removed; `MOTHER_CLAUDE_RUN=1` and
+  `GIT_TERMINAL_PROMPT=0` are added; its input is empty. The work folder is
+  not a sandbox: the command runs as you, with your rights.
+- **It ends whole.** The shell starts in a process group of its own (Mac,
+  Linux) or a job object (Windows). A cancel or the time limit (30 minutes
+  by default, 2 hours at most) ends the whole tree (`SIGTERM`, `SIGKILL` 3 s
+  later; the job terminated), and when the command ends by itself, what it
+  left running in the background is ended too.
+- **The audit holds no command line.** Both computers write
+  `machine.run.asked`, `machine.run.start` (the computer that runs it) and
+  `machine.run` (its end), and the asking one `machine.run.grant.add` and
+  `machine.run.grant.remove`, with the program's name and the SHA-256 of
+  the command line (of a grant's prefix), never the line itself, which can
+  carry secrets — and the folder, the exit code and the duration. The runs'
+  own records (`machines/work/runs/<run>/run.json`, and `output.log` on the
+  computer that ran it; 0600) hold the command and its output for the Runs
+  card, a day after the run ends (200 runs at most), and are then deleted.
+- **Files come back only when asked**: one a run listed, at most 64 MiB,
+  checked by size and SHA-256, into the asking project's
+  `.mother-claude/artifacts/<run>/` — never through a link, with a
+  `.gitignore` that keeps git from seeing it.
+- **Taking it back stops it.** Turning Machines off here, revoking a
+  computer or taking back its `run` grant (the column the run came in by)
+  stops what it runs here at once.
+
 ### Shared folders and asked actions
 
 - Shared folders (_roots_, one folder per computer) steer where a move lands,
@@ -688,6 +779,12 @@ not unpair — revoking does.
   dangerous tool calls, send raw keys and carry a folder's trust and files
   git ignores here. Give `dangerous` only to a computer you would let act as
   this one's desktop.
+- With `run`, a paired computer runs commands here as you. Each run is
+  approved on _that_ computer, so a compromised one holding `run` can run
+  any command it likes in its work folder here — and from there reach
+  whatever your user can. Only commands the rules flag also need
+  `dangerous`, and those rules are a list of known paths, not a sandbox.
+  Give `run` only to a computer you would let type into a terminal here.
 - Revoking is per computer: there is no _revoke everywhere_ yet. For a lost
   or stolen computer, revoke it on each of the others. Its key stays in its
   own secret store, and what moves left on it (a conversation up to its move,

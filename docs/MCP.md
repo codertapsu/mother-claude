@@ -1,10 +1,11 @@
 # Mother Claude's MCP server
 
 Every Claude Code session on this computer can call Mother Claude's own tools
-(the browser, the task board, teams, and Mother Claude itself) through one
-MCP server inside the desktop app. This document is the reference for that
-server: how sessions reach it, how it knows who is calling, what it refuses,
-and what was verified on the real CLI (Spike B, plan §14 Phase 0).
+(the browser, the task board, teams, your other computers, and Mother Claude
+itself) through one MCP server inside the desktop app. This document is the
+reference for that server: how sessions reach it, how it knows who is
+calling, what it refuses, and what was verified on the real CLI (Spike B,
+plan §14 Phase 0).
 
 Code: `src-tauri/src/mcp/` — `mod.rs` (the tool contract, `mc_ping`),
 `server.rs` (`/mcp`, `state.mcp`), `jsonrpc.rs` (framing, versions),
@@ -40,8 +41,10 @@ helper, the token file), `api.rs` (the dashboard's panel), `session_tool.rs`
   sessions keep working).
 * **A tool's failure is a result** (`isError: true`, text `"<message>
   (<code>)"`), never a protocol error. Each call runs under a 120 s ceiling
-  (`timeout`), a cancellation (`cancelled`) and a panic guard (`internal`,
-  debug builds; release builds abort on a panic, so a tool must never panic).
+  (`timeout`) unless its tool names a longer one (`Tool::limit`:
+  `machine_run` 60 minutes, `machine_wait` 11, `machine_output` 20), a
+  cancellation (`cancelled`) and a panic guard (`internal`, debug builds;
+  release builds abort on a panic, so a tool must never panic).
 * **Off switch**: Services › Claude Code tools (desktop only, persisted in
   `<app data>/mcp-settings.json`). Off: every `/mcp` request gets `503
   mcp_disabled`, the plugin entries and the token file are removed, owned
@@ -204,6 +207,93 @@ which the `Mcp` principal can never answer.
   401, it re-runs the helper (reading the new token), reconnects and retries
   once — the model never sees it (verified).
 
+## The tools
+
+Each area registers its own tools and documents them:
+
+| Tools | Area | Reference |
+|---|---|---|
+| `mc_ping`, `mc_session` | Mother Claude itself | `mcp/mod.rs`, `mcp/session_tool.rs` |
+| `browser_*` | the user's browser, through the extension | [BROWSER.md](BROWSER.md), [BROWSER-PROTOCOL.md](BROWSER-PROTOCOL.md) |
+| `task_*`, `team_*`, `session_summary` | a team's board | [TEAMS.md](TEAMS.md) "Tools" |
+| `machine_*` | the user's other computers | below |
+
+### Machines
+
+`src-tauri/src/machines/work/mcp.rs` (docs/PLAN-MACHINES.md Phase 4; tests
+in `tests/work.rs`; the user guide is [MACHINES.md](MACHINES.md) "Running
+commands on another computer"). A session runs a command on another of the
+user's paired computers at its own code: Mother Claude snapshots the
+session's project, sends what the other computer lacks, and that computer
+runs the command in a kept work folder of its own (a worktree of its
+checkout; its checkout is never touched).
+
+| Tool | Input | Answer |
+|---|---|---|
+| `machine_list` | `{}` | JSON, also as `structuredContent`: `{machinesOn, thisComputer: {name, os, shell}, machines: [{id, name, os, osVersion, shell, shellLabel, online, path, theirGrants: {run: {lan, internet}} \| null, mayRun, why, versions}]}`; `path` is `lan`, `internet`, `relay` or null, `why` says why `mayRun` is false |
+| `machine_run` | `{machine, command, cwd?, timeout?, artifacts?}` | text: where it ran (computer, shell, work folder), how it ended (exit code and duration; cancelled; out of time; could not run, and why), the output's last 64 KiB, the files `artifacts` matched with their sizes — or, after 10 minutes, *still running* with the run's id and its latest output |
+| `machine_wait` | `{id, timeout?}` | the same, after waiting up to `timeout` seconds (600 by default and at most) |
+| `machine_output` | `{id, from?, max?}` | a page of the whole output, kept a day on the computer that ran it: bytes `from`–`to` of `size`, and the call for the next page while there is more |
+| `machine_output` | `{id, artifact}` | one file the run listed (64 MiB at most) brought into the project at `.mother-claude/artifacts/<run>/<path>`, and where it is |
+| `machine_cancel` | `{id}` | stops the run there with its whole process tree; answers how it stands |
+
+The arguments:
+
+* `machine` — a paired computer's name (any case) or id.
+* `command` — one command line, at most 8000 bytes, for that computer's
+  shell (`machine_list`'s `shell`: `zsh`, `pwsh`, `powershell`, `bash`,
+  `sh`).
+* `cwd` — a folder inside the project, relative to its top (`/` or `\`;
+  never absolute, `..` or `.git`); by default the folder the session works
+  in.
+* `timeout` — seconds, 1–7200; 1800 by default. It counts from when the run
+  reaches that computer, a wait for its work folder included.
+* `artifacts` — a glob relative to the project's top (`target/release/*.exe`;
+  one without a `/` matches at any depth, `**` any number of folders); up to
+  100 files are listed, once the command ended by itself.
+* `from` — a byte offset, negative from the end; `max` — 1024–262144 bytes,
+  65536 by default.
+
+How a call goes:
+
+* **The caller** must be a session the server can name (see Identity),
+  working in a git repository: that repository's top is the project, the
+  session's folder in it the default `cwd` (otherwise `unknown_session`,
+  `not_a_repository`). A run belongs to the session that asked; another
+  session reaches it only from the same project (`denied`).
+* **Before anything is asked**: Machines on here (`machines_off`), the
+  computer paired (`unknown_machine`), and — else `not_allowed`, saying
+  why — online, on a build that runs commands ("Update Mother Claude on …")
+  and holding this one's `run` grant on the path in use (saying where to
+  turn it on). That computer then says where the project is there; without
+  a checkout it refuses (`work_no_checkout`), and an older build that does
+  not know the route gives `update_needed`.
+* **The approval**: a `crate::pending` item (`source: "machine"`,
+  `toolName: "machine_run"`, its `input` the computer, checkout, folder,
+  command, shell, time limit and glob), dangerous when
+  `pending::sensitive_command` flags the command, with the suggestion
+  *Always allow `<prefix>` on … for this project* (`kind:
+  "machineRunGrant"`, `standing: true`) when a grant could cover the
+  command — unless a standing grant covers it already. Denied: `denied`
+  (the model is told not to retry, with the user's note); unanswered for
+  10 minutes: `approval_timeout`. A dangerous command also needs the other
+  computer's `dangerous` grant (`dangerous_needed`). That computer
+  classifies the command itself too, before the approval (its verdict comes
+  back with *where it would run*): a flag on either side makes the approval
+  dangerous, and that computer checks again when the run starts.
+* **Long calls.** A `machine_run` call may take an approval (up to 10
+  minutes), the code's transfer and the run (waited for up to 10 minutes),
+  so the server lets it run up to 60 minutes; `machine_wait` up to 11 and
+  `machine_output` up to 20 (a large file). `machine_list` and
+  `machine_cancel` keep the 120 s ceiling.
+* **Answers are plain text**, but for `machine_list`: the model reads a
+  run's result as it would a terminal's. A failure is an `isError` result
+  with its code (above, or the other computer's own: `grant_missing`,
+  `machines_off`, `run_failed`, …).
+* `machine_list` and `machine_wait` are read-only, so they write no
+  `mcp.call` line; every run is audited by Machines on both computers
+  (MACHINES.md, SECURITY.md "Running commands").
+
 ## The panel (Services › Claude Code tools)
 
 `GET /api/mcp` (desktop, paired devices, local scripts): on/off, the tool
@@ -222,8 +312,8 @@ writes (`folderVersion` of `claude plugin list --json`, else its `version`).
 
 ## For tool authors
 
-Register in `mcp::registry()` (one line per area: core, browser, teams);
-see the contract in `mcp/mod.rs`. A tool:
+Register in `mcp::registry()` (one line per area: core, browser, teams,
+machines); see the contract in `mcp/mod.rs`. A tool:
 
 * gets `ToolCtx { state, caller }` — check `caller.session_id` / `owned`
   when it matters, and say so with a `ToolError` when it cannot tell;
@@ -231,6 +321,11 @@ see the contract in `mcp/mod.rs`. A tool:
   (`invalid_arguments`, `not_found`, `denied`, `timeout`, `unavailable`, …);
 * sets `annotations.read_only_hint: Some(true)` when it changes nothing (it
   then skips the audit line);
+* is added with `Registry::add_with_limit(def, Some(limit), handler)` when
+  one call may outlast the server's 120 s ceiling — it waits for a person or
+  a build, as `machine_run` does — which sets `Tool::limit`; `Registry::add`
+  keeps the ceiling, and inside it a tool still keeps its own, shorter
+  limits;
 * raises approvals through `crate::pending` for anything dangerous, and
   never panics.
 
@@ -242,6 +337,7 @@ see the contract in `mcp/mod.rs`. A tool:
 | Failed with `Dynamic Client Registration rejected` or an OAuth error | The helper sent no valid token, so Claude Code tried OAuth against the server (`/.well-known/oauth-*`, `POST /register`). Check that `<app data>/mcp.token` exists (the setting is on) and that the entry quotes the helper. |
 | No `mcp__plugin_mother-claude_mc__…` tools in a foreign session | Foreign control is not installed for that account, or the session started before the entry existed: `/reload-plugins`. |
 | Calls fail with `mcp_disabled` | Services › Claude Code tools is off. |
+| A `machine_*` tool says Machines is off, *Update Mother Claude on …*, or that a computer has not given this one the Run permission | See [MACHINES.md](MACHINES.md) "Troubleshooting". |
 | A tool says it cannot tell which session is calling | The CLI's pidfile was not readable yet, or the session runs under a config directory Mother Claude does not know. |
 | Sessions break after changing `MOTHER_CLAUDE_PORT` | The URL is fixed when a session starts: restart the session. |
 

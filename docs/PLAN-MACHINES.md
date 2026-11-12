@@ -1296,6 +1296,40 @@ open:
    Machines page); then `machine_task` and its branch; Teams' `machine` on a
    role last.
 
+*Runs built on main (2026-11-12), decision 8's first item:
+`machines/work/` (`mod.rs` the runs and their records, `source.rs` the
+asking computer, `target.rs` and `shell.rs` the one that runs them,
+`output.rs`, `grants.rs` the standing grants, `routes.rs`, `mcp.rs`),
+`code::work` (`fetch_snapshot`, `reset_work_tree`),
+`Registry::add_with_limit` and `Tool::limit` in `mcp`; the routes
+`GET /api/machines/runs`, `GET …/runs/{id}`, `POST …/runs/{id}/cancel`,
+`GET /api/machines/run-grants`, `DELETE …/run-grants/{id}` and
+`/peer/work/*`; the five tools; the setup's *Run* row, the *Claude Code
+tools* check and the readiness echo; the approval card, the *Runs* card and
+its *Always allowed runs*; `tests/work.rs`. The user guide is
+[MACHINES.md](MACHINES.md) "Running commands on another computer".
+Choices made where the decisions left one: results are plain text for the
+model (no `structuredContent`; `machine_list` alone answers JSON), so the
+output reads as a terminal's would; a listed file is fetched with
+`machine_output {id, artifact}` rather than a sixth tool; `cwd` defaults to
+the session's own folder inside the project; the target runs the danger
+classifier too and a flag on either side counts (the target's verdict comes
+back with *where it would run*, before the approval, and the target checks
+again when the run starts); a standing grant never covers a dangerous
+command, and none is offered for a shell or an interpreter alone; standing
+grants are kept in `machines/run-grants.json` (0600); when a command ends,
+what it left running in the
+background is stopped too (its process group, its job object), so nothing
+holds the work folder's files; a work folder's id is derived from the
+source computer and the project's path, the same on both; a run is a
+background task of its session in the session's detail (`tasks`, kind
+`machine`), its output through the existing task routes, live through
+`{t:"machines", what:"runs"}` and the task output's 3 s refresh; turning
+Machines off, unpairing or taking back `run` (the column the run came in
+by) stops the other computer's runs; the whole output is kept up to 256 MiB; the readiness test runs the
+echo both ways (its `run` and `runBack` lines). `machine_task` and Teams'
+`machine` on a role are not built yet.*
+
 ### Phase 5 — more machines and polish (≈ 3 weeks)
 
 - Introductions in the setup's step 2 for a third machine and more; *revoke everywhere*.

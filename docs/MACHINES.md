@@ -2,15 +2,18 @@
 
 Pair your computers once, then see and drive every computer's Claude Code
 sessions from any of them — and from a phone paired with any of them —
-move a session, with its code, to another computer and back, and keep a
-project's code the same on two computers. The design and
-the plan for what comes next (copies kept up to date, work on another
-computer) are in [PLAN-MACHINES.md](PLAN-MACHINES.md).
+move a session, with its code, to another computer and back, keep a
+project's code the same on two computers, and let a session build and test
+on another computer. The design and the plan for what comes next (copies
+kept up to date, handing a task to another computer) are in
+[PLAN-MACHINES.md](PLAN-MACHINES.md).
 
 > **Status**: Phases 1 (pairing and setup), 2 (seeing and driving other
 > computers' sessions) and 3a (moving a session, with the setup's checks for
-> it) are built, and so is code sync (a project's code kept the same on two
-> computers). Keeping a copy on another computer comes next.
+> it) are built, and so are code sync (a project's code kept the same on two
+> computers) and the first part of Phase 4: a session running commands on
+> another computer. Handing a task to a session on another computer, a
+> team's role there and keeping a copy there come next.
 
 ## Turning it on
 
@@ -43,7 +46,8 @@ The seven steps:
    it lands, keeping awake; and each project's own options and recipe.
 7. **Test, then turn on** — with each other computer: a connection, a 20 MB
    transfer, git and Claude Code on both, a code round trip both ways, the
-   accounts and the folders; then *Turn on Machines*.
+   accounts and the folders, and a command each way *Run* is given; then
+   *Turn on Machines*.
 
 ### What is checked
 
@@ -63,6 +67,7 @@ The seven steps:
 | git | a session's code moves through git: installed, 2.30 or newer | install it (*Xcode command line tools*, *Git for Windows*) |
 | **Windows:** long paths | Git for Windows leaves out paths over 260 characters unless `core.longpaths` is on (recommended) | *Turn on for git* (for you only); Windows' own setting: an administrator |
 | Claude Code | sessions run in it; recommended: not older than the other computers' | install it / *Update Claude Code* (`claude update`, when you press it) |
+| Claude Code tools | sessions here run commands on your other computers through Mother Claude's tools (`machine_run`) — recommended; required, for those tools only, once another computer gave this one *Run* | *Turn on* (*Services › Claude Code tools*) |
 | Each account | signed in here; a session moves to the account of the same name | *Sign in…* — required for **that account's** sessions only: Machines turns on without it |
 | Free space | moves and copies land in Mother Claude's data folder first (recommended: 5 GB) | free some space |
 
@@ -123,7 +128,9 @@ Code on both, a **code round trip** — a scratch repository in each
 computer's data folder (never a project) snapshotted, sent machine to
 machine, landed and compared file by file, both ways — whether each account
 here is signed in there, and whether your shared folders exist there and map
-the projects both computers have.
+the projects both computers have. Where *Run* is given, a fixed `echo
+machine-run-ok` too: **Run there** (this computer runs it on the other, in a
+scratch folder) and **Run here** (the other runs it here).
 
 ## Pairing
 
@@ -154,8 +161,8 @@ that computer again.
 | **See** | list sessions, read transcripts, see approvals and questions | on |
 | **Drive** | send messages, answer ordinary approvals, interrupt, stop, set model, effort and mode | on |
 | **Move** | move sessions here and away ([below](#moving-a-session-to-another-computer)) | on |
-| **Run** | run commands and tasks here (later) | off |
-| **Dangerous** | bypass permissions, approve dangerous tool calls, send raw keys, carry a folder's trust and files git ignores with a move | off |
+| **Run** | run commands here for its sessions, in a work folder of its own ([below](#running-commands-on-another-computer)) | off |
+| **Dangerous** | bypass permissions, approve dangerous tool calls, send raw keys, carry a folder's trust and files git ignores with a move, run commands flagged dangerous | off |
 
 Each is set separately for the **same network** (a direct path on your
 local network) and the **internet** (everything else). Change them on the
@@ -446,6 +453,237 @@ A phone sees the Code sync card with each project's state, read only:
 turning it on or off, *Sync now* and choosing a side happen on the
 desktop.
 
+## Running commands on another computer
+
+A Claude Code session on one computer can build and test on another: a
+session on the Mac runs `cargo test` on the Windows desktop, at the code it
+has right now, and reads what it printed — without moving, and without you
+switching computers. The computer that runs the commands decides whether
+it may at all; you approve each run on the computer that asks.
+
+### Turning it on
+
+1. On the computer that will run the commands (DESKTOP-PC), open
+   **Machines**; on the card of the computer whose sessions will ask, press
+   **Change** next to *On this PC, … may*, tick **Run** — for the same
+   network, the internet or both — and press **Save**. It is off for every
+   computer until you tick it, and it needs *Drive* (which needs *See*).
+2. On the computer whose sessions ask (the Mac), keep **Services › Claude
+   Code tools** on (it is by default): sessions reach the other computer
+   through Mother Claude's tools. The setup checks it — *Claude Code tools*,
+   with *Turn on* — and once another computer gave this one *Run*, it is
+   required for those tools (Machines itself works without it).
+3. Machines on, on both.
+
+The readiness test then runs a fixed `echo` each way *Run* is given
+(*Run there*, *Run here*).
+
+### How a session uses it
+
+Every session sees five tools, as `mcp__plugin_mother-claude_mc__machine_…`
+(the reference is [MCP.md](MCP.md#machines)):
+
+| Tool | Does |
+|---|---|
+| `machine_list` | your other computers: system, shell, online, and whether this computer may run commands there (if not, why) |
+| `machine_run` | runs one command line on one of them, at the session's code, and waits up to 10 minutes for it |
+| `machine_wait` | waits again for a run that is still running |
+| `machine_output` | reads a run's whole output, page by page — or brings a file it made into the project |
+| `machine_cancel` | stops a run, with everything it started |
+
+Ask in your own words — *run the tests on DESKTOP-PC* — and Claude looks
+the computer up (it runs PowerShell there), then calls `machine_run`:
+
+```json
+{ "machine": "DESKTOP-PC", "command": "cargo test --lib", "cwd": "src-tauri" }
+```
+
+and reads back where it ran, how it ended and what it printed:
+
+```text
+run_5c0f9e2a7d41b3e8 on DESKTOP-PC (PowerShell 7), in src-tauri of a work folder at this session's code (C:\Users\me\AppData\…\machines\work\wk_8d2e…).
+It ended with exit code 0 after 2 min 14 s.
+Output (38.2 KiB):
+…
+test result: ok. 412 passed; 0 failed; 0 ignored
+```
+
+- **`cwd`** is a folder inside the project, relative to its top; without
+  it, the command runs in the folder the session works in.
+- **`timeout`** is in seconds: 30 minutes by default, 2 hours at most.
+- **`artifacts`** names files the run makes, such as
+  `target/release/*.exe` (below).
+
+The session must work in a git repository: its code goes to the other
+computer as a git snapshot. In Claude Code's default permission mode the
+session first asks to use the tool, as for any MCP tool; that only lets it
+ask — each run still needs the approval below. A session in
+`bypassPermissions` needs it too.
+
+### Who agrees
+
+- **The computer that runs it**, through its *Run* permission for the one
+  that asks, on the network in use. Without it nothing is asked or sent:
+  Claude is told that DESKTOP-PC has not given this computer the Run
+  permission, and where to turn it on. With it, each run is approved on the
+  computer that asks, never on the one that runs it: give *Run* only to a
+  computer you would let type into a terminal on the other.
+- **You, for each run, on the computer that asks.** The run waits for an
+  approval — in the Inbox, on the session's page and on your phones —
+  showing the **Computer**, the **Folder** (that computer's checkout of the
+  project, and the folder in it), the **Command**, the **Shell**, the
+  **Time limit** and the **Files to list**. *Allow once* runs it; *Deny*
+  tells Claude not to try again (*Deny with feedback…* says what to do
+  instead); unanswered for 10 minutes, it does not run.
+- **Or a standing grant.** *Always…* on that card offers *Always allow
+  `cargo test` on DESKTOP-PC for this project*: from then on, a command of
+  this project that starts with those words runs on DESKTOP-PC without
+  asking. It is saved in Mother Claude — not in Claude Code's settings —
+  and listed under *Always allowed runs* on the Machines page, where
+  *Revoke* (desktop) takes it back. Attaching one needs the dangerous
+  right (the desktop, or a device allowed dangerous actions), as every
+  standing grant does; without it the card offers *Allow once* only.
+
+A standing grant is narrow on purpose:
+
+- **Whole words.** The command's first words must be the grant's words,
+  exactly: `cargo test` covers `cargo test --lib`, never `cargo test-foo`
+  or `cargo testing`.
+- **One command.** A command holding `;`, `&`, `|`, a backtick, `$`,
+  parentheses, braces, `<`, `>` or a line break always asks, whatever it
+  starts with: no grant lets a second command ride along.
+- **Never a dangerous command** (next).
+- **What it offers** is the program and what it runs: `cargo test`, `npm
+  run build`, `python -m pytest`, `./gradlew build`. Nothing is offered for
+  a shell or a program that runs whatever it is given (`bash`, `pwsh`,
+  `cmd`, `sudo`, `env`, `xargs`, …), nor for an interpreter alone
+  (`python`, `node`).
+
+On the computer that runs the commands, taking back the other's *Run* (in
+the column its run came in by: the same network, or the internet),
+revoking that computer or turning Machines off stops what it runs for that
+computer at once (turning Machines off: for every computer).
+
+### Dangerous commands
+
+A command that names what Mother Claude guards — Claude Code's
+configuration (`.claude/`, `.claude.json`, `.mcp.json`, an account's config
+folder), Mother Claude's own data, `~/.ssh`, a shell startup file, git
+hooks or `.git/config`, launch agents, `claude plugin|mcp|config`, or a
+permission bypass — is a **dangerous** run:
+
+- its approval is a dangerous one: only the desktop, or a device allowed
+  dangerous actions, can allow it, and it never offers *Always…*;
+- the computer that runs it must also have given the one that asks its
+  **Dangerous** permission. It checks the command with its own rules as
+  well, before you are asked: a command only its rules flag (a Windows path
+  into `.claude\` that the Mac's rules don't read as one, say) is a
+  dangerous run all the same, and checked again when it starts there.
+
+### Where it runs: a work folder
+
+A run never happens in your project folder on the other computer. Each
+project gets a **work folder** there, one per computer that asks, kept
+between runs: `machines/work/wk_…` in Mother Claude's data folder there, a
+git worktree of that computer's own checkout of the project — the folder
+your shared folders map the project to (else a folder pair, else the same
+path).
+
+Before each run:
+
+1. the computer that asks snapshots the session's working tree — commits,
+   staged, unstaged and untracked files, not the files git ignores — and
+   sends only what the other one lacks;
+2. the other computer resets the work folder to that snapshot: every file
+   as the snapshot holds it, untracked files it doesn't hold removed;
+3. the files git ignores stay — `target/`, `node_modules/`, build caches —
+   so a build picks up where the last one stopped.
+
+Your checkout there is never touched: its files, index, branch and `HEAD`
+stay as they are. Its `.git` gains only what a worktree and a fetch add:
+the worktree's entry, the snapshots' objects and refs under
+`refs/mother-claude/moves/wk_…/` (the last three are kept); the session's
+own repository keeps its last three snapshots under the same refs.
+Submodules are not checked out in the work folder.
+
+No checkout there, and the run is refused: clone the project there first
+(*Set up › Accounts and folders*, *Clone it on DESKTOP-PC*), or add the
+shared folder it is under.
+
+### How it runs
+
+- **The shell.** On a Mac, `zsh` as a login shell (`/bin/zsh -lc`: what
+  your `.zprofile` puts on the `PATH` is there; `.zshrc` is not read). On
+  Windows, PowerShell 7 (`pwsh`) when it is installed, else Windows
+  PowerShell 5.1, without your profile (`-NoProfile -NonInteractive`); the
+  run's exit code is the program's own (a failed cmdlet: 1). On Linux,
+  `bash -lc`. `machine_list` names each computer's shell, so Claude writes
+  the command for it.
+- **The environment** is Mother Claude's own, without what would let a
+  command act as you elsewhere: the asking session's identity, account
+  tokens, API keys and provider switches are removed, as for the sessions
+  Mother Claude starts. `MOTHER_CLAUDE_RUN=1` tells a script it runs this
+  way, and `GIT_TERMINAL_PROMPT=0` keeps git from waiting for a password
+  nobody sees. Nothing can be typed into it: a command that asks a
+  question fails instead of waiting.
+- **One at a time.** A second run in the same work folder waits for the
+  first; its time limit counts meanwhile (it starts when the run reaches
+  that computer).
+- **The end.** When the time limit runs out, or on a cancel, the command
+  ends with everything it started: on a Mac or Linux its own process group
+  (asked to stop, killed 3 seconds later), on Windows its job object. When a
+  command ends by itself, whatever it left running in the background is
+  stopped too, so nothing keeps the work folder's files open.
+
+### What comes back
+
+- `machine_run` waits up to 10 minutes. A run that ends by then answers at
+  once: the computer, shell and work folder; how it ended — its exit code
+  and how long it took, cancelled, out of time, or why it could not run;
+  the output's last 64 KiB; and the files it made.
+- A longer run answers *still running*, with its id and its latest output;
+  Claude waits again with `machine_wait`, or stops it with
+  `machine_cancel`.
+- **The whole output** — both streams as they came, up to 256 MiB — stays a
+  day on the computer that ran it: `machine_output` reads it page by page
+  (64 KiB at a time unless asked for up to 256 KiB), from the start or from
+  the end.
+- **Files it made.** `artifacts` is a glob relative to the project's top
+  (one without a `/` matches at any depth). When the command ends by
+  itself, up to 100 matching files are listed with their sizes;
+  `machine_output` with `"artifact": "target/release/app.exe"` brings one,
+  up to 64 MiB, into the session's project under
+  `.mother-claude/artifacts/<run>/`, where a `.gitignore` keeps git from
+  seeing it. A file can be fetched until the next run resets the work
+  folder.
+
+On the session's page, a run is a background task of the session that
+asked (**Agents** › **Background tasks**), labelled with its command and
+computer: **Output** shows the end of what it printed (read again every few
+seconds while it runs), **Cancel** stops it there.
+
+### The Runs card
+
+**Machines › Runs** lists the recent runs both ways — the ones this
+computer's sessions ran elsewhere and the ones other computers ran here —
+with the computer and which way, the project, the command, how it stands
+(*Running*, *Done*, *Failed*, *Ran out of time*, …), its exit code, time
+and output size. *Output* opens what it printed last, with the files it
+made; *Cancel* stops a run that has not ended, from either computer. Each
+computer keeps its runs a day after they end.
+
+Under it, **Always allowed runs** lists the standing grants: each one's
+command prefix, computer and project, who added it and how often it was
+used. *Revoke* (desktop) takes one back; the next such run asks again.
+
+### From a phone
+
+A phone paired with the computer that asks answers a run's approval like
+any other (Inbox, the session's page), follows runs and cancels them.
+*Always…* and dangerous runs need the phone's dangerous permission (set on
+the desktop). It sees *Always allowed runs* read only: *Revoke* is the
+desktop's.
+
 ## How it connects
 
 Your computers talk over QUIC between their keys, end to end encrypted:
@@ -492,3 +730,25 @@ connection.
 - **"Carrying files git ignores needs …"** They need the dangerous right
   where the session lives and the *Dangerous* permission of the computer
   they go to — or untick *Carry them*, and they stay where they are.
+- **"DESKTOP-PC has not given this computer the Run permission."** Tick
+  *Run* for this computer on DESKTOP-PC's Machines page, in the column of
+  the network you use now.
+- **"app isn't on DESKTOP-PC: … Clone it on DESKTOP-PC first."** That computer has
+  no checkout of the project, or no shared folder maps it there: *Set up ›
+  Accounts and folders*, *Clone it on DESKTOP-PC* (or add the shared folder
+  it is under), then run it again.
+- **"Update Mother Claude on DESKTOP-PC: it does not run commands for other
+  computers yet."** Its Mother Claude is older: update it there.
+- **`npm` fails on Windows: "running scripts is disabled on this
+  system".** Without PowerShell 7 a run uses Windows PowerShell 5.1, which
+  follows your execution policy, and `npm` is the `npm.ps1` script there.
+  Install PowerShell 7 (then restart Mother Claude on that computer), write
+  `npm.cmd`, or allow your own scripts there:
+  `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`.
+- **A command is not found.** On a Mac, a run's login shell reads
+  `.zprofile`, not `.zshrc`: put the `PATH` lines your tools need there
+  (nvm, pyenv, …). On Windows, a run gets the `PATH` Mother Claude started
+  with: restart it after installing a tool.
+- **"Another run used the work folder since: run it again to get the
+  file."** The next run reset the work folder. Run the command again and
+  fetch the file before another run starts.

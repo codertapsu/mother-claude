@@ -610,6 +610,21 @@ developed on `main`, as the rest of the app is. Invariants:
   project pause it; nothing is queued. Its watchers and minute's check run
   only once `lib.rs` called `enable_sync_watch()`: tests step through
   *Sync now*.
+- **Runs on another computer** (`machines::work`, docs/PLAN-MACHINES.md
+  Phase 4): a session's `machine_run` needs the target's `run` grant and an
+  approval on the source per run (`crate::pending`, source `machine`)
+  unless a standing grant covers it (project + computer + prefix at a word
+  boundary, no shell metacharacter, never a dangerous command; attaching
+  one needs the dangerous right). A command `pending::sensitive_command`
+  flags also needs the target's `dangerous` grant (`X-MC-Acting: machine;
+  dangerous=1`, intersected there; the target classifies it again). It
+  runs in a kept work folder, `<app data>/machines/work/<wk_…>`: a detached
+  worktree of the target's checkout reset to each snapshot, ignored files
+  kept, the checkout never touched; scrubbed environment plus
+  `MOTHER_CLAUDE_RUN=1`; a cancel or timeout ends the whole tree (process
+  group / job object). Audits keep the program's name and the command's
+  SHA-256, never the line. Tests run real `echo`/`exit`/`sleep` in zsh or
+  PowerShell, never `claude`.
 
 ## Build / lint / test commands
 
