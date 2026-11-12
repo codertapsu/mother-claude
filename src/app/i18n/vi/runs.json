@@ -76,5 +76,11 @@
   "Hand a task to {name}?": "Giao một tác vụ cho {name}?",
   "Hand a task to {name}: {task}": "Giao tác vụ cho {name}: {task}",
   "In its own worktree of {folder} on {name}, at this session’s code.": "Trong worktree riêng của {folder} trên {name}, với mã nguồn của phiên này.",
-  "Its session stopped after sitting idle: a message to it resumes it.": "Phiên của tác vụ đã dừng sau khi nhàn rỗi: gửi cho nó một tin nhắn để tiếp tục."
+  "Its session stopped after sitting idle: a message to it resumes it.": "Phiên của tác vụ đã dừng sau khi nhàn rỗi: gửi cho nó một tin nhắn để tiếp tục.",
+  "Team roles": "Vai trò trong nhóm",
+  "Roles of teams whose lead is on another computer, run here in a worktree of their own at the lead’s code. The lead starts and stops them; their board is on its computer.": "Các vai trò của những nhóm có trưởng nhóm ở máy tính khác, chạy ở đây trong một worktree riêng với mã nguồn của trưởng nhóm. Trưởng nhóm khởi động và dừng chúng; bảng tác vụ nằm trên máy của trưởng nhóm.",
+  "{role} of {team}": "{role} của {team}",
+  "1 result": "1 kết quả",
+  "{n} results": "{n} kết quả",
+  "Remove the {role} role here": "Gỡ bỏ vai trò {role} ở đây"
 }

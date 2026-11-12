@@ -83,6 +83,9 @@ export interface RoleSession {
   lead: boolean;
   firstSeen: number;
   lastSeen: number;
+  /** It runs here for a team on another computer (that computer's name):
+   * it counts here, where it runs. */
+  forMachine?: string;
 }
 
 export interface RunningView extends RoleSession {

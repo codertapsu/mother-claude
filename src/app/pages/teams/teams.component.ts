@@ -10,9 +10,12 @@ import {
   ObservedEvent,
   ROLE_STATE_LABELS,
   ROLE_STATE_TONE,
+  RoleView,
   TeamView,
   TemplateEntry,
+  machineWords,
   openCount,
+  roleComputer,
   upsertTeam,
 } from '../../core/teams';
 import { IconComponent } from '../../shared/icon.component';
@@ -71,6 +74,9 @@ import { TemplateSheetComponent, TemplateSheetMode } from './template-sheet.comp
                 @for (r of t.roles; track r.id) {
                   <span class="badge" [class]="'badge ' + tone(r.state)" [title]="r.sessionName">
                     {{ r.title }} · {{ label(r.state) }}
+                    @if (r.machine) {
+                      · {{ 'on {computer}' | t: { computer: computerOf(r) } }}
+                    }
                   </span>
                 }
               </div>
@@ -291,9 +297,15 @@ export class TeamsComponent {
     return t.roles
       .map((r) => {
         const name = r.lead ? tr('{role} (lead)', { role: r.title }) : r.title;
-        return r.model ? `${name} · ${r.model}` : name;
+        const where = machineWords(r.machine);
+        const named = where ? `${name} (${tr('on {computer}', { computer: where })})` : name;
+        return r.model ? `${named} · ${r.model}` : named;
       })
       .join('  ·  ');
+  }
+
+  protected computerOf(r: RoleView): string {
+    return roleComputer(r);
   }
 
   protected async load(): Promise<void> {

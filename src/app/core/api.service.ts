@@ -43,7 +43,7 @@ import type {
 } from './machines';
 import type { MoveBody } from './move-data';
 import type { MachineRun, RunGrantsView, RunsView } from './runs';
-import type { MachineTask, TaskRemoved, TasksView } from './tasks';
+import type { HostedRolesView, MachineTask, TaskRemoved, TasksView } from './tasks';
 import {
   MovePreflight,
   MoveRecord,
@@ -230,6 +230,8 @@ import {
  *             resolveSync(id, keep) · getRuns() · getRun(id) ·
  *             cancelRun(id) · getRunGrants() · revokeRunGrant(id) ·
  *             getTasks() · getTask(id) · cancelTask(id) · removeTask(id) ·
+ *             getHostedRoles() · stopHostedRole(binding) ·
+ *             removeHostedRole(binding) ·
  *             getMachineAccounts() · getMachineFolders(fresh?) ·
  *             cloneHere(body) · checkProjectRemote(project) ·
  *             getRoots() · saveRoots(change)
@@ -1418,6 +1420,26 @@ export class ApiService {
    * worktree there; never its branch here). */
   removeTask(id: string): Promise<TaskRemoved> {
     return this.req<TaskRemoved>(`/machines/tasks/${enc(id)}`, { method: 'DELETE' });
+  }
+
+  /** `GET /api/machines/roles`: the team roles this computer runs for
+   * other computers' leads. */
+  getHostedRoles(): Promise<HostedRolesView> {
+    return this.req<HostedRolesView>('/machines/roles');
+  }
+
+  /** `POST /api/machines/roles/{binding}/stop`: stops one's session here
+   * (its lead starts it again when it has work). */
+  stopHostedRole(binding: string): Promise<unknown> {
+    return this.post<unknown>(`/machines/roles/${enc(binding)}/stop`, {});
+  }
+
+  /** `DELETE /api/machines/roles/{binding}`: removes one here (its
+   * session, worktree and record). */
+  removeHostedRole(binding: string): Promise<{ removed: boolean }> {
+    return this.req<{ removed: boolean }>(`/machines/roles/${enc(binding)}`, {
+      method: 'DELETE',
+    });
   }
 
   getMachineAccounts(): Promise<AccountsTable> {

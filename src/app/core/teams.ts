@@ -85,6 +85,9 @@ export interface RoleDef {
   addDirs?: string[];
   tools?: string[];
   classes?: string[];
+  /** The computer it runs on: a paired computer's name or id, or
+   * `os:windows` / `os:macos` / `os:linux`. Absent: the team's computer. */
+  machine?: string;
   [extra: string]: unknown;
 }
 
@@ -147,6 +150,21 @@ export interface TaskResult {
   gatePassed?: boolean;
 }
 
+/** What a role on another computer brought back for a task: the branch its
+ * work became in the project here. */
+export interface RemoteWork {
+  machine: string;
+  machineName: string;
+  branch?: string;
+  tip?: string;
+  commits: number;
+  files: number;
+  uncommitted: boolean;
+  /** Why the branch was not made or moved. */
+  note?: string;
+  at: number;
+}
+
 export interface TeamTask {
   id: number;
   title: string;
@@ -172,6 +190,26 @@ export interface TeamTask {
   createdBy: string;
   startedAt?: number;
   endedAt?: number;
+  /** A role on another computer finished it: its work as a branch here. */
+  remote?: RemoteWork;
+}
+
+/** Where a role on another computer runs. */
+export interface RoleMachine {
+  /** What the role names (`DESKTOP-PC`, `os:windows`). */
+  spec: string;
+  /** The computer it runs on, once it started there. */
+  id?: string;
+  name?: string;
+  os?: string;
+  /** Its worktree there. */
+  folder?: string;
+  /** The branch its work became here, and why it did not move. */
+  branch?: string;
+  branchNote?: string;
+  /** Why its worktree kept its own work at its last start. */
+  keptNote?: string;
+  unreachable: boolean;
 }
 
 export interface RoleView {
@@ -203,6 +241,8 @@ export interface RoleView {
   guardDenials: number;
   startedAt?: number;
   stoppedAt?: number;
+  /** It runs on another computer. */
+  machine?: RoleMachine;
 }
 
 export interface TeamView {
@@ -229,6 +269,8 @@ export interface RoleOverride {
   permissionMode?: string;
   budgetUsd?: number;
   autostart?: boolean;
+  /** The computer it runs on; empty: this computer. */
+  machine?: string;
 }
 
 export interface StartTeamBody {
@@ -345,8 +387,28 @@ export function applyOverrides(
       ...(o.permissionMode ? { permissionMode: o.permissionMode } : {}),
       ...(o.budgetUsd !== undefined ? { budgetUsd: o.budgetUsd } : {}),
       ...(o.autostart !== undefined ? { autostart: o.autostart } : {}),
+      ...(o.machine !== undefined ? { machine: o.machine.trim() || undefined } : {}),
     };
   });
+}
+
+/** Where a role's `machine` runs it, in words: the computer's name, or "a
+ * Windows computer" for `os:windows`. Empty for this computer. */
+export function machineWords(spec: string | undefined): string {
+  const s = (spec ?? '').trim();
+  if (!s) return '';
+  if (!s.startsWith('os:')) return s;
+  const os = s.slice(3).trim();
+  const label =
+    os === 'windows' ? 'Windows' : os === 'macos' ? 'Mac' : os === 'linux' ? 'Linux' : os;
+  return tr('any {os} computer', { os: label });
+}
+
+/** Where a role runs, for its card: the computer it runs on now, else what
+ * its template names. */
+export function roleComputer(r: RoleView): string {
+  if (!r.machine) return '';
+  return r.machine.name || machineWords(r.machine.spec);
 }
 
 /** Whether starting these roles needs the dangerous right. */

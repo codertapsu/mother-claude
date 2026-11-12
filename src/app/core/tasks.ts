@@ -93,6 +93,48 @@ export interface TasksView {
   tasks: MachineTask[];
 }
 
+/** Where a team role this computer runs for another one is
+ * (`machines::work::roles::HostState`). */
+export type HostedRoleState = 'sending' | 'starting' | 'running' | 'stopped' | 'error';
+
+/** A team role this computer runs for another computer's lead
+ * (docs/PLAN-MACHINES.md Phase 4, decision 9). */
+export interface HostedRole {
+  binding: string;
+  /** The lead's computer, and its name. */
+  lead: string;
+  leadName: string;
+  team: string;
+  teamLabel: string;
+  role: string;
+  roleTitle: string;
+  /** The project on the lead's computer, and this computer's worktree. */
+  project: string;
+  projectName: string;
+  checkout: string;
+  folder: string;
+  session: string | null;
+  state: HostedRoleState;
+  error: string | null;
+  permissionMode: string;
+  model: string | null;
+  accountName: string | null;
+  /** Its session is up, and in a turn. */
+  alive: boolean;
+  busy: boolean;
+  denials: number;
+  results: number;
+  keptNote: string | null;
+  startedAt: number | null;
+  stoppedAt: number | null;
+  heardAt: number;
+}
+
+/** `GET /api/machines/roles`. */
+export interface HostedRolesView {
+  roles: HostedRole[];
+}
+
 /** `DELETE /api/machines/tasks/{id}`. */
 export interface TaskRemoved {
   removed: boolean;

@@ -6,12 +6,14 @@ import { ApiService, describeError } from '../../core/api.service';
 import { AuthService } from '../../core/auth.service';
 import { computerNoun, tr } from '../../core/i18n/i18n';
 import { TPipe } from '../../core/i18n/t.pipe';
+import { PeerMachine } from '../../core/machines';
 import { ProjectInfo } from '../../core/models';
 import {
   RoleOverride,
   TeamView,
   TemplateEntry,
   applyOverrides,
+  machineWords,
   needsDangerous,
 } from '../../core/teams';
 import { SheetComponent } from '../../shared/sheet.component';
@@ -135,6 +137,30 @@ const MODES = ['default', 'acceptEdits', 'plan', 'auto', 'bypassPermissions', 'd
                       }
                     </select>
                   </label>
+                  @if (!r.lead && (peers().length || r.machine)) {
+                    <label class="field">
+                      <span class="field-hint">{{ 'Computer' | t }}</span>
+                      <select
+                        [name]="'machine-' + r.id"
+                        [attr.name]="'machine-' + r.id"
+                        [ngModel]="machineChoice(r.id)"
+                        (ngModelChange)="setMachine(r.id, $event)"
+                      >
+                        <option value="">{{ templateMachine(r.machine) }}</option>
+                        @if (r.machine) {
+                          <option [value]="HERE">
+                            {{ 'This {computer}' | t: { computer: computer() } }}
+                          </option>
+                        }
+                        @for (p of peers(); track p.id) {
+                          <option [value]="p.name">{{ p.name }}</option>
+                        }
+                        @for (os of oses(); track os.spec) {
+                          <option [value]="os.spec">{{ os.label }}</option>
+                        }
+                      </select>
+                    </label>
+                  }
                 </div>
                 <label class="check">
                   <input
@@ -151,6 +177,14 @@ const MODES = ['default', 'acceptEdits', 'plan', 'auto', 'bypassPermissions', 'd
           </fieldset>
         }
 
+        @if (remote().length) {
+          <p class="notice small">
+            {{
+              'A role on another computer runs there, in a worktree of its own at this project’s code, once that computer gave this one its Run permission. Its work comes back here as a branch.'
+                | t
+            }}
+          </p>
+        }
         @if (dangerous()) {
           <p class="notice warn">
             {{ 'A role runs without permission prompts.' | t }}
@@ -231,10 +265,27 @@ export class StartTeamSheetComponent {
   protected readonly overrides = signal<Record<string, RoleOverride>>({});
   protected readonly busy = signal(false);
   protected readonly error = signal('');
+  /** The paired computers a role may run on. */
+  protected readonly peers = signal<PeerMachine[]>([]);
+  /** The choice that runs a role here whatever its template names. */
+  protected readonly HERE = '\u0000here';
 
   protected readonly template = computed(
     () => this.templates().find((t) => t.id === this.templateId()) ?? this.templates()[0],
   );
+  /** `os:` choices for the OSes the paired computers run. */
+  protected readonly oses = computed(() => {
+    const seen = new Set(this.peers().map((p) => p.os));
+    return (['windows', 'macos', 'linux'] as const)
+      .filter((os) => seen.has(os))
+      .map((os) => ({ spec: `os:${os}`, label: machineWords(`os:${os}`) }));
+  });
+  /** The roles that would run on another computer. */
+  protected readonly remote = computed(() => {
+    const t = this.template();
+    if (!t) return [];
+    return applyOverrides(t.roles, this.overrides()).filter((r) => !r.lead && !!r.machine?.trim());
+  });
   protected readonly dangerous = computed(() => {
     const t = this.template();
     return !!t && needsDangerous(applyOverrides(t.roles, this.overrides()));
@@ -252,6 +303,44 @@ export class StartTeamSheetComponent {
       if (!this.open()) return;
       this.error.set('');
       void this.loadProjects();
+      void this.loadPeers();
+    });
+  }
+
+  private async loadPeers(): Promise<void> {
+    try {
+      this.peers.set((await this.api.getMachines()).peers ?? []);
+    } catch {
+      // Machines unavailable (an older server, a phone without it): no
+      // computer choice.
+      this.peers.set([]);
+    }
+  }
+
+  /** What the template names for a role, as the "no change" choice. */
+  protected templateMachine(spec: string | undefined): string {
+    const words = machineWords(spec);
+    return words
+      ? tr('{computer} (template)', { computer: words })
+      : tr('This {computer}', { computer: computerNoun() });
+  }
+
+  /** The select's value for a role's computer override. */
+  protected machineChoice(role: string): string {
+    const m = this.overrides()[role]?.machine;
+    if (m === undefined) return '';
+    return m === '' ? this.HERE : m;
+  }
+
+  protected setMachine(role: string, value: string): void {
+    this.overrides.update((o) => {
+      const next: RoleOverride = { ...(o[role] ?? {}) };
+      if (!value) {
+        delete next.machine;
+      } else {
+        next.machine = value === this.HERE ? '' : value;
+      }
+      return { ...o, [role]: next };
     });
   }
 
@@ -298,7 +387,7 @@ export class StartTeamSheetComponent {
     this.error.set('');
     const overrides = Object.fromEntries(
       Object.entries(this.overrides()).filter(([, o]) => Object.keys(o).length > 0),
-    );
+    ) as Record<string, RoleOverride>;
     try {
       const team = await this.api.startTeam({
         project: this.project(),

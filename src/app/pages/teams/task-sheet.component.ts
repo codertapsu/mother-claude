@@ -86,6 +86,24 @@ import { TimeAgoComponent } from '../../shared/time-ago.component';
               @if (t.result.changedFiles?.length) {
                 <div class="mono small wrap">{{ t.result.changedFiles.join(', ') }}</div>
               }
+              @if (t.remote; as w) {
+                <div class="small muted">
+                  {{ 'Done on {computer}' | t: { computer: w.machineName } }}
+                  @if (w.branch) {
+                    ·
+                    {{
+                      w.uncommitted
+                        ? ('{commits} commits and uncommitted changes, {files} files'
+                          | t: { commits: w.commits, files: w.files })
+                        : ('{commits} commits, {files} files'
+                          | t: { commits: w.commits, files: w.files })
+                    }}
+                  }
+                </div>
+                @if (w.note) {
+                  <div class="small warn-line wrap">{{ w.note }}</div>
+                }
+              }
             </div>
           }
           @if (t.progress?.length) {
@@ -239,6 +257,9 @@ import { TimeAgoComponent } from '../../shared/time-ago.component';
       }
       .result {
         margin: 0;
+      }
+      .warn-line {
+        color: var(--amber);
       }
     `,
   ],

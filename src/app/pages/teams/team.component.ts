@@ -9,6 +9,7 @@ import { tr } from '../../core/i18n/i18n';
 import { TPipe } from '../../core/i18n/t.pipe';
 import { pathWithin } from '../../core/paths';
 import { RealtimeService } from '../../core/realtime.service';
+import { sessionLink } from '../../core/session-links';
 import {
   ROLE_STATE_LABELS,
   ROLE_STATE_TONE,
@@ -19,6 +20,7 @@ import {
   TeamTask,
   TeamView,
   columns,
+  roleComputer,
   roleStatusLine,
   upsertTask,
 } from '../../core/teams';
@@ -92,12 +94,36 @@ import { TaskSheetComponent } from './task-sheet.component';
                   stateLabel(r)
                 }}</span>
               </div>
-              @if (r.sessionId) {
+              @if (r.sessionId && r.machine?.id) {
+                <a class="mono small wrap" [routerLink]="sessionLink(r.sessionId, r.machine.id)">{{
+                  r.sessionName
+                }}</a>
+              } @else if (r.sessionId && !r.machine) {
                 <a class="mono small wrap" [routerLink]="['/session', r.sessionId]">{{
                   r.sessionName
                 }}</a>
               } @else {
                 <span class="mono small faint wrap">{{ r.sessionName }}</span>
+              }
+              @if (r.machine) {
+                <div class="small machine-line">
+                  <mc-icon name="monitor" [size]="13" />
+                  <span>{{ 'on {computer}' | t: { computer: computerOf(r) } }}</span>
+                  @if (r.machine.unreachable) {
+                    <span class="badge warn">{{ 'can’t be reached' | t }}</span>
+                  }
+                </div>
+                @if (r.machine.branch) {
+                  <div class="mono small faint wrap">
+                    {{ 'its work: {branch}' | t: { branch: r.machine.branch } }}
+                  </div>
+                }
+                @if (r.machine.branchNote) {
+                  <div class="small error-line wrap">{{ r.machine.branchNote }}</div>
+                }
+                @if (r.machine.keptNote) {
+                  <div class="small faint wrap">{{ r.machine.keptNote }}</div>
+                }
               }
               @if (r.state === 'waiting') {
                 <div class="small reasons">
@@ -141,7 +167,7 @@ import { TaskSheetComponent } from './task-sheet.component';
                   <span>{{ 'foreign session' | t }}</span>
                 }
               </div>
-              @if (r.worktree) {
+              @if (r.worktree && r.worktreePath) {
                 <div class="mono small faint wrap">
                   {{ 'worktree {path}' | t: { path: r.worktreePath } }}
                 </div>
@@ -330,6 +356,13 @@ import { TaskSheetComponent } from './task-sheet.component';
       .error-line {
         color: var(--red);
       }
+      .machine-line {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.3rem;
+        color: var(--muted);
+        flex-wrap: wrap;
+      }
       .take {
         max-width: 11rem;
         font-size: 0.8rem;
@@ -430,6 +463,14 @@ export class TeamComponent {
 
   protected tone(r: RoleView): string {
     return ROLE_STATE_TONE[r.state] ?? '';
+  }
+
+  /** A role session's page: on the computer it runs on. */
+  protected readonly sessionLink = sessionLink;
+
+  /** Where a role on another computer runs, in words. */
+  protected computerOf(r: RoleView): string {
+    return roleComputer(r);
   }
 
   protected stateLabel(r: RoleView): string {

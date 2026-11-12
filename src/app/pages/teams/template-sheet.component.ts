@@ -55,7 +55,7 @@ const NEW_TEMPLATE = {
         } @else {
           <p class="muted small">
             {{
-              'Roles: id, title, lead, charter, model, effort, permissionMode, worktree, paths (globs relative to the project, gitignore style), readOnly, budgetUsd, autostart, addDirs, tools, classes. Exactly one role is the lead.'
+              'Roles: id, title, lead, charter, model, effort, permissionMode, worktree, paths (globs relative to the project, gitignore style), readOnly, budgetUsd, autostart, addDirs, tools, classes, machine (the computer a role runs on: a paired computer’s name, or os:windows, os:macos). Exactly one role is the lead, and it runs here.'
                 | t
             }}
           </p>

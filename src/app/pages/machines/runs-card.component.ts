@@ -18,6 +18,7 @@ import { ChipComponent } from '../../shared/chip.component';
 import { IconComponent } from '../../shared/icon.component';
 import { RelativeTimePipe } from '../../shared/time.pipes';
 import { Tone, formatDuration } from '../../shared/util';
+import { RolesListComponent } from './roles-list.component';
 import { TasksListComponent } from './tasks-list.component';
 
 /** Runs listed before *Show all*. */
@@ -31,14 +32,23 @@ const REFRESH_MS = 3000;
  * the ones other computers ran here — where, which project, the command,
  * how it stands, its exit code and time, its output's end (read again
  * while it runs), and *Cancel* while it runs. Then the tasks handed to a
- * session on another computer, and taken from one (`mc-machines-tasks`).
+ * session on another computer, and taken from one (`mc-machines-tasks`),
+ * and the team roles this computer runs for another's lead
+ * (`mc-machines-roles`).
  * Below, the standing grants ("always allowed runs") with *Revoke* (the
  * desktop's; a phone sees them).
  */
 @Component({
   selector: 'mc-machines-runs',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [ChipComponent, IconComponent, RelativeTimePipe, TasksListComponent, TPipe],
+  imports: [
+    ChipComponent,
+    IconComponent,
+    RelativeTimePipe,
+    RolesListComponent,
+    TasksListComponent,
+    TPipe,
+  ],
   template: `
     <section class="card runs" [attr.aria-label]="'Runs' | t">
       <div class="chead">
@@ -147,6 +157,7 @@ const REFRESH_MS = 3000;
       }
 
       <mc-machines-tasks />
+      <mc-machines-roles />
 
       <h3>{{ 'Always allowed runs' | t }}</h3>
       <p class="muted small">

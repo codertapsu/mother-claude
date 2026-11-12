@@ -229,6 +229,16 @@
                   @if (r.lead) {
                     <span class="badge accent">{{ 'lead' | t }}</span>
                   }
+                  @if (r.forMachine) {
+                    <span
+                      class="badge info"
+                      [title]="
+                        'It runs on this computer for a team whose lead is on {name}: it counts here, not there.'
+                          | t: { name: r.forMachine }
+                      "
+                      >{{ 'for {name}' | t: { name: r.forMachine } }}</span
+                    >
+                  }
                   @if (r.live === false) {
                     <span class="badge">{{ 'ended' | t }}</span>
                   }

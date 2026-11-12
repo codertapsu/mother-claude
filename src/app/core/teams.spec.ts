@@ -5,9 +5,11 @@ import {
   applyOverrides,
   columns,
   lines,
+  machineWords,
   needsDangerous,
   openCount,
   parseTemplate,
+  roleComputer,
   roleStatusLine,
   templateJson,
   upsertTask,
@@ -132,5 +134,28 @@ describe('teams helpers', () => {
   it('counts open tasks and reads textarea lines', () => {
     expect(openCount(team('a', 1))).toBe(4);
     expect(lines(' a \n\n b\n')).toEqual(['a', 'b']);
+  });
+
+  it('says which computer a role runs on, and a start may change it', () => {
+    expect(machineWords(undefined)).toBe('');
+    expect(machineWords('  ')).toBe('');
+    expect(machineWords('DESKTOP-PC')).toBe('DESKTOP-PC');
+    expect(machineWords('os:windows')).toBe('any Windows computer');
+    expect(machineWords('os:macos')).toBe('any Mac computer');
+    expect(roleComputer(role())).toBe('');
+    expect(roleComputer(role({ machine: { spec: 'os:windows', unreachable: false } }))).toBe(
+      'any Windows computer',
+    );
+    expect(
+      roleComputer(role({ machine: { spec: 'os:windows', name: 'WIN-BOX', unreachable: false } })),
+    ).toBe('WIN-BOX');
+    const roles = [
+      { id: 'lead', title: 'Lead', lead: true },
+      { id: 'win', title: 'Windows', machine: 'DESKTOP-PC' },
+    ];
+    // Another computer, or this one whatever the template says.
+    expect(applyOverrides(roles, { win: { machine: 'os:windows' } })[1].machine).toBe('os:windows');
+    expect(applyOverrides(roles, { win: { machine: '' } })[1].machine).toBeUndefined();
+    expect(applyOverrides(roles, {})[1].machine).toBe('DESKTOP-PC');
   });
 });

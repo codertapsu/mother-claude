@@ -3,15 +3,16 @@ import { Injectable, computed, inject, signal } from '@angular/core';
 import { ApiError, ApiService, describeError } from './api.service';
 import { RealtimeService } from './realtime.service';
 import { MachineRun, RunGrant } from './runs';
-import { MachineTask, taskEnded } from './tasks';
+import { HostedRole, MachineTask, taskEnded } from './tasks';
 
 /**
  * Runs and tasks on other computers (docs/PLAN-MACHINES.md Phase 4) for
- * every screen that shows them — the Machines page's Runs card, its tasks
- * and its standing grants: `GET /api/machines/runs`, `/api/machines/tasks`
- * and `/api/machines/run-grants`, refetched on each `{t:'machines', what:
- * 'runs' | 'tasks' | 'runGrants'}` frame (and when a computer comes or
- * goes) while a screen watches.
+ * every screen that shows them — the Machines page's Runs card, its tasks,
+ * the team roles it runs for other computers and its standing grants: `GET
+ * /api/machines/runs`, `/api/machines/tasks`, `/api/machines/roles` and
+ * `/api/machines/run-grants`, refetched on each `{t:'machines', what:
+ * 'runs' | 'tasks' | 'roles' | 'runGrants'}` frame (and when a computer
+ * comes or goes) while a screen watches.
  */
 @Injectable({ providedIn: 'root' })
 export class RunsService {
@@ -21,6 +22,8 @@ export class RunsService {
   readonly runs = signal<MachineRun[]>([]);
   readonly tasks = signal<MachineTask[]>([]);
   readonly grants = signal<RunGrant[]>([]);
+  /** Team roles this computer runs for other computers' leads. */
+  readonly roles = signal<HostedRole[]>([]);
   /** The last load's failure ('' when it worked). */
   readonly error = signal('');
   readonly running = computed(() =>
@@ -36,7 +39,7 @@ export class RunsService {
     this.realtime.machines$.subscribe((f) => {
       if (
         this.watchers > 0 &&
-        ['runs', 'tasks', 'runGrants', 'peers', 'enabled'].includes(f.what)
+        ['runs', 'tasks', 'roles', 'runGrants', 'peers', 'enabled'].includes(f.what)
       ) {
         void this.load();
       }
@@ -76,7 +79,7 @@ export class RunsService {
 
   private async fetch(): Promise<void> {
     try {
-      const [runs, grants, tasks] = await Promise.all([
+      const [runs, grants, tasks, roles] = await Promise.all([
         this.api.getRuns(),
         this.api.getRunGrants(),
         // A server that hands no tasks over yet has no such route.
@@ -84,10 +87,16 @@ export class RunsService {
           if (e instanceof ApiError && e.status === 404) return { tasks: [] };
           throw e;
         }),
+        // Nor one that runs no team roles for others.
+        this.api.getHostedRoles().catch((e: unknown) => {
+          if (e instanceof ApiError && e.status === 404) return { roles: [] };
+          throw e;
+        }),
       ]);
       this.runs.set(runs.runs ?? []);
       this.grants.set(grants.grants ?? []);
       this.tasks.set(tasks.tasks ?? []);
+      this.roles.set(roles.roles ?? []);
       this.error.set('');
     } catch (e) {
       this.error.set(describeError(e).text);
