@@ -501,9 +501,11 @@ other computer.
    project** choose the project (*Set a project's own options…*, or
    **Change** on one already listed).
 2. Tick **Keep this project in sync with DESKTOP-PC** and press **Save**.
-3. DESKTOP-PC shows **Keep app in sync** on its Machines page (and as a
-   notice). Someone at DESKTOP-PC presses **Keep it in sync** — or *Not
-   now*.
+3. DESKTOP-PC shows **Keep app in sync with MacBook** on its Machines page
+   (and as a notice), saying what travels — the commits, the branch and
+   the uncommitted changes, both ways; the files git ignores stay — and
+   that nothing is merged. Someone at DESKTOP-PC presses **Keep it in
+   sync** — or *Not now*.
 
 It is on only once both computers said yes. Then the first sync runs at
 once: the computer whose checkout has changes, or newer commits, sends them

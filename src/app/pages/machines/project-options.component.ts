@@ -290,7 +290,7 @@ function lines(text: string): string[] {
               }
               <span class="muted small">
                 {{
-                  'What changes in it on one computer goes to the other a few seconds later, both ways. Saving asks the other computer: it is on once someone there confirms.'
+                  'Its commits, its branch and its uncommitted changes go to the other computer a few seconds after they change, both ways; files git ignores stay, but for the ones it carries. Nothing is merged: when both changed it, you choose which to keep. Saving asks the other computer: it is on once someone there confirms.'
                     | t
                 }}
               </span>

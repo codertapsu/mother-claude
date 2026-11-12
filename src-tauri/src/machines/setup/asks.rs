@@ -284,7 +284,8 @@ pub async fn receive(state: &AppState, from: &str, req: AskRequest) -> ApiResult
             ask.sync = Some(c.id.clone());
             ask.origin = c.origin.clone();
             format!(
-                "{from_name} asks to keep {} in sync with it: changes made on either computer go to the other (Machines).",
+                "{from_name} asks to keep {} the same on both computers: its commits, its branch and \
+                 its uncommitted changes, both ways; nothing is merged (Machines).",
                 c.title
             )
         }

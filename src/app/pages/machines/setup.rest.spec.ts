@@ -390,6 +390,10 @@ describe('Machines setup, steps 5 and 6', () => {
     }));
     const el = await render(6);
     expect(text(el.querySelector('.step-body h2'))).toBe('Options');
+    // Each project's own options, code sync among them.
+    expect(text(el.querySelector('.step-body'))).toContain(
+      'Each project can have its own: how its code moves; a recipe — what to ask Claude to run after a move, and the files git ignores that go with it; copies of its sessions kept on another computer; and code sync — its code kept the same on two computers, both ways, once both say yes.',
+    );
     expect(
       el.querySelector<HTMLInputElement>('input[name="transfer"][value="bundle"]')!.checked,
     ).toBe(true);

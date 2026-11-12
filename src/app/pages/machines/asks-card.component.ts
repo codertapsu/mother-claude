@@ -111,7 +111,10 @@ export class AsksCardComponent {
       case 'clone':
         return tr('Clone {repo}', { repo: a.title ?? a.origin ?? '' });
       case 'sync':
-        return tr('Keep {project} in sync', { project: a.title ?? '' });
+        return tr('Keep {project} in sync with {name}', {
+          project: a.title ?? '',
+          name: a.fromName,
+        });
       default:
         return serverText(a.title) || tr('A fix');
     }
@@ -130,7 +133,7 @@ export class AsksCardComponent {
         });
       case 'sync':
         return tr(
-          'Keep {folder} the same as {name}’s copy: what changes on either computer goes to the other. When both change it, you choose which to keep; nothing is merged.',
+          'Keep {folder} here the same as its copy on {name}, both ways: its commits, its branch and its uncommitted changes go across a few seconds after they change. Files git ignores stay on each computer, but for any the project carries. When both computers changed it, you choose which to keep: nothing is merged, and the side not kept is saved first.',
           { folder: a.folder ?? '', name: a.fromName },
         );
       default:

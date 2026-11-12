@@ -111,7 +111,7 @@ describe('ProjectOptionsComponent: keeping a project in sync', () => {
     const fieldset = el.querySelector('fieldset.sync')!;
     expect(text(fieldset)).toContain('Keep this project in sync with DESKTOP-PC');
     expect(text(fieldset)).toContain(
-      'What changes in it on one computer goes to the other a few seconds later, both ways. Saving asks the other computer: it is on once someone there confirms.',
+      'Its commits, its branch and its uncommitted changes go to the other computer a few seconds after they change, both ways; files git ignores stay, but for the ones it carries. Nothing is merged: when both changed it, you choose which to keep. Saving asks the other computer: it is on once someone there confirms.',
     );
     box.click();
     await settle();
@@ -207,9 +207,10 @@ describe('AsksCardComponent: keeping a project in sync', () => {
     fixture.detectChanges();
     await settle();
     const el = fixture.nativeElement as HTMLElement;
-    expect(text(el)).toContain('Keep app in sync');
+    expect(text(el)).toContain('Keep app in sync with DESKTOP-PC');
+    // What travels, what stays, and that nothing is merged.
     expect(text(el)).toContain(
-      `Keep ${APP} the same as DESKTOP-PC’s copy: what changes on either computer goes to the other. When both change it, you choose which to keep; nothing is merged.`,
+      `Keep ${APP} here the same as its copy on DESKTOP-PC, both ways: its commits, its branch and its uncommitted changes go across a few seconds after they change. Files git ignores stay on each computer, but for any the project carries. When both computers changed it, you choose which to keep: nothing is merged, and the side not kept is saved first.`,
     );
     expect(backend.calls).toEqual([]);
     button(el, 'Keep it in sync')!.click();

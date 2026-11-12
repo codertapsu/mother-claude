@@ -845,7 +845,10 @@ half, the routes `GET|PUT /api/machines/sync`, `POST …/{id}/now`, `POST
 …/{id}/resolve` and `/peer/sync/{id}/*`), `code::sync` (a checkout's state,
 `keep_and_put_back`), a landing parked at a given state
 (`ApplyRequest::parked`) with its reset rule, the asked action of kind
-`sync`, the *Code sync* card and the per-project switch, and
+`sync` (since 2026-11-13 it names the asking computer and says what
+travels, what stays and that nothing is merged, as its notice and the
+switch do; the setup's step 6 lists code sync among a project's own
+options), the *Code sync* card and the per-project switch, and
 `tests/sync.rs`. The user guide is [MACHINES.md](MACHINES.md) "Keeping
 code in sync". Choices made where this section left one: a project syncs
 with one other computer at a time; a step always travels machine to
