@@ -1392,7 +1392,10 @@ holds the work folder's files; a work folder's id is derived from the
 source computer and the project's path, the same on both; a run is a
 background task of its session in the session's detail (`tasks`, kind
 `machine`), its output through the existing task routes, live through
-`{t:"machines", what:"runs"}` and the task output's 3 s refresh; turning
+`{t:"machines", what:"runs"}` and the task output's 3 s refresh (another
+computer's too, since 2026-11-13: the federation passes its `runs` and
+`tasks` frames on as `remote` frames, and a remote session's page, in that
+computer's scope, refetches on them); turning
 Machines off, unpairing or taking back `run` (the column the run came in
 by) stops the other computer's runs; the whole output is kept up to 256 MiB; the readiness test runs the
 echo both ways (its `run` and `runBack` lines).*

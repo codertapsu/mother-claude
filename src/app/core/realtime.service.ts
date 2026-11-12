@@ -183,7 +183,8 @@ export interface RemoteMachine {
   since: number | null;
 }
 
-/** Another computer's frame, unwrapped from `{t:'remote'}`: its own kinds,
+/** Another computer's frame, unwrapped from `{t:'remote'}`: its own kinds
+ * (its runs and tasks changed: `machines` with `what` `runs` or `tasks`),
  * and the link's `online`, `offline` and `forgotten`. */
 export type RemoteInner =
   | SessionsFrame
@@ -195,6 +196,7 @@ export type RemoteInner =
   | AgentsFrame
   | ResyncFrame
   | MoveFrame
+  | MachinesFrame
   | { t: 'online' }
   | { t: 'offline'; since?: number | null }
   | { t: 'forgotten' };
@@ -1150,6 +1152,11 @@ export class RealtimeService {
         this.remoteEventS.next({ machine, frame: { t: 'move', move } });
         return;
       }
+      case 'machines':
+        // Its runs or tasks changed: the pages showing its sessions refetch
+        // (nothing else of its Machines is this computer's business).
+        if (frame.what !== 'runs' && frame.what !== 'tasks') return;
+        break;
       case 'transcriptReset':
       case 'stream':
       case 'agents':

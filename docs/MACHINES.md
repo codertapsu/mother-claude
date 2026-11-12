@@ -192,6 +192,9 @@ and opening it in VS Code.
   there (open it there with Claude Code once).
 - The **Machines** page shows how many sessions each computer has and how
   many run, with *Open its sessions*.
+- The page of another computer's session follows the commands it runs and
+  the tasks it hands on (its background tasks) as they change there, as
+  this computer's own pages do.
 
 A phone paired with any of your computers sees and drives them all through
 it. A phone whose live connection fails and falls back to refreshing every

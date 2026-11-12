@@ -15,6 +15,7 @@ import { ApiError, ApiService, MachineApiError } from './api.service';
 import { DefaultsService } from './defaults.service';
 import { computerNoun, tr } from './i18n/i18n';
 import { MachineContext } from './machine-context';
+import type { MachinesFrame } from './machines';
 import type { MoveFrame } from './moves';
 import {
   AgentsFrame,
@@ -154,6 +155,10 @@ export class MachineRealtime extends RealtimeService {
   override readonly agents$ = this.kind<AgentsFrame>('agents');
   /** Its moves, once it passes them on (until then `MovesService` polls). */
   override readonly move$ = this.kind<MoveFrame>('move');
+  /** Its runs and tasks changed (`{t:'machines', what:'runs'|'tasks'}`,
+   * passed on by this computer's link to it): a session page's background
+   * tasks refetch, as they do for this computer's own. */
+  override readonly machines$ = this.kind<MachinesFrame>('machines');
   /** Its views refetch when this computer's do, and when it is back or
    * dropped frames for us. */
   override readonly refetch$: Observable<RefetchReason> = merge(

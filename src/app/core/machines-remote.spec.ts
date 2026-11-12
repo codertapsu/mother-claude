@@ -7,6 +7,7 @@ import { MachinesService } from './machines.service';
 import { FakeBackend, flush, me, useFakeServer } from './mock/fake-server.testing';
 import { setActiveMock } from './mock/mock-api';
 import {
+  PEER2_ID,
   PEER_ID,
   ask,
   goLive,
@@ -146,6 +147,21 @@ describe("other computers' sessions (docs/PLAN-MACHINES.md §6)", () => {
 
     TestBed.inject(MachinesService).apply(machinesView({ enabled: false, peers: [peer()] }));
     expect(list.list()).toEqual([]);
+  });
+
+  it('passes its runs and tasks changes to its scope, and nothing else of its Machines', async () => {
+    const s = await goLive(backend);
+    const scoped = TestBed.inject(MachineScopes).get(PEER_ID, RealtimeService);
+    const seen: string[] = [];
+    scoped.machines$.subscribe((f) => seen.push(f.what));
+    remote(s, PEER_ID, { t: 'machines', what: 'runs' });
+    remote(s, PEER_ID, { t: 'machines', what: 'peers' });
+    remote(s, PEER2_ID, { t: 'machines', what: 'tasks' });
+    remote(s, PEER_ID, { t: 'machines', what: 'tasks' });
+    expect(seen).toEqual(['runs', 'tasks']);
+    // This computer's own frames are not that computer's.
+    s.frame({ t: 'machines', what: 'runs' });
+    expect(seen).toEqual(['runs', 'tasks']);
   });
 
   it('reads them from /machines/sessions on the polling fallback', async () => {

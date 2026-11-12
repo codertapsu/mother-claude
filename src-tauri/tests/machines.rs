@@ -965,6 +965,41 @@ async fn a_polling_dashboard_reads_another_computers_sessions() {
     );
 }
 
+/// Another computer's runs and tasks changes reach this computer's
+/// dashboards through the federation (a page showing one of its sessions
+/// refetches its background tasks); nothing else of its Machines does.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn another_computers_runs_and_tasks_changes_reach_this_dashboard() {
+    let lookup = MemoryLookup::new();
+    let a = machine(&lookup).await;
+    let b = machine(&lookup).await;
+    pair(&a, &b, grants(false), grants(false)).await;
+    turn_on(&[&a, &b]);
+    let mut ws = dashboard(&a).await;
+    let from = b.id();
+    frame_where(&mut ws, "B online on A", |v| {
+        v["t"] == "remote" && v["machine"] == from && v["frame"]["t"] == "online"
+    })
+    .await;
+    machines::publish(&b.st, "peers");
+    machines::publish(&b.st, "setup");
+    machines::publish(&b.st, "tasks");
+    let v = frame_where(&mut ws, "B's tasks changed, on A", |v| {
+        v["t"] == "remote" && v["machine"] == from && v["frame"]["t"] == "machines"
+    })
+    .await;
+    assert_eq!(
+        v["frame"]["what"], "tasks",
+        "nothing else of its Machines: {v}"
+    );
+    machines::publish(&b.st, "runs");
+    let v = frame_where(&mut ws, "B's runs changed, on A", |v| {
+        v["t"] == "remote" && v["machine"] == from && v["frame"]["t"] == "machines"
+    })
+    .await;
+    assert_eq!(v["frame"]["what"], "runs");
+}
+
 /// Bulk transfers yield to the API (plan §5.3): a chunk going up and a file
 /// coming down run at the lower QUIC priority on the side that sends them;
 /// plain requests and the sessions' stream keep the default.

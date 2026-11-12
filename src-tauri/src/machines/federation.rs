@@ -7,7 +7,9 @@
 //!
 //! * its session list (`sessions` full and diffs) — cached here, so a
 //!   dashboard that connects later gets it at once — its pending items and
-//!   their resolutions: to everyone;
+//!   their resolutions, its moves, and its runs' and tasks' changes
+//!   (`{t:"machines", what:"runs"|"tasks"}`, so a page showing one of its
+//!   sessions refetches its background tasks): to everyone;
 //! * a session's transcript, stream and agents: only to the clients
 //!   subscribed to that machine's session (`sub` with `machine`); the
 //!   subscriptions are counted here and forwarded to the other machine.
@@ -440,10 +442,23 @@ fn handle(state: &AppState, machine: &str, tx: &mpsc::UnboundedSender<String>, f
                 publish(Some(session));
             }
         }
-        // Its own plan usage, accounts, notices, machines: not this
-        // machine's business (yet).
+        // Its runs or tasks changed (a session's background tasks there):
+        // the pages showing its sessions refetch, as for this computer's.
+        "machines" if forwarded_machines(&frame) => publish(None),
+        // Its own plan usage, accounts, notices, the rest of its machines:
+        // not this machine's business (yet).
         _ => {}
     }
+}
+
+/// The `machines` frames of another computer passed on to this one's
+/// dashboards: its runs' and its tasks' (`{t:"machines", what:"runs"}`),
+/// nothing else of its Machines.
+fn forwarded_machines(frame: &Value) -> bool {
+    matches!(
+        frame.get("what").and_then(Value::as_str),
+        Some("runs" | "tasks")
+    )
 }
 
 fn cache_sessions(state: &AppState, machine: &str, frame: &Value) {
@@ -577,6 +592,42 @@ mod tests {
             .filter_map(|s| s["id"].as_str())
             .collect();
         assert_eq!(ids, ["s1", "s3"]);
+    }
+
+    /// Another computer's runs and tasks changes reach this computer's
+    /// dashboards as its frames (a remote session's page refetches its
+    /// background tasks); nothing else of its Machines does.
+    #[test]
+    fn its_runs_and_tasks_frames_are_passed_on_and_nothing_else_of_machines() {
+        const B: &str = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+        let tmp = tempfile::tempdir().unwrap();
+        let st = crate::state::Inner::new(
+            crate::claude::ClaudeHome::with_base(tmp.path().join("home")),
+            crate::state::ServerConfig {
+                host: "127.0.0.1".into(),
+                port: 0,
+            },
+            crate::server::auth::Auth::ephemeral(),
+        );
+        let mut rx = st.bus.subscribe();
+        let tx = mpsc::unbounded_channel().0;
+        for what in ["runs", "peers", "tasks", "setup", "roles"] {
+            handle(&st, B, &tx, json!({ "t": "machines", "what": what }));
+        }
+        let mut got = Vec::new();
+        while let Ok(e) = rx.try_recv() {
+            if let ServerEvent::Remote {
+                machine,
+                frame,
+                session,
+            } = &*e
+            {
+                assert_eq!(machine, B);
+                assert_eq!(*session, None, "to every dashboard");
+                got.push(frame["what"].as_str().unwrap_or_default().to_string());
+            }
+        }
+        assert_eq!(got, ["runs", "tasks"]);
     }
 
     #[test]
