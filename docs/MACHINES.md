@@ -848,6 +848,76 @@ any other, follows tasks, opens their sessions, cancels and removes them. A
 task whose session runs without approvals needs the phone's dangerous
 permission.
 
+## A team role on another computer
+
+A team ([TEAMS.md](TEAMS.md)) can run one of its roles on another computer:
+the lead plans on the Mac, an `ios` role works on the Mac, and a `windows`
+role works on the desktop PC — each on the same board, the Windows role's
+work coming back to the Mac as a branch.
+
+### Turning it on
+
+- The computer that will run the role gives the lead's computer its
+  **Run** permission (as for runs and tasks), and keeps *Claude Code tools*
+  on (Settings › Services): the role reaches the board through them. Both
+  need this version of Mother Claude: an older one answers *Update Mother
+  Claude on DESKTOP-PC: it does not run team roles yet.*
+- The project is a git repository, cloned on both computers (a shared
+  folder maps it there, as for runs).
+- In the template, the role names the computer: `"machine": "DESKTOP-PC"`,
+  or `"os:windows"` for the first online Windows computer that lets this
+  one run (the role stays on it afterwards). A name no paired computer has
+  is a warning on the template, and the team does not start with it. When
+  you start a team, each role's **Computer** can also be chosen there: the
+  template's, this computer, a paired one, or any of an OS. The lead always
+  runs on the computer that starts the team.
+
+### What happens
+
+- **It starts there**, when its work arrives (or with the team, when it
+  starts with it): the lead's computer sends the project's code as it is
+  (uncommitted and untracked files included), and the other computer
+  decides whether it may start now — with its own limits on role sessions,
+  its memory and its plan's 5-hour window. It then starts an ordinary owned
+  Claude Code session there, named `<project>/<role>`, in a worktree of its
+  own (`machines/work/roles/rb_…/<project>` in Mother Claude's data folder;
+  your checkout there is never touched), with the role's charter, settings,
+  team tools and file rules, under the account of the same name as the
+  team's, else the Default.
+- **It works on the lead's board.** Its `task_*` tools there act on the
+  board on the lead's computer, which accepts them only from that computer,
+  for that role (a binding the lead made for it). The lead's packets and the
+  board's notices reach it there. It cannot `SendMessage` the lead (that
+  stays on one computer): it writes on its task instead.
+- **Its work comes back as a branch.** When it finishes a task, what it
+  committed and left uncommitted becomes the branch
+  **`mother-claude/DESKTOP-PC/<team>/<role>`** in the lead's project —
+  never checked out or merged, moved only forward — and the task names it.
+  The lead reviews and merges it. The next task starts from the lead's
+  newer code once the lead merged that branch; until then the role keeps
+  its own work in its worktree.
+- **The lead stops and resumes it**: *Stop* on the team page, its idle stop
+  and stopping the team stop its session there; its next work resumes it
+  (the same conversation, in the same worktree). Removing the team removes
+  its worktree there.
+- **It counts where it runs.** The other computer's Capacity page lists its
+  session *for MacBook*; the lead's computer does not count it. The team
+  page shows the role *on DESKTOP-PC*, why it waits (*on DESKTOP-PC: …*) or
+  why it could not start, its worktree there and its branch.
+
+### On the computer that runs it
+
+**Machines › Runs › Team roles** lists the roles this computer runs for
+another's lead — the team, whose lead, how its session stands, its
+results — with **Open its session**, **Stop** (the lead starts it again
+when it has work) and **Remove** (its session, worktree and record here).
+Turning Machines off here, revoking the lead's computer or taking back its
+**Run** stops them; so does a lead not heard from for 30 minutes while the
+session sits idle.
+
+Both computers audit starts, stops, results and board calls with the team,
+the role and the computer — never a task's text.
+
 ## How it connects
 
 Your computers talk over QUIC between their keys, end to end encrypted:

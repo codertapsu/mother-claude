@@ -60,6 +60,15 @@ for 10 minutes after its last ask, a started one for 2 minutes), and the role
 sessions teams reports running are kept while they live. That is how the
 Capacity page shows who waits and why without knowing the teams code.
 
+A team role that runs on another computer (docs/TEAMS.md "A role on another
+computer") is admitted by **that** computer, with its own settings and every
+role session it runs — its own teams' and the ones it runs for others
+(`RunningWorker::for_machine`, the lead's computer's name) — and counts only
+there: its Capacity page lists it *for <the lead's computer>*, the lead's
+computer neither counts nor lists it (its team page says where it runs and,
+while it waits, that computer's reasons). The router still chooses its
+model and effort on the lead's computer.
+
 ## Routing: which model and effort
 
 In order of precedence:

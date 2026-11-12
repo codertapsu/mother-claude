@@ -130,7 +130,17 @@ prompt); their `--settings` carry `crossSessionInbound: accept` and nothing
 else, and their `--allowedTools` names the team tools exactly
 (`mcp__plugin_mother-claude_mc__task_create,…`), never the server (that
 would allow the browser tools too). Every end of a task goes to
-`metrics::record_outcome`.
+`metrics::record_outcome`. A role may name another computer (`machine`: a
+paired computer's name or id, `os:windows|macos|linux`; never the lead):
+the launcher starts it there through the peer link
+(`machines::work::roles::lead`), that computer admits it with its own
+`capacity::admit` and runs it as an owned session with a local role's
+options in a worktree of its own at the lead's snapshot (never `-w`); its
+team tools reach the lead's board only through the binding the lead minted
+(`check_binding`: id, computer, team, role, secret, current session); it
+counts where it runs (`RunningWorker::for_machine`), never twice; its
+`task_done` brings its work back as `mother-claude/<computer>/<team>/
+<role>`, forward only, which the task records (`Task::remote`).
 
 ## Data sources (adapter contains all version drift)
 
@@ -599,6 +609,17 @@ developed on `main`, as the rest of the app is. Invariants:
   there; the first message after it carries the move note (`write_user`).
   A foreign live session moves only as a copy. Tests record the target's
   resume, never start `claude`.
+- **Work on another computer** (`machines::work`, Phase 4): runs, tasks
+  and **team roles** (`work::roles`, decision 9) all need the target's
+  `run` grant for the asking computer (`work::target::running_peer`, the
+  request's path) and Machines on there. A role there is an owned session
+  in `machines/work/roles/<binding>/<project>`, started, stopped and resumed
+  only by its lead's launcher (or stopped there by hand, by Machines off,
+  revocation, taking back `run`, or its lead not heard from for 30 min
+  while idle); its board calls (`POST /peer/teams/board`) are accepted only
+  with the binding; the lead keeps the secret's hash, never the secret.
+  Task sessions and these sessions are only recorded until `lib.rs` calls
+  `enable_task_sessions()`: tests never start `claude`.
 - **Code sync** (`machines::sync`, plan §5.15): a project's code is kept
   the same on two computers only once both desktops turned it on (an
   asked action) and each gave the other `move`; a step lands only into a

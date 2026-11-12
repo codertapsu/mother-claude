@@ -1384,7 +1384,49 @@ nothing to do for 30 minutes (the launcher's idle-stop rule,
 is stopped there, its worktree and record kept, and a message to it from
 either computer resumes it in its worktree (`tasks::target::resume_with`,
 ahead of the message route), so a later end still moves the branch
-forward. Teams' `machine` on a role is not built yet.*
+forward.*
+
+*Team roles built on main (2026-11-12), decision 8's third item (decision
+9): `RoleDef::machine` (validated; a lead never runs elsewhere; an
+unpaired computer a template-time warning, `machine_warnings`, and a
+`422 machine_unknown` when a team starts), `RoleOverride::machine` (the
+start sheet's *Computer*); `machines/work/roles/` (`mod.rs` the binding —
+`check_binding` — the resolution of `machine` — `pick`, `os:` sticky to
+the computer a role ran on — the computer's records and guard rule,
+`lead.rs` the lead's half, `host.rs` the other's, `routes.rs`);
+`launcher::start_role` → `start_remote`, `RoleLaunch`/`launch_options`
+shared by both computers, `charter_for`, `claim_for`, `opening`,
+`give_back`; `delegation::deliver` and `stop_role` through the peer link;
+`teams::RemoteSlot` (the binding's id and the secret's SHA-256, the
+worktree there, what came back) and `RemoteStatus` (what was last heard,
+`lead::refresh_all` from the loop); the team tools as
+`mcp::{Member, run, run_remote, dispatch}`; `Task::remote`
+(`board::RemoteWork`); `RunningWorker::for_machine` and
+`RoleSession::for_machine`; `code::{role_branch, task_unchanged,
+contains}`; the routes `/peer/teams/roles/*`, `POST /peer/teams/board`,
+`GET /api/machines/roles`, `POST …/roles/{binding}/stop`, `DELETE
+…/roles/{binding}`; the capability `teamRoles`; the frame `{t:"machines",
+what:"roles"}`; `tests/teams_remote.rs`. The user guides are
+[TEAMS.md](TEAMS.md) "A role on another computer" and [MACHINES.md](MACHINES.md)
+"A team role on another computer". Choices made where the decision left
+one: the lead keeps the secret's SHA-256 only, the other computer the
+secret, and a board call must also name the role's current session; the
+other computer runs its admission before the code is sent (`prepare`) and
+again at the start, and the role waits on the lead's team page with its
+reasons (*on DESKTOP-PC: …*), while its Capacity page shows the queue and
+the session (*for MacBook*); the role's worktree is kept between starts
+and moved to the lead's newer code only when nothing in it is unreturned
+and the lead's code holds what came back (the next result stays a
+descendant of the last, so the branch only moves forward); a result is
+taken only at `task_done` (done or failed) and lands before the task
+finishes, within 80 s — later, the task records it when it arrives; the
+role's packet and notices go to its session through the peer link
+(`SendMessage` never crosses computers: the charters say so); the other
+computer stops a role whose lead was not heard from for 30 minutes while
+idle; a resume continues the conversation there in place, never a fork;
+removing the team removes the role there, and *Remove* there makes the
+lead mint a new binding (whose results cannot move the old branch: the
+task names the commit).*
 
 ### Phase 5 — more machines and polish (≈ 3 weeks)
 

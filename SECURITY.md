@@ -824,6 +824,65 @@ did comes back as a branch.
   computer or taking back its `run` grant (the column the task came in by)
   stops the session of each of its tasks that still works; a task whose
   turn ended keeps its session as it is.
+- **An idle one stops.** A done task's session idle for 30 minutes with
+  nothing to do is stopped here; a message to it — from either computer,
+  under the session routes' own rules (`control`; a session without
+  approvals needs the sender's dangerous right) — resumes it in its
+  worktree.
+
+### A team role on another computer
+
+A team's template may name another computer for a role (`machine`); the
+team, its board and its launcher stay on the lead's computer, and the role
+runs on the other one as an owned session.
+
+- **It needs `run`, and Machines on.** The computer that runs the role
+  checks its `run` grant for the lead's computer on every `/peer/teams/
+  roles/*` route (the path the request came over) and that Machines is on
+  there (`403 machines_off`); it admits the role with its own capacity
+  rules. A role without permission prompts needs its `dangerous` grant
+  too, and the right of whoever started the team (`X-MC-Acting`), as for a
+  task. Everything the lead sends — the binding, the team and role ids, the
+  project's path, the session's name and charter, the role definitions,
+  the guard's globs, the mode, model, effort, fallbacks, budget, file names,
+  sizes and hashes — is checked before git, the file system or a session
+  sees it. The session gets this computer's own settings line, team-tool
+  list and guard callback, never ones from the request.
+- **The binding.** The lead mints one per role and computer: an id
+  (`rb_…`) and a 32-byte secret, sent once. The computer that runs the role
+  keeps the secret in its record (`machines/work/roles/<binding>/role.json`,
+  0600, never shown); the lead keeps only its SHA-256 in `teams.json`. The
+  role session's team tools there go to the lead (`POST /peer/teams/
+  board`), which answers only for a paired computer, with Machines on, a
+  call naming that binding, from the computer it was minted for, for that
+  team and role, with the secret (compared in constant time) and the
+  role's current session. Anything else is `403 binding_refused`, audited
+  (`team.remote.refused`), as if there were no such role. The board's own
+  rules then apply as to a role session on the lead's computer: no task
+  writing, its own tasks only, every end recorded.
+- **Its worktree, never your checkout**: `machines/work/roles/<binding>/
+  <project>` in the data dir, a detached worktree of that computer's
+  checkout at the lead's snapshot, as for a task. It is moved to the lead's
+  newer code at a start only when it holds nothing the lead has not got
+  back and the lead's code already holds that; otherwise it keeps the role's
+  work. The guard holds the role to its globs there (`initialize.hooks` and
+  `can_use_tool`, as on the lead's computer).
+- **What comes back only adds a branch.** When the role finishes a task,
+  its worktree's snapshot is fetched into the lead's project and checked
+  like every snapshot, then becomes `refs/heads/mother-claude/<computer>/
+  <team>/<role>` — named by the lead — moved only forward, never checked
+  out, never merged; the task records it.
+- **Who stops it.** The lead's launcher (a stop, its idle stop, the team's
+  stop); that computer's Machines page (*Stop*, and *Remove* with the
+  desktop or a paired device); Machines off there, revoking the lead's
+  computer or taking back its `run` (the column the role came in by); and,
+  when the lead is not heard from for 30 minutes while the session sits
+  idle, that computer itself.
+- **The audit holds no task text**: `team.remote.start`, `.stop`,
+  `.result`, `.board` (writes), `.remove` and `.refused` on the lead's
+  computer; `machine.role.asked`, `.start`, `.stop`, `.result`, `.remove`
+  on the other — the team, the role, the computer, the session, never a
+  packet.
 
 ### Shared folders and asked actions
 
@@ -859,10 +918,10 @@ did comes back as a branch.
   any command it likes in its work folder here — and from there reach
   whatever your user can. Only commands the rules flag also need
   `dangerous`, and those rules are a list of known paths, not a sandbox.
-  The same holds for tasks: a compromised computer holding `run` can start
-  Claude Code sessions here with prompts of its choosing (in a mode with
-  approvals, unless it also holds `dangerous`). Give `run` only to a
-  computer you would let type into a terminal here.
+  The same holds for tasks and team roles: a compromised computer holding
+  `run` can start Claude Code sessions here with prompts and charters of its
+  choosing (in a mode with approvals, unless it also holds `dangerous`).
+  Give `run` only to a computer you would let type into a terminal here.
 - Revoking is per computer: there is no _revoke everywhere_ yet. For a lost
   or stolen computer, revoke it on each of the others. Its key stays in its
   own secret store, and what moves left on it (a conversation up to its move,

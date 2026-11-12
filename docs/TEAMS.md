@@ -65,14 +65,20 @@ part of the session name), `title`, `lead` (exactly one), `description`,
 `readOnly`, `budgetUsd`, `autostart`, `addDirs` (folders relative to the
 project, `--add-dir`), `tools` (the role's agent definition's tools when
 another session runs it as a subagent), `classes` (task classes it usually
-takes). `integration`: `branch`, `mergeBy` (a role), `gate` (the command the
-lead runs before merging), `review` (a worker's finished task waits for the
-lead; default on). `idleStopMinutes`: 0 never stops an idle role.
+takes), `machine` (the computer it runs on: a paired computer's name or id,
+or `os:windows` / `os:macos` / `os:linux`; see *A role on another computer*;
+never the lead's). `integration`: `branch`, `mergeBy` (a role), `gate` (the
+command the lead runs before merging), `review` (a worker's finished task
+waits for the lead; default on). `idleStopMinutes`: 0 never stops an idle
+role.
 
 Parsing is tolerant — unknown fields are kept, missing ones default — and
 validation reports every problem at once (errors block saving and starting,
 warnings do not): ids, one lead, model names, effort and mode values,
-relative path globs, budgets, `mergeBy` naming a role.
+relative path globs, budgets, `mergeBy` naming a role, `machine` (a name or
+id of at most 64 characters, or one of the three `os:`; an error on the
+lead). A `machine` no paired computer matches is a warning on the template
+and a refusal when a team starts with it (`422 machine_unknown`).
 
 Built-ins (fixed; duplicate one to change it): **Software delivery** (lead,
 frontend and backend in worktrees, read-only scout), **Content production**
@@ -88,7 +94,8 @@ From the Teams page: a project (one of the known projects: a folder with
 sessions or one an account trusts), a template, an account (the project's by
 default), an optional **brief** (the lead's first message; without one it
 starts quietly) and per-role overrides (model, effort, permission mode,
-autostart). The server checks the folder as for any owned launch (absolute,
+autostart, and — with a computer paired — the **computer** a role runs on:
+the template's, this one, a paired computer, or any of an OS). The server checks the folder as for any owned launch (absolute,
 existing; trusted for a caller other than the desktop), that it is a git
 repository when a role uses a worktree, that the account's environment is
 available (a token account's token on this machine), and the dangerous right
@@ -172,8 +179,10 @@ role sessions included, gets it from the plugin loaded inline
 as `mcp__plugin_mother-claude_mc__<tool>`; a foreign session that takes a
 role gets them from the installed plugin. A call is accepted only from the
 lead or a role session of a team (the caller's session id, which the server
-takes from the calling process, and its working folder inside the project);
-anything else gets a `denied` result that says why. The read-only tools are
+takes from the calling process, and its working folder inside the project)
+— or, for a role on another computer, from its session there, relayed with
+the role's binding (*A role on another computer*); anything else gets a
+`denied` result that says why. The read-only tools are
 marked so (`readOnlyHint`), which keeps their calls out of the audit log.
 
 | Tool | Who | What |
@@ -282,6 +291,80 @@ worktrees itself. Notes:
 * Workers commit in their worktree and never merge; the lead integrates
   (`integration.mergeBy`) after the gate.
 
+## A role on another computer
+
+A role may run on another of your computers ([MACHINES.md](MACHINES.md),
+docs/PLAN-MACHINES.md Phase 4 decision 9): a multi-platform app gets its
+lead and an `ios` role on the Mac and a `windows` role on the desktop PC.
+The template names the computer on the role — `"machine": "DESKTOP-PC"` (a
+paired computer's name or id), or `"os:windows"` / `"os:macos"` /
+`"os:linux"` (the first online paired computer of that OS that gave this
+one *Run*; once the role ran on one, it stays there while that computer is
+paired). The lead never runs elsewhere: the team, its board and its
+launcher stay on the computer that started it.
+
+* **Starting it.** The launcher starts such a role *there*
+  (`machines::work::roles::lead::start`): the computer resolved (Machines
+  on here, that computer online, its **Run** permission for this one), a
+  **binding** minted the first time — an id and a secret; that computer
+  keeps the secret, this one its SHA-256 — the project's code snapshotted
+  (commits, staged, unstaged and untracked files; part 2's transfer) and
+  sent when that computer will take it, then that computer **admits it with
+  its own `capacity::admit`** (every role session it runs, its own memory,
+  plan window and caps) and starts it as an owned session in a worktree of
+  its own (`machines/work/roles/<binding>/<project>` in its data folder, a
+  detached worktree of its checkout at this computer's code — never `-w`).
+  Its options are a local role's: its name, charter (saying where it runs
+  and that `SendMessage` does not reach the lead), `{"crossSessionInbound":
+  "accept"}` and nothing else, the team tools by exact name, the role
+  definitions, the guard's callback with the role's globs (relative to the
+  worktree there), the mode, model, effort, fallbacks and budget the router
+  and the scheduler chose here. It runs under that computer's account of
+  the same name as the team's, else its Default. The task is claimed for
+  its session before it starts, as for a local role.
+* **Waiting and refusals.** When that computer's admission says not now,
+  the role waits here with its reasons (*on DESKTOP-PC: 3 role sessions run
+  already…*). A refusal — Machines off on either computer, offline, no Run
+  permission, no checkout there, *Claude Code tools* off there — is the
+  role's last error on the team page, tried again a minute later.
+* **Running it.** This computer looks at it every few seconds (what its
+  session does feeds the team's view and the loop: hand it the next task,
+  idle stop), the board's notices and the next task's packet go to its
+  session there through the peer link, and stop, idle stop and resume come
+  from this launcher. A resume continues its conversation there (`--resume`,
+  in its worktree) when that computer has it. Its worktree is kept between
+  starts; a start moves it to the lead's newer code only when it holds
+  nothing the lead has not got back and the lead's code holds what came
+  back (the lead merged its branch) — otherwise it keeps the role's own
+  work and says so. That computer stops it by itself when the lead is not
+  heard from for 30 minutes while it sits idle.
+* **Its board.** The role session's `task_*` and `team_*` tools there act
+  on this computer's board: that computer sends each call here with the
+  binding (`POST /peer/teams/board`), and this computer answers only a call
+  from the computer the binding was minted for, for that team and role,
+  with the secret and the role's current session — then under the board's
+  rules for a role session here (claims, updates, `task_done`, every end
+  to `metrics::record_outcome`).
+* **Its work.** When it finishes a task (`task_done`), that computer
+  snapshots its worktree — its commits and what it left uncommitted — and
+  this computer fetches it into the project as the branch
+  **`mother-claude/<computer>/<team>/<role>`**: never checked out, never
+  merged, moved only forward (part 2's branch rules), whatever branch the
+  role named. The task's result names the branch, and the task records it
+  with what it changed (`remote`: the computer, the branch, its commits and
+  files); the lead reviews and merges it.
+* **Where it counts.** Its session runs on that computer, so it counts in
+  that computer's admission and on its Capacity page (*for <the lead's
+  computer>*), never here; the team page shows the role *on DESKTOP-PC*,
+  its worktree there and its branch.
+* **Only owned sessions** run a role elsewhere: a foreign session can take
+  a role only on the team's own computer.
+
+That computer lists the roles it runs under **Machines › Runs › Team
+roles**: *Stop* (its lead starts it again when it has work) and *Remove*
+(its session, worktree and record; the lead's next start makes a new
+binding). Removing the team removes them there too.
+
 ## Hooks
 
 The plugin's `hooks.json` adds six observe-only events: `TeammateIdle`,
@@ -326,6 +409,13 @@ Every change is audited (`team.*`) and a device's is told to the desktop.
   that pay per token; on a plan the budget shows as *not applied*.
 * Foreign sessions cannot be started, stopped or resumed by a team; a dead
   one's role is taken over by an owned session when work arrives.
+* A role on another computer cannot `SendMessage` the lead or be messaged
+  by it (cross-session messages stay on one computer): the board — notes,
+  *blocked*, the notices — is how they talk. While the lead's computer
+  cannot be reached, its tools answer so and its work stays in its
+  worktree. A role started there under a new binding (removed there, or on
+  another computer) brings its work back as new commits that cannot move
+  the old branch forward: the task names the newer commit instead.
 * The router and admission control are the scheduler's (docs/ROUTING.md):
   each task's model comes from its routing policy, and each start from its
   admission rules; a task handed to a session is reported to it
