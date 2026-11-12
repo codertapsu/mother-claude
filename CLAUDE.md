@@ -512,8 +512,9 @@ the `browser_*` tools are `extension::mcp`). Invariants:
 
 ## Your other computers: Machines (docs/PLAN-MACHINES.md)
 
-`src-tauri/src/machines/`. Being built in phases on the `machines` branch;
-Phase 1 is pairing and setup. Invariants:
+`src-tauri/src/machines/`. Shipped in v0.11.0 (pairing and setup, seeing and
+driving another computer, moving a session with its code, code sync);
+developed on `main`, as the rest of the app is. Invariants:
 
 - **A peer is a principal, from a key, on its own router.** `Ingress::Peer`
   and `Principal::Peer { machine, lan }` come only from the Machines
