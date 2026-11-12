@@ -52,6 +52,65 @@ pub fn task_branch(machine_name: &str, task: &str) -> Option<String> {
     valid_branch(&branch).then_some(branch)
 }
 
+/// The branch a team role on another computer's work becomes in the lead's
+/// project (docs/PLAN-MACHINES.md Phase 4 decision 9):
+/// `refs/heads/mother-claude/<machine>/<team>/<role>`, the computer's and
+/// the team's names made safe for a ref. `None` when the role's id could
+/// not be part of one.
+pub fn role_branch(machine_name: &str, team: &str, role: &str) -> Option<String> {
+    if !valid_session(role) || role.starts_with('.') {
+        return None;
+    }
+    let branch = format!(
+        "{TASK_BRANCH_PREFIX}{}/{}/{role}",
+        safe_name(machine_name),
+        safe_name(team)
+    );
+    valid_branch(&branch).then_some(branch)
+}
+
+/// Whether a task's worktree holds nothing since its last result (or,
+/// before the first one, since the code it got): what [`task_result`]
+/// would answer [`TaskResult::Unchanged`] for, without taking anything. A
+/// merge or rebase under way, or unmerged files, count as changes.
+pub fn task_unchanged(
+    git: &GitRunner,
+    worktree: &Path,
+    base: &str,
+    base_tree: &str,
+    last: Option<&TaskTip>,
+) -> Result<bool, CodeError> {
+    for oid in [base, base_tree] {
+        if !is_oid(oid) {
+            return Err(CodeError::Invalid {
+                what: "commit",
+                value: oid.to_string(),
+            });
+        }
+    }
+    if let Some(l) = last {
+        l.validate()?;
+    }
+    let op = git.begin()?;
+    let info = repo_info(&op, worktree)?;
+    if busy(&info).is_some() || unmerged(&op, &info.top)? {
+        return Ok(false);
+    }
+    let (_, wt_tree, _) = checked_trees(&op, &info)?;
+    Ok(match last {
+        Some(l) => l.head == info.head && l.wt_tree == wt_tree,
+        None => info.head.as_deref() == Some(base) && wt_tree == base_tree,
+    })
+}
+
+/// Whether commit `a` is in commit `b`'s history in the repository at
+/// `repo` (a lead's newer code holds a role's work once it merged it).
+pub fn contains(git: &GitRunner, repo: &Path, a: &str, b: &str) -> Result<bool, CodeError> {
+    let op = git.begin()?;
+    let info = repo_info(&op, repo)?;
+    is_ancestor(&op, &info.top, a, b)
+}
+
 /// A result of a task: what the worktree held when it was taken, and the
 /// tip the branch gets for it.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -488,6 +547,22 @@ mod tests {
             result_session("task_0123456789abcdef"),
             "task_0123456789abcdef-result"
         );
+    }
+
+    #[test]
+    fn a_remote_role_s_branch_is_named_for_the_computer_the_team_and_the_role() {
+        assert_eq!(
+            role_branch("DESKTOP-PC", "shop", "windows").as_deref(),
+            Some("refs/heads/mother-claude/DESKTOP-PC/shop/windows")
+        );
+        assert_eq!(
+            role_branch("Khanh's PC", "my.app", "ios").as_deref(),
+            Some("refs/heads/mother-claude/Khanh-s-PC/my-app/ios"),
+            "names made safe for a ref"
+        );
+        for bad in ["", "../x", "a b", "-x", ".x"] {
+            assert!(role_branch("PC", "shop", bad).is_none(), "{bad:?}");
+        }
     }
 
     #[test]

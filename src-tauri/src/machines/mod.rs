@@ -419,6 +419,26 @@ impl MachinesState {
         self.work.tasks.recorded_stops()
     }
 
+    /// The team role sessions this computer started for other computers'
+    /// leads while sessions only record (tests): what each would have
+    /// launched.
+    #[doc(hidden)]
+    pub fn recorded_role_spawns(&self) -> Vec<Value> {
+        self.work.roles.recorded_spawns()
+    }
+
+    /// The lead's messages to those sessions while they only record.
+    #[doc(hidden)]
+    pub fn recorded_role_messages(&self) -> Vec<Value> {
+        self.work.roles.recorded_messages()
+    }
+
+    /// Those sessions stopped while they only record.
+    #[doc(hidden)]
+    pub fn recorded_role_stops(&self) -> Vec<String> {
+        self.work.roles.recorded_stops()
+    }
+
     /// Tests: moves run git without this machine's configuration.
     #[doc(hidden)]
     pub fn use_isolated_git(&self) {

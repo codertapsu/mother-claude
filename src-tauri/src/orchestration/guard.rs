@@ -1110,10 +1110,20 @@ pub fn decide(
     input: &Value,
     cwd: Option<&str>,
 ) -> Option<String> {
-    let rule = state.teams.guard_rule(session)?;
+    // A role session of a team here, or one this computer runs for another
+    // computer's team (its globs relative to its worktree here).
+    let hosted = crate::machines::work::roles::guard_rule(state, session);
+    let rule = match hosted.clone() {
+        Some(r) => r,
+        None => state.teams.guard_rule(session)?,
+    };
     let denial = check(&rule, tool, input, cwd, home_dir().as_deref())?;
     let text = message(&rule, tool, &denial);
-    state.teams.note_denial(&rule.team, &rule.role);
+    if hosted.is_some() {
+        crate::machines::work::roles::note_denial(state, session);
+    } else {
+        state.teams.note_denial(&rule.team, &rule.role);
+    }
     state
         .devices
         .audit

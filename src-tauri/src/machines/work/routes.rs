@@ -57,6 +57,8 @@ pub fn api_router() -> Router<AppState> {
         .route("/machines/tasks", get(list_tasks))
         .route("/machines/tasks/{id}", get(one_task).delete(remove_task))
         .route("/machines/tasks/{id}/cancel", post(cancel_task))
+        // Team roles run for other computers (decision 9).
+        .merge(super::roles::routes::api_router())
 }
 
 /// The other computers' routes.
@@ -101,6 +103,8 @@ pub fn peer_router() -> Router<AppState> {
             "/peer/work/tasks/{id}/result/files/{name}",
             get(peer_task_result_bytes),
         )
+        // Team roles on another computer, both ways (decision 9).
+        .merge(super::roles::routes::peer_router())
 }
 
 fn unknown() -> ApiError {

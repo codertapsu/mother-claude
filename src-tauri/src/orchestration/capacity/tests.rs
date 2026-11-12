@@ -36,6 +36,7 @@ fn run(id: &str, project: &str, role: &str, lead: bool) -> RunningWorker {
         role: role.into(),
         model: "sonnet".into(),
         lead,
+        for_machine: None,
     }
 }
 
@@ -767,6 +768,7 @@ fn phase_3_exit_criterion_a_synthetic_load_of_12_tasks_across_4_roles() {
                         role: t.role.into(),
                         model: route.choice.model,
                         lead,
+                        for_machine: None,
                     };
                     running.push((i, w, now + t.minutes * MIN));
                 }

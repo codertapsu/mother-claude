@@ -62,9 +62,9 @@ pub use sync::{
     read_state, root_commits, tip_of, Changes, Checkout, Kept, PutBack, PutBackError,
 };
 pub use task::{
-    drop_task_refs, land_task_branch, remove_task_tree, result_session, short_branch, task_branch,
-    task_result, TaskBranchError, TaskLanded, TaskResult, TaskResultRequest, TaskTip,
-    TASK_BRANCH_PREFIX,
+    contains, drop_task_refs, land_task_branch, remove_task_tree, result_session, role_branch,
+    short_branch, task_branch, task_result, task_unchanged, TaskBranchError, TaskLanded,
+    TaskResult, TaskResultRequest, TaskTip, TASK_BRANCH_PREFIX,
 };
 pub use types::*;
 pub use verify::verify;

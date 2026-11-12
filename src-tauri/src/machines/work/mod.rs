@@ -57,10 +57,17 @@
 //! owned Claude Code session on the other computer, in its own worktree at
 //! the session's code; what it did comes back as the branch
 //! `mother-claude/<machine>/<task>` here, with its summary.
+//!
+//! **Team roles** (`roles`, decision 9): a template role that names another
+//! computer runs there — started, stopped and resumed by the lead's
+//! launcher, admitted by that computer, in a worktree of its own at the
+//! lead's code — and its board calls reach the lead's board with a binding;
+//! what it commits comes back as `mother-claude/<machine>/<team>/<role>`.
 
 pub mod grants;
 pub mod mcp;
 pub mod output;
+pub mod roles;
 pub mod routes;
 pub mod shell;
 pub mod source;
@@ -533,6 +540,9 @@ pub struct WorkState {
     pub grants: grants::RunGrants,
     /// Tasks handed to another computer, or taken from one (`tasks`).
     pub tasks: tasks::Tasks,
+    /// Team roles this computer runs for other computers' leads, and the
+    /// folders a lead's own transfers use (`roles`).
+    pub roles: roles::Roles,
 }
 
 impl std::fmt::Debug for WorkState {
@@ -555,6 +565,7 @@ impl WorkState {
         Self {
             grants: grants::RunGrants::load(data_dir),
             tasks: tasks::Tasks::load(dir.as_deref()),
+            roles: roles::Roles::load(dir.as_deref()),
             dir,
             runs: Mutex::new(runs),
             locks: Mutex::new(HashMap::new()),
@@ -807,6 +818,7 @@ pub fn start(state: &AppState) {
 /// its runs and its tasks.
 pub fn stop_from(state: &AppState, machine: Option<&str>, why: &str) {
     tasks::stop_from(state, machine, why);
+    roles::host::stop_from(state, machine, why);
     for run in state.machines.work.all() {
         let hit = run.peek(|r| {
             r.direction == Direction::In
@@ -831,6 +843,7 @@ pub fn stop_from(state: &AppState, machine: Option<&str>, why: &str) {
 pub fn grants_changed(state: &AppState, machine: &str) {
     use super::grants::Grant;
     tasks::grants_changed(state, machine);
+    roles::host::grants_changed(state, machine);
     for run in state.machines.work.all() {
         let (hit, lan) = run.peek(|r| {
             (

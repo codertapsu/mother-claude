@@ -97,7 +97,8 @@ pub struct AccountAsk {
 
 /// The account a task's session runs under here: the one of the same name
 /// (without regard to case), else the Default — when it can run a session.
-fn task_account(state: &AppState, ask: &AccountAsk) -> ApiResult<(String, String)> {
+/// A team role another computer runs here is matched the same way.
+pub(crate) fn task_account(state: &AppState, ask: &AccountAsk) -> ApiResult<(String, String)> {
     let all = state.accounts.accounts();
     let wanted = ask.name.trim();
     let found = all

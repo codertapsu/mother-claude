@@ -158,17 +158,35 @@ fn template_from(body: Value) -> ApiResult<Template> {
 
 // ─────────────────────────────── templates ───────────────────────────────
 
+/// What a template's roles name of the paired computers: a warning for each
+/// computer no pairing matches (a start refuses them).
+fn machine_warnings(state: &AppState, t: &Template) -> Vec<templates::Issue> {
+    templates::machine_warnings(t, &|spec| {
+        crate::machines::work::roles::spec_warning(state, spec)
+    })
+}
+
 /// `GET /api/team-templates` → `{templates: [{…template, builtin, report}]}`.
 pub async fn list_templates(Authed(_ctx): Authed, State(state): State<AppState>) -> Json<Value> {
-    Json(json!({ "templates": state.teams.templates.all() }))
+    let mut all = state.teams.templates.all();
+    for e in &mut all {
+        let extra = machine_warnings(&state, &e.template);
+        e.report.warnings.extend(extra);
+    }
+    Json(json!({ "templates": all }))
 }
 
 /// `POST /api/team-templates/validate` (a template) → `{ok, errors,
 /// warnings}`: what saving it would say, without saving.
-pub async fn validate_template(Authed(_ctx): Authed, Body(body): Body<Value>) -> Json<Value> {
+pub async fn validate_template(
+    Authed(_ctx): Authed,
+    State(state): State<AppState>,
+    Body(body): Body<Value>,
+) -> Json<Value> {
     match template_from(body) {
         Ok(t) => {
-            let r = templates::validate(&t);
+            let mut r = templates::validate(&t);
+            r.warnings.extend(machine_warnings(&state, &t));
             Json(json!({ "ok": r.ok(), "errors": r.errors, "warnings": r.warnings }))
         }
         Err(e) => Json(json!({
@@ -348,6 +366,11 @@ fn check_override(role: &str, o: &RoleOverride) -> ApiResult<()> {
     {
         return Err(bad("budget"));
     }
+    if o.machine.as_deref().is_some_and(|m| {
+        m.chars().count() > templates::MACHINE_MAX || m.chars().any(char::is_control)
+    }) {
+        return Err(bad("computer"));
+    }
     Ok(())
 }
 
@@ -423,6 +446,31 @@ pub async fn start_team(
             "A role of this template works in a git worktree, and this folder is not a git \
              repository (its top folder).",
         ));
+    }
+    // A role on another computer: a paired computer must match it (online
+    // and its permissions are its start's business), and it works at the
+    // project's code, which travels as git.
+    for role in template.roles.iter().filter(|r| !r.lead) {
+        let Some(spec) = role.machine_spec() else {
+            continue;
+        };
+        if let Some(why) = crate::machines::work::roles::spec_warning(&state, spec) {
+            return Err(ApiError::unprocessable(
+                "machine_unknown",
+                format!("The {} role: {why}", role.title),
+            )
+            .with("role", role.id.clone()));
+        }
+        if !std::path::Path::new(&project).join(".git").exists() {
+            return Err(ApiError::unprocessable(
+                "not_a_git_repository",
+                format!(
+                    "The {} role runs on another computer, at the project's code: this folder \
+                     must be a git repository (its top folder).",
+                    role.title
+                ),
+            ));
+        }
     }
     let brief = body
         .brief
@@ -546,6 +594,22 @@ pub async fn delete_team(
             "team_running",
             "Stop the team before removing it.",
         ));
+    }
+    // Its roles on other computers: their worktrees and records go there
+    // (when that computer can be reached), the bindings with them.
+    let remote: Vec<String> = team
+        .roles
+        .iter()
+        .filter(|(_, s)| s.remote.is_some())
+        .map(|(r, _)| r.clone())
+        .collect();
+    if !remote.is_empty() {
+        let (st, gone) = (state.clone(), team.clone());
+        tokio::spawn(async move {
+            for role in remote {
+                crate::machines::work::roles::lead::remove(&st, &gone, &role).await;
+            }
+        });
     }
     state.teams.remove(&id);
     audit(&state, &ctx, "team.remove", json!({ "team": id }));

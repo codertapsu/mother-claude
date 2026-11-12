@@ -118,7 +118,8 @@ pub struct HistoryEntry {
     pub at: i64,
     pub by: String,
     /// `created`, `claimed`, `status`, `priority`, `role`, `edited`,
-    /// `blocked`, `unblocked`, `escalated`, `model`, `assigned`.
+    /// `blocked`, `unblocked`, `escalated`, `model`, `assigned`, `branch`
+    /// (the work of a role on another computer arrived).
     pub action: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub detail: Option<String>,
@@ -136,6 +137,35 @@ pub struct TaskReport {
     /// Whether the integration gate passed, when one ran.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub gate_passed: Option<bool>,
+}
+
+/// What a role on another computer brought back when it finished the task
+/// (docs/TEAMS.md "A role on another computer"): the branch its work
+/// became in the project here.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct RemoteWork {
+    /// The computer the role ran on (its id) and its name.
+    pub machine: String,
+    pub machine_name: String,
+    /// `mother-claude/<computer>/<team>/<role>`, once its work is here.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub branch: Option<String>,
+    /// The commit the branch got for this task.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tip: Option<String>,
+    /// What it changed since the code the role got: its commits, the files,
+    /// and whether some of it was left uncommitted.
+    pub commits: u32,
+    pub files: u32,
+    pub uncommitted: bool,
+    /// Why the branch was not made or moved (still on its way, checked out
+    /// here, changed here).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
+    pub at: i64,
+    #[serde(flatten)]
+    pub extra: BTreeMap<String, Value>,
 }
 
 /// One task: a packet and everything that happened to it.
@@ -190,6 +220,9 @@ pub struct Task {
     pub started_at: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ended_at: Option<i64>,
+    /// A role on another computer finished it: the branch its work became.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub remote: Option<RemoteWork>,
     #[serde(flatten)]
     pub extra: BTreeMap<String, Value>,
 }
@@ -674,6 +707,26 @@ impl Board {
             task.model = Some(choice);
             task.model_reason = Some(reason.chars().take(200).collect());
         }
+    }
+
+    /// Record what a role on another computer brought back for a task (its
+    /// work as a branch here): the task's result names the branch once it
+    /// is here. The task as it is now, `None` when there is no such task.
+    pub fn set_remote(&mut self, id: u64, work: RemoteWork, now: i64) -> Option<Task> {
+        let task = self.get_mut(id).ok()?;
+        let detail = match (&work.branch, &work.note) {
+            (Some(b), _) => format!("{b} from {}", work.machine_name),
+            (None, Some(n)) => n.chars().take(200).collect(),
+            (None, None) => format!("from {}", work.machine_name),
+        };
+        if let (Some(b), Some(r)) = (&work.branch, task.result.as_mut()) {
+            r.branch = Some(b.clone());
+        }
+        if task.remote.as_ref() != Some(&work) {
+            task.log(now, "Mother Claude", "branch", Some(detail));
+        }
+        task.remote = Some(work);
+        Some(task.clone())
     }
 
     /// Change a task.

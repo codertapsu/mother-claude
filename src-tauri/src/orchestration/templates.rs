@@ -35,6 +35,11 @@ pub const BUDGET_MAX_USD: f64 = 1000.0;
 /// nothing.
 pub const DEFAULT_IDLE_STOP_MINUTES: u32 = 30;
 
+/// The OSes a role's `machine` may name (`os:windows`, …).
+pub const MACHINE_OSES: [&str; 3] = ["windows", "macos", "linux"];
+/// The longest `machine` (a computer's name, id or `os:`).
+pub const MACHINE_MAX: usize = 64;
+
 /// The task classes the router knows (`router::TaskClass`, camelCase).
 pub const TASK_CLASSES: [&str; 11] = [
     "plan",
@@ -115,6 +120,12 @@ pub struct RoleDef {
     /// The task classes it usually takes (shown to the lead).
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub classes: Vec<String>,
+    /// The computer its sessions run on (docs/TEAMS.md "A role on another
+    /// computer"): a paired computer's name or id, or `os:windows`,
+    /// `os:macos`, `os:linux` — the first online paired computer of that OS
+    /// that lets this one run. Absent (or empty): the team's own computer.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub machine: Option<String>,
     /// Fields a newer version wrote; kept as they were.
     #[serde(flatten)]
     pub extra: BTreeMap<String, Value>,
@@ -124,6 +135,15 @@ impl RoleDef {
     /// The permission mode its sessions start in.
     pub fn mode(&self) -> &str {
         self.permission_mode.as_deref().unwrap_or("default")
+    }
+
+    /// The computer it runs on when that is another one (`machine`, not
+    /// empty).
+    pub fn machine_spec(&self) -> Option<&str> {
+        self.machine
+            .as_deref()
+            .map(str::trim)
+            .filter(|m| !m.is_empty())
     }
 }
 
@@ -243,7 +263,7 @@ impl Report {
 }
 
 /// A relative path or glob that stays inside the folder it is relative to.
-fn is_inside_relative(p: &str) -> bool {
+pub(crate) fn is_inside_relative(p: &str) -> bool {
     let p = p.trim();
     !p.is_empty()
         && !crate::claude::paths::is_absolute_anywhere(p)
@@ -396,6 +416,41 @@ pub fn validate(t: &Template) -> Report {
                 );
             }
         }
+        if let Some(m) = &role.machine {
+            let m = m.trim();
+            if m.chars().count() > MACHINE_MAX || m.chars().any(char::is_control) {
+                r.error(
+                    at("machine"),
+                    format!(
+                        "A paired computer's name or id (at most {MACHINE_MAX} characters), or \
+                         os:windows, os:macos or os:linux."
+                    ),
+                );
+            } else if let Some(os) = m.strip_prefix("os:") {
+                if !MACHINE_OSES.contains(&os.trim()) {
+                    r.error(
+                        at("machine"),
+                        "Use os:windows, os:macos or os:linux, or a paired computer's name or id.",
+                    );
+                }
+            }
+        }
+        if role.machine_spec().is_some() {
+            if role.lead {
+                r.error(
+                    at("machine"),
+                    "The lead runs on the computer that runs the team: `machine` is for the other \
+                     roles.",
+                );
+            }
+            if role.worktree {
+                r.warn(
+                    at("worktree"),
+                    "A role on another computer always works in a worktree of its own there: \
+                     `worktree` does not apply to it.",
+                );
+            }
+        }
     }
     if let Some(m) = &t.integration.merge_by {
         if !t.roles.iter().any(|x| &x.id == m) {
@@ -422,6 +477,32 @@ pub fn validate(t: &Template) -> Report {
         r.error("idleStopMinutes", "At most 1440 (a day); 0 never stops.");
     }
     r
+}
+
+/// Warnings about the computers its roles name (a template-time warning; a
+/// start refuses): `check(machine)` says why no paired computer matches
+/// it, when none does (`machines::work::roles::spec_warning`). Roles whose
+/// `machine` is invalid already have an error, and the lead never runs
+/// elsewhere.
+pub fn machine_warnings(t: &Template, check: &dyn Fn(&str) -> Option<String>) -> Vec<Issue> {
+    t.roles
+        .iter()
+        .enumerate()
+        .filter(|(_, r)| !r.lead)
+        .filter_map(|(i, r)| {
+            let spec = r.machine_spec()?;
+            let os_ok = spec
+                .strip_prefix("os:")
+                .is_none_or(|os| MACHINE_OSES.contains(&os.trim()));
+            if !os_ok || spec.chars().count() > MACHINE_MAX {
+                return None;
+            }
+            check(spec).map(|message| Issue {
+                path: format!("roles[{i}].machine"),
+                message,
+            })
+        })
+        .collect()
 }
 
 /// Parse a template from JSON text: the template, or why it is not one.
@@ -1153,6 +1234,77 @@ mod tests {
         assert!(warned.contains(&"roles[1].classes[1]"));
         assert!(t.needs_dangerous());
         assert!(r.first_error().is_some());
+    }
+
+    #[test]
+    fn a_role_may_name_the_computer_it_runs_on() {
+        let t = parse(
+            &json!({
+                "id": "cross",
+                "name": "Cross-platform",
+                "roles": [
+                    {"id": "lead", "title": "Lead", "lead": true},
+                    {"id": "windows", "title": "Windows", "machine": "DESKTOP-PC",
+                     "paths": ["src/win/**"]},
+                    {"id": "ios", "title": "iOS", "machine": "os:macos"},
+                    {"id": "here", "title": "Here", "machine": "  "}
+                ]
+            })
+            .to_string(),
+        )
+        .unwrap();
+        let r = validate(&t);
+        assert!(r.ok(), "{:?}", r.errors);
+        assert!(r.warnings.is_empty(), "{:?}", r.warnings);
+        assert_eq!(t.roles[1].machine_spec(), Some("DESKTOP-PC"));
+        assert_eq!(t.roles[2].machine_spec(), Some("os:macos"));
+        assert_eq!(t.roles[3].machine_spec(), None, "empty: this computer");
+        assert_eq!(t.roles[0].machine_spec(), None);
+        // Kept as written on a round trip; absent stays absent.
+        let back = serde_json::to_value(&t).unwrap();
+        assert_eq!(back["roles"][1]["machine"], "DESKTOP-PC");
+        assert!(back["roles"][0].get("machine").is_none());
+        // What is not a computer, or a lead elsewhere, is refused; a
+        // worktree flag there is only a warning.
+        let mut bad = t.clone();
+        bad.roles[0].machine = Some("DESKTOP-PC".into());
+        bad.roles[1].machine = Some("os:beos".into());
+        bad.roles[2].machine = Some("x".repeat(MACHINE_MAX + 1));
+        bad.roles[3].machine = Some("PC\u{7}".into());
+        bad.roles[3].worktree = true;
+        let r = validate(&bad);
+        let errors: Vec<&str> = r.errors.iter().map(|i| i.path.as_str()).collect();
+        for want in [
+            "roles[0].machine",
+            "roles[1].machine",
+            "roles[2].machine",
+            "roles[3].machine",
+        ] {
+            assert!(errors.contains(&want), "missing {want} in {errors:?}");
+        }
+        let lead = r
+            .errors
+            .iter()
+            .find(|i| i.path == "roles[0].machine")
+            .unwrap();
+        assert!(
+            lead.message.contains("The lead runs on the computer"),
+            "{lead:?}"
+        );
+        let mut flagged = t.clone();
+        flagged.roles[1].worktree = true;
+        let r = validate(&flagged);
+        assert!(r.ok());
+        assert_eq!(r.warnings[0].path, "roles[1].worktree");
+        // A computer nobody paired is a warning at template time.
+        let warnings = machine_warnings(&t, &|spec| {
+            (spec == "DESKTOP-PC").then(|| "No paired computer is called it.".to_string())
+        });
+        assert_eq!(warnings.len(), 1, "{warnings:?}");
+        assert_eq!(warnings[0].path, "roles[1].machine");
+        assert!(machine_warnings(&bad, &|_| Some("x".into()))
+            .iter()
+            .all(|w| w.path != "roles[0].machine" && w.path != "roles[1].machine"));
     }
 
     #[test]

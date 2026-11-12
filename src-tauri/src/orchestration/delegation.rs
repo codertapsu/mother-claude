@@ -101,7 +101,13 @@ fn quote(s: &str) -> String {
 pub async fn deliver(state: &AppState, team: &Team, role: &str, text: &str) -> bool {
     let slot = team.slot(role);
     if let Some(sid) = slot.session_id.as_deref() {
-        if slot.foreign {
+        if slot.remote.is_some() {
+            // A role on another computer: through the peer link, to its
+            // session there.
+            if super::teams::liveness(state, &slot).await.0 {
+                return crate::machines::work::roles::lead::message(state, team, role, text).await;
+            }
+        } else if slot.foreign {
             if crate::server::hooks::is_active(state, sid) {
                 let text = fit(text, RELAY_FIT_BYTES);
                 return crate::server::hooks::enqueue_relay(state, sid, &text)

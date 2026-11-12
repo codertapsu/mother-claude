@@ -41,12 +41,19 @@ pub struct RoleOverride {
     pub budget_usd: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub autostart: Option<bool>,
+    /// The computer it runs on (a paired computer's name or id, `os:…`);
+    /// empty: this computer, whatever the template says.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub machine: Option<String>,
 }
 
 impl RoleOverride {
     /// A role with these changes.
     pub fn apply(&self, role: &RoleDef) -> RoleDef {
         let mut r = role.clone();
+        if let Some(m) = &self.machine {
+            r.machine = Some(m.trim().to_string()).filter(|m| !m.is_empty());
+        }
         if let Some(m) = &self.model {
             r.model = Some(m.clone());
         }
@@ -106,8 +113,68 @@ pub struct RoleSlot {
     /// Where its worktree is, once it ran in one.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub worktree_path: Option<String>,
+    /// It runs on another computer (its role names one): where, and the
+    /// binding this computer minted for it there.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub remote: Option<RemoteSlot>,
     #[serde(flatten)]
     pub extra: BTreeMap<String, Value>,
+}
+
+/// A role that runs on another computer, as the lead's computer keeps it
+/// (docs/PLAN-MACHINES.md Phase 4 decision 9).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct RemoteSlot {
+    /// The computer (its id), its name and its OS.
+    pub machine: String,
+    pub machine_name: String,
+    pub os: String,
+    /// The binding (`rb_…`) and its secret's SHA-256 (the computer that
+    /// runs the role keeps the secret).
+    pub binding: String,
+    pub secret_sha256: String,
+    /// Its worktree there.
+    pub folder: String,
+    /// The code its worktree was last set to (this computer's snapshot).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub base: Option<String>,
+    /// Results taken here, the branch they became and its tip, and why the
+    /// last one did not move it.
+    pub landed: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub branch: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tip: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub branch_note: Option<String>,
+    #[serde(flatten)]
+    pub extra: BTreeMap<String, Value>,
+}
+
+/// What the lead's computer last heard of a role's session on another
+/// computer (runtime only).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct RemoteStatus {
+    pub alive: bool,
+    /// In a turn.
+    pub busy: bool,
+    pub session: Option<String>,
+    /// Results made there.
+    pub results: u32,
+    /// Writes the guard denied there.
+    pub denials: u32,
+    pub error: Option<String>,
+    /// Why its worktree kept its own work at the last start.
+    pub kept_note: Option<String>,
+    /// The computer did not answer the last time.
+    pub unreachable: bool,
+    /// It no longer knows the binding (removed there).
+    pub gone: bool,
+    /// A look is under way.
+    pub refreshing: bool,
+    /// When it was last heard (or asked), epoch ms.
+    pub at: i64,
 }
 
 /// A team.
@@ -259,6 +326,8 @@ struct TeamsInner {
     teams: BTreeMap<String, Team>,
     runtime: HashMap<(String, String), RoleRuntime>,
     observed: VecDeque<Observed>,
+    /// Roles on other computers, by binding: what was last heard of them.
+    remote: HashMap<String, RemoteStatus>,
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -463,6 +532,22 @@ impl Teams {
         self.with_runtime(team, role, |r| r.denials += 1);
     }
 
+    /// What was last heard of a role on another computer (by binding).
+    pub fn remote_status(&self, binding: &str) -> Option<RemoteStatus> {
+        self.lock().remote.get(binding).cloned()
+    }
+
+    /// Change what is known of a role on another computer.
+    pub fn set_remote_status(&self, binding: &str, f: impl FnOnce(&mut RemoteStatus)) {
+        let mut inner = self.lock();
+        f(inner.remote.entry(binding.to_string()).or_default());
+    }
+
+    /// Forget a role on another computer (its team is gone).
+    pub fn forget_remote_status(&self, binding: &str) {
+        self.lock().remote.remove(binding);
+    }
+
     /// Record an agent-team event from an interactive session.
     pub fn observe(&self, ev: Observed) {
         let mut inner = self.lock();
@@ -603,6 +688,38 @@ pub struct RoleView {
     pub started_at: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stopped_at: Option<i64>,
+    /// It runs on another computer (its role names one).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub machine: Option<RoleMachine>,
+}
+
+/// Where a role on another computer runs, for the Teams page.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RoleMachine {
+    /// What the role names (`DESKTOP-PC`, `os:windows`).
+    pub spec: String,
+    /// The computer it runs on, once it started there: its id, name and OS.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub os: Option<String>,
+    /// Its worktree there.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub folder: Option<String>,
+    /// The branch its work became here, and why the last one did not move
+    /// it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub branch: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub branch_note: Option<String>,
+    /// Why its worktree kept its own work at its last start.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub kept_note: Option<String>,
+    /// That computer did not answer the last time.
+    pub unreachable: bool,
 }
 
 /// A team, for the Teams page.
@@ -626,11 +743,20 @@ pub struct TeamView {
     pub brief: Option<String>,
 }
 
-/// Whether a role session is alive, and whether it is in a turn.
+/// Whether a role session is alive, and whether it is in a turn. A role on
+/// another computer: as that computer last said.
 pub(crate) async fn liveness(state: &AppState, slot: &RoleSlot) -> (bool, bool) {
     let Some(id) = slot.session_id.as_deref() else {
         return (false, false);
     };
+    if let Some(r) = &slot.remote {
+        return state
+            .teams
+            .remote_status(&r.binding)
+            .filter(|s| s.alive && s.session.as_deref() == Some(id))
+            .map(|s| (true, s.busy))
+            .unwrap_or((false, false));
+    }
     if slot.foreign {
         return match state.find_session(id).await {
             Some(s) if s.live => {
@@ -692,6 +818,26 @@ pub async fn view(state: &AppState, team: &Team) -> TeamView {
             .as_deref()
             .and_then(|sid| state.control.state(sid))
             .and_then(|l| l.model);
+        // A role on another computer: where, and what was last heard of it.
+        let heard = slot
+            .remote
+            .as_ref()
+            .and_then(|r| state.teams.remote_status(&r.binding));
+        let machine = role.machine_spec().map(|spec| {
+            let r = slot.remote.as_ref();
+            RoleMachine {
+                spec: spec.to_string(),
+                id: r.map(|r| r.machine.clone()),
+                name: r.map(|r| crate::machines::peer_name(state, &r.machine)),
+                os: r.map(|r| r.os.clone()).filter(|o| !o.is_empty()),
+                folder: r.map(|r| r.folder.clone()).filter(|f| !f.is_empty()),
+                branch: r.and_then(|r| r.branch.clone()),
+                branch_note: r.and_then(|r| r.branch_note.clone()),
+                kept_note: heard.as_ref().and_then(|h| h.kept_note.clone()),
+                unreachable: heard.as_ref().is_some_and(|h| h.unreachable),
+            }
+        });
+        let remote_denials = heard.as_ref().map(|h| h.denials).unwrap_or(0);
         roles.push(RoleView {
             id: role.id.clone(),
             title: role.title.clone(),
@@ -711,8 +857,11 @@ pub async fn view(state: &AppState, team: &Team) -> TeamView {
                 .or_else(|| role.effort.clone()),
             model_reason: slot.model_reason.clone(),
             permission_mode: role.mode().to_string(),
-            worktree: role.worktree,
-            worktree_path: role.worktree.then(|| team.base_of(role)),
+            worktree: role.worktree || machine.is_some(),
+            worktree_path: match &machine {
+                Some(m) => m.folder.clone(),
+                None => role.worktree.then(|| team.base_of(role)),
+            },
             paths: role.paths.clone(),
             read_only: role.read_only,
             budget_usd: super::launcher::session_budget(state, team, role).or(role.budget_usd),
@@ -728,9 +877,10 @@ pub async fn view(state: &AppState, team: &Team) -> TeamView {
             current_task: current,
             queued_tasks: queued,
             last_error: rt.last_error.clone(),
-            guard_denials: rt.denials,
+            guard_denials: rt.denials + remote_denials,
             started_at: slot.started_at,
             stopped_at: slot.stopped_at,
+            machine,
         });
     }
     TeamView {

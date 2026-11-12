@@ -73,6 +73,30 @@ fn tool_list(lead: bool) -> &'static str {
 /// (`--append-system-prompt`; Claude Code records it with the conversation,
 /// so a resumed session keeps the one it started with).
 pub fn charter(team: &Team, role: &RoleDef) -> String {
+    charter_for(team, role, None)
+}
+
+/// Where a role's `machine` runs it, in words ("DESKTOP-PC", "a Windows
+/// computer").
+fn computer_words(spec: &str) -> String {
+    match spec.strip_prefix("os:") {
+        Some(os) => format!(
+            "a {} computer",
+            crate::machines::work::roles::os_label(os.trim())
+        ),
+        None => spec.to_string(),
+    }
+}
+
+/// [`charter`], for a role that runs on another computer (`place`: where).
+/// It works in a worktree of that computer's copy of the project; the lead
+/// and the board are on the team's computer, which `SendMessage` does not
+/// reach, so it reports on the board — and the lead writes to it there.
+pub fn charter_for(
+    team: &Team,
+    role: &RoleDef,
+    place: Option<&crate::machines::work::roles::lead::Place>,
+) -> String {
     let name = team.session_name(&role.id);
     let mut out = format!(
         "# Team role: {title}\n\nYou are the {title} role (\"{id}\") of a team of Claude Code \
@@ -81,6 +105,16 @@ pub fn charter(team: &Team, role: &RoleDef) -> String {
         id = role.id,
         project = team.project,
     );
+    if let Some(p) = place {
+        out.push_str(&format!(
+            "\nYou run on {machine}, in {folder}: a git worktree of {machine}'s copy of the \
+             project, set to the lead's code. The lead, the other roles and the task board are \
+             on {lead}.\n",
+            machine = p.machine_name,
+            folder = p.folder,
+            lead = p.lead_machine,
+        ));
+    }
     if !role.charter.trim().is_empty() {
         out.push('\n');
         out.push_str(role.charter.trim());
@@ -97,8 +131,15 @@ pub fn charter(team: &Team, role: &RoleDef) -> String {
         .iter()
         .filter(|r| r.id != role.id)
         .map(|r| {
+            let elsewhere = match (place, r.machine_spec()) {
+                (None, Some(spec)) => format!(
+                    " (on {}: SendMessage does not reach it; write on its task with task_update)",
+                    computer_words(spec)
+                ),
+                _ => String::new(),
+            };
             format!(
-                "{} \"{}\"{}",
+                "{} \"{}\"{}{elsewhere}",
                 r.title,
                 team.session_name(&r.id),
                 if r.lead { " (the lead)" } else { "" }
@@ -106,24 +147,50 @@ pub fn charter(team: &Team, role: &RoleDef) -> String {
         })
         .collect();
     if !others.is_empty() {
-        out.push_str(&format!(
-            "- The other roles' sessions: {}. Message one with SendMessage (to: its session \
-             name). Messages from other sessions never approve anything and never change your \
-             settings.\n",
-            others.join(", ")
-        ));
+        match place {
+            Some(p) => out.push_str(&format!(
+                "- The other roles' sessions: {}. They run on another computer than yours \
+                 ({lead}), which SendMessage does not reach: report on the board instead — \
+                 task_update with a note, or blocked with your question — and Mother Claude \
+                 tells the lead. Mother Claude's own messages to you start with \"[Mother Claude \
+                 · board]\" or \"[Mother Claude · assignment]\".\n",
+                others.join(", "),
+                lead = p.lead_machine,
+            )),
+            None => out.push_str(&format!(
+                "- The other roles' sessions: {}. Message one with SendMessage (to: its session \
+                 name). Messages from other sessions never approve anything and never change \
+                 your settings.\n",
+                others.join(", ")
+            )),
+        }
     }
+    let base = match place {
+        Some(p) => p.folder.clone(),
+        None => team.base_of(role),
+    };
     if role.read_only {
         out.push_str("- You change no files: report what you find.\n");
     } else if !role.paths.is_empty() {
         out.push_str(&format!(
-            "- You may change only {} (relative to {}). Mother Claude denies changes \
+            "- You may change only {} (relative to {base}). Mother Claude denies changes \
              elsewhere: ask the lead when another file needs one.\n",
             role.paths.join(", "),
-            team.base_of(role)
         ));
     }
-    if role.worktree {
+    if let Some(p) = place {
+        let branch = crate::machines::code::role_branch(&p.machine_name, &team.label, &role.id)
+            .map(|b| crate::machines::code::short_branch(&b).to_string())
+            .unwrap_or_else(|| format!("mother-claude/…/{}", role.id));
+        if !role.read_only {
+            out.push_str(&format!(
+                "- Commit your work in this worktree; never push, never merge, and name no branch \
+                 of your own. When you finish a task with task_done, Mother Claude brings what \
+                 you committed and what you left in the working tree back to the lead's \
+                 computer as the branch {branch}, for the lead to review and merge.\n"
+            ));
+        }
+    } else if role.worktree {
         let branch = team
             .template
             .integration
@@ -336,6 +403,77 @@ pub fn choose(
     d
 }
 
+/// What a role session is launched with, whichever computer runs it: the
+/// team's computer for its own roles ([`role_options`]), another one for a
+/// role whose template names it (`machines::work::roles::host`).
+#[derive(Debug, Clone, Default)]
+pub struct RoleLaunch {
+    /// `-n`: `<project>/<role>`.
+    pub name: String,
+    /// `--append-system-prompt`.
+    pub charter: String,
+    pub mode: String,
+    pub read_only: bool,
+    /// `--add-dir`, absolute.
+    pub add_dirs: Vec<String>,
+    pub account: String,
+    /// It may run without permission prompts (who started the team may).
+    pub may_dangerous: bool,
+}
+
+/// The [`SpawnOptions`] of a role session from what it is launched with
+/// (everything but the account's environment and the fallback model, which
+/// the caller adds): its name, charter, `{"crossSessionInbound":"accept"}`
+/// and nothing else, the team tools by exact name, the guard's callback.
+#[allow(clippy::too_many_arguments)]
+pub fn launch_options(
+    l: &RoleLaunch,
+    choice: &ModelChoice,
+    cwd: String,
+    resume: Option<(String, bool)>,
+    session_id: Option<String>,
+    worktree: Option<String>,
+    agents_file: Option<PathBuf>,
+    prompt: String,
+    budget: Option<f64>,
+) -> SpawnOptions {
+    let (resume, fork) = match resume {
+        Some((id, fork)) => (Some(id), fork),
+        None => (None, false),
+    };
+    SpawnOptions {
+        cwd,
+        prompt,
+        model: Some(choice.model.clone()),
+        effort: choice.effort.clone(),
+        permission_mode: Some(l.mode.clone()),
+        resume,
+        fork,
+        session_id,
+        allow_bypass: l.may_dangerous,
+        caller_may_dangerous: l.may_dangerous,
+        account: Some(l.account.clone()),
+        name: Some(l.name.clone()),
+        agents_file,
+        append_system_prompt: Some(l.charter.clone()),
+        settings_json: Some(ROLE_SETTINGS.to_string()),
+        add_dirs: l.add_dirs.clone(),
+        worktree,
+        max_budget_usd: budget,
+        disallowed_tools: if l.read_only {
+            READ_ONLY_DISALLOWED.iter().map(|s| s.to_string()).collect()
+        } else {
+            Vec::new()
+        },
+        // The board without a permission card per call: Mother Claude
+        // decides who may do what on each one.
+        allowed_tools: super::mcp::allowed_tools(),
+        guard_hooks: true,
+        quiet: true,
+        ..Default::default()
+    }
+}
+
 /// The [`SpawnOptions`] of a role session (everything but the account's
 /// environment, which the caller adds).
 #[allow(clippy::too_many_arguments)]
@@ -351,51 +489,35 @@ pub fn role_options(
     prompt: String,
     budget: Option<f64>,
 ) -> SpawnOptions {
-    let add_dirs = role
-        .add_dirs
-        .iter()
-        .map(|d| {
-            std::path::Path::new(&team.project)
-                .join(d)
-                .to_string_lossy()
-                .into_owned()
-        })
-        .collect();
-    let (resume, fork) = match resume {
-        Some((id, fork)) => (Some(id), fork),
-        None => (None, false),
+    let launch = RoleLaunch {
+        name: team.session_name(&role.id),
+        charter: charter(team, role),
+        mode: role.mode().to_string(),
+        read_only: role.read_only,
+        add_dirs: role
+            .add_dirs
+            .iter()
+            .map(|d| {
+                std::path::Path::new(&team.project)
+                    .join(d)
+                    .to_string_lossy()
+                    .into_owned()
+            })
+            .collect(),
+        account: team.account.clone(),
+        may_dangerous: team.starter.may_dangerous,
     };
-    SpawnOptions {
+    launch_options(
+        &launch,
+        choice,
         cwd,
-        prompt,
-        model: Some(choice.model.clone()),
-        effort: choice.effort.clone(),
-        permission_mode: Some(role.mode().to_string()),
         resume,
-        fork,
         session_id,
-        allow_bypass: team.starter.may_dangerous,
-        caller_may_dangerous: team.starter.may_dangerous,
-        account: Some(team.account.clone()),
-        name: Some(team.session_name(&role.id)),
-        agents_file,
-        append_system_prompt: Some(charter(team, role)),
-        settings_json: Some(ROLE_SETTINGS.to_string()),
-        add_dirs,
         worktree,
-        max_budget_usd: budget,
-        disallowed_tools: if role.read_only {
-            READ_ONLY_DISALLOWED.iter().map(|s| s.to_string()).collect()
-        } else {
-            Vec::new()
-        },
-        // The board without a permission card per call: Mother Claude
-        // decides who may do what on each one.
-        allowed_tools: super::mcp::allowed_tools(),
-        guard_hooks: true,
-        quiet: true,
-        ..Default::default()
-    }
+        agents_file,
+        prompt,
+        budget,
+    )
 }
 
 /// Why a role session could not start.
@@ -418,8 +540,10 @@ impl std::fmt::Display for StartError {
     }
 }
 
-/// The role sessions that run now, across every team (what
-/// `capacity::admit` weighs).
+/// The role sessions that run on this computer now, across every team (what
+/// `capacity::admit` weighs): its teams' roles here, and the roles it runs
+/// for other computers' teams. A role of a team here that runs on another
+/// computer counts there, never here.
 pub async fn running_workers(state: &AppState) -> Vec<RunningWorker> {
     let mut out = Vec::new();
     for team in state.teams.all() {
@@ -428,7 +552,7 @@ pub async fn running_workers(state: &AppState) -> Vec<RunningWorker> {
             let Some(sid) = slot.session_id.clone() else {
                 continue;
             };
-            if !liveness(state, &slot).await.0 {
+            if slot.remote.is_some() || !liveness(state, &slot).await.0 {
                 continue;
             }
             let model = state
@@ -444,9 +568,11 @@ pub async fn running_workers(state: &AppState) -> Vec<RunningWorker> {
                 role: role.id.clone(),
                 model,
                 lead: role.lead,
+                for_machine: None,
             });
         }
     }
+    out.extend(crate::machines::work::roles::running(state));
     out
 }
 
@@ -491,6 +617,10 @@ pub async fn start_role(
             .read(&team.project, |b| b.get(id).cloned())
     });
     let decision = choose(state, &team, &role, task.as_ref());
+    if role.machine_spec().is_some() {
+        // That computer admits it itself (with every role session it runs).
+        return start_remote(state, team, role, slot, task, decision).await;
+    }
     let req = StartRequest {
         project: team.project.clone(),
         role: role.id.clone(),
@@ -559,6 +689,96 @@ pub async fn start_role(
                 ),
                 None,
             );
+        }
+        super::delegation::publish_team(&st, &team_id).await;
+        out
+    })
+    .await
+    .unwrap_or_else(|| Err(StartError::Failed("Mother Claude is shutting down.".into())))
+}
+
+/// Start (or resume) a role whose template names another computer, there
+/// (`machines::work::roles::lead::start`): that computer's own admission
+/// decides, and a role it makes wait waits here with its reasons ("on
+/// DESKTOP-PC: …"); a refusal (offline, no Run permission, …) is the
+/// role's last error, tried again a minute later.
+async fn start_remote(
+    state: &AppState,
+    team: Team,
+    role: RoleDef,
+    slot: RoleSlot,
+    task: Option<Task>,
+    decision: router::Decision,
+) -> Result<String, StartError> {
+    let (team_id, role_id) = (team.id.clone(), role.id.clone());
+    let claimed = state.teams.with_runtime(&team_id, &role_id, |r| {
+        if r.starting {
+            return false;
+        }
+        r.starting = true;
+        true
+    });
+    if !claimed {
+        return Err(StartError::Refused(format!(
+            "The {} role is starting.",
+            role.title
+        )));
+    }
+    let st = state.clone();
+    to_the_end(async move {
+        let out = crate::machines::work::roles::lead::start(
+            &st,
+            &team,
+            &role,
+            &slot,
+            task.as_ref(),
+            &decision,
+        )
+        .await;
+        let now = now_ms();
+        let repeated = st.teams.with_runtime(&team_id, &role_id, |r| {
+            r.starting = false;
+            r.idle_since = None;
+            match &out {
+                Ok(_) => {
+                    r.last_error = None;
+                    r.retry_after = None;
+                    r.waiting = None;
+                    r.pending_notices.clear();
+                    false
+                }
+                Err(StartError::Waiting(reasons)) => {
+                    let since = r.waiting.as_ref().map(|w| w.since).unwrap_or(now);
+                    let pushed = r.waiting.as_ref().is_some_and(|w| w.pushed);
+                    r.waiting = Some(Waiting {
+                        reasons: reasons.clone(),
+                        since,
+                        pushed,
+                    });
+                    false
+                }
+                Err(e) => {
+                    let text = e.to_string();
+                    let repeated = r.last_error.as_deref() == Some(text.as_str());
+                    r.waiting = None;
+                    r.last_error = Some(text);
+                    r.retry_after = Some(now + RETRY_AFTER_MS);
+                    repeated
+                }
+            }
+        });
+        if let Err(e @ (StartError::Failed(_) | StartError::Refused(_))) = &out {
+            if !repeated {
+                ws::publish_notice(
+                    &st,
+                    NoticeLevel::Error,
+                    format!(
+                        "The {} role of {} could not start on another computer: {e}",
+                        role.title, team.label
+                    ),
+                    None,
+                );
+            }
         }
         super::delegation::publish_team(&st, &team_id).await;
         out
@@ -646,63 +866,8 @@ async fn launch(
         .unwrap_or_default();
     let now = now_ms();
     // The task is its before it starts, so its first task_get sees it.
-    let assigned = match task {
-        Some(t) if t.status == TaskStatus::Todo => {
-            let id2 = id.clone();
-            let tid = t.id;
-            let choice = decision.choice.clone();
-            let reason = decision.reason.clone();
-            state
-                .teams
-                .boards
-                .mutate(&team.project, |b| {
-                    let c = b.assign(tid, &id2, now)?;
-                    b.set_model(tid, choice, &reason, now);
-                    Ok::<_, super::board::BoardError>(c)
-                })
-                .ok()
-        }
-        Some(t) if t.status.held() && t.claimed_by.as_deref() != Some(id.as_str()) => {
-            // Held by its previous session (a fork): the new one holds it.
-            let tid = t.id;
-            let id2 = id.clone();
-            state
-                .teams
-                .boards
-                .mutate(&team.project, |b| {
-                    if let Some(task) = b.tasks.iter_mut().find(|x| x.id == tid) {
-                        task.claimed_by = Some(id2);
-                    }
-                    Ok::<_, super::board::BoardError>(())
-                })
-                .ok();
-            None
-        }
-        _ => None,
-    };
-    let current = task.and_then(|t| {
-        state
-            .teams
-            .boards
-            .read(&team.project, |b| b.get(t.id).cloned())
-    });
-    let prompt = if role.lead {
-        let notices = state.teams.runtime(&team.id, &role.id).pending_notices;
-        lead_opening(team, &notices).unwrap_or_default()
-    } else if resume.is_some() && current.as_ref().is_some_and(|t| t.status.held()) {
-        // Woken to go on with the task it held.
-        current
-            .as_ref()
-            .map(|t| {
-                format!(
-                    "[Mother Claude · resumed] You were working on this.\n\n{}",
-                    packet(t)
-                )
-            })
-            .unwrap_or_default()
-    } else {
-        current.as_ref().map(packet).unwrap_or_default()
-    };
+    let assigned = claim_for(state, team, task, &id, decision);
+    let prompt = opening(state, team, role, task, resume.is_some());
     let budget = session_budget(state, team, role);
     let mut opts = role_options(
         team,
@@ -763,18 +928,99 @@ async fn launch(
         Err(e) => {
             // Give the task back.
             if assigned.is_some() {
-                let sid = id.clone();
-                let _ = state.teams.boards.mutate(&team.project, |b| {
-                    Ok::<_, super::board::BoardError>(b.release(
-                        &sid,
-                        "its session did not start",
-                        now_ms(),
-                    ))
-                });
+                give_back(state, team, &id, "its session did not start");
             }
             Err(StartError::Failed(owned::spawn_error(e).message))
         }
     }
+}
+
+/// The task a role session starts for, claimed for session `id` before it
+/// starts (so its first `task_get` sees it): a todo task assigned to it
+/// (`Some`: the change, for the notices), or one its previous session held
+/// moved to it (a fork, a new session on another computer).
+pub(crate) fn claim_for(
+    state: &AppState,
+    team: &Team,
+    task: Option<&Task>,
+    id: &str,
+    decision: &router::Decision,
+) -> Option<super::board::Change> {
+    let now = now_ms();
+    match task {
+        Some(t) if t.status == TaskStatus::Todo => {
+            let tid = t.id;
+            let choice = decision.choice.clone();
+            let reason = decision.reason.clone();
+            state
+                .teams
+                .boards
+                .mutate(&team.project, |b| {
+                    let c = b.assign(tid, id, now)?;
+                    b.set_model(tid, choice, &reason, now);
+                    Ok::<_, super::board::BoardError>(c)
+                })
+                .ok()
+        }
+        Some(t) if t.status.held() && t.claimed_by.as_deref() != Some(id) => {
+            // Held by its previous session: the new one holds it.
+            let tid = t.id;
+            state
+                .teams
+                .boards
+                .mutate(&team.project, |b| {
+                    if let Some(task) = b.tasks.iter_mut().find(|x| x.id == tid) {
+                        task.claimed_by = Some(id.to_string());
+                    }
+                    Ok::<_, super::board::BoardError>(())
+                })
+                .ok();
+            None
+        }
+        _ => None,
+    }
+}
+
+/// A role session's first message: the lead's brief and the notices that
+/// waited for it, or the packet of the task it starts for — "you were
+/// working on this" when it resumes a task it held.
+pub(crate) fn opening(
+    state: &AppState,
+    team: &Team,
+    role: &RoleDef,
+    task: Option<&Task>,
+    resumed: bool,
+) -> String {
+    let current = task.and_then(|t| {
+        state
+            .teams
+            .boards
+            .read(&team.project, |b| b.get(t.id).cloned())
+    });
+    if role.lead {
+        let notices = state.teams.runtime(&team.id, &role.id).pending_notices;
+        lead_opening(team, &notices).unwrap_or_default()
+    } else if resumed && current.as_ref().is_some_and(|t| t.status.held()) {
+        // Woken to go on with the task it held.
+        current
+            .as_ref()
+            .map(|t| {
+                format!(
+                    "[Mother Claude · resumed] You were working on this.\n\n{}",
+                    packet(t)
+                )
+            })
+            .unwrap_or_default()
+    } else {
+        current.as_ref().map(packet).unwrap_or_default()
+    }
+}
+
+/// The tasks a session that did not start held go back to the board.
+pub(crate) fn give_back(state: &AppState, team: &Team, session: &str, why: &str) {
+    let _ = state.teams.boards.mutate(&team.project, |b| {
+        Ok::<_, super::board::BoardError>(b.release(session, why, now_ms()))
+    });
 }
 
 /// Stop a role's owned session (between turns or not: the user asked). A
@@ -798,7 +1044,10 @@ async fn stop_role_now(state: &AppState, team_id: &str, role_id: &str, why: &str
         release_role(state, team_id, role_id).await;
         return;
     }
-    if state.control.controls(&sid) {
+    if slot.remote.is_some() {
+        // It runs on another computer: stopped there.
+        crate::machines::work::roles::lead::stop(state, &team, role_id, why).await;
+    } else if state.control.controls(&sid) {
         let _ = owned::kill(state, &sid).await;
         crate::pending::withdraw_session(state, &sid, why).await;
     }
@@ -927,10 +1176,14 @@ pub fn idle_stop_due(since: i64, now: i64, minutes: u32) -> bool {
     minutes > 0 && now - since >= i64::from(minutes) * 60_000
 }
 
-/// One pass of the loop over every team, then the sessions of the tasks
-/// other computers handed this one.
+/// One pass of the loop over every team, then the sessions this computer
+/// runs for others: tasks they handed it, and team roles whose lead went
+/// quiet (the same idle-stop rule).
 pub async fn tick(state: &AppState) {
     let now = now_ms();
+    // What the roles on other computers are doing (in the background: the
+    // loop reads what was last heard).
+    crate::machines::work::roles::lead::refresh_all(state);
     let mut running = running_workers(state).await;
     for team in state.teams.all() {
         if team.stopped {
@@ -939,6 +1192,7 @@ pub async fn tick(state: &AppState) {
         tick_team(state, &team, now, &mut running).await;
     }
     crate::machines::work::tasks::stop_idle(state, now).await;
+    crate::machines::work::roles::host::stop_unattended(state, now).await;
 }
 
 /// What a role would start for, and how urgent it is.
@@ -1110,13 +1364,17 @@ async fn tick_team(state: &AppState, team: &Team, now: i64, running: &mut Vec<Ru
         match start_role(state, &team.id, &w.role, w.task, running).await {
             Ok(sid) => {
                 let role = team.role(&w.role);
-                running.push(RunningWorker {
-                    session_id: sid,
-                    project: team.project.clone(),
-                    role: w.role.clone(),
-                    model: role.and_then(|r| r.model.clone()).unwrap_or_default(),
-                    lead: w.lead,
-                });
+                // A role that runs on another computer counts there.
+                if role.is_some_and(|r| r.machine_spec().is_none()) {
+                    running.push(RunningWorker {
+                        session_id: sid,
+                        project: team.project.clone(),
+                        role: w.role.clone(),
+                        model: role.and_then(|r| r.model.clone()).unwrap_or_default(),
+                        lead: w.lead,
+                        for_machine: None,
+                    });
+                }
             }
             Err(StartError::Waiting(_)) => {
                 let rt = state.teams.runtime(&team.id, &w.role);

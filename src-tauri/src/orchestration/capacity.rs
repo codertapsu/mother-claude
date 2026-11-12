@@ -75,6 +75,11 @@ pub struct RunningWorker {
     pub model: String,
     #[serde(default)]
     pub lead: bool,
+    /// A role this computer runs for a team on another computer: that
+    /// computer's name. It counts here, where it runs (never at the
+    /// lead's).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub for_machine: Option<String>,
 }
 
 /// May it start?
@@ -170,6 +175,9 @@ pub struct RoleSession {
     pub lead: bool,
     pub first_seen: i64,
     pub last_seen: i64,
+    /// It runs here for a team on another computer (that computer's name).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub for_machine: Option<String>,
     /// Its cost when first seen (what it spent since is this role's).
     #[serde(skip)]
     pub baseline_usd: Option<f64>,
@@ -269,12 +277,14 @@ impl Queue {
                     lead: w.lead,
                     first_seen: now,
                     last_seen: now,
+                    for_machine: w.for_machine.clone(),
                     baseline_usd: cost_of(&w.session_id),
                 });
             r.project = w.project.clone();
             r.role = w.role.clone();
             r.model = w.model.clone();
             r.lead = w.lead;
+            r.for_machine = w.for_machine.clone();
             r.last_seen = now;
         }
     }
