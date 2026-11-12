@@ -652,6 +652,36 @@ developed on `main`, as the rest of the app is. Invariants:
   project pause it; nothing is queued. Its watchers and minute's check run
   only once `lib.rs` called `enable_sync_watch()`: tests step through
   *Sync now*.
+- **Introductions are never transitive** (`machines::intro`, plan §5.12):
+  a paired computer (its `view` grant) only tells two others who each is —
+  name, id, public key, last addresses, never a secret or a grant
+  (`/peer/intro`); each introduced desktop accepts (`POST
+  /api/machines/introductions/{id}`), then the two run the normal exchange
+  directly (`pairing`: the joiner dials the key named, the
+  commit-then-reveal digits seeded by the introducer and the introduction
+  instead of a code, typed across the internet) and each confirms with its
+  grants. While one is open, the key it names reaches `/peer/pair/*` only
+  (`MachinesState::pairing_admits`). A hello carries the ids (never keys)
+  of the sender's paired computers to one it lets see its sessions
+  (`paired_with`), for *Also pair C with B?*.
+- **Revoke everywhere only removes trust** (`machines::revocation`):
+  revoked here, then every paired computer is asked (`/peer/revoke`, any
+  paired computer); kept in `machines.json` (`revocations`) until each took
+  it, delivered on its next hello. The receiver applies it at once, audits
+  it and shows a desktop notice; it names a third computer only (`422` for
+  the asked or the asking one) and adds nothing.
+- **Versions** (`machines::versions`): each peer's `skew` (Mother Claude,
+  Claude Code) and the capabilities it lacks; an older Mother Claude is the
+  setup's `app` warning, whose fix — here, or asked there (`next:
+  /settings#updates`) — only opens *Software updates*.
+- **Start at sign-in, in the tray** (`autostart.rs`, `tray.rs`, plan
+  §5.13): the system's own login item is the setting (Windows: the HKCU
+  `Run` value, quoted, `--tray`; macOS: a LaunchAgent), written only by
+  `PUT /api/app/autostart` (DesktopOnly, audited) or the setup's
+  `autostart` fix, and only after `lib.rs` called
+  `autostart.enable_for_real()` — tests record. Started with `--tray`, the
+  window stays hidden (`tauri.conf.json` makes it hidden; `lib.rs` shows it
+  otherwise) and closing it hides it again.
 - **Runs on another computer** (`machines::work`, docs/PLAN-MACHINES.md
   Phase 4): a session's `machine_run` needs the target's `run` grant and an
   approval on the source per run (`crate::pending`, source `machine`)

@@ -33,6 +33,9 @@ pub const CAPABILITIES: &[&str] = &[
     super::work::CAPABILITY,
     super::work::tasks::CAPABILITY,
     super::work::roles::CAPABILITY,
+    SYNC,
+    INTRODUCTIONS,
+    REVOKE_EVERYWHERE,
 ];
 
 /// The capability a machine needs to take (and send) sessions.
@@ -41,6 +44,19 @@ pub const MOVES: &str = "moves";
 /// The capability a machine needs to take the files git ignores that a
 /// project carries with a move (`moves::ignored`).
 pub const IGNORED_FILES: &str = "ignoredFiles";
+
+/// Code sync (`sync`, plan §5.15). Advertised so the Machines page can
+/// name it when another computer lacks it; sync itself does not require it
+/// (builds made before it was advertised keep syncing).
+pub const SYNC: &str = "sync";
+
+/// Being introduced to another paired computer (`intro`, plan §5.12):
+/// `/peer/intro` and the introduced pairing.
+pub const INTRODUCTIONS: &str = "introductions";
+
+/// Taking another computer's *Revoke everywhere* (`revocation`):
+/// `/peer/revoke`.
+pub const REVOKE_EVERYWHERE: &str = "revokeEverywhere";
 
 /// Versions a machine reports.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -106,6 +122,12 @@ pub struct Hello {
     /// `move` grant. Absent from an older build.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub leases: Vec<super::lease::WireLease>,
+    /// The ids of the computers the sender is paired with (plan §5.12), to
+    /// a computer it lets see its sessions: what lets that one offer to
+    /// introduce two of them that aren't paired with each other. Ids only,
+    /// never a key. Absent from an older build.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub paired_with: Vec<String>,
 }
 
 /// This OS, as machines name it.

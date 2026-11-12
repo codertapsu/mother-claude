@@ -72,11 +72,15 @@ const TOPICS: HelpTopicSource[] = [
         terms: [
           {
             term: 'Mother Claude',
-            text: 'Mỗi máy tính cần một phiên bản dùng cùng giao thức Các máy. Hãy cập nhật máy cũ hơn.',
+            text: 'Mỗi máy tính cần một phiên bản dùng cùng giao thức Các máy: máy dùng giao thức khác bắt buộc phải cập nhật. Máy chạy bản cũ hơn một máy khác được khuyến nghị cập nhật: **Cập nhật Mother Claude** mở **Cập nhật phần mềm**, còn trên máy khác thì **Nhờ … sửa** sẽ hiện việc đó ở máy ấy.',
           },
           {
             term: 'Luôn thức khi đang được dùng',
             text: 'Máy tính đang ngủ không trả lời được các máy khác. **Giữ máy thức khi đang được dùng** giữ máy thức khi có máy tính đã ghép nối đang kết nối; không cài đặt hệ thống nào bị thay đổi.',
+          },
+          {
+            term: 'Khởi động khi bạn đăng nhập',
+            text: 'Sau khi khởi động lại, các máy khác chỉ kết nối được với máy này khi Mother Claude chạy lại. **Bật** cho ứng dụng khởi động khi bạn đăng nhập, trong khay hệ thống, giống như **Cài đặt › Khởi động**.',
           },
           {
             term: 'Quyền truy cập Mạng cục bộ (máy Mac)',
@@ -229,8 +233,82 @@ const TOPICS: HelpTopicSource[] = [
         points: [
           'Trên **Các máy**, thẻ của mỗi máy đã ghép nối có **Đổi tên** (tên của nó trên máy này) và **Thu hồi**.',
           '**Thu hồi**, rồi **Nhấn lần nữa để thu hồi**: máy này quên máy kia và cắt các kết nối của nó ngay lập tức.',
-          'Việc thu hồi chỉ có tác dụng trên một máy: hãy thu hồi một máy bị mất hoặc bị đánh cắp trên từng máy còn lại của bạn.',
+          '**Thu hồi** chỉ có tác dụng trên máy này. Với một máy bị mất hoặc bị đánh cắp, hãy dùng **Thu hồi ở mọi nơi** trên bất kỳ máy nào khác của bạn: máy đó bị cắt khỏi tất cả các máy.',
           '**Tắt tính năng Các máy** không hủy ghép nối, nhưng khi tính năng này tắt, máy đã ghép nối chỉ ghép nối và chạy thiết lập được với máy này: nó không xem, điều khiển hay chuyển được các phiên ở đây, và máy này cũng không dùng các máy kia. **Thu hồi** để quên một máy.',
+        ],
+      },
+    ],
+  },
+  {
+    id: 'machines-more',
+    title: 'Ba máy tính trở lên',
+    icon: 'monitor',
+    group: 'machines',
+    summary:
+      'Ghép nối một máy tính mới với các máy khác qua một máy bạn đã có, cắt một máy bị mất khỏi tất cả, và giữ phiên bản các máy đồng đều.',
+    intro:
+      'Mỗi cặp máy tính của bạn được ghép nối riêng: một máy có thể giới thiệu hai máy khác với nhau, nhưng không có gì được tin cậy thay cho chúng. Việc thu hồi một máy bị mất ở mọi nơi, và phiên bản mỗi máy đang chạy, cũng nằm trên **Các máy**.',
+    keywords: [
+      'máy thứ ba',
+      'giới thiệu',
+      'lời giới thiệu',
+      'thu hồi ở mọi nơi',
+      'bị mất',
+      'bị đánh cắp',
+      'phiên bản',
+      'cập nhật',
+      'cũ hơn',
+    ],
+    sections: [
+      {
+        heading: 'Ghép nối một máy tính mới với các máy khác',
+        where: 'desktop',
+        intro:
+          'Trước tiên hãy ghép nối máy mới với một máy của bạn (**Ghép nối các máy tính của bạn**). Máy đó sau đó sẽ đề nghị **Ghép nối thêm … với …?** cho từng máy khác của bạn chưa được ghép nối với máy mới, ngay sau khi ghép nối và trên **Các máy**.',
+        steps: [
+          'Nhấn **Giới thiệu chúng với nhau**. Cả hai máy được báo máy kia là ai; chưa có gì được ghép nối.',
+          'Trên mỗi máy trong hai máy, mở **Các máy**: thẻ **Lời giới thiệu** cho biết máy nào đã giới thiệu máy nào. Nhấn **Ghép nối với …**.',
+          'Kiểm tra rằng cả hai màn hình hiện cùng sáu chữ số. Khi một máy kết nối qua Internet, máy kia sẽ bảo bạn nhập các chữ số đó, như khi ghép nối bằng mã.',
+          'Trên mỗi máy, chọn những gì máy kia được làm trên máy này, rồi nhấn **Dãy số khớp — Ghép nối**.',
+        ],
+        tips: [
+          '**Để sau** trên bất kỳ máy nào sẽ kết thúc việc đó ở máy ấy và báo cho máy kia: không có gì được ghép nối.',
+          'Một lời giới thiệu chờ cả hai câu trả lời trong mười phút: quá thời gian đó, hãy giới thiệu chúng lại.',
+          'Phần thiết lập có cùng các đề nghị này ở bước **Các máy của bạn**.',
+        ],
+        links: [{ label: 'Mở trang Các máy', path: '/machines' }],
+      },
+      {
+        heading: 'Vì sao lời giới thiệu an toàn',
+        points: [
+          'Máy giới thiệu chỉ chuyển tên, mã định danh, khóa công khai và các địa chỉ gần nhất của mỗi máy: không bao giờ chuyển bí mật, và không bao giờ chuyển những gì mỗi máy được làm.',
+          'Mỗi máy trong hai máy kết nối tới máy kia bằng đúng khóa đã được báo, và không gì khác vào được qua lời giới thiệu đó.',
+          'Sáu chữ số được tính từ khóa của cả hai máy, như khi ghép nối bằng mã: một máy chen vào giữa sẽ làm hai màn hình hiện hai dãy số khác nhau.',
+          'Mỗi ứng dụng máy tính tự quyết định và tự xác nhận; chưa đủ cả hai thì không có gì được lưu. Sự tin cậy không bao giờ được truyền tiếp: được ghép nối với một máy không cho bạn quyền gì trên các máy mà máy đó được ghép nối.',
+        ],
+      },
+      {
+        heading: 'Thu hồi một máy ở mọi nơi',
+        where: 'desktop',
+        intro:
+          'Dành cho máy bị mất hoặc bị đánh cắp: cắt nó khỏi tất cả các máy của bạn từ bất kỳ máy nào.',
+        steps: [
+          'Trên **Các máy**, tìm thẻ của máy đó và nhấn **Thu hồi ở mọi nơi**.',
+          'Nhấn **Nhấn lần nữa để thu hồi ở mọi nơi**.',
+        ],
+        points: [
+          'Máy này quên máy đó và cắt các kết nối của nó ngay lập tức, rồi đề nghị từng máy khác của bạn làm như vậy. Mỗi máy làm ngay, và hiện thông báo rằng bạn đã thu hồi nó trên tất cả máy tính của bạn.',
+          'Một máy đang tắt hoặc ở xa sẽ làm khi kết nối lại lần tới: **Đã thu hồi ở mọi nơi** trên **Các máy** cho biết những máy nào còn phải làm.',
+          'Việc này chỉ gỡ bỏ sự tin cậy: nó không thêm gì ở đâu cả, và không máy nào dùng được nó để thu hồi chính máy đã đề nghị.',
+        ],
+      },
+      {
+        heading: 'Phiên bản',
+        points: [
+          'Thẻ của mỗi máy trên **Các máy** hiện hệ điều hành, phiên bản Mother Claude, giao thức Các máy và Claude Code của máy đó.',
+          'Một máy chạy Mother Claude cũ hơn sẽ báo như vậy, kèm **Nhờ … cập nhật**: máy đó sẽ hiện trang **Cập nhật phần mềm** khi có người ở đó xác nhận. Khi máy này là máy cũ hơn, **Cập nhật** mở **Cập nhật phần mềm** ở đây.',
+          'Một máy cũ hơn cũng cho biết những gì nó chưa làm được cho đến khi được cập nhật, như **nhận tác vụ** hay **giữ mã nguồn đồng bộ**. Hai máy dùng giao thức Các máy khác nhau hoàn toàn không làm việc được với nhau cho đến khi một máy cập nhật.',
+          'Claude Code cũ hơn ở máy kia cũng có **Nhờ … cập nhật**; ở đây, **Cập nhật** chạy `claude update`.',
         ],
       },
     ],

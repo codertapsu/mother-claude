@@ -10,6 +10,7 @@
 use tauri::Manager;
 use tracing_subscriber::EnvFilter;
 
+pub mod autostart;
 pub mod bridge;
 pub mod claude;
 pub mod extension;
@@ -21,6 +22,7 @@ pub mod permissions;
 pub mod persist;
 pub mod server;
 pub mod state;
+mod tray;
 
 use server::auth::Auth;
 use state::{Inner, ServerConfig};
@@ -222,6 +224,14 @@ pub fn run() {
     app_state.machines.enable_sync_watch();
     // Copies are kept current after each turn (tests drive their rounds).
     app_state.machines.enable_copies();
+    // *Start Mother Claude when you sign in, in the tray*: the switch writes
+    // the system's login item (tests only record it), and a run the login
+    // item started has no window, only a tray icon.
+    app_state.autostart.enable_for_real();
+    let in_tray = std::env::args().any(|a| a == autostart::TRAY_ARG);
+    if in_tray {
+        app_state.autostart.note_started_in_tray();
+    }
     let exit_state = app_state.clone();
 
     tauri::Builder::default()
@@ -234,6 +244,17 @@ pub fn run() {
             #[cfg(desktop)]
             app.handle()
                 .plugin(tauri_plugin_updater::Builder::new().build())?;
+
+            // The window is made hidden (tauri.conf.json): shown at once,
+            // unless the app started at sign-in, in the tray.
+            if in_tray {
+                #[cfg(target_os = "macos")]
+                app.set_activation_policy(tauri::ActivationPolicy::Accessory);
+                tray::build(app)?;
+                tracing::info!("started in the tray");
+            } else if let Some(window) = app.get_webview_window("main") {
+                window.show()?;
+            }
 
             // In a packaged build the Path A sidecar is bundled under the app's
             // resource dir; point the control layer at it so owned sessions use
@@ -255,6 +276,16 @@ pub fn run() {
             });
             Ok(())
         })
+        .on_window_event(move |window, event| {
+            // Started in the tray: closing the window hides it, and the app
+            // goes on serving (*Quit* is in the tray's menu).
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                if in_tray && window.label() == "main" {
+                    api.prevent_close();
+                    tray::hide_main(window);
+                }
+            }
+        })
         .invoke_handler(tauri::generate_handler![
             check_full_disk_access,
             permissions_status,
@@ -266,6 +297,16 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building Mother Claude")
         .run(move |_app, event| {
+            // A Mac: the Dock icon (or opening the app again) shows the
+            // window a tray start hid.
+            #[cfg(target_os = "macos")]
+            if let tauri::RunEvent::Reopen {
+                has_visible_windows: false,
+                ..
+            } = event
+            {
+                tray::show_main(_app);
+            }
             if let tauri::RunEvent::Exit = event {
                 // Keep the transcript index's progress for the next launch
                 // (it is otherwise checkpointed every 30 s while dirty).

@@ -95,3 +95,29 @@
   padding-top: 0.75rem;
   border-top: 1px solid var(--border);
 }
+/* Versions that differ: the sentence, then what updates it. */
+.skew {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0.35rem 0;
+}
+.skew span {
+  flex: 1 1 14rem;
+}
+.lacks {
+  margin: 0.25rem 0;
+}
+/* Revoked everywhere: one computer a line, where it stands below. */
+.plain {
+  list-style: none;
+  margin: 0.2rem 0 0;
+  padding: 0;
+}
+.plain > li {
+  padding: 0.3rem 0;
+}
+.rev-line {
+  display: block;
+}

@@ -17,6 +17,11 @@
 //! commands on another computer at its own code (`work`: the `machine_*`
 //! tools, the work folders, approvals and standing grants, the runs).
 //!
+//! Phase 5 — more machines: a paired computer introduces two others, which
+//! then pair directly, each confirming the six digits (`intro`); *Revoke
+//! everywhere* cuts a lost computer from all of them (`revocation`); and
+//! each computer's versions, with what an older one lacks (`versions`).
+//!
 //! Invariants (plan §11): a peer is a principal (`Principal::Peer`), built
 //! only from the transport's authenticated key, and reaches the peer routes
 //! only; nothing on a machine changes because another asked until that
@@ -35,17 +40,20 @@ pub mod federation;
 pub mod grants;
 pub mod identity;
 pub mod ids;
+pub mod intro;
 pub mod lease;
 pub mod move_routes;
 pub mod moves;
 pub mod pairing;
 pub mod protocol;
+pub mod revocation;
 pub mod roots;
 pub mod routes;
 pub mod setup;
 pub mod store;
 pub mod sync;
 pub mod transport;
+pub mod versions;
 pub mod work;
 
 use std::collections::HashMap;
@@ -157,6 +165,9 @@ pub struct MachinesState {
     pub copies: copies::CopiesState,
     /// Commands run on another computer, or for one (`machines/work/`).
     pub work: work::WorkState,
+    /// Introductions to another computer, received from paired ones
+    /// (`intro`).
+    pub(crate) intros: intro::Intros,
 }
 
 impl std::fmt::Debug for MachinesState {
@@ -195,6 +206,7 @@ impl MachinesState {
             sync: sync::SyncState::load(data_dir),
             copies: copies::CopiesState::load(data_dir),
             work: work::WorkState::load(data_dir),
+            intros: intro::Intros::default(),
         }
     }
 
@@ -233,13 +245,16 @@ impl MachinesState {
         self.store_read(|f| f.peer(machine).is_some_and(|p| p.grants.allows(grant, lan)))
     }
 
-    /// The key pairing with this machine right now (it may reach
-    /// `/peer/pair/*`).
+    /// The key pairing with this machine right now, or the key an open
+    /// introduction names (it may reach `/peer/pair/*`).
     pub fn pairing_admits(&self, key: &str) -> bool {
-        let guard = self.pairing.lock().unwrap_or_else(|e| e.into_inner());
-        guard.as_ref().is_some_and(|s| {
-            s.role == pairing::Role::Host && !s.is_over() && s.finder.as_deref() == Some(key)
-        })
+        let pairing = {
+            let guard = self.pairing.lock().unwrap_or_else(|e| e.into_inner());
+            guard.as_ref().is_some_and(|s| {
+                s.role == pairing::Role::Host && !s.is_over() && s.finder.as_deref() == Some(key)
+            })
+        };
+        pairing || self.intros.admits(key)
     }
 
     pub(crate) fn remember_connection(&self, key: &str, conn: &Connection) {
@@ -545,6 +560,17 @@ pub fn audit(state: &AppState, action: &str, machine: &str, name: &str) {
     });
 }
 
+/// [`audit`] with what else it needs to say (ids and names, never a key).
+pub fn audit_detail(state: &AppState, action: &str, machine: &str, name: &str, detail: Value) {
+    state.devices.audit.record(AuditEntry {
+        action: action.to_string(),
+        device_id: Some(machine.to_string()),
+        device_name: Some(name.to_string()),
+        detail: Some(detail),
+        ..AuditEntry::now()
+    });
+}
+
 /// Stores a newly paired machine (replacing an earlier pairing of the same
 /// machine or key).
 pub fn add_peer(
@@ -581,12 +607,19 @@ pub fn add_peer(
 
 /// Forgets a paired machine and cuts its connections.
 pub fn revoke(state: &AppState, machine: &str) -> bool {
+    revoke_with(state, machine, None)
+}
+
+/// [`revoke`], its audit line saying how (`everywhere`, and who asked).
+pub fn revoke_with(state: &AppState, machine: &str, how: Option<Value>) -> bool {
     let removed = state.machines.store_write(|f| {
         let before = f.peers.len();
         let key = f
             .peer(machine)
             .map(|p| (p.key.clone(), p.display_name().to_string()));
         f.peers.retain(|p| p.id != machine);
+        // Nothing is asked of it any more (`revocation`).
+        revocation::forget_peer(f, machine);
         (before != f.peers.len()).then_some(key).flatten()
     });
     let Some((key, name)) = removed else {
@@ -602,7 +635,12 @@ pub fn revoke(state: &AppState, machine: &str) -> bool {
     federation::forget(state, machine);
     sync::on::forget_machine(state, machine);
     work::stop_from(state, Some(machine), "This computer was unpaired.");
-    audit(state, "machine.revoked", machine, &name);
+    // What it introduced here goes with it.
+    intro::forget_from(state, machine);
+    match how {
+        Some(detail) => audit_detail(state, "machine.revoked", machine, &name, detail),
+        None => audit(state, "machine.revoked", machine, &name),
+    }
     publish(state, "peers");
     true
 }
@@ -733,7 +771,35 @@ pub(crate) fn hello_for(state: &AppState, peer: &PeerRecord) -> Hello {
         } else {
             Vec::new()
         },
+        // The other computers this one is paired with (ids only), so it can
+        // offer to introduce two that aren't paired with each other.
+        paired_with: if sees {
+            state.machines.store_read(|f| {
+                f.peers
+                    .iter()
+                    .filter(|p| p.id != peer.id)
+                    .map(|p| p.id.clone())
+                    .collect()
+            })
+        } else {
+            Vec::new()
+        },
     }
+}
+
+/// The ids a hello says its sender is paired with, as kept: well formed,
+/// sorted, at most 64.
+fn paired_with_of(hello: &Hello) -> Vec<String> {
+    let mut ids: Vec<String> = hello
+        .paired_with
+        .iter()
+        .filter(|id| ids::is_machine_id(id) && **id != hello.machine.id)
+        .take(64)
+        .cloned()
+        .collect();
+    ids.sort();
+    ids.dedup();
+    ids
 }
 
 /// One greeting: updates the peer's record and link.
@@ -771,6 +837,10 @@ pub async fn greet(state: AppState, machine: String, key: String) {
                 let changed = lease::accept(&state, &machine, lan, &hello.leases).await;
                 moves::on_leases_changed(&state, &changed).await;
                 moves::follow_up(&state, &machine).await;
+                // A *Revoke everywhere* it has not taken yet (it was away).
+                if revocation::pending_for(&state, &machine) {
+                    revocation::deliver_to(&state, &machine).await;
+                }
             }
             _ => mark_unanswered(&state, &machine, "it answered something unexpected"),
         },
@@ -807,6 +877,7 @@ pub fn learn(state: &AppState, hello: &Hello, conn: Option<&Connection>) {
             .collect()
     });
     let m = &hello.machine;
+    let paired_with = paired_with_of(hello);
     let save_seen = {
         let mut saved = state
             .machines
@@ -829,6 +900,7 @@ pub fn learn(state: &AppState, hello: &Hello, conn: Option<&Connection>) {
                 || p.relay.as_ref() != Some(&hello.relay)
                 || p.their_grants != Some(hello.grants_you_have)
                 || (m.shell.is_some() && p.shell != m.shell)
+                || p.paired_with != paired_with
                 || addrs
                     .as_ref()
                     .is_some_and(|a| !a.is_empty() && *a != p.addrs)
@@ -849,6 +921,7 @@ pub fn learn(state: &AppState, hello: &Hello, conn: Option<&Connection>) {
             if m.shell.is_some() {
                 p.shell = m.shell.clone();
             }
+            p.paired_with = paired_with;
             p.last_seen = Some(now());
             if let Some(a) = addrs.filter(|a| !a.is_empty()) {
                 p.addrs = a;
@@ -893,7 +966,11 @@ pub fn start(state: &AppState) {
 pub async fn view(state: &AppState) -> Value {
     let me = machine_info(state);
     let file = state.machines.store_read(|f| f.clone());
-    let peers: Vec<Value> = file.peers.iter().map(|p| peer_view(state, p)).collect();
+    let peers: Vec<Value> = file
+        .peers
+        .iter()
+        .map(|p| peer_view(state, p, &me.versions))
+        .collect();
     let pairing = state
         .machines
         .pairing
@@ -929,10 +1006,14 @@ pub async fn view(state: &AppState) -> Value {
         "setupStep": file.setup_step,
         // What other computers asked this one to do (`setup::asks`).
         "asks": setup::asks::view(state),
+        // Introductions to another computer, received (`intro`).
+        "introductions": intro::view(state),
+        // Computers revoked here and on the others (`revocation`).
+        "revocations": revocation::view(state),
     })
 }
 
-fn peer_view(state: &AppState, p: &PeerRecord) -> Value {
+fn peer_view(state: &AppState, p: &PeerRecord, mine: &Versions) -> Value {
     let link = state.machines.link(&p.id);
     let problem = p.versions.as_ref().and_then(|v| {
         if protocol::compatible(v.protocol) {
@@ -961,6 +1042,10 @@ fn peer_view(state: &AppState, p: &PeerRecord) -> Value {
         "shell": p.shell,
         "relay": p.relay,
         "problem": problem,
+        // Which is older, and what it can't do until it updates (`versions`).
+        "skew": versions::skew(p, mine),
+        // The computers it is paired with (their ids), as it last said.
+        "pairedWith": p.paired_with,
         "sessions": state.machines.federation.counts(&p.id).map(|(total, running)| json!({ "total": total, "running": running })),
     })
 }

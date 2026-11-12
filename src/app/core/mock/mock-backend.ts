@@ -139,6 +139,8 @@ class FixtureBackend implements MockBackend {
   private readonly teams: MockTeams;
   /** Machines: your other computers (`/machines*`). */
   private readonly machines: MockMachines;
+  /** *Start Mother Claude when you sign in, in the tray* (`/app/autostart`). */
+  private autostart = false;
   /** Moving sessions between them (`?mockmachines=1`: `/moves*`,
    * `/sessions/:id/move*`, the other computers' proxies). */
   private readonly computerMoves: MockMoves | null;
@@ -428,6 +430,19 @@ class FixtureBackend implements MockBackend {
         });
         return json(this.fx.planUsage);
       }
+    }
+    // *Start Mother Claude when you sign in, in the tray* (`autostart.rs`).
+    if (path === '/app/autostart') {
+      if (method === 'PUT') {
+        if (!desktop) return deskOnly();
+        this.autostart = (body as { enabled?: unknown }).enabled === true;
+      }
+      return json({
+        supported: true,
+        enabled: this.autostart,
+        overridden: false,
+        startedInTray: false,
+      });
     }
     if (path === '/services') {
       return json({

@@ -336,6 +336,38 @@ Claude Code already trusts on the desktop.
    beside the other). To make one machine's copy win, **Force backup** on
    that machine, or **Force pull** on the other (below).
 
+### With Machines: moving instead of pulling
+
+When both computers run Mother Claude and are paired under **Machines**
+([MACHINES.md](MACHINES.md)), a session goes straight from one to the other
+— *Continue on DESKTOP-PC* — with its code, without a backup folder. The
+two do different jobs, and work together:
+
+| | A pull (this page) | A move (Machines) |
+|---|---|---|
+| When | the computers need not be on together: the set waits in the folder | both computers are online at once |
+| What travels | every session of the account the set holds, newer or missing | one session, with its uncommitted code (a git snapshot) and, if you tick them, files git ignores |
+| Where the session lives after | on both: each computer has a copy, and the next push or pull settles which is newer (a conflict keeps both) | on one: the session's **home** moves (one writer, a lease), and the other computer shows *Lives on DESKTOP-PC* until it comes back |
+| Where it runs after | where you continue it | it resumes on the other computer, told it moved |
+
+Both land a session the same way — the pull's code: placed into the folder
+of the project that maps it here (a pull through the folder pairs, a move
+through Machines' shared folders, which include them), replaced only when
+the transcript that comes continues the one here byte for byte (else a
+conflict copy beside it), what it replaces kept for undo, written
+atomically, never while a process uses that config folder.
+
+**Folder pairs become shared folders.** Machines keeps a *root* per shared
+folder: one folder on each of your computers, for any number of computers.
+Each folder pair of your backups is imported once, as a root with its two
+folders; roots are not written back into the backup sets. Mapping a
+project's folder from one computer to another tries the roots first, then
+the folder pairs, so a pair keeps working for pulls whether or not you use
+Machines.
+
+Keep the backups for when the computers are not online together, and as a
+backup: Machines does not replace them.
+
 ## Force backup, force pull, force restore
 
 The rules above never overwrite: when both laptops changed a session, each

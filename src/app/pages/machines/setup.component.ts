@@ -21,6 +21,9 @@ import { IconComponent } from '../../shared/icon.component';
 import { AccountsFoldersComponent } from './accounts-folders.component';
 import { CheckListComponent } from './check-list.component';
 import { GrantsMatrixComponent } from './grants-matrix.component';
+import { IntroSheetComponent } from './intro-sheet.component';
+import { IntroduceOfferComponent } from './introduce-offer.component';
+import { IntrosCardComponent } from './intros-card.component';
 import { JoinSheetComponent } from './join-sheet.component';
 import { grantShort, grantValue, pathName, serverText, thisComputerTitle } from './machines-text';
 import { OptionsFormComponent } from './options-form.component';
@@ -53,6 +56,9 @@ interface TestColumn {
     CheckListComponent,
     GrantsMatrixComponent,
     IconComponent,
+    IntroSheetComponent,
+    IntroduceOfferComponent,
+    IntrosCardComponent,
     JoinSheetComponent,
     OptionsFormComponent,
     PairSheetComponent,
@@ -82,6 +88,8 @@ export class MachinesSetupComponent {
   protected readonly checking = signal(false);
   protected readonly pairOpen = signal(false);
   protected readonly joinOpen = signal(false);
+  /** The pairing an accepted introduction runs. */
+  protected readonly introOpen = signal(false);
   protected readonly testing = signal(false);
   protected readonly results = signal<Readiness[] | null>(null);
   /** The required checks the server listed when it refused to turn on. */
@@ -186,6 +194,11 @@ export class MachinesSetupComponent {
   }
 
   protected async fix(check: string): Promise<void> {
+    // *Update Mother Claude*: the Software updates page installs it.
+    if (check === 'app') {
+      void this.router.navigate(['/settings'], { fragment: 'updates' });
+      return;
+    }
     await this.withBusy(check, async () => {
       this.machines.setup.set(await this.api.fixMachineCheck(check));
       await this.machines.load();

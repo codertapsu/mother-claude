@@ -95,7 +95,9 @@ describe('MachinesComponent', () => {
     const card = el.querySelector('.card.peer')!;
     expect(text(card.querySelector('h2'))).toBe('DESKTOP-PC');
     expect(text(card.querySelector('.status'))).toContain('Online · Direct (same network)');
-    expect(text(card)).toContain('Windows 11 Pro · Mother Claude 0.11.0 · Claude Code 2.1.322');
+    expect(text(card)).toContain(
+      'Windows 11 Pro · Mother Claude 0.11.0 · Machines protocol 1 · Claude Code 2.1.322',
+    );
     const [here, there] = [...card.querySelectorAll('.grants')];
     expect([...here.querySelectorAll('.gchip')].map((c) => text(c))).toEqual([
       'See ✓',

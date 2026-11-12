@@ -61,6 +61,7 @@ describe('HelpComponent', () => {
     expect(ids).toEqual([
       'machines-setup',
       'machines-pair',
+      'machines-more',
       'machines-permissions',
       'machines-sessions',
       'machines-move',
@@ -72,6 +73,10 @@ describe('HelpComponent', () => {
 
     search('take over');
     expect(cardIds()).toContain('machines-move');
+    search('revoke everywhere');
+    expect(cardIds()).toContain('machines-more');
+    search('introduce');
+    expect(cardIds()).toContain('machines-more');
     search('keep in sync');
     expect(cardIds()).toContain('machines-sync');
     search('keep a copy');

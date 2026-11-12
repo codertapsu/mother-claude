@@ -62,6 +62,14 @@
 
         <!-- ─────────────── 2. Your machines ─────────────── -->
         @case (2) {
+          @let intros = view()?.introductions ?? [];
+          @if (intros.length) {
+            <mc-machine-intros
+              [intros]="intros"
+              (answered)="machines.apply($event)"
+              (opened)="introOpen.set(true)"
+            />
+          }
           <p>
             {{
               'On each other computer: install this version of Mother Claude or newer, then open Machines › Join and type the code this {computer} shows.'
@@ -91,6 +99,8 @@
                 </li>
               }
             </ul>
+            <!-- A third computer and more: pair them with each other (§5.12). -->
+            <mc-introduce-offer />
           } @else {
             <p class="muted small">{{ 'No other computer is paired yet.' | t }}</p>
           }
@@ -326,5 +336,6 @@
 
     <mc-pair-machine-sheet [open]="pairOpen()" (closed)="pairOpen.set(false)" />
     <mc-join-machine-sheet [open]="joinOpen()" (closed)="joinOpen.set(false)" />
+    <mc-intro-sheet [open]="introOpen()" (closed)="introOpen.set(false)" />
   }
 </div>

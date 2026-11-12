@@ -68,6 +68,82 @@ export interface PeerMachine {
   /** Its sessions as this computer last heard them (null: none heard yet;
    * absent from an older server). */
   sessions?: PeerSessions | null;
+  /** How its versions differ from this computer's, and what it can't do
+   * until it updates (absent from an older server). */
+  skew?: MachineSkew;
+  /** The computers it is paired with (their ids), as it last said. */
+  pairedWith?: string[];
+}
+
+/** Another computer's version against this one's. */
+export type VersionOrder = 'older' | 'newer';
+
+/** How a paired computer differs from this one. */
+export interface MachineSkew {
+  /** Its Mother Claude against this computer's. */
+  app?: VersionOrder;
+  /** Its Claude Code against this computer's. */
+  claude?: VersionOrder;
+  /** What this computer does with others that it can't until it updates
+   * (capabilities: `moves`, `sync`, `run`, `tasks`, …). */
+  lacks?: string[];
+}
+
+/** One side of an introduction this computer received: who introduced
+ * which computer, and where it stands (docs/PLAN-MACHINES.md §5.12). */
+export interface Introduction {
+  id: string;
+  from: string;
+  fromName: string;
+  /** `host`: this computer waits for the other; `joiner`: it dials it. */
+  role: 'host' | 'joiner';
+  other: { id: string; name: string; os: MachineOs | string; key: string };
+  at: number;
+  expiresAt: number;
+  state: 'offered' | 'accepted' | 'declined' | 'withdrawn' | 'expired';
+  detail: string | null;
+  /** Its pairing runs now. */
+  pairing: boolean;
+}
+
+/** A computer revoked here and on the others (*Revoke everywhere*). */
+export interface Revocation {
+  machine: string;
+  name: string;
+  key: string;
+  at: number;
+  /** The paired computers still to take it: offline, or too old. */
+  pending: { id: string; name: string; online: boolean; tooOld: boolean }[];
+  /** Those that took it. */
+  done: { id: string; name: string }[];
+}
+
+/** `POST /api/machines/introduce`: how each of the two took it. */
+export interface IntroduceResult {
+  id: string;
+  host: IntroduceSide;
+  joiner: IntroduceSide;
+}
+
+export interface IntroduceSide {
+  machine: string;
+  name: string;
+  /** `already`: the two are paired already; `withdrawn`: taken back
+   * because the other could not be told. */
+  state: 'offered' | 'already' | 'failed' | 'withdrawn';
+  detail: string | null;
+}
+
+/** `GET`/`PUT /api/app/autostart`: *Start Mother Claude when you sign in,
+ * in the tray*. */
+export interface AutostartView {
+  /** This system has a login item Mother Claude can set. */
+  supported: boolean;
+  enabled: boolean;
+  /** On, but switched off in the system's own startup apps. */
+  overridden: boolean;
+  /** This run started at sign-in, in the tray. */
+  startedInTray: boolean;
 }
 
 /** How many of a paired computer's sessions this one knows, and how many
@@ -99,6 +175,17 @@ export interface PairingView {
   otherConfirmed: boolean;
   error: { code: string; message: string } | null;
   peerId: string | null;
+  /** An introduced pairing: who introduced which computer (no code). */
+  intro?: PairingIntro | null;
+  /** Joiner of an introduced pairing: the other computer has not accepted
+   * the introduction yet. */
+  waitingAccept?: boolean;
+}
+
+export interface PairingIntro {
+  id: string;
+  by: { id: string; name: string };
+  other: { id: string; name: string; os: MachineOs | string };
 }
 
 /** How a session's code travels when it moves: machine to machine (a git
@@ -218,6 +305,10 @@ export interface MachinesView {
   /** What other computers asked this one to do (absent from an older
    * server). */
   asks?: MachineAsk[];
+  /** Introductions to another computer this one received. */
+  introductions?: Introduction[];
+  /** Computers revoked here and on the others. */
+  revocations?: Revocation[];
 }
 
 export type CheckState = 'ok' | 'warning' | 'blocker' | 'unknown' | 'na';
@@ -713,3 +804,46 @@ export function gatingOf(s: SetupView | null | undefined): number {
 export function askOpen(a: MachineAsk | null | undefined): boolean {
   return !!a && (a.state === 'asked' || a.state === 'running');
 }
+
+// ───────────────────────────────────── More than two computers (Phase 5)
+
+/** Whether two paired computers are paired with each other, as each last
+ * said (`pairedWith`); false while neither said. */
+export function pairedTogether(a: PeerMachine, b: PeerMachine): boolean {
+  return !!(a.pairedWith?.includes(b.id) || b.pairedWith?.includes(a.id));
+}
+
+/** The other paired computers `machine` could be introduced to: those not
+ * paired with it yet, as far as this computer knows. */
+export function introducibleTo(peers: readonly PeerMachine[], machine: string): PeerMachine[] {
+  const m = peers.find((p) => p.id === machine);
+  if (!m) return [];
+  return peers.filter((p) => p.id !== machine && !pairedTogether(m, p));
+}
+
+/** Every pair of paired computers not paired with each other (each pair
+ * once, in the order they are listed). */
+export function unpairedPairs(peers: readonly PeerMachine[]): [PeerMachine, PeerMachine][] {
+  const out: [PeerMachine, PeerMachine][] = [];
+  peers.forEach((a, i) => {
+    for (const b of peers.slice(i + 1)) {
+      if (!pairedTogether(a, b)) out.push([a, b]);
+    }
+  });
+  return out;
+}
+
+/** What a capability lets a computer do, in a few words (English;
+ * translated where shown): the Machines page names those an older computer
+ * lacks. */
+export const CAPABILITY_LABELS: Record<string, string> = {
+  moves: 'move sessions',
+  ignoredFiles: 'take files git ignores with a move',
+  roots: 'share folders',
+  sync: 'keep code in sync',
+  run: 'run commands for your other computers',
+  tasks: 'take tasks',
+  teamRoles: 'run a team’s roles',
+  introductions: 'be introduced to your other computers',
+  revokeEverywhere: 'take Revoke everywhere',
+};

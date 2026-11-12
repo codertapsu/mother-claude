@@ -1447,6 +1447,37 @@ task names the commit).*
 
 ### Phase 5 — more machines and polish (≈ 3 weeks)
 
+*Built on main (2026-11-12): `machines/intro.rs` (introductions: the
+offer, its answer on each side, the door it opens to the key it names) and
+the introduced pairing in `pairing.rs` (no code: the joiner dials the key
+named, `join` names the introduction, the six digits are seeded by the
+introducer and the introduction); `machines/revocation.rs` (*Revoke
+everywhere*: revoked here, the others asked through `/peer/revoke`, kept
+in `machines.json` until each took it, delivered on its next hello);
+`machines/versions.rs` (each peer's `skew` and what it lacks, the setup's
+`app` warning when another computer runs a newer Mother Claude, *Update
+it* as an asked action that opens *Software updates* there); the hello's
+`pairedWith`; the capabilities `sync`, `introductions` and
+`revokeEverywhere`; `autostart.rs` and `tray.rs` (*Start Mother Claude when
+you sign in, in the tray*, §5.13's first step); the routes `POST
+/api/machines/introduce`, `POST /api/machines/introductions/{id}`, `POST
+/api/machines/{id}/revoke-everywhere`, `GET|PUT /api/app/autostart`,
+`POST /peer/intro`, `/peer/intro/withdraw`, `/peer/pair/intro/decline`,
+`/peer/revoke`; `tests/more_machines.rs`. The user guide is
+[MACHINES.md](MACHINES.md) "Three computers or more" and "Starting at
+sign-in, in the tray". Choices made where this section left one: the
+introducer picks who waits (the computer already paired) and who dials (the
+new one); an introduction carries no secret — the digits' strength is the
+commit-then-reveal over both keys, the introduction only its seed — and
+lasts ten minutes; a computer learns whom another is paired with from its
+hello (ids only, to a computer it lets see its sessions), so an offer stops
+once two are paired; *Revoke everywhere* needs no grant on the computer
+asked (it only removes trust) and matches the computer by its id or its
+key; the login item is the system's own (the `Run` value, a LaunchAgent),
+not `tauri-plugin-autostart` (it writes the program's path unquoted, to
+the machine-wide key when the app runs elevated); a tray icon only on a run
+the login item started.*
+
 - Introductions in the setup's step 2 for a third machine and more; *revoke everywhere*.
 - Versions page and skew warnings; tray-only start at login.
 - Docs: `docs/MACHINES.md` for 3b, 4 and more machines; `BACKUP.md` (how it relates), `REMOTE.md` (devices vs peers).

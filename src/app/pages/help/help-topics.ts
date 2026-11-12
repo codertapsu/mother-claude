@@ -189,6 +189,10 @@ const TOPICS: HelpTopicSource[] = [
             term: 'Home Screen app',
             text: 'A one-time code for the iPhone Home Screen app (paired devices only).',
           },
+          {
+            term: 'Startup',
+            text: 'Start Mother Claude when you sign in, in the tray (desktop app only).',
+          },
           { term: 'Software updates', text: 'New versions of the app (desktop app only).' },
           {
             term: 'Permissions',
@@ -241,6 +245,22 @@ const TOPICS: HelpTopicSource[] = [
         notes: [
           'On Windows the app closes while the update installs.',
           'After the restart the HTTP API is off until you start it again on the **API** screen.',
+        ],
+      },
+      {
+        heading: 'Start when you sign in',
+        where: 'desktop',
+        intro:
+          'A computer nobody opens Mother Claude on after a restart, such as a build box or a desktop at home, can start it by itself, with no window, so your phone and your other computers still reach it.',
+        steps: [
+          'Open **Settings** in the desktop app.',
+          'Under **Startup**, switch on **Start Mother Claude when you sign in, in the tray**.',
+        ],
+        points: [
+          'The next time you sign in to the computer, Mother Claude starts with no window, only its icon in the tray (the menu bar on a Mac), and serves your phone and your other computers as usual.',
+          'On Windows, click the icon to show the window, or right-click it for **Open Mother Claude** and **Quit Mother Claude**. On a Mac, click the icon in the menu bar and choose **Open Mother Claude**.',
+          'Closing the window keeps it running in the tray; **Quit Mother Claude** ends it.',
+          'It is off until you switch it on, and switching it off removes it from the computer’s startup items. On Windows, **Task Manager › Startup apps** can switch it off too: **Settings** then says so, and switching it on here starts it again.',
         ],
       },
       {
@@ -1172,11 +1192,15 @@ const TOPICS: HelpTopicSource[] = [
         terms: [
           {
             term: 'Mother Claude',
-            text: 'Every computer needs a version that speaks the same Machines protocol. Update the older one.',
+            text: 'Every computer needs a version that speaks the same Machines protocol: a different one is required to update. A computer behind another one is recommended to: **Update Mother Claude** opens **Software updates**, and on another computer **Ask … to fix** shows it there.',
           },
           {
             term: 'Stays awake while used',
             text: 'A computer asleep cannot answer the others. **Keep awake while used** keeps it awake while a paired computer is connected; no system setting changes.',
+          },
+          {
+            term: 'Starts when you sign in',
+            text: 'After a restart, the others reach this computer only once Mother Claude runs again. **Turn on** makes it start when you sign in, in the tray, as **Settings › Startup** does.',
           },
           {
             term: 'Local Network access (Mac)',
@@ -1318,8 +1342,82 @@ const TOPICS: HelpTopicSource[] = [
         points: [
           "On **Machines**, each paired computer's card has **Rename** (its name on this computer) and **Revoke**.",
           '**Revoke**, then **Tap again to revoke**: this computer forgets the other and cuts its connections at once.',
-          'Revoking works on one computer only: revoke a lost or stolen computer on each of your others.',
+          '**Revoke** works on this computer only. For a lost or stolen computer, use **Revoke everywhere** on any of your others: it is cut from all of them.',
           "**Turn Machines off** does not unpair, but while it is off a paired computer can only pair and run the setup with this one: it can't see, drive or move its sessions, and this one doesn't use the others'. **Revoke** forgets a computer.",
+        ],
+      },
+    ],
+  },
+  {
+    id: 'machines-more',
+    title: 'Three computers or more',
+    icon: 'monitor',
+    group: 'machines',
+    summary:
+      'Pair a new computer with the others through one you have, cut a lost one from all of them, and keep their versions in step.',
+    intro:
+      'Each pair of your computers is paired on its own: one computer can introduce two others, but nothing is trusted for them. Revoking a lost computer everywhere, and the versions each one runs, are on **Machines** too.',
+    keywords: [
+      'third computer',
+      'introduce',
+      'introduction',
+      'revoke everywhere',
+      'lost',
+      'stolen',
+      'versions',
+      'update',
+      'older',
+    ],
+    sections: [
+      {
+        heading: 'Pair a new computer with the others',
+        where: 'desktop',
+        intro:
+          'Pair the new computer with one of yours first (**Pair your computers**). That one then offers **Also pair … with …?** for each of your other computers the new one is not paired with, right after pairing and on **Machines**.',
+        steps: [
+          'Press **Introduce them**. Both computers are told who the other is; nothing is paired yet.',
+          'On each of the two, open **Machines**: the **Introductions** card says which computer introduced which. Press **Pair with …**.',
+          'Check that both screens show the same six digits. When one came over the internet, the other asks you to type them, as when you pair with a code.',
+          'On each computer, choose what the other may do on it, then press **The numbers match — Pair**.',
+        ],
+        tips: [
+          '**Not now** on either computer ends it there and tells the other: nothing is paired.',
+          'An introduction waits ten minutes for both answers: after that, introduce them again.',
+          'The setup has the same offers in its **Your machines** step.',
+        ],
+        links: [{ label: 'Open Machines', path: '/machines' }],
+      },
+      {
+        heading: 'Why an introduction is safe',
+        points: [
+          "The computer that introduces them passes on only each one's name, id, public key and last addresses: never a secret, and never what either may do.",
+          'Each of the two connects to the other by the key it was told, and nothing else gets in for that introduction.',
+          "The six digits come from both computers' keys, as with a code: a computer in the middle would make the two screens show different numbers.",
+          'Each desktop decides and confirms on its own; until both have, nothing is stored. Trust is never passed on: being paired with a computer gives nothing on the computers it is paired with.',
+        ],
+      },
+      {
+        heading: 'Revoke a computer everywhere',
+        where: 'desktop',
+        intro:
+          'For a lost or stolen computer: cut it from all your computers from any one of them.',
+        steps: [
+          "On **Machines**, find the computer's card and press **Revoke everywhere**.",
+          'Press **Tap again to revoke everywhere**.',
+        ],
+        points: [
+          'This computer forgets it and cuts its connections at once, and asks each of your other computers to do the same. Each does it at once, and shows a notice that you revoked it on all your computers.',
+          'A computer that is off or away does it when it next connects: **Revoked everywhere** on **Machines** says which ones still have to.',
+          'It only ever removes trust: it adds nothing anywhere, and a computer can never use it to revoke the one that asked.',
+        ],
+      },
+      {
+        heading: 'Versions',
+        points: [
+          "Each computer's card on **Machines** shows its system, its Mother Claude, its Machines protocol and its Claude Code.",
+          'A computer that runs an older Mother Claude says so, with **Ask … to update**: that computer shows its **Software updates** page once someone there confirms it. When this computer is the older one, **Update it** opens **Software updates** here.',
+          "An older computer also says what it can't do until it updates, such as **take tasks** or **keep code in sync**. Two computers on different Machines protocols don't work together at all until one updates.",
+          'An older Claude Code there has **Ask … to update** too; here, **Update it** runs `claude update`.',
         ],
       },
     ],

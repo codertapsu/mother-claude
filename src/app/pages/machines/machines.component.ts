@@ -13,8 +13,10 @@ import {
   GrantName,
   Grants,
   MachinesSettings,
+  MachinesView,
   PeerMachine,
   PeerSessions,
+  Revocation,
   SettingsOffer,
   copyGrants,
   sameCode,
@@ -31,13 +33,18 @@ import { AsksCardComponent } from './asks-card.component';
 import { CheckListComponent } from './check-list.component';
 import { CopiesCardComponent } from './copies-card.component';
 import { GrantsMatrixComponent } from './grants-matrix.component';
+import { IntroSheetComponent } from './intro-sheet.component';
+import { IntroduceOfferComponent } from './introduce-offer.component';
+import { IntrosCardComponent } from './intros-card.component';
 import { JoinSheetComponent } from './join-sheet.component';
 import {
+  capabilityList,
   codeText,
   grantShort,
   grantValue,
   osName,
   pathName,
+  revocationText,
   thisComputerTitle,
 } from './machines-text';
 import { OptionsFormComponent, relayText } from './options-form.component';
@@ -47,13 +54,16 @@ import { SyncCardComponent } from './sync-card.component';
 
 /**
  * Machines (docs/PLAN-MACHINES.md, spikes/machines/UX.md §1): this
- * computer, the paired ones with what each may do here, Machines health,
- * the projects kept in sync with another computer (*Code sync*, §5.15),
- * the copies kept current between computers (*Copies*, §5.9), the
- * options, and *Recent moves* of sessions to and from this computer
- * (§1.2, §7.2–§7.3: cancel, try again, undo). Off until the setup passed
- * (§1.1). The phone sees it read-only — pairing, grants, revoking and
- * options belong to the desktop — but may act on a move, as a device may.
+ * computer, the paired ones with what each may do here and their versions
+ * (an older one named with what it can't do yet, *Update it*), Machines
+ * health, introductions (two of your computers pair with each other, each
+ * confirming the six digits: §5.12), *Revoke everywhere*, the projects kept
+ * in sync with another computer (*Code sync*, §5.15), the copies kept
+ * current between computers (*Copies*, §5.9), the options, and *Recent
+ * moves* of sessions to and from this computer (§1.2, §7.2–§7.3: cancel,
+ * try again, undo). Off until the setup passed (§1.1). The phone sees it
+ * read-only — pairing, grants, revoking and options belong to the desktop
+ * — but may act on a move, as a device may.
  */
 @Component({
   selector: 'mc-machines',
@@ -65,6 +75,9 @@ import { SyncCardComponent } from './sync-card.component';
     CopiesCardComponent,
     GrantsMatrixComponent,
     IconComponent,
+    IntroSheetComponent,
+    IntroduceOfferComponent,
+    IntrosCardComponent,
     JoinSheetComponent,
     MoveCardComponent,
     OptionsFormComponent,
@@ -97,6 +110,8 @@ export class MachinesComponent {
   protected readonly notice = signal('');
   protected readonly pairOpen = signal(false);
   protected readonly joinOpen = signal(false);
+  /** The pairing an accepted introduction runs. */
+  protected readonly introOpen = signal(false);
   protected readonly busy = signal<string | null>(null);
   protected readonly checking = signal(false);
 
@@ -231,9 +246,62 @@ export class MachinesComponent {
     const parts = [p.osVersion || this.os(p.os)];
     if (p.versions) {
       parts.push(tr('Mother Claude {v}', { v: p.versions.app }));
+      parts.push(tr('Machines protocol {n}', { n: p.versions.protocol }));
       if (p.versions.claude) parts.push(tr('Claude Code {v}', { v: p.versions.claude }));
     }
     return parts.join(' · ');
+  }
+
+  /** This computer's own versions (for an older/newer line). */
+  private mine(): PeerMachine['versions'] {
+    return this.view()?.self.versions ?? null;
+  }
+
+  /** `p` runs an older Mother Claude than this computer. */
+  protected olderAppText(p: PeerMachine): string {
+    return tr('{name} runs an older Mother Claude ({v}; this {computer}: {w}).', {
+      name: p.name,
+      v: p.versions?.app ?? '',
+      w: this.mine()?.app ?? '',
+      computer: this.computer(),
+    });
+  }
+
+  /** This computer runs an older Mother Claude than `p`. */
+  protected newerAppText(p: PeerMachine): string {
+    return tr('This {computer} runs an older Mother Claude than {name} ({v}).', {
+      name: p.name,
+      v: p.versions?.app ?? '',
+      computer: this.computer(),
+    });
+  }
+
+  protected olderClaudeText(p: PeerMachine): string {
+    return tr('{name} runs an older Claude Code ({v}; here: {w}).', {
+      name: p.name,
+      v: p.versions?.claude ?? '',
+      w: this.mine()?.claude ?? '',
+    });
+  }
+
+  protected newerClaudeText(p: PeerMachine): string {
+    return tr('Claude Code here is older than on {name} ({v}).', {
+      name: p.name,
+      v: p.versions?.claude ?? '',
+    });
+  }
+
+  /** What `p` can't do until it updates, in a sentence. */
+  protected lacksText(p: PeerMachine): string {
+    return tr('{name} can’t {what} until it updates.', {
+      name: p.name,
+      what: capabilityList(p.skew?.lacks ?? []),
+    });
+  }
+
+  /** The computers that may still revoke one, in a sentence. */
+  protected revocationLine(r: Revocation): string {
+    return revocationText(r);
   }
 
   // ─────────────────────────────────────────────────────────── Actions
@@ -256,6 +324,11 @@ export class MachinesComponent {
   }
 
   protected async fix(check: string): Promise<void> {
+    // *Update Mother Claude*: the Software updates page installs it.
+    if (check === 'app') {
+      void this.router.navigate(['/settings'], { fragment: 'updates' });
+      return;
+    }
     await this.withBusy(check, async () => {
       this.machines.setup.set(await this.api.fixMachineCheck(check));
       await this.machines.load();
@@ -269,6 +342,27 @@ export class MachinesComponent {
       await this.api.askMachineFix(machine, check);
       this.notice.set(tr('Asked {name}: it shows the fix to whoever is at it.', { name }));
     });
+  }
+
+  /** *Ask DESKTOP-PC to update* (Mother Claude: `app`; Claude Code:
+   * `claudeCode`): shown there, done only when someone there confirms it. */
+  protected async askUpdate(p: PeerMachine, check: 'app' | 'claudeCode'): Promise<void> {
+    await this.withBusy(`${p.id}:${check}`, async () => {
+      await this.api.askMachineFix(p.id, check);
+      this.notice.set(
+        tr('Asked {name}: it shows the update to whoever is at it.', { name: p.name }),
+      );
+    });
+  }
+
+  /** *Update it* here: Mother Claude on the Software updates page; Claude
+   * Code by its own `claude update` (this computer's check's fix). */
+  protected async updateHere(what: 'app' | 'claudeCode'): Promise<void> {
+    if (what === 'app') {
+      void this.router.navigate(['/settings'], { fragment: 'updates' });
+      return;
+    }
+    await this.fix('claudeCode');
   }
 
   protected manual(check: string): void {
@@ -324,6 +418,32 @@ export class MachinesComponent {
     await this.withBusy(p.id, async () => {
       this.machines.apply(await this.api.revokeMachine(p.id));
       this.notice.set(tr('Revoked {name}. Its connections were cut.', { name: p.name }));
+    });
+  }
+
+  /** *Revoke everywhere* (two taps): revoked here at once, and on every
+   * other paired computer — now, or when one that is away is back. */
+  protected async revokeEverywhere(p: PeerMachine): Promise<void> {
+    const key = `everywhere:${p.id}`;
+    if (!this.armed(key)) {
+      this.confirming.set(key);
+      clearTimeout(this.confirmTimer);
+      this.confirmTimer = setTimeout(() => this.confirming.set(null), 4000);
+      return;
+    }
+    this.confirming.set(null);
+    await this.withBusy(p.id, async () => {
+      const v: MachinesView = await this.api.revokeEverywhere(p.id);
+      this.machines.apply(v);
+      const r = v.revocations?.find((x) => x.machine === p.id);
+      this.notice.set(
+        r && r.pending.length
+          ? tr('Revoked {name} here. {others} will revoke it when they next connect.', {
+              name: p.name,
+              others: r.pending.map((x) => x.name).join(', '),
+            })
+          : tr('Revoked {name} on all your computers.', { name: p.name }),
+      );
     });
   }
 

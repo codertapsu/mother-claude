@@ -169,6 +169,10 @@ pub struct Inner {
     /// The user's other computers: identity, pairing, the peer transport and
     /// the setup's checks (`machines/`, docs/PLAN-MACHINES.md).
     pub machines: crate::machines::MachinesState,
+    /// *Start Mother Claude when you sign in, in the tray* (`autostart.rs`):
+    /// only recorded until the app switches it on, so no test touches the
+    /// real login items.
+    pub autostart: crate::autostart::Autostart,
 }
 
 impl std::fmt::Debug for Inner {
@@ -249,6 +253,7 @@ impl Inner {
             extension: crate::extension::ExtensionState::load(data_dir),
             teams: crate::orchestration::teams::Teams::load(data_dir),
             machines: crate::machines::MachinesState::load(data_dir),
+            autostart: crate::autostart::Autostart::default(),
             auth,
         })
     }

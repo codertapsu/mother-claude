@@ -14,6 +14,7 @@ import {
   MachineAsk,
   MachinePath,
   PairingView,
+  Revocation,
   SetupCheck,
   SyncChanges,
   SyncPair,
@@ -203,12 +204,41 @@ const FIXED: Record<string, () => string> = {
   "git isn't installed here.": () => tr("git isn't installed here."),
   "Claude Code isn't installed here.": () => tr("Claude Code isn't installed here."),
   "Claude Code's version is not known.": () => tr("Claude Code's version is not known."),
+  // Phase 5: an older Mother Claude, starting at sign-in, introductions.
+  'Update Mother Claude': () => tr('Update Mother Claude'),
+  'Software updates opened here.': () => tr('Software updates opened here.'),
+  'Starts when you sign in': () => tr('Starts when you sign in'),
+  'After a restart, your other computers reach this one only once Mother Claude runs again.': () =>
+    tr('After a restart, your other computers reach this one only once Mother Claude runs again.'),
+  'Not available on this system.': () => tr('Not available on this system.'),
+  'It starts when you sign in, in the tray.': () => tr('It starts when you sign in, in the tray.'),
+  "It is turned off in the system's startup apps.": () =>
+    tr("It is turned off in the system's startup apps."),
+  "It doesn't start when you sign in.": () => tr("It doesn't start when you sign in."),
+  'You declined.': () => tr('You declined.'),
+  'The computer that introduced it is no longer paired.': () =>
+    tr('The computer that introduced it is no longer paired.'),
+  'It expired.': () => tr('It expired.'),
 };
 
 /** Server texts with a name or a number in them: the pattern, and what it
  * reads in the language shown. */
 const PATTERNS: [RegExp, (m: RegExpExecArray) => string][] = [
   [/^Connected to (.+)\.$/, (m) => tr('Connected to {host}.', { host: m[1] })],
+  // Phase 5 (`setup.rs` `app_check`, `intro.rs`).
+  [
+    /^Mother Claude (\S+) is older than (.+)'s (\S+): update it here\.$/,
+    (m) =>
+      tr("Mother Claude {v} is older than {name}'s {w}: update it here.", {
+        v: m[1],
+        name: m[2],
+        w: m[3],
+      }),
+  ],
+  [
+    /^(.+) took the introduction back\.$/,
+    (m) => tr('{name} took the introduction back.', { name: m[1] }),
+  ],
   // The readiness test's `machine_run` echo, each way (`setup/readiness.rs`).
   [
     /^echo ran on (.+) in (.+)\.$/,
@@ -397,6 +427,9 @@ const PATTERNS: [RegExp, (m: RegExpExecArray) => string][] = [
     (m) =>
       tr('No folder maps a project to {name} yet: accept or add one in step 5.', { name: m[1] }),
   ],
+  // Last: it matches any sentence ending so (an introduction declined
+  // there, `intro.rs`).
+  [/^(.+) declined\.$/, (m) => tr('{name} declined.', { name: m[1] })],
 ];
 
 /** One server text (no ` · ` in it) in the language shown. */
@@ -481,8 +514,13 @@ export function checkTexts(c: SetupCheck): {
 export function pairErrorText(p: PairingView | null | undefined): string {
   const e = p?.error;
   if (!e) return '';
-  const name = p?.other?.name || tr('the other computer');
+  const name = p?.other?.name || p?.intro?.other.name || tr('the other computer');
   switch (e.code) {
+    // An introduced pairing (plan §5.12).
+    case 'pair_declined':
+      return tr('{name} declined. Nothing was paired.', { name });
+    case 'intro_closed':
+      return serverText(e.message);
     case 'pair_code_expired':
       return p?.role === 'host'
         ? tr('Expired — create a new code.')
@@ -504,12 +542,67 @@ export function pairErrorText(p: PairingView | null | undefined): string {
     case 'pair_digits_wrong':
       return tr("That's not the number on {name}. Nothing was paired.", { name });
     case 'pair_timed_out':
-      return tr('The pairing was not confirmed in time. Start again.');
+      return p?.intro
+        ? tr('The pairing was not confirmed in time. Ask for the introduction again.')
+        : tr('The pairing was not confirmed in time. Start again.');
     case 'pair_replaced':
       return tr('A new pairing started.');
     default:
       return e.message;
   }
+}
+
+/** What a capability lets a computer do, in the language shown. */
+export function capabilityText(cap: string): string {
+  switch (cap) {
+    case 'moves':
+      return tr('move sessions');
+    case 'ignoredFiles':
+      return tr('take files git ignores with a move');
+    case 'roots':
+      return tr('share folders');
+    case 'sync':
+      return tr('keep code in sync');
+    case 'run':
+      return tr('run commands for your other computers');
+    case 'tasks':
+      return tr('take tasks');
+    case 'teamRoles':
+      return tr('run a team’s roles');
+    case 'introductions':
+      return tr('be introduced to your other computers');
+    case 'revokeEverywhere':
+      return tr('take Revoke everywhere');
+    default:
+      return cap;
+  }
+}
+
+/** Capabilities in a list: `move sessions, take tasks and share folders`. */
+export function capabilityList(caps: readonly string[]): string {
+  const words = caps.map(capabilityText);
+  if (words.length <= 1) return words.join('');
+  return tr('{list} and {last}', {
+    list: words.slice(0, -1).join(', '),
+    last: words[words.length - 1],
+  });
+}
+
+/** Where a *Revoke everywhere* stands, in a sentence. */
+export function revocationText(r: Revocation): string {
+  if (!r.pending.length) {
+    return r.done.length
+      ? tr('Revoked here and on {names}.', { names: r.done.map((d) => d.name).join(', ') })
+      : tr('Revoked here.');
+  }
+  const waiting = r.pending.map((p) =>
+    p.tooOld
+      ? tr('{name} (once it updates)', { name: p.name })
+      : p.online
+        ? p.name
+        : tr('{name} (offline)', { name: p.name }),
+  );
+  return tr('Revoked here; still to be told: {names}.', { names: waiting.join(', ') });
 }
 
 /** `macOS`, `Windows`, `Linux`, or "Other" in the language shown. */
