@@ -11,6 +11,7 @@ import { VI_TOPICS_C } from './topics-c';
 const IDS = [
   'machines-setup',
   'machines-pair',
+  'machines-more',
   'machines-permissions',
   'machines-sessions',
   'machines-move',

@@ -197,6 +197,10 @@ const TOPICS: HelpTopicSource[] = [
             text: 'Mã dùng một lần cho ứng dụng trên Màn hình chính của iPhone (chỉ thiết bị đã ghép nối).',
           },
           {
+            term: 'Khởi động',
+            text: 'Khởi động Mother Claude khi bạn đăng nhập, trong khay hệ thống (chỉ ứng dụng máy tính).',
+          },
+          {
             term: 'Cập nhật phần mềm',
             text: 'Phiên bản mới của ứng dụng (chỉ ứng dụng máy tính).',
           },
@@ -251,6 +255,22 @@ const TOPICS: HelpTopicSource[] = [
         notes: [
           'Trên Windows, ứng dụng đóng lại trong lúc cài bản cập nhật.',
           'Sau khi khởi động lại, HTTP API tắt cho đến khi bạn bật lại nó trên màn hình **API**.',
+        ],
+      },
+      {
+        heading: 'Khởi động khi bạn đăng nhập',
+        where: 'desktop',
+        intro:
+          'Một máy tính mà sau khi khởi động lại không ai mở Mother Claude, như máy dựng mã hay máy tính để bàn ở nhà, có thể tự khởi động ứng dụng, không cửa sổ, để điện thoại và các máy tính khác của bạn vẫn kết nối được.',
+        steps: [
+          'Mở **Cài đặt** trong ứng dụng máy tính.',
+          'Trong **Khởi động**, bật **Khởi động Mother Claude khi bạn đăng nhập, trong khay hệ thống**.',
+        ],
+        points: [
+          'Lần tới khi bạn đăng nhập vào máy, Mother Claude khởi động mà không có cửa sổ, chỉ có biểu tượng trong khay hệ thống (thanh menu trên máy Mac), và vẫn phục vụ điện thoại cùng các máy tính khác của bạn như thường.',
+          'Trên Windows, nhấp biểu tượng để hiện cửa sổ, hoặc nhấp chuột phải để chọn **Open Mother Claude** và **Quit Mother Claude**. Trên máy Mac, nhấp biểu tượng trên thanh menu và chọn **Open Mother Claude**.',
+          'Đóng cửa sổ vẫn giữ ứng dụng chạy trong khay hệ thống; **Quit Mother Claude** mới thoát hẳn.',
+          'Tùy chọn này tắt cho đến khi bạn bật, và tắt nó sẽ gỡ ứng dụng khỏi danh sách khởi động của máy. Trên Windows, **Trình quản lý tác vụ › Ứng dụng khởi động** cũng tắt được: khi đó **Cài đặt** sẽ báo, và bật lại ở đây sẽ cho ứng dụng khởi động như cũ.',
         ],
       },
       {
