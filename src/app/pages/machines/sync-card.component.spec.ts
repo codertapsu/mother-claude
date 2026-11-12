@@ -184,7 +184,7 @@ describe('SyncCardComponent', () => {
     expect(rows).toEqual([
       'Waits until DESKTOP-PC is back online.',
       'Waits: each computer must give the other the Move permission, as it writes into its project folder.',
-      'Waits until Machines is on on both computers.',
+      'Waits until both computers have Computers on.',
       'Waits while a session working in this project moves between computers.',
       'Waits: git exploded',
       'Turned off on DESKTOP-PC.',

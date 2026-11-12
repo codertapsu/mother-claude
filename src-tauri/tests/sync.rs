@@ -716,7 +716,7 @@ async fn machines_off_on_either_computer_pauses_it() {
     assert!(p["status"]["detail"]
         .as_str()
         .unwrap()
-        .contains("Machines is off on"));
+        .contains("Computers is off on"));
     // On again: it goes on, nothing was queued — the checkout as it is now.
     put(&w.r.a, "a.txt", "alpha, once on again\n");
     machines::set_enabled(&w.a.st, true);

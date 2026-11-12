@@ -136,7 +136,7 @@ fn no_checkout(state: &AppState, project: &str, why: String) -> ApiError {
     ApiError::not_found(
         "work_no_checkout",
         format!(
-            "{name} isn't on {this}: {why} Clone it on {this} first (Machines › Set up › \
+            "{name} isn't on {this}: {why} Clone it on {this} first (Computers › Options › \
              Accounts and folders), then run it again.",
             this = m::this_name(state)
         ),

@@ -75,7 +75,7 @@ pub fn register(r: &mut Registry) {
         def(
             "machine_list",
             "Your other computers",
-            "List the user's other computers paired in Mother Claude (Machines) that this \
+            "List the user's other computers paired in Mother Claude (Computers) that this \
              session could run commands on or hand tasks to: each one's name, OS, shell (write \
              commands for it: zsh on a Mac, PowerShell on Windows), whether it is online, whether \
              this computer may run commands there now (its Run permission for this one: mayRun) \

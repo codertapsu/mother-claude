@@ -254,7 +254,7 @@ pub async fn receive(state: &AppState, from: &str, req: AskRequest) -> ApiResult
             ask.kind = AskKind::SignIn;
             ask.account = Some(account.name.clone());
             format!(
-                "{from_name} asks you to sign in to {} on this computer (Machines).",
+                "{from_name} asks you to sign in to {} on this computer (Inbox).",
                 account.name
             )
         }
@@ -269,7 +269,7 @@ pub async fn receive(state: &AppState, from: &str, req: AskRequest) -> ApiResult
             }
             ask.kind = AskKind::AddAccount;
             ask.account = Some(name.clone());
-            format!("{from_name} asks you to add the account {name} on this computer (Machines).")
+            format!("{from_name} asks you to add the account {name} on this computer (Inbox).")
         }
         "sync" => {
             let asked = req
@@ -285,7 +285,7 @@ pub async fn receive(state: &AppState, from: &str, req: AskRequest) -> ApiResult
             ask.origin = c.origin.clone();
             format!(
                 "{from_name} asks to keep {} the same on both computers: its commits, its branch and \
-                 its uncommitted changes, both ways; nothing is merged (Machines).",
+                 its uncommitted changes, both ways; nothing is merged (Inbox).",
                 c.title
             )
         }
@@ -318,7 +318,7 @@ pub async fn receive(state: &AppState, from: &str, req: AskRequest) -> ApiResult
             ask.origin = Some(origin.clone());
             ask.folder = Some(folder.to_string_lossy().into_owned());
             format!(
-                "{from_name} asks you to clone {origin} into {} (Machines).",
+                "{from_name} asks you to clone {origin} into {} (Inbox).",
                 folder.display()
             )
         }
@@ -335,12 +335,12 @@ pub async fn receive(state: &AppState, from: &str, req: AskRequest) -> ApiResult
             let title = found["title"].as_str().unwrap_or("A check").to_string();
             let fix = found["fix"]["label"]
                 .as_str()
-                .unwrap_or("Open Machines › Set up")
+                .unwrap_or("Open Computers › Set up")
                 .to_string();
             ask.check = Some(check.to_string());
             ask.title = Some(title.clone());
             ask.fix = Some(fix.clone());
-            format!("{from_name} asks you to fix \"{title}\" on this computer: {fix} (Machines).")
+            format!("{from_name} asks you to fix \"{title}\" on this computer: {fix} (Inbox).")
         }
     };
     let kept = super::with_cache(state, |c| {

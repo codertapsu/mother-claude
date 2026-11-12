@@ -66,7 +66,7 @@ const DESTINATIONS: Record<string, string> = {
   userSettings: 'Saved in ~/.claude/settings.json (all your projects)',
   cliArg: 'This run only',
   browser: 'Saved in Mother Claude (Browser › Always allowed)',
-  machines: 'Saved in Mother Claude (Machines › Always allowed runs)',
+  machines: 'Saved in Mother Claude (Computers › Activity › Always allowed runs)',
 };
 
 interface SchemaField {

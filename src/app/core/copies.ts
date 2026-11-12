@@ -174,7 +174,7 @@ export function copyReasonText(s: CopyStatus): string {
     case 'offline':
       return tr('the other computer can’t be reached');
     case 'machinesOff':
-      return tr('Machines is off on one of the computers');
+      return tr('Computers is off on one of the computers');
     case 'noGrant':
       return tr('the other computer has not given this one the Move permission');
     case 'unsupported':

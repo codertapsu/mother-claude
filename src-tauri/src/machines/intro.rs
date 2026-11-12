@@ -449,7 +449,7 @@ pub fn receive(state: &AppState, from: &str, offer: Offer) -> ApiResult<Value> {
         state,
         crate::claude::model::NoticeLevel::Warning,
         format!(
-            "{from_name} introduces {}: pair this computer with it? (Machines)",
+            "{from_name} introduces {}: pair this computer with it? (Inbox)",
             other.name
         ),
     );

@@ -3,6 +3,7 @@ import {
   MachineAsk,
   MachinesView,
   PeerMachine,
+  Revocation,
   SetupCheck,
   SetupView,
   SyncPair,
@@ -18,7 +19,8 @@ import { accountSigningIn } from './sign-in';
  * permission, a computer's failing required check or its versions apart, a
  * project changed on both computers, a copy paused for a reason someone
  * can end, a backup or move that failed, a sign-in lost or as someone
- * else, an update waiting. Pure: `AttentionService` gathers the sources
+ * else, a computer revoked everywhere that some of yours still trust, an
+ * update waiting. Pure: `AttentionService` gathers the sources
  * from the services that already read them.
  */
 
@@ -70,6 +72,8 @@ export type FixItem = FixBase &
     | { kind: 'job'; job: JobView }
     /** Another computer's ask that ran here and failed. */
     | { kind: 'ask'; ask: MachineAsk }
+    /** A computer revoked everywhere, still to be told to some of yours. */
+    | { kind: 'revoked'; revocation: Revocation }
     | { kind: 'update'; version: string }
   );
 
@@ -102,6 +106,7 @@ export function fixItems(s: FixSources): FixItem[] {
     ...copyItems(s),
     ...jobItems(s),
     ...askItems(s),
+    ...revokedItems(s),
     ...updateItems(s),
   ];
 }
@@ -298,6 +303,23 @@ function askItems(s: FixSources): FixItem[] {
       machineName: a.fromName,
       ask: a,
       at: a.answeredAt ?? a.at,
+    }));
+}
+
+/** A computer revoked everywhere (*Revoke everywhere*) that some of your
+ * other computers still have to be told of — offline, or too old to take
+ * it: they let it in until they are. It goes once each one took it, or when
+ * this device puts it away. */
+function revokedItems(s: FixSources): FixItem[] {
+  return (s.machines?.revocations ?? [])
+    .filter((r) => r.pending.length > 0 && !s.dismissed.has(`revoked:${r.machine}`))
+    .map((r) => ({
+      kind: 'revoked',
+      id: `revoked:${r.machine}`,
+      tone: 'warn',
+      machine: null,
+      revocation: r,
+      at: r.at,
     }));
 }
 

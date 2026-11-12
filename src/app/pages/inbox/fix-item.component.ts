@@ -20,7 +20,7 @@ import { AttentionCardComponent } from '../../shared/attention-card.component';
 import { DesktopOnlyComponent } from '../../shared/desktop-only.component';
 import { capitalize } from '../../shared/util';
 import { askStateText, askTitle } from '../machines/asks-card.component';
-import { checkTexts } from '../machines/machines-text';
+import { checkTexts, revocationText } from '../machines/machines-text';
 
 /** Where a failed job's own list is. */
 const JOB_PAGES: Record<string, string> = {
@@ -81,12 +81,12 @@ interface FixText {
                 {{ busy() ? ('Working…' | t) : checkFix() }}
               </button>
             } @else {
-              <a class="btn small" routerLink="/machines">{{ 'Open Computers' | t }}</a>
+              <a class="btn small" routerLink="/computers">{{ 'Open Computers' | t }}</a>
             }
           </mc-desktop-only>
         }
         @case ('health') {
-          <a class="btn small" routerLink="/machines">{{ 'Open Computers' | t }}</a>
+          <a class="btn small" routerLink="/computers">{{ 'Open Computers' | t }}</a>
         }
         @case ('signIn') {
           <mc-desktop-only [line]="'Fix it on the desktop app.' | t">
@@ -117,13 +117,11 @@ interface FixText {
         }
         @case ('sync') {
           <mc-desktop-only [line]="'Answer on the desktop app.' | t">
-            <a class="btn small primary" routerLink="/machines" fragment="code-sync">{{
-              'Choose…' | t
-            }}</a>
+            <a class="btn small primary" routerLink="/computers/sync">{{ 'Choose…' | t }}</a>
           </mc-desktop-only>
         }
         @case ('copy') {
-          <a class="btn small" routerLink="/machines" fragment="copies">{{
+          <a class="btn small" routerLink="/computers" fragment="copies">{{
             'Open Computers' | t
           }}</a>
         }
@@ -140,6 +138,11 @@ interface FixText {
           </button>
         }
         @case ('ask') {
+          <button class="btn small ghost" type="button" (click)="dismiss()">
+            {{ 'Dismiss' | t }}
+          </button>
+        }
+        @case ('revoked') {
           <button class="btn small ghost" type="button" (click)="dismiss()">
             {{ 'Dismiss' | t }}
           </button>
@@ -319,6 +322,11 @@ export class FixItemComponent {
       }
       case 'ask':
         return { heading: askTitle(i.ask), why: askStateText(i.ask) };
+      case 'revoked':
+        return {
+          heading: tr('{name} is not revoked everywhere yet', { name: i.revocation.name }),
+          why: `${revocationText(i.revocation)} ${tr('Each one revokes it when it next connects: until then it lets it in.')}`,
+        };
       default:
         return {
           heading: tr('Mother Claude {version} is ready', { version: i.version }),

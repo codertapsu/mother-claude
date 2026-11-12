@@ -207,7 +207,7 @@ async fn turn_on(
         ApiError::unprocessable(
             "sync_no_folder",
             format!(
-                "No shared folder maps {} to {name}: add one in Machines › Set up › Accounts and folders.",
+                "No shared folder maps {} to {name}: add one in Computers › Options › Accounts and folders.",
                 name_of(&here.top)
             ),
         )
@@ -399,7 +399,7 @@ pub fn machines_turned(state: &AppState, on: bool) {
             &id,
             Status::paused(
                 super::Reason::MachinesOff,
-                format!("Machines is off on {here}."),
+                format!("Computers is off on {here}."),
             ),
         );
     }
@@ -446,7 +446,7 @@ pub async fn check_ask(state: &AppState, from: &str, a: &SyncAsk) -> ApiResult<C
     if !paths::same_path(&mapped, &a.there) {
         return Err(ApiError::unprocessable(
             "sync_no_folder",
-            "The shared folders differ between the two computers: check them in Machines › Set up.",
+            "The shared folders differ between the two computers: check them in Computers › Options.",
         ));
     }
     let here = repo_here(state, &mapped).await.map_err(|_| {
@@ -613,7 +613,7 @@ pub async fn accept(state: &AppState, ask: &Ask) -> Result<String, String> {
         | super::step::Outcome::Agreed
         | super::step::Outcome::Unchanged => format!("Kept in sync with {asker}."),
         super::step::Outcome::Conflict => format!(
-            "On. {} differs on both computers: choose which one's to keep on the Machines page.",
+            "On. {} differs on both computers: choose which one's to keep in Computers › Code sync.",
             name_of(&folder)
         ),
         _ => match state.machines.sync.pair(&id).map(|p| p.status) {

@@ -52,12 +52,13 @@ const MARKS: Record<CheckState, { icon: IconName; tone: string }> = {
             }
             @if (c.state === 'blocker' && c.scope === 'account') {
               <span class="muted small">{{
-                'Only its sessions wait for it: Machines works without.' | t
+                'Only its sessions wait for it: the rest works without it.' | t
               }}</span>
             }
             @if (c.state === 'blocker' && c.scope === 'tools') {
               <span class="muted small">{{
-                'Only the machine tools wait for it: Machines works without.' | t
+                'Only the tools that run commands on other computers wait for it: the rest works without it.'
+                  | t
               }}</span>
             }
             @if (failing(c) && c.fix) {

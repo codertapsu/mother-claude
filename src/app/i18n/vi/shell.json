@@ -52,5 +52,7 @@
   "Notifications blocked": "Thông báo bị chặn",
   "{n} computers online": "{n} máy tính trực tuyến",
   "{label}, {n} waiting, {m} to fix": "{label}, {n} đang chờ, {m} cần sửa",
-  "{label}, {m} to fix": "{label}, {m} cần sửa"
+  "{label}, {m} to fix": "{label}, {m} cần sửa",
+  "{label}, 1 project": "{label}, 1 dự án",
+  "{label}, {n} projects": "{label}, {n} dự án"
 }

@@ -66,7 +66,7 @@ import { osName, pathName } from './machines-text';
       [disabled]="busy()"
       (changed)="grants.set($event)"
     />
-    <p class="muted small">{{ 'You can change these later on Machines.' | t }}</p>
+    <p class="muted small">{{ 'You can change these later on Computers.' | t }}</p>
 
     @if (error()) {
       <p class="notice error small" role="alert">{{ error() }}</p>

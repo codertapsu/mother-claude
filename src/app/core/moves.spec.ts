@@ -237,24 +237,29 @@ describe('moves: the words', () => {
     );
   });
 
-  it('says on which computer Machines is off', async () => {
+  it('says on which computer Computers is off, in the old words too', async () => {
     hostOsSignal.set('macos');
     const here = new ApiError(
-      'Machines is off on this computer: turn it on on the Machines page first.',
+      'Computers is off on this computer: turn it on in Computers first.',
       409,
       'http',
       'machines_off',
     );
     expect(moveErrorText(here)).toBe(
-      'Machines is off on this Mac: turn it on on the Machines page first.',
+      'Computers is off on this Mac: turn it on in Computers first.',
     );
-    const there = new ApiError('Machines is off on DESKTOP-PC.', 403, 'http', 'machines_off');
-    expect(moveErrorText(there)).toBe('Machines is off on DESKTOP-PC.');
-    // As the other computer's check says it in the sheet.
-    expect(moveText('Machines is off on DESKTOP-PC.')).toBe('Machines is off on DESKTOP-PC.');
+    const there = new ApiError('Computers is off on DESKTOP-PC.', 403, 'http', 'machines_off');
+    expect(moveErrorText(there)).toBe('Computers is off on DESKTOP-PC.');
+    // As the other computer's check says it in the sheet — an older
+    // Mother Claude says Machines.
+    expect(moveText('Computers is off on DESKTOP-PC.')).toBe('Computers is off on DESKTOP-PC.');
+    expect(moveText('Machines is off on DESKTOP-PC.')).toBe('Computers is off on DESKTOP-PC.');
+    expect(moveText("Change it on DESKTOP-PC's Machines page.")).toBe(
+      'Change it in Computers on DESKTOP-PC.',
+    );
     await useLanguage('vi');
-    expect(moveText('Machines is off on DESKTOP-PC.')).toBe(
-      'Tính năng Các máy đang tắt trên DESKTOP-PC.',
+    expect(moveText('Computers is off on DESKTOP-PC.')).toBe(
+      'Tính năng Máy tính đang tắt trên DESKTOP-PC.',
     );
   });
 });

@@ -72,7 +72,7 @@ describe('MoreComponent', () => {
       'Help',
     ]);
     expect(rows(el).map((r) => r.getAttribute('href'))).toEqual([
-      '/machines',
+      '/computers',
       '/accounts',
       '/settings',
       '/help',
@@ -130,7 +130,7 @@ describe('MoreComponent', () => {
       machinesView({ enabled: false, peers: [peer({ online: false })] }),
     );
     fixture.detectChanges();
-    expect(line(el, 'Computers')).toBe('No computer online · Machines is off');
+    expect(line(el, 'Computers')).toBe('No computer online · Off');
   });
 
   it("says how much of each account's plan is used", async () => {

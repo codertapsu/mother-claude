@@ -89,9 +89,7 @@ async fn call(
 pub fn why_not(state: &AppState, peer: &PeerRecord) -> Option<String> {
     let name = peer.display_name();
     if !state.machines.enabled() {
-        return Some(
-            "Machines is off on this computer: turn it on on the Machines page first.".into(),
-        );
+        return Some("Computers is off on this computer: turn it on in Computers first.".into());
     }
     if !peer.capabilities.is_empty() && !peer.capabilities.iter().any(|c| c == super::CAPABILITY) {
         return Some(format!(
@@ -306,7 +304,7 @@ pub async fn hand_over(state: &AppState, caller: &Caller, ask: Ask) -> Result<St
                 "not_allowed",
                 format!(
                     "A session that runs in {mode} on {name} needs {name}'s Dangerous permission \
-                     for this computer: on {name}, open Machines, press Change on {this}'s card \
+                     for this computer: on {name}, open Computers, press Change on {this}'s card \
                      and tick Dangerous — or hand the task over in the default mode.",
                     this = m::this_name(state)
                 ),

@@ -62,7 +62,7 @@ describe("SessionsComponent with other computers' sessions", () => {
   const card = (el: HTMLElement, name: string) =>
     cards(el).find((c) => text(c.querySelector('.name')) === name);
   const pick = (el: HTMLElement, value: string) => {
-    const sel = el.querySelector('select[aria-label="Machine"]') as HTMLSelectElement;
+    const sel = el.querySelector('select[aria-label="Computer"]') as HTMLSelectElement;
     sel.value = value;
     sel.dispatchEvent(new Event('change'));
     fixture.detectChanges();
@@ -122,9 +122,9 @@ describe("SessionsComponent with other computers' sessions", () => {
   it('filters by computer', async () => {
     await threeComputers(Date.now());
     const el = await render();
-    const sel = el.querySelector('select[aria-label="Machine"]') as HTMLSelectElement;
+    const sel = el.querySelector('select[aria-label="Computer"]') as HTMLSelectElement;
     expect([...sel.options].map((o) => text(o))).toEqual([
-      'All machines',
+      'All computers',
       'This computer',
       'BUILD-BOX (offline)',
       'DESKTOP-PC',
@@ -204,7 +204,7 @@ describe("SessionsComponent with other computers' sessions", () => {
       seq: 1,
     });
     const el = await render();
-    expect(el.querySelector('select[aria-label="Machine"]')).toBeNull();
+    expect(el.querySelector('select[aria-label="Computer"]')).toBeNull();
     expect(el.querySelector('.mchip')).toBeNull();
     expect(el.querySelector('.machine-loading')).toBeNull();
     expect(backend.calls.filter((c) => c.includes('/machines'))).toEqual([]);

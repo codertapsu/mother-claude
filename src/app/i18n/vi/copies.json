@@ -20,8 +20,6 @@
   "Keep a copy on…": "Giữ bản sao trên…",
   "Keep between 0.1 and 4000 GB of each computer’s copies.": "Hãy giữ từ 0,1 đến 4000 GB bản sao của mỗi máy.",
   "Kept on other computers": "Được giữ trên các máy khác",
-  "Machines is off on one of the computers": "tính năng Các máy đang tắt trên một trong hai máy",
-  "Machines is off on this computer.": "Tính năng Các máy đang tắt trên máy này.",
   "Mother Claude on the other computer can’t keep copies yet": "Mother Claude trên máy kia chưa thể giữ bản sao",
   "No computer is paired yet.": "Chưa có máy nào được ghép đôi.",
   "No copy of another computer’s session is here.": "Ở đây không có bản sao phiên nào của máy khác.",
@@ -60,5 +58,7 @@
   "{title} goes on here": "{title} tiếp tục ở đây",
   "Packed — the conversation is the copy {name} keeps": "Đã đóng gói — cuộc trò chuyện là bản sao mà {name} giữ",
   "Packed — the conversation is the copy {name} keeps, code {code}": "Đã đóng gói — cuộc trò chuyện là bản sao mà {name} giữ, mã nguồn {code}",
-  "{name} keeps a copy of it: the conversation does not travel again, only what is new.": "{name} giữ một bản sao của phiên: cuộc trò chuyện không phải gửi lại, chỉ phần mới được gửi."
+  "{name} keeps a copy of it: the conversation does not travel again, only what is new.": "{name} giữ một bản sao của phiên: cuộc trò chuyện không phải gửi lại, chỉ phần mới được gửi.",
+  "Computers is off on one of the computers": "tính năng Máy tính đang tắt trên một trong hai máy",
+  "Computers is off on this computer.": "Tính năng Máy tính đang tắt trên máy này."
 }

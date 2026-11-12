@@ -838,7 +838,7 @@ async fn without_run_or_with_machines_off_the_role_does_not_start_there() {
     let e = launcher::start_role(&w.a.st, &team, "windows", Some(task), &[])
         .await
         .unwrap_err();
-    assert!(e.to_string().contains("Machines is off"), "{e}");
+    assert!(e.to_string().contains("Computers is off"), "{e}");
     // Machines off here: refused before anything is asked.
     machines::set_enabled(&w.b.st, true);
     machines::set_enabled(&w.a.st, false);
@@ -846,7 +846,7 @@ async fn without_run_or_with_machines_off_the_role_does_not_start_there() {
         .await
         .unwrap_err();
     assert!(
-        e.to_string().contains("Machines is off on this computer"),
+        e.to_string().contains("Computers is off on this computer"),
         "{e}"
     );
     assert!(w.b.st.machines.recorded_role_spawns().is_empty());

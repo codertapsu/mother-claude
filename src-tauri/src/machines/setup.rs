@@ -363,10 +363,10 @@ async fn app_check(state: &AppState) -> Check {
         "app",
         "app",
         "Mother Claude",
-        "Every computer needs a version that speaks the same Machines protocol.",
+        "Every computer needs a version that speaks the same protocol.",
     );
     let mut detail = format!(
-        "Version {} · Machines protocol {}",
+        "Version {} · protocol {}",
         env!("CARGO_PKG_VERSION"),
         super::protocol::PROTOCOL
     );
@@ -457,14 +457,14 @@ fn pairing_check(state: &AppState) -> Check {
         "pairing",
         "pairing",
         "Paired computers",
-        "Machines works between computers you paired.",
+        "Only computers you paired work together.",
     );
     let n = state.machines.store_read(|f| f.peers.len());
     if n == 0 {
         c.failed(
             true,
             "No other computer is paired yet.",
-            fix(FixKind::Manual, "Pair a machine"),
+            fix(FixKind::Manual, "Pair a computer"),
         )
     } else {
         c.ok(format!(
@@ -488,7 +488,7 @@ fn peer_checks(state: &AppState) -> Vec<Check> {
                 &format!("peer:{}", p.id),
                 "pairing",
                 &name,
-                "Each pair of computers needs the same Machines protocol and relay setting.",
+                "Each pair of computers needs the same protocol and relay setting.",
             );
             let link = state.machines.link(&p.id);
             let their_code = with_cache(state, |c| {
@@ -503,7 +503,7 @@ fn peer_checks(state: &AppState) -> Vec<Check> {
             match (&p.versions, &p.relay) {
                 (Some(v), _) if !super::protocol::compatible(v.protocol) => c.failed(
                     true,
-                    format!("{name} runs Mother Claude {}, which speaks another Machines protocol.", v.app),
+                    format!("{name} runs Mother Claude {}, which speaks another protocol.", v.app),
                     fix(FixKind::Manual, &format!("Update Mother Claude on {name}")),
                 ),
                 (_, Some(r)) if !r.same_as(&mine) => c.failed(
@@ -554,7 +554,7 @@ async fn relay_check(state: &AppState) -> Check {
         return c;
     }
     let Some(endpoint) = transport::current(state).await else {
-        return c.unknown("Checked once Machines is in use.");
+        return c.unknown("Checked once Computers is in use.");
     };
     use iroh::Watcher;
     let mut statuses = endpoint.home_relay_status();

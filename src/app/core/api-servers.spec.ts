@@ -20,6 +20,7 @@ import {
   withoutServer,
 } from './api-servers';
 import { ApiError } from './api.service';
+import { hostOsSignal } from './i18n/i18n';
 import { BridgeStatus, DetectedTunnel, RemoteInfo } from './models';
 
 /** The main payload, as `GET /api/bridge` answered before servers. */
@@ -290,6 +291,9 @@ describe('API servers: the account and the Add form', () => {
 });
 
 describe('API servers: addresses', () => {
+  // "On this computer": no spec before may have named the desktop's system.
+  beforeEach(() => hostOsSignal.set(undefined));
+
   const list = serversOf(withServers([work, personal]));
   const [m, w, p] = list;
   const ctx = (over: Partial<AddressContext> = {}): AddressContext => ({

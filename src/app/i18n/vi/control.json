@@ -616,12 +616,10 @@
   "That code is not valid. Codes work once and expire after 5 minutes — create a new one on the desktop.": "Mã đó không hợp lệ. Mã chỉ dùng được một lần và hết hạn sau 5 phút — hãy tạo mã mới trên ứng dụng máy tính.",
   "Running subagents, workflows and background shells are on the": "Các tác tử con, workflow và shell nền đang chạy nằm ở",
   "Agents page": "trang Tác tử",
-  "Daemon": "Daemon",
   "reachable": "kết nối được",
   "unreachable": "không kết nối được",
   "no output": "không có đầu ra",
   "None configured in ~/.claude.json.": "Chưa cấu hình máy chủ nào trong ~/.claude.json.",
-  "Background jobs (daemon)": "Công việc nền (daemon)",
   "No background jobs.": "Không có công việc nền nào.",
   "Could not load services: {error}": "Không tải được dịch vụ: {error}",
   "Claude Code tools (MCP)": "Công cụ cho Claude Code (MCP)",
@@ -680,5 +678,7 @@
   "{n} more servers": "thêm {n} máy chủ",
   "Off: the browser extension and the team tools need them": "Đang tắt: tiện ích trình duyệt và các công cụ của nhóm cần chúng",
   "On · used by 1 session in the last 15 min": "Bật · 1 phiên đã dùng trong 15 phút qua",
-  "On · used by {n} sessions in the last 15 min": "Bật · {n} phiên đã dùng trong 15 phút qua"
+  "On · used by {n} sessions in the last 15 min": "Bật · {n} phiên đã dùng trong 15 phút qua",
+  "Background jobs": "Công việc nền",
+  "Claude Code’s background service": "Dịch vụ nền của Claude Code"
 }

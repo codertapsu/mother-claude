@@ -231,15 +231,19 @@ const RULES: readonly Rule[] = [
         computer: computerNoun(),
       }),
   ],
-  // ── Machines turned off (machines/mod.rs `using`, `serving`) ──
+  // ── Computers turned off (machines/mod.rs `using`, `serving`; an older
+  // Mother Claude says Machines) ──
   [
-    /^Machines is off on this computer: turn it on on the Machines page first\.$/,
+    /^(?:Computers|Machines) is off on this computer: turn it on (?:in Computers|on the Machines page) first\.$/,
     () =>
-      tr('Machines is off on this {computer}: turn it on on the Machines page first.', {
+      tr('Computers is off on this {computer}: turn it on in Computers first.', {
         computer: computerNoun(),
       }),
   ],
-  [/^Machines is off on (.+)\.$/, (m) => tr('Machines is off on {name}.', { name: m[1] })],
+  [
+    /^(?:Computers|Machines) is off on (.+)\.$/,
+    (m) => tr('Computers is off on {name}.', { name: m[1] }),
+  ],
   // ── The preflight: the other computer's checks (target.rs, folder.rs) ──
   [
     /^(.+) has no usable account named (.+)\.$/,
@@ -448,8 +452,8 @@ const RULES: readonly Rule[] = [
       }),
   ],
   [
-    /^Change it on (.+)'s Machines page\.$/,
-    (m) => tr("Change it on {name}'s Machines page.", { name: m[1] }),
+    /^Change it (?:in Computers on (.+)|on (.+)'s Machines page)\.$/,
+    (m) => tr('Change it in Computers on {name}.', { name: m[1] ?? m[2] }),
   ],
   [
     /^Add the account (.*) on (.+) and sign in, then try again\.$/,
@@ -492,10 +496,10 @@ const RULES: readonly Rule[] = [
     () => tr('Clone the project there first, or move only the conversation.'),
   ],
   [
-    /^Leave them here, or change the files the project carries \(Machines › Options › Each project\)\.$/,
+    /^Leave them here, or change the files the project carries \((?:Computers|Machines) › Options › Each project\)\.$/,
     () =>
       tr(
-        'Leave them here, or change the files the project carries (Machines › Options › Each project).',
+        'Leave them here, or change the files the project carries (Computers › Options › Each project).',
       ),
   ],
   // ── Why a move stopped (source.rs, target.rs) ──
@@ -798,10 +802,10 @@ export function moveErrorText(e: unknown, names: MoveNames = {}): string {
     case 'data_job_running':
       return tr('A backup, restore or transfer is running there; try again when it has finished.');
     case 'machines_off':
-      // 409: Machines is off here; 403: on the computer the session lives on
-      // (worded by its scope already) or the one it goes to.
+      // 409: Computers is off here; 403: on the computer the session lives
+      // on (worded by its scope already) or the one it goes to.
       if (e.status === 409) {
-        return tr('Machines is off on this {computer}: turn it on on the Machines page first.', {
+        return tr('Computers is off on this {computer}: turn it on in Computers first.', {
           computer: computerNoun(),
         });
       }

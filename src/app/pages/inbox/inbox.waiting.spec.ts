@@ -227,7 +227,7 @@ describe('InboxComponent: everything that waits for you', () => {
     const [card] = items(el, 'sync');
     expect(title(card)).toBe('tray-tool changed on both computers');
     expect(text(card.querySelector('.mchip'))).toBe('DESKTOP-PC');
-    expect(button(card, 'Choose…')?.getAttribute('href')).toBe('/machines#code-sync');
+    expect(button(card, 'Choose…')?.getAttribute('href')).toBe('/computers/sync');
   });
 
   it('says a copy kept on another computer is paused, for a reason someone can end', async () => {
@@ -243,7 +243,7 @@ describe('InboxComponent: everything that waits for you', () => {
     expect(cards.length).toBe(1);
     expect(title(cards[0])).toBe('The copy of Release notes on DESKTOP-PC is paused');
     expect(why(cards[0])).toBe('The other computer has not given this one the Move permission.');
-    expect(button(cards[0], 'Open Computers')?.getAttribute('href')).toBe('/machines#copies');
+    expect(button(cards[0], 'Open Computers')?.getAttribute('href')).toBe('/computers#copies');
   });
 
   it('puts a failed backup to fix: tried again, or put away on this device', async () => {

@@ -106,7 +106,7 @@ describe('PendingCardComponent: a command to run on another computer', () => {
     fixture.detectChanges();
     const always = buttons(el).find((b) => text(b).startsWith('Always allow “cargo test”'));
     expect(always).toBeTruthy();
-    expect(text(always)).toContain('Machines › Always allowed runs');
+    expect(text(always)).toContain('Computers › Activity › Always allowed runs');
     await card.allowAlways(run().suggestions[0]);
     await flush();
     expect(backend.bodyOf('POST /sessions/s1/respond')).toEqual({

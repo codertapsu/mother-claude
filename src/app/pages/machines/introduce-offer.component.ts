@@ -101,7 +101,7 @@ export class IntroduceOfferComponent {
   readonly machine = input<string | null>(null);
   /** Show the heading (a section of its own). */
   readonly heading = input(true);
-  /** A card of its own (the Machines page). */
+  /** A card of its own (Computers › Overview). */
   readonly framed = input(false);
 
   private readonly api = inject(ApiService);

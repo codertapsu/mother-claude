@@ -724,7 +724,7 @@ pub fn set_enabled(state: &AppState, on: bool) {
                 crate::server::ws::CLOSE_FORBIDDEN,
                 "Machines is off on this computer",
             );
-            work::stop_from(state, None, "Machines was turned off on this computer.");
+            work::stop_from(state, None, "Computers was turned off on this computer.");
         }
         sync::on::machines_turned(state, on);
     }
@@ -742,7 +742,7 @@ pub(crate) fn serving(state: &AppState) -> Result<(), ApiError> {
     }
     Err(ApiError::forbidden(
         "machines_off",
-        format!("Machines is off on {}.", this_name(state)),
+        format!("Computers is off on {}.", this_name(state)),
     ))
 }
 
@@ -754,7 +754,7 @@ pub(crate) fn using(state: &AppState) -> Result<(), ApiError> {
     }
     Err(ApiError::conflict(
         "machines_off",
-        "Machines is off on this computer: turn it on on the Machines page first.",
+        "Computers is off on this computer: turn it on in Computers first.",
     ))
 }
 

@@ -56,7 +56,7 @@ import { PairConfirmComponent } from './pair-confirm.component';
             @case ('waiting') {
               <p>
                 {{
-                  'On the other computer, open Mother Claude › Machines › Join and type this code. On the same network it lists “{name}” among the computers nearby, so you can check which computer shows the code.'
+                  'On the other computer, open Mother Claude › Computers › Join… and type this code. On the same network it lists “{name}” among the computers nearby, so you can check which computer shows the code.'
                     | t: { name: selfName() }
                 }}
               </p>
@@ -175,7 +175,7 @@ export class PairSheetComponent {
   protected readonly title = computed(() =>
     this.pairing()?.state === 'confirm' || this.pairing()?.state === 'waitingOther'
       ? tr('Pair with {name}?', { name: this.pairing()?.other?.name ?? '' })
-      : tr('Pair a machine'),
+      : tr('Pair a computer'),
   );
   private readonly secondsLeft = computed(() => {
     const at = this.pairing()?.expiresAt;

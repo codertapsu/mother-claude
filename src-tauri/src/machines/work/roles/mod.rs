@@ -274,12 +274,12 @@ pub fn os_label(os: &str) -> &str {
 pub fn unresolved_text(spec: &str, u: &Unresolved) -> String {
     match u {
         Unresolved::Unknown => format!(
-            "No paired computer is called {:?}: pair it on the Machines page, or change the \
+            "No paired computer is called {:?}: pair it in Computers, or change the \
              role's computer.",
             spec.trim()
         ),
         Unresolved::NoneOfOs(os) => format!(
-            "No paired computer runs {}: pair one on the Machines page, or change the role's \
+            "No paired computer runs {}: pair one in Computers, or change the role's \
              computer.",
             os_label(os)
         ),

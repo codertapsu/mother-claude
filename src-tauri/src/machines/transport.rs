@@ -253,10 +253,9 @@ async fn start_inner(state: &AppState) -> Result<Endpoint, String> {
             Err(e) => tracing::warn!(error = %e, "mDNS unavailable"),
         }
     }
-    let endpoint = builder
-        .bind()
-        .await
-        .map_err(|e| format!("The network could not be opened for Machines: {e}"))?;
+    let endpoint = builder.bind().await.map_err(|e| {
+        format!("The network could not be opened to reach your other computers: {e}")
+    })?;
     if let Some(memory) = &test_lookup {
         memory.add_endpoint_info(endpoint.addr());
     }

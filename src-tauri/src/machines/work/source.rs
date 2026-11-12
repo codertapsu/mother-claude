@@ -189,7 +189,8 @@ pub fn find_machine(state: &AppState, wanted: &str) -> Result<PeerRecord, ToolEr
         ToolError::new(
             "unknown_machine",
             if names.is_empty() {
-                "No other computer is paired with this one (Machines in Mother Claude).".to_string()
+                "No other computer is paired with this one (Computers in Mother Claude)."
+                    .to_string()
             } else {
                 format!(
                     "No paired computer is called {w:?}. machine_list names them: {}.",
@@ -204,9 +205,7 @@ pub fn find_machine(state: &AppState, wanted: &str) -> Result<PeerRecord, ToolEr
 pub fn why_not(state: &AppState, peer: &PeerRecord) -> Option<String> {
     let name = peer.display_name();
     if !state.machines.enabled() {
-        return Some(
-            "Machines is off on this computer: turn it on on the Machines page first.".into(),
-        );
+        return Some("Computers is off on this computer: turn it on in Computers first.".into());
     }
     if !peer.capabilities.is_empty() && !peer.capabilities.iter().any(|c| c == super::CAPABILITY) {
         return Some(format!(
@@ -223,7 +222,7 @@ pub fn why_not(state: &AppState, peer: &PeerRecord) -> Option<String> {
         .is_some_and(|g| !g.allows(Grant::Run, lan))
     {
         return Some(format!(
-            "{name} has not given this computer the Run permission{}: on {name}, open Machines, \
+            "{name} has not given this computer the Run permission{}: on {name}, open Computers, \
              press Change on {this}'s card and tick Run.",
             if lan { "" } else { " over the internet" },
             this = m::this_name(state),

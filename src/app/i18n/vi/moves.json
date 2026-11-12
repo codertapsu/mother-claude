@@ -189,7 +189,6 @@
   "It had gone on on {name} too: those turns are kept beside it ({file}).": "Nó cũng đã tiếp tục trên {name}: các lượt đó được giữ bên cạnh ({file}).",
   "Update Mother Claude on {name}.": "Hãy cập nhật Mother Claude trên {name}.",
   "Check that Mother Claude runs on {name} and that both computers are online.": "Hãy kiểm tra rằng Mother Claude đang chạy trên {name} và cả hai máy tính đều trực tuyến.",
-  "Change it on {name}'s Machines page.": "Hãy đổi nó trên trang Các máy của {name}.",
   "Add the account {account} on {name} and sign in, then try again.": "Hãy thêm tài khoản {account} trên {name} và đăng nhập, rồi thử lại.",
   "Sign {account} in on {name} (Accounts there), then try again.": "Hãy đăng nhập {account} trên {name} (trang Tài khoản ở đó), rồi thử lại.",
   "Sign {account} in on {name}.": "Hãy đăng nhập {account} trên {name}.",
@@ -269,7 +268,6 @@
   "{file} is not a plain file: only plain files travel.": "{file} không phải là tệp thường: chỉ tệp thường mới được mang theo.",
   "{file} could not be read here: {error}": "Không đọc được {file} ở đây: {error}",
   "{name}'s Mother Claude can't take files git ignores yet.": "Mother Claude trên {name} chưa nhận được các tệp git bỏ qua.",
-  "Leave them here, or change the files the project carries (Machines › Options › Each project).": "Hãy để chúng lại đây, hoặc đổi các tệp mà dự án mang theo (Các máy › Tùy chọn › Từng dự án).",
   "{name} had its own {files}: kept for Undo move.": "{name} đã có {files} của riêng nó: được giữ lại để Hoàn tác việc chuyển.",
   "Changed on {name} since the move, so left as they are: {files}.": "Đã thay đổi trên {name} sau khi chuyển, nên được giữ nguyên: {files}.",
   "The files git ignores could not be packed: {error}": "Không đóng gói được các tệp git bỏ qua: {error}",
@@ -310,5 +308,7 @@
   "Its worktree on {name} was removed {time}.": "Worktree của nó trên {name} đã được xoá lúc {time}.",
   "Something in its worktree on {name} is not in a snapshot yet: move the session (its work goes along) before removing it.": "Có thứ trong worktree của nó trên {name} chưa nằm trong bản chụp nào: hãy chuyển phiên đi (công việc sẽ đi theo) trước khi xoá.",
   "The session runs in its worktree on {name} right now: stop it or move it away first.": "Phiên đang chạy trong worktree của nó trên {name}: hãy dừng nó hoặc chuyển nó đi trước.",
-  "This move's code did not land in a separate folder.": "Mã nguồn của lần chuyển này không được đặt vào một thư mục riêng."
+  "This move's code did not land in a separate folder.": "Mã nguồn của lần chuyển này không được đặt vào một thư mục riêng.",
+  "Change it in Computers on {name}.": "Hãy đổi nó trong Máy tính trên {name}.",
+  "Leave them here, or change the files the project carries (Computers › Options › Each project).": "Hãy để chúng lại đây, hoặc đổi các tệp mà dự án mang theo (Máy tính › Tùy chọn › Từng dự án)."
 }

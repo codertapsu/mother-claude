@@ -844,6 +844,12 @@ export function askOpen(a: MachineAsk | null | undefined): boolean {
   return !!a && (a.state === 'asked' || a.state === 'running');
 }
 
+/** An introduction still waits for this desktop: offered, or accepted and
+ * not paired yet (its pairing runs, or failed and may be tried again). */
+export function introOpen(i: Introduction | null | undefined): boolean {
+  return !!i && (i.state === 'offered' || i.state === 'accepted');
+}
+
 // ───────────────────────────────────── More than two computers (Phase 5)
 
 /** Whether two paired computers are paired with each other, as each last

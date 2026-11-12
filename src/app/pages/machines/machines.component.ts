@@ -1,70 +1,69 @@
-import { Component, DestroyRef, computed, effect, inject, signal, untracked } from '@angular/core';
+import {
+  Component,
+  DestroyRef,
+  computed,
+  effect,
+  inject,
+  signal,
+  untracked,
+  viewChild,
+} from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
 
 import { ApiService, describeError } from '../../core/api.service';
+import { AttentionService } from '../../core/attention.service';
 import { AuthService } from '../../core/auth.service';
-import { copySize } from '../../core/copies';
 import { computerNoun, tr } from '../../core/i18n/i18n';
 import { TPipe } from '../../core/i18n/t.pipe';
 import {
-  CodeSettings,
   GRANT_NAMES,
   GrantName,
   Grants,
-  askOpen,
-  MachinesSettings,
+  MachineChecks,
   MachinesView,
   PeerMachine,
   PeerSessions,
-  Revocation,
-  SettingsOffer,
   copyGrants,
-  sameCode,
   sameGrants,
-  sameRelay,
 } from '../../core/machines';
 import { MachinesService } from '../../core/machines.service';
-import { MovesService } from '../../core/moves.service';
+import { McpToolsStatus, PermissionInfo, ServicesInfo } from '../../core/models';
+import { PermissionsService } from '../../core/permissions.service';
 import { RemoteSessionsService } from '../../core/remote-sessions.service';
 import { IconComponent } from '../../shared/icon.component';
-import { MoveCardComponent } from '../../shared/move-card.component';
+import { PermissionsListComponent } from '../../shared/permissions-list.component';
+import { SheetComponent } from '../../shared/sheet.component';
 import { RelativeTimePipe } from '../../shared/time.pipes';
+import { ServicesDetailsComponent } from '../services/services-details.component';
 import { CheckListComponent } from './check-list.component';
+import { ComputersHeadComponent } from './computers-head.component';
 import { CopiesCardComponent } from './copies-card.component';
 import { GrantsMatrixComponent } from './grants-matrix.component';
-import { IntroSheetComponent } from './intro-sheet.component';
 import { IntroduceOfferComponent } from './introduce-offer.component';
-import { IntrosCardComponent } from './intros-card.component';
-import { JoinSheetComponent } from './join-sheet.component';
 import {
   capabilityList,
-  codeText,
   grantShort,
   grantValue,
   osName,
   pathName,
-  revocationText,
   thisComputerTitle,
 } from './machines-text';
-import { OptionsFormComponent, relayText } from './options-form.component';
-import { PairSheetComponent } from './pair-sheet.component';
-import { RunsCardComponent } from './runs-card.component';
-import { SyncCardComponent } from './sync-card.component';
 
 /**
- * Machines (docs/PLAN-MACHINES.md, spikes/machines/UX.md §1): what the
- * other computers asked of this one (a line: they are answered in the
- * Inbox), this computer, the paired ones with what each may do here and their versions
- * (an older one named with what it can't do yet, *Update it*), Machines
- * health, introductions (two of your computers pair with each other, each
- * confirming the six digits: §5.12), *Revoke everywhere*, the projects kept
- * in sync with another computer (*Code sync*, §5.15), the copies kept
- * current between computers (*Copies*, §5.9), the options, and *Recent
- * moves* of sessions to and from this computer (§1.2, §7.2–§7.3: cancel,
- * try again, undo). Off until the setup passed (§1.1). The phone sees it
- * read-only — pairing, grants, revoking and options belong to the desktop
- * — but may act on a move, as a device may.
+ * *Computers › Overview* (docs/UI-REDESIGN.md §6.5; docs/PLAN-MACHINES.md,
+ * spikes/machines/UX.md §1): a line when what your other computers asked of
+ * this one waits in the Inbox; while it is off, the card that sets it up
+ * (UX §1.1); this computer — its versions, its macOS permissions, Claude
+ * Code tools, the checks that fail with their fix, and Claude Code's
+ * background service (*Details*: the daemon, MCP servers, background jobs);
+ * each paired computer with how it is reached, its versions (an older one
+ * named with what it can't do yet, *Ask … to update*), its sessions, its
+ * failing checks (*Ask … to fix*), what each may do on the other, rename,
+ * *Revoke* and *Revoke everywhere*; *Pair your computers with each other*
+ * (§5.12); the copies kept current (§5.9). Code sync, Activity and Options
+ * are tabs of their own. The phone sees it read-only — pairing, grants,
+ * revoking and the fixes belong to the desktop.
  */
 @Component({
   selector: 'mc-machines',
@@ -72,19 +71,15 @@ import { SyncCardComponent } from './sync-card.component';
     FormsModule,
     RouterLink,
     CheckListComponent,
+    ComputersHeadComponent,
     CopiesCardComponent,
     GrantsMatrixComponent,
     IconComponent,
-    IntroSheetComponent,
     IntroduceOfferComponent,
-    IntrosCardComponent,
-    JoinSheetComponent,
-    MoveCardComponent,
-    OptionsFormComponent,
-    PairSheetComponent,
+    PermissionsListComponent,
     RelativeTimePipe,
-    RunsCardComponent,
-    SyncCardComponent,
+    ServicesDetailsComponent,
+    SheetComponent,
     TPipe,
   ],
   templateUrl: './machines.component.html',
@@ -96,7 +91,10 @@ export class MachinesComponent {
   private readonly router = inject(Router);
   protected readonly machines = inject(MachinesService);
   private readonly remote = inject(RemoteSessionsService);
-  private readonly moves = inject(MovesService);
+  private readonly attention = inject(AttentionService);
+  protected readonly perms = inject(PermissionsService);
+
+  private readonly head = viewChild(ComputersHeadComponent);
 
   protected readonly isDesktop = this.auth.isDesktop;
   protected readonly computer = computerNoun;
@@ -108,10 +106,6 @@ export class MachinesComponent {
 
   protected readonly error = signal('');
   protected readonly notice = signal('');
-  protected readonly pairOpen = signal(false);
-  protected readonly joinOpen = signal(false);
-  /** The pairing an accepted introduction runs. */
-  protected readonly introOpen = signal(false);
   protected readonly busy = signal<string | null>(null);
   protected readonly checking = signal(false);
 
@@ -124,37 +118,40 @@ export class MachinesComponent {
   // Two-step revoke.
   protected readonly confirming = signal<string | null>(null);
   private confirmTimer?: ReturnType<typeof setTimeout>;
-  // The options card's form.
-  protected readonly editingOptions = signal(false);
+
+  /** Claude Code's background service, MCP servers and background jobs
+   * (`GET /api/services`), and Claude Code tools (`GET /api/mcp`). */
+  protected readonly services = signal<ServicesInfo | null>(null);
+  protected readonly servicesError = signal('');
+  protected readonly tools = signal<McpToolsStatus | null>(null);
+  protected readonly detailsOpen = signal(false);
+  protected readonly readingServices = signal(false);
 
   protected readonly peers = computed(() => this.view()?.peers ?? []);
-  /** What other computers asked this one and is not done: answered in the
-   * Inbox. */
-  protected readonly openAsks = computed(() => (this.view()?.asks ?? []).filter(askOpen).length);
-  /** This computer's moves of sessions, sent and received (UX §1.2). */
-  protected readonly recentMoves = this.moves.here;
-  protected readonly allMoves = signal(false);
-  protected readonly shownMoves = computed(() => {
-    const all = this.recentMoves();
-    return this.allMoves() ? all : all.slice(0, 5);
-  });
-  /** Machines is on, or being set up, or something is paired. */
+  /** What your other computers asked of this one and is not answered yet:
+   * it is answered in the Inbox (asks, introductions, a suggested setting). */
+  protected readonly waiting = computed(
+    () =>
+      this.attention.asks().length +
+      this.attention.intros().length +
+      (this.attention.offer() ? 1 : 0),
+  );
+  /** In use: on, being set up, or something is paired. */
   protected readonly inUse = computed(() => {
     const v = this.view();
     return !!v && (v.enabled || v.setupStep !== null || v.peers.length > 0);
   });
   protected readonly selfChecks = computed(() => this.setup()?.self.checks ?? []);
-  protected readonly peerChecks = computed(() => this.setup()?.peers ?? []);
-  protected readonly healthText = computed(() => {
-    const h = this.view()?.health;
-    if (!h || h.state === 'unknown') return tr('Not checked yet');
-    if (h.blockers)
-      return h.blockers === 1 ? tr('1 required') : tr('{n} required', { n: h.blockers });
-    if (h.warnings) {
-      return h.warnings === 1 ? tr('1 recommended') : tr('{n} recommended', { n: h.warnings });
-    }
-    return tr('All good');
-  });
+  /** This computer's checks fail (its health). */
+  protected readonly selfFailing = computed(() =>
+    this.selfChecks().some((c) => c.state === 'blocker' || c.state === 'warning'),
+  );
+  /** Each paired computer's checks, by its id. */
+  private readonly peerSetups = computed(
+    () => new Map((this.setup()?.peers ?? []).map((p) => [p.machine, p])),
+  );
+  /** macOS's permissions (the desktop app on a Mac; none elsewhere). */
+  protected readonly permissions = this.perms.permissions;
 
   constructor() {
     const destroyRef = inject(DestroyRef);
@@ -166,8 +163,9 @@ export class MachinesComponent {
       clearTimeout(this.confirmTimer);
     });
     void this.machines.load();
-    void this.moves.load();
-    // The checks behind the health card, once Machines is in use.
+    void this.loadServices();
+    void this.loadTools();
+    // The checks behind the health, once your computers are in use.
     let loaded = false;
     effect(() => {
       if (loaded || !this.inUse()) return;
@@ -194,29 +192,14 @@ export class MachinesComponent {
     return grantValue(grants[g]);
   }
 
-  protected relay(s: MachinesSettings | undefined): string {
-    return relayText(s?.relay);
+  /** A paired computer's checks, once read. */
+  protected peerSetup(p: PeerMachine): MachineChecks | undefined {
+    return this.peerSetups().get(p.id);
   }
 
-  protected codeText(c: CodeSettings | null | undefined): string {
-    return codeText(c);
-  }
-
-  /** What this computer keeps of each other computer's copies. */
-  protected copiesCapText(s: MachinesSettings): string {
-    return tr('at most {size} of each computer’s', {
-      size: copySize(s.copiesCapBytes ?? 2 * 1024 ** 3),
-    });
-  }
-
-  /** The offer's relay differs from this computer's. */
-  protected relayOffered(o: SettingsOffer, s: MachinesSettings): boolean {
-    return !sameRelay(o.relay, s.relay);
-  }
-
-  /** The offer's code options differ from this computer's. */
-  protected codeOffered(o: SettingsOffer, s: MachinesSettings): boolean {
-    return !!o.code && !sameCode(o.code, s.code);
+  /** It has a check that fails (required or recommended). */
+  protected failing(s: MachineChecks | undefined): boolean {
+    return !!s?.checks.some((c) => c.state === 'blocker' || c.state === 'warning');
   }
 
   /** How many of its sessions this computer knows, and how many run: live
@@ -243,7 +226,7 @@ export class MachinesComponent {
     const parts = [p.osVersion || this.os(p.os)];
     if (p.versions) {
       parts.push(tr('Mother Claude {v}', { v: p.versions.app }));
-      parts.push(tr('Machines protocol {n}', { n: p.versions.protocol }));
+      parts.push(tr('protocol {n}', { n: p.versions.protocol }));
       if (p.versions.claude) parts.push(tr('Claude Code {v}', { v: p.versions.claude }));
     }
     return parts.join(' · ');
@@ -296,15 +279,34 @@ export class MachinesComponent {
     });
   }
 
-  /** The computers that may still revoke one, in a sentence. */
-  protected revocationLine(r: Revocation): string {
-    return revocationText(r);
+  /** A macOS permission's mark: ✓ granted, ✕ missing, – asked when needed. */
+  protected permMark(p: PermissionInfo): string {
+    return p.granted === true ? '✓' : p.granted === false ? '✕' : '–';
   }
+
+  protected permState(p: PermissionInfo): string {
+    return p.granted === true
+      ? tr('granted')
+      : p.granted === false
+        ? tr('not granted')
+        : tr('ask when prompted');
+  }
+
+  /** Claude Code's background service, in a line: running or not, and its
+   * background jobs. */
+  protected readonly servicesLine = computed(() => {
+    const s = this.services();
+    if (!s) return '';
+    const parts = [s.daemon?.reachable ? tr('running') : tr('not running')];
+    const n = s.backgroundJobs?.length ?? 0;
+    if (n) parts.push(n === 1 ? tr('1 background job') : tr('{n} background jobs', { n }));
+    return parts.join(' · ');
+  });
 
   // ─────────────────────────────────────────────────────────── Actions
 
   protected setUp(): void {
-    void this.router.navigate(['/machines/setup']);
+    void this.router.navigate(['/computers/setup']);
   }
 
   protected async recheck(): Promise<void> {
@@ -362,9 +364,11 @@ export class MachinesComponent {
     await this.fix('claudeCode');
   }
 
+  /** A check whose fix is a place: pairing opens the pairing, the relay
+   * its option. */
   protected manual(check: string): void {
-    if (check === 'pairing') this.pairOpen.set(true);
-    if (check === 'relay') this.editingOptions.set(true);
+    if (check === 'pairing') this.head()?.pair();
+    if (check === 'relay') void this.router.navigate(['/computers/options'], { fragment: 'relay' });
   }
 
   protected startRename(id: string, current: string): void {
@@ -419,7 +423,8 @@ export class MachinesComponent {
   }
 
   /** *Revoke everywhere* (two taps): revoked here at once, and on every
-   * other paired computer — now, or when one that is away is back. */
+   * other paired computer — now, or when one that is away is back (the
+   * Inbox says which are still to be told). */
   protected async revokeEverywhere(p: PeerMachine): Promise<void> {
     const key = `everywhere:${p.id}`;
     if (!this.armed(key)) {
@@ -444,21 +449,30 @@ export class MachinesComponent {
     });
   }
 
-  protected async answerOffer(accept: boolean): Promise<void> {
-    await this.withBusy('offer', async () => {
-      this.machines.apply(await this.api.answerSettingsOffer(accept));
-    });
+  /** *Details*: what Claude Code runs here besides sessions, read again. */
+  protected openDetails(): void {
+    this.detailsOpen.set(true);
+    void this.loadServices();
   }
 
-  protected optionsSaved(): void {
-    this.editingOptions.set(false);
-    void this.machines.load();
+  protected async loadServices(): Promise<void> {
+    this.readingServices.set(true);
+    try {
+      this.services.set(await this.api.getServices());
+      this.servicesError.set('');
+    } catch (e) {
+      this.servicesError.set(describeError(e).text);
+    } finally {
+      this.readingServices.set(false);
+    }
   }
 
-  protected async turnOff(): Promise<void> {
-    await this.withBusy('enable', async () => {
-      this.machines.apply(await this.api.setMachinesEnabled(false));
-    });
+  private async loadTools(): Promise<void> {
+    try {
+      this.tools.set(await this.api.getMcpTools(false));
+    } catch {
+      // The line is left out.
+    }
   }
 
   private async withBusy(key: string, fn: () => Promise<void>): Promise<void> {

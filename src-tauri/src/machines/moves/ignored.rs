@@ -43,7 +43,7 @@ pub(crate) const KEPT: &str = "ignored-undo";
 
 /// The fix of a listed path that can't travel.
 const FIX: &str =
-    "Leave them here, or change the files the project carries (Machines › Options › Each project).";
+    "Leave them here, or change the files the project carries (Computers › Options › Each project).";
 
 /// A file that travels, as the source found it.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

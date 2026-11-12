@@ -6,6 +6,7 @@ import {
   LINK_ONLY,
   MORE_ENTRY,
   PLACES,
+  REDIRECTED,
   barPlaces,
   connections,
   mapPaths,
@@ -21,19 +22,26 @@ import {
 describe('the map (core/nav.ts)', () => {
   const routePaths = routes.map((r) => r.path ?? '');
 
-  it('holds every route: opened by an entry, or listed as reached only by link', () => {
+  it('holds every route: opened by an entry, reached only by link, or an old one', () => {
     const inMap = new Set(mapPaths());
     for (const path of routePaths) {
-      expect(inMap.has(path) || LINK_ONLY.includes(path), `route "${path}"`).toBe(true);
+      expect(
+        inMap.has(path) || LINK_ONLY.includes(path) || REDIRECTED.includes(path),
+        `route "${path}"`,
+      ).toBe(true);
     }
   });
 
-  it('names only routes that exist', () => {
-    for (const path of [...mapPaths(), ...LINK_ONLY]) {
+  it('names only routes that exist, the old ones redirecting', () => {
+    for (const path of [...mapPaths(), ...LINK_ONLY, ...REDIRECTED]) {
       expect(routePaths, `"${path}"`).toContain(path);
     }
     for (const path of mapPaths()) {
       expect(LINK_ONLY, `"${path}" is in the map: not reached only by link`).not.toContain(path);
+    }
+    for (const path of REDIRECTED) {
+      const route = routes.find((r) => r.path === path);
+      expect(route?.redirectTo, `"${path}" redirects`).toBeDefined();
     }
   });
 
@@ -84,11 +92,11 @@ describe('the map (core/nav.ts)', () => {
     expect(PLACES.map((p) => p.group)).toEqual(['work', 'work', 'work', 'care', 'care', 'care']);
     // Computers keeps Machines' health dot; Agents is a tab of Sessions.
     expect(PLACES.find((p) => p.id === 'computers')).toEqual(
-      expect.objectContaining({ path: '/machines', badge: 'machines' }),
+      expect.objectContaining({ path: '/computers', badge: 'machines' }),
     );
   });
 
-  it('gives each place its tabs on the routes of today', () => {
+  it('gives each place its tabs', () => {
     expect(tabsOf('sessions').map((t) => [t.label, t.path])).toEqual([
       ['Sessions', '/'],
       ['Agents', '/agents'],
@@ -102,7 +110,16 @@ describe('the map (core/nav.ts)', () => {
       ['Accounts', '/accounts'],
       ['Backups', '/backup'],
     ]);
-    for (const id of ['inbox', 'computers', 'settings']) expect(tabsOf(id), id).toEqual([]);
+    // Computers in four tabs (docs/UI-REDESIGN.md §6.5), Code sync counting.
+    expect(tabsOf('computers').map((t) => [t.label, t.path])).toEqual([
+      ['Overview', '/computers'],
+      ['Code sync', '/computers/sync'],
+      ['Activity', '/computers/activity'],
+      ['Options', '/computers/options'],
+    ]);
+    expect(tabsOf('computers')[0].exact).toBe(true);
+    expect(tabsOf('computers')[1].badge).toBe('sync');
+    for (const id of ['inbox', 'settings']) expect(tabsOf(id), id).toEqual([]);
   });
 
   it("draws the phone's bar as the work, and More as the rest in the same order", () => {
@@ -134,7 +151,7 @@ describe('the map (core/nav.ts)', () => {
     expect(titleOf('capacity')).toBe('Teams');
     expect(titleOf('teams')).toBe('Teams');
     expect(titleOf('backup')).toBe('Accounts');
-    expect(titleOf('machines')).toBe('Computers');
+    expect(titleOf('computers')).toBe('Computers');
     expect(titleOf('settings')).toBe('Settings');
     expect(titleOf('remote')).toBe('Remote');
     expect(titleOf('api')).toBe('API');
@@ -151,7 +168,7 @@ describe('the map (core/nav.ts)', () => {
   it("marks the phone's More tab on the pages of what it lists", () => {
     for (const s of [
       'more',
-      'machines',
+      'computers',
       'accounts',
       'backup',
       'settings',

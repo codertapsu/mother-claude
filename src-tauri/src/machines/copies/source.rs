@@ -541,7 +541,7 @@ async fn pass(state: &AppState, wait: bool) {
                     state,
                     sid,
                     mid,
-                    paused(Reason::MachinesOff, "Machines is off on this computer."),
+                    paused(Reason::MachinesOff, "Computers is off on this computer."),
                 );
             }
         }
@@ -722,7 +722,7 @@ fn refused(state: &AppState, machine: &str, status: u16, v: &Value) -> (Reason, 
         .map(str::to_string)
         .unwrap_or_else(|| format!("{name} refused ({status})."));
     match (status, code) {
-        (403, "machines_off") => (Reason::MachinesOff, format!("Machines is off on {name}.")),
+        (403, "machines_off") => (Reason::MachinesOff, format!("Computers is off on {name}.")),
         (403, "grant_missing") => (
             Reason::NoGrant,
             format!(
@@ -777,7 +777,7 @@ pub async fn round(state: &AppState, session: &str, machine: &str, for_move: boo
     if !state.machines.enabled() {
         return pause(
             Reason::MachinesOff,
-            "Machines is off on this computer.".into(),
+            "Computers is off on this computer.".into(),
         );
     }
     if let Some(l) = lease::elsewhere(state, session) {

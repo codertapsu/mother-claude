@@ -225,7 +225,7 @@ export class JoinSheetComponent {
     this.started() &&
     (this.pairing()?.state === 'confirm' || this.pairing()?.state === 'waitingOther')
       ? tr('Pair with {name}?', { name: this.pairing()?.other?.name ?? '' })
-      : tr('Join another machine'),
+      : tr('Join another computer'),
   );
   protected readonly failure = computed(() => pairErrorText(this.pairing()));
   private timer?: ReturnType<typeof setInterval>;

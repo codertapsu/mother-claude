@@ -1277,7 +1277,7 @@ async fn while_machines_is_off_another_computer_only_pairs_and_runs_the_setup() 
         assert_eq!(v["error"]["code"], "machines_off", "{path}");
         assert_eq!(
             v["error"]["message"],
-            format!("Machines is off on {}.", machines::this_name(&b.st))
+            format!("Computers is off on {}.", machines::this_name(&b.st))
         );
     }
     let e = open_peer_ws(&a, &b)

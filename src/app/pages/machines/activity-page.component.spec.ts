@@ -13,12 +13,12 @@ import { setActiveMock } from '../../core/mock/mock-api';
 import { MOVE_ID, movedTo } from '../../core/mock/moves.testing';
 import { goLive } from '../../core/mock/remote.testing';
 import { RealtimeService } from '../../core/realtime.service';
-import { MachinesComponent } from './machines.component';
+import { ActivityPageComponent } from './activity-page.component';
 import { machinesView, peer, setupView } from './machines.testing';
 
-describe('MachinesComponent: Recent moves', () => {
+describe('ActivityPageComponent: Computers › Activity', () => {
   let backend: FakeBackend;
-  let fixture: ComponentFixture<MachinesComponent>;
+  let fixture: ComponentFixture<ActivityPageComponent>;
   let socket: FakeSocket;
 
   beforeEach(async () => {
@@ -49,7 +49,7 @@ describe('MachinesComponent: Recent moves', () => {
     }
   };
   const render = async () => {
-    fixture = TestBed.createComponent(MachinesComponent);
+    fixture = TestBed.createComponent(ActivityPageComponent);
     fixture.detectChanges();
     await settle();
     await TestBed.inject(MachinesService).load();
@@ -205,9 +205,40 @@ describe('MachinesComponent: Recent moves', () => {
     expect(text(cards(el)[0])).toContain('Its worktree on DESKTOP-PC was removed');
   });
 
-  it('shows nothing while there was no move', async () => {
+  it('says so while there was no move', async () => {
     backend.routes.set('/moves', () => ({ status: 200, body: { moves: [] } }));
     const el = await render();
+    expect(cards(el)).toEqual([]);
+    expect(text(el.querySelector('.card.moves'))).toBe(
+      'Recent moves No session moved to or from this computer yet.',
+    );
+  });
+
+  it('shows one kind at a time with its chips: moves, commands, tasks', async () => {
+    backend.routes.set('/moves', () => ({ status: 200, body: { moves: [] } }));
+    const el = await render();
+    const chips = () => [...el.querySelectorAll<HTMLButtonElement>('.chips button')];
+    // Team roles only while this computer runs one.
+    expect(chips().map((c) => text(c))).toEqual(['All', 'Moves', 'Commands', 'Tasks']);
+    expect(chips()[0].getAttribute('aria-pressed')).toBe('true');
+    expect(el.querySelector('.card.moves')).not.toBeNull();
+    expect(el.querySelector('mc-machines-tasks')).not.toBeNull();
+    expect(text(el.querySelector('mc-machines-runs h2'))).toBe('Runs');
+
+    chips()[1].click();
+    await settle();
+    expect(el.querySelector('.card.moves')).not.toBeNull();
+    expect(el.querySelector('mc-machines-runs')).toBeNull();
+
+    chips()[2].click();
+    await settle();
     expect(el.querySelector('.card.moves')).toBeNull();
+    expect(text(el.querySelector('mc-machines-runs h2'))).toBe('Runs');
+    expect(el.querySelector('mc-machines-tasks')).toBeNull();
+
+    chips()[3].click();
+    await settle();
+    expect(el.querySelector('mc-machines-tasks')).not.toBeNull();
+    expect(el.querySelector('mc-machines-runs h2')).toBeNull();
   });
 });

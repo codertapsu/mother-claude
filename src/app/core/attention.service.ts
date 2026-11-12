@@ -6,7 +6,7 @@ import { AuthService } from './auth.service';
 import { CopiesService } from './copies.service';
 import { DataJobsService } from './data-jobs.service';
 import { tr } from './i18n/i18n';
-import { askOpen } from './machines';
+import { askOpen, introOpen } from './machines';
 import { MachinesService } from './machines.service';
 import { NoticeService } from './notice.service';
 import { NowService } from './now.service';
@@ -61,17 +61,28 @@ export class AttentionService {
   /** What other computers asked this one and is not done yet (shown
    * everywhere, answered on the desktop). */
   readonly asks = computed(() => (this.machines.view()?.asks ?? []).filter(askOpen));
+  /** Introductions to another of your computers, not answered yet (shown
+   * everywhere, answered on the desktop). */
+  readonly intros = computed(() => (this.machines.view()?.introductions ?? []).filter(introOpen));
+  /** A setting another computer uses and suggests here — its relay, how it
+   * moves code (shown everywhere, answered on the desktop). */
+  readonly offer = computed(() => this.machines.view()?.offer ?? null);
 
   /** Requests someone can answer from here (observed ones wait where they
    * run), other computers' online ones included; on the desktop the
-   * devices waiting to pair and other computers' asks too. */
+   * devices waiting to pair, other computers' asks and introductions, and
+   * a suggested setting too. */
   readonly pendingCount = computed(() => {
     const sessions =
       this.realtime.pendingItems().filter((p) => p.answerable).length +
       this.remote.pending().filter((p) => p.answerable).length;
     if (!this.auth.isDesktop()) return sessions;
     return (
-      sessions + this.pairRequests().length + this.asks().filter((a) => a.state === 'asked').length
+      sessions +
+      this.pairRequests().length +
+      this.asks().filter((a) => a.state === 'asked').length +
+      this.intros().length +
+      (this.offer() ? 1 : 0)
     );
   });
 

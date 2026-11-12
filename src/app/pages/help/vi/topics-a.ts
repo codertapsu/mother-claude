@@ -71,16 +71,16 @@ const TOPICS: HelpTopicSource[] = [
           'Nhấp **Tiếp tục tới bảng điều khiển →**.',
         ],
         tips: [
-          '**Để sau** vẫn cho bạn vào, nhưng ứng dụng không đọc được các phiên của bạn và một biểu ngữ sẽ hiện cho đến khi bạn làm xong. Bạn có thể quay lại bất cứ lúc nào trong **Cài đặt › Quyền**.',
+          '**Để sau** vẫn cho bạn vào, nhưng ứng dụng không đọc được các phiên của bạn và một biểu ngữ sẽ hiện cho đến khi bạn làm xong. Bạn có thể quay lại bất cứ lúc nào trong **Máy tính › Máy Mac này**: **Quyền** mở danh sách các quyền.',
           'Quyền Mạng cục bộ (Local Network) là tùy chọn: khi macOS hỏi Mother Claude có được tìm thiết bị trên mạng cục bộ không, hãy nhấp **Cho phép** (Allow) để điện thoại của bạn kết nối được tới nó.',
         ],
-        links: [{ label: 'Mở trang Cài đặt', path: '/settings' }],
+        links: [{ label: 'Mở trang Máy tính', path: '/computers' }],
       },
       {
         heading: 'Làm quen với ứng dụng',
         points: [
           'Trên ứng dụng máy tính, thanh bên có phần việc của bạn trước — **Phiên**, **Hộp thư** và **Nhóm** — rồi đến những gì bạn quản lý: **Máy tính**, **Tài khoản** và **Cài đặt**. **Trợ giúp** nằm ở dưới cùng.',
-          'Nơi nào có nhiều trang sẽ hiện chúng thành các thẻ dưới tên của nó: **Phiên** và **Tác tử**; **Nhóm** và **Công suất**; **Tài khoản** và **Bản sao lưu**. **Cài đặt** mở phần còn lại trong **Các kết nối**: **Điện thoại & thiết bị**, **Phiên bắt đầu ở nơi khác**, **Trình duyệt**, **HTTP API** và **Công cụ cho Claude Code**.',
+          'Nơi nào có nhiều trang sẽ hiện chúng thành các thẻ dưới tên của nó: **Phiên** và **Tác tử**; **Nhóm** và **Công suất**; **Máy tính**: **Tổng quan**, **Đồng bộ mã nguồn**, **Hoạt động** và **Tùy chọn**; **Tài khoản** và **Bản sao lưu**. **Cài đặt** mở phần còn lại trong **Các kết nối**: **Điện thoại & thiết bị**, **Phiên bắt đầu ở nơi khác**, **Trình duyệt**, **HTTP API** và **Công cụ cho Claude Code**.',
           'Trên điện thoại, các thẻ ở dưới cùng là **Phiên**, **Hộp thư**, **Nhóm** và **Thêm**. **Thêm** có **Máy tính**, **Tài khoản**, **Cài đặt** và **Trợ giúp**, mỗi mục kèm một dòng cho biết tình trạng của nó.',
           'Chấm ở cuối thanh bên (ở trên cùng trên điện thoại) cho biết trạng thái kết nối. **Trực tiếp** nghĩa là cập nhật đến ngay khi có.',
           'Nút bên cạnh đổi giao diện giữa tối, sáng và theo hệ thống. **Cài đặt › Hiển thị** còn có ngôn ngữ, màu nhấn và nền.',
@@ -165,7 +165,7 @@ const TOPICS: HelpTopicSource[] = [
     group: 'basics',
     summary: 'Thông báo, giao diện, mức dùng gói, kết nối và cập nhật phần mềm.',
     intro:
-      'Cài đặt chứa những gì bạn đặt một lần: thông báo, giao diện và kết nối của thiết bị này, cùng những gì khác hoạt động với Mother Claude. Trong ứng dụng máy tính, Cài đặt còn có cập nhật phần mềm và các quyền macOS.',
+      'Cài đặt chứa những gì bạn đặt một lần: thông báo, giao diện và kết nối của thiết bị này, cùng những gì khác hoạt động với Mother Claude. Trong ứng dụng máy tính, Cài đặt còn có cập nhật phần mềm; các quyền macOS nằm trong **Máy tính › Máy Mac này**.',
     keywords: [
       'tùy chọn',
       'giao diện',
@@ -207,10 +207,6 @@ const TOPICS: HelpTopicSource[] = [
           {
             term: 'Cập nhật phần mềm',
             text: 'Phiên bản mới của ứng dụng (chỉ ứng dụng máy tính).',
-          },
-          {
-            term: 'Quyền',
-            text: 'Các quyền macOS như Truy cập toàn bộ ổ đĩa (chỉ ứng dụng máy tính).',
           },
           { term: 'Giới thiệu', text: 'Phiên bản và **Trợ giúp**.' },
         ],
@@ -705,7 +701,7 @@ const TOPICS: HelpTopicSource[] = [
       {
         heading: 'Hộp thư',
         points: [
-          '**Cần bạn** liệt kê những gì bạn trả lời được từ đây, cũ nhất trước, kèm thời gian mỗi mục đã chờ: yêu cầu của mọi phiên, của các máy tính khác khi chúng trực tuyến, và trên ứng dụng máy tính là thiết bị muốn ghép nối cùng những gì các máy tính khác yêu cầu máy này.',
+          '**Cần bạn** liệt kê những gì bạn trả lời được từ đây, cũ nhất trước, kèm thời gian mỗi mục đã chờ: yêu cầu của mọi phiên, của các máy tính khác khi chúng trực tuyến, và trên ứng dụng máy tính là thiết bị muốn ghép nối, những gì các máy tính khác yêu cầu máy này, một máy tính mà một trong số chúng giới thiệu và một cài đặt mà một máy đề xuất.',
           '**Cần sửa** liệt kê những gì đã ngừng hoạt động hoặc hoạt động kém đi, mỗi mục kèm cách sửa.',
           '**Chờ ở nơi phiên chạy** liệt kê những gì chỉ trả lời được ở nơi phiên đang chạy, và điều gì sẽ giúp bạn trả lời được ngay tại đây.',
           'Con số trên **Hộp thư** đếm những gì bạn trả lời được từ đây; một chấm cho biết có việc đang chờ được sửa.',
@@ -730,6 +726,14 @@ const TOPICS: HelpTopicSource[] = [
             text: 'Một cách sửa, một lần đăng nhập, một lần sao chép kho mã hay việc giữ một dự án đồng bộ mà máy tính khác yêu cầu máy này. Không có gì chạy cho đến khi có người ở đây xác nhận.',
           },
           {
+            term: 'Một lời giới thiệu',
+            text: 'Một máy tính của bạn giới thiệu một máy khác mà nó đã ghép nối: **Ghép nối với …** ghép nối máy này với máy đó, sau khi cả hai hiện cùng sáu chữ số; **Để sau** để từ chối. Trong lúc hai máy ghép nối, **Hiện việc ghép nối** mở lại phần ghép nối.',
+          },
+          {
+            term: 'Một cài đặt được đề xuất',
+            text: 'Một máy tính khác dùng máy chủ chuyển tiếp khác, hoặc chuyển mã nguồn theo cách khác: **Dùng cả ở đây** nhận cài đặt của máy đó, **Giữ cài đặt của máy này** giữ cài đặt của bạn.',
+          },
+          {
             term: 'Một mục kiểm tra bắt buộc lỗi',
             text: 'Trên máy này, chạy cách sửa ngay tại đây; trên máy khác, **Nhờ … sửa** sẽ hiện cách sửa cho người đang ở máy đó.',
           },
@@ -739,7 +743,7 @@ const TOPICS: HelpTopicSource[] = [
           },
           {
             term: 'Đã thay đổi trên cả hai máy tính',
-            text: 'Đồng bộ mã của dự án đó đang tạm dừng: **Chọn…** mở dự án trên trang **Máy tính**, nơi bạn giữ một bên.',
+            text: 'Đồng bộ mã của dự án đó đang tạm dừng: **Chọn…** mở **Máy tính › Đồng bộ mã nguồn**, nơi bạn giữ một bên.',
           },
           {
             term: 'Một bản sao đang tạm dừng',
@@ -748,6 +752,10 @@ const TOPICS: HelpTopicSource[] = [
           {
             term: 'Sao lưu hay di chuyển thất bại',
             text: 'Trong ngày qua: **Thử lại** chạy lại một lần sao lưu; **Chi tiết** mở danh sách của nó.',
+          },
+          {
+            term: 'Chưa bị thu hồi ở mọi nơi',
+            text: 'Một máy tính bạn đã thu hồi ở mọi nơi mà vài máy của bạn, chẳng hạn một máy đang ngoại tuyến, vẫn chưa được báo: mỗi máy sẽ thu hồi nó khi kết nối lần tới, và đến lúc đó vẫn cho nó vào. **Đóng thông báo** cất mục này đi.',
           },
           {
             term: 'Một lần đăng nhập',

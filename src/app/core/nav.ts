@@ -17,9 +17,10 @@ import type { IconName } from '../shared/icon.component';
  */
 
 /** What an entry's badge shows: the requests waiting (`pending`, a count),
- * the agents running (`agents`, a count), or Machines' health (`machines`,
- * a red dot when a required check fails). */
-export type NavBadge = 'pending' | 'agents' | 'machines';
+ * the agents running (`agents`, a count), your computers' health
+ * (`machines`, a red dot when a required check fails), or the projects
+ * kept in sync between computers (`sync`, a count). */
+export type NavBadge = 'pending' | 'agents' | 'machines' | 'sync';
 
 /** One page the navigation opens. */
 export interface NavEntry {
@@ -124,13 +125,20 @@ export const PLACES: readonly NavPlace[] = [
   },
   {
     id: 'computers',
-    path: '/machines',
+    path: '/computers',
     label: 'Computers',
     icon: 'monitor',
     badge: 'machines',
     group: 'care',
     help: 'machines-setup',
-    sections: ['machines'],
+    // Its setup (`/computers/setup`) too.
+    sections: ['computers'],
+    tabs: [
+      { path: '/computers', label: 'Overview', exact: true },
+      { path: '/computers/sync', label: 'Code sync', badge: 'sync' },
+      { path: '/computers/activity', label: 'Activity' },
+      { path: '/computers/options', label: 'Options' },
+    ],
   },
   {
     id: 'accounts',
@@ -221,8 +229,9 @@ export const PAGE_TITLES: Readonly<Record<string, string>> = {
 
 /**
  * Routes no entry of the map opens: reached by a link or a button on a
- * page, a redirect, or from outside the app (a QR code, a push
- * notification). `app.routes.ts` holds nothing else.
+ * page, or from outside the app (a QR code, a push notification).
+ * `app.routes.ts` holds nothing else but the old routes ({@link
+ * REDIRECTED}).
  */
 export const LINK_ONLY: readonly string[] = [
   'new',
@@ -230,14 +239,20 @@ export const LINK_ONLY: readonly string[] = [
   'session/:id/agent/:agentId',
   'session/:id/on/:machine',
   'session/:id/agent/:agentId/on/:machine',
-  'machines/setup',
+  'computers/setup',
   'pair',
   'teams/:id',
   'help/:topic',
-  'good-to-know',
   'onboarding',
   '**',
 ];
+
+/**
+ * Old routes that redirect to where their page is now (docs/UI-REDESIGN.md
+ * §10.1, §10.3), with the rest of the path, the query and the fragment —
+ * links from before the redesign keep working. Redirects stay for good.
+ */
+export const REDIRECTED: readonly string[] = ['good-to-know', 'machines'];
 
 /** The first segment of a URL's path (`/teams/tm_1?x#y` → `teams`). */
 export function sectionOf(url: string): string {

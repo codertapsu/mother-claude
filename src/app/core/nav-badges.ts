@@ -5,24 +5,33 @@ import { tr } from './i18n/i18n';
 import { MachinesService } from './machines.service';
 import { NavBadge } from './nav';
 import { RealtimeService } from './realtime.service';
+import { SyncService } from './sync.service';
 
 /**
  * What the map's badges show right now (core/nav.ts): the requests waiting
- * (and a dot when only something to fix waits), the agents running,
- * Machines' health. The sidebar, the phone's bar, More and a place's tabs
- * all ask here, so a badge reads the same everywhere.
+ * (and a dot when only something to fix waits), the agents running, your
+ * computers' health, the projects kept in sync. The sidebar, the phone's
+ * bar, More and a place's tabs all ask here, so a badge reads the same
+ * everywhere.
  */
 @Injectable({ providedIn: 'root' })
 export class NavBadges {
   private readonly attention = inject(AttentionService);
   private readonly realtime = inject(RealtimeService);
   private readonly machines = inject(MachinesService);
+  private readonly sync = inject(SyncService);
 
   /** Running agents across every session (the Agents badge). */
   readonly agentsRunning = computed(() =>
     this.realtime
       .sessions()
       .reduce((n, s) => n + (s.agents?.running ?? 0) + (s.agents?.backgroundRunning ?? 0), 0),
+  );
+
+  /** Projects kept in sync with another computer, or asked to be (the
+   * Code sync tab's count; known while Computers is in use). */
+  readonly synced = computed(
+    () => this.sync.pairs().filter((p) => p.status.state !== 'off').length,
   );
 
   /** The number a badge shows (0: no number). */
@@ -32,6 +41,8 @@ export class NavBadges {
         return this.attention.pendingCount();
       case 'agents':
         return this.agentsRunning();
+      case 'sync':
+        return this.synced();
       default:
         return 0;
     }
@@ -59,6 +70,11 @@ export class NavBadges {
       return null;
     }
     if (entry.badge === 'agents' && n) return tr('{label}, {n} running', { label, n });
+    if (entry.badge === 'sync' && n) {
+      return n === 1
+        ? tr('{label}, 1 project', { label })
+        : tr('{label}, {n} projects', { label, n });
+    }
     if (this.dot(entry.badge)) return tr('{label}, needs attention', { label });
     return null;
   }

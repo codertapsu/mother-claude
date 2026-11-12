@@ -62,7 +62,7 @@ describe('PairSheetComponent', () => {
     expect(code?.getAttribute('aria-label')).toBe('Pairing code K 7 Q M 4 R 2 X');
     expect(text(el.querySelector('[role="timer"]'))).toMatch(/^Works once · expires in [45]:\d\d$/);
     // Nearby only shows which computer shows a code: the code is typed.
-    expect(text(el)).toContain('Join and type this code.');
+    expect(text(el)).toContain('Join… and type this code.');
     expect(text(el)).toContain(
       'it lists “MacBook” among the computers nearby, so you can check which computer shows the code',
     );

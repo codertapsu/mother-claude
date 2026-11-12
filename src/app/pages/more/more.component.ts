@@ -129,7 +129,7 @@ export class MoreComponent {
               ? tr('{n} of {m} computers online', { n, m: v.peers.length })
               : tr('No computer online'),
     ];
-    if (!v.enabled) parts.push(tr('Machines is off'));
+    if (!v.enabled) parts.push(tr('Off'));
     const fix = v.health.state === 'blocker' ? v.health.blockers : 0;
     if (fix) parts.push(fix === 1 ? tr('1 to fix') : tr('{n} to fix', { n: fix }));
     return parts.join(' · ');

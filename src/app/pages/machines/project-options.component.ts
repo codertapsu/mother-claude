@@ -179,7 +179,7 @@ function lines(text: string): string[] {
               <option value="">
                 {{ 'The default: {value}' | t: { value: transferLabel(defaults().transfer) } }}
               </option>
-              <option value="bundle">{{ 'Machine to machine' | t }}</option>
+              <option value="bundle">{{ 'Computer to computer' | t }}</option>
               <option value="remote">{{ 'Through your git remote' | t }}</option>
             </select>
           </label>

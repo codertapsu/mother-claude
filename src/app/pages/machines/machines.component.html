@@ -1,24 +1,6 @@
 <div class="page">
-  <div class="page-head">
-    <h1>{{ 'Machines' | t }}</h1>
-    @if (isDesktop() && inUse()) {
-      <span class="spacer"></span>
-      <button type="button" class="btn" (click)="pairOpen.set(true)">
-        <mc-icon name="plus" [size]="15" /> {{ 'Pair a machine' | t }}
-      </button>
-      <button type="button" class="btn" (click)="joinOpen.set(true)">{{ 'Join…' | t }}</button>
-    }
-  </div>
-  <p class="lede">
-    {{
-      'Use your other computers from here: see and drive their sessions, and move a session — with its code — to another computer and back.'
-        | t
-    }}
-  </p>
+  <mc-computers-head />
 
-  @if (!isDesktop()) {
-    <p class="notice small">{{ 'Machines are set up from the desktop app.' | t }}</p>
-  }
   @if (error()) {
     <p class="notice error" role="alert">{{ error() }}</p>
   }
@@ -35,7 +17,7 @@
     }
   } @else {
     <!-- ─────────────── Asked by another computer: answered in the Inbox ─────────────── -->
-    @if (openAsks(); as n) {
+    @if (waiting(); as n) {
       <p class="notice small asks-line" role="status">
         {{
           n === 1
@@ -46,36 +28,13 @@
       </p>
     }
 
-    <!-- ─────────────── Introduced by another computer (plan §5.12) ─────────────── -->
-    @if (v.introductions?.length) {
-      <mc-machine-intros
-        [intros]="v.introductions"
-        [readonly]="!isDesktop()"
-        (answered)="machines.apply($event)"
-        (opened)="introOpen.set(true)"
-      />
-    }
-
-    <!-- ─────────────── Revoked everywhere ─────────────── -->
-    @if (v.revocations?.length) {
-      <section class="card revocations" [attr.aria-label]="'Revoked everywhere' | t">
-        <h2 class="first">{{ 'Revoked everywhere' | t }}</h2>
-        <ul class="plain">
-          @for (r of v.revocations; track r.machine) {
-            <li>
-              <strong>{{ r.name }}</strong>
-              <span class="muted small"> · {{ r.at | relTime }}</span>
-              <span class="small rev-line">{{ revocationLine(r) }}</span>
-            </li>
-          }
-        </ul>
-      </section>
-    }
-
     <!-- ─────────────── Off (UX §1.1) ─────────────── -->
     @if (!v.enabled) {
-      <section class="card off" [attr.aria-label]="'Machines is off' | t">
-        <h2 class="first">{{ 'Machines is off' | t }}</h2>
+      <section
+        class="card off"
+        [attr.aria-label]="'Off on this {computer}' | t: { computer: computer() }"
+      >
+        <h2 class="first">{{ 'Off on this {computer}' | t: { computer: computer() } }}</h2>
         @if (v.setupStep !== null) {
           <p>
             {{
@@ -105,7 +64,7 @@
           </ul>
           @if (isDesktop()) {
             <button type="button" class="btn primary set-up" (click)="setUp()">
-              {{ 'Set up Machines' | t }}
+              {{ 'Set up your computers' | t }}
             </button>
           }
         }
@@ -113,118 +72,12 @@
           <p class="muted small">
             {{
               v.peers.length === 1
-                ? ('Your paired computer stays paired while Machines is off.' | t)
-                : ('Your {n} paired computers stay paired while Machines is off.'
+                ? ('Your paired computer stays paired while Computers is off.' | t)
+                : ('Your {n} paired computers stay paired while Computers is off.'
                   | t: { n: v.peers.length })
             }}
           </p>
         }
-      </section>
-    }
-
-    <!-- ─────────────── Health (UX §5) ─────────────── -->
-    @if (inUse()) {
-      <section class="card health" [attr.aria-label]="'Machines health' | t">
-        <div class="chead">
-          <h2 class="first">{{ 'Machines health' | t }}</h2>
-          <span
-            class="badge"
-            [class.ok]="v.health.state === 'ok'"
-            [class.warn]="v.health.state === 'warning'"
-            [class.danger]="v.health.state === 'blocker'"
-          >
-            {{ healthText() }}
-          </span>
-        </div>
-        <div class="row">
-          @if (v.health.at) {
-            <span class="muted small">{{
-              'Checked {time}' | t: { time: (v.health.at | relTime) }
-            }}</span>
-          }
-          <span class="spacer"></span>
-          @if (isDesktop()) {
-            <button type="button" class="btn small" [disabled]="checking()" (click)="recheck()">
-              <mc-icon name="refresh" [size]="14" />
-              {{ checking() ? ('Checking…' | t) : ('Re-check' | t) }}
-            </button>
-          }
-        </div>
-        @if (v.health.blockers || v.health.warnings) {
-          <mc-machine-checks
-            [checks]="selfChecks()"
-            [failingOnly]="true"
-            [busy]="busy()"
-            [readonly]="!isDesktop()"
-            [label]="thisTitle()"
-            (fix)="fix($event)"
-            (manual)="manual($event)"
-          />
-          @for (pc of peerChecks(); track pc.machine) {
-            @if (pc.error) {
-              <p class="muted small">
-                {{ '{name}: {error}' | t: { name: pc.name, error: pc.error } }}
-              </p>
-            }
-            <mc-machine-checks
-              [checks]="pc.checks"
-              [failingOnly]="true"
-              [remote]="true"
-              [machineName]="pc.name"
-              [readonly]="!isDesktop()"
-              [label]="pc.name"
-              (ask)="ask(pc.machine, pc.name, $event)"
-            />
-          }
-        }
-      </section>
-    }
-
-    <!-- ─────────────── A suggested setting (plan §5.3) ─────────────── -->
-    @if (v.offer; as o) {
-      <section class="callout warn" role="status">
-        <div class="callout-body">
-          @if (relayOffered(o, v.settings)) {
-            <p>
-              {{
-                '{name} uses another relay setting: {relay}. Two computers on different relays may never meet.'
-                  | t
-                    : {
-                        name: o.fromName,
-                        relay: relay({ relay: o.relay, keepAwake: v.settings.keepAwake }),
-                      }
-              }}
-            </p>
-          }
-          @if (codeOffered(o, v.settings)) {
-            <p>
-              {{
-                '{name} moves code another way: {code}. Use it here too, so a move works the same from either computer?'
-                  | t: { name: o.fromName, code: codeText(o.code) }
-              }}
-            </p>
-          }
-          @if (isDesktop()) {
-            <div class="row">
-              <button
-                type="button"
-                class="btn primary small"
-                [disabled]="busy() === 'offer'"
-                (click)="answerOffer(true)"
-              >
-                {{ 'Use it here too' | t }}
-              </button>
-              <button
-                type="button"
-                class="btn ghost small"
-                [disabled]="busy() === 'offer'"
-                (click)="answerOffer(false)"
-              >
-                {{ 'Keep mine' | t }}
-              </button>
-            </div>
-          }
-        </div>
       </section>
     }
 
@@ -265,7 +118,84 @@
         </div>
       }
       <p class="muted small">{{ versionsLine(v.self) }}</p>
-      <p class="muted small mono">{{ 'Machine key {key}' | t: { key: v.self.key } }}</p>
+      <p class="muted small mono">{{ 'Key {key}||identity' | t: { key: v.self.key } }}</p>
+
+      <!-- macOS's permissions and Claude Code tools, at a glance. -->
+      @if (permissions().length || tools()) {
+        <ul
+          class="facts"
+          [attr.aria-label]="'How this {computer} stands' | t: { computer: computer() }"
+        >
+          @for (p of permissions(); track p.id) {
+            <li
+              class="fact"
+              [attr.data-state]="p.granted === false ? 'off' : p.granted ? 'ok' : 'na'"
+            >
+              <span aria-hidden="true">{{ permMark(p) }}</span> {{ p.label }}
+              <span class="visually-hidden">: {{ permState(p) }}</span>
+            </li>
+          }
+          @if (tools(); as t) {
+            <li class="fact" [attr.data-state]="t.enabled ? 'ok' : 'off'">
+              <span aria-hidden="true">{{ t.enabled ? '✓' : '–' }}</span>
+              {{ t.enabled ? ('Claude Code tools on' | t) : ('Claude Code tools off' | t) }}
+            </li>
+          }
+        </ul>
+      }
+      @if (permissions().length) {
+        <details class="perms" [open]="perms.missingRequired()">
+          <summary class="small">{{ 'Permissions' | t }}</summary>
+          <mc-permissions-list />
+        </details>
+      }
+
+      <!-- Its checks that fail, with their fix (UX §5). -->
+      @if (inUse() && selfFailing()) {
+        <mc-machine-checks
+          [checks]="selfChecks()"
+          [failingOnly]="true"
+          [busy]="busy()"
+          [readonly]="!isDesktop()"
+          [label]="thisTitle()"
+          (fix)="fix($event)"
+          (manual)="manual($event)"
+        />
+      }
+      @if (inUse()) {
+        <div class="row checked">
+          @if (v.health.at) {
+            <span class="muted small">{{
+              'Checked {time}' | t: { time: (v.health.at | relTime) }
+            }}</span>
+          }
+          <span class="spacer"></span>
+          @if (isDesktop()) {
+            <button
+              type="button"
+              class="btn ghost small"
+              [disabled]="checking()"
+              (click)="recheck()"
+            >
+              <mc-icon name="refresh" [size]="14" />
+              {{ checking() ? ('Checking…' | t) : ('Check again' | t) }}
+            </button>
+          }
+        </div>
+      }
+
+      <!-- Claude Code's background service: Details in a sheet. -->
+      <div class="row service">
+        <span class="small grow">
+          {{ 'Claude Code’s background service' | t }}
+          @if (servicesLine(); as s) {
+            <span class="muted">· {{ s }}</span>
+          }
+        </span>
+        <button type="button" class="btn ghost small" (click)="openDetails()">
+          {{ 'Details' | t }}
+        </button>
+      </div>
     </section>
 
     <!-- ─────────────── Paired computers ─────────────── -->
@@ -391,6 +321,28 @@
           }
         }
 
+        <!-- Its checks that fail: asked there, done when someone there says. -->
+        @if (peerSetup(p); as pc) {
+          @if (pc.error) {
+            <p class="muted small">
+              {{ "Can't read its checks now: {error}" | t: { error: pc.error } }}
+            </p>
+          }
+          @if (failing(pc)) {
+            <mc-machine-checks
+              [checks]="pc.checks"
+              [failingOnly]="true"
+              [remote]="true"
+              [machineName]="pc.name"
+              [asks]="pc.asks ?? []"
+              [busy]="busy()"
+              [readonly]="!isDesktop()"
+              [label]="pc.name"
+              (ask)="ask(pc.machine, pc.name, $event)"
+            />
+          }
+        }
+
         <div class="grants">
           <span class="small">{{
             'On this {computer}, {name} may' | t: { computer: computer(), name: p.name }
@@ -445,7 +397,7 @@
         </div>
 
         <div class="row foot">
-          <span class="muted small mono">{{ 'Machine key {key}' | t: { key: p.key } }}</span>
+          <span class="muted small mono">{{ 'Key {key}||identity' | t: { key: p.key } }}</span>
           <span class="muted small"
             >· {{ 'paired {time}' | t: { time: (p.pairedAt | relTime) } }}</span
           >
@@ -497,99 +449,37 @@
       <mc-introduce-offer [framed]="true" />
     }
 
-    <!-- ─────────────── Code sync (plan §5.15) ─────────────── -->
-    @if (inUse()) {
-      <mc-machines-sync [readonly]="!isDesktop()" />
-    }
-
     <!-- ─────────────── Copies kept current (plan §5.9) ─────────────── -->
     @if (inUse()) {
       <mc-machines-copies />
     }
+  }
 
-    <!-- ─────────────── Runs on other computers (Phase 4) ─────────────── -->
-    @if (inUse()) {
-      <mc-machines-runs [readonly]="!isDesktop()" />
-    }
-
-    <!-- ─────────────── Options ─────────────── -->
-    @if (inUse()) {
-      <section class="card options" [attr.aria-label]="'Options' | t">
-        <div class="chead">
-          <h2 class="first">{{ 'Options' | t }}</h2>
-          <span class="spacer"></span>
-          @if (isDesktop() && !editingOptions()) {
-            <button type="button" class="btn ghost small" (click)="editingOptions.set(true)">
-              {{ 'Change' | t }}
-            </button>
-          }
-        </div>
-        @if (editingOptions()) {
-          <mc-machines-options
-            [settings]="v.settings"
-            [cancellable]="true"
-            (saved)="optionsSaved()"
-            (cancelled)="editingOptions.set(false)"
-          />
-        } @else {
-          <dl class="kv">
-            <dt>{{ 'Relay' | t }}</dt>
-            <dd>{{ relay(v.settings) }}</dd>
-            <dt>{{ 'Code' | t }}</dt>
-            <dd>{{ codeText(v.settings.code) }}</dd>
-            <dt>{{ 'Copies' | t }}</dt>
-            <dd>{{ copiesCapText(v.settings) }}</dd>
-            <dt>{{ 'Keep awake' | t }}</dt>
-            <dd>
-              {{
-                v.settings.keepAwake
-                  ? ('while another computer uses this {computer}' | t: { computer: computer() })
-                  : ('Off' | t)
-              }}
-            </dd>
-          </dl>
-        }
-      </section>
-    }
-
-    <!-- ─────────────── Recent moves (UX §1.2, §7.2–§7.3) ─────────────── -->
-    @if (recentMoves().length) {
-      <section class="card moves" [attr.aria-label]="'Recent moves' | t">
-        <div class="chead">
-          <h2 class="first">{{ 'Recent moves' | t }}</h2>
-        </div>
-        <div class="move-list">
-          @for (e of shownMoves(); track e.move.id) {
-            <mc-move-card [entry]="e" />
-          }
-        </div>
-        @if (recentMoves().length > shownMoves().length) {
-          <button type="button" class="btn ghost small" (click)="allMoves.set(true)">
-            {{ 'Show all {n}' | t: { n: recentMoves().length } }}
-          </button>
-        }
-      </section>
-    }
-
-    @if (isDesktop() && v.enabled) {
-      <div class="row page-foot">
-        <a class="btn" routerLink="/machines/setup">{{ 'Run the setup again' | t }}</a>
-        <span class="spacer"></span>
+  <!-- ─────────────── This computer's details: what Claude Code runs besides sessions ─────────────── -->
+  <mc-sheet [open]="detailsOpen()" [title]="'Details' | t" (closed)="detailsOpen.set(false)">
+    @if (detailsOpen()) {
+      <div class="row details-head">
+        <span class="muted small grow">{{
+          'What Claude Code runs on this {computer} besides its sessions.'
+            | t: { computer: computer() }
+        }}</span>
         <button
           type="button"
-          class="btn ghost"
-          [disabled]="busy() === 'enable'"
-          (click)="turnOff()"
+          class="btn ghost small"
+          [disabled]="readingServices()"
+          (click)="loadServices()"
         >
-          {{ 'Turn Machines off' | t }}
+          {{ readingServices() ? ('Checking…' | t) : ('Check again' | t) }}
         </button>
       </div>
+      @if (servicesError()) {
+        <p class="notice error small" role="alert">{{ servicesError() }}</p>
+      }
+      @if (services(); as s) {
+        <mc-services-details [data]="s" />
+      } @else if (readingServices()) {
+        <p class="muted">{{ 'Loading…' | t }}</p>
+      }
     }
-  }
-
-  @if (isDesktop()) {
-    <mc-pair-machine-sheet [open]="pairOpen()" (closed)="pairOpen.set(false)" />
-    <mc-join-machine-sheet [open]="joinOpen()" (closed)="joinOpen.set(false)" />
-    <mc-intro-sheet [open]="introOpen()" (closed)="introOpen.set(false)" />
-  }
+  </mc-sheet>
 </div>

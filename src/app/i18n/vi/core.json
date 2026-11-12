@@ -555,7 +555,6 @@
   "Continue": "Tiếp tục",
   "Continue to dashboard →": "Tiếp tục tới bảng điều khiển →",
   "You can revisit this anytime under": "Bạn có thể xem lại mục này bất cứ lúc nào trong",
-  "Settings → Permissions": "Cài đặt → Quyền",
   "Sessions started here are": "Các phiên bắt đầu ở đây",
   "owned||by Mother Claude": "thuộc quyền quản lý",
   "by Mother Claude: full control from this device and your phone — approvals, questions, interrupts and model switches.": "của Mother Claude: toàn quyền điều khiển từ thiết bị này và điện thoại của bạn — duyệt yêu cầu, trả lời câu hỏi, ngắt và đổi mô hình.",
@@ -625,5 +624,11 @@
   "Mother Claude {version} is ready": "Mother Claude {version} đã sẵn sàng",
   "Install it from Software updates: the app restarts by itself.": "Hãy cài từ Cập nhật phần mềm: ứng dụng sẽ tự khởi động lại.",
   "Nothing on this {computer} needs you": "Không có gì trên {computer} này cần bạn",
-  "Nothing from {account} on this {computer} needs you": "Không có gì từ {account} trên {computer} này cần bạn"
+  "Nothing from {account} on this {computer} needs you": "Không có gì từ {account} trên {computer} này cần bạn",
+  "Computers › This {computer}": "Máy tính › {computer} này",
+  "{from} introduces {name}": "{from} giới thiệu {name}",
+  "Pair this {computer} with it? An introduction pairs nothing on its own: both computers show the same six digits, and each chooses what the other may do.": "Ghép nối {computer} này với máy đó? Riêng lời giới thiệu không ghép nối gì cả: cả hai máy tính hiện cùng sáu chữ số, và mỗi máy chọn những gì máy kia được làm.",
+  "{name} suggests its settings": "{name} đề xuất cài đặt của nó",
+  "{name} is not revoked everywhere yet": "{name} chưa bị thu hồi ở mọi nơi",
+  "Each one revokes it when it next connects: until then it lets it in.": "Mỗi máy sẽ thu hồi nó khi kết nối lần tới: đến lúc đó máy ấy vẫn cho nó vào."
 }

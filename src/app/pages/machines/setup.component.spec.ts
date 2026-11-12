@@ -25,7 +25,7 @@ describe('MachinesSetupComponent', () => {
 
   beforeEach(() => {
     backend = new FakeBackend();
-    useFakeServer(backend, [provideRouter([{ path: 'machines', component: BlankComponent }])]);
+    useFakeServer(backend, [provideRouter([{ path: 'computers', component: BlankComponent }])]);
     // Left at step 7, with one computer paired.
     backend.routes.set('/machines', () => ({
       status: 200,
@@ -71,14 +71,14 @@ describe('MachinesSetupComponent', () => {
     expect(text(el.querySelector('.step-body h2'))).toBe('Test, then turn on');
   });
 
-  it('keeps Turn on Machines off while a required check fails, and says why', async () => {
+  it('keeps Turn on Computers off while a required check fails, and says why', async () => {
     asDesktop();
     backend.routes.set('/machines/setup/check', () => ({
       status: 200,
       body: setupView({ blockers: 2 }),
     }));
     const el = await render();
-    const turnOn = button(el, 'Turn on Machines')!;
+    const turnOn = button(el, 'Turn on Computers')!;
     expect(turnOn.disabled).toBe(true);
     expect(turnOn.getAttribute('aria-describedby')).toBe('turn-on-reason');
     expect(text(el.querySelector('#turn-on-reason'))).toBe(
@@ -99,18 +99,18 @@ describe('MachinesSetupComponent', () => {
       },
     }));
     const el = await render();
-    button(el, 'Turn on Machines')!.click();
+    button(el, 'Turn on Computers')!.click();
     await settle();
     expect(backend.bodyOf('POST /machines/enable')).toEqual({ enabled: true });
     expect(text(el.querySelector('.notice.error'))).toBe('1 required check is left: fix it first.');
     const refused = [...el.querySelectorAll('.refused li')].map((li) => text(li));
     expect(refused).toEqual([`The relay — ${RELAY_DOWN}`]);
     // Still here, the checks read again.
-    expect(TestBed.inject(Router).url).not.toBe('/machines');
+    expect(TestBed.inject(Router).url).not.toBe('/computers');
     expect(backend.calls).toContain('GET /machines/setup');
   });
 
-  it('runs the readiness test, then turns Machines on', async () => {
+  it('runs the readiness test, then turns Computers on', async () => {
     asDesktop();
     backend.routes.set('/machines/test', () => ({
       status: 200,
@@ -154,9 +154,9 @@ describe('MachinesSetupComponent', () => {
     expect(cells[0]).toContain('Direct, on the same network.');
     expect(cells[0]).toContain('6.2 ms');
     expect(cells[1]).toContain('20 MiB at 28.4 MiB/s.');
-    button(el, 'Turn on Machines')!.click();
+    button(el, 'Turn on Computers')!.click();
     await settle();
-    expect(TestBed.inject(Router).url).toBe('/machines');
+    expect(TestBed.inject(Router).url).toBe('/computers');
   });
 
   it('asks another computer to fix its own checks', async () => {
@@ -202,8 +202,8 @@ describe('MachinesSetupComponent', () => {
   it('is the desktop’s to run', async () => {
     asPhoneOf('macos');
     const el = await render();
-    expect(text(el)).toContain('Machines are set up from the desktop app.');
-    expect(button(el, 'Turn on Machines')).toBeUndefined();
+    expect(text(el)).toContain('Your computers are set up from the desktop app.');
+    expect(button(el, 'Turn on Computers')).toBeUndefined();
     expect(backend.calls).not.toContain('POST /machines/setup/check');
   });
 });

@@ -917,7 +917,7 @@ async fn machines_off_on_either_computer_refuses_a_run() {
         )
         .await;
     assert!(is_error(&r));
-    assert!(text(&r).contains("Machines is off"), "{}", text(&r));
+    assert!(text(&r).contains("Computers is off"), "{}", text(&r));
     assert!(w.b.runs().await.is_empty());
 }
 

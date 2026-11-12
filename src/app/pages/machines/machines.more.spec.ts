@@ -2,14 +2,9 @@ import { Component } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { Router, provideRouter } from '@angular/router';
 
-import { Introduction, MachinesView, Revocation } from '../../core/machines';
-import {
-  FakeBackend,
-  asDesktop,
-  asPhoneOf,
-  flush,
-  useFakeServer,
-} from '../../core/mock/fake-server.testing';
+import { AttentionService } from '../../core/attention.service';
+import { MachinesView, Revocation } from '../../core/machines';
+import { FakeBackend, asDesktop, flush, useFakeServer } from '../../core/mock/fake-server.testing';
 import { setActiveMock } from '../../core/mock/mock-api';
 import { MachinesComponent } from './machines.component';
 import { PEER_ID, machinesView, peer, setupView } from './machines.testing';
@@ -20,8 +15,9 @@ class BlankComponent {}
 /** A second paired computer. */
 const OTHER_ID = 'e'.repeat(32);
 
-/** Three computers or more (docs/PLAN-MACHINES.md Phase 5): versions and
- * what an older one lacks, *Revoke everywhere*, introductions. */
+/** Three computers or more (docs/PLAN-MACHINES.md Phase 5) on Computers ›
+ * Overview: versions and what an older one lacks, *Revoke everywhere*,
+ * introducing two of them (the introductions received are the Inbox's). */
 describe('MachinesComponent: more than two computers', () => {
   let backend: FakeBackend;
   let fixture: ComponentFixture<MachinesComponent>;
@@ -75,7 +71,7 @@ describe('MachinesComponent: more than two computers', () => {
     );
     const card = el.querySelector('.card.peer')!;
     expect(text(card)).toContain(
-      'Windows 11 Pro · Mother Claude 0.10.9 · Machines protocol 1 · Claude Code 2.1.300',
+      'Windows 11 Pro · Mother Claude 0.10.9 · protocol 1 · Claude Code 2.1.300',
     );
     expect(text(card)).toContain(
       'DESKTOP-PC runs an older Mother Claude (0.10.9; this computer: 0.11.0).',
@@ -157,9 +153,12 @@ describe('MachinesComponent: more than two computers', () => {
     expect(text(el.querySelector('.notice.ok'))).toBe(
       'Revoked DESKTOP-PC here. Laptop will revoke it when they next connect.',
     );
-    const rev = el.querySelector('.card.revocations')!;
-    expect(text(rev)).toContain('DESKTOP-PC');
-    expect(text(rev)).toContain('Revoked here; still to be told: Laptop (offline).');
+    // Who is still to be told waits in the Inbox's To fix, not here.
+    expect(el.querySelector('.card.revocations')).toBeNull();
+    const [item] = TestBed.inject(AttentionService)
+      .toFix()
+      .filter((f) => f.kind === 'revoked');
+    expect(item?.id).toBe(`revoked:${PEER_ID}`);
   });
 
   it('offers no Revoke everywhere with a single paired computer', async () => {
@@ -202,75 +201,5 @@ describe('MachinesComponent: more than two computers', () => {
       }),
     );
     expect(el.querySelector('mc-introduce-offer')?.textContent?.trim() ?? '').toBe('');
-  });
-
-  it('shows an introduction, and pairs only when this desktop accepts it', async () => {
-    asDesktop();
-    const intro: Introduction = {
-      id: 'in_0123456789abcdef',
-      from: OTHER_ID,
-      fromName: 'MacBook',
-      role: 'host',
-      other: { id: 'c'.repeat(32), name: 'Build box', os: 'linux', key: '1A2B 3C4D 5E6F 7A8B' },
-      at: Date.now(),
-      expiresAt: Date.now() + 600_000,
-      state: 'offered',
-      detail: null,
-      pairing: false,
-    };
-    backend.routes.set('/machines/introductions/in_0123456789abcdef', (_m, body) => ({
-      status: 200,
-      body: machinesView({
-        enabled: true,
-        peers: [peer()],
-        introductions: [
-          {
-            ...intro,
-            state: (body as { accept: boolean }).accept ? 'accepted' : 'declined',
-            detail: (body as { accept: boolean }).accept ? null : 'You declined.',
-          },
-        ],
-      }),
-    }));
-    const el = await render(
-      machinesView({ enabled: true, peers: [peer()], introductions: [intro] }),
-    );
-    const card = el.querySelector('.card.intros')!;
-    expect(text(card)).toContain('MacBook introduces Build box: pair this computer with it?');
-    expect(text(card)).toContain('Linux · 1A2B 3C4D 5E6F 7A8B');
-    button(card, 'Not now')!.click();
-    await settle();
-    expect(backend.bodyOf('POST /machines/introductions/in_0123456789abcdef')).toEqual({
-      accept: false,
-    });
-    expect(text(el.querySelector('.card.intros'))).toContain('You declined.');
-  });
-
-  it('only shows introductions on a phone', async () => {
-    asPhoneOf('macos');
-    const el = await render(
-      machinesView({
-        enabled: true,
-        peers: two(),
-        introductions: [
-          {
-            id: 'in_0123456789abcdef',
-            from: OTHER_ID,
-            fromName: 'MacBook',
-            role: 'joiner',
-            other: { id: 'c'.repeat(32), name: 'Build box', os: 'linux', key: '1A2B' },
-            at: Date.now(),
-            expiresAt: Date.now() + 600_000,
-            state: 'offered',
-            detail: null,
-            pairing: false,
-          },
-        ],
-      }),
-    );
-    expect(text(el.querySelector('.card.intros'))).toContain('MacBook introduces Build box');
-    for (const label of ['Pair with', 'Not now', 'Introduce them', 'Revoke everywhere']) {
-      expect(button(el, label), label).toBeUndefined();
-    }
   });
 });

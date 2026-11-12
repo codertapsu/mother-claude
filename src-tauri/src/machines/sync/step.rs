@@ -179,7 +179,7 @@ pub(crate) async fn call(
     Err(match (status, code.as_str()) {
         (403, "machines_off") => Peer::Status(Status::paused(
             Reason::MachinesOff,
-            format!("Machines is off on {name}."),
+            format!("Computers is off on {name}."),
         )),
         (403, "grant_missing") => Peer::Status(Status::paused(
             Reason::NoGrant,
@@ -414,7 +414,7 @@ pub(crate) async fn locked(state: &AppState, id: &str, trigger: Trigger, second:
     };
     if let Some(reason) = blocker(&gate) {
         let detail = match reason {
-            Reason::MachinesOff => format!("Machines is off on {here}."),
+            Reason::MachinesOff => format!("Computers is off on {here}."),
             Reason::MoveRunning => format!(
                 "A session working in {name} is moving between computers: sync waits until the move ends."
             ),

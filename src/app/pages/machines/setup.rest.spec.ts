@@ -485,7 +485,7 @@ describe('Machines setup, steps 5 and 6', () => {
     expect(text(cells[3])).toContain('Both ways in 1.4 s.');
   });
 
-  it('keeps Turn on Machines on when only an account waits for a sign-in', async () => {
+  it('keeps Turn on Computers on when only an account waits for a sign-in', async () => {
     const scoped = check({
       id: 'account:acc_0123456789abcdef',
       area: 'accounts',
@@ -511,7 +511,7 @@ describe('Machines setup, steps 5 and 6', () => {
     fixture.detectChanges();
     await settle();
     const el = fixture.nativeElement as HTMLElement;
-    expect(button(el, 'Turn on Machines')!.disabled).toBe(false);
+    expect(button(el, 'Turn on Computers')!.disabled).toBe(false);
     expect(text(el.querySelector('.turn-on'))).toContain(
       '1 account is not signed in somewhere: its sessions wait for it, the rest work.',
     );

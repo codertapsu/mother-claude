@@ -1,8 +1,10 @@
-// Text the Machines screens share. The setup's checks come from the server
+// Text the Computers screens share. The setup's checks come from the server
 // in English (`src-tauri/src/machines/setup.rs`); the fixed ones are
 // translated here by matching (docs/I18N.md, "Server text drawn from a fixed
 // list"), and anything else — a detail with a name or a number in it — is
-// shown as it came. Mirrors `setup.rs`: change both together.
+// shown as it came. Mirrors `setup.rs`: change both together. Another
+// computer may run an older Mother Claude, which still names the place
+// Machines: its sentences read as the new ones.
 
 import { computerNoun, tr } from '../../core/i18n/i18n';
 import {
@@ -33,14 +35,19 @@ const FIXED: Record<string, () => string> = {
   'The firewall': () => tr('The firewall'),
   'The network type': () => tr('The network type'),
   // Why it matters
+  'Every computer needs a version that speaks the same protocol.': () =>
+    tr('Every computer needs a version that speaks the same protocol.'),
   'Every computer needs a version that speaks the same Machines protocol.': () =>
-    tr('Every computer needs a version that speaks the same Machines protocol.'),
+    tr('Every computer needs a version that speaks the same protocol.'),
   'A computer asleep cannot answer the others.': () =>
     tr('A computer asleep cannot answer the others.'),
+  'Only computers you paired work together.': () => tr('Only computers you paired work together.'),
   'Machines works between computers you paired.': () =>
-    tr('Machines works between computers you paired.'),
+    tr('Only computers you paired work together.'),
+  'Each pair of computers needs the same protocol and relay setting.': () =>
+    tr('Each pair of computers needs the same protocol and relay setting.'),
   'Each pair of computers needs the same Machines protocol and relay setting.': () =>
-    tr('Each pair of computers needs the same Machines protocol and relay setting.'),
+    tr('Each pair of computers needs the same protocol and relay setting.'),
   'Across networks, your computers meet through the relay.': () =>
     tr('Across networks, your computers meet through the relay.'),
   'Without it this Mac reaches your other computers only through the relay, even at home.': () =>
@@ -53,7 +60,8 @@ const FIXED: Record<string, () => string> = {
     tr('Without a rule, your other computers reach this PC only through the relay.'),
   // Fixes
   'Keep awake while used': () => tr('Keep awake while used'),
-  'Pair a machine': () => tr('Pair a machine'),
+  'Pair a computer': () => tr('Pair a computer'),
+  'Pair a machine': () => tr('Pair a computer'),
   'Use this setting everywhere': () => tr('Use this setting everywhere'),
   'Check the relay': () => tr('Check the relay'),
   'Open Local Network settings': () => tr('Open Local Network settings'),
@@ -98,7 +106,8 @@ const FIXED: Record<string, () => string> = {
     tr('No firewall rule lets your other computers reach Mother Claude.'),
   'No relay: your computers meet on the same network only.': () =>
     tr('No relay: your computers meet on the same network only.'),
-  'Checked once Machines is in use.': () => tr('Checked once Machines is in use.'),
+  'Checked once Computers is in use.': () => tr('Checked once Computers is in use.'),
+  'Checked once Machines is in use.': () => tr('Checked once Computers is in use.'),
   "The relay does not answer: on the same network your computers still meet, across networks they can't.":
     () =>
       tr(
@@ -283,10 +292,10 @@ const PATTERNS: [RegExp, (m: RegExpExecArray) => string][] = [
       }),
   ],
   [
-    /^On\. (.+) differs on both computers: choose which one's to keep on the Machines page\.$/,
+    /^On\. (.+) differs on both computers: choose which one's to keep (?:in Computers › Code sync|on the Machines page)\.$/,
     (m) =>
       tr(
-        "On. {project} differs on both computers: choose which one's to keep on the Machines page.",
+        "On. {project} differs on both computers: choose which one's to keep in Computers › Code sync.",
         {
           project: m[1],
         },
@@ -471,7 +480,7 @@ export function serverText(text: string | null | undefined): string {
 
 /** How code travels, in words. */
 export function transferText(t: CodeTransfer | undefined): string {
-  return t === 'remote' ? tr('Through your git remote') : tr('Machine to machine');
+  return t === 'remote' ? tr('Through your git remote') : tr('Computer to computer');
 }
 
 /** Where code lands, in words. */
@@ -740,7 +749,7 @@ export function syncDetail(p: SyncPair): string {
         case 'offline':
           return tr('Waits until {name} is back online.', { name });
         case 'machinesOff':
-          return tr('Waits until Machines is on on both computers.');
+          return tr('Waits until both computers have Computers on.');
         case 'noGrant':
           return tr(
             'Waits: each computer must give the other the Move permission, as it writes into its project folder.',

@@ -1,7 +1,7 @@
 import { Component, OnDestroy, OnInit, inject } from '@angular/core';
 import { Router } from '@angular/router';
 
-import { tr } from '../../core/i18n/i18n';
+import { computerNoun, tr } from '../../core/i18n/i18n';
 import { TPipe } from '../../core/i18n/t.pipe';
 import { PermissionsService } from '../../core/permissions.service';
 import { PermissionsListComponent } from '../../shared/permissions-list.component';
@@ -39,7 +39,7 @@ const SKIP_KEY = 'mc_onboarding_skipped';
       </div>
       <p class="muted small">
         {{ 'You can revisit this anytime under' | t }}
-        <strong>{{ 'Settings → Permissions' | t }}</strong
+        <strong>{{ 'Computers › This {computer}' | t: { computer: computer() } }}</strong
         >.
       </p>
     </div>
@@ -67,6 +67,7 @@ const SKIP_KEY = 'mc_onboarding_skipped';
 })
 export class OnboardingComponent implements OnInit, OnDestroy {
   protected readonly perms = inject(PermissionsService);
+  protected readonly computer = computerNoun;
   private router = inject(Router);
   private poll?: ReturnType<typeof setInterval>;
 

@@ -1157,7 +1157,7 @@ async fn machines_off_on_either_computer_stops_a_move_before_it_starts() {
         .unwrap_or_else(|| panic!("{pre:#}"));
     assert_eq!(
         off["message"],
-        format!("Machines is off on {}.", machines::this_name(&w.t.st))
+        format!("Computers is off on {}.", machines::this_name(&w.t.st))
     );
     let (s, v) = w.s.call("POST", &move_path, Some(body.clone())).await;
     assert_eq!(s, StatusCode::CONFLICT, "{v}");

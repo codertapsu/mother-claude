@@ -87,10 +87,10 @@ export function machineErrorText(
       // 409: this computer's own Machines is off (its proxy refused); 403:
       // the other computer's is.
       return e.status === 409
-        ? tr('Machines is off on this {computer}: turn it on on the Machines page first.', {
+        ? tr('Computers is off on this {computer}: turn it on in Computers first.', {
             computer,
           })
-        : tr('Machines is off on {name}.', { name });
+        : tr('Computers is off on {name}.', { name });
     case 'machine_refused':
       return tr('{name} refused this {computer}: check on {name} that they are still paired.', {
         name,

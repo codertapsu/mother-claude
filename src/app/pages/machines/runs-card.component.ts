@@ -27,7 +27,7 @@ const SHOWN = 8;
 const REFRESH_MS = 3000;
 
 /**
- * Runs on the Machines page (docs/PLAN-MACHINES.md Phase 4): the commands
+ * Runs on Computers › Activity (docs/PLAN-MACHINES.md Phase 4): the commands
  * this computer's sessions ran on another computer, at their own code, and
  * the ones other computers ran here — where, which project, the command,
  * how it stands, its exit code and time, its output's end (read again
@@ -51,149 +51,160 @@ const REFRESH_MS = 3000;
   ],
   template: `
     <section class="card runs" [attr.aria-label]="'Runs' | t">
-      <div class="chead">
-        <h2 class="first">{{ 'Runs' | t }}</h2>
-      </div>
-      <p class="muted small">
-        {{
-          'Commands your sessions run on another computer, at their own code, and the ones other computers run here. Each is kept a day.'
-            | t
-        }}
-      </p>
-      @if (error()) {
-        <p class="notice error small" role="alert">{{ error() }}</p>
-      }
-      @if (loadError()) {
-        <p class="notice error small" role="alert">{{ loadError() }}</p>
-      }
-      <ul class="list">
-        @for (r of shown(); track r.id) {
-          <li [attr.data-state]="r.state" [attr.data-direction]="r.direction">
-            <div class="row">
-              <mc-icon [name]="r.direction === 'out' ? 'upload' : 'download'" [size]="15" />
-              <strong class="name">{{ where(r) }}</strong>
-              @if (r.projectName) {
-                <span class="muted small">{{ r.projectName }}</span>
-              }
-              <span class="spacer"></span>
-              <mc-chip [tone]="tone(r)">{{ label(r) }}</mc-chip>
-            </div>
-            <code class="mono cmd">{{ r.command }}</code>
-            <span class="muted small meta">
-              @if (r.exitCode !== null && r.exitCode !== undefined) {
-                <span>{{ 'exit code {n}' | t: { n: r.exitCode } }}</span>
-              }
-              @if (r.durationMs) {
-                <span>{{ duration(r.durationMs) }}</span>
-              }
-              @if (r.outputSize) {
-                <span>{{ size(r.outputSize) }}</span>
-              }
-              @if (shell(r); as s) {
-                <span>{{ s }}</span>
-              }
-              <span>{{ r.createdAt | relTime }}</span>
-            </span>
-            @if (r.unreachable && !ended(r)) {
-              <p class="small detail warn">
-                {{
-                  '{name} can’t be reached right now: Mother Claude keeps asking.'
-                    | t: { name: r.machineName }
-                }}
-              </p>
-            }
-            @if (r.error) {
-              <p class="small detail">{{ r.error }}</p>
-            }
-            <div class="row acts">
-              @if (r.tail || r.outputSize) {
-                <button
-                  type="button"
-                  class="btn ghost small"
-                  [attr.aria-expanded]="open() === r.id"
-                  (click)="toggle(r)"
-                >
-                  {{ open() === r.id ? ('Hide output' | t) : ('Output' | t) }}
-                </button>
-              }
-              @if (!ended(r)) {
-                <button
-                  type="button"
-                  class="btn small danger"
-                  [disabled]="busy() === r.id"
-                  (click)="cancel(r)"
-                >
-                  {{ busy() === r.id ? ('Cancelling…' | t) : ('Cancel' | t) }}
-                </button>
-              }
-            </div>
-            @if (open() === r.id) {
-              <pre
-                class="out"
-                tabindex="0"
-                [attr.aria-label]="'Output of {command}' | t: { command: r.command }"
-                >{{ outputOf(r) || ('No output yet.' | t) }}</pre>
-              @if (r.artifacts.length) {
-                <p class="small">{{ 'Files it made:' | t }}</p>
-                <ul class="files small">
-                  @for (a of r.artifacts; track a.path) {
-                    <li>
-                      <span class="mono">{{ a.path }}</span>
-                      <span class="muted"> {{ size(a.size) }}</span>
-                    </li>
-                  }
-                </ul>
-              }
-            }
-          </li>
-        } @empty {
-          <li class="muted small">{{ 'No run yet.' | t }}</li>
+      @if (shows('commands')) {
+        <div class="chead">
+          <h2 class="first">{{ 'Runs' | t }}</h2>
+        </div>
+        <p class="muted small">
+          {{
+            'Commands your sessions run on another computer, at their own code, and the ones other computers run here. Each is kept a day.'
+              | t
+          }}
+        </p>
+        @if (error()) {
+          <p class="notice error small" role="alert">{{ error() }}</p>
         }
-      </ul>
-      @if (runs.runs().length > shown().length) {
-        <button type="button" class="btn ghost small" (click)="all.set(true)">
-          {{ 'Show all {n}' | t: { n: runs.runs().length } }}
-        </button>
+        @if (loadError()) {
+          <p class="notice error small" role="alert">{{ loadError() }}</p>
+        }
+        <ul class="list">
+          @for (r of shown(); track r.id) {
+            <li [attr.data-state]="r.state" [attr.data-direction]="r.direction">
+              <div class="row">
+                <mc-icon [name]="r.direction === 'out' ? 'upload' : 'download'" [size]="15" />
+                <strong class="name">{{ where(r) }}</strong>
+                @if (r.projectName) {
+                  <span class="muted small">{{ r.projectName }}</span>
+                }
+                <span class="spacer"></span>
+                <mc-chip [tone]="tone(r)">{{ label(r) }}</mc-chip>
+              </div>
+              <code class="mono cmd">{{ r.command }}</code>
+              <span class="muted small meta">
+                @if (r.exitCode !== null && r.exitCode !== undefined) {
+                  <span>{{ 'exit code {n}' | t: { n: r.exitCode } }}</span>
+                }
+                @if (r.durationMs) {
+                  <span>{{ duration(r.durationMs) }}</span>
+                }
+                @if (r.outputSize) {
+                  <span>{{ size(r.outputSize) }}</span>
+                }
+                @if (shell(r); as s) {
+                  <span>{{ s }}</span>
+                }
+                <span>{{ r.createdAt | relTime }}</span>
+              </span>
+              @if (r.unreachable && !ended(r)) {
+                <p class="small detail warn">
+                  {{
+                    '{name} can’t be reached right now: Mother Claude keeps asking.'
+                      | t: { name: r.machineName }
+                  }}
+                </p>
+              }
+              @if (r.error) {
+                <p class="small detail">{{ r.error }}</p>
+              }
+              <div class="row acts">
+                @if (r.tail || r.outputSize) {
+                  <button
+                    type="button"
+                    class="btn ghost small"
+                    [attr.aria-expanded]="open() === r.id"
+                    (click)="toggle(r)"
+                  >
+                    {{ open() === r.id ? ('Hide output' | t) : ('Output' | t) }}
+                  </button>
+                }
+                @if (!ended(r)) {
+                  <button
+                    type="button"
+                    class="btn small danger"
+                    [disabled]="busy() === r.id"
+                    (click)="cancel(r)"
+                  >
+                    {{ busy() === r.id ? ('Cancelling…' | t) : ('Cancel' | t) }}
+                  </button>
+                }
+              </div>
+              @if (open() === r.id) {
+                <pre
+                  class="out"
+                  tabindex="0"
+                  [attr.aria-label]="'Output of {command}' | t: { command: r.command }"
+                  >{{ outputOf(r) || ('No output yet.' | t) }}</pre>
+                @if (r.artifacts.length) {
+                  <p class="small">{{ 'Files it made:' | t }}</p>
+                  <ul class="files small">
+                    @for (a of r.artifacts; track a.path) {
+                      <li>
+                        <span class="mono">{{ a.path }}</span>
+                        <span class="muted"> {{ size(a.size) }}</span>
+                      </li>
+                    }
+                  </ul>
+                }
+              }
+            </li>
+          } @empty {
+            <li class="muted small">{{ 'No run yet.' | t }}</li>
+          }
+        </ul>
+        @if (runs.runs().length > shown().length) {
+          <button type="button" class="btn ghost small" (click)="all.set(true)">
+            {{ 'Show all {n}' | t: { n: runs.runs().length } }}
+          </button>
+        }
       }
 
-      <mc-machines-tasks />
-      <mc-machines-roles />
-
-      <h3>{{ 'Always allowed runs' | t }}</h3>
-      <p class="muted small">
-        {{
-          'Commands a project may run on another computer without asking. Each comes from a run’s approval; revoke one to be asked again.'
-            | t
-        }}
-      </p>
-      <ul class="list grants">
-        @for (g of runs.grants(); track g.id) {
-          <li>
-            <div class="row">
-              <code class="mono">{{ g.prefix }}</code>
-              <span class="small">{{ 'on {name}' | t: { name: g.machineName } }}</span>
-              <span class="muted small">{{ g.projectName }}</span>
-              <span class="spacer"></span>
-              @if (!readonly()) {
-                <button
-                  type="button"
-                  class="btn ghost small"
-                  [disabled]="busy() === g.id"
-                  [attr.aria-label]="
-                    'Revoke {prefix} on {name}' | t: { prefix: g.prefix, name: g.machineName }
-                  "
-                  (click)="revoke(g)"
-                >
-                  {{ 'Revoke' | t }}
-                </button>
-              }
-            </div>
-            <span class="muted small">{{ grantMeta(g) }}</span>
-          </li>
-        } @empty {
-          <li class="muted small">{{ 'None: every run asks first.' | t }}</li>
+      @if (shows('tasks')) {
+        <mc-machines-tasks />
+      }
+      @if (shows('roles')) {
+        <mc-machines-roles />
+        @if (part() === 'roles' && !runs.roles().length) {
+          <p class="muted small">{{ 'No team role runs here for another computer.' | t }}</p>
         }
-      </ul>
+      }
+
+      @if (shows('commands')) {
+        <h3>{{ 'Always allowed runs' | t }}</h3>
+        <p class="muted small">
+          {{
+            'Commands a project may run on another computer without asking. Each comes from a run’s approval; revoke one to be asked again.'
+              | t
+          }}
+        </p>
+        <ul class="list grants">
+          @for (g of runs.grants(); track g.id) {
+            <li>
+              <div class="row">
+                <code class="mono">{{ g.prefix }}</code>
+                <span class="small">{{ 'on {name}' | t: { name: g.machineName } }}</span>
+                <span class="muted small">{{ g.projectName }}</span>
+                <span class="spacer"></span>
+                @if (!readonly()) {
+                  <button
+                    type="button"
+                    class="btn ghost small"
+                    [disabled]="busy() === g.id"
+                    [attr.aria-label]="
+                      'Revoke {prefix} on {name}' | t: { prefix: g.prefix, name: g.machineName }
+                    "
+                    (click)="revoke(g)"
+                  >
+                    {{ 'Revoke' | t }}
+                  </button>
+                }
+              </div>
+              <span class="muted small">{{ grantMeta(g) }}</span>
+            </li>
+          } @empty {
+            <li class="muted small">{{ 'None: every run asks first.' | t }}</li>
+          }
+        </ul>
+      }
     </section>
   `,
   styles: [
@@ -263,6 +274,9 @@ const REFRESH_MS = 3000;
 export class RunsCardComponent {
   /** A phone sees the standing grants, never revokes one. */
   readonly readonly = input(false);
+  /** The part shown (Computers › Activity's chips): all of it, the
+   * commands with the always allowed runs, the tasks or the team roles. */
+  readonly part = input<'all' | 'commands' | 'tasks' | 'roles'>('all');
 
   private readonly api = inject(ApiService);
   protected readonly runs = inject(RunsService);
@@ -274,6 +288,10 @@ export class RunsCardComponent {
   protected readonly open = signal<string | null>(null);
   private readonly detail = signal<MachineRun | null>(null);
   private timer?: ReturnType<typeof setInterval>;
+
+  protected shows(part: 'commands' | 'tasks' | 'roles'): boolean {
+    return this.part() === 'all' || this.part() === part;
+  }
 
   protected readonly shown = computed(() =>
     this.all() ? this.runs.runs() : this.runs.runs().slice(0, SHOWN),

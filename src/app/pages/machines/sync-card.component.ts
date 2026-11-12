@@ -23,7 +23,7 @@ import {
 } from './machines-text';
 
 /**
- * Code sync on the Machines page (docs/PLAN-MACHINES.md §5.15): the
+ * Code sync on Computers › Code sync (docs/PLAN-MACHINES.md §5.15): the
  * projects kept the same on this computer and another, how each stands —
  * in sync, syncing, waiting for the other computer's confirmation, paused
  * and why, off — with *Sync now* and *Turn off*. When both computers
@@ -37,12 +37,9 @@ import {
   imports: [RelativeTimePipe, TPipe],
   template: `
     <section id="code-sync" class="card sync" [attr.aria-label]="'Code sync' | t">
-      <div class="chead">
-        <h2 class="first">{{ 'Code sync' | t }}</h2>
-      </div>
-      <p class="muted small">
+      <p class="muted small lede-line">
         {{
-          'A project’s code kept the same on two computers: what changes on one goes to the other a few seconds later. Turn it on for a project in its options (Machines › Set up › Options).'
+          'A project’s code kept the same on two computers: what changes on one goes to the other a few seconds later.'
             | t
         }}
       </p>
@@ -189,6 +186,9 @@ import {
   `,
   styles: [
     `
+      .lede-line {
+        margin: 0 0 0.3rem;
+      }
       .list {
         list-style: none;
         margin: 0.3rem 0;

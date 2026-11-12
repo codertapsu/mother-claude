@@ -1,7 +1,7 @@
 import { HelpTopicSource } from '../help-model';
 
 /*
- * Vietnamese Help (docs/I18N.md "Help"): your computers (Machines), and
+ * Vietnamese Help (docs/I18N.md "Help"): your computers (Computers), and
  * their troubleshooting. Each topic has the same sections in the same order
  * as its English one in `help-topics.ts`; section ids, `where`, embeds and
  * link paths come from the English, only the link labels from here.
@@ -13,15 +13,15 @@ const TOPICS: HelpTopicSource[] = [
   // ─────────────────────────────────────────────────── Máy tính của bạn
   {
     id: 'machines-setup',
-    title: 'Thiết lập Các máy',
+    title: 'Thiết lập các máy tính của bạn',
     icon: 'monitor',
     group: 'machines',
     summary:
-      'Kết nối các máy tính của bạn: các mục kiểm tra trên từng máy, cách khắc phục, và bài kiểm tra trước khi bật.',
+      'Kết nối các máy tính của bạn: các mục kiểm tra trên từng máy, cách khắc phục, bài kiểm tra trước khi bật, và những gì mỗi thẻ của trang Máy tính chứa.',
     intro:
-      'Tính năng Các máy kết nối các máy tính của bạn: từ bất kỳ máy nào, bạn xem và điều khiển các phiên Claude Code của mọi máy, và chuyển một phiên, cùng mã nguồn của nó, sang máy tính khác rồi chuyển về. Tính năng này tắt cho đến khi bạn thiết lập nó trong ứng dụng máy tính. Việc thiết lập chạy trên từng máy, vì chỉ máy đó mới tự kiểm tra được chính nó.',
+      'Ghép nối các máy tính của bạn, rồi từ bất kỳ máy nào, bạn xem và điều khiển các phiên Claude Code của mọi máy, và chuyển một phiên, cùng mã nguồn của nó, sang máy tính khác rồi chuyển về. Mọi việc diễn ra trên trang **Máy tính**, vốn tắt cho đến khi bạn thiết lập nó trong ứng dụng máy tính. Việc thiết lập chạy trên từng máy, vì chỉ máy đó mới tự kiểm tra được chính nó.',
     keywords: [
-      'các máy',
+      'máy tính',
       'máy tính khác',
       'máy thứ hai',
       'thiết lập',
@@ -31,6 +31,8 @@ const TOPICS: HelpTopicSource[] = [
       'máy chủ chuyển tiếp',
       'tình trạng',
       'đường dẫn dài',
+      'truy cập toàn bộ ổ đĩa',
+      'dịch vụ nền',
     ],
     sections: [
       {
@@ -46,33 +48,33 @@ const TOPICS: HelpTopicSource[] = [
         heading: 'Chạy thiết lập',
         where: 'desktop',
         intro:
-          'Mở **Các máy** và nhấn **Thiết lập Các máy**. Có bảy bước: **Tiếp** và **Quay lại** để chuyển giữa các bước, và **Tiếp tục thiết lập** trên trang Các máy đưa bạn về bước bạn đã dừng.',
+          'Mở **Máy tính** và, trên thẻ **Đang tắt trên máy Mac này** (**Đang tắt trên máy PC này** trên Windows), nhấn **Thiết lập các máy tính của bạn**. Có bảy bước: **Tiếp** và **Quay lại** để chuyển giữa các bước, và **Tiếp tục thiết lập** trên thẻ đó đưa bạn về bước bạn đã dừng.',
         steps: [
           '**Máy Mac này** (hoặc **Máy PC này**): sửa những gì các mục kiểm tra phát hiện. Các mục bắt buộc được xếp trước.',
-          '**Các máy của bạn**: ghép nối từng máy tính khác của bạn.',
-          '**Mọi máy**: các mục kiểm tra của từng máy, đặt cạnh nhau.',
+          '**Các máy tính của bạn**: ghép nối từng máy tính khác của bạn.',
+          '**Mọi máy tính**: các mục kiểm tra của từng máy, đặt cạnh nhau.',
           '**Quyền của từng máy**: những gì mỗi máy được làm trên máy này. Nhấn **Lưu** sau khi thay đổi.',
           '**Tài khoản và thư mục**: tài khoản và thư mục dùng chung của bạn trên mọi máy.',
-          '**Tùy chọn**: máy chủ chuyển tiếp, cách chuyển mã nguồn của phiên và nơi mã nguồn được đặt.',
-          '**Kiểm tra, rồi bật**: nhấn **Chạy kiểm tra**, rồi **Bật tính năng Các máy**.',
+          '**Tùy chọn**: máy chủ chuyển tiếp, cách chuyển mã nguồn của phiên và nơi mã nguồn được đặt, cùng tùy chọn riêng của từng dự án.',
+          '**Kiểm tra, rồi bật**: nhấn **Chạy kiểm tra**, rồi **Bật tính năng Máy tính**.',
         ],
         tips: [
-          '**Bật tính năng Các máy** bị làm mờ khi còn mục kiểm tra bắt buộc, và cho biết còn bao nhiêu mục. Cho đến khi bật, các máy tính của bạn chỉ ghép nối, chạy thiết lập và bài kiểm tra với nhau: không máy nào xem, điều khiển hay chuyển phiên của một máy đang tắt tính năng Các máy.',
-          'Sau đó các mục kiểm tra vẫn tiếp tục chạy dưới tên **Tình trạng Các máy**: một chấm đỏ trên **Các máy** ở thanh bên báo có gì đó lại hỏng.',
+          '**Bật tính năng Máy tính** bị làm mờ khi còn mục kiểm tra bắt buộc, và cho biết còn bao nhiêu mục. Cho đến khi bật, các máy tính của bạn chỉ ghép nối, chạy thiết lập và bài kiểm tra với nhau: không máy nào xem, điều khiển hay chuyển phiên của một máy còn đang tắt tính năng này.',
+          'Sau đó các mục kiểm tra vẫn tiếp tục chạy: phần đầu trang **Máy tính** cho biết tình trạng các máy của bạn (**Mọi thứ đều ổn**, hoặc còn bao nhiêu mục khuyến nghị hay bắt buộc), thẻ của mỗi máy liệt kê các mục kiểm tra không đạt kèm cách sửa, và một chấm đỏ trên **Máy tính** ở thanh bên báo có gì đó lại hỏng.',
         ],
         links: [
-          { label: 'Mở trang Các máy', path: '/machines' },
+          { label: 'Mở trang Máy tính', path: '/computers' },
           { label: 'Xem “Ghép nối các máy tính của bạn”', path: '/help/machines-pair' },
         ],
       },
       {
         heading: 'Những gì được kiểm tra',
         intro:
-          'Mục **Bắt buộc** khiến tính năng Các máy chưa bật được; mục **Khuyến nghị** vẫn hoạt động, nhưng kém hơn. Mỗi mục cho biết vì sao nó quan trọng, và nút của nó sẽ sửa hoặc mở đúng trang cài đặt.',
+          'Mục **Bắt buộc** phải đạt thì tính năng mới bật được; mục **Khuyến nghị** vẫn hoạt động, nhưng kém hơn. Mỗi mục cho biết vì sao nó quan trọng, và nút của nó sẽ sửa hoặc mở đúng trang cài đặt.',
         terms: [
           {
             term: 'Mother Claude',
-            text: 'Mỗi máy tính cần một phiên bản dùng cùng giao thức Các máy: máy dùng giao thức khác bắt buộc phải cập nhật. Máy chạy bản cũ hơn một máy khác được khuyến nghị cập nhật: **Cập nhật Mother Claude** mở **Cập nhật phần mềm**, còn trên máy khác thì **Nhờ … sửa** sẽ hiện việc đó ở máy ấy.',
+            text: 'Mỗi máy tính cần một phiên bản dùng cùng giao thức: máy dùng giao thức khác bắt buộc phải cập nhật. Máy chạy bản cũ hơn một máy khác được khuyến nghị cập nhật: **Cập nhật Mother Claude** mở **Cập nhật phần mềm**, còn trên máy khác thì **Nhờ … sửa** sẽ hiện việc đó ở máy ấy.',
           },
           {
             term: 'Luôn thức khi đang được dùng',
@@ -104,7 +106,7 @@ const TOPICS: HelpTopicSource[] = [
           },
           {
             term: 'Máy tính đã ghép nối',
-            text: 'Tính năng Các máy hoạt động giữa các máy tính bạn đã ghép nối. Mỗi cặp máy cần cùng giao thức Các máy và cùng cài đặt máy chủ chuyển tiếp: **Dùng cài đặt này ở mọi nơi** đề xuất cài đặt của bạn cho các máy kia.',
+            text: 'Chỉ những máy tính bạn đã ghép nối mới làm việc cùng nhau. Mỗi cặp máy cần cùng giao thức và cùng cài đặt máy chủ chuyển tiếp: **Dùng cài đặt này ở mọi nơi** đề xuất cài đặt của bạn cho các máy kia, trong **Hộp thư** của chúng.',
           },
           {
             term: 'git',
@@ -120,11 +122,11 @@ const TOPICS: HelpTopicSource[] = [
           },
           {
             term: 'Công cụ cho Claude Code',
-            text: 'Các phiên ở đây chạy lệnh trên các máy tính khác của bạn qua công cụ của Mother Claude. Đây là mục khuyến nghị; khi một máy khác cho máy này chạy lệnh trên đó, các công cụ ấy phải chờ mục này, nhưng tính năng Các máy vẫn bật được khi thiếu nó. **Bật** sẽ bật chúng.',
+            text: 'Các phiên ở đây chạy lệnh trên các máy tính khác của bạn qua công cụ của Mother Claude. Đây là mục khuyến nghị; khi một máy khác cho máy này chạy lệnh trên đó, các công cụ ấy phải chờ mục này, nhưng phần còn lại vẫn hoạt động khi thiếu nó. **Bật** sẽ bật chúng.',
           },
           {
             term: 'Từng tài khoản',
-            text: 'Đã đăng nhập trên máy tính này. Chỉ các phiên của tài khoản đó phải chờ: tính năng Các máy vẫn bật được khi thiếu nó. **Đăng nhập…** bắt đầu việc đăng nhập ngay tại máy này.',
+            text: 'Đã đăng nhập trên máy tính này. Chỉ các phiên của tài khoản đó phải chờ: phần còn lại vẫn hoạt động khi thiếu nó. **Đăng nhập…** bắt đầu việc đăng nhập ngay tại máy này.',
           },
           {
             term: 'Dung lượng trống',
@@ -137,17 +139,24 @@ const TOPICS: HelpTopicSource[] = [
       },
       {
         heading: 'Tài khoản và thư mục',
+        intro:
+          'Bạn đặt chúng trong phần thiết lập, và sau đó thay đổi trong **Máy tính › Tùy chọn › Tài khoản và thư mục**.',
         points: [
           'Tài khoản được ghép theo tên trên từng máy tính, không phân biệt chữ hoa chữ thường, và tài khoản Mặc định với tài khoản Mặc định. Một phiên được chuyển sang tài khoản cùng tên, và chỉ chạy được ở nơi tài khoản đó đã đăng nhập.',
           'Máy khác chỉ thấy tên, loại và trạng thái đăng nhập của các tài khoản của bạn: không bao giờ thấy token, email hay thư mục.',
           'Thư mục dùng chung là một thư mục trên mỗi máy tính, chẳng hạn `~/development/projects` trên máy Mac và `D:\\development\\projects` trên Windows: một dự án nằm trong nó ở máy này là cùng dự án đó, ở cùng vị trí, trên máy kia.',
           'Phần thiết lập đề xuất thư mục dùng chung dựa trên remote git của các dự án: nhấn **Dùng** để nhận một thư mục, hoặc **Thêm thư mục** để thêm thư mục của riêng bạn. Các cặp thư mục từ **Sao lưu & đồng bộ** được giữ lại.',
           'Dự án chỉ một máy có sẽ hiện **Sao chép sang …** hoặc **Sao chép về đây**. Dự án không có remote git thì không thể chuyển cùng mã nguồn.',
-          '**Đăng nhập trên …**, **Thêm trên …** và **Sao chép sang …** là những việc được nhờ máy đó: người ở máy đó sẽ xác nhận.',
+          '**Đăng nhập trên …**, **Thêm trên …** và **Sao chép sang …** là những việc được nhờ máy đó: người ở máy đó sẽ xác nhận, trong **Hộp thư** của máy ấy.',
+        ],
+        links: [
+          { label: 'Mở trang Tùy chọn', path: '/computers/options', fragment: 'accounts-folders' },
         ],
       },
       {
         heading: 'Tùy chọn',
+        intro:
+          'Bạn đặt chúng trong phần thiết lập, và sau đó thay đổi trong **Máy tính › Tùy chọn**: **Chung** (nhấn **Thay đổi**) và **Từng dự án**.',
         terms: [
           {
             term: 'Máy chủ chuyển tiếp',
@@ -155,7 +164,7 @@ const TOPICS: HelpTopicSource[] = [
           },
           {
             term: 'Cách mã nguồn được chuyển khi một phiên chuyển đi',
-            text: '**Trực tiếp giữa các máy (mặc định)**: gửi thẳng sang máy tính kia, không đẩy lên đâu cả. **Qua remote git của bạn**: các ref ẩn trên remote của bạn, bị xoá sau khi chuyển trừ khi bạn giữ lại; cả hai máy cần truy cập được remote mà không phải nhập mật khẩu.',
+            text: '**Trực tiếp giữa các máy tính (mặc định)**: gửi thẳng sang máy tính kia, không đẩy lên đâu cả. **Qua remote git của bạn**: các ref ẩn trên remote của bạn, bị xoá sau khi chuyển trừ khi bạn giữ lại; cả hai máy cần truy cập được remote mà không phải nhập mật khẩu.',
           },
           {
             term: 'Nơi mã nguồn được đặt',
@@ -167,9 +176,42 @@ const TOPICS: HelpTopicSource[] = [
           },
         ],
         points: [
-          'Hãy dùng cùng máy chủ chuyển tiếp trên mọi máy (hai máy dùng máy chủ chuyển tiếp khác nhau có thể không bao giờ gặp được nhau), và tốt nhất là cùng tùy chọn mã nguồn: thay đổi ở đây được đề xuất cho các máy kia, và mỗi máy nhận khi người ở máy đó nhấn **Dùng cả ở đây** (hoặc **Giữ cài đặt của máy này**). Một lần chuyển theo tùy chọn của máy bắt đầu chuyển.',
+          'Hãy dùng cùng máy chủ chuyển tiếp trên mọi máy (hai máy dùng máy chủ chuyển tiếp khác nhau có thể không bao giờ gặp được nhau), và tốt nhất là cùng tùy chọn mã nguồn: thay đổi ở đây được đề xuất cho các máy kia, trong **Hộp thư** của chúng, và mỗi máy nhận khi người ở máy đó nhấn **Dùng cả ở đây** (hoặc **Giữ cài đặt của máy này**). Một lần chuyển theo tùy chọn của máy bắt đầu chuyển.',
           '**Từng dự án** có thể chuyển mã nguồn theo cách khác, và có một công thức: **Sau khi chuyển, nhờ Claude chạy**, mỗi dòng một lệnh, cho macOS, Windows và Linux. Các lệnh được gửi cho Claude, và Claude chạy chúng qua các bước phê duyệt của chính phiên đó. **Các tệp git bỏ qua sẽ đi kèm**, chẳng hạn `.env.local`, đi cùng mỗi lần chuyển của dự án: chúng thường chứa bí mật, nên việc thêm tệp, và việc mang chúng theo, đều cần quyền thao tác nguy hiểm.',
           '**Kiểm tra remote** xem remote git của một dự án có phản hồi mà không yêu cầu mật khẩu trên từng máy không. Việc kiểm tra chỉ chạy khi bạn nhấn nút, và chạy lại trước mỗi lần chuyển qua remote.',
+        ],
+        links: [{ label: 'Mở trang Tùy chọn', path: '/computers/options' }],
+      },
+      {
+        heading: 'Trang Máy tính, từng thẻ một',
+        intro: 'Khi các máy tính của bạn đã được thiết lập, trang **Máy tính** có bốn thẻ:',
+        terms: [
+          {
+            term: 'Tổng quan',
+            text: '**Máy Mac này** (hoặc **Máy PC này**), rồi một thẻ cho mỗi máy đã ghép nối: cách nó đang kết nối, các phiên bản của nó, các phiên của nó (**Mở các phiên của máy này**), các mục kiểm tra không đạt kèm cách sửa, quyền của mỗi máy trên máy kia (**Thay đổi**), **Đổi tên**, **Thu hồi** và **Thu hồi ở mọi nơi**. Sau đó là **Ghép nối các máy tính của bạn với nhau** và **Bản sao**.',
+          },
+          {
+            term: 'Đồng bộ mã nguồn',
+            text: 'Các dự án được giữ giống nhau trên hai máy tính, và **Giữ một dự án đồng bộ…**.',
+          },
+          {
+            term: 'Hoạt động',
+            text: 'Những gì đã diễn ra giữa các máy tính của bạn: **Các lần chuyển gần đây**, **Các lần chạy**, **Tác vụ**, **Vai trò trong nhóm** và **Lệnh chạy luôn được phép**. Các nút lọc ở trên cùng chỉ hiện một loại.',
+          },
+          {
+            term: 'Tùy chọn',
+            text: '**Chung** (máy chủ chuyển tiếp, cách chuyển mã nguồn, bản sao, giữ máy thức), **Tài khoản và thư mục** và **Từng dự án**, rồi **Chạy lại thiết lập** và **Tắt tính năng Máy tính**.',
+          },
+        ],
+        points: [
+          '**Máy Mac này** (hoặc **Máy PC này**) hiện các phiên bản của máy, **Công cụ cho Claude Code** có đang bật không, các mục kiểm tra không đạt kèm cách sửa, và lần kiểm tra gần nhất: **Kiểm tra lại** chạy chúng ngay. Trên máy Mac, thẻ này còn hiện nhanh các quyền macOS: **Quyền** mở danh sách các quyền.',
+          '**Dịch vụ nền của Claude Code** cho biết dịch vụ có đang chạy không và có bao nhiêu công việc nền. **Chi tiết** hiện dịch vụ đó, cùng các máy chủ MCP đã cấu hình cho Claude Code và các công việc nền.',
+          'Những gì các máy tính khác yêu cầu máy này, một máy tính mà một trong số chúng giới thiệu và một cài đặt mà một máy đề xuất đều chờ trong **Hộp thư**.',
+          'Trên điện thoại, **Máy tính** nằm trong **Thêm**: việc ghép nối, thiết lập, quyền và tùy chọn được thay đổi trong ứng dụng máy tính.',
+        ],
+        links: [
+          { label: 'Mở trang Đồng bộ mã nguồn', path: '/computers/sync' },
+          { label: 'Mở trang Hoạt động', path: '/computers/activity' },
         ],
       },
     ],
@@ -199,17 +241,17 @@ const TOPICS: HelpTopicSource[] = [
         heading: 'Ghép nối hai máy tính',
         where: 'desktop',
         steps: [
-          'Trên máy tính thứ nhất, mở **Các máy** và nhấn **Ghép nối một máy**. Một mã 8 ký tự hiện ra: mã dùng được một lần, trong năm phút.',
-          'Trên máy tính kia, mở **Các máy** và nhấn **Tham gia…**.',
-          'Nhập mã vào **Mã** và nhấn **Tham gia**.',
+          'Trên máy tính thứ nhất, mở **Máy tính** và nhấn **Ghép nối một máy tính**. Một mã 8 ký tự hiện ra: mã dùng được một lần, trong năm phút.',
+          'Trên máy tính kia, mở **Máy tính** và nhấn **Tham gia…**.',
+          'Trong **Tham gia ghép nối với máy tính khác**, nhập mã vào **Mã** và nhấn **Tham gia**.',
           'Kiểm tra rằng cả hai màn hình hiện cùng sáu chữ số.',
           'Trên mỗi máy, chọn những gì máy kia được làm trên máy này, rồi nhấn **Dãy số khớp — Ghép nối**.',
         ],
         tips: [
           '**Ở gần** liệt kê các máy tính trong mạng của bạn đang hiện mã, để bạn kiểm tra máy nào đang hiện mã: bạn vẫn phải nhập mã của máy đó, vì việc tham gia cần mã. Không có máy nào ở gần? Mã dùng được cả qua Internet.',
-          'Phần thiết lập có cùng các nút này ở bước **Các máy của bạn**.',
+          'Phần thiết lập có cùng các nút này ở bước **Các máy tính của bạn**. Trước khi thiết lập, trang **Máy tính** chỉ có **Thiết lập các máy tính của bạn**.',
         ],
-        links: [{ label: 'Mở trang Các máy', path: '/machines' }],
+        links: [{ label: 'Mở trang Máy tính', path: '/computers' }],
       },
       {
         heading: 'Qua Internet',
@@ -231,10 +273,10 @@ const TOPICS: HelpTopicSource[] = [
         heading: 'Đổi tên hoặc thu hồi một máy',
         where: 'desktop',
         points: [
-          'Trên **Các máy**, thẻ của mỗi máy đã ghép nối có **Đổi tên** (tên của nó trên máy này) và **Thu hồi**.',
+          'Trên **Máy tính**, thẻ của mỗi máy đã ghép nối có **Đổi tên** (tên của nó trên máy này) và **Thu hồi**.',
           '**Thu hồi**, rồi **Nhấn lần nữa để thu hồi**: máy này quên máy kia và cắt các kết nối của nó ngay lập tức.',
           '**Thu hồi** chỉ có tác dụng trên máy này. Với một máy bị mất hoặc bị đánh cắp, hãy dùng **Thu hồi ở mọi nơi** trên bất kỳ máy nào khác của bạn: máy đó bị cắt khỏi tất cả các máy.',
-          '**Tắt tính năng Các máy** không hủy ghép nối, nhưng khi tính năng này tắt, máy đã ghép nối chỉ ghép nối và chạy thiết lập được với máy này: nó không xem, điều khiển hay chuyển được các phiên ở đây, và máy này cũng không dùng các máy kia. **Thu hồi** để quên một máy.',
+          '**Tắt tính năng Máy tính** (**Máy tính › Tùy chọn**) không hủy ghép nối, nhưng khi tính năng này tắt, máy đã ghép nối chỉ ghép nối và chạy thiết lập được với máy này: nó không xem, điều khiển hay chuyển được các phiên ở đây, và máy này cũng không dùng các máy kia. **Thu hồi** để quên một máy.',
         ],
       },
     ],
@@ -247,7 +289,7 @@ const TOPICS: HelpTopicSource[] = [
     summary:
       'Ghép nối một máy tính mới với các máy khác qua một máy bạn đã có, cắt một máy bị mất khỏi tất cả, và giữ phiên bản các máy đồng đều.',
     intro:
-      'Mỗi cặp máy tính của bạn được ghép nối riêng: một máy có thể giới thiệu hai máy khác với nhau, nhưng không có gì được tin cậy thay cho chúng. Việc thu hồi một máy bị mất ở mọi nơi, và phiên bản mỗi máy đang chạy, cũng nằm trên **Các máy**.',
+      'Mỗi cặp máy tính của bạn được ghép nối riêng: một máy có thể giới thiệu hai máy khác với nhau, nhưng không có gì được tin cậy thay cho chúng. Việc thu hồi một máy bị mất ở mọi nơi, và phiên bản mỗi máy đang chạy, cũng nằm trên **Máy tính**.',
     keywords: [
       'máy thứ ba',
       'giới thiệu',
@@ -264,19 +306,22 @@ const TOPICS: HelpTopicSource[] = [
         heading: 'Ghép nối một máy tính mới với các máy khác',
         where: 'desktop',
         intro:
-          'Trước tiên hãy ghép nối máy mới với một máy của bạn (**Ghép nối các máy tính của bạn**). Máy đó sau đó sẽ đề nghị **Ghép nối thêm … với …?** cho từng máy khác của bạn chưa được ghép nối với máy mới, ngay sau khi ghép nối và trên **Các máy**.',
+          'Trước tiên hãy ghép nối máy mới với một máy của bạn (**Ghép nối các máy tính của bạn**). Máy đó sau đó sẽ đề nghị **Ghép nối thêm … với …?** cho từng máy khác của bạn chưa được ghép nối với máy mới, ngay sau khi ghép nối và trên **Máy tính**, trong **Ghép nối các máy tính của bạn với nhau**.',
         steps: [
           'Nhấn **Giới thiệu chúng với nhau**. Cả hai máy được báo máy kia là ai; chưa có gì được ghép nối.',
-          'Trên mỗi máy trong hai máy, mở **Các máy**: thẻ **Lời giới thiệu** cho biết máy nào đã giới thiệu máy nào. Nhấn **Ghép nối với …**.',
+          'Trên mỗi máy trong hai máy, mở **Hộp thư**: trong **Cần bạn**, **… giới thiệu …** cho biết máy nào đã giới thiệu máy nào. Nhấn **Ghép nối với …**.',
           'Kiểm tra rằng cả hai màn hình hiện cùng sáu chữ số. Khi một máy kết nối qua Internet, máy kia sẽ bảo bạn nhập các chữ số đó, như khi ghép nối bằng mã.',
           'Trên mỗi máy, chọn những gì máy kia được làm trên máy này, rồi nhấn **Dãy số khớp — Ghép nối**.',
         ],
         tips: [
-          '**Để sau** trên bất kỳ máy nào sẽ kết thúc việc đó ở máy ấy và báo cho máy kia: không có gì được ghép nối.',
+          '**Để sau** trên bất kỳ máy nào sẽ kết thúc việc đó ở máy ấy và báo cho máy kia: không có gì được ghép nối. Trong lúc hai máy ghép nối, **Hiện việc ghép nối** mở lại phần ghép nối.',
           'Một lời giới thiệu chờ cả hai câu trả lời trong mười phút: quá thời gian đó, hãy giới thiệu chúng lại.',
-          'Phần thiết lập có cùng các đề nghị này ở bước **Các máy của bạn**.',
+          'Phần thiết lập có cùng các đề nghị này ở bước **Các máy tính của bạn**.',
         ],
-        links: [{ label: 'Mở trang Các máy', path: '/machines' }],
+        links: [
+          { label: 'Mở trang Máy tính', path: '/computers' },
+          { label: 'Mở trang Hộp thư', path: '/inbox' },
+        ],
       },
       {
         heading: 'Vì sao lời giới thiệu an toàn',
@@ -293,21 +338,21 @@ const TOPICS: HelpTopicSource[] = [
         intro:
           'Dành cho máy bị mất hoặc bị đánh cắp: cắt nó khỏi tất cả các máy của bạn từ bất kỳ máy nào.',
         steps: [
-          'Trên **Các máy**, tìm thẻ của máy đó và nhấn **Thu hồi ở mọi nơi**.',
+          'Trên **Máy tính**, tìm thẻ của máy đó và nhấn **Thu hồi ở mọi nơi**.',
           'Nhấn **Nhấn lần nữa để thu hồi ở mọi nơi**.',
         ],
         points: [
           'Máy này quên máy đó và cắt các kết nối của nó ngay lập tức, rồi đề nghị từng máy khác của bạn làm như vậy. Mỗi máy làm ngay, và hiện thông báo rằng bạn đã thu hồi nó trên tất cả máy tính của bạn.',
-          'Một máy đang tắt hoặc ở xa sẽ làm khi kết nối lại lần tới: **Đã thu hồi ở mọi nơi** trên **Các máy** cho biết những máy nào còn phải làm.',
+          'Một máy đang tắt hoặc ở xa sẽ làm khi kết nối lại lần tới, và đến lúc đó vẫn cho nó vào: **Hộp thư** cho biết những máy nào còn phải làm, trong **Cần sửa** (**… chưa bị thu hồi ở mọi nơi**). **Đóng thông báo** cất mục này đi.',
           'Việc này chỉ gỡ bỏ sự tin cậy: nó không thêm gì ở đâu cả, và không máy nào dùng được nó để thu hồi chính máy đã đề nghị.',
         ],
       },
       {
         heading: 'Phiên bản',
         points: [
-          'Thẻ của mỗi máy trên **Các máy** hiện hệ điều hành, phiên bản Mother Claude, giao thức Các máy và Claude Code của máy đó.',
+          'Thẻ của mỗi máy trên **Máy tính** hiện hệ điều hành, phiên bản Mother Claude, giao thức và Claude Code của máy đó.',
           'Một máy chạy Mother Claude cũ hơn sẽ báo như vậy, kèm **Nhờ … cập nhật**: máy đó sẽ hiện trang **Cập nhật phần mềm** khi có người ở đó xác nhận. Khi máy này là máy cũ hơn, **Cập nhật** mở **Cập nhật phần mềm** ở đây.',
-          'Một máy cũ hơn cũng cho biết những gì nó chưa làm được cho đến khi được cập nhật, như **nhận tác vụ** hay **giữ mã nguồn đồng bộ**. Hai máy dùng giao thức Các máy khác nhau hoàn toàn không làm việc được với nhau cho đến khi một máy cập nhật.',
+          'Một máy cũ hơn cũng cho biết những gì nó chưa làm được cho đến khi được cập nhật, như **nhận tác vụ** hay **giữ mã nguồn đồng bộ**. Hai máy dùng giao thức khác nhau hoàn toàn không làm việc được với nhau cho đến khi một máy cập nhật.',
           'Claude Code cũ hơn ở máy kia cũng có **Nhờ … cập nhật**; ở đây, **Cập nhật** chạy `claude update`.',
         ],
       },
@@ -320,7 +365,7 @@ const TOPICS: HelpTopicSource[] = [
     group: 'machines',
     summary: 'Các quyền mỗi máy tính cấp cho các máy khác, trong cùng mạng và qua Internet.',
     intro:
-      'Mỗi máy tính tự quyết định từng máy khác được làm gì trên nó. Bạn chọn khi ghép nối, và có thể đổi sau trên trang **Các máy**.',
+      'Mỗi máy tính tự quyết định từng máy khác được làm gì trên nó. Bạn chọn khi ghép nối, và có thể đổi sau trên trang **Máy tính**.',
     keywords: [
       'quyền',
       'cấp quyền',
@@ -369,14 +414,14 @@ const TOPICS: HelpTopicSource[] = [
         heading: 'Cùng mạng hay qua Internet',
         points: [
           'Mỗi quyền có hai cột: **Cùng mạng**, cho kết nối trực tiếp trong mạng cục bộ của bạn, và **Internet**, cho mọi trường hợp khác, kể cả qua máy chủ chuyển tiếp.',
-          'Thẻ của một máy trên **Các máy** cho biết hiện nó đang kết nối thế nào: **Trực tiếp (cùng mạng)**, **Trực tiếp (Internet)** hoặc **Qua máy chủ chuyển tiếp (chậm hơn)**.',
+          'Thẻ của một máy trên **Máy tính** cho biết hiện nó đang kết nối thế nào: **Trực tiếp (cùng mạng)**, **Trực tiếp (Internet)** hoặc **Qua máy chủ chuyển tiếp (chậm hơn)**.',
         ],
       },
       {
         heading: 'Thay đổi quyền',
         where: 'desktop',
         steps: [
-          'Mở **Các máy**.',
+          'Mở **Máy tính**.',
           'Trên thẻ của máy kia, cạnh **Trên máy Mac này, … được** (hoặc **Trên máy PC này, … được**), nhấn **Thay đổi**.',
           'Đánh dấu hoặc bỏ đánh dấu các ô, rồi nhấn **Lưu**.',
         ],
@@ -384,7 +429,7 @@ const TOPICS: HelpTopicSource[] = [
           '**Trên …, máy Mac này được** cho biết máy kia cho máy này làm gì. Chỉ máy kia mới thay đổi được.',
           'Phần thiết lập có cùng bảng này ở bước **Quyền của từng máy**.',
         ],
-        links: [{ label: 'Mở trang Các máy', path: '/machines' }],
+        links: [{ label: 'Mở trang Máy tính', path: '/computers' }],
       },
       {
         heading: 'Thao tác nguy hiểm qua máy khác',
@@ -405,10 +450,10 @@ const TOPICS: HelpTopicSource[] = [
     summary:
       'Xem và điều khiển phiên của mọi máy từ bất kỳ máy nào, và bắt đầu phiên trên máy khác.',
     intro:
-      'Sau khi hai máy tính được ghép nối và tính năng Các máy được bật trên cả hai, mỗi máy liệt kê các phiên Claude Code của máy kia. Mở một phiên và dùng nó như thể nó chạy ở đây.',
+      'Sau khi hai máy tính được ghép nối và cả hai đã bật tính năng Máy tính, mỗi máy liệt kê các phiên Claude Code của máy kia. Mở một phiên và dùng nó như thể nó chạy ở đây.',
     keywords: [
       'máy khác',
-      'bộ lọc máy',
+      'bộ lọc máy tính',
       'nhãn máy',
       'hộp thư',
       'ngoại tuyến',
@@ -422,8 +467,8 @@ const TOPICS: HelpTopicSource[] = [
         heading: 'Tìm các phiên',
         points: [
           '**Phiên** liệt kê phiên của mọi máy. Phiên của máy khác có nhãn ghi tên máy đó; phiên của máy này thì không.',
-          'Bộ lọc **Máy** chọn một máy: **Mọi máy**, **máy Mac này** (hoặc **máy PC này**), hoặc một máy khác theo tên.',
-          'Trên **Các máy**, thẻ của một máy cho biết máy đó có bao nhiêu phiên và bao nhiêu phiên đang chạy; **Mở các phiên của máy này** liệt kê chúng.',
+          'Bộ lọc **Máy tính** chọn một máy: **Mọi máy tính**, **máy Mac này** (hoặc **máy PC này**), hoặc một máy khác theo tên.',
+          'Trên **Máy tính**, thẻ của một máy cho biết máy đó có bao nhiêu phiên và bao nhiêu phiên đang chạy; **Mở các phiên của máy này** liệt kê chúng.',
           '**Hộp thư** liệt kê những gì đang chờ bạn ở mọi máy, mỗi yêu cầu kèm máy của nó. Hãy trả lời ở đây: câu trả lời đầu tiên được tính, như với điện thoại.',
         ],
         links: [{ label: 'Mở trang Phiên', path: '/' }],
@@ -464,7 +509,7 @@ const TOPICS: HelpTopicSource[] = [
           'Điện thoại đã ghép nối với bất kỳ máy tính nào của bạn sẽ xem và điều khiển được mọi máy thông qua máy đó.',
           'Thao tác nguy hiểm trên máy khác cần quyền thao tác nguy hiểm của điện thoại trên máy mà nó ghép nối, và quyền **Nguy hiểm** mà máy kia cấp cho máy đó.',
           'Điện thoại ở trạng thái **Hạn chế** (tự làm mới vài giây một lần thay vì cập nhật trực tiếp) vẫn thấy các phiên của các máy khác, trong cùng lần làm mới đó.',
-          'Việc thiết lập Các máy, ghép nối máy tính và thay đổi quyền của chúng được thực hiện trong ứng dụng máy tính.',
+          'Việc thiết lập các máy tính, ghép nối chúng và thay đổi quyền của chúng được thực hiện trong ứng dụng máy tính; trên điện thoại, **Máy tính** nằm trong **Thêm**.',
         ],
       },
     ],
@@ -514,7 +559,7 @@ const TOPICS: HelpTopicSource[] = [
           },
           {
             term: 'Ngoài git',
-            text: 'Các tệp git bỏ qua mà dự án liệt kê (**Tùy chọn › Từng dự án**), chẳng hạn `.env.local`. Chúng thường chứa bí mật, nên chỉ được mang theo khi có quyền thao tác nguy hiểm ở đây và quyền **Nguy hiểm** của máy nhận; bỏ đánh dấu **Mang theo chúng** để để chúng lại. Tệp cùng tên ở máy đó được giữ lại cho **Hoàn tác việc chuyển**.',
+            text: 'Các tệp git bỏ qua mà dự án liệt kê (**Máy tính › Tùy chọn › Từng dự án**), chẳng hạn `.env.local`. Chúng thường chứa bí mật, nên chỉ được mang theo khi có quyền thao tác nguy hiểm ở đây và quyền **Nguy hiểm** của máy nhận; bỏ đánh dấu **Mang theo chúng** để để chúng lại. Tệp cùng tên ở máy đó được giữ lại cho **Hoàn tác việc chuyển**.',
           },
           {
             term: 'Nơi đến',
@@ -522,7 +567,7 @@ const TOPICS: HelpTopicSource[] = [
           },
           {
             term: 'Cách chuyển mã nguồn',
-            text: '**Trực tiếp giữa các máy** (mặc định: thẳng giữa hai máy, không đẩy lên đâu cả), **Qua remote git của bạn** (ref ẩn trên remote của bạn, bị xoá sau đó trừ khi được giữ lại) hoặc **Chỉ cuộc trò chuyện**. Qua remote, remote phải phản hồi trên cả hai máy mà không yêu cầu mật khẩu: việc này được kiểm tra trước khi chuyển. Khi gửi trực tiếp giữa các máy, mã nguồn lớn hơn 1 GB sẽ tự đi qua remote của bạn nếu remote phản hồi trên cả hai máy, và việc chuyển sẽ báo điều đó.',
+            text: '**Trực tiếp giữa các máy tính** (mặc định: thẳng giữa hai máy, không đẩy lên đâu cả), **Qua remote git của bạn** (ref ẩn trên remote của bạn, bị xoá sau đó trừ khi được giữ lại) hoặc **Chỉ cuộc trò chuyện**. Qua remote, remote phải phản hồi trên cả hai máy mà không yêu cầu mật khẩu: việc này được kiểm tra trước khi chuyển. Khi gửi trực tiếp giữa các máy tính, mã nguồn lớn hơn 1 GB sẽ tự đi qua remote của bạn nếu remote phản hồi trên cả hai máy, và việc chuyển sẽ báo điều đó.',
           },
           {
             term: 'Nơi đặt mã nguồn',
@@ -530,7 +575,7 @@ const TOPICS: HelpTopicSource[] = [
           },
           {
             term: 'Sau khi chuyển',
-            text: 'Khi dự án có công thức (đặt trong **Tùy chọn › Từng dự án**, hoặc tệp `.mother-claude/recipe.json` được commit trong dự án): nhờ Claude chạy các lệnh của nó trên máy kia, chẳng hạn `npm ci`. Chúng nằm trong tin nhắn đầu tiên Claude nhận ở đó và đi qua các yêu cầu duyệt của chính nó: Mother Claude không bao giờ tự chạy lệnh trên máy kia.',
+            text: 'Khi dự án có công thức (đặt trong **Máy tính › Tùy chọn › Từng dự án**, hoặc tệp `.mother-claude/recipe.json` được commit trong dự án): nhờ Claude chạy các lệnh của nó trên máy kia, chẳng hạn `npm ci`. Chúng nằm trong tin nhắn đầu tiên Claude nhận ở đó và đi qua các yêu cầu duyệt của chính nó: Mother Claude không bao giờ tự chạy lệnh trên máy kia.',
           },
           {
             term: 'Khi nào',
@@ -549,7 +594,7 @@ const TOPICS: HelpTopicSource[] = [
       {
         heading: 'Các mục kiểm tra',
         points: [
-          '**Kiểm tra** liệt kê những gì ổn, những gì chặn việc chuyển kèm cách sửa, và những gì chỉ làm nó kém đi (Claude Code ở máy kia cũ hơn, kiểu xuống dòng, Git LFS, submodule). Tính năng Các máy phải được bật trên cả hai máy.',
+          '**Kiểm tra** liệt kê những gì ổn, những gì chặn việc chuyển kèm cách sửa, và những gì chỉ làm nó kém đi (Claude Code ở máy kia cũ hơn, kiểu xuống dòng, Git LFS, submodule). Cả hai máy phải bật tính năng Máy tính.',
           'Khi còn mục chặn, nút ghi **Hãy khắc phục các mục kiểm tra trước**. Khi thư mục dự án ở máy kia có thay đổi riêng, hoặc nhánh của nó đã đi tiếp ở đó, Mother Claude đề xuất **Dùng thư mục riêng (worktree)**.',
           'Khi nhánh của nó đã đi tiếp ở máy kia, Mother Claude còn đề xuất thay nhánh đó bằng nhánh của máy này: các commit riêng của nhánh ở đó được giữ lại, và **Hoàn tác việc chuyển** sẽ đưa chúng trở lại. Nếu nhánh ở đó đi tiếp trước khi việc chuyển hoàn tất, việc chuyển sẽ dừng.',
           'Phiên do ứng dụng khác chạy (VS Code, terminal) không thể bị Mother Claude dừng: một bản sao tiếp tục ở máy kia dưới dạng phiên mới, trong khi phiên này vẫn tiếp tục ở đây. Nút ghi **Tiếp tục dưới dạng bản sao trên …**; hoặc hãy kết thúc nó trong ứng dụng đó trước.',
@@ -602,7 +647,7 @@ const TOPICS: HelpTopicSource[] = [
       {
         heading: 'Hoàn tác việc chuyển',
         steps: [
-          'Tìm lần chuyển: ngay khi chuyển xong, trong **Các lần chuyển gần đây** trên trang **Các máy**, hoặc trong **Các lần chuyển giữa máy tính** ở thẻ **Thông tin** của phiên.',
+          'Tìm lần chuyển: ngay khi chuyển xong, trong **Các lần chuyển gần đây** trên **Máy tính › Hoạt động**, hoặc trong **Các lần chuyển giữa máy tính** ở thẻ **Thông tin** của phiên.',
           'Nhấn **Hoàn tác việc chuyển**.',
           'Nhấn **Chạm lần nữa để hoàn tác**.',
         ],
@@ -610,6 +655,7 @@ const TOPICS: HelpTopicSource[] = [
           'Có thể hoàn tác trong bảy ngày. Việc hoàn tác đưa thư mục dự án và nhánh trên máy kia về như cũ, gỡ các tệp của cuộc trò chuyện ở đó ra, và phiên lại ở đây (khởi động lại ở đây nếu nó đang chạy).',
           'Không thể hoàn tác khi phiên đã tiếp tục ở máy kia: hãy đưa nó về, để không mất những gì nó đã làm ở đó. Bản sao thì không bao giờ được hoàn tác: hãy dừng hoặc xóa nó ở máy kia.',
         ],
+        links: [{ label: 'Mở trang Hoạt động', path: '/computers/activity' }],
       },
       {
         heading: 'Những gì không bao giờ được chuyển',
@@ -657,14 +703,14 @@ const TOPICS: HelpTopicSource[] = [
           'Nhấn **Lưu**.',
         ],
         tips: [
-          'Cho mọi phiên của một dự án: **Các máy › Tùy chọn**, phần tùy chọn của dự án, **Giữ bản sao các phiên của dự án trên**. Lựa chọn riêng của một phiên trong menu của nó được ưu tiên; **Theo dự án của nó** quay về lựa chọn của dự án.',
+          'Cho mọi phiên của một dự án: **Máy tính › Tùy chọn › Từng dự án**, phần tùy chọn của dự án, **Giữ bản sao các phiên của dự án trên**. Lựa chọn riêng của một phiên trong menu của nó được ưu tiên; **Theo dự án của nó** quay về lựa chọn của dự án.',
         ],
       },
       {
         heading: 'Cần những gì',
         points: [
           'Quyền **Di chuyển** mà máy kia cấp cho máy này: một bản sao là nửa đầu của một lần chuyển phiên.',
-          'Tính năng Các máy đã bật trên cả hai máy. Khi một trong hai máy tắt tính năng này, máy kia ngoại tuyến hoặc thiếu quyền, việc sao chép tạm dừng và cho biết lý do. Không có gì được xếp hàng chờ: khi trở ngại đó hết, lần sao chép tiếp theo gửi mọi phần đã thêm trong lúc đó.',
+          'Cả hai máy đã bật tính năng Máy tính. Khi một trong hai máy tắt tính năng này, máy kia ngoại tuyến hoặc thiếu quyền, việc sao chép tạm dừng và cho biết lý do. Không có gì được xếp hàng chờ: khi trở ngại đó hết, lần sao chép tiếp theo gửi mọi phần đã thêm trong lúc đó.',
         ],
       },
       {
@@ -688,7 +734,7 @@ const TOPICS: HelpTopicSource[] = [
           },
           {
             term: 'Tạm dừng',
-            text: 'Kèm lý do: máy kia ngoại tuyến, tính năng Các máy đang tắt trên một trong hai máy, thiếu quyền **Di chuyển**, Mother Claude ở đó cũ hơn, máy đó đã dọn chỗ cho các bản sao mới hơn, hoặc phiên giờ đang ở trên một máy khác.',
+            text: 'Kèm lý do: máy kia ngoại tuyến, tính năng Máy tính đang tắt trên một trong hai máy, thiếu quyền **Di chuyển**, Mother Claude ở đó cũ hơn, máy đó đã dọn chỗ cho các bản sao mới hơn, hoặc phiên giờ đang ở trên một máy khác.',
           },
         ],
       },
@@ -702,7 +748,7 @@ const TOPICS: HelpTopicSource[] = [
       {
         heading: 'Tiếp tục ở đây từ bản sao',
         steps: [
-          'Trên máy giữ bản sao, khi máy của chính phiên đó đang ngoại tuyến: mở phiên (các phiên của máy đó hiện màu xám), hoặc **Các máy › Bản sao**.',
+          'Trên máy giữ bản sao, khi máy của chính phiên đó đang ngoại tuyến: mở phiên (các phiên của máy đó hiện màu xám), hoặc thẻ **Bản sao** trên **Máy tính**.',
           'Nhấn **Tiếp tục ở đây từ bản sao lúc …** (trên thẻ: **Tiếp tục ở đây**), rồi xác nhận.',
         ],
         points: [
@@ -713,8 +759,8 @@ const TOPICS: HelpTopicSource[] = [
       {
         heading: 'Thẻ Bản sao',
         points: [
-          '**Các máy › Bản sao** liệt kê các bản sao được giữ trên máy này (với **Tiếp tục ở đây** khi máy của chúng ngoại tuyến, và **Gỡ bỏ**) và các phiên của máy này được giữ trên máy khác (với **Ngừng giữ bản sao trên …**, thao tác này cũng gỡ bản sao ở đó).',
-          'Mỗi máy giữ tối đa 2 GB bản sao của mỗi máy khác (**Tùy chọn › Bản sao phiên của các máy khác**); bản sao được làm mới lâu nhất sẽ bị gỡ trước, không bao giờ là bản sao của một phiên đang ở trên máy đó.',
+          'Thẻ **Bản sao**, ở cuối trang **Máy tính**, liệt kê các bản sao được giữ trên máy này (với **Tiếp tục ở đây** khi máy của chúng ngoại tuyến, và **Gỡ bỏ**) và các phiên của máy này được giữ trên máy khác (với **Ngừng giữ bản sao trên …**, thao tác này cũng gỡ bản sao ở đó).',
+          'Mỗi máy giữ tối đa 2 GB bản sao của mỗi máy khác (**Bản sao phiên của các máy khác**, trong **Máy tính › Tùy chọn › Chung**); bản sao được làm mới lâu nhất sẽ bị gỡ trước, không bao giờ là bản sao của một phiên đang ở trên máy đó.',
           'Điện thoại đã ghép nối với máy của phiên có thể chọn nơi giữ bản sao và gỡ chúng; giới hạn dung lượng được đặt trong ứng dụng máy tính.',
         ],
       },
@@ -746,21 +792,23 @@ const TOPICS: HelpTopicSource[] = [
         heading: 'Bật tính năng',
         where: 'desktop',
         steps: [
-          'Mở **Các máy**, rồi **Chạy lại thiết lập** (hoặc **Thiết lập Các máy**), và đến bước **Tùy chọn**.',
-          'Trong **Từng dự án**, nhấn **Đặt tùy chọn riêng cho một dự án…** rồi chọn dự án, hoặc nhấn **Thay đổi** ở một dự án đã có trong danh sách.',
-          'Đánh dấu **Giữ dự án này đồng bộ với …** rồi nhấn **Lưu**.',
-          'Trên máy tính kia, đề nghị hiện ở trang **Các máy** và dưới dạng thông báo: người ở máy đó nhấn **Giữ đồng bộ** (hoặc **Để sau**).',
+          'Mở **Máy tính › Đồng bộ mã nguồn** và nhấn **Giữ một dự án đồng bộ…**.',
+          'Chọn **Dự án**, và chọn máy tính kia trong **Với**.',
+          'Xem lại các tệp git bỏ qua sẽ đi kèm (**Thay đổi** mở **Tùy chọn › Từng dự án**), rồi nhấn **Giữ đồng bộ**.',
+          'Trên máy tính kia, đề nghị hiện trong **Hộp thư** của máy đó và dưới dạng thông báo: người ở máy đó nhấn **Giữ đồng bộ** (hoặc **Để sau**).',
         ],
         tips: [
           'Tính năng chỉ bật khi cả hai máy tính đều đồng ý. Lần đồng bộ đầu tiên chạy ngay sau đó: máy có thay đổi, hoặc có commit mới hơn, gửi chúng sang máy sạch và đang ở phía sau. Khi cả hai đều có thay đổi riêng, bạn chọn giữ bản nào (bên dưới).',
+          'Phần tùy chọn riêng của một dự án (**Máy tính › Tùy chọn › Từng dự án**) cũng có lựa chọn này: **Giữ dự án này đồng bộ với …**.',
         ],
+        links: [{ label: 'Mở trang Đồng bộ mã nguồn', path: '/computers/sync' }],
       },
       {
         heading: 'Những gì cần có',
         points: [
-          'Một thư mục dùng chung ánh xạ dự án tới thư mục của nó trên máy tính kia (**Tài khoản và thư mục** trong thiết lập). Thư mục ở đó phải là cùng dự án: cùng `origin`, hoặc có chung một commit. Nếu dự án chưa có ở đó, hãy nhấn **Sao chép sang …** trước.',
+          'Một thư mục dùng chung ánh xạ dự án tới thư mục của nó trên máy tính kia (**Máy tính › Tùy chọn › Tài khoản và thư mục**). Thư mục ở đó phải là cùng dự án: cùng `origin`, hoặc có chung một commit. Nếu dự án chưa có ở đó, hãy nhấn **Sao chép sang …** trước.',
           'Quyền **Di chuyển** theo cả hai chiều: đồng bộ mã nguồn ghi vào thư mục dự án của mỗi máy.',
-          'Tính năng Các máy đang bật trên cả hai máy tính.',
+          'Cả hai máy tính đều bật tính năng Máy tính.',
         ],
       },
       {
@@ -774,7 +822,7 @@ const TOPICS: HelpTopicSource[] = [
       {
         heading: 'Thẻ Đồng bộ mã nguồn',
         intro:
-          '**Các máy › Đồng bộ mã nguồn** liệt kê từng dự án được giữ đồng bộ, và tình trạng của nó:',
+          '**Máy tính › Đồng bộ mã nguồn** liệt kê từng dự án được giữ đồng bộ, trong **Các dự án được giữ đồng bộ**, và tình trạng của nó:',
         terms: [
           { term: 'Đã đồng bộ', text: 'Lần đồng bộ gần nhất, và theo chiều nào.' },
           { term: 'Đang đồng bộ…', text: 'Các thay đổi đang được chuyển.' },
@@ -784,7 +832,7 @@ const TOPICS: HelpTopicSource[] = [
           },
           {
             term: 'Tạm dừng',
-            text: 'Kèm lý do: máy tính kia đang ngoại tuyến, tính năng Các máy đang tắt trên một trong hai máy, thiếu một quyền **Di chuyển**, hoặc một phiên làm việc trong dự án đang được chuyển giữa hai máy. Nó tự tiếp tục khi điều đó kết thúc, từ dự án như lúc đó: không có gì bị xếp hàng chờ.',
+            text: 'Kèm lý do: máy tính kia đang ngoại tuyến, tính năng Máy tính đang tắt trên một trong hai máy, thiếu một quyền **Di chuyển**, hoặc một phiên làm việc trong dự án đang được chuyển giữa hai máy. Nó tự tiếp tục khi điều đó kết thúc, từ dự án như lúc đó: không có gì bị xếp hàng chờ.',
           },
           {
             term: 'Thay đổi ở cả hai',
@@ -814,7 +862,7 @@ const TOPICS: HelpTopicSource[] = [
       {
         heading: 'Từ điện thoại',
         points: [
-          'Điện thoại thấy **Đồng bộ mã nguồn** và tình trạng của từng dự án, chỉ để đọc: bật hay tắt, **Đồng bộ ngay** và chọn một bên được thực hiện trong ứng dụng máy tính.',
+          'Điện thoại thấy **Máy tính › Đồng bộ mã nguồn** và tình trạng của từng dự án, chỉ để đọc: bật hay tắt, **Đồng bộ ngay** và chọn một bên được thực hiện trong ứng dụng máy tính.',
         ],
       },
     ],
@@ -846,7 +894,7 @@ const TOPICS: HelpTopicSource[] = [
         heading: 'Bật tính năng',
         where: 'desktop',
         steps: [
-          'Trên máy tính sẽ chạy lệnh, mở **Các máy**.',
+          'Trên máy tính sẽ chạy lệnh, mở **Máy tính**.',
           'Trên thẻ của máy tính có các phiên sẽ nhờ chạy lệnh, cạnh **Trên máy PC này, … được** (hoặc **Trên máy Mac này, … được**), nhấn **Thay đổi**.',
           'Đánh dấu **Chạy**, cho **Cùng mạng**, **Internet** hoặc cả hai, rồi nhấn **Lưu**.',
           'Trên máy tính có các phiên nhờ chạy lệnh, hãy giữ **Cấp công cụ của Mother Claude cho các phiên** ở trạng thái bật, trong **Dịch vụ**: các phiên tới được máy kia qua những công cụ đó.',
@@ -856,7 +904,7 @@ const TOPICS: HelpTopicSource[] = [
           'Phần thiết lập kiểm tra **Công cụ cho Claude Code**, và **Bật** sẽ bật chúng. Sau đó bài kiểm tra chạy một lệnh `echo` cố định theo mỗi chiều đã được cấp quyền: **Chạy ở đó** và **Chạy ở đây**.',
         ],
         links: [
-          { label: 'Mở trang Các máy', path: '/machines' },
+          { label: 'Mở trang Máy tính', path: '/computers' },
           { label: 'Xem “Công cụ Claude Code”', path: '/help/claude-code-tools' },
         ],
       },
@@ -925,7 +973,7 @@ const TOPICS: HelpTopicSource[] = [
           'Một lệnh có chứa `;`, `&`, `|`, `$`, `(`, `)`, `{`, `}`, `<`, `>`, dấu backtick hoặc dấu xuống dòng thì luôn phải hỏi, dù nó bắt đầu bằng gì: không gì có thể đi kèm sau một lệnh đã được cho phép.',
           'Lệnh nguy hiểm không bao giờ được cho phép theo cách này. Không có gì được đề xuất cho một shell hay một trình thông dịch đứng riêng, như `bash`, `pwsh` hay `python`: Mother Claude đề xuất chương trình cùng thứ nó chạy, chẳng hạn `npm run build` hay `python -m pytest`.',
           '**Luôn cho phép…** cần quyền thao tác nguy hiểm: ứng dụng máy tính, hoặc điện thoại được phép thực hiện thao tác nguy hiểm.',
-          'Chúng được lưu trong Mother Claude, không phải trong cài đặt của Claude Code. **Các máy › Các lần chạy** liệt kê chúng trong **Lệnh chạy luôn được phép**; **Thu hồi** để rút lại một lệnh (ứng dụng máy tính), và lệnh đó sẽ lại hỏi.',
+          'Chúng được lưu trong Mother Claude, không phải trong cài đặt của Claude Code. **Máy tính › Hoạt động** liệt kê chúng trong **Lệnh chạy luôn được phép**; **Thu hồi** để rút lại một lệnh (ứng dụng máy tính), và lệnh đó sẽ lại hỏi.',
         ],
       },
       {
@@ -941,7 +989,7 @@ const TOPICS: HelpTopicSource[] = [
           'Trong một thư mục làm việc riêng trên máy kia: mỗi dự án và mỗi máy nhờ chạy có một thư mục, nằm trong thư mục dữ liệu của Mother Claude ở máy đó. Đó là một git worktree của bản sao dự án trên máy đó, tức thư mục mà các thư mục dùng chung của bạn trỏ tới.',
           'Trước mỗi lần chạy, thư mục làm việc được đặt về đúng mã nguồn hiện tại của phiên: đã commit hay chưa, kể cả các tệp mới. Các tệp git bỏ qua, như `target/` và `node_modules/`, được giữ lại giữa các lần chạy, nên lần build sau tiếp tục từ chỗ lần trước dừng.',
           'Bản sao dự án của chính bạn trên máy đó không bao giờ bị thay đổi: các tệp, nhánh và thay đổi đã stage vẫn giữ nguyên.',
-          'Dự án phải có trên máy đó. Nếu chưa có, lần chạy bị từ chối: hãy sao chép dự án sang đó trước, bằng **Sao chép sang …** ở bước **Tài khoản và thư mục** của phần thiết lập.',
+          'Dự án phải có trên máy đó. Nếu chưa có, lần chạy bị từ chối: hãy sao chép dự án sang đó trước, bằng **Sao chép sang …** trong **Máy tính › Tùy chọn › Tài khoản và thư mục**.',
         ],
       },
       {
@@ -965,11 +1013,11 @@ const TOPICS: HelpTopicSource[] = [
         heading: 'Theo dõi và dừng các lần chạy',
         points: [
           'Trên trang của phiên, một lần chạy là một tác vụ nền: mở **Tác tử**, rồi **Tác vụ nền**. **Đầu ra** hiện những gì nó đã in ra; **Hủy** để dừng nó.',
-          '**Các máy › Các lần chạy** liệt kê các lần chạy gần đây theo cả hai chiều: máy tính, dự án, lệnh, tình trạng, mã thoát và thời gian. **Đầu ra** hiện phần cuối những gì đã in ra; **Hủy** dừng một lần chạy, từ bất kỳ máy nào trong hai máy.',
+          '**Máy tính › Hoạt động** liệt kê các lần chạy gần đây theo cả hai chiều trong **Các lần chạy**: máy tính, dự án, lệnh, tình trạng, mã thoát và thời gian. **Đầu ra** hiện phần cuối những gì đã in ra; **Hủy** dừng một lần chạy, từ bất kỳ máy nào trong hai máy.',
           'Mỗi máy giữ các lần chạy của mình một ngày sau khi chúng kết thúc.',
-          'Tắt tính năng Các máy, thu hồi một máy hoặc rút lại quyền **Chạy** của máy đó sẽ dừng ngay những gì máy đó đang chạy ở đây.',
+          'Tắt tính năng Máy tính, thu hồi một máy hoặc rút lại quyền **Chạy** của máy đó sẽ dừng ngay những gì máy đó đang chạy ở đây.',
         ],
-        links: [{ label: 'Mở trang Các máy', path: '/machines' }],
+        links: [{ label: 'Mở trang Hoạt động', path: '/computers/activity' }],
       },
       {
         heading: 'Từ điện thoại',
@@ -983,11 +1031,11 @@ const TOPICS: HelpTopicSource[] = [
         terms: [
           {
             term: 'Máy kia chưa cấp quyền Chạy cho máy này',
-            text: 'Hãy đánh dấu **Chạy** cho máy này trên trang **Các máy** của máy kia, ở cột của loại mạng bạn đang dùng.',
+            text: 'Hãy đánh dấu **Chạy** cho máy này trong **Máy tính** trên máy kia, ở cột của loại mạng bạn đang dùng.',
           },
           {
             term: 'Dự án chưa có trên máy kia',
-            text: 'Máy đó chưa có bản sao của dự án, hoặc không có thư mục dùng chung nào trỏ tới nó. Hãy sao chép dự án sang đó (**Sao chép sang …**, ở bước **Tài khoản và thư mục** của phần thiết lập), rồi thử lại.',
+            text: 'Máy đó chưa có bản sao của dự án, hoặc không có thư mục dùng chung nào trỏ tới nó. Hãy sao chép dự án sang đó (**Sao chép sang …**, trong **Máy tính › Tùy chọn › Tài khoản và thư mục**), rồi thử lại.',
           },
           {
             term: 'Cần cập nhật Mother Claude trên …',
@@ -1090,20 +1138,20 @@ const TOPICS: HelpTopicSource[] = [
       {
         heading: 'Theo dõi và gỡ bỏ tác vụ',
         points: [
-          '**Các máy › Các lần chạy** liệt kê các tác vụ theo cả hai chiều trong **Tác vụ**: nơi đến, dự án, tác vụ, tình trạng và nhánh. **Mở phiên của tác vụ** mở nó trên máy đang chạy nó; **Tóm tắt** hiện tin nhắn cuối của nó; **Hủy** dừng một tác vụ vẫn đang làm việc.',
+          '**Máy tính › Hoạt động** liệt kê các tác vụ theo cả hai chiều trong **Tác vụ**: nơi đến, dự án, tác vụ, tình trạng và nhánh. **Mở phiên của tác vụ** mở nó trên máy đang chạy nó; **Tóm tắt** hiện tin nhắn cuối của nó; **Hủy** dừng một tác vụ vẫn đang làm việc.',
           '**Gỡ bỏ** xóa một tác vụ đã kết thúc, cùng worktree và phiên của nó trên máy kia. Nhánh của nó vẫn được giữ.',
           'Mỗi máy giữ một tác vụ 7 ngày sau lần kết thúc gần nhất, rồi gỡ nó cùng worktree.',
           'Trên trang của phiên đã giao tác vụ, tác vụ cũng là một tác vụ nền: mở **Tác tử**, rồi **Tác vụ nền**.',
-          'Tắt tính năng Các máy, thu hồi một máy hoặc rút lại quyền **Chạy** của máy đó sẽ hủy các tác vụ máy đó vẫn đang làm ở đây.',
+          'Tắt tính năng Máy tính, thu hồi một máy hoặc rút lại quyền **Chạy** của máy đó sẽ hủy các tác vụ máy đó vẫn đang làm ở đây.',
         ],
-        links: [{ label: 'Mở trang Các máy', path: '/machines' }],
+        links: [{ label: 'Mở trang Hoạt động', path: '/computers/activity' }],
       },
       {
         heading: 'Khi tác vụ không được giao',
         terms: [
           {
             term: 'Máy kia chưa cấp quyền Chạy cho máy này',
-            text: 'Hãy đánh dấu **Chạy** cho máy này trên trang **Các máy** của máy kia.',
+            text: 'Hãy đánh dấu **Chạy** cho máy này trong **Máy tính** trên máy kia.',
           },
           {
             term: 'Cần quyền Nguy hiểm của máy kia',
@@ -1111,7 +1159,7 @@ const TOPICS: HelpTopicSource[] = [
           },
           {
             term: 'Tài khoản chưa đăng nhập trên máy kia',
-            text: 'Hãy đăng nhập tài khoản đó trên máy kia, trong **Cài đặt › Tài khoản** ở đó.',
+            text: 'Hãy đăng nhập tài khoản đó trên máy kia, trong **Tài khoản** ở đó.',
           },
           {
             term: 'Nhánh không tiến lên',
@@ -1124,14 +1172,14 @@ const TOPICS: HelpTopicSource[] = [
 
   {
     id: 'machines-troubleshooting',
-    title: 'Khắc phục sự cố Các máy',
+    title: 'Khắc phục sự cố các máy tính của bạn',
     icon: 'question',
     group: 'troubleshooting',
     summary:
       'Khi hai máy tính không tìm thấy nhau, từ chối một thao tác, hoặc việc chuyển phiên dừng lại.',
     intro: 'Tìm thông báo hoặc hiện tượng bạn gặp, rồi xem cách khắc phục.',
     keywords: [
-      'các máy',
+      'máy tính',
       'ghép nối',
       'ở gần',
       'máy chủ chuyển tiếp',
@@ -1147,15 +1195,15 @@ const TOPICS: HelpTopicSource[] = [
         heading: 'Thiết lập',
         terms: [
           {
-            term: 'Bật tính năng Các máy bị làm mờ',
-            text: 'Còn mục kiểm tra bắt buộc; dòng phía trên nút cho biết còn bao nhiêu. Hãy sửa chúng ở bước **Máy Mac này** (hoặc **Máy PC này**) và **Mọi máy**.',
+            term: 'Bật tính năng Máy tính bị làm mờ',
+            text: 'Còn mục kiểm tra bắt buộc; dòng phía trên nút cho biết còn bao nhiêu. Hãy sửa chúng ở bước **Máy Mac này** (hoặc **Máy PC này**) và **Mọi máy tính**.',
           },
           {
             term: 'Cho phép qua tường lửa không thay đổi gì',
             text: 'Windows hỏi quản trị viên đồng ý trước. Nếu bị từ chối, tường lửa không bị thay đổi: hãy nhấn lại.',
           },
           {
-            term: 'Chỉ các phiên của nó phải chờ: tính năng Các máy vẫn hoạt động.',
+            term: 'Chỉ các phiên của nó phải chờ: phần còn lại vẫn hoạt động.',
             text: 'Tài khoản đó chưa đăng nhập trên máy đó. Các phiên của nó phải chờ ở đó; mọi thứ khác vẫn hoạt động.',
           },
         ],
@@ -1194,11 +1242,11 @@ const TOPICS: HelpTopicSource[] = [
         terms: [
           {
             term: 'Qua máy chủ chuyển tiếp (chậm hơn), khi ở nhà',
-            text: 'Trên máy Mac: quyền truy cập Mạng cục bộ. Trên Windows: loại mạng và tường lửa. **Tình trạng Các máy** cho biết mục nào.',
+            text: 'Trên máy Mac: quyền truy cập Mạng cục bộ. Trên Windows: loại mạng và tường lửa. Thẻ **Máy Mac này** (hoặc **Máy PC này**) trên **Máy tính** cho biết mục nào.',
           },
           {
             term: '… dùng cài đặt máy chủ chuyển tiếp khác',
-            text: 'Hai máy tính dùng máy chủ chuyển tiếp khác nhau có thể không bao giờ gặp được nhau. Nhấn **Dùng cả ở đây** trên một máy, hoặc **Dùng cài đặt này ở mọi nơi** trên máy kia.',
+            text: 'Hai máy tính dùng máy chủ chuyển tiếp khác nhau có thể không bao giờ gặp được nhau. Nhấn **Dùng cả ở đây** trong **Hộp thư** của một máy, hoặc **Dùng cài đặt này ở mọi nơi** trên máy kia.',
           },
           {
             term: 'Một máy đang ngoại tuyến',
@@ -1209,8 +1257,8 @@ const TOPICS: HelpTopicSource[] = [
             text: 'Mother Claude trên máy đó cũ hơn: các phiên của nó vẫn hiện, nhưng không gì được chuyển đến hay đi khỏi máy đó cho đến khi bạn cập nhật.',
           },
           {
-            term: 'Tính năng Các máy đang tắt trên …',
-            text: 'Hãy bật nó trên trang **Các máy** của máy đó (hoặc của máy này, khi thông báo nói đến máy này). Khi tính năng này tắt, các máy kia chỉ ghép nối và chạy thiết lập được với máy đó.',
+            term: 'Tính năng Máy tính đang tắt trên …',
+            text: 'Hãy bật nó trong **Máy tính** trên máy đó (hoặc trên máy này, khi thông báo nói đến máy này). Khi tính năng này tắt, các máy kia chỉ ghép nối và chạy thiết lập được với máy đó.',
           },
         ],
       },
@@ -1219,7 +1267,7 @@ const TOPICS: HelpTopicSource[] = [
         terms: [
           {
             term: '… chỉ cho máy tính này xem các phiên của nó, không cho điều khiển.',
-            text: 'Quyền **Điều khiển** mà máy đó cấp cho máy này đang tắt: hãy đổi trên trang **Các máy** của máy đó.',
+            text: 'Quyền **Điều khiển** mà máy đó cấp cho máy này đang tắt: hãy đổi trong **Máy tính** trên máy đó.',
           },
           {
             term: '… không cho máy tính này thực hiện thao tác nguy hiểm trên đó.',
@@ -1261,7 +1309,7 @@ const TOPICS: HelpTopicSource[] = [
           },
           {
             term: 'Remote … không phản hồi … mà không yêu cầu đăng nhập.',
-            text: 'Hãy đăng nhập remote trên máy đó (Git Credential Manager, hoặc `gh auth login`) rồi thử lại, hoặc chuyển mã nguồn trực tiếp giữa hai máy.',
+            text: 'Hãy đăng nhập remote trên máy đó (Git Credential Manager, hoặc `gh auth login`) rồi thử lại, hoặc chuyển mã nguồn trực tiếp giữa các máy tính.',
           },
           {
             term: 'Mang theo các tệp git bỏ qua cần …',

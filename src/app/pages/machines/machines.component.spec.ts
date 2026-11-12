@@ -3,6 +3,7 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { Router, provideRouter } from '@angular/router';
 
 import { defaultGrants, setGrant } from '../../core/machines';
+import { PermissionsService } from '../../core/permissions.service';
 import {
   FakeBackend,
   asDesktop,
@@ -17,14 +18,19 @@ import { PEER_ID, check, machinesView, peer, setupView } from './machines.testin
 @Component({ template: '' })
 class BlankComponent {}
 
-describe('MachinesComponent', () => {
+/** Computers › Overview (docs/UI-REDESIGN.md §6.5). */
+describe('MachinesComponent: Computers › Overview', () => {
   let backend: FakeBackend;
   let fixture: ComponentFixture<MachinesComponent>;
 
   beforeEach(() => {
     backend = new FakeBackend();
     useFakeServer(backend, [
-      provideRouter([{ path: 'machines/setup', component: BlankComponent }]),
+      provideRouter([
+        { path: 'computers/setup', component: BlankComponent },
+        { path: 'computers/options', component: BlankComponent },
+        { path: 'inbox', component: BlankComponent },
+      ]),
     ]);
     backend.routes.set('/machines/setup', () => ({ status: 200, body: setupView() }));
   });
@@ -56,18 +62,21 @@ describe('MachinesComponent', () => {
     asDesktop();
     const el = await render();
     const off = el.querySelector('.card.off');
-    expect(text(off?.querySelector('h2'))).toBe('Machines is off');
+    expect(text(off?.querySelector('h2'))).toBe('Off on this computer');
     expect(text(off?.querySelector('.needs'))).toContain(
       'This version of Mother Claude, or newer, on each computer',
     );
-    // Nothing to pair from, check or set while it was never set up.
-    expect(button(el, 'Pair a machine')).toBeUndefined();
-    expect(el.querySelector('.card.health')).toBeNull();
-    expect(el.querySelector('.card.options')).toBeNull();
+    // Nothing to pair from or check while it was never set up.
+    expect(button(el, 'Pair a computer')).toBeUndefined();
+    expect(el.querySelector('mc-page-head .badge.state')).toBeNull();
+    expect(button(el, 'Check again')).toBeUndefined();
     expect(backend.calls).not.toContain('GET /machines/setup');
-    button(el, 'Set up Machines')!.click();
+    // The four tabs.
+    const tabs = [...el.querySelectorAll('mc-hub-tabs a')];
+    expect(tabs.map((a) => text(a))).toEqual(['Overview', 'Code sync', 'Activity', 'Options']);
+    button(el, 'Set up your computers')!.click();
     await settle();
-    expect(TestBed.inject(Router).url).toBe('/machines/setup');
+    expect(TestBed.inject(Router).url).toBe('/computers/setup');
   });
 
   it('sends what another computer asked to the Inbox, where it is answered', async () => {
@@ -123,7 +132,7 @@ describe('MachinesComponent', () => {
     expect(text(card.querySelector('h2'))).toBe('DESKTOP-PC');
     expect(text(card.querySelector('.status'))).toContain('Online · Direct (same network)');
     expect(text(card)).toContain(
-      'Windows 11 Pro · Mother Claude 0.11.0 · Machines protocol 1 · Claude Code 2.1.322',
+      'Windows 11 Pro · Mother Claude 0.11.0 · protocol 1 · Claude Code 2.1.322',
     );
     const [here, there] = [...card.querySelectorAll('.grants')];
     expect([...here.querySelectorAll('.gchip')].map((c) => text(c))).toEqual([
@@ -135,9 +144,11 @@ describe('MachinesComponent', () => {
     ]);
     // What this computer may do there is the other computer's to say.
     expect(text(there)).toContain('Not known yet.');
-    expect(text(el.querySelector('.card.health .badge'))).toBe('All good');
-    expect(button(el, 'Pair a machine')).toBeDefined();
-    expect(text(el.querySelector('.card.options'))).toContain('Public relays (default)');
+    // How they stand, in the head; pairing beside it.
+    expect(text(el.querySelector('mc-page-head .badge.state'))).toBe('✓ All good');
+    expect(button(el, 'Pair a computer')).toBeDefined();
+    // The options are a tab of their own.
+    expect(el.querySelector('.card.options')).toBeNull();
   });
 
   it('changes what a computer may do through the matrix', async () => {
@@ -216,26 +227,125 @@ describe('MachinesComponent', () => {
         health: { state: 'warning', blockers: 0, warnings: 1, at: Date.now() },
       }),
     );
-    const health = el.querySelector('.card.health')!;
-    expect(text(health.querySelector('.badge'))).toBe('1 recommended');
-    // Only the failing check, with why it matters.
-    expect(health.querySelectorAll('li.check').length).toBe(1);
-    expect(text(health.querySelector('li.check'))).toContain(
+    expect(text(el.querySelector('mc-page-head .badge.state'))).toBe('! 1 recommended');
+    // This computer's card: only the failing check, with why it matters.
+    const self = el.querySelector('.card.self')!;
+    expect(self.querySelectorAll('li.check').length).toBe(1);
+    expect(text(self.querySelector('li.check'))).toContain(
       'A computer asleep cannot answer the others.',
     );
-    button(health, 'Keep awake while used')!.click();
+    button(self, 'Keep awake while used')!.click();
     await settle();
     expect(backend.bodyOf('POST /machines/setup/fix')).toEqual({ check: 'keepAwake' });
+  });
+
+  it("lists another computer's failing checks on its card, asked there", async () => {
+    asDesktop();
+    backend.routes.set('/machines/setup', () => ({
+      status: 200,
+      body: setupView({
+        blockers: 1,
+        peers: [
+          {
+            machine: PEER_ID,
+            name: 'DESKTOP-PC',
+            at: Date.now(),
+            error: null,
+            checks: [
+              check({
+                id: 'firewall',
+                area: 'network',
+                title: 'The firewall',
+                state: 'blocker',
+                detail: 'The firewall blocks Mother Claude.',
+                fix: { kind: 'auto', label: 'Allow through the firewall' },
+              }),
+            ],
+          },
+        ],
+      }),
+    }));
+    backend.routes.set('/machines/setup/ask', () => ({ status: 200, body: { asked: true } }));
+    const el = await render(
+      machinesView({
+        enabled: true,
+        peers: [peer()],
+        health: { state: 'blocker', blockers: 1, warnings: 0, at: Date.now() },
+      }),
+    );
+    expect(text(el.querySelector('mc-page-head .badge.state'))).toBe('✕ 1 required');
+    const card = el.querySelector('.card.peer')!;
+    expect(text(card.querySelector('li.check'))).toContain('The firewall blocks Mother Claude.');
+    button(card, 'Ask DESKTOP-PC to fix')!.click();
+    await settle();
+    expect(backend.bodyOf('POST /machines/setup/ask')).toEqual({
+      machine: PEER_ID,
+      check: 'firewall',
+    });
+  });
+
+  it("shows this computer's permissions, Claude Code tools and background service", async () => {
+    asDesktop();
+    TestBed.inject(PermissionsService).permissions.set([
+      {
+        id: 'full-disk-access',
+        label: 'Full Disk Access',
+        description: 'Reads the sessions.',
+        granted: true,
+        required: true,
+        steps: [],
+      },
+      {
+        id: 'local-network',
+        label: 'Local Network',
+        description: 'Reaches the others.',
+        granted: false,
+        required: true,
+        steps: ['Open System Settings'],
+      },
+    ]);
+    backend.routes.set('/mcp', () => ({
+      status: 200,
+      body: { enabled: true, clients: 2, recentCalls: [], tools: [], toolCount: 9 },
+    }));
+    backend.routes.set('/services', () => ({
+      status: 200,
+      body: {
+        daemon: { reachable: true, raw: 'pid 4242 · up 3 h' },
+        mcpServers: { github: {} },
+        backgroundJobs: [
+          { id: 's1', cwd: '/Users/me/app', state: 'running' },
+          { id: 's2', cwd: '/Users/me/web', state: 'done' },
+        ],
+      },
+    }));
+    const el = await render(machinesView({ enabled: true, peers: [peer()] }));
+    const self = el.querySelector('.card.self')!;
+    expect([...self.querySelectorAll('.fact')].map((f) => text(f))).toEqual([
+      '✓ Full Disk Access : granted',
+      '✕ Local Network : not granted',
+      '✓ Claude Code tools on',
+    ]);
+    // A required permission is missing: the list with its steps shows.
+    expect(self.querySelector('details.perms')?.hasAttribute('open')).toBe(true);
+    expect(text(self.querySelector('.service'))).toBe(
+      'Claude Code’s background service · running · 2 background jobs Details',
+    );
+    button(self, 'Details')!.click();
+    await settle();
+    const sheet = el.querySelector('mc-services-details')!;
+    expect(text(sheet)).toContain('pid 4242 · up 3 h');
+    expect(text(sheet)).toContain('github');
+    expect(text(sheet)).toContain('s2 — done — /Users/me/web');
   });
 
   it('is read-only on a phone', async () => {
     asPhoneOf('macos');
     const el = await render(machinesView({ enabled: true, peers: [peer()] }));
-    expect(text(el)).toContain('Machines are set up from the desktop app.');
+    expect(text(el)).toContain('Your computers are set up from the desktop app.');
     expect(text(el.querySelector('.card.peer h2'))).toBe('DESKTOP-PC');
-    for (const label of ['Pair a machine', 'Join…', 'Revoke', 'Change', 'Rename', 'Re-check']) {
+    for (const label of ['Pair a computer', 'Join…', 'Revoke', 'Change', 'Rename', 'Check again']) {
       expect(button(el, label), label).toBeUndefined();
     }
-    expect(button(el, 'Turn Machines off')).toBeUndefined();
   });
 });

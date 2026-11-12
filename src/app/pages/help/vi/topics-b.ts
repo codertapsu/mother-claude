@@ -725,7 +725,7 @@ export const VI_TOPICS_B: Partial<Record<string, HelpTopicSource>> = {
         intro:
           'Một vai trò có thể chạy trên một máy tính khác của bạn: trưởng nhóm lên kế hoạch trên máy Mac trong khi một vai trò Windows làm việc trên máy PC, trên cùng một bảng tác vụ.',
         steps: [
-          'Trên máy tính sẽ chạy vai trò, cấp cho máy này quyền **Chạy** trong **Các máy**.',
+          'Trên máy tính sẽ chạy vai trò, cấp cho máy này quyền **Chạy** trong **Máy tính**.',
           'Trong mẫu, thêm `"machine": "DESKTOP-PC"` cho vai trò (tên một máy đã ghép đôi, hoặc `os:windows` cho một máy Windows bất kỳ), hoặc chọn **Máy tính** của nó khi bắt đầu nhóm.',
           'Bắt đầu nhóm. Vai trò khởi chạy trên máy đó khi có việc.',
         ],
@@ -735,7 +735,7 @@ export const VI_TOPICS_B: Partial<Record<string, HelpTopicSource>> = {
           'Ô của nó ghi **trên DESKTOP-PC**, kèm lý do nó phải chờ hoặc không khởi chạy được. Trang Công suất của máy kia tính phiên này, không phải trang của máy này; trang của máy này liệt kê nó riêng, trong mục **Trên các máy tính khác của bạn**, kèm quyết định gần nhất của máy kia.',
           'Nó không nhắn được cho trưởng nhóm bằng SendMessage: nó ghi lên tác vụ của mình, và Mother Claude báo cho trưởng nhóm.',
           'Khi phiên của nó đã dừng, tin nhắn bạn gửi cho nó từ máy nào cũng khởi chạy lại nó với các thiết lập của vai trò, rồi đến được với nó. Nếu máy kia chưa thể chạy nó lúc này, tin nhắn bị từ chối kèm lý do.',
-          'Máy kia liệt kê nó trong **Các máy › Các lần chạy › Vai trò trong nhóm**, nơi **Dừng** và **Gỡ bỏ** tác động lên nó ở đó.',
+          'Máy kia liệt kê nó trong **Máy tính › Hoạt động › Vai trò trong nhóm**, nơi **Dừng** và **Gỡ bỏ** tác động lên nó ở đó.',
         ],
         links: [{ label: 'Xem “Giao tác vụ cho máy tính khác”', path: '/help/machines-task' }],
       },
@@ -911,13 +911,15 @@ export const VI_TOPICS_B: Partial<Record<string, HelpTopicSource>> = {
         heading: 'Trang Dịch vụ',
         terms: [
           {
-            term: 'Daemon',
-            text: 'Dịch vụ nền của Claude Code: có kết nối được hay không, và trạng thái của nó.',
+            term: 'Dịch vụ nền của Claude Code',
+            text: 'Daemon của nó: có kết nối được hay không, và trạng thái của nó.',
           },
           { term: 'Máy chủ MCP', text: 'Các máy chủ MCP đã cấu hình cho Claude Code, theo tên.' },
-          { term: 'Công việc nền (daemon)', text: 'Các công việc chạy bằng `claude --bg`.' },
+          { term: 'Công việc nền', text: 'Các công việc chạy bằng `claude --bg`.' },
         ],
-        points: ['**Làm mới** sẽ đọc lại tất cả.'],
+        points: [
+          '**Làm mới** sẽ đọc lại tất cả. Trên **Máy tính**, **Chi tiết** trong thẻ **Máy Mac này** (hoặc **Máy PC này**) hiện cùng những thông tin đó.',
+        ],
       },
     ],
   },

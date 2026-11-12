@@ -327,7 +327,7 @@ function untilText(ms: number): string {
                     [disabled]="busy()"
                     (change)="setCode($any($event.target).value)"
                   >
-                    <option value="bundle">{{ 'Machine to machine' | t }}</option>
+                    <option value="bundle">{{ 'Computer to computer' | t }}</option>
                     <option value="remote">{{ 'Through your git remote' | t }}</option>
                     <option value="none">{{ 'Only the conversation' | t }}</option>
                   </select>

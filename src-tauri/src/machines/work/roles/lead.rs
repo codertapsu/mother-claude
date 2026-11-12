@@ -153,7 +153,7 @@ fn resolve(
         {
             return Err(format!(
                 "The {} role runs in {} on {name}, which needs {name}'s Dangerous permission for \
-                 this computer: on {name}, open Machines, press Change on {this}'s card and tick \
+                 this computer: on {name}, open Computers, press Change on {this}'s card and tick \
                  Dangerous.",
                 role.title,
                 role.mode(),

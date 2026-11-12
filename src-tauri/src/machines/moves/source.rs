@@ -894,7 +894,7 @@ async fn ask_target(
                         " over the internet"
                     }
                 );
-                c = c.fix(format!("Change it on {name}'s Machines page."));
+                c = c.fix(format!("Change it in Computers on {name}."));
             }
             Err(c)
         }

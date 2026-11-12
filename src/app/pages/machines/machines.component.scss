@@ -1,9 +1,3 @@
-.page-head {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  flex-wrap: wrap;
-}
 .chead {
   display: flex;
   align-items: center;
@@ -11,8 +5,12 @@
   flex-wrap: wrap;
   margin-bottom: 0.35rem;
 }
-.chead h2 {
+.chead h2,
+.card > h2.first {
   margin: 0;
+}
+.card > h2.first {
+  margin-bottom: 0.45rem;
 }
 .name {
   font-size: 1rem;
@@ -28,7 +26,7 @@
   margin: 0.2rem 0 0.6rem;
   padding-left: 1.2rem;
 }
-.health mc-machine-checks {
+.card mc-machine-checks {
   display: block;
   margin-top: 0.4rem;
 }
@@ -78,22 +76,48 @@
 .grow {
   flex: 1 1 12rem;
 }
-.page-foot {
-  margin-top: 1rem;
-}
-.callout {
-  margin: 0.5rem 0;
-}
-/* Recent moves: one card per move, a line between them. */
-.move-list {
+/* This computer: its permissions and tools at a glance, then the rest. */
+.facts {
   display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
-  margin-bottom: 0.5rem;
+  flex-wrap: wrap;
+  gap: 0.3rem 0.9rem;
+  list-style: none;
+  margin: 0.45rem 0;
+  padding: 0;
 }
-.move-list mc-move-card + mc-move-card {
-  padding-top: 0.75rem;
+.fact {
+  font-size: 0.82rem;
+}
+.fact[data-state='ok'] > span:first-child {
+  color: var(--green);
+}
+.fact[data-state='off'] > span:first-child {
+  color: var(--red);
+}
+.fact[data-state='na'] > span:first-child {
+  color: var(--faint);
+}
+.perms {
+  margin: 0.3rem 0 0.5rem;
+}
+.perms summary {
+  cursor: pointer;
+  color: var(--muted);
+}
+.perms mc-permissions-list {
+  display: block;
+  margin-top: 0.5rem;
+}
+.checked {
+  margin-top: 0.3rem;
+}
+.service {
+  margin-top: 0.45rem;
+  padding-top: 0.45rem;
   border-top: 1px solid var(--border);
+}
+.details-head {
+  margin-bottom: 0.5rem;
 }
 /* Versions that differ: the sentence, then what updates it. */
 .skew {
@@ -108,16 +132,4 @@
 }
 .lacks {
   margin: 0.25rem 0;
-}
-/* Revoked everywhere: one computer a line, where it stands below. */
-.plain {
-  list-style: none;
-  margin: 0.2rem 0 0;
-  padding: 0;
-}
-.plain > li {
-  padding: 0.3rem 0;
-}
-.rev-line {
-  display: block;
 }

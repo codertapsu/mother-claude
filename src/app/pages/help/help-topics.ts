@@ -72,16 +72,16 @@ const TOPICS: HelpTopicSource[] = [
           'Click **Continue to dashboard →**.',
         ],
         tips: [
-          "**Skip for now** lets you in, but the app can't read your sessions and a banner stays until you finish. Come back any time under **Settings › Permissions**.",
+          "**Skip for now** lets you in, but the app can't read your sessions and a banner stays until you finish. Come back any time under **Computers › This Mac**: **Permissions** opens the list.",
           'Local Network is optional: when macOS asks whether Mother Claude may find devices on your local network, click **Allow**, so your phone can reach it.',
         ],
-        links: [{ label: 'Open Settings', path: '/settings' }],
+        links: [{ label: 'Open Computers', path: '/computers' }],
       },
       {
         heading: 'Find your way around',
         points: [
           'On the desktop app, the sidebar has your work first — **Sessions**, **Inbox** and **Teams** — then what you look after: **Computers**, **Accounts** and **Settings**. **Help** is at the bottom.',
-          'A place with more than one page shows them as tabs under its name: **Sessions** and **Agents**; **Teams** and **Capacity**; **Accounts** and **Backups**. **Settings** opens the rest under **Connections**: **Phone & devices**, **Sessions started elsewhere**, **Browser**, **HTTP API** and **Claude Code tools**.',
+          'A place with more than one page shows them as tabs under its name: **Sessions** and **Agents**; **Teams** and **Capacity**; **Computers**: **Overview**, **Code sync**, **Activity** and **Options**; **Accounts** and **Backups**. **Settings** opens the rest under **Connections**: **Phone & devices**, **Sessions started elsewhere**, **Browser**, **HTTP API** and **Claude Code tools**.',
           'On a phone, the tabs at the bottom are **Sessions**, **Inbox**, **Teams** and **More**. **More** has **Computers**, **Accounts**, **Settings** and **Help**, each with a line saying how it stands.',
           'The dot at the bottom of the sidebar (at the top on a phone) shows the connection. **Live** means updates arrive as they happen.',
           'The button beside it switches the theme between dark, light and system. **Settings › Appearance** also has the language, the accent colour and the background.',
@@ -166,7 +166,7 @@ const TOPICS: HelpTopicSource[] = [
     group: 'basics',
     summary: 'Notifications, theme, plan usage, connection and software updates.',
     intro:
-      'Settings holds what you set once: this device’s notifications, theme and connection, and what else works with Mother Claude. In the desktop app it also has software updates and macOS permissions.',
+      'Settings holds what you set once: this device’s notifications, theme and connection, and what else works with Mother Claude. In the desktop app it also has software updates; macOS permissions are under **Computers › This Mac**.',
     keywords: ['preferences', 'theme', 'dark mode', 'light mode', 'update', 'upgrade', 'version'],
     sections: [
       {
@@ -198,10 +198,6 @@ const TOPICS: HelpTopicSource[] = [
             text: 'Start Mother Claude when you sign in, in the tray (desktop app only).',
           },
           { term: 'Software updates', text: 'New versions of the app (desktop app only).' },
-          {
-            term: 'Permissions',
-            text: 'macOS permissions such as Full Disk Access (desktop app only).',
-          },
           { term: 'About', text: 'The version, and **Help**.' },
         ],
         links: [{ label: 'Open Settings', path: '/settings' }],
@@ -692,7 +688,7 @@ const TOPICS: HelpTopicSource[] = [
       {
         heading: 'The Inbox',
         points: [
-          "**Needs you** lists what you can answer from here, oldest first, with how long each has waited: every session's requests, your other computers' while they are online, and on the desktop app a device that wants to pair and what your other computers asked of this one.",
+          "**Needs you** lists what you can answer from here, oldest first, with how long each has waited: every session's requests, your other computers' while they are online, and on the desktop app a device that wants to pair, what your other computers asked of this one, a computer one of them introduces and a setting one suggests.",
           '**To fix** lists what stopped working or works worse, each with its fix.',
           '**Waiting where it runs** lists what can only be answered where the session runs, and what would let you answer it here.',
           'The number on **Inbox** counts what you can answer from here; a dot says something waits to be fixed.',
@@ -717,6 +713,14 @@ const TOPICS: HelpTopicSource[] = [
             text: 'A fix, a sign-in, a clone or keeping a project in sync that another computer asks of this one. Nothing runs until someone here confirms it.',
           },
           {
+            term: 'An introduction',
+            text: 'One of your computers introduces another it is paired with: **Pair with …** pairs this one with it, after the same six digits on both; **Not now** says no. While they pair, **Show the pairing** opens it again.',
+          },
+          {
+            term: 'A suggested setting',
+            text: 'Another computer uses another relay, or moves code another way: **Use it here too** takes its setting, **Keep mine** keeps yours.',
+          },
+          {
             term: 'A required check fails',
             text: 'On this computer, run its fix here; on another, **Ask … to fix** shows the fix to whoever is there.',
           },
@@ -726,7 +730,7 @@ const TOPICS: HelpTopicSource[] = [
           },
           {
             term: 'Changed on both computers',
-            text: 'Code sync of that project is paused: **Choose…** opens it on **Computers**, where you keep one side.',
+            text: 'Code sync of that project is paused: **Choose…** opens **Computers › Code sync**, where you keep one side.',
           },
           {
             term: 'A copy is paused',
@@ -735,6 +739,10 @@ const TOPICS: HelpTopicSource[] = [
           {
             term: 'A backup or move failed',
             text: 'In the last day: **Try again** runs a backup again; **Details** opens its list.',
+          },
+          {
+            term: 'Not revoked everywhere yet',
+            text: 'A computer you revoked everywhere that some of yours, such as one that is offline, still have to be told of: each revokes it when it next connects, and lets it in until then. **Dismiss** puts it away.',
           },
           {
             term: 'A sign-in',
@@ -1183,13 +1191,13 @@ const TOPICS: HelpTopicSource[] = [
   // ───────────────────────────────────────────────────── Your computers
   {
     id: 'machines-setup',
-    title: 'Set up Machines',
+    title: 'Set up your computers',
     icon: 'monitor',
     group: 'machines',
     summary:
-      'Connect your computers: the checks on each one, what fixes them, and the test before it turns on.',
+      'Connect your computers: the checks on each one, what fixes them, the test before it turns on, and what each tab of Computers holds.',
     intro:
-      "Machines connects your computers: from any of them you see and drive every computer's Claude Code sessions, and move a session, with its code, to another computer and back. It is off until you set it up in the desktop app. The setup runs on each computer, because only a computer can check itself.",
+      "Pair your computers, and from any of them you see and drive every computer's Claude Code sessions, and move a session, with its code, to another computer and back. It all happens on **Computers**, which is off until you set it up in the desktop app. The setup runs on each computer, because only a computer can check itself.",
     keywords: [
       'machines',
       'computers',
@@ -1202,6 +1210,8 @@ const TOPICS: HelpTopicSource[] = [
       'relay',
       'health',
       'long paths',
+      'full disk access',
+      'daemon',
     ],
     sections: [
       {
@@ -1217,33 +1227,33 @@ const TOPICS: HelpTopicSource[] = [
         heading: 'Run the setup',
         where: 'desktop',
         intro:
-          'Open **Machines** and press **Set up Machines**. Seven steps follow: **Next** and **Back** move between them, and **Go on with the setup** on Machines brings you back to the one you left.',
+          'Open **Computers** and, on the **Off on this Mac** card (**Off on this PC** on Windows), press **Set up your computers**. Seven steps follow: **Next** and **Back** move between them, and **Go on with the setup** on that card brings you back to the one you left.',
         steps: [
           '**This Mac** (or **This PC**): fix what its checks find. Required ones come first.',
-          '**Your machines**: pair each of your other computers.',
-          "**Every machine**: each computer's checks, side by side.",
+          '**Your computers**: pair each of your other computers.',
+          "**Every computer**: each computer's checks, side by side.",
           '**What each may do**: what each computer may do on this one. Press **Save** after a change.',
           '**Accounts and folders**: your accounts and shared folders on every computer.',
-          "**Options**: the relay, how a moving session's code travels and where it lands.",
-          '**Test, then turn on**: press **Run the test**, then **Turn on Machines**.',
+          "**Options**: the relay, how a moving session's code travels and where it lands, and each project's own options.",
+          '**Test, then turn on**: press **Run the test**, then **Turn on Computers**.',
         ],
         tips: [
-          '**Turn on Machines** stays greyed out while a required check is left, and says how many. Until it is on, your computers only pair and run the setup and its test with each other: none sees, drives or moves the sessions of a computer where Machines is off.',
-          'The checks keep running afterwards as **Machines health**: a red dot on **Machines** in the sidebar says something broke again.',
+          '**Turn on Computers** stays greyed out while a required check is left, and says how many. Until it is on, your computers only pair and run the setup and its test with each other: none sees, drives or moves the sessions of a computer where it is still off.',
+          "The checks keep running afterwards: the head of **Computers** says how your computers stand (**All good**, or how many checks are recommended or required), each computer's card lists its checks that fail, with their fix, and a red dot on **Computers** in the sidebar says something broke again.",
         ],
         links: [
-          { label: 'Open Machines', path: '/machines' },
+          { label: 'Open Computers', path: '/computers' },
           { label: 'See Pair your computers', path: '/help/machines-pair' },
         ],
       },
       {
         heading: 'What is checked',
         intro:
-          'A **Required** check keeps Machines off; a **Recommended** one works, but worse. Each says why it matters, and its button fixes it or opens the right settings page.',
+          'A **Required** check has to pass before it turns on; a **Recommended** one works, but worse. Each says why it matters, and its button fixes it or opens the right settings page.',
         terms: [
           {
             term: 'Mother Claude',
-            text: 'Every computer needs a version that speaks the same Machines protocol: a different one is required to update. A computer behind another one is recommended to: **Update Mother Claude** opens **Software updates**, and on another computer **Ask … to fix** shows it there.',
+            text: 'Every computer needs a version that speaks the same protocol: a different one is required to update. A computer behind another one is recommended to: **Update Mother Claude** opens **Software updates**, and on another computer **Ask … to fix** shows it there.',
           },
           {
             term: 'Stays awake while used',
@@ -1275,7 +1285,7 @@ const TOPICS: HelpTopicSource[] = [
           },
           {
             term: 'Paired computers',
-            text: 'Machines works between computers you paired. Each pair needs the same Machines protocol and relay setting: **Use this setting everywhere** offers yours to the others.',
+            text: 'Only computers you paired work together. Each pair needs the same protocol and relay setting: **Use this setting everywhere** offers yours to the others, in their **Inbox**.',
           },
           {
             term: 'git',
@@ -1291,11 +1301,11 @@ const TOPICS: HelpTopicSource[] = [
           },
           {
             term: 'Claude Code tools',
-            text: "Sessions here run commands on your other computers through Mother Claude's tools. Recommended; once another computer lets this one run commands there, those tools wait for it, but Machines turns on without it. **Turn on** switches them on.",
+            text: "Sessions here run commands on your other computers through Mother Claude's tools. Recommended; once another computer lets this one run commands there, those tools wait for it, but the rest works without it. **Turn on** switches them on.",
           },
           {
             term: 'Each account',
-            text: "Signed in on this computer. Only that account's sessions wait for it: Machines turns on without it. **Sign in…** starts its sign-in here.",
+            text: "Signed in on this computer. Only that account's sessions wait for it: the rest works without it. **Sign in…** starts its sign-in here.",
           },
           {
             term: 'Free space',
@@ -1308,17 +1318,24 @@ const TOPICS: HelpTopicSource[] = [
       },
       {
         heading: 'Accounts and folders',
+        intro:
+          'Set in the setup, and changed afterwards under **Computers › Options › Accounts and folders**.',
         points: [
           'An account is matched by its name on each computer, whatever the case of its letters, and the Default by the Default. A session moves to the account of the same name and runs only where it is signed in.',
           "Another computer sees only your accounts' names, kinds and whether they are signed in: never a token, an email or a folder.",
           'A shared folder is one folder on each computer, such as `~/development/projects` on a Mac and `D:\\development\\projects` on Windows: a project under it on one is the same project, at the same place, on the other.',
           "The setup proposes shared folders from your projects' git remotes: press **Use** to take one, or **Add a folder** to add your own. Your folder pairs from **Backup & sync** are kept.",
           "A project only one computer has offers **Clone it on …** or **Clone it here**. A project with no git remote can't move with its code.",
-          '**Sign in on …**, **Add it on …** and **Clone it on …** are asked of that computer: someone there confirms them.',
+          '**Sign in on …**, **Add it on …** and **Clone it on …** are asked of that computer: someone there confirms them, in its **Inbox**.',
+        ],
+        links: [
+          { label: 'Open Options', path: '/computers/options', fragment: 'accounts-folders' },
         ],
       },
       {
         heading: 'Options',
+        intro:
+          'Set in the setup, and changed afterwards under **Computers › Options**: **General** (press **Change**) and **Each project**.',
         terms: [
           {
             term: 'Relay',
@@ -1326,7 +1343,7 @@ const TOPICS: HelpTopicSource[] = [
           },
           {
             term: 'How code travels when a session moves',
-            text: '**Machine to machine (default)**: straight to the other computer, nothing pushed anywhere. **Through your git remote**: hidden refs on your remote, deleted after the move unless you keep them; both computers need access to it without a password prompt.',
+            text: '**Computer to computer (default)**: straight to the other computer, nothing pushed anywhere. **Through your git remote**: hidden refs on your remote, deleted after the move unless you keep them; both computers need access to it without a password prompt.',
           },
           {
             term: 'Where the code lands',
@@ -1338,9 +1355,42 @@ const TOPICS: HelpTopicSource[] = [
           },
         ],
         points: [
-          'Use the same relay on every computer (two computers on different relays may never meet), and best the same code options: a change here is offered to the others, and each takes it when someone there presses **Use it here too** (or **Keep mine**). A move follows the options of the computer it starts from.',
+          'Use the same relay on every computer (two computers on different relays may never meet), and best the same code options: a change here is offered to the others, in their **Inbox**, and each takes it when someone there presses **Use it here too** (or **Keep mine**). A move follows the options of the computer it starts from.',
           "**Each project** can move its code another way, and has a recipe: **After a move, ask Claude to run**, one command a line, for macOS, Windows and Linux. They go to Claude, which runs them through the session's own approvals. **Files git ignores that travel with it**, such as `.env.local`, go with each of its moves: they usually hold secrets, so adding one, and carrying them, need the dangerous right.",
           "**Check the remote** checks whether a project's git remote answers without a password prompt on each computer. It runs only when you press it, and again before each move through the remote.",
+        ],
+        links: [{ label: 'Open Options', path: '/computers/options' }],
+      },
+      {
+        heading: 'Computers, tab by tab',
+        intro: 'Once your computers are set up, **Computers** has four tabs:',
+        terms: [
+          {
+            term: 'Overview',
+            text: '**This Mac** (or **This PC**), then a card for each paired computer: how it is connected, its versions, its sessions (**Open its sessions**), its checks that fail with their fix, what each may do on the other (**Change**), **Rename**, **Revoke** and **Revoke everywhere**. Then **Pair your computers with each other** and **Copies**.',
+          },
+          {
+            term: 'Code sync',
+            text: 'The projects kept the same on two computers, and **Keep a project in sync…**.',
+          },
+          {
+            term: 'Activity',
+            text: 'What went between your computers: **Recent moves**, **Runs**, **Tasks**, **Team roles** and **Always allowed runs**. The chips at the top show one kind.',
+          },
+          {
+            term: 'Options',
+            text: '**General** (the relay, how code moves, copies, keeping awake), **Accounts and folders** and **Each project**, then **Run the setup again** and **Turn Computers off**.',
+          },
+        ],
+        points: [
+          '**This Mac** (or **This PC**) shows its versions, whether **Claude Code tools** are on, its checks that fail with their fix, and when they last ran: **Check again** runs them now. On a Mac it also shows the macOS permissions at a glance: **Permissions** opens their list.',
+          '**Claude Code’s background service** says whether it runs and how many background jobs it has. **Details** shows it, with the MCP servers configured for Claude Code and the background jobs.',
+          'What your other computers ask of this one, a computer one of them introduces and a setting one suggests wait in the **Inbox**.',
+          'On a phone, **Computers** is under **More**: pairing, the setup, permissions and options are changed in the desktop app.',
+        ],
+        links: [
+          { label: 'Open Code sync', path: '/computers/sync' },
+          { label: 'Open Activity', path: '/computers/activity' },
         ],
       },
     ],
@@ -1359,17 +1409,17 @@ const TOPICS: HelpTopicSource[] = [
         heading: 'Pair two computers',
         where: 'desktop',
         steps: [
-          'On the first computer, open **Machines** and press **Pair a machine**. An 8-character code appears: it works once, for five minutes.',
-          'On the other computer, open **Machines** and press **Join…**.',
-          'Type the code in **Code** and press **Join**.',
+          'On the first computer, open **Computers** and press **Pair a computer**. An 8-character code appears: it works once, for five minutes.',
+          'On the other computer, open **Computers** and press **Join…**.',
+          'In **Join another computer**, type the code in **Code** and press **Join**.',
           'Check that both screens show the same six digits.',
           'On each computer, choose what the other may do on it, then press **The numbers match — Pair**.',
         ],
         tips: [
           '**Nearby** lists the computers on your network that show a code, so you can check which one shows it: you still type its code, as joining needs it. None nearby? The code works across the internet too.',
-          'The setup has the same buttons in its **Your machines** step.',
+          'The setup has the same buttons in its **Your computers** step. Before the setup, **Computers** offers only **Set up your computers**.',
         ],
-        links: [{ label: 'Open Machines', path: '/machines' }],
+        links: [{ label: 'Open Computers', path: '/computers' }],
       },
       {
         heading: 'Across the internet',
@@ -1391,10 +1441,10 @@ const TOPICS: HelpTopicSource[] = [
         heading: 'Rename or revoke a computer',
         where: 'desktop',
         points: [
-          "On **Machines**, each paired computer's card has **Rename** (its name on this computer) and **Revoke**.",
+          "On **Computers**, each paired computer's card has **Rename** (its name on this computer) and **Revoke**.",
           '**Revoke**, then **Tap again to revoke**: this computer forgets the other and cuts its connections at once.',
           '**Revoke** works on this computer only. For a lost or stolen computer, use **Revoke everywhere** on any of your others: it is cut from all of them.',
-          "**Turn Machines off** does not unpair, but while it is off a paired computer can only pair and run the setup with this one: it can't see, drive or move its sessions, and this one doesn't use the others'. **Revoke** forgets a computer.",
+          "**Turn Computers off** (**Computers › Options**) does not unpair, but while it is off a paired computer can only pair and run the setup with this one: it can't see, drive or move its sessions, and this one doesn't use the others'. **Revoke** forgets a computer.",
         ],
       },
     ],
@@ -1407,7 +1457,7 @@ const TOPICS: HelpTopicSource[] = [
     summary:
       'Pair a new computer with the others through one you have, cut a lost one from all of them, and keep their versions in step.',
     intro:
-      'Each pair of your computers is paired on its own: one computer can introduce two others, but nothing is trusted for them. Revoking a lost computer everywhere, and the versions each one runs, are on **Machines** too.',
+      'Each pair of your computers is paired on its own: one computer can introduce two others, but nothing is trusted for them. Revoking a lost computer everywhere, and the versions each one runs, are on **Computers** too.',
     keywords: [
       'third computer',
       'introduce',
@@ -1424,19 +1474,22 @@ const TOPICS: HelpTopicSource[] = [
         heading: 'Pair a new computer with the others',
         where: 'desktop',
         intro:
-          'Pair the new computer with one of yours first (**Pair your computers**). That one then offers **Also pair … with …?** for each of your other computers the new one is not paired with, right after pairing and on **Machines**.',
+          'Pair the new computer with one of yours first (**Pair your computers**). That one then offers **Also pair … with …?** for each of your other computers the new one is not paired with, right after pairing and on **Computers**, under **Pair your computers with each other**.',
         steps: [
           'Press **Introduce them**. Both computers are told who the other is; nothing is paired yet.',
-          'On each of the two, open **Machines**: the **Introductions** card says which computer introduced which. Press **Pair with …**.',
+          'On each of the two, open the **Inbox**: under **Needs you**, **… introduces …** says which computer introduced which. Press **Pair with …**.',
           'Check that both screens show the same six digits. When one came over the internet, the other asks you to type them, as when you pair with a code.',
           'On each computer, choose what the other may do on it, then press **The numbers match — Pair**.',
         ],
         tips: [
-          '**Not now** on either computer ends it there and tells the other: nothing is paired.',
+          '**Not now** on either computer ends it there and tells the other: nothing is paired. While they pair, **Show the pairing** opens it again.',
           'An introduction waits ten minutes for both answers: after that, introduce them again.',
-          'The setup has the same offers in its **Your machines** step.',
+          'The setup has the same offers in its **Your computers** step.',
         ],
-        links: [{ label: 'Open Machines', path: '/machines' }],
+        links: [
+          { label: 'Open Computers', path: '/computers' },
+          { label: 'Open Inbox', path: '/inbox' },
+        ],
       },
       {
         heading: 'Why an introduction is safe',
@@ -1453,21 +1506,21 @@ const TOPICS: HelpTopicSource[] = [
         intro:
           'For a lost or stolen computer: cut it from all your computers from any one of them.',
         steps: [
-          "On **Machines**, find the computer's card and press **Revoke everywhere**.",
+          "On **Computers**, find the computer's card and press **Revoke everywhere**.",
           'Press **Tap again to revoke everywhere**.',
         ],
         points: [
           'This computer forgets it and cuts its connections at once, and asks each of your other computers to do the same. Each does it at once, and shows a notice that you revoked it on all your computers.',
-          'A computer that is off or away does it when it next connects: **Revoked everywhere** on **Machines** says which ones still have to.',
+          'A computer that is off or away does it when it next connects, and lets it in until then: the **Inbox** says which ones still have to, under **To fix** (**… is not revoked everywhere yet**). **Dismiss** puts it away.',
           'It only ever removes trust: it adds nothing anywhere, and a computer can never use it to revoke the one that asked.',
         ],
       },
       {
         heading: 'Versions',
         points: [
-          "Each computer's card on **Machines** shows its system, its Mother Claude, its Machines protocol and its Claude Code.",
+          "Each computer's card on **Computers** shows its system, its Mother Claude, its protocol and its Claude Code.",
           'A computer that runs an older Mother Claude says so, with **Ask … to update**: that computer shows its **Software updates** page once someone there confirms it. When this computer is the older one, **Update it** opens **Software updates** here.',
-          "An older computer also says what it can't do until it updates, such as **take tasks** or **keep code in sync**. Two computers on different Machines protocols don't work together at all until one updates.",
+          "An older computer also says what it can't do until it updates, such as **take tasks** or **keep code in sync**. Two computers on different protocols don't work together at all until one updates.",
           'An older Claude Code there has **Ask … to update** too; here, **Update it** runs `claude update`.',
         ],
       },
@@ -1481,7 +1534,7 @@ const TOPICS: HelpTopicSource[] = [
     summary:
       'The permissions each computer gives the others, on the same network and over the internet.',
     intro:
-      'Each computer decides what each of the others may do on it. You choose when you pair, and can change it later on **Machines**.',
+      'Each computer decides what each of the others may do on it. You choose when you pair, and can change it later on **Computers**.',
     keywords: [
       'permissions',
       'grants',
@@ -1528,14 +1581,14 @@ const TOPICS: HelpTopicSource[] = [
         heading: 'Same network or internet',
         points: [
           'Each permission has two columns: **Same network**, for a direct path on your local network, and **Internet**, for everything else, the relay included.',
-          "A computer's card on **Machines** shows how it is connected now: **Direct (same network)**, **Direct (internet)** or **Through the relay (slower)**.",
+          "A computer's card on **Computers** shows how it is connected now: **Direct (same network)**, **Direct (internet)** or **Through the relay (slower)**.",
         ],
       },
       {
         heading: 'Change them',
         where: 'desktop',
         steps: [
-          'Open **Machines**.',
+          'Open **Computers**.',
           "On the other computer's card, next to **On this Mac, … may** (or **On this PC, … may**), press **Change**.",
           'Tick or untick the boxes, then press **Save**.',
         ],
@@ -1543,7 +1596,7 @@ const TOPICS: HelpTopicSource[] = [
           '**On …, this Mac may** shows what the other computer lets this one do. Only that computer can change it.',
           'The setup has the same table in its **What each may do** step.',
         ],
-        links: [{ label: 'Open Machines', path: '/machines' }],
+        links: [{ label: 'Open Computers', path: '/computers' }],
       },
       {
         heading: 'Dangerous actions through another computer',
@@ -1564,10 +1617,11 @@ const TOPICS: HelpTopicSource[] = [
     summary:
       "See and drive every computer's sessions from any of them, and start one on another computer.",
     intro:
-      "Once two computers are paired and Machines is on on both, each lists the other's Claude Code sessions. Open one and use it as if it ran here.",
+      "Once two computers are paired and both have Computers on, each lists the other's Claude Code sessions. Open one and use it as if it ran here.",
     keywords: [
       'other computer',
       'machine filter',
+      'computer filter',
       'chip',
       'inbox',
       'offline',
@@ -1581,8 +1635,8 @@ const TOPICS: HelpTopicSource[] = [
         heading: 'Find them',
         points: [
           "**Sessions** lists every computer's sessions. Another computer's have a chip with its name; this computer's have none.",
-          'The **Machine** filter picks one computer: **All machines**, **This Mac** (or **This PC**), or another computer by name.',
-          "On **Machines**, a computer's card says how many sessions it has and how many run; **Open its sessions** lists them.",
+          'The **Computer** filter picks one computer: **All computers**, **This Mac** (or **This PC**), or another computer by name.',
+          "On **Computers**, a computer's card says how many sessions it has and how many run; **Open its sessions** lists them.",
           '**Inbox** lists what waits on you everywhere, each request with its computer. Answer it here: the first answer wins, as with a phone.',
         ],
         links: [{ label: 'Open Sessions', path: '/' }],
@@ -1623,7 +1677,7 @@ const TOPICS: HelpTopicSource[] = [
           'A phone paired with any of your computers sees and drives all of them through it.',
           "A dangerous action on another computer needs the phone's dangerous permission on the computer it is paired with, and that computer's **Dangerous** permission on the other.",
           "A phone on **Limited** (refreshing every few seconds instead of live updates) sees the other computers' sessions too, on the same refresh.",
-          'Setting up Machines, pairing computers and changing their permissions are done in the desktop app.',
+          'Setting up your computers, pairing them and changing their permissions are done in the desktop app; a phone finds **Computers** under **More**.',
         ],
       },
     ],
@@ -1673,7 +1727,7 @@ const TOPICS: HelpTopicSource[] = [
           },
           {
             term: 'Not in git',
-            text: 'The files git ignores that the project lists (**Options › Each project**), such as `.env.local`. They usually hold secrets, so they go only with the dangerous right here and the **Dangerous** permission of the computer they go to; untick **Carry them** to leave them. A file of the same name there is kept for **Undo move**.',
+            text: 'The files git ignores that the project lists (**Computers › Options › Each project**), such as `.env.local`. They usually hold secrets, so they go only with the dangerous right here and the **Dangerous** permission of the computer they go to; untick **Carry them** to leave them. A file of the same name there is kept for **Undo move**.',
           },
           {
             term: 'Where it goes',
@@ -1681,7 +1735,7 @@ const TOPICS: HelpTopicSource[] = [
           },
           {
             term: 'Code travels',
-            text: '**Machine to machine** (the default: straight between the two, nothing pushed anywhere), **Through your git remote** (hidden refs on your remote, removed afterwards unless kept) or **Only the conversation**. Through the remote, it must answer on both computers without a password prompt: that is checked before the move. Machine to machine, code of more than 1 GB goes through your remote on its own when it answers on both computers, and the move says so.',
+            text: '**Computer to computer** (the default: straight between the two, nothing pushed anywhere), **Through your git remote** (hidden refs on your remote, removed afterwards unless kept) or **Only the conversation**. Through the remote, it must answer on both computers without a password prompt: that is checked before the move. Computer to computer, code of more than 1 GB goes through your remote on its own when it answers on both computers, and the move says so.',
           },
           {
             term: 'Code lands',
@@ -1689,7 +1743,7 @@ const TOPICS: HelpTopicSource[] = [
           },
           {
             term: 'After the move',
-            text: "When the project has a recipe (set under **Options › Each project**, or a `.mother-claude/recipe.json` committed in the project): ask Claude to run its commands there, such as `npm ci`. They are in Claude's first message there and go through its own approvals: Mother Claude never runs a command on the other computer.",
+            text: "When the project has a recipe (set under **Computers › Options › Each project**, or a `.mother-claude/recipe.json` committed in the project): ask Claude to run its commands there, such as `npm ci`. They are in Claude's first message there and go through its own approvals: Mother Claude never runs a command on the other computer.",
           },
           {
             term: 'When',
@@ -1708,7 +1762,7 @@ const TOPICS: HelpTopicSource[] = [
       {
         heading: 'Checks',
         points: [
-          '**Checks** lists what is fine, what blocks the move with its fix, and what only makes it worse (Claude Code older there, line endings, Git LFS, submodules). Machines must be on on both computers.',
+          '**Checks** lists what is fine, what blocks the move with its fix, and what only makes it worse (Claude Code older there, line endings, Git LFS, submodules). Both computers must have Computers on.',
           'While something blocks it, the button reads **Fix the checks first**. When the project folder there has changes of its own, or its branch went on there, Mother Claude offers **Use a separate folder (worktree)**.',
           "When its branch went on there, Mother Claude also offers to replace it with this computer's: the branch there's own commits are kept, and **Undo move** puts them back. If the branch there moves on before the move lands, the move stops.",
           'A session another app runs (VS Code, a terminal) cannot be stopped by Mother Claude: a copy goes on there as a new session while this one goes on here. The button reads **Continue as a copy on …**; or end it in that app first.',
@@ -1761,7 +1815,7 @@ const TOPICS: HelpTopicSource[] = [
       {
         heading: 'Undo a move',
         steps: [
-          "Find the move: in the sheet once it is done, under **Recent moves** on **Machines**, or under **Moves between computers** on the session's **Info** tab.",
+          "Find the move: in the sheet once it is done, under **Recent moves** on **Computers › Activity**, or under **Moves between computers** on the session's **Info** tab.",
           'Press **Undo move**.',
           'Press **Tap again to undo**.',
         ],
@@ -1769,6 +1823,7 @@ const TOPICS: HelpTopicSource[] = [
           "Undo is offered for seven days. It puts the other computer's project folder and branch back as they were, takes the conversation's files there back out, and the session lives here again (it starts again here if it ran).",
           'An undo is refused once the session went on there: bring it back instead, so nothing it did there is lost. A copy is never undone: stop or delete it there.',
         ],
+        links: [{ label: 'Open Activity', path: '/computers/activity' }],
       },
       {
         heading: 'What never moves',
@@ -1816,14 +1871,14 @@ const TOPICS: HelpTopicSource[] = [
           'Press **Save**.',
         ],
         tips: [
-          "For every session of a project: **Machines › Options**, the project's options, **Keep a copy of its sessions on**. A session's own choice in its menu wins; **As its project says** goes back to the project's.",
+          "For every session of a project: **Computers › Options › Each project**, the project's options, **Keep a copy of its sessions on**. A session's own choice in its menu wins; **As its project says** goes back to the project's.",
         ],
       },
       {
         heading: 'What it needs',
         points: [
           'The other computer’s **Move** permission for this one: a copy is the first half of a move.',
-          'Machines turned on on both computers. While either is off, the other computer is offline or the permission is missing, the copy is paused and says why. Nothing is queued: once that clears, the next copy sends what grew meanwhile.',
+          'Both computers have Computers on. While it is off on either, the other computer is offline or the permission is missing, the copy is paused and says why. Nothing is queued: once that clears, the next copy sends what grew meanwhile.',
         ],
       },
       {
@@ -1844,7 +1899,7 @@ const TOPICS: HelpTopicSource[] = [
           { term: 'Copies once its turn ends', text: 'A turn runs; it goes when it ends.' },
           {
             term: 'Paused',
-            text: 'With the reason: the other computer is offline, Machines is off on one of the two, the **Move** permission is missing, Mother Claude there is older, it made room for newer copies, or the session lives on another computer now.',
+            text: 'With the reason: the other computer is offline, Computers is off on one of the two, the **Move** permission is missing, Mother Claude there is older, it made room for newer copies, or the session lives on another computer now.',
           },
         ],
       },
@@ -1858,7 +1913,7 @@ const TOPICS: HelpTopicSource[] = [
       {
         heading: 'Continue here from the copy',
         steps: [
-          "On the computer that keeps the copy, while the session's own computer is offline: open the session (its computer's sessions are greyed), or **Machines › Copies**.",
+          "On the computer that keeps the copy, while the session's own computer is offline: open the session (its computer's sessions are greyed), or the **Copies** card on **Computers**.",
           'Press **Continue here from the copy of …** (on the card: **Continue here**), and confirm.',
         ],
         points: [
@@ -1869,8 +1924,8 @@ const TOPICS: HelpTopicSource[] = [
       {
         heading: 'The Copies card',
         points: [
-          '**Machines › Copies** lists the copies held on this computer (with **Continue here** while their computer is offline, and **Remove**) and this computer’s sessions kept on others (with **Stop keeping it on …**, which removes the copy there too).',
-          'Each computer keeps at most 2 GB of another computer’s copies (**Options › Copies of other computers’ sessions**); the copy refreshed longest ago goes first, never one of a session that lives there.',
+          'The **Copies** card, at the foot of **Computers**, lists the copies held on this computer (with **Continue here** while their computer is offline, and **Remove**) and this computer’s sessions kept on others (with **Stop keeping it on …**, which removes the copy there too).',
+          'Each computer keeps at most 2 GB of another computer’s copies (**Copies of other computers’ sessions**, under **Computers › Options › General**); the copy refreshed longest ago goes first, never one of a session that lives there.',
           'A phone paired with the session’s computer can choose where it keeps copies and remove them; the cap is set in the desktop app.',
         ],
       },
@@ -1901,21 +1956,23 @@ const TOPICS: HelpTopicSource[] = [
         heading: 'Turn it on',
         where: 'desktop',
         steps: [
-          'Open **Machines**, then **Run the setup again** (or **Set up Machines**), and go to **Options**.',
-          'Under **Each project**, press **Set a project’s own options…** and choose the project, or **Change** on one already listed.',
-          'Tick **Keep this project in sync with …** and press **Save**.',
-          'On the other computer, the request shows on its **Machines** page and as a notice: someone there presses **Keep it in sync** (or **Not now**).',
+          'Open **Computers › Code sync** and press **Keep a project in sync…**.',
+          'Pick the **Project**, and the other computer under **With**.',
+          'Check the files git ignores that travel with it (**Change** opens **Options › Each project**), then press **Keep it in sync**.',
+          'On the other computer, the request shows in its **Inbox** and as a notice: someone there presses **Keep it in sync** (or **Not now**).',
         ],
         tips: [
           'It is on only once both computers said yes. The first sync then runs at once: the computer with changes, or newer commits, sends them to the one that is clean and behind. When both have changes of their own, you choose which to keep (below).',
+          'A project’s own options (**Computers › Options › Each project**) have the same choice: **Keep this project in sync with …**.',
         ],
+        links: [{ label: 'Open Code sync', path: '/computers/sync' }],
       },
       {
         heading: 'What it needs',
         points: [
-          'A shared folder that maps the project to its folder on the other computer (**Accounts and folders** in the setup). The folder there must be the same project: the same `origin`, or a commit in common. **Clone it on …** first when it is not there.',
+          'A shared folder that maps the project to its folder on the other computer (**Computers › Options › Accounts and folders**). The folder there must be the same project: the same `origin`, or a commit in common. **Clone it on …** first when it is not there.',
           'The **Move** permission both ways: code sync writes into each computer’s project folder.',
-          'Machines turned on on both computers.',
+          'Both computers have Computers on.',
         ],
       },
       {
@@ -1927,8 +1984,10 @@ const TOPICS: HelpTopicSource[] = [
         ],
       },
       {
-        heading: 'The Code sync card',
-        intro: '**Machines › Code sync** lists each project kept in sync, and how it stands:',
+        id: 'the-code-sync-card',
+        heading: 'The Code sync tab',
+        intro:
+          '**Computers › Code sync** lists each project kept in sync, under **Projects kept in sync**, and how it stands:',
         terms: [
           { term: 'In sync', text: 'When it last synced, and which way.' },
           { term: 'Syncing…', text: 'Its changes are on their way.' },
@@ -1938,7 +1997,7 @@ const TOPICS: HelpTopicSource[] = [
           },
           {
             term: 'Paused',
-            text: 'With the reason: the other computer is offline, Machines is off on one of the two, a **Move** permission is missing, or a session working in the project is moving between them. It goes on by itself once that ends, from the project as it is then: nothing is queued.',
+            text: 'With the reason: the other computer is offline, Computers is off on one of the two, a **Move** permission is missing, or a session working in the project is moving between them. It goes on by itself once that ends, from the project as it is then: nothing is queued.',
           },
           { term: 'Changed on both', text: 'Both computers changed it: you choose (below).' },
           {
@@ -1965,7 +2024,7 @@ const TOPICS: HelpTopicSource[] = [
       {
         heading: 'From a phone',
         points: [
-          'A phone sees **Code sync** and how each project stands, read only: turning it on or off, **Sync now** and choosing a side happen in the desktop app.',
+          'A phone sees **Computers › Code sync** and how each project stands, read only: turning it on or off, **Sync now** and choosing a side happen in the desktop app.',
         ],
       },
     ],
@@ -1999,7 +2058,7 @@ const TOPICS: HelpTopicSource[] = [
         heading: 'Turn it on',
         where: 'desktop',
         steps: [
-          'On the computer that will run the commands, open **Machines**.',
+          'On the computer that will run the commands, open **Computers**.',
           'On the card of the computer whose sessions will ask, next to **On this PC, … may** (or **On this Mac, … may**), press **Change**.',
           'Tick **Run**, for **Same network**, **Internet** or both, and press **Save**.',
           "On the computer whose sessions ask, keep **Give sessions Mother Claude's tools** on, under **Services**: sessions reach the other computer through those tools.",
@@ -2009,7 +2068,7 @@ const TOPICS: HelpTopicSource[] = [
           'The setup checks **Claude Code tools**, and **Turn on** switches them on. Its test then runs a fixed `echo` each way the permission is given: **Run there** and **Run here**.',
         ],
         links: [
-          { label: 'Open Machines', path: '/machines' },
+          { label: 'Open Computers', path: '/computers' },
           { label: 'See Claude Code tools', path: '/help/claude-code-tools' },
         ],
       },
@@ -2075,7 +2134,7 @@ const TOPICS: HelpTopicSource[] = [
           'A command holding `;`, `&`, `|`, `$`, `(`, `)`, `{`, `}`, `<`, `>`, a backtick or a line break always asks, whatever it starts with: nothing can ride along after an allowed command.',
           'A dangerous command is never allowed this way. Nothing is offered for a shell or an interpreter alone, such as `bash`, `pwsh` or `python`: Mother Claude offers the program and what it runs, such as `npm run build` or `python -m pytest`.',
           '**Always…** needs the dangerous right: the desktop app, or a phone allowed dangerous actions.',
-          "They are saved in Mother Claude, not in Claude Code's settings. **Machines › Runs** lists them under **Always allowed runs**; **Revoke** takes one back (desktop app), and that command asks again.",
+          "They are saved in Mother Claude, not in Claude Code's settings. **Computers › Activity** lists them under **Always allowed runs**; **Revoke** takes one back (desktop app), and that command asks again.",
         ],
       },
       {
@@ -2091,7 +2150,7 @@ const TOPICS: HelpTopicSource[] = [
           "In a work folder of its own on the other computer: one per project and per computer that asks, in Mother Claude's data folder there. It is a git worktree of that computer's copy of the project, the folder your shared folders point to.",
           "Before each run, the work folder is set to the session's code as it is now: committed or not, new files included. Files git ignores, such as `target/` and `node_modules/`, stay between runs, so the next build picks up where the last one stopped.",
           'Your own copy of the project on that computer is never changed: its files, branch and staged changes stay as they are.',
-          "The project must be on that computer. If it isn't, the run is refused: clone it there first, with **Clone it on …** in the setup's **Accounts and folders** step.",
+          "The project must be on that computer. If it isn't, the run is refused: clone it there first, with **Clone it on …** under **Computers › Options › Accounts and folders**.",
         ],
       },
       {
@@ -2115,11 +2174,11 @@ const TOPICS: HelpTopicSource[] = [
         heading: 'Follow and stop runs',
         points: [
           "On the session's page, a run is a background task: open **Agents**, then **Background tasks**. **Output** shows what it printed; **Cancel** stops it.",
-          '**Machines › Runs** lists the recent runs both ways: the computer, the project, the command, how it stands, its exit code and time. **Output** shows the end of what it printed; **Cancel** stops a run, from either computer.',
+          '**Computers › Activity** lists the recent runs both ways under **Runs**: the computer, the project, the command, how it stands, its exit code and time. **Output** shows the end of what it printed; **Cancel** stops a run, from either computer.',
           'Each computer keeps its runs a day after they end.',
-          'Turning Machines off, revoking a computer or taking back its **Run** permission stops what it runs here at once.',
+          'Turning Computers off, revoking a computer or taking back its **Run** permission stops what it runs here at once.',
         ],
-        links: [{ label: 'Open Machines', path: '/machines' }],
+        links: [{ label: 'Open Activity', path: '/computers/activity' }],
       },
       {
         heading: 'From a phone',
@@ -2133,11 +2192,11 @@ const TOPICS: HelpTopicSource[] = [
         terms: [
           {
             term: '… has not given this computer the Run permission',
-            text: "Tick **Run** for this computer on that computer's **Machines** page, in the column of the network you use now.",
+            text: 'Tick **Run** for this computer in **Computers** on that computer, in the column of the network you use now.',
           },
           {
             term: "… isn't on …",
-            text: "That computer has no copy of the project, or no shared folder points to it. Clone it there (**Clone it on …**, in the setup's **Accounts and folders** step), then try again.",
+            text: 'That computer has no copy of the project, or no shared folder points to it. Clone it there (**Clone it on …**, under **Computers › Options › Accounts and folders**), then try again.',
           },
           {
             term: 'Update Mother Claude on …',
@@ -2249,20 +2308,20 @@ const TOPICS: HelpTopicSource[] = [
       {
         heading: 'Follow and remove tasks',
         points: [
-          '**Machines › Runs** lists the tasks both ways under **Tasks**: where, the project, the task, how it stands and the branch. **Open its session** opens it on the computer it runs on; **Summary** shows its last message; **Cancel** stops a task that still works.',
+          '**Computers › Activity** lists the tasks both ways under **Tasks**: where, the project, the task, how it stands and the branch. **Open its session** opens it on the computer it runs on; **Summary** shows its last message; **Cancel** stops a task that still works.',
           '**Remove** takes away a task that ended, with its worktree and session on the other computer. Its branch stays.',
           'Each computer keeps a task 7 days after it last ended, then removes it with its worktree.',
           "On the asking session's page, a task is a background task too: open **Agents**, then **Background tasks**.",
-          'Turning Machines off, revoking a computer or taking back its **Run** permission cancels the tasks it still works on here.',
+          'Turning Computers off, revoking a computer or taking back its **Run** permission cancels the tasks it still works on here.',
         ],
-        links: [{ label: 'Open Machines', path: '/machines' }],
+        links: [{ label: 'Open Activity', path: '/computers/activity' }],
       },
       {
         heading: "If it doesn't go",
         terms: [
           {
             term: '… has not given this computer the Run permission',
-            text: "Tick **Run** for this computer on that computer's **Machines** page.",
+            text: 'Tick **Run** for this computer in **Computers** on that computer.',
           },
           {
             term: '… needs its Dangerous permission',
@@ -2270,7 +2329,7 @@ const TOPICS: HelpTopicSource[] = [
           },
           {
             term: "… isn't signed in on …",
-            text: 'Sign that account in on the other computer, under **Settings › Accounts** there.',
+            text: 'Sign that account in on the other computer, under **Accounts** there.',
           },
           {
             term: 'The branch did not move',
@@ -2978,7 +3037,7 @@ const TOPICS: HelpTopicSource[] = [
         intro:
           'A role can run on another of your computers: the lead plans on your Mac while a Windows role works on your PC, on the same board.',
         steps: [
-          'On the computer that will run it, give this one the **Run** permission in **Machines**.',
+          'On the computer that will run it, give this one the **Run** permission in **Computers**.',
           'In the template, give the role `"machine": "DESKTOP-PC"` (a paired computer’s name, or `os:windows` for any Windows one), or choose its **Computer** when you start the team.',
           'Start the team. The role starts on that computer when it has work.',
         ],
@@ -2988,7 +3047,7 @@ const TOPICS: HelpTopicSource[] = [
           "Its card says **on DESKTOP-PC**, and why it waits or could not start. That computer's Capacity page counts it, not this one's; this one's lists it apart, under **On your other computers**, with that computer's last decision.",
           'It cannot message the lead with SendMessage: it writes on its task, and Mother Claude tells the lead.',
           "When its session is stopped, a message you send it from either computer starts it again with its role's settings, then reaches it. If that computer can't run it now, the message is refused with why.",
-          'That computer lists it under **Machines › Runs › Team roles**, where **Stop** and **Remove** act on it there.',
+          'That computer lists it under **Computers › Activity › Team roles**, where **Stop** and **Remove** act on it there.',
         ],
         links: [{ label: 'See Hand a task to another computer', path: '/help/machines-task' }],
       },
@@ -3161,13 +3220,15 @@ const TOPICS: HelpTopicSource[] = [
         heading: 'The Services page',
         terms: [
           {
-            term: 'Daemon',
-            text: "Claude Code's background service: reachable or not, and its status.",
+            term: 'Claude Code’s background service',
+            text: 'Its daemon: reachable or not, and its status.',
           },
           { term: 'MCP servers', text: 'The MCP servers configured for Claude Code, by name.' },
-          { term: 'Background jobs (daemon)', text: 'Jobs started with `claude --bg`.' },
+          { term: 'Background jobs', text: 'Jobs started with `claude --bg`.' },
         ],
-        points: ['**Refresh** reads it all again.'],
+        points: [
+          '**Refresh** reads it all again. On **Computers**, **Details** in the **This Mac** (or **This PC**) card shows the same.',
+        ],
       },
     ],
   },
@@ -3450,7 +3511,7 @@ const TOPICS: HelpTopicSource[] = [
   },
   {
     id: 'machines-troubleshooting',
-    title: 'Troubleshooting Machines',
+    title: 'Troubleshooting your computers',
     icon: 'question',
     group: 'troubleshooting',
     summary: "When two computers don't find each other, refuse an action, or a move stops.",
@@ -3472,15 +3533,15 @@ const TOPICS: HelpTopicSource[] = [
         heading: 'Setup',
         terms: [
           {
-            term: 'Turn on Machines is greyed out',
-            text: 'A required check is left; the line above the button says how many. Fix them in the steps **This Mac** (or **This PC**) and **Every machine**.',
+            term: 'Turn on Computers is greyed out',
+            text: 'A required check is left; the line above the button says how many. Fix them in the steps **This Mac** (or **This PC**) and **Every computer**.',
           },
           {
             term: 'Allow through the firewall changed nothing',
             text: "Windows asks for an administrator's OK first. When it was declined, the firewall was not changed: press it again.",
           },
           {
-            term: 'Only its sessions wait for it: Machines works without.',
+            term: 'Only its sessions wait for it: the rest works without it.',
             text: 'That account is not signed in on that computer. Its sessions wait for it there; everything else works.',
           },
         ],
@@ -3519,11 +3580,11 @@ const TOPICS: HelpTopicSource[] = [
         terms: [
           {
             term: 'Through the relay (slower), at home',
-            text: 'On a Mac: Local Network access. On Windows: the network type and the firewall. **Machines health** says which.',
+            text: 'On a Mac: Local Network access. On Windows: the network type and the firewall. The **This Mac** (or **This PC**) card on **Computers** says which.',
           },
           {
             term: '… uses another relay setting',
-            text: 'Two computers on different relays may never meet. Press **Use it here too** on one of them, or **Use this setting everywhere** on the other.',
+            text: 'Two computers on different relays may never meet. Press **Use it here too** in the **Inbox** of one of them, or **Use this setting everywhere** on the other.',
           },
           {
             term: 'A computer is offline',
@@ -3534,8 +3595,8 @@ const TOPICS: HelpTopicSource[] = [
             text: "That computer's Mother Claude is older: its sessions show, but nothing moves to or from it until you update it.",
           },
           {
-            term: 'Machines is off on …',
-            text: "Turn it on on that computer's **Machines** page (or this one's, when it names this computer). While it is off, the others can only pair and run the setup with it.",
+            term: 'Computers is off on …',
+            text: 'Turn it on in **Computers** on that computer (or on this one, when it names this computer). While it is off, the others can only pair and run the setup with it.',
           },
         ],
       },
@@ -3544,7 +3605,7 @@ const TOPICS: HelpTopicSource[] = [
         terms: [
           {
             term: '… lets this computer watch its sessions, not drive them.',
-            text: "Its **Drive** permission for this computer is off: change it on that computer's **Machines** page.",
+            text: 'Its **Drive** permission for this computer is off: change it in **Computers** on that computer.',
           },
           {
             term: "… doesn't let this computer take dangerous actions there.",
@@ -3586,7 +3647,7 @@ const TOPICS: HelpTopicSource[] = [
           },
           {
             term: "The remote … doesn't answer … without a prompt.",
-            text: 'Sign in to the remote on that computer (Git Credential Manager, or `gh auth login`) and try again, or move the code machine to machine.',
+            text: 'Sign in to the remote on that computer (Git Credential Manager, or `gh auth login`) and try again, or move the code computer to computer.',
           },
           {
             term: 'Carrying files git ignores needs …',

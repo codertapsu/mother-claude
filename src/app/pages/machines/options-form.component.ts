@@ -146,7 +146,7 @@ export function relayText(s: MachinesSettings['relay'] | null | undefined): stri
             (ngModelChange)="transfer.set($event)"
           />
           <span>
-            <strong>{{ 'Machine to machine (default)' | t }}</strong>
+            <strong>{{ 'Computer to computer (default)' | t }}</strong>
             <span class="muted small">{{
               'Straight to the other computer: no remote needed, nothing pushed anywhere.' | t
             }}</span>

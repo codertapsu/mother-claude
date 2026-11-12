@@ -87,7 +87,7 @@ describe('AppComponent: the navigation, from the map', () => {
       '/',
       '/inbox',
       '/teams',
-      '/machines',
+      '/computers',
       '/accounts',
       '/settings',
     ]);
@@ -108,7 +108,7 @@ describe('AppComponent: the navigation, from the map', () => {
       ['/new', 'Sessions'],
       ['/capacity', 'Teams'],
       ['/teams/tm_0123456789ab', 'Teams'],
-      ['/machines/setup', 'Computers'],
+      ['/computers/setup', 'Computers'],
       ['/backup', 'Accounts'],
       ['/remote', 'Settings'],
       ['/services', 'Settings'],
@@ -131,7 +131,7 @@ describe('AppComponent: the navigation, from the map', () => {
       '/more',
     ]);
     expect(current(barLinks())).toEqual(['Teams']);
-    for (const url of ['/machines', '/backup', '/settings', '/api', '/help', '/more']) {
+    for (const url of ['/computers/options', '/backup', '/settings', '/api', '/help', '/more']) {
       await go(url);
       expect(current(barLinks()), url).toEqual(['More']);
     }
@@ -143,7 +143,7 @@ describe('AppComponent: the navigation, from the map', () => {
     await render('/agents');
     const title = () => text(el().querySelector('header.topbar .page-title'));
     expect(title()).toBe('Sessions');
-    await go('/machines');
+    await go('/computers/sync');
     expect(title()).toBe('Computers');
     await go('/backup');
     expect(title()).toBe('Accounts');

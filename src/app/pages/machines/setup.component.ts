@@ -42,11 +42,12 @@ interface TestColumn {
 }
 
 /**
- * *Set up Machines* (docs/PLAN-MACHINES.md §5.14, spikes/machines/UX.md §3):
+ * *Set up your computers* (docs/PLAN-MACHINES.md §5.14, spikes/machines/UX.md §3):
  * this computer's checks, pairing the others, every computer's checks side
  * by side, what each may do on the others, the options, then a test between
- * every pair — and only then *Turn on Machines*. Desktop only; the step left
- * at is kept, so the Machines page can offer to go on.
+ * every pair — and only then *Turn on Computers*. Desktop only; the step
+ * left at is kept, so Computers can offer to go on. Steps 5 and 6 are
+ * Computers › Options too, outside the setup.
  */
 @Component({
   selector: 'mc-machines-setup',
@@ -99,8 +100,8 @@ export class MachinesSetupComponent {
 
   protected readonly steps = computed<Step[]>(() => [
     { n: 1, title: thisComputerTitle() },
-    { n: 2, title: tr('Your machines') },
-    { n: 3, title: tr('Every machine') },
+    { n: 2, title: tr('Your computers') },
+    { n: 3, title: tr('Every computer') },
     { n: 4, title: tr('What each may do') },
     { n: 5, title: tr('Accounts and folders') },
     { n: 6, title: tr('Options') },
@@ -317,7 +318,7 @@ export class MachinesSetupComponent {
     await this.withBusy('enable', async () => {
       try {
         this.machines.apply(await this.api.setMachinesEnabled(true));
-        void this.router.navigate(['/machines']);
+        void this.router.navigate(['/computers']);
       } catch (e) {
         if (e instanceof ApiError && e.code === 'machines_blocked') {
           const list = e.extra['blockers'];

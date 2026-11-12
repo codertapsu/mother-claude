@@ -44,7 +44,7 @@ import { SheetComponent } from './sheet.component';
       }
       @if (view(); as v) {
         @if (!v.enabled) {
-          <p class="notice small">{{ 'Machines is off on this computer.' | t }}</p>
+          <p class="notice small">{{ 'Computers is off on this computer.' | t }}</p>
         }
         @if (v.livesOn) {
           <p class="notice small">

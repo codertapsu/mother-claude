@@ -96,7 +96,7 @@ async fn stop(
     Path(binding): Path<String>,
 ) -> ApiResult<Json<Value>> {
     let h = hosted(&state, &binding)?;
-    host::stop_here(&state, &h, "stopped from this computer's Machines page").await;
+    host::stop_here(&state, &h, "stopped from Computers on this computer").await;
     crate::server::auth::note_device_action(
         &state,
         &ctx,

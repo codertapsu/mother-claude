@@ -37,8 +37,11 @@ import { PairApprovalDialogComponent } from '../../shared/pair-approval-dialog.c
 import { PendingCardComponent } from '../../shared/pending-card.component';
 import { TimeAgoComponent } from '../../shared/time-ago.component';
 import { AsksCardComponent } from '../machines/asks-card.component';
+import { IntroSheetComponent } from '../machines/intro-sheet.component';
 import { thisComputerTitle } from '../machines/machines-text';
 import { FixItemComponent } from './fix-item.component';
+import { IntroItemComponent } from './intro-item.component';
+import { OfferItemComponent } from './offer-item.component';
 
 /** The Computer filter's value for this computer. */
 const HERE = 'here';
@@ -71,7 +74,9 @@ function entryKey(e: Entry): string {
  *   it has waited: every session's requests (permission prompts, questions,
  *   plans, browser actions), other computers' online ones answered through
  *   them; on the desktop the devices waiting to pair (*Approve…* opens the
- *   typed-number dialog) and what your other computers asked this one.
+ *   typed-number dialog), what your other computers asked this one, the
+ *   computers one of them introduces (*Pair with …?*) and a setting
+ *   another computer suggests.
  * - **To fix** — what stopped working or works worse, each with its fix
  *   (`mc-inbox-fix`, core/attention.ts).
  * - **Waiting where it runs** — requests only answerable where the session
@@ -94,6 +99,9 @@ function entryKey(e: Entry): string {
     EmptyStateComponent,
     FixItemComponent,
     IconComponent,
+    IntroItemComponent,
+    IntroSheetComponent,
+    OfferItemComponent,
     PageHeadComponent,
     PairApprovalDialogComponent,
     PendingCardComponent,
@@ -237,6 +245,20 @@ function entryKey(e: Entry): string {
                 (answered)="askAnswered()"
               />
             }
+            @for (i of intros(); track i.id) {
+              <mc-inbox-intro
+                [intro]="i"
+                (answered)="machines.apply($event)"
+                (opened)="introOpen.set(true)"
+              />
+            }
+            @if (offer(); as o) {
+              <mc-inbox-offer
+                [offer]="o"
+                [settings]="machineSettings()!"
+                (answered)="machines.apply($event)"
+              />
+            }
           </div>
         </section>
       }
@@ -287,6 +309,7 @@ function entryKey(e: Entry): string {
         (closed)="approving.set(null)"
         (settled)="pairService.settled($event.pending.id)"
       />
+      <mc-intro-sheet [open]="introOpen()" (closed)="introOpen.set(false)" />
     }
   `,
   styles: [
@@ -362,7 +385,7 @@ export class InboxComponent {
   private remote = inject(RemoteSessionsService);
   private scopes = inject(MachineScopes);
   private api = inject(ApiService);
-  private machines = inject(MachinesService);
+  protected readonly machines = inject(MachinesService);
   private jobs = inject(DataJobsService);
   private attention = inject(AttentionService);
   protected readonly pairService = inject(PairRequestsService);
@@ -451,11 +474,26 @@ export class InboxComponent {
   protected readonly asks = computed(() =>
     this.attention.asks().filter((a) => this.passes(undefined, a.from)),
   );
+  /** Introductions to another of your computers, not answered yet. */
+  protected readonly intros = computed(() =>
+    this.attention.intros().filter((i) => this.passes(undefined, i.from)),
+  );
+  /** A setting another computer suggests here. */
+  protected readonly offer = computed(() => {
+    const o = this.attention.offer();
+    return o && this.machineSettings() && this.passes(undefined, o.from) ? o : null;
+  });
+  protected readonly machineSettings = computed(() => this.machines.view()?.settings ?? null);
   protected readonly fixes = computed(() =>
     this.attention.toFix().filter((f) => this.passes(f.account, f.machine)),
   );
   protected readonly needsCount = computed(
-    () => this.needs().length + this.pairsShown().length + this.asks().length,
+    () =>
+      this.needs().length +
+      this.pairsShown().length +
+      this.asks().length +
+      this.intros().length +
+      (this.offer() ? 1 : 0),
   );
 
   /** Items the filters hide. */
@@ -464,12 +502,16 @@ export class InboxComponent {
       this.all().length +
       this.attention.pairRequests().length +
       this.attention.asks().length +
+      this.attention.intros().length +
+      (this.attention.offer() && this.machineSettings() ? 1 : 0) +
       this.attention.toFix().length;
     const shown =
       this.needs().length +
       this.desk().length +
       this.pairsShown().length +
       this.asks().length +
+      this.intros().length +
+      (this.offer() ? 1 : 0) +
       this.fixes().length;
     return total - shown;
   });
@@ -508,6 +550,8 @@ export class InboxComponent {
 
   // ─────────────────────────────────────────────────────────── Pairing
 
+  /** The pairing an accepted introduction runs. */
+  protected readonly introOpen = signal(false);
   /** The request whose typed-number dialog is open. */
   protected readonly approving = signal<PendingPair | null>(null);
   protected readonly pairBusy = signal<string | null>(null);

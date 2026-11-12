@@ -3,6 +3,7 @@ import { TestBed } from '@angular/core/testing';
 
 import { AuthService } from '../auth.service';
 import { ConfigService } from '../config.service';
+import { hostOsSignal } from '../i18n/i18n';
 import { AccountsView, MeInfo } from '../models';
 import { RealtimeService } from '../realtime.service';
 import { MockBackend, WebSocketLike, setActiveMock } from './mock-api';
@@ -136,11 +137,14 @@ export const flush = async (times = 5) => {
   for (let i = 0; i < times; i++) await new Promise((r) => setTimeout(r, 0));
 };
 
-/** Configure TestBed as a paired phone talking to `backend`. */
+/** Configure TestBed as a paired phone talking to `backend`. The desktop's
+ * system is unknown again: a spec before may have named it (`asPhoneOf`),
+ * and every module shares it. */
 export function useFakeServer(
   backend: FakeBackend,
   providers: (Provider | EnvironmentProviders)[] = [],
 ): void {
+  hostOsSignal.set(undefined);
   setActiveMock(backend);
   TestBed.configureTestingModule({ providers });
   TestBed.inject(ConfigService).config.set({

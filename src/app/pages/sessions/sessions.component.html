@@ -121,11 +121,11 @@
         @if (machines().length) {
           <select
             class="machine-filter"
-            [attr.aria-label]="'Machine' | t"
+            [attr.aria-label]="'Computer' | t"
             [ngModel]="machineInEffect()"
             (ngModelChange)="machine.set($event)"
           >
-            <option value="">{{ 'All machines' | t }}</option>
+            <option value="">{{ 'All computers' | t }}</option>
             <option [value]="HERE">{{ 'This {computer}' | t: { computer: computer() } }}</option>
             @for (m of machines(); track m.id) {
               <option [value]="m.id">

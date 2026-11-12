@@ -66,18 +66,36 @@ const pages: Routes = [
     loadComponent: () =>
       import('./pages/new-session/new-session.component').then((m) => m.NewSessionComponent),
   },
-  // Machines: your other computers (docs/PLAN-MACHINES.md); its setup is a
-  // page of its own.
+  // Computers: your other computers (docs/PLAN-MACHINES.md), in four tabs
+  // (docs/UI-REDESIGN.md §6.5); the setup is a page of its own.
   {
-    path: 'machines',
+    path: 'computers',
     loadComponent: () =>
       import('./pages/machines/machines.component').then((m) => m.MachinesComponent),
   },
   {
-    path: 'machines/setup',
+    path: 'computers/sync',
+    loadComponent: () =>
+      import('./pages/machines/sync-page.component').then((m) => m.SyncPageComponent),
+  },
+  {
+    path: 'computers/activity',
+    loadComponent: () =>
+      import('./pages/machines/activity-page.component').then((m) => m.ActivityPageComponent),
+  },
+  {
+    path: 'computers/options',
+    loadComponent: () =>
+      import('./pages/machines/options-page.component').then((m) => m.OptionsPageComponent),
+  },
+  {
+    path: 'computers/setup',
     loadComponent: () =>
       import('./pages/machines/setup.component').then((m) => m.MachinesSetupComponent),
   },
+  // Machines was renamed Computers: `/machines/setup` → `/computers/setup`,
+  // the query and the fragment kept (a relative prefix redirect).
+  { path: 'machines', redirectTo: 'computers' },
   {
     path: 'remote',
     loadComponent: () => import('./pages/remote/remote.component').then((m) => m.RemoteComponent),

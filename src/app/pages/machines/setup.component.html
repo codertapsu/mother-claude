@@ -1,13 +1,13 @@
 <div class="page">
   <div class="page-head">
-    <a class="btn ghost small" routerLink="/machines" [attr.aria-label]="'Back to Machines' | t">
-      <mc-icon name="back" [size]="15" /> {{ 'Machines' | t }}
+    <a class="btn ghost small" routerLink="/computers" [attr.aria-label]="'Back to Computers' | t">
+      <mc-icon name="back" [size]="15" /> {{ 'Computers' | t }}
     </a>
-    <h1>{{ 'Set up Machines' | t }}</h1>
+    <h1>{{ 'Set up your computers' | t }}</h1>
   </div>
 
   @if (!isDesktop()) {
-    <p class="notice small">{{ 'Machines are set up from the desktop app.' | t }}</p>
+    <p class="notice small">{{ 'Your computers are set up from the desktop app.' | t }}</p>
   } @else {
     <nav class="rail" [attr.aria-label]="'Setup steps' | t">
       <ol>
@@ -60,7 +60,7 @@
           />
         }
 
-        <!-- ─────────────── 2. Your machines ─────────────── -->
+        <!-- ─────────────── 2. Your computers ─────────────── -->
         @case (2) {
           @let intros = view()?.introductions ?? [];
           @if (intros.length) {
@@ -72,13 +72,13 @@
           }
           <p>
             {{
-              'On each other computer: install this version of Mother Claude or newer, then open Machines › Join and type the code this {computer} shows.'
+              'On each other computer: install this version of Mother Claude or newer, then open Computers › Join… and type the code this {computer} shows.'
                 | t: { computer: computer() }
             }}
           </p>
           <div class="row">
             <button type="button" class="btn primary" (click)="pairOpen.set(true)">
-              <mc-icon name="plus" [size]="15" /> {{ 'Pair a machine' | t }}
+              <mc-icon name="plus" [size]="15" /> {{ 'Pair a computer' | t }}
             </button>
             <button type="button" class="btn" (click)="joinOpen.set(true)">
               {{ 'Join…' | t }}
@@ -106,7 +106,7 @@
           }
         }
 
-        <!-- ─────────────── 3. Every machine ─────────────── -->
+        <!-- ─────────────── 3. Every computer ─────────────── -->
         @case (3) {
           <p class="muted small">
             {{
@@ -318,7 +318,7 @@
               [attr.aria-describedby]="blockers() > 0 ? 'turn-on-reason' : null"
               (click)="turnOn()"
             >
-              {{ 'Turn on Machines' | t }}
+              {{ 'Turn on Computers' | t }}
             </button>
           </div>
         }
