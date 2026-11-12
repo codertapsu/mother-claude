@@ -1,8 +1,8 @@
 //! Proof that a landing holds what the source had: HEAD, the staged tree,
 //! the working tree, `git status`, and every file byte for byte, each
 //! difference explained (line endings and filters are expected; modes,
-//! symlinks held as files, case, submodules and intent-to-add entries are
-//! known limits; anything else fails).
+//! symlinks held as files, case, submodules, intent-to-add entries and
+//! files only the target ignores are known limits; anything else fails).
 
 use std::collections::{BTreeSet, HashSet};
 use std::path::Path;
@@ -12,7 +12,7 @@ use super::apply::{load_meta, load_record};
 use super::git::{GitOp, GitRunner};
 use super::repo::{
     at, config_of, index_tree, raw_of, repo_info, status_diff, status_z, tree_diff, worktree_tree,
-    DirCache,
+    Change, DirCache,
 };
 use super::types::{
     io_err, ApplyOutcome, CodeError, LandingKind, ManifestEntry, Outcome, Raw, RepoConfig,
@@ -22,7 +22,14 @@ use super::types::{
 /// Raw differences git's settings explain.
 const EXPECTED_RAW: [&str; 4] = ["eol", "filter", "filemode", "symlink-as-file"];
 /// Differences a target cannot avoid: reported as limits.
-const LIMIT_KINDS: [&str; 5] = ["filemode", "symlink-as-file", "submodule", "case", "ita"];
+const LIMIT_KINDS: [&str; 6] = [
+    "filemode",
+    "symlink-as-file",
+    "submodule",
+    "case",
+    "ita",
+    "ignored-there",
+];
 
 struct RawDiff {
     path: String,
@@ -140,6 +147,52 @@ fn raw_compare(
     Ok(diffs)
 }
 
+/// The paths the working tree here lost only because this checkout ignores
+/// them: gone from `git add -A`'s tree, yet on disk as the source had them
+/// (no raw difference), and `git check-ignore` names them. Anything else
+/// gone stays a difference.
+fn ignored_here(
+    op: &GitOp,
+    top: &Path,
+    wt_diff: &[Change],
+    raw: &[RawDiff],
+) -> Result<HashSet<String>, CodeError> {
+    let differs: HashSet<&str> = raw.iter().map(|d| d.path.as_str()).collect();
+    let gone: Vec<&str> = wt_diff
+        .iter()
+        .filter(|c| c.status == "D" && c.kind == "content")
+        .map(|c| c.path.as_str())
+        .filter(|p| !differs.contains(p))
+        .collect();
+    if gone.is_empty() {
+        return Ok(HashSet::new());
+    }
+    let mut input = Vec::new();
+    for p in &gone {
+        input.extend_from_slice(p.as_bytes());
+        input.push(0);
+    }
+    let out = op
+        .cmd(top)
+        .args(["check-ignore", "-z", "--stdin"])
+        .input(input)
+        .output()?;
+    // 0: some are ignored; 1: none is; anything else went wrong.
+    if !out.success && out.code != 1 {
+        return Err(CodeError::Git {
+            command: "check-ignore -z --stdin".into(),
+            code: out.code,
+            stderr: out.stderr.trim().to_string(),
+        });
+    }
+    Ok(out
+        .stdout
+        .split(|b| *b == 0)
+        .filter(|p| !p.is_empty())
+        .map(|p| String::from_utf8_lossy(p).into_owned())
+        .collect())
+}
+
 /// Proves the landing at `path` (the checkout or the worktree) against the
 /// move in `in_dir`.
 pub fn verify(git: &GitRunner, path: &Path, in_dir: &Path) -> Result<VerifyReport, CodeError> {
@@ -195,11 +248,20 @@ pub fn verify(git: &GitRunner, path: &Path, in_dir: &Path) -> Result<VerifyRepor
     } else {
         tree_diff(&op, &top, &meta.idx_tree, &idx_now)?
     };
-    let wt_diff = if wt_now == meta.wt_tree {
+    let mut wt_diff = if wt_now == meta.wt_tree {
         Vec::new()
     } else {
         tree_diff(&op, &top, &meta.wt_tree, &wt_now)?
     };
+    let raw = raw_compare(&op, &top, &meta.manifest, &cfg)?;
+    // An untracked file the source carried that this checkout's own rules
+    // ignore (its `.git/info/exclude`, `core.excludesFile`: the `.gitignore`
+    // files are the snapshot's): it landed byte for byte, but `git add -A`
+    // and `git status` here don't see it.
+    let ignored = ignored_here(&op, &top, &wt_diff, &raw)?;
+    for c in wt_diff.iter_mut().filter(|c| ignored.contains(&c.path)) {
+        c.kind = "ignored-there";
+    }
     for (check, diff) in [
         ("index = the staged tree", &idx_diff),
         ("working tree = the snapshot tree", &wt_diff),
@@ -227,7 +289,6 @@ pub fn verify(git: &GitRunner, path: &Path, in_dir: &Path) -> Result<VerifyRepor
             .map(|d| format!("{}: want {:?}, got {:?}", d.path, d.want, d.got))
             .collect(),
     });
-    let raw = raw_compare(&op, &top, &meta.manifest, &cfg)?;
     checks.push(VerifyCheck {
         check: "every file byte for byte (or explained)".into(),
         ok: raw.iter().all(|d| EXPECTED_RAW.contains(&d.kind)),

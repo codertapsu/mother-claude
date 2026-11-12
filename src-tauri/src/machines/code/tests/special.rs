@@ -204,6 +204,78 @@ fn a_file_the_target_ignores_is_never_overwritten() {
 }
 
 #[test]
+fn a_file_only_the_target_ignores_is_a_limit_of_the_proof_not_a_failure() {
+    // S carries untracked files T's own rules ignore (its info/exclude; the
+    // .gitignore is the snapshot's): they land byte for byte, but `git add
+    // -A` and `git status` on T don't see them.
+    let w = World::new();
+    w.seed_with(&[&[("a.txt", "1\n")]]);
+    w.clones();
+    put(&w.src, "a.txt", "2\n");
+    put(&w.src, "notes/todo.md", "from S\n");
+    put(&w.src, "scratch.tmp", "S's scratch\n");
+    put(
+        &w.dst.join(".git").join("info"),
+        "exclude",
+        "notes/\n*.tmp\n",
+    );
+    let r = w.round("ses_ignored_there", Transfer::Bundle, Landing::Checkout);
+    let a = r.applied();
+    for (rel, want) in [
+        ("notes/todo.md", "from S\n"),
+        ("scratch.tmp", "S's scratch\n"),
+    ] {
+        let got = std::fs::read_to_string(repo::at(&a.path, rel)).expect("arrived");
+        assert_eq!(got, want, "{rel}");
+    }
+    let report = r.report();
+    assert_eq!(
+        report.outcome,
+        Outcome::Limit,
+        "fails {:?}; limits {:?}",
+        report.fails,
+        report.limits
+    );
+    assert_eq!(report.limits, vec!["ignored-there".to_string()]);
+    assert!(report.fails.is_empty(), "{:?}", report.fails);
+    let wt = report
+        .checks
+        .iter()
+        .find(|c| c.check == "working tree = the snapshot tree")
+        .expect("the working tree's check");
+    assert!(
+        wt.details
+            .contains(&"ignored-there notes/todo.md".to_string()),
+        "{:?}",
+        wt.details
+    );
+    // Ignored or not, a file that came out different, or went missing, is
+    // still a failure.
+    put(&w.dst, "notes/todo.md", "changed on T\n");
+    std::fs::remove_file(w.dst.join("scratch.tmp")).expect("rm");
+    let again = verify(&runner(), &w.dst, &r.dir).expect("verify");
+    assert_eq!(again.outcome, Outcome::Fail);
+    for rel in ["notes/todo.md", "scratch.tmp"] {
+        assert!(
+            again.fails.iter().any(|f| f.contains(rel)),
+            "{rel}: {:?}",
+            again.fails
+        );
+    }
+    // An untracked file T does not ignore, gone from T: a failure too.
+    let w = World::new();
+    w.seed_with(&[&[("a.txt", "1\n")]]);
+    w.clones();
+    put(&w.src, "notes/todo.md", "from S\n");
+    let r = w.round("ses_not_ignored", Transfer::Bundle, Landing::Checkout);
+    r.assert_pass();
+    std::fs::remove_file(w.dst.join("notes").join("todo.md")).expect("rm");
+    let gone = verify(&runner(), &w.dst, &r.dir).expect("verify");
+    assert_eq!(gone.outcome, Outcome::Fail, "{:?}", gone.limits);
+    assert!(gone.limits.is_empty(), "{:?}", gone.limits);
+}
+
+#[test]
 fn verify_reports_a_changed_file_as_a_failure() {
     let w = World::new();
     w.seed_with(&[&[("a.txt", "a\n")]]);

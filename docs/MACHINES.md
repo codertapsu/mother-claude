@@ -129,7 +129,9 @@ each move that carries them (*Not in git*, below).
 For each other computer: the connection, a 20 MB transfer, git and Claude
 Code on both, a **code round trip** — a scratch repository in each
 computer's data folder (never a project) snapshotted, sent machine to
-machine, landed and compared file by file, both ways — whether each account
+machine, landed and compared file by file, both ways (what a computer can't
+reproduce, such as an exec bit on Windows or a file its own git settings
+ignore, is a known limit there, not a failure) — whether each account
 here is signed in there, and whether your shared folders exist there and map
 the projects both computers have. Where *Run* is given, a fixed `echo
 machine-run-ok` too: **Run there** (this computer runs it on the other, in a

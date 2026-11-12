@@ -547,9 +547,14 @@ first and stops before anything changes (*would overwrite*, offering a
 worktree); a step that fails half-way puts the checkout back. Undo refuses
 when the landing changed since the apply (it would wipe that work), and
 every id, ref, name and path in a move's record is checked before git or
-the file system sees it, as it comes from the other machine. Still open:
-when the two machines ignore different files, the proof (`verify`) reports
-a file only the target ignores as a difference.
+the file system sees it, as it comes from the other machine. When the two
+machines ignore different files, the proof (`verify`) reports a file only
+the target ignores as a **limit** (`ignored-there`, since 2026-11-13), not
+a failure: an untracked file the snapshot carried, gone from the target's
+`git add -A` tree, on disk byte for byte as the source had it, and named
+by the target's `git check-ignore` (its `info/exclude` or
+`core.excludesFile`; the `.gitignore` files are the snapshot's). One that
+came out different or went missing still fails.
 
 **Transfer**, either way (the project setting, P2P by default):
 
