@@ -952,6 +952,16 @@ runs on the other one as an owned session.
   (`team.remote.refused`), as if there were no such role. The board's own
   rules then apply as to a role session on the lead's computer: no task
   writing, its own tasks only, every end recorded.
+- **A message to its stopped session** resumes it through the lead's
+  launcher (`lead::resume_with`), admitted by that computer as at every
+  start: from the lead's computer, a text message its proxy would have
+  forwarded; from the computer that runs it, `POST /peer/teams/roles/wake`,
+  answered only as a board call is (the binding, from the computer it was
+  minted for, that team and role, the secret, the role's current session;
+  else `403 binding_refused`, audited). A role without permission prompts
+  needs the sender's dangerous right as well (on the lead's computer, the
+  peer's right ∧ its `dangerous` grant). The message itself then goes
+  through the binding, as the board's notices do.
 - **Its worktree, never your checkout**: `machines/work/roles/<binding>/
   <project>` in the data dir, a detached worktree of that computer's
   checkout at the lead's snapshot, as for a task. It is moved to the lead's
@@ -971,7 +981,7 @@ runs on the other one as an owned session.
   when the lead is not heard from for 30 minutes while the session sits
   idle, that computer itself.
 - **The audit holds no task text**: `team.remote.start`, `.stop`,
-  `.result`, `.board` (writes), `.remove` and `.refused` on the lead's
+  `.result`, `.board` (writes), `.resume`, `.remove` and `.refused` on the lead's
   computer; `machine.role.asked`, `.start`, `.stop`, `.result`, `.remove`
   on the other — the team, the role, the computer, the session, never a
   packet.
