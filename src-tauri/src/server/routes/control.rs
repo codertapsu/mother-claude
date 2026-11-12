@@ -174,6 +174,21 @@ pub async fn message(
     {
         return Ok(Json(receipt));
     }
+    // A team role this computer runs for another computer's lead, its
+    // session stopped here: the lead's launcher resumes it, then the
+    // message goes to it (Phase 4 decision 9).
+    if body.images.is_empty() {
+        if let Some(receipt) = crate::machines::work::roles::host::wake_with(
+            &state,
+            ctx.may_dangerous(),
+            &id,
+            &body.text,
+        )
+        .await?
+        {
+            return Ok(Json(receipt));
+        }
+    }
     let route = route_for(&state, &id).await?;
     if !body.images.is_empty() && !matches!(route, Route::Owned) {
         return Err(ApiError::unprocessable(
@@ -199,6 +214,11 @@ pub async fn deliver_message(
     if let Some(receipt) =
         crate::machines::work::tasks::target::resume_with(state, ctx.may_dangerous(), id, text, &[])
             .await?
+    {
+        return Ok(receipt);
+    }
+    if let Some(receipt) =
+        crate::machines::work::roles::host::wake_with(state, ctx.may_dangerous(), id, text).await?
     {
         return Ok(receipt);
     }

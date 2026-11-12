@@ -338,6 +338,21 @@ launcher stay on the computer that started it.
   back (the lead merged its branch) — otherwise it keeps the role's own
   work and says so. That computer stops it by itself when the lead is not
   heard from for 30 minutes while it sits idle.
+* **A message to it while it is stopped.** A message you send its stopped
+  session — from this computer's page of it (through the proxy) or on that
+  computer — resumes it through this launcher, with its role's options as
+  at every start and that computer's admission, then reaches it
+  (`lead::resume_with`; from that computer, `POST /peer/teams/roles/wake`
+  with the binding, `host::wake_with`). While it waits there the message
+  is refused with that computer's reasons (`409 role_waiting`); a
+  message with images is sent as before (a stopped session there answers
+  that it is not running). From the lead's computer it goes through the
+  role's binding — that computer's *Run* permission for this one, as the
+  board's notices do; from that computer, the call to the lead's computer
+  is accepted only with the binding and its secret (refusals audited,
+  `team.remote.refused`). A role without permission prompts needs the
+  sender's dangerous right as well (on the lead's computer, a peer's right
+  ∧ its *Dangerous* permission).
 * **Its board.** The role session's `task_*` and `team_*` tools there act
   on this computer's board: that computer sends each call here with the
   binding (`POST /peer/teams/board`), and this computer answers only a call

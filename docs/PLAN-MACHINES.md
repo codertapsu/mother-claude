@@ -1480,7 +1480,14 @@ finishes, within 80 s — later, the task records it when it arrives; the
 role's packet and notices go to its session through the peer link
 (`SendMessage` never crosses computers: the charters say so); the other
 computer stops a role whose lead was not heard from for 30 minutes while
-idle; a resume continues the conversation there in place, never a fork;
+idle; a resume continues the conversation there in place, never a fork
+— and, since 2026-11-13, a direct message (text only) to its stopped
+session resumes it too, through the lead's launcher with the role's
+options and that computer's admission, then delivers it
+(`lead::resume_with`: from the lead's computer, intercepted in its proxy;
+from that computer, `host::wake_with` → `POST /peer/teams/roles/wake`,
+accepted with the binding and its secret as a board call is; a role
+without approvals needs the sender's dangerous right);
 removing the team removes the role there, and *Remove* there makes the
 lead mint a new binding (whose results cannot move the old branch: the
 task names the commit).*

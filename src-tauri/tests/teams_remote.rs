@@ -959,3 +959,129 @@ async fn the_lead_s_capacity_page_lists_its_roles_elsewhere_never_counted_here()
     );
     launcher::stop_role(&w.a.st, &team, "windows", "done").await;
 }
+
+/// A message to a stopped role session on another computer resumes it with
+/// its role's options — through the lead's launcher, whichever computer it
+/// is sent from — then reaches it (Phase 4 decision 9).
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_message_to_a_stopped_role_session_elsewhere_resumes_it_with_its_role() {
+    let w = world_with(true).await;
+    let team = w.team("WIN-BOX").await;
+    let task = w.task_for_windows(&team, "Windows build").await;
+    let session = launcher::start_role(&w.a.st, &team, "windows", Some(task), &[])
+        .await
+        .expect("started there");
+    let first = spawned(&w.b, 1).await;
+    // Its conversation is on B, as a session's turn leaves it (in a home
+    // with a live roster, so a fresh transcript alone is not a live
+    // session).
+    let cwd = first["cwd"].as_str().unwrap().to_string();
+    let home = w.b._dir.path().join("home");
+    std::fs::create_dir_all(home.join("sessions")).unwrap();
+    let transcript = home
+        .join("projects")
+        .join(mother_claude_lib::claude::encode_cwd(&cwd))
+        .join(format!("{session}.jsonl"));
+    std::fs::create_dir_all(transcript.parent().unwrap()).unwrap();
+    std::fs::write(
+        &transcript,
+        format!(
+            "{}\n",
+            json!({"type": "user", "uuid": "u-1", "sessionId": session, "cwd": cwd,
+                   "timestamp": "2026-11-13T09:00:00.000Z",
+                   "message": {"role": "user", "content": "Windows build"}})
+        ),
+    )
+    .unwrap();
+    server::monitor::refresh_once(&w.b.st).await;
+    launcher::stop_role(&w.a.st, &team, "windows", "it sat idle").await;
+    assert_eq!(w.b.st.machines.recorded_role_stops(), vec![session.clone()]);
+
+    // A wake call for it needs the binding's secret.
+    let binding =
+        w.a.st
+            .teams
+            .get(&team)
+            .unwrap()
+            .slot("windows")
+            .remote
+            .unwrap()
+            .binding;
+    let (s, v) = transport::request(
+        &w.b.st,
+        &w.a.id(),
+        "POST",
+        "/peer/teams/roles/wake",
+        Some(json!({
+            "binding": binding, "secret": "0".repeat(64), "team": team, "role": "windows",
+            "session": session, "text": "hi",
+        })),
+        Duration::from_secs(20),
+    )
+    .await
+    .unwrap();
+    assert_eq!(s, 403, "a guessed secret: {v}");
+    assert_eq!(v["error"]["code"], "binding_refused");
+    assert_eq!(w.b.st.machines.recorded_role_spawns().len(), 1, "no resume");
+    assert!(w.a.st.devices.audit.recent(200).iter().any(|e| {
+        e.action == "team.remote.refused" && e.detail.as_ref().is_some_and(|d| d["call"] == "wake")
+    }));
+
+    // From the lead's computer, through its proxy.
+    let (s, v) =
+        w.a.call(
+            "POST",
+            &format!("/machines/{}/proxy/sessions/{session}/message", w.b.id()),
+            Some(json!({ "text": "Please also check the icons." })),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    assert_eq!(v["delivery"], "sent", "{v}");
+    let spawn = spawned(&w.b, 2).await;
+    assert_eq!(spawn["session"], session.as_str());
+    assert_eq!(spawn["resume"], session.as_str(), "resumed in place");
+    assert_eq!(spawn["cwd"], cwd.as_str(), "in its worktree");
+    // For the task it held, as the launcher's own resume.
+    assert!(spawn["prompt"]
+        .as_str()
+        .unwrap()
+        .starts_with("[Mother Claude · resumed] You were working on this."));
+    // With its role's options, as at every start.
+    let argv = spawn["argv"].as_array().unwrap().clone();
+    assert_eq!(flag(&argv, "-n").as_deref(), Some("app/windows"));
+    assert_eq!(
+        flag(&argv, "--settings").as_deref(),
+        Some(r#"{"crossSessionInbound":"accept"}"#)
+    );
+    assert!(flag(&argv, "--allowedTools")
+        .unwrap()
+        .starts_with("mcp__plugin_mother-claude_mc__task_create,"));
+    assert!(flag(&argv, "--append-system-prompt")
+        .unwrap()
+        .contains("You run on WIN-BOX"));
+    assert_eq!(spawn["guardHooks"], true);
+    let said = w.b.st.machines.recorded_role_messages();
+    assert_eq!(said.last().unwrap()["text"], "Please also check the icons.");
+
+    // From the computer that runs it: stopped again, a message there goes
+    // to the lead's computer, which resumes it there the same way.
+    launcher::stop_role(&w.a.st, &team, "windows", "it sat idle again").await;
+    let (s, v) =
+        w.b.call(
+            "POST",
+            &format!("/sessions/{session}/message"),
+            Some(json!({ "text": "From here too." })),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    let spawn = spawned(&w.b, 3).await;
+    assert_eq!(spawn["resume"], session.as_str());
+    assert!(
+        flag(spawn["argv"].as_array().unwrap(), "--append-system-prompt")
+            .unwrap()
+            .contains("You run on WIN-BOX")
+    );
+    let said = w.b.st.machines.recorded_role_messages();
+    assert_eq!(said.last().unwrap()["text"], "From here too.");
+    launcher::stop_role(&w.a.st, &team, "windows", "done").await;
+}

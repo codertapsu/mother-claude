@@ -734,6 +734,7 @@ export const VI_TOPICS_B: Partial<Record<string, HelpTopicSource>> = {
           'Các tác vụ của nó nằm trên bảng này. Khi xong một tác vụ, kết quả của nó quay về đây thành nhánh `mother-claude/<computer>/<team>/<role>`, được ghi trên tác vụ; trưởng nhóm xem xét rồi gộp nhánh đó.',
           'Ô của nó ghi **trên DESKTOP-PC**, kèm lý do nó phải chờ hoặc không khởi chạy được. Trang Công suất của máy kia tính phiên này, không phải trang của máy này; trang của máy này liệt kê nó riêng, trong mục **Trên các máy tính khác của bạn**, kèm quyết định gần nhất của máy kia.',
           'Nó không nhắn được cho trưởng nhóm bằng SendMessage: nó ghi lên tác vụ của mình, và Mother Claude báo cho trưởng nhóm.',
+          'Khi phiên của nó đã dừng, tin nhắn bạn gửi cho nó từ máy nào cũng khởi chạy lại nó với các thiết lập của vai trò, rồi đến được với nó. Nếu máy kia chưa thể chạy nó lúc này, tin nhắn bị từ chối kèm lý do.',
           'Máy kia liệt kê nó trong **Các máy › Các lần chạy › Vai trò trong nhóm**, nơi **Dừng** và **Gỡ bỏ** tác động lên nó ở đó.',
         ],
         links: [{ label: 'Xem “Giao tác vụ cho máy tính khác”', path: '/help/machines-task' }],

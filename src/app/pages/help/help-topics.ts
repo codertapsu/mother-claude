@@ -2936,6 +2936,7 @@ const TOPICS: HelpTopicSource[] = [
           'Its tasks are on this board. When it finishes one, its work comes back here as the branch `mother-claude/<computer>/<team>/<role>`, which the task names; the lead reviews and merges it.',
           "Its card says **on DESKTOP-PC**, and why it waits or could not start. That computer's Capacity page counts it, not this one's; this one's lists it apart, under **On your other computers**, with that computer's last decision.",
           'It cannot message the lead with SendMessage: it writes on its task, and Mother Claude tells the lead.',
+          "When its session is stopped, a message you send it from either computer starts it again with its role's settings, then reaches it. If that computer can't run it now, the message is refused with why.",
           'That computer lists it under **Machines › Runs › Team roles**, where **Stop** and **Remove** act on it there.',
         ],
         links: [{ label: 'See Hand a task to another computer', path: '/help/machines-task' }],

@@ -1032,8 +1032,13 @@ work coming back to the Mac as a branch.
   its own work in its worktree.
 - **The lead stops and resumes it**: *Stop* on the team page, its idle stop
   and stopping the team stop its session there; its next work resumes it
-  (the same conversation, in the same worktree). Removing the team removes
-  its worktree there.
+  (the same conversation, in the same worktree). So does **a message you
+  send its stopped session** — from its page on the lead's computer or on
+  the computer that runs it: the lead's computer resumes it with the role's
+  charter, settings, team tools and file rules (that computer's limits
+  decide; while it waits, the message is refused with why), then the
+  message reaches it. A message with images goes as before. Removing the
+  team removes its worktree there.
 - **It counts where it runs.** The other computer's Capacity page lists its
   session *for MacBook*; the lead's computer does not count it. The team
   page shows the role *on DESKTOP-PC*, why it waits (*on DESKTOP-PC: …*) or

@@ -723,6 +723,197 @@ pub async fn message(state: &AppState, team: &Team, role: &str, text: &str) -> b
     .is_ok()
 }
 
+/// A direct message to a role session of this computer's teams that runs
+/// on another computer, while that session is stopped there (its idle
+/// stop, a stop by hand): the lead's launcher resumes it there with its
+/// role's options — `launcher::start_role`, the path new work takes, so
+/// that computer's admission, the charter, the settings, the team tools
+/// and the guard as at every start — then the message goes to it.
+/// `None`: not such a session, or it runs there (the message goes to it as
+/// any message does). A role that runs without approvals needs the
+/// sender's dangerous right.
+pub async fn resume_with(
+    state: &AppState,
+    machine: &str,
+    session: &str,
+    text: &str,
+    may_dangerous: bool,
+) -> ApiResult<Option<crate::claude::model::MessageReceipt>> {
+    if !owned::is_uuid(session) {
+        return Ok(None);
+    }
+    let found = state.teams.all().into_iter().find_map(|t| {
+        let role = t
+            .roles
+            .iter()
+            .find(|(_, s)| {
+                s.session_id.as_deref() == Some(session)
+                    && s.remote.as_ref().is_some_and(|r| r.machine == machine)
+            })?
+            .0
+            .clone();
+        Some((t, role))
+    });
+    let Some((team, role)) = found else {
+        return Ok(None);
+    };
+    let Some(def) = team.role(&role).cloned() else {
+        return Ok(None);
+    };
+    // How it is there now: the last word may be minutes old.
+    refresh(state, &team.id, &role).await;
+    let binding = team
+        .slot(&role)
+        .remote
+        .map(|r| r.binding)
+        .unwrap_or_default();
+    if state.teams.remote_status(&binding).is_some_and(|s| s.alive) {
+        return Ok(None);
+    }
+    if owned::is_dangerous_mode(Some(def.mode())) && !may_dangerous {
+        return Err(ApiError::dangerous_blocked(
+            "This role's session runs without approvals: resuming it needs the dangerous right.",
+        ));
+    }
+    if text.trim().is_empty() || text.len() > owned::MAX_TEXT_BYTES || text.contains('\0') {
+        return Err(ApiError::unprocessable(
+            "invalid_message",
+            "The message is empty or too long.",
+        ));
+    }
+    // For the task it held, as the launcher's own resume does ("you were
+    // working on this"), then the message.
+    let held = state.teams.boards.read(&team.project, |b| {
+        b.tasks
+            .iter()
+            .filter(|t| t.status.held() && t.claimed_by.as_deref() == Some(session))
+            .min_by_key(|t| (t.priority, t.id))
+            .map(|t| t.id)
+    });
+    let running = launcher::running_workers(state).await;
+    match launcher::start_role(state, &team.id, &role, held, &running).await {
+        Ok(_) => {}
+        Err(StartError::Waiting(reasons)) => {
+            return Err(ApiError::conflict(
+                "role_waiting",
+                format!("The {} role waits: {}", def.title, reasons.join("; ")),
+            )
+            .with("reasons", json!(reasons)))
+        }
+        Err(e) => {
+            return Err(ApiError::conflict(
+                "role_not_resumed",
+                format!("The {} role could not be resumed: {e}", def.title),
+            ))
+        }
+    }
+    let team = state
+        .teams
+        .get(&team.id)
+        .ok_or_else(|| ApiError::conflict("role_not_resumed", "The team was removed meanwhile."))?;
+    if !message(state, &team, &role, text).await {
+        return Err(ApiError::new(
+            axum::http::StatusCode::BAD_GATEWAY,
+            "role_not_reached",
+            format!(
+                "The {} role's session was resumed but did not take the message: send it again.",
+                def.title
+            ),
+        ));
+    }
+    if let Some(r) = team.slot(&role).remote {
+        audit(
+            state,
+            "team.remote.resume",
+            &team,
+            &role,
+            &r,
+            json!({ "why": "message" }),
+        );
+    }
+    Ok(Some(crate::claude::model::MessageReceipt {
+        delivery: crate::claude::model::Delivery::Sent,
+        message_id: uuid::Uuid::new_v4().to_string(),
+    }))
+}
+
+/// `POST /peer/teams/roles/wake`: the computer that runs a role of this
+/// computer's teams got a message for its stopped session — the lead's to
+/// resume. Accepted with the binding this computer minted (as a board
+/// call); then as [`resume_with`]; a session that runs meanwhile just gets
+/// the message.
+#[derive(Debug, Deserialize)]
+pub struct WakeCall {
+    pub binding: String,
+    #[serde(default)]
+    pub secret: String,
+    pub team: String,
+    pub role: String,
+    pub session: String,
+    pub text: String,
+}
+
+pub async fn wake(state: &AppState, ctx: &ClientContext, b: WakeCall) -> ApiResult<Value> {
+    let Principal::Peer { machine: from, .. } = &ctx.principal else {
+        return Err(ApiError::forbidden(
+            "peer_only",
+            "Only a paired computer can call this.",
+        ));
+    };
+    m::serving(state)?;
+    if !crate::orchestration::teams::is_team_id(&b.team) {
+        return Err(refused());
+    }
+    let team = state.teams.get(&b.team).ok_or_else(refused)?;
+    let slot = team.slot(&b.role);
+    let r = slot.remote.clone().ok_or_else(refused)?;
+    let key = BindingKey {
+        binding: &r.binding,
+        machine: &r.machine,
+        team: &team.id,
+        role: &b.role,
+        secret_sha256: &r.secret_sha256,
+        session: slot.session_id.as_deref(),
+    };
+    let claim = BindingClaim {
+        from,
+        binding: &b.binding,
+        secret: &b.secret,
+        team: &b.team,
+        role: &b.role,
+        session: &b.session,
+    };
+    if let Err(why) = check_binding(&key, &claim) {
+        tracing::warn!(?why, team = %team.id, role = %b.role, "a wake call's binding was refused");
+        state.devices.audit.record(AuditEntry {
+            action: "team.remote.refused".into(),
+            device_id: Some(from.clone()),
+            device_name: Some(m::peer_name(state, from)),
+            detail: Some(json!({ "team": team.id, "role": b.role, "call": "wake" })),
+            ..AuditEntry::now()
+        });
+        return Err(refused());
+    }
+    let receipt = match resume_with(state, from, &b.session, &b.text, ctx.may_dangerous()).await? {
+        Some(r) => r,
+        // It runs there after all: the message goes to it.
+        None => {
+            if !message(state, &team, &b.role, &b.text).await {
+                return Err(ApiError::new(
+                    axum::http::StatusCode::BAD_GATEWAY,
+                    "role_not_reached",
+                    "The role's session did not take the message: send it again.",
+                ));
+            }
+            crate::claude::model::MessageReceipt {
+                delivery: crate::claude::model::Delivery::Sent,
+                message_id: uuid::Uuid::new_v4().to_string(),
+            }
+        }
+    };
+    Ok(json!({ "receipt": receipt }))
+}
+
 /// The team is removed: the other computer takes the role's worktree and
 /// record away (when it can be reached), and this computer the binding's
 /// folder and refs.

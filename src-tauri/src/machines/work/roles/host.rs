@@ -1029,6 +1029,75 @@ pub async fn message(
     Ok(json!({ "delivered": true }))
 }
 
+/// A message (from this computer's own dashboard, or a phone paired with
+/// it) to the session of a role this computer runs for another computer's
+/// lead, while that session is stopped here: resuming it is the lead's —
+/// its launcher, with the role's options — so the message goes to the
+/// lead's computer (`/peer/teams/roles/wake`, with the binding), which
+/// resumes it here and sends it on. `None`: not such a session, or it
+/// runs (the message goes to it as any message does).
+pub async fn wake_with(
+    state: &AppState,
+    may_dangerous: bool,
+    session: &str,
+    text: &str,
+) -> ApiResult<Option<crate::claude::model::MessageReceipt>> {
+    if state.control.controls(session) {
+        return Ok(None);
+    }
+    let Some(h) = state.machines.work.roles.of_session(session) else {
+        return Ok(None);
+    };
+    let r = h.record();
+    if r.session.as_deref() != Some(session) || liveness(state, &r).0 {
+        return Ok(None);
+    }
+    if r.dangerous && !may_dangerous {
+        return Err(ApiError::dangerous_blocked(
+            "This role's session runs without approvals: resuming it needs the dangerous right.",
+        ));
+    }
+    m::using(state)?;
+    let lead = m::peer_name(state, &r.lead);
+    let body = json!({
+        "binding": r.binding,
+        "secret": r.secret,
+        "team": r.team,
+        "role": r.role,
+        "session": session,
+        "text": text,
+    });
+    let acting = m::acting::machine_header(&m::this_name(state), may_dangerous);
+    match moves::call(
+        state,
+        &r.lead,
+        "POST",
+        "/peer/teams/roles/wake",
+        Some(&body),
+        &acting,
+        RELAY,
+    )
+    .await
+    {
+        Ok((200, v)) => serde_json::from_value(v["receipt"].clone())
+            .map(Some)
+            .map_err(|_| ApiError::internal(format!("{lead} answered oddly."))),
+        Ok((404, v)) if v.pointer("/error/code").is_none() => Err(ApiError::conflict(
+            "update_needed",
+            format!(
+                "This team role's session is resumed from {lead}: update Mother Claude there to \
+                 resume it with a message from here, or send it from there."
+            ),
+        )),
+        Ok((s, v)) => Err(moves::refusal(s, &v, &lead)),
+        Err(e) => Err(ApiError::new(
+            axum::http::StatusCode::BAD_GATEWAY,
+            "machine_unreachable",
+            format!("{lead} can't be reached right now ({e}): the role's session is resumed from there."),
+        )),
+    }
+}
+
 #[derive(Debug, Default, Deserialize)]
 pub struct StopBody {
     #[serde(default)]

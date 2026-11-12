@@ -86,6 +86,29 @@ pub fn api_router() -> Router<AppState> {
 /// The largest request forwarded to another machine (a message with images).
 const PROXY_BODY_MAX: usize = 32 * 1024 * 1024;
 
+/// The session a proxied `sessions/{id}/message` is for.
+fn message_to(rest: &str) -> Option<&str> {
+    match rest
+        .trim_matches('/')
+        .split('/')
+        .collect::<Vec<_>>()
+        .as_slice()
+    {
+        ["sessions", id, "message"] => Some(*id),
+        _ => None,
+    }
+}
+
+/// A message's text when it carries no image.
+fn text_only(body: &[u8]) -> Option<String> {
+    let v: Value = serde_json::from_slice(body).ok()?;
+    let images = v.get("images").and_then(Value::as_array);
+    if images.is_some_and(|i| !i.is_empty()) {
+        return None;
+    }
+    v.get("text").and_then(Value::as_str).map(str::to_string)
+}
+
 /// `/peer/*`.
 pub fn peer_router() -> Router<AppState> {
     Router::new()
@@ -780,6 +803,29 @@ async fn proxy(
             .into_response()
         }
     };
+    // A message to a stopped session of a team role here that runs on that
+    // computer: this computer's launcher — the lead's — resumes it there
+    // with the role's options, then the message goes to it (Phase 4
+    // decision 9). Any other message goes as it is.
+    if method == axum::http::Method::POST {
+        if let Some(session) = message_to(&rest) {
+            if let Some(text) = text_only(&body) {
+                match super::work::roles::lead::resume_with(
+                    &state,
+                    &id,
+                    session,
+                    &text,
+                    ctx.may_dangerous(),
+                )
+                .await
+                {
+                    Ok(Some(receipt)) => return Json(receipt).into_response(),
+                    Ok(None) => {}
+                    Err(e) => return e.into_response(),
+                }
+            }
+        }
+    }
     let mut headers = vec![(
         super::acting::HEADER,
         super::acting::header_for(&state, &ctx),
@@ -1270,4 +1316,24 @@ async fn peer_bulk(
         HttpBody::from_stream(stream),
     )
         .into_response()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_text_message_to_a_session_is_told_apart() {
+        assert_eq!(message_to("sessions/abc/message"), Some("abc"));
+        assert_eq!(message_to("/sessions/abc/message/"), Some("abc"));
+        assert_eq!(message_to("sessions/abc/interrupt"), None);
+        assert_eq!(message_to("sessions/abc/message/x"), None);
+        assert_eq!(text_only(br#"{"text":"hi"}"#).as_deref(), Some("hi"));
+        assert_eq!(
+            text_only(br#"{"text":"hi","images":[]}"#).as_deref(),
+            Some("hi")
+        );
+        assert!(text_only(br#"{"text":"hi","images":[{"data":"x"}]}"#).is_none());
+        assert!(text_only(b"not json").is_none());
+    }
 }

@@ -19,8 +19,10 @@
 //!   …/{binding}`, `GET …/{binding}/result`, `GET …/{binding}/result/files/
 //!   {name}?seq=&offset=`;
 //! * the computer that runs a role, on its lead's: `POST /peer/teams/board`
-//!   (a team tool its role session called) — with Machines on here and the
-//!   binding this computer minted (`lead::board_call`).
+//!   (a team tool its role session called) and `POST /peer/teams/roles/wake`
+//!   (a message for its stopped session there, which the lead's launcher
+//!   resumes, `lead::wake`) — with Machines on here and the binding this
+//!   computer minted (`lead::board_call`).
 
 use axum::extract::{DefaultBodyLimit, Path, Query, State};
 use axum::response::{IntoResponse, Response};
@@ -48,6 +50,7 @@ pub fn api_router() -> Router<AppState> {
 pub fn peer_router() -> Router<AppState> {
     Router::new()
         .route("/peer/teams/board", post(peer_board))
+        .route("/peer/teams/roles/wake", post(peer_wake))
         .route("/peer/teams/roles/prepare", post(peer_prepare))
         .route("/peer/teams/roles", post(peer_begin))
         .route(
@@ -125,6 +128,14 @@ async fn peer_board(
     Body(b): Body<lead::BoardCall>,
 ) -> ApiResult<Json<Value>> {
     lead::board_call(&state, &ctx, b).await.map(Json)
+}
+
+async fn peer_wake(
+    ctx: ClientContext,
+    State(state): State<AppState>,
+    Body(b): Body<lead::WakeCall>,
+) -> ApiResult<Json<Value>> {
+    lead::wake(&state, &ctx, b).await.map(Json)
 }
 
 async fn peer_prepare(
